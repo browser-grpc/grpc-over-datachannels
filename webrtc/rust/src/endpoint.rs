@@ -10,7 +10,9 @@ use crate::dtls::{Dtls, DtlsIo, Role};
 use crate::sctp::{Association, Event as SctpEvent};
 use std::collections::HashMap;
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub enum EndpointEvent {
@@ -65,19 +67,42 @@ impl ChannelHandle {
 pub struct DcEndpoint {
     cmd_tx: Sender<Cmd>,
     event_rx: std::sync::Mutex<Receiver<EndpointEvent>>,
+    alive: Arc<AtomicBool>,
 }
 
 impl DcEndpoint {
     /// Take ownership of an established DTLS connection and run the
     /// SCTP/DCEP stack on a new thread.
     pub fn spawn<I: DtlsIo + Send + 'static>(dtls: Dtls<I>, role: Role, local_port: u16) -> Self {
+        Self::spawn_with_alive_flag(dtls, role, local_port, Arc::new(AtomicBool::new(true)))
+    }
+
+    /// Like spawn, but clears `alive` when the endpoint thread
+    /// exits (shutdown, transport failure, or drop). The flag is
+    /// created by the caller (starting true) so companion
+    /// threads that must run before the endpoint exists — e.g.
+    /// the peer's packet demultiplexer — can stop with it
+    /// instead of answering traffic for a dead endpoint.
+    pub fn spawn_with_alive_flag<I: DtlsIo + Send + 'static>(
+        dtls: Dtls<I>,
+        role: Role,
+        local_port: u16,
+        alive: Arc<AtomicBool>,
+    ) -> Self {
         let (cmd_tx, cmd_rx) = channel::<Cmd>();
         let (event_tx, event_rx) = channel::<EndpointEvent>();
         let thread_cmd_tx = cmd_tx.clone();
+        let thread_alive = alive.clone();
         std::thread::spawn(move || {
             run_loop(dtls, role, local_port, cmd_rx, thread_cmd_tx, event_tx);
+            thread_alive.store(false, Ordering::SeqCst);
         });
-        Self { cmd_tx, event_rx: std::sync::Mutex::new(event_rx) }
+        Self { cmd_tx, event_rx: std::sync::Mutex::new(event_rx), alive }
+    }
+
+    /// True while the endpoint thread is running.
+    pub fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::SeqCst)
     }
 
     pub fn open_channel(&self, params: ChannelParams) -> io::Result<ChannelHandle> {

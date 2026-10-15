@@ -1,10 +1,9 @@
 //! Consent freshness (RFC 7675): agent-level expiry accounting,
-//! plus a peer-level check that a healthy pair never fires the
-//! failure callback. (The end-to-end dead-peer surfacing is
-//! covered in the Go and JS suites, whose peers own their
-//! sockets after connect; here the demux thread keeps answering
-//! for the life of the process, so expiry logic is asserted at
-//! the agent layer.)
+//! a peer-level check that a healthy pair never fires the
+//! failure callback, and end-to-end dead-peer surfacing: when
+//! the remote endpoint shuts down it goes silent (its demux
+//! thread stops with it), consent expires locally, and the
+//! callback fires — mirroring the Go and JS suites.
 
 use dc_webrtc::ice::{Candidate, IceAgent};
 use dc_webrtc::peer::{Peer, PeerConfig};
@@ -112,4 +111,52 @@ fn healthy_pair_never_fires_consent_failure() {
         rx.recv_timeout(Duration::from_millis(1800)).is_err(),
         "consent failure fired on a healthy pair"
     );
+}
+
+#[test]
+fn consent_failure_fires_when_remote_endpoint_shuts_down() {
+    fn loopback_peer() -> Peer {
+        Peer::new(PeerConfig {
+            local_ips: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+            require_peer_certificate: true,
+            stun_servers: Vec::new(),
+            turn_servers: Vec::new(),
+        })
+        .unwrap()
+    }
+    let mut offerer = loopback_peer();
+    let mut answerer = loopback_peer();
+    let (tx, rx) = channel::<()>();
+    offerer.set_consent(
+        Some(Duration::from_millis(100)),
+        Duration::from_millis(800),
+        move || {
+            let _ = tx.send(());
+        },
+    );
+    let offer = offerer.create_offer();
+    let answer = answerer.handle_offer(&offer).unwrap();
+    offerer.handle_answer(&answer).unwrap();
+    let answerer_thread = std::thread::spawn(move || answerer.connect());
+    let offerer_ep = offerer.connect().expect("offerer connect");
+    let answerer_ep = answerer_thread.join().unwrap().expect("answerer connect");
+
+    // Healthy pair first: no failure may fire.
+    assert!(
+        rx.recv_timeout(Duration::from_millis(1200)).is_err(),
+        "consent failure fired on a healthy pair"
+    );
+    assert!(offerer_ep.is_alive());
+
+    // Kill the remote: endpoint shutdown stops its demux
+    // thread, so consent checks go unanswered and expiry must
+    // surface locally (callback + endpoint shutdown).
+    answerer_ep.shutdown();
+    rx.recv_timeout(Duration::from_secs(10))
+        .expect("consent failure never fired after the peer died");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while offerer_ep.is_alive() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!offerer_ep.is_alive(), "endpoint not shut down after consent failure");
 }

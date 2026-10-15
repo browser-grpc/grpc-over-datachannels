@@ -14,6 +14,7 @@ use std::collections::VecDeque;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -445,11 +446,18 @@ impl Peer {
         }
         // Demultiplexing thread: keeps answering consent checks after
         // nomination and feeds DTLS packets to the handshake/endpoint.
+        // It stops when the endpoint does (alive flag), so a shut-down
+        // peer goes silent instead of answering checks forever.
+        let alive = Arc::new(AtomicBool::new(true));
         let demux_socket = socket.try_clone()?;
-        let _ = demux_socket.set_read_timeout(None);
+        let _ = demux_socket.set_read_timeout(Some(Duration::from_millis(100)));
         let demux_agent = agent.clone();
         let demux_turn = turn.clone();
+        let demux_alive = alive.clone();
         std::thread::spawn(move || loop {
+            if !demux_alive.load(Ordering::SeqCst) {
+                return;
+            }
             let mut buf = vec![0u8; 65536];
             match demux_socket.recv_from(&mut buf) {
                 Ok((n, src)) => {
@@ -508,7 +516,7 @@ impl Peer {
             Role::Client => Dtls::connect(io, &dtls_config)?,
             Role::Server => Dtls::accept(io, &dtls_config)?,
         };
-        let endpoint = DcEndpoint::spawn(dtls, dtls_role, crate::sctp::SCTP_PORT);
+        let endpoint = DcEndpoint::spawn_with_alive_flag(dtls, dtls_role, crate::sctp::SCTP_PORT, alive.clone());
         // Consent freshness (RFC 7675): periodically re-check
         // the nominated pair; on expiry shut the endpoint down
         // and fire the failure callback once.
@@ -521,6 +529,9 @@ impl Peer {
             consent_agent.lock().unwrap().touch_consent();
             std::thread::spawn(move || loop {
                 std::thread::sleep(interval);
+                if !alive.load(Ordering::SeqCst) {
+                    return; // endpoint shut down deliberately: not a failure
+                }
                 let check = consent_agent.lock().unwrap().consent_check();
                 let had_check = check.is_some();
                 if let Some((bytes, dest)) = check {
