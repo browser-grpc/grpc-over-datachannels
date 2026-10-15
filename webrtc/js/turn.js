@@ -255,8 +255,26 @@ export async function createPermissions(peer, client, candidates, timeoutMs = 20
     peers.push({ address: cand.address, port: cand.port });
   }
   if (peers.length === 0) return;
-  client.peers = peers;
+  // Merge (never replace): candidates trickled in earlier may
+  // already have added peers the refresher must keep alive.
+  for (const p of peers) {
+    if (!client.peers.some((q) => q.address === p.address && q.port === p.port)) {
+      client.peers.push(p);
+    }
+  }
   await createPermissionsFor(peer, client, peers, timeoutMs).catch(() => {});
+}
+
+// Adds one peer address trickled in after the connect-time
+// snapshot: remembers it for the refresher, creates its
+// permission, and binds a channel. Best-effort and idempotent;
+// non-IP (mDNS) addresses are ignored until resolved.
+export async function addTurnPeer(peer, client, addr, timeoutMs = 2000) {
+  if (!isIpPeer(addr)) return;
+  if (client.peers.some((q) => q.address === addr.address && q.port === addr.port)) return;
+  client.peers.push({ address: addr.address, port: addr.port });
+  await createPermissionsFor(peer, client, [addr], timeoutMs).catch(() => {});
+  await bindChannels(peer, client, [addr], timeoutMs).catch(() => {});
 }
 
 // Sends one CreatePermission request for the given peers.

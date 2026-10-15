@@ -489,6 +489,119 @@ func TestTurnRelayOfferAnswerConnect(t *testing.T) {
 	}
 }
 
+// Candidates trickled in after Connect's snapshot must still
+// get TURN permissions and channel bindings. The only reachable
+// candidate on each side is the relay candidate, withheld from
+// the SDP and trickled in while Connect is running; the fake
+// enforces permissions, so the message only flows if trickle
+// created them.
+func TestTurnRelayWithTrickledRelayCandidates(t *testing.T) {
+	fake, serverAddr := fakeTurn(t)
+	newRelayPeer := func() *Peer {
+		peer, err := NewPeer(PeerOptions{
+			RequirePeerCertificate: false,
+			LocalIPs:               []string{"10.11.12.13"},
+			TurnServers:            []TurnServerConfig{{Address: serverAddr, Username: "dcuser", Password: "dcpass"}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return peer
+	}
+	relayLine := func(sdp string) string {
+		for _, line := range strings.Split(sdp, "\r\n") {
+			if strings.Contains(line, "typ relay") {
+				return line
+			}
+		}
+		return ""
+	}
+	stripRelay := func(sdp string) string {
+		var keep []string
+		for _, line := range strings.Split(sdp, "\r\n") {
+			if !strings.Contains(line, "typ relay") {
+				keep = append(keep, line)
+			}
+		}
+		return strings.Join(keep, "\r\n")
+	}
+	offerer := newRelayPeer()
+	defer offerer.Close()
+	answerer := newRelayPeer()
+	defer answerer.Close()
+
+	offer := offerer.CreateOffer()
+	offerRelay := relayLine(offer)
+	if offerRelay == "" {
+		t.Fatalf("offer has no relay candidate:\n%s", offer)
+	}
+	answer, err := answerer.HandleOffer(stripRelay(offer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	answerRelay := relayLine(answer)
+	if answerRelay == "" {
+		t.Fatalf("answer has no relay candidate:\n%s", answer)
+	}
+	if err := offerer.HandleAnswer(stripRelay(answer)); err != nil {
+		t.Fatal(err)
+	}
+	type connResult struct {
+		ep  *DcEndpoint
+		err error
+	}
+	connA := make(chan connResult, 1)
+	connB := make(chan connResult, 1)
+	go func() {
+		ep, err := offerer.ConnectWithOptions(true)
+		connA <- connResult{ep, err}
+	}()
+	go func() {
+		ep, err := answerer.ConnectWithOptions(false)
+		connB <- connResult{ep, err}
+	}()
+	// Trickle only after Connect has snapshotted the
+	// SDP-carried candidates.
+	time.Sleep(250 * time.Millisecond)
+	if !answerer.AddRemoteCandidate(offerRelay) {
+		t.Fatal("answerer rejected trickled relay candidate")
+	}
+	if !offerer.AddRemoteCandidate(answerRelay) {
+		t.Fatal("offerer rejected trickled relay candidate")
+	}
+	resA := <-connA
+	if resA.err != nil {
+		t.Fatal(resA.err)
+	}
+	resB := <-connB
+	if resB.err != nil {
+		t.Fatal(resB.err)
+	}
+	epA, epB := resA.ep, resB.ep
+	done := make(chan string, 1)
+	epA.OnChannel = func(ch *DataChannel) {
+		ch.OnMessage(func(data []byte, isText bool) {
+			done <- string(data)
+		})
+	}
+	out := epB.OpenChannel(DefaultChannelParams("echo"))
+	out.Send([]byte("trickled-relay"))
+	select {
+	case text := <-done:
+		if text != "trickled-relay" {
+			t.Fatalf("got %q", text)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for message over trickled TURN relay")
+	}
+	fake.mu.Lock()
+	perms, binds := fake.permReqCount, fake.bindCount
+	fake.mu.Unlock()
+	if perms < 2 || binds < 2 {
+		t.Fatalf("permissions=%d binds=%d, want both >= 2", perms, binds)
+	}
+}
+
 // With a 3 s allocation/permission lifetime enforced by the fake,
 // the relayed channel must still work after 5 s — only possible
 // if both peers refresh their allocations and permissions.

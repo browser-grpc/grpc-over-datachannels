@@ -420,7 +420,29 @@ impl Peer {
         }
         let (dtls_tx, dtls_rx) = channel::<Vec<u8>>();
         let agent = Arc::new(Mutex::new(agent));
-        let selected = run_ice(&socket, &agent, &dtls_tx, turn.as_ref(), relay_active, trickle.as_ref())?;
+        let (selected, trickled_addrs) =
+            run_ice(&socket, &agent, &dtls_tx, turn.as_ref(), relay_active, trickle.as_ref())?;
+        // Candidates trickled in during ICE got send-only
+        // permissions in the loop; now that socket reads are
+        // free (demux thread not yet spawned), bind their
+        // channels awaited-style and keep them refreshed.
+        if let Some(client) = &mut turn {
+            if !trickled_addrs.is_empty() {
+                crate::turn::bind_channels(
+                    &socket,
+                    client,
+                    &trickled_addrs,
+                    Duration::from_secs(2),
+                );
+                if let Ok(refresh_socket) = socket.try_clone() {
+                    crate::turn::spawn_refresher(
+                        refresh_socket,
+                        client.clone(),
+                        trickled_addrs,
+                    );
+                }
+            }
+        }
         // Demultiplexing thread: keeps answering consent checks after
         // nomination and feeds DTLS packets to the handshake/endpoint.
         let demux_socket = socket.try_clone()?;
@@ -536,6 +558,9 @@ fn parse_trickle_line(line: &str) -> Option<Candidate> {
     Candidate::from_sdp(text.strip_prefix("a=").unwrap_or(text))
 }
 
+/// Runs ICE checks to nomination. Also returns the peer
+/// addresses trickled in mid-connect, so the caller can bind
+/// TURN channels for them and keep their permissions refreshed.
 fn run_ice(
     socket: &UdpSocket,
     agent: &Arc<Mutex<IceAgent>>,
@@ -543,13 +568,14 @@ fn run_ice(
     turn: Option<&crate::turn::TurnClient>,
     relay_active: bool,
     trickle: Option<&Receiver<String>>,
-) -> io::Result<SocketAddr> {
+) -> io::Result<(SocketAddr, Vec<SocketAddr>)> {
     socket.set_read_timeout(Some(Duration::from_millis(25)))?;
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut last_check = Instant::now() - Duration::from_millis(100);
+    let mut trickled_addrs: Vec<SocketAddr> = Vec::new();
     loop {
         if let Some(selected) = agent.lock().unwrap().nominated {
-            return Ok(selected);
+            return Ok((selected, trickled_addrs));
         }
         // Trickle: fold in any candidates signaled since the
         // remote description (mDNS names resolved as at connect).
@@ -561,7 +587,20 @@ fn run_ice(
                             cand.addr = SocketAddr::new(IpAddr::V4(ip), cand.addr.port());
                         }
                     }
-                    agent.lock().unwrap().add_remote_candidate(cand);
+                    let addr = cand.addr;
+                    let added = agent.lock().unwrap().add_remote_candidate(cand);
+                    // A trickled candidate also needs a TURN
+                    // permission or the relay silently drops
+                    // its traffic (channel binding is deferred
+                    // to the caller; see turn::send_permission).
+                    if added {
+                        if let Some(client) = turn {
+                            if !addr.ip().is_unspecified() && !trickled_addrs.contains(&addr) {
+                                trickled_addrs.push(addr);
+                                crate::turn::send_permission(socket, client, &addr);
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -286,6 +286,20 @@ pub fn bind_channels(
     }
 }
 
+/// Send-only CreatePermission for one peer trickled in after
+/// the connect-time snapshot. The ICE loop owns socket reads
+/// then, so this cannot await a response — and a ChannelBind
+/// must NOT be issued yet either: inbound traffic would arrive
+/// as ChannelData on a channel the loop's client does not know
+/// and be dropped. The caller binds channels for trickled
+/// peers after nomination via bind_channels; until then
+/// Send/Data indications carry their traffic.
+pub fn send_permission(socket: &UdpSocket, client: &TurnClient, peer: &SocketAddr) {
+    if let Some(msg) = build_create_permission(client, &[*peer]) {
+        let _ = socket.send_to(&msg.encode(Some(&client.key)), client.server);
+    }
+}
+
 /// Frames one datagram as ChannelData (RFC 5766 section 11):
 /// channel number, length, payload (no padding over UDP).
 pub fn wrap_channel_data(channel: u16, data: &[u8]) -> Vec<u8> {

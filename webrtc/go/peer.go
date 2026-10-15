@@ -323,7 +323,17 @@ func (p *Peer) AddRemoteCandidate(line string) bool {
 			cand.Address = ip
 		}
 	}
-	return p.agent.AddRemoteCandidate(*cand)
+	if !p.agent.AddRemoteCandidate(*cand) {
+		return false
+	}
+	// A candidate trickled in after Connect's snapshot also
+	// needs a TURN permission (and channel binding), or the
+	// relay silently drops its traffic. Valid any time an
+	// allocation exists.
+	if ip := net.ParseIP(cand.Address); ip != nil && p.turn != nil {
+		go p.turnAddPeer(&net.UDPAddr{IP: ip, Port: cand.Port}, 2*time.Second)
+	}
+	return true
 }
 
 // SetOnLocalCandidate registers the trickle callback for local

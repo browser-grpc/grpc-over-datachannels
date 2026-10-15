@@ -580,3 +580,72 @@ fn channel_bind_carries_traffic() {
     assert!(st.bind_count >= 2, "binds={}", st.bind_count);
     assert!(st.chan_data > 0, "no ChannelData relayed");
 }
+
+// Candidates trickled in after the connect-time snapshot must
+// still get TURN permissions and channel bindings. The only
+// reachable candidate on each side is the relay candidate,
+// withheld from the SDP and trickled over the connect_trickled
+// channel while ICE runs; the fake enforces permissions, so
+// the message only flows if trickle created them.
+#[test]
+fn relay_with_trickled_relay_candidates() {
+    let (server, state) = fake_turn_server_with(600, 300);
+    let mut offerer = turn_peer(&server);
+    let mut answerer = turn_peer(&server);
+
+    fn relay_line_of(sdp: &str) -> String {
+        sdp.lines()
+            .find(|line| line.contains("typ relay"))
+            .expect("no relay candidate")
+            .to_string()
+    }
+    fn strip_relay(sdp: &str) -> String {
+        sdp.lines()
+            .filter(|line| !line.contains("typ relay"))
+            .collect::<Vec<_>>()
+            .join("\r\n")
+            + "\r\n"
+    }
+
+    let offer = offerer.create_offer();
+    let offer_relay = relay_line_of(&offer);
+    let answer = answerer.handle_offer(&strip_relay(&offer)).unwrap();
+    let answer_relay = relay_line_of(&answer);
+    offerer.handle_answer(&strip_relay(&answer)).unwrap();
+
+    let (offerer_tx, offerer_rx) = std::sync::mpsc::channel::<String>();
+    let (answerer_tx, answerer_rx) = std::sync::mpsc::channel::<String>();
+    let offerer_thread = std::thread::spawn(move || offerer.connect_trickled(offerer_rx));
+    let answerer_thread = std::thread::spawn(move || answerer.connect_trickled(answerer_rx));
+
+    // Trickle only after both connects have snapshotted the
+    // SDP-carried candidates.
+    std::thread::sleep(Duration::from_millis(250));
+    answerer_tx.send(offer_relay).unwrap();
+    offerer_tx.send(answer_relay).unwrap();
+    drop(offerer_tx);
+    drop(answerer_tx);
+
+    let offerer_ep = offerer_thread.join().unwrap().expect("offerer connect");
+    let answerer_ep = answerer_thread.join().unwrap().expect("answerer connect");
+
+    let channel = offerer_ep
+        .open_channel(ChannelParams { label: "echo".into(), ..Default::default() })
+        .unwrap();
+    channel.send_binary(b"trickled-relay").unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut received = false;
+    while Instant::now() < deadline && !received {
+        if let Some(EndpointEvent::Message { data, .. }) =
+            answerer_ep.recv_event_timeout(Duration::from_millis(200))
+        {
+            assert_eq!(data, b"trickled-relay");
+            received = true;
+        }
+    }
+    assert!(received, "no message arrived over the trickled relay");
+    let st = state.lock().unwrap();
+    assert!(st.perm_count >= 2, "permissions={}", st.perm_count);
+    assert!(st.bind_count >= 2, "binds={}", st.bind_count);
+}

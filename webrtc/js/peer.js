@@ -15,6 +15,7 @@ import { StunAttribute, StunMessageType } from "./proto_gen.js";
 import { StunMessage, decodeMappedAddress, isIpv6, normalizeIp, parseHostPort, parseIp } from "./stun.js";
 import { generate, parse } from "./sdp.js";
 import {
+  addTurnPeer,
   allocateTurn,
   bindChannels,
   createPermissions,
@@ -229,11 +230,25 @@ export class Peer {
     if (!net.isIP(cand.address)) {
       resolveMdns(cand.address)
         .then((ip) => {
-          if (ip) cand.address = ip;
+          if (ip) {
+            cand.address = ip;
+            this.#turnAddCandidate(cand);
+          }
         })
         .catch(() => {});
+    } else {
+      this.#turnAddCandidate(cand);
     }
     return true;
+  }
+
+  // Candidates trickled in after the connect-time snapshot also
+  // need TURN permissions (and a channel binding), or the relay
+  // silently drops their traffic. Valid any time an allocation
+  // exists; fire-and-forget like the connect-time calls.
+  #turnAddCandidate(cand) {
+    if (!this.turn) return;
+    addTurnPeer(this, this.turn, { address: cand.address, port: cand.port }).catch(() => {});
   }
 
   #localDescription(setup) {

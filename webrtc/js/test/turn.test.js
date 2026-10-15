@@ -165,3 +165,53 @@ test("TURN connect skips mDNS remote candidates", { timeout: 30000 }, async (t) 
   epB.openChannel({ label: "echo" }).send(Buffer.from("mdns-safe"));
   assert.equal(await received, "mdns-safe");
 });
+
+// Candidates trickled in after the connect-time snapshot must
+// still get TURN permissions and channel bindings. Here the
+// only reachable candidate on each side is the relay candidate,
+// deliberately withheld from the SDP and trickled in while
+// connect() is running; the fake server enforces permissions,
+// so the echo only flows if trickle created them.
+test("relay connection with trickled relay candidates", { timeout: 30000 }, async (t) => {
+  const turn = await fakeTurnServer();
+  t.after(() => turn.close());
+  const options = {
+    localIps: ["10.11.12.13"], // unreachable host candidate
+    turnServers: [{ address: turn.server, username: USER, password: PASS }],
+  };
+  const offerer = await Peer.create(options);
+  const answerer = await Peer.create(options);
+  t.after(async () => {
+    await offerer.close();
+    await answerer.close();
+  });
+  const relayLine = (sdp) => sdp.split("\r\n").find((l) => l.includes("typ relay"));
+  const stripRelay = (sdp) =>
+    sdp.split("\r\n").filter((l) => !l.includes("typ relay")).join("\r\n");
+
+  const offer = offerer.createOffer();
+  const offerRelay = relayLine(offer);
+  assert.ok(offerRelay, `no relay candidate in offer:\n${offer}`);
+  const answer = answerer.handleOffer(stripRelay(offer));
+  const answerRelay = relayLine(answer);
+  assert.ok(answerRelay, `no relay candidate in answer:\n${answer}`);
+  offerer.handleAnswer(stripRelay(answer));
+
+  const connecting = Promise.all([offerer.connect(), answerer.connect()]);
+  // Trickle the relay candidates in only after connect() has
+  // snapshotted the SDP-carried candidates.
+  await new Promise((r) => setTimeout(r, 250));
+  assert.equal(answerer.addRemoteCandidate(offerRelay), true);
+  assert.equal(offerer.addRemoteCandidate(answerRelay), true);
+  const [epA, epB] = await connecting;
+
+  const received = new Promise((resolve) => {
+    epA.onchannel = (channel) => {
+      channel.onmessage = (event) => resolve(Buffer.from(event.data).toString());
+    };
+  });
+  epB.openChannel({ label: "echo" }).send(Buffer.from("trickled-relay"));
+  assert.equal(await received, "trickled-relay");
+  assert.ok(turn.stats.permReqCount >= 2, `permissions=${turn.stats.permReqCount}`);
+  assert.ok(turn.stats.bindCount >= 2, `binds=${turn.stats.bindCount}`);
+});

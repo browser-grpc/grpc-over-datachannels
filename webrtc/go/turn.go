@@ -278,10 +278,43 @@ func (p *Peer) turnCreatePermissions(timeout time.Duration) {
 	if len(addrs) == 0 {
 		return
 	}
+	// Merge (never replace): candidates trickled in earlier may
+	// already have added peers the refresher must keep alive.
 	p.turn.mu.Lock()
-	p.turn.peers = addrs
+	for _, addr := range addrs {
+		found := false
+		for _, existing := range p.turn.peers {
+			if existing.String() == addr.String() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			p.turn.peers = append(p.turn.peers, addr)
+		}
+	}
 	p.turn.mu.Unlock()
 	p.turnCreatePermissionsFor(addrs, timeout)
+}
+
+// turnAddPeer installs a permission and channel binding for one
+// peer address trickled in after the connect-time snapshot, and
+// remembers it for the refresher. Best-effort and idempotent.
+func (p *Peer) turnAddPeer(addr *net.UDPAddr, timeout time.Duration) {
+	if p.turn == nil || addr == nil {
+		return
+	}
+	p.turn.mu.Lock()
+	for _, existing := range p.turn.peers {
+		if existing.String() == addr.String() {
+			p.turn.mu.Unlock()
+			return
+		}
+	}
+	p.turn.peers = append(p.turn.peers, addr)
+	p.turn.mu.Unlock()
+	p.turnCreatePermissionsFor([]*net.UDPAddr{addr}, timeout)
+	p.turnBindChannels([]*net.UDPAddr{addr}, timeout)
 }
 
 // turnCreatePermissionsFor sends one CreatePermission request for
