@@ -1,0 +1,112 @@
+// Dart/Wasm browser test: a Chromium/Firefox page whose gRPC
+// calls originate in the Dart grpc_dc runtime compiled to
+// WasmGC with `dart compile wasm` (real Dart codec/endpoint/
+// stub — not a facade over the JS implementation, unlike
+// wasm/go), over a native RTCDataChannel, against a gRPC
+// server on the Node WebRTC stack. Mirrors dart.test.mjs (the
+// `dart compile js` leg); the artifact is built by
+// `make test-dart-wasm-browser`. Browsers without WasmGC +
+// js-string builtins are probe-and-skipped via __wasmError.
+
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { extname, join, normalize } from "node:path";
+import { fileURLToPath } from "node:url";
+import { chromium, firefox } from "playwright";
+
+import { Peer } from "../webrtc/js/peer.js";
+import { Server } from "../js/index.js";
+import { EchoResponse } from "../js/examples/echo_pb.js";
+import { createEchoService } from "../js/examples/echo_grpc_dc.js";
+
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const MIME = {
+  ".html": "text/html",
+  ".js": "text/javascript",
+  ".mjs": "text/javascript",
+  ".wasm": "application/wasm",
+};
+
+const server = createServer(async (req, res) => {
+  try {
+    const path = normalize(join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname)));
+    if (!path.startsWith(ROOT)) throw new Error("outside root");
+    const body = await readFile(path);
+    res.writeHead(200, { "content-type": MIME[extname(path)] ?? "application/octet-stream" });
+    res.end(body);
+  } catch {
+    res.writeHead(404);
+    res.end("not found");
+  }
+});
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const pageUrl = `http://127.0.0.1:${server.address().port}/browser-test/dart_wasm_page.html`;
+
+const handlers = {
+  async unary(req) {
+    return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+  },
+  async *serverStream(req) {
+    for (let i = 0; i < Math.max(0, req.count); i++) {
+      yield new EchoResponse({ message: req.message, index: i });
+    }
+  },
+  async clientStream(requests) {
+    const parts = [];
+    for await (const req of requests) parts.push(req.message);
+    return new EchoResponse({ message: parts.join("+"), index: parts.length });
+  },
+  async *bidi(requests) {
+    let index = 0;
+    for await (const req of requests) {
+      yield new EchoResponse({ message: req.message, index: index++ });
+    }
+  },
+};
+
+async function runBrowser(name, engine) {
+  const answerer = await Peer.create();
+  const browser = await engine.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  try {
+    const grpcServer = new Server();
+    grpcServer.addService(createEchoService(handlers));
+
+    const page = await browser.newPage();
+    page.on("console", (msg) => console.log(`[${name} console] ${msg.text()}`));
+    page.on("pageerror", (err) => console.log(`[${name} pageerror] ${err.message}`));
+    await page.goto(pageUrl);
+    await page.waitForFunction(() => window.__offer || window.__wasmError, null, { timeout: 30000 });
+    const wasmError = await page.evaluate(() => window.__wasmError ?? null);
+    if (wasmError) {
+      console.log(`${name}: skipping Dart/Wasm (no WasmGC/js-string support): ${wasmError}`);
+      return;
+    }
+
+    const offer = await page.evaluate(() => window.__offer);
+    const answer = answerer.handleOffer(offer);
+    await page.evaluate((sdp) => window.__acceptAnswer(sdp), answer);
+
+    const endpoint = await answerer.connect();
+    endpoint.onchannel = (channel) => grpcServer.serve(channel);
+
+    const result = await page.evaluate(() => window.__runDart());
+    assert.deepEqual(result, {
+      unary: "echo: hello",
+      ticks: ["tick#0", "tick#1", "tick#2"],
+      joined: "a+b+c",
+      echoed: ["x", "y"],
+    });
+    console.log(`${name}: Dart (dart compile wasm) gRPC client over native RTCDataChannel OK`, result);
+  } finally {
+    await browser.close();
+    await answerer.close();
+  }
+}
+
+const which = process.argv[2] ?? "chromium";
+if (which === "chromium" || which === "all") await runBrowser("chromium", chromium);
+if (which === "firefox" || which === "all") await runBrowser("firefox", firefox);
+
+server.close();
+console.log("dart wasm browser test passed");

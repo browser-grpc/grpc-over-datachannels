@@ -19,5 +19,9 @@ __pycache__/
 browser-test/echo_dart.js
 browser-test/echo_dart.js.map
 browser-test/echo_dart.js.deps
+browser-test/echo_dart_wasm.wasm
+browser-test/echo_dart_wasm.wasm.map
+browser-test/echo_dart_wasm.mjs
+browser-test/echo_dart_wasm.support.js
 /oracle/java/target/
 /.agents/

@@ -1,10 +1,11 @@
 // Browser entry point: the real Dart grpc_dc runtime (frame codec,
-// endpoint multiplexer, generated Echo stub — no JS gRPC code)
-// compiled with `dart compile js`. The page only bridges its
-// RTCDataChannel send/receive pair into the Dart transport, exactly
-// like wasm/rust; unlike wasm/go, which is a facade over the JS
-// implementation. Build: dart compile js wasm/dart/echo_client.dart
-// -o browser-test/echo_dart.js (see `make test-dart-browser`).
+// endpoint multiplexer, generated Echo stub — no JS gRPC code).
+// The same source builds two ways, since it only uses
+// dart:js_interop: `dart compile js` (make test-dart-browser)
+// and `dart compile wasm` (make test-dart-wasm-browser). The
+// page only bridges its RTCDataChannel send/receive pair into
+// the Dart transport, exactly like wasm/rust; unlike wasm/go,
+// which is a facade over the JS implementation.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
