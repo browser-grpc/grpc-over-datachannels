@@ -1,0 +1,42 @@
+// grpc-dc: gRPC over WebRTC DataChannels (JavaScript runtime).
+// Wire tables in wire_gen.js and the protoc plugin that generates service
+// stubs both come from the Racket metaprogram in ../racket.
+
+export {
+  FrameType,
+  StatusCode,
+  StatusName,
+  StatusError,
+  encodeFrame,
+  decodeFrame,
+  toHex,
+  fromHex,
+} from "./src/codec.js";
+export { Endpoint, StreamInput } from "./src/endpoint.js";
+export { Channel } from "./src/channel.js";
+export { Server } from "./src/server.js";
+export { memoryDataChannelPair } from "./src/loopback.js";
+export { createGrpcDcBridge } from "./src/wasm_bridge.js";
+
+import { Channel } from "./src/channel.js";
+import { Endpoint } from "./src/endpoint.js";
+import { Server } from "./src/server.js";
+
+/**
+ * A bidirectional peer: a Channel and a Server sharing one endpoint, so
+ * both sides can call each other over the same data channel. The peer
+ * that created the channel allocates odd stream ids; the answering peer
+ * must pass { parity: "even" }.
+ */
+export function createPeer(dc, { parity = "odd" } = {}) {
+  const endpoint = new Endpoint(dc, { parity });
+  const server = new Server();
+  server.serve(endpoint);
+  return { endpoint, server, channel: new Channel(endpoint) };
+}
+export {
+  DynamicClient,
+  GenericMessage,
+  createDynamicService,
+  parseDescriptorSet,
+} from "./src/dynamic.js";

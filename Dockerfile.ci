@@ -1,0 +1,221 @@
+# syntax=docker/dockerfile:1
+# grpc-over-datachannels CI image: ALL build/test/tooling/run lives here.
+# A developer machine needs only Docker — no local Racket, protoc, Rust,
+# or Node installs.
+#
+# Build:
+#   docker build -f Dockerfile.ci -t grpc-dc-ci .
+#
+# Full test suite (Racket + Rust + JS + WebRTC stacks + browser test):
+#   docker run --rm grpc-dc-ci
+#
+# Regenerate plugins/stubs from racket/spec.rkt and proto/echo.proto:
+#   docker run --rm grpc-dc-ci make generate
+#
+# Single suites:
+#   docker run --rm grpc-dc-ci make test-racket
+#   docker run --rm grpc-dc-ci make test-rust
+#   docker run --rm grpc-dc-ci make test-js
+#   docker run --rm grpc-dc-ci make test-go
+#   docker run --rm grpc-dc-ci make test-webrtc-rust
+#   docker run --rm grpc-dc-ci make test-webrtc-js
+#   docker run --rm grpc-dc-ci make test-grpc-webrtc
+#   docker run --rm grpc-dc-ci make test-browser
+#
+# Run the echo demos (both languages, all four call shapes):
+#   docker run --rm grpc-dc-ci make demos
+#
+# Interactive shell:
+#   docker run --rm -it --entrypoint bash grpc-dc-ci
+#
+# Notes:
+# - Base images are pinned by minor release; Rust dependencies are locked
+#   via rust/Cargo.lock (cargo fetch --locked below). The JS runtime has
+#   zero npm dependencies, so there is no package-lock to mirror.
+# - Racket and protoc come from Debian bookworm: the protoc plugin
+#   protocol used by bin/protoc-gen-grpc-dc-* is stable since long before
+#   bookworm's protoc 3.21, and the Racket sources use no post-8.7
+#   features (the image build proves this by regenerating everything).
+# - `make generate` runs during the image build, so the checked-in
+#   generated files are reproduced in-image from racket/spec.rkt; test
+#   runs then work fully offline.
+
+ARG RUST_IMAGE=rust:1.96-bookworm
+ARG NODE_IMAGE=node:26-slim
+ARG GO_IMAGE=golang:1.24-bookworm
+ARG DOTNET_IMAGE=mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim
+
+FROM ${NODE_IMAGE} AS node-src
+
+FROM ${GO_IMAGE} AS go-src
+
+FROM ${DOTNET_IMAGE} AS dotnet-src
+
+FROM ${RUST_IMAGE} AS ci
+
+# Node.js + npm from the official Node image (same glibc family).
+COPY --from=node-src /usr/local /usr/local
+
+# Go toolchain for the Go runtime (stdlib only, no module downloads).
+COPY --from=go-src /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+# Swift toolchain for the Swift runtime (Foundation only, no package
+# downloads). Official swift.org Debian 12 tarball, extracted like the
+# user-space swiftly install used on developer machines.
+ARG TARGETARCH
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl binutils libc6-dev \
+     libcurl4-openssl-dev libedit2 libgcc-12-dev libpython3-dev \
+     libsqlite3-0 libstdc++-12-dev libxml2-dev libz3-dev pkg-config \
+     tzdata unzip zlib1g-dev \
+  && case "$TARGETARCH" in arm64) SWIFT_PLATFORM=debian12-aarch64 ;; *) SWIFT_PLATFORM=debian12 ;; esac \
+  && curl -fsSL "https://download.swift.org/swift-6.4.0-release/${SWIFT_PLATFORM}/swift-6.4.0-RELEASE/swift-6.4.0-RELEASE-${SWIFT_PLATFORM}.tar.gz" \
+     | tar xz -C /usr/local --strip-components=2 \
+  && rm -rf /var/lib/apt/lists/*
+
+# Kotlin compiler for the Kotlin runtime (JDK + Kotlin stdlib only;
+# coroutine support uses stdlib kotlin.coroutines, no kotlinx).
+RUN curl -fsSL https://github.com/JetBrains/kotlin/releases/download/v2.2.0/kotlin-compiler-2.2.0.zip -o /tmp/kotlin-compiler.zip \
+  && unzip -q /tmp/kotlin-compiler.zip -d /usr/local \
+  && rm /tmp/kotlin-compiler.zip
+ENV PATH="/usr/local/kotlinc/bin:${PATH}"
+
+# Zig toolchain for the Zig runtime (stdlib only, no packages;
+# arch-aware like the Swift/Dart stages).
+ARG TARGETARCH
+RUN case "$TARGETARCH" in arm64) ZIG_ARCH=aarch64 ;; *) ZIG_ARCH=x86_64 ;; esac \
+  && curl -fsSL "https://ziglang.org/download/0.15.1/zig-${ZIG_ARCH}-linux-0.15.1.tar.xz" -o /tmp/zig.tar.xz \
+  && mkdir -p /usr/local/zig-dist \
+  && tar -xJf /tmp/zig.tar.xz -C /usr/local/zig-dist --strip-components=1 \
+  && rm /tmp/zig.tar.xz
+ENV PATH="/usr/local/zig-dist:${PATH}"
+
+# Lua for the Lua runtime (pure 5.4 stdlib; no luarocks packages).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends lua5.4 \
+  && rm -rf /var/lib/apt/lists/*
+ENV LUA=lua5.4
+
+# Dart SDK for the Dart runtime (dart: libraries only, no pub
+# packages; arch-aware like the Swift stage).
+ARG TARGETARCH
+RUN case "$TARGETARCH" in arm64) DART_ARCH=arm64 ;; *) DART_ARCH=x64 ;; esac \
+  && curl -fsSL "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.5/sdk/dartsdk-linux-${DART_ARCH}-release.zip" -o /tmp/dartsdk.zip \
+  && unzip -q /tmp/dartsdk.zip -d /usr/local \
+  && rm /tmp/dartsdk.zip
+ENV PATH="/usr/local/dart-sdk/bin:${PATH}"
+
+# .NET SDK for the C# runtime (BCL only, no NuGet downloads).
+COPY --from=dotnet-src /usr/share/dotnet /usr/share/dotnet
+ENV DOTNET_ROOT="/usr/share/dotnet" \
+    PATH="/usr/share/dotnet:${PATH}" \
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1
+
+# Racket (metaprogram + protoc plugins) and protoc (stub generation),
+# plus make to drive the same entry points as local development.
+# JDK + Maven build the official grpc-java oracle (oracle/java) that
+# the cross-language oracle tests run against.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends racket protobuf-compiler make ca-certificates python3 g++ \
+     openjdk-17-jdk-headless maven \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+
+# Rust manifests first for layer caching (both crates: rust/ path-depends
+# on webrtc/rust for its `webrtc` feature).
+COPY rust/Cargo.toml rust/Cargo.lock ./rust/
+COPY webrtc/rust/Cargo.toml webrtc/rust/Cargo.lock ./webrtc/rust/
+COPY wasm/rust/Cargo.toml wasm/rust/Cargo.lock ./wasm/rust/
+# Empty target stubs so the fetch layer can parse the manifests;
+# `COPY . .` below replaces them with the real sources.
+RUN mkdir -p rust/src webrtc/rust/src wasm/rust/src \
+  && touch rust/src/lib.rs webrtc/rust/src/lib.rs wasm/rust/src/lib.rs \
+  && cd rust && cargo fetch --locked \
+  && cd ../wasm/rust && cargo fetch --locked
+
+# The rest of the repo.
+COPY . .
+
+# Reproduce every generated artifact in-image (plugins, wire tables,
+# fixtures, stubs) — this is also the toolchain smoke test.
+RUN make generate
+
+# Warm the Rust builds so test/demo runs start compiled.
+# Native WASM Rust client toolchain: wasm32 target + the
+# wasm-bindgen CLI pinned to the crate version (0.2.100).
+RUN rustup target add wasm32-unknown-unknown
+ARG TARGETARCH
+RUN case "$TARGETARCH" in arm64) WBG_ARCH=aarch64 ;; *) WBG_ARCH=x86_64 ;; esac \
+  && curl -fsSL "https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.100/wasm-bindgen-0.2.100-${WBG_ARCH}-unknown-linux-gnu.tar.gz" -o /tmp/wbg.tar.gz \
+  && mkdir -p /usr/local/wasm-bindgen \
+  && tar -xzf /tmp/wbg.tar.gz -C /usr/local/wasm-bindgen --strip-components=1 \
+  && rm /tmp/wbg.tar.gz
+ENV PATH="/usr/local/wasm-bindgen:${PATH}"
+
+RUN cd rust && cargo test --locked --no-run \
+  && cargo build --locked --examples \
+  && cd ../webrtc/rust && cargo test --locked --no-run
+
+# Warm the Go build (stdlib only).
+RUN cd go && go build ./...
+
+# Warm the C# builds (BCL only).
+RUN cd csharp && dotnet build tests/Tests.csproj --nologo -v q \
+  && dotnet build examples/EchoServerStdio/EchoServerStdio.csproj --nologo -v q \
+  && dotnet build examples/EchoClientStdio/EchoClientStdio.csproj --nologo -v q \
+  && dotnet build examples/DynamicEchoServerStdio/DynamicEchoServerStdio.csproj --nologo -v q
+
+# Build the Go/WASM browser client artifacts for the wasm test.
+RUN cd wasm/go && GOOS=js GOARCH=wasm go build -o ../../browser-test/echo.wasm ./cmd/echo_wasm \
+  && cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" ../../browser-test/wasm_exec.js
+
+# Warm the C++ builds (stdlib only).
+RUN mkdir -p cpp/build \
+  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp -o cpp/build/tests \
+  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio \
+  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio \
+  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/dynamic_echo_server_stdio.cpp -o cpp/build/dynamic_echo_server_stdio
+
+# Warm the Swift builds (Foundation only).
+RUN mkdir -p swift/build \
+  && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/tests/*.swift -o swift/build/tests \
+  && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoServerStdio/main.swift -o swift/build/echo_server_stdio \
+  && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoClientStdio/main.swift -o swift/build/echo_client_stdio \
+  && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/DynamicEchoServerStdio/main.swift -o swift/build/dynamic_echo_server_stdio
+
+# Warm the Kotlin builds (JDK + Kotlin stdlib only).
+RUN mkdir -p kotlin/build \
+  && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/tests/*.kt -d kotlin/build/tests.jar \
+  && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoServerStdio/Main.kt -d kotlin/build/echo_server_stdio.jar \
+  && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoClientStdio/Main.kt -d kotlin/build/echo_client_stdio.jar \
+  && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/examples/DynamicEchoServerStdio/Main.kt -d kotlin/build/dynamic_echo_server_stdio.jar
+
+# Warm the Dart builds (SDK only).
+RUN mkdir -p dart/build \
+  && dart compile exe dart/tests/main.dart -o dart/build/tests \
+  && dart compile exe dart/examples/EchoServerStdio/main.dart -o dart/build/echo_server_stdio \
+  && dart compile exe dart/examples/EchoClientStdio/main.dart -o dart/build/echo_client_stdio \
+  && dart compile exe dart/examples/DynamicEchoServerStdio/main.dart -o dart/build/dynamic_echo_server_stdio
+
+# Warm the Zig builds (stdlib only).
+RUN cd zig && zig build --prefix build
+
+# Build the official grpc-java oracle (downloads Maven dependencies
+# at image build time; tests then run offline).
+RUN cd oracle/java && mvn -q package -DskipTests
+
+# Playwright browsers + OS libraries for the real-browser test
+# (browser-test/test.mjs: native RTCDataChannel in Chromium and
+# Firefox against the reimplemented stack). Installed at build time;
+# test runs need no network.
+RUN cd browser-test && npm ci \
+  && npx playwright install --with-deps chromium firefox
+
+# Deps are fetched and built above; test/demo runs need no network.
+ENV CARGO_NET_OFFLINE=true
+
+CMD ["make", "test"]

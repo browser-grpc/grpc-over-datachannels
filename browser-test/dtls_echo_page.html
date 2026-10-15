@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc DTLS-server echo answerer</title>
+<script type="module">
+// Bare WebRTC answerer for the DTLS-server test: accepts the native
+// stack's offer (the browser answers setup=active, i.e. the browser
+// is the DTLS client and the native side accepts), then echoes every
+// message on the inbound "echo" channel. Signaling mirrors
+// grpc_server_page.html.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+pc.addEventListener("datachannel", (event) => {
+  const channel = event.channel;
+  channel.binaryType = "arraybuffer";
+  channel.addEventListener("message", (e) => channel.send(e.data));
+});
+
+window.__acceptOffer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "offer", sdp });
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === "complete") resolve();
+    else pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.iceGatheringState === "complete") resolve();
+    });
+  });
+  window.__answer = pc.localDescription.sdp;
+};
+</script>

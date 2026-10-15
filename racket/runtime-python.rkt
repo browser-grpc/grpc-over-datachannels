@@ -1,0 +1,1408 @@
+#lang racket
+
+;;; runtime-python.rkt — the Python gRPC runtime, emitted by metagen.rkt.
+;;;
+;;; The runtime files under python/grpcdc/ are GENERATED from the
+;;; bodies below plus fragments recursively expanded from spec.rkt's
+;;; frame/status tables (see the dispatch generator). Do not edit the
+;;; generated runtime files; edit here and run `make generate`.
+;;; (Bodies were authored in-language and are kept verbatim so the
+;;; generated output stays byte-reviewable in git diffs.)
+;;;
+;;; Python >= 3.10, standard library only.
+
+(require "spec.rkt")
+(provide emit-python-runtime-files)
+
+(define python-codec-body
+#<<GRPC_RUNTIME_EOF
+"""Codec + status types for gRPC over WebRTC DataChannels.
+
+Wire protocol in ../SPEC.md. Frame, status, channel and server
+semantics mirror the Rust, JavaScript and Go runtimes; the tables in
+wire_gen.py are stamped by the Racket metaprogram.
+"""
+
+import json
+import struct
+
+from .wire_gen import (
+    CODE_INVALID_ARGUMENT,
+    CODE_OK,
+    CODE_RESOURCE_EXHAUSTED,
+    CODE_UNKNOWN,
+    FRAME_DATA,
+    FRAME_HEADERS,
+    FRAME_NAMES,
+    STATUS_NAMES,
+)
+
+HEADER_LEN = 9
+MAX_DATA_PAYLOAD = 16 * 1024 * 1024
+
+
+def status_name(code):
+    """Canonical status name (CODE_N for unknown codes)."""
+    return STATUS_NAMES.get(code, f"CODE_{code}")
+
+
+class StatusError(Exception):
+    """A gRPC status (code + message) carried as an exception."""
+
+    def __init__(self, code, message=""):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+    def __str__(self):
+        return f"{status_name(self.code)}: {self.message}"
+
+
+class CallClosed(EOFError):
+    """The call completed OK (client-side stream end)."""
+
+
+def to_status(err):
+    """Convert an exception to StatusError (OK for None)."""
+    if err is None:
+        return StatusError(CODE_OK, "")
+    if isinstance(err, StatusError):
+        return err
+    return StatusError(16, str(err))  # INTERNAL
+
+
+def encode_frame(frame_type, stream_id, payload):
+    """Build one DataChannel message: header + payload."""
+    if frame_type not in FRAME_NAMES.values():
+        raise StatusError(
+            CODE_INVALID_ARGUMENT, f"unknown frame type {frame_type}"
+        )
+    if frame_type == FRAME_DATA and len(payload) > MAX_DATA_PAYLOAD:
+        raise StatusError(CODE_RESOURCE_EXHAUSTED, "DATA payload exceeds 16 MiB")
+    return struct.pack(">BII", frame_type, stream_id, len(payload)) + payload
+
+
+def decode_frame(data):
+    """Parse one DataChannel message -> (frame_type, stream_id, payload)."""
+    if len(data) < HEADER_LEN:
+        raise StatusError(
+            CODE_INVALID_ARGUMENT,
+            f"frame shorter than 9-byte header: {len(data)} bytes",
+        )
+    frame_type, stream_id, length = struct.unpack(">BII", data[:HEADER_LEN])
+    if length != len(data) - HEADER_LEN:
+        raise StatusError(
+            CODE_INVALID_ARGUMENT,
+            f"payload length {length} does not match message size {len(data)}",
+        )
+    return frame_type, stream_id, data[HEADER_LEN:]
+
+
+class Headers:
+    """A parsed HEADERS payload: path=None marks response headers."""
+
+    def __init__(self, path=None, metadata=None):
+        self.path = path
+        self.metadata = metadata or {}
+
+    def __repr__(self):
+        return f"Headers(path={self.path!r}, metadata={self.metadata!r})"
+
+
+def headers_frame(stream_id, path, metadata):
+    body = {}
+    if path is not None:
+        body["path"] = path
+    if metadata:
+        body["metadata"] = dict(metadata)
+    return encode_frame(FRAME_HEADERS, stream_id, json.dumps(body).encode("utf-8"))
+
+
+def parse_headers(payload):
+    try:
+        body = json.loads(payload.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as e:
+        raise StatusError(CODE_INVALID_ARGUMENT, f"bad HEADERS payload: {e}")
+    if not isinstance(body, dict):
+        raise StatusError(CODE_INVALID_ARGUMENT, "HEADERS payload is not an object")
+    metadata = body.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        raise StatusError(CODE_INVALID_ARGUMENT, "HEADERS metadata is not an object")
+    return Headers(body.get("path"), metadata)
+
+
+def status_frame(frame_type, stream_id, status):
+    body = {"code": status.code, "message": status.message}
+    return encode_frame(frame_type, stream_id, json.dumps(body).encode("utf-8"))
+
+
+def parse_status(payload):
+    try:
+        body = json.loads(payload.decode("utf-8"))
+        return StatusError(int(body["code"]), str(body.get("message", "")))
+    except (ValueError, KeyError, TypeError, UnicodeDecodeError):
+        return StatusError(CODE_UNKNOWN, "malformed trailers")
+GRPC_RUNTIME_EOF
+)
+
+(define python-endpoint-body
+#<<GRPC_RUNTIME_EOF
+"""Endpoint: multiplexes grpc-dc streams over one Transport."""
+
+import queue
+import threading
+
+from .codec import (
+    StatusError,
+    decode_frame,
+    headers_frame,
+    parse_headers,
+    parse_status,
+    status_frame,
+    to_status,
+)
+from .wire_gen import (
+    CODE_INTERNAL,
+    CODE_UNAVAILABLE,
+    CODE_UNIMPLEMENTED,
+    FRAME_RST,
+    FRAME_TRAILERS,
+)
+
+EVENT_HEADERS = "headers"
+EVENT_DATA = "data"
+EVENT_HALF_CLOSE = "half-close"
+EVENT_TRAILERS = "trailers"
+EVENT_RST = "rst"
+
+_CLOSED = object()
+
+
+class Transport:
+    """Carries whole DataChannel messages (boundaries preserved).
+
+    recv() returns one message, or raises EOFError when the transport
+    is closed.
+    """
+
+    def send(self, data):
+        raise NotImplementedError
+
+    def recv(self):
+        raise NotImplementedError
+
+
+class StreamEvent:
+    def __init__(self, kind, headers=None, payload=None, status=None):
+        self.kind = kind
+        self.headers = headers
+        self.payload = payload
+        self.status = status
+
+
+class StreamInput:
+    """Receiving queue of one stream; closed after a terminal event."""
+
+    def __init__(self):
+        self.events = queue.Queue()
+
+    def put(self, event):
+        self.events.put(event)
+
+    def close(self):
+        self.events.put(_CLOSED)
+
+    def get(self):
+        """Next event, or None once the stream is closed."""
+        event = self.events.get()
+        if event is _CLOSED:
+            return None
+        return event
+
+
+class ResponseSink:
+    def __init__(self, endpoint, stream_id):
+        self._endpoint = endpoint
+        self._id = stream_id
+
+    def send_data(self, payload):
+        from .codec import encode_frame
+        from .wire_gen import FRAME_DATA
+
+        self._endpoint.send_frame(encode_frame(FRAME_DATA, self._id, payload))
+
+    def send_headers(self):
+        self._endpoint.send_frame(headers_frame(self._id, None, None))
+
+    def send_trailers(self, status):
+        self._endpoint.send_frame(status_frame(FRAME_TRAILERS, self._id, status))
+
+    # ServerSink interface used by Server.
+    def send(self, payload):
+        self.send_data(payload)
+
+
+class CallContext:
+    """Per-call context: metadata sent in HEADERS."""
+
+    def __init__(self, metadata=None):
+        self.metadata = metadata or {}
+
+
+class Endpoint:
+    """Multiplexes streams over one Transport.
+
+    The side that created the channel allocates odd stream ids, the
+    answerer even.
+    """
+
+    def __init__(self, transport, creator):
+        self.transport = transport
+        self.dispatcher = None
+        self._next_id = 1 if creator else 2
+        self._send_lock = threading.Lock()
+        self._streams = {}
+        self._streams_lock = threading.Lock()
+        self._closed = False
+        self._started = False
+
+    def start(self):
+        """Start the read loop (idempotent). Called after any
+        dispatcher is installed, so an early HEADERS can never race
+        dispatcher setup."""
+        if self._started:
+            return
+        self._started = True
+        threading.Thread(target=self._read_loop, daemon=True).start()
+
+    def set_dispatcher(self, dispatcher):
+        self.dispatcher = dispatcher
+
+    def send_frame(self, frame):
+        with self._send_lock:
+            self.transport.send(frame)
+
+    def open_stream(self):
+        with self._send_lock:
+            stream_id = self._next_id
+            self._next_id += 2
+        stream_input = StreamInput()
+        with self._streams_lock:
+            self._streams[stream_id] = stream_input
+        return stream_id, stream_input
+
+    def close_stream(self, stream_id):
+        with self._streams_lock:
+            self._streams.pop(stream_id, None)
+
+    def _stream(self, stream_id):
+        with self._streams_lock:
+            return self._streams.get(stream_id)
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        closer = getattr(self.transport, "close", None)
+        if closer is not None:
+            try:
+                closer()
+            except Exception:
+                pass
+        self._fail_all()
+
+    def _fail_all(self):
+        with self._streams_lock:
+            pending = list(self._streams.items())
+            self._streams.clear()
+        for _stream_id, stream_input in pending:
+            stream_input.put(
+                StreamEvent(
+                    EVENT_RST,
+                    status=StatusError(CODE_UNAVAILABLE, "data channel closed"),
+                )
+            )
+            stream_input.close()
+
+    def _read_loop(self):
+        while True:
+            try:
+                data = self.transport.recv()
+            except Exception:
+                self._fail_all()
+                return
+            if self._closed:
+                return
+            self._on_bytes(data)
+
+    def _on_bytes(self, data):
+        try:
+            frame_type, stream_id, payload = decode_frame(data)
+        except StatusError:
+            return  # malformed frame: drop, keep the channel up
+@@FRAME_DISPATCH@@
+
+    def _on_terminal(self, stream_id, payload, kind):
+        stream_input = self._stream(stream_id)
+        if stream_input is not None:
+            stream_input.put(StreamEvent(kind, status=parse_status(payload)))
+            stream_input.close()
+            self.close_stream(stream_id)
+
+    def _push_event(self, stream_id, event):
+        stream_input = self._stream(stream_id)
+        if stream_input is not None:
+            stream_input.put(event)
+
+    def _on_headers(self, stream_id, payload):
+        try:
+            headers = parse_headers(payload)
+        except StatusError as e:
+            try:
+                self.send_frame(status_frame(FRAME_RST, stream_id, to_status(e)))
+            except Exception:
+                pass
+            return
+        if headers.path is None:
+            # Server response headers for one of our outbound streams.
+            stream_input = self._stream(stream_id)
+            if stream_input is not None:
+                stream_input.put(StreamEvent(EVENT_HEADERS, headers=headers))
+            return
+        if self._stream(stream_id) is not None:
+            try:
+                self.send_frame(
+                    status_frame(
+                        FRAME_RST,
+                        stream_id,
+                        StatusError(CODE_INTERNAL, "HEADERS for stream already in use"),
+                    )
+                )
+            except Exception:
+                pass
+            return
+        if self.dispatcher is None:
+            try:
+                self.send_frame(
+                    status_frame(
+                        FRAME_TRAILERS,
+                        stream_id,
+                        StatusError(
+                            CODE_UNIMPLEMENTED, f"unknown method {headers.path}"
+                        ),
+                    )
+                )
+            except Exception:
+                pass
+            return
+        stream_input = StreamInput()
+        with self._streams_lock:
+            self._streams[stream_id] = stream_input
+        sink = ResponseSink(self, stream_id)
+
+        def run_call():
+            try:
+                try:
+                    sink.send_headers()
+                except Exception:
+                    return
+                status = self.dispatcher(
+                    CallContext(headers.metadata), headers, stream_input, sink
+                )
+                if status is None:
+                    status = StatusError(0, "")
+                try:
+                    sink.send_trailers(status)
+                except Exception:
+                    pass
+            finally:
+                self.close_stream(stream_id)
+
+        threading.Thread(target=run_call, daemon=True).start()
+GRPC_RUNTIME_EOF
+)
+
+(define python-channel-body
+#<<GRPC_RUNTIME_EOF
+"""Channel: the client side of one Endpoint."""
+
+from .codec import StatusError, encode_frame, headers_frame
+from .endpoint import (
+    EVENT_DATA,
+    EVENT_HEADERS,
+    EVENT_RST,
+    EVENT_TRAILERS,
+    Endpoint,
+)
+from .wire_gen import CODE_INTERNAL, CODE_UNAVAILABLE, FRAME_DATA, FRAME_HALF_CLOSE
+
+
+class Channel:
+    """Client side; allocates odd stream ids on a fresh Endpoint."""
+
+    def __init__(self, transport=None, endpoint=None):
+        if endpoint is not None:
+            self.endpoint = endpoint
+        else:
+            self.endpoint = Endpoint(transport, creator=True)
+        self.endpoint.start()
+
+    def _open(self, path, metadata):
+        stream_id, stream_input = self.endpoint.open_stream()
+        try:
+            self.endpoint.send_frame(headers_frame(stream_id, path, metadata))
+        except Exception:
+            self.endpoint.close_stream(stream_id)
+            raise
+        return ClientStream(self.endpoint, stream_id, stream_input)
+
+    def _send_message(self, stream, msg):
+        self.endpoint.send_frame(
+            encode_frame(FRAME_DATA, stream.stream_id, msg.marshal_dc())
+        )
+
+    def _half_close(self, stream):
+        self.endpoint.send_frame(encode_frame(FRAME_HALF_CLOSE, stream.stream_id, b""))
+
+    def _send_all(self, stream, reqs):
+        for req in reqs:
+            self._send_message(stream, req)
+        self._half_close(stream)
+
+    def unary(self, path, req, resp, metadata=None):
+        """Run a unary call, decoding the single response into resp."""
+        return self._unary(path, req, resp, metadata)
+
+    def _unary(self, path, req, resp, metadata):
+        stream = self._open(path, metadata)
+        try:
+            self._send_message(stream, req)
+            self._half_close(stream)
+            got = False
+            while True:
+                try:
+                    stream.recv(resp)
+                except EOFError:
+                    if not got:
+                        raise StatusError(
+                            CODE_INTERNAL, "call closed with no response"
+                        )
+                    return resp
+                if got:
+                    raise StatusError(
+                        CODE_INTERNAL, "unary call received more than one response"
+                    )
+                got = True
+        finally:
+            self.endpoint.close_stream(stream.stream_id)
+
+    def server_stream(self, path, req, metadata=None):
+        """Start a server-streaming call; returns a ClientStream."""
+        stream = self._open(path, metadata)
+        self._send_message(stream, req)
+        self._half_close(stream)
+        return stream
+
+    def client_stream(self, path, reqs, resp, metadata=None):
+        """Send all requests, then decode the one response into resp."""
+        stream = self._open(path, metadata)
+        try:
+            self._send_all(stream, reqs)
+            got = False
+            while True:
+                try:
+                    stream.recv(resp)
+                except EOFError:
+                    if not got:
+                        raise StatusError(
+                            CODE_INTERNAL, "call closed with no response"
+                        )
+                    return resp
+                if got:
+                    raise StatusError(
+                        CODE_INTERNAL,
+                        "client-streaming call received more than one response",
+                    )
+                got = True
+        finally:
+            self.endpoint.close_stream(stream.stream_id)
+
+    def bidi(self, path, reqs, metadata=None):
+        """Start a bidi call with all requests sent up front."""
+        stream = self._open(path, metadata)
+        self._send_all(stream, reqs)
+        return stream
+
+
+class ClientStream:
+    """Receives response messages of one call."""
+
+    def __init__(self, endpoint, stream_id, stream_input):
+        self._endpoint = endpoint
+        self.stream_id = stream_id
+        self._input = stream_input
+        self.headers = None
+
+    def recv(self, resp):
+        """Decode the next response into resp.
+
+        Raises EOFError when the call completed OK; StatusError
+        reports the trailers status.
+        """
+        while True:
+            event = self._input.get()
+            if event is None:
+                raise StatusError(CODE_UNAVAILABLE, "data channel closed")
+            if event.kind == EVENT_HEADERS:
+                self.headers = event.headers
+            elif event.kind == EVENT_DATA:
+                resp.unmarshal_dc(event.payload)
+                return resp
+            elif event.kind == EVENT_TRAILERS:
+                if event.status.code != 0:
+                    raise event.status
+                raise EOFError("call completed")
+            elif event.kind == EVENT_RST:
+                raise event.status
+GRPC_RUNTIME_EOF
+)
+
+(define python-server-body
+#<<GRPC_RUNTIME_EOF
+"""Server: dispatches inbound calls to registered methods."""
+
+from .codec import to_status
+from .endpoint import (
+    EVENT_DATA,
+    EVENT_HALF_CLOSE,
+    EVENT_RST,
+    EVENT_TRAILERS,
+    Endpoint,
+)
+from .wire_gen import CODE_UNAVAILABLE, CODE_UNIMPLEMENTED
+
+KIND_UNARY = "unary"
+KIND_SERVER_STREAMING = "server-streaming"
+KIND_CLIENT_STREAMING = "client-streaming"
+KIND_BIDI = "bidi"
+
+
+class RequestStream:
+    """Reads request messages of one inbound call."""
+
+    def __init__(self, stream_input):
+        self._input = stream_input
+
+    def recv_raw(self):
+        """Next request payload; EOFError at half-close."""
+        while True:
+            event = self._input.get()
+            if event is None:
+                from .codec import StatusError
+
+                raise StatusError(CODE_UNAVAILABLE, "data channel closed")
+            if event.kind == EVENT_DATA:
+                return event.payload
+            if event.kind == EVENT_HALF_CLOSE:
+                raise EOFError("half-close")
+            if event.kind in (EVENT_TRAILERS, EVENT_RST):
+                raise event.status
+
+    def recv_into(self, req):
+        req.unmarshal_dc(self.recv_raw())
+        return req
+
+
+class Method:
+    def __init__(self, name, path, kind, handler):
+        self.name = name
+        self.path = path
+        self.kind = kind
+        self.handler = handler  # fn(ctx, RequestStream, sink) -> None
+
+
+class ServiceDesc:
+    def __init__(self, name, methods):
+        self.name = name
+        self.methods = methods
+
+
+class Server:
+    """Dispatches inbound calls to registered methods."""
+
+    def __init__(self):
+        self._methods = {}
+
+    def register_service(self, desc):
+        for method in desc.methods:
+            self._methods[method.path] = method
+
+    def serve_transport(self, transport):
+        """Attach to a transport (even stream ids); returns Endpoint."""
+        endpoint = Endpoint(transport, creator=False)
+        self.serve_endpoint(endpoint)
+        return endpoint
+
+    def serve_endpoint(self, endpoint):
+        endpoint.set_dispatcher(self._dispatch)
+        endpoint.start()
+
+    def _dispatch(self, ctx, headers, stream_input, sink):
+        method = self._methods.get(headers.path)
+        if method is None:
+            from .codec import StatusError
+
+            return StatusError(
+                CODE_UNIMPLEMENTED, f"unknown method {headers.path}"
+            )
+        try:
+            method.handler(ctx, RequestStream(stream_input), sink)
+        except Exception as e:  # StatusError passes through via to_status
+            return to_status(e)
+        return None
+GRPC_RUNTIME_EOF
+)
+
+(define python-loopback-body
+#<<GRPC_RUNTIME_EOF
+"""In-memory transport pair for tests (one queue per direction)."""
+
+import queue
+
+from .endpoint import Transport
+
+_SENTINEL = object()
+
+
+class _MemoryTransport(Transport):
+    def __init__(self, inbox, outbox):
+        self._inbox = inbox
+        self._outbox = outbox
+        self._closed = False
+
+    def send(self, data):
+        if self._closed:
+            raise EOFError("transport closed")
+        self._outbox.put(bytes(data))
+
+    def recv(self):
+        item = self._inbox.get()
+        if item is _SENTINEL:
+            raise EOFError("transport closed")
+        return item
+
+    def close(self):
+        self._closed = True
+        self._inbox.put(_SENTINEL)
+
+
+def memory_transport_pair():
+    """Two connected in-memory transports."""
+    a_to_b = queue.Queue()
+    b_to_a = queue.Queue()
+    return _MemoryTransport(b_to_a, a_to_b), _MemoryTransport(a_to_b, b_to_a)
+GRPC_RUNTIME_EOF
+)
+
+(define python-init-body
+#<<GRPC_RUNTIME_EOF
+"""grpcdc: gRPC over WebRTC DataChannels (generated runtime)."""
+
+from .channel import Channel, ClientStream
+from .codec import (
+    CallClosed,
+    Headers,
+    StatusError,
+    decode_frame,
+    encode_frame,
+    status_name,
+    to_status,
+)
+from .endpoint import CallContext, Endpoint, Transport
+from .dynamic import (
+    DynamicClient,
+    FileModel,
+    GenericMessage,
+    parse_descriptor_set,
+    register_dynamic_service,
+)
+from .loopback import memory_transport_pair
+from .wire_gen import CODE_INTERNAL
+from .server import (
+    KIND_BIDI,
+    KIND_CLIENT_STREAMING,
+    KIND_SERVER_STREAMING,
+    KIND_UNARY,
+    Method,
+    RequestStream,
+    Server,
+    ServiceDesc,
+)
+
+__all__ = [
+    "CODE_INTERNAL",
+    "CallClosed",
+    "DynamicClient",
+    "FileModel",
+    "GenericMessage",
+    "CallContext",
+    "Channel",
+    "ClientStream",
+    "Endpoint",
+    "Headers",
+    "KIND_BIDI",
+    "KIND_CLIENT_STREAMING",
+    "KIND_SERVER_STREAMING",
+    "KIND_UNARY",
+    "Method",
+    "RequestStream",
+    "Server",
+    "ServiceDesc",
+    "StatusError",
+    "Transport",
+    "decode_frame",
+    "encode_frame",
+    "memory_transport_pair",
+    "parse_descriptor_set",
+    "register_dynamic_service",
+    "status_name",
+    "to_status",
+]
+GRPC_RUNTIME_EOF
+)
+
+(define python-dispatch-arms
+  '((HEADERS    . "self._on_headers(stream_id, payload)")
+    (DATA       . "self._push_event(stream_id, StreamEvent(EVENT_DATA, payload=payload))")
+    (HALF-CLOSE . "self._push_event(stream_id, StreamEvent(EVENT_HALF_CLOSE))")
+    (TRAILERS   . "self._on_terminal(stream_id, payload, EVENT_TRAILERS)")
+    (RST        . "self._on_terminal(stream_id, payload, EVENT_RST)")))
+
+(define (screaming-name sym) ; HALF-CLOSE -> HALF_CLOSE
+  (string-replace (symbol->string sym) "-" "_"))
+
+(define (emit-python-dispatch)
+  (string-append
+   "        _dispatch = {\n"
+   (apply string-append
+          (for/list ([e (in-list frame-table)])
+            (format "            ~a: lambda: ~a,\n"
+                    (second e)
+                    (let ([arm (assoc (first e) python-dispatch-arms)])
+                      (unless arm
+                        (error 'runtime-python "no Python dispatch arm for ~a" (first e)))
+                      (cdr arm)))))
+   "        }\n"
+   "        action = _dispatch.get(frame_type)\n"
+   "        if action is not None:\n"
+   "            action()\n"))
+
+(define (emit-python-runtime-files)
+  (list
+   (cons "grpcdc/__init__.py" python-init-body)
+   (cons "grpcdc/codec.py" python-codec-body)
+   (cons "grpcdc/endpoint.py"
+         (string-replace python-endpoint-body "@@FRAME_DISPATCH@@" (emit-python-dispatch)))
+   (cons "grpcdc/channel.py" python-channel-body)
+   (cons "grpcdc/server.py" python-server-body)
+   (cons "grpcdc/loopback.py" python-loopback-body)
+   (cons "grpcdc/dynamic.py" python-dynamic-body)))
+
+(define python-dynamic-body
+#<<GRPC_RUNTIME_EOF
+"""Dynamic, descriptor-driven client and server.
+
+Parses a FileDescriptorSet (as produced by
+`protoc --descriptor_set_out`) at runtime and builds clients and
+servers whose messages are generic field maps — no generated stubs
+required. This is the runtime-generation counterpart of the
+protoc-plugin surfaces: schemas arrive as data (descriptor.proto),
+not as code.
+
+Generic values by field type: varint family -> int, string -> str,
+bytes/message -> bytes / GenericMessage, fixed/float -> int / float,
+bool -> bool. Repeated fields are lists in field-number order.
+"""
+
+import struct
+
+from . import channel as _channel_module  # noqa: F401  (re-export surface)
+from .codec import StatusError
+from .server import KIND_BIDI, KIND_CLIENT_STREAMING, KIND_SERVER_STREAMING, KIND_UNARY, Method, ServiceDesc
+from .wire_gen import CODE_INVALID_ARGUMENT
+
+# FieldDescriptorProto.Type values (descriptor.proto).
+TYPE_DOUBLE = 1
+TYPE_FLOAT = 2
+TYPE_INT64 = 3
+TYPE_UINT64 = 4
+TYPE_INT32 = 5
+TYPE_FIXED64 = 6
+TYPE_FIXED32 = 7
+TYPE_BOOL = 8
+TYPE_STRING = 9
+TYPE_GROUP = 10
+TYPE_MESSAGE = 11
+TYPE_BYTES = 12
+TYPE_UINT32 = 13
+TYPE_ENUM = 14
+TYPE_SFIXED32 = 15
+TYPE_SFIXED64 = 16
+TYPE_SINT32 = 17
+TYPE_SINT64 = 18
+
+_VARINT_TYPES = {TYPE_INT64, TYPE_UINT64, TYPE_INT32, TYPE_BOOL, TYPE_UINT32, TYPE_ENUM, TYPE_SINT32, TYPE_SINT64}
+_LEN_TYPES = {TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE, TYPE_GROUP}
+_WIRE_TYPE = {}
+for _t in _VARINT_TYPES:
+    _WIRE_TYPE[_t] = 0
+for _t in (TYPE_FIXED64, TYPE_SFIXED64, TYPE_DOUBLE):
+    _WIRE_TYPE[_t] = 1
+for _t in _LEN_TYPES:
+    _WIRE_TYPE[_t] = 2
+for _t in (TYPE_FIXED32, TYPE_SFIXED32, TYPE_FLOAT):
+    _WIRE_TYPE[_t] = 5
+
+LABEL_REPEATED = 3
+
+
+class _PbReader:
+    def __init__(self, data):
+        self.buf = data
+        self.pos = 0
+
+    def varint(self):
+        result = 0
+        shift = 0
+        while True:
+            if self.pos >= len(self.buf):
+                raise ValueError("truncated varint")
+            b = self.buf[self.pos]
+            self.pos += 1
+            result |= (b & 0x7F) << shift
+            if not (b & 0x80):
+                return result
+            shift += 7
+            if shift >= 70:
+                raise ValueError("varint too long")
+
+    def bytes_field(self):
+        n = self.varint()
+        if self.pos + n > len(self.buf):
+            raise ValueError("truncated bytes field")
+        out = self.buf[self.pos : self.pos + n]
+        self.pos += n
+        return out
+
+    def fields(self):
+        """Yield (number, wire_type, value) until end of buffer.
+        Sets self.last_chunk to the raw bytes of the yielded field
+        (captured before the yield, so consumers may read it while
+        processing this field)."""
+        while self.pos < len(self.buf):
+            start = self.pos
+            tag = self.varint()
+            number, wire = tag >> 3, tag & 7
+            if wire == 0:
+                value = self.varint()
+            elif wire == 2:
+                value = self.bytes_field()
+            elif wire == 1:
+                if self.pos + 8 > len(self.buf):
+                    raise ValueError("truncated fixed64")
+                value = self.buf[self.pos : self.pos + 8]
+                self.pos += 8
+            elif wire == 5:
+                if self.pos + 4 > len(self.buf):
+                    raise ValueError("truncated fixed32")
+                value = self.buf[self.pos : self.pos + 4]
+                self.pos += 4
+            else:
+                raise ValueError(f"unsupported wire type {wire}")
+            self.last_chunk = self.buf[start : self.pos]
+            yield number, wire, value
+
+
+def _read_string(reader_fields, number, default=""):
+    for num, _wire, value in reader_fields:
+        if num == number:
+            return value.decode("utf-8")
+    return default
+
+
+class FieldModel:
+    def __init__(self, number, name, field_type, label, type_name):
+        self.number = number
+        self.name = name
+        self.type = field_type
+        self.repeated = label == LABEL_REPEATED
+        self.type_name = type_name  # for TYPE_MESSAGE, e.g. ".echo.EchoRequest"
+
+
+class MessageModel:
+    def __init__(self, full_name, fields):
+        self.full_name = full_name
+        self.fields = fields  # number -> FieldModel
+        self.by_name = {f.name: f for f in fields.values()}
+
+
+class MethodModel:
+    def __init__(self, name, path, kind, input_model, output_model):
+        self.name = name
+        self.path = path
+        self.kind = kind
+        self.input = input_model
+        self.output = output_model
+
+
+class ServiceModel:
+    def __init__(self, full_name, methods):
+        self.full_name = full_name
+        self.methods = methods  # name -> MethodModel
+
+
+class FileModel:
+    """Parsed descriptor set: messages and services by full name."""
+
+    def __init__(self):
+        self.messages = {}  # ".echo.EchoRequest" -> MessageModel
+        self.services = {}  # "echo.Echo" -> ServiceModel
+
+    def message(self, full_name):
+        return self.messages[full_name]
+
+    def service(self, full_name):
+        return self.services[full_name]
+
+
+def _to_signed(value, bits):
+    value &= (1 << bits) - 1
+    return value - (1 << bits) if value >= (1 << (bits - 1)) else value
+
+
+def _zigzag_decode(value):
+    return (value >> 1) ^ -(value & 1)
+
+
+def _zigzag_encode(value):
+    return ((value << 1) ^ (value >> 63)) & 0xFFFFFFFFFFFFFFFF
+
+
+class GenericMessage:
+    """A message as field number -> list of values (descriptor order).
+
+    Fields not in the model are retained as raw encoded chunks in
+    `unknown` (protobuf unknown-field retention): a decode -> encode
+    round trip re-emits them after the known fields, so intermediate
+    hops do not strip newer fields.
+    """
+
+    def __init__(self, model=None):
+        self.model = model
+        self.values = {}
+        self.unknown = []
+
+    def set(self, number, value):
+        self.values[number] = [value]
+        return self
+
+    def add(self, number, value):
+        self.values.setdefault(number, []).append(value)
+        return self
+
+    def get_all(self, number):
+        return list(self.values.get(number, []))
+
+    def get(self, number, default=None):
+        items = self.values.get(number)
+        return items[0] if items else default
+
+    def get_string(self, number, default=""):
+        value = self.get(number)
+        return value if isinstance(value, str) else default
+
+    def get_int(self, number, default=0):
+        value = self.get(number)
+        return value if isinstance(value, int) else default
+
+    def __eq__(self, other):
+        return isinstance(other, GenericMessage) and self.values == other.values
+
+    def __repr__(self):
+        return f"GenericMessage({self.values!r})"
+
+
+def _encode_value(out, field, value, file_model):
+    wire = _WIRE_TYPE[field.type]
+    out += _encode_varint((field.number << 3) | wire)
+    if wire == 0:
+        if field.type in (TYPE_SINT32, TYPE_SINT64):
+            out += _encode_varint(_zigzag_encode(value) & ((1 << (32 if field.type == TYPE_SINT32 else 64)) - 1))
+        elif field.type == TYPE_BOOL:
+            out += _encode_varint(1 if value else 0)
+        else:
+            out += _encode_varint(value & 0xFFFFFFFFFFFFFFFF)
+    elif wire == 1:
+        if field.type == TYPE_DOUBLE:
+            out += struct.pack("<d", value)
+        else:
+            out += struct.pack("<Q", value & 0xFFFFFFFFFFFFFFFF)
+    elif wire == 5:
+        if field.type == TYPE_FLOAT:
+            out += struct.pack("<f", value)
+        else:
+            out += struct.pack("<I", value & 0xFFFFFFFF)
+    else:
+        if field.type == TYPE_STRING:
+            data = value.encode("utf-8")
+        elif field.type == TYPE_MESSAGE:
+            data = encode_generic(file_model.messages[field.type_name], value, file_model)
+        else:
+            data = bytes(value)
+        out += _encode_varint(len(data))
+        out += data
+
+
+def _encode_varint(value):
+    out = bytearray()
+    v = value & 0xFFFFFFFFFFFFFFFF
+    while v > 0x7F:
+        out.append((v & 0x7F) | 0x80)
+        v >>= 7
+    out.append(v)
+    return bytes(out)
+
+
+def encode_generic(model, message, file_model):
+    out = bytearray()
+    for number in sorted(message.values):
+        field = model.fields.get(number)
+        if field is None:
+            raise StatusError(CODE_INVALID_ARGUMENT, f"unknown field {number} for {model.full_name}")
+        values = message.values[number]
+        if field.repeated:
+            for value in values:
+                out += _encode_value_to_bytes(field, value, file_model)
+        elif values:
+            out += _encode_value_to_bytes(field, values[0], file_model)
+    for chunk in getattr(message, "unknown", []):
+        out += chunk
+    return bytes(out)
+
+
+def _encode_value_to_bytes(field, value, file_model):
+    out = bytearray()
+    _encode_value(out, field, value, file_model)
+    return bytes(out)
+
+
+def _decode_value(field, wire, raw, file_model):
+    if wire == 0:
+        if field.type == TYPE_BOOL:
+            return raw != 0
+        if field.type in (TYPE_SINT32, TYPE_SINT64):
+            return _zigzag_decode(raw)
+        if field.type in (TYPE_INT32, TYPE_ENUM):
+            return _to_signed(raw, 32)
+        if field.type == TYPE_INT64:
+            return _to_signed(raw, 64)
+        return raw
+    if wire == 1:
+        if field.type == TYPE_DOUBLE:
+            return struct.unpack("<d", raw)[0]
+        return struct.unpack("<Q", raw)[0]
+    if wire == 5:
+        if field.type == TYPE_FLOAT:
+            return struct.unpack("<f", raw)[0]
+        return struct.unpack("<I", raw)[0]
+    # length-delimited
+    if field.type == TYPE_STRING:
+        return raw.decode("utf-8")
+    if field.type == TYPE_MESSAGE:
+        return decode_generic(file_model.messages[field.type_name], raw, file_model)
+    return bytes(raw)
+
+
+def decode_generic(model, data, file_model):
+    message = GenericMessage(model)
+    reader = _PbReader(data)
+    for number, wire, raw in reader.fields():
+        field = model.fields.get(number)
+        if field is None:
+            # Unknown field: retain the raw encoded chunk verbatim.
+            message.unknown.append(reader.last_chunk)
+            continue
+        message.values.setdefault(number, []).append(_decode_value(field, wire, raw, file_model))
+    return message
+
+
+def parse_descriptor_set(data):
+    """Parse FileDescriptorSet bytes into a FileModel."""
+    file_model = FileModel()
+    pending_services = []
+    for number, _wire, file_bytes in _PbReader(data).fields():
+        if number != 1:
+            continue
+        package = ""
+        message_types = []
+        service_types = []
+        fields_of_file = list(_PbReader(file_bytes).fields())
+        for fnum, _w, fval in fields_of_file:
+            if fnum == 2:
+                package = fval.decode("utf-8")
+        for fnum, _w, fval in fields_of_file:
+            if fnum == 4:
+                message_types.append(_parse_message(package, fval, file_model))
+            elif fnum == 6:
+                service_types.append((package, fval))
+        pending_services.extend(service_types)
+    for package, service_bytes in pending_services:
+        _parse_service(package, service_bytes, file_model)
+    return file_model
+
+
+def _parse_message(package, data, file_model):
+    name = ""
+    raw_fields = []
+    nested = []
+    for fnum, _w, fval in _PbReader(data).fields():
+        if fnum == 1:
+            name = fval.decode("utf-8")
+        elif fnum == 2:
+            raw_fields.append(fval)
+        elif fnum == 3:
+            nested.append(fval)
+    full_name = f"{package}.{name}" if package else name
+    fields = {}
+    model = MessageModel(full_name, fields)
+    file_model.messages["." + full_name] = model
+    for nested_bytes in nested:
+        # Nested types register as package.Outer.Inner.
+        _parse_nested(package, name, nested_bytes, file_model)
+    for field_bytes in raw_fields:
+        field = _parse_field(field_bytes)
+        fields[field.number] = field
+    return model
+
+
+def _parse_nested(package, outer, data, file_model):
+    name = ""
+    raw_fields = []
+    for fnum, _w, fval in _PbReader(data).fields():
+        if fnum == 1:
+            name = fval.decode("utf-8")
+        elif fnum == 2:
+            raw_fields.append(fval)
+    full_name = f"{package}.{outer}.{name}" if package else f"{outer}.{name}"
+    fields = {}
+    model = MessageModel(full_name, fields)
+    file_model.messages["." + full_name] = model
+    for field_bytes in raw_fields:
+        field = _parse_field(field_bytes)
+        fields[field.number] = field
+    return model
+
+
+def _parse_field(data):
+    name = ""
+    number = 0
+    label = 1
+    field_type = 0
+    type_name = ""
+    for fnum, _w, fval in _PbReader(data).fields():
+        if fnum == 1:
+            name = fval.decode("utf-8")
+        elif fnum == 3:
+            number = fval
+        elif fnum == 4:
+            label = fval
+        elif fnum == 5:
+            field_type = fval
+        elif fnum == 6:
+            type_name = fval.decode("utf-8")
+    return FieldModel(number, name, field_type, label, type_name)
+
+
+def _kind_of(client_streaming, server_streaming):
+    if client_streaming and server_streaming:
+        return KIND_BIDI
+    if server_streaming:
+        return KIND_SERVER_STREAMING
+    if client_streaming:
+        return KIND_CLIENT_STREAMING
+    return KIND_UNARY
+
+
+def _parse_service(package, data, file_model):
+    name = ""
+    raw_methods = []
+    for fnum, _w, fval in _PbReader(data).fields():
+        if fnum == 1:
+            name = fval.decode("utf-8")
+        elif fnum == 2:
+            raw_methods.append(fval)
+    full_name = f"{package}.{name}" if package else name
+    methods = {}
+    for method_bytes in raw_methods:
+        mname = ""
+        input_type = ""
+        output_type = ""
+        client_streaming = False
+        server_streaming = False
+        for fnum, _w, fval in _PbReader(method_bytes).fields():
+            if fnum == 1:
+                mname = fval.decode("utf-8")
+            elif fnum == 2:
+                input_type = fval.decode("utf-8")
+            elif fnum == 3:
+                output_type = fval.decode("utf-8")
+            elif fnum == 5:
+                client_streaming = fval != 0
+            elif fnum == 6:
+                server_streaming = fval != 0
+        methods[mname] = MethodModel(
+            mname,
+            f"/{full_name}/{mname}",
+            _kind_of(client_streaming, server_streaming),
+            file_model.messages[input_type],
+            file_model.messages[output_type],
+        )
+    service = ServiceModel(full_name, methods)
+    file_model.services[full_name] = service
+    return service
+
+
+class _BoundMessage:
+    """Adapts a (MessageModel, GenericMessage) pair to the Channel
+    marshal/unmarshal contract."""
+
+    def __init__(self, model, generic, file_model):
+        self.model = model
+        self.generic = generic if generic is not None else GenericMessage(model)
+        self.file_model = file_model
+
+    def marshal_dc(self):
+        return encode_generic(self.model, self.generic, self.file_model)
+
+    def unmarshal_dc(self, data):
+        self.generic = decode_generic(self.model, data, self.file_model)
+        return self
+
+
+class DynamicClient:
+    """Runtime-built client: methods resolve from the FileModel."""
+
+    def __init__(self, channel, file_model):
+        self._channel = channel
+        self._model = file_model
+
+    def _method(self, service_name, method_name):
+        service = self._model.services[service_name]
+        return service.methods[method_name]
+
+    def unary(self, service_name, method_name, request, metadata=None):
+        method = self._method(service_name, method_name)
+        resp = _BoundMessage(method.output, None, self._model)
+        self._channel.unary(
+            method.path, _BoundMessage(method.input, request, self._model), resp, metadata
+        )
+        return resp.generic
+
+    def server_stream(self, service_name, method_name, request, metadata=None):
+        method = self._method(service_name, method_name)
+        stream = self._channel.server_stream(
+            method.path, _BoundMessage(method.input, request, self._model), metadata
+        )
+        return _DynamicRecvStream(stream, method.output, self._model)
+
+    def client_stream(self, service_name, method_name, requests, metadata=None):
+        method = self._method(service_name, method_name)
+        resp = _BoundMessage(method.output, None, self._model)
+        self._channel.client_stream(
+            method.path,
+            [_BoundMessage(method.input, r, self._model) for r in requests],
+            resp,
+            metadata,
+        )
+        return resp.generic
+
+    def bidi(self, service_name, method_name, requests, metadata=None):
+        method = self._method(service_name, method_name)
+        stream = self._channel.bidi(
+            method.path,
+            [_BoundMessage(method.input, r, self._model) for r in requests],
+            metadata,
+        )
+        return _DynamicRecvStream(stream, method.output, self._model)
+
+
+class _DynamicRecvStream:
+    def __init__(self, stream, model, file_model):
+        self._stream = stream
+        self._model = model
+        self._file_model = file_model
+
+    def recv(self):
+        return self._stream.recv(_BoundMessage(self._model, None, self._file_model)).generic
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        try:
+            return self.recv()
+        except EOFError:
+            raise StopIteration
+
+
+def register_dynamic_service(server, file_model, service_name, handler):
+    """Register a runtime-built service on a grpcdc Server.
+
+    handler is an object with methods by kind:
+      unary(ctx, method, request) -> GenericMessage
+      server_stream(ctx, method, request, send) -> None
+      client_stream(ctx, method, request_iter) -> GenericMessage
+      bidi(ctx, method, request_iter, send) -> None
+    where send takes a GenericMessage and request_iter yields
+    GenericMessages (EOFError at half-close).
+    """
+    service = file_model.services[service_name]
+    methods = []
+    for method in service.methods.values():
+        methods.append(Method(method.name, method.path, method.kind,
+                              _make_handler(handler, method, file_model)))
+    server.register_service(ServiceDesc(service.full_name, methods))
+
+
+def _make_handler(handler, method, file_model):
+    def handle(ctx, reqs, sink):
+        def send(generic):
+            sink.send(encode_generic(method.output, generic, file_model))
+
+        def request_iter():
+            while True:
+                try:
+                    payload = reqs.recv_raw()
+                except EOFError:
+                    return
+                yield decode_generic(method.input, payload, file_model)
+
+        kind = method.kind
+        if kind == KIND_UNARY:
+            request = next(request_iter())
+            resp = handler.unary(ctx, method, request)
+            send(resp)
+        elif kind == KIND_SERVER_STREAMING:
+            request = next(request_iter())
+            handler.server_stream(ctx, method, request, send)
+        elif kind == KIND_CLIENT_STREAMING:
+            resp = handler.client_stream(ctx, method, request_iter())
+            send(resp)
+        else:
+            handler.bidi(ctx, method, request_iter(), send)
+
+    return handle
+
+GRPC_RUNTIME_EOF
+)
+

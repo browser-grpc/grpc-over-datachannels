@@ -1,0 +1,31 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+namespace tests {
+
+/// Golden vectors stamped by racket/metagen.rkt (same values as
+/// fixtures/vectors.json). Rows: name, type, streamId, frameHex, payloadHex.
+struct FrameVector {
+  const char* name;
+  int type;
+  std::uint32_t stream_id;
+  const char* frame_hex;
+  const char* payload_hex;
+};
+
+inline const std::vector<FrameVector>& FrameVectors() {
+  static const std::vector<FrameVector> rows = {
+      {"headers", 1, 1, "0100000001000000297b2270617468223a222f6563686f2e4563686f2f556e617279222c226d65746164617461223a7b7d7d", "7b2270617468223a222f6563686f2e4563686f2f556e617279222c226d65746164617461223a7b7d7d"},
+      {"data", 2, 3, "0200000003000000060a0268691002", "0a0268691002"},
+      {"trailers", 3, 1, "0300000001000000177b22636f6465223a302c226d657373616765223a22227d", "7b22636f6465223a302c226d657373616765223a22227d"},
+  };
+  return rows;
+}
+
+/// EchoRequest{message:"hi", count:2} protobuf bytes.
+inline const char* ProtoHex() { return "0a0268691002"; }
+
+}  // namespace tests

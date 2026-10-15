@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>EchoExamples</AssemblyName>
+    <RootNamespace>Echo</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../grpcdc/Grpcdc.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- stdio harness programs are standalone executables -->
+    <Compile Remove="EchoServerStdio/**/*.cs" />
+    <Compile Remove="EchoClientStdio/**/*.cs" />
+    <Compile Remove="DynamicEchoServerStdio/**/*.cs" />
+  </ItemGroup>
+</Project>

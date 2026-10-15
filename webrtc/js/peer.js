@@ -1,0 +1,414 @@
+// Full WebRTC peer: UDP socket + ICE (host candidates) + DTLS + SCTP.
+// Mirrors webrtc/rust/src/peer.rs. Lifecycle: createOffer /
+// handleOffer (returns answer) / handleAnswer, then connect() runs ICE
+// checks, performs DTLS over the nominated pair, and returns a
+// DcEndpoint whose channels look like RTCDataChannels.
+
+import dgram from "node:dgram";
+import net from "node:net";
+import os from "node:os";
+import { DtlsConnection } from "./dtls.js";
+import { resolveMdns } from "./mdns.js";
+import { DcEndpoint } from "./endpoint.js";
+import { Candidate, IceAgent } from "./ice.js";
+import { StunAttribute, StunMessageType } from "./proto_gen.js";
+import { StunMessage, decodeMappedAddress } from "./stun.js";
+import { generate, parse } from "./sdp.js";
+import {
+  allocateTurn,
+  bindChannels,
+  createPermissions,
+  unwrapChannelData,
+  unwrapDataIndication,
+  wrapChannelData,
+  wrapSendIndication,
+} from "./turn.js";
+import { Certificate } from "./x509.js";
+
+function defaultLocalIps() {
+  const ips = ["127.0.0.1"];
+  for (const infos of Object.values(os.networkInterfaces())) {
+    for (const info of infos ?? []) {
+      if (info.family === "IPv4" && !info.internal && !ips.includes(info.address)) {
+        ips.push(info.address);
+      }
+    }
+  }
+  return ips;
+}
+
+export class Peer {
+  #socket;
+  #agent;
+  #certificate;
+  #remote = null;
+  #dtlsRole = "server";
+  #requirePeerCertificate;
+  #dtlsQueue = [];
+  #dtlsWaiters = [];
+  #srflxWaiters = new Map(); // tid hex -> resolve
+  #endpoint = null;
+  // Live TURN allocation (turn.js) once allocateTurn succeeds;
+  // #relayActive flips at connect: pair traffic is then wrapped
+  // in Send/Data indications through the allocation.
+  turn = null;
+  #relayActive = false;
+  // Trickle callback for local candidates (setOnLocalCandidate).
+  onLocalCandidate = null;
+  // Invoked exactly once if consent for the nominated pair
+  // expires (RFC 7675); the endpoint is then closed.
+  onConsentFailure = null;
+  #consentTimer = null;
+  #consentIntervalMs = 5000;
+  #consentExpiryMs = 30000;
+
+  constructor(socket, agent, certificate, { requirePeerCertificate = true } = {}) {
+    this.#socket = socket;
+    this.#agent = agent;
+    this.#certificate = certificate;
+    this.#requirePeerCertificate = requirePeerCertificate;
+    socket.on("message", (msg, rinfo) => this.#onPacket(msg, rinfo));
+  }
+
+  // consentIntervalMs: how often a consent check is sent on the
+  // nominated pair (default 5000; null disables). consentExpiryMs:
+  // silence tolerated before consent expires (default 30000).
+  static async create({
+    localIps = null,
+    requirePeerCertificate = true,
+    stunServers = [],
+    turnServers = [],
+    consentIntervalMs = 5000,
+    consentExpiryMs = 30000,
+  } = {}) {
+    const socket = dgram.createSocket("udp4");
+    socket.on("error", () => {}); // async send errors must not crash the process
+    await new Promise((resolve) => socket.bind(0, "0.0.0.0", resolve));
+    const { port } = socket.address();
+    const agent = new IceAgent(true);
+    agent.localCandidates = (localIps ?? defaultLocalIps()).map((ip, i) =>
+      Candidate.host(ip, port, String(i + 1)),
+    );
+    const peer = new Peer(socket, agent, Certificate.generate(), { requirePeerCertificate });
+    peer.#consentIntervalMs = consentIntervalMs;
+    peer.#consentExpiryMs = consentExpiryMs;
+    for (const server of stunServers) {
+      await peer.gatherSrflx(server); // failures ignored: host candidates still apply
+    }
+    for (const cfg of turnServers) {
+      try {
+        const client = await allocateTurn(peer, cfg);
+        const base = agent.localCandidates[0];
+        if (!agent.localCandidates.some((c) => c.address === client.relayed.address && c.port === client.relayed.port)) {
+          const cand = Candidate.relay(client.relayed.address, client.relayed.port, base, String(agent.localCandidates.length + 1));
+          agent.localCandidates.push(cand);
+          peer.#emitLocalCandidate(cand);
+        }
+        break; // one relay candidate is enough
+      } catch {
+        peer.turn = null; // unreachable TURN server: host/srflx still apply
+      }
+    }
+    return peer;
+  }
+
+  // Direct socket send for TURN control traffic (never wrapped).
+  sendTurnControl(buf, port, address) {
+    this.#socket.send(buf, port, address, () => {});
+  }
+
+  // Send pair traffic (ICE checks/responses, DTLS) through the
+  // allocation once the relay is active: ChannelData framing
+  // when a channel is bound for the peer, Send indication else.
+  #sendTo(buf, remote) {
+    if (this.turn && this.#relayActive) {
+      const channel = this.turn.bindings.get(`${remote.address}:${remote.port}`);
+      const wrapped =
+        channel !== undefined ? wrapChannelData(channel, buf) : wrapSendIndication(this.turn, buf, remote);
+      this.#socket.send(wrapped, this.turn.server.port, this.turn.server.address, () => {});
+      return;
+    }
+    this.#socket.send(buf, remote.port, remote.address, () => {});
+  }
+
+  // Query one STUN server ("host:port") for a server-reflexive
+  // candidate (RFC 8445 section 5.1.2). The request rides the peer's
+  // own socket so the mapping is the one ICE checks will use; the
+  // read loop demultiplexes the response by transaction id.
+  // Resolves true when a candidate was added.
+  async gatherSrflx(server, timeoutMs = 1200) {
+    const [host, portText] = server.split(":");
+    const port = Number(portText);
+    if (!host || !port) return false;
+    const request = new StunMessage(StunMessageType.BINDING_REQUEST);
+    const tid = request.transactionId.toString("hex");
+    const responsePromise = new Promise((resolve) => {
+      this.#srflxWaiters.set(tid, resolve);
+    });
+    this.#socket.send(request.encode(null), port, host, () => {});
+    const mapped = await Promise.race([
+      responsePromise,
+      new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+    this.#srflxWaiters.delete(tid);
+    if (!mapped) return false;
+    if (this.#agent.localCandidates.some((c) => c.address === mapped.address && c.port === mapped.port)) {
+      return false; // already have this address (e.g. host on a flat network)
+    }
+    const base = this.#agent.localCandidates[0];
+    const cand = Candidate.srflx(mapped.address, mapped.port, base, String(this.#agent.localCandidates.length + 1));
+    this.#agent.localCandidates.push(cand);
+    this.#emitLocalCandidate(cand);
+    return true;
+  }
+
+  #emitLocalCandidate(cand) {
+    if (this.onLocalCandidate) this.onLocalCandidate(cand.toSdp());
+  }
+
+  // Register the trickle callback for local candidates and
+  // immediately replay the candidates gathered so far; candidates
+  // gathered later (explicit gatherSrflx calls) fire as added.
+  // Candidates gathered inside Peer.create are covered by the
+  // replay, since registration necessarily follows creation.
+  setOnLocalCandidate(cb) {
+    this.onLocalCandidate = cb;
+    if (cb) for (const cand of this.#agent.localCandidates) cb(cand.toSdp());
+  }
+
+  // Local candidates as SDP lines ("a=candidate:...") for
+  // trickle signaling.
+  localCandidateLines() {
+    return this.#agent.localCandidates.map((c) => c.toSdp());
+  }
+
+  // Trickle one remote candidate in after the remote description
+  // was applied (RFC 8445 trickle ICE). Accepts a full SDP line
+  // ("a=candidate:..."), the bare candidate value ("candidate:...",
+  // as browsers hand to addIceCandidate), an end-of-candidates
+  // line, or an empty string; the latter two are accepted no-ops.
+  // Returns true when a new candidate was added (duplicates and
+  // malformed lines return false). Safe to call while connect()
+  // is running; mDNS ".local" addresses resolve asynchronously,
+  // as connect() does for SDP-carried candidates.
+  addRemoteCandidate(line) {
+    const text = String(line ?? "").trim();
+    if (!text || text.includes("end-of-candidates")) return false;
+    const cand = Candidate.fromSdp(text.replace(/^a=/, ""));
+    if (!cand) return false;
+    if (!this.#agent.addRemoteCandidate(cand)) return false;
+    if (!net.isIP(cand.address)) {
+      resolveMdns(cand.address)
+        .then((ip) => {
+          if (ip) cand.address = ip;
+        })
+        .catch(() => {});
+    }
+    return true;
+  }
+
+  #localDescription(setup) {
+    return {
+      ufrag: this.#agent.localUfrag,
+      pwd: this.#agent.localPwd,
+      fingerprint: this.#certificate.fingerprint(),
+      setup,
+      candidates: this.#agent.localCandidates,
+      sctpPort: 5000,
+    };
+  }
+
+  #onPacket(msg, rinfo) {
+    if (msg.length === 0) return;
+    // TURN demux: packets from the TURN server are allocation
+    // control responses or relayed traffic (ChannelData frames
+    // or Data indications), never agent STUN or DTLS directly.
+    if (
+      this.turn &&
+      rinfo.address === this.turn.server.address &&
+      rinfo.port === this.turn.server.port
+    ) {
+      if (msg.length >= 4 && msg[0] >= 0x40 && msg[0] <= 0x7f) {
+        const framed = unwrapChannelData(msg);
+        const peerAddr = framed && this.turn.channels.get(framed.channel);
+        if (peerAddr) this.#onPacket(framed.data, peerAddr);
+        return;
+      }
+      const stun = StunMessage.decode(msg);
+      if (stun) {
+        if (stun.type === StunMessageType.DATA_INDICATION) {
+          const unwrapped = unwrapDataIndication(stun);
+          if (unwrapped) this.#onPacket(unwrapped.data, unwrapped.peer);
+          return;
+        }
+        if (this.turn.resolve(stun)) return;
+      }
+    }
+    const src = { address: rinfo.address, port: rinfo.port };
+    if (msg[0] < 4) {
+      // A Binding Success answering a srflx gathering request is
+      // consumed here, not by the ICE agent.
+      const stun = StunMessage.decode(msg);
+      if (stun && stun.type === StunMessageType.BINDING_SUCCESS) {
+        const resolve = this.#srflxWaiters.get(stun.transactionId.toString("hex"));
+        if (resolve) {
+          resolve(decodeMappedAddress(stun, true) ?? decodeMappedAddress(stun, false));
+          return;
+        }
+      }
+      const { responses } = this.#agent.handleStun(msg, src);
+      for (const { bytes, remote } of responses) {
+        this.#sendTo(bytes, remote);
+      }
+    } else if (msg[0] >= 20 && msg[0] < 64) {
+      const waiter = this.#dtlsWaiters.shift();
+      if (waiter) waiter(msg);
+      else this.#dtlsQueue.push(msg);
+    }
+  }
+
+  createOffer() {
+    this.#agent.controlling = true;
+    this.#dtlsRole = "server"; // actpass: the answer decides
+    return generate(this.#localDescription("actpass"), true);
+  }
+
+  handleOffer(offerSdp) {
+    const remote = parse(offerSdp);
+    this.#applyRemote(remote);
+    this.#agent.controlling = false;
+    this.#dtlsRole = "client"; // answer as setup=active
+    return generate(this.#localDescription("active"), false);
+  }
+
+  handleAnswer(answerSdp) {
+    const remote = parse(answerSdp);
+    this.#dtlsRole = remote.setup === "active" ? "server" : "client";
+    this.#applyRemote(remote);
+  }
+
+  #applyRemote(remote) {
+    this.#agent.setRemote(remote.ufrag, remote.pwd, remote.candidates);
+    this.#remote = remote;
+  }
+
+  async connect() {
+    if (!this.#remote) throw new Error("no remote description");
+    // Browsers advertise mDNS ".local" host candidates; resolve them
+    // to IPs so connectivity checks can be addressed directly.
+    await Promise.all(
+      this.#agent.remoteCandidates
+        .filter((c) => !net.isIP(c.address))
+        .map(async (c) => {
+          const ip = await resolveMdns(c.address).catch(() => null);
+          if (ip) c.address = ip;
+        }),
+    );
+    if (this.turn) {
+      // Relay the session: permissions (and channels) for every
+      // remote candidate first, then all pair traffic goes
+      // through the allocation (wrapped by #sendTo).
+      await createPermissions(this, this.turn, this.#agent.remoteCandidates);
+      if (this.turn.peers.length) await bindChannels(this, this.turn, this.turn.peers);
+      this.#relayActive = true;
+    }
+    const deadline = Date.now() + 15000;
+    while (!this.#agent.nominated) {
+      if (Date.now() > deadline) throw new Error("ICE nomination timed out");
+      for (const { bytes, remote } of this.#agent.dueChecks()) {
+        this.#sendTo(bytes, remote);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const selected = this.#agent.nominated;
+    const self = this;
+    const io = {
+      send: (buf) =>
+        new Promise((resolve) => {
+          self.#sendTo(buf, selected);
+          resolve();
+        }),
+      recv: (timeoutMs) => {
+        if (this.#dtlsQueue.length) return Promise.resolve(this.#dtlsQueue.shift());
+        return new Promise((resolve) => {
+          const waiter = (msg) => {
+            clearTimeout(timer);
+            resolve(msg);
+          };
+          const timer = setTimeout(() => {
+            const i = this.#dtlsWaiters.indexOf(waiter);
+            if (i >= 0) this.#dtlsWaiters.splice(i, 1);
+            resolve(null);
+          }, timeoutMs);
+          this.#dtlsWaiters.push(waiter);
+        });
+      },
+    };
+    const config = {
+      certificate: this.#certificate,
+      expectedPeerFingerprint: this.#remote.fingerprint,
+      requirePeerCertificate: this.#requirePeerCertificate,
+    };
+    const dtls =
+      this.#dtlsRole === "client"
+        ? await DtlsConnection.connect(io, config)
+        : await DtlsConnection.accept(io, config);
+    this.#endpoint = new DcEndpoint(dtls, this.#dtlsRole);
+    this.#startConsentLoop();
+    return this.#endpoint;
+  }
+
+  // Periodically re-check the nominated pair (RFC 7675 consent
+  // freshness). On expiry, closes the endpoint and fires
+  // onConsentFailure once.
+  #startConsentLoop() {
+    if (!this.#consentIntervalMs) return;
+    // The DTLS handshake just proved the pair; start the
+    // consent clock from here, not from nomination.
+    this.#agent.touchConsent();
+    const tick = () => {
+      const check = this.#agent.consentCheck();
+      if (check) this.#sendTo(check.bytes, check.remote);
+      if (this.#agent.consentExpired(this.#consentExpiryMs)) {
+        this.#stopConsentLoop();
+        try {
+          this.onConsentFailure?.();
+        } catch {
+          /* handler errors must not crash the loop owner */
+        }
+        this.#endpoint?.close().catch(() => {});
+        return;
+      }
+      this.#consentTimer = setTimeout(tick, this.#consentIntervalMs);
+      this.#consentTimer.unref?.();
+    };
+    this.#consentTimer = setTimeout(tick, this.#consentIntervalMs);
+    this.#consentTimer.unref?.();
+  }
+
+  #stopConsentLoop() {
+    if (this.#consentTimer) clearTimeout(this.#consentTimer);
+    this.#consentTimer = null;
+  }
+
+  // Whether consent freshness has lapsed for the nominated pair.
+  consentExpired() {
+    return this.#agent.consentExpired(this.#consentExpiryMs);
+  }
+
+  /** Tear down the endpoint and the UDP socket (tests, shutdown). */
+  async close() {
+    this.#stopConsentLoop();
+    this.turn?.stop();
+    try {
+      await this.#endpoint?.close();
+    } catch {
+      /* best effort */
+    }
+    try {
+      this.#socket.close();
+    } catch {
+      /* already closed */
+    }
+  }
+}

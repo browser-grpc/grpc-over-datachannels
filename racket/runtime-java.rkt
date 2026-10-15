@@ -1,0 +1,1704 @@
+#lang racket
+
+;;; runtime-java.rkt — the Java gRPC runtime, emitted by metagen.rkt.
+;;;
+;;; The runtime files under java/grpcdc/ are GENERATED from the bodies
+;;; below plus fragments recursively expanded from spec.rkt's
+;;; frame/status tables (see the dispatch generator). Do not edit the
+;;; generated runtime files; edit here and run `make generate`.
+;;; (Bodies were authored in-language and are kept verbatim so the
+;;; generated output stays byte-reviewable in git diffs.)
+;;;
+;;; Java 17, JDK only — no external dependencies. HEADERS/TRAILERS
+;;; JSON is handled by a minimal hand-rolled parser in Codec (flat
+;;; objects with string maps, which is all the wire format has).
+
+(require "spec.rkt")
+(provide emit-java-runtime-files)
+
+(define java-status-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc;
+
+/** A gRPC status (code + message) carried as an exception. */
+public class StatusException extends RuntimeException {
+    public final int code;
+
+    public StatusException(int code, String message) {
+        super(message);
+        this.code = code;
+    }
+
+    @Override
+    public String toString() {
+        return Wire.statusName(code) + ": " + getMessage();
+    }
+
+    /** Convert any exception to a StatusException (OK for null). */
+    public static StatusException toStatus(Throwable err) {
+        if (err == null) {
+            return new StatusException(Wire.CODE_OK, "");
+        }
+        if (err instanceof StatusException se) {
+            return se;
+        }
+        return new StatusException(Wire.CODE_INTERNAL, String.valueOf(err.getMessage()));
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define java-codec-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc;
+
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * Frame codec for gRPC over WebRTC DataChannels (wire protocol in
+ * ../SPEC.md). Frame, status, channel and server semantics mirror the
+ * Rust, JavaScript, Go and Python runtimes; the tables in Wire.java
+ * are stamped by the Racket metaprogram.
+ */
+public final class Codec {
+    public static final int HEADER_LEN = 9;
+    public static final int MAX_DATA_PAYLOAD = 16 * 1024 * 1024;
+
+    private Codec() {}
+
+    /** One parsed frame. */
+    public static final class Frame {
+        public final int type;
+        public final long streamId;
+        public final byte[] payload;
+
+        Frame(int type, long streamId, byte[] payload) {
+            this.type = type;
+            this.streamId = streamId;
+            this.payload = payload;
+        }
+    }
+
+    /** Build one DataChannel message: header + payload. */
+    public static byte[] encodeFrame(int frameType, long streamId, byte[] payload) {
+        if (!Wire.isFrameType(frameType)) {
+            throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "unknown frame type " + frameType);
+        }
+        if (frameType == Wire.FRAME_DATA && payload.length > MAX_DATA_PAYLOAD) {
+            throw new StatusException(Wire.CODE_RESOURCE_EXHAUSTED, "DATA payload exceeds 16 MiB");
+        }
+        byte[] out = new byte[HEADER_LEN + payload.length];
+        out[0] = (byte) frameType;
+        putU32(out, 1, streamId);
+        putU32(out, 5, payload.length);
+        System.arraycopy(payload, 0, out, HEADER_LEN, payload.length);
+        return out;
+    }
+
+    /** Parse one DataChannel message. */
+    public static Frame decodeFrame(byte[] data) {
+        if (data.length < HEADER_LEN) {
+            throw new StatusException(Wire.CODE_INVALID_ARGUMENT,
+                    "frame shorter than 9-byte header: " + data.length + " bytes");
+        }
+        long length = getU32(data, 5);
+        if (length != data.length - HEADER_LEN) {
+            throw new StatusException(Wire.CODE_INVALID_ARGUMENT,
+                    "payload length " + length + " does not match message size " + data.length);
+        }
+        byte[] payload = new byte[data.length - HEADER_LEN];
+        System.arraycopy(data, HEADER_LEN, payload, 0, payload.length);
+        return new Frame(data[0] & 0xff, getU32(data, 1), payload);
+    }
+
+    static void putU32(byte[] out, int off, long value) {
+        out[off] = (byte) (value >>> 24);
+        out[off + 1] = (byte) (value >>> 16);
+        out[off + 2] = (byte) (value >>> 8);
+        out[off + 3] = (byte) value;
+    }
+
+    static long getU32(byte[] in, int off) {
+        return ((in[off] & 0xffL) << 24) | ((in[off + 1] & 0xffL) << 16)
+                | ((in[off + 2] & 0xffL) << 8) | (in[off + 3] & 0xffL);
+    }
+
+    /** Parsed HEADERS payload: path == null means response headers. */
+    public static final class Headers {
+        public final String path;
+        public final Map<String, String> metadata;
+
+        public Headers(String path, Map<String, String> metadata) {
+            this.path = path;
+            this.metadata = metadata == null ? Map.of() : metadata;
+        }
+    }
+
+    public static byte[] headersFrame(long streamId, String path, Map<String, String> metadata) {
+        StringBuilder sb = new StringBuilder("{");
+        boolean first = true;
+        if (path != null) {
+            sb.append("\"path\":").append(jsonString(path));
+            first = false;
+        }
+        if (metadata != null && !metadata.isEmpty()) {
+            if (!first) sb.append(',');
+            sb.append("\"metadata\":{");
+            boolean mFirst = true;
+            for (Map.Entry<String, String> e : metadata.entrySet()) {
+                if (!mFirst) sb.append(',');
+                sb.append(jsonString(e.getKey())).append(':').append(jsonString(e.getValue()));
+                mFirst = false;
+            }
+            sb.append('}');
+        }
+        sb.append('}');
+        return encodeFrame(Wire.FRAME_HEADERS, streamId, sb.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    public static Headers parseHeaders(byte[] payload) {
+        Map<String, Object> body = parseJsonObject(new String(payload, StandardCharsets.UTF_8));
+        Object md = body.get("metadata");
+        Map<String, String> metadata = new LinkedHashMap<>();
+        if (md instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> e : map.entrySet()) {
+                metadata.put(String.valueOf(e.getKey()), String.valueOf(e.getValue()));
+            }
+        }
+        Object path = body.get("path");
+        return new Headers(path == null ? null : String.valueOf(path), metadata);
+    }
+
+    public static byte[] statusFrame(int frameType, long streamId, StatusException status) {
+        String body = "{\"code\":" + status.code + ",\"message\":" + jsonString(status.getMessage()) + "}";
+        return encodeFrame(frameType, streamId, body.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public static StatusException parseStatus(byte[] payload) {
+        try {
+            Map<String, Object> body = parseJsonObject(new String(payload, StandardCharsets.UTF_8));
+            int code = ((Number) body.get("code")).intValue();
+            Object message = body.get("message");
+            return new StatusException(code, message == null ? "" : String.valueOf(message));
+        } catch (RuntimeException e) {
+            return new StatusException(Wire.CODE_UNKNOWN, "malformed trailers");
+        }
+    }
+
+    // -- minimal JSON (flat objects, string/number/nested-object values) --
+
+    static String jsonString(String value) {
+        StringBuilder sb = new StringBuilder("\"");
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '"' -> sb.append("\\\"");
+                case '\\' -> sb.append("\\\\");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+                }
+            }
+        }
+        return sb.append('"').toString();
+    }
+
+    static Map<String, Object> parseJsonObject(String text) {
+        int[] pos = {0};
+        Map<String, Object> obj = parseObject(text, pos);
+        skipWs(text, pos);
+        if (pos[0] != text.length()) {
+            throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "trailing data in JSON");
+        }
+        return obj;
+    }
+
+    private static void skipWs(String text, int[] pos) {
+        while (pos[0] < text.length() && Character.isWhitespace(text.charAt(pos[0]))) {
+            pos[0]++;
+        }
+    }
+
+    private static Map<String, Object> parseObject(String text, int[] pos) {
+        skipWs(text, pos);
+        expect(text, pos, '{');
+        Map<String, Object> map = new LinkedHashMap<>();
+        skipWs(text, pos);
+        if (pos[0] < text.length() && text.charAt(pos[0]) == '}') {
+            pos[0]++;
+            return map;
+        }
+        while (true) {
+            skipWs(text, pos);
+            String key = parseString(text, pos);
+            skipWs(text, pos);
+            expect(text, pos, ':');
+            Object value = parseValue(text, pos);
+            map.put(key, value);
+            skipWs(text, pos);
+            if (pos[0] >= text.length()) {
+                throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "unterminated JSON object");
+            }
+            char c = text.charAt(pos[0]++);
+            if (c == '}') {
+                return map;
+            }
+            if (c != ',') {
+                throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "expected ',' or '}' in JSON");
+            }
+        }
+    }
+
+    private static Object parseValue(String text, int[] pos) {
+        skipWs(text, pos);
+        if (pos[0] >= text.length()) {
+            throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "missing JSON value");
+        }
+        char c = text.charAt(pos[0]);
+        if (c == '"') {
+            return parseString(text, pos);
+        }
+        if (c == '{') {
+            return parseObject(text, pos);
+        }
+        if (c == 't') {
+            expectLiteral(text, pos, "true");
+            return Boolean.TRUE;
+        }
+        if (c == 'f') {
+            expectLiteral(text, pos, "false");
+            return Boolean.FALSE;
+        }
+        if (c == 'n') {
+            expectLiteral(text, pos, "null");
+            return null;
+        }
+        int start = pos[0];
+        while (pos[0] < text.length() && "-+0123456789.eE".indexOf(text.charAt(pos[0])) >= 0) {
+            pos[0]++;
+        }
+        if (start == pos[0]) {
+            throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "bad JSON value");
+        }
+        return Double.parseDouble(text.substring(start, pos[0]));
+    }
+
+    private static String parseString(String text, int[] pos) {
+        expect(text, pos, '"');
+        StringBuilder sb = new StringBuilder();
+        while (pos[0] < text.length()) {
+            char c = text.charAt(pos[0]++);
+            if (c == '"') {
+                return sb.toString();
+            }
+            if (c == '\\' && pos[0] < text.length()) {
+                char esc = text.charAt(pos[0]++);
+                switch (esc) {
+                    case 'n' -> sb.append('\n');
+                    case 'r' -> sb.append('\r');
+                    case 't' -> sb.append('\t');
+                    case 'b' -> sb.append('\b');
+                    case 'f' -> sb.append('\f');
+                    case 'u' -> {
+                        sb.append((char) Integer.parseInt(text.substring(pos[0], pos[0] + 4), 16));
+                        pos[0] += 4;
+                    }
+                    default -> sb.append(esc);
+                }
+            } else {
+                sb.append(c);
+            }
+        }
+        throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "unterminated JSON string");
+    }
+
+    private static void expect(String text, int[] pos, char wanted) {
+        if (pos[0] >= text.length() || text.charAt(pos[0]) != wanted) {
+            throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "expected '" + wanted + "' in JSON");
+        }
+        pos[0]++;
+    }
+
+    private static void expectLiteral(String text, int[] pos, String literal) {
+        if (!text.startsWith(literal, pos[0])) {
+            throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "bad JSON literal");
+        }
+        pos[0] += literal.length();
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define java-transport-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc;
+
+import java.io.EOFException;
+
+/**
+ * Carries whole DataChannel messages: one send/recv is one message,
+ * boundaries preserved, ordered and reliable — the contract an
+ * RTCDataChannel (or the loopback pair) offers.
+ */
+public interface Transport {
+    void send(byte[] data) throws Exception;
+
+    /** Next message; EOFException when the transport is closed. */
+    byte[] recv() throws Exception;
+
+    default void close() {}
+}
+
+GRPC_RUNTIME_EOF
+)
+
+(define java-marshaler-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc;
+
+/** Implemented by generated protobuf message types. */
+public interface Marshaler {
+    byte[] marshalDc();
+}
+GRPC_RUNTIME_EOF
+)
+
+(define java-unmarshaler-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc;
+
+/** Implemented by generated protobuf message pointer types. */
+public interface Unmarshaler {
+    void unmarshalDc(byte[] data);
+}
+GRPC_RUNTIME_EOF
+)
+
+(define java-endpoint-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedBlockingQueue;
+
+/** Multiplexes grpc-dc streams over one Transport. */
+public class Endpoint {
+    /** Stream event kinds delivered to StreamInput queues. */
+    public enum EventKind { HEADERS, DATA, HALF_CLOSE, TRAILERS, RST }
+
+    public static final class StreamEvent {
+        public final EventKind kind;
+        public final Codec.Headers headers;
+        public final byte[] payload;
+        public final StatusException status;
+
+        StreamEvent(EventKind kind, Codec.Headers headers, byte[] payload, StatusException status) {
+            this.kind = kind;
+            this.headers = headers;
+            this.payload = payload;
+            this.status = status;
+        }
+    }
+
+    /** Receiving queue of one stream; closed after a terminal event. */
+    public static final class StreamInput {
+        private static final Object CLOSED = new Object();
+        private final LinkedBlockingQueue<Object> events = new LinkedBlockingQueue<>();
+
+        void put(StreamEvent event) {
+            events.offer(event);
+        }
+
+        void close() {
+            events.offer(CLOSED);
+        }
+
+        /** Next event, or null once the stream is closed. */
+        public StreamEvent get() throws InterruptedException {
+            Object event = events.take();
+            return event == CLOSED ? null : (StreamEvent) event;
+        }
+    }
+
+    /** Per-call context: metadata sent in HEADERS. */
+    public static final class CallContext {
+        public final Map<String, String> metadata;
+
+        public CallContext(Map<String, String> metadata) {
+            this.metadata = metadata == null ? Map.of() : metadata;
+        }
+    }
+
+    /** Server-side call handler installed by Server. */
+    public interface Dispatcher {
+        /** Returned status becomes the call's TRAILERS (null means OK). */
+        StatusException dispatch(CallContext ctx, Codec.Headers headers, StreamInput in, ResponseSink sink);
+    }
+
+    /** Sends response payloads of one inbound call. */
+    public static final class ResponseSink {
+        private final Endpoint endpoint;
+        private final long streamId;
+
+        ResponseSink(Endpoint endpoint, long streamId) {
+            this.endpoint = endpoint;
+            this.streamId = streamId;
+        }
+
+        public void send(byte[] payload) throws Exception {
+            endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, payload));
+        }
+
+        void sendHeaders() throws Exception {
+            endpoint.sendFrame(Codec.headersFrame(streamId, null, null));
+        }
+
+        void sendTrailers(StatusException status) throws Exception {
+            endpoint.sendFrame(Codec.statusFrame(Wire.FRAME_TRAILERS, streamId, status));
+        }
+    }
+
+    private final Transport transport;
+    private volatile Dispatcher dispatcher;
+    private long nextId;
+    private final Object sendLock = new Object();
+    private final ConcurrentHashMap<Long, StreamInput> streams = new ConcurrentHashMap<>();
+    private volatile boolean closed;
+
+    /**
+     * The side that created the channel allocates odd stream ids, the
+     * answerer even. The read loop starts on start() — after any
+     * dispatcher is installed, so an early HEADERS can never race
+     * dispatcher setup.
+     */
+    public Endpoint(Transport transport, boolean creator) {
+        this.transport = transport;
+        this.nextId = creator ? 1 : 2;
+    }
+
+    private boolean started;
+
+    /** Start the read loop (idempotent). */
+    public synchronized void start() {
+        if (started) {
+            return;
+        }
+        started = true;
+        Thread thread = new Thread(this::readLoop, "grpcdc-endpoint");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    public void setDispatcher(Dispatcher dispatcher) {
+        this.dispatcher = dispatcher;
+    }
+
+    public void sendFrame(byte[] frame) throws Exception {
+        synchronized (sendLock) {
+            transport.send(frame);
+        }
+    }
+
+    public record OpenedStream(long id, StreamInput input) {}
+
+    public OpenedStream openStream() {
+        long id;
+        synchronized (sendLock) {
+            id = nextId;
+            nextId += 2;
+        }
+        StreamInput input = new StreamInput();
+        streams.put(id, input);
+        return new OpenedStream(id, input);
+    }
+
+    public void closeStream(long id) {
+        streams.remove(id);
+    }
+
+    private StreamInput stream(long id) {
+        return streams.get(id);
+    }
+
+    public void close() {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        try {
+            transport.close();
+        } catch (Exception ignored) {
+            // best effort
+        }
+        failAll();
+    }
+
+    private void failAll() {
+        for (Map.Entry<Long, StreamInput> entry : streams.entrySet()) {
+            entry.getValue().put(new StreamEvent(EventKind.RST, null, null,
+                    new StatusException(Wire.CODE_UNAVAILABLE, "data channel closed")));
+            entry.getValue().close();
+        }
+        streams.clear();
+    }
+
+    private void readLoop() {
+        while (true) {
+            byte[] data;
+            try {
+                data = transport.recv();
+            } catch (Exception e) {
+                failAll();
+                return;
+            }
+            if (closed) {
+                return;
+            }
+            onBytes(data);
+        }
+    }
+
+    private void onBytes(byte[] data) {
+        Codec.Frame frame;
+        try {
+            frame = Codec.decodeFrame(data);
+        } catch (StatusException e) {
+            return; // malformed frame: drop, keep the channel up
+        }
+        int frameType = frame.type;
+        long streamId = frame.streamId;
+        byte[] payload = frame.payload;
+@@FRAME_DISPATCH@@
+    }
+
+    private void onTerminal(long streamId, byte[] payload, EventKind kind) {
+        StreamInput input = stream(streamId);
+        if (input != null) {
+            input.put(new StreamEvent(kind, null, null, Codec.parseStatus(payload)));
+            input.close();
+            closeStream(streamId);
+        }
+    }
+
+    private void pushEvent(long streamId, StreamEvent event) {
+        StreamInput input = stream(streamId);
+        if (input != null) {
+            input.put(event);
+        }
+    }
+
+    private void onHeaders(long streamId, byte[] payload) {
+        Codec.Headers headers;
+        try {
+            headers = Codec.parseHeaders(payload);
+        } catch (StatusException e) {
+            try {
+                sendFrame(Codec.statusFrame(Wire.FRAME_RST, streamId, StatusException.toStatus(e)));
+            } catch (Exception ignored) {
+                // best effort
+            }
+            return;
+        }
+        if (headers.path == null) {
+            // Server response headers for one of our outbound streams.
+            StreamInput input = stream(streamId);
+            if (input != null) {
+                input.put(new StreamEvent(EventKind.HEADERS, headers, null, null));
+            }
+            return;
+        }
+        if (stream(streamId) != null) {
+            try {
+                sendFrame(Codec.statusFrame(Wire.FRAME_RST, streamId,
+                        new StatusException(Wire.CODE_INTERNAL, "HEADERS for stream already in use")));
+            } catch (Exception ignored) {
+                // best effort
+            }
+            return;
+        }
+        if (dispatcher == null) {
+            try {
+                sendFrame(Codec.statusFrame(Wire.FRAME_TRAILERS, streamId,
+                        new StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path)));
+            } catch (Exception ignored) {
+                // best effort
+            }
+            return;
+        }
+        StreamInput input = new StreamInput();
+        streams.put(streamId, input);
+        ResponseSink sink = new ResponseSink(this, streamId);
+        Thread thread = new Thread(() -> {
+            try {
+                try {
+                    sink.sendHeaders();
+                } catch (Exception e) {
+                    return;
+                }
+                StatusException status = dispatcher.dispatch(
+                        new CallContext(headers.metadata), headers, input, sink);
+                if (status == null) {
+                    status = new StatusException(Wire.CODE_OK, "");
+                }
+                try {
+                    sink.sendTrailers(status);
+                } catch (Exception ignored) {
+                    // best effort
+                }
+            } finally {
+                closeStream(streamId);
+            }
+        }, "grpcdc-call");
+        thread.setDaemon(true);
+        thread.start();
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define java-channel-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc;
+
+import java.io.EOFException;
+import java.util.List;
+import java.util.Map;
+
+/** Channel: the client side of one Endpoint. */
+public class Channel {
+    private final Endpoint endpoint;
+
+    /** Wrap a transport, allocating odd stream ids. */
+    public Channel(Transport transport) {
+        this(new Endpoint(transport, true));
+    }
+
+    /** Wrap an existing endpoint (bidirectional use; starts its read loop). */
+    public Channel(Endpoint endpoint) {
+        this.endpoint = endpoint;
+        endpoint.start();
+    }
+
+    public Endpoint endpoint() {
+        return endpoint;
+    }
+
+    /** Receives response messages of one call. */
+    public static final class ClientStream {
+        private final Endpoint endpoint;
+        private final long streamId;
+        private final Endpoint.StreamInput input;
+        private Codec.Headers headers;
+
+        ClientStream(Endpoint endpoint, long streamId, Endpoint.StreamInput input) {
+            this.endpoint = endpoint;
+            this.streamId = streamId;
+            this.input = input;
+        }
+
+        public long streamId() {
+            return streamId;
+        }
+
+        public Codec.Headers headers() {
+            return headers;
+        }
+
+        /**
+         * Decode the next response into resp. EOFException means the
+         * call completed OK; StatusException reports trailers status.
+         */
+        public void recv(Unmarshaler resp) throws Exception {
+            while (true) {
+                Endpoint.StreamEvent event = input.get();
+                if (event == null) {
+                    throw new StatusException(Wire.CODE_UNAVAILABLE, "data channel closed");
+                }
+                switch (event.kind) {
+                    case HEADERS -> headers = event.headers;
+                    case DATA -> {
+                        resp.unmarshalDc(event.payload);
+                        return;
+                    }
+                    case TRAILERS -> {
+                        if (event.status.code != Wire.CODE_OK) {
+                            throw event.status;
+                        }
+                        throw new EOFException("call completed");
+                    }
+                    case RST -> throw event.status;
+                    default -> {
+                        // HEADERS/DATA handled above; ignore others.
+                    }
+                }
+            }
+        }
+    }
+
+    private ClientStream open(String path, Map<String, String> metadata) throws Exception {
+        Endpoint.OpenedStream opened = endpoint.openStream();
+        try {
+            endpoint.sendFrame(Codec.headersFrame(opened.id(), path, metadata));
+        } catch (Exception e) {
+            endpoint.closeStream(opened.id());
+            throw e;
+        }
+        return new ClientStream(endpoint, opened.id(), opened.input());
+    }
+
+    private void sendMessage(ClientStream stream, Marshaler msg) throws Exception {
+        endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, stream.streamId(), msg.marshalDc()));
+    }
+
+    private void halfClose(ClientStream stream) throws Exception {
+        endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_HALF_CLOSE, stream.streamId(), new byte[0]));
+    }
+
+    private void sendAll(ClientStream stream, List<? extends Marshaler> reqs) throws Exception {
+        for (Marshaler req : reqs) {
+            sendMessage(stream, req);
+        }
+        halfClose(stream);
+    }
+
+    /** Run a unary call, decoding the single response into resp. */
+    public void unary(String path, Marshaler req, Unmarshaler resp, Map<String, String> metadata)
+            throws Exception {
+        ClientStream stream = open(path, metadata);
+        try {
+            sendMessage(stream, req);
+            halfClose(stream);
+            boolean got = false;
+            while (true) {
+                try {
+                    stream.recv(resp);
+                } catch (EOFException eof) {
+                    if (!got) {
+                        throw new StatusException(Wire.CODE_INTERNAL, "call closed with no response");
+                    }
+                    return;
+                }
+                if (got) {
+                    throw new StatusException(Wire.CODE_INTERNAL, "unary call received more than one response");
+                }
+                got = true;
+            }
+        } finally {
+            endpoint.closeStream(stream.streamId());
+        }
+    }
+
+    /** Start a server-streaming call. */
+    public ClientStream serverStream(String path, Marshaler req, Map<String, String> metadata)
+            throws Exception {
+        ClientStream stream = open(path, metadata);
+        sendMessage(stream, req);
+        halfClose(stream);
+        return stream;
+    }
+
+    /** Send all requests, then decode the one response into resp. */
+    public void clientStream(String path, List<? extends Marshaler> reqs, Unmarshaler resp,
+            Map<String, String> metadata) throws Exception {
+        ClientStream stream = open(path, metadata);
+        try {
+            sendAll(stream, reqs);
+            boolean got = false;
+            while (true) {
+                try {
+                    stream.recv(resp);
+                } catch (EOFException eof) {
+                    if (!got) {
+                        throw new StatusException(Wire.CODE_INTERNAL, "call closed with no response");
+                    }
+                    return;
+                }
+                if (got) {
+                    throw new StatusException(Wire.CODE_INTERNAL,
+                            "client-streaming call received more than one response");
+                }
+                got = true;
+            }
+        } finally {
+            endpoint.closeStream(stream.streamId());
+        }
+    }
+
+    /** Start a bidi call with all requests sent up front. */
+    public ClientStream bidi(String path, List<? extends Marshaler> reqs, Map<String, String> metadata)
+            throws Exception {
+        ClientStream stream = open(path, metadata);
+        sendAll(stream, reqs);
+        return stream;
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define java-server-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc;
+
+import java.io.EOFException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/** Server: dispatches inbound calls to registered methods. */
+public class Server {
+    public static final String KIND_UNARY = "unary";
+    public static final String KIND_SERVER_STREAMING = "server-streaming";
+    public static final String KIND_CLIENT_STREAMING = "client-streaming";
+    public static final String KIND_BIDI = "bidi";
+
+    /** Reads request messages of one inbound call. */
+    public static final class RequestStream {
+        private final Endpoint.StreamInput input;
+
+        public RequestStream(Endpoint.StreamInput input) {
+            this.input = input;
+        }
+
+        /** Next request payload; EOFException at half-close. */
+        public byte[] recvRaw() throws Exception {
+            while (true) {
+                Endpoint.StreamEvent event = input.get();
+                if (event == null) {
+                    throw new StatusException(Wire.CODE_UNAVAILABLE, "data channel closed");
+                }
+                switch (event.kind) {
+                    case DATA -> {
+                        return event.payload;
+                    }
+                    case HALF_CLOSE -> throw new EOFException("half-close");
+                    case TRAILERS, RST -> throw event.status;
+                    default -> {
+                        // ignore HEADERS on the request side
+                    }
+                }
+            }
+        }
+
+        /** Decode the next request message into req. */
+        public void recvInto(Unmarshaler req) throws Exception {
+            req.unmarshalDc(recvRaw());
+        }
+    }
+
+    /** Sends response payloads of one inbound call. */
+    public interface ServerSink {
+        void send(byte[] payload) throws Exception;
+    }
+
+    /** Implements one method against raw payloads; stubs adapt it. */
+    public interface MethodHandler {
+        void handle(Endpoint.CallContext ctx, RequestStream reqs, ServerSink sink) throws Exception;
+    }
+
+    /** One entry of a ServiceDesc. */
+    public record Method(String name, String path, String kind, MethodHandler handler) {}
+
+    /** Describes a service for registerService. */
+    public record ServiceDesc(String name, List<Method> methods) {}
+
+    private final Map<String, Method> methods = new HashMap<>();
+
+    /** Adds a service's methods (generated code calls it). */
+    public void registerService(ServiceDesc desc) {
+        for (Method method : desc.methods()) {
+            methods.put(method.path(), method);
+        }
+    }
+
+    /** Attach to a transport (even stream ids); returns the Endpoint. */
+    public Endpoint serveTransport(Transport transport) {
+        Endpoint endpoint = new Endpoint(transport, false);
+        serveEndpoint(endpoint);
+        return endpoint;
+    }
+
+    /** Attach to an existing endpoint (starts its read loop). */
+    public void serveEndpoint(Endpoint endpoint) {
+        endpoint.setDispatcher(this::dispatch);
+        endpoint.start();
+    }
+
+    private StatusException dispatch(Endpoint.CallContext ctx, Codec.Headers headers,
+            Endpoint.StreamInput in, Endpoint.ResponseSink sink) {
+        Method method = methods.get(headers.path);
+        if (method == null) {
+            return new StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path);
+        }
+        try {
+            method.handler().handle(ctx, new RequestStream(in), sink::send);
+        } catch (Exception e) {
+            return StatusException.toStatus(e);
+        }
+        return null;
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define java-loopback-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc;
+
+import java.io.EOFException;
+import java.util.concurrent.LinkedBlockingQueue;
+
+/** In-memory transport pair for tests (one queue per direction). */
+public final class MemoryTransport {
+    private static final Object SENTINEL = new Object();
+
+    private MemoryTransport() {}
+
+    private static final class Impl implements Transport {
+        private final LinkedBlockingQueue<Object> inbox;
+        private final LinkedBlockingQueue<Object> outbox;
+        private volatile boolean closed;
+
+        Impl(LinkedBlockingQueue<Object> inbox, LinkedBlockingQueue<Object> outbox) {
+            this.inbox = inbox;
+            this.outbox = outbox;
+        }
+
+        @Override
+        public void send(byte[] data) throws Exception {
+            if (closed) {
+                throw new EOFException("transport closed");
+            }
+            outbox.offer(data.clone());
+        }
+
+        @Override
+        public byte[] recv() throws Exception {
+            Object item = inbox.take();
+            if (item == SENTINEL) {
+                throw new EOFException("transport closed");
+            }
+            return (byte[]) item;
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+            inbox.offer(SENTINEL);
+        }
+    }
+
+    /** Two connected in-memory transports. */
+    public static Transport[] pair() {
+        LinkedBlockingQueue<Object> aToB = new LinkedBlockingQueue<>();
+        LinkedBlockingQueue<Object> bToA = new LinkedBlockingQueue<>();
+        return new Transport[] {new Impl(bToA, aToB), new Impl(aToB, bToA)};
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define java-dispatch-arms
+  '((HEADERS    . "onHeaders(streamId, payload);")
+    (DATA       . "pushEvent(streamId, new StreamEvent(EventKind.DATA, null, payload, null));")
+    (HALF-CLOSE . "pushEvent(streamId, new StreamEvent(EventKind.HALF_CLOSE, null, null, null));")
+    (TRAILERS   . "onTerminal(streamId, payload, EventKind.TRAILERS);")
+    (RST        . "onTerminal(streamId, payload, EventKind.RST);")))
+
+(define (screaming-name sym)
+  (string-replace (symbol->string sym) "-" "_"))
+
+(define (emit-java-dispatch)
+  (string-append
+   "        switch (frameType) {\n"
+   (apply string-append
+          (for/list ([e (in-list frame-table)])
+            (define arm (assoc (first e) java-dispatch-arms))
+            (unless arm (error 'runtime-java "no Java dispatch arm for ~a" (first e)))
+            (format "            case Wire.FRAME_~a -> ~a\n" (screaming-name (first e)) (cdr arm))))
+   "            default -> {\n                // Unknown frame type: ignore for forward compatibility.\n            }\n        }"))
+
+(define (emit-java-runtime-files)
+  (list
+   (cons "grpcdc/StatusException.java" java-status-body)
+   (cons "grpcdc/Codec.java" java-codec-body)
+   (cons "grpcdc/Transport.java" java-transport-body)
+   (cons "grpcdc/Marshaler.java" java-marshaler-body)
+   (cons "grpcdc/Unmarshaler.java" java-unmarshaler-body)
+   (cons "grpcdc/Endpoint.java"
+         (string-replace java-endpoint-body "@@FRAME_DISPATCH@@" (emit-java-dispatch)))
+   (cons "grpcdc/Channel.java" java-channel-body)
+   (cons "grpcdc/Server.java" java-server-body)
+   (cons "grpcdc/MemoryTransport.java" java-loopback-body)
+   (cons "grpcdc/Dynamic.java" java-dynamic-body)))
+
+(define java-dynamic-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc;
+
+import java.io.EOFException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+
+/**
+ * Dynamic, descriptor-driven client and server.
+ *
+ * <p>Parses a FileDescriptorSet (as produced by
+ * `protoc --descriptor_set_out`) at runtime and builds clients and
+ * servers whose messages are generic field maps — no generated stubs
+ * required. Schemas arrive as data (descriptor.proto), not as code.
+ *
+ * <p>Generic values by field type: varint family -&gt; Long, string
+ * -&gt; String, bytes -&gt; byte[], message -&gt; GenericMessage,
+ * fixed/float -&gt; Long/Double/Float, bool -&gt; Boolean.
+ */
+public final class Dynamic {
+    private Dynamic() {}
+
+    // FieldDescriptorProto.Type values (descriptor.proto).
+    public static final int TYPE_DOUBLE = 1;
+    public static final int TYPE_FLOAT = 2;
+    public static final int TYPE_INT64 = 3;
+    public static final int TYPE_UINT64 = 4;
+    public static final int TYPE_INT32 = 5;
+    public static final int TYPE_FIXED64 = 6;
+    public static final int TYPE_FIXED32 = 7;
+    public static final int TYPE_BOOL = 8;
+    public static final int TYPE_STRING = 9;
+    public static final int TYPE_GROUP = 10;
+    public static final int TYPE_MESSAGE = 11;
+    public static final int TYPE_BYTES = 12;
+    public static final int TYPE_UINT32 = 13;
+    public static final int TYPE_ENUM = 14;
+    public static final int TYPE_SFIXED32 = 15;
+    public static final int TYPE_SFIXED64 = 16;
+    public static final int TYPE_SINT32 = 17;
+    public static final int TYPE_SINT64 = 18;
+
+    private static final int LABEL_REPEATED = 3;
+
+    /** One field of a message descriptor. */
+    public static final class FieldModel {
+        public final int number;
+        public final String name;
+        public final int type;
+        public final boolean repeated;
+        public final String typeName;
+
+        FieldModel(int number, String name, int type, boolean repeated, String typeName) {
+            this.number = number;
+            this.name = name;
+            this.type = type;
+            this.repeated = repeated;
+            this.typeName = typeName;
+        }
+    }
+
+    /** One message descriptor. */
+    public static final class MessageModel {
+        public final String fullName;
+        public final Map<Integer, FieldModel> fields = new LinkedHashMap<>();
+
+        MessageModel(String fullName) {
+            this.fullName = fullName;
+        }
+    }
+
+    /** One method descriptor. */
+    public static final class MethodModel {
+        public final String name;
+        public final String path;
+        public final String kind;
+        public final MessageModel input;
+        public final MessageModel output;
+
+        MethodModel(String name, String path, String kind, MessageModel input, MessageModel output) {
+            this.name = name;
+            this.path = path;
+            this.kind = kind;
+            this.input = input;
+            this.output = output;
+        }
+    }
+
+    /** One service descriptor. */
+    public static final class ServiceModel {
+        public final String fullName;
+        public final Map<String, MethodModel> methods = new LinkedHashMap<>();
+
+        ServiceModel(String fullName) {
+            this.fullName = fullName;
+        }
+    }
+
+    /** A parsed FileDescriptorSet: messages and services by full name. */
+    public static final class FileModel {
+        public final Map<String, MessageModel> messages = new LinkedHashMap<>(); // ".echo.EchoRequest"
+        public final Map<String, ServiceModel> services = new LinkedHashMap<>(); // "echo.Echo"
+    }
+
+    /**
+     * A message as field number -> values (descriptor order). Fields
+     * not in the model are retained as raw encoded chunks in
+     * {@code unknown} (protobuf unknown-field retention): a decode ->
+     * encode round trip re-emits them after the known fields.
+     */
+    public static final class GenericMessage {
+        public final MessageModel model;
+        public final Map<Integer, List<Object>> values = new TreeMap<>();
+        public final List<byte[]> unknown = new ArrayList<>();
+
+        public GenericMessage(MessageModel model) {
+            this.model = model;
+        }
+
+        public GenericMessage set(int number, Object value) {
+            List<Object> list = new ArrayList<>();
+            list.add(value);
+            values.put(number, list);
+            return this;
+        }
+
+        public GenericMessage add(int number, Object value) {
+            values.computeIfAbsent(number, k -> new ArrayList<>()).add(value);
+            return this;
+        }
+
+        public Object get(int number) {
+            List<Object> list = values.get(number);
+            return list == null || list.isEmpty() ? null : list.get(0);
+        }
+
+        public String getString(int number) {
+            Object value = get(number);
+            return value instanceof String s ? s : "";
+        }
+
+        public long getInt(int number) {
+            Object value = get(number);
+            if (value instanceof Number n) {
+                return n.longValue();
+            }
+            if (value instanceof Boolean b) {
+                return b ? 1 : 0;
+            }
+            return 0;
+        }
+
+        @Override
+        public String toString() {
+            return "GenericMessage" + values;
+        }
+    }
+
+    // -- protobuf wire reading (descriptor + generic payloads) --
+
+    private static final class PbReader {
+        private final byte[] buf;
+        private int pos;
+
+        PbReader(byte[] buf) {
+            this.buf = buf;
+        }
+
+        long varint() {
+            long result = 0;
+            int shift = 0;
+            while (true) {
+                if (pos >= buf.length) {
+                    throw new IllegalArgumentException("truncated varint");
+                }
+                int b = buf[pos++] & 0xff;
+                result |= (long) (b & 0x7f) << shift;
+                if ((b & 0x80) == 0) {
+                    return result;
+                }
+                shift += 7;
+                if (shift >= 70) {
+                    throw new IllegalArgumentException("varint too long");
+                }
+            }
+        }
+
+        byte[] bytesField() {
+            int n = (int) varint();
+            if (pos + n > buf.length) {
+                throw new IllegalArgumentException("truncated bytes field");
+            }
+            byte[] out = new byte[n];
+            System.arraycopy(buf, pos, out, 0, n);
+            pos += n;
+            return out;
+        }
+
+        record Field(int number, int wire, long varint, byte[] bytes, byte[] raw) {}
+
+        List<Field> all() {
+            List<Field> out = new ArrayList<>();
+            while (pos < buf.length) {
+                int start = pos;
+                long tag = varint();
+                int number = (int) (tag >> 3);
+                int wire = (int) (tag & 7);
+                Field field;
+                switch (wire) {
+                    case 0 -> field = new Field(number, wire, varint(), null, null);
+                    case 2 -> field = new Field(number, wire, 0, bytesField(), null);
+                    case 1 -> {
+                        if (pos + 8 > buf.length) {
+                            throw new IllegalArgumentException("truncated fixed64");
+                        }
+                        byte[] value = new byte[8];
+                        System.arraycopy(buf, pos, value, 0, 8);
+                        pos += 8;
+                        field = new Field(number, wire, 0, value, null);
+                    }
+                    case 5 -> {
+                        if (pos + 4 > buf.length) {
+                            throw new IllegalArgumentException("truncated fixed32");
+                        }
+                        byte[] value = new byte[4];
+                        System.arraycopy(buf, pos, value, 0, 4);
+                        pos += 4;
+                        field = new Field(number, wire, 0, value, null);
+                    }
+                    default -> throw new IllegalArgumentException("unsupported wire type " + wire);
+                }
+                byte[] raw = new byte[pos - start];
+                System.arraycopy(buf, start, raw, 0, raw.length);
+                out.add(new Field(field.number(), field.wire(), field.varint(), field.bytes(), raw));
+            }
+            return out;
+        }
+    }
+
+    private static String pbString(List<PbReader.Field> fields, int number) {
+        for (PbReader.Field f : fields) {
+            if (f.number() == number) {
+                return new String(f.bytes(), StandardCharsets.UTF_8);
+            }
+        }
+        return "";
+    }
+
+    private static long pbUint(List<PbReader.Field> fields, int number) {
+        for (PbReader.Field f : fields) {
+            if (f.number() == number) {
+                return f.varint();
+            }
+        }
+        return 0;
+    }
+
+    /** Parse FileDescriptorSet bytes into a FileModel. */
+    public static FileModel parseDescriptorSet(byte[] data) {
+        FileModel model = new FileModel();
+        List<String[]> pending = new ArrayList<>();
+        List<byte[]> pendingBytes = new ArrayList<>();
+        for (PbReader.Field fileField : new PbReader(data).all()) {
+            if (fileField.number() != 1) {
+                continue;
+            }
+            List<PbReader.Field> fields = new PbReader(fileField.bytes()).all();
+            String pkg = pbString(fields, 2);
+            for (PbReader.Field f : fields) {
+                if (f.number() == 4) {
+                    parseMessage(pkg, "", f.bytes(), model);
+                } else if (f.number() == 6) {
+                    pending.add(new String[] {pkg});
+                    pendingBytes.add(f.bytes());
+                }
+            }
+        }
+        for (int i = 0; i < pending.size(); i++) {
+            parseService(pending.get(i)[0], pendingBytes.get(i), model);
+        }
+        return model;
+    }
+
+    private static void parseMessage(String pkg, String outer, byte[] data, FileModel model) {
+        List<PbReader.Field> fields = new PbReader(data).all();
+        String name = pbString(fields, 1);
+        String full = (pkg.isEmpty() ? "" : pkg + ".") + (outer.isEmpty() ? "" : outer + ".") + name;
+        MessageModel msg = new MessageModel(full);
+        model.messages.put("." + full, msg);
+        for (PbReader.Field f : fields) {
+            if (f.number() == 2) {
+                FieldModel field = parseField(f.bytes());
+                msg.fields.put(field.number, field);
+            } else if (f.number() == 3) {
+                String innerOuter = pkg.isEmpty() ? full : full.substring(pkg.length() + 1);
+                parseMessage(pkg, innerOuter, f.bytes(), model);
+            }
+        }
+    }
+
+    private static FieldModel parseField(byte[] data) {
+        List<PbReader.Field> fields = new PbReader(data).all();
+        return new FieldModel(
+                (int) pbUint(fields, 3),
+                pbString(fields, 1),
+                (int) pbUint(fields, 5),
+                pbUint(fields, 4) == LABEL_REPEATED,
+                pbString(fields, 6));
+    }
+
+    private static String methodKind(boolean clientStreaming, boolean serverStreaming) {
+        if (clientStreaming && serverStreaming) {
+            return Server.KIND_BIDI;
+        }
+        if (serverStreaming) {
+            return Server.KIND_SERVER_STREAMING;
+        }
+        if (clientStreaming) {
+            return Server.KIND_CLIENT_STREAMING;
+        }
+        return Server.KIND_UNARY;
+    }
+
+    private static void parseService(String pkg, byte[] data, FileModel model) {
+        List<PbReader.Field> fields = new PbReader(data).all();
+        String name = pbString(fields, 1);
+        String full = pkg.isEmpty() ? name : pkg + "." + name;
+        ServiceModel service = new ServiceModel(full);
+        model.services.put(full, service);
+        for (PbReader.Field f : fields) {
+            if (f.number() != 2) {
+                continue;
+            }
+            List<PbReader.Field> mf = new PbReader(f.bytes()).all();
+            String mname = pbString(mf, 1);
+            MessageModel input = model.messages.get(pbString(mf, 2));
+            MessageModel output = model.messages.get(pbString(mf, 3));
+            service.methods.put(mname, new MethodModel(
+                    mname, "/" + full + "/" + mname,
+                    methodKind(pbUint(mf, 5) != 0, pbUint(mf, 6) != 0), input, output));
+        }
+    }
+
+    // -- generic message encoding --
+
+    private static int wireTypeOf(int fieldType) {
+        return switch (fieldType) {
+            case TYPE_INT64, TYPE_UINT64, TYPE_INT32, TYPE_BOOL, TYPE_UINT32,
+                    TYPE_ENUM, TYPE_SINT32, TYPE_SINT64 -> 0;
+            case TYPE_FIXED64, TYPE_SFIXED64, TYPE_DOUBLE -> 1;
+            case TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE, TYPE_GROUP -> 2;
+            default -> 5;
+        };
+    }
+
+    private static void putVarint(java.io.ByteArrayOutputStream out, long value) {
+        long v = value;
+        while ((v & ~0x7fL) != 0) {
+            out.write(((int) (v & 0x7f)) | 0x80);
+            v >>>= 7;
+        }
+        out.write((int) v);
+    }
+
+    /** Serialize a generic message per its model. */
+    public static byte[] encodeGeneric(MessageModel msgModel, GenericMessage msg, FileModel fileModel) {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        for (Map.Entry<Integer, List<Object>> entry : msg.values.entrySet()) {
+            FieldModel field = msgModel.fields.get(entry.getKey());
+            if (field == null) {
+                throw new StatusException(Wire.CODE_INVALID_ARGUMENT,
+                        "unknown field " + entry.getKey() + " for " + msgModel.fullName);
+            }
+            List<Object> values = entry.getValue();
+            if (field.repeated) {
+                for (Object value : values) {
+                    encodeValue(out, field, value, fileModel);
+                }
+            } else if (!values.isEmpty()) {
+                encodeValue(out, field, values.get(0), fileModel);
+            }
+        }
+        for (byte[] chunk : msg.unknown) {
+            out.write(chunk, 0, chunk.length);
+        }
+        return out.toByteArray();
+    }
+
+    private static void encodeValue(java.io.ByteArrayOutputStream out, FieldModel field, Object value, FileModel fileModel) {
+        putVarint(out, ((long) field.number << 3) | wireTypeOf(field.type));
+        switch (wireTypeOf(field.type)) {
+            case 0 -> {
+                if (field.type == TYPE_SINT32 || field.type == TYPE_SINT64) {
+                    long v = ((Number) value).longValue();
+                    putVarint(out, (v << 1) ^ (v >> 63));
+                } else if (field.type == TYPE_BOOL) {
+                    putVarint(out, (Boolean) value ? 1 : 0);
+                } else if (value instanceof Number n) {
+                    putVarint(out, n.longValue());
+                } else {
+                    throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "bad varint value " + value);
+                }
+            }
+            case 1 -> {
+                long bits = field.type == TYPE_DOUBLE
+                        ? Double.doubleToRawLongBits(((Number) value).doubleValue())
+                        : ((Number) value).longValue();
+                for (int i = 0; i < 8; i++) {
+                    out.write((int) (bits >>> (8 * i)) & 0xff);
+                }
+            }
+            case 5 -> {
+                int bits = field.type == TYPE_FLOAT
+                        ? Float.floatToRawIntBits(((Number) value).floatValue())
+                        : ((Number) value).intValue();
+                for (int i = 0; i < 4; i++) {
+                    out.write((bits >>> (8 * i)) & 0xff);
+                }
+            }
+            case 2 -> {
+                byte[] data;
+                if (field.type == TYPE_STRING) {
+                    data = ((String) value).getBytes(StandardCharsets.UTF_8);
+                } else if (field.type == TYPE_MESSAGE) {
+                    data = encodeGeneric(fileModel.messages.get(field.typeName), (GenericMessage) value, fileModel);
+                } else {
+                    data = (byte[]) value;
+                }
+                putVarint(out, data.length);
+                out.write(data, 0, data.length);
+            }
+            default -> throw new IllegalStateException("unreachable");
+        }
+    }
+
+    /** Parse bytes into a generic message per its model. */
+    public static GenericMessage decodeGeneric(MessageModel msgModel, byte[] data, FileModel fileModel) {
+        GenericMessage msg = new GenericMessage(msgModel);
+        for (PbReader.Field f : new PbReader(data).all()) {
+            FieldModel field = msgModel.fields.get(f.number());
+            if (field == null) {
+                // Unknown field: retain the raw encoded chunk verbatim.
+                msg.unknown.add(f.raw());
+                continue;
+            }
+            msg.values.computeIfAbsent(f.number(), k -> new ArrayList<>())
+                    .add(decodeValue(field, f, fileModel));
+        }
+        return msg;
+    }
+
+    private static Object decodeValue(FieldModel field, PbReader.Field f, FileModel fileModel) {
+        switch (f.wire()) {
+            case 0 -> {
+                if (field.type == TYPE_BOOL) {
+                    return f.varint() != 0;
+                }
+                if (field.type == TYPE_SINT32 || field.type == TYPE_SINT64) {
+                    return (f.varint() >> 1) ^ -(f.varint() & 1);
+                }
+                if (field.type == TYPE_INT32 || field.type == TYPE_ENUM) {
+                    return (long) (int) f.varint();
+                }
+                return f.varint();
+            }
+            case 1 -> {
+                long bits = 0;
+                for (int i = 0; i < 8; i++) {
+                    bits |= (long) (f.bytes()[i] & 0xff) << (8 * i);
+                }
+                if (field.type == TYPE_DOUBLE) {
+                    return Double.longBitsToDouble(bits);
+                }
+                return bits;
+            }
+            case 5 -> {
+                int bits = 0;
+                for (int i = 0; i < 4; i++) {
+                    bits |= (f.bytes()[i] & 0xff) << (8 * i);
+                }
+                if (field.type == TYPE_FLOAT) {
+                    return Float.intBitsToFloat(bits);
+                }
+                return bits & 0xffffffffL;
+            }
+            default -> {
+                if (field.type == TYPE_STRING) {
+                    return new String(f.bytes(), StandardCharsets.UTF_8);
+                }
+                if (field.type == TYPE_MESSAGE) {
+                    return decodeGeneric(fileModel.messages.get(field.typeName), f.bytes(), fileModel);
+                }
+                return f.bytes();
+            }
+        }
+    }
+
+    // -- client / server surfaces --
+
+    private static final class BoundMessage implements Marshaler, Unmarshaler {
+        private final MessageModel model;
+        private final FileModel file;
+        private GenericMessage generic;
+
+        BoundMessage(MessageModel model, GenericMessage generic, FileModel file) {
+            this.model = model;
+            this.generic = generic;
+            this.file = file;
+        }
+
+        @Override
+        public byte[] marshalDc() {
+            return encodeGeneric(model, generic, file);
+        }
+
+        @Override
+        public void unmarshalDc(byte[] data) {
+            generic = decodeGeneric(model, data, file);
+        }
+    }
+
+    /** Runtime-built client: methods resolve from the FileModel. */
+    public static final class DynamicClient {
+        private final Channel channel;
+        private final FileModel model;
+
+        public DynamicClient(Channel channel, FileModel model) {
+            this.channel = channel;
+            this.model = model;
+        }
+
+        private MethodModel method(String service, String method) {
+            ServiceModel svc = model.services.get(service);
+            if (svc == null) {
+                throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "unknown service " + service);
+            }
+            MethodModel m = svc.methods.get(method);
+            if (m == null) {
+                throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "unknown method " + method);
+            }
+            return m;
+        }
+
+        public GenericMessage unary(String service, String method, GenericMessage req,
+                Map<String, String> metadata) throws Exception {
+            MethodModel m = method(service, method);
+            BoundMessage resp = new BoundMessage(m.output, new GenericMessage(m.output), model);
+            channel.unary(m.path, new BoundMessage(m.input, req, model), resp, metadata);
+            return resp.generic;
+        }
+
+        /** Receiving stream of generic responses; recv() throws EOFException at end. */
+        public static final class DynamicStream {
+            private final Channel.ClientStream stream;
+            private final MessageModel output;
+            private final FileModel file;
+
+            DynamicStream(Channel.ClientStream stream, MessageModel output, FileModel file) {
+                this.stream = stream;
+                this.output = output;
+                this.file = file;
+            }
+
+            public GenericMessage recv() throws Exception {
+                BoundMessage resp = new BoundMessage(output, new GenericMessage(output), file);
+                stream.recv(resp);
+                return resp.generic;
+            }
+        }
+
+        public DynamicStream serverStream(String service, String method, GenericMessage req,
+                Map<String, String> metadata) throws Exception {
+            MethodModel m = method(service, method);
+            return new DynamicStream(
+                    channel.serverStream(m.path, new BoundMessage(m.input, req, model), metadata),
+                    m.output, model);
+        }
+
+        public GenericMessage clientStream(String service, String method, List<GenericMessage> reqs,
+                Map<String, String> metadata) throws Exception {
+            MethodModel m = method(service, method);
+            List<Marshaler> bound = new ArrayList<>();
+            for (GenericMessage r : reqs) {
+                bound.add(new BoundMessage(m.input, r, model));
+            }
+            BoundMessage resp = new BoundMessage(m.output, new GenericMessage(m.output), model);
+            channel.clientStream(m.path, bound, resp, metadata);
+            return resp.generic;
+        }
+
+        public DynamicStream bidi(String service, String method, List<GenericMessage> reqs,
+                Map<String, String> metadata) throws Exception {
+            MethodModel m = method(service, method);
+            List<Marshaler> bound = new ArrayList<>();
+            for (GenericMessage r : reqs) {
+                bound.add(new BoundMessage(m.input, r, model));
+            }
+            return new DynamicStream(channel.bidi(m.path, bound, metadata), m.output, model);
+        }
+    }
+
+    /** Receives generic requests; EOFException at half-close. */
+    public interface RecvFn {
+        GenericMessage get() throws Exception;
+    }
+
+    /** Sends one generic response. */
+    public interface SendFn {
+        void send(GenericMessage resp) throws Exception;
+    }
+
+    /** Implements a service with generic messages. */
+    public interface DynamicHandler {
+        GenericMessage unary(Endpoint.CallContext ctx, MethodModel method, GenericMessage req) throws Exception;
+
+        void serverStream(Endpoint.CallContext ctx, MethodModel method, GenericMessage req, SendFn send) throws Exception;
+
+        GenericMessage clientStream(Endpoint.CallContext ctx, MethodModel method, RecvFn recv) throws Exception;
+
+        void bidi(Endpoint.CallContext ctx, MethodModel method, RecvFn recv, SendFn send) throws Exception;
+    }
+
+    /** Register a runtime-built service on a Server. */
+    public static void registerDynamicService(Server server, FileModel fileModel, String serviceName,
+            DynamicHandler handler) {
+        ServiceModel service = fileModel.services.get(serviceName);
+        if (service == null) {
+            throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "unknown service " + serviceName);
+        }
+        List<Server.Method> methods = new ArrayList<>();
+        for (MethodModel method : service.methods.values()) {
+            methods.add(new Server.Method(method.name, method.path, method.kind,
+                    (ctx, reqs, sink) -> {
+                        RecvFn recv = () -> decodeGeneric(method.input, reqs.recvRaw(), fileModel);
+                        SendFn send = resp -> sink.send(encodeGeneric(method.output, resp, fileModel));
+                        switch (method.kind) {
+                            case Server.KIND_UNARY -> {
+                                GenericMessage req = recv.get();
+                                send.send(handler.unary(ctx, method, req));
+                            }
+                            case Server.KIND_SERVER_STREAMING -> {
+                                GenericMessage req = recv.get();
+                                handler.serverStream(ctx, method, req, send);
+                            }
+                            case Server.KIND_CLIENT_STREAMING -> {
+                                GenericMessage resp = handler.clientStream(ctx, method, recv);
+                                send.send(resp);
+                            }
+                            default -> handler.bidi(ctx, method, recv, send);
+                        }
+                    }));
+        }
+        server.registerService(new Server.ServiceDesc(service.fullName, methods));
+    }
+}
+GRPC_RUNTIME_EOF
+)

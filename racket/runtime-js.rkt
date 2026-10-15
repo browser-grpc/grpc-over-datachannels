@@ -1,0 +1,1206 @@
+#lang racket
+
+;;; runtime-js.rkt — the js gRPC runtime, emitted by metagen.rkt.
+;;;
+;;; The runtime files under the language tree are GENERATED from the
+;;; bodies below plus fragments recursively expanded from spec.rkt's
+;;; frame/status tables (see the dispatch generator). Do not edit the
+;;; generated runtime files; edit here and run `make generate`.
+;;; (Bodies were authored in-language and are kept verbatim so the
+;;; generated output stays byte-reviewable in git diffs.)
+
+(require "spec.rkt")
+(provide emit-js-runtime-files)
+
+(define js-codec-body
+#<<GRPC_RUNTIME_EOF
+// Frame codec: one DataChannel message == one frame (SPEC.md).
+// type:u8 | stream_id:u32be | payload_len:u32be | payload
+
+import { FrameType, StatusCode, StatusName } from "../wire_gen.js";
+
+export { FrameType, StatusCode, StatusName };
+
+export const HEADER_LEN = 9;
+export const MAX_DATA_PAYLOAD = 16 * 1024 * 1024;
+
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
+export class StatusError extends Error {
+  constructor(code, message = "") {
+    super(`${StatusName[code] ?? `CODE_${code}`}: ${message}`);
+    this.name = "StatusError";
+    this.code = code;
+  }
+  static ok() {
+    return new StatusError(StatusCode.OK, "");
+  }
+  static unimplemented(message) {
+    return new StatusError(StatusCode.UNIMPLEMENTED, message);
+  }
+  static internal(message) {
+    return new StatusError(StatusCode.INTERNAL, message);
+  }
+  static unavailable(message) {
+    return new StatusError(StatusCode.UNAVAILABLE, message);
+  }
+  static invalidArgument(message) {
+    return new StatusError(StatusCode.INVALID_ARGUMENT, message);
+  }
+}
+
+export function encodeFrame(type, streamId, payload = new Uint8Array(0)) {
+  if (!(type in FrameTypeByValue)) {
+    throw StatusError.invalidArgument(`unknown frame type ${type}`);
+  }
+  if (type === FrameType.DATA && payload.length > MAX_DATA_PAYLOAD) {
+    throw new StatusError(StatusCode.RESOURCE_EXHAUSTED, "DATA payload exceeds 16 MiB");
+  }
+  const out = new Uint8Array(HEADER_LEN + payload.length);
+  const view = new DataView(out.buffer);
+  view.setUint8(0, type);
+  view.setUint32(1, streamId, false);
+  view.setUint32(5, payload.length, false);
+  out.set(payload, HEADER_LEN);
+  return out;
+}
+
+const FrameTypeByValue = Object.fromEntries(
+  Object.entries(FrameType).map(([k, v]) => [v, k]),
+);
+
+export function decodeFrame(data) {
+  const bytes = asUint8Array(data);
+  if (bytes.length < HEADER_LEN) {
+    throw StatusError.invalidArgument(`frame shorter than 9-byte header: ${bytes.length} bytes`);
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const type = view.getUint8(0);
+  const streamId = view.getUint32(1, false);
+  const len = view.getUint32(5, false);
+  if (len !== bytes.length - HEADER_LEN) {
+    throw StatusError.invalidArgument(
+      `payload length ${len} does not match message size ${bytes.length}`,
+    );
+  }
+  return { type, streamId, payload: bytes.slice(HEADER_LEN) };
+}
+
+export function asUint8Array(data) {
+  if (data instanceof Uint8Array) return data;
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  throw StatusError.internal("data channel message is not binary");
+}
+
+export function headersFrame(streamId, path, metadata = {}) {
+  const body = path === null ? {} : { path, metadata };
+  return encodeFrame(FrameType.HEADERS, streamId, textEncoder.encode(JSON.stringify(body)));
+}
+
+export function statusFrame(frameType, streamId, status) {
+  const body = JSON.stringify({ code: status.code, message: status.message ?? "" });
+  return encodeFrame(frameType, streamId, textEncoder.encode(body));
+}
+
+export function parseHeaders(payload) {
+  try {
+    const parsed = JSON.parse(textDecoder.decode(payload));
+    return { path: parsed.path ?? null, metadata: parsed.metadata ?? {} };
+  } catch {
+    throw StatusError.invalidArgument("malformed HEADERS payload");
+  }
+}
+
+export function parseStatus(payload) {
+  try {
+    const parsed = JSON.parse(textDecoder.decode(payload));
+    return new StatusError(parsed.code ?? 2, parsed.message ?? "");
+  } catch {
+    return StatusError.internal("malformed status payload");
+  }
+}
+
+export function toHex(bytes) {
+  return [...asUint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export function fromHex(hex) {
+  const clean = hex.replace(/\s+/g, "");
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+GRPC_RUNTIME_EOF
+)
+
+(define js-endpoint-body
+#<<GRPC_RUNTIME_EOF
+// Stream multiplexor: one data channel, many concurrent calls.
+// Incoming HEADERS are handed to `dispatcher` (installed by Server);
+// everything else is routed to the owning stream's event queue.
+
+import {
+  FrameType,
+  StatusCode,
+  StatusError,
+  asUint8Array,
+  decodeFrame,
+  encodeFrame,
+  headersFrame,
+  parseHeaders,
+  parseStatus,
+  statusFrame,
+} from "./codec.js";
+
+/** Async queue of stream events with terminal-error semantics. */
+export class StreamInput {
+  #items = [];
+  #waiters = [];
+  #error = null;
+  #ended = false;
+
+  push(item) {
+    if (this.#ended) return;
+    const waiter = this.#waiters.shift();
+    if (waiter) waiter({ value: item, done: false });
+    else this.#items.push(item);
+  }
+
+  end() {
+    if (this.#ended) return;
+    this.#ended = true;
+    for (const w of this.#waiters.splice(0)) w({ value: undefined, done: true });
+  }
+
+  fail(error) {
+    if (this.#ended) return;
+    this.#ended = true;
+    this.#error = error;
+    for (const w of this.#waiters.splice(0)) w({ error, done: true });
+  }
+
+  [Symbol.asyncIterator]() {
+    return {
+      next: () => {
+        if (this.#items.length) {
+          return Promise.resolve({ value: this.#items.shift(), done: false });
+        }
+        if (this.#error) return Promise.reject(this.#error);
+        if (this.#ended) return Promise.resolve({ value: undefined, done: true });
+        return new Promise((resolve) => {
+          this.#waiters.push((r) => {
+            if (r.error) resolve(Promise.reject(r.error));
+            else resolve(r);
+          });
+        }).then((r) => r);
+      },
+    };
+  }
+}
+
+const DRAIN_THRESHOLD = 1 << 20; // 1 MiB of bufferedAmount before pausing
+
+export class Endpoint {
+  #dc;
+  #streams = new Map();
+  #nextId;
+  #sendChain = Promise.resolve();
+  dispatcher = null; // async (path, headers, input, sink) => void, set by Server
+
+  /**
+   * @param dc an RTCDataChannel (browser, werift, node-datachannel) or any
+   *   object with send() + message events. Memory pair in loopback.js works.
+   * @param parity 'odd' if this peer created the channel, else 'even'.
+   */
+  constructor(dc, { parity = "odd" } = {}) {
+    this.#dc = dc;
+    this.#nextId = parity === "odd" ? 1 : 2;
+    try {
+      dc.binaryType = "arraybuffer";
+    } catch {
+      /* structural channels may not expose binaryType */
+    }
+    const onMessage = (event) => {
+      const data = event?.data ?? event;
+      if (data instanceof Blob) {
+        data.arrayBuffer().then((b) => this.#onBytes(new Uint8Array(b)));
+      } else {
+        try {
+          this.#onBytes(asUint8Array(data));
+        } catch {
+          /* ignore non-binary messages */
+        }
+      }
+    };
+    if (typeof dc.addEventListener === "function") {
+      dc.addEventListener("message", onMessage);
+    } else {
+      dc.onmessage = onMessage;
+    }
+  }
+
+  get dataChannel() {
+    return this.#dc;
+  }
+
+  /** Allocate a locally-initiated stream. Returns [id, input]. */
+  openStream() {
+    const id = this.#nextId;
+    this.#nextId += 2;
+    const input = new StreamInput();
+    this.#streams.set(id, input);
+    return [id, input];
+  }
+
+  closeStream(id) {
+    const input = this.#streams.get(id);
+    if (input) {
+      input.end();
+      this.#streams.delete(id);
+    }
+  }
+
+  async sendFrame(frameBytes) {
+    // Serialize sends so HEADERS never overtakes a previous frame on the
+    // wire, and pause while the SCTP send buffer is above the threshold.
+    const run = async () => {
+      await this.#waitForDrain();
+      if (this.#dc.readyState && this.#dc.readyState !== "open") {
+        throw StatusError.unavailable("data channel is not open");
+      }
+      this.#dc.send(frameBytes);
+    };
+    this.#sendChain = this.#sendChain.then(run, run);
+    return this.#sendChain;
+  }
+
+  async #waitForDrain() {
+    const dc = this.#dc;
+    if (typeof dc.bufferedAmount !== "number" || dc.bufferedAmount <= DRAIN_THRESHOLD) return;
+    await new Promise((resolve) => {
+      if (typeof dc.addEventListener === "function") {
+        try {
+          dc.bufferedAmountLowThreshold = DRAIN_THRESHOLD / 2;
+        } catch {
+          /* optional */
+        }
+        const done = () => {
+          dc.removeEventListener?.("bufferedamountlow", done);
+          resolve();
+        };
+        dc.addEventListener("bufferedamountlow", done);
+        setTimeout(done, 50); // fallback poll for structural channels
+      } else {
+        setTimeout(resolve, 10);
+      }
+    });
+    if (typeof dc.bufferedAmount === "number" && dc.bufferedAmount > DRAIN_THRESHOLD) {
+      return this.#waitForDrain();
+    }
+  }
+
+  #onBytes(bytes) {
+    let frame;
+    try {
+      frame = decodeFrame(bytes);
+    } catch {
+      return; // malformed frame: drop, keep the channel up
+    }
+    const { type, streamId, payload } = frame;
+    @@FRAME_DISPATCH@@
+  }
+
+  #push(streamId, event) {
+    this.#streams.get(streamId)?.push(event);
+  }
+
+  #terminal(streamId, payload, kind) {
+    const status = parseStatus(payload);
+    this.#streams.get(streamId)?.push({ kind, status });
+    this.#streams.delete(streamId);
+  }
+
+  async #onHeaders(streamId, payload) {
+    let headers;
+    try {
+      headers = parseHeaders(payload);
+    } catch (e) {
+      this.sendFrame(statusFrame(FrameType.RST, streamId, e)).catch(() => {});
+      return;
+    }
+    if (headers.path === null) {
+      // Server initial metadata for one of our outbound streams.
+      this.#streams.get(streamId)?.push({ kind: "headers", headers });
+      return;
+    }
+    if (this.#streams.has(streamId)) {
+      this.sendFrame(
+        statusFrame(
+          FrameType.RST,
+          streamId,
+          StatusError.internal("HEADERS for stream already in use"),
+        ),
+      ).catch(() => {});
+      return;
+    }
+    if (!this.dispatcher) {
+      this.sendFrame(
+        statusFrame(
+          FrameType.TRAILERS,
+          streamId,
+          StatusError.unimplemented(`unknown method ${headers.path}`),
+        ),
+      ).catch(() => {});
+      return;
+    }
+    const input = new StreamInput();
+    this.#streams.set(streamId, input);
+    const sink = {
+      sendData: (payload) => this.sendFrame(encodeFrame(FrameType.DATA, streamId, payload)),
+      sendHeaders: () => this.sendFrame(headersFrame(streamId, null)),
+      sendTrailers: (status) =>
+        this.sendFrame(statusFrame(FrameType.TRAILERS, streamId, status)),
+    };
+    try {
+      await sink.sendHeaders();
+      await this.dispatcher(headers.path, headers, input, sink);
+      await sink.sendTrailers(StatusError.ok());
+    } catch (e) {
+      const status =
+        e instanceof StatusError ? e : StatusError.internal(e?.message ?? String(e));
+      await sink.sendTrailers(status).catch(() => {});
+    } finally {
+      this.#streams.delete(streamId);
+    }
+  }
+
+  /** Fail every live stream (channel teardown). */
+  closeAll() {
+    for (const input of this.#streams.values()) {
+      input.fail(StatusError.unavailable("data channel closed"));
+    }
+    this.#streams.clear();
+  }
+}
+
+export { StatusCode };
+GRPC_RUNTIME_EOF
+)
+
+(define js-channel-body
+#<<GRPC_RUNTIME_EOF
+// Client side: opens streams on one endpoint, all four gRPC shapes.
+// Message types are classes with static encode(msg)/decode(bytes).
+
+import { FrameType, StatusError, encodeFrame, headersFrame, statusFrame } from "./codec.js";
+import { Endpoint } from "./endpoint.js";
+
+export class Channel {
+  #endpoint;
+
+  /** Accepts an Endpoint or a raw RTCDataChannel-like object. */
+  constructor(dcOrEndpoint, options) {
+    this.#endpoint =
+      dcOrEndpoint instanceof Endpoint ? dcOrEndpoint : new Endpoint(dcOrEndpoint, options);
+  }
+
+  get endpoint() {
+    return this.#endpoint;
+  }
+
+  async #open(path, metadata) {
+    const [id, input] = this.#endpoint.openStream();
+    try {
+      await this.#endpoint.sendFrame(headersFrame(id, path, metadata));
+    } catch (e) {
+      this.#endpoint.closeStream(id);
+      throw e;
+    }
+    return [id, input];
+  }
+
+  async #sendMessage(id, ReqType, request) {
+    await this.#endpoint.sendFrame(encodeFrame(FrameType.DATA, id, ReqType.encode(request)));
+  }
+
+  async #collectOne(id, input, RespType) {
+    try {
+      let response = null;
+      for await (const event of input) {
+        if (event.kind === "data") {
+          if (response !== null) {
+            throw StatusError.internal("unary call received more than one response");
+          }
+          response = RespType.decode(event.payload);
+        } else if (event.kind === "trailers") {
+          if (event.status.code !== 0) throw event.status;
+          if (response === null) throw StatusError.internal("call closed with no response");
+          return response;
+        } else if (event.kind === "rst") {
+          throw event.status;
+        }
+      }
+      throw StatusError.unavailable("data channel closed");
+    } finally {
+      this.#endpoint.closeStream(id);
+    }
+  }
+
+  async *#responses(id, input, RespType) {
+    try {
+      for await (const event of input) {
+        if (event.kind === "data") {
+          yield RespType.decode(event.payload);
+        } else if (event.kind === "trailers") {
+          if (event.status.code !== 0) throw event.status;
+          return;
+        } else if (event.kind === "rst") {
+          throw event.status;
+        }
+      }
+      throw StatusError.unavailable("data channel closed");
+    } finally {
+      this.#endpoint.closeStream(id);
+    }
+  }
+
+  async #pump(id, requests, ReqType) {
+    try {
+      for await (const request of requests) {
+        await this.#sendMessage(id, ReqType, request);
+      }
+      await this.#endpoint.sendFrame(encodeFrame(FrameType.HALF_CLOSE, id));
+    } catch (e) {
+      const status = e instanceof StatusError ? e : StatusError.internal(e?.message ?? String(e));
+      await this.#endpoint
+        .sendFrame(statusFrame(FrameType.RST, id, status))
+        .catch(() => {});
+    }
+  }
+
+  /** Unary: one request, one response. */
+  async unary(path, request, ReqType, RespType, { metadata = {} } = {}) {
+    const [id, input] = await this.#open(path, metadata);
+    await this.#sendMessage(id, ReqType, request);
+    await this.#endpoint.sendFrame(encodeFrame(FrameType.HALF_CLOSE, id));
+    return this.#collectOne(id, input, RespType);
+  }
+
+  /** Server-streaming: one request, async iterable of responses. */
+  serverStream(path, request, ReqType, RespType, { metadata = {} } = {}) {
+    return (async () => {
+      const [id, input] = await this.#open(path, metadata);
+      await this.#sendMessage(id, ReqType, request);
+      await this.#endpoint.sendFrame(encodeFrame(FrameType.HALF_CLOSE, id));
+      return this.#responses(id, input, RespType);
+    })();
+  }
+
+  /** Client-streaming: async iterable of requests, one response. */
+  async clientStream(path, requests, ReqType, RespType, { metadata = {} } = {}) {
+    const [id, input] = await this.#open(path, metadata);
+    const pump = this.#pump(id, requests, ReqType);
+    try {
+      return await this.#collectOne(id, input, RespType);
+    } finally {
+      pump.catch(() => {});
+    }
+  }
+
+  /** Bidirectional: async iterable of requests and of responses. */
+  bidi(path, requests, ReqType, RespType, { metadata = {} } = {}) {
+    return (async () => {
+      const [id, input] = await this.#open(path, metadata);
+      const pump = this.#pump(id, requests, ReqType);
+      pump.catch(() => {});
+      return this.#responses(id, input, RespType);
+    })();
+  }
+
+  /** Abort a call: sends RST CANCELLED. */
+  async cancel(streamId) {
+    await this.#endpoint
+      .sendFrame(
+        statusFrame(
+          FrameType.RST,
+          streamId,
+          new StatusError(1, "cancelled by caller"),
+        ),
+      )
+      .catch(() => {});
+    this.#endpoint.closeStream(streamId);
+  }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define js-server-body
+#<<GRPC_RUNTIME_EOF
+// Server side: registers generated service definitions (createXService)
+// on an endpoint and dispatches HEADERS by path.
+
+import { StatusError } from "./codec.js";
+import { Endpoint } from "./endpoint.js";
+
+async function* typedRequests(input, ReqType) {
+  for await (const event of input) {
+    if (event.kind === "data") {
+      yield ReqType.decode(event.payload);
+    } else if (event.kind === "half-close") {
+      return;
+    } else if (event.kind === "trailers" || event.kind === "rst") {
+      throw event.status;
+    }
+  }
+}
+
+async function firstRequest(requests) {
+  const iterator = requests[Symbol.asyncIterator]();
+  const first = await iterator.next();
+  if (first.done) {
+    throw StatusError.invalidArgument("missing request message");
+  }
+  return first.value;
+}
+
+export class Server {
+  #methods = new Map();
+
+  addService(definition) {
+    for (const [name, method] of Object.entries(definition.methods)) {
+      if (typeof method.handler !== "function") {
+        throw new Error(`grpc-dc: missing handler for ${definition.name}.${name}`);
+      }
+      this.#methods.set(method.path, { ...method, service: definition.name, method: name });
+    }
+    return this;
+  }
+
+  /** Attach to an endpoint (or raw channel, wrapped with even parity). */
+  serve(dcOrEndpoint, options) {
+    const endpoint =
+      dcOrEndpoint instanceof Endpoint
+        ? dcOrEndpoint
+        : new Endpoint(dcOrEndpoint, { parity: "even", ...options });
+    endpoint.dispatcher = (path, headers, input, sink) =>
+      this.#dispatch(path, headers, input, sink);
+    return endpoint;
+  }
+
+  async #dispatch(path, headers, input, sink) {
+    const method = this.#methods.get(path);
+    if (!method) {
+      throw StatusError.unimplemented(`unknown method ${path}`);
+    }
+    const ctx = { path, metadata: headers.metadata ?? {}, service: method.service, method: method.method };
+    const requests = typedRequests(input, method.requestType);
+    const encode = (resp) => method.responseType.encode(resp);
+    switch (method.kind) {
+      case "unary": {
+        const req = await firstRequest(requests);
+        const resp = await method.handler(req, ctx);
+        await sink.sendData(encode(resp));
+        return;
+      }
+      case "server-streaming": {
+        const req = await firstRequest(requests);
+        const out = await method.handler(req, ctx);
+        for await (const resp of out) {
+          await sink.sendData(encode(resp));
+        }
+        return;
+      }
+      case "client-streaming": {
+        const resp = await method.handler(requests, ctx);
+        await sink.sendData(encode(resp));
+        return;
+      }
+      case "bidi": {
+        const out = await method.handler(requests, ctx);
+        for await (const resp of out) {
+          await sink.sendData(encode(resp));
+        }
+        return;
+      }
+      default:
+        throw StatusError.unimplemented(`unknown method kind ${method.kind}`);
+    }
+  }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define js-loopback-body
+#<<GRPC_RUNTIME_EOF
+// In-memory RTCDataChannel pair for Node tests and demos: message
+// boundaries preserved, ordered, reliable — the same contract a real
+// RTCDataChannel offers. Delivery is a microtask, like a fast network.
+
+class MemoryDataChannel {
+  #listeners = new Map();
+
+  constructor(label) {
+    this.label = label;
+    this.readyState = "open";
+    this.bufferedAmount = 0;
+    this.binaryType = "arraybuffer";
+    this.peer = null;
+  }
+
+  addEventListener(type, fn) {
+    if (!this.#listeners.has(type)) this.#listeners.set(type, []);
+    this.#listeners.get(type).push(fn);
+  }
+
+  removeEventListener(type, fn) {
+    const list = this.#listeners.get(type) ?? [];
+    this.#listeners.set(type, list.filter((f) => f !== fn));
+  }
+
+  #emit(type, event) {
+    for (const fn of [...(this.#listeners.get(type) ?? [])]) fn(event);
+    const handler = this[`on${type}`];
+    if (typeof handler === "function") handler(event);
+  }
+
+  send(data) {
+    if (this.readyState !== "open") throw new Error("data channel is not open");
+    const copy = data instanceof Uint8Array ? data.slice() : data;
+    const peer = this.peer;
+    queueMicrotask(() => {
+      if (peer.readyState === "open") peer.#emit("message", { data: copy });
+    });
+  }
+
+  close() {
+    if (this.readyState === "closed") return;
+    this.readyState = "closed";
+    this.#emit("close", {});
+    if (this.peer.readyState !== "closed") {
+      this.peer.readyState = "closed";
+      this.peer.#emit("close", {});
+    }
+  }
+}
+
+export function memoryDataChannelPair() {
+  const a = new MemoryDataChannel("a");
+  const b = new MemoryDataChannel("b");
+  a.peer = b;
+  b.peer = a;
+  return [a, b];
+}
+GRPC_RUNTIME_EOF
+)
+
+(define js-wasm-bridge-body
+#<<GRPC_RUNTIME_EOF
+// WASM bridge: the generic byte-level surface that generated WASM
+// client facades (Go/Rust/...) call into. The JS runtime owns the
+// wire; the facade owns the types. Payloads cross the boundary as
+// Uint8Array protobuf bytes, so no object mapping is needed.
+//
+//   unary(path, payload) -> Promise<Uint8Array>
+//   serverStream(path, payload, onMessage) -> Promise<void>
+//   clientStream(path, payloads) -> Promise<Uint8Array>
+//   bidi(path, payloads, onMessage) -> Promise<void>
+//
+// onMessage receives one Uint8Array per response; the promise resolves
+// on OK trailers and rejects with StatusError otherwise.
+
+import { Channel } from "./channel.js";
+
+const identity = { encode: (bytes) => bytes, decode: (bytes) => bytes };
+
+async function* fromList(items) {
+  yield* items;
+}
+
+export function createGrpcDcBridge(dcOrChannel) {
+  const channel = dcOrChannel instanceof Channel ? dcOrChannel : new Channel(dcOrChannel);
+  return {
+    async unary(path, payload) {
+      return channel.unary(path, payload, identity, identity);
+    },
+    async serverStream(path, payload, onMessage) {
+      const responses = await channel.serverStream(path, payload, identity, identity);
+      for await (const resp of responses) onMessage(resp);
+    },
+    async clientStream(path, payloads) {
+      return channel.clientStream(path, fromList(payloads), identity, identity);
+    },
+    async bidi(path, payloads, onMessage) {
+      const responses = await channel.bidi(path, fromList(payloads), identity, identity);
+      for await (const resp of responses) onMessage(resp);
+    },
+  };
+}
+GRPC_RUNTIME_EOF
+)
+
+;; Frame dispatch: switch arms are expanded from spec.rkt's frame
+;; table, one arm per table entry (constants as stamped in wire_gen.js).
+(define (js-frame-const sym)
+  (string-replace (symbol->string sym) "-" "_"))
+
+(define js-dispatch-arms
+  '((HEADERS    . "this.#onHeaders(streamId, payload);")
+    (DATA       . "this.#push(streamId, { kind: \"data\", payload });")
+    (HALF-CLOSE . "this.#push(streamId, { kind: \"half-close\" });")
+    (TRAILERS   . "this.#terminal(streamId, payload, \"trailers\");")
+    (RST        . "this.#terminal(streamId, payload, \"rst\");")))
+
+(define (emit-js-dispatch)
+  (string-append
+   "switch (type) {\n"
+   (apply string-append
+          (for/list ([e (in-list frame-table)])
+            (define arm (assoc (first e) js-dispatch-arms))
+            (unless arm (error 'runtime-js "no JS dispatch arm for ~a" (first e)))
+            (format "      case FrameType.~a:\n        ~a\n        break;\n"
+                    (js-frame-const (first e)) (cdr arm))))
+   "      default:\n        break; // unknown frame type: ignore for forward compatibility\n    }"))
+
+(define (emit-js-runtime-files)
+  (list
+   (cons "codec.js" js-codec-body)
+   (cons "endpoint.js"
+         (string-replace js-endpoint-body "@@FRAME_DISPATCH@@" (emit-js-dispatch)))
+   (cons "channel.js" js-channel-body)
+   (cons "server.js" js-server-body)
+   (cons "loopback.js" js-loopback-body)
+   (cons "wasm_bridge.js" js-wasm-bridge-body)
+   (cons "dynamic.js" js-dynamic-body)))
+
+(define js-dynamic-body
+#<<GRPC_RUNTIME_EOF
+// Dynamic, descriptor-driven client and server.
+//
+// Parses a FileDescriptorSet (as produced by
+// `protoc --descriptor_set_out`) at runtime and builds clients and
+// servers whose messages are generic field maps — no generated stubs
+// required. Schemas arrive as data (descriptor.proto), not as code.
+//
+// Generic values by field type: varint family -> number, string ->
+// string, bytes -> Uint8Array, message -> Map, fixed/float -> number,
+// bool -> boolean. GenericMessage wraps Map<number, values[]>.
+
+import { StatusError } from "./codec.js";
+import { StatusCode } from "../wire_gen.js";
+
+export const FieldType = {
+  DOUBLE: 1, FLOAT: 2, INT64: 3, UINT64: 4, INT32: 5, FIXED64: 6,
+  FIXED32: 7, BOOL: 8, STRING: 9, GROUP: 10, MESSAGE: 11, BYTES: 12,
+  UINT32: 13, ENUM: 14, SFIXED32: 15, SFIXED64: 16, SINT32: 17,
+  SINT64: 18,
+};
+
+const VARINT_TYPES = new Set([3, 4, 5, 8, 13, 14, 17, 18]);
+const WIRE_TYPE = new Map();
+for (const t of VARINT_TYPES) WIRE_TYPE.set(t, 0);
+for (const t of [6, 16, 1]) WIRE_TYPE.set(t, 1);
+for (const t of [9, 11, 12, 10]) WIRE_TYPE.set(t, 2);
+for (const t of [7, 15, 2]) WIRE_TYPE.set(t, 5);
+
+const LABEL_REPEATED = 3;
+
+class PbReader {
+  constructor(buf) {
+    this.buf = buf;
+    this.pos = 0;
+  }
+
+  varint() {
+    let result = 0n;
+    let shift = 0n;
+    for (;;) {
+      if (this.pos >= this.buf.length) throw new Error("truncated varint");
+      const b = this.buf[this.pos++];
+      result |= BigInt(b & 0x7f) << shift;
+      if ((b & 0x80) === 0) return result;
+      shift += 7n;
+      if (shift >= 70n) throw new Error("varint too long");
+    }
+  }
+
+  bytesField() {
+    const n = Number(this.varint());
+    if (this.pos + n > this.buf.length) throw new Error("truncated bytes field");
+    const out = this.buf.subarray(this.pos, this.pos + n);
+    this.pos += n;
+    return out;
+  }
+
+  *fields() {
+    while (this.pos < this.buf.length) {
+      const start = this.pos;
+      const tag = this.varint();
+      const number = Number(tag >> 3n);
+      const wire = Number(tag & 7n);
+      if (wire === 0) {
+        const v = this.varint();
+        yield [number, wire, v, this.buf.slice(start, this.pos)];
+      } else if (wire === 2) {
+        const v = this.bytesField();
+        yield [number, wire, v, this.buf.slice(start, this.pos)];
+      } else if (wire === 1) {
+        if (this.pos + 8 > this.buf.length) throw new Error("truncated fixed64");
+        const value = this.buf.subarray(this.pos, this.pos + 8);
+        this.pos += 8;
+        yield [number, wire, value, this.buf.slice(start, this.pos)];
+      } else if (wire === 5) {
+        if (this.pos + 4 > this.buf.length) throw new Error("truncated fixed32");
+        const value = this.buf.subarray(this.pos, this.pos + 4);
+        this.pos += 4;
+        yield [number, wire, value, this.buf.slice(start, this.pos)];
+      } else {
+        throw new Error(`unsupported wire type ${wire}`);
+      }
+    }
+  }
+}
+
+function pbString(fields, number) {
+  for (const [num, , value] of fields) {
+    if (num === number) return new TextDecoder().decode(value);
+  }
+  return "";
+}
+
+function pbUint(fields, number) {
+  for (const [num, , value] of fields) {
+    if (num === number) return value;
+  }
+  return 0n;
+}
+
+export class GenericMessage {
+  constructor(model = null) {
+    this.model = model;
+    this.values = new Map();
+    // Raw encoded chunks of fields not in the model (protobuf
+    // unknown-field retention); re-emitted after known fields.
+    this.unknown = [];
+  }
+
+  set(number, value) {
+    this.values.set(number, [value]);
+    return this;
+  }
+
+  add(number, value) {
+    if (!this.values.has(number)) this.values.set(number, []);
+    this.values.get(number).push(value);
+    return this;
+  }
+
+  getAll(number) {
+    return [...(this.values.get(number) ?? [])];
+  }
+
+  get(number, fallback = undefined) {
+    const items = this.values.get(number);
+    return items && items.length ? items[0] : fallback;
+  }
+
+  getString(number, fallback = "") {
+    const value = this.get(number);
+    return typeof value === "string" ? value : fallback;
+  }
+
+  getInt(number, fallback = 0) {
+    const value = this.get(number);
+    return typeof value === "number" ? value : fallback;
+  }
+}
+
+function encodeVarint(value) {
+  let v = BigInt(value) & 0xffffffffffffffffn;
+  const out = [];
+  while (v > 0x7fn) {
+    out.push(Number((v & 0x7fn) | 0x80n));
+    v >>= 7n;
+  }
+  out.push(Number(v));
+  return Uint8Array.from(out);
+}
+
+function concatBytes(parts) {
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.length;
+  }
+  return out;
+}
+
+function encodeValue(field, value, fileModel) {
+  const wire = WIRE_TYPE.get(field.type);
+  const parts = [encodeVarint(BigInt((field.number << 3) | wire))];
+  if (wire === 0) {
+    if (field.type === FieldType.SINT32 || field.type === FieldType.SINT64) {
+      const v = BigInt(value);
+      parts.push(encodeVarint((v << 1n) ^ (v >> 63n)));
+    } else if (field.type === FieldType.BOOL) {
+      parts.push(encodeVarint(value ? 1 : 0));
+    } else {
+      parts.push(encodeVarint(BigInt(value)));
+    }
+  } else if (wire === 1) {
+    const buf = new Uint8Array(8);
+    const view = new DataView(buf.buffer);
+    if (field.type === FieldType.DOUBLE) view.setFloat64(0, value, true);
+    else view.setBigUint64(0, BigInt(value), true);
+    parts.push(buf);
+  } else if (wire === 5) {
+    const buf = new Uint8Array(4);
+    const view = new DataView(buf.buffer);
+    if (field.type === FieldType.FLOAT) view.setFloat32(0, value, true);
+    else view.setUint32(0, value, true);
+    parts.push(buf);
+  } else {
+    let data;
+    if (field.type === FieldType.STRING) data = new TextEncoder().encode(value);
+    else if (field.type === FieldType.MESSAGE) {
+      data = encodeGeneric(fileModel.messages.get(field.typeName), value, fileModel);
+    } else data = value;
+    parts.push(encodeVarint(data.length), data);
+  }
+  return concatBytes(parts);
+}
+
+export function encodeGeneric(model, message, fileModel) {
+  const parts = [];
+  const numbers = [...message.values.keys()].sort((a, b) => a - b);
+  for (const number of numbers) {
+    const field = model.fields.get(number);
+    if (!field) {
+      throw new StatusError(StatusCode.INVALID_ARGUMENT, `unknown field ${number} for ${model.fullName}`);
+    }
+    const values = message.values.get(number);
+    if (field.repeated) {
+      for (const value of values) parts.push(encodeValue(field, value, fileModel));
+    } else if (values.length) {
+      parts.push(encodeValue(field, values[0], fileModel));
+    }
+  }
+  for (const chunk of message.unknown ?? []) parts.push(chunk);
+  return concatBytes(parts);
+}
+
+function decodeValue(field, wire, raw, fileModel) {
+  if (wire === 0) {
+    if (field.type === FieldType.BOOL) return raw !== 0n;
+    if (field.type === FieldType.SINT32 || field.type === FieldType.SINT64) {
+      return Number((raw >> 1n) ^ -(raw & 1n));
+    }
+    if (field.type === FieldType.INT32 || field.type === FieldType.ENUM) {
+      return Number(BigInt.asIntN(32, raw));
+    }
+    if (field.type === FieldType.INT64) return Number(BigInt.asIntN(64, raw));
+    return Number(raw);
+  }
+  if (wire === 1) {
+    const view = new DataView(raw.buffer, raw.byteOffset, 8);
+    if (field.type === FieldType.DOUBLE) return view.getFloat64(0, true);
+    return Number(view.getBigUint64(0, true));
+  }
+  if (wire === 5) {
+    const view = new DataView(raw.buffer, raw.byteOffset, 4);
+    if (field.type === FieldType.FLOAT) return view.getFloat32(0, true);
+    return view.getUint32(0, true);
+  }
+  if (field.type === FieldType.STRING) return new TextDecoder().decode(raw);
+  if (field.type === FieldType.MESSAGE) {
+    return decodeGeneric(fileModel.messages.get(field.typeName), raw, fileModel);
+  }
+  return new Uint8Array(raw);
+}
+
+export function decodeGeneric(model, data, fileModel) {
+  const message = new GenericMessage(model);
+  for (const [number, wire, raw, chunk] of new PbReader(data).fields()) {
+    const field = model.fields.get(number);
+    if (!field) {
+      // Unknown field: retain the raw encoded chunk verbatim.
+      message.unknown.push(chunk);
+      continue;
+    }
+    if (!message.values.has(number)) message.values.set(number, []);
+    message.values.get(number).push(decodeValue(field, wire, raw, fileModel));
+  }
+  return message;
+}
+
+export function parseDescriptorSet(data) {
+  const fileModel = { messages: new Map(), services: new Map() };
+  const pending = [];
+  for (const [number, , fileBytes] of new PbReader(data).fields()) {
+    if (number !== 1) continue;
+    const fields = [...new PbReader(fileBytes).fields()];
+    const pkg = pbString(fields, 2);
+    for (const [fnum, , fval] of fields) {
+      if (fnum === 4) parseMessage(pkg, "", fval, fileModel);
+      else if (fnum === 6) pending.push([pkg, fval]);
+    }
+  }
+  for (const [pkg, serviceBytes] of pending) {
+    parseService(pkg, serviceBytes, fileModel);
+  }
+  return fileModel;
+}
+
+function parseMessage(pkg, outer, data, fileModel) {
+  const fields = [...new PbReader(data).fields()];
+  const name = pbString(fields, 1);
+  const full = (pkg ? pkg + "." : "") + (outer ? outer + "." : "") + name;
+  const model = { fullName: full, fields: new Map() };
+  fileModel.messages.set("." + full, model);
+  for (const [fnum, , fval] of fields) {
+    if (fnum === 2) {
+      const field = parseField(fval);
+      model.fields.set(field.number, field);
+    } else if (fnum === 3) {
+      parseMessage(pkg, full.slice(pkg ? pkg.length + 1 : 0), fval, fileModel);
+    }
+  }
+  return model;
+}
+
+function parseField(data) {
+  const fields = [...new PbReader(data).fields()];
+  return {
+    number: Number(pbUint(fields, 3)),
+    name: pbString(fields, 1),
+    type: Number(pbUint(fields, 5)),
+    repeated: Number(pbUint(fields, 4)) === LABEL_REPEATED,
+    typeName: pbString(fields, 6),
+  };
+}
+
+function methodKind(clientStreaming, serverStreaming) {
+  if (clientStreaming && serverStreaming) return "bidi";
+  if (serverStreaming) return "server-streaming";
+  if (clientStreaming) return "client-streaming";
+  return "unary";
+}
+
+function parseService(pkg, data, fileModel) {
+  const fields = [...new PbReader(data).fields()];
+  const name = pbString(fields, 1);
+  const full = pkg ? `${pkg}.${name}` : name;
+  const service = { fullName: full, methods: new Map() };
+  fileModel.services.set(full, service);
+  for (const [fnum, , fval] of fields) {
+    if (fnum !== 2) continue;
+    const mf = [...new PbReader(fval).fields()];
+    const mname = pbString(mf, 1);
+    service.methods.set(mname, {
+      name: mname,
+      path: `/${full}/${mname}`,
+      kind: methodKind(pbUint(mf, 5) !== 0n, pbUint(mf, 6) !== 0n),
+      input: fileModel.messages.get(pbString(mf, 2)),
+      output: fileModel.messages.get(pbString(mf, 3)),
+    });
+  }
+  return service;
+}
+
+function boundType(model, fileModel) {
+  return {
+    encode: (generic) => encodeGeneric(model, generic ?? new GenericMessage(model), fileModel),
+    decode: (bytes) => decodeGeneric(model, bytes, fileModel),
+  };
+}
+
+/** Runtime-built client: methods resolve from the file model. */
+export class DynamicClient {
+  #channel;
+  #model;
+
+  constructor(channel, fileModel) {
+    this.#channel = channel;
+    this.#model = fileModel;
+  }
+
+  #method(serviceName, methodName) {
+    const service = this.#model.services.get(serviceName);
+    if (!service) throw new StatusError(StatusCode.INVALID_ARGUMENT, `unknown service ${serviceName}`);
+    const method = service.methods.get(methodName);
+    if (!method) throw new StatusError(StatusCode.INVALID_ARGUMENT, `unknown method ${methodName}`);
+    return method;
+  }
+
+  async unary(serviceName, methodName, request, { metadata } = {}) {
+    const method = this.#method(serviceName, methodName);
+    return this.#channel.unary(method.path, request,
+      boundType(method.input, this.#model), boundType(method.output, this.#model), { metadata });
+  }
+
+  async serverStream(serviceName, methodName, request, { metadata } = {}) {
+    const method = this.#method(serviceName, methodName);
+    return this.#channel.serverStream(method.path, request,
+      boundType(method.input, this.#model), boundType(method.output, this.#model), { metadata });
+  }
+
+  async clientStream(serviceName, methodName, requests, { metadata } = {}) {
+    const method = this.#method(serviceName, methodName);
+    return this.#channel.clientStream(method.path, requests,
+      boundType(method.input, this.#model), boundType(method.output, this.#model), { metadata });
+  }
+
+  async bidi(serviceName, methodName, requests, { metadata } = {}) {
+    const method = this.#method(serviceName, methodName);
+    return this.#channel.bidi(method.path, requests,
+      boundType(method.input, this.#model), boundType(method.output, this.#model), { metadata });
+  }
+}
+
+/**
+ * Build a Server service definition from descriptors + a handler
+ * object with methods by kind:
+ *   unary(ctx, method, request) -> GenericMessage
+ *   serverStream(ctx, method, request) -> iterable/async iterable of GenericMessage
+ *   clientStream(ctx, method, requests) -> GenericMessage
+ *   bidi(ctx, method, requests) -> iterable/async iterable of GenericMessage
+ * (requests are async iterables of GenericMessage.) Pass the result
+ * to server.addService(definition).
+ */
+export function createDynamicService(fileModel, serviceName, handler) {
+  const service = fileModel.services.get(serviceName);
+  if (!service) throw new StatusError(StatusCode.INVALID_ARGUMENT, `unknown service ${serviceName}`);
+  const methods = {};
+  for (const method of service.methods.values()) {
+    methods[method.name] = {
+      path: method.path,
+      kind: method.kind,
+      requestType: boundType(method.input, fileModel),
+      responseType: boundType(method.output, fileModel),
+      handler: async (...args) => {
+        if (method.kind === "unary") {
+          const [req, ctx] = args;
+          return handler.unary(ctx, method, req);
+        }
+        if (method.kind === "server-streaming") {
+          const [req, ctx] = args;
+          return handler.serverStream(ctx, method, req);
+        }
+        if (method.kind === "client-streaming") {
+          const [requests, ctx] = args;
+          return handler.clientStream(ctx, method, requests);
+        }
+        const [requests, ctx] = args;
+        return handler.bidi(ctx, method, requests);
+      },
+    };
+  }
+  return { name: service.fullName, methods };
+}
+GRPC_RUNTIME_EOF
+)

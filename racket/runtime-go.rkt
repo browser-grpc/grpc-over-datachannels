@@ -1,0 +1,1639 @@
+#lang racket
+
+;;; runtime-go.rkt — the go gRPC runtime, emitted by metagen.rkt.
+;;;
+;;; The runtime files under the language tree are GENERATED from the
+;;; bodies below plus fragments recursively expanded from spec.rkt's
+;;; frame/status tables (see the dispatch generator). Do not edit the
+;;; generated runtime files; edit here and run `make generate`.
+;;; (Bodies were authored in-language and are kept verbatim so the
+;;; generated output stays byte-reviewable in git diffs.)
+
+(require "spec.rkt")
+(provide emit-go-runtime-files)
+
+(define go-codec-body
+#<<GRPC_RUNTIME_EOF
+// Package grpcdc is the Go runtime for gRPC over WebRTC DataChannels
+// (wire protocol in ../SPEC.md). Standard library only. Frame, status,
+// channel and server semantics mirror the Rust and JavaScript runtimes;
+// the tables in wire_gen.go are stamped by the Racket metaprogram.
+package grpcdc
+
+import (
+	"encoding/binary"
+	"encoding/json"
+	"errors"
+	"fmt"
+)
+
+// HeaderLen is the frame header size: type:u8 | stream:u32be | len:u32be.
+const HeaderLen = 9
+
+// MaxDataPayload caps one DATA frame (SPEC.md), 16 MiB.
+const MaxDataPayload = 16 * 1024 * 1024
+
+// StatusError is a gRPC status (code + message) carried as an error.
+type StatusError struct {
+	Code    Code
+	Message string
+}
+
+func (e *StatusError) Error() string {
+	if e == nil {
+		return "OK"
+	}
+	return fmt.Sprintf("%s: %s", e.Code.Name(), e.Message)
+}
+
+// NewStatus builds a StatusError.
+func NewStatus(code Code, message string) *StatusError {
+	return &StatusError{Code: code, Message: message}
+}
+
+// Status extracts a *StatusError from err, converting foreign errors
+// to INTERNAL with their message (OK for nil).
+func Status(err error) *StatusError {
+	if err == nil {
+		return NewStatus(CodeOk, "")
+	}
+	var se *StatusError
+	if errors.As(err, &se) {
+		return se
+	}
+	return NewStatus(CodeInternal, err.Error())
+}
+
+// Marshaler is implemented by protobuf message types (see the
+// hand-written echo messages and generated stubs).
+type Marshaler interface {
+	MarshalDC() []byte
+}
+
+// Unmarshaler is implemented by pointer message types.
+type Unmarshaler interface {
+	UnmarshalDC([]byte) error
+}
+
+// EncodeFrame builds one DataChannel message: header + payload.
+func EncodeFrame(frameType FrameType, streamID uint32, payload []byte) ([]byte, error) {
+	if !frameType.Valid() {
+		return nil, NewStatus(CodeInvalidArgument, fmt.Sprintf("unknown frame type %d", frameType))
+	}
+	if frameType == FrameData && len(payload) > MaxDataPayload {
+		return nil, NewStatus(CodeResourceExhausted, "DATA payload exceeds 16 MiB")
+	}
+	out := make([]byte, HeaderLen+len(payload))
+	out[0] = byte(frameType)
+	binary.BigEndian.PutUint32(out[1:5], streamID)
+	binary.BigEndian.PutUint32(out[5:9], uint32(len(payload)))
+	copy(out[HeaderLen:], payload)
+	return out, nil
+}
+
+// DecodeFrame parses one DataChannel message.
+func DecodeFrame(data []byte) (FrameType, uint32, []byte, error) {
+	if len(data) < HeaderLen {
+		return 0, 0, nil, NewStatus(CodeInvalidArgument,
+			fmt.Sprintf("frame shorter than 9-byte header: %d bytes", len(data)))
+	}
+	length := binary.BigEndian.Uint32(data[5:9])
+	if int(length) != len(data)-HeaderLen {
+		return 0, 0, nil, NewStatus(CodeInvalidArgument,
+			fmt.Sprintf("payload length %d does not match message size %d", length, len(data)))
+	}
+	return FrameType(data[0]), binary.BigEndian.Uint32(data[1:5]), data[HeaderLen:], nil
+}
+
+type headersBody struct {
+	Path     *string           `json:"path,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+// Headers is a parsed HEADERS payload: a nil Path marks a server's
+// response headers.
+type Headers struct {
+	Path     *string
+	Metadata map[string]string
+}
+
+func headersFrame(streamID uint32, path *string, metadata map[string]string) ([]byte, error) {
+	body := headersBody{Path: path}
+	if path != nil {
+		body.Metadata = metadata
+		if body.Metadata == nil {
+			body.Metadata = map[string]string{}
+		}
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	return EncodeFrame(FrameHeaders, streamID, payload)
+}
+
+func statusFrame(frameType FrameType, streamID uint32, status *StatusError) ([]byte, error) {
+	payload, err := json.Marshal(struct {
+		Code    Code   `json:"code"`
+		Message string `json:"message"`
+	}{status.Code, status.Message})
+	if err != nil {
+		return nil, err
+	}
+	return EncodeFrame(frameType, streamID, payload)
+}
+
+func parseHeaders(payload []byte) (Headers, error) {
+	var body headersBody
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return Headers{}, NewStatus(CodeInvalidArgument, "malformed HEADERS payload")
+	}
+	if body.Metadata == nil {
+		body.Metadata = map[string]string{}
+	}
+	return Headers{Path: body.Path, Metadata: body.Metadata}, nil
+}
+
+func parseStatus(payload []byte) *StatusError {
+	var body struct {
+		Code    *Code  `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return NewStatus(CodeInternal, "malformed status payload")
+	}
+	code := CodeUnknown
+	if body.Code != nil {
+		code = *body.Code
+	}
+	return NewStatus(code, body.Message)
+}
+GRPC_RUNTIME_EOF
+)
+
+(define go-endpoint-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+import (
+	"context"
+	"io"
+	"sync"
+)
+
+// Transport carries whole DataChannel messages: one Send/Recv is one
+// message, boundaries preserved, ordered and reliable — the contract
+// an RTCDataChannel (or the loopback pair) offers.
+type Transport interface {
+	Send([]byte) error
+	Recv() ([]byte, error)
+}
+
+type eventKind int
+
+const (
+	eventHeaders eventKind = iota
+	eventData
+	eventHalfClose
+	eventTrailers
+	eventRST
+)
+
+type streamEvent struct {
+	kind    eventKind
+	headers Headers
+	payload []byte
+	status  *StatusError
+}
+
+// streamInput is the receiving queue of one stream. The channel closes
+// after a terminal (trailers/RST) event has been delivered.
+type streamInput struct {
+	events chan streamEvent
+}
+
+func newStreamInput() *streamInput {
+	return &streamInput{events: make(chan streamEvent, 256)}
+}
+
+// Dispatcher handles one inbound call (installed by Server). The
+// returned status becomes the call's TRAILERS (nil means OK).
+type Dispatcher func(ctx context.Context, headers Headers, in *streamInput, sink *responseSink) *StatusError
+
+type responseSink struct {
+	ep *Endpoint
+	id uint32
+}
+
+func (s *responseSink) SendData(payload []byte) error {
+	frame, err := EncodeFrame(FrameData, s.id, payload)
+	if err != nil {
+		return err
+	}
+	return s.ep.SendFrame(frame)
+}
+
+func (s *responseSink) sendHeaders() error {
+	frame, err := headersFrame(s.id, nil, nil)
+	if err != nil {
+		return err
+	}
+	return s.ep.SendFrame(frame)
+}
+
+func (s *responseSink) sendTrailers(status *StatusError) error {
+	frame, err := statusFrame(FrameTrailers, s.id, status)
+	if err != nil {
+		return err
+	}
+	return s.ep.SendFrame(frame)
+}
+
+// Endpoint multiplexes streams over one Transport. The side that
+// created the channel allocates odd stream ids, the answerer even.
+type Endpoint struct {
+	transport  Transport
+	dispatcher Dispatcher
+	nextID     uint32
+
+	sendMu   sync.Mutex
+	streams  sync.Map // uint32 -> *streamInput
+	done     chan struct{}
+	once     sync.Once
+	startOnce sync.Once
+}
+
+// NewEndpoint builds an endpoint on t. creator selects odd ids. The
+// read loop starts on Start — after any dispatcher is installed, so
+// an early HEADERS can never race dispatcher setup.
+func NewEndpoint(t Transport, creator bool) *Endpoint {
+	ep := &Endpoint{transport: t, done: make(chan struct{})}
+	if creator {
+		ep.nextID = 1
+	} else {
+		ep.nextID = 2
+	}
+	return ep
+}
+
+// Start begins the read loop (idempotent).
+func (ep *Endpoint) Start() {
+	ep.startOnce.Do(func() { go ep.readLoop() })
+}
+
+// SetDispatcher installs the server-side call handler.
+func (ep *Endpoint) SetDispatcher(d Dispatcher) { ep.dispatcher = d }
+
+// SendFrame serializes one frame onto the transport.
+func (ep *Endpoint) SendFrame(frame []byte) error {
+	ep.sendMu.Lock()
+	defer ep.sendMu.Unlock()
+	return ep.transport.Send(frame)
+}
+
+func (ep *Endpoint) openStream() (uint32, *streamInput) {
+	ep.sendMu.Lock()
+	id := ep.nextID
+	ep.nextID += 2
+	ep.sendMu.Unlock()
+	in := newStreamInput()
+	ep.streams.Store(id, in)
+	return id, in
+}
+
+func (ep *Endpoint) closeStream(id uint32) {
+	ep.streams.Delete(id)
+}
+
+func (ep *Endpoint) stream(id uint32) *streamInput {
+	in, ok := ep.streams.Load(id)
+	if !ok {
+		return nil
+	}
+	return in.(*streamInput)
+}
+
+// Close fails every live stream and stops the read loop.
+func (ep *Endpoint) Close() {
+	ep.once.Do(func() {
+		close(ep.done)
+		if c, ok := ep.transport.(io.Closer); ok {
+			_ = c.Close()
+		}
+		ep.failAll()
+	})
+}
+
+func (ep *Endpoint) failAll() {
+	ep.streams.Range(func(key, value any) bool {
+		in := value.(*streamInput)
+		in.events <- streamEvent{kind: eventRST, status: NewStatus(CodeUnavailable, "data channel closed")}
+		close(in.events)
+		ep.streams.Delete(key)
+		return true
+	})
+}
+
+func (ep *Endpoint) readLoop() {
+	for {
+		data, err := ep.transport.Recv()
+		if err != nil {
+			ep.failAll()
+			return
+		}
+		select {
+		case <-ep.done:
+			return
+		default:
+		}
+		ep.onBytes(data)
+	}
+}
+
+func (ep *Endpoint) onBytes(data []byte) {
+	frameType, streamID, payload, err := DecodeFrame(data)
+	if err != nil {
+		return // malformed frame: drop, keep the channel up
+	}
+@@FRAME_DISPATCH@@
+}
+
+func (ep *Endpoint) onTerminal(streamID uint32, payload []byte, kind eventKind) {
+	if in := ep.stream(streamID); in != nil {
+		in.events <- streamEvent{kind: kind, status: parseStatus(payload)}
+		close(in.events)
+		ep.streams.Delete(streamID)
+	}
+}
+
+func (ep *Endpoint) pushEvent(streamID uint32, ev streamEvent) {
+	if in := ep.stream(streamID); in != nil {
+		in.events <- ev
+	}
+}
+
+func (ep *Endpoint) onHeaders(streamID uint32, payload []byte) {
+	headers, err := parseHeaders(payload)
+	if err != nil {
+		frame, ferr := statusFrame(FrameRst, streamID, Status(err))
+		if ferr == nil {
+			_ = ep.SendFrame(frame)
+		}
+		return
+	}
+	if headers.Path == nil {
+		// Server response headers for one of our outbound streams.
+		if in := ep.stream(streamID); in != nil {
+			in.events <- streamEvent{kind: eventHeaders, headers: headers}
+		}
+		return
+	}
+	if ep.stream(streamID) != nil {
+		frame, _ := statusFrame(FrameRst, streamID,
+			NewStatus(CodeInternal, "HEADERS for stream already in use"))
+		_ = ep.SendFrame(frame)
+		return
+	}
+	if ep.dispatcher == nil {
+		frame, _ := statusFrame(FrameTrailers, streamID,
+			NewStatus(CodeUnimplemented, "unknown method "+*headers.Path))
+		_ = ep.SendFrame(frame)
+		return
+	}
+	in := newStreamInput()
+	ep.streams.Store(streamID, in)
+	sink := &responseSink{ep: ep, id: streamID}
+	go func() {
+		defer ep.streams.Delete(streamID)
+		if err := sink.sendHeaders(); err != nil {
+			return
+		}
+		ctx := context.WithValue(context.Background(), metadataKey{}, headers.Metadata)
+		status := ep.dispatcher(ctx, headers, in, sink)
+		if status == nil {
+			status = NewStatus(CodeOk, "")
+		}
+		_ = sink.sendTrailers(status)
+	}()
+}
+
+// SendTrailersOK is used by the server dispatch wrapper after a
+// handler completes; exported for the generated code path in server.go.
+func (s *responseSink) SendTrailers(status *StatusError) error {
+	return s.sendTrailers(status)
+}
+GRPC_RUNTIME_EOF
+)
+
+(define go-channel-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+import (
+	"context"
+	"io"
+)
+
+type metadataKey struct{}
+
+// MetadataFromContext returns call metadata sent in HEADERS.
+func MetadataFromContext(ctx context.Context) map[string]string {
+	if md, ok := ctx.Value(metadataKey{}).(map[string]string); ok {
+		return md
+	}
+	return map[string]string{}
+}
+
+// Channel is the client side of one Endpoint.
+type Channel struct {
+	ep *Endpoint
+}
+
+// NewChannel wraps a transport, allocating odd stream ids.
+func NewChannel(t Transport) *Channel {
+	return NewChannelOnEndpoint(NewEndpoint(t, true))
+}
+
+// NewChannelOnEndpoint wraps an existing endpoint (bidirectional
+// use; starts its read loop).
+func NewChannelOnEndpoint(ep *Endpoint) *Channel {
+	ep.Start()
+	return &Channel{ep: ep}
+}
+
+// Endpoint returns the underlying endpoint.
+func (ch *Channel) Endpoint() *Endpoint { return ch.ep }
+
+// ClientStream receives response messages of one call.
+type ClientStream struct {
+	ep     *Endpoint
+	id     uint32
+	in     *streamInput
+	header Headers
+	gotHdr bool
+}
+
+// Recv decodes the next response into resp. io.EOF means the call
+// completed OK; a *StatusError reports the trailers status.
+func (s *ClientStream) Recv(resp Unmarshaler) error {
+	for {
+		ev, ok := <-s.in.events
+		if !ok {
+			return NewStatus(CodeUnavailable, "data channel closed")
+		}
+		switch ev.kind {
+		case eventHeaders:
+			s.header, s.gotHdr = ev.headers, true
+		case eventData:
+			return resp.UnmarshalDC(ev.payload)
+		case eventTrailers:
+			if ev.status.Code != CodeOk {
+				return ev.status
+			}
+			return io.EOF
+		case eventRST:
+			return ev.status
+		}
+	}
+}
+
+func (ch *Channel) open(ctx context.Context, path string, metadata map[string]string) (*ClientStream, error) {
+	id, in := ch.ep.openStream()
+	frame, err := headersFrame(id, &path, metadata)
+	if err == nil {
+		err = ch.ep.SendFrame(frame)
+	}
+	if err != nil {
+		ch.ep.closeStream(id)
+		return nil, err
+	}
+	return &ClientStream{ep: ch.ep, id: id, in: in}, nil
+}
+
+func (ch *Channel) sendMessage(stream *ClientStream, msg Marshaler) error {
+	frame, err := EncodeFrame(FrameData, stream.id, msg.MarshalDC())
+	if err != nil {
+		return err
+	}
+	return ch.ep.SendFrame(frame)
+}
+
+func (ch *Channel) halfClose(stream *ClientStream) error {
+	frame, err := EncodeFrame(FrameHalfClose, stream.id, nil)
+	if err != nil {
+		return err
+	}
+	return ch.ep.SendFrame(frame)
+}
+
+// Unary runs a unary call, decoding the single response into resp.
+func (ch *Channel) Unary(ctx context.Context, path string, req Marshaler, resp Unmarshaler) error {
+	return ch.UnaryWithMetadata(ctx, path, req, resp, nil)
+}
+
+// UnaryWithMetadata is Unary with call metadata.
+func (ch *Channel) UnaryWithMetadata(ctx context.Context, path string, req Marshaler, resp Unmarshaler, metadata map[string]string) error {
+	stream, err := ch.open(ctx, path, metadata)
+	if err != nil {
+		return err
+	}
+	defer ch.ep.closeStream(stream.id)
+	if err := ch.sendMessage(stream, req); err != nil {
+		return err
+	}
+	if err := ch.halfClose(stream); err != nil {
+		return err
+	}
+	got := false
+	for {
+		err := stream.Recv(resp)
+		if err == io.EOF {
+			if !got {
+				return NewStatus(CodeInternal, "call closed with no response")
+			}
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if got {
+			return NewStatus(CodeInternal, "unary call received more than one response")
+		}
+		got = true
+	}
+}
+
+// ServerStream starts a server-streaming call.
+func (ch *Channel) ServerStream(ctx context.Context, path string, req Marshaler) (*ClientStream, error) {
+	return ch.ServerStreamWithMetadata(ctx, path, req, nil)
+}
+
+// ServerStreamWithMetadata is ServerStream with call metadata.
+func (ch *Channel) ServerStreamWithMetadata(ctx context.Context, path string, req Marshaler, metadata map[string]string) (*ClientStream, error) {
+	stream, err := ch.open(ctx, path, metadata)
+	if err != nil {
+		return nil, err
+	}
+	if err := ch.sendMessage(stream, req); err != nil {
+		return nil, err
+	}
+	if err := ch.halfClose(stream); err != nil {
+		return nil, err
+	}
+	return stream, nil
+}
+
+func (ch *Channel) sendAll(stream *ClientStream, reqs []Marshaler) error {
+	for _, req := range reqs {
+		if err := ch.sendMessage(stream, req); err != nil {
+			return err
+		}
+	}
+	return ch.halfClose(stream)
+}
+
+// ClientStreamCall sends all requests, then decodes the one response.
+func (ch *Channel) ClientStreamCall(ctx context.Context, path string, reqs []Marshaler, resp Unmarshaler) error {
+	return ch.ClientStreamCallWithMetadata(ctx, path, reqs, resp, nil)
+}
+
+// ClientStreamCallWithMetadata is ClientStreamCall with call metadata.
+func (ch *Channel) ClientStreamCallWithMetadata(ctx context.Context, path string, reqs []Marshaler, resp Unmarshaler, metadata map[string]string) error {
+	stream, err := ch.open(ctx, path, metadata)
+	if err != nil {
+		return err
+	}
+	defer ch.ep.closeStream(stream.id)
+	if err := ch.sendAll(stream, reqs); err != nil {
+		return err
+	}
+	got := false
+	for {
+		err := stream.Recv(resp)
+		if err == io.EOF {
+			if !got {
+				return NewStatus(CodeInternal, "call closed with no response")
+			}
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if got {
+			return NewStatus(CodeInternal, "client-streaming call received more than one response")
+		}
+		got = true
+	}
+}
+
+// Bidi starts a bidirectional call with all requests sent up front.
+func (ch *Channel) Bidi(ctx context.Context, path string, reqs []Marshaler) (*ClientStream, error) {
+	return ch.BidiWithMetadata(ctx, path, reqs, nil)
+}
+
+// BidiWithMetadata is Bidi with call metadata.
+func (ch *Channel) BidiWithMetadata(ctx context.Context, path string, reqs []Marshaler, metadata map[string]string) (*ClientStream, error) {
+	stream, err := ch.open(ctx, path, metadata)
+	if err != nil {
+		return nil, err
+	}
+	if err := ch.sendAll(stream, reqs); err != nil {
+		return nil, err
+	}
+	return stream, nil
+}
+GRPC_RUNTIME_EOF
+)
+
+(define go-server-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+import (
+	"context"
+	"io"
+)
+
+// Method kinds (values match the Racket spec's streaming-kind names).
+const (
+	KindUnary           = "unary"
+	KindServerStreaming = "server-streaming"
+	KindClientStreaming = "client-streaming"
+	KindBidi            = "bidi"
+)
+
+// RequestStream reads request messages of one inbound call.
+type RequestStream struct {
+	in *streamInput
+}
+
+// RecvRaw returns the next request payload; io.EOF at half-close.
+func (s *RequestStream) RecvRaw() ([]byte, error) {
+	for {
+		ev, ok := <-s.in.events
+		if !ok {
+			return nil, NewStatus(CodeUnavailable, "data channel closed")
+		}
+		switch ev.kind {
+		case eventData:
+			return ev.payload, nil
+		case eventHalfClose:
+			return nil, io.EOF
+		case eventTrailers, eventRST:
+			return nil, ev.status
+		}
+	}
+}
+
+// RecvInto decodes the next request message into req.
+func (s *RequestStream) RecvInto(req Unmarshaler) error {
+	payload, err := s.RecvRaw()
+	if err != nil {
+		return err
+	}
+	return req.UnmarshalDC(payload)
+}
+
+// ServerSink sends response payloads of one inbound call.
+type ServerSink interface {
+	Send(payload []byte) error
+}
+
+type sinkAdapter struct{ sink *responseSink }
+
+func (a sinkAdapter) Send(payload []byte) error { return a.sink.SendData(payload) }
+
+// MethodHandler implements one method against raw payloads; the
+// generated stubs adapt it to typed handlers.
+type MethodHandler func(ctx context.Context, req *RequestStream, sink ServerSink) error
+
+// Method is one entry of a ServiceDesc.
+type Method struct {
+	Name    string
+	Path    string
+	Kind    string
+	Handler MethodHandler
+}
+
+// ServiceDesc describes a service for Server.RegisterService.
+type ServiceDesc struct {
+	Name    string
+	Methods []Method
+}
+
+// Server dispatches inbound calls to registered methods.
+type Server struct {
+	methods map[string]Method
+}
+
+// NewServer builds an empty server.
+func NewServer() *Server {
+	return &Server{methods: map[string]Method{}}
+}
+
+// RegisterService adds a service's methods (generated code calls it).
+func (s *Server) RegisterService(desc ServiceDesc) {
+	for _, m := range desc.Methods {
+		s.methods[m.Path] = m
+	}
+}
+
+// ServeTransport attaches the server to a transport (even stream ids).
+func (s *Server) ServeTransport(t Transport) *Endpoint {
+	ep := NewEndpoint(t, false)
+	s.ServeEndpoint(ep)
+	return ep
+}
+
+// ServeEndpoint attaches the server to an existing endpoint (and
+// starts its read loop).
+func (s *Server) ServeEndpoint(ep *Endpoint) {
+	ep.SetDispatcher(s.dispatch)
+	ep.Start()
+}
+
+func (s *Server) dispatch(ctx context.Context, headers Headers, in *streamInput, sink *responseSink) *StatusError {
+	method, ok := s.methods[*headers.Path]
+	if !ok {
+		return NewStatus(CodeUnimplemented, "unknown method "+*headers.Path)
+	}
+	err := method.Handler(ctx, &RequestStream{in: in}, sinkAdapter{sink: sink})
+	if err != nil {
+		return Status(err)
+	}
+	return nil
+}
+GRPC_RUNTIME_EOF
+)
+
+(define go-loopback-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+import (
+	"io"
+	"sync"
+)
+
+type memoryTransport struct {
+	in     chan []byte
+	out    chan []byte
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (t *memoryTransport) Send(data []byte) error {
+	select {
+	case <-t.closed:
+		return NewStatus(CodeUnavailable, "data channel is not open")
+	default:
+	}
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	t.out <- cp
+	return nil
+}
+
+func (t *memoryTransport) Recv() ([]byte, error) {
+	select {
+	case data := <-t.in:
+		return data, nil
+	case <-t.closed:
+		return nil, io.EOF
+	}
+}
+
+func (t *memoryTransport) Close() error {
+	t.once.Do(func() { close(t.closed) })
+	return nil
+}
+
+// MemoryTransportPair returns two connected in-memory transports for
+// tests and demos: message boundaries preserved, ordered, reliable —
+// the same contract a real RTCDataChannel offers.
+func MemoryTransportPair() (Transport, Transport) {
+	ab := make(chan []byte, 1024)
+	ba := make(chan []byte, 1024)
+	a := &memoryTransport{in: ba, out: ab, closed: make(chan struct{})}
+	b := &memoryTransport{in: ab, out: ba, closed: make(chan struct{})}
+	// Closing either side ends both receive loops.
+	go func() { <-a.closed; b.Close() }()
+	return a, b
+}
+GRPC_RUNTIME_EOF
+)
+
+;; Frame dispatch: switch arms are expanded from spec.rkt's frame
+;; table, one arm per table entry; the arm bodies are the per-language
+;; handlers for each frame name.
+(define (go-frame-const sym)
+  (define parts (string-split (symbol->string sym) "-"))
+  (apply string-append
+         (for/list ([p (in-list parts)])
+           (string-append (string (char-upcase (string-ref p 0)))
+                          (string-downcase (substring p 1))))))
+
+(define go-dispatch-arms
+  '((HEADERS    . "ep.onHeaders(streamID, payload)")
+    (DATA       . "ep.pushEvent(streamID, streamEvent{kind: eventData, payload: payload})")
+    (HALF-CLOSE . "ep.pushEvent(streamID, streamEvent{kind: eventHalfClose})")
+    (TRAILERS   . "ep.onTerminal(streamID, payload, eventTrailers)")
+    (RST        . "ep.onTerminal(streamID, payload, eventRST)")))
+
+(define (emit-go-dispatch)
+  (string-append
+   "\tswitch frameType {\n"
+   (apply string-append
+          (for/list ([e (in-list frame-table)])
+            (define arm (assoc (first e) go-dispatch-arms))
+            (unless arm (error 'runtime-go "no Go dispatch arm for ~a" (first e)))
+            (format "\tcase Frame~a:\n\t\t~a\n" (go-frame-const (first e)) (cdr arm))))
+   "\tdefault:\n\t\t// Unknown frame type: ignore for forward compatibility.\n\t}"))
+
+(define (emit-go-runtime-files)
+  (list
+   (cons "codec.go" go-codec-body)
+   (cons "endpoint.go"
+         (string-replace go-endpoint-body "@@FRAME_DISPATCH@@" (emit-go-dispatch)))
+   (cons "channel.go" go-channel-body)
+   (cons "server.go" go-server-body)
+   (cons "loopback.go" go-loopback-body)
+   (cons "dynamic.go" go-dynamic-body)))
+
+(define go-dynamic-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+// Dynamic, descriptor-driven client and server.
+//
+// Parses a FileDescriptorSet (as produced by
+// `protoc --descriptor_set_out`) at runtime and builds clients and
+// servers whose messages are generic field maps — no generated stubs
+// required. Schemas arrive as data (descriptor.proto), not as code.
+//
+// Generic values by field type: varint family -> int64/uint64/bool,
+// string -> string, bytes -> []byte, message -> *GenericMessage,
+// fixed/float -> uint64/uint32/float64/float32.
+
+import (
+	"context"
+	"encoding/binary"
+	"fmt"
+	"math"
+	"sort"
+)
+
+// Field type values from descriptor.proto (FieldDescriptorProto.Type).
+const (
+	FieldTypeDouble   = 1
+	FieldTypeFloat    = 2
+	FieldTypeInt64    = 3
+	FieldTypeUint64   = 4
+	FieldTypeInt32    = 5
+	FieldTypeFixed64  = 6
+	FieldTypeFixed32  = 7
+	FieldTypeBool     = 8
+	FieldTypeString   = 9
+	FieldTypeGroup    = 10
+	FieldTypeMessage  = 11
+	FieldTypeBytes    = 12
+	FieldTypeUint32   = 13
+	FieldTypeEnum     = 14
+	FieldTypeSfixed32 = 15
+	FieldTypeSfixed64 = 16
+	FieldTypeSint32   = 17
+	FieldTypeSint64   = 18
+)
+
+const labelRepeated = 3
+
+// FieldModel is one field of a message descriptor.
+type FieldModel struct {
+	Number   uint32
+	Name     string
+	Type     int
+	Repeated bool
+	TypeName string
+}
+
+// MessageModel is one message descriptor.
+type MessageModel struct {
+	FullName string
+	Fields   map[uint32]*FieldModel
+}
+
+// MethodModel is one method descriptor.
+type MethodModel struct {
+	Name   string
+	Path   string
+	Kind   string
+	Input  *MessageModel
+	Output *MessageModel
+}
+
+// ServiceModel is one service descriptor.
+type ServiceModel struct {
+	FullName string
+	Methods  map[string]*MethodModel
+}
+
+// FileModel is a parsed FileDescriptorSet.
+type FileModel struct {
+	Messages map[string]*MessageModel // ".echo.EchoRequest"
+	Services map[string]*ServiceModel // "echo.Echo"
+}
+
+type pbReader struct {
+	buf []byte
+	pos int
+}
+
+func (r *pbReader) varint() (uint64, error) {
+	var result uint64
+	var shift uint
+	for {
+		if r.pos >= len(r.buf) {
+			return 0, fmt.Errorf("truncated varint")
+		}
+		b := r.buf[r.pos]
+		r.pos++
+		result |= uint64(b&0x7f) << shift
+		if b&0x80 == 0 {
+			return result, nil
+		}
+		shift += 7
+		if shift >= 70 {
+			return 0, fmt.Errorf("varint too long")
+		}
+	}
+}
+
+type pbField struct {
+	number uint32
+	wire   int
+	varint uint64
+	bytes  []byte
+	raw    []byte // the complete encoded field, tag included
+}
+
+func (r *pbReader) next() (pbField, bool, error) {
+	if r.pos >= len(r.buf) {
+		return pbField{}, false, nil
+	}
+	start := r.pos
+	tag, err := r.varint()
+	if err != nil {
+		return pbField{}, false, err
+	}
+	field := pbField{number: uint32(tag >> 3), wire: int(tag & 7)}
+	switch field.wire {
+	case 0:
+		v, err := r.varint()
+		if err != nil {
+			return field, false, err
+		}
+		field.varint = v
+	case 2:
+		n, err := r.varint()
+		if err != nil {
+			return field, false, err
+		}
+		if r.pos+int(n) > len(r.buf) {
+			return field, false, fmt.Errorf("truncated bytes field")
+		}
+		field.bytes = r.buf[r.pos : r.pos+int(n)]
+		r.pos += int(n)
+	case 1:
+		if r.pos+8 > len(r.buf) {
+			return field, false, fmt.Errorf("truncated fixed64")
+		}
+		field.bytes = r.buf[r.pos : r.pos+8]
+		r.pos += 8
+	case 5:
+		if r.pos+4 > len(r.buf) {
+			return field, false, fmt.Errorf("truncated fixed32")
+		}
+		field.bytes = r.buf[r.pos : r.pos+4]
+		r.pos += 4
+	default:
+		return field, false, fmt.Errorf("unsupported wire type %d", field.wire)
+	}
+	field.raw = r.buf[start:r.pos]
+	return field, true, nil
+}
+
+func (r *pbReader) all() ([]pbField, error) {
+	var out []pbField
+	for {
+		field, ok, err := r.next()
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return out, nil
+		}
+		out = append(out, field)
+	}
+}
+
+func pbString(fields []pbField, number uint32) string {
+	for _, f := range fields {
+		if f.number == number {
+			return string(f.bytes)
+		}
+	}
+	return ""
+}
+
+func pbUint(fields []pbField, number uint32) uint64 {
+	for _, f := range fields {
+		if f.number == number {
+			return f.varint
+		}
+	}
+	return 0
+}
+
+// ParseDescriptorSet parses FileDescriptorSet bytes into a FileModel.
+func ParseDescriptorSet(data []byte) (*FileModel, error) {
+	model := &FileModel{
+		Messages: map[string]*MessageModel{},
+		Services: map[string]*ServiceModel{},
+	}
+	top, err := (&pbReader{buf: data}).all()
+	if err != nil {
+		return nil, err
+	}
+	type pendingService struct {
+		pkg  string
+		data []byte
+	}
+	var pending []pendingService
+	for _, fileField := range top {
+		if fileField.number != 1 {
+			continue
+		}
+		fields, err := (&pbReader{buf: fileField.bytes}).all()
+		if err != nil {
+			return nil, err
+		}
+		pkg := pbString(fields, 2)
+		for _, f := range fields {
+			switch f.number {
+			case 4:
+				if err := parseMessage(pkg, "", f.bytes, model); err != nil {
+					return nil, err
+				}
+			case 6:
+				pending = append(pending, pendingService{pkg, f.bytes})
+			}
+		}
+	}
+	for _, svc := range pending {
+		if err := parseService(svc.pkg, svc.data, model); err != nil {
+			return nil, err
+		}
+	}
+	return model, nil
+}
+
+func parseMessage(pkg, outer string, data []byte, model *FileModel) error {
+	fields, err := (&pbReader{buf: data}).all()
+	if err != nil {
+		return err
+	}
+	name := pbString(fields, 1)
+	full := name
+	if outer != "" {
+		full = outer + "." + name
+	}
+	if pkg != "" {
+		full = pkg + "." + full
+	}
+	msg := &MessageModel{FullName: full, Fields: map[uint32]*FieldModel{}}
+	model.Messages["."+full] = msg
+	for _, f := range fields {
+		switch f.number {
+		case 2:
+			field, err := parseField(f.bytes)
+			if err != nil {
+				return err
+			}
+			msg.Fields[field.Number] = field
+		case 3:
+			if err := parseMessage(pkg, full[len(pkg)+1:], f.bytes, model); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func parseField(data []byte) (*FieldModel, error) {
+	fields, err := (&pbReader{buf: data}).all()
+	if err != nil {
+		return nil, err
+	}
+	return &FieldModel{
+		Number:   uint32(pbUint(fields, 3)),
+		Name:     pbString(fields, 1),
+		Type:     int(pbUint(fields, 5)),
+		Repeated: pbUint(fields, 4) == labelRepeated,
+		TypeName: pbString(fields, 6),
+	}, nil
+}
+
+func methodKind(clientStreaming, serverStreaming bool) string {
+	switch {
+	case clientStreaming && serverStreaming:
+		return KindBidi
+	case serverStreaming:
+		return KindServerStreaming
+	case clientStreaming:
+		return KindClientStreaming
+	default:
+		return KindUnary
+	}
+}
+
+func parseService(pkg string, data []byte, model *FileModel) error {
+	fields, err := (&pbReader{buf: data}).all()
+	if err != nil {
+		return err
+	}
+	name := pbString(fields, 1)
+	full := name
+	if pkg != "" {
+		full = pkg + "." + name
+	}
+	svc := &ServiceModel{FullName: full, Methods: map[string]*MethodModel{}}
+	model.Services[full] = svc
+	for _, f := range fields {
+		if f.number != 2 {
+			continue
+		}
+		mf, err := (&pbReader{buf: f.bytes}).all()
+		if err != nil {
+			return err
+		}
+		mname := pbString(mf, 1)
+		input, ok := model.Messages[pbString(mf, 2)]
+		if !ok {
+			return fmt.Errorf("unknown input type %s", pbString(mf, 2))
+		}
+		output, ok := model.Messages[pbString(mf, 3)]
+		if !ok {
+			return fmt.Errorf("unknown output type %s", pbString(mf, 3))
+		}
+		svc.Methods[mname] = &MethodModel{
+			Name:   mname,
+			Path:   "/" + full + "/" + mname,
+			Kind:   methodKind(pbUint(mf, 5) != 0, pbUint(mf, 6) != 0),
+			Input:  input,
+			Output: output,
+		}
+	}
+	return nil
+}
+
+// GenericMessage is a message as field number -> values. Fields not
+// in the model are retained as raw encoded chunks in Unknown
+// (protobuf unknown-field retention): a decode -> encode round trip
+// re-emits them after the known fields.
+type GenericMessage struct {
+	Model   *MessageModel
+	Values  map[uint32][]any
+	Unknown [][]byte
+}
+
+// NewGenericMessage builds an empty generic message for model.
+func NewGenericMessage(model *MessageModel) *GenericMessage {
+	return &GenericMessage{Model: model, Values: map[uint32][]any{}}
+}
+
+// Set replaces the field's values with one value (fluent).
+func (m *GenericMessage) Set(number uint32, value any) *GenericMessage {
+	m.Values[number] = []any{value}
+	return m
+}
+
+// Add appends one value to a (repeated) field.
+func (m *GenericMessage) Add(number uint32, value any) *GenericMessage {
+	m.Values[number] = append(m.Values[number], value)
+	return m
+}
+
+// Get returns the first value of a field, if present.
+func (m *GenericMessage) Get(number uint32) (any, bool) {
+	values := m.Values[number]
+	if len(values) == 0 {
+		return nil, false
+	}
+	return values[0], true
+}
+
+// GetString returns the field's string value ("" when absent).
+func (m *GenericMessage) GetString(number uint32) string {
+	if v, ok := m.Get(number); ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// GetInt returns the field's integer value (0 when absent).
+func (m *GenericMessage) GetInt(number uint32) int64 {
+	v, ok := m.Get(number)
+	if !ok {
+		return 0
+	}
+	switch n := v.(type) {
+	case int64:
+		return n
+	case uint64:
+		return int64(n)
+	case bool:
+		if n {
+			return 1
+		}
+	}
+	return 0
+}
+
+func wireTypeOf(fieldType int) int {
+	switch fieldType {
+	case FieldTypeInt64, FieldTypeUint64, FieldTypeInt32, FieldTypeBool,
+		FieldTypeUint32, FieldTypeEnum, FieldTypeSint32, FieldTypeSint64:
+		return 0
+	case FieldTypeFixed64, FieldTypeSfixed64, FieldTypeDouble:
+		return 1
+	case FieldTypeString, FieldTypeBytes, FieldTypeMessage, FieldTypeGroup:
+		return 2
+	default:
+		return 5
+	}
+}
+
+func appendVarint(out []byte, v uint64) []byte {
+	for v > 0x7f {
+		out = append(out, byte(v&0x7f)|0x80)
+		v >>= 7
+	}
+	return append(out, byte(v))
+}
+
+func encodeValue(out []byte, field *FieldModel, value any, model *FileModel) ([]byte, error) {
+	out = appendVarint(out, uint64(field.Number)<<3|uint64(wireTypeOf(field.Type)))
+	switch wireTypeOf(field.Type) {
+	case 0:
+		switch field.Type {
+		case FieldTypeSint32, FieldTypeSint64:
+			v := value.(int64)
+			out = appendVarint(out, uint64((v<<1)^(v>>63)))
+		case FieldTypeBool:
+			if value.(bool) {
+				out = appendVarint(out, 1)
+			} else {
+				out = appendVarint(out, 0)
+			}
+		case FieldTypeUint64, FieldTypeUint32:
+			out = appendVarint(out, value.(uint64))
+		default:
+			out = appendVarint(out, uint64(value.(int64)))
+		}
+	case 1:
+		if field.Type == FieldTypeDouble {
+			var buf [8]byte
+			binary.LittleEndian.PutUint64(buf[:], math.Float64bits(value.(float64)))
+			out = append(out, buf[:]...)
+		} else {
+			var buf [8]byte
+			binary.LittleEndian.PutUint64(buf[:], value.(uint64))
+			out = append(out, buf[:]...)
+		}
+	case 5:
+		if field.Type == FieldTypeFloat {
+			var buf [4]byte
+			binary.LittleEndian.PutUint32(buf[:], math.Float32bits(float32(value.(float32))))
+			out = append(out, buf[:]...)
+		} else {
+			var buf [4]byte
+			binary.LittleEndian.PutUint32(buf[:], value.(uint32))
+			out = append(out, buf[:]...)
+		}
+	case 2:
+		var data []byte
+		switch field.Type {
+		case FieldTypeString:
+			data = []byte(value.(string))
+		case FieldTypeMessage:
+			encoded, err := EncodeGeneric(model.Messages[field.TypeName], value.(*GenericMessage), model)
+			if err != nil {
+				return nil, err
+			}
+			data = encoded
+		default:
+			data = value.([]byte)
+		}
+		out = appendVarint(out, uint64(len(data)))
+		out = append(out, data...)
+	}
+	return out, nil
+}
+
+// EncodeGeneric serializes a generic message per its model.
+func EncodeGeneric(msgModel *MessageModel, msg *GenericMessage, model *FileModel) ([]byte, error) {
+	numbers := make([]int, 0, len(msg.Values))
+	for number := range msg.Values {
+		numbers = append(numbers, int(number))
+	}
+	sort.Ints(numbers)
+	var out []byte
+	for _, n := range numbers {
+		number := uint32(n)
+		field, ok := msgModel.Fields[number]
+		if !ok {
+			return nil, NewStatus(CodeInvalidArgument, fmt.Sprintf("unknown field %d for %s", number, msgModel.FullName))
+		}
+		values := msg.Values[number]
+		if field.Repeated {
+			for _, value := range values {
+				var err error
+				out, err = encodeValue(out, field, value, model)
+				if err != nil {
+					return nil, err
+				}
+			}
+		} else if len(values) > 0 {
+			var err error
+			out, err = encodeValue(out, field, values[0], model)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	for _, chunk := range msg.Unknown {
+		out = append(out, chunk...)
+	}
+	return out, nil
+}
+
+func toSigned(v uint64, bits uint) int64 {
+	shift := 64 - bits
+	return int64(v<<shift) >> shift
+}
+
+func decodeValue(field *FieldModel, f pbField, model *FileModel) (any, error) {
+	switch f.wire {
+	case 0:
+		switch field.Type {
+		case FieldTypeBool:
+			return f.varint != 0, nil
+		case FieldTypeSint32, FieldTypeSint64:
+			return int64(f.varint>>1) ^ -int64(f.varint&1), nil
+		case FieldTypeInt32, FieldTypeEnum:
+			return toSigned(f.varint, 32), nil
+		case FieldTypeInt64:
+			return toSigned(f.varint, 64), nil
+		default:
+			return f.varint, nil
+		}
+	case 1:
+		if field.Type == FieldTypeDouble {
+			return math.Float64frombits(binary.LittleEndian.Uint64(f.bytes)), nil
+		}
+		return binary.LittleEndian.Uint64(f.bytes), nil
+	case 5:
+		if field.Type == FieldTypeFloat {
+			return math.Float32frombits(binary.LittleEndian.Uint32(f.bytes)), nil
+		}
+		return binary.LittleEndian.Uint32(f.bytes), nil
+	default:
+		switch field.Type {
+		case FieldTypeString:
+			return string(f.bytes), nil
+		case FieldTypeMessage:
+			return DecodeGeneric(model.Messages[field.TypeName], f.bytes, model)
+		default:
+			cp := make([]byte, len(f.bytes))
+			copy(cp, f.bytes)
+			return cp, nil
+		}
+	}
+}
+
+// DecodeGeneric parses bytes into a generic message per its model.
+func DecodeGeneric(msgModel *MessageModel, data []byte, model *FileModel) (*GenericMessage, error) {
+	msg := NewGenericMessage(msgModel)
+	fields, err := (&pbReader{buf: data}).all()
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range fields {
+		field, ok := msgModel.Fields[f.number]
+		if !ok {
+			// Unknown field: retain the raw encoded chunk verbatim.
+			msg.Unknown = append(msg.Unknown, f.raw)
+			continue
+		}
+		value, err := decodeValue(field, f, model)
+		if err != nil {
+			return nil, err
+		}
+		msg.Values[f.number] = append(msg.Values[f.number], value)
+	}
+	return msg, nil
+}
+
+type boundMessage struct {
+	model   *MessageModel
+	generic *GenericMessage
+	file    *FileModel
+}
+
+func (b *boundMessage) MarshalDC() []byte {
+	encoded, err := EncodeGeneric(b.model, b.generic, b.file)
+	if err != nil {
+		panic(err)
+	}
+	return encoded
+}
+
+func (b *boundMessage) UnmarshalDC(data []byte) error {
+	decoded, err := DecodeGeneric(b.model, data, b.file)
+	if err != nil {
+		return err
+	}
+	b.generic = decoded
+	return nil
+}
+
+// DynamicClient is a runtime-built client: methods resolve from the
+// FileModel.
+type DynamicClient struct {
+	Channel *Channel
+	model   *FileModel
+}
+
+// NewDynamicClient wraps a channel with descriptor-driven methods.
+func NewDynamicClient(channel *Channel, model *FileModel) *DynamicClient {
+	return &DynamicClient{Channel: channel, model: model}
+}
+
+func (c *DynamicClient) method(service, method string) (*MethodModel, error) {
+	svc, ok := c.model.Services[service]
+	if !ok {
+		return nil, NewStatus(CodeInvalidArgument, "unknown service "+service)
+	}
+	m, ok := svc.Methods[method]
+	if !ok {
+		return nil, NewStatus(CodeInvalidArgument, "unknown method "+method)
+	}
+	return m, nil
+}
+
+// Unary runs a unary method by name.
+func (c *DynamicClient) Unary(ctx context.Context, service, method string, req *GenericMessage, metadata map[string]string) (*GenericMessage, error) {
+	m, err := c.method(service, method)
+	if err != nil {
+		return nil, err
+	}
+	resp := &boundMessage{model: m.Output, generic: NewGenericMessage(m.Output), file: c.model}
+	if err := c.Channel.UnaryWithMetadata(ctx, m.Path, &boundMessage{model: m.Input, generic: req, file: c.model}, resp, metadata); err != nil {
+		return nil, err
+	}
+	return resp.generic, nil
+}
+
+// DynamicStream receives generic responses of one streaming call.
+type DynamicStream struct {
+	stream *ClientStream
+	output *MessageModel
+	file   *FileModel
+}
+
+// Recv decodes the next generic response (io.EOF at end).
+func (s *DynamicStream) Recv() (*GenericMessage, error) {
+	resp := &boundMessage{model: s.output, generic: NewGenericMessage(s.output), file: s.file}
+	if err := s.stream.Recv(resp); err != nil {
+		return nil, err
+	}
+	return resp.generic, nil
+}
+
+// ServerStream starts a server-streaming method by name.
+func (c *DynamicClient) ServerStream(ctx context.Context, service, method string, req *GenericMessage, metadata map[string]string) (*DynamicStream, error) {
+	m, err := c.method(service, method)
+	if err != nil {
+		return nil, err
+	}
+	stream, err := c.Channel.ServerStreamWithMetadata(ctx, m.Path, &boundMessage{model: m.Input, generic: req, file: c.model}, metadata)
+	if err != nil {
+		return nil, err
+	}
+	return &DynamicStream{stream: stream, output: m.Output, file: c.model}, nil
+}
+
+// ClientStream runs a client-streaming method by name.
+func (c *DynamicClient) ClientStream(ctx context.Context, service, method string, reqs []*GenericMessage, metadata map[string]string) (*GenericMessage, error) {
+	m, err := c.method(service, method)
+	if err != nil {
+		return nil, err
+	}
+	bound := make([]Marshaler, len(reqs))
+	for i, r := range reqs {
+		bound[i] = &boundMessage{model: m.Input, generic: r, file: c.model}
+	}
+	resp := &boundMessage{model: m.Output, generic: NewGenericMessage(m.Output), file: c.model}
+	if err := c.Channel.ClientStreamCallWithMetadata(ctx, m.Path, bound, resp, metadata); err != nil {
+		return nil, err
+	}
+	return resp.generic, nil
+}
+
+// Bidi starts a bidi method by name.
+func (c *DynamicClient) Bidi(ctx context.Context, service, method string, reqs []*GenericMessage, metadata map[string]string) (*DynamicStream, error) {
+	m, err := c.method(service, method)
+	if err != nil {
+		return nil, err
+	}
+	bound := make([]Marshaler, len(reqs))
+	for i, r := range reqs {
+		bound[i] = &boundMessage{model: m.Input, generic: r, file: c.model}
+	}
+	stream, err := c.Channel.BidiWithMetadata(ctx, m.Path, bound, metadata)
+	if err != nil {
+		return nil, err
+	}
+	return &DynamicStream{stream: stream, output: m.Output, file: c.model}, nil
+}
+
+// DynamicHandler implements a service with generic messages.
+type DynamicHandler interface {
+	Unary(ctx context.Context, method *MethodModel, req *GenericMessage) (*GenericMessage, error)
+	ServerStream(ctx context.Context, method *MethodModel, req *GenericMessage, send func(*GenericMessage) error) error
+	ClientStream(ctx context.Context, method *MethodModel, recv func() (*GenericMessage, error)) (*GenericMessage, error)
+	Bidi(ctx context.Context, method *MethodModel, recv func() (*GenericMessage, error), send func(*GenericMessage) error) error
+}
+
+// RegisterDynamicService registers a runtime-built service on a Server.
+func RegisterDynamicService(s *Server, model *FileModel, service string, handler DynamicHandler) error {
+	svc, ok := model.Services[service]
+	if !ok {
+		return NewStatus(CodeInvalidArgument, "unknown service "+service)
+	}
+	desc := ServiceDesc{Name: svc.FullName}
+	for _, m := range svc.Methods {
+		method := m
+		desc.Methods = append(desc.Methods, Method{
+			Name: method.Name, Path: method.Path, Kind: method.Kind,
+			Handler: func(ctx context.Context, reqs *RequestStream, sink ServerSink) error {
+				recv := func() (*GenericMessage, error) {
+					payload, err := reqs.RecvRaw()
+					if err != nil {
+						return nil, err
+					}
+					return DecodeGeneric(method.Input, payload, model)
+				}
+				send := func(resp *GenericMessage) error {
+					encoded, err := EncodeGeneric(method.Output, resp, model)
+					if err != nil {
+						return err
+					}
+					return sink.Send(encoded)
+				}
+				switch method.Kind {
+				case KindUnary:
+					req, err := recv()
+					if err != nil {
+						return err
+					}
+					resp, err := handler.Unary(ctx, method, req)
+					if err != nil {
+						return err
+					}
+					return send(resp)
+				case KindServerStreaming:
+					req, err := recv()
+					if err != nil {
+						return err
+					}
+					return handler.ServerStream(ctx, method, req, send)
+				case KindClientStreaming:
+					resp, err := handler.ClientStream(ctx, method, recv)
+					if err != nil {
+						return err
+					}
+					return send(resp)
+				default:
+					return handler.Bidi(ctx, method, recv, send)
+				}
+			},
+		})
+	}
+	s.RegisterService(desc)
+	return nil
+}
+GRPC_RUNTIME_EOF
+)

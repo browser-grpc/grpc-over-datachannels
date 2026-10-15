@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package echo;
+
+message EchoRequest {
+  string message = 1;
+  int32 count = 2;    // server-streaming: number of responses to produce
+  int32 delay_ms = 3; // ignored by the reference servers; reserved
+}
+
+message EchoResponse {
+  string message = 1;
+  int32 index = 2;
+}
+
+// Exercises all four gRPC method shapes over one DataChannel.
+service Echo {
+  rpc Unary(EchoRequest) returns (EchoResponse);
+  rpc ServerStream(EchoRequest) returns (stream EchoResponse);
+  rpc ClientStream(stream EchoRequest) returns (EchoResponse);
+  rpc Bidi(stream EchoRequest) returns (stream EchoResponse);
+}

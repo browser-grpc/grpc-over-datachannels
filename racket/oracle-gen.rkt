@@ -1,0 +1,586 @@
+#lang racket
+
+;;; oracle-gen.rkt — generated scenario drivers for JS, Go and Rust.
+;;;
+;;; The scenario TABLE (oracle-spec.rkt) is the single source; each
+;;; emitter below stamps it as a data literal in the target language
+;;; plus one shared runner implementing the Echo expectation rules.
+;;; Generated code stays DRY: cases are data, never unrolled code.
+;;; The official grpc-java client (oracle/java) is deliberately NOT
+;;; generated from here — it is the independent oracle.
+
+(require "oracle-spec.rkt")
+(provide emit-js-oracle-driver emit-go-oracle-driver emit-rust-oracle-driver emit-python-oracle-driver emit-java-oracle-driver emit-csharp-oracle-driver emit-cpp-oracle-driver emit-swift-oracle-driver emit-kotlin-oracle-driver emit-dart-oracle-driver emit-zig-oracle-driver emit-lua-oracle-driver)
+
+;; Normalize one raw entry to (kind messages expect-status count).
+(define (case-fields e)
+  (case (first e)
+    [(UNARY)
+     (list 'UNARY (list (second e))
+           (if (> (length e) 2) (fourth e) #f) 0)]
+    [(SERVER_STREAM)
+     (list 'SERVER_STREAM (list (second e)) #f (third e))]
+    [else
+     (list (first e) (rest e) #f 0)]))
+
+(define (msg-list e)
+  (second (case-fields e)))
+
+(define (quoted-list strs quote-char)
+  (string-join
+   (for/list ([s (in-list strs)])
+     (format "~a~a~a" quote-char s quote-char))
+   ", "))
+
+;; ---------------------------------------------------------------------------
+;; JavaScript driver -> js/test/oracle_driver.generated.js
+;; ---------------------------------------------------------------------------
+
+(define (js-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (string-append
+   (format "  { kind: ~s, messages: [~a]" (symbol->string kind)
+           (quoted-list (map symbol->string msgs) "\""))
+   (if expect (format ", expectStatus: ~a" expect) "")
+   (if (eq? kind 'SERVER_STREAM) (format ", count: ~a" count) "")
+   " },\n"))
+
+(define (emit-js-oracle-driver)
+  (cons "oracle_driver.generated.js"
+        (string-append
+         "import { EchoRequest } from \"../examples/echo_pb.js\";\n\n"
+         "// Scenario table stamped from racket/oracle-spec.rkt.\n"
+         "export const ORACLE_SCENARIOS = [\n"
+         (apply string-append (map js-case oracle-scenario-table))
+         "];\n\n"
+         "const req = (message, count = 0) => new EchoRequest({ message, count });\n"
+         "const unmsg = (token) => (token === \"-\" ? \"\" : token);\n\n"
+         "async function* fromList(items) {\n  yield* items;\n}\n\n"
+         "/** Execute every scenario against an EchoClient, asserting the\n"
+         " *  shared Echo expectation rules (same as OracleClient.java). */\n"
+         "export async function runOracleScenarios(client, assert) {\n"
+         "  for (const c of ORACLE_SCENARIOS) {\n"
+         "    const line = `${c.kind} ${c.messages.join(\" \")}`;\n"
+         "    if (c.kind === \"UNARY\") {\n"
+         "      const message = unmsg(c.messages[0]);\n"
+         "      try {\n"
+         "        const resp = await client.unary(req(message));\n"
+         "        assert.equal(c.expectStatus, undefined, line);\n"
+         "        assert.equal(resp.message, `echo: ${message}`, line);\n"
+         "        assert.equal(resp.index, 0, line);\n"
+         "      } catch (e) {\n"
+         "        assert.notEqual(c.expectStatus, undefined, `${line}: ${e}`);\n"
+         "        assert.equal(e.code, c.expectStatus, line);\n"
+         "      }\n"
+         "    } else if (c.kind === \"SERVER_STREAM\") {\n"
+         "      const message = unmsg(c.messages[0]);\n"
+         "      const got = [];\n"
+         "      for await (const resp of await client.serverStream(req(message, c.count))) got.push(resp);\n"
+         "      assert.equal(got.length, c.count, line);\n"
+         "      got.forEach((resp, i) => {\n"
+         "        assert.equal(resp.message, message, line);\n"
+         "        assert.equal(resp.index, i, line);\n"
+         "      });\n"
+         "    } else if (c.kind === \"CLIENT_STREAM\") {\n"
+         "      const messages = c.messages.map(unmsg);\n"
+         "      const resp = await client.clientStream(fromList(messages.map((m) => req(m))));\n"
+         "      assert.equal(resp.message, messages.join(\"+\"), line);\n"
+         "      assert.equal(resp.index, messages.length, line);\n"
+         "    } else if (c.kind === \"BIDI\") {\n"
+         "      const messages = c.messages.map(unmsg);\n"
+         "      const got = [];\n"
+         "      for await (const resp of await client.bidi(fromList(messages.map((m) => req(m))))) got.push(resp);\n"
+         "      assert.equal(got.length, messages.length, line);\n"
+         "      got.forEach((resp, i) => {\n"
+         "        assert.equal(resp.message, messages[i], line);\n"
+         "        assert.equal(resp.index, i, line);\n"
+         "      });\n"
+         "    } else {\n"
+         "      assert.fail(`unknown scenario kind: ${line}`);\n"
+         "    }\n"
+         "  }\n"
+         "}\n")))
+
+;; ---------------------------------------------------------------------------
+;; Go driver -> go/oracle_driver_generated_test.go
+;; ---------------------------------------------------------------------------
+
+(define (go-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "\t{kind: ~s, messages: []string{~a}, count: ~a, expectStatus: ~a},\n"
+          (symbol->string kind)
+          (quoted-list (map symbol->string msgs) "\"")
+          count
+          (if expect expect -1)))
+
+(define (emit-go-oracle-driver)
+  (cons "oracle_driver_generated_test.go"
+        (string-append
+         "package grpcdc_test\n\n"
+         "import (\n"
+         "\t\"context\"\n"
+         "\t\"errors\"\n"
+         "\t\"io\"\n"
+         "\t\"strings\"\n"
+         "\t\"testing\"\n\n"
+         "\tgrpcdc \"grpcdc\"\n"
+         "\techo \"grpcdc/examples\"\n"
+         ")\n\n"
+         "// Scenario table stamped from racket/oracle-spec.rkt.\n"
+         "type oracleCase struct {\n"
+         "\tkind         string\n"
+         "\tmessages     []string\n"
+         "\tcount        int32\n"
+         "\texpectStatus int // -1 when unset\n"
+         "}\n\n"
+         "var oracleScenarios = []oracleCase{\n"
+         (apply string-append (map go-case oracle-scenario-table))
+         "}\n\n"
+         "func oracleReq(message string, count int32) *echo.EchoRequest {\n"
+         "\treturn &echo.EchoRequest{Message: message, Count: count}\n"
+         "}\n\n"
+         "func oracleUnmsg(token string) string {\n"
+         "\tif token == \"-\" {\n\t\treturn \"\"\n\t}\n\treturn token\n}\n\n"
+         "// runOracleScenarios executes every generated scenario against a\n"
+         "// client, asserting the shared Echo expectation rules.\n"
+         "func runOracleScenarios(t *testing.T, client *echo.EchoClient) {\n"
+         "\tt.Helper()\n"
+         "\tctx := context.Background()\n"
+         "\tfor _, c := range oracleScenarios {\n"
+         "\t\tline := c.kind + \" \" + strings.Join(c.messages, \" \")\n"
+         "\t\tswitch c.kind {\n"
+         "\t\tcase \"UNARY\":\n"
+         "\t\t\tmessage := oracleUnmsg(c.messages[0])\n"
+         "\t\t\tresp, err := client.Unary(ctx, oracleReq(message, 0))\n"
+         "\t\t\tif c.expectStatus >= 0 {\n"
+         "\t\t\t\tvar status *grpcdc.StatusError\n"
+         "\t\t\t\tif err == nil || !errors.As(err, &status) || int(status.Code) != c.expectStatus {\n"
+         "\t\t\t\t\tt.Errorf(\"%s: err = %v, want status %d\", line, err, c.expectStatus)\n"
+         "\t\t\t\t}\n"
+         "\t\t\t\tcontinue\n"
+         "\t\t\t}\n"
+         "\t\t\tif err != nil {\n\t\t\t\tt.Fatalf(\"%s: %v\", line, err)\n\t\t\t}\n"
+         "\t\t\tif resp.Message != \"echo: \"+message || resp.Index != 0 {\n"
+         "\t\t\t\tt.Errorf(\"%s: resp = %+v\", line, resp)\n\t\t\t}\n"
+         "\t\tcase \"SERVER_STREAM\":\n"
+         "\t\t\tmessage := oracleUnmsg(c.messages[0])\n"
+         "\t\t\tstream, err := client.ServerStream(ctx, oracleReq(message, c.count))\n"
+         "\t\t\tif err != nil {\n\t\t\t\tt.Fatalf(\"%s: %v\", line, err)\n\t\t\t}\n"
+         "\t\t\tvar got int32\n"
+         "\t\t\tfor {\n"
+         "\t\t\t\tresp, err := stream.Recv()\n"
+         "\t\t\t\tif err == io.EOF {\n\t\t\t\t\tbreak\n\t\t\t\t}\n"
+         "\t\t\t\tif err != nil {\n\t\t\t\t\tt.Fatalf(\"%s: %v\", line, err)\n\t\t\t\t}\n"
+         "\t\t\t\tif resp.Message != message || resp.Index != got {\n"
+         "\t\t\t\t\tt.Errorf(\"%s: resp = %+v at position %d\", line, resp, got)\n\t\t\t\t}\n"
+         "\t\t\t\tgot++\n\t\t\t}\n"
+         "\t\t\tif got != c.count {\n\t\t\t\tt.Errorf(\"%s: got %d responses, want %d\", line, got, c.count)\n\t\t\t}\n"
+         "\t\tcase \"CLIENT_STREAM\", \"BIDI\":\n"
+         "\t\t\tvar reqs []*echo.EchoRequest\n"
+         "\t\t\tvar messages []string\n"
+         "\t\t\tfor _, token := range c.messages {\n"
+         "\t\t\t\tmessages = append(messages, oracleUnmsg(token))\n"
+         "\t\t\t\treqs = append(reqs, oracleReq(oracleUnmsg(token), 0))\n\t\t\t}\n"
+         "\t\t\tif c.kind == \"CLIENT_STREAM\" {\n"
+         "\t\t\t\tresp, err := client.ClientStream(ctx, reqs...)\n"
+         "\t\t\t\tif err != nil {\n\t\t\t\t\tt.Fatalf(\"%s: %v\", line, err)\n\t\t\t\t}\n"
+         "\t\t\t\tif resp.Message != strings.Join(messages, \"+\") || resp.Index != int32(len(messages)) {\n"
+         "\t\t\t\t\tt.Errorf(\"%s: resp = %+v\", line, resp)\n\t\t\t\t}\n"
+         "\t\t\t\tcontinue\n"
+         "\t\t\t}\n"
+         "\t\t\tstream, err := client.Bidi(ctx, reqs...)\n"
+         "\t\t\tif err != nil {\n\t\t\t\tt.Fatalf(\"%s: %v\", line, err)\n\t\t\t}\n"
+         "\t\t\ti := 0\n"
+         "\t\t\tfor {\n"
+         "\t\t\t\tresp, err := stream.Recv()\n"
+         "\t\t\t\tif err == io.EOF {\n\t\t\t\t\tbreak\n\t\t\t\t}\n"
+         "\t\t\t\tif err != nil {\n\t\t\t\t\tt.Fatalf(\"%s: %v\", line, err)\n\t\t\t\t}\n"
+         "\t\t\t\tif i >= len(messages) || resp.Message != messages[i] || resp.Index != int32(i) {\n"
+         "\t\t\t\t\tt.Errorf(\"%s: resp = %+v at position %d\", line, resp, i)\n\t\t\t\t}\n"
+         "\t\t\t\ti++\n\t\t\t}\n"
+         "\t\t\tif i != len(messages) {\n\t\t\t\tt.Errorf(\"%s: got %d responses, want %d\", line, i, len(messages))\n\t\t\t}\n"
+         "\t\tdefault:\n"
+         "\t\t\tt.Fatalf(\"unknown scenario kind: %s\", line)\n"
+         "\t\t}\n"
+         "\t}\n"
+         "}\n")))
+
+;; ---------------------------------------------------------------------------
+;; Rust driver -> rust/tests/oracle_scenarios.rs (module, not a test crate)
+;; ---------------------------------------------------------------------------
+
+(define (rust-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "    Scenario { kind: ~s, messages: &[~a], count: ~a, expect_status: ~a },\n"
+          (symbol->string kind)
+          (quoted-list (map symbol->string msgs) "\"")
+          count
+          (if expect (format "Some(~a)" expect) "None")))
+
+(define (emit-rust-oracle-driver)
+  (cons "oracle_scenarios/mod.rs"
+        (string-append
+         "//! Scenario table + runner stamped from racket/oracle-spec.rkt.\n"
+         "//! Included by the oracle integration test (mod oracle_scenarios).\n\n"
+         "use crate::pb;\n"
+         "use crate::stub::EchoClient;\n"
+         "use futures_util::StreamExt;\n\n"
+         "pub struct Scenario {\n"
+         "    pub kind: &'static str,\n"
+         "    pub messages: &'static [&'static str],\n"
+         "    pub count: i32,\n"
+         "    pub expect_status: Option<u32>,\n"
+         "}\n\n"
+         "pub const SCENARIOS: &[Scenario] = &[\n"
+         (apply string-append (map rust-case oracle-scenario-table))
+         "];\n\n"
+         "fn unmsg(token: &str) -> String {\n"
+         "    if token == \"-\" { String::new() } else { token.to_string() }\n"
+         "}\n\n"
+         "fn req(message: &str, count: i32) -> pb::EchoRequest {\n"
+         "    pb::EchoRequest { message: message.to_string(), count, delay_ms: 0 }\n"
+         "}\n\n"
+         "/// Execute every generated scenario; Err describes the first mismatch.\n"
+         "pub async fn run_scenarios(client: &EchoClient) -> Result<(), String> {\n"
+         "    for c in SCENARIOS {\n"
+         "        let line = format!(\"{} {}\", c.kind, c.messages.join(\" \"));\n"
+         "        match c.kind {\n"
+         "            \"UNARY\" => {\n"
+         "                let message = unmsg(c.messages[0]);\n"
+         "                match client.unary(req(&message, 0)).await {\n"
+         "                    Ok(resp) => {\n"
+         "                        if c.expect_status.is_some() {\n"
+         "                            return Err(format!(\"{line}: expected status, got {resp:?}\"));\n"
+         "                        }\n"
+         "                        if resp.message != format!(\"echo: {message}\") || resp.index != 0 {\n"
+         "                            return Err(format!(\"{line}: resp = {resp:?}\"));\n"
+         "                        }\n"
+         "                    }\n"
+         "                    Err(status) => {\n"
+         "                        if c.expect_status != Some(status.code as u32) {\n"
+         "                            return Err(format!(\"{line}: status = {status}\"));\n"
+         "                        }\n"
+         "                    }\n"
+         "                }\n"
+         "            }\n"
+         "            \"SERVER_STREAM\" => {\n"
+         "                let message = unmsg(c.messages[0]);\n"
+         "                let mut stream = client.server_stream(req(&message, c.count)).await\n"
+         "                    .map_err(|s| format!(\"{line}: {s}\"))?;\n"
+         "                let mut i = 0;\n"
+         "                while let Some(item) = stream.next().await {\n"
+         "                    let resp = item.map_err(|s| format!(\"{line}: {s}\"))?;\n"
+         "                    if resp.message != message || resp.index != i {\n"
+         "                        return Err(format!(\"{line}: resp = {resp:?} at {i}\"));\n"
+         "                    }\n"
+         "                    i += 1;\n"
+         "                }\n"
+         "                if i != c.count {\n"
+         "                    return Err(format!(\"{line}: got {i} responses, want {}\", c.count));\n"
+         "                }\n"
+         "            }\n"
+         "            \"CLIENT_STREAM\" => {\n"
+         "                let messages: Vec<String> = c.messages.iter().map(|m| unmsg(m)).collect();\n"
+         "                let reqs = futures_util::stream::iter(messages.clone().into_iter().map(|m| req(&m, 0)));\n"
+         "                let resp = client.client_stream(reqs).await\n"
+         "                    .map_err(|s| format!(\"{line}: {s}\"))?;\n"
+         "                if resp.message != messages.join(\"+\") || resp.index != messages.len() as i32 {\n"
+         "                    return Err(format!(\"{line}: resp = {resp:?}\"));\n"
+         "                }\n"
+         "            }\n"
+         "            \"BIDI\" => {\n"
+         "                let messages: Vec<String> = c.messages.iter().map(|m| unmsg(m)).collect();\n"
+         "                let reqs = futures_util::stream::iter(messages.clone().into_iter().map(|m| req(&m, 0)));\n"
+         "                let mut stream = client.bidi(reqs).await\n"
+         "                    .map_err(|s| format!(\"{line}: {s}\"))?;\n"
+         "                let mut i = 0;\n"
+         "                while let Some(item) = stream.next().await {\n"
+         "                    let resp = item.map_err(|s| format!(\"{line}: {s}\"))?;\n"
+         "                    if i >= messages.len() || resp.message != messages[i] || resp.index != i as i32 {\n"
+         "                        return Err(format!(\"{line}: resp = {resp:?} at {i}\"));\n"
+         "                    }\n"
+         "                    i += 1;\n"
+         "                }\n"
+         "                if i != messages.len() {\n"
+         "                    return Err(format!(\"{line}: got {i} responses, want {}\", messages.len()));\n"
+         "                }\n"
+         "            }\n"
+         "            other => return Err(format!(\"unknown scenario kind: {other}\")),\n"
+         "        }\n"
+         "    }\n"
+         "    Ok(())\n"
+         "}\n")))
+
+;; ---------------------------------------------------------------------------
+;; Python driver data -> python/tests/oracle_scenarios_generated.py
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (python-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "    {\"kind\": ~s, \"messages\": [~a], \"count\": ~a, \"expect_status\": ~a},\n"
+          (symbol->string kind)
+          (quoted-list (map symbol->string msgs) "\"")
+          count
+          (if expect expect "None")))
+
+(define (emit-python-oracle-driver)
+  (cons "oracle_scenarios_generated.py"
+        (string-append
+         "# Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         "# the runner is tests/test_oracle.py).\n"
+         "SCENARIOS = [\n"
+         (apply string-append (map python-case oracle-scenario-table))
+         "]\n")))
+
+;; ---------------------------------------------------------------------------
+;; Java driver data -> java/tests/OracleScenarios.java
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (java-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "        {~s, new String[]{~a}, ~a, ~a},\n"
+          (symbol->string kind)
+          (quoted-list (map symbol->string msgs) "\"")
+          count
+          (if expect expect -1)))
+
+(define (emit-java-oracle-driver)
+  (cons "OracleScenarios.java"
+        (string-append
+         "package tests;\n\n"
+         "/** Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         " * the runner is TestOracle). Rows: kind, messages, count, expectStatus (-1 = none). */\n"
+         "public final class OracleScenarios {\n"
+         "    private OracleScenarios() {}\n\n"
+         "    public static final Object[][] CASES = {\n"
+         (apply string-append (map java-case oracle-scenario-table))
+         "    };\n"
+         "}\n")))
+
+;; ---------------------------------------------------------------------------
+;; C# driver data -> csharp/tests/OracleScenarios.cs
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (csharp-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "        new object[] {~s, new[] {~a}, ~a, ~a},\n"
+          (symbol->string kind)
+          (string-join
+           (for/list ([m (in-list msgs)]) (format "~s" (symbol->string m))) ", ")
+          count
+          (if expect expect -1)))
+
+(define (emit-csharp-oracle-driver)
+  (cons "OracleScenarios.cs"
+        (string-append
+         "namespace Tests;\n\n"
+         "/// <summary>Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         "/// the runner is TestOracle). Rows: kind, messages, count, expectStatus (-1 = none).</summary>\n"
+         "public static class OracleScenarios\n"
+         "{\n"
+         "    public static readonly object[][] Cases =\n"
+         "    {\n"
+         (apply string-append (map csharp-case oracle-scenario-table))
+         "    };\n"
+         "}\n")))
+
+;; ---------------------------------------------------------------------------
+;; C++ driver data -> cpp/tests/oracle_scenarios.hpp
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (cpp-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "      {~s, {~a}, ~a, ~a},\n"
+          (symbol->string kind)
+          (string-join
+           (for/list ([m (in-list msgs)]) (format "~s" (symbol->string m))) ", ")
+          count
+          (if expect expect -1)))
+
+(define (emit-cpp-oracle-driver)
+  (cons "oracle_scenarios.hpp"
+        (string-append
+         "#pragma once\n\n"
+         "#include <vector>\n\n"
+         "namespace tests {\n\n"
+         "/// Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         "/// the runner is TestOracle). Rows: kind, messages, count,\n"
+         "/// expectStatus (-1 = none).\n"
+         "struct OracleCase {\n"
+         "  const char* kind;\n"
+         "  std::vector<const char*> messages;\n"
+         "  int count;\n"
+         "  int expect_status;\n"
+         "};\n\n"
+         "inline const std::vector<OracleCase>& OracleCases() {\n"
+         "  static const std::vector<OracleCase> kCases = {\n"
+         (apply string-append (map cpp-case oracle-scenario-table))
+         "  };\n"
+         "  return kCases;\n"
+         "}\n\n"
+         "}  // namespace tests\n")))
+
+;; ---------------------------------------------------------------------------
+;; Swift driver data -> swift/tests/OracleScenarios.swift
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (swift-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "        Case(kind: ~s, messages: [~a], count: ~a, expectStatus: ~a),\n"
+          (symbol->string kind)
+          (string-join
+           (for/list ([m (in-list msgs)]) (format "~s" (symbol->string m))) ", ")
+          count
+          (if expect expect -1)))
+
+(define (emit-swift-oracle-driver)
+  (cons "OracleScenarios.swift"
+        (string-append
+         "/// Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         "/// the runner is TestOracle). Rows: kind, messages, count,\n"
+         "/// expectStatus (-1 = none).\n"
+         "enum OracleScenarios {\n"
+         "    struct Case {\n"
+         "        let kind: String\n"
+         "        let messages: [String]\n"
+         "        let count: Int\n"
+         "        let expectStatus: Int\n"
+         "    }\n\n"
+         "    static let Cases: [Case] = [\n"
+         (apply string-append (map swift-case oracle-scenario-table))
+         "    ]\n"
+         "}\n")))
+
+;; ---------------------------------------------------------------------------
+;; Kotlin driver data -> kotlin/tests/OracleScenarios.kt
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (kotlin-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "        Case(~s, listOf(~a), ~a, ~a),\n"
+          (symbol->string kind)
+          (string-join
+           (for/list ([m (in-list msgs)]) (format "~s" (symbol->string m))) ", ")
+          count
+          (if expect expect -1)))
+
+(define (emit-kotlin-oracle-driver)
+  (cons "OracleScenarios.kt"
+        (string-append
+         "package tests\n\n"
+         "/** Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         " * the runner is TestOracle). Rows: kind, messages, count,\n"
+         " * expectStatus (-1 = none). */\n"
+         "object OracleScenarios {\n"
+         "    class Case(val kind: String, val messages: List<String>, val count: Int, val expectStatus: Int)\n\n"
+         "    val Cases: List<Case> = listOf(\n"
+         (let ([rows (apply string-append (map kotlin-case oracle-scenario-table))])
+           (if (string-suffix? rows ",\n")
+               (string-append (substring rows 0 (- (string-length rows) 2)) "\n")
+               rows))
+         "    )\n"
+         "}\n")))
+
+;; ---------------------------------------------------------------------------
+;; Dart driver data -> dart/tests/oracle_scenarios.dart
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (dart-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "  OracleCase(~s, [~a], ~a, ~a),\n"
+          (symbol->string kind)
+          (string-join
+           (for/list ([m (in-list msgs)]) (format "~s" (symbol->string m))) ", ")
+          count
+          (if expect expect -1)))
+
+(define (emit-dart-oracle-driver)
+  (cons "oracle_scenarios.dart"
+        (string-append
+         "/// Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         "/// the runner is TestOracle). Rows: kind, messages, count,\n"
+         "/// expectStatus (-1 = none).\n"
+         "class OracleCase {\n"
+         "  final String kind;\n"
+         "  final List<String> messages;\n"
+         "  final int count;\n"
+         "  final int expectStatus;\n\n"
+         "  const OracleCase(this.kind, this.messages, this.count, this.expectStatus);\n"
+         "}\n\n"
+         "const cases = <OracleCase>[\n"
+         (apply string-append (map dart-case oracle-scenario-table))
+         "];\n")))
+
+;; ---------------------------------------------------------------------------
+;; Zig driver data -> zig/tests/oracle_scenarios.zig
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (zig-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "    .{ .kind = ~s, .messages = &.{ ~a}, .count = ~a, .expect_status = ~a },\n"
+          (symbol->string kind)
+          (string-join
+           (for/list ([m (in-list msgs)]) (format "~s" (symbol->string m))) ", ")
+          count
+          (if expect expect -1)))
+
+(define (emit-zig-oracle-driver)
+  (cons "oracle_scenarios.zig"
+        (string-append
+         "/// Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         "/// the runner is TestOracle). Rows: kind, messages, count,\n"
+         "/// expectStatus (-1 = none).\n"
+         "pub const OracleCase = struct {\n"
+         "    kind: []const u8,\n"
+         "    messages: []const []const u8,\n"
+         "    count: i32,\n"
+         "    expect_status: i32,\n"
+         "};\n\n"
+         "pub const cases = [_]OracleCase{\n"
+         (apply string-append (map zig-case oracle-scenario-table))
+         "};\n")))
+
+;; ---------------------------------------------------------------------------
+;; Lua driver data -> lua/tests/oracle_scenarios.lua
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (lua-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "  { kind = ~s, messages = { ~a }, count = ~a, expectStatus = ~a },\n"
+          (symbol->string kind)
+          (string-join
+           (for/list ([m (in-list msgs)]) (format "~s" (symbol->string m))) ", ")
+          count
+          (if expect expect -1)))
+
+(define (emit-lua-oracle-driver)
+  (cons "oracle_scenarios.lua"
+        (string-append
+         "--- Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         "--- the runner is TestOracle). Rows: kind, messages, count,\n"
+         "--- expectStatus (-1 = none).\n"
+         "local cases = {\n"
+         (apply string-append (map lua-case oracle-scenario-table))
+         "}\n\n"
+         "return { cases = cases }\n")))

@@ -1,0 +1,2316 @@
+#lang racket
+
+;;; runtime-rust.rkt — the rust gRPC runtime, emitted by metagen.rkt.
+;;;
+;;; The runtime files under the language tree are GENERATED from the
+;;; bodies below plus fragments recursively expanded from spec.rkt's
+;;; frame/status tables (see the dispatch generator). Do not edit the
+;;; generated runtime files; edit here and run `make generate`.
+;;; (Bodies were authored in-language and are kept verbatim so the
+;;; generated output stays byte-reviewable in git diffs.)
+
+(require "spec.rkt")
+(provide emit-rust-runtime-files)
+
+(define rust-lib-body
+#<<GRPC_RUNTIME_EOF
+//! gRPC over a single WebRTC `RTCDataChannel`.
+//!
+//! One ordered, reliable data channel carries many concurrent calls,
+//! multiplexed by the frame protocol in `SPEC.md` (repository root). The
+//! protocol tables and this crate's [`wire_gen`] module are generated from
+//! `racket/spec.rkt` by a Racket metaprogram; service stubs come from the
+//! generated protoc plugins `protoc-gen-grpc-dc-rust` / `-js`.
+//!
+//! Signaling is out of scope: hand any already-open channel to
+//! [`Channel`]/[`Server`] through the [`DcTransport`] trait (see
+//! [`loopback_pair`] for an in-memory pair, and `transport` for how a real
+//! `RTCDataChannel` plugs in).
+//!
+//! # Method shapes
+//!
+//! All four gRPC shapes map onto the frame protocol: unary,
+//! server-streaming (a stream of responses), client-streaming (a stream of
+//! requests, one response), and bidirectional streaming.
+
+pub mod channel;
+pub mod codec;
+pub mod dynamic;
+pub mod endpoint;
+pub mod message;
+pub mod server;
+pub mod status;
+pub mod transport;
+#[cfg(feature = "webrtc")]
+pub mod webrtc_transport;
+pub mod wire_gen;
+
+pub use async_trait::async_trait;
+pub use futures_core;
+pub use channel::Channel;
+pub use codec::Frame;
+pub use endpoint::{Endpoint, StreamIdParity};
+pub use message::Message;
+pub use server::{
+    bidi_method, client_stream_method, server_stream_method, unary_method, CallCtx, MethodDef,
+    MethodKind, RequestStream, ResponseStream, Server, ServiceDef,
+};
+pub use dynamic::{
+    decode_generic, dynamic_service, encode_generic, parse_descriptor_set, DynamicClient,
+    DynamicHandler, DynamicSink, FieldModel, FileModel, GenericMessage, GenericValue, MessageModel,
+    MethodModel, ServiceModel,
+};
+pub use status::{Code, Status};
+
+/// Spawn a background task — the runtime's single executor seam.
+/// Native builds use Tokio; on wasm32 the browser event loop drives
+/// tasks via wasm-bindgen-futures.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn spawn_task<F>(future: F)
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    tokio::spawn(future);
+}
+
+/// Spawn a background task (wasm32: browser event loop).
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn spawn_task<F>(future: F)
+where
+    F: std::future::Future<Output = ()> + 'static,
+{
+    wasm_bindgen_futures::spawn_local(future);
+}
+pub use transport::{loopback_pair, DcTransport, InboxDc};
+
+use std::future::Future;
+use std::pin::Pin;
+
+/// A boxed, sendable future — the shape of generated server handlers.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Convenience alias used by generated code and handlers.
+pub type Result<T> = std::result::Result<T, Status>;
+GRPC_RUNTIME_EOF
+)
+
+(define rust-codec-body
+#<<GRPC_RUNTIME_EOF
+//! Frame codec: one DataChannel message == one frame (SPEC.md).
+//!
+//! `type:u8 | stream_id:u32be | payload_len:u32be | payload`
+
+use crate::status::{Metadata, Status};
+use crate::wire_gen::frame_type;
+use bytes::{BufMut, Bytes, BytesMut};
+use serde::{Deserialize, Serialize};
+
+pub const HEADER_LEN: usize = 9;
+pub const MAX_DATA_PAYLOAD: usize = 16 * 1024 * 1024;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Frame {
+    pub frame_type: u8,
+    pub stream_id: u32,
+    pub payload: Bytes,
+}
+
+impl Frame {
+    pub fn new(frame_type: u8, stream_id: u32, payload: impl Into<Bytes>) -> Self {
+        Self { frame_type, stream_id, payload: payload.into() }
+    }
+
+    pub fn headers(stream_id: u32, headers: &Headers) -> Result<Self, Status> {
+        Ok(Self::new(frame_type::HEADERS, stream_id, serde_json::to_vec(headers)?))
+    }
+
+    pub fn data(stream_id: u32, payload: impl Into<Bytes>) -> Self {
+        Self::new(frame_type::DATA, stream_id, payload)
+    }
+
+    pub fn trailers(stream_id: u32, status: &Status) -> Result<Self, Status> {
+        let payload = Trailers { code: status.code as u32, message: status.message.clone() };
+        Ok(Self::new(frame_type::TRAILERS, stream_id, serde_json::to_vec(&payload)?))
+    }
+
+    pub fn rst(stream_id: u32, status: &Status) -> Result<Self, Status> {
+        let payload = Trailers { code: status.code as u32, message: status.message.clone() };
+        Ok(Self::new(frame_type::RST, stream_id, serde_json::to_vec(&payload)?))
+    }
+
+    pub fn half_close(stream_id: u32) -> Self {
+        Self::new(frame_type::HALF_CLOSE, stream_id, Bytes::new())
+    }
+
+    pub fn encode(&self) -> Result<Bytes, Status> {
+        if !matches!(
+            self.frame_type,
+            frame_type::HEADERS | frame_type::DATA | frame_type::TRAILERS | frame_type::HALF_CLOSE | frame_type::RST
+        ) {
+            return Err(Status::invalid_argument(format!("unknown frame type {}", self.frame_type)));
+        }
+        if self.frame_type == frame_type::DATA && self.payload.len() > MAX_DATA_PAYLOAD {
+            return Err(Status::new(
+                crate::wire_gen::Code::ResourceExhausted,
+                "DATA payload exceeds 16 MiB",
+            ));
+        }
+        let mut out = BytesMut::with_capacity(HEADER_LEN + self.payload.len());
+        out.put_u8(self.frame_type);
+        out.put_u32(self.stream_id);
+        out.put_u32(self.payload.len() as u32);
+        out.extend_from_slice(&self.payload);
+        Ok(out.freeze())
+    }
+
+    pub fn decode(msg: &[u8]) -> Result<Self, Status> {
+        if msg.len() < HEADER_LEN {
+            return Err(Status::invalid_argument(format!(
+                "frame shorter than 9-byte header: {} bytes",
+                msg.len()
+            )));
+        }
+        let frame_type = msg[0];
+        let stream_id = u32::from_be_bytes([msg[1], msg[2], msg[3], msg[4]]);
+        let len = u32::from_be_bytes([msg[5], msg[6], msg[7], msg[8]]) as usize;
+        if len != msg.len() - HEADER_LEN {
+            return Err(Status::invalid_argument(format!(
+                "payload length {len} does not match message size {}",
+                msg.len()
+            )));
+        }
+        Ok(Self { frame_type, stream_id, payload: Bytes::copy_from_slice(&msg[HEADER_LEN..]) })
+    }
+
+    pub fn parse_headers(&self) -> Result<Headers, Status> {
+        Ok(serde_json::from_slice(&self.payload)?)
+    }
+
+    pub fn parse_status(&self) -> Result<Status, Status> {
+        let t: Trailers = serde_json::from_slice(&self.payload)?;
+        Ok(Status::from_code_u32(t.code, t.message))
+    }
+}
+
+/// HEADERS payload. The client sends `path` + `metadata`; the server's
+/// initial-metadata HEADERS carries an empty object.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Headers {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    pub metadata: Metadata,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Trailers {
+    code: u32,
+    message: String,
+}
+
+impl From<serde_json::Error> for Status {
+    fn from(e: serde_json::Error) -> Self {
+        Status::internal(format!("json: {e}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vectors() -> serde_json::Value {
+        serde_json::from_str(include_str!("../../fixtures/vectors.json")).expect("vectors.json")
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    #[test]
+    fn golden_frame_vectors() {
+        let v = vectors();
+        for f in v["frames"].as_array().unwrap() {
+            let stream = f["stream"].as_u64().unwrap() as u32;
+            let ty = f["type"].as_u64().unwrap() as u8;
+            let payload: Vec<u8> = if let Some(s) = f["payload_utf8"].as_str() {
+                s.as_bytes().to_vec()
+            } else {
+                let h = f["payload_hex"].as_str().unwrap();
+                (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap()).collect()
+            };
+            let frame = Frame::new(ty, stream, payload.clone());
+            assert_eq!(hex(&frame.encode().unwrap()), f["hex"].as_str().unwrap(), "encode {}", f["name"]);
+            let decoded = Frame::decode(&frame.encode().unwrap()).unwrap();
+            assert_eq!(decoded, frame, "decode {}", f["name"]);
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_frames() {
+        assert!(Frame::decode(&[1, 2, 3]).is_err());
+        let mut bad = Frame::data(1, vec![1u8, 2]).encode().unwrap().to_vec();
+        bad[8] = 99; // corrupt length
+        assert!(Frame::decode(&bad).is_err());
+        assert!(Frame::new(99, 1, Vec::new()).encode().is_err());
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define rust-status-body
+#<<GRPC_RUNTIME_EOF
+//! gRPC status: a [`Code`] (generated from `racket/spec.rkt`) plus a message.
+
+pub use crate::wire_gen::Code;
+use std::collections::HashMap;
+use std::fmt;
+
+pub type Metadata = HashMap<String, String>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Status {
+    pub code: Code,
+    pub message: String,
+}
+
+impl Status {
+    pub fn new(code: Code, message: impl Into<String>) -> Self {
+        Self { code, message: message.into() }
+    }
+    pub fn ok() -> Self {
+        Self::new(Code::Ok, "")
+    }
+    pub fn cancelled(message: impl Into<String>) -> Self {
+        Self::new(Code::Cancelled, message)
+    }
+    pub fn unknown(message: impl Into<String>) -> Self {
+        Self::new(Code::Unknown, message)
+    }
+    pub fn invalid_argument(message: impl Into<String>) -> Self {
+        Self::new(Code::InvalidArgument, message)
+    }
+    pub fn unimplemented(message: impl Into<String>) -> Self {
+        Self::new(Code::Unimplemented, message)
+    }
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self::new(Code::Internal, message)
+    }
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        Self::new(Code::Unavailable, message)
+    }
+    pub fn from_code_u32(code: u32, message: impl Into<String>) -> Self {
+        Self::new(Code::from_u32(code).unwrap_or(Code::Unknown), message)
+    }
+    pub fn is_ok(&self) -> bool {
+        self.code == Code::Ok
+    }
+}
+
+impl fmt::Display for Status {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.code.name(), self.message)
+    }
+}
+
+impl std::error::Error for Status {}
+
+impl From<String> for Status {
+    fn from(message: String) -> Self {
+        Status::unknown(message)
+    }
+}
+
+impl From<&str> for Status {
+    fn from(message: &str) -> Self {
+        Status::unknown(message.to_string())
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define rust-message-body
+#<<GRPC_RUNTIME_EOF
+//! The message contract generated code relies on.
+//!
+//! Hand-written message types implement this directly (see
+//! `examples/echo_demo/pb.rs`); with the `prost` feature, every
+//! `prost::Message` type implements it automatically. Raw `Bytes` and
+//! `Vec<u8>` pass through unchanged for byte-level callers.
+
+use crate::status::Status;
+use bytes::Bytes;
+
+pub trait Message: Sized + Send {
+    fn encode(&self) -> Vec<u8>;
+    fn decode(bytes: &[u8]) -> Result<Self, Status>;
+}
+
+impl Message for Bytes {
+    fn encode(&self) -> Vec<u8> {
+        self.to_vec()
+    }
+    fn decode(bytes: &[u8]) -> Result<Self, Status> {
+        Ok(Bytes::copy_from_slice(bytes))
+    }
+}
+
+impl Message for Vec<u8> {
+    fn encode(&self) -> Vec<u8> {
+        self.clone()
+    }
+    fn decode(bytes: &[u8]) -> Result<Self, Status> {
+        Ok(bytes.to_vec())
+    }
+}
+
+/// With the `prost` feature, implement [`Message`] for prost-generated
+/// types with one line per message (a blanket impl would violate coherence
+/// against the raw `Bytes`/`Vec<u8>` impls above):
+///
+/// ```ignore
+/// grpc_dc::impl_message_via_prost!(crate::pb::EchoRequest);
+/// ```
+#[cfg(feature = "prost")]
+#[macro_export]
+macro_rules! impl_message_via_prost {
+    ($t:ty) => {
+        impl $crate::Message for $t {
+            fn encode(&self) -> Vec<u8> {
+                prost::Message::encode_to_vec(self)
+            }
+            fn decode(bytes: &[u8]) -> Result<Self, $crate::Status> {
+                prost::Message::decode(bytes).map_err(|e| {
+                    $crate::Status::invalid_argument(format!("protobuf decode: {e}"))
+                })
+            }
+        }
+    };
+}
+GRPC_RUNTIME_EOF
+)
+
+(define rust-transport-body
+#<<GRPC_RUNTIME_EOF
+//! Transport abstraction over an already-open data channel.
+//!
+//! [`DcTransport`] is the only seam between this crate and a WebRTC stack:
+//! messages go out whole (DataChannels preserve boundaries) and come in
+//! whole. To plug in a real `RTCDataChannel` (for example the `webrtc`
+//! crate): wire its `on_message` callback to the sender half of
+//! [`inbox_dc`], and drain the receiver half into its `send` method —
+//! [`InboxDc`] is exactly that adapter. Signaling stays with the caller.
+
+use crate::status::Status;
+use async_trait::async_trait;
+use bytes::Bytes;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
+
+#[async_trait]
+pub trait DcTransport: Send + Sync {
+    /// Send one whole DataChannel message.
+    async fn send(&self, msg: Bytes) -> Result<(), Status>;
+    /// Receive the next whole message; `None` means the channel closed.
+    async fn next(&self) -> Option<Result<Bytes, Status>>;
+}
+
+const LOOPBACK_CAPACITY: usize = 128;
+
+/// In-memory transport with bounded queues (backpressure via `send`).
+pub struct LoopbackDc {
+    tx: mpsc::Sender<Bytes>,
+    rx: Mutex<mpsc::Receiver<Bytes>>,
+}
+
+/// A connected pair of in-memory transports with `RTCDataChannel`-like
+/// semantics: message boundaries preserved, ordered, reliable.
+pub fn loopback_pair() -> (LoopbackDc, LoopbackDc) {
+    let (a_tx, a_rx) = mpsc::channel(LOOPBACK_CAPACITY);
+    let (b_tx, b_rx) = mpsc::channel(LOOPBACK_CAPACITY);
+    (
+        LoopbackDc { tx: a_tx, rx: Mutex::new(b_rx) },
+        LoopbackDc { tx: b_tx, rx: Mutex::new(a_rx) },
+    )
+}
+
+#[async_trait]
+impl DcTransport for LoopbackDc {
+    async fn send(&self, msg: Bytes) -> Result<(), Status> {
+        self.tx.send(msg).await.map_err(|_| Status::unavailable("data channel closed"))
+    }
+    async fn next(&self) -> Option<Result<Bytes, Status>> {
+        let mut rx = self.rx.lock().await;
+        rx.recv().await.map(Ok)
+    }
+}
+
+/// Adapter for callback/event-driven RTC stacks: feed inbound messages
+/// into the returned sender, forward outbound messages from the returned
+/// receiver to the channel's `send`.
+pub struct InboxDc {
+    tx: mpsc::Sender<Bytes>,
+    rx: Mutex<mpsc::Receiver<Bytes>>,
+}
+
+pub fn inbox_dc() -> (Arc<InboxDc>, mpsc::Sender<Bytes>, mpsc::Receiver<Bytes>) {
+    let (in_tx, in_rx) = mpsc::channel(LOOPBACK_CAPACITY);
+    let (out_tx, out_rx) = mpsc::channel(LOOPBACK_CAPACITY);
+    (Arc::new(InboxDc { tx: out_tx, rx: Mutex::new(in_rx) }), in_tx, out_rx)
+}
+
+#[async_trait]
+impl DcTransport for InboxDc {
+    async fn send(&self, msg: Bytes) -> Result<(), Status> {
+        self.tx.send(msg).await.map_err(|_| Status::unavailable("data channel closed"))
+    }
+    async fn next(&self) -> Option<Result<Bytes, Status>> {
+        let mut rx = self.rx.lock().await;
+        rx.recv().await.map(Ok)
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define rust-endpoint-body
+#<<GRPC_RUNTIME_EOF
+//! Stream multiplexor: one transport, many concurrent calls.
+//!
+//! An [`Endpoint`] owns the frame reader loop. Client-initiated streams get
+//! odd ids from the peer that created the channel and even ids from the
+//! answering peer, so a bidirectional peer never collides with itself.
+
+use crate::codec::{Frame, Headers};
+use crate::server::{CallCtx, RequestStream, ResponseSink, ServerCall, ServiceDef};
+use crate::status::Status;
+use crate::transport::DcTransport;
+use crate::wire_gen::frame_type;
+use bytes::Bytes;
+use futures_channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+use tokio::sync::Mutex as AsyncMutex;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamIdParity {
+    Odd,
+    Even,
+}
+
+/// Events delivered to one stream's owner. Headers only flow server→client
+/// (initial metadata); Trailers/Rst are terminal.
+#[doc(hidden)]
+#[derive(Debug)]
+pub enum StreamEvent {
+    Headers(Headers),
+    Data(Bytes),
+    HalfClose,
+    Trailers(Status),
+    Rst(Status),
+}
+
+type StreamTx = UnboundedSender<StreamEvent>;
+
+pub struct Endpoint {
+    transport: Arc<dyn DcTransport>,
+    streams: Mutex<HashMap<u32, StreamTx>>,
+    services: RwLock<HashMap<String, crate::server::MethodDef>>,
+    next_id: AtomicU32,
+    send_lock: AsyncMutex<()>,
+}
+
+impl Endpoint {
+    pub fn new(transport: Arc<dyn DcTransport>, parity: StreamIdParity) -> Arc<Self> {
+        Arc::new(Self {
+            transport,
+            streams: Mutex::new(HashMap::new()),
+            services: RwLock::new(HashMap::new()),
+            next_id: AtomicU32::new(match parity {
+                StreamIdParity::Odd => 1,
+                StreamIdParity::Even => 2,
+            }),
+            send_lock: AsyncMutex::new(()),
+        })
+    }
+
+    pub fn register_service(&self, service: ServiceDef) {
+        let mut services = self.services.write().unwrap();
+        for method in service.methods {
+            let path = format!("/{}/{}", service.name, method.name);
+            services.insert(path, method);
+        }
+    }
+
+    /// Allocate a locally-initiated stream and register its event sink.
+    pub fn open_stream(&self) -> (u32, UnboundedReceiver<StreamEvent>) {
+        let id = self.next_id.fetch_add(2, Ordering::Relaxed);
+        let (tx, rx) = mpsc::unbounded();
+        self.streams.lock().unwrap().insert(id, tx);
+        (id, rx)
+    }
+
+    pub fn close_stream(&self, id: u32) {
+        self.streams.lock().unwrap().remove(&id);
+    }
+
+    pub async fn send_frame(&self, frame: Frame) -> Result<(), Status> {
+        let bytes = frame.encode()?;
+        let _guard = self.send_lock.lock().await;
+        self.transport.send(bytes).await
+    }
+
+    fn deliver(&self, stream_id: u32, event: StreamEvent) {
+        let mut streams = self.streams.lock().unwrap();
+        if let Some(tx) = streams.get(&stream_id) {
+            if tx.unbounded_send(event).is_err() {
+                streams.remove(&stream_id);
+            }
+        }
+    }
+
+    fn has_stream(&self, stream_id: u32) -> bool {
+        self.streams.lock().unwrap().contains_key(&stream_id)
+    }
+
+    /// Frame reader loop. Runs until the transport closes, then fails every
+    /// live stream with UNAVAILABLE.
+    pub async fn run(self: Arc<Self>) {
+        while let Some(msg) = self.transport.next().await {
+            let msg = match msg {
+                Ok(m) => m,
+                Err(_) => break,
+            };
+            let frame = match Frame::decode(&msg) {
+                Ok(f) => f,
+                Err(_) => continue, // malformed frame: drop, keep the channel up
+            };
+            self.dispatch(frame).await;
+        }
+        let leftover: Vec<StreamTx> =
+            self.streams.lock().unwrap().drain().map(|(_, tx)| tx).collect();
+        for tx in leftover {
+            let _ = tx.unbounded_send(StreamEvent::Rst(Status::unavailable("data channel closed")));
+        }
+    }
+
+    async fn dispatch(self: &Arc<Self>, frame: Frame) {
+        @@FRAME_DISPATCH@@
+    }
+
+    async fn on_headers(self: &Arc<Self>, frame: Frame) {
+        let headers = match frame.parse_headers() {
+            Ok(h) => h,
+            Err(e) => {
+                let _ = self.send_frame(Frame::rst(frame.stream_id, &e).unwrap()).await;
+                return;
+            }
+        };
+        match headers.path.clone() {
+            None => {
+                // Server initial metadata for one of our outbound streams.
+                self.deliver(frame.stream_id, StreamEvent::Headers(headers));
+            }
+            Some(path) => {
+                if self.has_stream(frame.stream_id) {
+                    let _ = self
+                        .send_frame(
+                            Frame::rst(
+                                frame.stream_id,
+                                &Status::internal("HEADERS for stream already in use"),
+                            )
+                            .unwrap(),
+                        )
+                        .await;
+                    return;
+                }
+                let handler = {
+                    let services = self.services.read().unwrap();
+                    services.get(&path).map(|m| m.handler.clone())
+                };
+                let Some(handler) = handler else {
+                    let _ = self
+                        .send_frame(
+                            Frame::trailers(
+                                frame.stream_id,
+                                &Status::unimplemented(format!("unknown method {path}")),
+                            )
+                            .unwrap(),
+                        )
+                        .await;
+                    return;
+                };
+                let (tx, rx) = mpsc::unbounded();
+                self.streams.lock().unwrap().insert(frame.stream_id, tx);
+                let call = ServerCall {
+                    ctx: CallCtx {
+                        path: path.clone(),
+                        metadata: headers.metadata.clone(),
+                        stream_id: frame.stream_id,
+                    },
+                    requests: RequestStream::<Bytes>::from_events(rx),
+                    sink: ResponseSink::new(self.clone(), frame.stream_id),
+                };
+                // Initial metadata HEADERS precedes any DATA/TRAILERS.
+                let _ = self
+                    .send_frame(Frame::headers(frame.stream_id, &Headers::default()).unwrap())
+                    .await;
+                let ep = self.clone();
+                let stream_id = frame.stream_id;
+                crate::spawn_task(async move {
+                    let status = match handler(call).await {
+                        Ok(()) => Status::ok(),
+                        Err(s) => s,
+                    };
+                    let _ = ep.send_frame(Frame::trailers(stream_id, &status).unwrap()).await;
+                    ep.close_stream(stream_id);
+                });
+            }
+        }
+    }
+}
+
+/// A bidirectional peer: client and server over the same channel.
+/// The reader loop is spawned on construction (needs a Tokio runtime).
+pub struct Peer {
+    ep: Arc<Endpoint>,
+}
+
+impl Peer {
+    pub fn new(transport: Arc<dyn DcTransport>, parity: StreamIdParity) -> Self {
+        let ep = Endpoint::new(transport, parity);
+        crate::spawn_task(ep.clone().run());
+        Self { ep }
+    }
+
+    pub fn channel(&self) -> crate::channel::Channel {
+        crate::channel::Channel::from_endpoint(self.ep.clone())
+    }
+
+    pub fn server(&self) -> crate::server::Server {
+        crate::server::Server::from_endpoint(self.ep.clone())
+    }
+
+    pub fn endpoint(&self) -> Arc<Endpoint> {
+        self.ep.clone()
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define rust-channel-body
+#<<GRPC_RUNTIME_EOF
+//! Client side: a [`Channel`] opens streams on one endpoint and speaks
+//! all four gRPC method shapes. Metadata-carrying `*_with` variants mirror
+//! the plain ones.
+
+use crate::codec::{Frame, Headers};
+use crate::endpoint::{Endpoint, StreamEvent, StreamIdParity};
+use crate::message::Message;
+use crate::server::ResponseStream;
+use crate::status::{Metadata, Status};
+use crate::transport::DcTransport;
+use futures_channel::mpsc::UnboundedReceiver;
+use futures_core::Stream;
+use futures_util::StreamExt;
+use std::sync::Arc;
+
+#[derive(Clone)]
+pub struct Channel {
+    ep: Arc<Endpoint>,
+}
+
+impl Channel {
+    /// Client over a fresh endpoint; this peer created the channel, so it
+    /// allocates odd stream ids. Spawns the reader loop (Tokio runtime
+    /// required, like any async constructor side effect).
+    pub fn new(transport: Arc<dyn DcTransport>) -> Self {
+        Self::with_parity(transport, StreamIdParity::Odd)
+    }
+
+    pub fn with_parity(transport: Arc<dyn DcTransport>, parity: StreamIdParity) -> Self {
+        let ep = Endpoint::new(transport, parity);
+        crate::spawn_task(ep.clone().run());
+        Self { ep }
+    }
+
+    pub fn from_endpoint(ep: Arc<Endpoint>) -> Self {
+        Self { ep }
+    }
+
+    pub fn endpoint(&self) -> Arc<Endpoint> {
+        self.ep.clone()
+    }
+
+    async fn open(
+        &self,
+        path: &str,
+        metadata: Metadata,
+    ) -> Result<(u32, UnboundedReceiver<StreamEvent>), Status> {
+        let (id, rx) = self.ep.open_stream();
+        let headers = Headers { path: Some(path.to_string()), metadata };
+        match self.ep.send_frame(Frame::headers(id, &headers)?).await {
+            Ok(()) => Ok((id, rx)),
+            Err(e) => {
+                self.ep.close_stream(id);
+                Err(e)
+            }
+        }
+    }
+
+    async fn send_data<Req: Message>(&self, id: u32, req: &Req) -> Result<(), Status> {
+        self.ep.send_frame(Frame::data(id, req.encode())).await
+    }
+
+    async fn collect_one<Resp: Message>(
+        &self,
+        id: u32,
+        mut rx: UnboundedReceiver<StreamEvent>,
+    ) -> Result<Resp, Status> {
+        let mut response: Option<Resp> = None;
+        let result = loop {
+            match rx.next().await {
+                Some(StreamEvent::Headers(_)) => continue,
+                Some(StreamEvent::Data(bytes)) => match Resp::decode(&bytes) {
+                    Ok(msg) => {
+                        if response.is_some() {
+                            break Err(Status::internal("unary call received more than one response"));
+                        }
+                        response = Some(msg);
+                    }
+                    Err(e) => break Err(e),
+                },
+                Some(StreamEvent::Trailers(status)) => {
+                    if status.is_ok() {
+                        match response {
+                            Some(msg) => break Ok(msg),
+                            None => {
+                                break Err(Status::internal("call closed with no response"));
+                            }
+                        }
+                    } else {
+                        break Err(status);
+                    }
+                }
+                Some(StreamEvent::Rst(status)) => break Err(status),
+                Some(StreamEvent::HalfClose) => continue,
+                None => break Err(Status::unavailable("data channel closed")),
+            }
+        };
+        self.ep.close_stream(id);
+        result
+    }
+
+    // -- unary ---------------------------------------------------------------
+    pub async fn unary<Req, Resp>(&self, path: &str, req: Req) -> Result<Resp, Status>
+    where
+        Req: Message,
+        Resp: Message,
+    {
+        self.unary_with(path, req, Metadata::new()).await
+    }
+
+    pub async fn unary_with<Req, Resp>(
+        &self,
+        path: &str,
+        req: Req,
+        metadata: Metadata,
+    ) -> Result<Resp, Status>
+    where
+        Req: Message,
+        Resp: Message,
+    {
+        let (id, rx) = self.open(path, metadata).await?;
+        self.send_data(id, &req).await?;
+        self.ep.send_frame(Frame::half_close(id)).await?;
+        self.collect_one(id, rx).await
+    }
+
+    // -- server-streaming ------------------------------------------------------
+    pub async fn server_stream<Req, Resp>(
+        &self,
+        path: &str,
+        req: Req,
+    ) -> Result<ResponseStream<Resp>, Status>
+    where
+        Req: Message,
+        Resp: Message + 'static,
+    {
+        self.server_stream_with(path, req, Metadata::new()).await
+    }
+
+    pub async fn server_stream_with<Req, Resp>(
+        &self,
+        path: &str,
+        req: Req,
+        metadata: Metadata,
+    ) -> Result<ResponseStream<Resp>, Status>
+    where
+        Req: Message,
+        Resp: Message + 'static,
+    {
+        let (id, rx) = self.open(path, metadata).await?;
+        self.send_data(id, &req).await?;
+        self.ep.send_frame(Frame::half_close(id)).await?;
+        Ok(typed_response_stream(rx))
+    }
+
+    // -- client-streaming ------------------------------------------------------
+    pub async fn client_stream<Req, Resp, S>(
+        &self,
+        path: &str,
+        reqs: S,
+    ) -> Result<Resp, Status>
+    where
+        Req: Message + 'static,
+        Resp: Message,
+        S: Stream<Item = Req> + Send + 'static,
+    {
+        self.client_stream_with(path, reqs, Metadata::new()).await
+    }
+
+    pub async fn client_stream_with<Req, Resp, S>(
+        &self,
+        path: &str,
+        reqs: S,
+        metadata: Metadata,
+    ) -> Result<Resp, Status>
+    where
+        Req: Message + 'static,
+        Resp: Message,
+        S: Stream<Item = Req> + Send + 'static,
+    {
+        let (id, rx) = self.open(path, metadata).await?;
+        self.spawn_pump(id, reqs);
+        self.collect_one(id, rx).await
+    }
+
+    // -- bidirectional ---------------------------------------------------------
+    pub async fn bidi<Req, Resp, S>(
+        &self,
+        path: &str,
+        reqs: S,
+    ) -> Result<ResponseStream<Resp>, Status>
+    where
+        Req: Message + 'static,
+        Resp: Message + 'static,
+        S: Stream<Item = Req> + Send + 'static,
+    {
+        self.bidi_with(path, reqs, Metadata::new()).await
+    }
+
+    pub async fn bidi_with<Req, Resp, S>(
+        &self,
+        path: &str,
+        reqs: S,
+        metadata: Metadata,
+    ) -> Result<ResponseStream<Resp>, Status>
+    where
+        Req: Message + 'static,
+        Resp: Message + 'static,
+        S: Stream<Item = Req> + Send + 'static,
+    {
+        let (id, rx) = self.open(path, metadata).await?;
+        self.spawn_pump(id, reqs);
+        Ok(typed_response_stream(rx))
+    }
+
+    fn spawn_pump<Req, S>(&self, id: u32, reqs: S)
+    where
+        Req: Message + 'static,
+        S: Stream<Item = Req> + Send + 'static,
+    {
+        let ep = self.ep.clone();
+        crate::spawn_task(async move {
+            futures_util::pin_mut!(reqs);
+            while let Some(req) = reqs.next().await {
+                if ep.send_frame(Frame::data(id, req.encode())).await.is_err() {
+                    return;
+                }
+            }
+            let _ = ep.send_frame(Frame::half_close(id)).await;
+        });
+    }
+
+    /// Abort one outbound stream (sends RST CANCELLED).
+    pub async fn cancel(&self, stream_id: u32) {
+        let _ = self
+            .ep
+            .send_frame(Frame::rst(stream_id, &Status::cancelled("cancelled by caller")).unwrap())
+            .await;
+        self.ep.close_stream(stream_id);
+    }
+}
+
+fn typed_response_stream<Resp>(
+    rx: UnboundedReceiver<StreamEvent>,
+) -> ResponseStream<Resp>
+where
+    Resp: Message + 'static,
+{
+    let stream = futures_util::stream::unfold((rx, false), move |(mut rx, done)| async move {
+        if done {
+            return None;
+        }
+        loop {
+            match rx.next().await {
+                Some(StreamEvent::Headers(_)) | Some(StreamEvent::HalfClose) => continue,
+                Some(StreamEvent::Data(bytes)) => match Resp::decode(&bytes) {
+                    Ok(msg) => return Some((Ok(msg), (rx, false))),
+                    Err(e) => return Some((Err(e), (rx, true))),
+                },
+                Some(StreamEvent::Trailers(status)) => {
+                    return if status.is_ok() {
+                        None
+                    } else {
+                        Some((Err(status), (rx, true)))
+                    };
+                }
+                Some(StreamEvent::Rst(status)) => return Some((Err(status), (rx, true))),
+                None => {
+                    return Some((
+                        Err(Status::unavailable("data channel closed")),
+                        (rx, true),
+                    ))
+                }
+            }
+        }
+    });
+    // Stream entries in the endpoint are cleaned up lazily by
+    // Endpoint::deliver once this receiver is gone.
+    Box::pin(stream)
+}
+GRPC_RUNTIME_EOF
+)
+
+(define rust-server-body
+#<<GRPC_RUNTIME_EOF
+//! Server side: service registry and typed method adapters.
+//!
+//! Generated code builds a [`ServiceDef`] from a user trait implementation
+//! via [`unary_method`]/[`server_stream_method`]/[`client_stream_method`]/
+//! [`bidi_method`]; an endpoint dispatches incoming HEADERS by path.
+
+use crate::endpoint::{Endpoint, StreamEvent};
+use crate::message::Message;
+use crate::status::{Metadata, Status};
+use crate::transport::DcTransport;
+use crate::BoxFuture;
+use bytes::Bytes;
+use futures_core::Stream;
+use futures_util::StreamExt;
+use std::future::Future;
+use std::marker::PhantomData;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+
+/// Per-call context handed to handlers.
+#[derive(Clone, Debug)]
+pub struct CallCtx {
+    pub path: String,
+    pub metadata: Metadata,
+    pub stream_id: u32,
+}
+
+/// A stream of decoded responses (client side of streaming calls, and the
+/// return type of server-streaming handlers).
+pub type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send>>;
+
+/// A stream of requests decoded from DATA frames.
+pub struct RequestStream<T> {
+    inner: Pin<Box<dyn Stream<Item = Result<Bytes, Status>> + Send>>,
+    _marker: PhantomData<fn() -> T>,
+}
+
+impl<T> RequestStream<T> {
+    pub(crate) fn from_events(
+        rx: futures_channel::mpsc::UnboundedReceiver<StreamEvent>,
+    ) -> RequestStream<Bytes> {
+        let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+            loop {
+                match rx.next().await {
+                    Some(StreamEvent::Data(b)) => return Some((Ok(b), rx)),
+                    Some(StreamEvent::HalfClose) => return None,
+                    Some(StreamEvent::Rst(s)) | Some(StreamEvent::Trailers(s)) => {
+                        return Some((Err(s), rx))
+                    }
+                    Some(StreamEvent::Headers(_)) => continue,
+                    None => return None,
+                }
+            }
+        });
+        RequestStream { inner: Box::pin(stream), _marker: PhantomData }
+    }
+
+    pub(crate) fn from_bytes(inner: RequestStream<Bytes>) -> Self {
+        Self { inner: inner.inner, _marker: PhantomData }
+    }
+}
+
+impl<T: Message> Stream for RequestStream<T> {
+    type Item = Result<T, Status>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.inner.as_mut().poll_next(cx) {
+            Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(T::decode(&bytes))),
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+/// Writes DATA frames for one server stream.
+#[derive(Clone)]
+pub struct ResponseSink {
+    ep: Arc<Endpoint>,
+    stream_id: u32,
+}
+
+impl ResponseSink {
+    pub(crate) fn new(ep: Arc<Endpoint>, stream_id: u32) -> Self {
+        Self { ep, stream_id }
+    }
+
+    pub async fn send(&self, payload: Vec<u8>) -> Result<(), Status> {
+        self.ep.send_frame(crate::codec::Frame::data(self.stream_id, payload)).await
+    }
+}
+
+/// One incoming call, pre-decoding. Adapters (below) wrap this.
+pub struct ServerCall {
+    pub ctx: CallCtx,
+    pub requests: RequestStream<Bytes>,
+    pub sink: ResponseSink,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MethodKind {
+    Unary,
+    ClientStreaming,
+    ServerStreaming,
+    BidiStreaming,
+}
+
+pub type MethodHandler =
+    Arc<dyn Fn(ServerCall) -> BoxFuture<'static, Result<(), Status>> + Send + Sync>;
+
+pub struct MethodDef {
+    pub name: &'static str,
+    pub kind: MethodKind,
+    pub handler: MethodHandler,
+}
+
+pub struct ServiceDef {
+    pub name: String,
+    pub methods: Vec<MethodDef>,
+}
+
+impl ServiceDef {
+    pub fn new(name: impl Into<String>, methods: Vec<MethodDef>) -> Self {
+        Self { name: name.into(), methods }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Typed adapters used by generated code
+// ---------------------------------------------------------------------------
+
+pub fn unary_method<Req, Resp, F, Fut>(name: &'static str, f: F) -> MethodDef
+where
+    Req: Message + 'static,
+    Resp: Message + 'static,
+    F: Fn(Req, CallCtx) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Resp, Status>> + Send + 'static,
+{
+    let f = Arc::new(f);
+    MethodDef {
+        name,
+        kind: MethodKind::Unary,
+        handler: Arc::new(move |call| {
+            let f = f.clone();
+            Box::pin(async move {
+                let ServerCall { ctx, requests, sink } = call;
+                let mut stream = RequestStream::<Req>::from_bytes(requests);
+                let req = match stream.next().await {
+                    Some(Ok(req)) => req,
+                    Some(Err(e)) => return Err(e),
+                    None => {
+                        return Err(Status::invalid_argument("missing request message"));
+                    }
+                };
+                let resp = f(req, ctx).await?;
+                sink.send(resp.encode()).await
+            })
+        }),
+    }
+}
+
+pub fn server_stream_method<Req, Resp, F, Fut>(name: &'static str, f: F) -> MethodDef
+where
+    Req: Message + 'static,
+    Resp: Message + 'static,
+    F: Fn(Req, CallCtx) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<ResponseStream<Resp>, Status>> + Send + 'static,
+{
+    let f = Arc::new(f);
+    MethodDef {
+        name,
+        kind: MethodKind::ServerStreaming,
+        handler: Arc::new(move |call| {
+            let f = f.clone();
+            Box::pin(async move {
+                let ServerCall { ctx, requests, sink } = call;
+                let mut stream = RequestStream::<Req>::from_bytes(requests);
+                let req = match stream.next().await {
+                    Some(Ok(req)) => req,
+                    Some(Err(e)) => return Err(e),
+                    None => {
+                        return Err(Status::invalid_argument("missing request message"));
+                    }
+                };
+                let mut responses = f(req, ctx).await?;
+                while let Some(item) = responses.next().await {
+                    sink.send(item?.encode()).await?;
+                }
+                Ok(())
+            })
+        }),
+    }
+}
+
+pub fn client_stream_method<Req, Resp, F, Fut>(name: &'static str, f: F) -> MethodDef
+where
+    Req: Message + 'static,
+    Resp: Message + 'static,
+    F: Fn(RequestStream<Req>, CallCtx) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Resp, Status>> + Send + 'static,
+{
+    let f = Arc::new(f);
+    MethodDef {
+        name,
+        kind: MethodKind::ClientStreaming,
+        handler: Arc::new(move |call| {
+            let f = f.clone();
+            Box::pin(async move {
+                let ServerCall { ctx, requests, sink } = call;
+                let stream = RequestStream::<Req>::from_bytes(requests);
+                let resp = f(stream, ctx).await?;
+                sink.send(resp.encode()).await
+            })
+        }),
+    }
+}
+
+pub fn bidi_method<Req, Resp, F, Fut>(name: &'static str, f: F) -> MethodDef
+where
+    Req: Message + 'static,
+    Resp: Message + 'static,
+    F: Fn(RequestStream<Req>, CallCtx) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<ResponseStream<Resp>, Status>> + Send + 'static,
+{
+    let f = Arc::new(f);
+    MethodDef {
+        name,
+        kind: MethodKind::BidiStreaming,
+        handler: Arc::new(move |call| {
+            let f = f.clone();
+            Box::pin(async move {
+                let ServerCall { ctx, requests, sink } = call;
+                let stream = RequestStream::<Req>::from_bytes(requests);
+                let mut responses = f(stream, ctx).await?;
+                while let Some(item) = responses.next().await {
+                    sink.send(item?.encode()).await?;
+                }
+                Ok(())
+            })
+        }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Server
+// ---------------------------------------------------------------------------
+
+pub struct Server {
+    ep: Arc<Endpoint>,
+}
+
+impl Server {
+    pub fn from_endpoint(ep: Arc<Endpoint>) -> Self {
+        Self { ep }
+    }
+
+    pub fn add_service(self, service: ServiceDef) -> Self {
+        self.ep.register_service(service);
+        self
+    }
+
+    /// Serve the given services over one transport until it closes.
+    /// This side answers, so it allocates even stream ids for any calls
+    /// it initiates itself (see `Peer` for bidirectional use).
+    pub async fn serve(transport: Arc<dyn DcTransport>, services: Vec<ServiceDef>) {
+        let ep = Endpoint::new(transport, crate::endpoint::StreamIdParity::Even);
+        for service in services {
+            ep.register_service(service);
+        }
+        ep.run().await;
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define rust-webrtc-transport-body
+#<<GRPC_RUNTIME_EOF
+//! `DcTransport` over the reimplemented WebRTC stack: one SCTP
+//! datachannel from `dc-webrtc` carries gRPC frames. Enabled by the
+//! `webrtc` feature. The endpoint's event queue is bridged to async by
+//! a small forwarder thread, so no messages are lost between the
+//! channel appearing and this transport starting.
+
+use crate::status::Status;
+use crate::transport::DcTransport;
+use async_trait::async_trait;
+use bytes::Bytes;
+use dc_webrtc::endpoint::{ChannelHandle, DcEndpoint, EndpointEvent};
+use std::sync::Arc;
+
+pub struct WebRtcDc {
+    channel: ChannelHandle,
+    inbox: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>>,
+    _endpoint: Arc<DcEndpoint>,
+}
+
+impl WebRtcDc {
+    pub fn new(endpoint: Arc<DcEndpoint>, channel: ChannelHandle) -> Self {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        let stream = channel.stream;
+        let forwarder_endpoint = endpoint.clone();
+        std::thread::spawn(move || loop {
+            match forwarder_endpoint.recv_event() {
+                Some(EndpointEvent::Message { stream: s, data, .. }) if s == stream => {
+                    if tx.send(data).is_err() {
+                        break;
+                    }
+                }
+                Some(EndpointEvent::ChannelClosed { stream: s }) if s == stream => break,
+                Some(_) => {}
+                None => break,
+            }
+        });
+        Self {
+            channel,
+            inbox: tokio::sync::Mutex::new(rx),
+            _endpoint: endpoint,
+        }
+    }
+}
+
+#[async_trait]
+impl DcTransport for WebRtcDc {
+    async fn send(&self, msg: Bytes) -> Result<(), Status> {
+        self.channel
+            .send_binary(&msg)
+            .map_err(|e| Status::unavailable(format!("webrtc channel send: {e}")))
+    }
+
+    async fn next(&self) -> Option<Result<Bytes, Status>> {
+        let data = self.inbox.lock().await.recv().await?;
+        Some(Ok(Bytes::from(data)))
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
+;; Frame dispatch: match arms are expanded from spec.rkt's frame
+;; table, one arm per table entry (frame_type constants as stamped in
+;; wire_gen.rs); arm bodies are the per-language handlers.
+(define rust-dispatch-arms
+  '((HEADERS    . "self.on_headers(frame).await")
+    (DATA       . "self.deliver(frame.stream_id, StreamEvent::Data(frame.payload))")
+    (HALF-CLOSE . "self.deliver(frame.stream_id, StreamEvent::HalfClose)")
+    (TRAILERS   . "{ if let Ok(status) = frame.parse_status() { self.deliver(frame.stream_id, StreamEvent::Trailers(status)); } }")
+    (RST        . "{ let status = frame.parse_status().unwrap_or_else(|_| Status::cancelled(\"stream reset\")); self.deliver(frame.stream_id, StreamEvent::Rst(status)); }")))
+
+(define (emit-rust-dispatch)
+  (string-append
+   "match frame.frame_type {\n"
+   (apply string-append
+          (for/list ([e (in-list frame-table)])
+            (define arm (assoc (first e) rust-dispatch-arms))
+            (unless arm (error 'runtime-rust "no Rust dispatch arm for ~a" (first e)))
+            (format "            frame_type::~a => ~a,\n"
+                    (string-replace (symbol->string (first e)) "-" "_") (cdr arm))))
+   "            _ => {} // unknown frame type: ignore for forward compatibility\n        }"))
+
+(define rust-dynamic-body
+#<<GRPC_RUNTIME_EOF
+//! Dynamic, descriptor-driven client and server.
+//!
+//! Parses a FileDescriptorSet (as produced by
+//! `protoc --descriptor_set_out`) at runtime and builds clients and
+//! servers whose messages are generic field maps — no generated stubs
+//! required. This is the runtime-generation counterpart of the
+//! protoc-plugin surfaces: schemas arrive as data (descriptor.proto),
+//! not as code.
+//!
+//! Generic values by field type: varint family -> I64/U64/Bool,
+//! string -> Str, bytes/message -> Bytes / Msg(GenericMessage),
+//! fixed/float -> U64/I64 / F32/F64. Repeated fields are value lists
+//! in field-number order.
+
+use crate::channel::Channel;
+use crate::server::{
+    CallCtx, MethodDef, MethodKind, ResponseSink, ResponseStream, ServerCall, ServiceDef,
+};
+use crate::status::Status;
+use bytes::Bytes;
+use futures_util::StreamExt;
+use std::collections::{BTreeMap, HashMap};
+use std::pin::Pin;
+use std::sync::Arc;
+
+// FieldDescriptorProto.Type values (descriptor.proto).
+pub const TYPE_DOUBLE: i32 = 1;
+pub const TYPE_FLOAT: i32 = 2;
+pub const TYPE_INT64: i32 = 3;
+pub const TYPE_UINT64: i32 = 4;
+pub const TYPE_INT32: i32 = 5;
+pub const TYPE_FIXED64: i32 = 6;
+pub const TYPE_FIXED32: i32 = 7;
+pub const TYPE_BOOL: i32 = 8;
+pub const TYPE_STRING: i32 = 9;
+pub const TYPE_GROUP: i32 = 10;
+pub const TYPE_MESSAGE: i32 = 11;
+pub const TYPE_BYTES: i32 = 12;
+pub const TYPE_UINT32: i32 = 13;
+pub const TYPE_ENUM: i32 = 14;
+pub const TYPE_SFIXED32: i32 = 15;
+pub const TYPE_SFIXED64: i32 = 16;
+pub const TYPE_SINT32: i32 = 17;
+pub const TYPE_SINT64: i32 = 18;
+
+const LABEL_REPEATED: i32 = 3;
+
+#[derive(Clone, Debug)]
+pub struct FieldModel {
+    pub number: u32,
+    pub name: String,
+    pub ty: i32,
+    pub repeated: bool,
+    /// For TYPE_MESSAGE, e.g. ".echo.EchoRequest".
+    pub type_name: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct MessageModel {
+    pub full_name: String,
+    pub fields: BTreeMap<u32, FieldModel>,
+    pub by_name: HashMap<String, u32>,
+}
+
+impl MessageModel {
+    pub fn field(&self, number: u32) -> Option<&FieldModel> {
+        self.fields.get(&number)
+    }
+    pub fn field_by_name(&self, name: &str) -> Option<&FieldModel> {
+        self.by_name.get(name).and_then(|n| self.fields.get(n))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MethodModel {
+    pub name: String,
+    pub path: String,
+    pub kind: MethodKind,
+    pub input: Arc<MessageModel>,
+    pub output: Arc<MessageModel>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ServiceModel {
+    pub full_name: String,
+    pub methods: HashMap<String, Arc<MethodModel>>,
+}
+
+/// Parsed descriptor set: messages and services by full name.
+/// Message keys carry the leading dot (".echo.EchoRequest"), matching
+/// FieldDescriptorProto.type_name; service keys do not ("echo.Echo").
+#[derive(Clone, Debug, Default)]
+pub struct FileModel {
+    pub messages: HashMap<String, Arc<MessageModel>>,
+    pub services: HashMap<String, Arc<ServiceModel>>,
+}
+
+impl FileModel {
+    pub fn message(&self, full_name: &str) -> Result<Arc<MessageModel>, Status> {
+        self.messages
+            .get(full_name)
+            .cloned()
+            .ok_or_else(|| Status::invalid_argument(format!("unknown message {full_name}")))
+    }
+    pub fn service(&self, full_name: &str) -> Result<Arc<ServiceModel>, Status> {
+        self.services
+            .get(full_name)
+            .cloned()
+            .ok_or_else(|| Status::invalid_argument(format!("unknown service {full_name}")))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum GenericValue {
+    I64(i64),
+    U64(u64),
+    Bool(bool),
+    Str(String),
+    Bytes(Vec<u8>),
+    Msg(Box<GenericMessage>),
+    F32(f32),
+    F64(f64),
+}
+
+impl From<&str> for GenericValue {
+    fn from(v: &str) -> Self {
+        GenericValue::Str(v.to_string())
+    }
+}
+impl From<String> for GenericValue {
+    fn from(v: String) -> Self {
+        GenericValue::Str(v)
+    }
+}
+impl From<i64> for GenericValue {
+    fn from(v: i64) -> Self {
+        GenericValue::I64(v)
+    }
+}
+impl From<i32> for GenericValue {
+    fn from(v: i32) -> Self {
+        GenericValue::I64(v as i64)
+    }
+}
+impl From<u64> for GenericValue {
+    fn from(v: u64) -> Self {
+        GenericValue::U64(v)
+    }
+}
+impl From<u32> for GenericValue {
+    fn from(v: u32) -> Self {
+        GenericValue::U64(v as u64)
+    }
+}
+impl From<bool> for GenericValue {
+    fn from(v: bool) -> Self {
+        GenericValue::Bool(v)
+    }
+}
+impl From<Vec<u8>> for GenericValue {
+    fn from(v: Vec<u8>) -> Self {
+        GenericValue::Bytes(v)
+    }
+}
+impl From<f32> for GenericValue {
+    fn from(v: f32) -> Self {
+        GenericValue::F32(v)
+    }
+}
+impl From<f64> for GenericValue {
+    fn from(v: f64) -> Self {
+        GenericValue::F64(v)
+    }
+}
+impl From<GenericMessage> for GenericValue {
+    fn from(v: GenericMessage) -> Self {
+        GenericValue::Msg(Box::new(v))
+    }
+}
+
+/// A message as field number -> list of values (descriptor order).
+///
+/// Fields not in the model are retained as raw encoded chunks in
+/// `unknown` (protobuf unknown-field retention): a decode -> encode
+/// round trip re-emits them after the known fields, so intermediate
+/// hops do not strip newer fields.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GenericMessage {
+    pub values: BTreeMap<u32, Vec<GenericValue>>,
+    pub unknown: Vec<Vec<u8>>,
+}
+
+impl GenericMessage {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set(&mut self, number: u32, value: impl Into<GenericValue>) -> &mut Self {
+        self.values.insert(number, vec![value.into()]);
+        self
+    }
+
+    pub fn add(&mut self, number: u32, value: impl Into<GenericValue>) -> &mut Self {
+        self.values.entry(number).or_default().push(value.into());
+        self
+    }
+
+    pub fn get(&self, number: u32) -> Option<&GenericValue> {
+        self.values.get(&number).and_then(|v| v.first())
+    }
+
+    pub fn get_all(&self, number: u32) -> &[GenericValue] {
+        self.values.get(&number).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    pub fn get_string(&self, number: u32) -> String {
+        match self.get(number) {
+            Some(GenericValue::Str(s)) => s.clone(),
+            _ => String::new(),
+        }
+    }
+
+    pub fn get_i64(&self, number: u32) -> i64 {
+        match self.get(number) {
+            Some(GenericValue::I64(v)) => *v,
+            Some(GenericValue::U64(v)) => *v as i64,
+            Some(GenericValue::Bool(v)) => *v as i64,
+            _ => 0,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Generic protobuf codec
+// ---------------------------------------------------------------------------
+
+struct PbReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+enum PbValue<'a> {
+    Varint(u64),
+    Len(&'a [u8]),
+    Fixed64([u8; 8]),
+    Fixed32([u8; 4]),
+}
+
+impl<'a> PbReader<'a> {
+    fn new(buf: &'a [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+
+    fn varint(&mut self) -> Result<u64, Status> {
+        let mut result: u64 = 0;
+        let mut shift = 0;
+        loop {
+            if self.pos >= self.buf.len() {
+                return Err(Status::invalid_argument("truncated varint"));
+            }
+            let b = self.buf[self.pos];
+            self.pos += 1;
+            result |= ((b & 0x7f) as u64) << shift;
+            if b & 0x80 == 0 {
+                return Ok(result);
+            }
+            shift += 7;
+            if shift >= 70 {
+                return Err(Status::invalid_argument("varint too long"));
+            }
+        }
+    }
+
+    fn len_bytes(&mut self) -> Result<&'a [u8], Status> {
+        let n = self.varint()? as usize;
+        if self.pos + n > self.buf.len() {
+            return Err(Status::invalid_argument("truncated bytes field"));
+        }
+        let out = &self.buf[self.pos..self.pos + n];
+        self.pos += n;
+        Ok(out)
+    }
+
+    /// Next (number, wire_type, value, raw_chunk); None at end.
+    fn next_field(&mut self) -> Option<Result<(u32, u32, PbValue<'a>, Vec<u8>), Status>> {
+        if self.pos >= self.buf.len() {
+            return None;
+        }
+        let start = self.pos;
+        let tag = match self.varint() {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e)),
+        };
+        let (number, wire) = ((tag >> 3) as u32, (tag & 7) as u32);
+        let value = match wire {
+            0 => match self.varint() {
+                Ok(v) => PbValue::Varint(v),
+                Err(e) => return Some(Err(e)),
+            },
+            2 => match self.len_bytes() {
+                Ok(b) => PbValue::Len(b),
+                Err(e) => return Some(Err(e)),
+            },
+            1 => {
+                if self.pos + 8 > self.buf.len() {
+                    return Some(Err(Status::invalid_argument("truncated fixed64")));
+                }
+                let mut b = [0u8; 8];
+                b.copy_from_slice(&self.buf[self.pos..self.pos + 8]);
+                self.pos += 8;
+                PbValue::Fixed64(b)
+            }
+            5 => {
+                if self.pos + 4 > self.buf.len() {
+                    return Some(Err(Status::invalid_argument("truncated fixed32")));
+                }
+                let mut b = [0u8; 4];
+                b.copy_from_slice(&self.buf[self.pos..self.pos + 4]);
+                self.pos += 4;
+                PbValue::Fixed32(b)
+            }
+            _ => return Some(Err(Status::invalid_argument(format!("unsupported wire type {wire}")))),
+        };
+        Some(Ok((number, wire, value, self.buf[start..self.pos].to_vec())))
+    }
+}
+
+fn as_str<'a>(value: &PbValue<'a>) -> Result<&'a str, Status> {
+    match value {
+        PbValue::Len(b) => std::str::from_utf8(b)
+            .map_err(|e| Status::invalid_argument(format!("invalid utf-8 in descriptor: {e}"))),
+        _ => Err(Status::invalid_argument("expected length-delimited field")),
+    }
+}
+
+fn as_varint(value: &PbValue) -> Result<u64, Status> {
+    match value {
+        PbValue::Varint(v) => Ok(*v),
+        _ => Err(Status::invalid_argument("expected varint field")),
+    }
+}
+
+fn wire_type(ty: i32) -> Option<u32> {
+    match ty {
+        TYPE_INT64 | TYPE_UINT64 | TYPE_INT32 | TYPE_BOOL | TYPE_UINT32 | TYPE_ENUM | TYPE_SINT32
+        | TYPE_SINT64 => Some(0),
+        TYPE_FIXED64 | TYPE_SFIXED64 | TYPE_DOUBLE => Some(1),
+        TYPE_STRING | TYPE_BYTES | TYPE_MESSAGE | TYPE_GROUP => Some(2),
+        TYPE_FIXED32 | TYPE_SFIXED32 | TYPE_FLOAT => Some(5),
+        _ => None,
+    }
+}
+
+fn encode_varint(out: &mut Vec<u8>, mut v: u64) {
+    while v > 0x7f {
+        out.push(((v & 0x7f) as u8) | 0x80);
+        v >>= 7;
+    }
+    out.push(v as u8);
+}
+
+fn zigzag_encode(v: i64) -> u64 {
+    ((v << 1) ^ (v >> 63)) as u64
+}
+
+fn zigzag_decode(v: u64) -> i64 {
+    ((v >> 1) as i64) ^ -((v & 1) as i64)
+}
+
+fn value_as_i64(value: &GenericValue) -> i64 {
+    match value {
+        GenericValue::I64(v) => *v,
+        GenericValue::U64(v) => *v as i64,
+        GenericValue::Bool(v) => *v as i64,
+        _ => 0,
+    }
+}
+
+fn value_as_u64(value: &GenericValue) -> u64 {
+    match value {
+        GenericValue::U64(v) => *v,
+        GenericValue::I64(v) => *v as u64,
+        GenericValue::Bool(v) => *v as u64,
+        _ => 0,
+    }
+}
+
+pub fn encode_generic(
+    model: &MessageModel,
+    message: &GenericMessage,
+    file: &FileModel,
+) -> Result<Vec<u8>, Status> {
+    let mut out = Vec::new();
+    for (number, values) in &message.values {
+        let field = model
+            .field(*number)
+            .ok_or_else(|| {
+                Status::invalid_argument(format!("unknown field {number} for {}", model.full_name))
+            })?;
+        if field.repeated {
+            for value in values {
+                encode_value(&mut out, field, value, file)?;
+            }
+        } else if let Some(value) = values.first() {
+            encode_value(&mut out, field, value, file)?;
+        }
+    }
+    for chunk in &message.unknown {
+        out.extend_from_slice(chunk);
+    }
+    Ok(out)
+}
+
+fn encode_value(
+    out: &mut Vec<u8>,
+    field: &FieldModel,
+    value: &GenericValue,
+    file: &FileModel,
+) -> Result<(), Status> {
+    let wire = wire_type(field.ty)
+        .ok_or_else(|| Status::invalid_argument(format!("unsupported field type {}", field.ty)))?;
+    encode_varint(out, ((field.number as u64) << 3) | wire as u64);
+    match wire {
+        0 => {
+            let v = match field.ty {
+                TYPE_SINT32 | TYPE_SINT64 => {
+                    let v = value_as_i64(value);
+                    if field.ty == TYPE_SINT32 {
+                        zigzag_encode(v as i32 as i64) as u32 as u64
+                    } else {
+                        zigzag_encode(v)
+                    }
+                }
+                TYPE_BOOL => {
+                    if matches!(value, GenericValue::Bool(true)) || value_as_i64(value) != 0 {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                _ => value_as_u64(value),
+            };
+            encode_varint(out, v);
+        }
+        1 => {
+            if field.ty == TYPE_DOUBLE {
+                let v = match value {
+                    GenericValue::F64(v) => *v,
+                    _ => value_as_i64(value) as f64,
+                };
+                out.extend_from_slice(&v.to_le_bytes());
+            } else {
+                out.extend_from_slice(&value_as_u64(value).to_le_bytes());
+            }
+        }
+        5 => {
+            if field.ty == TYPE_FLOAT {
+                let v = match value {
+                    GenericValue::F32(v) => *v,
+                    GenericValue::F64(v) => *v as f32,
+                    _ => value_as_i64(value) as f32,
+                };
+                out.extend_from_slice(&v.to_le_bytes());
+            } else {
+                out.extend_from_slice(&(value_as_u64(value) as u32).to_le_bytes());
+            }
+        }
+        _ => {
+            let data: Vec<u8> = match (field.ty, value) {
+                (TYPE_STRING, GenericValue::Str(s)) => s.as_bytes().to_vec(),
+                (TYPE_MESSAGE, GenericValue::Msg(m)) => {
+                    let nested = file.message(&field.type_name)?;
+                    encode_generic(&nested, m, file)?
+                }
+                (_, GenericValue::Bytes(b)) => b.clone(),
+                (_, GenericValue::Str(s)) => s.as_bytes().to_vec(),
+                _ => {
+                    return Err(Status::invalid_argument(format!(
+                        "value does not match field {} type {}",
+                        field.name, field.ty
+                    )))
+                }
+            };
+            encode_varint(out, data.len() as u64);
+            out.extend_from_slice(&data);
+        }
+    }
+    Ok(())
+}
+
+pub fn decode_generic(
+    model: &MessageModel,
+    data: &[u8],
+    file: &FileModel,
+) -> Result<GenericMessage, Status> {
+    let mut message = GenericMessage::new();
+    let mut reader = PbReader::new(data);
+    while let Some(field_result) = reader.next_field() {
+        let (number, wire, raw, chunk) = field_result?;
+        let Some(field) = model.field(number) else {
+            // Unknown field: retain the raw encoded chunk verbatim.
+            message.unknown.push(chunk);
+            continue;
+        };
+        let value = decode_value(field, wire, &raw, file)?;
+        message.values.entry(number).or_default().push(value);
+    }
+    Ok(message)
+}
+
+fn decode_value(
+    field: &FieldModel,
+    _wire: u32,
+    raw: &PbValue,
+    file: &FileModel,
+) -> Result<GenericValue, Status> {
+    match raw {
+        PbValue::Varint(v) => Ok(match field.ty {
+            TYPE_BOOL => GenericValue::Bool(*v != 0),
+            TYPE_SINT32 | TYPE_SINT64 => GenericValue::I64(zigzag_decode(*v)),
+            TYPE_INT32 | TYPE_ENUM => GenericValue::I64((*v as u32 as i32) as i64),
+            TYPE_INT64 => GenericValue::I64(*v as i64),
+            _ => GenericValue::U64(*v),
+        }),
+        PbValue::Fixed64(b) => Ok(match field.ty {
+            TYPE_DOUBLE => GenericValue::F64(f64::from_le_bytes(*b)),
+            TYPE_SFIXED64 => GenericValue::I64(i64::from_le_bytes(*b)),
+            _ => GenericValue::U64(u64::from_le_bytes(*b)),
+        }),
+        PbValue::Fixed32(b) => Ok(match field.ty {
+            TYPE_FLOAT => GenericValue::F32(f32::from_le_bytes(*b)),
+            TYPE_SFIXED32 => GenericValue::I64((i32::from_le_bytes(*b)) as i64),
+            _ => GenericValue::U64((u32::from_le_bytes(*b)) as u64),
+        }),
+        PbValue::Len(b) => Ok(match field.ty {
+            TYPE_STRING => GenericValue::Str(
+                String::from_utf8(b.to_vec())
+                    .map_err(|e| Status::invalid_argument(format!("invalid utf-8: {e}")))?,
+            ),
+            TYPE_MESSAGE => {
+                let nested = file.message(&field.type_name)?;
+                GenericValue::Msg(Box::new(decode_generic(&nested, b, file)?))
+            }
+            _ => GenericValue::Bytes(b.to_vec()),
+        }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Descriptor set parsing
+// ---------------------------------------------------------------------------
+
+/// Parse FileDescriptorSet bytes into a FileModel.
+pub fn parse_descriptor_set(data: &[u8]) -> Result<FileModel, Status> {
+    let mut file = FileModel::default();
+    let mut pending_services: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut reader = PbReader::new(data);
+    while let Some(field_result) = reader.next_field() {
+        let (number, _wire, value, _chunk) = field_result?;
+        if number != 1 {
+            continue;
+        }
+        let PbValue::Len(file_bytes) = value else {
+            return Err(Status::invalid_argument("FileDescriptorSet.file must be a message"));
+        };
+        let mut package = String::new();
+        let mut message_types: Vec<Vec<u8>> = Vec::new();
+        let mut service_types: Vec<Vec<u8>> = Vec::new();
+        let mut file_reader = PbReader::new(file_bytes);
+        while let Some(file_field) = file_reader.next_field() {
+            let (fnum, _w, fval, _c) = file_field?;
+            match (fnum, &fval) {
+                (2, _) => package = as_str(&fval)?.to_string(),
+                (4, PbValue::Len(b)) => message_types.push(b.to_vec()),
+                (6, PbValue::Len(b)) => service_types.push(b.to_vec()),
+                _ => {}
+            }
+        }
+        for message_bytes in &message_types {
+            parse_message(&package, message_bytes, &mut file)?;
+        }
+        for service_bytes in service_types {
+            pending_services.push((package.clone(), service_bytes));
+        }
+    }
+    for (package, service_bytes) in &pending_services {
+        parse_service(package, service_bytes, &mut file)?;
+    }
+    Ok(file)
+}
+
+fn parse_message(prefix: &str, data: &[u8], file: &mut FileModel) -> Result<(), Status> {
+    let mut name = String::new();
+    let mut raw_fields: Vec<Vec<u8>> = Vec::new();
+    let mut nested: Vec<Vec<u8>> = Vec::new();
+    let mut reader = PbReader::new(data);
+    while let Some(field_result) = reader.next_field() {
+        let (fnum, _w, fval, _c) = field_result?;
+        match (fnum, &fval) {
+            (1, _) => name = as_str(&fval)?.to_string(),
+            (2, PbValue::Len(b)) => raw_fields.push(b.to_vec()),
+            (3, PbValue::Len(b)) => nested.push(b.to_vec()),
+            _ => {}
+        }
+    }
+    let full_name = if prefix.is_empty() {
+        name.clone()
+    } else {
+        format!("{prefix}.{name}")
+    };
+    let mut fields = BTreeMap::new();
+    let mut by_name = HashMap::new();
+    for field_bytes in &raw_fields {
+        let field = parse_field(field_bytes)?;
+        by_name.insert(field.name.clone(), field.number);
+        fields.insert(field.number, field);
+    }
+    file.messages.insert(
+        format!(".{full_name}"),
+        Arc::new(MessageModel { full_name: full_name.clone(), fields, by_name }),
+    );
+    for nested_bytes in &nested {
+        parse_message(&full_name, nested_bytes, file)?;
+    }
+    Ok(())
+}
+
+fn parse_field(data: &[u8]) -> Result<FieldModel, Status> {
+    let mut field = FieldModel {
+        number: 0,
+        name: String::new(),
+        ty: 0,
+        repeated: false,
+        type_name: String::new(),
+    };
+    let mut reader = PbReader::new(data);
+    while let Some(field_result) = reader.next_field() {
+        let (fnum, _w, fval, _c) = field_result?;
+        match fnum {
+            1 => field.name = as_str(&fval)?.to_string(),
+            3 => field.number = as_varint(&fval)? as u32,
+            4 => field.repeated = as_varint(&fval)? as i32 == LABEL_REPEATED,
+            5 => field.ty = as_varint(&fval)? as i32,
+            6 => field.type_name = as_str(&fval)?.to_string(),
+            _ => {}
+        }
+    }
+    Ok(field)
+}
+
+fn kind_of(client_streaming: bool, server_streaming: bool) -> MethodKind {
+    match (client_streaming, server_streaming) {
+        (true, true) => MethodKind::BidiStreaming,
+        (true, false) => MethodKind::ClientStreaming,
+        (false, true) => MethodKind::ServerStreaming,
+        (false, false) => MethodKind::Unary,
+    }
+}
+
+fn parse_service(package: &str, data: &[u8], file: &mut FileModel) -> Result<(), Status> {
+    let mut name = String::new();
+    let mut raw_methods: Vec<Vec<u8>> = Vec::new();
+    let mut reader = PbReader::new(data);
+    while let Some(field_result) = reader.next_field() {
+        let (fnum, _w, fval, _c) = field_result?;
+        match (fnum, &fval) {
+            (1, _) => name = as_str(&fval)?.to_string(),
+            (2, PbValue::Len(b)) => raw_methods.push(b.to_vec()),
+            _ => {}
+        }
+    }
+    let full_name = if package.is_empty() {
+        name.clone()
+    } else {
+        format!("{package}.{name}")
+    };
+    let mut methods = HashMap::new();
+    for method_bytes in &raw_methods {
+        let mut mname = String::new();
+        let mut input_type = String::new();
+        let mut output_type = String::new();
+        let mut client_streaming = false;
+        let mut server_streaming = false;
+        let mut method_reader = PbReader::new(method_bytes);
+        while let Some(method_field) = method_reader.next_field() {
+            let (fnum, _w, fval, _c) = method_field?;
+            match fnum {
+                1 => mname = as_str(&fval)?.to_string(),
+                2 => input_type = as_str(&fval)?.to_string(),
+                3 => output_type = as_str(&fval)?.to_string(),
+                5 => client_streaming = as_varint(&fval)? != 0,
+                6 => server_streaming = as_varint(&fval)? != 0,
+                _ => {}
+            }
+        }
+        let method = MethodModel {
+            path: format!("/{full_name}/{mname}"),
+            name: mname.clone(),
+            kind: kind_of(client_streaming, server_streaming),
+            input: file.message(&input_type)?,
+            output: file.message(&output_type)?,
+        };
+        methods.insert(mname, Arc::new(method));
+    }
+    file.services.insert(
+        full_name.clone(),
+        Arc::new(ServiceModel { full_name, methods }),
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Client
+// ---------------------------------------------------------------------------
+
+/// Runtime-built client: methods resolve from the FileModel.
+#[derive(Clone)]
+pub struct DynamicClient {
+    channel: Channel,
+    model: Arc<FileModel>,
+}
+
+impl DynamicClient {
+    pub fn new(channel: Channel, model: Arc<FileModel>) -> Self {
+        Self { channel, model }
+    }
+
+    fn method(&self, service_name: &str, method_name: &str) -> Result<Arc<MethodModel>, Status> {
+        let service = self.model.service(service_name)?;
+        service
+            .methods
+            .get(method_name)
+            .cloned()
+            .ok_or_else(|| {
+                Status::invalid_argument(format!("unknown method {service_name}/{method_name}"))
+            })
+    }
+
+    pub async fn unary(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request: GenericMessage,
+    ) -> Result<GenericMessage, Status> {
+        let method = self.method(service_name, method_name)?;
+        let bytes = encode_generic(&method.input, &request, &self.model)?;
+        let resp: Vec<u8> = self.channel.unary(&method.path, bytes).await?;
+        decode_generic(&method.output, &resp, &self.model)
+    }
+
+    pub async fn server_stream(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request: GenericMessage,
+    ) -> Result<ResponseStream<GenericMessage>, Status> {
+        let method = self.method(service_name, method_name)?;
+        let bytes = encode_generic(&method.input, &request, &self.model)?;
+        let raw: ResponseStream<Vec<u8>> =
+            self.channel.server_stream(&method.path, bytes).await?;
+        Ok(decode_stream(raw, method.output.clone(), self.model.clone()))
+    }
+
+    pub async fn client_stream(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        requests: Vec<GenericMessage>,
+    ) -> Result<GenericMessage, Status> {
+        let method = self.method(service_name, method_name)?;
+        let mut encoded = Vec::with_capacity(requests.len());
+        for request in &requests {
+            encoded.push(encode_generic(&method.input, request, &self.model)?);
+        }
+        let resp: Vec<u8> = self
+            .channel
+            .client_stream(&method.path, futures_util::stream::iter(encoded))
+            .await?;
+        decode_generic(&method.output, &resp, &self.model)
+    }
+
+    pub async fn bidi(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        requests: Vec<GenericMessage>,
+    ) -> Result<ResponseStream<GenericMessage>, Status> {
+        let method = self.method(service_name, method_name)?;
+        let mut encoded = Vec::with_capacity(requests.len());
+        for request in &requests {
+            encoded.push(encode_generic(&method.input, request, &self.model)?);
+        }
+        let raw: ResponseStream<Vec<u8>> = self
+            .channel
+            .bidi(&method.path, futures_util::stream::iter(encoded))
+            .await?;
+        Ok(decode_stream(raw, method.output.clone(), self.model.clone()))
+    }
+}
+
+fn decode_stream(
+    raw: ResponseStream<Vec<u8>>,
+    model: Arc<MessageModel>,
+    file: Arc<FileModel>,
+) -> ResponseStream<GenericMessage> {
+    Box::pin(raw.map(move |item| {
+        item.and_then(|bytes| decode_generic(&model, &bytes, &file))
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Server
+// ---------------------------------------------------------------------------
+
+/// Sends GenericMessage responses for one dynamic server stream.
+#[derive(Clone)]
+pub struct DynamicSink {
+    sink: ResponseSink,
+    model: Arc<MessageModel>,
+    file: Arc<FileModel>,
+}
+
+impl DynamicSink {
+    pub async fn send(&self, message: &GenericMessage) -> Result<(), Status> {
+        self.sink
+            .send(encode_generic(&self.model, message, &self.file)?)
+            .await
+    }
+}
+
+pub type DynamicRequestStream =
+    Pin<Box<dyn futures_core::Stream<Item = Result<GenericMessage, Status>> + Send>>;
+
+/// Handler protocol for dynamic_service. Implement the shapes your
+/// service uses; the defaults return UNIMPLEMENTED.
+#[async_trait::async_trait]
+pub trait DynamicHandler: Send + Sync {
+    async fn unary(
+        &self,
+        _ctx: CallCtx,
+        _method: &MethodModel,
+        _request: GenericMessage,
+    ) -> Result<GenericMessage, Status> {
+        Err(Status::unimplemented("unary not implemented"))
+    }
+
+    async fn server_stream(
+        &self,
+        _ctx: CallCtx,
+        _method: &MethodModel,
+        _request: GenericMessage,
+        _sink: DynamicSink,
+    ) -> Result<(), Status> {
+        Err(Status::unimplemented("server_stream not implemented"))
+    }
+
+    async fn client_stream(
+        &self,
+        _ctx: CallCtx,
+        _method: &MethodModel,
+        _requests: DynamicRequestStream,
+    ) -> Result<GenericMessage, Status> {
+        Err(Status::unimplemented("client_stream not implemented"))
+    }
+
+    async fn bidi(
+        &self,
+        _ctx: CallCtx,
+        _method: &MethodModel,
+        _requests: DynamicRequestStream,
+        _sink: DynamicSink,
+    ) -> Result<(), Status> {
+        Err(Status::unimplemented("bidi not implemented"))
+    }
+}
+
+/// Build a ServiceDef for a descriptor-named service, dispatching to
+/// `handler`. Register it with Server::add_service /
+/// Server::serve like a generated service.
+pub fn dynamic_service(
+    file: &Arc<FileModel>,
+    service_name: &str,
+    handler: Arc<dyn DynamicHandler>,
+) -> Result<ServiceDef, Status> {
+    let service = file.service(service_name)?;
+    let mut methods = Vec::with_capacity(service.methods.len());
+    for method in service.methods.values() {
+        let handler = handler.clone();
+        let method_for_call = method.clone();
+        let file_for_call = file.clone();
+        // MethodDef.name is &'static str (generated stubs use string
+        // literals); a runtime-built name is leaked once per method —
+        // registration is once-per-process and bounded by schema size.
+        let leaked_name: &'static str = Box::leak(method.name.clone().into_boxed_str());
+        methods.push(MethodDef {
+            name: leaked_name,
+            kind: method.kind,
+            handler: Arc::new(move |call| {
+                let handler = handler.clone();
+                let method = method_for_call.clone();
+                let file = file_for_call.clone();
+                Box::pin(async move {
+                    let ServerCall { ctx, requests, sink } = call;
+                    let mut decoded = decode_requests(requests, method.input.clone(), file.clone());
+                    let out_sink = DynamicSink {
+                        sink: sink.clone(),
+                        model: method.output.clone(),
+                        file: file.clone(),
+                    };
+                    match method.kind {
+                        MethodKind::Unary => {
+                            let request = next_request(&mut decoded).await?;
+                            let resp = handler.unary(ctx, &method, request).await?;
+                            out_sink.send(&resp).await
+                        }
+                        MethodKind::ServerStreaming => {
+                            let request = next_request(&mut decoded).await?;
+                            handler.server_stream(ctx, &method, request, out_sink).await
+                        }
+                        MethodKind::ClientStreaming => {
+                            let resp = handler.client_stream(ctx, &method, decoded).await?;
+                            out_sink.send(&resp).await
+                        }
+                        MethodKind::BidiStreaming => {
+                            handler.bidi(ctx, &method, decoded, out_sink).await
+                        }
+                    }
+                })
+            }),
+        });
+    }
+    Ok(ServiceDef::new(service.full_name.clone(), methods))
+}
+
+async fn next_request(
+    requests: &mut DynamicRequestStream,
+) -> Result<GenericMessage, Status> {
+    match requests.next().await {
+        Some(Ok(req)) => Ok(req),
+        Some(Err(e)) => Err(e),
+        None => Err(Status::invalid_argument("missing request message")),
+    }
+}
+
+fn decode_requests(
+    requests: crate::server::RequestStream<Bytes>,
+    model: Arc<MessageModel>,
+    file: Arc<FileModel>,
+) -> DynamicRequestStream {
+    Box::pin(requests.map(move |item| {
+        item.and_then(|bytes| decode_generic(&model, &bytes, &file))
+    }))
+}
+GRPC_RUNTIME_EOF
+)
+
+(define (emit-rust-runtime-files)
+  (list
+   (cons "lib.rs" rust-lib-body)
+   (cons "codec.rs" rust-codec-body)
+   (cons "status.rs" rust-status-body)
+   (cons "message.rs" rust-message-body)
+   (cons "transport.rs" rust-transport-body)
+   (cons "endpoint.rs"
+         (string-replace rust-endpoint-body "@@FRAME_DISPATCH@@" (emit-rust-dispatch)))
+   (cons "channel.rs" rust-channel-body)
+   (cons "server.rs" rust-server-body)
+   (cons "dynamic.rs" rust-dynamic-body)
+   (cons "webrtc_transport.rs" rust-webrtc-transport-body)))

@@ -1,0 +1,53 @@
+"""Golden-vector codec tests: byte-exact frames from
+fixtures/vectors.json (stamped by the Racket metaprogram)."""
+
+import json
+import os
+import sys
+import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
+
+import grpcdc
+from grpcdc import decode_frame, encode_frame
+
+ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
+
+
+class TestGoldenVectors(unittest.TestCase):
+    def setUp(self):
+        with open(os.path.join(ROOT, "fixtures", "vectors.json")) as f:
+            self.vectors = json.load(f)
+
+    def test_frame_vectors(self):
+        for vector in self.vectors["frames"]:
+            raw = bytes.fromhex(vector["hex"])
+            frame_type, stream_id, payload = decode_frame(raw)
+            self.assertEqual(frame_type, vector["type"])
+            self.assertEqual(encode_frame(frame_type, stream_id, payload), raw)
+
+    def test_protobuf_vector(self):
+        import echo_pb
+
+        vector = self.vectors["protobuf"]["echo_request"]
+        req = echo_pb.EchoRequest(
+            message=vector["message"], count=vector["count"]
+        )
+        self.assertEqual(req.marshal_dc().hex(), vector["hex"])
+        decoded = echo_pb.EchoRequest()
+        decoded.unmarshal_dc(bytes.fromhex(vector["hex"]))
+        self.assertEqual(decoded.message, vector["message"])
+        self.assertEqual(decoded.count, vector["count"])
+
+    def test_status_names(self):
+        self.assertEqual(grpcdc.status_name(0), "OK")
+        self.assertEqual(grpcdc.status_name(3), "INVALID-ARGUMENT")
+        self.assertEqual(grpcdc.status_name(999), "CODE_999")
+        err = grpcdc.StatusError(5, "gone")
+        self.assertEqual(err.code, 5)
+        self.assertIn("NOT-FOUND", str(err))
+
+
+if __name__ == "__main__":
+    unittest.main()
