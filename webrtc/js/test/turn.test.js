@@ -129,3 +129,39 @@ test("refresh keeps the relay alive past the original expiry", { timeout: 30000 
   assert.ok(turn.stats.refreshCount >= 2, `refreshes=${turn.stats.refreshCount}`);
   assert.ok(turn.stats.permReqCount >= 4, `permissions=${turn.stats.permReqCount}`);
 });
+
+// Regression: browsers advertise mDNS ".local" host candidates.
+// TURN CreatePermission/ChannelBind name peer IPs, so non-IP
+// candidates must be skipped at connect instead of crashing the
+// XOR-PEER-ADDRESS encoder.
+test("TURN connect skips mDNS remote candidates", { timeout: 30000 }, async (t) => {
+  const turn = await fakeTurnServer();
+  t.after(() => turn.close());
+  const options = {
+    localIps: ["10.11.12.13"],
+    turnServers: [{ address: turn.server, username: USER, password: PASS }],
+  };
+  const offerer = await Peer.create(options);
+  const answerer = await Peer.create(options);
+  t.after(async () => {
+    await offerer.close();
+    await answerer.close();
+  });
+  const mdnsLine =
+    "a=candidate:9 1 udp 2130706431 cf6eac9e-a60c-49cc-ad95-206afc4dc605.local 9 typ host generation 0";
+  const offer = offerer
+    .createOffer()
+    .replace("a=end-of-candidates", `${mdnsLine}\r\na=end-of-candidates`);
+  const answer = answerer
+    .handleOffer(offer)
+    .replace("a=end-of-candidates", `${mdnsLine}\r\na=end-of-candidates`);
+  offerer.handleAnswer(answer);
+  const [epA, epB] = await Promise.all([offerer.connect(), answerer.connect()]);
+  const received = new Promise((resolve) => {
+    epA.onchannel = (channel) => {
+      channel.onmessage = (event) => resolve(Buffer.from(event.data).toString());
+    };
+  });
+  epB.openChannel({ label: "echo" }).send(Buffer.from("mdns-safe"));
+  assert.equal(await received, "mdns-safe");
+});

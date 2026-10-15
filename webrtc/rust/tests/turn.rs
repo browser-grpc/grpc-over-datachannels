@@ -138,7 +138,7 @@ fn fake_turn_server_with(lifetime_secs: u32, permission_secs: u64) -> (String, A
                     resp.transaction_id = msg.transaction_id;
                     resp.attrs.push((
                         stun_attr::XOR_RELAYED_ADDRESS,
-                        dc_webrtc::turn::xor_address_value(&relayed),
+                        dc_webrtc::turn::xor_address_value(&relayed, &msg.transaction_id),
                     ));
                     resp.attrs.push((
                         stun_attr::XOR_MAPPED_ADDRESS,
@@ -319,9 +319,10 @@ fn deliver(
         }
         None => {
             let mut ind = Message::new(stun_msg::DATA_INDICATION);
+            let tid = ind.transaction_id;
             ind.attrs.push((
                 stun_attr::XOR_PEER_ADDRESS,
-                dc_webrtc::turn::xor_address_value(&sender_relayed),
+                dc_webrtc::turn::xor_address_value(&sender_relayed, &tid),
             ));
             ind.attrs.push((stun_attr::DATA, data.to_vec()));
             let _ = server.send_to(&ind.encode(None), client);
@@ -389,9 +390,10 @@ fn listen_relay(server: Arc<UdpSocket>, state: Arc<Mutex<FakeState>>, relayed: S
                     }
                     None => {
                         let mut ind = Message::new(stun_msg::DATA_INDICATION);
+                        let tid = ind.transaction_id;
                         ind.attrs.push((
                             stun_attr::XOR_PEER_ADDRESS,
-                            dc_webrtc::turn::xor_address_value(&src),
+                            dc_webrtc::turn::xor_address_value(&src, &tid),
                         ));
                         ind.attrs.push((stun_attr::DATA, buf[..n].to_vec()));
                         let _ = server.send_to(&ind.encode(None), client);

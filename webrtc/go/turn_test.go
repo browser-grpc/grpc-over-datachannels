@@ -189,8 +189,8 @@ func (f *fakeTurnServer) onAllocate(msg *StunMessage, raw []byte, src *net.UDPAd
 	f.listenRelay(alloc)
 
 	resp := &StunMessage{Type: StunTypeAllocateSuccess, TransactionID: msg.TransactionID}
-	resp.addAttr(StunAttrXorRelayedAddress, xorAddressValue(relayed))
-	resp.addAttr(StunAttrXorMappedAddress, xorAddressValue(src))
+	resp.addAttr(StunAttrXorRelayedAddress, xorAddressValue(relayed, resp.TransactionID))
+	resp.addAttr(StunAttrXorMappedAddress, xorAddressValue(src, resp.TransactionID))
 	resp.addAttr(StunAttrLifetime, f.lifetimeAttr())
 	_, _ = f.conn.WriteToUDP(resp.Encode(f.key()), src)
 }
@@ -262,7 +262,7 @@ func (f *fakeTurnServer) deliver(dest *fakeTurnAlloc, senderAddr *net.UDPAddr, d
 		return
 	}
 	ind := newStunMessage(StunTypeDataIndication)
-	ind.addAttr(StunAttrXorPeerAddress, xorAddressValue(senderAddr))
+	ind.addAttr(StunAttrXorPeerAddress, xorAddressValue(senderAddr, ind.TransactionID))
 	ind.addAttr(StunAttrData, data)
 	_, _ = f.conn.WriteToUDP(ind.Encode(nil), dest.client)
 }

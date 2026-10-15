@@ -160,7 +160,7 @@ export class Association {
     body.writeUInt32BE(this.nextTsn, 12);
     return Buffer.concat([
       body,
-      param(12, Buffer.from([0, 5])),
+      param(12, Buffer.from([0, 5, 0, 6])),
       param(SctpParam.FORWARD_TSN_SUPPORTED, Buffer.alloc(0)),
       // Supported Extensions: RE-CONFIG (130) and FORWARD-TSN (192),
       // mirroring what browsers advertise (82 c0).

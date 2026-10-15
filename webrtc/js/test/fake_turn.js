@@ -52,7 +52,7 @@ export async function fakeTurnServer({ lifetimeSeconds = 600, permissionSeconds 
       return;
     }
     const ind = new StunMessage(StunMessageType.DATA_INDICATION);
-    ind.attrs.push([StunAttribute.XOR_PEER_ADDRESS, xorAddressValue(senderAddr)]);
+    ind.attrs.push([StunAttribute.XOR_PEER_ADDRESS, xorAddressValue(senderAddr, ind.transactionId)]);
     ind.attrs.push([StunAttribute.DATA, Buffer.from(data)]);
     socket.send(ind.encode(null), dest.client.port, dest.client.address);
   }
@@ -122,8 +122,8 @@ export async function fakeTurnServer({ lifetimeSeconds = 600, permissionSeconds 
       listenRelay(alloc);
       const resp = new StunMessage(StunMessageType.ALLOCATE_SUCCESS);
       resp.transactionId = Buffer.from(request.transactionId);
-      resp.attrs.push([StunAttribute.XOR_RELAYED_ADDRESS, xorAddressValue(relayed)]);
-      resp.attrs.push([StunAttribute.XOR_MAPPED_ADDRESS, xorAddressValue(src)]);
+      resp.attrs.push([StunAttribute.XOR_RELAYED_ADDRESS, xorAddressValue(relayed, resp.transactionId)]);
+      resp.attrs.push([StunAttribute.XOR_MAPPED_ADDRESS, xorAddressValue(src, resp.transactionId)]);
       resp.attrs.push([StunAttribute.LIFETIME, lifetimeAttr()]);
       resp.attrs.push([StunAttribute.SOFTWARE, Buffer.from("dc-webrtc-fake")]);
       socket.send(resp.encode(key()), src.port, src.address);

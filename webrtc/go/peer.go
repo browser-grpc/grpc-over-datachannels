@@ -102,22 +102,56 @@ type Peer struct {
 	closed bool
 }
 
+// isIPv6Text reports whether text (an IP literal or host:port)
+// names an IPv6 address.
+func isIPv6Text(text string) bool {
+	if ip := net.ParseIP(text); ip != nil {
+		return ip.To4() == nil
+	}
+	host, _, err := net.SplitHostPort(text)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.To4() == nil
+}
+
 // NewPeer binds a UDP socket and builds host candidates.
 func NewPeer(options PeerOptions) (*Peer, error) {
-	addr, err := net.ResolveUDPAddr("udp4", "0.0.0.0:0")
+	ips := options.LocalIPs
+	if ips == nil {
+		ips = defaultLocalIPs()
+	}
+	// A dual-stack udp6 socket serves IPv6 candidates when any
+	// local or STUN/TURN server address is IPv6 (IPv4 arrives
+	// as mapped addresses, normalized by UDPAddr); otherwise
+	// keep the plain udp4 socket.
+	wantsV6 := false
+	for _, text := range ips {
+		wantsV6 = wantsV6 || isIPv6Text(text)
+	}
+	for _, text := range options.StunServers {
+		wantsV6 = wantsV6 || isIPv6Text(text)
+	}
+	for _, cfg := range options.TurnServers {
+		wantsV6 = wantsV6 || isIPv6Text(cfg.Address)
+	}
+	network, bind := "udp4", "0.0.0.0:0"
+	if wantsV6 {
+		// "udp" + [::] is dual-stack; "udp6" would set
+		// IPV6_V6ONLY and IPv4 sends would be unreachable.
+		network, bind = "udp", "[::]:0"
+	}
+	addr, err := net.ResolveUDPAddr(network, bind)
 	if err != nil {
 		return nil, err
 	}
-	socket, err := net.ListenUDP("udp4", addr)
+	socket, err := net.ListenUDP(network, addr)
 	if err != nil {
 		return nil, err
 	}
 	port := socket.LocalAddr().(*net.UDPAddr).Port
 	agent := NewIceAgent(true)
-	ips := options.LocalIPs
-	if ips == nil {
-		ips = defaultLocalIPs()
-	}
 	for i, ip := range ips {
 		agent.LocalCandidates = append(agent.LocalCandidates,
 			HostCandidate(ip, port, strconv.Itoa(i+1)))
@@ -397,7 +431,7 @@ func (p *Peer) ConnectWithOptions(requirePeerCert bool) (*DcEndpoint, error) {
 			return nil, errors.New("ICE nomination timed out")
 		}
 		for _, check := range p.agent.DueChecks() {
-			if addr, err := net.ResolveUDPAddr("udp4",
+			if addr, err := net.ResolveUDPAddr("udp",
 				net.JoinHostPort(check.Remote.Address, strconv.Itoa(check.Remote.Port))); err == nil {
 				p.sendTo(check.Bytes, addr)
 			}
@@ -459,7 +493,7 @@ func (p *Peer) startConsentLoop() {
 			case <-ticker.C:
 			}
 			if check, ok := p.agent.ConsentCheck(); ok {
-				if addr, err := net.ResolveUDPAddr("udp4",
+				if addr, err := net.ResolveUDPAddr("udp",
 					net.JoinHostPort(check.Remote.Address, strconv.Itoa(check.Remote.Port))); err == nil {
 					p.sendTo(check.Bytes, addr)
 				}

@@ -12,7 +12,7 @@ use crate::sdp::{generate, parse, SessionDescription};
 use crate::x509::Certificate;
 use std::collections::VecDeque;
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -92,7 +92,24 @@ impl DtlsIo for IceDtlsIo {
 
 impl Peer {
     pub fn new(config: PeerConfig) -> io::Result<Self> {
-        let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
+        // A dual-stack IPv6 socket serves IPv6 candidates when
+        // any local or STUN/TURN server address is IPv6 (IPv4
+        // senders arrive mapped and are normalized on receive);
+        // otherwise keep the plain IPv4 socket.
+        fn text_is_v6(text: &str) -> bool {
+            use std::net::ToSocketAddrs;
+            text.to_socket_addrs()
+                .map(|mut it| it.any(|a| a.ip().is_ipv6()))
+                .unwrap_or(false)
+        }
+        let wants_v6 = config.local_ips.iter().any(|ip| ip.is_ipv6())
+            || config.stun_servers.iter().any(|s| text_is_v6(s))
+            || config.turn_servers.iter().any(|c| text_is_v6(&c.address));
+        let socket = if wants_v6 {
+            UdpSocket::bind((Ipv6Addr::UNSPECIFIED, 0))?
+        } else {
+            UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?
+        };
         let port = socket.local_addr()?.port();
         let mut ips: Vec<IpAddr> = if config.local_ips.is_empty() {
             let mut v = vec![IpAddr::V4(Ipv4Addr::LOCALHOST)];
@@ -414,6 +431,7 @@ impl Peer {
             let mut buf = vec![0u8; 65536];
             match demux_socket.recv_from(&mut buf) {
                 Ok((n, src)) => {
+                    let src = crate::stun::normalize_addr(src);
                     buf.truncate(n);
                     if buf.is_empty() {
                         continue;
@@ -560,6 +578,7 @@ fn run_ice(
         let mut buf = vec![0u8; 65536];
         match socket.recv_from(&mut buf) {
             Ok((n, src)) => {
+                let src = crate::stun::normalize_addr(src);
                 buf.truncate(n);
                 if buf.is_empty() {
                     continue;

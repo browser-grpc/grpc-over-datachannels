@@ -120,8 +120,11 @@ impl Candidate {
         // can stall for seconds on multicast timeouts and dropping
         // the candidate loses the pair entirely (mirrors ice.js).
         let port: u16 = parts[5].parse().ok()?;
-        let (addr, mdns_name) = match format!("{}:{}", parts[4], parts[5]).parse::<SocketAddr>() {
-            Ok(addr) => (addr, None),
+        // Parse the IP on its own (never "ip:port" text: IPv6
+        // literals would need brackets and would fall into the
+        // mDNS placeholder branch instead).
+        let (addr, mdns_name) = match parts[4].parse::<IpAddr>() {
+            Ok(ip) => (SocketAddr::new(crate::stun::normalize_ip(ip), port), None),
             Err(_) => (
                 SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port),
                 Some(parts[4].to_string()),

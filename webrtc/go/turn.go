@@ -141,36 +141,17 @@ func RelayCandidate(address string, port int, base Candidate, foundation string)
 	}
 }
 
-// xorAddressValue encodes an IPv4 XOR-{PEER,RELAYED,MAPPED}-ADDRESS
-// attribute value (RFC 5766 §15.4-ish shares the RFC 5389 layout).
-func xorAddressValue(addr *net.UDPAddr) []byte {
-	out := make([]byte, 8)
-	out[1] = 1
-	binary.BigEndian.PutUint16(out[2:4], uint16(addr.Port)^(StunMagic>>16))
-	ip := addr.IP.To4()
-	var ipNum uint32
-	if ip != nil {
-		ipNum = binary.BigEndian.Uint32(ip)
-	}
-	binary.BigEndian.PutUint32(out[4:8], ipNum^StunMagic)
-	return out
+// xorAddressValue encodes an XOR-{PEER,RELAYED,MAPPED}-ADDRESS
+// attribute value for a message carrying tid (the IPv6 XOR
+// mask includes the transaction ID).
+func xorAddressValue(addr *net.UDPAddr, tid [12]byte) []byte {
+	return xorAddress(addr, tid)
 }
 
 // decodeXorAddressAttr decodes an XOR-encoded address attribute
-// using the message's transaction id (RFC 5389 §15.2 layout; for
-// IPv4 only the magic-cookie half of the key is observable here,
-// matching decodeXorMappedAddress).
+// of a message (either family).
 func decodeXorAddressAttr(msg *StunMessage, attr uint16) *net.UDPAddr {
-	value := msg.attr(attr)
-	if len(value) < 8 || value[1] != 1 {
-		return nil
-	}
-	port := int(binary.BigEndian.Uint16(value[2:4])) ^ (StunMagic >> 16)
-	ipNum := binary.BigEndian.Uint32(value[4:8]) ^ StunMagic
-	return &net.UDPAddr{
-		IP:   net.IPv4(byte(ipNum>>24), byte(ipNum>>16), byte(ipNum>>8), byte(ipNum)),
-		Port: port,
-	}
+	return decodeXorAddress(msg.attr(attr), msg.TransactionID, true)
 }
 
 // turnRequest sends one TURN control message on the peer socket
@@ -205,7 +186,7 @@ func turnErrorCode(msg *StunMessage) int {
 // appends the relayed candidate. Called automatically from
 // gatherFromOptions for the first reachable TurnServers entry.
 func (p *Peer) AllocateTurn(cfg TurnServerConfig, timeout time.Duration) error {
-	serverAddr, err := net.ResolveUDPAddr("udp4", cfg.Address)
+	serverAddr, err := net.ResolveUDPAddr("udp", cfg.Address)
 	if err != nil {
 		return err
 	}
@@ -308,7 +289,7 @@ func (p *Peer) turnCreatePermissions(timeout time.Duration) {
 func (p *Peer) turnCreatePermissionsFor(addrs []*net.UDPAddr, timeout time.Duration) {
 	msg := newStunMessage(StunTypeCreatePermissionRequest)
 	for _, addr := range addrs {
-		msg.addAttr(StunAttrXorPeerAddress, xorAddressValue(addr))
+		msg.addAttr(StunAttrXorPeerAddress, xorAddressValue(addr, msg.TransactionID))
 	}
 	msg.addAttr(StunAttrUsername, []byte(p.turn.username))
 	msg.addAttr(StunAttrRealm, []byte(p.turn.realm))
@@ -338,7 +319,7 @@ func (p *Peer) turnBindChannels(addrs []*net.UDPAddr, timeout time.Duration) {
 		chanAttr := make([]byte, 4)
 		binary.BigEndian.PutUint16(chanAttr, channel)
 		msg.addAttr(StunAttrChannelNumber, chanAttr)
-		msg.addAttr(StunAttrXorPeerAddress, xorAddressValue(addr))
+		msg.addAttr(StunAttrXorPeerAddress, xorAddressValue(addr, msg.TransactionID))
 		msg.addAttr(StunAttrUsername, []byte(p.turn.username))
 		msg.addAttr(StunAttrRealm, []byte(p.turn.realm))
 		msg.addAttr(StunAttrNonce, []byte(p.turn.nonce))
@@ -440,7 +421,7 @@ func (p *Peer) turnSendData(data []byte, peer *net.UDPAddr) {
 		return
 	}
 	msg := newStunMessage(StunTypeSendIndication)
-	msg.addAttr(StunAttrXorPeerAddress, xorAddressValue(peer))
+	msg.addAttr(StunAttrXorPeerAddress, xorAddressValue(peer, msg.TransactionID))
 	msg.addAttr(StunAttrData, data)
 	_, _ = p.socket.WriteToUDP(msg.Encode(nil), p.turn.server)
 }

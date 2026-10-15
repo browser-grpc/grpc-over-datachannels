@@ -7,7 +7,6 @@
 package dcwebrtc
 
 import (
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"net"
@@ -16,32 +15,17 @@ import (
 	"time"
 )
 
-// decodeXorMappedAddress extracts the address from an XOR-MAPPED-ADDRESS
-// attribute value (IPv4), using the transaction id as the XOR key
-// (the caller passes the full message for the key).
+// decodeXorMappedAddress extracts the address from an
+// XOR-MAPPED-ADDRESS attribute (falling back to the plain
+// MAPPED-ADDRESS form), for either address family.
 func decodeXorMappedAddress(msg *StunMessage) *net.UDPAddr {
-	value := msg.attr(StunAttrXorMappedAddress)
-	if value == nil {
-		value = msg.attr(StunAttrMappedAddress)
-		if value == nil {
-			return nil
-		}
-		// Plain MAPPED-ADDRESS: no XOR.
-		if len(value) < 8 || value[1] != 1 {
-			return nil
-		}
-		port := int(binary.BigEndian.Uint16(value[2:4]))
-		ip := net.IPv4(value[4], value[5], value[6], value[7])
-		return &net.UDPAddr{IP: ip, Port: port}
+	if value := msg.attr(StunAttrXorMappedAddress); value != nil {
+		return decodeXorAddress(value, msg.TransactionID, true)
 	}
-	if len(value) < 8 || value[1] != 1 {
-		return nil
+	if value := msg.attr(StunAttrMappedAddress); value != nil {
+		return decodeXorAddress(value, msg.TransactionID, false)
 	}
-	port := int(binary.BigEndian.Uint16(value[2:4])) ^ (StunMagic >> 16)
-	xaddr := binary.BigEndian.Uint32(value[4:8])
-	ipNum := xaddr ^ StunMagic
-	ip := net.IPv4(byte(ipNum>>24), byte(ipNum>>16), byte(ipNum>>8), byte(ipNum))
-	return &net.UDPAddr{IP: ip, Port: port}
+	return nil
 }
 
 // srflxWaiters tracks in-flight gathering requests by transaction id.
@@ -84,7 +68,7 @@ func (w *srflxWaiters) cancel(tid string) {
 // in PeerOptions.StunServers, and may also be called directly.
 // Unreachable servers are ignored (host candidates still apply).
 func (p *Peer) GatherSrflx(server string, timeout time.Duration) error {
-	serverAddr, err := net.ResolveUDPAddr("udp4", server)
+	serverAddr, err := net.ResolveUDPAddr("udp", server)
 	if err != nil {
 		return err
 	}

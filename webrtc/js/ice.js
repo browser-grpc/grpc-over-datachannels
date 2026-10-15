@@ -10,18 +10,28 @@ import {
   bindingError,
   bindingSuccess,
   candidatePriority,
+  formatIp,
   hostPriority,
+  normalizeIp,
   pairPriority,
+  parseIp,
   randomPassword,
   randomUfrag,
 } from "./stun.js";
+
+// Canonical text form for IP literals (compressed IPv6,
+// dotted IPv4); hostnames (mDNS) pass through unchanged.
+function canonicalAddress(address) {
+  const parsed = parseIp(address);
+  return parsed ? normalizeIp(formatIp(parsed.bytes)) : address;
+}
 
 export class Candidate {
   constructor({ foundation, component = 1, priority, address, port, type = "host", raddr = "", rport = 0 }) {
     this.foundation = foundation;
     this.component = component;
     this.priority = priority;
-    this.address = address;
+    this.address = canonicalAddress(address);
     this.port = port;
     this.type = type;
     this.raddr = raddr;

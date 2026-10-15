@@ -284,7 +284,7 @@ func (a *Association) initBody() []byte {
 	binary.BigEndian.PutUint16(body[8:10], 1024)
 	binary.BigEndian.PutUint16(body[10:12], 1024)
 	binary.BigEndian.PutUint32(body[12:16], a.nextTsn)
-	body = append(body, sctpParam(12, []byte{0, 5})...)
+	body = append(body, sctpParam(12, []byte{0, 5, 0, 6})...)
 	body = append(body, sctpParam(SctpParamForwardTsnSupported, nil)...)
 	// Supported Extensions: RE-CONFIG (130) and FORWARD-TSN (192).
 	return append(body, sctpParam(SctpParamSupportedExtensions, []byte{SctpChunkReConfig, SctpChunkForwardTsn})...)

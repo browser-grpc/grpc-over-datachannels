@@ -12,7 +12,7 @@ import { resolveMdns } from "./mdns.js";
 import { DcEndpoint } from "./endpoint.js";
 import { Candidate, IceAgent } from "./ice.js";
 import { StunAttribute, StunMessageType } from "./proto_gen.js";
-import { StunMessage, decodeMappedAddress } from "./stun.js";
+import { StunMessage, decodeMappedAddress, isIpv6, normalizeIp, parseHostPort, parseIp } from "./stun.js";
 import { generate, parse } from "./sdp.js";
 import {
   allocateTurn,
@@ -81,12 +81,24 @@ export class Peer {
     consentIntervalMs = 5000,
     consentExpiryMs = 30000,
   } = {}) {
-    const socket = dgram.createSocket("udp4");
+    const effectiveIps = localIps ?? defaultLocalIps();
+    // A dual-stack udp6 socket serves IPv6 candidates (and IPv4
+    // via mapped addresses, normalized in #onPacket); plain
+    // udp4 keeps the historical behavior otherwise.
+    const serverAddrs = [
+      ...stunServers,
+      ...turnServers.map((c) => c.address),
+    ]
+      .map((a) => parseHostPort(a, 3478)?.address)
+      .filter(Boolean);
+    const wantsV6 =
+      effectiveIps.some((ip) => isIpv6(ip)) || serverAddrs.some((ip) => isIpv6(ip));
+    const socket = dgram.createSocket(wantsV6 ? "udp6" : "udp4");
     socket.on("error", () => {}); // async send errors must not crash the process
-    await new Promise((resolve) => socket.bind(0, "0.0.0.0", resolve));
+    await new Promise((resolve) => socket.bind(0, wantsV6 ? "::" : "0.0.0.0", resolve));
     const { port } = socket.address();
     const agent = new IceAgent(true);
-    agent.localCandidates = (localIps ?? defaultLocalIps()).map((ip, i) =>
+    agent.localCandidates = effectiveIps.map((ip, i) =>
       Candidate.host(ip, port, String(i + 1)),
     );
     const peer = new Peer(socket, agent, Certificate.generate(), { requirePeerCertificate });
@@ -112,23 +124,40 @@ export class Peer {
     return peer;
   }
 
+  // Raw socket send. On a dual-stack udp6 socket, libuv
+  // rejects plain IPv4 destinations (EINVAL); the mapped form
+  // ::ffff:a.b.c.d is required.
+  #sendRaw(buf, port, address) {
+    let dest = address;
+    if (net.isIPv4(address)) {
+      try {
+        if (this.#socket.address().family === "IPv6") dest = `::ffff:${address}`;
+      } catch {
+        // socket not bound yet: send will fail harmlessly
+      }
+    }
+    this.#socket.send(buf, port, dest, () => {});
+  }
+
   // Direct socket send for TURN control traffic (never wrapped).
   sendTurnControl(buf, port, address) {
-    this.#socket.send(buf, port, address, () => {});
+    this.#sendRaw(buf, port, address);
   }
 
   // Send pair traffic (ICE checks/responses, DTLS) through the
   // allocation once the relay is active: ChannelData framing
   // when a channel is bound for the peer, Send indication else.
   #sendTo(buf, remote) {
-    if (this.turn && this.#relayActive) {
+    // Relay wrapping names the peer by IP (XOR-PEER-ADDRESS);
+    // mDNS ".local" remotes go direct instead.
+    if (this.turn && this.#relayActive && parseIp(remote.address)) {
       const channel = this.turn.bindings.get(`${remote.address}:${remote.port}`);
       const wrapped =
         channel !== undefined ? wrapChannelData(channel, buf) : wrapSendIndication(this.turn, buf, remote);
-      this.#socket.send(wrapped, this.turn.server.port, this.turn.server.address, () => {});
+      this.#sendRaw(wrapped, this.turn.server.port, this.turn.server.address);
       return;
     }
-    this.#socket.send(buf, remote.port, remote.address, () => {});
+    this.#sendRaw(buf, remote.port, remote.address);
   }
 
   // Query one STUN server ("host:port") for a server-reflexive
@@ -137,15 +166,15 @@ export class Peer {
   // read loop demultiplexes the response by transaction id.
   // Resolves true when a candidate was added.
   async gatherSrflx(server, timeoutMs = 1200) {
-    const [host, portText] = server.split(":");
-    const port = Number(portText);
-    if (!host || !port) return false;
+    const parsed = parseHostPort(server, 3478);
+    if (!parsed) return false;
+    const { address: host, port } = parsed;
     const request = new StunMessage(StunMessageType.BINDING_REQUEST);
     const tid = request.transactionId.toString("hex");
     const responsePromise = new Promise((resolve) => {
       this.#srflxWaiters.set(tid, resolve);
     });
-    this.#socket.send(request.encode(null), port, host, () => {});
+    this.#sendRaw(request.encode(null), port, host);
     const mapped = await Promise.race([
       responsePromise,
       new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs)),
@@ -220,6 +249,10 @@ export class Peer {
 
   #onPacket(msg, rinfo) {
     if (msg.length === 0) return;
+    // Dual-stack sockets report IPv4 senders as ::ffff:a.b.c.d.
+    if (rinfo && typeof rinfo.address === "string") {
+      rinfo = { ...rinfo, address: normalizeIp(rinfo.address) };
+    }
     // TURN demux: packets from the TURN server are allocation
     // control responses or relayed traffic (ChannelData frames
     // or Data indications), never agent STUN or DTLS directly.

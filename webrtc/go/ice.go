@@ -37,13 +37,22 @@ func candidatePriority(typePreference, component uint32) uint32 {
 	return (typePreference << 24) + (65535 << 8) + (256 - component)
 }
 
+// canonicalIP renders IP literals in canonical form (dotted
+// IPv4 incl. mapped, compressed IPv6); hostnames pass through.
+func canonicalIP(address string) string {
+	if ip := net.ParseIP(address); ip != nil {
+		return ip.String()
+	}
+	return address
+}
+
 // HostCandidate builds a host candidate for address:port.
 func HostCandidate(address string, port int, foundation string) Candidate {
 	return Candidate{
 		Foundation: foundation,
 		Component:  1,
 		Priority:   hostPriority(1),
-		Address:    address,
+		Address:    canonicalIP(address),
 		Port:       port,
 		Type:       "host",
 	}
@@ -66,7 +75,7 @@ func SrflxCandidate(address string, port int, base Candidate, foundation string)
 }
 
 // Key identifies a candidate pair endpoint.
-func (c Candidate) Key() string { return fmt.Sprintf("%s:%d", c.Address, c.Port) }
+func (c Candidate) Key() string { return net.JoinHostPort(c.Address, strconv.Itoa(c.Port)) }
 
 // ToSDP renders the candidate attribute.
 func (c Candidate) ToSDP() string {
@@ -103,14 +112,14 @@ func CandidateFromSDP(value string) *Candidate {
 		Foundation: strings.TrimPrefix(parts[0], "candidate:"),
 		Component:  component,
 		Priority:   uint32(priority),
-		Address:    parts[4],
+		Address:    canonicalIP(parts[4]),
 		Port:       port,
 		Type:       parts[7],
 	}
 	for i := 8; i+1 < len(parts); i += 2 {
 		switch parts[i] {
 		case "raddr":
-			cand.RAddr = parts[i+1]
+			cand.RAddr = canonicalIP(parts[i+1])
 		case "rport":
 			cand.RPort, _ = strconv.Atoi(parts[i+1])
 		}
@@ -275,7 +284,7 @@ func (a *IceAgent) bestValidPair() *Candidate {
 		// because the browser stops checking once its own pair
 		// validates. Nominate the learned address directly.
 		for key := range a.valid {
-			if addr, err := net.ResolveUDPAddr("udp4", key); err == nil {
+			if addr, err := net.ResolveUDPAddr("udp", key); err == nil {
 				c := HostCandidate(addr.IP.String(), addr.Port, "peer-reflexive")
 				return &c
 			}

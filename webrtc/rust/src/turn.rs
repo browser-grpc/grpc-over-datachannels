@@ -78,17 +78,11 @@ pub fn refresh_interval(client: &TurnClient) -> Duration {
     interval.max(Duration::from_millis(250))
 }
 
-/// Encode an IPv4 XOR-{PEER,RELAYED,MAPPED}-ADDRESS attribute value.
-pub fn xor_address_value(addr: &SocketAddr) -> Vec<u8> {
-    let mut out = vec![0u8; 8];
-    out[1] = 1;
-    let ip = match addr.ip() {
-        std::net::IpAddr::V4(v4) => u32::from(v4),
-        std::net::IpAddr::V6(_) => 0,
-    };
-    out[2..4].copy_from_slice(&(addr.port() ^ (crate::stun::MAGIC >> 16) as u16).to_be_bytes());
-    out[4..8].copy_from_slice(&(ip ^ crate::stun::MAGIC).to_be_bytes());
-    out
+/// Encode an XOR-{PEER,RELAYED,MAPPED}-ADDRESS attribute value
+/// for a message carrying tid (the IPv6 XOR mask includes the
+/// transaction ID).
+pub fn xor_address_value(addr: &SocketAddr, tid: &[u8; 12]) -> Vec<u8> {
+    crate::stun::xor_mapped_address(addr, tid)
 }
 
 /// Decode an XOR-encoded address attribute of a message.
@@ -213,12 +207,13 @@ pub fn allocate_turn(
 
 fn build_create_permission(client: &TurnClient, peers: &[SocketAddr]) -> Option<Message> {
     let mut msg = Message::new(stun_msg::CREATE_PERMISSION_REQUEST);
+    let tid = msg.transaction_id;
     let mut seen = std::collections::HashSet::new();
     for cand in peers {
         if !seen.insert(*cand) {
             continue;
         }
-        msg.attrs.push((stun_attr::XOR_PEER_ADDRESS, xor_address_value(cand)));
+        msg.attrs.push((stun_attr::XOR_PEER_ADDRESS, xor_address_value(cand, &tid)));
     }
     if seen.is_empty() {
         return None;
@@ -246,10 +241,11 @@ pub fn create_permissions(
 
 fn build_channel_bind(client: &TurnClient, channel: u16, peer: &SocketAddr) -> Message {
     let mut msg = Message::new(stun_msg::CHANNEL_BIND_REQUEST);
+    let tid = msg.transaction_id;
     let mut chan_attr = channel.to_be_bytes().to_vec();
     chan_attr.extend_from_slice(&[0, 0]);
     msg.attrs.push((stun_attr::CHANNEL_NUMBER, chan_attr));
-    msg.attrs.push((stun_attr::XOR_PEER_ADDRESS, xor_address_value(peer)));
+    msg.attrs.push((stun_attr::XOR_PEER_ADDRESS, xor_address_value(peer, &tid)));
     msg.attrs.push((stun_attr::USERNAME, client.username.clone().into_bytes()));
     msg.attrs.push((stun_attr::REALM, client.realm.clone().into_bytes()));
     msg.attrs.push((stun_attr::NONCE, client.nonce.clone().into_bytes()));
@@ -367,7 +363,8 @@ pub fn send_pair(
             return Ok(());
         }
         let mut msg = Message::new(stun_msg::SEND_INDICATION);
-        msg.attrs.push((stun_attr::XOR_PEER_ADDRESS, xor_address_value(&dest)));
+        let tid = msg.transaction_id;
+        msg.attrs.push((stun_attr::XOR_PEER_ADDRESS, xor_address_value(&dest, &tid)));
         msg.attrs.push((stun_attr::DATA, data.to_vec()));
         socket.send_to(&msg.encode(None), client.server)?;
         return Ok(());

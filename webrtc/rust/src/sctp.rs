@@ -262,7 +262,7 @@ impl Association {
         body.extend_from_slice(&1024u16.to_be_bytes()); // inbound streams accepted
         body.extend_from_slice(&self.next_tsn.to_be_bytes());
         // Supported address types (IPv4) so strict peers are satisfied.
-        body.extend_from_slice(&param(12, &[0, 5]));
+        body.extend_from_slice(&param(12, &[0, 5, 0, 6]));
         body.extend_from_slice(&param(sctp_param::FORWARD_TSN_SUPPORTED, &[]));
         // Supported Extensions: RE-CONFIG (130) and FORWARD-TSN (192).
         body.extend_from_slice(&param(

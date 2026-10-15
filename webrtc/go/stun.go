@@ -144,22 +144,74 @@ func (m *StunMessage) CheckIntegrity(raw, key []byte) bool {
 	return false
 }
 
-func xorMappedAddress(addr *net.UDPAddr) []byte {
-	out := make([]byte, 8)
-	out[1] = 1
-	binary.BigEndian.PutUint16(out[2:4], uint16(addr.Port)^(StunMagic>>16))
+// xorAddress encodes an XOR-*ADDRESS value (RFC 5389 §15.2):
+// family 1 (IPv4, mask = magic cookie) or family 2 (IPv6, mask
+// = magic cookie concatenated with the transaction ID).
+// IPv4-mapped IPv6 addresses are encoded as IPv4.
+func xorAddress(addr *net.UDPAddr, tid [12]byte) []byte {
+	family := byte(1)
+	mask := make([]byte, 4)
+	binary.BigEndian.PutUint32(mask, StunMagic)
 	ip := addr.IP.To4()
-	var ipNum uint32
-	if ip != nil {
-		ipNum = binary.BigEndian.Uint32(ip)
+	if ip == nil {
+		family = 2
+		ip = addr.IP.To16()
+		mask = append(mask, tid[:]...)
 	}
-	binary.BigEndian.PutUint32(out[4:8], ipNum^StunMagic)
+	out := make([]byte, 4+len(ip))
+	out[1] = family
+	binary.BigEndian.PutUint16(out[2:4], uint16(addr.Port)^(StunMagic>>16))
+	for i, b := range ip {
+		out[4+i] = b ^ mask[i]
+	}
 	return out
+}
+
+// decodeXorAddress decodes an address attribute value; with xor
+// false it decodes the plain (MAPPED-ADDRESS) form.
+func decodeXorAddress(value []byte, tid [12]byte, xor bool) *net.UDPAddr {
+	if len(value) < 4 {
+		return nil
+	}
+	ipLen := 0
+	switch value[1] {
+	case 1:
+		ipLen = 4
+	case 2:
+		ipLen = 16
+	default:
+		return nil
+	}
+	if len(value) < 4+ipLen {
+		return nil
+	}
+	port := int(binary.BigEndian.Uint16(value[2:4]))
+	ip := make(net.IP, ipLen)
+	copy(ip, value[4:4+ipLen])
+	if xor {
+		port ^= StunMagic >> 16
+		mask := make([]byte, 4)
+		binary.BigEndian.PutUint32(mask, StunMagic)
+		if ipLen == 16 {
+			mask = append(mask, tid[:]...)
+		}
+		for i := range ip {
+			ip[i] ^= mask[i]
+		}
+	}
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+	return &net.UDPAddr{IP: ip, Port: port}
+}
+
+func xorMappedAddress(addr *net.UDPAddr, tid [12]byte) []byte {
+	return xorAddress(addr, tid)
 }
 
 func bindingSuccess(request *StunMessage, peerAddr *net.UDPAddr, key []byte) []byte {
 	resp := &StunMessage{Type: StunTypeBindingSuccess, TransactionID: request.TransactionID}
-	resp.addAttr(StunAttrXorMappedAddress, xorMappedAddress(peerAddr))
+	resp.addAttr(StunAttrXorMappedAddress, xorMappedAddress(peerAddr, request.TransactionID))
 	resp.addAttr(StunAttrSoftware, []byte("dc-webrtc"))
 	return resp.Encode(key)
 }

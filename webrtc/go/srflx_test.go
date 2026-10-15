@@ -38,7 +38,7 @@ func fakeStunServer(t *testing.T, fixed *net.UDPAddr) string {
 				mapped = fixed
 			}
 			resp := &StunMessage{Type: StunTypeBindingSuccess, TransactionID: msg.TransactionID}
-			resp.addAttr(StunAttrXorMappedAddress, xorMappedAddress(mapped))
+			resp.addAttr(StunAttrXorMappedAddress, xorMappedAddress(mapped, msg.TransactionID))
 			_, _ = conn.WriteToUDP(resp.Encode(nil), src)
 		}
 	}()

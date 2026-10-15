@@ -133,31 +133,73 @@ impl Message {
     }
 }
 
+/// Normalize an IPv4-mapped IPv6 address to plain IPv4 (dual-
+/// stack sockets report IPv4 senders in mapped form).
+pub fn normalize_ip(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => ip,
+        },
+        IpAddr::V4(_) => ip,
+    }
+}
+
+pub fn normalize_addr(addr: SocketAddr) -> SocketAddr {
+    SocketAddr::new(normalize_ip(addr.ip()), addr.port())
+}
+
+fn xor_mask(transaction_id: &[u8; 12], length: usize) -> Vec<u8> {
+    let mut mask = Vec::with_capacity(length);
+    mask.extend_from_slice(&MAGIC.to_be_bytes());
+    if length > 4 {
+        mask.extend_from_slice(&transaction_id[..length - 4]);
+    }
+    mask
+}
+
+/// Encode an XOR-*ADDRESS value (RFC 5389 section 15.2): the
+/// IPv6 mask is the magic cookie concatenated with the
+/// transaction ID. IPv4-mapped addresses encode as IPv4.
 pub fn xor_mapped_address(addr: &SocketAddr, transaction_id: &[u8; 12]) -> Vec<u8> {
-    let mut out = vec![0u8, 1]; // reserved, IPv4 family
+    let ip = normalize_ip(addr.ip());
+    let (family, bytes): (u8, Vec<u8>) = match ip {
+        IpAddr::V4(v4) => (1, v4.octets().to_vec()),
+        IpAddr::V6(v6) => (2, v6.octets().to_vec()),
+    };
+    let mut out = vec![0u8, family];
     let xport = addr.port() ^ (MAGIC >> 16) as u16;
     out.extend_from_slice(&xport.to_be_bytes());
-    match addr.ip() {
-        IpAddr::V4(ip) => {
-            let x = u32::from(ip) ^ MAGIC;
-            out.extend_from_slice(&x.to_be_bytes());
-        }
-        IpAddr::V6(_) => {
-            out[1] = 2;
-        }
-    }
-    let _ = transaction_id;
+    let mask = xor_mask(transaction_id, bytes.len());
+    out.extend(bytes.iter().zip(&mask).map(|(b, m)| b ^ m));
     out
 }
 
 pub fn decode_xor_mapped(value: &[u8], transaction_id: &[u8; 12]) -> Option<SocketAddr> {
-    if value.len() < 8 || value[1] != 1 {
+    if value.len() < 4 {
+        return None;
+    }
+    let ip_len = match value[1] {
+        1 => 4usize,
+        2 => 16usize,
+        _ => return None,
+    };
+    if value.len() < 4 + ip_len {
         return None;
     }
     let port = u16::from_be_bytes(value[2..4].try_into().ok()?) ^ (MAGIC >> 16) as u16;
-    let ip = u32::from_be_bytes(value[4..8].try_into().ok()?) ^ MAGIC;
-    let _ = transaction_id;
-    Some(SocketAddr::from((Ipv4Addr::from(ip), port)))
+    let mask = xor_mask(transaction_id, ip_len);
+    let bytes: Vec<u8> = value[4..4 + ip_len]
+        .iter()
+        .zip(&mask)
+        .map(|(b, m)| b ^ m)
+        .collect();
+    let ip: IpAddr = if ip_len == 4 {
+        IpAddr::V4(Ipv4Addr::from(<[u8; 4]>::try_from(bytes.as_slice()).ok()?))
+    } else {
+        IpAddr::V6(std::net::Ipv6Addr::from(<[u8; 16]>::try_from(bytes.as_slice()).ok()?))
+    };
+    Some(SocketAddr::new(normalize_ip(ip), port))
 }
 
 /// Candidate priority per RFC 8445 §5.1.2:

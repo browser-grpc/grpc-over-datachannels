@@ -3,6 +3,7 @@
 // XOR-MAPPED-ADDRESS — mirroring webrtc/rust/src/stun.rs.
 
 import crypto from "node:crypto";
+import net from "node:net";
 import { CRC32_TABLE, StunAttribute, StunMessageType } from "./proto_gen.js";
 
 export const MAGIC = 0x2112a442;
@@ -102,13 +103,126 @@ export class StunMessage {
   }
 }
 
+// Parse an IPv4/IPv6 literal into {family, bytes} (bytes is a
+// 4- or 16-byte Buffer); null when not an IP literal. Handles
+// "::" compression and an embedded IPv4 tail.
+export function parseIp(address) {
+  if (net.isIPv4(address)) {
+    return { family: 1, bytes: Buffer.from(address.split(".").map(Number)) };
+  }
+  if (!net.isIPv6(address)) return null;
+  let rest = address;
+  let v4Tail = null;
+  const v4Match = rest.match(/(\d+\.\d+\.\d+\.\d+)$/);
+  if (v4Match) {
+    v4Tail = v4Match[1].split(".").map(Number);
+    rest = rest.slice(0, rest.length - v4Match[1].length);
+    if (!rest.endsWith(":")) return null;
+    rest = rest.slice(0, -1) + ":0:0";
+  }
+  const halves = rest.split("::");
+  if (halves.length > 2) return null;
+  const left = halves[0] ? halves[0].split(":") : [];
+  const right = halves.length === 2 ? (halves[1] ? halves[1].split(":") : []) : null;
+  const groups = [];
+  if (right === null) {
+    if (left.length !== 8) return null;
+    groups.push(...left);
+  } else {
+    const missing = 8 - left.length - right.length;
+    if (missing < 1) return null;
+    groups.push(...left, ...Array(missing).fill("0"), ...right);
+  }
+  const bytes = Buffer.alloc(16);
+  groups.forEach((g, i) => bytes.writeUInt16BE(parseInt(g || "0", 16) & 0xffff, i * 2));
+  if (v4Tail) Buffer.from(v4Tail).copy(bytes, 12);
+  return { family: 2, bytes };
+}
+
+// Canonical text form (RFC 5952-ish): lowercase, longest zero
+// run of 2+ groups compressed to "::", IPv4-mapped shown dotted.
+export function formatIp(bytes) {
+  if (bytes.length === 4) return [...bytes].join(".");
+  const groups = [];
+  for (let i = 0; i < 8; i++) groups.push(bytes.readUInt16BE(i * 2));
+  if (groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff) {
+    return "::ffff:" + [...bytes.subarray(12)].join(".");
+  }
+  let bestStart = -1;
+  let bestLen = 0;
+  for (let i = 0; i < 8; ) {
+    if (groups[i] !== 0) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < 8 && groups[j] === 0) j++;
+    if (j - i > bestLen) {
+      bestLen = j - i;
+      bestStart = i;
+    }
+    i = j;
+  }
+  const hex = groups.map((g) => g.toString(16));
+  if (bestLen < 2) return hex.join(":");
+  const left = hex.slice(0, bestStart).join(":");
+  const right = hex.slice(bestStart + bestLen).join(":");
+  return `${left}::${right}`;
+}
+
+export function isIpv6(address) {
+  return net.isIPv6(address);
+}
+
+// Strip an IPv4-mapped prefix ("::ffff:127.0.0.1" -> "127.0.0.1")
+// as seen on dual-stack (udp6) sockets.
+export function normalizeIp(address) {
+  if (typeof address === "string" && address.toLowerCase().startsWith("::ffff:")) {
+    const rest = address.slice(7);
+    if (net.isIPv4(rest)) return rest;
+  }
+  return address;
+}
+
+// Parse "host:port", "[v6host]:port", or a bare host/IP into
+// {address, port} (defaultPort when no port given); null when
+// malformed.
+export function parseHostPort(text, defaultPort = 0) {
+  if (!text) return null;
+  const trimmed = String(text).trim();
+  if (trimmed.startsWith("[")) {
+    const end = trimmed.indexOf("]");
+    if (end < 0) return null;
+    const address = trimmed.slice(1, end);
+    const rest = trimmed.slice(end + 1);
+    const port = rest.startsWith(":") ? Number(rest.slice(1)) : defaultPort;
+    return address && port ? { address, port } : null;
+  }
+  if (net.isIPv6(trimmed)) return defaultPort ? { address: trimmed, port: defaultPort } : null;
+  const idx = trimmed.lastIndexOf(":");
+  if (idx < 0) return defaultPort ? { address: trimmed, port: defaultPort } : null;
+  const address = trimmed.slice(0, idx);
+  const port = Number(trimmed.slice(idx + 1));
+  return address && port ? { address, port } : null;
+}
+
+function xorMask(transactionId, length) {
+  const magic = Buffer.alloc(4);
+  magic.writeUInt32BE(MAGIC, 0);
+  if (length === 4) return magic;
+  return Buffer.concat([magic, Buffer.from(transactionId)]);
+}
+
 export function xorMappedAddress(addr, transactionId) {
-  void transactionId;
-  const out = Buffer.alloc(8);
-  out[1] = 1;
+  const parsed = parseIp(normalizeIp(addr.address));
+  if (!parsed) throw new Error(`stun: not an IP address: ${addr.address}`);
+  const out = Buffer.alloc(4 + parsed.bytes.length);
+  out[1] = parsed.family;
   out.writeUInt16BE(addr.port ^ (MAGIC >>> 16), 2);
-  const ipNum = addr.address.split(".").reduce((acc, octet) => acc * 256 + Number(octet), 0);
-  out.writeUInt32BE((ipNum ^ MAGIC) >>> 0, 4);
+  const mask = xorMask(transactionId, parsed.bytes.length);
+  parsed.bytes.forEach((b, i) => {
+    out[4 + i] = b ^ mask[i];
+  });
   return out;
 }
 
@@ -137,19 +251,29 @@ export const candidatePriority = (typePreference, component = 1) =>
   ((typePreference << 24) + (65535 << 8) + (256 - component)) >>> 0;
 export const hostPriority = (component = 1) => candidatePriority(126, component);
 
-// Decode an XOR-MAPPED-ADDRESS (or MAPPED-ADDRESS) attribute value
-// into {address, port}; null when malformed or not IPv4.
+// Decode an XOR-MAPPED-ADDRESS (or MAPPED-ADDRESS) attribute
+// value into {address, port}; null when malformed. IPv4-mapped
+// IPv6 results are normalized to dotted IPv4.
 export function decodeMappedAddress(msg, xor) {
   const value = msg.attr(xor ? StunAttribute.XOR_MAPPED_ADDRESS : StunAttribute.MAPPED_ADDRESS);
-  if (!value || value.length < 8 || value[1] !== 1) return null;
+  return decodeAddressValue(value, msg.transactionId, xor);
+}
+
+export function decodeAddressValue(value, transactionId, xor = true) {
+  if (!value || value.length < 4) return null;
+  const family = value[1];
+  const ipLen = family === 1 ? 4 : family === 2 ? 16 : 0;
+  if (!ipLen || value.length < 4 + ipLen) return null;
   let port = value.readUInt16BE(2);
-  let ipNum = value.readUInt32BE(4);
+  const ip = Buffer.from(value.subarray(4, 4 + ipLen));
   if (xor) {
     port ^= MAGIC >>> 16;
-    ipNum = (ipNum ^ MAGIC) >>> 0;
+    const mask = xorMask(transactionId, ipLen);
+    ip.forEach((b, i) => {
+      ip[i] = b ^ mask[i];
+    });
   }
-  const address = [ipNum >>> 24, (ipNum >>> 16) & 0xff, (ipNum >>> 8) & 0xff, ipNum & 0xff].join(".");
-  return { address, port };
+  return { address: normalizeIp(formatIp(ip)), port };
 }
 
 export function pairPriority(localPrio, remotePrio, weControl) {

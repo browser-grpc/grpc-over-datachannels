@@ -12,27 +12,24 @@
 import crypto from "node:crypto";
 
 import { StunAttribute, StunMessageType } from "./proto_gen.js";
-import { MAGIC, StunMessage } from "./stun.js";
+import { decodeAddressValue, parseHostPort, parseIp, StunMessage, xorMappedAddress } from "./stun.js";
 
-// Encode an IPv4 XOR-{PEER,RELAYED,MAPPED}-ADDRESS attribute value.
-export function xorAddressValue({ address, port }) {
-  const out = Buffer.alloc(8);
-  out[1] = 1;
-  out.writeUInt16BE(port ^ (MAGIC >>> 16), 2);
-  const ipNum = address.split(".").reduce((acc, part) => ((acc << 8) | Number(part)) >>> 0, 0);
-  out.writeUInt32BE((ipNum ^ MAGIC) >>> 0, 4);
-  return out;
+// TURN permissions and channel bindings name peer IP addresses;
+// mDNS ".local" candidates can never be permissioned and are
+// skipped (checks to them go direct, never via the relay).
+const isIpPeer = (peer) => parseIp(peer.address) !== null;
+
+// Encode an XOR-{PEER,RELAYED,MAPPED}-ADDRESS attribute value
+// for a message carrying the given transaction ID (needed as
+// part of the IPv6 XOR mask).
+export function xorAddressValue(addr, transactionId) {
+  return xorMappedAddress(addr, transactionId);
 }
 
 // Decode an XOR-encoded address attribute (PEER/RELAYED/MAPPED)
-// of a message into {address, port}; null when malformed/non-IPv4.
+// of a message into {address, port}; null when malformed.
 export function decodeXorAddress(msg, attrType) {
-  const value = msg.attr(attrType);
-  if (!value || value.length < 8 || value[1] !== 1) return null;
-  const port = value.readUInt16BE(2) ^ (MAGIC >>> 16);
-  const ipNum = (value.readUInt32BE(4) ^ MAGIC) >>> 0;
-  const address = [ipNum >>> 24, (ipNum >>> 16) & 0xff, (ipNum >>> 8) & 0xff, ipNum & 0xff].join(".");
-  return { address, port };
+  return decodeAddressValue(msg.attr(attrType), msg.transactionId, true);
 }
 
 export function turnErrorCode(msg) {
@@ -141,8 +138,8 @@ export async function turnRequest(peer, client, msg, key, timeoutMs) {
 // Runs the Allocate handshake (with the 401 long-term-credential
 // dance when demanded) and returns the populated TurnClient.
 export async function allocateTurn(peer, cfg, timeoutMs = 2000) {
-  const [host, portText] = cfg.address.split(":");
-  const server = { address: host, port: Number(portText) };
+  const server = parseHostPort(cfg.address, 3478);
+  if (!server) throw new Error(`turn: bad server address: ${cfg.address}`);
   const client = new TurnClient(server, cfg.username);
   // Publish before the first request: the peer demultiplexes TURN
   // control responses (and later Data indications) by sender
@@ -183,6 +180,7 @@ export async function allocateTurn(peer, cfg, timeoutMs = 2000) {
 // address: on failure traffic keeps using Send indications.
 export async function bindChannels(peer, client, peers, timeoutMs = 2000) {
   for (const remote of peers) {
+    if (!isIpPeer(remote)) continue;
     const key = `${remote.address}:${remote.port}`;
     let channel = client.bindings.get(key);
     if (channel === undefined) channel = client.nextChan++;
@@ -190,7 +188,7 @@ export async function bindChannels(peer, client, peers, timeoutMs = 2000) {
     const chanAttr = Buffer.alloc(4);
     chanAttr.writeUInt16BE(channel, 0);
     msg.attrs.push([StunAttribute.CHANNEL_NUMBER, chanAttr]);
-    msg.attrs.push([StunAttribute.XOR_PEER_ADDRESS, xorAddressValue(remote)]);
+    msg.attrs.push([StunAttribute.XOR_PEER_ADDRESS, xorAddressValue(remote, msg.transactionId)]);
     msg.attrs.push([StunAttribute.USERNAME, Buffer.from(client.username)]);
     msg.attrs.push([StunAttribute.REALM, Buffer.from(client.realm)]);
     msg.attrs.push([StunAttribute.NONCE, Buffer.from(client.nonce)]);
@@ -250,6 +248,7 @@ export async function createPermissions(peer, client, candidates, timeoutMs = 20
   const seen = new Set();
   const peers = [];
   for (const cand of candidates) {
+    if (!isIpPeer(cand)) continue;
     const key = `${cand.address}:${cand.port}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -264,7 +263,8 @@ export async function createPermissions(peer, client, candidates, timeoutMs = 20
 export async function createPermissionsFor(peer, client, peers, timeoutMs = 2000) {
   const msg = new StunMessage(StunMessageType.CREATE_PERMISSION_REQUEST);
   for (const cand of peers) {
-    msg.attrs.push([StunAttribute.XOR_PEER_ADDRESS, xorAddressValue(cand)]);
+    if (!isIpPeer(cand)) continue;
+    msg.attrs.push([StunAttribute.XOR_PEER_ADDRESS, xorAddressValue(cand, msg.transactionId)]);
   }
   msg.attrs.push([StunAttribute.USERNAME, Buffer.from(client.username)]);
   msg.attrs.push([StunAttribute.REALM, Buffer.from(client.realm)]);
@@ -275,7 +275,7 @@ export async function createPermissionsFor(peer, client, peers, timeoutMs = 2000
 // Wraps one datagram in a Send indication to the peer.
 export function wrapSendIndication(client, data, remote) {
   const msg = new StunMessage(StunMessageType.SEND_INDICATION);
-  msg.attrs.push([StunAttribute.XOR_PEER_ADDRESS, xorAddressValue(remote)]);
+  msg.attrs.push([StunAttribute.XOR_PEER_ADDRESS, xorAddressValue(remote, msg.transactionId)]);
   msg.attrs.push([StunAttribute.DATA, Buffer.from(data)]);
   return msg.encode(null);
 }
