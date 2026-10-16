@@ -46,6 +46,7 @@ const pageUrl = `http://127.0.0.1:${server.address().port}/browser-test/wasm_zig
 
 const handlers = {
   async unary(req) {
+    if (req.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, req.delayMs));
     return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
   },
   async *serverStream(req) {
@@ -102,6 +103,7 @@ async function runBrowser(name, engine) {
       ticks: [0, 1, 2],
       joined: "a+b",
       echoed: ["x", "y"],
+      deadlineCode: 4,
     });
     console.log(`${name}: Zig/WASM native gRPC client over native RTCDataChannel OK`, result);
   } finally {

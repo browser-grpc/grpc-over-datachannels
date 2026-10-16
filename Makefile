@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-swift-wasm-browser test-kotlin-wasm-browser demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -64,6 +64,15 @@ stubs:
 	mkdir -p wasm/zig
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-wasm-zig=bin/protoc-gen-grpc-dc-wasm-zig \
 		--grpc-dc-wasm-zig_out=wasm/zig -I proto proto/echo.proto
+	mkdir -p wasm/cpp
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-wasm-cpp=bin/protoc-gen-grpc-dc-wasm-cpp \
+		--grpc-dc-wasm-cpp_out=wasm/cpp -I proto proto/echo.proto
+	mkdir -p wasm/swift
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-wasm-swift=bin/protoc-gen-grpc-dc-wasm-swift \
+		--grpc-dc-wasm-swift_out=wasm/swift -I proto proto/echo.proto
+	mkdir -p wasm/kotlin
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-wasm-kotlin=bin/protoc-gen-grpc-dc-wasm-kotlin \
+		--grpc-dc-wasm-kotlin_out=wasm/kotlin -I proto proto/echo.proto
 
 generate: plugins stubs
 
@@ -209,7 +218,7 @@ test-lua-wasm-browser:
 	  examples.pb=lua/examples/pb.lua examples.echo_messages=lua/examples/echo_messages.lua \
 	  examples.echo_grpc_dc=lua/examples/echo_grpc_dc.lua \
 	  dc_transport=wasm/lua/dc_transport.lua @main=wasm/lua/echo_client.lua
-	zig cc -target wasm32-wasi -O2 -s -mexception-handling -mllvm -wasm-enable-sjlj -mbulk-memory \
+	zig cc -target wasm32-wasi -O2 -s -mexception-handling -mllvm -wasm-enable-sjlj -mllvm -wasm-use-legacy-eh=false -mbulk-memory \
 	  -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_PROCESS_CLOCKS \
 	  -I $(LUA_SRC) -I wasm/lua wasm/lua/host.c wasm/lua/sjlj_rt.c \
 	  $(filter-out $(LUA_SRC)/lua.c $(LUA_SRC)/luac.c $(LUA_SRC)/loslib.c \
@@ -248,7 +257,7 @@ test-wasm:
 	cd wasm/go && GOOS=js GOARCH=wasm go build -o ../../browser-test/echo.wasm ./cmd/echo_wasm
 	cp $$(go env GOROOT)/lib/wasm/wasm_exec.js browser-test/wasm_exec.js
 	cd wasm/rust && cargo build --release --target wasm32-unknown-unknown
-	$(WASM_BINDGEN) --target web --out-dir ../../browser-test/wasm_rust_gen wasm/rust/target/wasm32-unknown-unknown/release/grpc_dc_wasm_rust.wasm
+	$(WASM_BINDGEN) --target web --out-dir browser-test/wasm_rust_gen wasm/rust/target/wasm32-unknown-unknown/release/grpc_dc_wasm_rust.wasm
 	cd browser-test && node wasm.test.mjs all && node wasm_rust.test.mjs all
 
 test-zig-wasm-native-browser:
@@ -276,7 +285,77 @@ test-dart-wasm-browser:
 	$(DART) compile wasm wasm/dart/echo_client.dart -o browser-test/echo_dart_wasm.wasm
 	cd browser-test && node dart_wasm.test.mjs all
 
-test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser
+# C++ WASM facade: generated callback client over the JS bridge,
+# zig c++ wasm32-wasi reactor without exceptions (Zig's wasm32
+# libc++ has no exception runtime; see wasm/cpp/bridge.hpp).
+test-cpp-wasm-browser:
+	$(ZIG) c++ -target wasm32-wasi -std=c++17 -O1 -mexec-model=reactor \
+		-fno-exceptions -fno-rtti -Iwasm/cpp \
+		-Wl,--export=_initialize -Wl,--export=run_echo_client \
+		-Wl,--export=wasm_alloc -Wl,--export=wasm_free \
+		-Wl,--export=on_bridge_message -Wl,--export=on_bridge_done \
+		-Wl,--export=on_bridge_error \
+		wasm/cpp/bridge.cpp wasm/cpp/echo_client.cpp \
+		-o browser-test/echo_cpp.wasm
+	cd browser-test && node wasm_facade.test.mjs C++ "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm" all
+
+WASM_LD ?= wasm-ld
+SWIFT_WASM_LIBDIR ?= $(shell $(SWIFTC) -print-target-info 2>/dev/null | sed -n 's/.*"runtimeResourcePath": "\([^"]*\)".*/\1/p')/embedded/wasm32-unknown-none-wasm
+
+# Swift WASM facade: Embedded Swift (wasm32-unknown-none-wasm,
+# no Foundation) over the JS bridge. swiftc emits the object;
+# wasm-ld links it with the bump-allocator support in
+# wasm/swift/support.c and the toolchain's Unicode tables.
+test-swift-wasm-browser:
+	mkdir -p wasm/swift/build
+	$(SWIFTC) -target wasm32-unknown-none-wasm \
+		-enable-experimental-feature Embedded \
+		-enable-experimental-feature Extern -wmo -O \
+		-c wasm/swift/bridge.swift wasm/swift/EchoWasmGrpcDc.swift \
+		swift/grpcdc/Wire.swift swift/examples/Pb.swift \
+		swift/examples/EchoMessages.swift wasm/swift/echo_client.swift \
+		-o wasm/swift/build/echo_swift.o
+	$(ZIG) cc -target wasm32-freestanding -O1 -c wasm/swift/support.c \
+		-o wasm/swift/build/support.o
+	$(WASM_LD) --no-entry --allow-undefined \
+		--export=run_echo_client --export=wasm_alloc --export=wasm_free \
+		--export=on_bridge_message --export=on_bridge_done \
+		--export=on_bridge_error \
+		wasm/swift/build/echo_swift.o wasm/swift/build/support.o \
+		$(SWIFT_WASM_LIBDIR)/libswiftUnicodeDataTables.a \
+		$(SWIFT_WASM_LIBDIR)/libswiftEmbeddedPlatformPOSIX.a \
+		$(SWIFT_WASM_LIBDIR)/libswiftExclusivitySingleThreaded.a \
+		-o browser-test/echo_swift.wasm
+	cd browser-test && node wasm_facade.test.mjs Swift "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm" all
+
+KOTLINC_JS ?= kotlinc-js
+KOTLIN_WASM_STDLIB ?= $(firstword $(wildcard $(HOME)/.local/kotlin-dist/kotlinc/lib/kotlin-stdlib-wasm-js.klib /usr/local/kotlinc/lib/kotlin-stdlib-wasm-js.klib))
+
+# Kotlin/Wasm facade: generated callback client over the JS
+# bridge via Kotlin/Wasm JS interop. Two-step CLI build (KLIB,
+# then JS+WASM) as the K2 compiler requires; the Wasm stdlib
+# klib is a pinned Maven artifact installed by Dockerfile.ci
+# (developer machines: ~/.local/kotlin-dist, same version).
+test-kotlin-wasm-browser:
+	rm -rf wasm/kotlin/build browser-test/kotlin_wasm_gen
+	mkdir -p wasm/kotlin/build browser-test/kotlin_wasm_gen
+	$(KOTLINC_JS) -Xwasm -Xwasm-target=wasm-js \
+		-libraries $(KOTLIN_WASM_STDLIB) \
+		-ir-output-dir wasm/kotlin/build -ir-output-name echo_kotlin \
+		-module-kind es -target es2015 -main noCall -Xir-produce-klib-file \
+		wasm/kotlin/bridge.kt wasm/kotlin/Pb.kt \
+		wasm/kotlin/EchoMessages.kt wasm/kotlin/EchoWasmGrpcDc.kt \
+		wasm/kotlin/echo_client.kt
+	$(KOTLINC_JS) -Xwasm -Xwasm-target=wasm-js \
+		-Xwasm-use-new-exception-proposal \
+		-libraries $(KOTLIN_WASM_STDLIB) \
+		-Xinclude=wasm/kotlin/build/echo_kotlin.klib \
+		-ir-output-dir browser-test/kotlin_wasm_gen \
+		-ir-output-name echo_kotlin \
+		-module-kind es -target es2015 -main noCall -Xir-produce-js
+	cd browser-test && node wasm_facade.test.mjs Kotlin wasm_kotlin_page.html all
+
+test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-swift-wasm-browser test-kotlin-wasm-browser
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo
@@ -284,8 +363,8 @@ demos:
 	cd go && go run ./examples/echo_demo
 
 clean-gen:
-	rm -f bin/protoc-gen-grpc-dc-kotlin bin/protoc-gen-grpc-dc-rust bin/protoc-gen-grpc-dc-js bin/protoc-gen-grpc-dc-go bin/protoc-gen-grpc-dc-wasm-go bin/protoc-gen-grpc-dc-wasm-zig bin/protoc-gen-grpc-dc-cpp bin/protoc-gen-grpc-dc-swift
-	rm -f rust/gen/echo_grpc_dc.rs js/examples/echo_grpc_dc.js go/examples/echo_grpc_dc.go wasm/go/echo_wasm_dc.go wasm/zig/echo_wasm_dc.zig cpp/examples/echo_grpc_dc.hpp swift/examples/EchoGrpcDc.swift kotlin/examples/EchoGrpcDc.kt
+	rm -f bin/protoc-gen-grpc-dc-kotlin bin/protoc-gen-grpc-dc-rust bin/protoc-gen-grpc-dc-js bin/protoc-gen-grpc-dc-go bin/protoc-gen-grpc-dc-wasm-go bin/protoc-gen-grpc-dc-wasm-zig bin/protoc-gen-grpc-dc-wasm-cpp bin/protoc-gen-grpc-dc-wasm-swift bin/protoc-gen-grpc-dc-wasm-kotlin bin/protoc-gen-grpc-dc-cpp bin/protoc-gen-grpc-dc-swift
+	rm -f rust/gen/echo_grpc_dc.rs js/examples/echo_grpc_dc.js go/examples/echo_grpc_dc.go wasm/go/echo_wasm_dc.go wasm/zig/echo_wasm_dc.zig wasm/cpp/echo_wasm_dc.hpp wasm/swift/EchoWasmGrpcDc.swift wasm/kotlin/EchoWasmGrpcDc.kt cpp/examples/echo_grpc_dc.hpp swift/examples/EchoGrpcDc.swift kotlin/examples/EchoGrpcDc.kt
 	rm -f rust/src/wire_gen.rs js/wire_gen.js go/wire_gen.go fixtures/vectors.json
 	rm -f rust/src/{lib,codec,status,message,transport,endpoint,channel,server,webrtc_transport}.rs
 	rm -f js/src/{codec,endpoint,channel,server,loopback}.js

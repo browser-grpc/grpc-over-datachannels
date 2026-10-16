@@ -14,6 +14,9 @@ const mem = () => new Uint8Array(instance.exports.memory.buffer);
 const readStr = (ptr, len) => new TextDecoder().decode(mem().subarray(ptr, ptr + len));
 
 const env = {
+  js_now_ms() {
+    return performance.now();
+  },
   js_dc_send(ptr, len) {
     postMessage({ t: "send", bytes: mem().slice(ptr, ptr + len) });
   },

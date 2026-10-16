@@ -10,7 +10,7 @@ mod stub;
 
 use futures_util::{StreamExt, TryStreamExt};
 use grpc_dc::{
-    loopback_pair, CallCtx, CallOptions, Channel, Code, DcTransport, Message, RequestStream,
+    loopback_pair, CallCtx, CallOptions, Channel, Code, DcTransport, RequestStream,
     ResponseStream, Server, Status,
 };
 use std::sync::{Arc, Mutex};

@@ -102,10 +102,12 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-util",
+ "js-sys",
  "prost",
  "serde",
  "serde_json",
  "tokio",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
 ]
 

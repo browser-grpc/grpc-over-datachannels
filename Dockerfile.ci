@@ -84,9 +84,14 @@ RUN apt-get update \
 
 # Kotlin compiler for the Kotlin runtime (JDK + Kotlin stdlib only;
 # coroutine support uses stdlib kotlin.coroutines, no kotlinx).
+# The Kotlin/Wasm stdlib is a separate pinned Maven artifact
+# (not in the compiler zip); test-kotlin-wasm-browser needs it.
 RUN curl -fsSL https://github.com/JetBrains/kotlin/releases/download/v2.2.0/kotlin-compiler-2.2.0.zip -o /tmp/kotlin-compiler.zip \
   && unzip -q /tmp/kotlin-compiler.zip -d /usr/local \
-  && rm /tmp/kotlin-compiler.zip
+  && rm /tmp/kotlin-compiler.zip \
+  && curl -fsSL https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-wasm-js/2.2.0/kotlin-stdlib-wasm-js-2.2.0.klib \
+     -o /usr/local/kotlinc/lib/kotlin-stdlib-wasm-js.klib \
+  && echo "51d111704eb3477248eb57203bed7467b068de49  /usr/local/kotlinc/lib/kotlin-stdlib-wasm-js.klib" | sha1sum -c -
 ENV PATH="/usr/local/kotlinc/bin:${PATH}"
 
 # Zig toolchain for the Zig runtime (stdlib only, no packages;

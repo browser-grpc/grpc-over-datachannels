@@ -27,14 +27,14 @@ pub struct CallCtx {
     pub metadata: Metadata,
     pub stream_id: u32,
     /// Deadline propagated via grpc-timeout, when the client set one.
-    pub deadline: Option<std::time::Instant>,
+    pub deadline: Option<crate::platform_time::Instant>,
 }
 
 impl CallCtx {
     /// Time left before the deadline, or None when unbounded.
     pub fn time_remaining(&self) -> Option<std::time::Duration> {
         self.deadline
-            .map(|d| d.saturating_duration_since(std::time::Instant::now()))
+            .map(|d| d.saturating_duration_since(crate::platform_time::Instant::now()))
     }
 
     pub fn deadline_exceeded(&self) -> bool {

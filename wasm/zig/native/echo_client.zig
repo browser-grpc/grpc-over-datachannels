@@ -76,11 +76,19 @@ export fn run_echo_client() void {
         }
     }
 
+    var slow = req("slow", 0);
+    slow.delay_ms = 400;
+    const deadline_code: i32 = switch (client.unary(&slow, null, 50)) {
+        .ok => 0,
+        .status => |st| st.code,
+    };
+
     const Result = struct {
         unary: []const u8,
         ticks: []const i32,
         joined: []const u8,
         echoed: []const []const u8,
+        deadlineCode: i32,
     };
     const echoed_view: []const []const u8 = @ptrCast(echoed.items);
     const json = std.json.Stringify.valueAlloc(alloc, Result{
@@ -88,6 +96,7 @@ export fn run_echo_client() void {
         .ticks = ticks.items,
         .joined = joined_msg,
         .echoed = echoed_view,
+        .deadlineCode = deadline_code,
     }, .{}) catch return fail(stubs.Status.init(13, "out of memory"));
     on_result(json.ptr, json.len);
 }

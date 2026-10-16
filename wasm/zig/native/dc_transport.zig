@@ -12,12 +12,18 @@ const grpcdc = @import("grpcdc");
 extern "env" fn js_dc_send(ptr: [*]const u8, len: usize) void;
 /// Returns message length, -1 on timeout, -2 when closed.
 extern "env" fn js_dc_recv(ptr: [*]u8, cap: usize, timeout_ms: i32) i32;
+extern "env" fn js_now_ms() f64;
+
+fn hostNowMs() i64 {
+    return @intFromFloat(js_now_ms());
+}
 
 const MAX_MESSAGE = 256 * 1024;
 var recv_buf: [MAX_MESSAGE]u8 = undefined;
 
 pub const DcTransport = struct {
     pub fn transport(self: *DcTransport) grpcdc.endpoint.Transport {
+        grpcdc.endpoint.setNowMsHook(&hostNowMs);
         return .{
             .ctx = self,
             .send_fn = &sendFn,

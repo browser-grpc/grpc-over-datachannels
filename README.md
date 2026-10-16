@@ -8,8 +8,9 @@ dependency-free runtimes exist for **Rust, JavaScript, Go, Python,
 Java, C#, C++, Swift, Kotlin, Dart, Zig, Lua, and Ruby**, plus
 descriptor-driven dynamic clients/servers, a reimplemented
 zero-dependency WebRTC stack (Go/JS/Rust, [SPEC-WEBRTC.md](SPEC-WEBRTC.md)),
-and browser clients in JavaScript, Rust (WASM), Dart (JS and WASM),
-Go (WASM facade), and Zig (WASM facade).
+and browser clients in JavaScript, native Rust/Dart/Zig/Lua WASM
+runtimes, and generated Go, Zig, C++, Swift, and Kotlin WASM
+facades over the JS bridge.
 
 Everything protocol-shaped is generated from **one Racket source of
 truth** by recursive metaprogramming, in three levels:
@@ -154,12 +155,17 @@ exception-handling-based `setjmp` (`wasm/lua`), executing the real
 generated Lua runtime from embedded sources in a worker.
 **Facades** wrap the JS implementation: `js/src/wasm_bridge.js`
 exposes a byte-level bridge, and generated facades (plugins
-`protoc-gen-grpc-dc-wasm-go` and `protoc-gen-grpc-dc-wasm-zig`)
-give Go and Zig typed clients whose calls execute in the tested JS
-runtime. `make test-wasm`, `make test-zig-wasm-browser`,
-`make test-zig-wasm-native-browser`, `make test-lua-wasm-browser`,
-`make test-dart-browser`, and `make test-dart-wasm-browser` run
-each in Chromium and Firefox over a native `RTCDataChannel`.
+`protoc-gen-grpc-dc-wasm-{go,zig,cpp,swift,kotlin}`) give Go,
+Zig, C++ (exception-free `wasm32-wasi` reactor), Swift (Embedded
+Swift on `wasm32-unknown-none-wasm`, no Foundation), and Kotlin
+(Kotlin/Wasm JS interop) typed clients whose calls execute in
+the tested JS runtime. `make test-wasm`, `make
+test-zig-wasm-browser`, `make test-zig-wasm-native-browser`,
+`make test-lua-wasm-browser`, `make test-dart-browser`,
+`make test-dart-wasm-browser`, `make test-cpp-wasm-browser`,
+`make test-swift-wasm-browser`, and `make
+test-kotlin-wasm-browser` run each in Chromium and Firefox over
+a native `RTCDataChannel`.
 
 `make test` also covers the reimplemented WebRTC stack itself
 (`webrtc/`, see SPEC-WEBRTC.md): three independent stacks (Go stdlib,
@@ -195,8 +201,9 @@ dart/ zig/ lua/ ruby/    examples, tests; all stdlib-only)
 browser-test/            Playwright real-browser interop tests
 oracle/                  TCP<->DataChannel bridge (bridge.mjs) and the
                          official grpc-java oracle (java/)
-wasm/                    browser clients: go/ and zig/ (generated
-                         facades over the JS bridge), rust/, dart/,
+wasm/                    browser clients: go/, zig/, cpp/,
+                         swift/, and kotlin/ (generated facades
+                         over the JS bridge), rust/, dart/,
                          zig/native/, and lua/ (native runtimes in
                          WASM, incl. worker/SAB mailbox bridges)
 Dockerfile.ci            all build/test/tooling in one image
@@ -221,9 +228,12 @@ Makefile                 generate / test / demos
   Deadline propagation (`grpc-timeout` metadata, client-side
   `DEADLINE_EXCEEDED` enforcement, server call-context budget — see
   SPEC.md) is implemented in all 13 runtimes, each in its idiom
-  (Go drives it through `context.Context`). Caveats: Rust/Zig on
-  wasm32 propagate but do not yet enforce locally, and cooperative
-  pump runtimes check deadlines between messages.
+  (Go drives it through `context.Context`). Rust on wasm32
+  enforces through the host `setTimeout`, and native Zig on
+  wasm32 through a host monotonic-clock hook installed by its
+  browser transport. Remaining caveat: cooperative pump
+  runtimes check deadlines between messages and cannot preempt
+  a handler already running inline.
 - Async surfaces: Python `asyncio`, C++ coroutines (plus
   `std::future`), Ruby Fibers, and Lua coroutines ship alongside the
   older JS/Kotlin/Dart/Go/Rust async surfaces. Zig has no async

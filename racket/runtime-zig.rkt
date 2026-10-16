@@ -401,10 +401,23 @@ pub const StreamEvent = struct {
 /// Receiving queue of one stream; closed after a terminal event.
 /// put transfers ownership of the event's allocations; get transfers
 /// them to the caller (free with event.deinit).
-/// Monotonic milliseconds, or null on targets without a clock
-/// (wasm32-freestanding: deadlines propagate but are not enforced
-/// locally there).
+/// Host clock hook for targets without a native monotonic clock
+/// (wasm32-freestanding in a browser worker). Install before
+/// opening calls; the hook returns monotonic milliseconds. This
+/// is intentionally process-global because such targets are
+/// single-threaded and one host page supplies one clock.
+pub const NowMsFn = *const fn () i64;
+var now_ms_hook: ?NowMsFn = null;
+
+pub fn setNowMsHook(hook: ?NowMsFn) void {
+    now_ms_hook = hook;
+}
+
+/// Monotonic milliseconds, or null when no clock is available.
+/// Without a host hook on single-threaded targets, deadlines
+/// still propagate but cannot be enforced locally.
 pub fn nowMs() ?i64 {
+    if (now_ms_hook) |hook| return hook();
     if (comptime builtin.single_threaded) {
         return null;
     }

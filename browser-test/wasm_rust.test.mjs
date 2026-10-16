@@ -42,6 +42,7 @@ const pageUrl = `http://127.0.0.1:${server.address().port}/browser-test/wasm_rus
 
 const handlers = {
   async unary(req) {
+    if (req.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, req.delayMs));
     return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
   },
   async *serverStream(req) {
@@ -98,6 +99,7 @@ async function runBrowser(name, engine) {
       ticks: ["tick#0", "tick#1", "tick#2"],
       joined: "a+b+c",
       echoed: ["x", "y"],
+      deadlineCode: 4,
     });
     console.log(`${name}: native WASM Rust gRPC client over native RTCDataChannel OK`, result);
   } finally {

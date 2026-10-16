@@ -4,7 +4,7 @@
 //!
 //! `type:u8 | stream_id:u32be | payload_len:u32be | payload`
 
-use crate::status::{Code, Metadata, Status};
+use crate::status::{Metadata, Status};
 use crate::wire_gen::frame_type;
 use bytes::{BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};

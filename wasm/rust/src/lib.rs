@@ -9,7 +9,7 @@
 use bytes::Bytes;
 use futures_channel::mpsc;
 use futures_util::{StreamExt, TryStreamExt};
-use grpc_dc::{Channel, DcTransport, Status};
+use grpc_dc::{CallOptions, Channel, DcTransport, Status};
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -27,7 +27,7 @@ use stub::EchoClient;
 /// `send(Uint8Array)` and lets us register the inbound callback.
 #[wasm_bindgen]
 extern "C" {
-    type JsTransport;
+    pub type JsTransport;
 
     #[wasm_bindgen(method)]
     fn send(this: &JsTransport, data: &[u8]);
@@ -70,6 +70,8 @@ struct EchoResults {
     ticks: Vec<String>,
     joined: String,
     echoed: Vec<String>,
+    #[serde(rename = "deadlineCode")]
+    deadline_code: i32,
 }
 
 fn req(message: &str, count: i32) -> pb::EchoRequest {
@@ -109,11 +111,24 @@ pub async fn echo_client(transport: JsTransport) -> Result<String, JsValue> {
         while let Some(resp) = bidi.try_next().await? {
             echoed.push(resp.message);
         }
+        let mut slow = req("slow", 0);
+        slow.delay_ms = 400;
+        let deadline_code = match client
+            .unary_with_options(
+                slow,
+                CallOptions::with_timeout(std::time::Duration::from_millis(50)),
+            )
+            .await
+        {
+            Ok(_) => 0,
+            Err(status) => status.code as i32,
+        };
         Ok::<EchoResults, Status>(EchoResults {
             unary: unary.message,
             ticks,
             joined: joined.message,
             echoed,
+            deadline_code,
         })
     };
     match run.await {

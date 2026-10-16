@@ -14,7 +14,9 @@ use futures_channel::mpsc::UnboundedReceiver;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use crate::platform_time::Instant;
 
 /// Per-call options: metadata plus an optional deadline timeout.
 /// The timeout is propagated as grpc-timeout metadata and enforced
@@ -104,17 +106,6 @@ impl Channel {
         self.ep.clone()
     }
 
-    async fn open(
-        &self,
-        path: &str,
-        metadata: Metadata,
-    ) -> Result<(u32, UnboundedReceiver<StreamEvent>), Status> {
-        let (id, rx, _) = self
-            .open_with_options(path, CallOptions { metadata, timeout: None })
-            .await?;
-        Ok((id, rx))
-    }
-
     async fn open_with_options(
         &self,
         path: &str,
@@ -140,14 +131,6 @@ impl Channel {
 
     async fn send_data<Req: Message>(&self, id: u32, req: &Req) -> Result<(), Status> {
         self.ep.send_frame(Frame::data(id, req.encode())).await
-    }
-
-    async fn collect_one<Resp: Message>(
-        &self,
-        id: u32,
-        mut rx: UnboundedReceiver<StreamEvent>,
-    ) -> Result<Resp, Status> {
-        self.collect_one_with_deadline(id, rx, None).await
     }
 
     async fn collect_one_with_deadline<Resp: Message>(

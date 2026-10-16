@@ -92,6 +92,9 @@
                                     [(emit-ruby-file) "template-ruby.rkt"]
                                     [(emit-wasm-go-file) "template-wasm-go.rkt"]
                                     [(emit-wasm-zig-file) "template-wasm-zig.rkt"]
+                                    [(emit-wasm-cpp-file) "template-wasm-cpp.rkt"]
+                                    [(emit-wasm-swift-file) "template-wasm-swift.rkt"]
+                                    [(emit-wasm-kotlin-file) "template-wasm-kotlin.rkt"]
                                     [else "template-js.rkt"]))
                out)
   ;; Splice the emit function name into the main form at the datum level.
@@ -894,6 +897,9 @@
   (write-plugin "protoc-gen-grpc-dc-go" 'emit-go-file)
   (write-plugin "protoc-gen-grpc-dc-wasm-go" 'emit-wasm-go-file)
   (write-plugin "protoc-gen-grpc-dc-wasm-zig" 'emit-wasm-zig-file)
+  (write-plugin "protoc-gen-grpc-dc-wasm-cpp" 'emit-wasm-cpp-file)
+  (write-plugin "protoc-gen-grpc-dc-wasm-swift" 'emit-wasm-swift-file)
+  (write-plugin "protoc-gen-grpc-dc-wasm-kotlin" 'emit-wasm-kotlin-file)
   (write-plugin "protoc-gen-grpc-dc-python" 'emit-python-file)
   (write-plugin "protoc-gen-grpc-dc-java" 'emit-java-file)
   (write-plugin "protoc-gen-grpc-dc-csharp" 'emit-csharp-file)

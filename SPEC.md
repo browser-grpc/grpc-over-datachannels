@@ -62,12 +62,14 @@ language's idiom: Python `timeout=`, JS `{timeout}`, Go
 `context.Context`, Rust `CallOptions`, Java/Kotlin `Duration`, C#
 `TimeSpan`, C++ `std::chrono::milliseconds`, Swift/Dart
 `Duration`/`TimeInterval`, Ruby `timeout:`, Lua seconds argument,
-Zig `timeout_ms`). Two caveats are implementation limits, not wire
-differences: on wasm32 the Rust and Zig runtimes propagate but do
-not yet locally enforce (no timer/clock seam there yet), and in
-cooperative pump runtimes (Lua single-threaded, Zig inline mode) a
-handler already running inline cannot be preempted — the deadline
-is checked between messages.
+Zig `timeout_ms`). On wasm32, Rust enforces deadlines through
+the host JavaScript `setTimeout`, and the native Zig runtime
+through a host monotonic-clock hook installed by its browser
+transport (`performance.now()` in the worker). One caveat is an
+implementation limit, not a wire difference: in cooperative
+pump runtimes (Lua single-threaded, Zig inline mode) a handler
+already running inline cannot be preempted — the deadline is
+checked between messages.
 
 ## Backpressure
 
