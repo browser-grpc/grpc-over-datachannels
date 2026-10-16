@@ -99,6 +99,12 @@ RUN case "$TARGETARCH" in arm64) ZIG_ARCH=aarch64 ;; *) ZIG_ARCH=x86_64 ;; esac 
   && rm /tmp/zig.tar.xz
 ENV PATH="/usr/local/zig-dist:${PATH}"
 
+# Lua 5.4 sources for the browser WASM build (test-lua-wasm-browser
+# compiles the VM to wasm32-wasi with zig cc).
+RUN curl -fsSL https://www.lua.org/ftp/lua-5.4.7.tar.gz -o /tmp/lua.tar.gz \
+  && mkdir -p /opt && tar -C /opt -xzf /tmp/lua.tar.gz && rm /tmp/lua.tar.gz
+ENV LUA_SRC=/opt/lua-5.4.7/src
+
 # Lua for the Lua runtime (pure 5.4 stdlib; no luarocks packages).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends lua5.4 \

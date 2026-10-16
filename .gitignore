@@ -27,3 +27,5 @@ browser-test/echo_dart_wasm.mjs
 browser-test/echo_dart_wasm.support.js
 /oracle/java/target/
 /.agents/
+browser-test/echo_lua.wasm
+wasm/lua/modules.h

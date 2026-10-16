@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -186,6 +186,33 @@ test-lua:
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDynamic \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestBdd
 
+LUA_SRC ?= $(HOME)/.local/lua-build/src
+
+# Native Lua gRPC client in the browser: the Lua 5.4 VM
+# compiled to wasm32-wasi (EH-based setjmp via
+# wasm/lua/sjlj_rt.c) running the real generated grpcdc
+# runtime over the worker mailbox transport. Lua sources
+# come from LUA_SRC (host: ~/.local/lua-build/src; the CI
+# image points it at the unpacked official tarball).
+test-lua-wasm-browser:
+	python3 wasm/lua/embed_modules.py wasm/lua/modules.h \
+	  grpcdc.wire=lua/grpcdc/wire.lua grpcdc.status=lua/grpcdc/status.lua \
+	  grpcdc.codec=lua/grpcdc/codec.lua grpcdc.transport=lua/grpcdc/transport.lua \
+	  grpcdc.endpoint=lua/grpcdc/endpoint.lua grpcdc.channel=lua/grpcdc/channel.lua \
+	  grpcdc.server=lua/grpcdc/server.lua grpcdc.memory_transport=lua/grpcdc/memory_transport.lua \
+	  examples.pb=lua/examples/pb.lua examples.echo_messages=lua/examples/echo_messages.lua \
+	  examples.echo_grpc_dc=lua/examples/echo_grpc_dc.lua \
+	  dc_transport=wasm/lua/dc_transport.lua @main=wasm/lua/echo_client.lua
+	zig cc -target wasm32-wasi -O2 -s -mexception-handling -mllvm -wasm-enable-sjlj -mbulk-memory \
+	  -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_PROCESS_CLOCKS \
+	  -I $(LUA_SRC) -I wasm/lua wasm/lua/host.c wasm/lua/sjlj_rt.c \
+	  $(filter-out $(LUA_SRC)/lua.c $(LUA_SRC)/luac.c $(LUA_SRC)/loslib.c \
+	    $(LUA_SRC)/liolib.c $(LUA_SRC)/ldblib.c $(LUA_SRC)/linit.c, \
+	    $(wildcard $(LUA_SRC)/*.c)) \
+	  -lm -lwasi-emulated-signal -lwasi-emulated-process-clocks \
+	  -o browser-test/echo_lua.wasm
+	cd browser-test && node wasm_lua.test.mjs all
+
 RUBY ?= ruby
 
 test-ruby:
@@ -241,7 +268,7 @@ test-dart-wasm-browser:
 	$(DART) compile wasm wasm/dart/echo_client.dart -o browser-test/echo_dart_wasm.wasm
 	cd browser-test && node dart_wasm.test.mjs all
 
-test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser
+test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo
