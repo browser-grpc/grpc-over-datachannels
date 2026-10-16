@@ -419,8 +419,8 @@ impl Peer {
         // is unavailable (mirrors the Go peer's connect).
         for candidate in &mut agent.remote_candidates {
             if let Some(name) = &candidate.mdns_name {
-                if let Some(ip) = crate::mdns::resolve_ipv4(name) {
-                    candidate.addr = SocketAddr::new(IpAddr::V4(ip), candidate.addr.port());
+                if let Some(ip) = crate::mdns::resolve_ip(name) {
+                    candidate.addr = SocketAddr::new(ip, candidate.addr.port());
                 }
             }
         }
@@ -804,7 +804,7 @@ fn resolve_remote_candidates(agent: &Arc<Mutex<IceAgent>>) {
     let resolved: Vec<(String, IpAddr)> = names
         .iter()
         .filter_map(|name| {
-            crate::mdns::resolve_ipv4(name).map(|ip| (name.clone(), IpAddr::V4(ip)))
+            crate::mdns::resolve_ip(name).map(|ip| (name.clone(), ip))
         })
         .collect();
     if resolved.is_empty() {
@@ -879,8 +879,8 @@ fn run_ice(
             while let Ok(line) = rx.try_recv() {
                 if let Some(mut cand) = parse_trickle_line(&line) {
                     if let Some(name) = &cand.mdns_name {
-                        if let Some(ip) = crate::mdns::resolve_ipv4(name) {
-                            cand.addr = SocketAddr::new(IpAddr::V4(ip), cand.addr.port());
+                        if let Some(ip) = crate::mdns::resolve_ip(name) {
+                            cand.addr = SocketAddr::new(ip, cand.addr.port());
                         }
                     }
                     let addr = cand.addr;
