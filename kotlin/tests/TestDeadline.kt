@@ -38,7 +38,7 @@ private class SlowEcho : EchoGrpcDc.EchoServer {
 }
 
 fun testDeadline() {
-    check(Codec.parseTimeout(Codec.encodeTimeout(Duration.ofMillis(250))).equals(Duration.ofMillis(250)),
+    check(Codec.parseTimeout(Codec.encodeTimeout(Duration.ofMillis(250)))?.equals(Duration.ofMillis(250)) == true,
         "timeout round trip")
     check(Codec.parseTimeout("10x") == null, "junk timeout")
 
