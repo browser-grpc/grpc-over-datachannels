@@ -7,7 +7,16 @@
 #   docker build -f Dockerfile.ci -t grpc-dc-ci .
 #
 # Full test suite (Racket + Rust + JS + WebRTC stacks + browser test):
-#   docker run --rm grpc-dc-ci
+#   docker run --rm --network host grpc-dc-ci
+#
+# --network host matters only for the browser legs (test-browser
+# and the wasm/dart browser targets inside `make test`): in the
+# default bridge namespace every process shares one IP, and
+# Playwright's Firefox neither answers mDNS queries for its
+# .local candidates nor initiates ICE checks to same-IP or
+# loopback pairs, so its DTLS-server legs cannot connect there.
+# With host networking the container sees the same interfaces as
+# a host run. All non-browser suites pass under either mode.
 #
 # Regenerate plugins/stubs from racket/spec.rkt and proto/echo.proto:
 #   docker run --rm grpc-dc-ci make generate
@@ -20,7 +29,7 @@
 #   docker run --rm grpc-dc-ci make test-webrtc-rust
 #   docker run --rm grpc-dc-ci make test-webrtc-js
 #   docker run --rm grpc-dc-ci make test-grpc-webrtc
-#   docker run --rm grpc-dc-ci make test-browser
+#   docker run --rm --network host grpc-dc-ci make test-browser
 #
 # Run the echo demos (both languages, all four call shapes):
 #   docker run --rm grpc-dc-ci make demos
