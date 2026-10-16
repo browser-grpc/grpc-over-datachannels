@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <chrono>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "grpcdc/endpoint.hpp"
@@ -33,6 +35,10 @@ class Channel {
                  std::shared_ptr<Endpoint::StreamInput> input)
         : stream_id_(stream_id), input_(std::move(input)) {}
 
+    void SetDeadline(std::chrono::steady_clock::time_point deadline) {
+      deadline_ = deadline;
+    }
+
     std::uint32_t stream_id() const { return stream_id_; }
     const Codec::Headers& headers() const { return headers_; }
 
@@ -41,7 +47,19 @@ class Channel {
     void Recv(Unmarshaler& resp) {
       while (true) {
         Endpoint::StreamEvent evt;
-        if (!input_->Get(evt)) {
+        if (deadline_) {
+          auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+              *deadline_ - std::chrono::steady_clock::now());
+          auto result = input_->GetFor(
+              evt, remaining.count() < 0 ? std::chrono::milliseconds(0) : remaining);
+          if (result == Endpoint::StreamInput::GetResult::kTimeout) {
+            if (endpoint_) endpoint_->CancelStream(stream_id_);
+            throw StatusException(wire::kCodeDeadlineExceeded, "deadline exceeded");
+          }
+          if (result == Endpoint::StreamInput::GetResult::kClosed) {
+            throw StatusException(wire::kCodeUnavailable, "data channel closed");
+          }
+        } else if (!input_->Get(evt)) {
           throw StatusException(wire::kCodeUnavailable, "data channel closed");
         }
         switch (evt.kind) {
@@ -66,6 +84,9 @@ class Channel {
     }
 
    private:
+    friend class Channel;
+    std::shared_ptr<Endpoint> endpoint_;
+    std::optional<std::chrono::steady_clock::time_point> deadline_;
     std::uint32_t stream_id_;
     std::shared_ptr<Endpoint::StreamInput> input_;
     Codec::Headers headers_;
@@ -78,8 +99,9 @@ class Channel {
 
   /// Run a unary call, decoding the single response into resp.
   void Unary(const std::string& path, const Marshaler& req, Unmarshaler& resp,
-             const Metadata* metadata = nullptr) {
-    ClientStream stream = Open(path, metadata);
+             const Metadata* metadata = nullptr,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    ClientStream stream = Open(path, metadata, timeout);
     try {
       SendMessage(stream, req);
       HalfClose(stream);
@@ -108,8 +130,9 @@ class Channel {
 
   /// Start a server-streaming call.
   ClientStream ServerStream(const std::string& path, const Marshaler& req,
-                            const Metadata* metadata = nullptr) {
-    ClientStream stream = Open(path, metadata);
+                            const Metadata* metadata = nullptr,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    ClientStream stream = Open(path, metadata, timeout);
     SendMessage(stream, req);
     HalfClose(stream);
     return stream;
@@ -119,8 +142,9 @@ class Channel {
   void ClientStreamCall(const std::string& path,
                         const std::vector<const Marshaler*>& reqs,
                         Unmarshaler& resp,
-                        const Metadata* metadata = nullptr) {
-    ClientStream stream = Open(path, metadata);
+                        const Metadata* metadata = nullptr,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    ClientStream stream = Open(path, metadata, timeout);
     try {
       SendAll(stream, reqs);
       bool got = false;
@@ -150,22 +174,36 @@ class Channel {
   /// Start a bidi call with all requests sent up front.
   ClientStream Bidi(const std::string& path,
                     const std::vector<const Marshaler*>& reqs,
-                    const Metadata* metadata = nullptr) {
-    ClientStream stream = Open(path, metadata);
+                    const Metadata* metadata = nullptr,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    ClientStream stream = Open(path, metadata, timeout);
     SendAll(stream, reqs);
     return stream;
   }
 
  private:
-  ClientStream Open(const std::string& path, const Metadata* metadata) {
+  ClientStream Open(const std::string& path, const Metadata* metadata,
+                    std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    Metadata merged;
+    const Metadata* md = metadata;
+    std::optional<std::chrono::steady_clock::time_point> deadline;
+    if (timeout) {
+      deadline = std::chrono::steady_clock::now() + *timeout;
+      if (metadata) merged = *metadata;
+      merged["grpc-timeout"] = Codec::EncodeTimeout(*timeout);
+      md = &merged;
+    }
     auto opened = endpoint_->OpenStream();
     try {
-      endpoint_->SendFrame(Codec::HeadersFrame(opened.first, path.c_str(), metadata));
+      endpoint_->SendFrame(Codec::HeadersFrame(opened.first, path.c_str(), md));
     } catch (...) {
       endpoint_->CloseStream(opened.first);
       throw;
     }
-    return ClientStream(opened.first, opened.second);
+    ClientStream stream(opened.first, opened.second);
+    stream.endpoint_ = endpoint_;
+    stream.deadline_ = deadline;
+    return stream;
   }
 
   void SendMessage(ClientStream& stream, const Marshaler& msg) {

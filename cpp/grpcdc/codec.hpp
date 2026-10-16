@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -261,6 +263,36 @@ struct Codec {
       h.metadata = mp.ParseObject();
     }
     return h;
+  }
+
+  /// gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+  /// units H/M/S/m/u/n (at most 8 digits). Encoding uses
+  /// milliseconds (seconds past the digit limit), rounded up.
+  static std::string EncodeTimeout(std::chrono::milliseconds timeout) {
+    long long ms = timeout.count();
+    if (ms <= 99999999LL) {
+      return std::to_string(ms) + "m";
+    }
+    return std::to_string((ms + 999) / 1000) + "S";
+  }
+
+  /// Decoded grpc-timeout, or nullopt when malformed.
+  static std::optional<std::chrono::milliseconds> ParseTimeout(const std::string& text) {
+    if (text.size() < 2 || text.size() > 9) return std::nullopt;
+    long long n = 0;
+    for (size_t i = 0; i + 1 < text.size(); ++i) {
+      if (text[i] < '0' || text[i] > '9') return std::nullopt;
+      n = n * 10 + (text[i] - '0');
+    }
+    switch (text.back()) {
+      case 'H': return std::chrono::milliseconds(n * 3600000LL);
+      case 'M': return std::chrono::milliseconds(n * 60000LL);
+      case 'S': return std::chrono::milliseconds(n * 1000LL);
+      case 'm': return std::chrono::milliseconds(n);
+      case 'u': return std::chrono::milliseconds((n + 999) / 1000);
+      case 'n': return std::chrono::milliseconds((n + 999999) / 1000000);
+      default: return std::nullopt;
+    }
   }
 
   static Bytes StatusFrame(int frame_type, std::uint32_t stream_id,

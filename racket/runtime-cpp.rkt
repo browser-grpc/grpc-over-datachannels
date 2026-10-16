@@ -70,9 +70,11 @@ GRPC_RUNTIME_EOF
 #<<GRPC_RUNTIME_EOF
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -331,6 +333,36 @@ struct Codec {
     return h;
   }
 
+  /// gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+  /// units H/M/S/m/u/n (at most 8 digits). Encoding uses
+  /// milliseconds (seconds past the digit limit), rounded up.
+  static std::string EncodeTimeout(std::chrono::milliseconds timeout) {
+    long long ms = timeout.count();
+    if (ms <= 99999999LL) {
+      return std::to_string(ms) + "m";
+    }
+    return std::to_string((ms + 999) / 1000) + "S";
+  }
+
+  /// Decoded grpc-timeout, or nullopt when malformed.
+  static std::optional<std::chrono::milliseconds> ParseTimeout(const std::string& text) {
+    if (text.size() < 2 || text.size() > 9) return std::nullopt;
+    long long n = 0;
+    for (size_t i = 0; i + 1 < text.size(); ++i) {
+      if (text[i] < '0' || text[i] > '9') return std::nullopt;
+      n = n * 10 + (text[i] - '0');
+    }
+    switch (text.back()) {
+      case 'H': return std::chrono::milliseconds(n * 3600000LL);
+      case 'M': return std::chrono::milliseconds(n * 60000LL);
+      case 'S': return std::chrono::milliseconds(n * 1000LL);
+      case 'm': return std::chrono::milliseconds(n);
+      case 'u': return std::chrono::milliseconds((n + 999) / 1000);
+      case 'n': return std::chrono::milliseconds((n + 999999) / 1000000);
+      default: return std::nullopt;
+    }
+  }
+
   static Bytes StatusFrame(int frame_type, std::uint32_t stream_id,
                            const StatusException& status) {
     std::string body = "{\"code\":" + std::to_string(status.code()) +
@@ -398,6 +430,7 @@ GRPC_RUNTIME_EOF
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -405,6 +438,7 @@ GRPC_RUNTIME_EOF
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 
 #include "grpcdc/codec.hpp"
@@ -452,6 +486,20 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
       return true;
     }
 
+    enum class GetResult { kOk, kClosed, kTimeout };
+
+    /// Timed Get: kTimeout when the wait expires with no event.
+    GetResult GetFor(StreamEvent& out, std::chrono::milliseconds timeout) {
+      std::unique_lock<std::mutex> lock(mu_);
+      if (!cv_.wait_for(lock, timeout, [&] { return !queue_.empty() || closed_; })) {
+        return GetResult::kTimeout;
+      }
+      if (queue_.empty()) return GetResult::kClosed;
+      out = std::move(queue_.front());
+      queue_.pop_front();
+      return GetResult::kOk;
+    }
+
    private:
     std::mutex mu_;
     std::condition_variable cv_;
@@ -459,9 +507,24 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     bool closed_ = false;
   };
 
-  /// Per-call context: metadata sent in HEADERS.
+  /// Per-call context: metadata sent in HEADERS, plus deadline.
   struct CallContext {
     Metadata metadata;
+    /// Deadline propagated via grpc-timeout, when the client set one.
+    std::optional<std::chrono::steady_clock::time_point> deadline;
+
+    /// Time left before the deadline, or nullopt when unbounded.
+    std::optional<std::chrono::milliseconds> TimeRemaining() const {
+      if (!deadline) return std::nullopt;
+      auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+          *deadline - std::chrono::steady_clock::now());
+      return left.count() < 0 ? std::chrono::milliseconds(0) : left;
+    }
+
+    bool DeadlineExceeded() const {
+      auto left = TimeRemaining();
+      return left.has_value() && left->count() == 0;
+    }
   };
 
   class ResponseSink {
@@ -701,6 +764,12 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
         try {
           CallContext ctx;
           ctx.metadata = headers.metadata;
+          if (auto it = headers.metadata.find("grpc-timeout");
+              it != headers.metadata.end()) {
+            if (auto remaining = Codec::ParseTimeout(it->second)) {
+              ctx.deadline = std::chrono::steady_clock::now() + *remaining;
+            }
+          }
           status = dispatcher(ctx, headers, stream_input, sink);
         } catch (...) {
           status = StatusException::ToStatus(std::current_exception());
@@ -734,7 +803,9 @@ GRPC_RUNTIME_EOF
 #<<GRPC_RUNTIME_EOF
 #pragma once
 
+#include <chrono>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "grpcdc/endpoint.hpp"
@@ -765,6 +836,10 @@ class Channel {
                  std::shared_ptr<Endpoint::StreamInput> input)
         : stream_id_(stream_id), input_(std::move(input)) {}
 
+    void SetDeadline(std::chrono::steady_clock::time_point deadline) {
+      deadline_ = deadline;
+    }
+
     std::uint32_t stream_id() const { return stream_id_; }
     const Codec::Headers& headers() const { return headers_; }
 
@@ -773,7 +848,19 @@ class Channel {
     void Recv(Unmarshaler& resp) {
       while (true) {
         Endpoint::StreamEvent evt;
-        if (!input_->Get(evt)) {
+        if (deadline_) {
+          auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+              *deadline_ - std::chrono::steady_clock::now());
+          auto result = input_->GetFor(
+              evt, remaining.count() < 0 ? std::chrono::milliseconds(0) : remaining);
+          if (result == Endpoint::StreamInput::GetResult::kTimeout) {
+            if (endpoint_) endpoint_->CancelStream(stream_id_);
+            throw StatusException(wire::kCodeDeadlineExceeded, "deadline exceeded");
+          }
+          if (result == Endpoint::StreamInput::GetResult::kClosed) {
+            throw StatusException(wire::kCodeUnavailable, "data channel closed");
+          }
+        } else if (!input_->Get(evt)) {
           throw StatusException(wire::kCodeUnavailable, "data channel closed");
         }
         switch (evt.kind) {
@@ -798,6 +885,9 @@ class Channel {
     }
 
    private:
+    friend class Channel;
+    std::shared_ptr<Endpoint> endpoint_;
+    std::optional<std::chrono::steady_clock::time_point> deadline_;
     std::uint32_t stream_id_;
     std::shared_ptr<Endpoint::StreamInput> input_;
     Codec::Headers headers_;
@@ -810,8 +900,9 @@ class Channel {
 
   /// Run a unary call, decoding the single response into resp.
   void Unary(const std::string& path, const Marshaler& req, Unmarshaler& resp,
-             const Metadata* metadata = nullptr) {
-    ClientStream stream = Open(path, metadata);
+             const Metadata* metadata = nullptr,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    ClientStream stream = Open(path, metadata, timeout);
     try {
       SendMessage(stream, req);
       HalfClose(stream);
@@ -840,8 +931,9 @@ class Channel {
 
   /// Start a server-streaming call.
   ClientStream ServerStream(const std::string& path, const Marshaler& req,
-                            const Metadata* metadata = nullptr) {
-    ClientStream stream = Open(path, metadata);
+                            const Metadata* metadata = nullptr,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    ClientStream stream = Open(path, metadata, timeout);
     SendMessage(stream, req);
     HalfClose(stream);
     return stream;
@@ -851,8 +943,9 @@ class Channel {
   void ClientStreamCall(const std::string& path,
                         const std::vector<const Marshaler*>& reqs,
                         Unmarshaler& resp,
-                        const Metadata* metadata = nullptr) {
-    ClientStream stream = Open(path, metadata);
+                        const Metadata* metadata = nullptr,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    ClientStream stream = Open(path, metadata, timeout);
     try {
       SendAll(stream, reqs);
       bool got = false;
@@ -882,22 +975,36 @@ class Channel {
   /// Start a bidi call with all requests sent up front.
   ClientStream Bidi(const std::string& path,
                     const std::vector<const Marshaler*>& reqs,
-                    const Metadata* metadata = nullptr) {
-    ClientStream stream = Open(path, metadata);
+                    const Metadata* metadata = nullptr,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    ClientStream stream = Open(path, metadata, timeout);
     SendAll(stream, reqs);
     return stream;
   }
 
  private:
-  ClientStream Open(const std::string& path, const Metadata* metadata) {
+  ClientStream Open(const std::string& path, const Metadata* metadata,
+                    std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    Metadata merged;
+    const Metadata* md = metadata;
+    std::optional<std::chrono::steady_clock::time_point> deadline;
+    if (timeout) {
+      deadline = std::chrono::steady_clock::now() + *timeout;
+      if (metadata) merged = *metadata;
+      merged["grpc-timeout"] = Codec::EncodeTimeout(*timeout);
+      md = &merged;
+    }
     auto opened = endpoint_->OpenStream();
     try {
-      endpoint_->SendFrame(Codec::HeadersFrame(opened.first, path.c_str(), metadata));
+      endpoint_->SendFrame(Codec::HeadersFrame(opened.first, path.c_str(), md));
     } catch (...) {
       endpoint_->CloseStream(opened.first);
       throw;
     }
-    return ClientStream(opened.first, opened.second);
+    ClientStream stream(opened.first, opened.second);
+    stream.endpoint_ = endpoint_;
+    stream.deadline_ = deadline;
+    return stream;
   }
 
   void SendMessage(ClientStream& stream, const Marshaler& msg) {
@@ -2255,41 +2362,44 @@ class AsyncChannel {
   std::shared_ptr<Channel> channel() const { return channel_; }
 
   Task<void> Unary(const std::string& path, const Marshaler& req,
-                   Unmarshaler& resp, const Metadata* metadata = nullptr) {
+                   Unmarshaler& resp, const Metadata* metadata = nullptr,
+                   std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
     auto channel = channel_;
-    co_await Offload([channel, path, &req, &resp, metadata] {
-      channel->Unary(path, req, resp, metadata);
+    co_await Offload([channel, path, &req, &resp, metadata, timeout] {
+      channel->Unary(path, req, resp, metadata, timeout);
     });
   }
 
-  Task<AsyncClientStream> ServerStream(const std::string& path,
-                                       const Marshaler& req,
-                                       const Metadata* metadata = nullptr) {
+  Task<AsyncClientStream> ServerStream(
+      const std::string& path, const Marshaler& req,
+      const Metadata* metadata = nullptr,
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
     auto channel = channel_;
-    auto stream = co_await Offload([channel, path, &req, metadata] {
-      return channel->ServerStream(path, req, metadata);
+    auto stream = co_await Offload([channel, path, &req, metadata, timeout] {
+      return channel->ServerStream(path, req, metadata, timeout);
     });
     co_return AsyncClientStream(channel, std::move(stream));
   }
 
-  Task<void> ClientStreamCall(const std::string& path,
-                              std::vector<const Marshaler*> reqs,
-                              Unmarshaler& resp,
-                              const Metadata* metadata = nullptr) {
+  Task<void> ClientStreamCall(
+      const std::string& path, std::vector<const Marshaler*> reqs,
+      Unmarshaler& resp, const Metadata* metadata = nullptr,
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
     auto channel = channel_;
     co_await Offload([channel, path, reqs = std::move(reqs), &resp,
-                      metadata] {
-      channel->ClientStreamCall(path, reqs, resp, metadata);
+                      metadata, timeout] {
+      channel->ClientStreamCall(path, reqs, resp, metadata, timeout);
     });
   }
 
-  Task<AsyncClientStream> Bidi(const std::string& path,
-                               std::vector<const Marshaler*> reqs,
-                               const Metadata* metadata = nullptr) {
+  Task<AsyncClientStream> Bidi(
+      const std::string& path, std::vector<const Marshaler*> reqs,
+      const Metadata* metadata = nullptr,
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
     auto channel = channel_;
     auto stream = co_await Offload(
-        [channel, path, reqs = std::move(reqs), metadata] {
-          return channel->Bidi(path, reqs, metadata);
+        [channel, path, reqs = std::move(reqs), metadata, timeout] {
+          return channel->Bidi(path, reqs, metadata, timeout);
         });
     co_return AsyncClientStream(channel, std::move(stream));
   }

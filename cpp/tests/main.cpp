@@ -11,13 +11,14 @@ void TestInterop();
 void TestOracle();
 void TestDynamic();
 void TestBdd();
+void TestDeadline();
 }  // namespace tests
 
 int main(int argc, char** argv) {
   if (argc < 2) {
     std::fprintf(stderr,
                  "usage: tests <TestCodec|TestEcho|TestInterop|TestOracle|"
-                 "TestDynamic|TestBdd>\n");
+                 "TestDynamic|TestBdd|TestDeadline>\n");
     return 2;
   }
   std::string name = argv[1];
@@ -34,6 +35,8 @@ int main(int argc, char** argv) {
       tests::TestDynamic();
     } else if (name == "TestBdd") {
       tests::TestBdd();
+    } else if (name == "TestDeadline") {
+      tests::TestDeadline();
     } else {
       std::fprintf(stderr, "unknown test: %s\n", name.c_str());
       return 2;

@@ -55,46 +55,46 @@ struct EchoGrpcDc {
     };
 
     EchoResponse Unary(EchoRequest req,
-                       const grpcdc::Metadata* metadata = nullptr) {
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       EchoResponse resp;
-      channel_->Unary("/echo.Echo/Unary", req, resp, metadata);
+      channel_->Unary("/echo.Echo/Unary", req, resp, metadata, timeout);
       return resp;
     }
 
     EchoServerStreamStream ServerStream(
-        EchoRequest req, const grpcdc::Metadata* metadata = nullptr) {
+        EchoRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       return EchoServerStreamStream(
-          channel_->ServerStream("/echo.Echo/ServerStream", req, metadata));
+          channel_->ServerStream("/echo.Echo/ServerStream", req, metadata, timeout));
     }
 
     EchoResponse ClientStream(std::vector<EchoRequest> reqs,
-                              const grpcdc::Metadata* metadata = nullptr) {
+                              const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       std::vector<const grpcdc::Marshaler*> ptrs;
       for (auto& r : reqs) ptrs.push_back(&r);
       EchoResponse resp;
-      channel_->ClientStreamCall("/echo.Echo/ClientStream", ptrs, resp, metadata);
+      channel_->ClientStreamCall("/echo.Echo/ClientStream", ptrs, resp, metadata, timeout);
       return resp;
     }
 
     EchoBidiStream Bidi(std::vector<EchoRequest> reqs,
-                        const grpcdc::Metadata* metadata = nullptr) {
+                        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       std::vector<const grpcdc::Marshaler*> ptrs;
       for (auto& r : reqs) ptrs.push_back(&r);
-      return EchoBidiStream(channel_->Bidi("/echo.Echo/Bidi", ptrs, metadata));
+      return EchoBidiStream(channel_->Bidi("/echo.Echo/Bidi", ptrs, metadata, timeout));
     }
 
     // -- async (std::future) surface -------------------------------------
 
     std::future<EchoResponse> UnaryAsync(
-        EchoRequest req, const grpcdc::Metadata* metadata = nullptr) {
+        EchoRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       return std::async(std::launch::async,
-                        [this, req, metadata] { return Unary(req, metadata); });
+                        [this, req, metadata, timeout] { return Unary(req, metadata, timeout); });
     }
 
     std::future<std::vector<EchoResponse>> ServerStreamAsync(
-        EchoRequest req, const grpcdc::Metadata* metadata = nullptr) {
-      return std::async(std::launch::async, [this, req, metadata] {
-        auto stream = ServerStream(req, metadata);
+        EchoRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async, [this, req, metadata, timeout] {
+        auto stream = ServerStream(req, metadata, timeout);
         std::vector<EchoResponse> out;
         while (true) {
           try {
@@ -109,17 +109,17 @@ struct EchoGrpcDc {
 
     std::future<EchoResponse> ClientStreamAsync(
         std::vector<EchoRequest> reqs,
-        const grpcdc::Metadata* metadata = nullptr) {
+        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       return std::async(
           std::launch::async,
-          [this, reqs, metadata] { return ClientStream(reqs, metadata); });
+          [this, reqs, metadata, timeout] { return ClientStream(reqs, metadata, timeout); });
     }
 
     std::future<std::vector<EchoResponse>> BidiAsync(
         std::vector<EchoRequest> reqs,
-        const grpcdc::Metadata* metadata = nullptr) {
-      return std::async(std::launch::async, [this, reqs, metadata] {
-        auto stream = Bidi(reqs, metadata);
+        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async, [this, reqs, metadata, timeout] {
+        auto stream = Bidi(reqs, metadata, timeout);
         std::vector<EchoResponse> out;
         while (true) {
           try {
@@ -186,33 +186,33 @@ struct EchoGrpcDc {
     };
 
     grpcdc::Task<EchoResponse> Unary(EchoRequest req,
-                       const grpcdc::Metadata* metadata = nullptr) {
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       EchoResponse resp;
-      co_await channel_->Unary("/echo.Echo/Unary", req, resp, metadata);
+      co_await channel_->Unary("/echo.Echo/Unary", req, resp, metadata, timeout);
       co_return resp;
     }
 
     grpcdc::Task<EchoServerStreamStream> ServerStream(
-        EchoRequest req, const grpcdc::Metadata* metadata = nullptr) {
+        EchoRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       co_return EchoServerStreamStream(
-          co_await channel_->ServerStream("/echo.Echo/ServerStream", req, metadata));
+          co_await channel_->ServerStream("/echo.Echo/ServerStream", req, metadata, timeout));
     }
 
     grpcdc::Task<EchoResponse> ClientStream(std::vector<EchoRequest> reqs,
-                              const grpcdc::Metadata* metadata = nullptr) {
+                              const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       std::vector<const grpcdc::Marshaler*> ptrs;
       for (auto& r : reqs) ptrs.push_back(&r);
       EchoResponse resp;
-      co_await channel_->ClientStreamCall("/echo.Echo/ClientStream", ptrs, resp, metadata);
+      co_await channel_->ClientStreamCall("/echo.Echo/ClientStream", ptrs, resp, metadata, timeout);
       co_return resp;
     }
 
     grpcdc::Task<EchoBidiStream> Bidi(std::vector<EchoRequest> reqs,
-                        const grpcdc::Metadata* metadata = nullptr) {
+                        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       std::vector<const grpcdc::Marshaler*> ptrs;
       for (auto& r : reqs) ptrs.push_back(&r);
       co_return EchoBidiStream(
-          co_await channel_->Bidi("/echo.Echo/Bidi", ptrs, metadata));
+          co_await channel_->Bidi("/echo.Echo/Bidi", ptrs, metadata, timeout));
     }
 
    private:

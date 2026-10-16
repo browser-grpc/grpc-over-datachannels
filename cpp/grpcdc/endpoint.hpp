@@ -3,6 +3,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -10,6 +11,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 
 #include "grpcdc/codec.hpp"
@@ -57,6 +59,20 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
       return true;
     }
 
+    enum class GetResult { kOk, kClosed, kTimeout };
+
+    /// Timed Get: kTimeout when the wait expires with no event.
+    GetResult GetFor(StreamEvent& out, std::chrono::milliseconds timeout) {
+      std::unique_lock<std::mutex> lock(mu_);
+      if (!cv_.wait_for(lock, timeout, [&] { return !queue_.empty() || closed_; })) {
+        return GetResult::kTimeout;
+      }
+      if (queue_.empty()) return GetResult::kClosed;
+      out = std::move(queue_.front());
+      queue_.pop_front();
+      return GetResult::kOk;
+    }
+
    private:
     std::mutex mu_;
     std::condition_variable cv_;
@@ -64,9 +80,24 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     bool closed_ = false;
   };
 
-  /// Per-call context: metadata sent in HEADERS.
+  /// Per-call context: metadata sent in HEADERS, plus deadline.
   struct CallContext {
     Metadata metadata;
+    /// Deadline propagated via grpc-timeout, when the client set one.
+    std::optional<std::chrono::steady_clock::time_point> deadline;
+
+    /// Time left before the deadline, or nullopt when unbounded.
+    std::optional<std::chrono::milliseconds> TimeRemaining() const {
+      if (!deadline) return std::nullopt;
+      auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+          *deadline - std::chrono::steady_clock::now());
+      return left.count() < 0 ? std::chrono::milliseconds(0) : left;
+    }
+
+    bool DeadlineExceeded() const {
+      auto left = TimeRemaining();
+      return left.has_value() && left->count() == 0;
+    }
   };
 
   class ResponseSink {
@@ -313,6 +344,12 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
         try {
           CallContext ctx;
           ctx.metadata = headers.metadata;
+          if (auto it = headers.metadata.find("grpc-timeout");
+              it != headers.metadata.end()) {
+            if (auto remaining = Codec::ParseTimeout(it->second)) {
+              ctx.deadline = std::chrono::steady_clock::now() + *remaining;
+            }
+          }
           status = dispatcher(ctx, headers, stream_input, sink);
         } catch (...) {
           status = StatusException::ToStatus(std::current_exception());

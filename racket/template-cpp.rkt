@@ -36,38 +36,38 @@
     [(unary)
      (format (string-append
               "    ~a ~a(~a req,\n"
-              "                       const grpcdc::Metadata* metadata = nullptr) {\n"
+              "                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n"
               "      ~a resp;\n"
-              "      channel_->Unary(~s, req, resp, metadata);\n"
+              "      channel_->Unary(~s, req, resp, metadata, timeout);\n"
               "      return resp;\n"
               "    }\n\n")
              resp name req resp path)]
     [(server-streaming)
      (format (string-append
               "    ~a~aStream ~a(\n"
-              "        ~a req, const grpcdc::Metadata* metadata = nullptr) {\n"
+              "        ~a req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n"
               "      return ~a~aStream(\n"
-              "          channel_->ServerStream(~s, req, metadata));\n"
+              "          channel_->ServerStream(~s, req, metadata, timeout));\n"
               "    }\n\n")
              svc name name req svc name path)]
     [(client-streaming)
      (format (string-append
               "    ~a ~a(std::vector<~a> reqs,\n"
-              "                              const grpcdc::Metadata* metadata = nullptr) {\n"
+              "                              const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n"
               "      std::vector<const grpcdc::Marshaler*> ptrs;\n"
               "      for (auto& r : reqs) ptrs.push_back(&r);\n"
               "      ~a resp;\n"
-              "      channel_->ClientStreamCall(~s, ptrs, resp, metadata);\n"
+              "      channel_->ClientStreamCall(~s, ptrs, resp, metadata, timeout);\n"
               "      return resp;\n"
               "    }\n\n")
              resp name req resp path)]
     [(bidi)
      (format (string-append
               "    ~a~aStream ~a(std::vector<~a> reqs,\n"
-              "                        const grpcdc::Metadata* metadata = nullptr) {\n"
+              "                        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n"
               "      std::vector<const grpcdc::Marshaler*> ptrs;\n"
               "      for (auto& r : reqs) ptrs.push_back(&r);\n"
-              "      return ~a~aStream(channel_->Bidi(~s, ptrs, metadata));\n"
+              "      return ~a~aStream(channel_->Bidi(~s, ptrs, metadata, timeout));\n"
               "    }\n\n")
              svc name name req svc name path)]))
 
@@ -104,17 +104,17 @@
     [(unary)
      (format (string-append
               "    std::future<~a> ~aAsync(\n"
-              "        ~a req, const grpcdc::Metadata* metadata = nullptr) {\n"
+              "        ~a req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n"
               "      return std::async(std::launch::async,\n"
-              "                        [this, req, metadata] { return ~a(req, metadata); });\n"
+              "                        [this, req, metadata, timeout] { return ~a(req, metadata, timeout); });\n"
               "    }\n\n")
              resp name req name)]
     [(server-streaming)
      (format (string-append
               "    std::future<std::vector<~a>> ~aAsync(\n"
-              "        ~a req, const grpcdc::Metadata* metadata = nullptr) {\n"
-              "      return std::async(std::launch::async, [this, req, metadata] {\n"
-              "        auto stream = ~a(req, metadata);\n"
+              "        ~a req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n"
+              "      return std::async(std::launch::async, [this, req, metadata, timeout] {\n"
+              "        auto stream = ~a(req, metadata, timeout);\n"
               "        std::vector<~a> out;\n"
               "        while (true) {\n"
               "          try {\n"
@@ -131,19 +131,19 @@
      (format (string-append
               "    std::future<~a> ~aAsync(\n"
               "        std::vector<~a> reqs,\n"
-              "        const grpcdc::Metadata* metadata = nullptr) {\n"
+              "        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n"
               "      return std::async(\n"
               "          std::launch::async,\n"
-              "          [this, reqs, metadata] { return ~a(reqs, metadata); });\n"
+              "          [this, reqs, metadata, timeout] { return ~a(reqs, metadata, timeout); });\n"
               "    }\n\n")
              resp name req name)]
     [(bidi)
      (format (string-append
               "    std::future<std::vector<~a>> ~aAsync(\n"
               "        std::vector<~a> reqs,\n"
-              "        const grpcdc::Metadata* metadata = nullptr) {\n"
-              "      return std::async(std::launch::async, [this, reqs, metadata] {\n"
-              "        auto stream = ~a(reqs, metadata);\n"
+              "        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n"
+              "      return std::async(std::launch::async, [this, reqs, metadata, timeout] {\n"
+              "        auto stream = ~a(reqs, metadata, timeout);\n"
               "        std::vector<~a> out;\n"
               "        while (true) {\n"
               "          try {\n"
@@ -196,39 +196,39 @@
     [(unary)
      (format (string-append
               "    grpcdc::Task<~a> ~a(~a req,\n"
-              "                       const grpcdc::Metadata* metadata = nullptr) {\n"
+              "                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n"
               "      ~a resp;\n"
-              "      co_await channel_->Unary(~s, req, resp, metadata);\n"
+              "      co_await channel_->Unary(~s, req, resp, metadata, timeout);\n"
               "      co_return resp;\n"
               "    }\n\n")
              resp name req resp path)]
     [(server-streaming)
      (format (string-append
               "    grpcdc::Task<~a~aStream> ~a(\n"
-              "        ~a req, const grpcdc::Metadata* metadata = nullptr) {\n"
+              "        ~a req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n"
               "      co_return ~a~aStream(\n"
-              "          co_await channel_->ServerStream(~s, req, metadata));\n"
+              "          co_await channel_->ServerStream(~s, req, metadata, timeout));\n"
               "    }\n\n")
              svc name name req svc name path)]
     [(client-streaming)
      (format (string-append
               "    grpcdc::Task<~a> ~a(std::vector<~a> reqs,\n"
-              "                              const grpcdc::Metadata* metadata = nullptr) {\n"
+              "                              const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n"
               "      std::vector<const grpcdc::Marshaler*> ptrs;\n"
               "      for (auto& r : reqs) ptrs.push_back(&r);\n"
               "      ~a resp;\n"
-              "      co_await channel_->ClientStreamCall(~s, ptrs, resp, metadata);\n"
+              "      co_await channel_->ClientStreamCall(~s, ptrs, resp, metadata, timeout);\n"
               "      co_return resp;\n"
               "    }\n\n")
              resp name req resp path)]
     [(bidi)
      (format (string-append
               "    grpcdc::Task<~a~aStream> ~a(std::vector<~a> reqs,\n"
-              "                        const grpcdc::Metadata* metadata = nullptr) {\n"
+              "                        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n"
               "      std::vector<const grpcdc::Marshaler*> ptrs;\n"
               "      for (auto& r : reqs) ptrs.push_back(&r);\n"
               "      co_return ~a~aStream(\n"
-              "          co_await channel_->Bidi(~s, ptrs, metadata));\n"
+              "          co_await channel_->Bidi(~s, ptrs, metadata, timeout));\n"
               "    }\n\n")
              svc name name req svc name path)]))
 

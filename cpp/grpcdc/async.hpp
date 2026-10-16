@@ -312,41 +312,44 @@ class AsyncChannel {
   std::shared_ptr<Channel> channel() const { return channel_; }
 
   Task<void> Unary(const std::string& path, const Marshaler& req,
-                   Unmarshaler& resp, const Metadata* metadata = nullptr) {
+                   Unmarshaler& resp, const Metadata* metadata = nullptr,
+                   std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
     auto channel = channel_;
-    co_await Offload([channel, path, &req, &resp, metadata] {
-      channel->Unary(path, req, resp, metadata);
+    co_await Offload([channel, path, &req, &resp, metadata, timeout] {
+      channel->Unary(path, req, resp, metadata, timeout);
     });
   }
 
-  Task<AsyncClientStream> ServerStream(const std::string& path,
-                                       const Marshaler& req,
-                                       const Metadata* metadata = nullptr) {
+  Task<AsyncClientStream> ServerStream(
+      const std::string& path, const Marshaler& req,
+      const Metadata* metadata = nullptr,
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
     auto channel = channel_;
-    auto stream = co_await Offload([channel, path, &req, metadata] {
-      return channel->ServerStream(path, req, metadata);
+    auto stream = co_await Offload([channel, path, &req, metadata, timeout] {
+      return channel->ServerStream(path, req, metadata, timeout);
     });
     co_return AsyncClientStream(channel, std::move(stream));
   }
 
-  Task<void> ClientStreamCall(const std::string& path,
-                              std::vector<const Marshaler*> reqs,
-                              Unmarshaler& resp,
-                              const Metadata* metadata = nullptr) {
+  Task<void> ClientStreamCall(
+      const std::string& path, std::vector<const Marshaler*> reqs,
+      Unmarshaler& resp, const Metadata* metadata = nullptr,
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
     auto channel = channel_;
     co_await Offload([channel, path, reqs = std::move(reqs), &resp,
-                      metadata] {
-      channel->ClientStreamCall(path, reqs, resp, metadata);
+                      metadata, timeout] {
+      channel->ClientStreamCall(path, reqs, resp, metadata, timeout);
     });
   }
 
-  Task<AsyncClientStream> Bidi(const std::string& path,
-                               std::vector<const Marshaler*> reqs,
-                               const Metadata* metadata = nullptr) {
+  Task<AsyncClientStream> Bidi(
+      const std::string& path, std::vector<const Marshaler*> reqs,
+      const Metadata* metadata = nullptr,
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
     auto channel = channel_;
     auto stream = co_await Offload(
-        [channel, path, reqs = std::move(reqs), metadata] {
-          return channel->Bidi(path, reqs, metadata);
+        [channel, path, reqs = std::move(reqs), metadata, timeout] {
+          return channel->Bidi(path, reqs, metadata, timeout);
         });
     co_return AsyncClientStream(channel, std::move(stream));
   }
