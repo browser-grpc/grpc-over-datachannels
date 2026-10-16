@@ -43,14 +43,44 @@ public class Endpoint {
             Object event = events.take();
             return event == CLOSED ? null : (StreamEvent) event;
         }
+
+        /**
+         * Next event within nanos, or null once closed.
+         *
+         * @throws java.util.concurrent.TimeoutException on expiry
+         */
+        public StreamEvent get(long nanos)
+                throws InterruptedException, java.util.concurrent.TimeoutException {
+            Object event = events.poll(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
+            if (event == null) {
+                throw new java.util.concurrent.TimeoutException();
+            }
+            return event == CLOSED ? null : (StreamEvent) event;
+        }
     }
 
-    /** Per-call context: metadata sent in HEADERS. */
+    /** Per-call context: metadata sent in HEADERS, plus deadline. */
     public static final class CallContext {
         public final Map<String, String> metadata;
+        /** Monotonic deadline (System.nanoTime), or -1 when unbounded. */
+        public final long deadlineNanos;
 
         public CallContext(Map<String, String> metadata) {
             this.metadata = metadata == null ? Map.of() : metadata;
+            java.time.Duration remaining = Codec.parseTimeout(this.metadata.get("grpc-timeout"));
+            this.deadlineNanos = remaining == null ? -1L : System.nanoTime() + remaining.toNanos();
+        }
+
+        /** Time left before the deadline, or null when unbounded. */
+        public java.time.Duration timeRemaining() {
+            if (deadlineNanos < 0) {
+                return null;
+            }
+            return java.time.Duration.ofNanos(Math.max(0L, deadlineNanos - System.nanoTime()));
+        }
+
+        public boolean deadlineExceeded() {
+            return deadlineNanos >= 0 && System.nanoTime() - deadlineNanos >= 0;
         }
     }
 
@@ -139,6 +169,22 @@ public class Endpoint {
 
     public void closeStream(long id) {
         streams.remove(id);
+    }
+
+    /** Abort one stream: RST out; a pending recv wakes with CANCELLED. */
+    public void cancelStream(long id) {
+        StreamInput in = streams.remove(id);
+        if (in != null) {
+            in.put(new StreamEvent(EventKind.RST, null, null,
+                    new StatusException(Wire.CODE_CANCELLED, "call cancelled")));
+            in.close();
+        }
+        try {
+            sendFrame(Codec.statusFrame(Wire.FRAME_RST, id,
+                    new StatusException(Wire.CODE_CANCELLED, "call cancelled")));
+        } catch (Exception ignored) {
+            // Transport already gone; the local abort still stands.
+        }
     }
 
     private StreamInput stream(long id) {

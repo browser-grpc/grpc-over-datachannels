@@ -121,6 +121,47 @@ public final class Codec {
         return new Headers(path == null ? null : String.valueOf(path), metadata);
     }
 
+    // gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+    // units H/M/S/m/u/n (at most 8 digits). Encoding uses
+    // milliseconds (seconds past the digit limit), rounded up.
+    public static String encodeTimeout(java.time.Duration timeout) {
+        long ms = timeout.toMillis();
+        if (timeout.minusMillis(ms).toNanos() > 0) {
+            ms++;
+        }
+        if (ms <= 99999999L) {
+            return ms + "m";
+        }
+        long secs = timeout.toSeconds();
+        if (timeout.minusSeconds(secs).toNanos() > 0) {
+            secs++;
+        }
+        return secs + "S";
+    }
+
+    /** Decoded grpc-timeout, or null when malformed/absent. */
+    public static java.time.Duration parseTimeout(String text) {
+        if (text == null || text.length() < 2 || text.length() > 9) {
+            return null;
+        }
+        String digits = text.substring(0, text.length() - 1);
+        for (int i = 0; i < digits.length(); i++) {
+            if (!Character.isDigit(digits.charAt(i))) {
+                return null;
+            }
+        }
+        long n = Long.parseLong(digits);
+        return switch (text.charAt(text.length() - 1)) {
+            case 'H' -> java.time.Duration.ofHours(n);
+            case 'M' -> java.time.Duration.ofMinutes(n);
+            case 'S' -> java.time.Duration.ofSeconds(n);
+            case 'm' -> java.time.Duration.ofMillis(n);
+            case 'u' -> java.time.Duration.ofNanos(n * 1000L);
+            case 'n' -> java.time.Duration.ofNanos(n);
+            default -> null;
+        };
+    }
+
     public static byte[] statusFrame(int frameType, long streamId, StatusException status) {
         String body = "{\"code\":" + status.code + ",\"message\":" + jsonString(status.getMessage()) + "}";
         return encodeFrame(frameType, streamId, body.getBytes(StandardCharsets.UTF_8));

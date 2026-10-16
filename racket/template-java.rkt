@@ -80,6 +80,46 @@
 (define (java-client-method m)
   (string-append (java-deprecated m "        ") (java-client-method/raw m)))
 
+(define (java-client-timeout-method m)
+  (define name (hash-ref m 'name))
+  (define req (hash-ref m 'input))
+  (define resp (hash-ref m 'output))
+  (define path (hash-ref m 'path))
+  (define svc (current-service))
+  (case (hash-ref m 'kind)
+    [(unary)
+     (format (string-append
+              "\n        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */\n"
+              "        public ~a ~a(~a req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n"
+              "            ~a resp = new ~a();\n"
+              "            channel.unary(~s, req, resp, metadata, timeout);\n"
+              "            return resp;\n"
+              "        }\n")
+             resp name req resp resp path)]
+    [(server-streaming)
+     (format (string-append
+              "\n        /** Deadline variant of ~a. */\n"
+              "        public ~a~aStream ~a(~a req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n"
+              "            return new ~a~aStream(channel.serverStream(~s, req, metadata, timeout));\n"
+              "        }\n")
+             name svc name name req svc name path)]
+    [(client-streaming)
+     (format (string-append
+              "\n        /** Deadline variant of ~a. */\n"
+              "        public ~a ~a(List<~a> reqs, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n"
+              "            ~a resp = new ~a();\n"
+              "            channel.clientStream(~s, reqs, resp, metadata, timeout);\n"
+              "            return resp;\n"
+              "        }\n")
+             name resp name req resp resp path)]
+    [(bidi)
+     (format (string-append
+              "\n        /** Deadline variant of ~a. */\n"
+              "        public ~a~aStream ~a(List<~a> reqs, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n"
+              "            return new ~a~aStream(channel.bidi(~s, reqs, metadata, timeout));\n"
+              "        }\n")
+             name svc name name req svc name path)]))
+
 (define (java-client-stream-class m)
   (define name (hash-ref m 'name))
   (define resp (hash-ref m 'output))
@@ -438,7 +478,7 @@
      (format "    public static final class ~aClient {\n" sname)
      "        private final Channel channel;\n\n"
      (format "        public ~aClient(Channel channel) {\n            this.channel = channel;\n        }\n\n" sname)
-     (apply string-append (map java-client-method (append methods (alias-client-methods svc))))
+     (apply string-append (map (lambda (m) (string-append (java-client-method m) (java-client-timeout-method m))) (append methods (alias-client-methods svc))))
      (apply string-append (map java-client-async-method (append methods (alias-client-methods svc))))
      "    }\n\n"
      (apply string-append (map java-client-stream-class methods))

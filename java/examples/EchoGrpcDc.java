@@ -36,12 +36,24 @@ public final class EchoGrpcDc {
         public EchoResponse Unary(EchoRequest req) throws Exception {
             return Unary(req, null);
         }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public EchoResponse Unary(EchoRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            EchoResponse resp = new EchoResponse();
+            channel.unary("/echo.Echo/Unary", req, resp, metadata, timeout);
+            return resp;
+        }
         public EchoServerStreamStream ServerStream(EchoRequest req, Map<String, String> metadata) throws Exception {
             return new EchoServerStreamStream(channel.serverStream("/echo.Echo/ServerStream", req, metadata));
         }
 
         public EchoServerStreamStream ServerStream(EchoRequest req) throws Exception {
             return ServerStream(req, null);
+        }
+
+        /** Deadline variant of ServerStream. */
+        public EchoServerStreamStream ServerStream(EchoRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            return new EchoServerStreamStream(channel.serverStream("/echo.Echo/ServerStream", req, metadata, timeout));
         }
         public EchoResponse ClientStream(List<EchoRequest> reqs, Map<String, String> metadata) throws Exception {
             EchoResponse resp = new EchoResponse();
@@ -52,12 +64,24 @@ public final class EchoGrpcDc {
         public EchoResponse ClientStream(List<EchoRequest> reqs) throws Exception {
             return ClientStream(reqs, null);
         }
+
+        /** Deadline variant of ClientStream. */
+        public EchoResponse ClientStream(List<EchoRequest> reqs, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            EchoResponse resp = new EchoResponse();
+            channel.clientStream("/echo.Echo/ClientStream", reqs, resp, metadata, timeout);
+            return resp;
+        }
         public EchoBidiStream Bidi(List<EchoRequest> reqs, Map<String, String> metadata) throws Exception {
             return new EchoBidiStream(channel.bidi("/echo.Echo/Bidi", reqs, metadata));
         }
 
         public EchoBidiStream Bidi(List<EchoRequest> reqs) throws Exception {
             return Bidi(reqs, null);
+        }
+
+        /** Deadline variant of Bidi. */
+        public EchoBidiStream Bidi(List<EchoRequest> reqs, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            return new EchoBidiStream(channel.bidi("/echo.Echo/Bidi", reqs, metadata, timeout));
         }
         public CompletableFuture<EchoResponse> UnaryAsync(EchoRequest req, Map<String, String> metadata) {
             return CompletableFuture.supplyAsync(() -> {

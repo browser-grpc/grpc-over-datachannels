@@ -31,6 +31,7 @@ public class Channel {
         private final long streamId;
         private final Endpoint.StreamInput input;
         private Codec.Headers headers;
+        private long deadlineNanos = -1L;
 
         ClientStream(Endpoint endpoint, long streamId, Endpoint.StreamInput input) {
             this.endpoint = endpoint;
@@ -42,6 +43,11 @@ public class Channel {
             return streamId;
         }
 
+        private Endpoint.StreamEvent failDeadline() throws Exception {
+            endpoint.cancelStream(streamId);
+            throw new StatusException(Wire.CODE_DEADLINE_EXCEEDED, "deadline exceeded");
+        }
+
         public Codec.Headers headers() {
             return headers;
         }
@@ -50,9 +56,24 @@ public class Channel {
          * Decode the next response into resp. EOFException means the
          * call completed OK; StatusException reports trailers status.
          */
+        /** Abort this stream (sends RST, wakes a pending recv). */
+        public void cancel() {
+            endpoint.cancelStream(streamId);
+        }
+
         public void recv(Unmarshaler resp) throws Exception {
             while (true) {
-                Endpoint.StreamEvent event = input.get();
+                Endpoint.StreamEvent event;
+                if (deadlineNanos >= 0) {
+                    long remaining = deadlineNanos - System.nanoTime();
+                    try {
+                        event = remaining <= 0 ? failDeadline() : input.get(remaining);
+                    } catch (java.util.concurrent.TimeoutException e) {
+                        event = failDeadline();
+                    }
+                } else {
+                    event = input.get();
+                }
                 if (event == null) {
                     throw new StatusException(Wire.CODE_UNAVAILABLE, "data channel closed");
                 }
@@ -78,6 +99,27 @@ public class Channel {
     }
 
     private ClientStream open(String path, Map<String, String> metadata) throws Exception {
+        return open(path, metadata, null);
+    }
+
+    private ClientStream open(String path, Map<String, String> metadata, java.time.Duration timeout)
+            throws Exception {
+        long deadlineNanos = -1L;
+        if (timeout != null) {
+            deadlineNanos = System.nanoTime() + timeout.toNanos();
+            Map<String, String> merged = new java.util.HashMap<>();
+            if (metadata != null) {
+                merged.putAll(metadata);
+            }
+            merged.put("grpc-timeout", Codec.encodeTimeout(timeout));
+            metadata = merged;
+        }
+        ClientStream stream = openRaw(path, metadata);
+        stream.deadlineNanos = deadlineNanos;
+        return stream;
+    }
+
+    private ClientStream openRaw(String path, Map<String, String> metadata) throws Exception {
         Endpoint.OpenedStream opened = endpoint.openStream();
         try {
             endpoint.sendFrame(Codec.headersFrame(opened.id(), path, metadata));
@@ -170,6 +212,77 @@ public class Channel {
     public ClientStream bidi(String path, List<? extends Marshaler> reqs, Map<String, String> metadata)
             throws Exception {
         ClientStream stream = open(path, metadata);
+        sendAll(stream, reqs);
+        return stream;
+    }
+
+    /** Unary with a deadline timeout (grpc-timeout; DEADLINE_EXCEEDED on expiry). */
+    public void unary(String path, Marshaler req, Unmarshaler resp, Map<String, String> metadata,
+            java.time.Duration timeout) throws Exception {
+        ClientStream stream = open(path, metadata, timeout);
+        try {
+            sendMessage(stream, req);
+            halfClose(stream);
+            boolean got = false;
+            while (true) {
+                try {
+                    stream.recv(resp);
+                } catch (EOFException eof) {
+                    if (!got) {
+                        throw new StatusException(Wire.CODE_INTERNAL, "call closed with no response");
+                    }
+                    return;
+                }
+                if (got) {
+                    throw new StatusException(Wire.CODE_INTERNAL, "unary call received more than one response");
+                }
+                got = true;
+            }
+        } finally {
+            endpoint.closeStream(stream.streamId());
+        }
+    }
+
+    /** Server-streaming with a deadline timeout. */
+    public ClientStream serverStream(String path, Marshaler req, Map<String, String> metadata,
+            java.time.Duration timeout) throws Exception {
+        ClientStream stream = open(path, metadata, timeout);
+        sendMessage(stream, req);
+        halfClose(stream);
+        return stream;
+    }
+
+    /** Client-streaming with a deadline timeout. */
+    public void clientStream(String path, List<? extends Marshaler> reqs, Unmarshaler resp,
+            Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+        ClientStream stream = open(path, metadata, timeout);
+        try {
+            sendAll(stream, reqs);
+            boolean got = false;
+            while (true) {
+                try {
+                    stream.recv(resp);
+                } catch (EOFException eof) {
+                    if (!got) {
+                        throw new StatusException(Wire.CODE_INTERNAL, "call closed with no response");
+                    }
+                    return;
+                }
+                if (got) {
+                    throw new StatusException(Wire.CODE_INTERNAL,
+                            "client-streaming call received more than one response");
+                }
+                got = true;
+            }
+        } finally {
+            endpoint.closeStream(stream.streamId());
+        }
+    }
+
+    /** Bidi with a deadline timeout. */
+    public ClientStream bidi(String path, List<? extends Marshaler> reqs, Map<String, String> metadata,
+            java.time.Duration timeout) throws Exception {
+        ClientStream stream = open(path, metadata, timeout);
         sendAll(stream, reqs);
         return stream;
     }
