@@ -409,11 +409,7 @@ fn turn_peer(server: &str) -> Peer {
         local_ips: vec![IpAddr::V4(Ipv4Addr::new(10, 11, 12, 13))],
         require_peer_certificate: true,
         stun_servers: Vec::new(),
-        turn_servers: vec![TurnServerConfig {
-            address: server.to_string(),
-            username: USER.to_string(),
-            password: PASS.to_string(),
-        }],
+        turn_servers: vec![TurnServerConfig::new(server, USER, PASS)],
     })
     .unwrap()
 }
@@ -432,7 +428,7 @@ fn allocate_gathers_relay_candidate() {
         turn_servers: Vec::new(),
     })
     .unwrap();
-    let cfg = TurnServerConfig { address: server, username: USER.into(), password: PASS.into() };
+    let cfg = TurnServerConfig::new(&server, USER, PASS);
     assert!(peer.allocate_turn(&cfg, Duration::from_secs(2)).unwrap());
     let offer = peer.create_offer();
     let line = offer
@@ -454,11 +450,7 @@ fn allocate_bad_password_adds_no_candidate() {
         local_ips: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
         require_peer_certificate: true,
         stun_servers: Vec::new(),
-        turn_servers: vec![TurnServerConfig {
-            address: server,
-            username: USER.into(),
-            password: "wrong".into(),
-        }],
+        turn_servers: vec![TurnServerConfig::new(&server, USER, "wrong")],
     })
     .unwrap();
     let offer = peer.create_offer();

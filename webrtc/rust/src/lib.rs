@@ -19,6 +19,7 @@ pub mod proto_gen;
 pub mod sctp;
 pub mod sdp;
 pub mod stun;
+pub mod tls12;
 pub mod turn;
 pub mod x509;
 

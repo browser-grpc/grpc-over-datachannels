@@ -16,21 +16,101 @@
 //! the peer socket, mirroring gather_srflx: before connect() owns
 //! the receive loop, stray packets are simply not TURN responses
 //! and are dropped (ICE retransmits cover the loss).
+//!
+//! With TurnTransport::Tcp or ::Tls the allocation instead runs
+//! over a dedicated stream connection (RFC 5766 section 4;
+//! relayed traffic still reaches peers over UDP — REQUESTED-
+//! TRANSPORT stays 17): a reader thread frames inbound messages
+//! (ChannelData padded to a 4-byte boundary) into the client's
+//! inbox, which turn_request, the ICE loop, and the demux
+//! thread drain exactly like UDP packets from the server.
 
 use crate::crypto::md5;
 use crate::proto_gen::{stun_attr, stun_msg};
 use crate::stun::Message;
-use std::io;
-use std::net::{SocketAddr, UdpSocket};
+use std::collections::VecDeque;
+use std::io::{self, Read, Write};
+use std::net::{Shutdown, SocketAddr, TcpStream, UdpSocket};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-/// One TURN server (UDP) with long-term credentials.
+/// Client<->server transport for a TURN allocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TurnTransport {
+    /// Over the peer's own UDP socket (the default).
+    #[default]
+    Udp,
+    /// Dedicated TCP connection.
+    Tcp,
+    /// Dedicated TLS 1.2 connection (see crate::tls12).
+    Tls,
+}
+
+/// One TURN server with long-term credentials.
 #[derive(Clone, Debug)]
 pub struct TurnServerConfig {
     pub address: String,
     pub username: String,
     pub password: String,
+    pub transport: TurnTransport,
+    /// TLS verification name override (default: the host part of
+    /// address). Ignored for non-TLS transports.
+    pub server_name: Option<String>,
+    /// Skip TLS certificate verification (self-signed
+    /// deployments/tests). Ignored for non-TLS transports.
+    pub insecure_skip_verify: bool,
 }
+
+impl TurnServerConfig {
+    pub fn new(address: &str, username: &str, password: &str) -> Self {
+        Self {
+            address: address.to_string(),
+            username: username.to_string(),
+            password: password.to_string(),
+            transport: TurnTransport::Udp,
+            server_name: None,
+            insecure_skip_verify: false,
+        }
+    }
+}
+
+/// Write half of a stream TURN connection.
+#[derive(Clone)]
+pub enum StreamWriter {
+    Plain(Arc<Mutex<TcpStream>>),
+    Tls(Arc<Mutex<crate::tls12::TlsWriteHalf>>),
+}
+
+impl std::fmt::Debug for StreamWriter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StreamWriter::Plain(_) => write!(f, "StreamWriter::Plain(..)"),
+            StreamWriter::Tls(_) => write!(f, "StreamWriter::Tls(..)"),
+        }
+    }
+}
+
+impl StreamWriter {
+    /// Write one TURN message; ChannelData frames are padded to
+    /// a 4-byte boundary (RFC 5766 section 4).
+    pub fn write_frame(&self, frame: &[u8], channel_data: bool) -> io::Result<()> {
+        let mut padded;
+        let out: &[u8] = if channel_data && frame.len() % 4 != 0 {
+            padded = frame.to_vec();
+            padded.resize(frame.len() + (4 - frame.len() % 4), 0);
+            &padded
+        } else {
+            frame
+        };
+        match self {
+            StreamWriter::Plain(stream) => stream.lock().unwrap().write_all(out),
+            StreamWriter::Tls(half) => half.lock().unwrap().write_all(out),
+        }
+    }
+}
+
+/// Framed inbound messages from the stream reader thread.
+pub type StreamInbox = Arc<(Mutex<VecDeque<Vec<u8>>>, Condvar)>;
 
 /// One live TURN allocation.
 #[derive(Clone, Debug)]
@@ -48,6 +128,53 @@ pub struct TurnClient {
     pub bindings: std::collections::HashMap<SocketAddr, u16>,
     /// Channel bindings, reverse: channel number -> peer address.
     pub channels: std::collections::HashMap<u16, SocketAddr>,
+    /// Dedicated stream connection write half (TCP/TLS only).
+    pub stream: Option<StreamWriter>,
+    /// Inbound framed messages from the stream reader thread.
+    pub inbox: Option<StreamInbox>,
+}
+
+impl TurnClient {
+    /// Take all currently queued stream messages.
+    pub fn drain_inbox(&self) -> Vec<Vec<u8>> {
+        match &self.inbox {
+            None => Vec::new(),
+            Some(inbox) => {
+                let (lock, _) = &**inbox;
+                lock.lock().unwrap().drain(..).collect()
+            }
+        }
+    }
+
+    /// Pop one stream message, waiting until the deadline.
+    fn wait_inbox(&self, deadline: Instant) -> Option<Vec<u8>> {
+        let inbox = self.inbox.as_ref()?;
+        let (lock, cvar) = &**inbox;
+        let mut queue = lock.lock().unwrap();
+        loop {
+            if let Some(msg) = queue.pop_front() {
+                return Some(msg);
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return None;
+            }
+            let (next, _) = cvar.wait_timeout(queue, deadline - now).unwrap();
+            queue = next;
+        }
+    }
+
+    /// Put messages back at the front (turn_request leftovers).
+    fn requeue_front(&self, msgs: Vec<Vec<u8>>) {
+        if let Some(inbox) = &self.inbox {
+            let (lock, cvar) = &**inbox;
+            let mut queue = lock.lock().unwrap();
+            for msg in msgs.into_iter().rev() {
+                queue.push_front(msg);
+            }
+            cvar.notify_all();
+        }
+    }
 }
 
 /// The LIFETIME attribute of a response (default 600 s).
@@ -101,17 +228,123 @@ fn bad(msg: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg.to_string())
 }
 
-/// One synchronous TURN control exchange on the peer socket:
-/// send, then poll until the response (matched by transaction id)
-/// or the deadline. Returns the response message.
+/// Read one framed TURN message off a stream (STUN by header
+/// length, ChannelData by its length field plus padding).
+fn read_framed(reader: &mut impl Read) -> io::Result<Vec<u8>> {
+    let mut first = [0u8; 4];
+    reader.read_exact(&mut first)?;
+    if (0x40..=0x7f).contains(&first[0]) {
+        let length = u16::from_be_bytes(first[2..4].try_into().unwrap()) as usize;
+        let total = 4 + length;
+        let padded = total + (4 - total % 4) % 4;
+        let mut rest = vec![0u8; padded - 4];
+        reader.read_exact(&mut rest)?;
+        let mut msg = first.to_vec();
+        msg.extend_from_slice(&rest[..length]);
+        Ok(msg)
+    } else {
+        let mut header = [0u8; 20];
+        header[..4].copy_from_slice(&first);
+        reader.read_exact(&mut header[4..])?;
+        let length = u16::from_be_bytes(header[2..4].try_into().unwrap()) as usize;
+        let mut msg = header.to_vec();
+        msg.resize(20 + length, 0);
+        reader.read_exact(&mut msg[20..])?;
+        Ok(msg)
+    }
+}
+
+/// Stream reader thread: frames inbound messages into the
+/// client inbox (capped; oldest dropped past the cap) until
+/// the connection closes.
+fn spawn_stream_reader(mut reader: Box<dyn Read + Send>, inbox: StreamInbox) {
+    std::thread::spawn(move || loop {
+        match read_framed(&mut reader) {
+            Ok(msg) => {
+                let (lock, cvar) = &*inbox;
+                let mut queue = lock.lock().unwrap();
+                if queue.len() >= 1024 {
+                    queue.pop_front();
+                }
+                queue.push_back(msg);
+                cvar.notify_all();
+            }
+            Err(_) => return,
+        }
+    });
+}
+
+/// Open the dedicated stream connection for a TCP/TLS
+/// allocation. Returns the write half, the read half (owned by
+/// the reader thread), and a shutdown handle for the raw
+/// socket (ends the reader thread on failure paths).
+fn connect_stream(
+    cfg: &TurnServerConfig,
+    server: SocketAddr,
+    timeout: Duration,
+) -> io::Result<(StreamWriter, Box<dyn Read + Send>, TcpStream)> {
+    let stream = TcpStream::connect_timeout(&server, timeout)?;
+    let _ = stream.set_nodelay(true);
+    let shutdown = stream.try_clone()?;
+    match cfg.transport {
+        TurnTransport::Tcp => {
+            let writer = StreamWriter::Plain(Arc::new(Mutex::new(stream.try_clone()?)));
+            Ok((writer, Box::new(stream), shutdown))
+        }
+        TurnTransport::Tls => {
+            let server_name = cfg
+                .server_name
+                .clone()
+                .unwrap_or_else(|| server.ip().to_string());
+            let (read_half, write_half) =
+                crate::tls12::connect(stream, &server_name, cfg.insecure_skip_verify)
+                    .map_err(|e| {
+                        let _ = shutdown.shutdown(Shutdown::Both);
+                        e
+                    })?;
+            Ok((
+                StreamWriter::Tls(Arc::new(Mutex::new(write_half))),
+                Box::new(read_half),
+                shutdown,
+            ))
+        }
+        TurnTransport::Udp => Err(bad("turn: stream connect for UDP transport")),
+    }
+}
+
+/// One synchronous TURN control exchange: send, then wait for
+/// the response (matched by transaction id) or the deadline.
+/// Over UDP this polls the peer socket; over a stream transport
+/// it writes to the connection and consumes from the client
+/// inbox (non-matching messages are re-queued for the demux).
 pub fn turn_request(
     socket: &UdpSocket,
-    server: SocketAddr,
+    client: &TurnClient,
     msg: &Message,
     key: Option<&[u8]>,
     timeout: Duration,
 ) -> io::Result<Message> {
-    socket.send_to(&msg.encode(key), server)?;
+    if let Some(writer) = &client.stream {
+        writer.write_frame(&msg.encode(key), false)?;
+        let deadline = Instant::now() + timeout;
+        let mut leftovers: Vec<Vec<u8>> = Vec::new();
+        let result = loop {
+            match client.wait_inbox(deadline) {
+                Some(raw) => {
+                    if let Some(resp) = Message::decode(&raw) {
+                        if resp.transaction_id == msg.transaction_id {
+                            break Ok(resp);
+                        }
+                    }
+                    leftovers.push(raw);
+                }
+                None => break Err(bad("turn: timed out waiting for response")),
+            }
+        };
+        client.requeue_front(leftovers);
+        return result;
+    }
+    socket.send_to(&msg.encode(key), client.server)?;
     let deadline = Instant::now() + timeout;
     socket.set_read_timeout(Some(Duration::from_millis(50)))?;
     let mut buf = vec![0u8; 65536];
@@ -163,6 +396,30 @@ pub fn allocate_turn(
         lifetime: Duration::from_secs(600),
         bindings: std::collections::HashMap::new(),
         channels: std::collections::HashMap::new(),
+        stream: None,
+        inbox: None,
+    };
+    // Stream transports connect first; the reader thread feeds
+    // the inbox that turn_request consumes. raw_shutdown closes
+    // the connection (and ends the reader) on failure paths.
+    let mut raw_shutdown: Option<TcpStream> = None;
+    if cfg.transport != TurnTransport::Udp {
+        match connect_stream(cfg, server, timeout) {
+            Ok((writer, reader, shutdown)) => {
+                let inbox: StreamInbox =
+                    Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
+                spawn_stream_reader(reader, inbox.clone());
+                client.stream = Some(writer);
+                client.inbox = Some(inbox);
+                raw_shutdown = Some(shutdown);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    let shutdown_on_err = |raw: &Option<TcpStream>| {
+        if let Some(stream) = raw {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
     };
     let build = |client: &TurnClient, auth: bool| {
         let mut msg = Message::new(stun_msg::ALLOCATE_REQUEST);
@@ -176,7 +433,13 @@ pub fn allocate_turn(
         msg
     };
 
-    let mut resp = turn_request(socket, server, &build(&client, false), None, timeout)?;
+    let mut resp = match turn_request(socket, &client, &build(&client, false), None, timeout) {
+        Ok(resp) => resp,
+        Err(e) => {
+            shutdown_on_err(&raw_shutdown);
+            return Err(e);
+        }
+    };
     if resp.msg_type == stun_msg::ALLOCATE_ERROR && turn_error_code(&resp) == 401 {
         client.realm = resp
             .attr(stun_attr::REALM)
@@ -187,9 +450,16 @@ pub fn allocate_turn(
             .map(|v| String::from_utf8_lossy(v).into_owned())
             .unwrap_or_default();
         client.key = md5(format!("{}:{}:{}", cfg.username, client.realm, cfg.password).as_bytes()).to_vec();
-        resp = turn_request(socket, server, &build(&client, true), Some(&client.key), timeout)?;
+        resp = match turn_request(socket, &client, &build(&client, true), Some(&client.key), timeout) {
+            Ok(resp) => resp,
+            Err(e) => {
+                shutdown_on_err(&raw_shutdown);
+                return Err(e);
+            }
+        };
     }
     if resp.msg_type != stun_msg::ALLOCATE_SUCCESS {
+        shutdown_on_err(&raw_shutdown);
         return Err(bad(&format!(
             "turn: allocate failed (type {:#x}, code {})",
             resp.msg_type,
@@ -199,6 +469,7 @@ pub fn allocate_turn(
     client.relayed = decode_xor_address(&resp, stun_attr::XOR_RELAYED_ADDRESS);
     client.mapped = decode_xor_address(&resp, stun_attr::XOR_MAPPED_ADDRESS);
     if client.relayed.is_none() {
+        shutdown_on_err(&raw_shutdown);
         return Err(bad("turn: allocate success without XOR-RELAYED-ADDRESS"));
     }
     client.lifetime = lifetime_of(&resp);
@@ -236,7 +507,7 @@ pub fn create_permissions(
     let Some(msg) = build_create_permission(client, candidates) else {
         return;
     };
-    let _ = turn_request(socket, client.server, &msg, Some(&client.key), timeout);
+    let _ = turn_request(socket, client, &msg, Some(&client.key), timeout);
 }
 
 fn build_channel_bind(client: &TurnClient, channel: u16, peer: &SocketAddr) -> Message {
@@ -276,7 +547,7 @@ pub fn bind_channels(
             }
         };
         let msg = build_channel_bind(client, channel, peer);
-        match turn_request(socket, client.server, &msg, Some(&client.key), timeout) {
+        match turn_request(socket, client, &msg, Some(&client.key), timeout) {
             Ok(resp) if resp.msg_type == stun_msg::CHANNEL_BIND_SUCCESS => {
                 client.bindings.insert(*peer, channel);
                 client.channels.insert(channel, *peer);
@@ -296,7 +567,21 @@ pub fn bind_channels(
 /// Send/Data indications carry their traffic.
 pub fn send_permission(socket: &UdpSocket, client: &TurnClient, peer: &SocketAddr) {
     if let Some(msg) = build_create_permission(client, &[*peer]) {
-        let _ = socket.send_to(&msg.encode(Some(&client.key)), client.server);
+        let _ = send_to_server(socket, client, &msg.encode(Some(&client.key)), false);
+    }
+}
+
+/// One write to the TURN server: via the stream connection for
+/// TCP/TLS allocations, else as a UDP datagram on the socket.
+fn send_to_server(
+    socket: &UdpSocket,
+    client: &TurnClient,
+    frame: &[u8],
+    channel_data: bool,
+) -> io::Result<()> {
+    match &client.stream {
+        Some(writer) => writer.write_frame(frame, channel_data),
+        None => socket.send_to(frame, client.server).map(|_| ()),
     }
 }
 
@@ -345,14 +630,14 @@ pub fn spawn_refresher(socket: UdpSocket, client: TurnClient, peers: Vec<SocketA
             std::thread::sleep(interval);
             let mut ok = true;
             if let Some(msg) = build_create_permission(&client, &peers) {
-                ok = socket.send_to(&msg.encode(Some(&client.key)), client.server).is_ok() && ok;
+                ok = send_to_server(&socket, &client, &msg.encode(Some(&client.key)), false).is_ok() && ok;
             }
             for (peer, channel) in &client.bindings {
                 let bind = build_channel_bind(&client, *channel, peer);
-                ok = socket.send_to(&bind.encode(Some(&client.key)), client.server).is_ok() && ok;
+                ok = send_to_server(&socket, &client, &bind.encode(Some(&client.key)), false).is_ok() && ok;
             }
             let refresh = build_refresh(&client);
-            ok = socket.send_to(&refresh.encode(Some(&client.key)), client.server).is_ok() && ok;
+            ok = send_to_server(&socket, &client, &refresh.encode(Some(&client.key)), false).is_ok() && ok;
             failures = if ok { 0 } else { failures + 1 };
             if failures >= 5 {
                 return;
@@ -373,14 +658,14 @@ pub fn send_pair(
 ) -> io::Result<()> {
     if let (Some(client), true) = (turn, relay_active) {
         if let Some(channel) = client.bindings.get(&dest) {
-            socket.send_to(&wrap_channel_data(*channel, data), client.server)?;
+            send_to_server(socket, client, &wrap_channel_data(*channel, data), true)?;
             return Ok(());
         }
         let mut msg = Message::new(stun_msg::SEND_INDICATION);
         let tid = msg.transaction_id;
         msg.attrs.push((stun_attr::XOR_PEER_ADDRESS, xor_address_value(&dest, &tid)));
         msg.attrs.push((stun_attr::DATA, data.to_vec()));
-        socket.send_to(&msg.encode(None), client.server)?;
+        send_to_server(socket, client, &msg.encode(None), false)?;
         return Ok(());
     }
     socket.send_to(data, dest)?;

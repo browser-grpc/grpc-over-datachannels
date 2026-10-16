@@ -450,7 +450,9 @@ impl Peer {
         // peer goes silent instead of answering checks forever.
         let alive = Arc::new(AtomicBool::new(true));
         let demux_socket = socket.try_clone()?;
-        let _ = demux_socket.set_read_timeout(Some(Duration::from_millis(100)));
+        // The timeout is also the poll cadence for the TURN
+        // stream inbox (TCP/TLS allocations), hence 25 ms.
+        let _ = demux_socket.set_read_timeout(Some(Duration::from_millis(25)));
         let demux_agent = agent.clone();
         let demux_turn = turn.clone();
         let demux_alive = alive.clone();
@@ -458,50 +460,57 @@ impl Peer {
             if !demux_alive.load(Ordering::SeqCst) {
                 return;
             }
+            // Collect this iteration's packets: framed messages
+            // off a TCP/TLS TURN stream (attributed to the
+            // server) plus at most one UDP datagram.
+            let mut packets: Vec<(Vec<u8>, SocketAddr)> = Vec::new();
+            if let Some(client) = demux_turn.as_ref() {
+                for msg in client.drain_inbox() {
+                    packets.push((msg, client.server));
+                }
+            }
             let mut buf = vec![0u8; 65536];
             match demux_socket.recv_from(&mut buf) {
                 Ok((n, src)) => {
-                    let src = crate::stun::normalize_addr(src);
                     buf.truncate(n);
-                    if buf.is_empty() {
-                        continue;
-                    }
-                    // Relayed traffic arrives as TURN Data
-                    // indications; unwrap to (payload, peer).
-                    let (buf, src) = match crate::turn::unwrap_incoming(demux_turn.as_ref(), &buf, src) {
-                        Some((data, peer)) => (data, peer),
-                        None => continue,
-                    };
-                    if buf.is_empty() {
-                        continue;
-                    }
-                    if buf[0] < 4 {
-                        let (responses, _) = {
-                            let mut agent = demux_agent.lock().unwrap();
-                            agent.handle_stun(&buf, src)
-                        };
-                        for (bytes, dest) in responses {
-                            let _ = crate::turn::send_pair(
-                                &demux_socket,
-                                demux_turn.as_ref(),
-                                relay_active,
-                                &bytes,
-                                dest,
-                            );
-                        }
-                    } else if (20..64).contains(&buf[0]) {
-                        if dtls_tx.send(buf).is_err() {
-                            return;
-                        }
+                    if !buf.is_empty() {
+                        packets.push((buf, crate::stun::normalize_addr(src)));
                     }
                 }
                 Err(e)
                     if e.kind() == io::ErrorKind::WouldBlock
-                        || e.kind() == io::ErrorKind::TimedOut =>
-                {
-                    continue
-                }
+                        || e.kind() == io::ErrorKind::TimedOut => {}
                 Err(_) => return,
+            }
+            for (buf, src) in packets {
+                // Relayed traffic arrives as TURN Data
+                // indications; unwrap to (payload, peer).
+                let (buf, src) = match crate::turn::unwrap_incoming(demux_turn.as_ref(), &buf, src) {
+                    Some((data, peer)) => (data, peer),
+                    None => continue,
+                };
+                if buf.is_empty() {
+                    continue;
+                }
+                if buf[0] < 4 {
+                    let (responses, _) = {
+                        let mut agent = demux_agent.lock().unwrap();
+                        agent.handle_stun(&buf, src)
+                    };
+                    for (bytes, dest) in responses {
+                        let _ = crate::turn::send_pair(
+                            &demux_socket,
+                            demux_turn.as_ref(),
+                            relay_active,
+                            &bytes,
+                            dest,
+                        );
+                    }
+                } else if (20..64).contains(&buf[0]) {
+                    if dtls_tx.send(buf).is_err() {
+                        return;
+                    }
+                }
             }
         });
 
@@ -625,38 +634,48 @@ fn run_ice(
                 let _ = crate::turn::send_pair(socket, turn, relay_active, &bytes, dest);
             }
         }
+        // Collect this iteration's packets: framed messages off
+        // a TCP/TLS TURN stream (already attributed to the
+        // server) plus at most one UDP datagram.
+        let mut packets: Vec<(Vec<u8>, SocketAddr)> = Vec::new();
+        if let Some(client) = turn {
+            for msg in client.drain_inbox() {
+                packets.push((msg, client.server));
+            }
+        }
         let mut buf = vec![0u8; 65536];
         match socket.recv_from(&mut buf) {
             Ok((n, src)) => {
-                let src = crate::stun::normalize_addr(src);
                 buf.truncate(n);
-                if buf.is_empty() {
-                    continue;
-                }
-                // Relayed traffic arrives as TURN Data
-                // indications; unwrap to (payload, peer).
-                let (buf, src) = match crate::turn::unwrap_incoming(turn, &buf, src) {
-                    Some((data, peer)) => (data, peer),
-                    None => continue,
-                };
-                if buf.is_empty() {
-                    continue;
-                }
-                if buf[0] < 4 {
-                    let (responses, _) = agent.lock().unwrap().handle_stun(&buf, src);
-                    for (bytes, dest) in responses {
-                        let _ = crate::turn::send_pair(socket, turn, relay_active, &bytes, dest);
-                    }
-                } else if (20..64).contains(&buf[0]) {
-                    // Early DTLS (peer started before nomination finished
-                    // on our side): stash for the handshake.
-                    let _ = dtls_stash.send(buf);
+                if !buf.is_empty() {
+                    packets.push((buf, crate::stun::normalize_addr(src)));
                 }
             }
             Err(e)
                 if e.kind() == io::ErrorKind::WouldBlock
                     || e.kind() == io::ErrorKind::TimedOut => {}
             Err(e) => return Err(e),
+        }
+        for (buf, src) in packets {
+            // Relayed traffic arrives as TURN Data
+            // indications; unwrap to (payload, peer).
+            let (buf, src) = match crate::turn::unwrap_incoming(turn, &buf, src) {
+                Some((data, peer)) => (data, peer),
+                None => continue,
+            };
+            if buf.is_empty() {
+                continue;
+            }
+            if buf[0] < 4 {
+                let (responses, _) = agent.lock().unwrap().handle_stun(&buf, src);
+                for (bytes, dest) in responses {
+                    let _ = crate::turn::send_pair(socket, turn, relay_active, &bytes, dest);
+                }
+            } else if (20..64).contains(&buf[0]) {
+                // Early DTLS (peer started before nomination finished
+                // on our side): stash for the handshake.
+                let _ = dtls_stash.send(buf);
+            }
         }
     }
 }
