@@ -108,6 +108,22 @@ function Endpoint:closeStream(id)
   self.streams[id] = nil
 end
 
+--- Abort one stream: RST towards the peer; a pending recv wakes
+--- with the cancellation status (the local input is closed with
+--- a synthetic RST event).
+function Endpoint:cancelStream(id)
+  local status = Status.new(wire.CODE_CANCELLED, "call cancelled")
+  local input = self.streams[id]
+  self.streams[id] = nil
+  if input ~= nil then
+    input:put({ kind = "rst", status = status })
+    input:close()
+  end
+  pcall(function()
+    self:sendFrame(Codec.statusFrame(wire.FRAME_RST, id, status))
+  end)
+end
+
 function Endpoint:close()
   if self.closed then return end
   self.closed = true

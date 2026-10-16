@@ -71,6 +71,87 @@
 (define (lua-client-method m)
   (string-append (lua-deprecated m) (lua-client-method/raw m)))
 
+(define (lua-coro-client-stream-class m)
+  (define orig-name (hash-ref m 'name))
+  (define resp (hash-ref m 'output))
+  (define svc (current-service))
+  (case (hash-ref m 'kind)
+    [(server-streaming bidi)
+     (format (string-append
+              "--- Coroutine receiving stream for ~a responses: a producer\n"
+              "--- coroutine yields each response; next() returns nil at the\n"
+              "--- end of the call and raises a Status on trailers errors.\n"
+              "local ~a~aCoroStream = {}\n"
+              "~a~aCoroStream.__index = ~a~aCoroStream\n\n"
+              "function ~a~aCoroStream.new(stream)\n"
+              "  local self = setmetatable({ stream = stream }, ~a~aCoroStream)\n"
+              "  self.co = coroutine.create(function()\n"
+              "    while true do\n"
+              "      local resp = ~a.new()\n"
+              "      stream:recv(resp)\n"
+              "      coroutine.yield(resp)\n"
+              "    end\n"
+              "  end)\n"
+              "  return self\n"
+              "end\n\n"
+              "function ~a~aCoroStream:next()\n"
+              "  if coroutine.status(self.co) == \"dead\" then return nil end\n"
+              "  local ok, value = coroutine.resume(self.co)\n"
+              "  if not ok then\n"
+              "    if value == EndOfStream then return nil end\n"
+              "    error(value, 0)\n"
+              "  end\n"
+              "  return value\n"
+              "end\n\n"
+              "function ~a~aCoroStream:cancel()\n"
+              "  self.stream:cancel()\n"
+              "end\n\n"
+              "--- Generic-for iterator: for resp in stream:iter() do ... end\n"
+              "function ~a~aCoroStream:iter()\n"
+              "  return function() return self:next() end\n"
+              "end\n\n")
+             orig-name svc orig-name svc orig-name svc orig-name
+             svc orig-name svc orig-name resp
+             svc orig-name svc orig-name svc orig-name)]
+    [else ""]))
+
+(define (lua-coro-client-method m)
+  (define name (lower-first (hash-ref m 'name)))
+  (define orig-name (hash-ref m 'name))
+  (define resp (hash-ref m 'output))
+  (define path (hash-ref m 'path))
+  (define svc (current-service))
+  (case (hash-ref m 'kind)
+    [(unary)
+     (format (string-append
+              "function ~aClientCoro:~a(req, metadata)\n"
+              "  local resp = ~a.new()\n"
+              "  self.channel:unary(~s, req, resp, metadata)\n"
+              "  return resp\n"
+              "end\n\n")
+             svc name resp path)]
+    [(server-streaming)
+     (format (string-append
+              "function ~aClientCoro:~a(req, metadata)\n"
+              "  return ~a~aCoroStream.new(\n"
+              "    self.channel:serverStream(~s, req, metadata))\n"
+              "end\n\n")
+             svc name svc orig-name path)]
+    [(client-streaming)
+     (format (string-append
+              "function ~aClientCoro:~a(reqs, metadata)\n"
+              "  local resp = ~a.new()\n"
+              "  self.channel:clientStreamCall(~s, reqs, resp, metadata)\n"
+              "  return resp\n"
+              "end\n\n")
+             svc name resp path)]
+    [(bidi)
+     (format (string-append
+              "function ~aClientCoro:~a(reqs, metadata)\n"
+              "  return ~a~aCoroStream.new(self.channel:bidi(~s, reqs, metadata))\n"
+              "end\n\n")
+             svc name svc orig-name path)]))
+
 (define (lua-client-stream-class m)
   (define orig-name (hash-ref m 'name))
   (define resp (hash-ref m 'output))
@@ -233,7 +314,16 @@
      "  return setmetatable({ channel = channel }, "
      (format "~aClient)\n" sname)
      "end\n\n"
-     (apply string-append (map lua-client-method (append methods (alias-client-methods svc)))))))
+     (apply string-append (map lua-client-method (append methods (alias-client-methods svc))))
+     (apply string-append (map lua-coro-client-stream-class methods))
+     (format "--- Coroutine client for ~a.\n" (hash-ref svc 'full-name))
+     (format "local ~aClientCoro = {}\n" sname)
+     (format "~aClientCoro.__index = ~aClientCoro\n\n" sname sname)
+     (format "function ~aClientCoro.new(channel)\n" sname)
+     "  return setmetatable({ channel = channelModule.CoroutineChannel.new(channel) }, "
+     (format "~aClientCoro)\n" sname)
+     "end\n\n"
+     (apply string-append (map (lambda (m) (string-append (lua-deprecated m) (lua-coro-client-method m))) (append methods (alias-client-methods svc)))))))
 
 ;; Message type names in first-use order (for the alias block).
 (define (lua-message-names file-model)
@@ -293,6 +383,15 @@
                        (define sname (hash-ref svc 'name))
                        (string-append
                         (format "  ~aClient = ~aClient,\n" sname sname)
+                        (format "  ~aClientCoro = ~aClientCoro,\n" sname sname)
+                        (apply string-append
+                               (map (lambda (m)
+                                      (case (hash-ref m 'kind)
+                                        [(server-streaming bidi)
+                                         (format "  ~a~aCoroStream = ~a~aCoroStream,\n"
+                                                 sname (hash-ref m 'name) sname (hash-ref m 'name))]
+                                        [else ""]))
+                                    (hash-ref svc 'methods)))
                         (apply string-append
                                (map (lambda (m)
                                       (case (hash-ref m 'kind)

@@ -159,7 +159,86 @@ function Channel:bidi(path, reqs, metadata)
   return stream
 end
 
+--- Abort an open ClientStream (sends RST, wakes a pending recv).
+function ClientStream:cancel()
+  self.endpoint:cancelStream(self.streamId)
+end
+
+function Channel:cancel(stream)
+  stream:cancel()
+end
+
+--- Coroutine receiving stream: recv executes inside a coroutine,
+--- so calls compose with coroutine-based schedulers and event
+--- loops that drive grpcdc from coroutines.
+local CoroutineStream = {}
+CoroutineStream.__index = CoroutineStream
+
+function CoroutineStream.new(stream)
+  return setmetatable({ stream = stream }, CoroutineStream)
+end
+
+function CoroutineStream:recv(resp)
+  local run = coroutine.wrap(function()
+    self.stream:recv(resp)
+  end)
+  run()
+  return resp
+end
+
+function CoroutineStream:cancel()
+  self.stream:cancel()
+end
+
+--- Coroutine client facade over Channel: unary and
+--- client-streaming calls run to completion inside a coroutine;
+--- streaming calls return a CoroutineStream. Wrap an existing
+--- Channel, or pass a transport to build one.
+local CoroutineChannel = {}
+CoroutineChannel.__index = CoroutineChannel
+
+function CoroutineChannel.new(channel)
+  if channel ~= nil and channel.isCoroutineChannel then
+    return channel
+  end
+  local wrapped = channel
+  if wrapped == nil or wrapped.endpoint == nil then
+    wrapped = Channel.new(channel)
+  end
+  return setmetatable({
+    channel = wrapped,
+    endpoint = wrapped.endpoint,
+    isCoroutineChannel = true,
+  }, CoroutineChannel)
+end
+
+function CoroutineChannel:unary(path, req, resp, metadata)
+  local run = coroutine.wrap(function()
+    self.channel:unary(path, req, resp, metadata)
+  end)
+  run()
+  return resp
+end
+
+function CoroutineChannel:clientStreamCall(path, reqs, resp, metadata)
+  local run = coroutine.wrap(function()
+    self.channel:clientStreamCall(path, reqs, resp, metadata)
+  end)
+  run()
+  return resp
+end
+
+function CoroutineChannel:serverStream(path, req, metadata)
+  return CoroutineStream.new(self.channel:serverStream(path, req, metadata))
+end
+
+function CoroutineChannel:bidi(path, reqs, metadata)
+  return CoroutineStream.new(self.channel:bidi(path, reqs, metadata))
+end
+
 return {
   Channel = Channel,
   ClientStream = ClientStream,
+  CoroutineChannel = CoroutineChannel,
+  CoroutineStream = CoroutineStream,
 }

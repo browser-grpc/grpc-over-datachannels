@@ -1,10 +1,10 @@
 local scriptDir = arg[0]:match("^(.*)/lua/tests/[^/]+$") or "."
 package.path = scriptDir .. "/lua/?.lua;" .. scriptDir .. "/lua/tests/?.lua;" .. package.path
 
--- Test runner: lua lua/tests/main.lua <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd>
+-- Test runner: lua lua/tests/main.lua <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestCoro>
 local name = arg[1]
 if name == nil then
-  io.stderr:write("usage: main.lua <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd>\n")
+  io.stderr:write("usage: main.lua <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestCoro>\n")
   os.exit(2)
 end
 
@@ -21,6 +21,8 @@ local ok, err = pcall(function()
     require("test_oracle")()
   elseif name == "TestDynamic" then
     require("test_dynamic")()
+  elseif name == "TestCoro" then
+    require("test_coro")()
   else
     io.stderr:write("unknown test: " .. name .. "\n")
     os.exit(2)

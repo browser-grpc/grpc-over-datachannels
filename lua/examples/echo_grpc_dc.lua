@@ -122,6 +122,109 @@ function EchoClient:bidi(reqs, metadata)
   return EchoBidiStream.new(self.channel:bidi("/echo.Echo/Bidi", reqs, metadata))
 end
 
+--- Coroutine receiving stream for ServerStream responses: a producer
+--- coroutine yields each response; next() returns nil at the
+--- end of the call and raises a Status on trailers errors.
+local EchoServerStreamCoroStream = {}
+EchoServerStreamCoroStream.__index = EchoServerStreamCoroStream
+
+function EchoServerStreamCoroStream.new(stream)
+  local self = setmetatable({ stream = stream }, EchoServerStreamCoroStream)
+  self.co = coroutine.create(function()
+    while true do
+      local resp = EchoResponse.new()
+      stream:recv(resp)
+      coroutine.yield(resp)
+    end
+  end)
+  return self
+end
+
+function EchoServerStreamCoroStream:next()
+  if coroutine.status(self.co) == "dead" then return nil end
+  local ok, value = coroutine.resume(self.co)
+  if not ok then
+    if value == EndOfStream then return nil end
+    error(value, 0)
+  end
+  return value
+end
+
+function EchoServerStreamCoroStream:cancel()
+  self.stream:cancel()
+end
+
+--- Generic-for iterator: for resp in stream:iter() do ... end
+function EchoServerStreamCoroStream:iter()
+  return function() return self:next() end
+end
+
+--- Coroutine receiving stream for Bidi responses: a producer
+--- coroutine yields each response; next() returns nil at the
+--- end of the call and raises a Status on trailers errors.
+local EchoBidiCoroStream = {}
+EchoBidiCoroStream.__index = EchoBidiCoroStream
+
+function EchoBidiCoroStream.new(stream)
+  local self = setmetatable({ stream = stream }, EchoBidiCoroStream)
+  self.co = coroutine.create(function()
+    while true do
+      local resp = EchoResponse.new()
+      stream:recv(resp)
+      coroutine.yield(resp)
+    end
+  end)
+  return self
+end
+
+function EchoBidiCoroStream:next()
+  if coroutine.status(self.co) == "dead" then return nil end
+  local ok, value = coroutine.resume(self.co)
+  if not ok then
+    if value == EndOfStream then return nil end
+    error(value, 0)
+  end
+  return value
+end
+
+function EchoBidiCoroStream:cancel()
+  self.stream:cancel()
+end
+
+--- Generic-for iterator: for resp in stream:iter() do ... end
+function EchoBidiCoroStream:iter()
+  return function() return self:next() end
+end
+
+--- Coroutine client for echo.Echo.
+local EchoClientCoro = {}
+EchoClientCoro.__index = EchoClientCoro
+
+function EchoClientCoro.new(channel)
+  return setmetatable({ channel = channelModule.CoroutineChannel.new(channel) }, EchoClientCoro)
+end
+
+function EchoClientCoro:unary(req, metadata)
+  local resp = EchoResponse.new()
+  self.channel:unary("/echo.Echo/Unary", req, resp, metadata)
+  return resp
+end
+
+function EchoClientCoro:serverStream(req, metadata)
+  return EchoServerStreamCoroStream.new(
+    self.channel:serverStream("/echo.Echo/ServerStream", req, metadata))
+end
+
+function EchoClientCoro:clientStream(reqs, metadata)
+  local resp = EchoResponse.new()
+  self.channel:clientStreamCall("/echo.Echo/ClientStream", reqs, resp, metadata)
+  return resp
+end
+
+function EchoClientCoro:bidi(reqs, metadata)
+  return EchoBidiCoroStream.new(self.channel:bidi("/echo.Echo/Bidi", reqs, metadata))
+end
+
 --- Register an implementation of echo.Echo on a Server. The impl is
 --- a table with unary/serverStream/clientStream/bidi functions
 --- (duck-typed, mirroring the generated adapters below).
@@ -178,6 +281,9 @@ end
 
 return {
   EchoClient = EchoClient,
+  EchoClientCoro = EchoClientCoro,
+  EchoServerStreamCoroStream = EchoServerStreamCoroStream,
+  EchoBidiCoroStream = EchoBidiCoroStream,
   EchoServerStreamStream = EchoServerStreamStream,
   EchoBidiStream = EchoBidiStream,
   EchoServerStreamServer = EchoServerStreamServer,
