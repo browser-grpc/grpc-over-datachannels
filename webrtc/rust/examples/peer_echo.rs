@@ -66,6 +66,10 @@ fn main() -> io::Result<()> {
                             channel.send_binary(&reply)?;
                         }
                     }
+                    Some(EndpointEvent::ChannelClosed { stream }) => {
+                        eprintln!("CHANNEL_CLOSED stream={stream}");
+                        channels.remove(&stream);
+                    }
                     Some(_) => {}
                     None => return Ok(()),
                 }
@@ -88,6 +92,27 @@ fn main() -> io::Result<()> {
             for line in stdin.lock().lines() {
                 let line = line?;
                 if line.is_empty() {
+                    continue;
+                }
+                if line == "__close__" {
+                    // Cross-stack close check: reset the stream
+                    // and report once both directions complete.
+                    channel.close();
+                    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+                    let mut closed = false;
+                    while std::time::Instant::now() < deadline && !closed {
+                        match endpoint.recv_event_timeout(Duration::from_millis(200)) {
+                            Some(EndpointEvent::ChannelClosed { .. }) => closed = true,
+                            _ => {}
+                        }
+                    }
+                    if !closed {
+                        eprintln!("close timed out");
+                        std::process::exit(1);
+                    }
+                    eprintln!("CHANNEL_CLOSED_LOCAL");
+                    println!("closed");
+                    io::stdout().flush()?;
                     continue;
                 }
                 channel.send_binary(line.as_bytes())?;

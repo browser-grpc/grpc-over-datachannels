@@ -31,6 +31,7 @@ if (mode === "answerer") {
   console.error("CONNECTED");
   endpoint.onchannel = (channel) => {
     console.error(`CHANNEL_OPEN stream=${channel.id}`);
+    channel.onclose = () => console.error(`CHANNEL_CLOSED stream=${channel.id}`);
     channel.onmessage = (event) => {
       const data = Buffer.isBuffer(event.data) ? event.data : Buffer.from(event.data);
       channel.send(Buffer.concat([Buffer.from("re:"), data]));
@@ -53,6 +54,16 @@ if (mode === "answerer") {
   const rl = createInterface({ input: process.stdin });
   for await (const line of rl) {
     if (!line) continue;
+    if (line === "__close__") {
+      // Cross-stack close check: reset the stream and report
+      // once both directions complete locally.
+      const closed = new Promise((resolve) => { channel.onclose = resolve; });
+      channel.close();
+      await closed;
+      console.error("CHANNEL_CLOSED_LOCAL");
+      console.log("closed");
+      continue;
+    }
     const before = replies.length;
     channel.send(Buffer.from(line));
     const deadline = Date.now() + 15000;

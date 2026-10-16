@@ -73,6 +73,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "CONNECTED")
 		endpoint.OnChannel = func(channel *dcwebrtc.DataChannel) {
 			fmt.Fprintf(os.Stderr, "CHANNEL_OPEN stream=%d\n", channel.ID)
+			channel.OnClose(func() {
+				fmt.Fprintf(os.Stderr, "CHANNEL_CLOSED stream=%d\n", channel.ID)
+			})
 			channel.OnMessage(func(data []byte, isText bool) {
 				reply := append([]byte("re:"), data...)
 				channel.Send(reply)
@@ -99,11 +102,27 @@ func main() {
 		channel.OnMessage(func(data []byte, isText bool) {
 			replies <- string(data)
 		})
+		closedLocal := make(chan struct{}, 1)
+		channel.OnClose(func() { closedLocal <- struct{}{} })
 		scanner := bufio.NewScanner(os.Stdin)
 		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
 			if line == "" {
+				continue
+			}
+			if line == "__close__" {
+				// Cross-stack close check: reset the stream and
+				// report once both directions complete locally.
+				channel.Close()
+				select {
+				case <-closedLocal:
+					fmt.Fprintln(os.Stderr, "CHANNEL_CLOSED_LOCAL")
+				case <-time.After(15 * time.Second):
+					fmt.Fprintln(os.Stderr, "close timed out")
+					os.Exit(1)
+				}
+				fmt.Println("closed")
 				continue
 			}
 			channel.Send([]byte(line))
