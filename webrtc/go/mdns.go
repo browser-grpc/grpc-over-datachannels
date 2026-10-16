@@ -1,4 +1,4 @@
-// Minimal mDNS (RFC 6762) A-record resolution: browsers hide host
+// Minimal mDNS (RFC 6762) A/AAAA resolution: browsers hide host
 // IPs behind "<uuid>.local" ICE candidates, and a native peer must
 // resolve them to reach the browser. One multicast query to
 // 224.0.0.251:5353, first matching answer wins. Mirrors mdns.js.
@@ -24,12 +24,16 @@ func encodeDNSName(name string) []byte {
 func buildMDNSQuery(id uint16, name string) []byte {
 	out := make([]byte, 12)
 	binary.BigEndian.PutUint16(out[0:2], id)
-	binary.BigEndian.PutUint16(out[4:6], 1) // QDCOUNT
-	out = append(out, encodeDNSName(name)...)
-	// A, IN|QU: the QU bit (RFC 6762 section 5.4) asks for a
+	binary.BigEndian.PutUint16(out[4:6], 2) // QDCOUNT: A and AAAA
+	// IN|QU: the QU bit (RFC 6762 section 5.4) asks for a
 	// unicast response to our ephemeral port; without it some
-	// responders (Firefox) answer by multicast to :5353 only.
-	return append(out, 0, 1, 0x80, 1)
+	// responders answer by multicast to :5353 only (we listen
+	// there too; see ResolveMDNS).
+	out = append(out, encodeDNSName(name)...)
+	out = append(out, 0, 1, 0x80, 1) // A
+	out = append(out, encodeDNSName(name)...)
+	out = append(out, 0, 28, 0x80, 1) // AAAA
+	return out
 }
 
 func readDNSName(buf []byte, offset int) (string, int) {
@@ -67,10 +71,11 @@ func readDNSName(buf []byte, offset int) (string, int) {
 	return "", pos
 }
 
-// ParseARecord extracts an A record for name from a DNS packet.
-func ParseARecord(packet []byte, name string) string {
+// parseRecord extracts the rdata of the first answer for name
+// with the given type and length, or nil.
+func parseRecord(packet []byte, name string, wantType uint16, wantLen int) []byte {
 	if len(packet) < 12 {
-		return ""
+		return nil
 	}
 	qd := int(binary.BigEndian.Uint16(packet[4:6]))
 	an := int(binary.BigEndian.Uint16(packet[6:8]))
@@ -78,7 +83,7 @@ func ParseARecord(packet []byte, name string) string {
 	for i := 0; i < qd; i++ {
 		_, next := readDNSName(packet, pos)
 		if next <= pos {
-			return ""
+			return nil
 		}
 		pos = next + 4
 	}
@@ -86,27 +91,45 @@ func ParseARecord(packet []byte, name string) string {
 	for i := 0; i < an; i++ {
 		rname, next := readDNSName(packet, pos)
 		if rname == "" {
-			return ""
+			return nil
 		}
 		pos = next
 		if pos+10 > len(packet) {
-			return ""
+			return nil
 		}
 		rtype := binary.BigEndian.Uint16(packet[pos : pos+2])
 		rdlen := int(binary.BigEndian.Uint16(packet[pos+8 : pos+10]))
 		if pos+10+rdlen > len(packet) {
-			return ""
+			return nil
 		}
 		rdata := packet[pos+10 : pos+10+rdlen]
-		if rtype == 1 && rdlen == 4 && strings.ToLower(rname) == wanted {
-			return fmt.Sprintf("%d.%d.%d.%d", rdata[0], rdata[1], rdata[2], rdata[3])
+		if rtype == wantType && rdlen == wantLen && strings.ToLower(rname) == wanted {
+			return rdata
 		}
 		pos += 10 + rdlen
 	}
-	return ""
+	return nil
 }
 
-// ResolveMDNS resolves a ".local" name to an IPv4 string ("" on miss).
+// ParseARecord extracts an A record for name from a DNS packet.
+func ParseARecord(packet []byte, name string) string {
+	rdata := parseRecord(packet, name, 1, 4)
+	if rdata == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d.%d.%d.%d", rdata[0], rdata[1], rdata[2], rdata[3])
+}
+
+// ParseAAAARecord extracts an AAAA record for name from a DNS packet.
+func ParseAAAARecord(packet []byte, name string) string {
+	rdata := parseRecord(packet, name, 28, 16)
+	if rdata == nil {
+		return ""
+	}
+	return net.IP(rdata).String()
+}
+
+// ResolveMDNS resolves a ".local" name to an IP string ("" on miss).
 // Responders may answer unicast to the query socket (the query asks
 // with the QU bit) or multicast to the group address — Chromium does
 // the latter — so listen on both: the ephemeral query socket and a
@@ -143,7 +166,11 @@ func ResolveMDNS(name string, timeout time.Duration) string {
 				if err != nil {
 					return
 				}
-				if ip := ParseARecord(buf[:n], name); ip != "" {
+				ip := ParseARecord(buf[:n], name)
+				if ip == "" {
+					ip = ParseAAAARecord(buf[:n], name)
+				}
+				if ip != "" {
 					select {
 					case found <- ip:
 					default:
