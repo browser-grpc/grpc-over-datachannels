@@ -64,6 +64,7 @@ export class Peer {
   onRenominated = null;
   #restartGen = 0;
   #closed = false;
+  #lastResolveAttempt = 0;
   #consentTimer = null;
   #consentIntervalMs = 5000;
   #consentExpiryMs = 30000;
@@ -386,6 +387,18 @@ export class Peer {
     );
   }
 
+  // Retry mDNS resolution at most once a second while checks
+  // are in flight: a browser's mDNS responder can miss the
+  // initial window under load, and an unresolved ".local"
+  // candidate would otherwise silently never be checked.
+  #maybeResolveRemote() {
+    const now = Date.now();
+    if (now - this.#lastResolveAttempt < 1000) return;
+    if (!this.#agent.remoteCandidates.some((c) => !net.isIP(c.address))) return;
+    this.#lastResolveAttempt = now;
+    void this.#resolveRemoteCandidates();
+  }
+
   // The SDP setup value that keeps the existing DTLS
   // association across an ICE restart.
   #restartSetup() {
@@ -436,6 +449,7 @@ export class Peer {
     }
     const deadline = Date.now() + 15000;
     while (Date.now() < deadline) {
+      this.#maybeResolveRemote();
       if (this.#closed || this.#restartGen !== generation) return;
       if (this.#agent.renominated && this.#agent.generation === generation) {
         this.onRenominated?.();
@@ -462,6 +476,7 @@ export class Peer {
     const deadline = Date.now() + 15000;
     while (!this.#agent.nominated) {
       if (Date.now() > deadline) throw new Error("ICE nomination timed out");
+      this.#maybeResolveRemote();
       for (const { bytes, remote } of this.#agent.dueChecks()) {
         this.#sendTo(bytes, remote);
       }
