@@ -59,6 +59,11 @@ export class Peer {
   // Invoked exactly once if consent for the nominated pair
   // expires (RFC 7675); the endpoint is then closed.
   onConsentFailure = null;
+  // Invoked once per completed ICE restart (a pair from the
+  // new generation nominated).
+  onRenominated = null;
+  #restartGen = 0;
+  #closed = false;
   #consentTimer = null;
   #consentIntervalMs = 5000;
   #consentExpiryMs = 30000;
@@ -368,10 +373,9 @@ export class Peer {
     this.#remote = remote;
   }
 
-  async connect() {
-    if (!this.#remote) throw new Error("no remote description");
-    // Browsers advertise mDNS ".local" host candidates; resolve them
-    // to IPs so connectivity checks can be addressed directly.
+  // Browsers advertise mDNS ".local" host candidates; resolve
+  // them to IPs so connectivity checks can be addressed directly.
+  async #resolveRemoteCandidates() {
     await Promise.all(
       this.#agent.remoteCandidates
         .filter((c) => !net.isIP(c.address))
@@ -380,6 +384,73 @@ export class Peer {
           if (ip) c.address = ip;
         }),
     );
+  }
+
+  // The SDP setup value that keeps the existing DTLS
+  // association across an ICE restart.
+  #restartSetup() {
+    return this.#dtlsRole === "client" ? "active" : "passive";
+  }
+
+  // Begin an ICE restart on a connected peer (RFC 8445
+  // section 5.1): fresh local credentials, same candidates and
+  // DTLS fingerprint. Hand the result to the remote's
+  // handleRestartOffer and apply its answer with
+  // handleRestartAnswer; media keeps flowing on the old pair
+  // until renomination, which fires onRenominated.
+  createRestartOffer() {
+    this.#agent.restart();
+    return generate(this.#localDescription(this.#restartSetup()), true);
+  }
+
+  // Apply a restart offer (fresh local credentials too) and
+  // return the restart answer SDP.
+  handleRestartOffer(offerSdp) {
+    const remote = parse(offerSdp);
+    this.#agent.restart();
+    this.#applyRemote(remote);
+    this.#startRestartChecks();
+    return generate(this.#localDescription(this.#restartSetup()), false);
+  }
+
+  // Apply a restart answer SDP.
+  handleRestartAnswer(answerSdp) {
+    this.#applyRemote(parse(answerSdp));
+    this.#startRestartChecks();
+  }
+
+  // Drive connectivity checks for the current ICE generation
+  // until renomination (mirrors the connect loop; TURN
+  // permissions are refreshed first). At most one loop runs
+  // per generation.
+  async #startRestartChecks() {
+    const generation = this.#agent.generation;
+    if (this.#restartGen === generation) return;
+    this.#restartGen = generation;
+    await this.#resolveRemoteCandidates();
+    if (this.turn) {
+      await createPermissions(this, this.turn, this.#agent.remoteCandidates).catch(() => {});
+      if (this.turn.peers.length) {
+        await bindChannels(this, this.turn, this.turn.peers).catch(() => {});
+      }
+    }
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      if (this.#closed || this.#restartGen !== generation) return;
+      if (this.#agent.renominated && this.#agent.generation === generation) {
+        this.onRenominated?.();
+        return;
+      }
+      for (const { bytes, remote } of this.#agent.dueChecks()) {
+        this.#sendTo(bytes, remote);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+
+  async connect() {
+    if (!this.#remote) throw new Error("no remote description");
+    await this.#resolveRemoteCandidates();
     if (this.turn) {
       // Relay the session: permissions (and channels) for every
       // remote candidate first, then all pair traffic goes
@@ -401,7 +472,9 @@ export class Peer {
     const io = {
       send: (buf) =>
         new Promise((resolve) => {
-          self.#sendTo(buf, selected);
+          // Follow the nominated pair so an ICE restart
+          // switches media at renomination (old pair until then).
+          self.#sendTo(buf, self.#agent.nominated ?? selected);
           resolve();
         }),
       recv: (timeoutMs) => {
@@ -474,6 +547,7 @@ export class Peer {
 
   /** Tear down the endpoint and the UDP socket (tests, shutdown). */
   async close() {
+    this.#closed = true;
     this.#stopConsentLoop();
     this.turn?.stop();
     try {

@@ -122,12 +122,42 @@ export class IceAgent {
     // When consent for the nominated pair was last confirmed
     // (nomination, or a Binding success for it; ms epoch).
     this.lastConsentMs = 0;
+    // ICE generations (RFC 8445 section 5.1 restarts):
+    // nominatedGen is the generation that produced the current
+    // nomination. While they differ a restart is in flight:
+    // checks run again and consent pauses; the old pair keeps
+    // serving media until renomination.
+    this.generation = 0;
+    this.nominatedGen = 0;
+  }
+
+  // Begin an ICE restart: fresh local credentials, check state
+  // cleared, generation bumped. The nominated pair is retained
+  // until a pair from the new generation is nominated.
+  restart() {
+    this.localUfrag = randomUfrag();
+    this.localPwd = randomPassword();
+    this.generation += 1;
+    this.valid = new Set();
+    this.outstanding = new Map();
+    this.nominatingSentTo = new Set();
+  }
+
+  // Whether the nominated pair belongs to the current
+  // generation (no restart in flight).
+  get renominated() {
+    return this.nominated !== null && this.nominatedGen === this.generation;
   }
 
   setRemote(ufrag, pwd, candidates) {
     this.remoteUfrag = ufrag;
     this.remotePwd = pwd;
     this.remoteCandidates = candidates;
+    // New remote credentials invalidate prior check state
+    // (initial connect: already empty).
+    this.valid = new Set();
+    this.outstanding = new Map();
+    this.nominatingSentTo = new Set();
   }
 
   // Trickle one remote candidate in after the remote description
@@ -167,7 +197,8 @@ export class IceAgent {
   // One consent-freshness Binding request for the nominated
   // pair (RFC 8445 section 10 / RFC 7675); null pre-nomination.
   consentCheck() {
-    if (!this.nominated) return null;
+    // Paused pre-nomination and while a restart is in flight.
+    if (!this.renominated) return null;
     const key = `${this.nominated.address}:${this.nominated.port}`;
     const cand =
       this.remoteCandidates.find((c) => c.key === key) ??
@@ -184,13 +215,13 @@ export class IceAgent {
   // Whether consent for the nominated pair has lapsed (no
   // Binding success for it within expiryMs).
   consentExpired(expiryMs) {
-    if (!this.nominated || !this.lastConsentMs) return false;
+    if (!this.renominated || !this.lastConsentMs) return false;
     return Date.now() - this.lastConsentMs > expiryMs;
   }
 
   dueChecks() {
     const out = [];
-    if (this.nominated) return out;
+    if (this.renominated) return out;
     for (const remote of this.remoteCandidates) out.push(this.buildCheck(remote, false));
     if (this.controlling) {
       const best = this.bestValidPair();
@@ -280,6 +311,7 @@ export class IceAgent {
       }
       if (!this.controlling && msg.attr(StunAttribute.USE_CANDIDATE)) {
         this.nominated = src;
+        this.nominatedGen = this.generation;
         this.lastConsentMs = Date.now();
         events.push({ type: "nominated", remote: src });
       }
@@ -301,6 +333,7 @@ export class IceAgent {
         }
         if (nominate) {
           this.nominated = { address: remote.address, port: remote.port };
+          this.nominatedGen = this.generation;
           this.lastConsentMs = Date.now();
           events.push({ type: "nominated", remote: this.nominated });
         }
