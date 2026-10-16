@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-dart-browser test-dart-wasm-browser demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -216,6 +216,15 @@ test-wasm:
 	$(WASM_BINDGEN) --target web --out-dir ../../browser-test/wasm_rust_gen wasm/rust/target/wasm32-unknown-unknown/release/grpc_dc_wasm_rust.wasm
 	cd browser-test && node wasm.test.mjs all && node wasm_rust.test.mjs all
 
+test-zig-wasm-native-browser:
+	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
+		--dep grpcdc --dep echo_stub \
+		-Mroot=wasm/zig/native/echo_client.zig \
+		--dep grpcdc -Mecho_stub=zig/examples/echo_grpc_dc.zig \
+		-Mgrpcdc=zig/grpcdc/grpcdc.zig \
+		-femit-bin=browser-test/echo_zig_native.wasm
+	cd browser-test && node wasm_zig_native.test.mjs all
+
 test-zig-wasm-browser:
 	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
 		--dep grpcdc_status --dep echo_messages \
@@ -232,7 +241,7 @@ test-dart-wasm-browser:
 	$(DART) compile wasm wasm/dart/echo_client.dart -o browser-test/echo_dart_wasm.wasm
 	cd browser-test && node dart_wasm.test.mjs all
 
-test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-dart-browser test-dart-wasm-browser
+test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo

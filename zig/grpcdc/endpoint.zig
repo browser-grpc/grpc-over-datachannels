@@ -7,6 +7,20 @@ const transport_mod = @import("transport.zig");
 
 pub const Codec = codec_mod.Codec;
 pub const Headers = codec_mod.Headers;
+
+const builtin = @import("builtin");
+
+/// Condition variable, or a no-op stand-in on single-threaded
+/// targets (wasm32-freestanding has no futex/clock): there the
+/// endpoint always runs inline — waits pump the transport
+/// instead — so wait() is unreachable.
+const Cond = if (builtin.single_threaded) struct {
+    pub fn wait(_: *@This(), _: *std.Thread.Mutex) void {
+        unreachable;
+    }
+    pub fn signal(_: *@This()) void {}
+    pub fn broadcast(_: *@This()) void {}
+} else std.Thread.Condition;
 pub const Status = status_mod.Status;
 pub const Transport = transport_mod.Transport;
 pub const Metadata = transport_mod.Metadata;
@@ -35,9 +49,13 @@ pub const StreamEvent = struct {
 /// them to the caller (free with event.deinit).
 pub const StreamInput = struct {
     mutex: std.Thread.Mutex = .{},
-    cond: std.Thread.Condition = .{},
+    cond: Cond = .{},
     queue: std.ArrayList(StreamEvent) = .empty,
     closed: bool = false,
+    /// Inline (single-threaded) mode: get() drives the
+    /// endpoint through this hook instead of waiting.
+    pump_ctx: ?*anyopaque = null,
+    pump_fn: ?*const fn (ctx: *anyopaque) void = null,
 
     pub fn put(self: *StreamInput, alloc: std.mem.Allocator, event: StreamEvent) void {
         self.mutex.lock();
@@ -68,6 +86,14 @@ pub const StreamInput = struct {
         defer self.mutex.unlock();
         while (self.queue.items.len == 0) {
             if (self.closed) return null;
+            if (self.pump_fn) |pf| {
+                // Inline mode: pump the endpoint (which
+                // delivers via put()) instead of waiting.
+                self.mutex.unlock();
+                pf(self.pump_ctx.?);
+                self.mutex.lock();
+                continue;
+            }
             self.cond.wait(&self.mutex);
         }
         return self.queue.orderedRemove(0);
@@ -139,10 +165,11 @@ pub const Endpoint = struct {
     all_inputs: std.ArrayList(*StreamInput) = .empty,
     closed: bool = false,
     started: bool = false,
-    read_thread: ?std.Thread = null,
+    inline_pump: bool = false,
+    read_thread: if (builtin.single_threaded) u0 else ?std.Thread = if (builtin.single_threaded) 0 else null,
     active_calls: usize = 0,
     calls_mutex: std.Thread.Mutex = .{},
-    calls_cond: std.Thread.Condition = .{},
+    calls_cond: Cond = .{},
 
     /// The side that created the channel allocates odd stream ids, the
     /// answerer even. The read loop starts on start() — after any
@@ -157,16 +184,52 @@ pub const Endpoint = struct {
         };
     }
 
-    /// Start the read loop (idempotent).
+    /// Start the read loop (idempotent). A transport with
+    /// try_recv runs inline instead: no thread is spawned and
+    /// stream waits pump the transport (single-threaded
+    /// environments such as wasm32).
     pub fn start(self: *Endpoint) void {
         if (self.started) return;
         self.started = true;
+        if (self.transport.try_recv_fn != null) {
+            self.inline_pump = true;
+            return;
+        }
+        if (comptime builtin.single_threaded) {
+            self.inline_pump = true;
+            return;
+        }
         self.read_thread = std.Thread.spawn(.{}, readLoop, .{self}) catch null;
+    }
+
+    /// Inline mode: receive and dispatch at most one message.
+    pub fn pollOnce(self: *Endpoint) void {
+        const msg = self.transport.tryRecv(self.alloc) catch return;
+        const data = msg orelse {
+            self.failAll();
+            return;
+        };
+        self.onBytes(data);
+        self.alloc.free(data);
+    }
+
+    fn pumpThunk(ctx: *anyopaque) void {
+        const self: *Endpoint = @ptrCast(@alignCast(ctx));
+        self.pollOnce();
+    }
+
+    fn attachPump(self: *Endpoint, input: *StreamInput) void {
+        if (self.inline_pump) {
+            input.pump_ctx = self;
+            input.pump_fn = &pumpThunk;
+        }
     }
 
     pub fn deinit(self: *Endpoint) void {
         self.close();
-        if (self.read_thread) |t| t.join();
+        if (comptime !builtin.single_threaded) {
+            if (self.read_thread) |t| t.join();
+        }
         self.waitIdle();
         for (self.all_inputs.items) |input| {
             input.deinit(self.alloc);
@@ -184,6 +247,15 @@ pub const Endpoint = struct {
     }
 
     fn waitIdle(self: *Endpoint) void {
+        if (self.inline_pump) {
+            while (true) {
+                self.calls_mutex.lock();
+                const idle = self.active_calls == 0;
+                self.calls_mutex.unlock();
+                if (idle) return;
+                self.pollOnce();
+            }
+        }
         self.calls_mutex.lock();
         defer self.calls_mutex.unlock();
         while (self.active_calls > 0) {
@@ -200,6 +272,7 @@ pub const Endpoint = struct {
     pub fn openStream(self: *Endpoint) Opened {
         const input = self.alloc.create(StreamInput) catch @panic("out of memory");
         input.* = .{};
+        self.attachPump(input);
         self.streams_mutex.lock();
         defer self.streams_mutex.unlock();
         const id = self.next_id;
@@ -222,6 +295,7 @@ pub const Endpoint = struct {
     }
 
     fn registerStream(self: *Endpoint, id: u32, input: *StreamInput) void {
+        self.attachPump(input);
         self.streams_mutex.lock();
         defer self.streams_mutex.unlock();
         self.streams.put(id, input) catch {};
@@ -341,6 +415,14 @@ pub const Endpoint = struct {
             .input = input,
             .stream_id = stream_id,
         };
+        if (self.inline_pump) {
+            dispatchMain(args);
+            return;
+        }
+        if (comptime builtin.single_threaded) {
+            dispatchMain(args);
+            return;
+        }
         const thread = std.Thread.spawn(.{}, dispatchMain, .{args}) catch {
             self.alloc.destroy(args);
             self.endCall();

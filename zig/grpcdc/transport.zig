@@ -11,6 +11,12 @@ pub const Transport = struct {
     send_fn: *const fn (ctx: *anyopaque, data: []const u8) anyerror!void,
     recv_fn: *const fn (ctx: *anyopaque, alloc: std.mem.Allocator) anyerror!?[]u8,
     close_fn: *const fn (ctx: *anyopaque) void,
+    /// Optional non-blocking receive for single-threaded
+    /// environments (wasm32): error.WouldBlock when no message
+    /// is available right now, null when closed. When set, the
+    /// endpoint runs inline — no read thread; stream waits
+    /// pump the transport through this hook.
+    try_recv_fn: ?*const fn (ctx: *anyopaque, alloc: std.mem.Allocator) anyerror!?[]u8 = null,
 
     pub fn send(self: Transport, data: []const u8) !void {
         return self.send_fn(self.ctx, data);
@@ -18,6 +24,11 @@ pub const Transport = struct {
 
     pub fn recv(self: Transport, alloc: std.mem.Allocator) !?[]u8 {
         return self.recv_fn(self.ctx, alloc);
+    }
+
+    pub fn tryRecv(self: Transport, alloc: std.mem.Allocator) anyerror!?[]u8 {
+        const f = self.try_recv_fn orelse return error.WouldBlock;
+        return f(self.ctx, alloc);
     }
 
     pub fn close(self: Transport) void {
