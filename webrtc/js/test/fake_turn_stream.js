@@ -188,13 +188,13 @@ export async function fakeTurnTcp() {
   return { server: address, stats, close: () => server.close() };
 }
 
-export async function fakeTurnTls() {
+export async function fakeTurnTls(certStem = "turn_tls") {
   const { stats, serveSocket } = makeStreamTurn();
   const here = path.dirname(fileURLToPath(import.meta.url));
   const server = tls.createServer(
     {
-      cert: fs.readFileSync(path.join(here, "fixtures", "turn_tls_cert.pem")),
-      key: fs.readFileSync(path.join(here, "fixtures", "turn_tls_key.pem")),
+      cert: fs.readFileSync(path.join(here, "fixtures", `${certStem}_cert.pem`)),
+      key: fs.readFileSync(path.join(here, "fixtures", `${certStem}_key.pem`)),
       minVersion: "TLSv1.2",
     },
     serveSocket,
@@ -207,6 +207,11 @@ export async function fakeTurnTls() {
 // Standalone mode for other stacks' tests.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const mode = process.argv[2] ?? "tcp";
-  const fake = mode === "tls" ? await fakeTurnTls() : await fakeTurnTcp();
+  const fake =
+    mode === "tls"
+      ? await fakeTurnTls()
+      : mode === "tls384"
+        ? await fakeTurnTls("turn_tls384")
+        : await fakeTurnTcp();
   console.log(`READY ${fake.server}`);
 }

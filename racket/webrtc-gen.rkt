@@ -59,6 +59,16 @@
            [(= (modulo i 6) 5) (loop (cdr ks) (add1 i) (string-append acc (hex32 (car ks)) ",\n"))]
            [else (loop (cdr ks) (add1 i) (string-append acc (hex32 (car ks)) ", "))]))
    "];\n\n"
+   (format "pub const SHA512_H: [u64; 8] = [~a];\n\n"
+           (string-join (map (lambda (v) (hexw v 16)) sha512-h) ", "))
+   (format "pub const SHA384_H: [u64; 8] = [~a];\n\n"
+           (string-join (map (lambda (v) (hexw v 16)) sha384-h) ", "))
+   "pub const SHA512_K: [u64; 80] = [\n"
+   (let loop ([ks sha512-k] [i 0] [acc ""])
+     (cond [(null? ks) acc]
+           [(= (modulo i 3) 2) (loop (cdr ks) (add1 i) (string-append acc (hexw (car ks) 16) ",\n"))]
+           [else (loop (cdr ks) (add1 i) (string-append acc (hexw (car ks) 16) ", "))]))
+   "];\n\n"
    (format "pub const AES_SBOX: [u8; 256] = [~a];\n\n"
            (string-join (map (lambda (v) (hexw v 2)) aes-sbox) ", "))
    (format "pub const AES_INV_SBOX: [u8; 256] = [~a];\n\n"

@@ -14,6 +14,7 @@ pub mod endpoint;
 pub mod ice;
 pub mod mdns;
 pub mod p256;
+pub mod p384;
 pub mod peer;
 pub mod proto_gen;
 pub mod sctp;

@@ -111,6 +111,22 @@
   (for/list ([p (in-list (first-primes 64))])
     (modulo (integer-root (arithmetic-shift p 96) 3) (expt 2 32))))
 
+;; SHA-512 (FIPS 180-4): H from the square roots of the first 8
+;; primes at 64-bit precision, K from the cube roots of the first
+;; 80. SHA-384 is SHA-512 with the IV taken from the square roots
+;; of the 9th-16th primes and output truncated to 384 bits.
+(define sha512-h
+  (for/list ([p (in-list (first-primes 8))])
+    (modulo (integer-root (arithmetic-shift p 128) 2) (expt 2 64))))
+
+(define sha384-h
+  (for/list ([p (in-list (list-tail (first-primes 16) 8))])
+    (modulo (integer-root (arithmetic-shift p 128) 2) (expt 2 64))))
+
+(define sha512-k
+  (for/list ([p (in-list (first-primes 80))])
+    (modulo (integer-root (arithmetic-shift p 192) 3) (expt 2 64))))
+
 (define (gf-mul a b)
   (let loop ([a a] [b b] [acc 0])
     (cond [(zero? b) acc]
@@ -171,6 +187,9 @@
 ;; Generation must never emit an unverified constant.
 (unless (and (= (first sha256-k) #x428a2f98) (= (last sha256-k) #xc67178f2)
              (= (first sha256-h) #x6a09e667) (= (last sha256-h) #x5be0cd19)
+             (= (first sha512-h) #x6a09e667f3bcc908) (= (last sha512-h) #x5be0cd19137e2179)
+             (= (first sha384-h) #xcbbb9d5dc1059ed8) (= (last sha384-h) #x47b5481dbefa4fa4)
+             (= (first sha512-k) #x428a2f98d728ae22) (= (last sha512-k) #x6c44198c4a475817)
              (= (list-ref aes-sbox 0) #x63) (= (list-ref aes-sbox 1) #x7c)
              (= (list-ref aes-sbox #x53) #xed)
              (= (list-ref crc32-table 1) #x77073096)

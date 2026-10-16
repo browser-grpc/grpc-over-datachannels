@@ -6,7 +6,7 @@
 //! Everything here is verified against published vectors in the tests
 //! below, and again end-to-end by the OpenSSL DTLS oracle tests.
 
-use crate::proto_gen::{AES_SBOX, CRC32_TABLE, SHA256_H, SHA256_K};
+use crate::proto_gen::{AES_SBOX, CRC32_TABLE, SHA256_H, SHA256_K, SHA384_H, SHA512_H, SHA512_K};
 use std::fs::File;
 use std::io::Read;
 
@@ -131,6 +131,123 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(data);
     h.finalize()
+}
+
+// ---------------------------------------------------------------------------
+// SHA-512 / SHA-384 (FIPS 180-4; certificate chain verification)
+// ---------------------------------------------------------------------------
+
+pub struct Sha512 {
+    state: [u64; 8],
+    buf: [u8; 128],
+    buflen: usize,
+    total: u64,
+}
+
+impl Sha512 {
+    pub fn new() -> Self {
+        Self::with_iv(SHA512_H)
+    }
+
+    pub fn new384() -> Self {
+        Self::with_iv(SHA384_H)
+    }
+
+    fn with_iv(state: [u64; 8]) -> Self {
+        Self { state, buf: [0u8; 128], buflen: 0, total: 0 }
+    }
+
+    pub fn update(&mut self, mut data: &[u8]) {
+        self.total = self.total.wrapping_add(data.len() as u64);
+        if self.buflen > 0 {
+            let take = (128 - self.buflen).min(data.len());
+            self.buf[self.buflen..self.buflen + take].copy_from_slice(&data[..take]);
+            self.buflen += take;
+            data = &data[take..];
+            if self.buflen == 128 {
+                let block = self.buf;
+                self.compress(&block);
+                self.buflen = 0;
+            }
+        }
+        while data.len() >= 128 {
+            let mut block = [0u8; 128];
+            block.copy_from_slice(&data[..128]);
+            self.compress(&block);
+            data = &data[128..];
+        }
+        if !data.is_empty() {
+            self.buf[..data.len()].copy_from_slice(data);
+            self.buflen = data.len();
+        }
+    }
+
+    fn compress(&mut self, block: &[u8; 128]) {
+        let mut w = [0u64; 80];
+        for i in 0..16 {
+            w[i] = u64::from_be_bytes(block[i * 8..i * 8 + 8].try_into().unwrap());
+        }
+        for i in 16..80 {
+            let s0 = w[i - 15].rotate_right(1) ^ w[i - 15].rotate_right(8) ^ (w[i - 15] >> 7);
+            let s1 = w[i - 2].rotate_right(19) ^ w[i - 2].rotate_right(61) ^ (w[i - 2] >> 6);
+            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+        }
+        let (mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h) = (
+            self.state[0], self.state[1], self.state[2], self.state[3], self.state[4],
+            self.state[5], self.state[6], self.state[7],
+        );
+        for i in 0..80 {
+            let s1 = e.rotate_right(14) ^ e.rotate_right(18) ^ e.rotate_right(41);
+            let ch = (e & f) ^ ((!e) & g);
+            let t1 = h
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(SHA512_K[i])
+                .wrapping_add(w[i]);
+            let s0 = a.rotate_right(28) ^ a.rotate_right(34) ^ a.rotate_right(39);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let t2 = s0.wrapping_add(maj);
+            h = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(t1);
+            d = c;
+            c = b;
+            b = a;
+            a = t1.wrapping_add(t2);
+        }
+        for (i, v) in [a, b, c, d, e, f, g, h].iter().enumerate() {
+            self.state[i] = self.state[i].wrapping_add(*v);
+        }
+    }
+
+    pub fn finalize(mut self) -> [u8; 64] {
+        let bitlen = (self.total as u128).wrapping_mul(8);
+        self.update(&[0x80]);
+        while self.buflen != 112 {
+            self.update(&[0]);
+        }
+        self.buf[112..128].copy_from_slice(&bitlen.to_be_bytes());
+        let block = self.buf;
+        self.compress(&block);
+        let mut out = [0u8; 64];
+        for i in 0..8 {
+            out[i * 8..i * 8 + 8].copy_from_slice(&self.state[i].to_be_bytes());
+        }
+        out
+    }
+}
+
+pub fn sha512(data: &[u8]) -> [u8; 64] {
+    let mut h = Sha512::new();
+    h.update(data);
+    h.finalize()
+}
+
+pub fn sha384(data: &[u8]) -> [u8; 48] {
+    let mut h = Sha512::new384();
+    h.update(data);
+    h.finalize()[..48].try_into().unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -433,7 +550,7 @@ fn gf128_mul(x: &[u8; 16], y: &[u8; 16]) -> [u8; 16] {
 
 fn ghash(h: &[u8; 16], aad: &[u8], ciphertext: &[u8]) -> [u8; 16] {
     let mut y = [0u8; 16];
-    let mut feed = |y: &mut [u8; 16], data: &[u8]| {
+    let feed = |y: &mut [u8; 16], data: &[u8]| {
         for chunk in data.chunks(16) {
             let mut block = [0u8; 16];
             block[..chunk.len()].copy_from_slice(chunk);
@@ -546,6 +663,29 @@ mod tests {
 
     fn hex(b: &[u8]) -> String {
         b.iter().map(|x| format!("{x:02x}")).collect()
+    }
+
+    #[test]
+    fn sha512_vectors() {
+        // FIPS 180-4 published examples ("abc").
+        assert_eq!(
+            hex(&sha512(b"abc")),
+            "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a"
+                .to_string()
+                + "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
+        );
+        assert_eq!(
+            hex(&sha384(b"abc")),
+            "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed"
+                .to_string()
+                + "8086072ba1e7cc2358baeca134c825a7"
+        );
+        // Streaming in odd chunks must agree with one-shot.
+        let mut h = Sha512::new();
+        for chunk in [b"a".as_slice(), b"b".as_slice(), b"c".as_slice()] {
+            h.update(chunk);
+        }
+        assert_eq!(h.finalize(), sha512(b"abc"));
     }
 
     #[test]

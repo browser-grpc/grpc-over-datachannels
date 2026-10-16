@@ -12,7 +12,7 @@ use dc_webrtc::peer::{Peer, PeerConfig};
 use dc_webrtc::proto_gen::{stun_attr, stun_msg};
 use dc_webrtc::stun::Message;
 use dc_webrtc::turn::{
-    decode_xor_address, turn_error_code, wrap_channel_data, xor_address_value, TurnServerConfig,
+    decode_xor_address, wrap_channel_data, xor_address_value, TurnServerConfig,
     TurnTransport,
 };
 use std::collections::HashMap;
@@ -411,6 +411,25 @@ fn fixture_cert_pem() -> Vec<u8> {
         "/../js/test/fixtures/turn_tls_cert.pem"
     ))
     .unwrap()
+}
+
+#[test]
+fn turn_tls_p384_relay_connect_verified() {
+    // Live handshake against a P-384-certificate OpenSSL
+    // server, with chain verification against an explicit root.
+    let Some(fake) = spawn_node_fake("tls384") else {
+        eprintln!("skipping: node not available");
+        return;
+    };
+    let root = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../js/test/fixtures/turn_tls384_cert.pem"
+    ))
+    .unwrap();
+    connect_and_echo(
+        stream_peer_with_roots(&fake.addr, TurnTransport::Tls, false, Some("localhost"), Some(root.clone())),
+        stream_peer_with_roots(&fake.addr, TurnTransport::Tls, false, Some("localhost"), Some(root)),
+    );
 }
 
 #[test]

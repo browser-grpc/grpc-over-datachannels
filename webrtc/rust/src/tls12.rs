@@ -9,14 +9,14 @@
 //! the presented chain must build to a trusted root (system
 //! store by default: `$SSL_CERT_FILE` or the usual PEM bundle
 //! paths; or an explicit RootStore), every link's signature
-//! must verify (ECDSA-with-SHA256 over P-256 keys and
-//! sha256WithRSAEncryption are supported; anything else fails
-//! closed), issuers must be CAs inside their validity window,
+//! must verify (ECDSA-with-SHA-256/384/512 over P-256/P-384
+//! keys and sha{256,384,512}WithRSAEncryption are supported;
+//! anything else fails closed), issuers must be CAs in window,
 //! the leaf must be inside its validity window and name the
 //! expected server (SAN dNSName / iPAddress, else CN), and
 //! the ServerKeyExchange signature must verify.
 
-use crate::crypto::{aes128_gcm_decrypt, aes128_gcm_encrypt, prf, random_bytes, sha256};
+use crate::crypto::{aes128_gcm_decrypt, aes128_gcm_encrypt, prf, random_bytes, sha256, sha384, sha512};
 use crate::p256::{PrivateKey, PublicKey};
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, TcpStream};
@@ -191,9 +191,9 @@ fn client_hello(server_name: Option<&str>, random: &[u8; 32]) -> Vec<u8> {
             extensions.extend_from_slice(&ext(0, &sni));
         }
     }
-    extensions.extend_from_slice(&ext(10, &[0, 2, 0, 23])); // supported_groups: secp256r1
+    extensions.extend_from_slice(&ext(10, &[0, 4, 0, 23, 0, 24])); // supported_groups: secp256r1, secp384r1
     extensions.extend_from_slice(&ext(11, &[1, 0])); // ec_point_formats: uncompressed
-    extensions.extend_from_slice(&ext(13, &[0, 2, 4, 3])); // signature_algorithms: ecdsa/sha256
+    extensions.extend_from_slice(&ext(13, &[0, 4, 4, 3, 5, 3])); // signature_algorithms: ecdsa/sha256, ecdsa/sha384
     body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
     body.extend_from_slice(&extensions);
     body
@@ -275,7 +275,23 @@ impl<'a> Der<'a> {
 
 enum CertKey {
     EcdsaP256(PublicKey),
+    EcdsaP384(crate::p384::PublicKey),
     Rsa { modulus: Vec<u8>, exponent: u64 },
+}
+
+#[derive(Clone, Copy)]
+enum HashAlg {
+    Sha256,
+    Sha384,
+    Sha512,
+}
+
+fn digest_for(hash: HashAlg, data: &[u8]) -> Vec<u8> {
+    match hash {
+        HashAlg::Sha256 => sha256(data).to_vec(),
+        HashAlg::Sha384 => sha384(data).to_vec(),
+        HashAlg::Sha512 => sha512(data).to_vec(),
+    }
 }
 
 enum CertSignature {
@@ -289,6 +305,7 @@ struct ParsedCert {
     key: CertKey,
     spki: Vec<u8>,
     signature: CertSignature,
+    hash: HashAlg,
     issuer: Vec<u8>,  // DER Name
     subject: Vec<u8>, // DER Name
     not_before: i64,
@@ -342,18 +359,16 @@ fn parse_ecdsa_signature(der: &[u8]) -> io::Result<(Vec<u8>, Vec<u8>)> {
             return Err(bad("tls: bad ECDSA signature"));
         }
         let bytes = content.strip_prefix(&[0]).unwrap_or(content);
-        let mut out = vec![0u8; 32];
-        if bytes.len() > 32 {
+        if bytes.len() > 72 {
             return Err(bad("tls: bad ECDSA signature"));
         }
-        out[32 - bytes.len()..].copy_from_slice(bytes);
-        Ok(out)
+        Ok(bytes.to_vec())
     };
     Ok((int(&mut reader)?, int(&mut reader)?))
 }
 
 /// Parse a SubjectPublicKeyInfo body into the key forms we can
-/// verify with: EC P-256 (id-ecPublicKey + prime256v1) and RSA.
+/// verify with: EC P-256 / P-384 and RSA.
 fn parse_spki_key(spki: &[u8]) -> io::Result<CertKey> {
     let mut reader = Der::new(spki);
     let (_, alg_content, _) = reader.read()?;
@@ -368,12 +383,17 @@ fn parse_spki_key(spki: &[u8]) -> io::Result<CertKey> {
         // id-ecPublicKey 1.2.840.10045.2.1 (+ curve OID parameter)
         [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01] => {
             let (_, curve_oid, _) = alg.read()?;
-            if curve_oid != [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07] {
-                return Err(bad("tls: unsupported EC curve in certificate"));
+            match curve_oid {
+                // prime256v1 1.2.840.10045.3.1.7
+                [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07] => PublicKey::decode(key_bytes)
+                    .map(CertKey::EcdsaP256)
+                    .ok_or_else(|| bad("tls: bad P-256 key in certificate")),
+                // secp384r1 1.3.132.0.34
+                [0x2b, 0x81, 0x04, 0x00, 0x22] => crate::p384::PublicKey::decode(key_bytes)
+                    .map(CertKey::EcdsaP384)
+                    .ok_or_else(|| bad("tls: bad P-384 key in certificate")),
+                _ => Err(bad("tls: unsupported EC curve in certificate")),
             }
-            PublicKey::decode(key_bytes)
-                .map(CertKey::EcdsaP256)
-                .ok_or_else(|| bad("tls: bad P-256 key in certificate"))
         }
         // rsaEncryption 1.2.840.113549.1.1.1
         [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01] => {
@@ -421,17 +441,32 @@ fn parse_cert(der_bytes: &[u8]) -> io::Result<ParsedCert> {
     if tag != 0x03 || sig_bits.is_empty() || sig_bits[0] != 0 {
         return Err(bad("tls: bad certificate signature"));
     }
-    // ecdsa-with-SHA256 1.2.840.10045.4.3.2 / sha256WithRSAEncryption
-    // 1.2.840.113549.1.1.11; anything else fails closed at verify.
-    let signature = match sig_alg_oid {
+    // ecdsa-with-SHA{256,384,512} 1.2.840.10045.4.3.{2,3,4} and
+    // sha{256,384,512}WithRSAEncryption 1.2.840.113549.1.1.{11,12,13};
+    // anything else fails closed at verify.
+    let (signature, hash) = match sig_alg_oid {
         [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02] => {
             let (r, s) = parse_ecdsa_signature(&sig_bits[1..])?;
-            CertSignature::Ecdsa(r, s)
+            (CertSignature::Ecdsa(r, s), HashAlg::Sha256)
+        }
+        [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x03] => {
+            let (r, s) = parse_ecdsa_signature(&sig_bits[1..])?;
+            (CertSignature::Ecdsa(r, s), HashAlg::Sha384)
+        }
+        [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x04] => {
+            let (r, s) = parse_ecdsa_signature(&sig_bits[1..])?;
+            (CertSignature::Ecdsa(r, s), HashAlg::Sha512)
         }
         [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b] => {
-            CertSignature::Rsa(sig_bits[1..].to_vec())
+            (CertSignature::Rsa(sig_bits[1..].to_vec()), HashAlg::Sha256)
         }
-        _ => CertSignature::Unsupported,
+        [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0c] => {
+            (CertSignature::Rsa(sig_bits[1..].to_vec()), HashAlg::Sha384)
+        }
+        [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0d] => {
+            (CertSignature::Rsa(sig_bits[1..].to_vec()), HashAlg::Sha512)
+        }
+        _ => (CertSignature::Unsupported, HashAlg::Sha256),
     };
 
     // Walk TBSCertificate: [0] version?, serial, alg, issuer,
@@ -537,6 +572,7 @@ fn parse_cert(der_bytes: &[u8]) -> io::Result<ParsedCert> {
         key,
         spki: spki_full.to_vec(),
         signature,
+        hash,
         issuer: issuer_full.to_vec(),
         subject: subject_full.to_vec(),
         not_before,
@@ -548,16 +584,20 @@ fn parse_cert(der_bytes: &[u8]) -> io::Result<ParsedCert> {
     })
 }
 
-fn ecdsa_verify(key: &PublicKey, digest: &[u8; 32], r_bytes: &[u8], s_bytes: &[u8]) -> bool {
-    let r: [u8; 32] = match r_bytes.try_into() {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    let s: [u8; 32] = match s_bytes.try_into() {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    key.verify(digest, &r, &s)
+fn pad<const N: usize>(bytes: &[u8]) -> Option<[u8; N]> {
+    if bytes.len() > N {
+        return None;
+    }
+    let mut out = [0u8; N];
+    out[N - bytes.len()..].copy_from_slice(bytes);
+    Some(out)
+}
+
+fn ecdsa_verify_p256(key: &PublicKey, digest: &[u8; 32], r_bytes: &[u8], s_bytes: &[u8]) -> bool {
+    match (pad::<32>(r_bytes), pad::<32>(s_bytes)) {
+        (Some(r), Some(s)) => key.verify(digest, &r, &s),
+        _ => false,
+    }
 }
 
 // --- RSA PKCS#1 v1.5 verify (public values only; no secret data,
@@ -649,7 +689,7 @@ fn big_mulmod(a: &BigUint, b: &BigUint, modulus: &BigUint) -> BigUint {
     acc
 }
 
-fn rsa_pkcs1_sha256_verify(digest: &[u8; 32], sig: &[u8], modulus: &[u8], exponent: u64) -> bool {
+fn rsa_pkcs1_verify(hash: HashAlg, digest: &[u8], sig: &[u8], modulus: &[u8], exponent: u64) -> bool {
     let n = big_from_be(modulus);
     let s = big_from_be(sig);
     if big_cmp(&s, &n) != std::cmp::Ordering::Less {
@@ -666,12 +706,25 @@ fn rsa_pkcs1_sha256_verify(digest: &[u8; 32], sig: &[u8], modulus: &[u8], expone
         }
     }
     let em = big_to_be(&result, modulus.len());
-    // EMSA-PKCS1-v1_5: 00 01 FF..00 || DigestInfo(SHA-256) || H
-    const DIGEST_INFO: [u8; 19] = [
+    // EMSA-PKCS1-v1_5: 00 01 FF..00 || DigestInfo(hash) || H
+    const INFO_SHA256: [u8; 19] = [
         0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
         0x05, 0x00, 0x04, 0x20,
     ];
-    let tail_len = DIGEST_INFO.len() + 32;
+    const INFO_SHA384: [u8; 19] = [
+        0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02,
+        0x05, 0x00, 0x04, 0x30,
+    ];
+    const INFO_SHA512: [u8; 19] = [
+        0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03,
+        0x05, 0x00, 0x04, 0x40,
+    ];
+    let digest_info: &[u8] = match hash {
+        HashAlg::Sha256 => &INFO_SHA256,
+        HashAlg::Sha384 => &INFO_SHA384,
+        HashAlg::Sha512 => &INFO_SHA512,
+    };
+    let tail_len = digest_info.len() + digest.len();
     if em.len() < tail_len + 11 || em[0] != 0 || em[1] != 1 {
         return false;
     }
@@ -679,15 +732,24 @@ fn rsa_pkcs1_sha256_verify(digest: &[u8; 32], sig: &[u8], modulus: &[u8], expone
     if em[sep - 1] != 0 || em[2..sep - 1].iter().any(|b| *b != 0xff) {
         return false;
     }
-    em[sep..sep + DIGEST_INFO.len()] == DIGEST_INFO && &em[sep + DIGEST_INFO.len()..] == digest
+    em[sep..sep + digest_info.len()] == *digest_info && &em[sep + digest_info.len()..] == digest
 }
 
 fn verify_signature(issuer: &ParsedCert, child: &ParsedCert) -> bool {
-    let digest = sha256(&child.tbs);
+    let digest = digest_for(child.hash, &child.tbs);
     match (&child.signature, &issuer.key) {
-        (CertSignature::Ecdsa(r, s), CertKey::EcdsaP256(key)) => ecdsa_verify(key, &digest, r, s),
+        (CertSignature::Ecdsa(r, s), CertKey::EcdsaP256(key)) => {
+            let truncated: [u8; 32] = digest[..32].try_into().unwrap();
+            ecdsa_verify_p256(key, &truncated, r, s)
+        }
+        (CertSignature::Ecdsa(r, s), CertKey::EcdsaP384(key)) => {
+            match (pad::<48>(r), pad::<48>(s)) {
+                (Some(r48), Some(s48)) => key.verify(&digest, &r48, &s48),
+                _ => false,
+            }
+        }
         (CertSignature::Rsa(sig), CertKey::Rsa { modulus, exponent }) => {
-            rsa_pkcs1_sha256_verify(&digest, sig, modulus, *exponent)
+            rsa_pkcs1_verify(child.hash, &digest, sig, modulus, *exponent)
         }
         _ => false,
     }
@@ -1023,9 +1085,14 @@ pub fn connect_with_roots(
         };
         verify_chain(&chain, roots, server_name)?;
     }
+    enum LeafKey {
+        P256(PublicKey),
+        P384(crate::p384::PublicKey),
+    }
     let leaf_key = match &chain[0].key {
-        CertKey::EcdsaP256(key) => *key,
-        _ => return Err(bad("tls: leaf certificate is not ECDSA P-256")),
+        CertKey::EcdsaP256(key) => LeafKey::P256(*key),
+        CertKey::EcdsaP384(key) => LeafKey::P384(*key),
+        _ => return Err(bad("tls: leaf certificate is not ECDSA")),
     };
 
     let (msg_type, body, _) = hs.next()?;
@@ -1035,21 +1102,36 @@ pub fn connect_with_roots(
     if msg_type != 12 {
         return Err(bad("tls: expected ServerKeyExchange"));
     }
-    // ECParameters: named_curve secp256r1 + point, then signature.
-    if body.len() < 4 || body[0] != 3 || body[1..3] != [0, 23] {
+    // ECParameters: named_curve secp256r1/secp384r1 + point, then signature.
+    if body.len() < 4 || body[0] != 3 {
         return Err(bad("tls: unsupported ServerKeyExchange parameters"));
     }
+    enum ServerPublic {
+        P256(PublicKey),
+        P384(crate::p384::PublicKey),
+    }
+    let curve = u16::from_be_bytes([body[1], body[2]]);
     let point_len = body[3] as usize;
     let params_end = 4 + point_len;
     let point_bytes = body.get(4..params_end).ok_or_else(|| bad("tls: truncated SKE point"))?;
-    let server_public =
-        PublicKey::decode(point_bytes).ok_or_else(|| bad("tls: bad SKE point"))?;
+    let server_public = match curve {
+        23 => ServerPublic::P256(
+            PublicKey::decode(point_bytes).ok_or_else(|| bad("tls: bad SKE point"))?,
+        ),
+        24 => ServerPublic::P384(
+            crate::p384::PublicKey::decode(point_bytes)
+                .ok_or_else(|| bad("tls: bad SKE point"))?,
+        ),
+        _ => return Err(bad("tls: unsupported ServerKeyExchange parameters")),
+    };
     let mut sig_cursor = Cursor::new(body.get(params_end..).ok_or_else(|| bad("tls: truncated SKE"))?);
     let hash_alg = sig_cursor.u8()?;
     let sig_alg = sig_cursor.u8()?;
-    if hash_alg != 4 || sig_alg != 3 {
-        return Err(bad("tls: unsupported SKE signature algorithm"));
-    }
+    let ske_hash = match (hash_alg, sig_alg) {
+        (4, 3) => HashAlg::Sha256,
+        (5, 3) => HashAlg::Sha384,
+        _ => return Err(bad("tls: unsupported SKE signature algorithm")),
+    };
     let sig_len = sig_cursor.u16()? as usize;
     let sig_der = sig_cursor.take(sig_len)?;
     if !insecure_skip_verify {
@@ -1057,9 +1139,19 @@ pub fn connect_with_roots(
         signed.extend_from_slice(&client_random);
         signed.extend_from_slice(&server_random);
         signed.extend_from_slice(&body[..params_end]);
-        let digest = sha256(&signed);
+        let digest = digest_for(ske_hash, &signed);
         let sig = parse_ecdsa_signature(sig_der)?;
-        if !ecdsa_verify(&leaf_key, &digest, &sig.0, &sig.1) {
+        let verified = match &leaf_key {
+            LeafKey::P256(key) => {
+                let truncated: [u8; 32] = digest[..32].try_into().unwrap();
+                ecdsa_verify_p256(key, &truncated, &sig.0, &sig.1)
+            }
+            LeafKey::P384(key) => match (pad::<48>(&sig.0), pad::<48>(&sig.1)) {
+                (Some(r), Some(s)) => key.verify(&digest, &r, &s),
+                _ => false,
+            },
+        };
+        if !verified {
             return Err(bad("tls: ServerKeyExchange signature invalid"));
         }
     }
@@ -1070,10 +1162,18 @@ pub fn connect_with_roots(
     }
 
     // --- client flight ---
-    let (secret, our_public) = PrivateKey::generate();
-    let premaster = secret
-        .ecdh(&server_public)
-        .ok_or_else(|| bad("tls: ECDHE failed"))?;
+    let (premaster, client_point): (Vec<u8>, Vec<u8>) = match &server_public {
+        ServerPublic::P256(server_key) => {
+            let (secret, ours) = PrivateKey::generate();
+            let shared = secret.ecdh(server_key).ok_or_else(|| bad("tls: ECDHE failed"))?;
+            (shared.to_vec(), ours.encode_uncompressed().to_vec())
+        }
+        ServerPublic::P384(server_key) => {
+            let (secret, ours) = crate::p384::PrivateKey::generate();
+            let shared = secret.ecdh(server_key).ok_or_else(|| bad("tls: ECDHE failed"))?;
+            (shared.to_vec(), ours.encode_uncompressed().to_vec())
+        }
+    };
     let mut seed = Vec::with_capacity(64);
     seed.extend_from_slice(&client_random);
     seed.extend_from_slice(&server_random);
@@ -1093,8 +1193,8 @@ pub fn connect_with_roots(
         seq: 0,
     };
 
-    let mut cke = vec![65u8];
-    cke.extend_from_slice(&our_public.encode_uncompressed());
+    let mut cke = vec![client_point.len() as u8];
+    cke.extend_from_slice(&client_point);
     hs.send(16, &cke)?;
     hs.conn.write_record(20, &[1])?;
     hs.conn.write_cipher = Some(client_write.clone());
@@ -1159,6 +1259,11 @@ mod tests {
     const EC_CA: &str = include_str!("../tests/fixtures/ec_ca.pem");
     const LEAF_EC: &str = include_str!("../tests/fixtures/leaf2.pem");
     const SELF_SIGNED: &str = include_str!("../tests/fixtures/ss.pem");
+    const P384_CA: &str = include_str!("../tests/fixtures/p384_ca.pem");
+    const LEAF_P384: &str = include_str!("../tests/fixtures/leaf3.pem");
+    const LEAF_P256_BY_P384: &str = include_str!("../tests/fixtures/leaf4.pem");
+    const LEAF_RSA384: &str = include_str!("../tests/fixtures/leaf5.pem");
+    const LEAF_RSA512: &str = include_str!("../tests/fixtures/leaf6.pem");
 
     fn cert(pem: &str) -> ParsedCert {
         let body = pem
@@ -1209,6 +1314,23 @@ mod tests {
     fn self_signed_leaf_needs_explicit_trust() {
         assert!(verify_chain(&[cert(SELF_SIGNED)], &RootStore::empty(), "localhost").is_err());
         verify_chain(&[cert(SELF_SIGNED)], &store_with(&[SELF_SIGNED]), "localhost").unwrap();
+    }
+
+    #[test]
+    fn p384_chain_with_sha384_signature_verifies() {
+        // P-384 CA (ecdsa-with-SHA384) issuing a P-384 leaf.
+        verify_chain(&[cert(LEAF_P384)], &store_with(&[P384_CA]), "localhost").unwrap();
+    }
+
+    #[test]
+    fn p384_issuer_over_p256_leaf_verifies() {
+        verify_chain(&[cert(LEAF_P256_BY_P384)], &store_with(&[P384_CA]), "localhost").unwrap();
+    }
+
+    #[test]
+    fn rsa_sha384_and_sha512_signatures_verify() {
+        verify_chain(&[cert(LEAF_RSA384)], &store_with(&[RSA_CA]), "localhost").unwrap();
+        verify_chain(&[cert(LEAF_RSA512)], &store_with(&[RSA_CA]), "localhost").unwrap();
     }
 
     #[test]
