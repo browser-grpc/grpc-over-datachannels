@@ -3,7 +3,7 @@ name = "grpc-dc-wasm-rust"
 version = "0.1.0"
 edition = "2021"
 description = "Native WASM Rust gRPC-over-DataChannels client: the real grpc_dc runtime compiled to wasm32, bridged to an RTCDataChannel by wasm-bindgen (contrast with ../go, whose wasm client facades the JS implementation)"
-license = "MIT"
+license = "Apache-2.0"
 
 [lib]
 crate-type = ["cdylib"]

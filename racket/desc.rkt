@@ -105,6 +105,20 @@
 (define (encode-error-response message)
   (pb-string-field 1 message))
 
+;; Stamp the generated-output grant (GENERATED-CODE-LICENSE.md) as
+;; the first line of every plugin output file, using the target
+;; language's line-comment syntax (chosen by file extension).
+(define (stamp-generated-header file-pair)
+  (define prefix
+    (cond [(or (string-suffix? (car file-pair) ".py")
+               (string-suffix? (car file-pair) ".rb")) "#"]
+          [(string-suffix? (car file-pair) ".lua") "--"]
+          [else "//"]))
+  (cons (car file-pair)
+        (string-append prefix
+                       " Generated code: use without restriction (see GENERATED-CODE-LICENSE.md).\n"
+                       (cdr file-pair))))
+
 
 ;; ---------------------------------------------------------------------------
 ;; Rename-alias method clones (version resilience)

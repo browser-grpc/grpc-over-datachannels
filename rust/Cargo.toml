@@ -3,7 +3,7 @@ name = "grpc-dc"
 version = "0.1.0"
 edition = "2021"
 description = "gRPC over WebRTC DataChannels — Rust runtime (wire protocol generated from a Racket metaprogram)"
-license = "MIT"
+license = "Apache-2.0"
 readme = "../README.md"
 
 [lib]

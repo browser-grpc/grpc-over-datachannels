@@ -342,6 +342,21 @@
 
 (define (encode-error-response message) (pb-string-field 1 message))
 
+(define (stamp-generated-header file-pair)
+  (define prefix
+    (cond
+     ((or (string-suffix? (car file-pair) ".py")
+          (string-suffix? (car file-pair) ".rb"))
+      "#")
+     ((string-suffix? (car file-pair) ".lua") "--")
+     (else "//")))
+  (cons
+   (car file-pair)
+   (string-append
+    prefix
+    " Generated code: use without restriction (see GENERATED-CODE-LICENSE.md).\n"
+    (cdr file-pair))))
+
 (define (method-impl-name m) (hash-ref m 'impl-name (hash-ref m 'name)))
 
 (define (find-method svc name)
@@ -951,7 +966,8 @@
   (define-values (files parameter) (parse-request request-bytes))
   (define params (parse-parameters parameter))
   (write-bytes
-   (encode-response (map (lambda (f) (emit-lua-file f params)) files))
+   (encode-response
+    (map (lambda (f) (stamp-generated-header (emit-lua-file f params))) files))
    (current-output-port))
   (flush-output))
 (with-handlers
