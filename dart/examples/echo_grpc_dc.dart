@@ -18,31 +18,31 @@ class EchoClient {
   EchoClient(this._channel);
 
   Future<EchoResponse> unary(EchoRequest req,
-      {Map<String, String>? metadata}) async {
+      {Map<String, String>? metadata, Duration? timeout}) async {
     final resp = EchoResponse();
-    await _channel.unary("/echo.Echo/Unary", req, resp, metadata: metadata);
+    await _channel.unary("/echo.Echo/Unary", req, resp, metadata: metadata, timeout: timeout);
     return resp;
   }
 
   Future<EchoServerStreamStream> serverStream(EchoRequest req,
-      {Map<String, String>? metadata}) async {
+      {Map<String, String>? metadata, Duration? timeout}) async {
     return EchoServerStreamStream(
         await _channel.serverStream("/echo.Echo/ServerStream", req,
-            metadata: metadata));
+            metadata: metadata, timeout: timeout));
   }
 
   Future<EchoResponse> clientStream(List<EchoRequest> reqs,
-      {Map<String, String>? metadata}) async {
+      {Map<String, String>? metadata, Duration? timeout}) async {
     final resp = EchoResponse();
     await _channel.clientStreamCall("/echo.Echo/ClientStream", reqs, resp,
-        metadata: metadata);
+        metadata: metadata, timeout: timeout);
     return resp;
   }
 
   Future<EchoBidiStream> bidi(List<EchoRequest> reqs,
-      {Map<String, String>? metadata}) async {
+      {Map<String, String>? metadata, Duration? timeout}) async {
     return EchoBidiStream(
-        await _channel.bidi("/echo.Echo/Bidi", reqs, metadata: metadata));
+        await _channel.bidi("/echo.Echo/Bidi", reqs, metadata: metadata, timeout: timeout));
   }
 
 }

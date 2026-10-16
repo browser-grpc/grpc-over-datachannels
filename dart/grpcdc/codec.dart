@@ -107,6 +107,42 @@ class Codec {
         Wire.frameHeaders, streamId, utf8.encode(jsonEncode(body)));
   }
 
+  /// gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+  /// units H/M/S/m/u/n (at most 8 digits). Encoding uses
+  /// milliseconds (seconds past the digit limit), rounded up.
+  static String encodeTimeout(Duration timeout) {
+    var ms = timeout.inMilliseconds;
+    if (timeout - Duration(milliseconds: ms) > Duration.zero) ms++;
+    if (ms <= 99999999) return '${ms}m';
+    var secs = timeout.inSeconds;
+    if (timeout - Duration(seconds: secs) > Duration.zero) secs++;
+    return '${secs}S';
+  }
+
+  /// Decoded grpc-timeout, or null when malformed/absent.
+  static Duration? parseTimeout(String? text) {
+    if (text == null || text.length < 2 || text.length > 9) return null;
+    final digits = text.substring(0, text.length - 1);
+    final n = int.tryParse(digits);
+    if (n == null) return null;
+    switch (text[text.length - 1]) {
+      case 'H':
+        return Duration(hours: n);
+      case 'M':
+        return Duration(minutes: n);
+      case 'S':
+        return Duration(seconds: n);
+      case 'm':
+        return Duration(milliseconds: n);
+      case 'u':
+        return Duration(microseconds: n);
+      case 'n':
+        return Duration(microseconds: (n + 999) ~/ 1000);
+      default:
+        return null;
+    }
+  }
+
   static Uint8List statusFrame(
       int frameType, int streamId, StatusException status) {
     final body = jsonEncode({'code': status.code, 'message': status.message});

@@ -12,16 +12,34 @@ import 'wire.dart';
 /// Receives response messages of one call.
 class ClientStream {
   final int streamId;
+  final Endpoint _endpoint;
   final StreamInput _input;
   Headers? headers;
+  DateTime? deadline;
 
-  ClientStream(this.streamId, this._input);
+  ClientStream(this.streamId, this._endpoint, this._input);
+
+  /// Abort this stream (sends RST, wakes a pending recv).
+  void cancel() => _endpoint.cancelStream(streamId);
 
   /// Decode the next response into resp. EndOfStreamError means the
   /// call completed OK; StatusException reports the trailers status.
   Future<void> recv(Unmarshaler resp) async {
     while (true) {
-      final event = await _input.get();
+      final StreamEvent? event;
+      if (deadline != null) {
+        try {
+          event = await _input
+              .get()
+              .timeout(deadline!.difference(DateTime.now()));
+        } on TimeoutException {
+          _endpoint.cancelStream(streamId);
+          throw StatusException(
+              Wire.codeDeadlineExceeded, 'deadline exceeded');
+        }
+      } else {
+        event = await _input.get();
+      }
       if (event == null) {
         throw StatusException(Wire.codeUnavailable, 'data channel closed');
       }
@@ -62,7 +80,16 @@ class Channel {
     endpoint.start();
   }
 
-  Future<ClientStream> _open(String path, Map<String, String>? metadata) async {
+  Future<ClientStream> _open(String path, Map<String, String>? metadata,
+      {Duration? timeout}) async {
+    DateTime? deadline;
+    if (timeout != null) {
+      deadline = DateTime.now().add(timeout);
+      metadata = {
+        if (metadata != null) ...metadata,
+        'grpc-timeout': Codec.encodeTimeout(timeout),
+      };
+    }
     final opened = endpoint.openStream();
     try {
       endpoint.sendFrame(Codec.headersFrame(opened.id, path, metadata));
@@ -70,7 +97,9 @@ class Channel {
       endpoint.closeStream(opened.id);
       rethrow;
     }
-    return ClientStream(opened.id, opened.input);
+    final stream = ClientStream(opened.id, endpoint, opened.input);
+    stream.deadline = deadline;
+    return stream;
   }
 
   void _sendMessage(ClientStream stream, Marshaler msg) {
@@ -112,8 +141,8 @@ class Channel {
 
   /// Run a unary call, decoding the single response into resp.
   Future<void> unary(String path, Marshaler req, Unmarshaler resp,
-      {Map<String, String>? metadata}) async {
-    final stream = await _open(path, metadata);
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final stream = await _open(path, metadata, timeout: timeout);
     try {
       _sendMessage(stream, req);
       _halfClose(stream);
@@ -125,8 +154,8 @@ class Channel {
 
   /// Start a server-streaming call.
   Future<ClientStream> serverStream(String path, Marshaler req,
-      {Map<String, String>? metadata}) async {
-    final stream = await _open(path, metadata);
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final stream = await _open(path, metadata, timeout: timeout);
     _sendMessage(stream, req);
     _halfClose(stream);
     return stream;
@@ -135,8 +164,8 @@ class Channel {
   /// Send all requests, then decode the one response into resp.
   Future<void> clientStreamCall(String path, List<Marshaler> reqs,
       Unmarshaler resp,
-      {Map<String, String>? metadata}) async {
-    final stream = await _open(path, metadata);
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final stream = await _open(path, metadata, timeout: timeout);
     try {
       _sendAll(stream, reqs);
       await _collectOne(stream, resp, 'client-streaming call');
@@ -147,8 +176,8 @@ class Channel {
 
   /// Start a bidi call with all requests sent up front.
   Future<ClientStream> bidi(String path, List<Marshaler> reqs,
-      {Map<String, String>? metadata}) async {
-    final stream = await _open(path, metadata);
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final stream = await _open(path, metadata, timeout: timeout);
     _sendAll(stream, reqs);
     return stream;
   }

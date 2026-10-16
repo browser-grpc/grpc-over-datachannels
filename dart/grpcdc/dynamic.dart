@@ -659,40 +659,40 @@ class DynamicClient {
 
   Future<GenericMessage> unary(String service, String method,
       GenericMessage req,
-      {Map<String, String>? metadata}) async {
+      {Map<String, String>? metadata, Duration? timeout}) async {
     final m = _method(service, method);
     final resp = _BoundMessage(m.output!, GenericMessage(m.output), _model);
     await _channel.unary(m.path, _BoundMessage(m.input!, req, _model), resp,
-        metadata: metadata);
+        metadata: metadata, timeout: timeout);
     return resp.generic;
   }
 
   Future<DynamicStream> serverStream(String service, String method,
       GenericMessage req,
-      {Map<String, String>? metadata}) async {
+      {Map<String, String>? metadata, Duration? timeout}) async {
     final m = _method(service, method);
     final stream = await _channel.serverStream(
         m.path, _BoundMessage(m.input!, req, _model),
-        metadata: metadata);
+        metadata: metadata, timeout: timeout);
     return DynamicStream(stream, m.output!, _model);
   }
 
   Future<GenericMessage> clientStream(String service, String method,
       List<GenericMessage> reqs,
-      {Map<String, String>? metadata}) async {
+      {Map<String, String>? metadata, Duration? timeout}) async {
     final m = _method(service, method);
     final bound = reqs.map((r) => _BoundMessage(m.input!, r, _model)).toList();
     final resp = _BoundMessage(m.output!, GenericMessage(m.output), _model);
-    await _channel.clientStreamCall(m.path, bound, resp, metadata: metadata);
+    await _channel.clientStreamCall(m.path, bound, resp, metadata: metadata, timeout: timeout);
     return resp.generic;
   }
 
   Future<DynamicStream> bidi(String service, String method,
       List<GenericMessage> reqs,
-      {Map<String, String>? metadata}) async {
+      {Map<String, String>? metadata, Duration? timeout}) async {
     final m = _method(service, method);
     final bound = reqs.map((r) => _BoundMessage(m.input!, r, _model)).toList();
-    final stream = await _channel.bidi(m.path, bound, metadata: metadata);
+    final stream = await _channel.bidi(m.path, bound, metadata: metadata, timeout: timeout);
     return DynamicStream(stream, m.output!, _model);
   }
 }

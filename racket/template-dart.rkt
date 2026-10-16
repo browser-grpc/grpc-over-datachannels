@@ -43,37 +43,37 @@
     [(unary)
      (format (string-append
               "  Future<~a> ~a(~a req,\n"
-              "      {Map<String, String>? metadata}) async {\n"
+              "      {Map<String, String>? metadata, Duration? timeout}) async {\n"
               "    final resp = ~a();\n"
-              "    await _channel.unary(~s, req, resp, metadata: metadata);\n"
+              "    await _channel.unary(~s, req, resp, metadata: metadata, timeout: timeout);\n"
               "    return resp;\n"
               "  }\n\n")
              resp name req resp path)]
     [(server-streaming)
      (format (string-append
               "  Future<~a~aStream> ~a(~a req,\n"
-              "      {Map<String, String>? metadata}) async {\n"
+              "      {Map<String, String>? metadata, Duration? timeout}) async {\n"
               "    return ~a~aStream(\n"
               "        await _channel.serverStream(~s, req,\n"
-              "            metadata: metadata));\n"
+              "            metadata: metadata, timeout: timeout));\n"
               "  }\n\n")
              svc orig-name name req svc orig-name path)]
     [(client-streaming)
      (format (string-append
               "  Future<~a> ~a(List<~a> reqs,\n"
-              "      {Map<String, String>? metadata}) async {\n"
+              "      {Map<String, String>? metadata, Duration? timeout}) async {\n"
               "    final resp = ~a();\n"
               "    await _channel.clientStreamCall(~s, reqs, resp,\n"
-              "        metadata: metadata);\n"
+              "        metadata: metadata, timeout: timeout);\n"
               "    return resp;\n"
               "  }\n\n")
              resp name req resp path)]
     [(bidi)
      (format (string-append
               "  Future<~a~aStream> ~a(List<~a> reqs,\n"
-              "      {Map<String, String>? metadata}) async {\n"
+              "      {Map<String, String>? metadata, Duration? timeout}) async {\n"
               "    return ~a~aStream(\n"
-              "        await _channel.bidi(~s, reqs, metadata: metadata));\n"
+              "        await _channel.bidi(~s, reqs, metadata: metadata, timeout: timeout));\n"
               "  }\n\n")
              svc orig-name name req svc orig-name path)]))
 

@@ -61,7 +61,22 @@ class StreamInput {
 class CallContext {
   final Map<String, String> metadata;
 
-  CallContext(this.metadata);
+  /// Deadline propagated via grpc-timeout, when the client set one.
+  final DateTime? deadline;
+
+  CallContext(this.metadata)
+      : deadline = Codec.parseTimeout(metadata['grpc-timeout']) == null
+            ? null
+            : DateTime.now().add(Codec.parseTimeout(metadata['grpc-timeout'])!);
+
+  /// Time left before the deadline, or null when unbounded.
+  Duration? timeRemaining() {
+    if (deadline == null) return null;
+    final left = deadline!.difference(DateTime.now());
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  bool get deadlineExceeded => timeRemaining() == Duration.zero;
 }
 
 /// Sends response payloads of one inbound call.
@@ -130,6 +145,22 @@ class Endpoint {
 
   void closeStream(int id) {
     _streams.remove(id);
+  }
+
+  /// Abort one stream: RST out; a pending recv wakes with CANCELLED.
+  void cancelStream(int id) {
+    final input = _streams.remove(id);
+    if (input != null) {
+      input.put(StreamEvent(EventKind.rst,
+          status: StatusException(Wire.codeCancelled, 'call cancelled')));
+      input.close();
+    }
+    try {
+      sendFrame(Codec.statusFrame(Wire.frameRst, id,
+          StatusException(Wire.codeCancelled, 'call cancelled')));
+    } catch (_) {
+      // Transport already gone; the local abort still stands.
+    }
   }
 
   StreamInput? _stream(int id) => _streams[id];
