@@ -269,10 +269,21 @@ fn fake_turn_tcp() -> (SocketAddr, Arc<Mutex<FakeStreamTurn>>) {
 // ---------------------------------------------------------------------------
 
 fn stream_peer(server: &str, transport: TurnTransport, insecure: bool, server_name: Option<&str>) -> Peer {
+    stream_peer_with_roots(server, transport, insecure, server_name, None)
+}
+
+fn stream_peer_with_roots(
+    server: &str,
+    transport: TurnTransport,
+    insecure: bool,
+    server_name: Option<&str>,
+    roots: Option<Vec<u8>>,
+) -> Peer {
     let mut cfg = TurnServerConfig::new(server, USER, PASS);
     cfg.transport = transport;
     cfg.insecure_skip_verify = insecure;
     cfg.server_name = server_name.map(|s| s.to_string());
+    cfg.root_certs_pem = roots;
     Peer::new(PeerConfig {
         local_ips: vec![IpAddr::V4(Ipv4Addr::new(10, 11, 12, 13))],
         require_peer_certificate: true,
@@ -394,19 +405,52 @@ fn turn_tls_relay_connect_insecure() {
     );
 }
 
+fn fixture_cert_pem() -> Vec<u8> {
+    std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../js/test/fixtures/turn_tls_cert.pem"
+    ))
+    .unwrap()
+}
+
 #[test]
 fn turn_tls_relay_connect_verified() {
-    // Chain + SAN verification on: the fixture cert is
-    // self-signed with SAN DNS:localhost, which our narrow
-    // verifier accepts for server_name "localhost".
+    // Root trust + SAN verification on: the fixture cert is
+    // self-signed with SAN DNS:localhost, trusted here by
+    // handing it to the client as an explicit root.
     let Some(fake) = spawn_node_fake("tls") else {
         eprintln!("skipping: node not available");
         return;
     };
     connect_and_echo(
-        stream_peer(&fake.addr, TurnTransport::Tls, false, Some("localhost")),
-        stream_peer(&fake.addr, TurnTransport::Tls, false, Some("localhost")),
+        stream_peer_with_roots(
+            &fake.addr,
+            TurnTransport::Tls,
+            false,
+            Some("localhost"),
+            Some(fixture_cert_pem()),
+        ),
+        stream_peer_with_roots(
+            &fake.addr,
+            TurnTransport::Tls,
+            false,
+            Some("localhost"),
+            Some(fixture_cert_pem()),
+        ),
     );
+}
+
+#[test]
+fn turn_tls_untrusted_root_rejected() {
+    // Same fixture cert and correct name, but no trusted root:
+    // the self-signed chain must not verify.
+    let Some(fake) = spawn_node_fake("tls") else {
+        eprintln!("skipping: node not available");
+        return;
+    };
+    let mut peer = stream_peer(&fake.addr, TurnTransport::Tls, false, Some("localhost"));
+    let offer = peer.create_offer();
+    assert!(!offer.contains("typ relay"), "relay candidate despite untrusted root:\n{offer}");
 }
 
 #[test]

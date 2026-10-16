@@ -59,6 +59,10 @@ pub struct TurnServerConfig {
     /// Skip TLS certificate verification (self-signed
     /// deployments/tests). Ignored for non-TLS transports.
     pub insecure_skip_verify: bool,
+    /// PEM root certificates to trust for TLS instead of the
+    /// system store (self-signed/private-CA deployments).
+    /// Ignored for non-TLS transports.
+    pub root_certs_pem: Option<Vec<u8>>,
 }
 
 impl TurnServerConfig {
@@ -70,6 +74,7 @@ impl TurnServerConfig {
             transport: TurnTransport::Udp,
             server_name: None,
             insecure_skip_verify: false,
+            root_certs_pem: None,
         }
     }
 }
@@ -296,12 +301,21 @@ fn connect_stream(
                 .server_name
                 .clone()
                 .unwrap_or_else(|| server.ip().to_string());
-            let (read_half, write_half) =
-                crate::tls12::connect(stream, &server_name, cfg.insecure_skip_verify)
-                    .map_err(|e| {
-                        let _ = shutdown.shutdown(Shutdown::Both);
-                        e
-                    })?;
+            let roots = cfg.root_certs_pem.as_ref().map(|pem| {
+                let mut store = crate::tls12::RootStore::empty();
+                store.add_pem(pem);
+                store
+            });
+            let (read_half, write_half) = crate::tls12::connect_with_roots(
+                stream,
+                &server_name,
+                cfg.insecure_skip_verify,
+                roots.as_ref(),
+            )
+            .map_err(|e| {
+                let _ = shutdown.shutdown(Shutdown::Both);
+                e
+            })?;
             Ok((
                 StreamWriter::Tls(Arc::new(Mutex::new(write_half))),
                 Box::new(read_half),

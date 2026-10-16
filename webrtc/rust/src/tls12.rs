@@ -5,15 +5,16 @@
 //! resumption, no Extended Master Secret (never offered).
 //! Built on the same hand-rolled crypto as dtls.rs.
 //!
-//! Certificate policy is deliberately narrow (a std-only stack
-//! ships no WebPKI root store): unless insecure_skip_verify is
-//! set, the presented chain must be signature-valid up to a
-//! self-signed top, the leaf must be inside its validity
-//! window and name the expected server (SAN dNSName /
-//! iPAddress, else CN), and the ServerKeyExchange signature
-//! must verify. That is chain hygiene, not root trust —
-//! deployments that need WebPKI should terminate TLS
-//! elsewhere.
+//! Certificate policy: unless insecure_skip_verify is set,
+//! the presented chain must build to a trusted root (system
+//! store by default: `$SSL_CERT_FILE` or the usual PEM bundle
+//! paths; or an explicit RootStore), every link's signature
+//! must verify (ECDSA-with-SHA256 over P-256 keys and
+//! sha256WithRSAEncryption are supported; anything else fails
+//! closed), issuers must be CAs inside their validity window,
+//! the leaf must be inside its validity window and name the
+//! expected server (SAN dNSName / iPAddress, else CN), and
+//! the ServerKeyExchange signature must verify.
 
 use crate::crypto::{aes128_gcm_decrypt, aes128_gcm_encrypt, prf, random_bytes, sha256};
 use crate::p256::{PrivateKey, PublicKey};
@@ -222,14 +223,11 @@ impl<'a> Cursor<'a> {
         let n = self.u8()? as usize;
         self.take(n).map(|_| ())
     }
-    fn skip_len16(&mut self) -> io::Result<()> {
-        let n = self.u16()? as usize;
-        self.take(n).map(|_| ())
-    }
+
 }
 
 // ---------------------------------------------------------------------------
-// Certificate parsing/verification (ECDSA P-256 chains only)
+// Certificate parsing/verification (ECDSA P-256 and RSA keys)
 // ---------------------------------------------------------------------------
 
 /// A tiny DER TLV reader (definite lengths only).
@@ -275,13 +273,27 @@ impl<'a> Der<'a> {
     }
 }
 
+enum CertKey {
+    EcdsaP256(PublicKey),
+    Rsa { modulus: Vec<u8>, exponent: u64 },
+}
+
+enum CertSignature {
+    Ecdsa(Vec<u8>, Vec<u8>), // (r, s), big-endian
+    Rsa(Vec<u8>),
+    Unsupported,
+}
+
 struct ParsedCert {
     tbs: Vec<u8>,
-    public_key: PublicKey,
-    signature: (Vec<u8>, Vec<u8>), // (r, s), big-endian
-    self_signed_name: bool,       // issuer == subject (raw bytes)
+    key: CertKey,
+    spki: Vec<u8>,
+    signature: CertSignature,
+    issuer: Vec<u8>,  // DER Name
+    subject: Vec<u8>, // DER Name
     not_before: i64,
     not_after: i64,
+    is_ca: bool, // BasicConstraints cA (false when absent)
     sans_dns: Vec<String>,
     sans_ip: Vec<IpAddr>,
     cn: Option<String>,
@@ -324,7 +336,7 @@ fn parse_ecdsa_signature(der: &[u8]) -> io::Result<(Vec<u8>, Vec<u8>)> {
         return Err(bad("tls: bad ECDSA signature"));
     }
     let mut reader = Der::new(seq);
-    let mut int = |reader: &mut Der<'_>| -> io::Result<Vec<u8>> {
+    let int = |reader: &mut Der<'_>| -> io::Result<Vec<u8>> {
         let (tag, content, _) = reader.read()?;
         if tag != 0x02 {
             return Err(bad("tls: bad ECDSA signature"));
@@ -340,6 +352,57 @@ fn parse_ecdsa_signature(der: &[u8]) -> io::Result<(Vec<u8>, Vec<u8>)> {
     Ok((int(&mut reader)?, int(&mut reader)?))
 }
 
+/// Parse a SubjectPublicKeyInfo body into the key forms we can
+/// verify with: EC P-256 (id-ecPublicKey + prime256v1) and RSA.
+fn parse_spki_key(spki: &[u8]) -> io::Result<CertKey> {
+    let mut reader = Der::new(spki);
+    let (_, alg_content, _) = reader.read()?;
+    let mut alg = Der::new(alg_content);
+    let (_, oid, _) = alg.read()?;
+    let (tag, bitstring, _) = reader.read()?;
+    if tag != 0x03 || bitstring.is_empty() || bitstring[0] != 0 {
+        return Err(bad("tls: bad subject public key"));
+    }
+    let key_bytes = &bitstring[1..];
+    match oid {
+        // id-ecPublicKey 1.2.840.10045.2.1 (+ curve OID parameter)
+        [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01] => {
+            let (_, curve_oid, _) = alg.read()?;
+            if curve_oid != [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07] {
+                return Err(bad("tls: unsupported EC curve in certificate"));
+            }
+            PublicKey::decode(key_bytes)
+                .map(CertKey::EcdsaP256)
+                .ok_or_else(|| bad("tls: bad P-256 key in certificate"))
+        }
+        // rsaEncryption 1.2.840.113549.1.1.1
+        [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01] => {
+            let mut top = Der::new(key_bytes);
+            let (tag, seq, _) = top.read()?;
+            if tag != 0x30 {
+                return Err(bad("tls: bad RSA key in certificate"));
+            }
+            let mut ints = Der::new(seq);
+            let (_, modulus, _) = ints.read()?;
+            let (_, exponent_bytes, _) = ints.read()?;
+            let modulus = modulus.strip_prefix(&[0]).unwrap_or(modulus);
+            if modulus.len() < 128 || modulus.len() > 1024 {
+                return Err(bad("tls: unsupported RSA modulus size"));
+            }
+            let exponent_bytes = exponent_bytes.strip_prefix(&[0]).unwrap_or(exponent_bytes);
+            if exponent_bytes.is_empty() || exponent_bytes.len() > 8 {
+                return Err(bad("tls: unsupported RSA exponent"));
+            }
+            let mut exponent: u64 = 0;
+            for byte in exponent_bytes {
+                exponent = (exponent << 8) | *byte as u64;
+            }
+            Ok(CertKey::Rsa { modulus: modulus.to_vec(), exponent })
+        }
+        _ => Err(bad("tls: unsupported public key algorithm in certificate")),
+    }
+}
+
 fn parse_cert(der_bytes: &[u8]) -> io::Result<ParsedCert> {
     let mut top = Der::new(der_bytes);
     let (tag, cert_body, _) = top.read()?;
@@ -351,14 +414,25 @@ fn parse_cert(der_bytes: &[u8]) -> io::Result<ParsedCert> {
     if tag != 0x30 {
         return Err(bad("tls: bad certificate"));
     }
-    let _alg = cert.read()?;
+    let (_, alg_content, _) = cert.read()?;
+    let mut alg_reader = Der::new(alg_content);
+    let (_, sig_alg_oid, _) = alg_reader.read()?;
     let (tag, sig_bits, _) = cert.read()?;
     if tag != 0x03 || sig_bits.is_empty() || sig_bits[0] != 0 {
         return Err(bad("tls: bad certificate signature"));
     }
-    let signature = parse_ecdsa_signature(&sig_bits[1..])?;
-    let public_key =
-        crate::x509::parse_public_key(der_bytes).ok_or_else(|| bad("tls: no P-256 key in certificate"))?;
+    // ecdsa-with-SHA256 1.2.840.10045.4.3.2 / sha256WithRSAEncryption
+    // 1.2.840.113549.1.1.11; anything else fails closed at verify.
+    let signature = match sig_alg_oid {
+        [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02] => {
+            let (r, s) = parse_ecdsa_signature(&sig_bits[1..])?;
+            CertSignature::Ecdsa(r, s)
+        }
+        [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b] => {
+            CertSignature::Rsa(sig_bits[1..].to_vec())
+        }
+        _ => CertSignature::Unsupported,
+    };
 
     // Walk TBSCertificate: [0] version?, serial, alg, issuer,
     // validity, subject, spki, ..., [3] extensions?
@@ -383,9 +457,11 @@ fn parse_cert(der_bytes: &[u8]) -> io::Result<ParsedCert> {
         (parse_time(t1, c1)?, parse_time(t2, c2)?)
     };
     let (_, subject_content, subject_full) = tbs.read()?;
-    let _spki = tbs.read()?;
+    let (_, spki_content, spki_full) = tbs.read()?;
+    let key = parse_spki_key(spki_content)?;
     let mut sans_dns = Vec::new();
     let mut sans_ip = Vec::new();
+    let mut is_ca = false;
     // Remaining elements: optional [1]/[2] unique ids, [3] extensions.
     while tbs.pos < tbs.data.len() {
         let (etag, content, _) = tbs.read()?;
@@ -399,10 +475,6 @@ fn parse_cert(der_bytes: &[u8]) -> io::Result<ParsedCert> {
             let (_, ext_body, _) = exts.read()?;
             let mut ext_reader = Der::new(ext_body);
             let (_, oid, _) = ext_reader.read()?;
-            // subjectAltName OID 2.5.29.17 == 55 1d 11
-            if oid != [0x55, 0x1d, 0x11] {
-                continue;
-            }
             // Optional critical BOOLEAN, then OCTET STRING value.
             let (vtag, value, _) = ext_reader.read()?;
             let value = if vtag == 0x01 {
@@ -410,6 +482,22 @@ fn parse_cert(der_bytes: &[u8]) -> io::Result<ParsedCert> {
             } else {
                 value
             };
+            // basicConstraints OID 2.5.29.19 == 55 1d 13:
+            // SEQUENCE { BOOLEAN cA DEFAULT FALSE, pathLen? }
+            if oid == [0x55, 0x1d, 0x13] {
+                let mut bc_wrap = Der::new(value);
+                if let Ok((_, seq, _)) = bc_wrap.read() {
+                    let mut bc = Der::new(seq);
+                    if let Ok((btag, bval, _)) = bc.read() {
+                        is_ca = btag == 0x01 && bval.first().map_or(false, |b| *b != 0);
+                    }
+                }
+                continue;
+            }
+            // subjectAltName OID 2.5.29.17 == 55 1d 11
+            if oid != [0x55, 0x1d, 0x11] {
+                continue;
+            }
             let mut names = Der::new(value);
             let (_, names_seq, _) = names.read()?;
             let mut name_reader = Der::new(names_seq);
@@ -446,30 +534,274 @@ fn parse_cert(der_bytes: &[u8]) -> io::Result<ParsedCert> {
     }
     Ok(ParsedCert {
         tbs: tbs_full.to_vec(),
-        public_key,
+        key,
+        spki: spki_full.to_vec(),
         signature,
-        self_signed_name: issuer_full == subject_full,
+        issuer: issuer_full.to_vec(),
+        subject: subject_full.to_vec(),
         not_before,
         not_after,
+        is_ca,
         sans_dns,
         sans_ip,
         cn,
     })
 }
 
-fn ecdsa_verify(key: &PublicKey, digest: &[u8; 32], sig: &(Vec<u8>, Vec<u8>)) -> bool {
-    let r: [u8; 32] = match sig.0.as_slice().try_into() {
+fn ecdsa_verify(key: &PublicKey, digest: &[u8; 32], r_bytes: &[u8], s_bytes: &[u8]) -> bool {
+    let r: [u8; 32] = match r_bytes.try_into() {
         Ok(v) => v,
         Err(_) => return false,
     };
-    let s: [u8; 32] = match sig.1.as_slice().try_into() {
+    let s: [u8; 32] = match s_bytes.try_into() {
         Ok(v) => v,
         Err(_) => return false,
     };
     key.verify(digest, &r, &s)
 }
 
-fn verify_presented_chain(certs: &[ParsedCert], server_name: &str) -> io::Result<()> {
+// --- RSA PKCS#1 v1.5 verify (public values only; no secret data,
+// so straightforward bignum arithmetic is fine) ---
+
+type BigUint = Vec<u32>; // little-endian limbs
+
+fn big_from_be(bytes: &[u8]) -> BigUint {
+    let mut limbs = vec![0u32; bytes.len().div_ceil(4)];
+    for (i, byte) in bytes.iter().rev().enumerate() {
+        limbs[i / 4] |= (*byte as u32) << ((i % 4) * 8);
+    }
+    while limbs.len() > 1 && *limbs.last().unwrap() == 0 {
+        limbs.pop();
+    }
+    limbs
+}
+
+fn big_to_be(value: &BigUint, width: usize) -> Vec<u8> {
+    let mut out = vec![0u8; width];
+    for i in 0..width {
+        let limb = value.get(i / 4).copied().unwrap_or(0);
+        out[width - 1 - i] = (limb >> ((i % 4) * 8)) as u8;
+    }
+    out
+}
+
+fn big_cmp(a: &BigUint, b: &BigUint) -> std::cmp::Ordering {
+    let top = |v: &BigUint| v.iter().rposition(|limb| *limb != 0).map_or(0, |i| i + 1);
+    match top(a).cmp(&top(b)) {
+        std::cmp::Ordering::Equal => {
+            for i in (0..top(a)).rev() {
+                match a[i].cmp(&b[i]) {
+                    std::cmp::Ordering::Equal => continue,
+                    other => return other,
+                }
+            }
+            std::cmp::Ordering::Equal
+        }
+        other => other,
+    }
+}
+
+// a -= b, requiring a >= b.
+fn big_sub_assign(a: &mut BigUint, b: &BigUint) {
+    let mut borrow = 0i64;
+    for i in 0..a.len() {
+        let sub = b.get(i).copied().unwrap_or(0) as i64 + borrow;
+        let cur = a[i] as i64 - sub;
+        if cur < 0 {
+            a[i] = (cur + (1i64 << 32)) as u32;
+            borrow = 1;
+        } else {
+            a[i] = cur as u32;
+            borrow = 0;
+        }
+    }
+}
+
+fn big_addmod(a: &BigUint, b: &BigUint, modulus: &BigUint) -> BigUint {
+    let len = modulus.len() + 1;
+    let mut out = vec![0u32; len];
+    let mut carry = 0u64;
+    for i in 0..len {
+        let sum = a.get(i).copied().unwrap_or(0) as u64
+            + b.get(i).copied().unwrap_or(0) as u64
+            + carry;
+        out[i] = sum as u32;
+        carry = sum >> 32;
+    }
+    if big_cmp(&out, modulus) != std::cmp::Ordering::Less {
+        big_sub_assign(&mut out, modulus);
+    }
+    out.truncate(modulus.len());
+    out
+}
+
+fn big_mulmod(a: &BigUint, b: &BigUint, modulus: &BigUint) -> BigUint {
+    // Double-and-add over the bits of b (MSB first).
+    let mut acc = vec![0u32; modulus.len()];
+    let bits = modulus.len() * 32;
+    for i in (0..bits).rev() {
+        acc = big_addmod(&acc, &acc, modulus);
+        let bit = (b.get(i / 32).copied().unwrap_or(0) >> (i % 32)) & 1;
+        if bit == 1 {
+            acc = big_addmod(&acc, a, modulus);
+        }
+    }
+    acc
+}
+
+fn rsa_pkcs1_sha256_verify(digest: &[u8; 32], sig: &[u8], modulus: &[u8], exponent: u64) -> bool {
+    let n = big_from_be(modulus);
+    let s = big_from_be(sig);
+    if big_cmp(&s, &n) != std::cmp::Ordering::Less {
+        return false;
+    }
+    // m = s^e mod n by square-and-multiply over the exponent bits.
+    let mut result = big_from_be(&[1]);
+    result.resize(n.len(), 0);
+    let top_bit = 64 - exponent.leading_zeros();
+    for i in (0..top_bit).rev() {
+        result = big_mulmod(&result.clone(), &result.clone(), &n);
+        if (exponent >> i) & 1 == 1 {
+            result = big_mulmod(&result.clone(), &s, &n);
+        }
+    }
+    let em = big_to_be(&result, modulus.len());
+    // EMSA-PKCS1-v1_5: 00 01 FF..00 || DigestInfo(SHA-256) || H
+    const DIGEST_INFO: [u8; 19] = [
+        0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
+        0x05, 0x00, 0x04, 0x20,
+    ];
+    let tail_len = DIGEST_INFO.len() + 32;
+    if em.len() < tail_len + 11 || em[0] != 0 || em[1] != 1 {
+        return false;
+    }
+    let sep = em.len() - tail_len;
+    if em[sep - 1] != 0 || em[2..sep - 1].iter().any(|b| *b != 0xff) {
+        return false;
+    }
+    em[sep..sep + DIGEST_INFO.len()] == DIGEST_INFO && &em[sep + DIGEST_INFO.len()..] == digest
+}
+
+fn verify_signature(issuer: &ParsedCert, child: &ParsedCert) -> bool {
+    let digest = sha256(&child.tbs);
+    match (&child.signature, &issuer.key) {
+        (CertSignature::Ecdsa(r, s), CertKey::EcdsaP256(key)) => ecdsa_verify(key, &digest, r, s),
+        (CertSignature::Rsa(sig), CertKey::Rsa { modulus, exponent }) => {
+            rsa_pkcs1_sha256_verify(&digest, sig, modulus, *exponent)
+        }
+        _ => false,
+    }
+}
+
+// --- Root store ---
+
+fn base64_decode(text: &[u8]) -> Option<Vec<u8>> {
+    let value = |b: u8| -> Option<u32> {
+        match b {
+            b'A'..=b'Z' => Some((b - b'A') as u32),
+            b'a'..=b'z' => Some((b - b'a' + 26) as u32),
+            b'0'..=b'9' => Some((b - b'0' + 52) as u32),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    };
+    let mut out = Vec::new();
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for byte in text {
+        if byte.is_ascii_whitespace() {
+            continue;
+        }
+        if *byte == b'=' {
+            break;
+        }
+        acc = (acc << 6) | value(*byte)?;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
+}
+
+/// Trusted root certificates for TLS verification.
+pub struct RootStore {
+    roots: Vec<ParsedCert>,
+}
+
+impl RootStore {
+    pub fn empty() -> Self {
+        Self { roots: Vec::new() }
+    }
+
+    pub fn add_der(&mut self, der: &[u8]) -> io::Result<()> {
+        self.roots.push(parse_cert(der)?);
+        Ok(())
+    }
+
+    /// Add every CERTIFICATE block in a PEM bundle; unparsable
+    /// blocks are skipped. Returns how many were added.
+    pub fn add_pem(&mut self, pem: &[u8]) -> usize {
+        let text = String::from_utf8_lossy(pem);
+        let mut added = 0;
+        for block in text.split("-----BEGIN CERTIFICATE-----").skip(1) {
+            let Some((body, _)) = block.split_once("-----END CERTIFICATE-----") else {
+                continue;
+            };
+            if let Some(der) = base64_decode(body.as_bytes()) {
+                if let Ok(cert) = parse_cert(&der) {
+                    self.roots.push(cert);
+                    added += 1;
+                }
+            }
+        }
+        added
+    }
+
+    /// The platform root store: $SSL_CERT_FILE when set, else
+    /// the first existing well-known bundle path.
+    pub fn system() -> io::Result<Self> {
+        let mut store = Self::empty();
+        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+        if let Ok(path) = std::env::var("SSL_CERT_FILE") {
+            candidates.push(path.into());
+        } else {
+            candidates = [
+                "/etc/ssl/certs/ca-certificates.crt",
+                "/etc/pki/tls/certs/ca-bundle.crt",
+                "/etc/ssl/cert.pem",
+                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+            ]
+            .iter()
+            .map(Into::into)
+            .collect();
+        }
+        for path in candidates {
+            if let Ok(pem) = std::fs::read(&path) {
+                if store.add_pem(&pem) > 0 {
+                    return Ok(store);
+                }
+            }
+        }
+        Err(bad("tls: no system root certificates found"))
+    }
+
+    fn find_by_subject(&self, subject: &[u8]) -> Option<&ParsedCert> {
+        self.roots.iter().find(|root| root.subject == subject)
+    }
+}
+
+fn system_roots() -> io::Result<&'static RootStore> {
+    static ROOTS: std::sync::OnceLock<io::Result<RootStore>> = std::sync::OnceLock::new();
+    match ROOTS.get_or_init(RootStore::system) {
+        Ok(store) => Ok(store),
+        Err(err) => Err(bad(&format!("tls: system roots unavailable: {err}"))),
+    }
+}
+
+fn verify_chain(certs: &[ParsedCert], roots: &RootStore, server_name: &str) -> io::Result<()> {
     if certs.is_empty() {
         return Err(bad("tls: empty certificate chain"));
     }
@@ -477,25 +809,47 @@ fn verify_presented_chain(certs: &[ParsedCert], server_name: &str) -> io::Result
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    let in_window = |cert: &ParsedCert| now >= cert.not_before && now <= cert.not_after;
     let leaf = &certs[0];
-    if now < leaf.not_before || now > leaf.not_after {
+    if !in_window(leaf) {
         return Err(bad("tls: certificate outside validity window"));
     }
-    // Chain signatures up to a self-signed top.
-    for pair in certs.windows(2) {
-        let digest = sha256(&pair[0].tbs);
-        if !ecdsa_verify(&pair[1].public_key, &digest, &pair[0].signature) {
+    // Build leaf -> intermediates -> a trusted root.
+    let mut current = leaf;
+    for _ in 0..8 {
+        if let Some(root) = roots.find_by_subject(&current.issuer) {
+            // Anchored: the presented cert may be the root
+            // itself (same name and key), or signed by it.
+            let is_root_itself = current.subject == root.subject && current.spki == root.spki;
+            if !is_root_itself && !verify_signature(root, current) {
+                return Err(bad("tls: certificate signature invalid at the root"));
+            }
+            verify_server_name(leaf, server_name)?;
+            return Ok(());
+        }
+        let Some(issuer) = certs.iter().find(|c| c.subject == current.issuer) else {
+            return Err(bad("tls: certificate chain does not reach a trusted root"));
+        };
+        if !issuer.is_ca {
+            return Err(bad("tls: issuer is not a CA"));
+        }
+        if !in_window(issuer) {
+            return Err(bad("tls: issuer certificate outside validity window"));
+        }
+        if !verify_signature(issuer, current) {
             return Err(bad("tls: certificate chain signature invalid"));
         }
+        // find() can return current itself for a self-signed
+        // cert not in the root store.
+        if std::ptr::eq(issuer, current) {
+            return Err(bad("tls: self-signed certificate is not a trusted root"));
+        }
+        current = issuer;
     }
-    let top = &certs[certs.len() - 1];
-    if !top.self_signed_name {
-        return Err(bad("tls: certificate chain does not end at a self-signed cert"));
-    }
-    let digest = sha256(&top.tbs);
-    if !ecdsa_verify(&top.public_key, &digest, &top.signature) {
-        return Err(bad("tls: top certificate is not self-signed"));
-    }
+    Err(bad("tls: certificate chain too long"))
+}
+
+fn verify_server_name(leaf: &ParsedCert, server_name: &str) -> io::Result<()> {
     // Server identity: SANs when present, else CN.
     if let Ok(ip) = server_name.parse::<IpAddr>() {
         if leaf.sans_ip.contains(&ip) {
@@ -594,15 +948,26 @@ impl TlsWriteHalf {
     }
 }
 
-/// Run the TLS 1.2 client handshake over an established TCP
-/// connection and split it into read/write halves. Verifies
-/// the presented chain unless insecure_skip_verify (the
-/// ServerKeyExchange signature is always verified unless
-/// skipping: without it the handshake proves nothing).
+/// connect with the system root store (see RootStore::system).
 pub fn connect(
     stream: TcpStream,
     server_name: &str,
     insecure_skip_verify: bool,
+) -> io::Result<(TlsReadHalf, TlsWriteHalf)> {
+    connect_with_roots(stream, server_name, insecure_skip_verify, None)
+}
+
+/// Run the TLS 1.2 client handshake over an established TCP
+/// connection and split it into read/write halves. Verifies
+/// the presented chain against `roots` (system store when
+/// None) unless insecure_skip_verify (the ServerKeyExchange
+/// signature is always verified unless skipping: without it
+/// the handshake proves nothing).
+pub fn connect_with_roots(
+    stream: TcpStream,
+    server_name: &str,
+    insecure_skip_verify: bool,
+    roots: Option<&RootStore>,
 ) -> io::Result<(TlsReadHalf, TlsWriteHalf)> {
     let mut hs = HandshakeReader {
         conn: RecordConn { stream, read_cipher: None, write_cipher: None },
@@ -652,9 +1017,16 @@ pub fn connect(
         return Err(bad("tls: empty certificate chain"));
     }
     if !insecure_skip_verify {
-        verify_presented_chain(&chain, server_name)?;
+        let roots = match roots {
+            Some(store) => store,
+            None => system_roots()?,
+        };
+        verify_chain(&chain, roots, server_name)?;
     }
-    let leaf_key = chain[0].public_key;
+    let leaf_key = match &chain[0].key {
+        CertKey::EcdsaP256(key) => *key,
+        _ => return Err(bad("tls: leaf certificate is not ECDSA P-256")),
+    };
 
     let (msg_type, body, _) = hs.next()?;
     if msg_type == 13 {
@@ -687,7 +1059,7 @@ pub fn connect(
         signed.extend_from_slice(&body[..params_end]);
         let digest = sha256(&signed);
         let sig = parse_ecdsa_signature(sig_der)?;
-        if !ecdsa_verify(&leaf_key, &digest, &sig) {
+        if !ecdsa_verify(&leaf_key, &digest, &sig.0, &sig.1) {
             return Err(bad("tls: ServerKeyExchange signature invalid"));
         }
     }
@@ -773,4 +1145,96 @@ pub fn connect(
         cipher: hs.conn.write_cipher.take().unwrap(),
     };
     Ok((read_half, write_half))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // OpenSSL-generated fixtures (public certs only): an RSA CA
+    // and an ECDSA CA, each with a P-256 leaf for CN/SAN
+    // localhost, plus a self-signed localhost leaf.
+    const RSA_CA: &str = include_str!("../tests/fixtures/rsa_ca.pem");
+    const LEAF_RSA: &str = include_str!("../tests/fixtures/leaf1.pem");
+    const EC_CA: &str = include_str!("../tests/fixtures/ec_ca.pem");
+    const LEAF_EC: &str = include_str!("../tests/fixtures/leaf2.pem");
+    const SELF_SIGNED: &str = include_str!("../tests/fixtures/ss.pem");
+
+    fn cert(pem: &str) -> ParsedCert {
+        let body = pem
+            .split("-----BEGIN CERTIFICATE-----")
+            .nth(1)
+            .unwrap()
+            .split("-----END")
+            .next()
+            .unwrap();
+        parse_cert(&base64_decode(body.as_bytes()).unwrap()).unwrap()
+    }
+
+    fn store_with(pems: &[&str]) -> RootStore {
+        let mut store = RootStore::empty();
+        for pem in pems {
+            assert_eq!(store.add_pem(pem.as_bytes()), 1);
+        }
+        store
+    }
+
+    #[test]
+    fn rsa_signed_leaf_verifies_against_rsa_root() {
+        verify_chain(&[cert(LEAF_RSA)], &store_with(&[RSA_CA]), "localhost").unwrap();
+    }
+
+    #[test]
+    fn ecdsa_signed_leaf_verifies_against_ec_root() {
+        verify_chain(&[cert(LEAF_EC)], &store_with(&[EC_CA]), "localhost").unwrap();
+    }
+
+    #[test]
+    fn presented_root_in_chain_is_accepted() {
+        verify_chain(
+            &[cert(LEAF_RSA), cert(RSA_CA)],
+            &store_with(&[RSA_CA]),
+            "localhost",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn missing_root_is_rejected() {
+        assert!(verify_chain(&[cert(LEAF_RSA)], &RootStore::empty(), "localhost").is_err());
+        assert!(verify_chain(&[cert(LEAF_EC)], &store_with(&[RSA_CA]), "localhost").is_err());
+    }
+
+    #[test]
+    fn self_signed_leaf_needs_explicit_trust() {
+        assert!(verify_chain(&[cert(SELF_SIGNED)], &RootStore::empty(), "localhost").is_err());
+        verify_chain(&[cert(SELF_SIGNED)], &store_with(&[SELF_SIGNED]), "localhost").unwrap();
+    }
+
+    #[test]
+    fn wrong_server_name_is_rejected() {
+        assert!(
+            verify_chain(&[cert(LEAF_EC)], &store_with(&[EC_CA]), "wrong.example").is_err()
+        );
+    }
+
+    #[test]
+    fn tampered_signature_is_rejected() {
+        let mut leaf = cert(LEAF_EC);
+        if let CertSignature::Ecdsa(_, s) = &mut leaf.signature {
+            s[0] ^= 1;
+        } else {
+            panic!("fixture leaf must carry an ECDSA signature");
+        }
+        assert!(verify_chain(&[leaf], &store_with(&[EC_CA]), "localhost").is_err());
+
+        let mut leaf = cert(LEAF_RSA);
+        if let CertSignature::Rsa(sig) = &mut leaf.signature {
+            let last = sig.len() - 1;
+            sig[last] ^= 1;
+        } else {
+            panic!("fixture leaf must carry an RSA signature");
+        }
+        assert!(verify_chain(&[leaf], &store_with(&[RSA_CA]), "localhost").is_err());
+    }
 }
