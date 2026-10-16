@@ -390,7 +390,9 @@ func (p *Peer) startRestartChecks() {
 	p.mu.Unlock()
 	go func() {
 		deadline := time.Now().Add(15 * time.Second)
+		lastResolve := time.Now()
 		for time.Now().Before(deadline) {
+			p.maybeResolveRemote(&lastResolve)
 			if p.agent.Renominated() && p.agent.Generation() == generation {
 				if p.options.OnRenominated != nil {
 					p.options.OnRenominated()
@@ -417,17 +419,62 @@ func (p *Peer) startRestartChecks() {
 
 // resolveRemoteCandidates resolves mDNS ".local" candidate
 // addresses to IPs in place (browsers advertise those).
+// Resolution waits on the network, so it runs without the agent
+// lock held: inbound checks must keep flowing meanwhile.
 func (p *Peer) resolveRemoteCandidates() {
+	p.agent.mu.Lock()
+	names := make([]string, 0)
+	for _, c := range p.agent.RemoteCandidates {
+		if net.ParseIP(c.Address) == nil {
+			names = append(names, c.Address)
+		}
+	}
+	p.agent.mu.Unlock()
+	if len(names) == 0 {
+		return
+	}
+	resolved := make(map[string]string, len(names))
+	for _, name := range names {
+		if ip := ResolveMDNS(name, 2*time.Second); ip != "" {
+			resolved[name] = ip
+		}
+	}
+	if len(resolved) == 0 {
+		return
+	}
 	p.agent.mu.Lock()
 	defer p.agent.mu.Unlock()
 	for i := range p.agent.RemoteCandidates {
 		c := &p.agent.RemoteCandidates[i]
-		if net.ParseIP(c.Address) == nil {
-			if ip := ResolveMDNS(c.Address, 2*time.Second); ip != "" {
-				c.Address = ip
-			}
+		if ip, ok := resolved[c.Address]; ok {
+			c.Address = ip
 		}
 	}
+}
+
+// hasUnresolvedRemote reports whether any remote candidate still
+// carries a non-IP (mDNS) address.
+func (p *Peer) hasUnresolvedRemote() bool {
+	p.agent.mu.Lock()
+	defer p.agent.mu.Unlock()
+	for _, c := range p.agent.RemoteCandidates {
+		if net.ParseIP(c.Address) == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// maybeResolveRemote retries mDNS resolution at most once a
+// second while checks are in flight: a browser's mDNS responder
+// can miss the initial window under load, and an unresolved
+// ".local" candidate would otherwise silently never be checked.
+func (p *Peer) maybeResolveRemote(last *time.Time) {
+	if time.Since(*last) < time.Second || !p.hasUnresolvedRemote() {
+		return
+	}
+	*last = time.Now()
+	p.resolveRemoteCandidates()
 }
 
 // AddRemoteCandidate trickles one remote candidate in after the
@@ -569,11 +616,13 @@ func (p *Peer) ConnectWithOptions(requirePeerCert bool) (*DcEndpoint, error) {
 		p.relayActive = true
 	}
 	deadline := time.Now().Add(15 * time.Second)
+	lastResolve := time.Now()
 	var selected *net.UDPAddr
 	for selected == nil {
 		if time.Now().After(deadline) {
 			return nil, errors.New("ICE nomination timed out")
 		}
+		p.maybeResolveRemote(&lastResolve)
 		for _, check := range p.agent.DueChecks() {
 			if addr, err := net.ResolveUDPAddr("udp",
 				net.JoinHostPort(check.Remote.Address, strconv.Itoa(check.Remote.Port))); err == nil {
