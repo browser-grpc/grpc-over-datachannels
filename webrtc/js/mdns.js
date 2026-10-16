@@ -4,6 +4,7 @@
 // first matching answer wins. Node builtins only.
 
 import dgram from "node:dgram";
+import os from "node:os";
 
 function encodeName(name) {
   const parts = [];
@@ -19,7 +20,10 @@ function buildQuery(id, name) {
   const header = Buffer.alloc(12);
   header.writeUInt16BE(id, 0);
   header.writeUInt16BE(1, 4); // QDCOUNT
-  const question = Buffer.concat([encodeName(name), Buffer.from([0, 1, 0, 1])]); // A, IN
+  // A, IN|QU: the QU bit (RFC 6762 section 5.4) asks for a
+  // unicast response to our ephemeral port; without it some
+  // responders (Firefox) answer by multicast to :5353 only.
+  const question = Buffer.concat([encodeName(name), Buffer.from([0, 1, 0x80, 1])]);
   return Buffer.concat([header, question]);
 }
 
@@ -79,30 +83,68 @@ const cache = new Map();
 export async function resolveMdns(name, timeoutMs = 1500) {
   if (cache.has(name)) return cache.get(name);
   const ip = await new Promise((resolve) => {
-    const socket = dgram.createSocket("udp4");
+    // Responders may answer unicast to the query socket (the
+    // query asks with the QU bit) or multicast to the group
+    // address — Chromium does the latter — so listen on both:
+    // the ephemeral query socket and a group membership on
+    // :5353 (best effort; the port may be taken).
+    const sockets = [dgram.createSocket("udp4")];
+    try {
+      sockets.push(dgram.createSocket({ type: "udp4", reuseAddr: true }));
+    } catch {
+      /* query socket only */
+    }
+    let settled = false;
     const timer = setTimeout(() => done(null), timeoutMs);
     const done = (value) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      try {
-        socket.close();
-      } catch {
-        /* already closed */
+      for (const socket of sockets) {
+        try {
+          socket.close();
+        } catch {
+          /* already closed */
+        }
       }
       resolve(value);
     };
-    socket.on("error", () => done(null));
-    socket.on("message", (msg) => {
-      const found = parseARecord(msg, name);
-      if (found) done(found);
-    });
-    socket.bind(0, () => {
+    for (const socket of sockets) {
+      socket.on("error", () => {});
+      socket.on("message", (msg) => {
+        const found = parseARecord(msg, name);
+        if (found) done(found);
+      });
+    }
+    const [querySocket, groupSocket] = sockets;
+    if (groupSocket) {
+      groupSocket.bind(5353, () => {
+        for (const list of Object.values(os.networkInterfaces())) {
+          for (const entry of list ?? []) {
+            if (entry.family === "IPv4" && !entry.internal) {
+              try {
+                groupSocket.addMembership("224.0.0.251", entry.address);
+              } catch {
+                /* interface not multicast-capable */
+              }
+            }
+          }
+        }
+        try {
+          groupSocket.addMembership("224.0.0.251");
+        } catch {
+          /* default interface membership failed */
+        }
+      });
+    }
+    querySocket.bind(0, () => {
       try {
-        socket.setMulticastTTL(255);
-        const query = buildQuery(0x4d44, name);
-        socket.send(query, 5353, "224.0.0.251");
+        querySocket.setMulticastTTL(255);
+        const query = buildQuery(0, name);
+        querySocket.send(query, 5353, "224.0.0.251");
         setTimeout(() => {
           try {
-            socket.send(query, 5353, "224.0.0.251");
+            querySocket.send(query, 5353, "224.0.0.251");
           } catch {
             /* closed */
           }
