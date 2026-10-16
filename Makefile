@@ -86,7 +86,7 @@ test-js:
 	cd js && node --test test/*.test.js
 
 test-go:
-	cd go && go test ./...
+	cd go && go test -race ./...
 
 test-webrtc-rust:
 	cd webrtc/rust && $(CARGO) test
@@ -95,7 +95,7 @@ test-webrtc-js:
 	cd webrtc/js && npm test
 
 test-webrtc-go:
-	cd webrtc/go && go test ./...
+	cd webrtc/go && go test -race ./...
 
 test-python:
 	cd python && python3 -m unittest discover -s tests
