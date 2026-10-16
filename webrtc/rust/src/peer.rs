@@ -719,14 +719,7 @@ impl RestartHandle {
     }
 
     fn resolve_remote_candidates(&self) {
-        let mut agent = self.agent.lock().unwrap();
-        for candidate in &mut agent.remote_candidates {
-            if let Some(name) = &candidate.mdns_name {
-                if let Some(ip) = crate::mdns::resolve_ipv4(name) {
-                    candidate.addr = SocketAddr::new(IpAddr::V4(ip), candidate.addr.port());
-                }
-            }
-        }
+        resolve_remote_candidates(&self.agent);
     }
 
     /// Drive connectivity checks for one restart generation
@@ -767,10 +760,12 @@ impl RestartHandle {
         let alive = self.alive.clone();
         std::thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(15);
+            let mut last_resolve = Instant::now();
             loop {
                 if !alive.load(Ordering::SeqCst) || Instant::now() >= deadline {
                     return;
                 }
+                maybe_resolve_remote(&agent, &mut last_resolve);
                 let checks = {
                     let mut agent = agent.lock().unwrap();
                     if agent.generation() != generation {
@@ -788,6 +783,63 @@ impl RestartHandle {
             }
         });
     }
+}
+
+/// Resolve any still-unresolved mDNS remote candidates.
+/// Resolution waits on the network, so it runs without the
+/// agent lock held: inbound checks must keep flowing meanwhile.
+fn resolve_remote_candidates(agent: &Arc<Mutex<IceAgent>>) {
+    let names: Vec<String> = {
+        let agent = agent.lock().unwrap();
+        agent
+            .remote_candidates
+            .iter()
+            .filter(|c| c.addr.ip().is_unspecified())
+            .filter_map(|c| c.mdns_name.clone())
+            .collect()
+    };
+    if names.is_empty() {
+        return;
+    }
+    let resolved: Vec<(String, IpAddr)> = names
+        .iter()
+        .filter_map(|name| {
+            crate::mdns::resolve_ipv4(name).map(|ip| (name.clone(), IpAddr::V4(ip)))
+        })
+        .collect();
+    if resolved.is_empty() {
+        return;
+    }
+    let mut agent = agent.lock().unwrap();
+    for candidate in &mut agent.remote_candidates {
+        if let Some(name) = &candidate.mdns_name {
+            if let Some((_, ip)) = resolved.iter().find(|(n, _)| n == name) {
+                candidate.addr = SocketAddr::new(*ip, candidate.addr.port());
+            }
+        }
+    }
+}
+
+/// Retry mDNS resolution at most once a second while checks
+/// are in flight: a browser's mDNS responder can miss the
+/// initial window under load, and an unresolved ".local"
+/// candidate would otherwise silently never be checked.
+fn maybe_resolve_remote(agent: &Arc<Mutex<IceAgent>>, last: &mut Instant) {
+    if last.elapsed() < Duration::from_secs(1) {
+        return;
+    }
+    let unresolved = {
+        let agent = agent.lock().unwrap();
+        agent
+            .remote_candidates
+            .iter()
+            .any(|c| c.addr.ip().is_unspecified() && c.mdns_name.is_some())
+    };
+    if !unresolved {
+        return;
+    }
+    *last = Instant::now();
+    resolve_remote_candidates(agent);
 }
 
 /// Parse one trickled candidate line; None for empty,
@@ -814,11 +866,13 @@ fn run_ice(
     socket.set_read_timeout(Some(Duration::from_millis(25)))?;
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut last_check = Instant::now() - Duration::from_millis(100);
+    let mut last_resolve = Instant::now();
     let mut trickled_addrs: Vec<SocketAddr> = Vec::new();
     loop {
         if let Some(selected) = agent.lock().unwrap().nominated {
             return Ok((selected, trickled_addrs));
         }
+        maybe_resolve_remote(agent, &mut last_resolve);
         // Trickle: fold in any candidates signaled since the
         // remote description (mDNS names resolved as at connect).
         if let Some(rx) = trickle {
