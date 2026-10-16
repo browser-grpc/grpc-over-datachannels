@@ -233,7 +233,6 @@ fn jac_double(p: &Jac) -> Jac {
         return INF;
     }
     // a = -3 formulas (FIPS / hyperelliptic.org EFD dbl-2001-b)
-    let xx = mulmod(&p.x, &p.x, &P);
     let yy = mulmod(&p.y, &p.y, &P);
     let yyyy = mulmod(&yy, &yy, &P);
     let zz = mulmod(&p.z, &p.z, &P);

@@ -5,7 +5,7 @@
 
 use dc_webrtc::dtls::{Dtls, DtlsConfig, DtlsIo};
 use dc_webrtc::x509::Certificate;
-use std::io::{self, BufRead, Read, Write};
+use std::io::{self, BufRead, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Mutex;
 use std::time::Duration;

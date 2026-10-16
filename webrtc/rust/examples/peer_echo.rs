@@ -70,7 +70,6 @@ fn main() -> io::Result<()> {
                         eprintln!("CHANNEL_CLOSED stream={stream}");
                         channels.remove(&stream);
                     }
-                    Some(_) => {}
                     None => return Ok(()),
                 }
             }

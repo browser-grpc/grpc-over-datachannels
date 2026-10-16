@@ -7,7 +7,7 @@
 //! and protect epoch-1 records with AES-GCM (explicit nonce = epoch‖seq).
 //! Verified against OpenSSL `s_server`/`s_client -dtls1_2`.
 
-use crate::crypto::{aes128_gcm_decrypt, aes128_gcm_encrypt, prf, random_bytes, sha256, Sha256};
+use crate::crypto::{aes128_gcm_decrypt, aes128_gcm_encrypt, prf, random_bytes, sha256};
 use crate::p256::{PrivateKey, PublicKey};
 use crate::proto_gen::{dtls_content, dtls_handshake};
 use crate::x509::{fingerprint_of_der, Certificate};
@@ -73,8 +73,6 @@ const GROUP_SECP256R1: u16 = 23;
 
 struct Record {
     content_type: u8,
-    epoch: u16,
-    sequence: u64,
     body: Vec<u8>, // plaintext (already decrypted for epoch 1)
 }
 
@@ -274,7 +272,7 @@ impl<I: DtlsIo> Dtls<I> {
         let body = r.take(len)?.to_vec();
         let consumed = r.pos;
         if epoch == 0 {
-            return Ok((Record { content_type, epoch, sequence, body }, consumed));
+            return Ok((Record { content_type, body }, consumed));
         }
         // epoch 1: explicit nonce(8) || ciphertext || tag(16)
         if body.len() < 8 + 16 {
@@ -328,7 +326,7 @@ impl<I: DtlsIo> Dtls<I> {
                 }
             }
         }
-        Ok((Record { content_type, epoch, sequence, body: plaintext }, consumed))
+        Ok((Record { content_type, body: plaintext }, consumed))
     }
 }
 
@@ -337,7 +335,6 @@ impl<I: DtlsIo> Dtls<I> {
 // ---------------------------------------------------------------------------
 
 struct Frag {
-    msg_type: u8,
     total: usize,
     buf: Vec<u8>,
     have: Vec<bool>,
@@ -397,7 +394,6 @@ impl Hs {
                 .fragments
                 .entry((msg_type, seq))
                 .or_insert_with(|| Frag {
-                    msg_type,
                     total,
                     buf: vec![0u8; total],
                     have: vec![false; total],
@@ -586,7 +582,7 @@ impl<I: DtlsIo> Dtls<I> {
                     }
                     match parse_err {
                         None => {}
-                        Some(e) if self.read_keys.is_none() => hs.pending.push(packet),
+                        Some(_) if self.read_keys.is_none() => hs.pending.push(packet),
                         Some(e) => return Err(e),
                     }
                 }
@@ -778,7 +774,7 @@ fn parse_server_hello(body: &[u8]) -> io::Result<ServerHelloInfo> {
 impl<I: DtlsIo> Dtls<I> {
     /// DTLS client handshake. `config.certificate` is presented if the
     /// server requests one (WebRTC servers do).
-    pub fn connect(mut io: I, config: &DtlsConfig) -> io::Result<Self> {
+    pub fn connect(io: I, config: &DtlsConfig) -> io::Result<Self> {
         let mut conn = dtls_new!(io, Role::Client);
         let mut hs = Hs::default();
         conn.client_random = random_bytes(32).try_into().unwrap();
@@ -943,7 +939,7 @@ impl<I: DtlsIo> Dtls<I> {
     }
 
     /// DTLS server handshake (no HelloVerifyRequest cookie demand).
-    pub fn accept(mut io: I, config: &DtlsConfig) -> io::Result<Self> {
+    pub fn accept(io: I, config: &DtlsConfig) -> io::Result<Self> {
         let mut conn = dtls_new!(io, Role::Server);
         let mut hs = Hs::default();
 

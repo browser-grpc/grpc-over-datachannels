@@ -43,7 +43,6 @@ enum State {
     CookieEchoed,
     Established,
     ShutdownSent,
-    ShutdownReceived,
 }
 
 #[derive(Clone)]

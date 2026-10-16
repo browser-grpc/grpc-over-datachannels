@@ -10,7 +10,6 @@ use crate::endpoint::DcEndpoint;
 use crate::ice::{Candidate, IceAgent};
 use crate::sdp::{generate, parse, SessionDescription};
 use crate::x509::Certificate;
-use std::collections::VecDeque;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
