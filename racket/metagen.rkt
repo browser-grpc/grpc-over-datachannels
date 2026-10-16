@@ -95,6 +95,7 @@
                                     [(emit-wasm-cpp-file) "template-wasm-cpp.rkt"]
                                     [(emit-wasm-swift-file) "template-wasm-swift.rkt"]
                                     [(emit-wasm-kotlin-file) "template-wasm-kotlin.rkt"]
+                                    [(emit-wasm-kotlin-native-file) "template-kotlin.rkt"]
                                     [else "template-js.rkt"]))
                out)
   ;; Splice the emit function name into the main form at the datum level.
@@ -900,6 +901,7 @@
   (write-plugin "protoc-gen-grpc-dc-wasm-cpp" 'emit-wasm-cpp-file)
   (write-plugin "protoc-gen-grpc-dc-wasm-swift" 'emit-wasm-swift-file)
   (write-plugin "protoc-gen-grpc-dc-wasm-kotlin" 'emit-wasm-kotlin-file)
+  (write-plugin "protoc-gen-grpc-dc-kotlin-native" 'emit-wasm-kotlin-native-file)
   (write-plugin "protoc-gen-grpc-dc-python" 'emit-python-file)
   (write-plugin "protoc-gen-grpc-dc-java" 'emit-java-file)
   (write-plugin "protoc-gen-grpc-dc-csharp" 'emit-csharp-file)
@@ -984,6 +986,11 @@
     (lambda (out) (display (emit-kotlin-wire) out)))
   (printf "generated kotlin/grpcdc/Wire.kt\n")
   (write-runtime-files "kotlin" "runtime-kotlin.rkt" (emit-kotlin-runtime-files))
+  (make-directory* (build-path root "wasm" "kotlin" "grpcdc"))
+  (call-with-output-file (build-path root "wasm" "kotlin" "grpcdc" "Wire.kt") #:exists 'replace
+    (lambda (out) (display (emit-kotlin-wire) out)))
+  (printf "generated wasm/kotlin/grpcdc/Wire.kt\n")
+  (write-runtime-files "wasm/kotlin" "runtime-kotlin.rkt" (emit-kotlin-wasm-runtime-files))
   (make-directory* (build-path root "kotlin" "tests"))
   (call-with-output-file (build-path root "kotlin" "tests" "Fixtures.kt") #:exists 'replace
     (lambda (out) (display (emit-kotlin-fixtures) out)))

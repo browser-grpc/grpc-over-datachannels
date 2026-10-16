@@ -103,3 +103,24 @@ size_t strlen(const char *s) {
     while (s[n]) n++;
     return n;
 }
+
+/* libm/compiler-rt helpers Swift's stdlib references on this
+ * target (Double rounding / conversion, 128-bit multiply). */
+double round(double x) {
+    if (x != x) return x;
+    if (x >= 4503599627370496.0 || x <= -4503599627370496.0) return x;
+    long long i = (long long)(x >= 0 ? x + 0.5 : x - 0.5);
+    return (double)i;
+}
+
+double fma(double a, double b, double c) { return a * b + c; }
+
+void __multi3(unsigned long long *ret, unsigned long long a_lo,
+              unsigned long long a_hi, unsigned long long b_lo,
+              unsigned long long b_hi) {
+    unsigned __int128 a = ((unsigned __int128)a_hi << 64) | a_lo;
+    unsigned __int128 b = ((unsigned __int128)b_hi << 64) | b_lo;
+    unsigned __int128 r = a * b;
+    ret[0] = (unsigned long long)r;
+    ret[1] = (unsigned long long)(r >> 64);
+}

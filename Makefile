@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-kotlin-wasm-browser demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -73,6 +73,9 @@ stubs:
 	mkdir -p wasm/kotlin
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-wasm-kotlin=bin/protoc-gen-grpc-dc-wasm-kotlin \
 		--grpc-dc-wasm-kotlin_out=wasm/kotlin -I proto proto/echo.proto
+	mkdir -p wasm/kotlin/native
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-kotlin-native=bin/protoc-gen-grpc-dc-kotlin-native \
+		--grpc-dc-kotlin-native_out=wasm/kotlin/native -I proto proto/echo.proto
 
 generate: plugins stubs
 
@@ -156,7 +159,8 @@ test-swift:
 	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/DynamicEchoServerStdio/main.swift -o swift/build/dynamic_echo_server_stdio
 	cd swift && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestOracle \
-		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline
+		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
+		&& ./build/tests TestInlinePump
 
 KOTLINC ?= kotlinc
 
@@ -168,7 +172,8 @@ test-kotlin:
 	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/examples/DynamicEchoServerStdio/Main.kt -d kotlin/build/dynamic_echo_server_stdio.jar
 	java -jar kotlin/build/tests.jar TestCodec && java -jar kotlin/build/tests.jar TestEcho \
 		&& java -jar kotlin/build/tests.jar TestInterop && java -jar kotlin/build/tests.jar TestOracle \
-		&& java -jar kotlin/build/tests.jar TestDynamic && java -jar kotlin/build/tests.jar TestBdd && java -jar kotlin/build/tests.jar TestDeadline
+		&& java -jar kotlin/build/tests.jar TestDynamic && java -jar kotlin/build/tests.jar TestBdd && java -jar kotlin/build/tests.jar TestDeadline \
+		&& java -jar kotlin/build/tests.jar TestInlinePump
 
 DART ?= dart
 
@@ -349,6 +354,35 @@ test-swift-wasm-browser:
 		-o browser-test/echo_swift.wasm
 	cd browser-test && node wasm_facade.test.mjs Swift "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm" all
 
+# Native Swift WASM runtime: the real grpcdc runtime +
+# native generated stub as Embedded Swift
+# (wasm32-unknown-none-wasm, no Foundation; inline pump mode)
+# in a Web Worker over a SharedArrayBuffer mailbox.
+test-swift-wasm-native-browser:
+	mkdir -p wasm/swift/build
+	$(SWIFTC) -target wasm32-unknown-none-wasm \
+		-enable-experimental-feature Embedded \
+		-enable-experimental-feature Extern -wmo -O \
+		-c swift/grpcdc/Status.swift swift/grpcdc/Wire.swift \
+		swift/grpcdc/Codec.swift swift/grpcdc/Transport.swift \
+		swift/grpcdc/Endpoint.swift swift/grpcdc/Channel.swift \
+		swift/grpcdc/Server.swift swift/grpcdc/MemoryTransport.swift \
+		swift/examples/Pb.swift swift/examples/EchoMessages.swift \
+		swift/examples/EchoGrpcDc.swift \
+		wasm/swift/native/dc_transport.swift \
+		wasm/swift/native/echo_client.swift \
+		-o wasm/swift/build/echo_swift_native.o
+	$(ZIG) cc -target wasm32-freestanding -O1 -c wasm/swift/support.c \
+		-o wasm/swift/build/support.o
+	$(WASM_LD) --no-entry --allow-undefined \
+		--export=run_echo_client \
+		wasm/swift/build/echo_swift_native.o wasm/swift/build/support.o \
+		$(SWIFT_WASM_LIBDIR)/libswiftUnicodeDataTables.a \
+		$(SWIFT_WASM_LIBDIR)/libswiftEmbeddedPlatformPOSIX.a \
+		$(SWIFT_WASM_LIBDIR)/libswiftExclusivitySingleThreaded.a \
+		-o browser-test/echo_swift_native.wasm
+	cd browser-test && node wasm_swift_native.test.mjs all
+
 KOTLINC_JS ?= kotlinc-js
 KOTLIN_WASM_STDLIB ?= $(firstword $(wildcard $(HOME)/.local/kotlin-dist/kotlinc/lib/kotlin-stdlib-wasm-js.klib /usr/local/kotlinc/lib/kotlin-stdlib-wasm-js.klib))
 
@@ -365,6 +399,7 @@ test-kotlin-wasm-browser:
 		-ir-output-dir wasm/kotlin/build -ir-output-name echo_kotlin \
 		-module-kind es -target es2015 -main noCall -Xir-produce-klib-file \
 		wasm/kotlin/bridge.kt wasm/kotlin/Pb.kt \
+		wasm/kotlin/grpcdc/Transport.kt \
 		wasm/kotlin/EchoMessages.kt wasm/kotlin/EchoWasmGrpcDc.kt \
 		wasm/kotlin/echo_client.kt
 	$(KOTLINC_JS) -Xwasm -Xwasm-target=wasm-js \
@@ -376,7 +411,30 @@ test-kotlin-wasm-browser:
 		-module-kind es -target es2015 -main noCall -Xir-produce-js
 	cd browser-test && node wasm_facade.test.mjs Kotlin wasm_kotlin_page.html all
 
-test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-kotlin-wasm-browser
+## Native Kotlin/Wasm client: the real grpcdc runtime
+## (wasm/kotlin/grpcdc, generated Wasm variant) + native stubs
+## (wasm/kotlin/native) in a Web Worker over a
+## SharedArrayBuffer mailbox, against the Node server.
+test-kotlin-wasm-native-browser:
+	rm -rf wasm/kotlin/native-build browser-test/kotlin_wasm_native_gen
+	mkdir -p wasm/kotlin/native-build browser-test/kotlin_wasm_native_gen
+	$(KOTLINC_JS) -Xwasm -Xwasm-target=wasm-js \
+		-libraries $(KOTLIN_WASM_STDLIB) \
+		-ir-output-dir wasm/kotlin/native-build -ir-output-name echo_kotlin_native \
+		-module-kind es -target es2015 -main noCall -Xir-produce-klib-file \
+		wasm/kotlin/grpcdc/*.kt wasm/kotlin/Pb.kt \
+		wasm/kotlin/EchoMessages.kt wasm/kotlin/native/EchoGrpcDc.kt \
+		wasm/kotlin/native/dc_transport.kt wasm/kotlin/native/echo_client.kt
+	$(KOTLINC_JS) -Xwasm -Xwasm-target=wasm-js \
+		-Xwasm-use-new-exception-proposal \
+		-libraries $(KOTLIN_WASM_STDLIB) \
+		-Xinclude=wasm/kotlin/native-build/echo_kotlin_native.klib \
+		-ir-output-dir browser-test/kotlin_wasm_native_gen \
+		-ir-output-name echo_kotlin_native \
+		-module-kind es -target es2015 -main noCall -Xir-produce-js
+	cd browser-test && node wasm_kotlin_native.test.mjs all
+
+test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo
@@ -384,7 +442,7 @@ demos:
 	cd go && go run ./examples/echo_demo
 
 clean-gen:
-	rm -f bin/protoc-gen-grpc-dc-kotlin bin/protoc-gen-grpc-dc-rust bin/protoc-gen-grpc-dc-js bin/protoc-gen-grpc-dc-go bin/protoc-gen-grpc-dc-wasm-go bin/protoc-gen-grpc-dc-wasm-zig bin/protoc-gen-grpc-dc-wasm-cpp bin/protoc-gen-grpc-dc-wasm-swift bin/protoc-gen-grpc-dc-wasm-kotlin bin/protoc-gen-grpc-dc-cpp bin/protoc-gen-grpc-dc-swift
+	rm -f bin/protoc-gen-grpc-dc-kotlin bin/protoc-gen-grpc-dc-kotlin-native bin/protoc-gen-grpc-dc-rust bin/protoc-gen-grpc-dc-js bin/protoc-gen-grpc-dc-go bin/protoc-gen-grpc-dc-wasm-go bin/protoc-gen-grpc-dc-wasm-zig bin/protoc-gen-grpc-dc-wasm-cpp bin/protoc-gen-grpc-dc-wasm-swift bin/protoc-gen-grpc-dc-wasm-kotlin bin/protoc-gen-grpc-dc-cpp bin/protoc-gen-grpc-dc-swift
 	rm -f rust/gen/echo_grpc_dc.rs js/examples/echo_grpc_dc.js go/examples/echo_grpc_dc.go wasm/go/echo_wasm_dc.go wasm/zig/echo_wasm_dc.zig wasm/cpp/echo_wasm_dc.hpp wasm/swift/EchoWasmGrpcDc.swift wasm/kotlin/EchoWasmGrpcDc.kt cpp/examples/echo_grpc_dc.hpp swift/examples/EchoGrpcDc.swift kotlin/examples/EchoGrpcDc.kt
 	rm -f rust/src/wire_gen.rs js/wire_gen.js go/wire_gen.go fixtures/vectors.json
 	rm -f rust/src/{lib,codec,status,message,transport,endpoint,channel,server,webrtc_transport}.rs

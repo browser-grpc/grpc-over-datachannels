@@ -21,6 +21,14 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
     class StreamInput {
         private val events = LinkedBlockingQueue<Any>()
 
+        /** Inline mode: get drives the endpoint pump instead of blocking. */
+        @Volatile
+        var pump: Endpoint? = null
+
+        internal fun setPump(endpoint: Endpoint?) {
+            pump = endpoint
+        }
+
         internal fun put(event: StreamEvent) {
             events.offer(event)
         }
@@ -29,10 +37,20 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
             events.offer(CLOSED)
         }
 
+        private fun convert(event: Any): StreamEvent? =
+            if (event === CLOSED) null else event as StreamEvent
+
         /** Next event, or null once the stream is closed. */
         fun get(): StreamEvent? {
-            val event = events.take()
-            return if (event === CLOSED) null else event as StreamEvent
+            val pump = pump
+            if (pump != null) {
+                while (true) {
+                    val event = events.poll(10, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    if (event != null) return convert(event)
+                    pump.pollOnce()
+                }
+            }
+            return convert(events.take())
         }
 
         /**
@@ -40,9 +58,22 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
          * Throws TimeoutException on expiry.
          */
         fun get(nanos: Long): StreamEvent? {
+            val pump = pump
+            if (pump != null) {
+                val deadline = System.nanoTime() + nanos
+                while (true) {
+                    val remaining = deadline - System.nanoTime()
+                    if (remaining <= 0) throw java.util.concurrent.TimeoutException()
+                    val event = events.poll(
+                        minOf(remaining, 10_000_000L),
+                        java.util.concurrent.TimeUnit.NANOSECONDS)
+                    if (event != null) return convert(event)
+                    pump.pollOnce()
+                }
+            }
             val event = events.poll(nanos, java.util.concurrent.TimeUnit.NANOSECONDS)
                 ?: throw java.util.concurrent.TimeoutException()
-            return if (event === CLOSED) null else event as StreamEvent
+            return convert(event)
         }
 
         companion object {
@@ -95,11 +126,16 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
     private var closed = false
     private var started = false
 
+    @Volatile
+    private var inlinePump = false
+
     /**
      * The side that created the channel allocates odd stream ids, the
      * answerer even. The read loop starts on start() — after any
      * dispatcher is installed, so an early HEADERS can never race
-     * dispatcher setup.
+     * dispatcher setup. A tryRecv transport runs inline instead:
+     * no thread is spawned and stream waits pump the transport
+     * (single-threaded Kotlin/Wasm).
      */
     @Synchronized
     fun start() {
@@ -107,9 +143,37 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
             return
         }
         started = true
+        inlinePump = transport.hasTryRecv
+        if (inlinePump) {
+            return
+        }
         val thread = Thread({ readLoop() }, "grpcdc-endpoint")
         thread.isDaemon = true
         thread.start()
+    }
+
+    /** Whether this endpoint runs in inline pump mode. */
+    fun isInlinePump(): Boolean = inlinePump
+
+    /**
+     * Inline mode: receive and dispatch at most one message.
+     * Stream waits call this through StreamInput's pump hook;
+     * a server-only program drives its endpoint by calling it
+     * in a loop.
+     */
+    fun pollOnce() {
+        if (closed) return
+        when (val result = transport.tryRecv()) {
+            is TryRecvResult.Message -> if (!closed) onBytes(result.data)
+            is TryRecvResult.Closed -> failAll()
+            is TryRecvResult.WouldBlock -> {}
+        }
+    }
+
+    private fun attachPump(input: StreamInput) {
+        if (inlinePump || transport.hasTryRecv) {
+            input.setPump(this)
+        }
     }
 
     fun setDispatcher(dispatcher: Dispatcher) {
@@ -131,6 +195,7 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
             nextId += 2
         }
         val input = StreamInput()
+        attachPump(input)
         streams[id] = input
         return OpenedStream(id, input)
     }
@@ -267,33 +332,45 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
             return
         }
         val input = StreamInput()
+        attachPump(input)
         streams[streamId] = input
-        val sink = ResponseSink(this, streamId)
+        if (inlinePump) {
+            // Single-threaded mode: run the handler on this pump
+            // stack; its stream waits re-enter pollOnce.
+            dispatchCall(streamId, input, headers, currentDispatcher)
+            return
+        }
         val thread = Thread({
-            try {
-                var proceed = true
-                try {
-                    sink.sendHeaders()
-                } catch (e: Exception) {
-                    proceed = false
-                }
-                if (proceed) {
-                    var status = currentDispatcher.dispatch(
-                        CallContext(headers.metadata), headers, input, sink)
-                    if (status == null) {
-                        status = StatusException(Wire.CODE_OK, "")
-                    }
-                    try {
-                        sink.sendTrailers(status)
-                    } catch (ignored: Exception) {
-                        // best effort
-                    }
-                }
-            } finally {
-                closeStream(streamId)
-            }
+            dispatchCall(streamId, input, headers, currentDispatcher)
         }, "grpcdc-call")
         thread.isDaemon = true
         thread.start()
+    }
+
+    private fun dispatchCall(streamId: Long, input: StreamInput,
+                             headers: Codec.Headers, dispatcher: Dispatcher) {
+        val sink = ResponseSink(this, streamId)
+        try {
+            var proceed = true
+            try {
+                sink.sendHeaders()
+            } catch (e: Exception) {
+                proceed = false
+            }
+            if (proceed) {
+                var status = dispatcher.dispatch(
+                    CallContext(headers.metadata), headers, input, sink)
+                if (status == null) {
+                    status = StatusException(Wire.CODE_OK, "")
+                }
+                try {
+                    sink.sendTrailers(status)
+                } catch (ignored: Exception) {
+                    // best effort
+                }
+            }
+        } finally {
+            closeStream(streamId)
+        }
     }
 }

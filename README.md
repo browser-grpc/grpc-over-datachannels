@@ -152,12 +152,21 @@ running in a Web Worker over a SharedArrayBuffer mailbox
 (`wasm/zig/native` — its blocking pump model maps onto the worker),
 Lua: the 5.4 interpreter compiled to `wasm32-wasi` with an
 exception-handling-based `setjmp` (`wasm/lua`), executing the real
-generated Lua runtime from embedded sources in a worker, and C++:
+generated Lua runtime from embedded sources in a worker, C++:
 the real `grpcdc` runtime and native generated stub compiled to
 `wasm32-wasip1` with wasi-sdk's exception-enabled libc++
 (`wasm/cpp/native`), endpoint in the new inline pump mode
 (Transports offering `TryRecv` run without read/dispatch threads;
-stream waits pump the transport) in a worker.
+stream waits pump the transport) in a worker, Swift: the real
+`grpcdc` runtime and native generated stub compiled as Embedded
+Swift to `wasm32-unknown-none-wasm` (no Foundation; one generated
+runtime serves both native and Embedded builds) with an inline
+pump endpoint in a worker (`wasm/swift/native`), and Kotlin: the
+real `grpcdc` runtime (a generated Kotlin/Wasm variant of the JVM
+bodies — `wasm/kotlin/grpcdc`, plugin
+`protoc-gen-grpc-dc-kotlin-native`) and native generated stub
+compiled to Kotlin/Wasm with an inline pump endpoint in a worker
+(`wasm/kotlin/native`).
 **Facades** wrap the JS implementation: `js/src/wasm_bridge.js`
 exposes a byte-level bridge, and generated facades (plugins
 `protoc-gen-grpc-dc-wasm-{go,zig,cpp,swift,kotlin}`) give Go,
@@ -169,9 +178,10 @@ test-zig-wasm-browser`, `make test-zig-wasm-native-browser`,
 `make test-lua-wasm-browser`, `make test-dart-browser`,
 `make test-dart-wasm-browser`, `make test-cpp-wasm-browser`,
 `make test-cpp-wasm-native-browser`, `make
-test-swift-wasm-browser`, and `make
-test-kotlin-wasm-browser` run each in Chromium and Firefox over
-a native `RTCDataChannel`.
+test-swift-wasm-browser`, `make test-swift-wasm-native-browser`,
+`make test-kotlin-wasm-browser`, and `make
+test-kotlin-wasm-native-browser` run each in Chromium and Firefox
+over a native `RTCDataChannel`.
 
 `make test` also covers the reimplemented WebRTC stack itself
 (`webrtc/`, see SPEC-WEBRTC.md): three independent stacks (Go stdlib,

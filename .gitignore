@@ -32,6 +32,9 @@ wasm/lua/modules.h
 browser-test/echo_cpp.wasm
 browser-test/echo_cpp_native.wasm
 browser-test/echo_swift.wasm
+browser-test/echo_swift_native.wasm
 /browser-test/kotlin_wasm_gen/
+/browser-test/kotlin_wasm_native_gen/
 /wasm/swift/build/
 /wasm/kotlin/build/
+/wasm/kotlin/native-build/

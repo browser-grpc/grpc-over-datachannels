@@ -15,7 +15,7 @@
 ;;; intrinsics via AsyncPump.
 
 (require "spec.rkt")
-(provide emit-kotlin-runtime-files)
+(provide emit-kotlin-runtime-files emit-kotlin-wasm-runtime-files)
 
 (define kotlin-status-body
 #<<GRPC_RUNTIME_EOF
@@ -345,6 +345,16 @@ package grpcdc
  * boundaries preserved, ordered and reliable — the contract an
  * RTCDataChannel (or the loopback pair) offers.
  */
+/** End-of-stream thrown by Transport.recv (EOFException on the JVM). */
+typealias EndOfStream = java.io.EOFException
+
+/** Result of a Transport.tryRecv call. */
+sealed class TryRecvResult {
+    class Message(val data: ByteArray) : TryRecvResult()
+    object WouldBlock : TryRecvResult()
+    object Closed : TryRecvResult()
+}
+
 interface Transport {
     fun send(data: ByteArray)
 
@@ -352,6 +362,18 @@ interface Transport {
     fun recv(): ByteArray
 
     fun close() {}
+
+    /**
+     * Optional bounded receive for single-threaded environments
+     * (Kotlin/Wasm). When a transport reports hasTryRecv, the
+     * endpoint runs in inline pump mode — no read or dispatch
+     * threads; stream waits pump the transport instead of
+     * blocking on a queue.
+     */
+    val hasTryRecv: Boolean
+        get() = false
+
+    fun tryRecv(): TryRecvResult = TryRecvResult.WouldBlock
 }
 
 /** Implemented by hand-written protobuf message types. */
@@ -389,6 +411,14 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
     class StreamInput {
         private val events = LinkedBlockingQueue<Any>()
 
+        /** Inline mode: get drives the endpoint pump instead of blocking. */
+        @Volatile
+        var pump: Endpoint? = null
+
+        internal fun setPump(endpoint: Endpoint?) {
+            pump = endpoint
+        }
+
         internal fun put(event: StreamEvent) {
             events.offer(event)
         }
@@ -397,10 +427,20 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
             events.offer(CLOSED)
         }
 
+        private fun convert(event: Any): StreamEvent? =
+            if (event === CLOSED) null else event as StreamEvent
+
         /** Next event, or null once the stream is closed. */
         fun get(): StreamEvent? {
-            val event = events.take()
-            return if (event === CLOSED) null else event as StreamEvent
+            val pump = pump
+            if (pump != null) {
+                while (true) {
+                    val event = events.poll(10, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    if (event != null) return convert(event)
+                    pump.pollOnce()
+                }
+            }
+            return convert(events.take())
         }
 
         /**
@@ -408,9 +448,22 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
          * Throws TimeoutException on expiry.
          */
         fun get(nanos: Long): StreamEvent? {
+            val pump = pump
+            if (pump != null) {
+                val deadline = System.nanoTime() + nanos
+                while (true) {
+                    val remaining = deadline - System.nanoTime()
+                    if (remaining <= 0) throw java.util.concurrent.TimeoutException()
+                    val event = events.poll(
+                        minOf(remaining, 10_000_000L),
+                        java.util.concurrent.TimeUnit.NANOSECONDS)
+                    if (event != null) return convert(event)
+                    pump.pollOnce()
+                }
+            }
             val event = events.poll(nanos, java.util.concurrent.TimeUnit.NANOSECONDS)
                 ?: throw java.util.concurrent.TimeoutException()
-            return if (event === CLOSED) null else event as StreamEvent
+            return convert(event)
         }
 
         companion object {
@@ -463,11 +516,16 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
     private var closed = false
     private var started = false
 
+    @Volatile
+    private var inlinePump = false
+
     /**
      * The side that created the channel allocates odd stream ids, the
      * answerer even. The read loop starts on start() — after any
      * dispatcher is installed, so an early HEADERS can never race
-     * dispatcher setup.
+     * dispatcher setup. A tryRecv transport runs inline instead:
+     * no thread is spawned and stream waits pump the transport
+     * (single-threaded Kotlin/Wasm).
      */
     @Synchronized
     fun start() {
@@ -475,9 +533,37 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
             return
         }
         started = true
+        inlinePump = transport.hasTryRecv
+        if (inlinePump) {
+            return
+        }
         val thread = Thread({ readLoop() }, "grpcdc-endpoint")
         thread.isDaemon = true
         thread.start()
+    }
+
+    /** Whether this endpoint runs in inline pump mode. */
+    fun isInlinePump(): Boolean = inlinePump
+
+    /**
+     * Inline mode: receive and dispatch at most one message.
+     * Stream waits call this through StreamInput's pump hook;
+     * a server-only program drives its endpoint by calling it
+     * in a loop.
+     */
+    fun pollOnce() {
+        if (closed) return
+        when (val result = transport.tryRecv()) {
+            is TryRecvResult.Message -> if (!closed) onBytes(result.data)
+            is TryRecvResult.Closed -> failAll()
+            is TryRecvResult.WouldBlock -> {}
+        }
+    }
+
+    private fun attachPump(input: StreamInput) {
+        if (inlinePump || transport.hasTryRecv) {
+            input.setPump(this)
+        }
     }
 
     fun setDispatcher(dispatcher: Dispatcher) {
@@ -499,6 +585,7 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
             nextId += 2
         }
         val input = StreamInput()
+        attachPump(input)
         streams[id] = input
         return OpenedStream(id, input)
     }
@@ -626,34 +713,46 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
             return
         }
         val input = StreamInput()
+        attachPump(input)
         streams[streamId] = input
-        val sink = ResponseSink(this, streamId)
+        if (inlinePump) {
+            // Single-threaded mode: run the handler on this pump
+            // stack; its stream waits re-enter pollOnce.
+            dispatchCall(streamId, input, headers, currentDispatcher)
+            return
+        }
         val thread = Thread({
-            try {
-                var proceed = true
-                try {
-                    sink.sendHeaders()
-                } catch (e: Exception) {
-                    proceed = false
-                }
-                if (proceed) {
-                    var status = currentDispatcher.dispatch(
-                        CallContext(headers.metadata), headers, input, sink)
-                    if (status == null) {
-                        status = StatusException(Wire.CODE_OK, "")
-                    }
-                    try {
-                        sink.sendTrailers(status)
-                    } catch (ignored: Exception) {
-                        // best effort
-                    }
-                }
-            } finally {
-                closeStream(streamId)
-            }
+            dispatchCall(streamId, input, headers, currentDispatcher)
         }, "grpcdc-call")
         thread.isDaemon = true
         thread.start()
+    }
+
+    private fun dispatchCall(streamId: Long, input: StreamInput,
+                             headers: Codec.Headers, dispatcher: Dispatcher) {
+        val sink = ResponseSink(this, streamId)
+        try {
+            var proceed = true
+            try {
+                sink.sendHeaders()
+            } catch (e: Exception) {
+                proceed = false
+            }
+            if (proceed) {
+                var status = dispatcher.dispatch(
+                    CallContext(headers.metadata), headers, input, sink)
+                if (status == null) {
+                    status = StatusException(Wire.CODE_OK, "")
+                }
+                try {
+                    sink.sendTrailers(status)
+                } catch (ignored: Exception) {
+                    // best effort
+                }
+            }
+        } finally {
+            closeStream(streamId)
+        }
     }
 }
 GRPC_RUNTIME_EOF
@@ -1709,3 +1808,151 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/MemoryTransport.kt" kotlin-loopback-body)
    (cons "grpcdc/AsyncPump.kt" kotlin-async-body)
    (cons "grpcdc/Dynamic.kt" kotlin-dynamic-body)))
+
+;; ---------------------------------------------------------------------------
+;; Kotlin/Wasm variant: the same bodies, with JVM-only APIs
+;; replaced at generation time (checked replacements — a pattern
+;; that no longer matches is a generation error, not silent
+;; drift). Timeouts become Long nanoseconds, threads become the
+;; inline grpcdcSpawn, queues/maps become single-threaded
+;; ArrayDeque/mutableMap, and the clock is performance.now via
+;; js(). AsyncPump/Dynamic are JVM-only and not emitted here.
+;; ---------------------------------------------------------------------------
+
+(define (kotlin-wasm-xform name body pairs)
+  (for/fold ([text body])
+            ([pair (in-list pairs)])
+    (unless (string-contains? text (car pair))
+      (error 'runtime-kotlin "wasm transform for ~a: pattern not found: ~e" name (car pair)))
+    (string-replace text (car pair) (cdr pair))))
+
+(define kotlin-wasm-common-pairs
+  (list
+   (cons "System.nanoTime()" "grpcdcNowNanos()")
+   (cons "java.util.concurrent.TimeoutException" "GrpcdcTimeoutException")
+   (cons "synchronized(" "grpcdcSynchronized(")))
+
+;; Common pairs are applied where present (not every file
+;; uses every one); file-specific pairs stay checked above.
+(define (kotlin-wasm-xform/common body)
+  (for/fold ([text body])
+            ([pair (in-list kotlin-wasm-common-pairs)])
+    (if (string-contains? text (car pair))
+        (string-replace text (car pair) (cdr pair))
+        text)))
+
+(define kotlin-wasm-transport-extra
+  "
+// ---- Kotlin/Wasm platform pieces (single-threaded) ----
+
+/** End-of-stream thrown by Transport.recv on Wasm. */
+class EndOfStream(message: String) : Exception(message)
+
+typealias EOFException = EndOfStream
+
+/** Timeout raised by timed stream waits on Wasm. */
+class GrpcdcTimeoutException : Exception(\"timeout\")
+
+private fun grpcdcNowMs(): Double = js(\"performance.now()\")
+
+/** Monotonic clock: performance.now in the worker. */
+fun grpcdcNowNanos(): Long = (grpcdcNowMs() * 1000000.0).toLong()
+
+/** Single-threaded stand-in for synchronized blocks. */
+inline fun <T> grpcdcSynchronized(lock: Any, block: () -> T): T = block()
+
+/** Thread spawn on Wasm: run inline (dispatch in pump mode). */
+fun grpcdcSpawn(block: () -> Unit) {
+    block()
+}
+
+/** Single-threaded queue behind StreamInput on Wasm. */
+class GrpcdcQueue<T> {
+    private val items = ArrayDeque<T>()
+
+    fun offer(item: T): Boolean {
+        items.addLast(item)
+        return true
+    }
+
+    fun take(): T = items.removeFirst()
+
+    fun pollNanos(timeoutNanos: Long): T? = items.removeFirstOrNull()
+}
+")
+
+(define (emit-kotlin-wasm-runtime-files)
+  (define x kotlin-wasm-xform)
+  (list
+   (cons "grpcdc/Status.kt" kotlin-status-body)
+   (cons "grpcdc/Codec.kt"
+         (x "Codec" (kotlin-wasm-xform/common kotlin-codec-body)
+            (list
+                     (cons "import java.nio.charset.StandardCharsets\n" "")
+                     (cons "System.arraycopy(payload, 0, out, HEADER_LEN, payload.size)"
+                           "payload.copyInto(out, HEADER_LEN)")
+                     (cons "System.arraycopy(data, HEADER_LEN, payload, 0, payload.size)"
+                           "data.copyInto(payload, 0, HEADER_LEN)")
+                     (cons ".toByteArray(StandardCharsets.UTF_8)" ".encodeToByteArray()")
+                     (cons "String(payload, StandardCharsets.UTF_8)" "payload.decodeToString()")
+                     (cons "fun encodeTimeout(timeout: java.time.Duration): String {\n        var ms = timeout.toMillis()\n        if (timeout.minusMillis(ms).toNanos() > 0) ms++\n        if (ms <= 99999999L) return \"${ms}m\"\n        var secs = timeout.toSeconds()\n        if (timeout.minusSeconds(secs).toNanos() > 0) secs++\n        return \"${secs}S\"\n    }"
+                           "fun encodeTimeout(timeoutNanos: Long): String {\n        val ms = (timeoutNanos + 999999L) / 1000000L\n        if (ms <= 99999999L) return \"${ms}m\"\n        val secs = (timeoutNanos + 999999999L) / 1000000000L\n        return \"${secs}S\"\n    }")
+                     (cons "fun parseTimeout(text: String?): java.time.Duration?"
+                           "fun parseTimeout(text: String?): Long?")
+                     (cons "java.time.Duration.ofHours(n)" "n * 3600000000000L")
+                     (cons "java.time.Duration.ofMinutes(n)" "n * 60000000000L")
+                     (cons "java.time.Duration.ofSeconds(n)" "n * 1000000000L")
+                     (cons "java.time.Duration.ofMillis(n)" "n * 1000000L")
+                     (cons "java.time.Duration.ofNanos(n * 1000L)" "n * 1000L")
+                     (cons "java.time.Duration.ofNanos(n)" "n")
+                     (cons "sb.append(String.format(\"\\\\u%04x\", c.code))"
+                           "sb.append(\"\\\\u\" + c.code.toString(16).padStart(4, '0'))"))))
+   (cons "grpcdc/Transport.kt"
+         (string-append
+          (x "Transport" kotlin-transport-body
+             (list
+              (cons "typealias EndOfStream = java.io.EOFException"
+                    "// EndOfStream is defined for Wasm below.")))
+          kotlin-wasm-transport-extra))
+   (cons "grpcdc/Endpoint.kt"
+         (x "Endpoint"
+            (kotlin-wasm-xform/common
+             (string-replace kotlin-endpoint-body "@@FRAME_DISPATCH@@" (emit-kotlin-dispatch)))
+            (list
+                     (cons "import java.util.concurrent.ConcurrentHashMap\nimport java.util.concurrent.LinkedBlockingQueue\n" "")
+                     (cons "@Synchronized\n    fun start()" "fun start()")
+                     (cons "@Volatile\n" "")
+                     (cons "        val id: Long\n        grpcdcSynchronized(sendLock) {\n            id = nextId\n            nextId += 2\n        }"
+                           "        val id = nextId\n        nextId += 2")
+                     (cons "ConcurrentHashMap<Long, StreamInput>()" "mutableMapOf<Long, StreamInput>()")
+                     (cons "LinkedBlockingQueue<Any>()" "GrpcdcQueue<Any>()")
+                     (cons "events.poll(10, java.util.concurrent.TimeUnit.MILLISECONDS)"
+                           "events.pollNanos(10000000L)")
+                     (cons "events.poll(\n                        minOf(remaining, 10_000_000L),\n                        java.util.concurrent.TimeUnit.NANOSECONDS)"
+                           "events.pollNanos(minOf(remaining, 10000000L))")
+                     (cons "events.poll(nanos, java.util.concurrent.TimeUnit.NANOSECONDS)"
+                           "events.pollNanos(nanos)")
+                     (cons "?.let { grpcdcNowNanos() + it.toNanos() } ?: -1L"
+                           "?.let { grpcdcNowNanos() + it } ?: -1L")
+                     (cons "fun timeRemaining(): java.time.Duration? =\n            if (deadlineNanos < 0) null\n            else java.time.Duration.ofNanos(maxOf(0L, deadlineNanos - grpcdcNowNanos()))"
+                           "fun timeRemaining(): Long? =\n            if (deadlineNanos < 0) null\n            else maxOf(0L, deadlineNanos - grpcdcNowNanos())")
+                     (cons "        val thread = Thread({ readLoop() }, \"grpcdc-endpoint\")\n        thread.isDaemon = true\n        thread.start()"
+                           "        grpcdcSpawn { readLoop() }")
+                     (cons "        val thread = Thread({\n            dispatchCall(streamId, input, headers, currentDispatcher)\n        }, \"grpcdc-call\")\n        thread.isDaemon = true\n        thread.start()"
+                           "        grpcdcSpawn { dispatchCall(streamId, input, headers, currentDispatcher) }"))))
+   (cons "grpcdc/Channel.kt"
+         (x "Channel" (kotlin-wasm-xform/common kotlin-channel-body)
+            (list
+                     (cons "import java.io.EOFException\n" "")
+                     (cons "java.time.Duration?" "Long?")
+                     (cons "timeout.toNanos()" "timeout"))))
+   (cons "grpcdc/Server.kt"
+         (x "Server" kotlin-server-body
+            (list (cons "import java.io.EOFException\n" ""))))
+   (cons "grpcdc/MemoryTransport.kt"
+         (x "MemoryTransport" kotlin-loopback-body
+            (list
+             (cons "import java.io.EOFException\nimport java.util.concurrent.LinkedBlockingQueue\n" "")
+             (cons "@Volatile\n" "")
+             (cons "data.clone()" "data.copyOf()")
+             (cons "LinkedBlockingQueue<Any>" "GrpcdcQueue<Any>"))))))

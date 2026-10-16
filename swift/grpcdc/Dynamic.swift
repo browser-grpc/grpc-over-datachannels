@@ -585,7 +585,7 @@ enum Dynamic {
             return m
         }
 
-        func Unary(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> GenericMessage {
+        func Unary(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> GenericMessage {
             let m = try Method(service, method)
             let resp = BoundMessage(m.output, GenericMessage(m.output), model)
             try channel.Unary(m.path, BoundMessage(m.input, req, model), resp, metadata, timeout)
@@ -612,13 +612,13 @@ enum Dynamic {
             }
         }
 
-        func ServerStream(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> DynamicStream {
+        func ServerStream(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DynamicStream {
             let m = try Method(service, method)
             return DynamicStream(try channel.ServerStream(m.path, BoundMessage(m.input, req, model), metadata, timeout),
                                  m.output, model)
         }
 
-        func ClientStream(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> GenericMessage {
+        func ClientStream(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> GenericMessage {
             let m = try Method(service, method)
             let bound = reqs.map { BoundMessage(m.input, $0, model) }
             let resp = BoundMessage(m.output, GenericMessage(m.output), model)
@@ -626,7 +626,7 @@ enum Dynamic {
             return resp.generic
         }
 
-        func Bidi(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> DynamicStream {
+        func Bidi(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DynamicStream {
             let m = try Method(service, method)
             let bound = reqs.map { BoundMessage(m.input, $0, model) }
             return DynamicStream(try channel.Bidi(m.path, bound, metadata, timeout), m.output, model)

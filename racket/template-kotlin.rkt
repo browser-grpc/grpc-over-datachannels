@@ -9,7 +9,9 @@
 ;;; other language stubs.
 
 (require "spec.rkt" "desc.rkt")
-(provide emit-kotlin-file)
+(provide emit-kotlin-file emit-wasm-kotlin-native-file)
+
+(define kotlin-wasm-mode (make-parameter #f))
 
 (define current-service (make-parameter ""))
 
@@ -355,22 +357,22 @@
      (format "    class ~aClient(private val channel: Channel) {\n" sname)
      (apply string-append (map kotlin-client-stream-class methods))
      (apply string-append (map kotlin-client-method (append methods (alias-client-methods svc))))
-     "        // -- async (coroutine / CompletableFuture) surface ---------------\n\n"
-     (apply string-append (map kotlin-client-async-method (append methods (alias-client-methods svc))))
+     (if (kotlin-wasm-mode) "" "        // -- async (coroutine / CompletableFuture) surface ---------------\n\n")
+     (if (kotlin-wasm-mode) "" (apply string-append (map kotlin-client-async-method (append methods (alias-client-methods svc)))))
      "    }\n\n"
      (apply string-append (map kotlin-server-stream-iface methods))
      (format "    /** Service implementation interface for ~a. */\n" (hash-ref svc 'full-name))
      (format "    interface ~aServer {\n" sname)
      (apply string-append (map kotlin-server-iface-method methods))
      "    }\n\n"
-     (format "    /** Async service implementation interface for ~a. */\n" (hash-ref svc 'full-name))
-     (format "    interface ~aServerAsync {\n" sname)
-     (apply string-append (map kotlin-server-async-iface-method methods))
-     "    }\n\n"
+     (if (kotlin-wasm-mode) "" (format "    /** Async service implementation interface for ~a. */\n" (hash-ref svc 'full-name)))
+     (if (kotlin-wasm-mode) "" (format "    interface ~aServerAsync {\n" sname))
+     (if (kotlin-wasm-mode) "" (apply string-append (map kotlin-server-async-iface-method methods)))
+     (if (kotlin-wasm-mode) "" "    }\n\n")
      (apply string-append (map kotlin-stream-impl methods))
-     (format "    private class ~aServerAsyncAdapter(private val impl: ~aServerAsync) : ~aServer {\n" sname sname sname)
-     (apply string-append (map kotlin-server-async-adapter-method methods))
-     "    }\n\n"
+     (if (kotlin-wasm-mode) "" (format "    private class ~aServerAsyncAdapter(private val impl: ~aServerAsync) : ~aServer {\n" sname sname sname))
+     (if (kotlin-wasm-mode) "" (apply string-append (map kotlin-server-async-adapter-method methods)))
+     (if (kotlin-wasm-mode) "" "    }\n\n")
      (format "    /** Register an implementation of ~a on a Server. */\n" (hash-ref svc 'full-name))
      (format "    fun register~aServer(server: Server, impl: ~aServer) {\n" sname sname)
      "        server.registerService(\n"
@@ -385,14 +387,14 @@
      "            )\n"
      "        )\n"
      "    }\n\n"
-     (format "    /** Register an async implementation of ~a on a Server. */\n" (hash-ref svc 'full-name))
-     (format "    fun register~aServerAsync(server: Server, impl: ~aServerAsync) {\n" sname sname)
-     "        // Adapters are retained for the process lifetime: registration is\n"
-     "        // once-per-process and bounded by service count.\n"
-     (format "        val adapter = ~aServerAsyncAdapter(impl)\n" sname)
-     "        adapters.add(adapter)\n"
-     (format "        register~aServer(server, adapter)\n    }\n\n" sname)
-     (format "    private val adapters = ArrayList<~aServerAsyncAdapter>()\n" sname))))
+     (if (kotlin-wasm-mode) "" (format "    /** Register an async implementation of ~a on a Server. */\n" (hash-ref svc 'full-name)))
+     (if (kotlin-wasm-mode) "" (format "    fun register~aServerAsync(server: Server, impl: ~aServerAsync) {\n" sname sname))
+     (if (kotlin-wasm-mode) "" "        // Adapters are retained for the process lifetime: registration is\n")
+     (if (kotlin-wasm-mode) "" "        // once-per-process and bounded by service count.\n")
+     (if (kotlin-wasm-mode) "" (format "        val adapter = ~aServerAsyncAdapter(impl)\n" sname))
+     (if (kotlin-wasm-mode) "" "        adapters.add(adapter)\n")
+     (if (kotlin-wasm-mode) "" (format "        register~aServer(server, adapter)\n    }\n\n" sname))
+     (if (kotlin-wasm-mode) "" (format "    private val adapters = ArrayList<~aServerAsyncAdapter>()\n" sname)))))
 
 (define (emit-kotlin-file file-model params)
   (define base (path->string (path-replace-extension
@@ -417,3 +419,25 @@
          (apply string-append
                 (map kotlin-service (hash-ref file-model 'services)))
          "}\n")))
+
+;; ---------------------------------------------------------------------------
+;; Kotlin/Wasm native stubs: the same template over the Wasm
+;; runtime variant -- no CompletableFuture/async surface,
+;; timeouts as Long nanoseconds, EOF from grpcdc.
+;; ---------------------------------------------------------------------------
+
+(define (emit-wasm-kotlin-native-file file-model params)
+  (define result
+    (parameterize ([kotlin-wasm-mode #t])
+      (emit-kotlin-file file-model params)))
+  (cons (car result)
+        (for/fold ([text (cdr result)])
+                  ([pair (in-list (list
+                                   (cons "import grpcdc.AsyncPump\n" "")
+                                   (cons "import java.util.concurrent.CompletableFuture\n" "")
+                                   (cons "import java.io.EOFException\n" "import grpcdc.EOFException\n")
+                                   (cons "java.time.Duration?" "Long?")
+                                   (cons "protoc-gen-grpc-dc-kotlin" "protoc-gen-grpc-dc-kotlin-native")))])
+          (unless (string-contains? text (car pair))
+            (error 'template-kotlin "wasm native stub transform: pattern not found: ~e" (car pair)))
+          (string-replace text (car pair) (cdr pair)))))

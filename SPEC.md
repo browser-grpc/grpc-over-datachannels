@@ -70,11 +70,20 @@ wasm32 runtime enforces through `std::chrono::steady_clock`,
 backed by the worker's WASI `clock_time_get` (monotonic), with
 the endpoint in inline pump mode: Transports may offer a
 bounded `TryRecv`, in which case no read/dispatch threads are
-spawned and stream waits pump the transport. One caveat is an
+spawned and stream waits pump the transport. The native Swift
+(Embedded Swift, `wasm32-unknown-none-wasm`) and Kotlin
+(Kotlin/Wasm) runtimes use the same inline pump mode: Swift
+deadlines run on a monotonic `Double` millisecond clock
+(`GrpcTime.NowMs()`, `performance.now()` in the worker via
+`js_now_ms`, Foundation wall clock natively), and Kotlin/Wasm
+deadlines run on `performance.now()` through the generated
+`grpcdcNowNanos()`, with stub timeouts as `Long` nanoseconds
+(the JVM keeps `java.time.Duration`). One caveat is an
 implementation limit, not a wire difference: in cooperative
-pump runtimes (Lua single-threaded, Zig and C++ inline mode) a
-handler already running inline cannot be preempted — the
-deadline is checked between messages.
+pump runtimes (Lua single-threaded, Zig, C++, Swift, and
+Kotlin/Wasm inline mode) a handler already running inline
+cannot be preempted — the deadline is checked between
+messages.
 
 ## Backpressure
 

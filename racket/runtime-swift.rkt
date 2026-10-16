@@ -16,8 +16,6 @@
 
 (define swift-status-body
 #<<GRPC_RUNTIME_EOF
-import Foundation
-
 /// Thrown at end of a receiving stream (call completed OK).
 struct EndOfStreamError: Error {}
 
@@ -37,7 +35,11 @@ struct StatusException: Error, CustomStringConvertible {
     static func ToStatus(_ error: Error?) -> StatusException {
         guard let error = error else { return StatusException(Wire.CodeOk, "") }
         if let se = error as? StatusException { return se }
+        #if canImport(Foundation)
         return StatusException(Wire.CodeInternal, String(describing: error))
+        #else
+        return StatusException(Wire.CodeInternal, "internal error")
+        #endif
     }
 }
 GRPC_RUNTIME_EOF
@@ -45,8 +47,6 @@ GRPC_RUNTIME_EOF
 
 (define swift-codec-body
 #<<GRPC_RUNTIME_EOF
-import Foundation
-
 /// Frame codec for gRPC over WebRTC DataChannels (wire protocol in
 /// ../SPEC.md). Frame, status, channel and server semantics mirror the
 /// Rust, JavaScript, Go, Python, Java, C# and C++ runtimes; the tables
@@ -112,46 +112,48 @@ enum Codec {
     }
 
     static func HeadersFrame(_ streamId: UInt32, _ path: String?, _ metadata: [String: String]?) throws -> [UInt8] {
-        var body: [String: Any] = [:]
-        if let path = path { body["path"] = path }
-        if let metadata = metadata, !metadata.isEmpty { body["metadata"] = metadata }
-        let data = try JSONSerialization.data(withJSONObject: body)
-        return try EncodeFrame(Wire.FrameHeaders, streamId, [UInt8](data))
+        var fields: [(String, JsonValue)] = []
+        if let path = path { fields.append(("path", .string(path))) }
+        if let metadata = metadata, !metadata.isEmpty {
+            let entries = metadata.keys.sorted().map {
+                ($0, JsonValue.string(metadata[$0] ?? ""))
+            }
+            fields.append(("metadata", .object(entries)))
+        }
+        return try EncodeFrame(Wire.FrameHeaders, streamId,
+                               [UInt8](JsonWrite(.object(fields)).utf8))
     }
 
     static func ParseHeaders(_ payload: [UInt8]) throws -> Headers {
-        do {
-            guard let root = try JSONSerialization.jsonObject(with: Data(payload)) as? [String: Any] else {
-                throw StatusException(Wire.CodeInvalidArgument, "bad HEADERS payload: not an object")
-            }
-            var headers = Headers()
-            if let path = root["path"] as? String { headers.path = path }
-            if let md = root["metadata"] as? [String: Any] {
-                for (k, v) in md {
-                    headers.metadata[k] = (v as? String) ?? String(describing: v)
-                }
-            }
-            return headers
-        } catch let e as StatusException {
-            throw e
-        } catch {
-            throw StatusException(Wire.CodeInvalidArgument, "bad HEADERS payload: \(error)")
+        var parser = JsonParser(payload)
+        guard let root = parser.Parse(), case .object(let fields) = root else {
+            throw StatusException(Wire.CodeInvalidArgument, "bad HEADERS payload: not an object")
         }
+        var headers = Headers()
+        if case .string(let path)? = JsonField(fields, "path") {
+            headers.path = path
+        }
+        if case .object(let md)? = JsonField(fields, "metadata") {
+            for (k, v) in md {
+                headers.metadata[k] = JsonStringify(v)
+            }
+        }
+        return headers
     }
 
     /// gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
     /// units H/M/S/m/u/n (at most 8 digits). Encoding uses
     /// milliseconds (seconds past the digit limit), rounded up.
-    static func EncodeTimeout(_ timeout: TimeInterval) -> String {
-        let ms = Int64(ceil(timeout * 1000.0))
+    static func EncodeTimeout(_ timeout: Double) -> String {
+        let ms = Int64((timeout * 1000.0).rounded(.up))
         if ms <= 99999999 {
             return "\(ms)m"
         }
-        return "\(Int64(ceil(timeout)))S"
+        return "\(Int64(timeout.rounded(.up)))S"
     }
 
     /// Decoded grpc-timeout, or nil when malformed/absent.
-    static func ParseTimeout(_ text: String?) -> TimeInterval? {
+    static func ParseTimeout(_ text: String?) -> Double? {
         guard let text, text.count >= 2, text.count <= 9 else { return nil }
         let digits = text.dropLast()
         guard digits.allSatisfy({ $0.isNumber }), let n = Double(digits) else { return nil }
@@ -167,20 +169,246 @@ enum Codec {
     }
 
     static func StatusFrame(_ frameType: Int, _ streamId: UInt32, _ status: StatusException) throws -> [UInt8] {
-        let body: [String: Any] = ["code": status.code, "message": status.message]
-        let data = try JSONSerialization.data(withJSONObject: body)
-        return try EncodeFrame(frameType, streamId, [UInt8](data))
+        let body = JsonWrite(.object([
+            ("code", .number(Double(status.code))),
+            ("message", .string(status.message)),
+        ]))
+        return try EncodeFrame(frameType, streamId, [UInt8](body.utf8))
     }
 
     static func ParseStatus(_ payload: [UInt8]) -> StatusException {
-        do {
-            guard let root = try JSONSerialization.jsonObject(with: Data(payload)) as? [String: Any],
-                  let code = (root["code"] as? NSNumber)?.intValue else {
-                return StatusException(Wire.CodeUnknown, "malformed trailers")
-            }
-            return StatusException(code, (root["message"] as? String) ?? "")
-        } catch {
+        var parser = JsonParser(payload)
+        guard let root = parser.Parse(), case .object(let fields) = root,
+              case .number(let code)? = JsonField(fields, "code") else {
             return StatusException(Wire.CodeUnknown, "malformed trailers")
+        }
+        var message = ""
+        if case .string(let text)? = JsonField(fields, "message") {
+            message = text
+        }
+        return StatusException(Int(code), message)
+    }
+
+    // ---- minimal JSON for HEADERS/TRAILERS payloads ----
+    //
+    // Hand-rolled (no Foundation JSONSerialization) so the same
+    // codec runs in Embedded Swift on wasm32. Only the shapes
+    // the wire uses are produced; the parser accepts general
+    // JSON values so peers' serializers stay compatible.
+
+    indirect enum JsonValue {
+        case object([(String, JsonValue)])
+        case array([JsonValue])
+        case string(String)
+        case number(Double)
+        case bool(Bool)
+        case null
+    }
+
+    static func JsonField(_ fields: [(String, JsonValue)], _ key: String) -> JsonValue? {
+        for (k, v) in fields where k == key { return v }
+        return nil
+    }
+
+    static func JsonEscape(_ s: String) -> String {
+        var out = "\""
+        for scalar in s.unicodeScalars {
+            switch scalar {
+            case "\"": out += "\\\""
+            case "\\": out += "\\\\"
+            case "\n": out += "\\n"
+            case "\r": out += "\\r"
+            case "\t": out += "\\t"
+            default:
+                if scalar.value < 0x20 {
+                    out += "\\u"
+                    let hex = String(scalar.value, radix: 16)
+                    out += String(repeating: "0", count: 4 - hex.count) + hex
+                } else {
+                    out.unicodeScalars.append(scalar)
+                }
+            }
+        }
+        return out + "\""
+    }
+
+    static func JsonWrite(_ value: JsonValue) -> String {
+        switch value {
+        case .object(let fields):
+            return "{" + fields.map { JsonEscape($0.0) + ":" + JsonWrite($0.1) }
+                .joined(separator: ",") + "}"
+        case .array(let items):
+            return "[" + items.map { JsonWrite($0) }.joined(separator: ",") + "]"
+        case .string(let s):
+            return JsonEscape(s)
+        case .number(let n):
+            if n == n.rounded() && abs(n) < 9007199254740992.0 {
+                return String(Int64(n))
+            }
+            return String(n)
+        case .bool(let b):
+            return b ? "true" : "false"
+        case .null:
+            return "null"
+        }
+    }
+
+    static func JsonStringify(_ value: JsonValue) -> String {
+        if case .string(let s) = value { return s }
+        return JsonWrite(value)
+    }
+
+    struct JsonParser {
+        private let chars: [Character]
+        private var pos = 0
+
+        init(_ payload: [UInt8]) {
+            chars = Array(String(decoding: payload, as: UTF8.self))
+        }
+
+        mutating func Parse() -> JsonValue? {
+            SkipWs()
+            guard let value = ParseValue() else { return nil }
+            SkipWs()
+            return pos == chars.count ? value : nil
+        }
+
+        private func Peek() -> Character? {
+            pos < chars.count ? chars[pos] : nil
+        }
+
+        private mutating func SkipWs() {
+            while let c = Peek(), c == " " || c == "\t" || c == "\n" || c == "\r" {
+                pos += 1
+            }
+        }
+
+        private mutating func Consume(_ c: Character) -> Bool {
+            if Peek() == c {
+                pos += 1
+                return true
+            }
+            return false
+        }
+
+        private mutating func ParseValue() -> JsonValue? {
+            SkipWs()
+            guard let c = Peek() else { return nil }
+            switch c {
+            case "{":
+                return ParseObject()
+            case "[":
+                pos += 1
+                var items: [JsonValue] = []
+                SkipWs()
+                if Consume("]") { return .array(items) }
+                while true {
+                    guard let item = ParseValue() else { return nil }
+                    items.append(item)
+                    SkipWs()
+                    if Consume("]") { return .array(items) }
+                    if !Consume(",") { return nil }
+                }
+            case "\"":
+                return ParseString().map { JsonValue.string($0) }
+            case "t":
+                return ConsumeLiteral("true") ? .bool(true) : nil
+            case "f":
+                return ConsumeLiteral("false") ? .bool(false) : nil
+            case "n":
+                return ConsumeLiteral("null") ? .null : nil
+            default:
+                return ParseNumber().map { JsonValue.number($0) }
+            }
+        }
+
+        private mutating func ParseObject() -> JsonValue? {
+            pos += 1  // {
+            var fields: [(String, JsonValue)] = []
+            SkipWs()
+            if Consume("}") { return .object(fields) }
+            while true {
+                SkipWs()
+                guard let key = ParseString() else { return nil }
+                SkipWs()
+                if !Consume(":") { return nil }
+                guard let value = ParseValue() else { return nil }
+                fields.append((key, value))
+                SkipWs()
+                if Consume("}") { return .object(fields) }
+                if !Consume(",") { return nil }
+            }
+        }
+
+        private mutating func ParseString() -> String? {
+            if !Consume("\"") { return nil }
+            var out = String()
+            while let c = Peek() {
+                pos += 1
+                if c == "\"" { return out }
+                if c != "\\" {
+                    out.append(c)
+                    continue
+                }
+                guard let esc = Peek() else { return nil }
+                pos += 1
+                switch esc {
+                case "\"": out.append("\"")
+                case "\\": out.append("\\")
+                case "/": out.append("/")
+                case "b": out.append("\u{08}")
+                case "f": out.append("\u{0C}")
+                case "n": out.append("\n")
+                case "r": out.append("\r")
+                case "t": out.append("\t")
+                case "u":
+                    guard let scalar = ParseUnicodeEscape() else { return nil }
+                    out.unicodeScalars.append(scalar)
+                default:
+                    return nil
+                }
+            }
+            return nil
+        }
+
+        private mutating func ParseUnicodeEscape() -> UnicodeScalar? {
+            guard let first = ParseHex4() else { return nil }
+            if first >= 0xD800 && first <= 0xDBFF {
+                // High surrogate: expect a low-surrogate escape.
+                if Consume("\\") && Consume("u"), let second = ParseHex4(),
+                   second >= 0xDC00 && second <= 0xDFFF {
+                    return UnicodeScalar(0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00))
+                }
+                return UnicodeScalar(0xFFFD)
+            }
+            return UnicodeScalar(first)
+        }
+
+        private mutating func ParseHex4() -> UInt32? {
+            var value: UInt32 = 0
+            for _ in 0..<4 {
+                guard let c = Peek(), let digit = c.hexDigitValue else { return nil }
+                pos += 1
+                value = value * 16 + UInt32(digit)
+            }
+            return value
+        }
+
+        private mutating func ConsumeLiteral(_ literal: String) -> Bool {
+            for c in literal {
+                if !Consume(c) { return false }
+            }
+            return true
+        }
+
+        private mutating func ParseNumber() -> Double? {
+            let start = pos
+            while let c = Peek(),
+                  c == "-" || c == "+" || c == "." || c == "e" || c == "E" || c.isNumber {
+                pos += 1
+            }
+            if pos == start { return nil }
+            return Double(String(chars[start..<pos]))
         }
     }
 }
@@ -189,7 +417,36 @@ GRPC_RUNTIME_EOF
 
 (define swift-transport-body
 #<<GRPC_RUNTIME_EOF
+#if canImport(Foundation)
 import Foundation
+#endif
+
+/// Lock shim: NSLock where Foundation exists (native), a no-op
+/// on Embedded Swift (wasm32, single-threaded by construction).
+#if canImport(Foundation)
+typealias GrpcLock = NSLock
+#else
+final class GrpcLock {
+    func lock() {}
+    func unlock() {}
+}
+
+@_extern(c, "js_now_ms")
+func grpcdcJsNowMs() -> Double
+#endif
+
+/// Monotonic clock seam (milliseconds). Native builds use the
+/// wall clock via Foundation (as before); Embedded Swift uses
+/// the host's js_now_ms import (performance.now in the worker).
+enum GrpcTime {
+    static func NowMs() -> Double {
+        #if canImport(Foundation)
+        return Date().timeIntervalSince1970 * 1000.0
+        #else
+        return grpcdcJsNowMs()
+        #endif
+    }
+}
 
 /// Carries whole DataChannel messages: one Send/Recv is one message,
 /// boundaries preserved, ordered and reliable — the contract an
@@ -199,10 +456,27 @@ protocol Transport: AnyObject {
     /// Next message; throws EndOfStreamError when closed.
     func Recv() throws -> [UInt8]
     func Close()
+
+    /// Optional bounded receive for single-threaded environments
+    /// (wasm32). When a transport reports HasTryRecv, the
+    /// endpoint runs in inline pump mode — no read or dispatch
+    /// threads; stream waits pump the transport instead of
+    /// blocking on a condition variable.
+    var HasTryRecv: Bool { get }
+    func TryRecv() -> TryRecvResult
+}
+
+/// Result of a Transport.TryRecv call.
+enum TryRecvResult {
+    case message([UInt8])
+    case wouldBlock
+    case closed
 }
 
 extension Transport {
     func Close() {}
+    var HasTryRecv: Bool { false }
+    func TryRecv() -> TryRecvResult { .wouldBlock }
 }
 
 /// Implemented by hand-written protobuf message types.
@@ -215,6 +489,7 @@ protocol Unmarshaler {
     func UnmarshalDc(_ data: [UInt8])
 }
 
+#if canImport(Foundation)
 /// Thread-safe blocking queue (Foundation only).
 final class BlockingQueue<T> {
     private let cond = NSCondition()
@@ -226,6 +501,19 @@ final class BlockingQueue<T> {
         items.append(item)
         cond.signal()
         cond.unlock()
+    }
+
+    /// Non-blocking take: next item, or nil when empty.
+    func TryTake() -> T? {
+        cond.lock()
+        defer { cond.unlock() }
+        return items.isEmpty ? nil : items.removeFirst()
+    }
+
+    func IsClosed() -> Bool {
+        cond.lock()
+        defer { cond.unlock() }
+        return closed
     }
 
     /// Next item, or nil once closed and drained.
@@ -263,12 +551,50 @@ final class BlockingQueue<T> {
         cond.unlock()
     }
 }
+#else
+/// Single-threaded queue for Embedded Swift (no NSCondition):
+/// Take is non-blocking; waiters use TryTake plus the endpoint
+/// pump (inline mode), never a blocking wait.
+final class BlockingQueue<T> {
+    private var items: [T] = []
+    private var closedFlag = false
+
+    func Add(_ item: T) {
+        items.append(item)
+    }
+
+    func TryTake() -> T? {
+        items.isEmpty ? nil : items.removeFirst()
+    }
+
+    func IsClosed() -> Bool { closedFlag }
+
+    /// Next item, or nil once closed and drained (non-blocking
+    /// in this build; see the type doc).
+    func Take() -> T? {
+        if let item = TryTake() { return item }
+        return nil
+    }
+
+    /// Non-blocking timed take: expiry is immediate emptiness.
+    func Take(until deadlineMs: Double) -> (item: T?, timedOut: Bool) {
+        if let item = TryTake() { return (item, false) }
+        return (nil, !closedFlag)
+    }
+
+    func Close() {
+        closedFlag = true
+    }
+}
+#endif
 GRPC_RUNTIME_EOF
 )
 
 (define swift-endpoint-body
 #<<GRPC_RUNTIME_EOF
+#if canImport(Foundation)
 import Foundation
+#endif
 
 /// Multiplexes grpc-dc streams over one Transport.
 final class Endpoint {
@@ -286,28 +612,60 @@ final class Endpoint {
     /// Receiving queue of one stream; closed after a terminal event.
     final class StreamInput {
         private let queue = BlockingQueue<StreamEvent>()
+
+        /// Inline mode: Get drives the endpoint pump instead of
+        /// waiting on a condition variable. Strong, cleared by
+        /// Endpoint.CloseStream (`weak` is unavailable in
+        /// Embedded Swift); ClientStream also retains both.
+        var pump: Endpoint?
+
+        func SetPump(_ endpoint: Endpoint?) { pump = endpoint }
+
         func Put(_ event: StreamEvent) { queue.Add(event) }
         func Close() { queue.Close() }
+
         /// Next event, or nil once the stream is closed and drained.
-        func Get() -> StreamEvent? { queue.Take() }
+        func Get() -> StreamEvent? {
+            if let pump = pump {
+                while true {
+                    if let event = queue.TryTake() { return event }
+                    if queue.IsClosed() { return nil }
+                    pump.PollOnce()
+                }
+            }
+            return queue.Take()
+        }
 
         /// Timed Get: timedOut is true on expiry with no event.
-        func Get(until deadline: Date) -> (event: StreamEvent?, timedOut: Bool) {
-            let result = queue.Take(until: deadline)
+        func Get(deadlineMs: Double) -> (event: StreamEvent?, timedOut: Bool) {
+            if let pump = pump {
+                while true {
+                    if let event = queue.TryTake() { return (event, false) }
+                    if queue.IsClosed() { return (nil, false) }
+                    if GrpcTime.NowMs() >= deadlineMs { return (nil, true) }
+                    pump.PollOnce()
+                }
+            }
+            #if canImport(Foundation)
+            let result = queue.Take(until: Date(timeIntervalSince1970: deadlineMs / 1000.0))
             return (result.item, result.timedOut)
+            #else
+            return (queue.TryTake(), false)
+            #endif
         }
     }
 
     /// Per-call context: metadata sent in HEADERS, plus deadline.
     struct CallContext {
         var metadata: [String: String] = [:]
-        /// Deadline propagated via grpc-timeout, when the client set one.
-        var deadline: Date? = nil
+        /// Monotonic deadline (GrpcTime milliseconds) propagated
+        /// via grpc-timeout, when the client set one.
+        var deadlineMs: Double? = nil
 
-        /// Time left before the deadline, or nil when unbounded.
-        func TimeRemaining() -> TimeInterval? {
-            guard let deadline else { return nil }
-            return max(0, deadline.timeIntervalSinceNow)
+        /// Seconds left before the deadline, or nil when unbounded.
+        func TimeRemaining() -> Double? {
+            guard let deadlineMs else { return nil }
+            return max(0, (deadlineMs - GrpcTime.NowMs()) / 1000.0)
         }
 
         var DeadlineExceeded: Bool { TimeRemaining() == 0 }
@@ -316,7 +674,7 @@ final class Endpoint {
             var ctx = CallContext()
             ctx.metadata = metadata
             if let remaining = Codec.ParseTimeout(metadata["grpc-timeout"]) {
-                ctx.deadline = Date().addingTimeInterval(remaining)
+                ctx.deadlineMs = GrpcTime.NowMs() + remaining * 1000.0
             }
             return ctx
         }
@@ -352,12 +710,13 @@ final class Endpoint {
     private let transport: Transport
     private var dispatcher: Dispatcher?
     private var nextId: UInt32
-    private let sendLock = NSLock()
-    private let streamsLock = NSLock()
+    private let sendLock = GrpcLock()
+    private let streamsLock = GrpcLock()
     private var streams: [UInt32: StreamInput] = [:]
     private var closed = false
     private var started = false
-    private let stateLock = NSLock()
+    private var inlinePumpFlag = false
+    private let stateLock = GrpcLock()
 
     /// The side that created the channel allocates odd stream ids, the
     /// answerer even. The read loop starts on Start() — after any
@@ -368,7 +727,9 @@ final class Endpoint {
         self.nextId = creator ? 1 : 2
     }
 
-    /// Start the read loop (idempotent).
+    /// Start the read loop (idempotent). A TryRecv transport
+    /// runs inline instead: no thread is spawned and stream
+    /// waits pump the transport (single-threaded wasm32).
     func Start() {
         stateLock.lock()
         if started {
@@ -376,7 +737,10 @@ final class Endpoint {
             return
         }
         started = true
+        inlinePumpFlag = transport.HasTryRecv
         stateLock.unlock()
+        if inlinePumpFlag { return }
+        #if canImport(Foundation)
         // Strong capture: the read loop keeps the endpoint alive for
         // as long as the transport delivers (callers may discard the
         // ServeTransport return value, as in every other language).
@@ -385,6 +749,32 @@ final class Endpoint {
         }
         thread.name = "grpcdc-endpoint"
         thread.start()
+        #endif
+    }
+
+    /// Whether this endpoint runs in inline pump mode.
+    func IsInlinePump() -> Bool { inlinePumpFlag }
+
+    /// Inline mode: receive and dispatch at most one message.
+    /// Stream waits call this through StreamInput's pump hook;
+    /// a server-only program drives its endpoint by calling it
+    /// in a loop.
+    func PollOnce() {
+        if IsClosed() { return }
+        switch transport.TryRecv() {
+        case .message(let data):
+            if !IsClosed() { OnBytes(data) }
+        case .wouldBlock:
+            break
+        case .closed:
+            FailAll()
+        }
+    }
+
+    private func AttachPump(_ input: StreamInput) {
+        if inlinePumpFlag || transport.HasTryRecv {
+            input.SetPump(self)
+        }
     }
 
     func SetDispatcher(_ dispatcher: @escaping Dispatcher) {
@@ -403,6 +793,7 @@ final class Endpoint {
         nextId += 2
         sendLock.unlock()
         let input = StreamInput()
+        AttachPump(input)
         streamsLock.lock()
         streams[id] = input
         streamsLock.unlock()
@@ -411,8 +802,9 @@ final class Endpoint {
 
     func CloseStream(_ id: UInt32) {
         streamsLock.lock()
-        streams.removeValue(forKey: id)
+        let removed = streams.removeValue(forKey: id)
         streamsLock.unlock()
+        removed?.SetPump(nil)
     }
 
     /// Abort one stream: RST out; a pending Recv wakes with CANCELLED.
@@ -528,24 +920,38 @@ final class Endpoint {
             return
         }
         let streamInput = StreamInput()
+        AttachPump(streamInput)
         streamsLock.lock()
         streams[streamId] = streamInput
         streamsLock.unlock()
+        if inlinePumpFlag {
+            // Single-threaded mode: run the handler on this pump
+            // stack; its stream waits re-enter PollOnce.
+            DispatchCall(streamId, streamInput, headers, dispatcher)
+            return
+        }
+        #if canImport(Foundation)
         let thread = Thread { [weak self] in
             guard let self = self else { return }
-            let sink = ResponseSink(self, streamId)
-            do {
-                try sink.SendHeaders()
-            } catch {
-                self.CloseStream(streamId)
-                return
-            }
-            let status = dispatcher(CallContext.FromMetadata(headers.metadata), headers, streamInput, sink)
-            try? sink.SendTrailers(status)
-            self.CloseStream(streamId)
+            self.DispatchCall(streamId, streamInput, headers, dispatcher)
         }
         thread.name = "grpcdc-call"
         thread.start()
+        #endif
+    }
+
+    private func DispatchCall(_ streamId: UInt32, _ streamInput: StreamInput,
+                              _ headers: Codec.Headers, _ dispatcher: Dispatcher) {
+        let sink = ResponseSink(self, streamId)
+        do {
+            try sink.SendHeaders()
+        } catch {
+            CloseStream(streamId)
+            return
+        }
+        let status = dispatcher(CallContext.FromMetadata(headers.metadata), headers, streamInput, sink)
+        try? sink.SendTrailers(status)
+        CloseStream(streamId)
     }
 }
 GRPC_RUNTIME_EOF
@@ -553,8 +959,6 @@ GRPC_RUNTIME_EOF
 
 (define swift-channel-body
 #<<GRPC_RUNTIME_EOF
-import Foundation
-
 /// Channel: the client side of one Endpoint.
 final class Channel {
     private let endpointInstance: Endpoint
@@ -579,7 +983,7 @@ final class Channel {
         private let endpoint: Endpoint
         private let input: Endpoint.StreamInput
         private(set) var headers: Codec.Headers?
-        var deadline: Date? = nil
+        var deadlineMs: Double? = nil
 
         init(_ endpoint: Endpoint, _ streamId: UInt32, _ input: Endpoint.StreamInput) {
             self.endpoint = endpoint
@@ -596,8 +1000,8 @@ final class Channel {
         func Recv(_ resp: Unmarshaler) throws {
             while true {
                 let event: Endpoint.StreamEvent?
-                if let deadline {
-                    let result = input.Get(until: deadline)
+                if let deadlineMs {
+                    let result = input.Get(deadlineMs: deadlineMs)
                     if result.timedOut {
                         endpoint.CancelStream(streamId)
                         throw StatusException(Wire.CodeDeadlineExceeded, "deadline exceeded")
@@ -629,11 +1033,11 @@ final class Channel {
         }
     }
 
-    private func Open(_ path: String, _ metadata: [String: String]?, _ timeout: TimeInterval? = nil) throws -> ClientStream {
+    private func Open(_ path: String, _ metadata: [String: String]?, _ timeout: Double? = nil) throws -> ClientStream {
         var metadata = metadata
-        var deadline: Date? = nil
+        var deadlineMs: Double? = nil
         if let timeout {
-            deadline = Date().addingTimeInterval(timeout)
+            deadlineMs = GrpcTime.NowMs() + timeout * 1000.0
             var merged = metadata ?? [:]
             merged["grpc-timeout"] = Codec.EncodeTimeout(timeout)
             metadata = merged
@@ -646,7 +1050,7 @@ final class Channel {
             throw error
         }
         let stream = ClientStream(endpointInstance, id, input)
-        stream.deadline = deadline
+        stream.deadlineMs = deadlineMs
         return stream
     }
 
@@ -658,7 +1062,7 @@ final class Channel {
         try endpointInstance.SendFrame(Codec.EncodeFrame(Wire.FrameHalfClose, stream.streamId, []))
     }
 
-    private func SendAll(_ stream: ClientStream, _ reqs: [Marshaler]) throws {
+    private func SendAll<T: Marshaler>(_ stream: ClientStream, _ reqs: [T]) throws {
         for req in reqs { try SendMessage(stream, req) }
         try HalfClose(stream)
     }
@@ -682,7 +1086,7 @@ final class Channel {
     }
 
     /// Run a unary call, decoding the single response into resp.
-    func Unary(_ path: String, _ req: Marshaler, _ resp: Unmarshaler, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws {
+    func Unary(_ path: String, _ req: Marshaler, _ resp: Unmarshaler, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws {
         let stream = try Open(path, metadata, timeout)
         defer { endpointInstance.CloseStream(stream.streamId) }
         try SendMessage(stream, req)
@@ -691,7 +1095,7 @@ final class Channel {
     }
 
     /// Start a server-streaming call.
-    func ServerStream(_ path: String, _ req: Marshaler, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ClientStream {
+    func ServerStream(_ path: String, _ req: Marshaler, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ClientStream {
         let stream = try Open(path, metadata, timeout)
         try SendMessage(stream, req)
         try HalfClose(stream)
@@ -699,7 +1103,7 @@ final class Channel {
     }
 
     /// Send all requests, then decode the one response into resp.
-    func ClientStreamCall(_ path: String, _ reqs: [Marshaler], _ resp: Unmarshaler, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws {
+    func ClientStreamCall<T: Marshaler>(_ path: String, _ reqs: [T], _ resp: Unmarshaler, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws {
         let stream = try Open(path, metadata, timeout)
         defer { endpointInstance.CloseStream(stream.streamId) }
         try SendAll(stream, reqs)
@@ -707,7 +1111,7 @@ final class Channel {
     }
 
     /// Start a bidi call with all requests sent up front.
-    func Bidi(_ path: String, _ reqs: [Marshaler], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ClientStream {
+    func Bidi<T: Marshaler>(_ path: String, _ reqs: [T], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ClientStream {
         let stream = try Open(path, metadata, timeout)
         try SendAll(stream, reqs)
         return stream
@@ -718,8 +1122,6 @@ GRPC_RUNTIME_EOF
 
 (define swift-server-body
 #<<GRPC_RUNTIME_EOF
-import Foundation
-
 /// Server: dispatches inbound calls to registered methods.
 final class Server {
     static let KindUnary = "unary"
@@ -834,15 +1236,13 @@ GRPC_RUNTIME_EOF
 
 (define swift-loopback-body
 #<<GRPC_RUNTIME_EOF
-import Foundation
-
 /// In-memory transport pair for tests (one queue per direction).
 enum MemoryTransport {
     private final class Impl: Transport {
         private let inbox: BlockingQueue<[UInt8]>
         private let outbox: BlockingQueue<[UInt8]>
         private var closed = false
-        private let lock = NSLock()
+        private let lock = GrpcLock()
 
         init(inbox: BlockingQueue<[UInt8]>, outbox: BlockingQueue<[UInt8]>) {
             self.inbox = inbox
@@ -1467,7 +1867,7 @@ enum Dynamic {
             return m
         }
 
-        func Unary(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> GenericMessage {
+        func Unary(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> GenericMessage {
             let m = try Method(service, method)
             let resp = BoundMessage(m.output, GenericMessage(m.output), model)
             try channel.Unary(m.path, BoundMessage(m.input, req, model), resp, metadata, timeout)
@@ -1494,13 +1894,13 @@ enum Dynamic {
             }
         }
 
-        func ServerStream(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> DynamicStream {
+        func ServerStream(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DynamicStream {
             let m = try Method(service, method)
             return DynamicStream(try channel.ServerStream(m.path, BoundMessage(m.input, req, model), metadata, timeout),
                                  m.output, model)
         }
 
-        func ClientStream(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> GenericMessage {
+        func ClientStream(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> GenericMessage {
             let m = try Method(service, method)
             let bound = reqs.map { BoundMessage(m.input, $0, model) }
             let resp = BoundMessage(m.output, GenericMessage(m.output), model)
@@ -1508,7 +1908,7 @@ enum Dynamic {
             return resp.generic
         }
 
-        func Bidi(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> DynamicStream {
+        func Bidi(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DynamicStream {
             let m = try Method(service, method)
             let bound = reqs.map { BoundMessage(m.input, $0, model) }
             return DynamicStream(try channel.Bidi(m.path, bound, metadata, timeout), m.output, model)

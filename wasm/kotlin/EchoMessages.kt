@@ -1,5 +1,8 @@
 package echo
 
+import grpcdc.Marshaler
+import grpcdc.Unmarshaler
+
 /**
  * Hand-written protobuf messages for proto/echo.proto
  * (package echo), common-Kotlin only for the WASM build.
@@ -11,8 +14,8 @@ class EchoRequest(
     var message: String = "",
     var count: Int = 0,
     var delayMs: Int = 0
-) {
-    fun marshalDc(): ByteArray {
+) : Marshaler, Unmarshaler {
+    override fun marshalDc(): ByteArray {
         val w = Pb.Writer()
         w.stringField(1, message)
         w.int32Field(2, count)
@@ -20,7 +23,7 @@ class EchoRequest(
         return w.toBytes()
     }
 
-    fun unmarshalDc(data: ByteArray) {
+    override fun unmarshalDc(data: ByteArray) {
         message = ""
         count = 0
         delayMs = 0
@@ -45,15 +48,15 @@ class EchoRequest(
 class EchoResponse(
     var message: String = "",
     var index: Int = 0
-) {
-    fun marshalDc(): ByteArray {
+) : Marshaler, Unmarshaler {
+    override fun marshalDc(): ByteArray {
         val w = Pb.Writer()
         w.stringField(1, message)
         w.int32Field(2, index)
         return w.toBytes()
     }
 
-    fun unmarshalDc(data: ByteArray) {
+    override fun unmarshalDc(data: ByteArray) {
         message = ""
         index = 0
         val r = Pb.Reader(data)

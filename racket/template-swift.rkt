@@ -35,7 +35,7 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "        func ~a(_ req: ~a, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ~a {\n"
+              "        func ~a(_ req: ~a, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ~a {\n"
               "            let resp = ~a()\n"
               "            try channel.Unary(~s, req, resp, metadata, timeout)\n"
               "            return resp\n"
@@ -43,13 +43,13 @@
              name req resp resp path)]
     [(server-streaming)
      (format (string-append
-              "        func ~a(_ req: ~a, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ~a~aStream {\n"
+              "        func ~a(_ req: ~a, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ~a~aStream {\n"
               "            return ~a~aStream(try channel.ServerStream(~s, req, metadata, timeout))\n"
               "        }\n\n")
              name req svc name svc name path)]
     [(client-streaming)
      (format (string-append
-              "        func ~a(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ~a {\n"
+              "        func ~a(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ~a {\n"
               "            let resp = ~a()\n"
               "            try channel.ClientStreamCall(~s, reqs, resp, metadata, timeout)\n"
               "            return resp\n"
@@ -57,7 +57,7 @@
              name req resp resp path)]
     [(bidi)
      (format (string-append
-              "        func ~a(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ~a~aStream {\n"
+              "        func ~a(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ~a~aStream {\n"
               "            return ~a~aStream(try channel.Bidi(~s, reqs, metadata, timeout))\n"
               "        }\n\n")
              name req svc name svc name path)]))
@@ -91,13 +91,13 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "        func ~aAsync(_ req: ~a, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) async throws -> ~a {\n"
+              "        func ~aAsync(_ req: ~a, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ~a {\n"
               "            try await Task.detached { try self.~a(req, metadata, timeout) }.value\n"
               "        }\n\n")
              name req resp name)]
     [(server-streaming bidi)
      (format (string-append
-              "        func ~aAsync(_ reqs: ~a, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) -> AsyncThrowingStream<~a, Error> {\n"
+              "        func ~aAsync(_ reqs: ~a, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<~a, Error> {\n"
               "            AsyncThrowingStream { continuation in\n"
               "                let task = Task.detached {\n"
               "                    do {\n"
@@ -117,7 +117,7 @@
              name (if (eq? (hash-ref m 'kind) 'bidi) (format "[~a]" req) req) resp name)]
     [(client-streaming)
      (format (string-append
-              "        func ~aAsync(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) async throws -> ~a {\n"
+              "        func ~aAsync(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ~a {\n"
               "            try await Task.detached { try self.~a(reqs, metadata, timeout) }.value\n"
               "        }\n\n")
              name req resp name)]))
@@ -338,14 +338,17 @@
      "        init(_ channel: Channel) {\n            self.channel = channel\n        }\n\n"
      (apply string-append (map swift-client-stream-class methods))
      (apply string-append (map swift-client-method (append methods (alias-client-methods svc))))
-     "        // -- async (Swift concurrency) surface ---------------------------\n\n"
+     "        // -- async (Swift concurrency) surface ---------------------------\n"
+     "        #if canImport(Foundation)\n\n"
      (apply string-append (map swift-client-async-method (append methods (alias-client-methods svc))))
+     "        #endif\n"
      "    }\n\n"
      (apply string-append (map swift-server-stream-iface methods))
      (format "    /// Service implementation interface for ~a.\n" (hash-ref svc 'full-name))
      (format "    protocol ~aServer: AnyObject {\n" sname)
      (apply string-append (map swift-server-iface-method methods))
      "    }\n\n"
+     "    #if canImport(Foundation)\n"
      (format "    /// Async service implementation interface for ~a.\n" (hash-ref svc 'full-name))
      (format "    protocol ~aServerAsync: AnyObject {\n" sname)
      (apply string-append (map swift-server-async-iface-method methods))
@@ -368,7 +371,8 @@
      "        // once-per-process and bounded by service count.\n"
      (format "        adapters.append(~aServerAsyncAdapter(impl))\n" sname)
      (format "        Register~aServer(server, adapters.last!)\n    }\n\n" sname)
-     (format "    private static var adapters: [~aServerAsyncAdapter] = []\n" sname))))
+     (format "    private static var adapters: [~aServerAsyncAdapter] = []\n" sname)
+     "    #endif\n")))
 
 (define (emit-swift-file file-model params)
   (define base (path->string (path-replace-extension
@@ -378,12 +382,13 @@
         (string-append
          "// @generated by protoc-gen-grpc-dc-swift (Racket metaprogram). DO NOT EDIT.\n"
          (format "// source: ~a\n\n" (hash-ref file-model 'name))
-         "import Foundation\n\n"
+         "#if canImport(Foundation)\nimport Foundation\n#endif\n\n"
          (format "/// Generated gRPC-over-DataChannels stubs for ~a.\n" (hash-ref file-model 'name))
          (format "enum ~a {\n" enum-name)
          (apply string-append
                 (map swift-service (hash-ref file-model 'services)))
          "}\n\n"
+         "#if canImport(Foundation)\n"
          "/// Run an async operation to completion on a blocking thread.\n"
          "func RunBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {\n"
          "    let semaphore = DispatchSemaphore(value: 0)\n"
@@ -398,4 +403,5 @@
          "    }\n"
          "    semaphore.wait()\n"
          "    return try result.get()\n"
-         "}\n")))
+         "}\n"
+         "#endif\n")))

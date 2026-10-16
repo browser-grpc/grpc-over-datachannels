@@ -55,7 +55,7 @@ func TestDeadline() throws {
 
     try Check(slow.seenCtx != nil, "handler ran")
     try Check(slow.seenCtx?.metadata["grpc-timeout"] != nil, "grpc-timeout metadata")
-    try Check(slow.seenCtx?.deadline != nil, "ctx deadline")
+    try Check(slow.seenCtx?.deadlineMs != nil, "ctx deadline")
     try Check(slow.seenCtx?.TimeRemaining() != nil, "ctx remaining")
 
     let stream = try client.ServerStream(Req("tick", 5), nil, 0.15)
