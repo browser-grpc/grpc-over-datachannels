@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -151,7 +152,7 @@ type IceAgent struct {
 	RemoteUfrag string
 	RemotePwd   string
 
-	controlling      bool
+	controlling      atomic.Bool
 	tieBreaker       uint64
 	LocalCandidates  []Candidate
 	RemoteCandidates []Candidate
@@ -183,22 +184,23 @@ type IceAgent struct {
 func NewIceAgent(controlling bool) *IceAgent {
 	var tb [8]byte
 	_, _ = rand.Read(tb[:])
-	return &IceAgent{
+	agent := &IceAgent{
 		LocalUfrag:       randomUfrag(),
 		LocalPwd:         randomPassword(),
-		controlling:      controlling,
 		tieBreaker:       binary.BigEndian.Uint64(tb[:]),
 		outstanding:      map[string]outstandingCheck{},
 		valid:            map[string]bool{},
 		nominatingSentAt: map[string]time.Time{},
 	}
+	agent.controlling.Store(controlling)
+	return agent
 }
 
 // Controlling reports the (possibly repaired) ICE role.
-func (a *IceAgent) Controlling() bool { return a.controlling }
+func (a *IceAgent) Controlling() bool { return a.controlling.Load() }
 
 // SetControlling sets the ICE role before checks begin.
-func (a *IceAgent) SetControlling(controlling bool) { a.controlling = controlling }
+func (a *IceAgent) SetControlling(controlling bool) { a.controlling.Store(controlling) }
 
 // SetRemote installs the peer's credentials and candidates.
 func (a *IceAgent) SetRemote(ufrag, pwd string, candidates []Candidate) {
@@ -290,11 +292,11 @@ func (a *IceAgent) buildCheck(remote Candidate, nominate bool) Check {
 	tb := make([]byte, 8)
 	binary.BigEndian.PutUint64(tb, a.tieBreaker)
 	roleAttr := uint16(StunAttrIceControlled)
-	if a.controlling {
+	if a.controlling.Load() {
 		roleAttr = StunAttrIceControlling
 	}
 	msg.addAttr(roleAttr, tb)
-	if nominate && a.controlling {
+	if nominate && a.controlling.Load() {
 		msg.addAttr(StunAttrUseCandidate, nil)
 	}
 	bytes := msg.Encode([]byte(a.RemotePwd))
@@ -317,7 +319,7 @@ func (a *IceAgent) DueChecks() []Check {
 	for _, remote := range a.RemoteCandidates {
 		out = append(out, a.buildCheck(remote, false))
 	}
-	if a.controlling {
+	if a.controlling.Load() {
 		// Nominate the best valid pair, retransmitting the
 		// nominating check until its success response lands
 		// (RFC 8489 transactions are not fire-and-forget: a
@@ -357,8 +359,8 @@ func (a *IceAgent) bestValidPair() *Candidate {
 		return nil
 	}
 	sort.SliceStable(valid, func(i, j int) bool {
-		return pairPriority(a.localPriority(), valid[j].Priority, a.controlling) >
-			pairPriority(a.localPriority(), valid[i].Priority, a.controlling)
+		return pairPriority(a.localPriority(), valid[j].Priority, a.controlling.Load()) >
+			pairPriority(a.localPriority(), valid[i].Priority, a.controlling.Load())
 	})
 	return &valid[0]
 }
@@ -392,10 +394,10 @@ func (a *IceAgent) HandleStun(raw []byte, src *net.UDPAddr) ([]StunResponse, []I
 			responses = append(responses, StunResponse{bindingError(msg, 401, "Unauthorized"), src})
 			return responses, events
 		}
-		if a.controlling {
+		if a.controlling.Load() {
 			if tb := msg.attr(StunAttrIceControlling); tb != nil && len(tb) == 8 {
 				if binary.BigEndian.Uint64(tb) >= a.tieBreaker {
-					a.controlling = false
+					a.controlling.Store(false)
 				} else {
 					responses = append(responses, StunResponse{bindingError(msg, 487, "Role Conflict"), src})
 					return responses, events
@@ -404,7 +406,7 @@ func (a *IceAgent) HandleStun(raw []byte, src *net.UDPAddr) ([]StunResponse, []I
 		} else {
 			if tb := msg.attr(StunAttrIceControlled); tb != nil && len(tb) == 8 {
 				if a.tieBreaker >= binary.BigEndian.Uint64(tb) {
-					a.controlling = true
+					a.controlling.Store(true)
 				} else {
 					responses = append(responses, StunResponse{bindingError(msg, 487, "Role Conflict"), src})
 					return responses, events
@@ -426,7 +428,7 @@ func (a *IceAgent) HandleStun(raw []byte, src *net.UDPAddr) ([]StunResponse, []I
 			a.valid[key] = true
 			events = append(events, IceEvent{"pair-valid", src})
 		}
-		if !a.controlling && msg.attr(StunAttrUseCandidate) != nil {
+		if !a.controlling.Load() && msg.attr(StunAttrUseCandidate) != nil {
 			a.Nominated = src
 			a.nominatedGen = a.generation
 			a.lastConsent = time.Now()
