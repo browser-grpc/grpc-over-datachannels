@@ -71,6 +71,38 @@
 (define (rb-client-method pb m)
   (rb-client-method/raw pb m))
 
+(define (rb-fiber-client-method pb m)
+  (define name (hash-ref m 'name))
+  (define resp (hash-ref m 'output))
+  (define path (hash-ref m 'path))
+  (case (hash-ref m 'kind)
+    [(unary)
+     (format (string-append
+              "    def ~a(req, metadata = nil)\n"
+              "~a      @channel.unary(~s, req, ~a::~a.new, metadata)\n"
+              "    end\n\n")
+             name (rb-deprecated m) path pb resp)]
+    [(server-streaming)
+     (format (string-append
+              "    def ~a(req, metadata = nil)\n"
+              "~a      stream = @channel.server_stream(~s, req, metadata)\n"
+              "      FiberRecvStream.new(stream, ~a::~a)\n"
+              "    end\n\n")
+             name (rb-deprecated m) path pb resp)]
+    [(client-streaming)
+     (format (string-append
+              "    def ~a(reqs, metadata = nil)\n"
+              "~a      @channel.client_stream(~s, reqs, ~a::~a.new, metadata)\n"
+              "    end\n\n")
+             name (rb-deprecated m) path pb resp)]
+    [(bidi)
+     (format (string-append
+              "    def ~a(reqs, metadata = nil)\n"
+              "~a      stream = @channel.bidi(~s, reqs, metadata)\n"
+              "      FiberRecvStream.new(stream, ~a::~a)\n"
+              "    end\n\n")
+             name (rb-deprecated m) path pb resp)]))
+
 (define (rb-server-handler pb m)
   (define name (hash-ref m 'name))
   (define impl-name (method-impl-name m))
@@ -186,6 +218,43 @@
    "    def recv\n"
    "      @reqs.recv_into(@req_cls.new)\n"
    "    end\n"
+   "  end\n\n"
+   "  # Fiber-based client receiving stream: a producer Fiber\n"
+   "  # yields each response; next_msg resumes it and raises\n"
+   "  # StopIteration when the call completes. cancel aborts\n"
+   "  # the underlying stream (RST).\n"
+   "  class FiberRecvStream\n"
+   "    include Enumerable\n\n"
+   "    DONE = Object.new\n\n"
+   "    def initialize(stream, resp_cls)\n"
+   "      @stream = stream\n"
+   "      @resp_cls = resp_cls\n"
+   "      @fiber = Fiber.new do\n"
+   "        begin\n"
+   "          loop { Fiber.yield(@stream.recv(@resp_cls.new)) }\n"
+   "        rescue EOFError\n"
+   "          DONE\n"
+   "        end\n"
+   "      end\n"
+   "    end\n\n"
+   "    def next_msg\n"
+   "      value = @fiber.resume\n"
+   "      raise StopIteration if value.equal?(DONE)\n\n"
+   "      value\n"
+   "    end\n\n"
+   "    def cancel\n"
+   "      @stream.cancel\n"
+   "    end\n\n"
+   "    def each\n"
+   "      return enum_for(:each) unless block_given?\n\n"
+   "      loop do\n"
+   "        begin\n"
+   "          yield next_msg\n"
+   "        rescue StopIteration\n"
+   "          return\n"
+   "        end\n"
+   "      end\n"
+   "    end\n"
    "  end\n\n"))
 
 (define (rb-service pb svc)
@@ -195,6 +264,9 @@
     (string-append
      (format "  class ~aClient\n    def initialize(channel)\n      @channel = channel\n    end\n\n" sname)
      (apply string-append (map (lambda (m) (rb-client-method pb m)) (append methods (alias-client-methods svc))))
+     "  end\n\n"
+     (format "  # Fiber client: wraps a Grpcdc::FiberChannel (a sync Channel is wrapped).\n  class ~aClientFiber\n    def initialize(channel)\n      @channel = channel.is_a?(Grpcdc::FiberChannel) ? channel : Grpcdc::FiberChannel.new(channel)\n    end\n\n" sname)
+     (apply string-append (map (lambda (m) (rb-fiber-client-method pb m)) (append methods (alias-client-methods svc))))
      "  end\n\n"
      (format "  def self.register_~a_server(server, impl)\n" (snake (string->symbol sname)))
      (apply string-append (map (lambda (m) (rb-server-handler pb m)) (append methods (alias-server-methods svc))))

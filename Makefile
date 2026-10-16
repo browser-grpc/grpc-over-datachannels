@@ -225,7 +225,8 @@ test-ruby:
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestInterop \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestOracle \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestDynamic \
-		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestBdd
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestBdd \
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestFiber
 
 test-grpc-webrtc:
 	cd rust && $(CARGO) test --features webrtc

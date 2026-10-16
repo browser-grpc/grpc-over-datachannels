@@ -308,6 +308,23 @@ module Grpcdc
       @streams_lock.synchronize { @streams.delete(stream_id) }
     end
 
+    # Abort one stream: RST towards the peer; any thread blocked
+    # in recv wakes with the cancellation status (the local input
+    # is closed with a synthetic RST event).
+    def cancel_stream(stream_id)
+      status = StatusError.new(CODE_CANCELLED, "call cancelled")
+      input = @streams_lock.synchronize { @streams.delete(stream_id) }
+      unless input.nil?
+        input.put(StreamEvent.new(EVENT_RST, status: status))
+        input.close
+      end
+      begin
+        send_frame(Codec.status_frame(FRAME_RST, stream_id, status))
+      rescue StandardError
+        nil
+      end
+    end
+
     def stream(stream_id)
       @streams_lock.synchronize { @streams[stream_id] }
     end
@@ -556,7 +573,7 @@ module Grpcdc
 
   # Receives response messages of one call.
   class ClientStream
-    attr_reader :stream_id, :headers
+    attr_reader :stream_id, :headers, :endpoint
 
     def initialize(endpoint, stream_id, stream_input)
       @endpoint = endpoint
@@ -587,6 +604,76 @@ module Grpcdc
           raise event.status
         end
       end
+    end
+
+    # Abort this stream (sends RST, wakes a pending recv).
+    def cancel
+      @endpoint.cancel_stream(@stream_id)
+    end
+  end
+
+  # Fiber receiving stream: same recv contract as ClientStream,
+  # executed inside a Fiber so the call composes with
+  # fiber-per-request servers and Fiber.scheduler-based loops
+  # (Queue waits are scheduler-aware; with no scheduler the
+  # behavior is identical to the blocking stream).
+  class FiberClientStream
+    def initialize(stream)
+      @stream = stream
+    end
+
+    def stream_id
+      @stream.stream_id
+    end
+
+    def headers
+      @stream.headers
+    end
+
+    def recv(resp)
+      Fiber.new { @stream.recv(resp) }.resume
+    end
+
+    def cancel
+      @stream.cancel
+    end
+  end
+
+  # Fiber client facade over Channel. Every call runs inside a
+  # dedicated Fiber (see FiberClientStream); wrap an existing
+  # Channel or build one over a transport/endpoint.
+  class FiberChannel
+    attr_reader :channel
+
+    def initialize(channel = nil, transport: nil, endpoint: nil)
+      @channel =
+        if channel.is_a?(Channel)
+          channel
+        elsif !channel.nil? && transport.nil? && endpoint.nil?
+          Channel.new(channel) # a bare transport
+        else
+          Channel.new(transport, endpoint: endpoint)
+        end
+    end
+
+    def endpoint
+      @channel.endpoint
+    end
+
+    def unary(path, req, resp, metadata = nil)
+      Fiber.new { @channel.unary(path, req, resp, metadata) }.resume
+    end
+
+    def client_stream(path, reqs, resp, metadata = nil)
+      Fiber.new { @channel.client_stream(path, reqs, resp, metadata) }.resume
+    end
+
+    def server_stream(path, req, metadata = nil)
+      FiberClientStream.new(@channel.server_stream(path, req, metadata))
+    end
+
+    def bidi(path, reqs, metadata = nil)
+      FiberClientStream.new(@channel.bidi(path, reqs, metadata))
     end
   end
 end

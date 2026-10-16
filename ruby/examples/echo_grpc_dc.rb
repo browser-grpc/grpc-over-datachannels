@@ -85,6 +85,51 @@ module EchoGrpcDc
     end
   end
 
+  # Fiber-based client receiving stream: a producer Fiber
+  # yields each response; next_msg resumes it and raises
+  # StopIteration when the call completes. cancel aborts
+  # the underlying stream (RST).
+  class FiberRecvStream
+    include Enumerable
+
+    DONE = Object.new
+
+    def initialize(stream, resp_cls)
+      @stream = stream
+      @resp_cls = resp_cls
+      @fiber = Fiber.new do
+        begin
+          loop { Fiber.yield(@stream.recv(@resp_cls.new)) }
+        rescue EOFError
+          DONE
+        end
+      end
+    end
+
+    def next_msg
+      value = @fiber.resume
+      raise StopIteration if value.equal?(DONE)
+
+      value
+    end
+
+    def cancel
+      @stream.cancel
+    end
+
+    def each
+      return enum_for(:each) unless block_given?
+
+      loop do
+        begin
+          yield next_msg
+        rescue StopIteration
+          return
+        end
+      end
+    end
+  end
+
   class EchoClient
     def initialize(channel)
       @channel = channel
@@ -106,6 +151,32 @@ module EchoGrpcDc
     def Bidi(reqs, metadata = nil)
       stream = @channel.bidi("/echo.Echo/Bidi", reqs, metadata)
       RecvStream.new(stream, EchoPb::EchoResponse)
+    end
+
+  end
+
+  # Fiber client: wraps a Grpcdc::FiberChannel (a sync Channel is wrapped).
+  class EchoClientFiber
+    def initialize(channel)
+      @channel = channel.is_a?(Grpcdc::FiberChannel) ? channel : Grpcdc::FiberChannel.new(channel)
+    end
+
+    def Unary(req, metadata = nil)
+      @channel.unary("/echo.Echo/Unary", req, EchoPb::EchoResponse.new, metadata)
+    end
+
+    def ServerStream(req, metadata = nil)
+      stream = @channel.server_stream("/echo.Echo/ServerStream", req, metadata)
+      FiberRecvStream.new(stream, EchoPb::EchoResponse)
+    end
+
+    def ClientStream(reqs, metadata = nil)
+      @channel.client_stream("/echo.Echo/ClientStream", reqs, EchoPb::EchoResponse.new, metadata)
+    end
+
+    def Bidi(reqs, metadata = nil)
+      stream = @channel.bidi("/echo.Echo/Bidi", reqs, metadata)
+      FiberRecvStream.new(stream, EchoPb::EchoResponse)
     end
 
   end

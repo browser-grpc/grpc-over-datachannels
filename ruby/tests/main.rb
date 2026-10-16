@@ -1,4 +1,4 @@
-# Test runner: ruby ruby/tests/main.rb <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd>
+# Test runner: ruby ruby/tests/main.rb <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber>
 
 root = File.expand_path("..", __dir__)
 $LOAD_PATH.unshift(root)
@@ -9,7 +9,7 @@ require_relative "test_util"
 
 name = ARGV[0]
 if name.nil?
-  warn "usage: main.rb <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd>"
+  warn "usage: main.rb <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber>"
   exit(2)
 end
 
@@ -33,6 +33,9 @@ begin
   when "TestBdd"
     require_relative "test_bdd"
     TestBdd.run
+  when "TestFiber"
+    require_relative "test_fiber"
+    TestFiber.run
   else
     warn "unknown test: #{name}"
     exit(2)

@@ -144,6 +144,23 @@ module Grpcdc
       @streams_lock.synchronize { @streams.delete(stream_id) }
     end
 
+    # Abort one stream: RST towards the peer; any thread blocked
+    # in recv wakes with the cancellation status (the local input
+    # is closed with a synthetic RST event).
+    def cancel_stream(stream_id)
+      status = StatusError.new(CODE_CANCELLED, "call cancelled")
+      input = @streams_lock.synchronize { @streams.delete(stream_id) }
+      unless input.nil?
+        input.put(StreamEvent.new(EVENT_RST, status: status))
+        input.close
+      end
+      begin
+        send_frame(Codec.status_frame(FRAME_RST, stream_id, status))
+      rescue StandardError
+        nil
+      end
+    end
+
     def stream(stream_id)
       @streams_lock.synchronize { @streams[stream_id] }
     end
