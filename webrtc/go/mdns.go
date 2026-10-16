@@ -26,7 +26,10 @@ func buildMDNSQuery(id uint16, name string) []byte {
 	binary.BigEndian.PutUint16(out[0:2], id)
 	binary.BigEndian.PutUint16(out[4:6], 1) // QDCOUNT
 	out = append(out, encodeDNSName(name)...)
-	return append(out, 0, 1, 0, 1) // A, IN
+	// A, IN|QU: the QU bit (RFC 6762 section 5.4) asks for a
+	// unicast response to our ephemeral port; without it some
+	// responders (Firefox) answer by multicast to :5353 only.
+	return append(out, 0, 1, 0x80, 1)
 }
 
 func readDNSName(buf []byte, offset int) (string, int) {
@@ -104,33 +107,67 @@ func ParseARecord(packet []byte, name string) string {
 }
 
 // ResolveMDNS resolves a ".local" name to an IPv4 string ("" on miss).
+// Responders may answer unicast to the query socket (the query asks
+// with the QU bit) or multicast to the group address — Chromium does
+// the latter — so listen on both: the ephemeral query socket and a
+// group membership on :5353 per multicast interface.
 func ResolveMDNS(name string, timeout time.Duration) string {
-	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 0})
+	query, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 0})
 	if err != nil {
 		return ""
 	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
-	query := buildMDNSQuery(0x4d44, name)
-	target := &net.UDPAddr{IP: net.ParseIP("224.0.0.251"), Port: 5353}
-	if _, err := conn.WriteToUDP(query, target); err != nil {
-		return ""
-	}
-	buf := make([]byte, 4096)
-	resent := false
-	for {
-		n, _, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			if !resent {
-				resent = true
-				_ = conn.SetDeadline(time.Now().Add(timeout / 2))
-				_, _ = conn.WriteToUDP(query, target)
+	sockets := []*net.UDPConn{query}
+	group := &net.UDPAddr{IP: net.ParseIP("224.0.0.251"), Port: 5353}
+	if ifaces, err := net.Interfaces(); err == nil {
+		for i := range ifaces {
+			iface := &ifaces[i]
+			if iface.Flags&net.FlagMulticast == 0 || iface.Flags&net.FlagUp == 0 {
 				continue
 			}
-			return ""
+			if conn, err := net.ListenMulticastUDP("udp4", iface, group); err == nil {
+				sockets = append(sockets, conn)
+			}
 		}
-		if ip := ParseARecord(buf[:n], name); ip != "" {
+	}
+	defer func() {
+		for _, conn := range sockets {
+			conn.Close()
+		}
+	}()
+	found := make(chan string, 1)
+	for _, conn := range sockets {
+		go func(conn *net.UDPConn) {
+			buf := make([]byte, 4096)
+			for {
+				n, _, err := conn.ReadFromUDP(buf)
+				if err != nil {
+					return
+				}
+				if ip := ParseARecord(buf[:n], name); ip != "" {
+					select {
+					case found <- ip:
+					default:
+					}
+					return
+				}
+			}
+		}(conn)
+	}
+	packet := buildMDNSQuery(0, name)
+	if _, err := query.WriteToUDP(packet, group); err != nil {
+		return ""
+	}
+	resend := time.After(timeout / 2)
+	deadline := time.After(timeout)
+	for {
+		select {
+		case ip := <-found:
 			return ip
+		case <-resend:
+			_, _ = query.WriteToUDP(packet, group)
+			resend = time.After(timeout)
+		case <-deadline:
+			return ""
 		}
 	}
 }
