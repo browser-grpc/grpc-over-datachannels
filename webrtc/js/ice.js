@@ -105,6 +105,10 @@ export class Candidate {
   }
 }
 
+// Paces re-sends of the nominating check for one pair until its
+// Binding success arrives.
+const NOMINATION_RETRANSMIT_MS = 250;
+
 export class IceAgent {
   constructor(controlling) {
     this.localUfrag = randomUfrag();
@@ -118,7 +122,9 @@ export class IceAgent {
     this.outstanding = new Map(); // tid hex -> {remoteKey, remote, nominate}
     this.valid = new Set();
     this.nominated = null;
-    this.nominatingSentTo = new Set();
+    // Pair key -> ms epoch of the last nominating check sent
+    // (paces nomination retransmission; see dueChecks).
+    this.nominatingSentAt = new Map();
     // When consent for the nominated pair was last confirmed
     // (nomination, or a Binding success for it; ms epoch).
     this.lastConsentMs = 0;
@@ -140,7 +146,7 @@ export class IceAgent {
     this.generation += 1;
     this.valid = new Set();
     this.outstanding = new Map();
-    this.nominatingSentTo = new Set();
+    this.nominatingSentAt = new Map();
   }
 
   // Whether the nominated pair belongs to the current
@@ -157,7 +163,7 @@ export class IceAgent {
     // (initial connect: already empty).
     this.valid = new Set();
     this.outstanding = new Map();
-    this.nominatingSentTo = new Set();
+    this.nominatingSentAt = new Map();
   }
 
   // Trickle one remote candidate in after the remote description
@@ -224,10 +230,18 @@ export class IceAgent {
     if (this.renominated) return out;
     for (const remote of this.remoteCandidates) out.push(this.buildCheck(remote, false));
     if (this.controlling) {
+      // Nominate the best valid pair, retransmitting the
+      // nominating check until its success response lands
+      // (RFC 8489 transactions are not fire-and-forget: a
+      // single USE-CANDIDATE can be lost, or reach the peer
+      // before its side of the pair has validated).
       const best = this.bestValidPair();
-      if (best && !this.nominatingSentTo.has(best.key)) {
-        this.nominatingSentTo.add(best.key);
-        out.push(this.buildCheck(best, true));
+      if (best) {
+        const last = this.nominatingSentAt.get(best.key);
+        if (last === undefined || Date.now() - last >= NOMINATION_RETRANSMIT_MS) {
+          this.nominatingSentAt.set(best.key, Date.now());
+          out.push(this.buildCheck(best, true));
+        }
       }
     }
     return out;
