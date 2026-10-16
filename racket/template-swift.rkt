@@ -35,30 +35,30 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "        func ~a(_ req: ~a, _ metadata: [String: String]? = nil) throws -> ~a {\n"
+              "        func ~a(_ req: ~a, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ~a {\n"
               "            let resp = ~a()\n"
-              "            try channel.Unary(~s, req, resp, metadata)\n"
+              "            try channel.Unary(~s, req, resp, metadata, timeout)\n"
               "            return resp\n"
               "        }\n\n")
              name req resp resp path)]
     [(server-streaming)
      (format (string-append
-              "        func ~a(_ req: ~a, _ metadata: [String: String]? = nil) throws -> ~a~aStream {\n"
-              "            return ~a~aStream(try channel.ServerStream(~s, req, metadata))\n"
+              "        func ~a(_ req: ~a, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ~a~aStream {\n"
+              "            return ~a~aStream(try channel.ServerStream(~s, req, metadata, timeout))\n"
               "        }\n\n")
              name req svc name svc name path)]
     [(client-streaming)
      (format (string-append
-              "        func ~a(_ reqs: [~a], _ metadata: [String: String]? = nil) throws -> ~a {\n"
+              "        func ~a(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ~a {\n"
               "            let resp = ~a()\n"
-              "            try channel.ClientStreamCall(~s, reqs, resp, metadata)\n"
+              "            try channel.ClientStreamCall(~s, reqs, resp, metadata, timeout)\n"
               "            return resp\n"
               "        }\n\n")
              name req resp resp path)]
     [(bidi)
      (format (string-append
-              "        func ~a(_ reqs: [~a], _ metadata: [String: String]? = nil) throws -> ~a~aStream {\n"
-              "            return ~a~aStream(try channel.Bidi(~s, reqs, metadata))\n"
+              "        func ~a(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ~a~aStream {\n"
+              "            return ~a~aStream(try channel.Bidi(~s, reqs, metadata, timeout))\n"
               "        }\n\n")
              name req svc name svc name path)]))
 
@@ -91,17 +91,17 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "        func ~aAsync(_ req: ~a, _ metadata: [String: String]? = nil) async throws -> ~a {\n"
-              "            try await Task.detached { try self.~a(req, metadata) }.value\n"
+              "        func ~aAsync(_ req: ~a, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) async throws -> ~a {\n"
+              "            try await Task.detached { try self.~a(req, metadata, timeout) }.value\n"
               "        }\n\n")
              name req resp name)]
     [(server-streaming bidi)
      (format (string-append
-              "        func ~aAsync(_ reqs: ~a, _ metadata: [String: String]? = nil) -> AsyncThrowingStream<~a, Error> {\n"
+              "        func ~aAsync(_ reqs: ~a, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) -> AsyncThrowingStream<~a, Error> {\n"
               "            AsyncThrowingStream { continuation in\n"
               "                let task = Task.detached {\n"
               "                    do {\n"
-              "                        let stream = try self.~a(reqs, metadata)\n"
+              "                        let stream = try self.~a(reqs, metadata, timeout)\n"
               "                        while true {\n"
               "                            continuation.yield(try stream.Recv())\n"
               "                        }\n"
@@ -117,8 +117,8 @@
              name (if (eq? (hash-ref m 'kind) 'bidi) (format "[~a]" req) req) resp name)]
     [(client-streaming)
      (format (string-append
-              "        func ~aAsync(_ reqs: [~a], _ metadata: [String: String]? = nil) async throws -> ~a {\n"
-              "            try await Task.detached { try self.~a(reqs, metadata) }.value\n"
+              "        func ~aAsync(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) async throws -> ~a {\n"
+              "            try await Task.detached { try self.~a(reqs, metadata, timeout) }.value\n"
               "        }\n\n")
              name req resp name)]))
 

@@ -94,6 +94,33 @@ enum Codec {
         }
     }
 
+    /// gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+    /// units H/M/S/m/u/n (at most 8 digits). Encoding uses
+    /// milliseconds (seconds past the digit limit), rounded up.
+    static func EncodeTimeout(_ timeout: TimeInterval) -> String {
+        let ms = Int64(ceil(timeout * 1000.0))
+        if ms <= 99999999 {
+            return "\(ms)m"
+        }
+        return "\(Int64(ceil(timeout)))S"
+    }
+
+    /// Decoded grpc-timeout, or nil when malformed/absent.
+    static func ParseTimeout(_ text: String?) -> TimeInterval? {
+        guard let text, text.count >= 2, text.count <= 9 else { return nil }
+        let digits = text.dropLast()
+        guard digits.allSatisfy({ $0.isNumber }), let n = Double(digits) else { return nil }
+        switch text.last {
+        case "H": return n * 3600.0
+        case "M": return n * 60.0
+        case "S": return n
+        case "m": return n / 1000.0
+        case "u": return n / 1000000.0
+        case "n": return n / 1000000000.0
+        default: return nil
+        }
+    }
+
     static func StatusFrame(_ frameType: Int, _ streamId: UInt32, _ status: StatusException) throws -> [UInt8] {
         let body: [String: Any] = ["code": status.code, "message": status.message]
         let data = try JSONSerialization.data(withJSONObject: body)

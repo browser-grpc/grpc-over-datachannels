@@ -146,7 +146,7 @@ test-swift:
 	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/DynamicEchoServerStdio/main.swift -o swift/build/dynamic_echo_server_stdio
 	cd swift && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestOracle \
-		&& ./build/tests TestDynamic && ./build/tests TestBdd
+		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline
 
 KOTLINC ?= kotlinc
 

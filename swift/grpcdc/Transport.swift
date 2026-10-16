@@ -50,6 +50,23 @@ final class BlockingQueue<T> {
         return item
     }
 
+    /// Timed take: timedOut is true when the deadline passed empty.
+    func Take(until deadline: Date) -> (item: T?, timedOut: Bool) {
+        cond.lock()
+        while items.isEmpty && !closed {
+            if !cond.wait(until: deadline) {
+                break
+            }
+        }
+        if items.isEmpty && !closed {
+            cond.unlock()
+            return (nil, true)
+        }
+        let item = items.isEmpty ? nil : items.removeFirst()
+        cond.unlock()
+        return (item, false)
+    }
+
     func Close() {
         cond.lock()
         closed = true

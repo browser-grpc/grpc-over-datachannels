@@ -34,37 +34,37 @@ enum EchoGrpcDc {
             }
         }
 
-        func Unary(_ req: EchoRequest, _ metadata: [String: String]? = nil) throws -> EchoResponse {
+        func Unary(_ req: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> EchoResponse {
             let resp = EchoResponse()
-            try channel.Unary("/echo.Echo/Unary", req, resp, metadata)
+            try channel.Unary("/echo.Echo/Unary", req, resp, metadata, timeout)
             return resp
         }
 
-        func ServerStream(_ req: EchoRequest, _ metadata: [String: String]? = nil) throws -> EchoServerStreamStream {
-            return EchoServerStreamStream(try channel.ServerStream("/echo.Echo/ServerStream", req, metadata))
+        func ServerStream(_ req: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> EchoServerStreamStream {
+            return EchoServerStreamStream(try channel.ServerStream("/echo.Echo/ServerStream", req, metadata, timeout))
         }
 
-        func ClientStream(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil) throws -> EchoResponse {
+        func ClientStream(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> EchoResponse {
             let resp = EchoResponse()
-            try channel.ClientStreamCall("/echo.Echo/ClientStream", reqs, resp, metadata)
+            try channel.ClientStreamCall("/echo.Echo/ClientStream", reqs, resp, metadata, timeout)
             return resp
         }
 
-        func Bidi(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil) throws -> EchoBidiStream {
-            return EchoBidiStream(try channel.Bidi("/echo.Echo/Bidi", reqs, metadata))
+        func Bidi(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> EchoBidiStream {
+            return EchoBidiStream(try channel.Bidi("/echo.Echo/Bidi", reqs, metadata, timeout))
         }
 
         // -- async (Swift concurrency) surface ---------------------------
 
-        func UnaryAsync(_ req: EchoRequest, _ metadata: [String: String]? = nil) async throws -> EchoResponse {
-            try await Task.detached { try self.Unary(req, metadata) }.value
+        func UnaryAsync(_ req: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) async throws -> EchoResponse {
+            try await Task.detached { try self.Unary(req, metadata, timeout) }.value
         }
 
-        func ServerStreamAsync(_ reqs: EchoRequest, _ metadata: [String: String]? = nil) -> AsyncThrowingStream<EchoResponse, Error> {
+        func ServerStreamAsync(_ reqs: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) -> AsyncThrowingStream<EchoResponse, Error> {
             AsyncThrowingStream { continuation in
                 let task = Task.detached {
                     do {
-                        let stream = try self.ServerStream(reqs, metadata)
+                        let stream = try self.ServerStream(reqs, metadata, timeout)
                         while true {
                             continuation.yield(try stream.Recv())
                         }
@@ -78,15 +78,15 @@ enum EchoGrpcDc {
             }
         }
 
-        func ClientStreamAsync(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil) async throws -> EchoResponse {
-            try await Task.detached { try self.ClientStream(reqs, metadata) }.value
+        func ClientStreamAsync(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) async throws -> EchoResponse {
+            try await Task.detached { try self.ClientStream(reqs, metadata, timeout) }.value
         }
 
-        func BidiAsync(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil) -> AsyncThrowingStream<EchoResponse, Error> {
+        func BidiAsync(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) -> AsyncThrowingStream<EchoResponse, Error> {
             AsyncThrowingStream { continuation in
                 let task = Task.detached {
                     do {
-                        let stream = try self.Bidi(reqs, metadata)
+                        let stream = try self.Bidi(reqs, metadata, timeout)
                         while true {
                             continuation.yield(try stream.Recv())
                         }

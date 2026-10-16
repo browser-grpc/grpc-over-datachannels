@@ -22,11 +22,36 @@ final class Endpoint {
         func Close() { queue.Close() }
         /// Next event, or nil once the stream is closed and drained.
         func Get() -> StreamEvent? { queue.Take() }
+
+        /// Timed Get: timedOut is true on expiry with no event.
+        func Get(until deadline: Date) -> (event: StreamEvent?, timedOut: Bool) {
+            let result = queue.Take(until: deadline)
+            return (result.item, result.timedOut)
+        }
     }
 
-    /// Per-call context: metadata sent in HEADERS.
+    /// Per-call context: metadata sent in HEADERS, plus deadline.
     struct CallContext {
         var metadata: [String: String] = [:]
+        /// Deadline propagated via grpc-timeout, when the client set one.
+        var deadline: Date? = nil
+
+        /// Time left before the deadline, or nil when unbounded.
+        func TimeRemaining() -> TimeInterval? {
+            guard let deadline else { return nil }
+            return max(0, deadline.timeIntervalSinceNow)
+        }
+
+        var DeadlineExceeded: Bool { TimeRemaining() == 0 }
+
+        static func FromMetadata(_ metadata: [String: String]) -> CallContext {
+            var ctx = CallContext()
+            ctx.metadata = metadata
+            if let remaining = Codec.ParseTimeout(metadata["grpc-timeout"]) {
+                ctx.deadline = Date().addingTimeInterval(remaining)
+            }
+            return ctx
+        }
     }
 
     /// Sends response payloads of one inbound call.
@@ -120,6 +145,19 @@ final class Endpoint {
         streamsLock.lock()
         streams.removeValue(forKey: id)
         streamsLock.unlock()
+    }
+
+    /// Abort one stream: RST out; a pending Recv wakes with CANCELLED.
+    func CancelStream(_ id: UInt32) {
+        streamsLock.lock()
+        let input = streams.removeValue(forKey: id)
+        streamsLock.unlock()
+        if let input {
+            input.Put(StreamEvent(kind: .rst, status: StatusException(Wire.CodeCancelled, "call cancelled")))
+            input.Close()
+        }
+        try? SendFrame(Codec.StatusFrame(Wire.FrameRst, id,
+                                         StatusException(Wire.CodeCancelled, "call cancelled")))
     }
 
     private func Stream(_ id: UInt32) -> StreamInput? {
@@ -241,7 +279,7 @@ final class Endpoint {
                 self.CloseStream(streamId)
                 return
             }
-            let status = dispatcher(CallContext(metadata: headers.metadata), headers, streamInput, sink)
+            let status = dispatcher(CallContext.FromMetadata(headers.metadata), headers, streamInput, sink)
             try? sink.SendTrailers(status)
             self.CloseStream(streamId)
         }

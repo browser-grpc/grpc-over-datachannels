@@ -23,20 +23,37 @@ final class Channel {
     /// Receives response messages of one call.
     final class ClientStream {
         let streamId: UInt32
+        private let endpoint: Endpoint
         private let input: Endpoint.StreamInput
         private(set) var headers: Codec.Headers?
+        var deadline: Date? = nil
 
-        init(_ streamId: UInt32, _ input: Endpoint.StreamInput) {
+        init(_ endpoint: Endpoint, _ streamId: UInt32, _ input: Endpoint.StreamInput) {
+            self.endpoint = endpoint
             self.streamId = streamId
             self.input = input
         }
+
+        /// Abort this stream (sends RST, wakes a pending Recv).
+        func Cancel() { endpoint.CancelStream(streamId) }
 
         /// Decode the next response into resp. EndOfStreamError means
         /// the call completed OK; StatusException reports the
         /// trailers status.
         func Recv(_ resp: Unmarshaler) throws {
             while true {
-                guard let event = input.Get() else {
+                let event: Endpoint.StreamEvent?
+                if let deadline {
+                    let result = input.Get(until: deadline)
+                    if result.timedOut {
+                        endpoint.CancelStream(streamId)
+                        throw StatusException(Wire.CodeDeadlineExceeded, "deadline exceeded")
+                    }
+                    event = result.event
+                } else {
+                    event = input.Get()
+                }
+                guard let event else {
                     throw StatusException(Wire.CodeUnavailable, "data channel closed")
                 }
                 switch event.kind {
@@ -59,7 +76,15 @@ final class Channel {
         }
     }
 
-    private func Open(_ path: String, _ metadata: [String: String]?) throws -> ClientStream {
+    private func Open(_ path: String, _ metadata: [String: String]?, _ timeout: TimeInterval? = nil) throws -> ClientStream {
+        var metadata = metadata
+        var deadline: Date? = nil
+        if let timeout {
+            deadline = Date().addingTimeInterval(timeout)
+            var merged = metadata ?? [:]
+            merged["grpc-timeout"] = Codec.EncodeTimeout(timeout)
+            metadata = merged
+        }
         let (id, input) = endpointInstance.OpenStream()
         do {
             try endpointInstance.SendFrame(Codec.HeadersFrame(id, path, metadata))
@@ -67,7 +92,9 @@ final class Channel {
             endpointInstance.CloseStream(id)
             throw error
         }
-        return ClientStream(id, input)
+        let stream = ClientStream(endpointInstance, id, input)
+        stream.deadline = deadline
+        return stream
     }
 
     private func SendMessage(_ stream: ClientStream, _ msg: Marshaler) throws {
@@ -102,8 +129,8 @@ final class Channel {
     }
 
     /// Run a unary call, decoding the single response into resp.
-    func Unary(_ path: String, _ req: Marshaler, _ resp: Unmarshaler, _ metadata: [String: String]? = nil) throws {
-        let stream = try Open(path, metadata)
+    func Unary(_ path: String, _ req: Marshaler, _ resp: Unmarshaler, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws {
+        let stream = try Open(path, metadata, timeout)
         defer { endpointInstance.CloseStream(stream.streamId) }
         try SendMessage(stream, req)
         try HalfClose(stream)
@@ -111,24 +138,24 @@ final class Channel {
     }
 
     /// Start a server-streaming call.
-    func ServerStream(_ path: String, _ req: Marshaler, _ metadata: [String: String]? = nil) throws -> ClientStream {
-        let stream = try Open(path, metadata)
+    func ServerStream(_ path: String, _ req: Marshaler, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ClientStream {
+        let stream = try Open(path, metadata, timeout)
         try SendMessage(stream, req)
         try HalfClose(stream)
         return stream
     }
 
     /// Send all requests, then decode the one response into resp.
-    func ClientStreamCall(_ path: String, _ reqs: [Marshaler], _ resp: Unmarshaler, _ metadata: [String: String]? = nil) throws {
-        let stream = try Open(path, metadata)
+    func ClientStreamCall(_ path: String, _ reqs: [Marshaler], _ resp: Unmarshaler, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws {
+        let stream = try Open(path, metadata, timeout)
         defer { endpointInstance.CloseStream(stream.streamId) }
         try SendAll(stream, reqs)
         try CollectOne(stream, resp, "client-streaming call")
     }
 
     /// Start a bidi call with all requests sent up front.
-    func Bidi(_ path: String, _ reqs: [Marshaler], _ metadata: [String: String]? = nil) throws -> ClientStream {
-        let stream = try Open(path, metadata)
+    func Bidi(_ path: String, _ reqs: [Marshaler], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ClientStream {
+        let stream = try Open(path, metadata, timeout)
         try SendAll(stream, reqs)
         return stream
     }

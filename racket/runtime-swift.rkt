@@ -139,6 +139,33 @@ enum Codec {
         }
     }
 
+    /// gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+    /// units H/M/S/m/u/n (at most 8 digits). Encoding uses
+    /// milliseconds (seconds past the digit limit), rounded up.
+    static func EncodeTimeout(_ timeout: TimeInterval) -> String {
+        let ms = Int64(ceil(timeout * 1000.0))
+        if ms <= 99999999 {
+            return "\(ms)m"
+        }
+        return "\(Int64(ceil(timeout)))S"
+    }
+
+    /// Decoded grpc-timeout, or nil when malformed/absent.
+    static func ParseTimeout(_ text: String?) -> TimeInterval? {
+        guard let text, text.count >= 2, text.count <= 9 else { return nil }
+        let digits = text.dropLast()
+        guard digits.allSatisfy({ $0.isNumber }), let n = Double(digits) else { return nil }
+        switch text.last {
+        case "H": return n * 3600.0
+        case "M": return n * 60.0
+        case "S": return n
+        case "m": return n / 1000.0
+        case "u": return n / 1000000.0
+        case "n": return n / 1000000000.0
+        default: return nil
+        }
+    }
+
     static func StatusFrame(_ frameType: Int, _ streamId: UInt32, _ status: StatusException) throws -> [UInt8] {
         let body: [String: Any] = ["code": status.code, "message": status.message]
         let data = try JSONSerialization.data(withJSONObject: body)
@@ -212,6 +239,23 @@ final class BlockingQueue<T> {
         return item
     }
 
+    /// Timed take: timedOut is true when the deadline passed empty.
+    func Take(until deadline: Date) -> (item: T?, timedOut: Bool) {
+        cond.lock()
+        while items.isEmpty && !closed {
+            if !cond.wait(until: deadline) {
+                break
+            }
+        }
+        if items.isEmpty && !closed {
+            cond.unlock()
+            return (nil, true)
+        }
+        let item = items.isEmpty ? nil : items.removeFirst()
+        cond.unlock()
+        return (item, false)
+    }
+
     func Close() {
         cond.lock()
         closed = true
@@ -246,11 +290,36 @@ final class Endpoint {
         func Close() { queue.Close() }
         /// Next event, or nil once the stream is closed and drained.
         func Get() -> StreamEvent? { queue.Take() }
+
+        /// Timed Get: timedOut is true on expiry with no event.
+        func Get(until deadline: Date) -> (event: StreamEvent?, timedOut: Bool) {
+            let result = queue.Take(until: deadline)
+            return (result.item, result.timedOut)
+        }
     }
 
-    /// Per-call context: metadata sent in HEADERS.
+    /// Per-call context: metadata sent in HEADERS, plus deadline.
     struct CallContext {
         var metadata: [String: String] = [:]
+        /// Deadline propagated via grpc-timeout, when the client set one.
+        var deadline: Date? = nil
+
+        /// Time left before the deadline, or nil when unbounded.
+        func TimeRemaining() -> TimeInterval? {
+            guard let deadline else { return nil }
+            return max(0, deadline.timeIntervalSinceNow)
+        }
+
+        var DeadlineExceeded: Bool { TimeRemaining() == 0 }
+
+        static func FromMetadata(_ metadata: [String: String]) -> CallContext {
+            var ctx = CallContext()
+            ctx.metadata = metadata
+            if let remaining = Codec.ParseTimeout(metadata["grpc-timeout"]) {
+                ctx.deadline = Date().addingTimeInterval(remaining)
+            }
+            return ctx
+        }
     }
 
     /// Sends response payloads of one inbound call.
@@ -344,6 +413,19 @@ final class Endpoint {
         streamsLock.lock()
         streams.removeValue(forKey: id)
         streamsLock.unlock()
+    }
+
+    /// Abort one stream: RST out; a pending Recv wakes with CANCELLED.
+    func CancelStream(_ id: UInt32) {
+        streamsLock.lock()
+        let input = streams.removeValue(forKey: id)
+        streamsLock.unlock()
+        if let input {
+            input.Put(StreamEvent(kind: .rst, status: StatusException(Wire.CodeCancelled, "call cancelled")))
+            input.Close()
+        }
+        try? SendFrame(Codec.StatusFrame(Wire.FrameRst, id,
+                                         StatusException(Wire.CodeCancelled, "call cancelled")))
     }
 
     private func Stream(_ id: UInt32) -> StreamInput? {
@@ -458,7 +540,7 @@ final class Endpoint {
                 self.CloseStream(streamId)
                 return
             }
-            let status = dispatcher(CallContext(metadata: headers.metadata), headers, streamInput, sink)
+            let status = dispatcher(CallContext.FromMetadata(headers.metadata), headers, streamInput, sink)
             try? sink.SendTrailers(status)
             self.CloseStream(streamId)
         }
@@ -494,20 +576,37 @@ final class Channel {
     /// Receives response messages of one call.
     final class ClientStream {
         let streamId: UInt32
+        private let endpoint: Endpoint
         private let input: Endpoint.StreamInput
         private(set) var headers: Codec.Headers?
+        var deadline: Date? = nil
 
-        init(_ streamId: UInt32, _ input: Endpoint.StreamInput) {
+        init(_ endpoint: Endpoint, _ streamId: UInt32, _ input: Endpoint.StreamInput) {
+            self.endpoint = endpoint
             self.streamId = streamId
             self.input = input
         }
+
+        /// Abort this stream (sends RST, wakes a pending Recv).
+        func Cancel() { endpoint.CancelStream(streamId) }
 
         /// Decode the next response into resp. EndOfStreamError means
         /// the call completed OK; StatusException reports the
         /// trailers status.
         func Recv(_ resp: Unmarshaler) throws {
             while true {
-                guard let event = input.Get() else {
+                let event: Endpoint.StreamEvent?
+                if let deadline {
+                    let result = input.Get(until: deadline)
+                    if result.timedOut {
+                        endpoint.CancelStream(streamId)
+                        throw StatusException(Wire.CodeDeadlineExceeded, "deadline exceeded")
+                    }
+                    event = result.event
+                } else {
+                    event = input.Get()
+                }
+                guard let event else {
                     throw StatusException(Wire.CodeUnavailable, "data channel closed")
                 }
                 switch event.kind {
@@ -530,7 +629,15 @@ final class Channel {
         }
     }
 
-    private func Open(_ path: String, _ metadata: [String: String]?) throws -> ClientStream {
+    private func Open(_ path: String, _ metadata: [String: String]?, _ timeout: TimeInterval? = nil) throws -> ClientStream {
+        var metadata = metadata
+        var deadline: Date? = nil
+        if let timeout {
+            deadline = Date().addingTimeInterval(timeout)
+            var merged = metadata ?? [:]
+            merged["grpc-timeout"] = Codec.EncodeTimeout(timeout)
+            metadata = merged
+        }
         let (id, input) = endpointInstance.OpenStream()
         do {
             try endpointInstance.SendFrame(Codec.HeadersFrame(id, path, metadata))
@@ -538,7 +645,9 @@ final class Channel {
             endpointInstance.CloseStream(id)
             throw error
         }
-        return ClientStream(id, input)
+        let stream = ClientStream(endpointInstance, id, input)
+        stream.deadline = deadline
+        return stream
     }
 
     private func SendMessage(_ stream: ClientStream, _ msg: Marshaler) throws {
@@ -573,8 +682,8 @@ final class Channel {
     }
 
     /// Run a unary call, decoding the single response into resp.
-    func Unary(_ path: String, _ req: Marshaler, _ resp: Unmarshaler, _ metadata: [String: String]? = nil) throws {
-        let stream = try Open(path, metadata)
+    func Unary(_ path: String, _ req: Marshaler, _ resp: Unmarshaler, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws {
+        let stream = try Open(path, metadata, timeout)
         defer { endpointInstance.CloseStream(stream.streamId) }
         try SendMessage(stream, req)
         try HalfClose(stream)
@@ -582,24 +691,24 @@ final class Channel {
     }
 
     /// Start a server-streaming call.
-    func ServerStream(_ path: String, _ req: Marshaler, _ metadata: [String: String]? = nil) throws -> ClientStream {
-        let stream = try Open(path, metadata)
+    func ServerStream(_ path: String, _ req: Marshaler, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ClientStream {
+        let stream = try Open(path, metadata, timeout)
         try SendMessage(stream, req)
         try HalfClose(stream)
         return stream
     }
 
     /// Send all requests, then decode the one response into resp.
-    func ClientStreamCall(_ path: String, _ reqs: [Marshaler], _ resp: Unmarshaler, _ metadata: [String: String]? = nil) throws {
-        let stream = try Open(path, metadata)
+    func ClientStreamCall(_ path: String, _ reqs: [Marshaler], _ resp: Unmarshaler, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws {
+        let stream = try Open(path, metadata, timeout)
         defer { endpointInstance.CloseStream(stream.streamId) }
         try SendAll(stream, reqs)
         try CollectOne(stream, resp, "client-streaming call")
     }
 
     /// Start a bidi call with all requests sent up front.
-    func Bidi(_ path: String, _ reqs: [Marshaler], _ metadata: [String: String]? = nil) throws -> ClientStream {
-        let stream = try Open(path, metadata)
+    func Bidi(_ path: String, _ reqs: [Marshaler], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> ClientStream {
+        let stream = try Open(path, metadata, timeout)
         try SendAll(stream, reqs)
         return stream
     }
@@ -1358,10 +1467,10 @@ enum Dynamic {
             return m
         }
 
-        func Unary(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil) throws -> GenericMessage {
+        func Unary(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> GenericMessage {
             let m = try Method(service, method)
             let resp = BoundMessage(m.output, GenericMessage(m.output), model)
-            try channel.Unary(m.path, BoundMessage(m.input, req, model), resp, metadata)
+            try channel.Unary(m.path, BoundMessage(m.input, req, model), resp, metadata, timeout)
             return resp.generic
         }
 
@@ -1385,24 +1494,24 @@ enum Dynamic {
             }
         }
 
-        func ServerStream(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil) throws -> DynamicStream {
+        func ServerStream(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> DynamicStream {
             let m = try Method(service, method)
-            return DynamicStream(try channel.ServerStream(m.path, BoundMessage(m.input, req, model), metadata),
+            return DynamicStream(try channel.ServerStream(m.path, BoundMessage(m.input, req, model), metadata, timeout),
                                  m.output, model)
         }
 
-        func ClientStream(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil) throws -> GenericMessage {
+        func ClientStream(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> GenericMessage {
             let m = try Method(service, method)
             let bound = reqs.map { BoundMessage(m.input, $0, model) }
             let resp = BoundMessage(m.output, GenericMessage(m.output), model)
-            try channel.ClientStreamCall(m.path, bound, resp, metadata)
+            try channel.ClientStreamCall(m.path, bound, resp, metadata, timeout)
             return resp.generic
         }
 
-        func Bidi(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil) throws -> DynamicStream {
+        func Bidi(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: TimeInterval? = nil) throws -> DynamicStream {
             let m = try Method(service, method)
             let bound = reqs.map { BoundMessage(m.input, $0, model) }
-            return DynamicStream(try channel.Bidi(m.path, bound, metadata), m.output, model)
+            return DynamicStream(try channel.Bidi(m.path, bound, metadata, timeout), m.output, model)
         }
     }
 
