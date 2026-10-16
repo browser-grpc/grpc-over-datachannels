@@ -44,7 +44,17 @@ async function waitFor(fn, timeoutMs = 20000) {
 
 async function runBrowser(name, engine) {
   const peer = await Peer.create({});
-  const browser = await engine.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+    // Playwright's Firefox answers no mDNS queries for its obfuscated
+  // .local candidates and will not initiate checks to same-IP pairs,
+  // so legs where our stack must reach it need raw IP candidates.
+  // Chromium needs no equivalent (it answers mDNS queries itself).
+  const launchOptions = { args: ["--no-sandbox", "--disable-dev-shm-usage"] };
+  if (name === "firefox") {
+    launchOptions.firefoxUserPrefs = {
+      "media.peerconnection.ice.obfuscate_host_addresses": false,
+    };
+  }
+  const browser = await engine.launch(launchOptions);
   try {
     const pageUrl = `http://127.0.0.1:${server.address().port}/browser-test/close_page.html`;
     const page = await browser.newPage();

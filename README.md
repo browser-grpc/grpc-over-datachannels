@@ -163,8 +163,7 @@ SDP, ICE (host/srflx/TURN relay incl. TCP/TLS legs, trickle, consent
 freshness, restart, IPv6), DTLS 1.2 in both roles, SCTP/PR-SCTP, and
 DCEP — cross-checked against OpenSSL, against each other, and against
 real Chromium/Firefox pages via Playwright (`browser-test/`).
-Everything runs in the CI image (`Dockerfile.ci`; browser legs need
-`docker run --network host`, see the note there).
+Everything runs in the CI image (`Dockerfile.ci`).
 
 ## Layout
 

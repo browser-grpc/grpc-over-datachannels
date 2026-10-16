@@ -179,9 +179,17 @@ async function runRustLeg(name, browser) {
 }
 
 async function runBrowser(name, engine) {
-  const browser = await engine.launch({
-    args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-features=WebRtcHideLocalIpsWithMdns"],
-  });
+    // Playwright's Firefox answers no mDNS queries for its obfuscated
+  // .local candidates and will not initiate checks to same-IP pairs,
+  // so legs where our stack must reach it need raw IP candidates.
+  // Chromium needs no equivalent (it answers mDNS queries itself).
+  const launchOptions = { args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-features=WebRtcHideLocalIpsWithMdns"] };
+  if (name === "firefox") {
+    launchOptions.firefoxUserPrefs = {
+      "media.peerconnection.ice.obfuscate_host_addresses": false,
+    };
+  }
+  const browser = await engine.launch(launchOptions);
   try {
     await runGoLeg(name, browser);
     await runJsLeg(name, browser);

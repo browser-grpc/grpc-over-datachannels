@@ -83,8 +83,10 @@ found by running real browsers (`browser-test/`) and fixed:
   host and in Docker), so Firefox legs depend on peer-reflexive
   learning, which needs Firefox to initiate checks. It will not
   initiate to same-IP or loopback pairs, so browser legs cannot
-  connect inside a single-IP network namespace — the Docker gate
-  therefore runs with `--network host` (see Dockerfile.ci).
+  connect inside a single-IP network namespace with obfuscated
+  candidates. The test harness therefore launches Firefox with
+  `media.peerconnection.ice.obfuscate_host_addresses=false` (raw IP
+  candidates); Chromium keeps obfuscation and covers the mDNS path.
 - A browser may re-nominate a different pair within the same ICE
   generation; if the DTLS destination live-follows the agent's
   nominated pair, media drifts mid-session. The destination is pinned

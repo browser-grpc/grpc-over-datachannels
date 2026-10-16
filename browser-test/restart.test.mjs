@@ -63,7 +63,17 @@ async function runBrowser(name, engine) {
   let renominatedResolve;
   const renominated = new Promise((resolve) => { renominatedResolve = resolve; });
   answerer.onRenominated = () => renominatedResolve();
-  const browser = await engine.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+    // Playwright's Firefox answers no mDNS queries for its obfuscated
+  // .local candidates and will not initiate checks to same-IP pairs,
+  // so legs where our stack must reach it need raw IP candidates.
+  // Chromium needs no equivalent (it answers mDNS queries itself).
+  const launchOptions = { args: ["--no-sandbox", "--disable-dev-shm-usage"] };
+  if (name === "firefox") {
+    launchOptions.firefoxUserPrefs = {
+      "media.peerconnection.ice.obfuscate_host_addresses": false,
+    };
+  }
+  const browser = await engine.launch(launchOptions);
   try {
     const grpcServer = new Server();
     grpcServer.addService(createEchoService(handlers));
