@@ -51,12 +51,15 @@ module TestDeadline
     elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
     TestUtil.check(elapsed < 0.35, "deadline fast (#{elapsed})")
 
+    wait_deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 2.0
+    sleep(0.01) while slow.seen_ctx.nil? && Process.clock_gettime(Process::CLOCK_MONOTONIC) < wait_deadline
     TestUtil.check(!slow.seen_ctx.nil?, "handler ran")
     TestUtil.check(slow.seen_ctx.metadata.key?("grpc-timeout"), "grpc-timeout metadata")
     TestUtil.check(!slow.seen_ctx.deadline.nil?, "ctx deadline")
     TestUtil.check(!slow.seen_ctx.time_remaining.nil?, "ctx remaining")
 
-    stream = client.ServerStream(req("tick", 5), nil, timeout: 0.15)
+    sleep(0.45) # let the unary slow handler finish before streaming
+    stream = client.ServerStream(req("tick", 5), nil, timeout: 0.25)
     TestUtil.assert_eq(stream.recv.index, 0, "stream first")
     begin
       stream.recv

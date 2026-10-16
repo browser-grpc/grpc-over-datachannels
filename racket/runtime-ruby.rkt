@@ -249,11 +249,31 @@ module Grpcdc
     # Next event, or nil once the stream is closed. With a
     # timeout (seconds), returns TIMEOUT when the wait expires.
     def get(timeout = nil)
-      event = timeout.nil? ? @events.pop : @events.pop(timeout: timeout)
-      return TIMEOUT if !timeout.nil? && event.nil?
+      return get_blocking if timeout.nil?
 
+      # Portable timed wait: Queue#pop(timeout:) only exists on
+      # Ruby >= 3.2 (3.1 raises immediately), so poll non-blocking.
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+      loop do
+        begin
+          event = @events.pop(true)
+          return event.equal?(CLOSED) ? nil : event
+        rescue ThreadError
+          return TIMEOUT if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+
+          sleep(0.001)
+        end
+      end
+    end
+
+    private
+
+    def get_blocking
+      event = @events.pop
       event.equal?(CLOSED) ? nil : event
     end
+
+    public
   end
 
   class ResponseSink
