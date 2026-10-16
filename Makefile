@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-dart-browser test-dart-wasm-browser demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-dart-browser test-dart-wasm-browser demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -54,6 +54,9 @@ stubs:
 	mkdir -p lua/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-lua=bin/protoc-gen-grpc-dc-lua \
 		--grpc-dc-lua_out=lua/examples -I proto proto/echo.proto
+	mkdir -p ruby/examples
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-ruby=bin/protoc-gen-grpc-dc-ruby \
+		--grpc-dc-ruby_out=ruby/examples -I proto proto/echo.proto
 	mkdir -p wasm/go
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-wasm-go=bin/protoc-gen-grpc-dc-wasm-go \
 		--grpc-dc-wasm-go_out=wasm/go -I proto proto/echo.proto
@@ -180,6 +183,16 @@ test-lua:
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDynamic \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestBdd
 
+RUBY ?= ruby
+
+test-ruby:
+	RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestCodec \
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestEcho \
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestInterop \
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestOracle \
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestDynamic \
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestBdd
+
 test-grpc-webrtc:
 	cd rust && $(CARGO) test --features webrtc
 
@@ -208,7 +221,7 @@ test-dart-wasm-browser:
 	$(DART) compile wasm wasm/dart/echo_client.dart -o browser-test/echo_dart_wasm.wasm
 	cd browser-test && node dart_wasm.test.mjs all
 
-test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-dart-browser test-dart-wasm-browser
+test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-dart-browser test-dart-wasm-browser
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo

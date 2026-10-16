@@ -1,0 +1,1456 @@
+#lang racket
+
+;;; runtime-ruby.rkt — the Ruby gRPC runtime, emitted by metagen.rkt.
+;;;
+;;; The runtime files under ruby/grpcdc/ are GENERATED from the
+;;; bodies below plus fragments recursively expanded from spec.rkt's
+;;; frame/status tables (see the dispatch generator). Do not edit the
+;;; generated runtime files; edit here and run `make generate`.
+;;; (Bodies were authored in-language and are kept verbatim so the
+;;; generated output stays byte-reviewable in git diffs.)
+;;;
+;;; Ruby >= 3.0, standard library only.
+
+(require "spec.rkt")
+(provide emit-ruby-runtime-files)
+
+(define ruby-codec-body
+#<<GRPC_RUNTIME_EOF
+# Codec + status types for gRPC over WebRTC DataChannels.
+#
+# Wire protocol in ../SPEC.md. Frame, status, channel and server
+# semantics mirror the Rust, JavaScript, Go and Python runtimes;
+# the tables in wire_gen.rb are stamped by the Racket metaprogram.
+
+require "json"
+require_relative "wire_gen"
+
+module Grpcdc
+  HEADER_LEN = 9
+  MAX_DATA_PAYLOAD = 16 * 1024 * 1024
+
+  # Canonical status name ("CODE_N" for unknown codes).
+  def self.status_name(code)
+    STATUS_NAMES.fetch(code, "CODE_#{code}")
+  end
+
+  # A gRPC status (code + message) carried as an exception.
+  # (message is an attribute, like the Python runtime; note
+  # Exception#message normally delegates to to_s, so to_s must
+  # build from the attribute, never from itself.)
+  class StatusError < StandardError
+    attr_reader :code, :message
+
+    def initialize(code, message = "")
+      super(message)
+      @code = code
+      @message = message
+    end
+
+    def to_s
+      "#{Grpcdc.status_name(@code)}: #{@message}"
+    end
+  end
+
+  # The call completed OK (client-side stream end).
+  class CallClosed < EOFError; end
+
+  # Convert an exception to StatusError (OK for nil).
+  def self.to_status(err)
+    return StatusError.new(CODE_OK, "") if err.nil?
+    return err if err.is_a?(StatusError)
+
+    StatusError.new(CODE_INTERNAL, err.message)
+  end
+
+  # A parsed HEADERS payload: path=nil marks response headers.
+  class Headers
+    attr_reader :path, :metadata
+
+    def initialize(path = nil, metadata = nil)
+      @path = path
+      @metadata = metadata || {}
+    end
+
+    def inspect
+      "Headers(path=#{@path.inspect}, metadata=#{@metadata.inspect})"
+    end
+  end
+
+  module Codec
+    module_function
+
+    # Build one DataChannel message: header + payload.
+    def encode_frame(frame_type, stream_id, payload)
+      unless FRAME_NAMES.value?(frame_type)
+        raise StatusError.new(CODE_INVALID_ARGUMENT, "unknown frame type #{frame_type}")
+      end
+      payload = payload.b
+      if frame_type == FRAME_DATA && payload.bytesize > MAX_DATA_PAYLOAD
+        raise StatusError.new(CODE_RESOURCE_EXHAUSTED, "DATA payload exceeds 16 MiB")
+      end
+
+      [frame_type, stream_id, payload.bytesize].pack("CNN") + payload
+    end
+
+    # Parse one DataChannel message -> [frame_type, stream_id, payload].
+    def decode_frame(data)
+      if data.bytesize < HEADER_LEN
+        raise StatusError.new(
+          CODE_INVALID_ARGUMENT,
+          "frame shorter than 9-byte header: #{data.bytesize} bytes"
+        )
+      end
+      frame_type, stream_id, length = data.byteslice(0, HEADER_LEN).unpack("CNN")
+      if length != data.bytesize - HEADER_LEN
+        raise StatusError.new(
+          CODE_INVALID_ARGUMENT,
+          "payload length #{length} does not match message size #{data.bytesize}"
+        )
+      end
+
+      [frame_type, stream_id, data.byteslice(HEADER_LEN..-1) || "".b]
+    end
+
+    def headers_frame(stream_id, path, metadata)
+      body = {}
+      body["path"] = path unless path.nil?
+      body["metadata"] = metadata if metadata && !metadata.empty?
+      encode_frame(FRAME_HEADERS, stream_id, JSON.generate(body).b)
+    end
+
+    def parse_headers(payload)
+      begin
+        body = JSON.parse(payload.dup.force_encoding(Encoding::UTF_8))
+      rescue JSON::ParserError, EncodingError => e
+        raise StatusError.new(CODE_INVALID_ARGUMENT, "bad HEADERS payload: #{e.message}")
+      end
+      unless body.is_a?(Hash)
+        raise StatusError.new(CODE_INVALID_ARGUMENT, "HEADERS payload is not an object")
+      end
+      metadata = body["metadata"] || {}
+      unless metadata.is_a?(Hash)
+        raise StatusError.new(CODE_INVALID_ARGUMENT, "HEADERS metadata is not an object")
+      end
+
+      Headers.new(body["path"], metadata)
+    end
+
+    def status_frame(frame_type, stream_id, status)
+      body = { "code" => status.code, "message" => status.message }
+      encode_frame(frame_type, stream_id, JSON.generate(body).b)
+    end
+
+    def parse_status(payload)
+      body = JSON.parse(payload.dup.force_encoding(Encoding::UTF_8))
+      StatusError.new(Integer(body.fetch("code")), String(body["message"] || ""))
+    rescue JSON::ParserError, EncodingError, KeyError, TypeError, ArgumentError
+      StatusError.new(CODE_UNKNOWN, "malformed trailers")
+    end
+  end
+
+  # Convenience delegates (the Python runtime's flat surface).
+  def self.encode_frame(frame_type, stream_id, payload)
+    Codec.encode_frame(frame_type, stream_id, payload)
+  end
+
+  def self.decode_frame(data)
+    Codec.decode_frame(data)
+  end
+end
+GRPC_RUNTIME_EOF
+)
+
+(define ruby-endpoint-body
+#<<GRPC_RUNTIME_EOF
+# Endpoint: multiplexes grpc-dc streams over one Transport.
+
+require_relative "codec"
+require_relative "wire_gen"
+
+module Grpcdc
+  EVENT_HEADERS = "headers"
+  EVENT_DATA = "data"
+  EVENT_HALF_CLOSE = "half-close"
+  EVENT_TRAILERS = "trailers"
+  EVENT_RST = "rst"
+
+  # Carries whole DataChannel messages (boundaries preserved).
+  #
+  # recv returns one message, or raises EOFError when the
+  # transport is closed.
+  class Transport
+    def send(_data)
+      raise NotImplementedError
+    end
+
+    def recv
+      raise NotImplementedError
+    end
+  end
+
+  class StreamEvent
+    attr_reader :kind, :headers, :payload, :status
+
+    def initialize(kind, headers: nil, payload: nil, status: nil)
+      @kind = kind
+      @headers = headers
+      @payload = payload
+      @status = status
+    end
+  end
+
+  # Receiving queue of one stream; closed after a terminal event.
+  class StreamInput
+    CLOSED = Object.new
+
+    def initialize
+      @events = Queue.new
+    end
+
+    def put(event)
+      @events << event
+    end
+
+    def close
+      @events << CLOSED
+    end
+
+    # Next event, or nil once the stream is closed.
+    def get
+      event = @events.pop
+      event.equal?(CLOSED) ? nil : event
+    end
+  end
+
+  class ResponseSink
+    def initialize(endpoint, stream_id)
+      @endpoint = endpoint
+      @id = stream_id
+    end
+
+    def send_data(payload)
+      @endpoint.send_frame(Codec.encode_frame(FRAME_DATA, @id, payload))
+    end
+
+    def send_headers
+      @endpoint.send_frame(Codec.headers_frame(@id, nil, nil))
+    end
+
+    def send_trailers(status)
+      @endpoint.send_frame(Codec.status_frame(FRAME_TRAILERS, @id, status))
+    end
+
+    # Server sink interface used by Server.
+    def send(payload)
+      send_data(payload)
+    end
+  end
+
+  # Per-call context: metadata sent in HEADERS.
+  class CallContext
+    attr_reader :metadata
+
+    def initialize(metadata = nil)
+      @metadata = metadata || {}
+    end
+  end
+
+  # Multiplexes streams over one Transport.
+  #
+  # The side that created the channel allocates odd stream ids,
+  # the answerer even.
+  class Endpoint
+    attr_reader :transport
+    attr_accessor :dispatcher
+
+    def initialize(transport, creator:)
+      @transport = transport
+      @dispatcher = nil
+      @next_id = creator ? 1 : 2
+      @send_lock = Mutex.new
+      @streams = {}
+      @streams_lock = Mutex.new
+      @closed = false
+      @started = false
+    end
+
+    # Start the read loop (idempotent). Called after any
+    # dispatcher is installed, so an early HEADERS can never race
+    # dispatcher setup.
+    def start
+      return if @started
+
+      @started = true
+      Thread.new { read_loop }
+    end
+
+    def set_dispatcher(dispatcher)
+      @dispatcher = dispatcher
+    end
+
+    def send_frame(frame)
+      @send_lock.synchronize { @transport.send(frame) }
+    end
+
+    def open_stream
+      stream_id = @send_lock.synchronize do
+        id = @next_id
+        @next_id += 2
+        id
+      end
+      stream_input = StreamInput.new
+      @streams_lock.synchronize { @streams[stream_id] = stream_input }
+      [stream_id, stream_input]
+    end
+
+    def close_stream(stream_id)
+      @streams_lock.synchronize { @streams.delete(stream_id) }
+    end
+
+    def stream(stream_id)
+      @streams_lock.synchronize { @streams[stream_id] }
+    end
+
+    def close
+      return if @closed
+
+      @closed = true
+      begin
+        @transport.close if @transport.respond_to?(:close)
+      rescue StandardError
+        nil
+      end
+      fail_all
+    end
+
+    private
+
+    def fail_all
+      pending = @streams_lock.synchronize do
+        items = @streams.to_a
+        @streams.clear
+        items
+      end
+      pending.each do |_stream_id, stream_input|
+        stream_input.put(StreamEvent.new(
+                           EVENT_RST,
+                           status: StatusError.new(CODE_UNAVAILABLE, "data channel closed")
+                         ))
+        stream_input.close
+      end
+    end
+
+    def read_loop
+      loop do
+        begin
+          data = @transport.recv
+        rescue StandardError
+          fail_all
+          return
+        end
+        return if @closed
+
+        on_bytes(data)
+      end
+    end
+
+    def on_bytes(data)
+      begin
+        frame_type, stream_id, payload = Codec.decode_frame(data)
+      rescue StatusError
+        return # malformed frame: drop, keep the channel up
+      end
+@@FRAME_DISPATCH@@
+    end
+
+    def on_terminal(stream_id, payload, kind)
+      stream_input = stream(stream_id)
+      return unless stream_input
+
+      stream_input.put(StreamEvent.new(kind, status: Codec.parse_status(payload)))
+      stream_input.close
+      close_stream(stream_id)
+    end
+
+    def push_event(stream_id, event)
+      stream_input = stream(stream_id)
+      stream_input&.put(event)
+    end
+
+    def on_headers(stream_id, payload)
+      begin
+        headers = Codec.parse_headers(payload)
+      rescue StatusError => e
+        begin
+          send_frame(Codec.status_frame(FRAME_RST, stream_id, Grpcdc.to_status(e)))
+        rescue StandardError
+          nil
+        end
+        return
+      end
+      if headers.path.nil?
+        # Server response headers for one of our outbound streams.
+        stream_input = stream(stream_id)
+        stream_input&.put(StreamEvent.new(EVENT_HEADERS, headers: headers))
+        return
+      end
+      if stream(stream_id)
+        begin
+          send_frame(Codec.status_frame(
+                       FRAME_RST, stream_id,
+                       StatusError.new(CODE_INTERNAL, "HEADERS for stream already in use")
+                     ))
+        rescue StandardError
+          nil
+        end
+        return
+      end
+      if @dispatcher.nil?
+        begin
+          send_frame(Codec.status_frame(
+                       FRAME_TRAILERS, stream_id,
+                       StatusError.new(CODE_UNIMPLEMENTED, "unknown method #{headers.path}")
+                     ))
+        rescue StandardError
+          nil
+        end
+        return
+      end
+      stream_input = StreamInput.new
+      @streams_lock.synchronize { @streams[stream_id] = stream_input }
+      sink = ResponseSink.new(self, stream_id)
+      dispatcher = @dispatcher
+      Thread.new do
+        begin
+          begin
+            sink.send_headers
+          rescue StandardError
+            next
+          end
+          status = dispatcher.call(CallContext.new(headers.metadata), headers, stream_input, sink)
+          status = StatusError.new(CODE_OK, "") if status.nil?
+          begin
+            sink.send_trailers(status)
+          rescue StandardError
+            nil
+          end
+        ensure
+          close_stream(stream_id)
+        end
+      end
+    end
+  end
+end
+GRPC_RUNTIME_EOF
+)
+
+(define ruby-channel-body
+#<<GRPC_RUNTIME_EOF
+# Channel: the client side of one Endpoint.
+
+require_relative "codec"
+require_relative "endpoint"
+require_relative "wire_gen"
+
+module Grpcdc
+  # Client side; allocates odd stream ids on a fresh Endpoint.
+  class Channel
+    attr_reader :endpoint
+
+    def initialize(transport = nil, endpoint: nil)
+      @endpoint = endpoint || Endpoint.new(transport, creator: true)
+      @endpoint.start
+    end
+
+    def unary(path, req, resp, metadata = nil)
+      stream = open_call(path, metadata)
+      begin
+        send_message(stream, req)
+        half_close(stream)
+        got = false
+        loop do
+          begin
+            stream.recv(resp)
+          rescue EOFError
+            raise StatusError.new(CODE_INTERNAL, "call closed with no response") unless got
+
+            return resp
+          end
+          if got
+            raise StatusError.new(CODE_INTERNAL, "unary call received more than one response")
+          end
+
+          got = true
+        end
+      ensure
+        @endpoint.close_stream(stream.stream_id)
+      end
+    end
+
+    def server_stream(path, req, metadata = nil)
+      stream = open_call(path, metadata)
+      send_message(stream, req)
+      half_close(stream)
+      stream
+    end
+
+    def client_stream(path, reqs, resp, metadata = nil)
+      stream = open_call(path, metadata)
+      begin
+        send_all(stream, reqs)
+        got = false
+        loop do
+          begin
+            stream.recv(resp)
+          rescue EOFError
+            raise StatusError.new(CODE_INTERNAL, "call closed with no response") unless got
+
+            return resp
+          end
+          if got
+            raise StatusError.new(
+              CODE_INTERNAL, "client-streaming call received more than one response"
+            )
+          end
+
+          got = true
+        end
+      ensure
+        @endpoint.close_stream(stream.stream_id)
+      end
+    end
+
+    def bidi(path, reqs, metadata = nil)
+      stream = open_call(path, metadata)
+      send_all(stream, reqs)
+      stream
+    end
+
+    private
+
+    def open_call(path, metadata)
+      stream_id, stream_input = @endpoint.open_stream
+      begin
+        @endpoint.send_frame(Codec.headers_frame(stream_id, path, metadata))
+      rescue StandardError
+        @endpoint.close_stream(stream_id)
+        raise
+      end
+      ClientStream.new(@endpoint, stream_id, stream_input)
+    end
+
+    def send_message(stream, msg)
+      @endpoint.send_frame(Codec.encode_frame(FRAME_DATA, stream.stream_id, msg.marshal_dc))
+    end
+
+    def half_close(stream)
+      @endpoint.send_frame(Codec.encode_frame(FRAME_HALF_CLOSE, stream.stream_id, "".b))
+    end
+
+    def send_all(stream, reqs)
+      reqs.each { |req| send_message(stream, req) }
+      half_close(stream)
+    end
+  end
+
+  # Receives response messages of one call.
+  class ClientStream
+    attr_reader :stream_id, :headers
+
+    def initialize(endpoint, stream_id, stream_input)
+      @endpoint = endpoint
+      @stream_id = stream_id
+      @input = stream_input
+      @headers = nil
+    end
+
+    # Decode the next response into resp.
+    #
+    # Raises EOFError when the call completed OK; StatusError
+    # reports the trailers status.
+    def recv(resp)
+      loop do
+        event = @input.get
+        raise StatusError.new(CODE_UNAVAILABLE, "data channel closed") if event.nil?
+
+        case event.kind
+        when EVENT_HEADERS
+          @headers = event.headers
+        when EVENT_DATA
+          return resp.unmarshal_dc(event.payload)
+        when EVENT_TRAILERS
+          raise event.status unless event.status.code == CODE_OK
+
+          raise EOFError, "call completed"
+        when EVENT_RST
+          raise event.status
+        end
+      end
+    end
+  end
+end
+GRPC_RUNTIME_EOF
+)
+
+(define ruby-server-body
+#<<GRPC_RUNTIME_EOF
+# Server: dispatches inbound calls to registered methods.
+
+require_relative "codec"
+require_relative "endpoint"
+require_relative "wire_gen"
+
+module Grpcdc
+  KIND_UNARY = "unary"
+  KIND_SERVER_STREAMING = "server-streaming"
+  KIND_CLIENT_STREAMING = "client-streaming"
+  KIND_BIDI = "bidi"
+
+  # Reads request messages of one inbound call.
+  class RequestStream
+    def initialize(stream_input)
+      @input = stream_input
+    end
+
+    # Next request payload; EOFError at half-close.
+    def recv_raw
+      loop do
+        event = @input.get
+        raise StatusError.new(CODE_UNAVAILABLE, "data channel closed") if event.nil?
+
+        case event.kind
+        when EVENT_DATA
+          return event.payload
+        when EVENT_HALF_CLOSE
+          raise EOFError, "half-close"
+        when EVENT_TRAILERS, EVENT_RST
+          raise event.status
+        end
+      end
+    end
+
+    def recv_into(req)
+      req.unmarshal_dc(recv_raw)
+      req
+    end
+  end
+
+  class Method
+    attr_reader :name, :path, :kind, :handler
+
+    # handler: callable(ctx, RequestStream, sink) -> nil
+    def initialize(name, path, kind, handler)
+      @name = name
+      @path = path
+      @kind = kind
+      @handler = handler
+    end
+  end
+
+  class ServiceDesc
+    attr_reader :name, :methods
+
+    def initialize(name, methods)
+      @name = name
+      @methods = methods
+    end
+  end
+
+  # Dispatches inbound calls to registered methods.
+  class Server
+    def initialize
+      @methods = {}
+    end
+
+    def register_service(desc)
+      desc.methods.each { |method| @methods[method.path] = method }
+    end
+
+    # Attach to a transport (even stream ids); returns Endpoint.
+    def serve_transport(transport)
+      endpoint = Endpoint.new(transport, creator: false)
+      serve_endpoint(endpoint)
+      endpoint
+    end
+
+    def serve_endpoint(endpoint)
+      endpoint.set_dispatcher(method(:dispatch))
+      endpoint.start
+    end
+
+    private
+
+    def dispatch(ctx, headers, stream_input, sink)
+      method = @methods[headers.path]
+      if method.nil?
+        return StatusError.new(CODE_UNIMPLEMENTED, "unknown method #{headers.path}")
+      end
+
+      begin
+        method.handler.call(ctx, RequestStream.new(stream_input), sink)
+      rescue StandardError => e # StatusError passes through via to_status
+        return Grpcdc.to_status(e)
+      end
+      nil
+    end
+  end
+end
+GRPC_RUNTIME_EOF
+)
+
+(define ruby-loopback-body
+#<<GRPC_RUNTIME_EOF
+# In-memory transport pair for tests (one queue per direction).
+
+require_relative "endpoint"
+
+module Grpcdc
+  class MemoryTransport < Transport
+    SENTINEL = Object.new
+
+    def initialize(inbox, outbox)
+      super()
+      @inbox = inbox
+      @outbox = outbox
+      @closed = false
+    end
+
+    def send(data)
+      raise EOFError, "transport closed" if @closed
+
+      @outbox << data.b.dup
+    end
+
+    def recv
+      item = @inbox.pop
+      raise EOFError, "transport closed" if item.equal?(SENTINEL)
+
+      item
+    end
+
+    def close
+      @closed = true
+      @inbox << SENTINEL
+    end
+  end
+
+  # Two connected in-memory transports.
+  def self.memory_transport_pair
+    a_to_b = Queue.new
+    b_to_a = Queue.new
+    [MemoryTransport.new(b_to_a, a_to_b), MemoryTransport.new(a_to_b, b_to_a)]
+  end
+end
+GRPC_RUNTIME_EOF
+)
+
+(define ruby-dynamic-body
+#<<GRPC_RUNTIME_EOF
+# Dynamic, descriptor-driven client and server.
+#
+# Parses a FileDescriptorSet (as produced by
+# `protoc --descriptor_set_out`) at runtime and builds clients
+# and servers whose messages are generic field maps — no
+# generated stubs required. This is the runtime-generation
+# counterpart of the protoc-plugin surfaces: schemas arrive as
+# data (descriptor.proto), not as code.
+#
+# Generic values by field type: varint family -> Integer,
+# string -> String, bytes/message -> String / GenericMessage,
+# fixed/float -> Integer / Float, bool -> true/false. Repeated
+# fields are arrays in field-number order.
+
+require_relative "codec"
+require_relative "server"
+require_relative "wire_gen"
+
+module Grpcdc
+  # FieldDescriptorProto.Type values (descriptor.proto).
+  TYPE_DOUBLE = 1
+  TYPE_FLOAT = 2
+  TYPE_INT64 = 3
+  TYPE_UINT64 = 4
+  TYPE_INT32 = 5
+  TYPE_FIXED64 = 6
+  TYPE_FIXED32 = 7
+  TYPE_BOOL = 8
+  TYPE_STRING = 9
+  TYPE_GROUP = 10
+  TYPE_MESSAGE = 11
+  TYPE_BYTES = 12
+  TYPE_UINT32 = 13
+  TYPE_ENUM = 14
+  TYPE_SFIXED32 = 15
+  TYPE_SFIXED64 = 16
+  TYPE_SINT32 = 17
+  TYPE_SINT64 = 18
+
+  VARINT_TYPES = [TYPE_INT64, TYPE_UINT64, TYPE_INT32, TYPE_BOOL,
+                  TYPE_UINT32, TYPE_ENUM, TYPE_SINT32, TYPE_SINT64].freeze
+  LEN_TYPES = [TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE, TYPE_GROUP].freeze
+
+  WIRE_TYPE = {}.tap do |table|
+    VARINT_TYPES.each { |t| table[t] = 0 }
+    [TYPE_FIXED64, TYPE_SFIXED64, TYPE_DOUBLE].each { |t| table[t] = 1 }
+    LEN_TYPES.each { |t| table[t] = 2 }
+    [TYPE_FIXED32, TYPE_SFIXED32, TYPE_FLOAT].each { |t| table[t] = 5 }
+  end.freeze
+
+  LABEL_REPEATED = 3
+
+  # Minimal protobuf reader over a binary String.
+  class PbReader
+    attr_reader :last_chunk
+
+    def initialize(data)
+      @buf = data.b
+      @pos = 0
+      @last_chunk = nil
+    end
+
+    def varint
+      result = 0
+      shift = 0
+      loop do
+        raise ArgumentError, "truncated varint" if @pos >= @buf.bytesize
+
+        b = @buf.getbyte(@pos)
+        @pos += 1
+        result |= (b & 0x7F) << shift
+        return result if (b & 0x80).zero?
+
+        shift += 7
+        raise ArgumentError, "varint too long" if shift >= 70
+      end
+    end
+
+    def bytes_field
+      n = varint
+      raise ArgumentError, "truncated bytes field" if @pos + n > @buf.bytesize
+
+      out = @buf.byteslice(@pos, n)
+      @pos += n
+      out
+    end
+
+    # Yield [number, wire_type, value] until end of buffer.
+    # Sets last_chunk to the raw bytes of the yielded field
+    # (captured before the yield, so consumers may read it while
+    # processing this field).
+    def each_field
+      return enum_for(:each_field) unless block_given?
+
+      while @pos < @buf.bytesize
+        start = @pos
+        tag = varint
+        number = tag >> 3
+        wire = tag & 7
+        value =
+          case wire
+          when 0 then varint
+          when 2 then bytes_field
+          when 1
+            raise ArgumentError, "truncated fixed64" if @pos + 8 > @buf.bytesize
+
+            v = @buf.byteslice(@pos, 8)
+            @pos += 8
+            v
+          when 5
+            raise ArgumentError, "truncated fixed32" if @pos + 4 > @buf.bytesize
+
+            v = @buf.byteslice(@pos, 4)
+            @pos += 4
+            v
+          else
+            raise ArgumentError, "unsupported wire type #{wire}"
+          end
+        @last_chunk = @buf.byteslice(start...@pos)
+        yield number, wire, value
+      end
+    end
+  end
+
+  class FieldModel
+    attr_reader :number, :name, :type, :type_name
+
+    def initialize(number, name, field_type, label, type_name)
+      @number = number
+      @name = name
+      @type = field_type
+      @repeated = label == LABEL_REPEATED
+      @type_name = type_name # for TYPE_MESSAGE, e.g. ".echo.EchoRequest"
+    end
+
+    def repeated?
+      @repeated
+    end
+  end
+
+  class MessageModel
+    attr_reader :full_name, :fields, :by_name
+
+    def initialize(full_name, fields)
+      @full_name = full_name
+      @fields = fields # number -> FieldModel
+      @by_name = {}
+      fields.each_value { |f| @by_name[f.name] = f }
+    end
+
+    def refresh_by_name
+      @by_name = {}
+      @fields.each_value { |f| @by_name[f.name] = f }
+    end
+  end
+
+  class MethodModel
+    attr_reader :name, :path, :kind, :input, :output
+
+    def initialize(name, path, kind, input_model, output_model)
+      @name = name
+      @path = path
+      @kind = kind
+      @input = input_model
+      @output = output_model
+    end
+  end
+
+  class ServiceModel
+    attr_reader :full_name, :methods
+
+    def initialize(full_name, methods)
+      @full_name = full_name
+      @methods = methods # name -> MethodModel
+    end
+  end
+
+  # Parsed descriptor set: messages and services by full name.
+  class FileModel
+    attr_reader :messages, :services
+
+    def initialize
+      @messages = {} # ".echo.EchoRequest" -> MessageModel
+      @services = {} # "echo.Echo" -> ServiceModel
+    end
+
+    def message(full_name)
+      @messages.fetch(full_name)
+    end
+
+    def service(full_name)
+      @services.fetch(full_name)
+    end
+  end
+
+  # A message as field number -> list of values (descriptor order).
+  #
+  # Fields not in the model are retained as raw encoded chunks in
+  # `unknown` (protobuf unknown-field retention): a decode ->
+  # encode round trip re-emits them after the known fields, so
+  # intermediate hops do not strip newer fields.
+  class GenericMessage
+    attr_accessor :model
+    attr_reader :values, :unknown
+
+    def initialize(model = nil)
+      @model = model
+      @values = {}
+      @unknown = []
+    end
+
+    def set(number, value)
+      @values[number] = [value]
+      self
+    end
+
+    def add(number, value)
+      (@values[number] ||= []) << value
+      self
+    end
+
+    def get_all(number)
+      (@values[number] || []).dup
+    end
+
+    def get(number, default = nil)
+      items = @values[number]
+      items && !items.empty? ? items[0] : default
+    end
+
+    def get_string(number, default = "")
+      value = get(number)
+      value.is_a?(String) ? value : default
+    end
+
+    def get_int(number, default = 0)
+      value = get(number)
+      value.is_a?(Integer) ? value : default
+    end
+
+    def ==(other)
+      other.is_a?(GenericMessage) && @values == other.values
+    end
+
+    def inspect
+      "GenericMessage(#{@values.inspect})"
+    end
+  end
+
+  class << self
+    def encode_varint(value)
+      out = String.new(encoding: Encoding::BINARY)
+      v = value & 0xFFFFFFFFFFFFFFFF
+      while v > 0x7F
+        out << ((v & 0x7F) | 0x80)
+        v >>= 7
+      end
+      out << v
+      out
+    end
+
+    def encode_generic(model, message, file_model)
+      out = String.new(encoding: Encoding::BINARY)
+      message.values.keys.sort.each do |number|
+        field = model.fields[number]
+        if field.nil?
+          raise StatusError.new(CODE_INVALID_ARGUMENT, "unknown field #{number} for #{model.full_name}")
+        end
+
+        values = message.values[number]
+        if field.repeated?
+          values.each { |value| out << encode_value(field, value, file_model) }
+        elsif !values.empty?
+          out << encode_value(field, values[0], file_model)
+        end
+      end
+      (message.unknown || []).each { |chunk| out << chunk }
+      out
+    end
+
+    def decode_generic(model, data, file_model)
+      message = GenericMessage.new(model)
+      reader = PbReader.new(data)
+      reader.each_field do |number, wire, raw|
+        field = model.fields[number]
+        if field.nil?
+          # Unknown field: retain the raw encoded chunk verbatim.
+          message.unknown << reader.last_chunk
+          next
+        end
+        (message.values[number] ||= []) << decode_value(field, wire, raw, file_model)
+      end
+      message
+    end
+
+    # Parse FileDescriptorSet bytes into a FileModel.
+    def parse_descriptor_set(data)
+      file_model = FileModel.new
+      pending_services = []
+      PbReader.new(data).each_field do |number, _wire, file_bytes|
+        next unless number == 1
+
+        package = ""
+        service_types = []
+        fields_of_file = PbReader.new(file_bytes).each_field.to_a
+        fields_of_file.each do |fnum, _w, fval|
+          package = fval.dup.force_encoding(Encoding::UTF_8) if fnum == 2
+        end
+        fields_of_file.each do |fnum, _w, fval|
+          case fnum
+          when 4 then parse_message(package, fval, file_model)
+          when 6 then service_types << [package, fval]
+          end
+        end
+        pending_services.concat(service_types)
+      end
+      pending_services.each { |package, bytes| parse_service(package, bytes, file_model) }
+      file_model
+    end
+
+    # Register a runtime-built service on a Grpcdc::Server.
+    #
+    # handler is an object with methods by kind:
+    #   unary(ctx, method, request) -> GenericMessage
+    #   server_stream(ctx, method, request, send) -> nil
+    #   client_stream(ctx, method, request_enum) -> GenericMessage
+    #   bidi(ctx, method, request_enum, send) -> nil
+    # where send is a callable taking a GenericMessage and
+    # request_enum yields GenericMessages until half-close.
+    def register_dynamic_service(server, file_model, service_name, handler)
+      service = file_model.services.fetch(service_name)
+      methods = service.methods.values.map do |method|
+        Method.new(method.name, method.path, method.kind, make_handler(handler, method, file_model))
+      end
+      server.register_service(ServiceDesc.new(service.full_name, methods))
+    end
+
+    private
+
+    def to_signed(value, bits)
+      value &= (1 << bits) - 1
+      value >= (1 << (bits - 1)) ? value - (1 << bits) : value
+    end
+
+    def zigzag_decode(value)
+      (value >> 1) ^ -(value & 1)
+    end
+
+    def zigzag_encode(value)
+      ((value << 1) ^ (value >> 63)) & 0xFFFFFFFFFFFFFFFF
+    end
+
+    def encode_value(field, value, file_model)
+      wire = WIRE_TYPE.fetch(field.type)
+      out = encode_varint((field.number << 3) | wire)
+      case wire
+      when 0
+        if [TYPE_SINT32, TYPE_SINT64].include?(field.type)
+          bits = field.type == TYPE_SINT32 ? 32 : 64
+          out << encode_varint(zigzag_encode(value) & ((1 << bits) - 1))
+        elsif field.type == TYPE_BOOL
+          out << encode_varint(value ? 1 : 0)
+        else
+          out << encode_varint(value & 0xFFFFFFFFFFFFFFFF)
+        end
+      when 1
+        out << if field.type == TYPE_DOUBLE
+                 [value].pack("E")
+               elsif field.type == TYPE_SFIXED64
+                 [value].pack("q<")
+               else
+                 [value & 0xFFFFFFFFFFFFFFFF].pack("Q<")
+               end
+      when 5
+        out << if field.type == TYPE_FLOAT
+                 [value].pack("e")
+               elsif field.type == TYPE_SFIXED32
+                 [value].pack("l<")
+               else
+                 [value & 0xFFFFFFFF].pack("V")
+               end
+      else
+        data =
+          case field.type
+          when TYPE_STRING then value.encode(Encoding::UTF_8).b
+          when TYPE_MESSAGE then encode_generic(file_model.messages.fetch(field.type_name), value, file_model)
+          else value.b
+          end
+        out << encode_varint(data.bytesize)
+        out << data
+      end
+      out
+    end
+
+    def decode_value(field, wire, raw, file_model)
+      case wire
+      when 0
+        case field.type
+        when TYPE_BOOL then raw != 0
+        when TYPE_SINT32, TYPE_SINT64 then zigzag_decode(raw)
+        when TYPE_INT32, TYPE_ENUM then to_signed(raw, 32)
+        when TYPE_INT64 then to_signed(raw, 64)
+        else raw
+        end
+      when 1
+        case field.type
+        when TYPE_DOUBLE then raw.unpack1("E")
+        when TYPE_SFIXED64 then raw.unpack1("q<")
+        else raw.unpack1("Q<")
+        end
+      when 5
+        case field.type
+        when TYPE_FLOAT then raw.unpack1("e")
+        when TYPE_SFIXED32 then raw.unpack1("l<")
+        else raw.unpack1("V")
+        end
+      else
+        # length-delimited
+        case field.type
+        when TYPE_STRING then raw.dup.force_encoding(Encoding::UTF_8)
+        when TYPE_MESSAGE then decode_generic(file_model.messages.fetch(field.type_name), raw, file_model)
+        else raw.b
+        end
+      end
+    end
+
+    def parse_message(package, data, file_model)
+      name = ""
+      raw_fields = []
+      nested = []
+      PbReader.new(data).each_field do |fnum, _w, fval|
+        case fnum
+        when 1 then name = fval.dup.force_encoding(Encoding::UTF_8)
+        when 2 then raw_fields << fval
+        when 3 then nested << fval
+        end
+      end
+      full_name = package.empty? ? name : "#{package}.#{name}"
+      fields = {}
+      model = MessageModel.new(full_name, fields)
+      file_model.messages["." + full_name] = model
+      nested.each { |bytes| parse_nested(package, name, bytes, file_model) }
+      raw_fields.each do |field_bytes|
+        field = parse_field(field_bytes)
+        fields[field.number] = field
+      end
+      model.refresh_by_name
+      model
+    end
+
+    def parse_nested(package, outer, data, file_model)
+      name = ""
+      raw_fields = []
+      PbReader.new(data).each_field do |fnum, _w, fval|
+        case fnum
+        when 1 then name = fval.dup.force_encoding(Encoding::UTF_8)
+        when 2 then raw_fields << fval
+        end
+      end
+      full_name = package.empty? ? "#{outer}.#{name}" : "#{package}.#{outer}.#{name}"
+      fields = {}
+      model = MessageModel.new(full_name, fields)
+      file_model.messages["." + full_name] = model
+      raw_fields.each do |field_bytes|
+        field = parse_field(field_bytes)
+        fields[field.number] = field
+      end
+      model.refresh_by_name
+      model
+    end
+
+    def parse_field(data)
+      name = ""
+      number = 0
+      label = 1
+      field_type = 0
+      type_name = ""
+      PbReader.new(data).each_field do |fnum, _w, fval|
+        case fnum
+        when 1 then name = fval.dup.force_encoding(Encoding::UTF_8)
+        when 3 then number = fval
+        when 4 then label = fval
+        when 5 then field_type = fval
+        when 6 then type_name = fval.dup.force_encoding(Encoding::UTF_8)
+        end
+      end
+      FieldModel.new(number, name, field_type, label, type_name)
+    end
+
+    def kind_of(client_streaming, server_streaming)
+      if client_streaming && server_streaming
+        KIND_BIDI
+      elsif server_streaming
+        KIND_SERVER_STREAMING
+      elsif client_streaming
+        KIND_CLIENT_STREAMING
+      else
+        KIND_UNARY
+      end
+    end
+
+    def parse_service(package, data, file_model)
+      name = ""
+      raw_methods = []
+      PbReader.new(data).each_field do |fnum, _w, fval|
+        case fnum
+        when 1 then name = fval.dup.force_encoding(Encoding::UTF_8)
+        when 2 then raw_methods << fval
+        end
+      end
+      full_name = package.empty? ? name : "#{package}.#{name}"
+      methods = {}
+      raw_methods.each do |method_bytes|
+        mname = ""
+        input_type = ""
+        output_type = ""
+        client_streaming = false
+        server_streaming = false
+        PbReader.new(method_bytes).each_field do |fnum, _w, fval|
+          case fnum
+          when 1 then mname = fval.dup.force_encoding(Encoding::UTF_8)
+          when 2 then input_type = fval.dup.force_encoding(Encoding::UTF_8)
+          when 3 then output_type = fval.dup.force_encoding(Encoding::UTF_8)
+          when 5 then client_streaming = fval != 0
+          when 6 then server_streaming = fval != 0
+          end
+        end
+        methods[mname] = MethodModel.new(
+          mname, "/#{full_name}/#{mname}", kind_of(client_streaming, server_streaming),
+          file_model.messages.fetch(input_type), file_model.messages.fetch(output_type)
+        )
+      end
+      service = ServiceModel.new(full_name, methods)
+      file_model.services[full_name] = service
+      service
+    end
+
+    def make_handler(handler, method, file_model)
+      lambda do |ctx, reqs, sink|
+        send = lambda do |generic|
+          sink.send(encode_generic(method.output, generic, file_model))
+        end
+        request_enum = Enumerator.new do |yielder|
+          loop do
+            begin
+              payload = reqs.recv_raw
+            rescue EOFError
+              break
+            end
+            yielder << decode_generic(method.input, payload, file_model)
+          end
+        end
+        case method.kind
+        when KIND_UNARY
+          send.call(handler.unary(ctx, method, request_enum.next))
+        when KIND_SERVER_STREAMING
+          handler.server_stream(ctx, method, request_enum.next, send)
+        when KIND_CLIENT_STREAMING
+          send.call(handler.client_stream(ctx, method, request_enum))
+        else
+          handler.bidi(ctx, method, request_enum, send)
+        end
+      end
+    end
+  end
+
+  # Adapts a (MessageModel, GenericMessage) pair to the Channel
+  # marshal/unmarshal contract.
+  class BoundMessage
+    attr_reader :model, :file_model
+    attr_accessor :generic
+
+    def initialize(model, generic, file_model)
+      @model = model
+      @generic = generic || GenericMessage.new(model)
+      @file_model = file_model
+    end
+
+    def marshal_dc
+      Grpcdc.encode_generic(@model, @generic, @file_model)
+    end
+
+    def unmarshal_dc(data)
+      @generic = Grpcdc.decode_generic(@model, data, @file_model)
+      self
+    end
+  end
+
+  class DynamicRecvStream
+    include Enumerable
+
+    def initialize(stream, model, file_model)
+      @stream = stream
+      @model = model
+      @file_model = file_model
+    end
+
+    def recv
+      @stream.recv(BoundMessage.new(@model, nil, @file_model)).generic
+    end
+
+    def each
+      return enum_for(:each) unless block_given?
+
+      loop do
+        begin
+          yield recv
+        rescue EOFError
+          return
+        end
+      end
+    end
+  end
+
+  # Runtime-built client: methods resolve from the FileModel.
+  class DynamicClient
+    def initialize(channel, file_model)
+      @channel = channel
+      @model = file_model
+    end
+
+    def unary(service_name, method_name, request, metadata = nil)
+      method = resolve(service_name, method_name)
+      resp = BoundMessage.new(method.output, nil, @model)
+      @channel.unary(method.path, BoundMessage.new(method.input, request, @model), resp, metadata)
+      resp.generic
+    end
+
+    def server_stream(service_name, method_name, request, metadata = nil)
+      method = resolve(service_name, method_name)
+      stream = @channel.server_stream(
+        method.path, BoundMessage.new(method.input, request, @model), metadata
+      )
+      DynamicRecvStream.new(stream, method.output, @model)
+    end
+
+    def client_stream(service_name, method_name, requests, metadata = nil)
+      method = resolve(service_name, method_name)
+      resp = BoundMessage.new(method.output, nil, @model)
+      @channel.client_stream(
+        method.path, requests.map { |r| BoundMessage.new(method.input, r, @model) }, resp, metadata
+      )
+      resp.generic
+    end
+
+    def bidi(service_name, method_name, requests, metadata = nil)
+      method = resolve(service_name, method_name)
+      stream = @channel.bidi(
+        method.path, requests.map { |r| BoundMessage.new(method.input, r, @model) }, metadata
+      )
+      DynamicRecvStream.new(stream, method.output, @model)
+    end
+
+    private
+
+    def resolve(service_name, method_name)
+      @model.services.fetch(service_name).methods.fetch(method_name)
+    end
+  end
+end
+GRPC_RUNTIME_EOF
+)
+
+(define ruby-init-body
+#<<GRPC_RUNTIME_EOF
+# grpcdc: gRPC over WebRTC DataChannels (generated runtime).
+
+require_relative "grpcdc/wire_gen"
+require_relative "grpcdc/codec"
+require_relative "grpcdc/endpoint"
+require_relative "grpcdc/channel"
+require_relative "grpcdc/server"
+require_relative "grpcdc/loopback"
+require_relative "grpcdc/dynamic"
+GRPC_RUNTIME_EOF
+)
+
+(define ruby-dispatch-arms
+  '((HEADERS    . "on_headers(stream_id, payload)")
+    (DATA       . "push_event(stream_id, StreamEvent.new(EVENT_DATA, payload: payload))")
+    (HALF-CLOSE . "push_event(stream_id, StreamEvent.new(EVENT_HALF_CLOSE))")
+    (TRAILERS   . "on_terminal(stream_id, payload, EVENT_TRAILERS)")
+    (RST        . "on_terminal(stream_id, payload, EVENT_RST)")))
+
+(define (emit-ruby-dispatch)
+  (string-append
+   "      case frame_type\n"
+   (apply string-append
+          (for/list ([e (in-list frame-table)])
+            (format "      when ~a then ~a\n"
+                    (second e)
+                    (let ([arm (assoc (first e) ruby-dispatch-arms)])
+                      (unless arm
+                        (error 'runtime-ruby "no Ruby dispatch arm for ~a" (first e)))
+                      (cdr arm)))))
+   "      end\n"))
+
+(define (emit-ruby-runtime-files)
+  (list
+   (cons "grpcdc.rb" ruby-init-body)
+   (cons "grpcdc/codec.rb" ruby-codec-body)
+   (cons "grpcdc/endpoint.rb"
+         (string-replace ruby-endpoint-body "@@FRAME_DISPATCH@@" (emit-ruby-dispatch)))
+   (cons "grpcdc/channel.rb" ruby-channel-body)
+   (cons "grpcdc/server.rb" ruby-server-body)
+   (cons "grpcdc/loopback.rb" ruby-loopback-body)
+   (cons "grpcdc/dynamic.rb" ruby-dynamic-body)))

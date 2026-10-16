@@ -9,7 +9,7 @@
 (provide emit-bdd-docs
          emit-js-bdd emit-go-bdd emit-rust-bdd emit-python-bdd
          emit-java-bdd emit-csharp-bdd emit-cpp-bdd emit-swift-bdd
-         emit-kotlin-bdd emit-dart-bdd emit-zig-bdd emit-lua-bdd)
+         emit-kotlin-bdd emit-dart-bdd emit-zig-bdd emit-lua-bdd emit-ruby-bdd)
 
 (define (q strs)
   (string-join (for/list ([s (in-list strs)]) (format "~s" s)) ", "))
@@ -383,3 +383,22 @@
                           name kind (q msgs) count path md em en (or es -1))))
          "}\n\n"
          "return { cases = cases }\n")))
+
+;; ---------------------------------------------------------------------------
+;; Ruby -> ruby/tests/bdd_scenarios_generated.rb
+;; ---------------------------------------------------------------------------
+
+(define (emit-ruby-bdd)
+  (cons "bdd_scenarios_generated.rb"
+        (string-append
+         "# Scenario table stamped from racket/bdd-spec.rkt (data only;\n"
+         "# the interpreter is tests/test_bdd.rb). Rows: name, kind,\n"
+         "# messages, count, path, metadata, expectMessage, expectNum,\n"
+         "# expectStatus (-1 = none).\n"
+         "BDD_SCENARIOS = [\n"
+         (apply string-append
+                (for/list ([sc (in-list bdd-scenarios)])
+                  (define-values (name kind msgs count path md em en es) (row sc))
+                  (format "  [~s, ~s, [~a], ~a, ~s, ~s, ~s, ~a, ~a],\n"
+                          name kind (q msgs) count path md em en (or es -1))))
+         "].freeze\n")))

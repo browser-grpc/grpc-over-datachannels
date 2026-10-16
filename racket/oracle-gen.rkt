@@ -10,7 +10,7 @@
 ;;; generated from here — it is the independent oracle.
 
 (require "oracle-spec.rkt")
-(provide emit-js-oracle-driver emit-go-oracle-driver emit-rust-oracle-driver emit-python-oracle-driver emit-java-oracle-driver emit-csharp-oracle-driver emit-cpp-oracle-driver emit-swift-oracle-driver emit-kotlin-oracle-driver emit-dart-oracle-driver emit-zig-oracle-driver emit-lua-oracle-driver)
+(provide emit-js-oracle-driver emit-go-oracle-driver emit-rust-oracle-driver emit-python-oracle-driver emit-java-oracle-driver emit-csharp-oracle-driver emit-cpp-oracle-driver emit-swift-oracle-driver emit-kotlin-oracle-driver emit-dart-oracle-driver emit-zig-oracle-driver emit-lua-oracle-driver emit-ruby-oracle-driver)
 
 ;; Normalize one raw entry to (kind messages expect-status count).
 (define (case-fields e)
@@ -584,3 +584,26 @@
          (apply string-append (map lua-case oracle-scenario-table))
          "}\n\n"
          "return { cases = cases }\n")))
+
+;; ---------------------------------------------------------------------------
+;; Ruby driver data -> ruby/tests/oracle_scenarios_generated.rb
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (ruby-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "  { \"kind\" => ~s, \"messages\" => [~a], \"count\" => ~a, \"expect_status\" => ~a },\n"
+          (symbol->string kind)
+          (quoted-list (map symbol->string msgs) "\"")
+          count
+          (if expect expect "nil")))
+
+(define (emit-ruby-oracle-driver)
+  (cons "oracle_scenarios_generated.rb"
+        (string-append
+         "# Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         "# the runner is tests/test_oracle.rb).\n"
+         "ORACLE_SCENARIOS = [\n"
+         (apply string-append (map ruby-case oracle-scenario-table))
+         "].freeze\n")))
