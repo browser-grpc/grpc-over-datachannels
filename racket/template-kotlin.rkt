@@ -35,30 +35,30 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "        fun ~a(req: ~a, metadata: Map<String, String>? = null): ~a {\n"
+              "        fun ~a(req: ~a, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ~a {\n"
               "            val resp = ~a()\n"
-              "            channel.unary(~s, req, resp, metadata)\n"
+              "            channel.unary(~s, req, resp, metadata, timeout)\n"
               "            return resp\n"
               "        }\n\n")
              name req resp resp path)]
     [(server-streaming)
      (format (string-append
-              "        fun ~a(req: ~a, metadata: Map<String, String>? = null): ~a~aStream {\n"
-              "            return ~a~aStream(channel.serverStream(~s, req, metadata))\n"
+              "        fun ~a(req: ~a, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ~a~aStream {\n"
+              "            return ~a~aStream(channel.serverStream(~s, req, metadata, timeout))\n"
               "        }\n\n")
              name req svc name svc name path)]
     [(client-streaming)
      (format (string-append
-              "        fun ~a(reqs: List<~a>, metadata: Map<String, String>? = null): ~a {\n"
+              "        fun ~a(reqs: List<~a>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ~a {\n"
               "            val resp = ~a()\n"
-              "            channel.clientStreamCall(~s, reqs, resp, metadata)\n"
+              "            channel.clientStreamCall(~s, reqs, resp, metadata, timeout)\n"
               "            return resp\n"
               "        }\n\n")
              name req resp resp path)]
     [(bidi)
      (format (string-append
-              "        fun ~a(reqs: List<~a>, metadata: Map<String, String>? = null): ~a~aStream {\n"
-              "            return ~a~aStream(channel.bidi(~s, reqs, metadata))\n"
+              "        fun ~a(reqs: List<~a>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ~a~aStream {\n"
+              "            return ~a~aStream(channel.bidi(~s, reqs, metadata, timeout))\n"
               "        }\n\n")
              name req svc name svc name path)]))
 
@@ -89,21 +89,21 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "        suspend fun ~aAsync(req: ~a, metadata: Map<String, String>? = null): ~a {\n"
-              "            return AsyncPump.await(~aFuture(req, metadata))\n"
+              "        suspend fun ~aAsync(req: ~a, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ~a {\n"
+              "            return AsyncPump.await(~aFuture(req, metadata, timeout))\n"
               "        }\n\n"
-              "        fun ~aFuture(req: ~a, metadata: Map<String, String>? = null): CompletableFuture<~a> {\n"
-              "            return AsyncPump.future { ~a(req, metadata) }\n"
+              "        fun ~aFuture(req: ~a, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<~a> {\n"
+              "            return AsyncPump.future { ~a(req, metadata, timeout) }\n"
               "        }\n\n")
              name req resp name name req resp name)]
     [(server-streaming)
      (format (string-append
-              "        suspend fun ~aAsync(req: ~a, metadata: Map<String, String>? = null): List<~a> {\n"
-              "            return AsyncPump.await(~aFuture(req, metadata))\n"
+              "        suspend fun ~aAsync(req: ~a, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): List<~a> {\n"
+              "            return AsyncPump.await(~aFuture(req, metadata, timeout))\n"
               "        }\n\n"
-              "        fun ~aFuture(req: ~a, metadata: Map<String, String>? = null): CompletableFuture<List<~a>> {\n"
+              "        fun ~aFuture(req: ~a, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<List<~a>> {\n"
               "            return AsyncPump.future {\n"
-              "                val stream = ~a(req, metadata)\n"
+              "                val stream = ~a(req, metadata, timeout)\n"
               "                val out = ArrayList<~a>()\n"
               "                while (true) {\n"
               "                    try {\n"
@@ -118,21 +118,21 @@
              name req resp name name req resp name resp)]
     [(client-streaming)
      (format (string-append
-              "        suspend fun ~aAsync(reqs: List<~a>, metadata: Map<String, String>? = null): ~a {\n"
-              "            return AsyncPump.await(~aFuture(reqs, metadata))\n"
+              "        suspend fun ~aAsync(reqs: List<~a>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ~a {\n"
+              "            return AsyncPump.await(~aFuture(reqs, metadata, timeout))\n"
               "        }\n\n"
-              "        fun ~aFuture(reqs: List<~a>, metadata: Map<String, String>? = null): CompletableFuture<~a> {\n"
-              "            return AsyncPump.future { ~a(reqs, metadata) }\n"
+              "        fun ~aFuture(reqs: List<~a>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<~a> {\n"
+              "            return AsyncPump.future { ~a(reqs, metadata, timeout) }\n"
               "        }\n\n")
              name req resp name name req resp name)]
     [(bidi)
      (format (string-append
-              "        suspend fun ~aAsync(reqs: List<~a>, metadata: Map<String, String>? = null): List<~a> {\n"
-              "            return AsyncPump.await(~aFuture(reqs, metadata))\n"
+              "        suspend fun ~aAsync(reqs: List<~a>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): List<~a> {\n"
+              "            return AsyncPump.await(~aFuture(reqs, metadata, timeout))\n"
               "        }\n\n"
-              "        fun ~aFuture(reqs: List<~a>, metadata: Map<String, String>? = null): CompletableFuture<List<~a>> {\n"
+              "        fun ~aFuture(reqs: List<~a>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<List<~a>> {\n"
               "            return AsyncPump.future {\n"
-              "                val stream = ~a(reqs, metadata)\n"
+              "                val stream = ~a(reqs, metadata, timeout)\n"
               "                val out = ArrayList<~a>()\n"
               "                while (true) {\n"
               "                    try {\n"

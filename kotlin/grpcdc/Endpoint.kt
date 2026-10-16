@@ -35,13 +35,35 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
             return if (event === CLOSED) null else event as StreamEvent
         }
 
+        /**
+         * Next event within nanos, or null once closed.
+         * Throws TimeoutException on expiry.
+         */
+        fun get(nanos: Long): StreamEvent? {
+            val event = events.poll(nanos, java.util.concurrent.TimeUnit.NANOSECONDS)
+                ?: throw java.util.concurrent.TimeoutException()
+            return if (event === CLOSED) null else event as StreamEvent
+        }
+
         companion object {
             private val CLOSED = Any()
         }
     }
 
     /** Per-call context: metadata sent in HEADERS. */
-    class CallContext(val metadata: Map<String, String>)
+    class CallContext(val metadata: Map<String, String>) {
+        /** Monotonic deadline (System.nanoTime), or -1 when unbounded. */
+        val deadlineNanos: Long = Codec.parseTimeout(metadata["grpc-timeout"])
+            ?.let { System.nanoTime() + it.toNanos() } ?: -1L
+
+        /** Time left before the deadline, or null when unbounded. */
+        fun timeRemaining(): java.time.Duration? =
+            if (deadlineNanos < 0) null
+            else java.time.Duration.ofNanos(maxOf(0L, deadlineNanos - System.nanoTime()))
+
+        fun deadlineExceeded(): Boolean =
+            deadlineNanos >= 0 && System.nanoTime() - deadlineNanos >= 0
+    }
 
     /** Server-side call handler installed by Server.
      * Returned status becomes the call's TRAILERS (null means OK). */
@@ -115,6 +137,22 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
 
     fun closeStream(id: Long) {
         streams.remove(id)
+    }
+
+    /** Abort one stream: RST out; a pending recv wakes with CANCELLED. */
+    fun cancelStream(id: Long) {
+        val input = streams.remove(id)
+        if (input != null) {
+            input.put(StreamEvent(EventKind.RST, null, null,
+                StatusException(Wire.CODE_CANCELLED, "call cancelled")))
+            input.close()
+        }
+        try {
+            sendFrame(Codec.statusFrame(Wire.FRAME_RST, id,
+                StatusException(Wire.CODE_CANCELLED, "call cancelled")))
+        } catch (e: Exception) {
+            // Transport already gone; the local abort still stands.
+        }
     }
 
     private fun stream(id: Long): StreamInput? = streams[id]

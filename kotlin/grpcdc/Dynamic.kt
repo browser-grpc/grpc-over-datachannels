@@ -546,10 +546,10 @@ object Dynamic {
                 ?: throw StatusException(Wire.CODE_INVALID_ARGUMENT, "unknown method $service/$method")
         }
 
-        fun unary(service: String, method: String, req: GenericMessage, metadata: Map<String, String>? = null): GenericMessage {
+        fun unary(service: String, method: String, req: GenericMessage, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): GenericMessage {
             val m = method(service, method)
             val resp = BoundMessage(m.output!!, GenericMessage(m.output), model)
-            channel.unary(m.path, BoundMessage(m.input!!, req, model), resp, metadata)
+            channel.unary(m.path, BoundMessage(m.input!!, req, model), resp, metadata, timeout)
             return resp.generic
         }
 
@@ -567,23 +567,23 @@ object Dynamic {
             }
         }
 
-        fun serverStream(service: String, method: String, req: GenericMessage, metadata: Map<String, String>? = null): DynamicStream {
+        fun serverStream(service: String, method: String, req: GenericMessage, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): DynamicStream {
             val m = method(service, method)
-            return DynamicStream(channel.serverStream(m.path, BoundMessage(m.input!!, req, model), metadata), m.output!!, model)
+            return DynamicStream(channel.serverStream(m.path, BoundMessage(m.input!!, req, model), metadata, timeout), m.output!!, model)
         }
 
-        fun clientStream(service: String, method: String, reqs: List<GenericMessage>, metadata: Map<String, String>? = null): GenericMessage {
+        fun clientStream(service: String, method: String, reqs: List<GenericMessage>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): GenericMessage {
             val m = method(service, method)
             val bound = reqs.map { BoundMessage(m.input!!, it, model) }
             val resp = BoundMessage(m.output!!, GenericMessage(m.output), model)
-            channel.clientStreamCall(m.path, bound, resp, metadata)
+            channel.clientStreamCall(m.path, bound, resp, metadata, timeout)
             return resp.generic
         }
 
-        fun bidi(service: String, method: String, reqs: List<GenericMessage>, metadata: Map<String, String>? = null): DynamicStream {
+        fun bidi(service: String, method: String, reqs: List<GenericMessage>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): DynamicStream {
             val m = method(service, method)
             val bound = reqs.map { BoundMessage(m.input!!, it, model) }
-            return DynamicStream(channel.bidi(m.path, bound, metadata), m.output!!, model)
+            return DynamicStream(channel.bidi(m.path, bound, metadata, timeout), m.output!!, model)
         }
     }
 

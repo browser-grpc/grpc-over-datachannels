@@ -32,43 +32,43 @@ object EchoGrpcDc {
             }
         }
 
-        fun Unary(req: EchoRequest, metadata: Map<String, String>? = null): EchoResponse {
+        fun Unary(req: EchoRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): EchoResponse {
             val resp = EchoResponse()
-            channel.unary("/echo.Echo/Unary", req, resp, metadata)
+            channel.unary("/echo.Echo/Unary", req, resp, metadata, timeout)
             return resp
         }
 
-        fun ServerStream(req: EchoRequest, metadata: Map<String, String>? = null): EchoServerStreamStream {
-            return EchoServerStreamStream(channel.serverStream("/echo.Echo/ServerStream", req, metadata))
+        fun ServerStream(req: EchoRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): EchoServerStreamStream {
+            return EchoServerStreamStream(channel.serverStream("/echo.Echo/ServerStream", req, metadata, timeout))
         }
 
-        fun ClientStream(reqs: List<EchoRequest>, metadata: Map<String, String>? = null): EchoResponse {
+        fun ClientStream(reqs: List<EchoRequest>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): EchoResponse {
             val resp = EchoResponse()
-            channel.clientStreamCall("/echo.Echo/ClientStream", reqs, resp, metadata)
+            channel.clientStreamCall("/echo.Echo/ClientStream", reqs, resp, metadata, timeout)
             return resp
         }
 
-        fun Bidi(reqs: List<EchoRequest>, metadata: Map<String, String>? = null): EchoBidiStream {
-            return EchoBidiStream(channel.bidi("/echo.Echo/Bidi", reqs, metadata))
+        fun Bidi(reqs: List<EchoRequest>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): EchoBidiStream {
+            return EchoBidiStream(channel.bidi("/echo.Echo/Bidi", reqs, metadata, timeout))
         }
 
         // -- async (coroutine / CompletableFuture) surface ---------------
 
-        suspend fun UnaryAsync(req: EchoRequest, metadata: Map<String, String>? = null): EchoResponse {
-            return AsyncPump.await(UnaryFuture(req, metadata))
+        suspend fun UnaryAsync(req: EchoRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): EchoResponse {
+            return AsyncPump.await(UnaryFuture(req, metadata, timeout))
         }
 
-        fun UnaryFuture(req: EchoRequest, metadata: Map<String, String>? = null): CompletableFuture<EchoResponse> {
-            return AsyncPump.future { Unary(req, metadata) }
+        fun UnaryFuture(req: EchoRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<EchoResponse> {
+            return AsyncPump.future { Unary(req, metadata, timeout) }
         }
 
-        suspend fun ServerStreamAsync(req: EchoRequest, metadata: Map<String, String>? = null): List<EchoResponse> {
-            return AsyncPump.await(ServerStreamFuture(req, metadata))
+        suspend fun ServerStreamAsync(req: EchoRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): List<EchoResponse> {
+            return AsyncPump.await(ServerStreamFuture(req, metadata, timeout))
         }
 
-        fun ServerStreamFuture(req: EchoRequest, metadata: Map<String, String>? = null): CompletableFuture<List<EchoResponse>> {
+        fun ServerStreamFuture(req: EchoRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<List<EchoResponse>> {
             return AsyncPump.future {
-                val stream = ServerStream(req, metadata)
+                val stream = ServerStream(req, metadata, timeout)
                 val out = ArrayList<EchoResponse>()
                 while (true) {
                     try {
@@ -81,21 +81,21 @@ object EchoGrpcDc {
             }
         }
 
-        suspend fun ClientStreamAsync(reqs: List<EchoRequest>, metadata: Map<String, String>? = null): EchoResponse {
-            return AsyncPump.await(ClientStreamFuture(reqs, metadata))
+        suspend fun ClientStreamAsync(reqs: List<EchoRequest>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): EchoResponse {
+            return AsyncPump.await(ClientStreamFuture(reqs, metadata, timeout))
         }
 
-        fun ClientStreamFuture(reqs: List<EchoRequest>, metadata: Map<String, String>? = null): CompletableFuture<EchoResponse> {
-            return AsyncPump.future { ClientStream(reqs, metadata) }
+        fun ClientStreamFuture(reqs: List<EchoRequest>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<EchoResponse> {
+            return AsyncPump.future { ClientStream(reqs, metadata, timeout) }
         }
 
-        suspend fun BidiAsync(reqs: List<EchoRequest>, metadata: Map<String, String>? = null): List<EchoResponse> {
-            return AsyncPump.await(BidiFuture(reqs, metadata))
+        suspend fun BidiAsync(reqs: List<EchoRequest>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): List<EchoResponse> {
+            return AsyncPump.await(BidiFuture(reqs, metadata, timeout))
         }
 
-        fun BidiFuture(reqs: List<EchoRequest>, metadata: Map<String, String>? = null): CompletableFuture<List<EchoResponse>> {
+        fun BidiFuture(reqs: List<EchoRequest>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<List<EchoResponse>> {
             return AsyncPump.future {
-                val stream = Bidi(reqs, metadata)
+                val stream = Bidi(reqs, metadata, timeout)
                 val out = ArrayList<EchoResponse>()
                 while (true) {
                     try {

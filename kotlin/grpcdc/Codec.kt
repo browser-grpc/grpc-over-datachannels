@@ -103,6 +103,35 @@ object Codec {
         return Headers(path?.toString(), metadata)
     }
 
+    // gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+    // units H/M/S/m/u/n (at most 8 digits). Encoding uses
+    // milliseconds (seconds past the digit limit), rounded up.
+    fun encodeTimeout(timeout: java.time.Duration): String {
+        var ms = timeout.toMillis()
+        if (timeout.minusMillis(ms).toNanos() > 0) ms++
+        if (ms <= 99999999L) return "${ms}m"
+        var secs = timeout.toSeconds()
+        if (timeout.minusSeconds(secs).toNanos() > 0) secs++
+        return "${secs}S"
+    }
+
+    /** Decoded grpc-timeout, or null when malformed/absent. */
+    fun parseTimeout(text: String?): java.time.Duration? {
+        if (text == null || text.length < 2 || text.length > 9) return null
+        val digits = text.dropLast(1)
+        if (!digits.all { it.isDigit() }) return null
+        val n = digits.toLong()
+        return when (text.last()) {
+            'H' -> java.time.Duration.ofHours(n)
+            'M' -> java.time.Duration.ofMinutes(n)
+            'S' -> java.time.Duration.ofSeconds(n)
+            'm' -> java.time.Duration.ofMillis(n)
+            'u' -> java.time.Duration.ofNanos(n * 1000L)
+            'n' -> java.time.Duration.ofNanos(n)
+            else -> null
+        }
+    }
+
     fun statusFrame(frameType: Int, streamId: Long, status: StatusException): ByteArray {
         val body = "{\"code\":${status.code},\"message\":${jsonString(status.message ?: "")}}"
         return encodeFrame(frameType, streamId, body.toByteArray(StandardCharsets.UTF_8))

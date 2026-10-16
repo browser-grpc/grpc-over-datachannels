@@ -23,8 +23,29 @@ class Channel {
     /** Receives response messages of one call. */
     class ClientStream internal constructor(
         val streamId: Long,
+        private val endpoint: Endpoint,
         private val input: Endpoint.StreamInput
     ) {
+        internal var deadlineNanos: Long = -1L
+
+        /** Abort this stream (sends RST, wakes a pending recv). */
+        fun cancel() = endpoint.cancelStream(streamId)
+
+        private fun nextEvent(): Endpoint.StreamEvent {
+            if (deadlineNanos < 0) {
+                return input.get()
+                    ?: throw StatusException(Wire.CODE_UNAVAILABLE, "data channel closed")
+            }
+            try {
+                val remaining = deadlineNanos - System.nanoTime()
+                if (remaining <= 0) throw java.util.concurrent.TimeoutException()
+                return input.get(remaining)
+                    ?: throw StatusException(Wire.CODE_UNAVAILABLE, "data channel closed")
+            } catch (e: java.util.concurrent.TimeoutException) {
+                endpoint.cancelStream(streamId)
+                throw StatusException(Wire.CODE_DEADLINE_EXCEEDED, "deadline exceeded")
+            }
+        }
         var headers: Codec.Headers? = null
             private set
 
@@ -34,8 +55,7 @@ class Channel {
          */
         fun recv(resp: Unmarshaler) {
             while (true) {
-                val event = input.get()
-                    ?: throw StatusException(Wire.CODE_UNAVAILABLE, "data channel closed")
+                val event = nextEvent()
                 when (event.kind) {
                     Endpoint.EventKind.HEADERS -> headers = event.headers
                     Endpoint.EventKind.DATA -> {
@@ -57,7 +77,14 @@ class Channel {
         }
     }
 
-    private fun open(path: String, metadata: Map<String, String>?): ClientStream {
+    private fun open(path: String, metadata: Map<String, String>?,
+                     timeout: java.time.Duration? = null): ClientStream {
+        var metadata = metadata
+        var deadlineNanos = -1L
+        if (timeout != null) {
+            deadlineNanos = System.nanoTime() + timeout.toNanos()
+            metadata = (metadata ?: emptyMap()) + ("grpc-timeout" to Codec.encodeTimeout(timeout))
+        }
         val (id, input) = endpoint.openStream()
         try {
             endpoint.sendFrame(Codec.headersFrame(id, path, metadata))
@@ -65,7 +92,9 @@ class Channel {
             endpoint.closeStream(id)
             throw e
         }
-        return ClientStream(id, input)
+        val stream = ClientStream(id, endpoint, input)
+        stream.deadlineNanos = deadlineNanos
+        return stream
     }
 
     private fun sendMessage(stream: ClientStream, msg: Marshaler) {
@@ -102,8 +131,8 @@ class Channel {
     }
 
     /** Run a unary call, decoding the single response into resp. */
-    fun unary(path: String, req: Marshaler, resp: Unmarshaler, metadata: Map<String, String>? = null) {
-        val stream = open(path, metadata)
+    fun unary(path: String, req: Marshaler, resp: Unmarshaler, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null) {
+        val stream = open(path, metadata, timeout)
         try {
             sendMessage(stream, req)
             halfClose(stream)
@@ -114,16 +143,16 @@ class Channel {
     }
 
     /** Start a server-streaming call. */
-    fun serverStream(path: String, req: Marshaler, metadata: Map<String, String>? = null): ClientStream {
-        val stream = open(path, metadata)
+    fun serverStream(path: String, req: Marshaler, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ClientStream {
+        val stream = open(path, metadata, timeout)
         sendMessage(stream, req)
         halfClose(stream)
         return stream
     }
 
     /** Send all requests, then decode the one response into resp. */
-    fun clientStreamCall(path: String, reqs: List<Marshaler>, resp: Unmarshaler, metadata: Map<String, String>? = null) {
-        val stream = open(path, metadata)
+    fun clientStreamCall(path: String, reqs: List<Marshaler>, resp: Unmarshaler, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null) {
+        val stream = open(path, metadata, timeout)
         try {
             sendAll(stream, reqs)
             collectOne(stream, resp, "client-streaming call")
@@ -133,8 +162,8 @@ class Channel {
     }
 
     /** Start a bidi call with all requests sent up front. */
-    fun bidi(path: String, reqs: List<Marshaler>, metadata: Map<String, String>? = null): ClientStream {
-        val stream = open(path, metadata)
+    fun bidi(path: String, reqs: List<Marshaler>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ClientStream {
+        val stream = open(path, metadata, timeout)
         sendAll(stream, reqs)
         return stream
     }
