@@ -193,27 +193,37 @@ func (p *Peer) onPacket(msg []byte, src *net.UDPAddr) {
 	// control responses or relayed traffic (ChannelData frames or
 	// Data indications), never agent STUN or DTLS directly.
 	if p.turn != nil && src.Port == p.turn.server.Port && src.IP.Equal(p.turn.server.IP) {
-		if len(msg) >= 4 && msg[0] >= 0x40 && msg[0] <= 0x7f {
-			if channel, data, ok := unwrapChannelData(msg); ok {
-				if peer := p.turn.peerForChannel(channel); peer != nil {
-					p.onPacketFrom(data, peer)
-				}
+		p.onTurnPacket(msg)
+		return
+	}
+	p.onPacketFrom(msg, src)
+}
+
+// onTurnPacket handles one message from the TURN server (a UDP
+// datagram, or one framed message off the TCP/TLS stream):
+// relayed traffic is unwrapped and re-injected as if it arrived
+// from the peer; control responses resolve request waiters.
+func (p *Peer) onTurnPacket(msg []byte) {
+	if p.turn == nil {
+		return
+	}
+	if len(msg) >= 4 && msg[0] >= 0x40 && msg[0] <= 0x7f {
+		if channel, data, ok := unwrapChannelData(msg); ok {
+			if peer := p.turn.peerForChannel(channel); peer != nil {
+				p.onPacketFrom(data, peer)
+			}
+		}
+		return
+	}
+	if stun := DecodeStun(msg); stun != nil {
+		if stun.Type == StunTypeDataIndication {
+			if peer, data := turnUnwrapData(stun); data != nil {
+				p.onPacketFrom(data, peer)
 			}
 			return
 		}
-		if stun := DecodeStun(msg); stun != nil {
-			if stun.Type == StunTypeDataIndication {
-				if peer, data := turnUnwrapData(stun); data != nil {
-					p.onPacketFrom(data, peer)
-				}
-				return
-			}
-			if p.turn.resolve(stun) {
-				return
-			}
-		}
+		p.turn.resolve(stun)
 	}
-	p.onPacketFrom(msg, src)
 }
 
 func (p *Peer) onPacketFrom(msg []byte, src *net.UDPAddr) {

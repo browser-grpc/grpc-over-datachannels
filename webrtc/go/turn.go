@@ -12,23 +12,37 @@
 package dcwebrtc
 
 import (
+	"bufio"
 	"crypto/md5"
+	"crypto/tls"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
-// TurnServerConfig configures one TURN server (UDP, host:port)
-// with long-term credentials.
+// TurnServerConfig configures one TURN server (host:port) with
+// long-term credentials. Transport selects the client<->server
+// transport: "" or "udp" runs the allocation over the peer's own
+// UDP socket; "tcp" and "tls" open a dedicated stream connection
+// (RFC 5766 section 4; relayed traffic still reaches peers over
+// UDP — REQUESTED-TRANSPORT stays 17). For "tls", ServerName
+// overrides the TLS verification name (default: the host part of
+// Address) and InsecureSkipVerify disables certificate
+// verification (self-signed deployments/tests).
 type TurnServerConfig struct {
-	Address  string
-	Username string
-	Password string
+	Address            string
+	Username           string
+	Password           string
+	Transport          string
+	ServerName         string
+	InsecureSkipVerify bool
 }
 
 // turnClient is one live TURN allocation.
@@ -36,6 +50,12 @@ type turnClient struct {
 	server  *net.UDPAddr
 	relayed *net.UDPAddr
 	mapped  *net.UDPAddr
+	// conn is the dedicated TCP/TLS connection to the server
+	// (nil for UDP transport, where the peer socket is used).
+	// connMu serializes writes; a reader goroutine frames
+	// inbound messages into the same demux as UDP packets.
+	conn   net.Conn
+	connMu sync.Mutex
 	// Long-term credential state from the 401 challenge.
 	username string
 	realm    string
@@ -79,8 +99,15 @@ func (t *turnClient) stop() {
 		if t.stopRefresh != nil {
 			close(t.stopRefresh)
 		}
+		if t.conn != nil {
+			_ = t.conn.Close()
+		}
 	})
 }
+
+// stream reports whether this allocation runs over a dedicated
+// TCP/TLS connection rather than the peer's UDP socket.
+func (t *turnClient) stream() bool { return t.conn != nil }
 
 // lifetimeOf extracts the LIFETIME attribute (default 600 s).
 func lifetimeOf(msg *StunMessage) time.Duration {
@@ -154,15 +181,105 @@ func decodeXorAddressAttr(msg *StunMessage, attr uint16) *net.UDPAddr {
 	return decodeXorAddress(msg.attr(attr), msg.TransactionID, true)
 }
 
-// turnRequest sends one TURN control message on the peer socket
-// and waits for its response (matched by transaction id in
-// readLoop). key is the MESSAGE-INTEGRITY key (nil for the first,
-// unauthenticated attempt).
+// turnWrite sends one TURN message to the server: over the
+// dedicated stream connection for TCP/TLS allocations
+// (ChannelData frames padded to a 4-byte boundary, RFC 5766
+// section 4), else as a UDP datagram on the peer socket.
+func (p *Peer) turnWrite(client *turnClient, frame []byte, channelData bool) error {
+	if client.stream() {
+		if channelData {
+			if pad := (4 - len(frame)%4) % 4; pad > 0 {
+				padded := make([]byte, len(frame)+pad)
+				copy(padded, frame)
+				frame = padded
+			}
+		}
+		client.connMu.Lock()
+		defer client.connMu.Unlock()
+		_, err := client.conn.Write(frame)
+		return err
+	}
+	_, err := p.socket.WriteToUDP(frame, client.server)
+	return err
+}
+
+// turnStreamReadLoop frames inbound TCP/TLS stream bytes into
+// TURN messages (STUN by header length, ChannelData by its
+// length field plus 4-byte-boundary padding) and feeds each
+// into the same demux as UDP packets from the server.
+func (p *Peer) turnStreamReadLoop(client *turnClient) {
+	reader := bufio.NewReader(client.conn)
+	for {
+		first, err := reader.Peek(1)
+		if err != nil {
+			return
+		}
+		var msg []byte
+		if first[0] >= 0x40 && first[0] <= 0x7f {
+			header := make([]byte, 4)
+			if _, err := io.ReadFull(reader, header); err != nil {
+				return
+			}
+			length := int(binary.BigEndian.Uint16(header[2:4]))
+			total := 4 + length
+			padded := total + (4-total%4)%4
+			rest := make([]byte, padded-4)
+			if _, err := io.ReadFull(reader, rest); err != nil {
+				return
+			}
+			msg = append(header, rest[:length]...)
+		} else {
+			header := make([]byte, 20)
+			if _, err := io.ReadFull(reader, header); err != nil {
+				return
+			}
+			length := int(binary.BigEndian.Uint16(header[2:4]))
+			body := make([]byte, length)
+			if _, err := io.ReadFull(reader, body); err != nil {
+				return
+			}
+			msg = append(header, body...)
+		}
+		p.onTurnPacket(msg)
+	}
+}
+
+// dialTurnStream opens the TCP or TLS connection for a stream
+// TURN allocation.
+func dialTurnStream(cfg TurnServerConfig, timeout time.Duration) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: timeout}
+	switch strings.ToLower(cfg.Transport) {
+	case "tcp":
+		return dialer.Dial("tcp", cfg.Address)
+	case "tls":
+		serverName := cfg.ServerName
+		if serverName == "" {
+			host, _, err := net.SplitHostPort(cfg.Address)
+			if err != nil {
+				return nil, err
+			}
+			serverName = host
+		}
+		return tls.DialWithDialer(dialer, "tcp", cfg.Address, &tls.Config{
+			ServerName:         serverName,
+			InsecureSkipVerify: cfg.InsecureSkipVerify, //nolint:gosec // opt-in per config
+			MinVersion:         tls.VersionTLS12,
+		})
+	default:
+		return nil, fmt.Errorf("turn: unsupported transport %q", cfg.Transport)
+	}
+}
+
+// turnRequest sends one TURN control message (over the peer
+// socket, or the stream connection for TCP/TLS) and waits for
+// its response (matched by transaction id). key is the
+// MESSAGE-INTEGRITY key (nil for the first, unauthenticated
+// attempt).
 func (p *Peer) turnRequest(client *turnClient, msg *StunMessage, key []byte, timeout time.Duration) (*StunMessage, error) {
 	tid := hex.EncodeToString(msg.TransactionID[:])
 	ch := client.register(tid)
 	defer client.cancel(tid)
-	if _, err := p.socket.WriteToUDP(msg.Encode(key), client.server); err != nil {
+	if err := p.turnWrite(client, msg.Encode(key), false); err != nil {
 		return nil, err
 	}
 	select {
@@ -185,16 +302,38 @@ func turnErrorCode(msg *StunMessage) int {
 // long-term-credential dance when the server demands it) and
 // appends the relayed candidate. Called automatically from
 // gatherFromOptions for the first reachable TurnServers entry.
-func (p *Peer) AllocateTurn(cfg TurnServerConfig, timeout time.Duration) error {
+func (p *Peer) AllocateTurn(cfg TurnServerConfig, timeout time.Duration) (err error) {
 	serverAddr, err := net.ResolveUDPAddr("udp", cfg.Address)
 	if err != nil {
 		return err
 	}
 	client := &turnClient{server: serverAddr, username: cfg.Username}
+	if transport := strings.ToLower(cfg.Transport); transport == "tcp" || transport == "tls" {
+		conn, dialErr := dialTurnStream(cfg, timeout)
+		if dialErr != nil {
+			return dialErr
+		}
+		client.conn = conn
+	} else if transport != "" && transport != "udp" {
+		return fmt.Errorf("turn: unsupported transport %q", cfg.Transport)
+	}
 	// Publish before the first request: the read loop demultiplexes
 	// TURN control responses (and later Data indications) by sender
-	// matching p.turn.
+	// matching p.turn; the stream reader does the same for TCP/TLS.
 	p.turn = client
+	if client.stream() {
+		go p.turnStreamReadLoop(client)
+	}
+	// On failure, unpublish and tear down so a later config (or
+	// plain host candidates) is tried clean.
+	defer func() {
+		if err != nil {
+			if p.turn == client {
+				p.turn = nil
+			}
+			client.stop()
+		}
+	}()
 
 	build := func(auth bool) *StunMessage {
 		msg := newStunMessage(StunTypeAllocateRequest)
@@ -450,13 +589,13 @@ func (p *Peer) startTurnRefresher(client *turnClient) {
 // the peer, a Send indication otherwise.
 func (p *Peer) turnSendData(data []byte, peer *net.UDPAddr) {
 	if channel, ok := p.turn.channelFor(peer); ok {
-		_, _ = p.socket.WriteToUDP(wrapChannelData(channel, data), p.turn.server)
+		_ = p.turnWrite(p.turn, wrapChannelData(channel, data), true)
 		return
 	}
 	msg := newStunMessage(StunTypeSendIndication)
 	msg.addAttr(StunAttrXorPeerAddress, xorAddressValue(peer, msg.TransactionID))
 	msg.addAttr(StunAttrData, data)
-	_, _ = p.socket.WriteToUDP(msg.Encode(nil), p.turn.server)
+	_ = p.turnWrite(p.turn, msg.Encode(nil), false)
 }
 
 // turnUnwrapData extracts (peer, payload) from a Data indication.
