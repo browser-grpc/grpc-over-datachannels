@@ -9,6 +9,8 @@ export {
   StatusError,
   encodeFrame,
   decodeFrame,
+  encodeTimeout,
+  parseTimeout,
   toHex,
   fromHex,
 } from "./src/codec.js";

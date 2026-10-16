@@ -99,6 +99,26 @@ export function headersFrame(streamId, path, metadata = {}) {
   return encodeFrame(FrameType.HEADERS, streamId, textEncoder.encode(JSON.stringify(body)));
 }
 
+// gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+// units H/M/S/m/u/n (at most 8 digits). Encoding uses
+// milliseconds (seconds past the digit limit), rounded up so a
+// deadline never shrinks in propagation.
+const TIMEOUT_UNITS_MS = { H: 3600000, M: 60000, S: 1000, m: 1, u: 0.001, n: 0.000001 };
+
+export function encodeTimeout(timeoutMs) {
+  const ms = Math.ceil(timeoutMs);
+  if (ms <= 99999999) return `${ms}m`;
+  return `${Math.ceil(timeoutMs / 1000)}S`;
+}
+
+export function parseTimeout(text) {
+  if (typeof text !== "string" || text.length < 2) return null;
+  const unit = TIMEOUT_UNITS_MS[text[text.length - 1]];
+  const digits = text.slice(0, -1);
+  if (unit === undefined || digits.length > 8 || !/^\d+$/.test(digits)) return null;
+  return Number(digits) * unit;
+}
+
 export function statusFrame(frameType, streamId, status) {
   const body = JSON.stringify({ code: status.code, message: status.message ?? "" });
   return encodeFrame(frameType, streamId, textEncoder.encode(body));
@@ -396,7 +416,14 @@ GRPC_RUNTIME_EOF
 // Client side: opens streams on one endpoint, all four gRPC shapes.
 // Message types are classes with static encode(msg)/decode(bytes).
 
-import { FrameType, StatusError, encodeFrame, headersFrame, statusFrame } from "./codec.js";
+import {
+  FrameType,
+  StatusError,
+  encodeFrame,
+  encodeTimeout,
+  headersFrame,
+  statusFrame,
+} from "./codec.js";
 import { Endpoint } from "./endpoint.js";
 
 export class Channel {
@@ -412,7 +439,12 @@ export class Channel {
     return this.#endpoint;
   }
 
-  async #open(path, metadata) {
+  async #open(path, metadata, timeout) {
+    let deadline = null;
+    if (timeout !== undefined && timeout !== null) {
+      deadline = Date.now() + timeout;
+      metadata = { ...metadata, "grpc-timeout": encodeTimeout(timeout) };
+    }
     const [id, input] = this.#endpoint.openStream();
     try {
       await this.#endpoint.sendFrame(headersFrame(id, path, metadata));
@@ -420,17 +452,52 @@ export class Channel {
       this.#endpoint.closeStream(id);
       throw e;
     }
-    return [id, input];
+    return [id, input, deadline];
+  }
+
+  // Next event from input's iterator, enforcing the call deadline:
+  // on expiry the stream is aborted (RST) and DEADLINE_EXCEEDED
+  // (code 4) is thrown.
+  async #next(id, iterator, deadline) {
+    if (deadline === null) return iterator.next();
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      await this.cancel(id).catch(() => {});
+      throw new StatusError(4, "deadline exceeded");
+    }
+    let timer;
+    try {
+      return await Promise.race([
+        iterator.next(),
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new StatusError(4, "deadline exceeded")),
+            remaining,
+          );
+        }),
+      ]);
+    } catch (e) {
+      if (e instanceof StatusError && e.code === 4) {
+        await this.cancel(id).catch(() => {});
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async #sendMessage(id, ReqType, request) {
     await this.#endpoint.sendFrame(encodeFrame(FrameType.DATA, id, ReqType.encode(request)));
   }
 
-  async #collectOne(id, input, RespType) {
+  async #collectOne(id, input, RespType, deadline = null) {
+    const iterator = input[Symbol.asyncIterator]();
     try {
       let response = null;
-      for await (const event of input) {
+      for (;;) {
+        const step = await this.#next(id, iterator, deadline);
+        if (step.done) break;
+        const event = step.value;
         if (event.kind === "data") {
           if (response !== null) {
             throw StatusError.internal("unary call received more than one response");
@@ -450,9 +517,13 @@ export class Channel {
     }
   }
 
-  async *#responses(id, input, RespType) {
+  async *#responses(id, input, RespType, deadline = null) {
+    const iterator = input[Symbol.asyncIterator]();
     try {
-      for await (const event of input) {
+      for (;;) {
+        const step = await this.#next(id, iterator, deadline);
+        if (step.done) break;
+        const event = step.value;
         if (event.kind === "data") {
           yield RespType.decode(event.payload);
         } else if (event.kind === "trailers") {
@@ -483,41 +554,41 @@ export class Channel {
   }
 
   /** Unary: one request, one response. */
-  async unary(path, request, ReqType, RespType, { metadata = {} } = {}) {
-    const [id, input] = await this.#open(path, metadata);
+  async unary(path, request, ReqType, RespType, { metadata = {}, timeout } = {}) {
+    const [id, input, deadline] = await this.#open(path, metadata, timeout);
     await this.#sendMessage(id, ReqType, request);
     await this.#endpoint.sendFrame(encodeFrame(FrameType.HALF_CLOSE, id));
-    return this.#collectOne(id, input, RespType);
+    return this.#collectOne(id, input, RespType, deadline);
   }
 
   /** Server-streaming: one request, async iterable of responses. */
-  serverStream(path, request, ReqType, RespType, { metadata = {} } = {}) {
+  serverStream(path, request, ReqType, RespType, { metadata = {}, timeout } = {}) {
     return (async () => {
-      const [id, input] = await this.#open(path, metadata);
+      const [id, input, deadline] = await this.#open(path, metadata, timeout);
       await this.#sendMessage(id, ReqType, request);
       await this.#endpoint.sendFrame(encodeFrame(FrameType.HALF_CLOSE, id));
-      return this.#responses(id, input, RespType);
+      return this.#responses(id, input, RespType, deadline);
     })();
   }
 
   /** Client-streaming: async iterable of requests, one response. */
-  async clientStream(path, requests, ReqType, RespType, { metadata = {} } = {}) {
-    const [id, input] = await this.#open(path, metadata);
+  async clientStream(path, requests, ReqType, RespType, { metadata = {}, timeout } = {}) {
+    const [id, input, deadline] = await this.#open(path, metadata, timeout);
     const pump = this.#pump(id, requests, ReqType);
     try {
-      return await this.#collectOne(id, input, RespType);
+      return await this.#collectOne(id, input, RespType, deadline);
     } finally {
       pump.catch(() => {});
     }
   }
 
   /** Bidirectional: async iterable of requests and of responses. */
-  bidi(path, requests, ReqType, RespType, { metadata = {} } = {}) {
+  bidi(path, requests, ReqType, RespType, { metadata = {}, timeout } = {}) {
     return (async () => {
-      const [id, input] = await this.#open(path, metadata);
+      const [id, input, deadline] = await this.#open(path, metadata, timeout);
       const pump = this.#pump(id, requests, ReqType);
       pump.catch(() => {});
-      return this.#responses(id, input, RespType);
+      return this.#responses(id, input, RespType, deadline);
     })();
   }
 
@@ -543,7 +614,7 @@ GRPC_RUNTIME_EOF
 // Server side: registers generated service definitions (createXService)
 // on an endpoint and dispatches HEADERS by path.
 
-import { StatusError } from "./codec.js";
+import { StatusError, parseTimeout } from "./codec.js";
 import { Endpoint } from "./endpoint.js";
 
 async function* typedRequests(input, ReqType) {
@@ -596,7 +667,17 @@ export class Server {
     if (!method) {
       throw StatusError.unimplemented(`unknown method ${path}`);
     }
-    const ctx = { path, metadata: headers.metadata ?? {}, service: method.service, method: method.method };
+    const metadata = headers.metadata ?? {};
+    const timeoutMs = parseTimeout(metadata["grpc-timeout"]);
+    const deadline = timeoutMs === null ? null : Date.now() + timeoutMs;
+    const ctx = {
+      path,
+      metadata,
+      service: method.service,
+      method: method.method,
+      deadline,
+      timeRemaining: () => (deadline === null ? null : deadline - Date.now()),
+    };
     const requests = typedRequests(input, method.requestType);
     const encode = (resp) => method.responseType.encode(resp);
     switch (method.kind) {

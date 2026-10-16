@@ -85,6 +85,26 @@ export function headersFrame(streamId, path, metadata = {}) {
   return encodeFrame(FrameType.HEADERS, streamId, textEncoder.encode(JSON.stringify(body)));
 }
 
+// gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+// units H/M/S/m/u/n (at most 8 digits). Encoding uses
+// milliseconds (seconds past the digit limit), rounded up so a
+// deadline never shrinks in propagation.
+const TIMEOUT_UNITS_MS = { H: 3600000, M: 60000, S: 1000, m: 1, u: 0.001, n: 0.000001 };
+
+export function encodeTimeout(timeoutMs) {
+  const ms = Math.ceil(timeoutMs);
+  if (ms <= 99999999) return `${ms}m`;
+  return `${Math.ceil(timeoutMs / 1000)}S`;
+}
+
+export function parseTimeout(text) {
+  if (typeof text !== "string" || text.length < 2) return null;
+  const unit = TIMEOUT_UNITS_MS[text[text.length - 1]];
+  const digits = text.slice(0, -1);
+  if (unit === undefined || digits.length > 8 || !/^\d+$/.test(digits)) return null;
+  return Number(digits) * unit;
+}
+
 export function statusFrame(frameType, streamId, status) {
   const body = JSON.stringify({ code: status.code, message: status.message ?? "" });
   return encodeFrame(frameType, streamId, textEncoder.encode(body));

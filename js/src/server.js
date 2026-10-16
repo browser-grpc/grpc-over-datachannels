@@ -3,7 +3,7 @@
 // Server side: registers generated service definitions (createXService)
 // on an endpoint and dispatches HEADERS by path.
 
-import { StatusError } from "./codec.js";
+import { StatusError, parseTimeout } from "./codec.js";
 import { Endpoint } from "./endpoint.js";
 
 async function* typedRequests(input, ReqType) {
@@ -56,7 +56,17 @@ export class Server {
     if (!method) {
       throw StatusError.unimplemented(`unknown method ${path}`);
     }
-    const ctx = { path, metadata: headers.metadata ?? {}, service: method.service, method: method.method };
+    const metadata = headers.metadata ?? {};
+    const timeoutMs = parseTimeout(metadata["grpc-timeout"]);
+    const deadline = timeoutMs === null ? null : Date.now() + timeoutMs;
+    const ctx = {
+      path,
+      metadata,
+      service: method.service,
+      method: method.method,
+      deadline,
+      timeRemaining: () => (deadline === null ? null : deadline - Date.now()),
+    };
     const requests = typedRequests(input, method.requestType);
     const encode = (resp) => method.responseType.encode(resp);
     switch (method.kind) {
