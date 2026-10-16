@@ -504,17 +504,23 @@ func (p *Peer) LocalCandidateLines() []string {
 }
 
 type peerIO struct {
-	peer     *Peer
-	selected *net.UDPAddr
+	peer       *Peer
+	selected   *net.UDPAddr
+	connectGen int
 }
 
 func (io *peerIO) Send(buf []byte) error {
-	// The destination follows the agent's nominated pair, so
-	// an ICE restart switches media to the new pair at
-	// renomination (and keeps the old pair until then).
-	dest := io.peer.agent.NominatedAddr()
-	if dest == nil {
-		dest = io.selected
+	// The destination is pinned to the pair nominated at
+	// connect (later same-generation nominations, e.g. a
+	// browser re-nominating another pair, must not drift it);
+	// an ICE restart's renomination is the one switch point.
+	dest := io.selected
+	if io.peer.agent.Renominated() && io.peer.agent.Generation() != io.connectGen {
+		if nominated := io.peer.agent.NominatedAddr(); nominated != nil {
+			io.selected = nominated
+			io.connectGen = io.peer.agent.Generation()
+			dest = nominated
+		}
 	}
 	io.peer.sendTo(buf, dest)
 	return nil
@@ -581,7 +587,7 @@ func (p *Peer) ConnectWithOptions(requirePeerCert bool) (*DcEndpoint, error) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	io := &peerIO{peer: p, selected: selected}
+	io := &peerIO{peer: p, selected: selected, connectGen: p.agent.Generation()}
 	config := DtlsConfig{
 		Certificate:             p.certificate,
 		ExpectedPeerFingerprint: p.remote.Fingerprint,

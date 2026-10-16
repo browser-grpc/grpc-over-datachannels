@@ -468,13 +468,21 @@ export class Peer {
       await new Promise((r) => setTimeout(r, 50));
     }
     const selected = this.#agent.nominated;
+    const connectGen = this.#agent.generation;
+    let ioDest = selected;
     const self = this;
     const io = {
       send: (buf) =>
         new Promise((resolve) => {
-          // Follow the nominated pair so an ICE restart
-          // switches media at renomination (old pair until then).
-          self.#sendTo(buf, self.#agent.nominated ?? selected);
+          // Media destination is pinned to the pair nominated
+          // at connect (later same-generation nominations,
+          // e.g. a browser re-nominating another pair, must
+          // not drift it); an ICE restart's renomination is
+          // the one switch point.
+          if (self.#agent.renominated && self.#agent.generation !== connectGen) {
+            ioDest = self.#agent.nominated;
+          }
+          self.#sendTo(buf, ioDest);
           resolve();
         }),
       recv: (timeoutMs) => {

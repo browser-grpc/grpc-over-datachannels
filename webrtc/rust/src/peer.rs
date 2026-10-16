@@ -73,6 +73,7 @@ struct IceDtlsIo {
     socket: UdpSocket,
     peer: SocketAddr,
     agent: Arc<Mutex<IceAgent>>,
+    connect_gen: u64,
     inbox: Receiver<Vec<u8>>,
     turn: Option<crate::turn::TurnClient>,
     relay_active: bool,
@@ -80,10 +81,21 @@ struct IceDtlsIo {
 
 impl DtlsIo for IceDtlsIo {
     fn send_packet(&mut self, packet: &[u8]) -> io::Result<()> {
-        // Follow the agent's nominated pair so an ICE restart
-        // switches media at renomination (old pair until then).
-        let dest = self.agent.lock().unwrap().nominated.unwrap_or(self.peer);
-        crate::turn::send_pair(&self.socket, self.turn.as_ref(), self.relay_active, packet, dest)
+        // The destination is pinned to the pair nominated at
+        // connect (later same-generation nominations, e.g. a
+        // browser re-nominating another pair, must not drift
+        // it); an ICE restart's renomination is the one
+        // switch point.
+        {
+            let agent = self.agent.lock().unwrap();
+            if agent.renominated() && agent.generation() != self.connect_gen {
+                if let Some(nominated) = agent.nominated {
+                    self.peer = nominated;
+                    self.connect_gen = agent.generation();
+                }
+            }
+        }
+        crate::turn::send_pair(&self.socket, self.turn.as_ref(), self.relay_active, packet, self.peer)
     }
 
     fn recv_packet(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>> {
@@ -534,7 +546,15 @@ impl Peer {
             require_peer_certificate: config.require_peer_certificate,
         };
         let consent_socket = socket.try_clone()?;
-        let io = IceDtlsIo { socket: socket.try_clone()?, peer: selected, agent: agent.clone(), inbox: dtls_rx, turn: turn.clone(), relay_active };
+        let io = IceDtlsIo {
+            socket: socket.try_clone()?,
+            peer: selected,
+            agent: agent.clone(),
+            connect_gen: agent.lock().unwrap().generation(),
+            inbox: dtls_rx,
+            turn: turn.clone(),
+            relay_active,
+        };
         let dtls = match dtls_role {
             Role::Client => Dtls::connect(io, &dtls_config)?,
             Role::Server => Dtls::accept(io, &dtls_config)?,
