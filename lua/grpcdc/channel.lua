@@ -31,9 +31,30 @@ function ClientStream:nextEvent()
     if self.input.closedFlag then
       raise(Status.new(wire.CODE_UNAVAILABLE, "data channel closed"))
     end
-    self.endpoint:pumpWhile(function()
-      return self.input:hasData() or self.input.closedFlag
-    end)
+    if self.deadline ~= nil then
+      -- Deadline-aware pump loop (checks between messages; a
+      -- blocking transport still blocks inside pump, the
+      -- documented cooperative-runtime caveat).
+      local now = Endpoint.nowSeconds()
+      if now ~= nil and now >= self.deadline then
+        self.endpoint:cancelStream(self.streamId)
+        raise(Status.new(wire.CODE_DEADLINE_EXCEEDED, "deadline exceeded"))
+      end
+      if self.endpoint:pump() then
+        -- progress
+      elseif self.endpoint.transport.peerPump and self.endpoint.transport:peerPump() then
+        -- peer progress
+      elseif self.endpoint.closed then
+        raise(Status.new(wire.CODE_UNAVAILABLE, "data channel closed"))
+      end
+      -- Otherwise idle but open: loop and re-check the deadline
+      -- (cooperative busy-wait; blocking transports simply block
+      -- inside pump instead).
+    else
+      self.endpoint:pumpWhile(function()
+        return self.input:hasData() or self.input.closedFlag
+      end)
+    end
   end
 end
 
@@ -75,7 +96,18 @@ function Channel.fromEndpoint(endpoint)
   return setmetatable({ endpoint = endpoint }, Channel)
 end
 
-function Channel:open(path, metadata)
+function Channel:open(path, metadata, timeout)
+  local deadline = nil
+  if timeout ~= nil then
+    local now = Endpoint.nowSeconds()
+    if now ~= nil then deadline = now + timeout end
+    local merged = {}
+    if metadata ~= nil then
+      for k, v in pairs(metadata) do merged[k] = v end
+    end
+    merged["grpc-timeout"] = Codec.encodeTimeout(timeout)
+    metadata = merged
+  end
   local id, input = self.endpoint:openStream()
   local ok, err = pcall(function()
     self.endpoint:sendFrame(Codec.headersFrame(id, path, metadata))
@@ -84,7 +116,9 @@ function Channel:open(path, metadata)
     self.endpoint:closeStream(id)
     error(err, 0)
   end
-  return ClientStream.new(self.endpoint, id, input)
+  local stream = ClientStream.new(self.endpoint, id, input)
+  stream.deadline = deadline
+  return stream
 end
 
 function Channel:sendMessage(stream, msg)
@@ -123,8 +157,8 @@ function Channel:collectOne(stream, resp, what)
 end
 
 --- Run a unary call, decoding the single response into resp.
-function Channel:unary(path, req, resp, metadata)
-  local stream = self:open(path, metadata)
+function Channel:unary(path, req, resp, metadata, timeout)
+  local stream = self:open(path, metadata, timeout)
   local ok, err = pcall(function()
     self:sendMessage(stream, req)
     self:halfClose(stream)
@@ -135,16 +169,16 @@ function Channel:unary(path, req, resp, metadata)
 end
 
 --- Start a server-streaming call.
-function Channel:serverStream(path, req, metadata)
-  local stream = self:open(path, metadata)
+function Channel:serverStream(path, req, metadata, timeout)
+  local stream = self:open(path, metadata, timeout)
   self:sendMessage(stream, req)
   self:halfClose(stream)
   return stream
 end
 
 --- Send all requests, then decode the one response into resp.
-function Channel:clientStreamCall(path, reqs, resp, metadata)
-  local stream = self:open(path, metadata)
+function Channel:clientStreamCall(path, reqs, resp, metadata, timeout)
+  local stream = self:open(path, metadata, timeout)
   local ok, err = pcall(function()
     self:sendAll(stream, reqs)
     self:collectOne(stream, resp, "client-streaming call")
@@ -154,8 +188,8 @@ function Channel:clientStreamCall(path, reqs, resp, metadata)
 end
 
 --- Start a bidi call with all requests sent up front.
-function Channel:bidi(path, reqs, metadata)
-  local stream = self:open(path, metadata)
+function Channel:bidi(path, reqs, metadata, timeout)
+  local stream = self:open(path, metadata, timeout)
   self:sendAll(stream, reqs)
   return stream
 end
@@ -213,28 +247,28 @@ function CoroutineChannel.new(channel)
   }, CoroutineChannel)
 end
 
-function CoroutineChannel:unary(path, req, resp, metadata)
+function CoroutineChannel:unary(path, req, resp, metadata, timeout)
   local run = coroutine.wrap(function()
-    self.channel:unary(path, req, resp, metadata)
+    self.channel:unary(path, req, resp, metadata, timeout)
   end)
   run()
   return resp
 end
 
-function CoroutineChannel:clientStreamCall(path, reqs, resp, metadata)
+function CoroutineChannel:clientStreamCall(path, reqs, resp, metadata, timeout)
   local run = coroutine.wrap(function()
-    self.channel:clientStreamCall(path, reqs, resp, metadata)
+    self.channel:clientStreamCall(path, reqs, resp, metadata, timeout)
   end)
   run()
   return resp
 end
 
-function CoroutineChannel:serverStream(path, req, metadata)
-  return CoroutineStream.new(self.channel:serverStream(path, req, metadata))
+function CoroutineChannel:serverStream(path, req, metadata, timeout)
+  return CoroutineStream.new(self.channel:serverStream(path, req, metadata, timeout))
 end
 
-function CoroutineChannel:bidi(path, reqs, metadata)
-  return CoroutineStream.new(self.channel:bidi(path, reqs, metadata))
+function CoroutineChannel:bidi(path, reqs, metadata, timeout)
+  return CoroutineStream.new(self.channel:bidi(path, reqs, metadata, timeout))
 end
 
 return {

@@ -189,7 +189,8 @@ test-lua:
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestOracle \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDynamic \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestBdd \
-		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestCoro
+		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestCoro \
+		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDeadline
 
 LUA_SRC ?= $(HOME)/.local/lua-build/src
 

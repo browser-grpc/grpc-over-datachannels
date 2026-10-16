@@ -558,38 +558,38 @@ function DynamicClient:method(serviceName, methodName)
   return m
 end
 
-function DynamicClient:unary(serviceName, methodName, req, metadata)
+function DynamicClient:unary(serviceName, methodName, req, metadata, timeout)
   local m = self:method(serviceName, methodName)
   local resp = BoundMessage.new(m.output, GenericMessage.new(m.output), self.model)
-  self.channel:unary(m.path, BoundMessage.new(m.input, req, self.model), resp, metadata)
+  self.channel:unary(m.path, BoundMessage.new(m.input, req, self.model), resp, metadata, timeout)
   return resp.generic
 end
 
-function DynamicClient:serverStream(serviceName, methodName, req, metadata)
+function DynamicClient:serverStream(serviceName, methodName, req, metadata, timeout)
   local m = self:method(serviceName, methodName)
   local stream = self.channel:serverStream(m.path,
-    BoundMessage.new(m.input, req, self.model), metadata)
+    BoundMessage.new(m.input, req, self.model), metadata, timeout)
   return DynamicStream.new(stream, m.output, self.model)
 end
 
-function DynamicClient:clientStream(serviceName, methodName, reqs, metadata)
+function DynamicClient:clientStream(serviceName, methodName, reqs, metadata, timeout)
   local m = self:method(serviceName, methodName)
   local bound = {}
   for i, r in ipairs(reqs) do
     bound[i] = BoundMessage.new(m.input, r, self.model)
   end
   local resp = BoundMessage.new(m.output, GenericMessage.new(m.output), self.model)
-  self.channel:clientStreamCall(m.path, bound, resp, metadata)
+  self.channel:clientStreamCall(m.path, bound, resp, metadata, timeout)
   return resp.generic
 end
 
-function DynamicClient:bidi(serviceName, methodName, reqs, metadata)
+function DynamicClient:bidi(serviceName, methodName, reqs, metadata, timeout)
   local m = self:method(serviceName, methodName)
   local bound = {}
   for i, r in ipairs(reqs) do
     bound[i] = BoundMessage.new(m.input, r, self.model)
   end
-  local stream = self.channel:bidi(m.path, bound, metadata)
+  local stream = self.channel:bidi(m.path, bound, metadata, timeout)
   return DynamicStream.new(stream, m.output, self.model)
 end
 

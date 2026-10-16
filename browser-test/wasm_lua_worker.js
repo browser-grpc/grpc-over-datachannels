@@ -91,6 +91,9 @@ const env = {
       Atomics.wait(sabI32, 0, 0, remaining);
     }
   },
+  js_now_ms() {
+    return Date.now();
+  },
   on_result(ptr, len) {
     postMessage({ t: "result", json: readStr(ptr, len) });
   },

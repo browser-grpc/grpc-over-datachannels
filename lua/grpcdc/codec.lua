@@ -226,6 +226,34 @@ function Codec.headersFrame(streamId, path, metadata)
   return Codec.encodeFrame(wire.FRAME_HEADERS, streamId, json.encode(body))
 end
 
+--- gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+--- units H/M/S/m/u/n (at most 8 digits). Encoding uses
+--- milliseconds (seconds past the digit limit), rounded up.
+function Codec.encodeTimeout(seconds)
+  local ms = math.ceil(seconds * 1000)
+  if ms <= 99999999 then
+    return string.format("%dm", ms)
+  end
+  return string.format("%dS", math.ceil(seconds))
+end
+
+--- Decoded grpc-timeout in seconds, or nil when malformed.
+function Codec.parseTimeout(text)
+  if type(text) ~= "string" or #text < 2 or #text > 9 then return nil end
+  local digits = text:sub(1, -2)
+  if digits:match("^%d+$") == nil then return nil end
+  local n = tonumber(digits)
+  local unit = text:sub(-1)
+  if unit == "H" then return n * 3600
+  elseif unit == "M" then return n * 60
+  elseif unit == "S" then return n
+  elseif unit == "m" then return n / 1000
+  elseif unit == "u" then return n / 1000000
+  elseif unit == "n" then return n / 1000000000
+  end
+  return nil
+end
+
 function Codec.statusFrame(frameType, streamId, status)
   local body = json.encode({ code = status.code, message = status.message })
   return Codec.encodeFrame(frameType, streamId, body)

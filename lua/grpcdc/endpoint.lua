@@ -42,9 +42,34 @@ function StreamInput:hasData()
   return self.first <= self.last
 end
 
---- Per-call context: metadata sent in HEADERS.
+--- Monotonic clock in seconds: the WASM/browser host provides
+--- host_now (no os library there); native Lua uses os.clock.
+--- Returns nil when no clock exists (deadlines then propagate
+--- but are not enforced locally).
+local function nowSeconds()
+  if host_now ~= nil then return host_now() end
+  if os ~= nil and os.clock ~= nil then return os.clock() end
+  return nil
+end
+
+--- Per-call context: metadata sent in HEADERS, plus deadline.
 local function newCallContext(metadata)
-  return { metadata = metadata }
+  local ctx = { metadata = metadata }
+  local remaining = Codec.parseTimeout(metadata ~= nil and metadata["grpc-timeout"] or nil)
+  local now = nowSeconds()
+  if remaining ~= nil and now ~= nil then
+    ctx.deadline = now + remaining
+  end
+  function ctx:timeRemaining()
+    if self.deadline == nil then return nil end
+    local current = nowSeconds()
+    if current == nil then return nil end
+    return math.max(0, self.deadline - current)
+  end
+  function ctx:deadlineExceeded()
+    return self:timeRemaining() == 0
+  end
+  return ctx
 end
 
 --- Sends response payloads of one inbound call.
@@ -78,6 +103,7 @@ end
 --- simply block inside recvMessage during pump().
 local Endpoint = {}
 Endpoint.__index = Endpoint
+Endpoint.nowSeconds = nowSeconds
 
 --- The side that created the channel allocates odd stream ids, the
 --- answerer even.

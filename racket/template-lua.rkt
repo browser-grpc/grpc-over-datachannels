@@ -40,31 +40,31 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "function ~aClient:~a(req, metadata)\n"
+              "function ~aClient:~a(req, metadata, timeout)\n"
               "  local resp = ~a.new()\n"
-              "  self.channel:unary(~s, req, resp, metadata)\n"
+              "  self.channel:unary(~s, req, resp, metadata, timeout)\n"
               "  return resp\n"
               "end\n\n")
              svc name resp path)]
     [(server-streaming)
      (format (string-append
-              "function ~aClient:~a(req, metadata)\n"
+              "function ~aClient:~a(req, metadata, timeout)\n"
               "  return ~a~aStream.new(\n"
-              "    self.channel:serverStream(~s, req, metadata))\n"
+              "    self.channel:serverStream(~s, req, metadata, timeout))\n"
               "end\n\n")
              svc name svc orig-name path)]
     [(client-streaming)
      (format (string-append
-              "function ~aClient:~a(reqs, metadata)\n"
+              "function ~aClient:~a(reqs, metadata, timeout)\n"
               "  local resp = ~a.new()\n"
-              "  self.channel:clientStreamCall(~s, reqs, resp, metadata)\n"
+              "  self.channel:clientStreamCall(~s, reqs, resp, metadata, timeout)\n"
               "  return resp\n"
               "end\n\n")
              svc name resp path)]
     [(bidi)
      (format (string-append
-              "function ~aClient:~a(reqs, metadata)\n"
-              "  return ~a~aStream.new(self.channel:bidi(~s, reqs, metadata))\n"
+              "function ~aClient:~a(reqs, metadata, timeout)\n"
+              "  return ~a~aStream.new(self.channel:bidi(~s, reqs, metadata, timeout))\n"
               "end\n\n")
              svc name svc orig-name path)]))
 
@@ -124,31 +124,31 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "function ~aClientCoro:~a(req, metadata)\n"
+              "function ~aClientCoro:~a(req, metadata, timeout)\n"
               "  local resp = ~a.new()\n"
-              "  self.channel:unary(~s, req, resp, metadata)\n"
+              "  self.channel:unary(~s, req, resp, metadata, timeout)\n"
               "  return resp\n"
               "end\n\n")
              svc name resp path)]
     [(server-streaming)
      (format (string-append
-              "function ~aClientCoro:~a(req, metadata)\n"
+              "function ~aClientCoro:~a(req, metadata, timeout)\n"
               "  return ~a~aCoroStream.new(\n"
-              "    self.channel:serverStream(~s, req, metadata))\n"
+              "    self.channel:serverStream(~s, req, metadata, timeout))\n"
               "end\n\n")
              svc name svc orig-name path)]
     [(client-streaming)
      (format (string-append
-              "function ~aClientCoro:~a(reqs, metadata)\n"
+              "function ~aClientCoro:~a(reqs, metadata, timeout)\n"
               "  local resp = ~a.new()\n"
-              "  self.channel:clientStreamCall(~s, reqs, resp, metadata)\n"
+              "  self.channel:clientStreamCall(~s, reqs, resp, metadata, timeout)\n"
               "  return resp\n"
               "end\n\n")
              svc name resp path)]
     [(bidi)
      (format (string-append
-              "function ~aClientCoro:~a(reqs, metadata)\n"
-              "  return ~a~aCoroStream.new(self.channel:bidi(~s, reqs, metadata))\n"
+              "function ~aClientCoro:~a(reqs, metadata, timeout)\n"
+              "  return ~a~aCoroStream.new(self.channel:bidi(~s, reqs, metadata, timeout))\n"
               "end\n\n")
              svc name svc orig-name path)]))
 

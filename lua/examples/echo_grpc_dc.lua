@@ -102,25 +102,25 @@ function EchoClient.new(channel)
   return setmetatable({ channel = channel }, EchoClient)
 end
 
-function EchoClient:unary(req, metadata)
+function EchoClient:unary(req, metadata, timeout)
   local resp = EchoResponse.new()
-  self.channel:unary("/echo.Echo/Unary", req, resp, metadata)
+  self.channel:unary("/echo.Echo/Unary", req, resp, metadata, timeout)
   return resp
 end
 
-function EchoClient:serverStream(req, metadata)
+function EchoClient:serverStream(req, metadata, timeout)
   return EchoServerStreamStream.new(
-    self.channel:serverStream("/echo.Echo/ServerStream", req, metadata))
+    self.channel:serverStream("/echo.Echo/ServerStream", req, metadata, timeout))
 end
 
-function EchoClient:clientStream(reqs, metadata)
+function EchoClient:clientStream(reqs, metadata, timeout)
   local resp = EchoResponse.new()
-  self.channel:clientStreamCall("/echo.Echo/ClientStream", reqs, resp, metadata)
+  self.channel:clientStreamCall("/echo.Echo/ClientStream", reqs, resp, metadata, timeout)
   return resp
 end
 
-function EchoClient:bidi(reqs, metadata)
-  return EchoBidiStream.new(self.channel:bidi("/echo.Echo/Bidi", reqs, metadata))
+function EchoClient:bidi(reqs, metadata, timeout)
+  return EchoBidiStream.new(self.channel:bidi("/echo.Echo/Bidi", reqs, metadata, timeout))
 end
 
 --- Coroutine receiving stream for ServerStream responses: a producer
@@ -205,25 +205,25 @@ function EchoClientCoro.new(channel)
   return setmetatable({ channel = channelModule.CoroutineChannel.new(channel) }, EchoClientCoro)
 end
 
-function EchoClientCoro:unary(req, metadata)
+function EchoClientCoro:unary(req, metadata, timeout)
   local resp = EchoResponse.new()
-  self.channel:unary("/echo.Echo/Unary", req, resp, metadata)
+  self.channel:unary("/echo.Echo/Unary", req, resp, metadata, timeout)
   return resp
 end
 
-function EchoClientCoro:serverStream(req, metadata)
+function EchoClientCoro:serverStream(req, metadata, timeout)
   return EchoServerStreamCoroStream.new(
-    self.channel:serverStream("/echo.Echo/ServerStream", req, metadata))
+    self.channel:serverStream("/echo.Echo/ServerStream", req, metadata, timeout))
 end
 
-function EchoClientCoro:clientStream(reqs, metadata)
+function EchoClientCoro:clientStream(reqs, metadata, timeout)
   local resp = EchoResponse.new()
-  self.channel:clientStreamCall("/echo.Echo/ClientStream", reqs, resp, metadata)
+  self.channel:clientStreamCall("/echo.Echo/ClientStream", reqs, resp, metadata, timeout)
   return resp
 end
 
-function EchoClientCoro:bidi(reqs, metadata)
-  return EchoBidiCoroStream.new(self.channel:bidi("/echo.Echo/Bidi", reqs, metadata))
+function EchoClientCoro:bidi(reqs, metadata, timeout)
+  return EchoBidiCoroStream.new(self.channel:bidi("/echo.Echo/Bidi", reqs, metadata, timeout))
 end
 
 --- Register an implementation of echo.Echo on a Server. The impl is

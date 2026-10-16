@@ -21,9 +21,15 @@ IMPORT("js_dc_send") extern void js_dc_send(const char *ptr, size_t len);
 IMPORT("js_dc_recv") extern int js_dc_recv(char *ptr, size_t cap, int timeout_ms);
 IMPORT("on_result") extern void on_result(const char *ptr, size_t len);
 IMPORT("on_error") extern void on_error(const char *ptr, size_t len);
+IMPORT("js_now_ms") extern double js_now_ms(void);
 
 #define MAX_MESSAGE (256 * 1024)
 static char recv_buf[MAX_MESSAGE];
+
+static int l_host_now(lua_State *L) {
+    lua_pushnumber(L, js_now_ms() / 1000.0);
+    return 1;
+}
 
 static int l_dc_send(lua_State *L) {
     size_t len;
@@ -98,6 +104,7 @@ int main(void) {
     luaL_requiref(L, "utf8", luaopen_utf8, 1);
     lua_pop(L, 1);
 
+    lua_register(L, "host_now", l_host_now);
     lua_register(L, "dc_send", l_dc_send);
     lua_register(L, "dc_try_recv", l_dc_try_recv);
     lua_register(L, "host_result", l_host_result);
