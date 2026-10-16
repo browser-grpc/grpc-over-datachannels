@@ -138,6 +138,33 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     streams_.erase(id);
   }
 
+  /// Abort one stream: RST towards the peer and wakes any local
+  /// thread blocked in Recv with the cancellation status.
+  void CancelStream(std::uint32_t id) {
+    auto status = std::make_shared<StatusException>(wire::kCodeCancelled,
+                                                    "call cancelled");
+    std::shared_ptr<StreamInput> input;
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto it = streams_.find(id);
+      if (it != streams_.end()) {
+        input = it->second;
+        streams_.erase(it);
+      }
+    }
+    if (input) {
+      StreamEvent evt;
+      evt.kind = EventKind::kRst;
+      evt.status = status;
+      input->Put(std::move(evt));
+      input->Close();
+    }
+    try {
+      SendFrame(Codec::StatusFrame(wire::kFrameRst, id, *status));
+    } catch (...) {
+    }
+  }
+
   void Close() {
     if (closed_.exchange(true)) return;
     try {

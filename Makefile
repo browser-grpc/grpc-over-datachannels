@@ -130,6 +130,10 @@ test-cpp:
 	cd cpp && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd
+	# C++20 coroutine surface test: built with zig's clang because
+	# GCC 13 hits an ICE (build_special_member_call) on this file.
+	$(ZIG) c++ -std=c++20 -pthread -O1 -Icpp -I. cpp/tests/test_async.cpp -o cpp/build/test_async
+	cd cpp && ./build/test_async
 
 SWIFTC ?= swiftc
 SWIFTFLAGS ?= -swift-version 5 -O -o

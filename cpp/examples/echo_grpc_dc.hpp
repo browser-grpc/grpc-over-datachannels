@@ -3,6 +3,11 @@
 #pragma once
 
 #include <future>
+#include <optional>
+
+#if __cplusplus >= 202002L
+#include "grpcdc/async.hpp"
+#endif
 #include <memory>
 #include <vector>
 
@@ -129,6 +134,90 @@ struct EchoGrpcDc {
    private:
     std::shared_ptr<grpcdc::Channel> channel_;
   };
+
+#if __cplusplus >= 202002L
+  /// C++20 coroutine client for echo.Echo (co_await / grpcdc::Task).
+  class EchoClientCoro {
+   public:
+    explicit EchoClientCoro(std::shared_ptr<grpcdc::AsyncChannel> channel)
+        : channel_(std::move(channel)) {}
+    explicit EchoClientCoro(std::shared_ptr<grpcdc::Channel> channel)
+        : channel_(std::make_shared<grpcdc::AsyncChannel>(std::move(channel))) {}
+
+    class EchoServerStreamStream {
+     public:
+      explicit EchoServerStreamStream(grpcdc::AsyncClientStream stream)
+          : stream_(std::move(stream)) {}
+      /// Next response, or std::nullopt when the call completed OK.
+      grpcdc::Task<std::optional<EchoResponse>> Recv() {
+        EchoResponse resp;
+        try {
+          co_await stream_.Recv(resp);
+        } catch (const grpcdc::EndOfStream&) {
+          co_return std::nullopt;
+        }
+        co_return resp;
+      }
+      void Cancel() { stream_.Cancel(); }
+
+     private:
+      grpcdc::AsyncClientStream stream_;
+    };
+
+    class EchoBidiStream {
+     public:
+      explicit EchoBidiStream(grpcdc::AsyncClientStream stream)
+          : stream_(std::move(stream)) {}
+      /// Next response, or std::nullopt when the call completed OK.
+      grpcdc::Task<std::optional<EchoResponse>> Recv() {
+        EchoResponse resp;
+        try {
+          co_await stream_.Recv(resp);
+        } catch (const grpcdc::EndOfStream&) {
+          co_return std::nullopt;
+        }
+        co_return resp;
+      }
+      void Cancel() { stream_.Cancel(); }
+
+     private:
+      grpcdc::AsyncClientStream stream_;
+    };
+
+    grpcdc::Task<EchoResponse> Unary(EchoRequest req,
+                       const grpcdc::Metadata* metadata = nullptr) {
+      EchoResponse resp;
+      co_await channel_->Unary("/echo.Echo/Unary", req, resp, metadata);
+      co_return resp;
+    }
+
+    grpcdc::Task<EchoServerStreamStream> ServerStream(
+        EchoRequest req, const grpcdc::Metadata* metadata = nullptr) {
+      co_return EchoServerStreamStream(
+          co_await channel_->ServerStream("/echo.Echo/ServerStream", req, metadata));
+    }
+
+    grpcdc::Task<EchoResponse> ClientStream(std::vector<EchoRequest> reqs,
+                              const grpcdc::Metadata* metadata = nullptr) {
+      std::vector<const grpcdc::Marshaler*> ptrs;
+      for (auto& r : reqs) ptrs.push_back(&r);
+      EchoResponse resp;
+      co_await channel_->ClientStreamCall("/echo.Echo/ClientStream", ptrs, resp, metadata);
+      co_return resp;
+    }
+
+    grpcdc::Task<EchoBidiStream> Bidi(std::vector<EchoRequest> reqs,
+                        const grpcdc::Metadata* metadata = nullptr) {
+      std::vector<const grpcdc::Marshaler*> ptrs;
+      for (auto& r : reqs) ptrs.push_back(&r);
+      co_return EchoBidiStream(
+          co_await channel_->Bidi("/echo.Echo/Bidi", ptrs, metadata));
+    }
+
+   private:
+    std::shared_ptr<grpcdc::AsyncChannel> channel_;
+  };
+#endif  // __cplusplus >= 202002L
 
   /// Server-streaming sink passed to service implementations.
   struct EchoServerStreamServer {

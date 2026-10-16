@@ -70,6 +70,11 @@ class Channel {
     Codec::Headers headers_;
   };
 
+  /// Abort an open ClientStream (sends RST, wakes pending Recv).
+  void Cancel(ClientStream& stream) {
+    endpoint_->CancelStream(stream.stream_id());
+  }
+
   /// Run a unary call, decoding the single response into resp.
   void Unary(const std::string& path, const Marshaler& req, Unmarshaler& resp,
              const Metadata* metadata = nullptr) {
