@@ -48,6 +48,27 @@
      (format "~a    pub async fn ~a<S>(&self, reqs: S) -> Result<::grpc_dc::ResponseStream<~a>, ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ~a> + Send + 'static {\n        self.channel.bidi(~s, reqs).await\n    }\n"
              depr fn-name resp req path)]))
 
+(define (rust-client-options-method m msgmod)
+  (define name (hash-ref m 'name))
+  (define fn-name (snake-case name))
+  (define req (format "~a::~a" msgmod (hash-ref m 'input)))
+  (define resp (format "~a::~a" msgmod (hash-ref m 'output)))
+  (define path (hash-ref m 'path))
+  (define depr (rust-deprecated m "    "))
+  (case (hash-ref m 'kind)
+    [(unary)
+     (format "~a    pub async fn ~a_with_options(&self, req: ~a, options: ::grpc_dc::CallOptions) -> Result<~a, ::grpc_dc::Status> {\n        self.channel.unary_with_options(~s, req, options).await\n    }\n"
+             depr fn-name req resp path)]
+    [(server-streaming)
+     (format "~a    pub async fn ~a_with_options(&self, req: ~a, options: ::grpc_dc::CallOptions) -> Result<::grpc_dc::ResponseStream<~a>, ::grpc_dc::Status> {\n        self.channel.server_stream_with_options(~s, req, options).await\n    }\n"
+             depr fn-name req resp path)]
+    [(client-streaming)
+     (format "~a    pub async fn ~a_with_options<S>(&self, reqs: S, options: ::grpc_dc::CallOptions) -> Result<~a, ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ~a> + Send + 'static {\n        self.channel.client_stream_with_options(~s, reqs, options).await\n    }\n"
+             depr fn-name resp req path)]
+    [(bidi)
+     (format "~a    pub async fn ~a_with_options<S>(&self, reqs: S, options: ::grpc_dc::CallOptions) -> Result<::grpc_dc::ResponseStream<~a>, ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ~a> + Send + 'static {\n        self.channel.bidi_with_options(~s, reqs, options).await\n    }\n"
+             depr fn-name resp req path)]))
+
 (define (rust-trait-method/deprecated m msgmod)
   (string-append (rust-deprecated m "    ") (rust-trait-method m msgmod)))
 
@@ -86,6 +107,8 @@
    (format "pub struct ~aClient { channel: ::grpc_dc::Channel }\n\n" sname)
    (format "impl ~aClient {\n    pub fn new(channel: ::grpc_dc::Channel) -> Self { Self { channel } }\n" sname)
    (apply string-append (map (lambda (m) (rust-client-method m msgmod))
+                              (append methods (alias-client-methods svc))))
+   (apply string-append (map (lambda (m) (rust-client-options-method m msgmod))
                               (append methods (alias-client-methods svc))))
    "}\n\n"
    (format "#[::grpc_dc::async_trait]\npub trait ~a: Send + Sync + 'static {\n" sname)

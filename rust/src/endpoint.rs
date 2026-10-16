@@ -180,6 +180,11 @@ impl Endpoint {
                         path: path.clone(),
                         metadata: headers.metadata.clone(),
                         stream_id: frame.stream_id,
+                        deadline: headers
+                            .metadata
+                            .get("grpc-timeout")
+                            .and_then(|t| crate::codec::parse_timeout(t))
+                            .map(|d| std::time::Instant::now() + d),
                     },
                     requests: RequestStream::<Bytes>::from_events(rx),
                     sink: ResponseSink::new(self.clone(), frame.stream_id),

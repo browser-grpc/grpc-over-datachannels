@@ -4,7 +4,7 @@
 //!
 //! `type:u8 | stream_id:u32be | payload_len:u32be | payload`
 
-use crate::status::{Metadata, Status};
+use crate::status::{Code, Metadata, Status};
 use crate::wire_gen::frame_type;
 use bytes::{BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
@@ -94,6 +94,41 @@ impl Frame {
         let t: Trailers = serde_json::from_slice(&self.payload)?;
         Ok(Status::from_code_u32(t.code, t.message))
     }
+}
+
+/// gRPC timeout grammar (grpc-timeout metadata): `<digits><unit>`,
+/// units H/M/S/m/u/n (at most 8 digits). Encoding uses
+/// milliseconds (seconds past the digit limit), rounded up so a
+/// deadline never shrinks in propagation.
+pub fn encode_timeout(timeout: std::time::Duration) -> String {
+    let mut ms = timeout.as_millis();
+    if timeout.subsec_nanos() % 1_000_000 > 0 {
+        ms += 1;
+    }
+    if ms <= 99_999_999 {
+        format!("{ms}m")
+    } else {
+        format!("{}S", timeout.as_secs() + u64::from(timeout.subsec_nanos() > 0))
+    }
+}
+
+/// Decode a grpc-timeout value; None when malformed.
+pub fn parse_timeout(text: &str) -> Option<std::time::Duration> {
+    let (digits, unit) = text.split_at(text.len().checked_sub(1)?);
+    if digits.is_empty() || digits.len() > 8 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n: u64 = digits.parse().ok()?;
+    let d = match unit {
+        "H" => std::time::Duration::from_secs(n * 3600),
+        "M" => std::time::Duration::from_secs(n * 60),
+        "S" => std::time::Duration::from_secs(n),
+        "m" => std::time::Duration::from_millis(n),
+        "u" => std::time::Duration::from_micros(n),
+        "n" => std::time::Duration::from_nanos(n),
+        _ => return None,
+    };
+    Some(d)
 }
 
 /// HEADERS payload. The client sends `path` + `metadata`; the server's

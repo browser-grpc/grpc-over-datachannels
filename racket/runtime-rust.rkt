@@ -47,7 +47,7 @@ pub mod wire_gen;
 
 pub use async_trait::async_trait;
 pub use futures_core;
-pub use channel::Channel;
+pub use channel::{CallOptions, Channel};
 pub use codec::Frame;
 pub use endpoint::{Endpoint, StreamIdParity};
 pub use message::Message;
@@ -61,6 +61,21 @@ pub use dynamic::{
     MethodModel, ServiceModel,
 };
 pub use status::{Code, Status};
+
+/// Sleep seam for deadline enforcement, mirroring spawn_task:
+/// native builds use Tokio's timer. On wasm32 no timer driver is
+/// linked yet, so the future never resolves — grpc-timeout is
+/// still propagated there, but deadlines are not enforced locally.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn sleep(duration: std::time::Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    Box::pin(tokio::time::sleep(duration))
+}
+
+/// Sleep seam (wasm32: unenforced deadlines, see above).
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn sleep(_duration: std::time::Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    Box::pin(std::future::pending())
+}
 
 /// Spawn a background task — the runtime's single executor seam.
 /// Native builds use Tokio; on wasm32 the browser event loop drives
@@ -100,7 +115,7 @@ GRPC_RUNTIME_EOF
 //!
 //! `type:u8 | stream_id:u32be | payload_len:u32be | payload`
 
-use crate::status::{Metadata, Status};
+use crate::status::{Code, Metadata, Status};
 use crate::wire_gen::frame_type;
 use bytes::{BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
@@ -190,6 +205,41 @@ impl Frame {
         let t: Trailers = serde_json::from_slice(&self.payload)?;
         Ok(Status::from_code_u32(t.code, t.message))
     }
+}
+
+/// gRPC timeout grammar (grpc-timeout metadata): `<digits><unit>`,
+/// units H/M/S/m/u/n (at most 8 digits). Encoding uses
+/// milliseconds (seconds past the digit limit), rounded up so a
+/// deadline never shrinks in propagation.
+pub fn encode_timeout(timeout: std::time::Duration) -> String {
+    let mut ms = timeout.as_millis();
+    if timeout.subsec_nanos() % 1_000_000 > 0 {
+        ms += 1;
+    }
+    if ms <= 99_999_999 {
+        format!("{ms}m")
+    } else {
+        format!("{}S", timeout.as_secs() + u64::from(timeout.subsec_nanos() > 0))
+    }
+}
+
+/// Decode a grpc-timeout value; None when malformed.
+pub fn parse_timeout(text: &str) -> Option<std::time::Duration> {
+    let (digits, unit) = text.split_at(text.len().checked_sub(1)?);
+    if digits.is_empty() || digits.len() > 8 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n: u64 = digits.parse().ok()?;
+    let d = match unit {
+        "H" => std::time::Duration::from_secs(n * 3600),
+        "M" => std::time::Duration::from_secs(n * 60),
+        "S" => std::time::Duration::from_secs(n),
+        "m" => std::time::Duration::from_millis(n),
+        "u" => std::time::Duration::from_micros(n),
+        "n" => std::time::Duration::from_nanos(n),
+        _ => return None,
+    };
+    Some(d)
 }
 
 /// HEADERS payload. The client sends `path` + `metadata`; the server's
@@ -646,6 +696,11 @@ impl Endpoint {
                         path: path.clone(),
                         metadata: headers.metadata.clone(),
                         stream_id: frame.stream_id,
+                        deadline: headers
+                            .metadata
+                            .get("grpc-timeout")
+                            .and_then(|t| crate::codec::parse_timeout(t))
+                            .map(|d| std::time::Instant::now() + d),
                     },
                     requests: RequestStream::<Bytes>::from_events(rx),
                     sink: ResponseSink::new(self.clone(), frame.stream_id),
@@ -703,16 +758,78 @@ GRPC_RUNTIME_EOF
 //! all four gRPC method shapes. Metadata-carrying `*_with` variants mirror
 //! the plain ones.
 
-use crate::codec::{Frame, Headers};
+use crate::codec::{encode_timeout, Frame, Headers};
 use crate::endpoint::{Endpoint, StreamEvent, StreamIdParity};
 use crate::message::Message;
 use crate::server::ResponseStream;
-use crate::status::{Metadata, Status};
+use crate::status::{Code, Metadata, Status};
 use crate::transport::DcTransport;
 use futures_channel::mpsc::UnboundedReceiver;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+/// Per-call options: metadata plus an optional deadline timeout.
+/// The timeout is propagated as grpc-timeout metadata and enforced
+/// locally — on expiry the stream is aborted (RST) and
+/// DEADLINE_EXCEEDED is returned.
+#[derive(Clone, Debug, Default)]
+pub struct CallOptions {
+    pub metadata: Metadata,
+    pub timeout: Option<Duration>,
+}
+
+impl CallOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_timeout(timeout: Duration) -> Self {
+        Self { metadata: Metadata::new(), timeout: Some(timeout) }
+    }
+
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    pub fn metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = metadata;
+        self
+    }
+}
+
+impl From<Metadata> for CallOptions {
+    fn from(metadata: Metadata) -> Self {
+        Self { metadata, timeout: None }
+    }
+}
+
+/// Next stream event, enforcing an optional deadline instant.
+async fn next_with_deadline(
+    ep: &Arc<Endpoint>,
+    id: u32,
+    rx: &mut UnboundedReceiver<StreamEvent>,
+    deadline: Option<Instant>,
+) -> Result<Option<StreamEvent>, Status> {
+    let Some(deadline) = deadline else {
+        return Ok(rx.next().await);
+    };
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    match futures_util::future::select(rx.next(), crate::sleep(remaining)).await {
+        futures_util::future::Either::Left((event, _)) => Ok(event),
+        futures_util::future::Either::Right(((), _)) => {
+            let _ = ep
+                .send_frame(
+                    Frame::rst(id, &Status::cancelled("deadline exceeded")).unwrap(),
+                )
+                .await;
+            ep.close_stream(id);
+            Err(Status::new(Code::DeadlineExceeded, "deadline exceeded"))
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct Channel {
@@ -746,10 +863,28 @@ impl Channel {
         path: &str,
         metadata: Metadata,
     ) -> Result<(u32, UnboundedReceiver<StreamEvent>), Status> {
+        let (id, rx, _) = self
+            .open_with_options(path, CallOptions { metadata, timeout: None })
+            .await?;
+        Ok((id, rx))
+    }
+
+    async fn open_with_options(
+        &self,
+        path: &str,
+        mut options: CallOptions,
+    ) -> Result<(u32, UnboundedReceiver<StreamEvent>, Option<Instant>), Status> {
+        let deadline = options.timeout.map(|timeout| {
+            options
+                .metadata
+                .insert("grpc-timeout".to_string(), encode_timeout(timeout));
+            Instant::now() + timeout
+        });
+        let metadata = options.metadata;
         let (id, rx) = self.ep.open_stream();
         let headers = Headers { path: Some(path.to_string()), metadata };
         match self.ep.send_frame(Frame::headers(id, &headers)?).await {
-            Ok(()) => Ok((id, rx)),
+            Ok(()) => Ok((id, rx, deadline)),
             Err(e) => {
                 self.ep.close_stream(id);
                 Err(e)
@@ -766,11 +901,21 @@ impl Channel {
         id: u32,
         mut rx: UnboundedReceiver<StreamEvent>,
     ) -> Result<Resp, Status> {
+        self.collect_one_with_deadline(id, rx, None).await
+    }
+
+    async fn collect_one_with_deadline<Resp: Message>(
+        &self,
+        id: u32,
+        mut rx: UnboundedReceiver<StreamEvent>,
+        deadline: Option<Instant>,
+    ) -> Result<Resp, Status> {
         let mut response: Option<Resp> = None;
         let result = loop {
-            match rx.next().await {
-                Some(StreamEvent::Headers(_)) => continue,
-                Some(StreamEvent::Data(bytes)) => match Resp::decode(&bytes) {
+            match next_with_deadline(&self.ep, id, &mut rx, deadline).await {
+                Err(status) => break Err(status),
+                Ok(Some(StreamEvent::Headers(_))) => continue,
+                Ok(Some(StreamEvent::Data(bytes))) => match Resp::decode(&bytes) {
                     Ok(msg) => {
                         if response.is_some() {
                             break Err(Status::internal("unary call received more than one response"));
@@ -779,7 +924,7 @@ impl Channel {
                     }
                     Err(e) => break Err(e),
                 },
-                Some(StreamEvent::Trailers(status)) => {
+                Ok(Some(StreamEvent::Trailers(status))) => {
                     if status.is_ok() {
                         match response {
                             Some(msg) => break Ok(msg),
@@ -791,9 +936,9 @@ impl Channel {
                         break Err(status);
                     }
                 }
-                Some(StreamEvent::Rst(status)) => break Err(status),
-                Some(StreamEvent::HalfClose) => continue,
-                None => break Err(Status::unavailable("data channel closed")),
+                Ok(Some(StreamEvent::Rst(status))) => break Err(status),
+                Ok(Some(StreamEvent::HalfClose)) => continue,
+                Ok(None) => break Err(Status::unavailable("data channel closed")),
             }
         };
         self.ep.close_stream(id);
@@ -819,10 +964,24 @@ impl Channel {
         Req: Message,
         Resp: Message,
     {
-        let (id, rx) = self.open(path, metadata).await?;
+        self.unary_with_options(path, req, CallOptions { metadata, timeout: None })
+            .await
+    }
+
+    pub async fn unary_with_options<Req, Resp>(
+        &self,
+        path: &str,
+        req: Req,
+        options: CallOptions,
+    ) -> Result<Resp, Status>
+    where
+        Req: Message,
+        Resp: Message,
+    {
+        let (id, rx, deadline) = self.open_with_options(path, options).await?;
         self.send_data(id, &req).await?;
         self.ep.send_frame(Frame::half_close(id)).await?;
-        self.collect_one(id, rx).await
+        self.collect_one_with_deadline(id, rx, deadline).await
     }
 
     // -- server-streaming ------------------------------------------------------
@@ -848,10 +1007,24 @@ impl Channel {
         Req: Message,
         Resp: Message + 'static,
     {
-        let (id, rx) = self.open(path, metadata).await?;
+        self.server_stream_with_options(path, req, CallOptions { metadata, timeout: None })
+            .await
+    }
+
+    pub async fn server_stream_with_options<Req, Resp>(
+        &self,
+        path: &str,
+        req: Req,
+        options: CallOptions,
+    ) -> Result<ResponseStream<Resp>, Status>
+    where
+        Req: Message,
+        Resp: Message + 'static,
+    {
+        let (id, rx, deadline) = self.open_with_options(path, options).await?;
         self.send_data(id, &req).await?;
         self.ep.send_frame(Frame::half_close(id)).await?;
-        Ok(typed_response_stream(rx))
+        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline))
     }
 
     // -- client-streaming ------------------------------------------------------
@@ -879,9 +1052,24 @@ impl Channel {
         Resp: Message,
         S: Stream<Item = Req> + Send + 'static,
     {
-        let (id, rx) = self.open(path, metadata).await?;
+        self.client_stream_with_options(path, reqs, CallOptions { metadata, timeout: None })
+            .await
+    }
+
+    pub async fn client_stream_with_options<Req, Resp, S>(
+        &self,
+        path: &str,
+        reqs: S,
+        options: CallOptions,
+    ) -> Result<Resp, Status>
+    where
+        Req: Message + 'static,
+        Resp: Message,
+        S: Stream<Item = Req> + Send + 'static,
+    {
+        let (id, rx, deadline) = self.open_with_options(path, options).await?;
         self.spawn_pump(id, reqs);
-        self.collect_one(id, rx).await
+        self.collect_one_with_deadline(id, rx, deadline).await
     }
 
     // -- bidirectional ---------------------------------------------------------
@@ -909,9 +1097,24 @@ impl Channel {
         Resp: Message + 'static,
         S: Stream<Item = Req> + Send + 'static,
     {
-        let (id, rx) = self.open(path, metadata).await?;
+        self.bidi_with_options(path, reqs, CallOptions { metadata, timeout: None })
+            .await
+    }
+
+    pub async fn bidi_with_options<Req, Resp, S>(
+        &self,
+        path: &str,
+        reqs: S,
+        options: CallOptions,
+    ) -> Result<ResponseStream<Resp>, Status>
+    where
+        Req: Message + 'static,
+        Resp: Message + 'static,
+        S: Stream<Item = Req> + Send + 'static,
+    {
+        let (id, rx, deadline) = self.open_with_options(path, options).await?;
         self.spawn_pump(id, reqs);
-        Ok(typed_response_stream(rx))
+        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline))
     }
 
     fn spawn_pump<Req, S>(&self, id: u32, reqs: S)
@@ -942,39 +1145,48 @@ impl Channel {
 }
 
 fn typed_response_stream<Resp>(
+    ep: Arc<Endpoint>,
+    id: u32,
     rx: UnboundedReceiver<StreamEvent>,
+    deadline: Option<Instant>,
 ) -> ResponseStream<Resp>
 where
     Resp: Message + 'static,
 {
-    let stream = futures_util::stream::unfold((rx, false), move |(mut rx, done)| async move {
+    let stream = futures_util::stream::unfold(
+        (ep, rx, false),
+        move |(ep, mut rx, done)| async move {
         if done {
             return None;
         }
         loop {
-            match rx.next().await {
+            match next_with_deadline(&ep, id, &mut rx, deadline).await {
+                Err(status) => return Some((Err(status), (ep, rx, true))),
+                Ok(event) => match event {
                 Some(StreamEvent::Headers(_)) | Some(StreamEvent::HalfClose) => continue,
                 Some(StreamEvent::Data(bytes)) => match Resp::decode(&bytes) {
-                    Ok(msg) => return Some((Ok(msg), (rx, false))),
-                    Err(e) => return Some((Err(e), (rx, true))),
+                    Ok(msg) => return Some((Ok(msg), (ep, rx, false))),
+                    Err(e) => return Some((Err(e), (ep, rx, true))),
                 },
                 Some(StreamEvent::Trailers(status)) => {
                     return if status.is_ok() {
                         None
                     } else {
-                        Some((Err(status), (rx, true)))
+                        Some((Err(status), (ep, rx, true)))
                     };
                 }
-                Some(StreamEvent::Rst(status)) => return Some((Err(status), (rx, true))),
+                Some(StreamEvent::Rst(status)) => return Some((Err(status), (ep, rx, true))),
                 None => {
                     return Some((
                         Err(Status::unavailable("data channel closed")),
-                        (rx, true),
+                        (ep, rx, true),
                     ))
                 }
+                },
             }
         }
-    });
+        },
+    );
     // Stream entries in the endpoint are cleaned up lazily by
     // Endpoint::deliver once this receiver is gone.
     Box::pin(stream)
@@ -1010,6 +1222,20 @@ pub struct CallCtx {
     pub path: String,
     pub metadata: Metadata,
     pub stream_id: u32,
+    /// Deadline propagated via grpc-timeout, when the client set one.
+    pub deadline: Option<std::time::Instant>,
+}
+
+impl CallCtx {
+    /// Time left before the deadline, or None when unbounded.
+    pub fn time_remaining(&self) -> Option<std::time::Duration> {
+        self.deadline
+            .map(|d| d.saturating_duration_since(std::time::Instant::now()))
+    }
+
+    pub fn deadline_exceeded(&self) -> bool {
+        self.time_remaining() == Some(std::time::Duration::ZERO)
+    }
 }
 
 /// A stream of decoded responses (client side of streaming calls, and the

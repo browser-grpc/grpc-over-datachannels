@@ -21,6 +21,20 @@ impl EchoClient {
     where S: ::grpc_dc::futures_core::Stream<Item = crate::pb::EchoRequest> + Send + 'static {
         self.channel.bidi("/echo.Echo/Bidi", reqs).await
     }
+    pub async fn unary_with_options(&self, req: crate::pb::EchoRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::EchoResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/echo.Echo/Unary", req, options).await
+    }
+    pub async fn server_stream_with_options(&self, req: crate::pb::EchoRequest, options: ::grpc_dc::CallOptions) -> Result<::grpc_dc::ResponseStream<crate::pb::EchoResponse>, ::grpc_dc::Status> {
+        self.channel.server_stream_with_options("/echo.Echo/ServerStream", req, options).await
+    }
+    pub async fn client_stream_with_options<S>(&self, reqs: S, options: ::grpc_dc::CallOptions) -> Result<crate::pb::EchoResponse, ::grpc_dc::Status>
+    where S: ::grpc_dc::futures_core::Stream<Item = crate::pb::EchoRequest> + Send + 'static {
+        self.channel.client_stream_with_options("/echo.Echo/ClientStream", reqs, options).await
+    }
+    pub async fn bidi_with_options<S>(&self, reqs: S, options: ::grpc_dc::CallOptions) -> Result<::grpc_dc::ResponseStream<crate::pb::EchoResponse>, ::grpc_dc::Status>
+    where S: ::grpc_dc::futures_core::Stream<Item = crate::pb::EchoRequest> + Send + 'static {
+        self.channel.bidi_with_options("/echo.Echo/Bidi", reqs, options).await
+    }
 }
 
 #[::grpc_dc::async_trait]

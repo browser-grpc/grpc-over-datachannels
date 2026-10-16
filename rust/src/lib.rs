@@ -33,7 +33,7 @@ pub mod wire_gen;
 
 pub use async_trait::async_trait;
 pub use futures_core;
-pub use channel::Channel;
+pub use channel::{CallOptions, Channel};
 pub use codec::Frame;
 pub use endpoint::{Endpoint, StreamIdParity};
 pub use message::Message;
@@ -47,6 +47,21 @@ pub use dynamic::{
     MethodModel, ServiceModel,
 };
 pub use status::{Code, Status};
+
+/// Sleep seam for deadline enforcement, mirroring spawn_task:
+/// native builds use Tokio's timer. On wasm32 no timer driver is
+/// linked yet, so the future never resolves — grpc-timeout is
+/// still propagated there, but deadlines are not enforced locally.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn sleep(duration: std::time::Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    Box::pin(tokio::time::sleep(duration))
+}
+
+/// Sleep seam (wasm32: unenforced deadlines, see above).
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn sleep(_duration: std::time::Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    Box::pin(std::future::pending())
+}
 
 /// Spawn a background task — the runtime's single executor seam.
 /// Native builds use Tokio; on wasm32 the browser event loop drives
