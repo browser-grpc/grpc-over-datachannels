@@ -164,6 +164,14 @@ type IceAgent struct {
 	// last confirmed (nomination, or a Binding success for it).
 	lastConsent time.Time
 
+	// generation increments on every ICE restart (RFC 8445
+	// §5.1); nominatedGen is the generation that produced the
+	// current nomination. While they differ a restart is in
+	// flight: checks run again, consent pauses, and the old
+	// nominated pair keeps serving media until renomination.
+	generation   int
+	nominatedGen int
+
 	// mu guards RemoteCandidates (trickle additions race the
 	// connect loop and the read loop) and the maps it is used with.
 	mu sync.Mutex
@@ -197,6 +205,49 @@ func (a *IceAgent) SetRemote(ufrag, pwd string, candidates []Candidate) {
 	a.RemoteUfrag = ufrag
 	a.RemotePwd = pwd
 	a.RemoteCandidates = candidates
+	// New remote credentials invalidate prior check state
+	// (initial connect: already empty).
+	a.valid = map[string]bool{}
+	a.outstanding = map[string]outstandingCheck{}
+	a.nominatingSentTo = map[string]bool{}
+}
+
+// Restart begins an ICE restart (RFC 8445 §5.1): fresh local
+// credentials, check state cleared, generation bumped. The
+// nominated pair is retained until a pair from the new
+// generation is nominated, so media keeps flowing meanwhile.
+func (a *IceAgent) Restart() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.LocalUfrag = randomUfrag()
+	a.LocalPwd = randomPassword()
+	a.generation++
+	a.valid = map[string]bool{}
+	a.outstanding = map[string]outstandingCheck{}
+	a.nominatingSentTo = map[string]bool{}
+}
+
+// Generation is the current ICE generation (0 at connect, +1
+// per restart).
+func (a *IceAgent) Generation() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.generation
+}
+
+// Renominated reports whether the nominated pair belongs to
+// the current generation (i.e. no restart is in flight).
+func (a *IceAgent) Renominated() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.Nominated != nil && a.nominatedGen == a.generation
+}
+
+// NominatedAddr is the currently nominated remote address.
+func (a *IceAgent) NominatedAddr() *net.UDPAddr {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.Nominated
 }
 
 // AddRemoteCandidate trickles one remote candidate in after the
@@ -253,7 +304,7 @@ func (a *IceAgent) buildCheck(remote Candidate, nominate bool) Check {
 func (a *IceAgent) DueChecks() []Check {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.Nominated != nil {
+	if a.Nominated != nil && a.nominatedGen == a.generation {
 		return nil
 	}
 	var out []Check
@@ -363,6 +414,7 @@ func (a *IceAgent) HandleStun(raw []byte, src *net.UDPAddr) ([]StunResponse, []I
 		}
 		if !a.controlling && msg.attr(StunAttrUseCandidate) != nil {
 			a.Nominated = src
+			a.nominatedGen = a.generation
 			a.lastConsent = time.Now()
 			events = append(events, IceEvent{"nominated", src})
 		}
@@ -386,6 +438,7 @@ func (a *IceAgent) HandleStun(raw []byte, src *net.UDPAddr) ([]StunResponse, []I
 		}
 		if entry.nominate {
 			a.Nominated = &net.UDPAddr{IP: net.ParseIP(entry.remote.Address), Port: entry.remote.Port}
+			a.nominatedGen = a.generation
 			a.lastConsent = time.Now()
 			events = append(events, IceEvent{"nominated", a.Nominated})
 		}
@@ -399,7 +452,9 @@ func (a *IceAgent) HandleStun(raw []byte, src *net.UDPAddr) ([]StunResponse, []I
 func (a *IceAgent) ConsentCheck() (Check, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.Nominated == nil {
+	if a.Nominated == nil || a.nominatedGen != a.generation {
+		// No pair yet, or an ICE restart is in flight: consent
+		// pauses until renomination.
 		return Check{}, false
 	}
 	for _, cand := range a.RemoteCandidates {
@@ -426,7 +481,7 @@ func (a *IceAgent) TouchConsent() {
 func (a *IceAgent) ConsentExpired(expiry time.Duration) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.Nominated == nil || a.lastConsent.IsZero() {
+	if a.Nominated == nil || a.lastConsent.IsZero() || a.nominatedGen != a.generation {
 		return false
 	}
 	return time.Since(a.lastConsent) > expiry

@@ -68,6 +68,9 @@ type PeerOptions struct {
 	// ConsentExpiry is how long without a consent response
 	// before consent is considered expired; 0 selects 30 s.
 	ConsentExpiry time.Duration
+	// OnRenominated, when set, is invoked once per completed
+	// ICE restart (a pair from the new generation nominated).
+	OnRenominated func()
 	// OnConsentFailure, when set, is invoked exactly once if
 	// consent for the nominated pair expires; the endpoint is
 	// closed so sends fail instead of hitting a dead pair.
@@ -100,6 +103,10 @@ type Peer struct {
 
 	mu     sync.Mutex
 	closed bool
+	// restartGen is the ICE generation a restart check loop is
+	// currently driving (0 = none; generations start at 1
+	// after the first restart).
+	restartGen int
 }
 
 // isIPv6Text reports whether text (an IP literal or host:port)
@@ -310,6 +317,119 @@ func (p *Peer) applyRemote(remote SessionDescription) {
 	p.remote = &remote
 }
 
+// restartSetup is the SDP setup value that keeps the existing
+// DTLS association across an ICE restart (the side that was
+// the DTLS client stays "active", the server "passive").
+func (p *Peer) restartSetup() string {
+	if p.dtlsRole == "client" {
+		return "active"
+	}
+	return "passive"
+}
+
+// CreateRestartOffer begins an ICE restart on a connected peer
+// (RFC 8445 §5.1): fresh local credentials, same candidates
+// and DTLS fingerprint. Hand the result to the remote's
+// HandleRestartOffer and apply its answer with
+// HandleRestartAnswer; media keeps flowing on the old pair
+// until renomination, which fires Options.OnRenominated.
+func (p *Peer) CreateRestartOffer() string {
+	p.agent.Restart()
+	d := p.localDescription(p.restartSetup())
+	return d.Generate("offer")
+}
+
+// HandleRestartOffer applies a restart offer (fresh local
+// credentials too) and returns the restart answer SDP.
+func (p *Peer) HandleRestartOffer(offerSdp string) (string, error) {
+	remote, err := ParseSDP(offerSdp)
+	if err != nil {
+		return "", err
+	}
+	p.agent.Restart()
+	p.applyRemote(*remote)
+	p.startRestartChecks()
+	d := p.localDescription(p.restartSetup())
+	return d.Generate("answer"), nil
+}
+
+// HandleRestartAnswer applies a restart answer SDP.
+func (p *Peer) HandleRestartAnswer(answerSdp string) error {
+	remote, err := ParseSDP(answerSdp)
+	if err != nil {
+		return err
+	}
+	p.applyRemote(*remote)
+	p.startRestartChecks()
+	return nil
+}
+
+// startRestartChecks drives connectivity checks for the
+// current ICE generation until renomination (or peer close /
+// timeout), mirroring the connect loop. TURN permissions are
+// refreshed first so candidates new in the restart SDP are
+// relayable. Only one loop runs per generation.
+func (p *Peer) startRestartChecks() {
+	p.resolveRemoteCandidates()
+	if p.turn != nil {
+		p.turnCreatePermissions(2 * time.Second)
+		p.turn.mu.Lock()
+		peers := append([]*net.UDPAddr(nil), p.turn.peers...)
+		p.turn.mu.Unlock()
+		if len(peers) > 0 {
+			p.turnBindChannels(peers, 2*time.Second)
+		}
+	}
+	generation := p.agent.Generation()
+	p.mu.Lock()
+	if p.restartGen == generation {
+		p.mu.Unlock()
+		return
+	}
+	p.restartGen = generation
+	p.mu.Unlock()
+	go func() {
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			if p.agent.Renominated() && p.agent.Generation() == generation {
+				if p.options.OnRenominated != nil {
+					p.options.OnRenominated()
+				}
+				return
+			}
+			p.mu.Lock()
+			closed := p.closed
+			stale := p.restartGen != generation
+			p.mu.Unlock()
+			if closed || stale {
+				return
+			}
+			for _, check := range p.agent.DueChecks() {
+				if addr, err := net.ResolveUDPAddr("udp",
+					net.JoinHostPort(check.Remote.Address, strconv.Itoa(check.Remote.Port))); err == nil {
+					p.sendTo(check.Bytes, addr)
+				}
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}()
+}
+
+// resolveRemoteCandidates resolves mDNS ".local" candidate
+// addresses to IPs in place (browsers advertise those).
+func (p *Peer) resolveRemoteCandidates() {
+	p.agent.mu.Lock()
+	defer p.agent.mu.Unlock()
+	for i := range p.agent.RemoteCandidates {
+		c := &p.agent.RemoteCandidates[i]
+		if net.ParseIP(c.Address) == nil {
+			if ip := ResolveMDNS(c.Address, 2*time.Second); ip != "" {
+				c.Address = ip
+			}
+		}
+	}
+}
+
 // AddRemoteCandidate trickles one remote candidate in after the
 // remote description was applied (RFC 8445 trickle ICE). Accepts
 // a full SDP line ("a=candidate:..."), the bare candidate value
@@ -389,7 +509,14 @@ type peerIO struct {
 }
 
 func (io *peerIO) Send(buf []byte) error {
-	io.peer.sendTo(buf, io.selected)
+	// The destination follows the agent's nominated pair, so
+	// an ICE restart switches media to the new pair at
+	// renomination (and keeps the old pair until then).
+	dest := io.peer.agent.NominatedAddr()
+	if dest == nil {
+		dest = io.selected
+	}
+	io.peer.sendTo(buf, dest)
 	return nil
 }
 
@@ -421,16 +548,7 @@ func (p *Peer) ConnectWithOptions(requirePeerCert bool) (*DcEndpoint, error) {
 	if p.remote == nil {
 		return nil, errors.New("no remote description")
 	}
-	p.agent.mu.Lock()
-	for i := range p.agent.RemoteCandidates {
-		c := &p.agent.RemoteCandidates[i]
-		if net.ParseIP(c.Address) == nil {
-			if ip := ResolveMDNS(c.Address, 2*time.Second); ip != "" {
-				c.Address = ip
-			}
-		}
-	}
-	p.agent.mu.Unlock()
+	p.resolveRemoteCandidates()
 	if p.turn != nil {
 		// Relay the session: permissions (and channels) for
 		// every remote candidate first, then all pair traffic
