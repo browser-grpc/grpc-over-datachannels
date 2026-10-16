@@ -10,6 +10,8 @@
 // background refresher re-issues CreatePermission, ChannelBind,
 // and Refresh until the peer closes.
 import crypto from "node:crypto";
+import net from "node:net";
+import tls from "node:tls";
 
 import { StunAttribute, StunMessageType } from "./proto_gen.js";
 import { decodeAddressValue, parseHostPort, parseIp, StunMessage, xorMappedAddress } from "./stun.js";
@@ -61,6 +63,7 @@ export class TurnClient {
     this.channels = new Map(); // channel -> {address, port}
     this.nextChan = 0x4000;
     this.waiters = new Map(); // tid hex -> resolve(msg)
+    this.stream = null; // net.Socket for TCP/TLS allocations
     this._refreshTimer = null;
     this._stopped = false;
   }
@@ -101,6 +104,10 @@ export class TurnClient {
     this._stopped = true;
     if (this._refreshTimer) clearTimeout(this._refreshTimer);
     this._refreshTimer = null;
+    if (this.stream) {
+      this.stream.destroy();
+      this.stream = null;
+    }
   }
 
   register(tidHex) {
@@ -125,7 +132,7 @@ export class TurnClient {
 export async function turnRequest(peer, client, msg, key, timeoutMs) {
   const tid = msg.transactionId.toString("hex");
   const responsePromise = client.register(tid);
-  peer.sendTurnControl(msg.encode(key), client.server.port, client.server.address);
+  peer.turnWrite(client, msg.encode(key), false);
   const resp = await Promise.race([
     responsePromise,
     new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs)),
@@ -135,16 +142,109 @@ export async function turnRequest(peer, client, msg, key, timeoutMs) {
   return resp;
 }
 
+// Frames inbound stream bytes into whole TURN messages and
+// feeds each into the peer's TURN demux. STUN messages frame by
+// header length; ChannelData by its length field plus padding
+// to a 4-byte boundary (RFC 5766 section 4).
+function attachStreamFraming(peer, client) {
+  let buf = Buffer.alloc(0);
+  client.stream.on("data", (chunk) => {
+    buf = Buffer.concat([buf, chunk]);
+    for (;;) {
+      if (buf.length < 4) return;
+      if (buf[0] >= 0x40 && buf[0] <= 0x7f) {
+        const length = buf.readUInt16BE(2);
+        const total = 4 + length;
+        const padded = total + ((4 - (total % 4)) % 4);
+        if (buf.length < padded) return;
+        const msg = buf.subarray(0, total);
+        buf = buf.subarray(padded);
+        peer.onTurnPacket(msg);
+      } else {
+        if (buf.length < 20) return;
+        const length = buf.readUInt16BE(2);
+        if (buf.length < 20 + length) return;
+        const msg = buf.subarray(0, 20 + length);
+        buf = buf.subarray(20 + length);
+        peer.onTurnPacket(msg);
+      }
+    }
+  });
+  client.stream.on("error", () => {});
+}
+
+// cfg.transport "tcp"/"tls": open the dedicated stream
+// connection for the allocation ("tls" verifies the server
+// certificate unless cfg.insecureSkipVerify is set;
+// cfg.serverName overrides the verification name).
+function isStreamTransport(cfg) {
+  const transport = String(cfg.transport ?? "udp").toLowerCase();
+  return transport === "tcp" || transport === "tls";
+}
+
+async function connectTurnStream(peer, client, cfg, timeoutMs) {
+  const transport = String(cfg.transport).toLowerCase();
+  const { address: host, port } = client.server;
+  const socket =
+    transport === "tls"
+      ? tls.connect({
+          host,
+          port,
+          // Node rejects IP literals as servername; leaving it
+          // unset makes verification use the IP SAN instead.
+          servername: cfg.serverName ?? (net.isIP(host) ? undefined : host),
+          rejectUnauthorized: !cfg.insecureSkipVerify,
+          minVersion: "TLSv1.2",
+        })
+      : net.connect({ host, port });
+  client.stream = socket;
+  attachStreamFraming(peer, client);
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("turn: stream connect timed out"));
+    }, timeoutMs);
+    const readyEvent = transport === "tls" ? "secureConnect" : "connect";
+    socket.once(readyEvent, () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    socket.once("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
 // Runs the Allocate handshake (with the 401 long-term-credential
 // dance when demanded) and returns the populated TurnClient.
+// cfg is {address, username, password, transport?, serverName?,
+// insecureSkipVerify?}; transport "tcp"/"tls" runs the
+// allocation over a dedicated stream connection instead of the
+// peer's UDP socket (relayed traffic still reaches peers over
+// UDP — REQUESTED-TRANSPORT stays 17).
 export async function allocateTurn(peer, cfg, timeoutMs = 2000) {
   const server = parseHostPort(cfg.address, 3478);
   if (!server) throw new Error(`turn: bad server address: ${cfg.address}`);
+  const transport = String(cfg.transport ?? "udp").toLowerCase();
+  if (!["udp", "tcp", "tls"].includes(transport)) {
+    throw new Error(`turn: unsupported transport ${JSON.stringify(cfg.transport)}`);
+  }
   const client = new TurnClient(server, cfg.username);
   // Publish before the first request: the peer demultiplexes TURN
   // control responses (and later Data indications) by sender
-  // matching its current client.
+  // matching its current client; the stream framing feeds the
+  // same demux for TCP/TLS.
   peer.turn = client;
+  try {
+    if (isStreamTransport(cfg)) {
+      await connectTurnStream(peer, client, cfg, timeoutMs);
+    }
+  } catch (err) {
+    if (peer.turn === client) peer.turn = null;
+    client.stop();
+    throw err;
+  }
 
   const build = (auth) => {
     const msg = new StunMessage(StunMessageType.ALLOCATE_REQUEST);

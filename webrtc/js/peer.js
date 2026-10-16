@@ -119,6 +119,7 @@ export class Peer {
         }
         break; // one relay candidate is enough
       } catch {
+        peer.turn?.stop();
         peer.turn = null; // unreachable TURN server: host/srflx still apply
       }
     }
@@ -145,6 +146,46 @@ export class Peer {
     this.#sendRaw(buf, port, address);
   }
 
+  // Send one TURN message to the server: over the dedicated
+  // stream connection for TCP/TLS allocations (ChannelData
+  // frames padded to a 4-byte boundary, RFC 5766 section 4),
+  // else as a UDP datagram on the peer socket.
+  turnWrite(client, frame, channelData) {
+    if (client.stream) {
+      let out = frame;
+      if (channelData) {
+        const pad = (4 - (frame.length % 4)) % 4;
+        if (pad > 0) out = Buffer.concat([frame, Buffer.alloc(pad)]);
+      }
+      client.stream.write(out);
+      return;
+    }
+    this.#sendRaw(frame, client.server.port, client.server.address);
+  }
+
+  // Handle one message from the TURN server (a UDP datagram, or
+  // one framed message off the TCP/TLS stream): relayed traffic
+  // is unwrapped and re-injected as if it arrived from the
+  // peer; control responses resolve request waiters.
+  onTurnPacket(msg) {
+    if (!this.turn) return;
+    if (msg.length >= 4 && msg[0] >= 0x40 && msg[0] <= 0x7f) {
+      const framed = unwrapChannelData(msg);
+      const peerAddr = framed && this.turn.channels.get(framed.channel);
+      if (peerAddr) this.#onPacket(framed.data, peerAddr);
+      return;
+    }
+    const stun = StunMessage.decode(msg);
+    if (stun) {
+      if (stun.type === StunMessageType.DATA_INDICATION) {
+        const unwrapped = unwrapDataIndication(stun);
+        if (unwrapped) this.#onPacket(unwrapped.data, unwrapped.peer);
+        return;
+      }
+      this.turn.resolve(stun);
+    }
+  }
+
   // Send pair traffic (ICE checks/responses, DTLS) through the
   // allocation once the relay is active: ChannelData framing
   // when a channel is bound for the peer, Send indication else.
@@ -155,7 +196,7 @@ export class Peer {
       const channel = this.turn.bindings.get(`${remote.address}:${remote.port}`);
       const wrapped =
         channel !== undefined ? wrapChannelData(channel, buf) : wrapSendIndication(this.turn, buf, remote);
-      this.#sendRaw(wrapped, this.turn.server.port, this.turn.server.address);
+      this.turnWrite(this.turn, wrapped, channel !== undefined);
       return;
     }
     this.#sendRaw(buf, remote.port, remote.address);
@@ -276,21 +317,8 @@ export class Peer {
       rinfo.address === this.turn.server.address &&
       rinfo.port === this.turn.server.port
     ) {
-      if (msg.length >= 4 && msg[0] >= 0x40 && msg[0] <= 0x7f) {
-        const framed = unwrapChannelData(msg);
-        const peerAddr = framed && this.turn.channels.get(framed.channel);
-        if (peerAddr) this.#onPacket(framed.data, peerAddr);
-        return;
-      }
-      const stun = StunMessage.decode(msg);
-      if (stun) {
-        if (stun.type === StunMessageType.DATA_INDICATION) {
-          const unwrapped = unwrapDataIndication(stun);
-          if (unwrapped) this.#onPacket(unwrapped.data, unwrapped.peer);
-          return;
-        }
-        if (this.turn.resolve(stun)) return;
-      }
+      this.onTurnPacket(msg);
+      return;
     }
     const src = { address: rinfo.address, port: rinfo.port };
     if (msg[0] < 4) {
