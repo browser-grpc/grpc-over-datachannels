@@ -1,4 +1,4 @@
-// Minimal mDNS (RFC 6762) A-record resolution: browsers hide host IPs
+// Minimal mDNS (RFC 6762) A/AAAA resolution: browsers hide host IPs
 // behind "<uuid>.local" ICE candidates, and a native peer must resolve
 // them to reach the browser. One multicast query to 224.0.0.251:5353,
 // first matching answer wins. Node builtins only.
@@ -16,15 +16,20 @@ function encodeName(name) {
   return Buffer.concat(parts);
 }
 
-function buildQuery(id, name) {
+export function buildQuery(id, name) {
   const header = Buffer.alloc(12);
   header.writeUInt16BE(id, 0);
-  header.writeUInt16BE(1, 4); // QDCOUNT
-  // A, IN|QU: the QU bit (RFC 6762 section 5.4) asks for a
+  header.writeUInt16BE(2, 4); // QDCOUNT: A and AAAA
+  // IN|QU: the QU bit (RFC 6762 section 5.4) asks for a
   // unicast response to our ephemeral port; without it some
-  // responders (Firefox) answer by multicast to :5353 only.
-  const question = Buffer.concat([encodeName(name), Buffer.from([0, 1, 0x80, 1])]);
-  return Buffer.concat([header, question]);
+  // responders answer by multicast to :5353 only (we listen
+  // there too; see resolveMdns).
+  const wire = encodeName(name);
+  const questions = Buffer.concat([
+    wire, Buffer.from([0, 1, 0x80, 1]), // A
+    wire, Buffer.from([0, 28, 0x80, 1]), // AAAA
+  ]);
+  return Buffer.concat([header, questions]);
 }
 
 function readName(buf, offset) {
@@ -50,8 +55,7 @@ function readName(buf, offset) {
   return { name: null, next: pos };
 }
 
-/** Extract an A record for `name` from a DNS response packet, or null. */
-export function parseARecord(packet, name) {
+function parseRecord(packet, name, wantType, wantLen) {
   if (packet.length < 12) return null;
   const qd = packet.readUInt16BE(4);
   const an = packet.readUInt16BE(6);
@@ -69,17 +73,42 @@ export function parseARecord(packet, name) {
     const type = packet.readUInt16BE(pos);
     const rdlen = packet.readUInt16BE(pos + 8);
     const rdata = packet.subarray(pos + 10, pos + 10 + rdlen);
-    if (type === 1 && rdlen === 4 && r.name.toLowerCase() === wanted) {
-      return [...rdata].join(".");
+    if (type === wantType && rdlen === wantLen && r.name.toLowerCase() === wanted) {
+      return rdata;
     }
     pos += 10 + rdlen;
   }
   return null;
 }
 
+/** Extract an A record for `name` from a DNS response packet, or null. */
+export function parseARecord(packet, name) {
+  const rdata = parseRecord(packet, name, 1, 4);
+  return rdata ? [...rdata].join(".") : null;
+}
+
+/** Extract an AAAA record for `name` from a DNS response packet, or null. */
+export function parseAAAARecord(packet, name) {
+  const rdata = parseRecord(packet, name, 28, 16);
+  if (!rdata) return null;
+  const groups = [];
+  for (let i = 0; i < 16; i += 2) groups.push(rdata.readUInt16BE(i).toString(16));
+  // Longest run of zero groups collapses to "::" (RFC 5952).
+  let bestStart = -1, bestLen = 0, runStart = -1, runLen = 0;
+  groups.forEach((g, i) => {
+    if (g === "0") { if (runStart < 0) { runStart = i; runLen = 0; } runLen += 1; }
+    else { if (runLen > bestLen) { bestStart = runStart; bestLen = runLen; } runStart = -1; runLen = 0; }
+  });
+  if (runLen > bestLen) { bestStart = runStart; bestLen = runLen; }
+  if (bestLen < 2) return groups.join(":");
+  const head = groups.slice(0, bestStart).join(":");
+  const tail = groups.slice(bestStart + bestLen).join(":");
+  return `${head}::${tail}`;
+}
+
 const cache = new Map();
 
-/** Resolve a ".local" hostname to an IPv4 address, or null. */
+/** Resolve a ".local" hostname to an IP address, or null. */
 export async function resolveMdns(name, timeoutMs = 1500) {
   if (cache.has(name)) return cache.get(name);
   const ip = await new Promise((resolve) => {
@@ -112,7 +141,7 @@ export async function resolveMdns(name, timeoutMs = 1500) {
     for (const socket of sockets) {
       socket.on("error", () => {});
       socket.on("message", (msg) => {
-        const found = parseARecord(msg, name);
+        const found = parseARecord(msg, name) ?? parseAAAARecord(msg, name);
         if (found) done(found);
       });
     }
