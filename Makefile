@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-dart-browser test-dart-wasm-browser demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-dart-browser test-dart-wasm-browser demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -61,6 +61,9 @@ stubs:
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-wasm-go=bin/protoc-gen-grpc-dc-wasm-go \
 		--grpc-dc-wasm-go_out=wasm/go -I proto proto/echo.proto
 	gofmt -w wasm/go/echo_wasm_dc.go
+	mkdir -p wasm/zig
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-wasm-zig=bin/protoc-gen-grpc-dc-wasm-zig \
+		--grpc-dc-wasm-zig_out=wasm/zig -I proto proto/echo.proto
 
 generate: plugins stubs
 
@@ -213,6 +216,14 @@ test-wasm:
 	$(WASM_BINDGEN) --target web --out-dir ../../browser-test/wasm_rust_gen wasm/rust/target/wasm32-unknown-unknown/release/grpc_dc_wasm_rust.wasm
 	cd browser-test && node wasm.test.mjs all && node wasm_rust.test.mjs all
 
+test-zig-wasm-browser:
+	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
+		--dep grpcdc_status --dep echo_messages \
+		-Mroot=wasm/zig/echo_client.zig -Mgrpcdc_status=zig/grpcdc/status.zig \
+		-Mecho_messages=zig/examples/echo_messages.zig \
+		-femit-bin=browser-test/echo_zig.wasm
+	cd browser-test && node wasm_zig.test.mjs all
+
 test-dart-browser:
 	$(DART) compile js wasm/dart/echo_client.dart -o browser-test/echo_dart.js
 	cd browser-test && node dart.test.mjs all
@@ -221,7 +232,7 @@ test-dart-wasm-browser:
 	$(DART) compile wasm wasm/dart/echo_client.dart -o browser-test/echo_dart_wasm.wasm
 	cd browser-test && node dart_wasm.test.mjs all
 
-test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-dart-browser test-dart-wasm-browser
+test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-dart-browser test-dart-wasm-browser
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo
@@ -229,8 +240,8 @@ demos:
 	cd go && go run ./examples/echo_demo
 
 clean-gen:
-	rm -f bin/protoc-gen-grpc-dc-kotlin bin/protoc-gen-grpc-dc-rust bin/protoc-gen-grpc-dc-js bin/protoc-gen-grpc-dc-go bin/protoc-gen-grpc-dc-wasm-go bin/protoc-gen-grpc-dc-cpp bin/protoc-gen-grpc-dc-swift
-	rm -f rust/gen/echo_grpc_dc.rs js/examples/echo_grpc_dc.js go/examples/echo_grpc_dc.go wasm/go/echo_wasm_dc.go cpp/examples/echo_grpc_dc.hpp swift/examples/EchoGrpcDc.swift kotlin/examples/EchoGrpcDc.kt
+	rm -f bin/protoc-gen-grpc-dc-kotlin bin/protoc-gen-grpc-dc-rust bin/protoc-gen-grpc-dc-js bin/protoc-gen-grpc-dc-go bin/protoc-gen-grpc-dc-wasm-go bin/protoc-gen-grpc-dc-wasm-zig bin/protoc-gen-grpc-dc-cpp bin/protoc-gen-grpc-dc-swift
+	rm -f rust/gen/echo_grpc_dc.rs js/examples/echo_grpc_dc.js go/examples/echo_grpc_dc.go wasm/go/echo_wasm_dc.go wasm/zig/echo_wasm_dc.zig cpp/examples/echo_grpc_dc.hpp swift/examples/EchoGrpcDc.swift kotlin/examples/EchoGrpcDc.kt
 	rm -f rust/src/wire_gen.rs js/wire_gen.js go/wire_gen.go fixtures/vectors.json
 	rm -f rust/src/{lib,codec,status,message,transport,endpoint,channel,server,webrtc_transport}.rs
 	rm -f js/src/{codec,endpoint,channel,server,loopback}.js

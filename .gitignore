@@ -2,6 +2,7 @@
 /webrtc/rust/target/
 node_modules/
 browser-test/echo.wasm
+browser-test/echo_zig.wasm
 browser-test/wasm_exec.js
 __pycache__/
 /java/build/

@@ -91,6 +91,7 @@
                                     [(emit-lua-file) "template-lua.rkt"]
                                     [(emit-ruby-file) "template-ruby.rkt"]
                                     [(emit-wasm-go-file) "template-wasm-go.rkt"]
+                                    [(emit-wasm-zig-file) "template-wasm-zig.rkt"]
                                     [else "template-js.rkt"]))
                out)
   ;; Splice the emit function name into the main form at the datum level.
@@ -890,6 +891,7 @@
   (write-plugin "protoc-gen-grpc-dc-js" 'emit-js-file)
   (write-plugin "protoc-gen-grpc-dc-go" 'emit-go-file)
   (write-plugin "protoc-gen-grpc-dc-wasm-go" 'emit-wasm-go-file)
+  (write-plugin "protoc-gen-grpc-dc-wasm-zig" 'emit-wasm-zig-file)
   (write-plugin "protoc-gen-grpc-dc-python" 'emit-python-file)
   (write-plugin "protoc-gen-grpc-dc-java" 'emit-java-file)
   (write-plugin "protoc-gen-grpc-dc-csharp" 'emit-csharp-file)
