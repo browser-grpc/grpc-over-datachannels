@@ -104,6 +104,23 @@ RUN case "$TARGETARCH" in arm64) ZIG_ARCH=aarch64 ;; *) ZIG_ARCH=x86_64 ;; esac 
   && rm /tmp/zig.tar.xz
 ENV PATH="/usr/local/zig-dist:${PATH}"
 
+# wasi-sdk 33 for the native C++ WASM build
+# (test-cpp-wasm-native-browser): its exception-enabled libc++
+# (share/wasi-sysroot/lib/wasm32-wasip1/eh) is what Zig's
+# wasm32 libc++ lacks, and the native C++ runtime throws
+# StatusException. Toolchain only — generated code stays
+# stdlib-only. Arch-aware like the Zig stage.
+ARG TARGETARCH
+RUN case "$TARGETARCH" in \
+      arm64) WASI_ARCH=arm64; WASI_SHA=4f98ee738c7abb45c81a94d1461fc53cc569d1cd01498951c8184d841a027844 ;; \
+      *) WASI_ARCH=x86_64; WASI_SHA=0ba8b5bfaeb2adf3f29bab5841d76cf5318ab8e1642ea195f88baba1abd47bce ;; \
+    esac \
+  && curl -fsSL "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-${WASI_ARCH}-linux.tar.gz" -o /tmp/wasi-sdk.tar.gz \
+  && echo "${WASI_SHA}  /tmp/wasi-sdk.tar.gz" | sha256sum -c - \
+  && mkdir -p /usr/local/wasi-sdk-33 \
+  && tar -xzf /tmp/wasi-sdk.tar.gz -C /usr/local/wasi-sdk-33 --strip-components=1 \
+  && rm /tmp/wasi-sdk.tar.gz
+
 # Lua 5.4 sources for the browser WASM build (test-lua-wasm-browser
 # compiles the VM to wasm32-wasi with zig cc).
 RUN curl -fsSL https://www.lua.org/ftp/lua-5.4.7.tar.gz -o /tmp/lua.tar.gz \
@@ -200,7 +217,7 @@ RUN cd wasm/go && GOOS=js GOARCH=wasm go build -o ../../browser-test/echo.wasm .
 
 # Warm the C++ builds (stdlib only).
 RUN mkdir -p cpp/build \
-  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp -o cpp/build/tests \
+  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp -o cpp/build/tests \
   && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio \
   && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio \
   && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/dynamic_echo_server_stdio.cpp -o cpp/build/dynamic_echo_server_stdio

@@ -65,11 +65,16 @@ language's idiom: Python `timeout=`, JS `{timeout}`, Go
 Zig `timeout_ms`). On wasm32, Rust enforces deadlines through
 the host JavaScript `setTimeout`, and the native Zig runtime
 through a host monotonic-clock hook installed by its browser
-transport (`performance.now()` in the worker). One caveat is an
+transport (`performance.now()` in the worker). The native C++
+wasm32 runtime enforces through `std::chrono::steady_clock`,
+backed by the worker's WASI `clock_time_get` (monotonic), with
+the endpoint in inline pump mode: Transports may offer a
+bounded `TryRecv`, in which case no read/dispatch threads are
+spawned and stream waits pump the transport. One caveat is an
 implementation limit, not a wire difference: in cooperative
-pump runtimes (Lua single-threaded, Zig inline mode) a handler
-already running inline cannot be preempted — the deadline is
-checked between messages.
+pump runtimes (Lua single-threaded, Zig and C++ inline mode) a
+handler already running inline cannot be preempted — the
+deadline is checked between messages.
 
 ## Backpressure
 

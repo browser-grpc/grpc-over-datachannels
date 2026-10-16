@@ -8,9 +8,9 @@ dependency-free runtimes exist for **Rust, JavaScript, Go, Python,
 Java, C#, C++, Swift, Kotlin, Dart, Zig, Lua, and Ruby**, plus
 descriptor-driven dynamic clients/servers, a reimplemented
 zero-dependency WebRTC stack (Go/JS/Rust, [SPEC-WEBRTC.md](SPEC-WEBRTC.md)),
-and browser clients in JavaScript, native Rust/Dart/Zig/Lua WASM
-runtimes, and generated Go, Zig, C++, Swift, and Kotlin WASM
-facades over the JS bridge.
+and browser clients in JavaScript, native Rust/Dart/Zig/Lua/C++
+WASM runtimes, and generated Go, Zig, C++, Swift, and Kotlin
+WASM facades over the JS bridge.
 
 Everything protocol-shaped is generated from **one Racket source of
 truth** by recursive metaprogramming, in three levels:
@@ -150,9 +150,14 @@ codec/endpoint/stub code in the page — Rust compiled to WASM
 `dart compile wasm` (`wasm/dart`), the Zig runtime compiled to WASM
 running in a Web Worker over a SharedArrayBuffer mailbox
 (`wasm/zig/native` — its blocking pump model maps onto the worker),
-and Lua: the 5.4 interpreter compiled to `wasm32-wasi` with an
+Lua: the 5.4 interpreter compiled to `wasm32-wasi` with an
 exception-handling-based `setjmp` (`wasm/lua`), executing the real
-generated Lua runtime from embedded sources in a worker.
+generated Lua runtime from embedded sources in a worker, and C++:
+the real `grpcdc` runtime and native generated stub compiled to
+`wasm32-wasip1` with wasi-sdk's exception-enabled libc++
+(`wasm/cpp/native`), endpoint in the new inline pump mode
+(Transports offering `TryRecv` run without read/dispatch threads;
+stream waits pump the transport) in a worker.
 **Facades** wrap the JS implementation: `js/src/wasm_bridge.js`
 exposes a byte-level bridge, and generated facades (plugins
 `protoc-gen-grpc-dc-wasm-{go,zig,cpp,swift,kotlin}`) give Go,
@@ -163,7 +168,8 @@ the tested JS runtime. `make test-wasm`, `make
 test-zig-wasm-browser`, `make test-zig-wasm-native-browser`,
 `make test-lua-wasm-browser`, `make test-dart-browser`,
 `make test-dart-wasm-browser`, `make test-cpp-wasm-browser`,
-`make test-swift-wasm-browser`, and `make
+`make test-cpp-wasm-native-browser`, `make
+test-swift-wasm-browser`, and `make
 test-kotlin-wasm-browser` run each in Chromium and Firefox over
 a native `RTCDataChannel`.
 
@@ -204,8 +210,9 @@ oracle/                  TCP<->DataChannel bridge (bridge.mjs) and the
 wasm/                    browser clients: go/, zig/, cpp/,
                          swift/, and kotlin/ (generated facades
                          over the JS bridge), rust/, dart/,
-                         zig/native/, and lua/ (native runtimes in
-                         WASM, incl. worker/SAB mailbox bridges)
+                         zig/native/, cpp/native/, and lua/
+                         (native runtimes in WASM, incl.
+                         worker/SAB mailbox bridges)
 Dockerfile.ci            all build/test/tooling in one image
 Makefile                 generate / test / demos
 ```

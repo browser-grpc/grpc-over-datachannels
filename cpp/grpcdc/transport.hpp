@@ -16,6 +16,22 @@ class Transport {
   /// Next message; throws EndOfStream when closed.
   virtual Bytes Recv() = 0;
   virtual void Close() {}
+
+  enum class TryRecvResult { kMessage, kWouldBlock, kClosed };
+
+  /// Optional bounded/non-blocking receive for single-threaded
+  /// environments (wasm32): kMessage fills out, kWouldBlock when
+  /// no message arrived within the transport's short wait,
+  /// kClosed when the transport is closed. When a transport
+  /// reports HasTryRecv(), the endpoint runs in inline pump
+  /// mode — no read or dispatch threads; stream waits pump the
+  /// transport through this hook instead of blocking on a
+  /// condition variable.
+  virtual TryRecvResult TryRecv(Bytes& out) {
+    (void)out;
+    return TryRecvResult::kWouldBlock;
+  }
+  virtual bool HasTryRecv() const { return false; }
 };
 
 /// Implemented by hand-written protobuf message types.

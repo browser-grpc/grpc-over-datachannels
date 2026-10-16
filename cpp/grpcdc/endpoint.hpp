@@ -35,6 +35,10 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
   /// Receiving queue of one stream; closed after a terminal event.
   class StreamInput {
    public:
+    /// Inline (single-threaded) mode: Get/GetFor drive the
+    /// endpoint pump instead of waiting on the condition variable.
+    void SetPump(Endpoint* endpoint) { pump_endpoint_ = endpoint; }
+
     void Put(StreamEvent evt) {
       {
         std::lock_guard<std::mutex> lock(mu_);
@@ -51,26 +55,60 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     }
     /// Next event; returns false once the stream is closed and drained.
     bool Get(StreamEvent& out) {
-      std::unique_lock<std::mutex> lock(mu_);
-      cv_.wait(lock, [&] { return !queue_.empty() || closed_; });
-      if (queue_.empty()) return false;
-      out = std::move(queue_.front());
-      queue_.pop_front();
-      return true;
+      while (true) {
+        Endpoint* pump = nullptr;
+        {
+          std::unique_lock<std::mutex> lock(mu_);
+          if (!queue_.empty()) {
+            out = std::move(queue_.front());
+            queue_.pop_front();
+            return true;
+          }
+          if (closed_) return false;
+          if (!pump_endpoint_) {
+            cv_.wait(lock, [&] { return !queue_.empty() || closed_; });
+            continue;
+          }
+          pump = pump_endpoint_;
+        }
+        // Inline mode: pump the endpoint (which delivers via
+        // Put) instead of waiting. The queue mutex is released
+        // first, since Put re-acquires it.
+        pump->PollOnce();
+      }
     }
 
     enum class GetResult { kOk, kClosed, kTimeout };
 
     /// Timed Get: kTimeout when the wait expires with no event.
     GetResult GetFor(StreamEvent& out, std::chrono::milliseconds timeout) {
-      std::unique_lock<std::mutex> lock(mu_);
-      if (!cv_.wait_for(lock, timeout, [&] { return !queue_.empty() || closed_; })) {
-        return GetResult::kTimeout;
+      const auto deadline = std::chrono::steady_clock::now() + timeout;
+      while (true) {
+        Endpoint* pump = nullptr;
+        {
+          std::unique_lock<std::mutex> lock(mu_);
+          if (!queue_.empty()) {
+            out = std::move(queue_.front());
+            queue_.pop_front();
+            return GetResult::kOk;
+          }
+          if (closed_) return GetResult::kClosed;
+          if (!pump_endpoint_) {
+            auto remaining = deadline - std::chrono::steady_clock::now();
+            if (remaining.count() <= 0) return GetResult::kTimeout;
+            if (!cv_.wait_for(lock, remaining,
+                              [&] { return !queue_.empty() || closed_; })) {
+              return GetResult::kTimeout;
+            }
+            continue;
+          }
+          pump = pump_endpoint_;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+          return GetResult::kTimeout;
+        }
+        pump->PollOnce();
       }
-      if (queue_.empty()) return GetResult::kClosed;
-      out = std::move(queue_.front());
-      queue_.pop_front();
-      return GetResult::kOk;
     }
 
    private:
@@ -78,6 +116,7 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     std::condition_variable cv_;
     std::deque<StreamEvent> queue_;
     bool closed_ = false;
+    Endpoint* pump_endpoint_ = nullptr;
   };
 
   /// Per-call context: metadata sent in HEADERS, plus deadline.
@@ -138,9 +177,41 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
       std::lock_guard<std::mutex> lock(start_mu_);
       if (started_) return;
       started_ = true;
+      // A TryRecv transport runs inline instead of on a read
+      // thread: no thread is spawned and stream waits pump the
+      // transport (single-threaded environments such as wasm32).
+      inline_pump_ = transport_->HasTryRecv();
     }
+    if (inline_pump_) return;
     auto self = shared_from_this();
     std::thread([self] { self->ReadLoop(); }).detach();
+  }
+
+  /// Whether this endpoint runs in inline pump mode (Start
+  /// decided from the transport's HasTryRecv).
+  bool inline_pump() const { return inline_pump_; }
+
+  /// Inline mode: receive and dispatch at most one message.
+  /// Stream waits call this through StreamInput's pump hook; a
+  /// server-only program drives its endpoint by calling it in
+  /// a loop.
+  void PollOnce() {
+    if (closed_) return;
+    Bytes data;
+    Transport::TryRecvResult result;
+    try {
+      result = transport_->TryRecv(data);
+    } catch (...) {
+      FailAll();
+      return;
+    }
+    if (result == Transport::TryRecvResult::kClosed) {
+      FailAll();
+      return;
+    }
+    if (result == Transport::TryRecvResult::kMessage && !closed_) {
+      OnBytes(data);
+    }
   }
 
   void SetDispatcher(Dispatcher dispatcher) { dispatcher_ = std::move(dispatcher); }
@@ -158,6 +229,7 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
       next_id_ += 2;
     }
     auto input = std::make_shared<StreamInput>();
+    AttachPump(input);
     {
       std::lock_guard<std::mutex> lock(mu_);
       streams_[id] = input;
@@ -207,6 +279,10 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
   }
 
  private:
+  void AttachPump(const std::shared_ptr<StreamInput>& input) {
+    if (inline_pump_ || transport_->HasTryRecv()) input->SetPump(this);
+  }
+
   std::shared_ptr<StreamInput> Stream(std::uint32_t id) {
     std::lock_guard<std::mutex> lock(mu_);
     auto it = streams_.find(id);
@@ -325,43 +401,59 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
       return;
     }
     auto stream_input = std::make_shared<StreamInput>();
+    AttachPump(stream_input);
     {
       std::lock_guard<std::mutex> lock(mu_);
       streams_[stream_id] = stream_input;
     }
     Dispatcher dispatcher = dispatcher_;
     auto self = shared_from_this();
+    (void)self;  // keeps the endpoint alive across the call below
+    if (inline_pump_) {
+      // Single-threaded mode: run the handler on this pump
+      // stack instead of a dispatch thread. Its stream waits
+      // re-enter PollOnce through the input's pump hook.
+      DispatchCall(stream_id, stream_input, headers, dispatcher);
+      return;
+    }
     std::thread([self, this, stream_id, stream_input, headers, dispatcher] {
-      ResponseSink sink(this, stream_id);
+      DispatchCall(stream_id, stream_input, headers, dispatcher);
+    }).detach();
+  }
+
+  void DispatchCall(std::uint32_t stream_id,
+                    const std::shared_ptr<StreamInput>& stream_input,
+                    const Codec::Headers& headers,
+                    const Dispatcher& dispatcher) {
+    ResponseSink sink(this, stream_id);
+    try {
       try {
-        try {
-          sink.SendHeaders();
-        } catch (...) {
-          CloseStream(stream_id);
-          return;
-        }
-        StatusException status(wire::kCodeOk, "");
-        try {
-          CallContext ctx;
-          ctx.metadata = headers.metadata;
-          if (auto it = headers.metadata.find("grpc-timeout");
-              it != headers.metadata.end()) {
-            if (auto remaining = Codec::ParseTimeout(it->second)) {
-              ctx.deadline = std::chrono::steady_clock::now() + *remaining;
-            }
+        sink.SendHeaders();
+      } catch (...) {
+        CloseStream(stream_id);
+        return;
+      }
+      StatusException status(wire::kCodeOk, "");
+      try {
+        CallContext ctx;
+        ctx.metadata = headers.metadata;
+        if (auto it = headers.metadata.find("grpc-timeout");
+            it != headers.metadata.end()) {
+          if (auto remaining = Codec::ParseTimeout(it->second)) {
+            ctx.deadline = std::chrono::steady_clock::now() + *remaining;
           }
-          status = dispatcher(ctx, headers, stream_input, sink);
-        } catch (...) {
-          status = StatusException::ToStatus(std::current_exception());
         }
-        try {
-          sink.SendTrailers(status);
-        } catch (...) {
-        }
+        status = dispatcher(ctx, headers, stream_input, sink);
+      } catch (...) {
+        status = StatusException::ToStatus(std::current_exception());
+      }
+      try {
+        sink.SendTrailers(status);
       } catch (...) {
       }
-      CloseStream(stream_id);
-    }).detach();
+    } catch (...) {
+    }
+    CloseStream(stream_id);
   }
 
   std::shared_ptr<Transport> transport_;
@@ -373,6 +465,7 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
   std::map<std::uint32_t, std::shared_ptr<StreamInput>> streams_;
   std::atomic<bool> closed_{false};
   bool started_ = false;
+  bool inline_pump_ = false;
 };
 
 }  // namespace grpcdc

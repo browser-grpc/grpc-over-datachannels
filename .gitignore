@@ -30,6 +30,7 @@ browser-test/echo_dart_wasm.support.js
 browser-test/echo_lua.wasm
 wasm/lua/modules.h
 browser-test/echo_cpp.wasm
+browser-test/echo_cpp_native.wasm
 browser-test/echo_swift.wasm
 /browser-test/kotlin_wasm_gen/
 /wasm/swift/build/

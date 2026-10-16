@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-swift-wasm-browser test-kotlin-wasm-browser demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-kotlin-wasm-browser demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -132,13 +132,14 @@ CXXFLAGS ?= -std=c++17 -pthread -O1 -Icpp -I.
 
 test-cpp:
 	mkdir -p cpp/build
-	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp -o cpp/build/tests
+	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp -o cpp/build/tests
 	$(CXX) $(CXXFLAGS) cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/dynamic_echo_server_stdio.cpp -o cpp/build/dynamic_echo_server_stdio
 	cd cpp && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestOracle \
-		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline
+		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
+		&& ./build/tests TestInlinePump
 	# C++20 coroutine surface test: built with zig's clang because
 	# GCC 13 hits an ICE (build_special_member_call) on this file.
 	$(ZIG) c++ -std=c++20 -pthread -O1 -Icpp -I. cpp/tests/test_async.cpp -o cpp/build/test_async
@@ -299,6 +300,26 @@ test-cpp-wasm-browser:
 		-o browser-test/echo_cpp.wasm
 	cd browser-test && node wasm_facade.test.mjs C++ "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm" all
 
+WASI_SDK ?= $(firstword $(wildcard $(HOME)/.local/wasi-sdk-33 /usr/local/wasi-sdk-33 /opt/wasi-sdk-33))
+WASI_CXX ?= $(WASI_SDK)/bin/clang++
+
+# Native C++ WASM runtime: the real grpcdc runtime + native
+# generated stub (cpp/examples) in a Web Worker over a
+# SharedArrayBuffer mailbox, endpoint in inline pump mode.
+# Needs wasi-sdk 33's exception-enabled libc++ (eh multilib) —
+# Zig's wasm32 libc++ has no exception runtime and the native
+# runtime throws StatusException. Installed by Dockerfile.ci
+# (developer machines: ~/.local/wasi-sdk-33, same version).
+test-cpp-wasm-native-browser:
+	$(WASI_CXX) -target wasm32-wasip1 -std=c++17 -O1 -mexec-model=reactor \
+		-fwasm-exceptions -mllvm -wasm-use-legacy-eh=false \
+		-Icpp -I. -Iwasm/cpp/native \
+		-L$(WASI_SDK)/share/wasi-sysroot/lib/wasm32-wasip1/eh -lunwind \
+		-Wl,--export=_initialize -Wl,--export=run_echo_client \
+		wasm/cpp/native/echo_client.cpp \
+		-o browser-test/echo_cpp_native.wasm
+	cd browser-test && node wasm_cpp_native.test.mjs all
+
 WASM_LD ?= wasm-ld
 SWIFT_WASM_LIBDIR ?= $(shell $(SWIFTC) -print-target-info 2>/dev/null | sed -n 's/.*"runtimeResourcePath": "\([^"]*\)".*/\1/p')/embedded/wasm32-unknown-none-wasm
 
@@ -355,7 +376,7 @@ test-kotlin-wasm-browser:
 		-module-kind es -target es2015 -main noCall -Xir-produce-js
 	cd browser-test && node wasm_facade.test.mjs Kotlin wasm_kotlin_page.html all
 
-test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-swift-wasm-browser test-kotlin-wasm-browser
+test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-kotlin-wasm-browser
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo
