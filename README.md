@@ -145,16 +145,21 @@ DataChannel — so the wire stays compression-free (see Known limits).
 
 Browser clients come in two kinds. **Native runtimes** run the real
 codec/endpoint/stub code in the page — Rust compiled to WASM
-(`wasm/rust`) and Dart via both `dart compile js` and
-`dart compile wasm` (`wasm/dart`) — with only a DataChannel
-send/receive bridge to JS. **Facades** wrap the JS implementation:
-`js/src/wasm_bridge.js` exposes a byte-level bridge, and generated
-facades (plugins `protoc-gen-grpc-dc-wasm-go` and
-`protoc-gen-grpc-dc-wasm-zig`) give Go and Zig typed clients whose
-calls execute in the tested JS runtime. `make test-wasm`,
-`make test-zig-wasm-browser`, `make test-dart-browser`, and
-`make test-dart-wasm-browser` run each in Chromium and Firefox over
-a native `RTCDataChannel`.
+(`wasm/rust`), Dart via both `dart compile js` and
+`dart compile wasm` (`wasm/dart`), the Zig runtime compiled to WASM
+running in a Web Worker over a SharedArrayBuffer mailbox
+(`wasm/zig/native` — its blocking pump model maps onto the worker),
+and Lua: the 5.4 interpreter compiled to `wasm32-wasi` with an
+exception-handling-based `setjmp` (`wasm/lua`), executing the real
+generated Lua runtime from embedded sources in a worker.
+**Facades** wrap the JS implementation: `js/src/wasm_bridge.js`
+exposes a byte-level bridge, and generated facades (plugins
+`protoc-gen-grpc-dc-wasm-go` and `protoc-gen-grpc-dc-wasm-zig`)
+give Go and Zig typed clients whose calls execute in the tested JS
+runtime. `make test-wasm`, `make test-zig-wasm-browser`,
+`make test-zig-wasm-native-browser`, `make test-lua-wasm-browser`,
+`make test-dart-browser`, and `make test-dart-wasm-browser` run
+each in Chromium and Firefox over a native `RTCDataChannel`.
 
 `make test` also covers the reimplemented WebRTC stack itself
 (`webrtc/`, see SPEC-WEBRTC.md): three independent stacks (Go stdlib,
@@ -191,8 +196,9 @@ browser-test/            Playwright real-browser interop tests
 oracle/                  TCP<->DataChannel bridge (bridge.mjs) and the
                          official grpc-java oracle (java/)
 wasm/                    browser clients: go/ and zig/ (generated
-                         facades over the JS bridge), rust/ and dart/
-                         (native runtimes compiled to WASM/JS)
+                         facades over the JS bridge), rust/, dart/,
+                         zig/native/, and lua/ (native runtimes in
+                         WASM, incl. worker/SAB mailbox bridges)
 Dockerfile.ci            all build/test/tooling in one image
 Makefile                 generate / test / demos
 ```
