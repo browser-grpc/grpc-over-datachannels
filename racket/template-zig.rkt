@@ -51,17 +51,17 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "    pub fn ~a(self: *~aClient, req: *const ~a, metadata: ?*const Metadata) status_mod.CallResult(~a) {\n"
+              "    pub fn ~a(self: *~aClient, req: *const ~a, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a) {\n"
               "        var resp = ~a{};\n"
-              "        const st = self.channel.unary(~s, req, &resp, metadata);\n"
+              "        const st = self.channel.unary(~s, req, &resp, metadata, timeout_ms);\n"
               "        if (!st.isOk()) return .{ .status = st };\n"
               "        return .{ .ok = resp };\n"
               "    }\n\n")
              name svc req resp resp path)]
     [(server-streaming)
      (format (string-append
-              "    pub fn ~a(self: *~aClient, req: *const ~a, metadata: ?*const Metadata) status_mod.CallResult(~a~aClient) {\n"
-              "        switch (self.channel.serverStream(~s, req, metadata)) {\n"
+              "    pub fn ~a(self: *~aClient, req: *const ~a, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a~aClient) {\n"
+              "        switch (self.channel.serverStream(~s, req, metadata, timeout_ms)) {\n"
               "            .ok => |stream| return .{ .ok = .{ .stream = stream } },\n"
               "            .status => |st| return .{ .status = st },\n"
               "        }\n"
@@ -69,17 +69,17 @@
              name svc req svc orig-name path)]
     [(client-streaming)
      (format (string-append
-              "    pub fn ~a(self: *~aClient, reqs: []const ~a, metadata: ?*const Metadata) status_mod.CallResult(~a) {\n"
+              "    pub fn ~a(self: *~aClient, reqs: []const ~a, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a) {\n"
               "        var resp = ~a{};\n"
-              "        const st = self.channel.clientStreamCall(~s, reqs, &resp, metadata);\n"
+              "        const st = self.channel.clientStreamCall(~s, reqs, &resp, metadata, timeout_ms);\n"
               "        if (!st.isOk()) return .{ .status = st };\n"
               "        return .{ .ok = resp };\n"
               "    }\n\n")
              name svc req resp resp path)]
     [(bidi)
      (format (string-append
-              "    pub fn ~a(self: *~aClient, reqs: []const ~a, metadata: ?*const Metadata) status_mod.CallResult(~a~aClient) {\n"
-              "        switch (self.channel.bidi(~s, reqs, metadata)) {\n"
+              "    pub fn ~a(self: *~aClient, reqs: []const ~a, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a~aClient) {\n"
+              "        switch (self.channel.bidi(~s, reqs, metadata, timeout_ms)) {\n"
               "            .ok => |stream| return .{ .ok = .{ .stream = stream } },\n"
               "            .status => |st| return .{ .status = st },\n"
               "        }\n"

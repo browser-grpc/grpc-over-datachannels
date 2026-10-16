@@ -19,6 +19,9 @@ const Cond = if (builtin.single_threaded) struct {
     pub fn wait(_: *@This(), _: *std.Thread.Mutex) void {
         unreachable;
     }
+    pub fn timedWait(_: *@This(), _: *std.Thread.Mutex, _: u64) error{Timeout}!void {
+        unreachable;
+    }
     pub fn signal(_: *@This()) void {}
     pub fn broadcast(_: *@This()) void {}
 } else std.Thread.Condition;
@@ -48,6 +51,21 @@ pub const StreamEvent = struct {
 /// Receiving queue of one stream; closed after a terminal event.
 /// put transfers ownership of the event's allocations; get transfers
 /// them to the caller (free with event.deinit).
+/// Monotonic milliseconds, or null on targets without a clock
+/// (wasm32-freestanding: deadlines propagate but are not enforced
+/// locally there).
+pub fn nowMs() ?i64 {
+    if (comptime builtin.single_threaded) {
+        return null;
+    }
+    return std.time.milliTimestamp();
+}
+
+pub const GetResult = union(enum) {
+    event: ?StreamEvent,
+    timeout,
+};
+
 pub const StreamInput = struct {
     mutex: std.Thread.Mutex = .{},
     cond: Cond = .{},
@@ -100,6 +118,27 @@ pub const StreamInput = struct {
         return self.queue.orderedRemove(0);
     }
 
+    /// Timed get: .timeout when the deadline (nowMs clock) passes.
+    pub fn getUntil(self: *StreamInput, deadline_ms: ?i64) GetResult {
+        const deadline = deadline_ms orelse return .{ .event = self.get() };
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        while (self.queue.items.len == 0) {
+            if (self.closed) return .{ .event = null };
+            const now = nowMs() orelse deadline;
+            if (now >= deadline) return .timeout;
+            if (self.pump_fn) |pf| {
+                self.mutex.unlock();
+                pf(self.pump_ctx.?);
+                self.mutex.lock();
+                continue;
+            }
+            const remaining_ns: u64 = @intCast((deadline - now) * std.time.ns_per_ms);
+            self.cond.timedWait(&self.mutex, remaining_ns) catch return .timeout;
+        }
+        return .{ .event = self.queue.orderedRemove(0) };
+    }
+
     pub fn deinit(self: *StreamInput, alloc: std.mem.Allocator) void {
         for (self.queue.items) |*ev| ev.deinit(alloc);
         self.queue.deinit(alloc);
@@ -109,6 +148,20 @@ pub const StreamInput = struct {
 /// Per-call context: metadata sent in HEADERS.
 pub const CallContext = struct {
     metadata: Metadata,
+    /// Deadline (nowMs clock) propagated via grpc-timeout, if any.
+    deadline_ms: ?i64 = null,
+
+    /// Milliseconds left before the deadline, or null when unbounded.
+    pub fn timeRemainingMs(self: *const CallContext) ?i64 {
+        const deadline = self.deadline_ms orelse return null;
+        const now = nowMs() orelse return null;
+        return @max(0, deadline - now);
+    }
+
+    pub fn deadlineExceeded(self: *const CallContext) bool {
+        const left = self.timeRemainingMs() orelse return false;
+        return left == 0;
+    }
 };
 
 /// Sends response payloads of one inbound call.
@@ -289,6 +342,24 @@ pub const Endpoint = struct {
         _ = self.streams.remove(id);
     }
 
+    /// Abort one stream: RST out; a pending get wakes with CANCELLED.
+    pub fn cancelStream(self: *Endpoint, id: u32) void {
+        self.streams_mutex.lock();
+        const input = self.streams.fetchRemove(id);
+        self.streams_mutex.unlock();
+        if (input) |kv| {
+            const msg = self.alloc.dupe(u8, "call cancelled") catch "";
+            kv.value.put(self.alloc, .{ .kind = .rst, .status = Status.init(wire.codeCancelled, msg) });
+            kv.value.close();
+        }
+        const frame = switch (Codec.statusFrame(self.alloc, wire.frameRst, id, Status.init(wire.codeCancelled, "call cancelled"))) {
+            .bytes => |b| b,
+            .status => return,
+        };
+        defer self.alloc.free(frame);
+        self.sendFrame(frame);
+    }
+
     fn stream(self: *Endpoint, id: u32) ?*StreamInput {
         self.streams_mutex.lock();
         defer self.streams_mutex.unlock();
@@ -452,7 +523,14 @@ pub const Endpoint = struct {
         defer Codec.freeHeaders(self.alloc, &headers);
         const sink = ResponseSink{ .endpoint = self, .stream_id = args.stream_id };
         sink.sendHeaders();
-        const call_ctx = CallContext{ .metadata = headers.metadata };
+        var call_ctx = CallContext{ .metadata = headers.metadata };
+        if (headers.metadata.get("grpc-timeout")) |text| {
+            if (Codec.parseTimeout(text)) |ms| {
+                if (nowMs()) |now| {
+                    call_ctx.deadline_ms = now + @as(i64, @intCast(ms));
+                }
+            }
+        }
         const st = args.dispatcher(args.ctx, call_ctx, headers, args.input, sink);
         sink.sendTrailers(st);
     }

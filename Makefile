@@ -178,7 +178,7 @@ test-zig:
 	cd zig && rm -rf build .zig-cache && $(ZIG) build --prefix build
 	cd zig && ./build/bin/tests TestCodec && ./build/bin/tests TestEcho \
 		&& ./build/bin/tests TestInterop && ./build/bin/tests TestOracle \
-		&& ./build/bin/tests TestDynamic && ./build/bin/tests TestBdd
+		&& ./build/bin/tests TestDynamic && ./build/bin/tests TestBdd && ./build/bin/tests TestDeadline
 
 LUA ?= lua
 

@@ -60,7 +60,7 @@ pub fn testInterop(alloc: std.mem.Allocator) void {
         defer channel.deinit();
         var client = examples.echo_grpc_dc.EchoClient.init(&channel);
 
-        const unary = switch (client.unary(&req("hello", 0), null)) {
+        const unary = switch (client.unary(&req("hello", 0), null, null)) {
             .ok => |r| r,
             .status => |st| {
                 util.checkFmt(false, "unary status {d}", .{st.code});
@@ -69,7 +69,7 @@ pub fn testInterop(alloc: std.mem.Allocator) void {
         };
         util.check(std.mem.eql(u8, unary.message, "echo: hello"), "unary");
 
-        var stream = switch (client.serverStream(&req("tick", 3), null)) {
+        var stream = switch (client.serverStream(&req("tick", 3), null, null)) {
             .ok => |s| s,
             .status => |st| {
                 util.checkFmt(false, "serverStream status {d}", .{st.code});
@@ -91,7 +91,7 @@ pub fn testInterop(alloc: std.mem.Allocator) void {
         }
         util.check(n == 3 and indexes[0] == 0 and indexes[1] == 1 and indexes[2] == 2, "server stream");
 
-        const joined = switch (client.clientStream(&.{ req("a", 0), req("b", 0), req("c", 0) }, null)) {
+        const joined = switch (client.clientStream(&.{ req("a", 0), req("b", 0), req("c", 0) }, null, null)) {
             .ok => |r| r,
             .status => |st| {
                 util.checkFmt(false, "clientStream status {d}", .{st.code});
@@ -100,7 +100,7 @@ pub fn testInterop(alloc: std.mem.Allocator) void {
         };
         util.check(std.mem.eql(u8, joined.message, "a+b+c"), "client stream");
 
-        var bidi = switch (client.bidi(&.{ req("x", 0), req("y", 0) }, null)) {
+        var bidi = switch (client.bidi(&.{ req("x", 0), req("y", 0) }, null, null)) {
             .ok => |s| s,
             .status => |st| {
                 util.checkFmt(false, "bidi status {d}", .{st.code});
@@ -122,7 +122,7 @@ pub fn testInterop(alloc: std.mem.Allocator) void {
         }
         util.check(m == 2 and std.mem.eql(u8, echoed[0], "x") and std.mem.eql(u8, echoed[1], "y"), "bidi");
 
-        switch (client.unary(&req("fail", 0), null)) {
+        switch (client.unary(&req("fail", 0), null, null)) {
             .ok => util.check(false, "fail should fail"),
             .status => |st| util.check(st.code == 3, "fail status"),
         }

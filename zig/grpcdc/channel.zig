@@ -21,14 +21,26 @@ pub const ClientStream = struct {
     input: *endpoint_mod.StreamInput,
     endpoint: *Endpoint,
     headers: ?Headers = null,
+    deadline_ms: ?i64 = null,
+
+    /// Abort this stream (sends RST, wakes a pending recv).
+    pub fn cancel(self: *ClientStream) void {
+        self.endpoint.cancelStream(self.stream_id);
+    }
 
     /// Receive the next response payload. End means the call
     /// completed OK; status reports the trailers status.
     pub fn recvRaw(self: *ClientStream) status_mod.RecvResult([]u8) {
         const alloc = self.endpoint.alloc;
         while (true) {
-            var event = self.input.get() orelse
-                return .{ .status = Status.init(wire.codeUnavailable, "data channel closed") };
+            var event = switch (self.input.getUntil(self.deadline_ms)) {
+                .timeout => {
+                    self.endpoint.cancelStream(self.stream_id);
+                    return .{ .status = Status.init(wire.codeDeadlineExceeded, "deadline exceeded") };
+                },
+                .event => |ev| ev orelse
+                    return .{ .status = Status.init(wire.codeUnavailable, "data channel closed") },
+            };
             switch (event.kind) {
                 .headers => {
                     if (self.headers) |*h| Codec.freeHeaders(alloc, h);
@@ -112,10 +124,31 @@ pub const Channel = struct {
         }
     }
 
-    fn open(self: *Channel, path: []const u8, metadata: ?*const Metadata) StreamResult {
+    fn open(self: *Channel, path: []const u8, metadata: ?*const Metadata, timeout_ms: ?u64) StreamResult {
         const alloc = self.endpoint.alloc;
+        var deadline_ms: ?i64 = null;
+        var merged: ?Metadata = null;
+        var timeout_text: ?[]u8 = null;
+        defer if (timeout_text) |t| alloc.free(t);
+        defer if (merged) |*m| m.deinit();
+        var md = metadata;
+        if (timeout_ms) |ms| {
+            if (endpoint_mod.nowMs()) |now| {
+                deadline_ms = now + @as(i64, @intCast(ms));
+            }
+            merged = Metadata.init(alloc);
+            if (metadata) |source| {
+                var it = source.iterator();
+                while (it.next()) |entry| {
+                    merged.?.put(entry.key_ptr.*, entry.value_ptr.*) catch @panic("out of memory");
+                }
+            }
+            timeout_text = Codec.encodeTimeout(alloc, ms);
+            merged.?.put("grpc-timeout", timeout_text.?) catch @panic("out of memory");
+            md = &merged.?;
+        }
         const opened = self.endpoint.openStream();
-        const frame = switch (Codec.headersFrame(alloc, opened.id, path, metadata)) {
+        const frame = switch (Codec.headersFrame(alloc, opened.id, path, md)) {
             .bytes => |b| b,
             .status => |st| {
                 self.endpoint.closeStream(opened.id);
@@ -124,7 +157,7 @@ pub const Channel = struct {
         };
         defer alloc.free(frame);
         self.endpoint.sendFrame(frame);
-        return .{ .ok = .{ .stream_id = opened.id, .input = opened.input, .endpoint = self.endpoint } };
+        return .{ .ok = .{ .stream_id = opened.id, .input = opened.input, .endpoint = self.endpoint, .deadline_ms = deadline_ms } };
     }
 
     fn sendMessage(self: *Channel, stream: *ClientStream, payload: []const u8) Status {
@@ -181,8 +214,8 @@ pub const Channel = struct {
     }
 
     /// Run a unary call, decoding the single response into resp.
-    pub fn unary(self: *Channel, path: []const u8, req: anytype, resp: anytype, metadata: ?*const Metadata) Status {
-        var stream = switch (self.open(path, metadata)) {
+    pub fn unary(self: *Channel, path: []const u8, req: anytype, resp: anytype, metadata: ?*const Metadata, timeout_ms: ?u64) Status {
+        var stream = switch (self.open(path, metadata, timeout_ms)) {
             .ok => |s| s,
             .status => |st| return st,
         };
@@ -197,8 +230,8 @@ pub const Channel = struct {
     }
 
     /// Start a server-streaming call.
-    pub fn serverStream(self: *Channel, path: []const u8, req: anytype, metadata: ?*const Metadata) StreamResult {
-        var stream = switch (self.open(path, metadata)) {
+    pub fn serverStream(self: *Channel, path: []const u8, req: anytype, metadata: ?*const Metadata, timeout_ms: ?u64) StreamResult {
+        var stream = switch (self.open(path, metadata, timeout_ms)) {
             .ok => |s| s,
             .status => |st| return .{ .status = st },
         };
@@ -215,8 +248,8 @@ pub const Channel = struct {
     }
 
     /// Send all requests, then decode the one response into resp.
-    pub fn clientStreamCall(self: *Channel, path: []const u8, reqs: anytype, resp: anytype, metadata: ?*const Metadata) Status {
-        var stream = switch (self.open(path, metadata)) {
+    pub fn clientStreamCall(self: *Channel, path: []const u8, reqs: anytype, resp: anytype, metadata: ?*const Metadata, timeout_ms: ?u64) Status {
+        var stream = switch (self.open(path, metadata, timeout_ms)) {
             .ok => |s| s,
             .status => |st| return st,
         };
@@ -227,8 +260,8 @@ pub const Channel = struct {
     }
 
     /// Start a bidi call with all requests sent up front.
-    pub fn bidi(self: *Channel, path: []const u8, reqs: anytype, metadata: ?*const Metadata) StreamResult {
-        var stream = switch (self.open(path, metadata)) {
+    pub fn bidi(self: *Channel, path: []const u8, reqs: anytype, metadata: ?*const Metadata, timeout_ms: ?u64) StreamResult {
+        var stream = switch (self.open(path, metadata, timeout_ms)) {
             .ok => |s| s,
             .status => |st| return .{ .status = st },
         };

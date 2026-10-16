@@ -647,7 +647,7 @@ pub const DynamicClient = struct {
         return .{ .ok = m };
     }
 
-    pub fn unary(self: *DynamicClient, service_name: []const u8, method_name: []const u8, req: *GenericMessage, metadata: ?*const transport_mod.Metadata) CallResult(*GenericMessage) {
+    pub fn unary(self: *DynamicClient, service_name: []const u8, method_name: []const u8, req: *GenericMessage, metadata: ?*const transport_mod.Metadata, timeout_ms: ?u64) CallResult(*GenericMessage) {
         const m = switch (self.method(service_name, method_name)) {
             .ok => |v| v,
             .status => |st| return .{ .status = st },
@@ -655,24 +655,24 @@ pub const DynamicClient = struct {
         const alloc = self.channel.endpoint.alloc;
         var bound_req = BoundMessage{ .model = m.input.?, .file = self.model, .generic = req };
         var bound_resp = BoundMessage{ .model = m.output.?, .file = self.model, .generic = newGeneric(alloc, m.output.?) };
-        const st = self.channel.unary(m.path, &bound_req, &bound_resp, metadata);
+        const st = self.channel.unary(m.path, &bound_req, &bound_resp, metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = bound_resp.generic };
     }
 
-    pub fn serverStream(self: *DynamicClient, service_name: []const u8, method_name: []const u8, req: *GenericMessage, metadata: ?*const transport_mod.Metadata) CallResult(DynamicStream) {
+    pub fn serverStream(self: *DynamicClient, service_name: []const u8, method_name: []const u8, req: *GenericMessage, metadata: ?*const transport_mod.Metadata, timeout_ms: ?u64) CallResult(DynamicStream) {
         const m = switch (self.method(service_name, method_name)) {
             .ok => |v| v,
             .status => |st| return .{ .status = st },
         };
         var bound_req = BoundMessage{ .model = m.input.?, .file = self.model, .generic = req };
-        switch (self.channel.serverStream(m.path, &bound_req, metadata)) {
+        switch (self.channel.serverStream(m.path, &bound_req, metadata, timeout_ms)) {
             .ok => |stream| return .{ .ok = .{ .stream = stream, .output = m.output.?, .file = self.model } },
             .status => |st| return .{ .status = st },
         }
     }
 
-    pub fn clientStream(self: *DynamicClient, service_name: []const u8, method_name: []const u8, reqs: []const *GenericMessage, metadata: ?*const transport_mod.Metadata) CallResult(*GenericMessage) {
+    pub fn clientStream(self: *DynamicClient, service_name: []const u8, method_name: []const u8, reqs: []const *GenericMessage, metadata: ?*const transport_mod.Metadata, timeout_ms: ?u64) CallResult(*GenericMessage) {
         const m = switch (self.method(service_name, method_name)) {
             .ok => |v| v,
             .status => |st| return .{ .status = st },
@@ -681,12 +681,12 @@ pub const DynamicClient = struct {
         var bound = alloc.alloc(BoundMessage, reqs.len) catch return .{ .status = Status.init(wire.codeResourceExhausted, "out of memory") };
         for (reqs, 0..) |r, i| bound[i] = .{ .model = m.input.?, .file = self.model, .generic = r };
         var bound_resp = BoundMessage{ .model = m.output.?, .file = self.model, .generic = newGeneric(alloc, m.output.?) };
-        const st = self.channel.clientStreamCall(m.path, bound, &bound_resp, metadata);
+        const st = self.channel.clientStreamCall(m.path, bound, &bound_resp, metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = bound_resp.generic };
     }
 
-    pub fn bidi(self: *DynamicClient, service_name: []const u8, method_name: []const u8, reqs: []const *GenericMessage, metadata: ?*const transport_mod.Metadata) CallResult(DynamicStream) {
+    pub fn bidi(self: *DynamicClient, service_name: []const u8, method_name: []const u8, reqs: []const *GenericMessage, metadata: ?*const transport_mod.Metadata, timeout_ms: ?u64) CallResult(DynamicStream) {
         const m = switch (self.method(service_name, method_name)) {
             .ok => |v| v,
             .status => |st| return .{ .status = st },
@@ -694,7 +694,7 @@ pub const DynamicClient = struct {
         const alloc = self.channel.endpoint.alloc;
         var bound = alloc.alloc(BoundMessage, reqs.len) catch return .{ .status = Status.init(wire.codeResourceExhausted, "out of memory") };
         for (reqs, 0..) |r, i| bound[i] = .{ .model = m.input.?, .file = self.model, .generic = r };
-        switch (self.channel.bidi(m.path, bound, metadata)) {
+        switch (self.channel.bidi(m.path, bound, metadata, timeout_ms)) {
             .ok => |stream| return .{ .ok = .{ .stream = stream, .output = m.output.?, .file = self.model } },
             .status => |st| return .{ .status = st },
         }

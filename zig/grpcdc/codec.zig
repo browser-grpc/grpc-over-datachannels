@@ -162,6 +162,36 @@ pub const Codec = struct {
         return encodeFrame(alloc, wire.frameHeaders, stream_id, aw.written());
     }
 
+    /// gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+    /// units H/M/S/m/u/n (at most 8 digits). Encoding uses
+    /// milliseconds (seconds past the digit limit), rounded up.
+    /// Caller owns the returned string.
+    pub fn encodeTimeout(alloc: std.mem.Allocator, timeout_ms: u64) []u8 {
+        if (timeout_ms <= 99999999) {
+            return std.fmt.allocPrint(alloc, "{d}m", .{timeout_ms}) catch @panic("out of memory");
+        }
+        return std.fmt.allocPrint(alloc, "{d}S", .{(timeout_ms + 999) / 1000}) catch @panic("out of memory");
+    }
+
+    /// Decoded grpc-timeout in milliseconds, or null when malformed.
+    pub fn parseTimeout(text: []const u8) ?u64 {
+        if (text.len < 2 or text.len > 9) return null;
+        var n: u64 = 0;
+        for (text[0 .. text.len - 1]) |c| {
+            if (c < '0' or c > '9') return null;
+            n = n * 10 + (c - '0');
+        }
+        return switch (text[text.len - 1]) {
+            'H' => n * 3600000,
+            'M' => n * 60000,
+            'S' => n * 1000,
+            'm' => n,
+            'u' => (n + 999) / 1000,
+            'n' => (n + 999999) / 1000000,
+            else => null,
+        };
+    }
+
     pub fn statusFrame(alloc: std.mem.Allocator, frame_type: u8, stream_id: u32, st: Status) EncodeResult {
         var aw: std.Io.Writer.Allocating = .init(alloc);
         defer aw.deinit();

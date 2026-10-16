@@ -31,13 +31,13 @@ export fn run_echo_client() void {
     defer channel.deinit();
     var client = stubs.EchoClient.init(&channel);
 
-    const unary_resp = switch (client.unary(&req("hello", 0), null)) {
+    const unary_resp = switch (client.unary(&req("hello", 0), null, null)) {
         .ok => |r| r,
         .status => |st| return fail(st),
     };
     const unary_msg = alloc.dupe(u8, unary_resp.message) catch return fail(stubs.Status.init(13, "out of memory"));
 
-    var stream = switch (client.serverStream(&req("tick", 3), null)) {
+    var stream = switch (client.serverStream(&req("tick", 3), null, null)) {
         .ok => |s| s,
         .status => |st| return fail(st),
     };
@@ -52,13 +52,13 @@ export fn run_echo_client() void {
         }
     }
 
-    const joined = switch (client.clientStream(&.{ req("a", 0), req("b", 0) }, null)) {
+    const joined = switch (client.clientStream(&.{ req("a", 0), req("b", 0) }, null, null)) {
         .ok => |r| r,
         .status => |st| return fail(st),
     };
     const joined_msg = alloc.dupe(u8, joined.message) catch return fail(stubs.Status.init(13, "out of memory"));
 
-    var bidi = switch (client.bidi(&.{ req("x", 0), req("y", 0) }, null)) {
+    var bidi = switch (client.bidi(&.{ req("x", 0), req("y", 0) }, null, null)) {
         .ok => |s| s,
         .status => |st| return fail(st),
     };

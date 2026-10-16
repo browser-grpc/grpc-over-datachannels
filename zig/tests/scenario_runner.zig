@@ -24,7 +24,7 @@ pub fn runScenarios(alloc: std.mem.Allocator, client: *examples.echo_grpc_dc.Ech
         defer messages.deinit(alloc);
         for (c.messages) |m| messages.append(alloc, unmsg(m)) catch {};
         if (std.mem.eql(u8, c.kind, "UNARY")) {
-            switch (client.unary(&req(messages.items[0], 0), null)) {
+            switch (client.unary(&req(messages.items[0], 0), null, null)) {
                 .ok => |resp| {
                     util.check(c.expect_status < 0, "UNARY: expected failure");
                     const want = std.fmt.allocPrint(alloc, "echo: {s}", .{messages.items[0]}) catch "";
@@ -35,7 +35,7 @@ pub fn runScenarios(alloc: std.mem.Allocator, client: *examples.echo_grpc_dc.Ech
                 },
             }
         } else if (std.mem.eql(u8, c.kind, "SERVER_STREAM")) {
-            var stream = switch (client.serverStream(&req(messages.items[0], c.count), null)) {
+            var stream = switch (client.serverStream(&req(messages.items[0], c.count), null, null)) {
                 .ok => |s| s,
                 .status => |st| {
                     util.checkFmt(false, "SERVER_STREAM open status {d}", .{st.code});
@@ -62,7 +62,7 @@ pub fn runScenarios(alloc: std.mem.Allocator, client: *examples.echo_grpc_dc.Ech
             var reqs: std.ArrayList(EchoRequest) = .empty;
             defer reqs.deinit(alloc);
             for (messages.items) |m| reqs.append(alloc, req(m, 0)) catch {};
-            switch (client.clientStream(reqs.items, null)) {
+            switch (client.clientStream(reqs.items, null, null)) {
                 .ok => |resp| {
                     var joined: std.ArrayList(u8) = .empty;
                     defer joined.deinit(alloc);
@@ -78,7 +78,7 @@ pub fn runScenarios(alloc: std.mem.Allocator, client: *examples.echo_grpc_dc.Ech
             var reqs: std.ArrayList(EchoRequest) = .empty;
             defer reqs.deinit(alloc);
             for (messages.items) |m| reqs.append(alloc, req(m, 0)) catch {};
-            var stream = switch (client.bidi(reqs.items, null)) {
+            var stream = switch (client.bidi(reqs.items, null, null)) {
                 .ok => |s| s,
                 .status => |st| {
                     util.checkFmt(false, "BIDI open status {d}", .{st.code});
@@ -124,7 +124,7 @@ pub fn runDynamicScenarios(alloc: std.mem.Allocator, client: *DynamicClient, mod
         defer messages.deinit(alloc);
         for (c.messages) |m| messages.append(alloc, unmsg(m)) catch {};
         if (std.mem.eql(u8, c.kind, "UNARY")) {
-            switch (client.unary(service_name, "Unary", dynReq(alloc, model, messages.items[0], 0), null)) {
+            switch (client.unary(service_name, "Unary", dynReq(alloc, model, messages.items[0], 0), null, null)) {
                 .ok => |resp| {
                     util.check(c.expect_status < 0, "dyn UNARY: expected failure");
                     const want = std.fmt.allocPrint(alloc, "echo: {s}", .{messages.items[0]}) catch "";
@@ -135,7 +135,7 @@ pub fn runDynamicScenarios(alloc: std.mem.Allocator, client: *DynamicClient, mod
                 },
             }
         } else if (std.mem.eql(u8, c.kind, "SERVER_STREAM")) {
-            var stream = switch (client.serverStream(service_name, "ServerStream", dynReq(alloc, model, messages.items[0], c.count), null)) {
+            var stream = switch (client.serverStream(service_name, "ServerStream", dynReq(alloc, model, messages.items[0], c.count), null, null)) {
                 .ok => |s| s,
                 .status => |st| {
                     util.checkFmt(false, "dyn SERVER_STREAM open {d}", .{st.code});
@@ -158,7 +158,7 @@ pub fn runDynamicScenarios(alloc: std.mem.Allocator, client: *DynamicClient, mod
             var reqs: std.ArrayList(*GenericMessage) = .empty;
             defer reqs.deinit(alloc);
             for (messages.items) |m| reqs.append(alloc, dynReq(alloc, model, m, 0)) catch {};
-            switch (client.clientStream(service_name, "ClientStream", reqs.items, null)) {
+            switch (client.clientStream(service_name, "ClientStream", reqs.items, null, null)) {
                 .ok => |resp| {
                     var joined: std.ArrayList(u8) = .empty;
                     defer joined.deinit(alloc);
@@ -174,7 +174,7 @@ pub fn runDynamicScenarios(alloc: std.mem.Allocator, client: *DynamicClient, mod
             var reqs: std.ArrayList(*GenericMessage) = .empty;
             defer reqs.deinit(alloc);
             for (messages.items) |m| reqs.append(alloc, dynReq(alloc, model, m, 0)) catch {};
-            var stream = switch (client.bidi(service_name, "Bidi", reqs.items, null)) {
+            var stream = switch (client.bidi(service_name, "Bidi", reqs.items, null, null)) {
                 .ok => |s| s,
                 .status => |st| {
                     util.checkFmt(false, "dyn BIDI open {d}", .{st.code});

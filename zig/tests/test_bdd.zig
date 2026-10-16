@@ -40,7 +40,7 @@ pub fn testBdd(alloc: std.mem.Allocator) void {
                 md = md_map;
             }
             defer if (md != null) md_map.deinit();
-            switch (client.unary(&req(c.messages[0], 0), if (md) |*m| m else null)) {
+            switch (client.unary(&req(c.messages[0], 0), if (md) |*m| m else null, null)) {
                 .ok => |resp| {
                     util.check(c.expect_status < 0, "bdd unary: expected failure");
                     util.check(std.mem.eql(u8, resp.message, c.expect_message) and resp.index == c.expect_num, "bdd unary: response");
@@ -50,7 +50,7 @@ pub fn testBdd(alloc: std.mem.Allocator) void {
                 },
             }
         } else if (std.mem.eql(u8, c.kind, "server-stream")) {
-            var stream = switch (client.serverStream(&req(c.messages[0], c.count), null)) {
+            var stream = switch (client.serverStream(&req(c.messages[0], c.count), null, null)) {
                 .ok => |s| s,
                 .status => |st| {
                     util.checkFmt(false, "bdd server-stream open {d}", .{st.code});
@@ -77,7 +77,7 @@ pub fn testBdd(alloc: std.mem.Allocator) void {
             var reqs: std.ArrayList(EchoRequest) = .empty;
             defer reqs.deinit(alloc);
             for (c.messages) |m| reqs.append(alloc, req(m, 0)) catch {};
-            switch (client.clientStream(reqs.items, null)) {
+            switch (client.clientStream(reqs.items, null, null)) {
                 .ok => |resp| {
                     util.check(std.mem.eql(u8, resp.message, c.expect_message) and resp.index == c.expect_num, "bdd client-stream: response");
                 },
@@ -87,7 +87,7 @@ pub fn testBdd(alloc: std.mem.Allocator) void {
             var reqs: std.ArrayList(EchoRequest) = .empty;
             defer reqs.deinit(alloc);
             for (c.messages) |m| reqs.append(alloc, req(m, 0)) catch {};
-            var stream = switch (client.bidi(reqs.items, null)) {
+            var stream = switch (client.bidi(reqs.items, null, null)) {
                 .ok => |s| s,
                 .status => |st| {
                     util.checkFmt(false, "bdd bidi open {d}", .{st.code});
@@ -113,7 +113,7 @@ pub fn testBdd(alloc: std.mem.Allocator) void {
         } else if (std.mem.eql(u8, c.kind, "raw-unary")) {
             var request = req(c.messages[0], 0);
             var resp = EchoResponse{};
-            const st = channel.unary(c.path, &request, &resp, null);
+            const st = channel.unary(c.path, &request, &resp, null, null);
             util.check(st.code == c.expect_status, "bdd raw-unary: status");
         } else {
             util.checkFmt(false, "unknown bdd kind: {s}", .{c.kind});

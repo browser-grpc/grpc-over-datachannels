@@ -26,7 +26,7 @@ fn run(alloc: std.mem.Allocator) bool {
     defer channel.deinit();
     var client = stubs.EchoClient.init(&channel);
 
-    const unary_resp = switch (client.unary(&req("hello", 0), null)) {
+    const unary_resp = switch (client.unary(&req("hello", 0), null, null)) {
         .ok => |r| r,
         .status => |st| {
             std.debug.print("unary status: {d} {s}\n", .{ st.code, st.message });
@@ -35,7 +35,7 @@ fn run(alloc: std.mem.Allocator) bool {
     };
     std.debug.print("unary={s}\n", .{unary_resp.message});
 
-    var stream = switch (client.serverStream(&req("tick", 3), null)) {
+    var stream = switch (client.serverStream(&req("tick", 3), null, null)) {
         .ok => |s| s,
         .status => |st| {
             std.debug.print("server_stream status: {d} {s}\n", .{ st.code, st.message });
@@ -62,7 +62,7 @@ fn run(alloc: std.mem.Allocator) bool {
     }
     std.debug.print("server_stream={s}\n", .{ticks.items});
 
-    const joined = switch (client.clientStream(&.{ req("a", 0), req("b", 0), req("c", 0) }, null)) {
+    const joined = switch (client.clientStream(&.{ req("a", 0), req("b", 0), req("c", 0) }, null, null)) {
         .ok => |r| r,
         .status => |st| {
             std.debug.print("client_stream status: {d} {s}\n", .{ st.code, st.message });
@@ -71,7 +71,7 @@ fn run(alloc: std.mem.Allocator) bool {
     };
     std.debug.print("client_stream={s}\n", .{joined.message});
 
-    var bidi = switch (client.bidi(&.{ req("x", 0), req("y", 0) }, null)) {
+    var bidi = switch (client.bidi(&.{ req("x", 0), req("y", 0) }, null, null)) {
         .ok => |s| s,
         .status => |st| {
             std.debug.print("bidi status: {d} {s}\n", .{ st.code, st.message });
@@ -98,7 +98,7 @@ fn run(alloc: std.mem.Allocator) bool {
     }
     std.debug.print("bidi={s}\n", .{echoed.items});
 
-    switch (client.unary(&req("fail", 0), null)) {
+    switch (client.unary(&req("fail", 0), null, null)) {
         .ok => {
             std.debug.print("error_case=no error\n", .{});
             return false;

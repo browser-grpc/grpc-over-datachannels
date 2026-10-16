@@ -1,5 +1,6 @@
 const std = @import("std");
 const test_bdd = @import("test_bdd.zig");
+const test_deadline = @import("test_deadline.zig");
 const test_codec = @import("test_codec.zig");
 const test_echo = @import("test_echo.zig");
 const test_interop = @import("test_interop.zig");
@@ -12,7 +13,7 @@ pub fn main() !void {
     const alloc = dba.allocator();
     const args = try std.process.argsAlloc(alloc);
     if (args.len < 2) {
-        std.debug.print("usage: tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd>\n", .{});
+        std.debug.print("usage: tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline>\n", .{});
         std.process.exit(2);
     }
     const name = args[1];
@@ -28,6 +29,8 @@ pub fn main() !void {
         test_oracle.testOracle(alloc);
     } else if (std.mem.eql(u8, name, "TestDynamic")) {
         test_dynamic.testDynamic(alloc);
+    } else if (std.mem.eql(u8, name, "TestDeadline")) {
+        test_deadline.testDeadline(alloc);
     } else {
         std.debug.print("unknown test: {s}\n", .{name});
         std.process.exit(2);
