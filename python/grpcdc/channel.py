@@ -3,15 +3,23 @@
 
 import asyncio
 
-from .codec import StatusError, encode_frame, headers_frame
+from .codec import StatusError, encode_frame, encode_timeout, headers_frame
 from .endpoint import (
     EVENT_DATA,
     EVENT_HEADERS,
     EVENT_RST,
     EVENT_TRAILERS,
+    TIMEOUT,
     Endpoint,
+    _monotonic,
 )
-from .wire_gen import CODE_INTERNAL, CODE_UNAVAILABLE, FRAME_DATA, FRAME_HALF_CLOSE
+from .wire_gen import (
+    CODE_DEADLINE_EXCEEDED,
+    CODE_INTERNAL,
+    CODE_UNAVAILABLE,
+    FRAME_DATA,
+    FRAME_HALF_CLOSE,
+)
 
 
 class Channel:
@@ -24,14 +32,22 @@ class Channel:
             self.endpoint = Endpoint(transport, creator=True)
         self.endpoint.start()
 
-    def _open(self, path, metadata):
+    def _open(self, path, metadata, timeout=None):
+        deadline = None
+        if timeout is not None:
+            deadline = _monotonic() + timeout
+            merged = dict(metadata) if metadata else {}
+            merged["grpc-timeout"] = encode_timeout(timeout)
+            metadata = merged
         stream_id, stream_input = self.endpoint.open_stream()
         try:
             self.endpoint.send_frame(headers_frame(stream_id, path, metadata))
         except Exception:
             self.endpoint.close_stream(stream_id)
             raise
-        return ClientStream(self.endpoint, stream_id, stream_input)
+        stream = ClientStream(self.endpoint, stream_id, stream_input)
+        stream.deadline = deadline
+        return stream
 
     def _send_message(self, stream, msg):
         self.endpoint.send_frame(
@@ -50,12 +66,17 @@ class Channel:
         """Abort an open ClientStream (sends RST)."""
         self.endpoint.cancel_stream(stream.stream_id)
 
-    def unary(self, path, req, resp, metadata=None):
-        """Run a unary call, decoding the single response into resp."""
-        return self._unary(path, req, resp, metadata)
+    def unary(self, path, req, resp, metadata=None, timeout=None):
+        """Run a unary call, decoding the single response into resp.
 
-    def _unary(self, path, req, resp, metadata):
-        stream = self._open(path, metadata)
+        timeout (seconds) sets a deadline: it is propagated as
+        grpc-timeout metadata and enforced locally — on expiry the
+        call is aborted with RST and DEADLINE_EXCEEDED is raised.
+        """
+        return self._unary(path, req, resp, metadata, timeout)
+
+    def _unary(self, path, req, resp, metadata, timeout=None):
+        stream = self._open(path, metadata, timeout)
         try:
             self._send_message(stream, req)
             self._half_close(stream)
@@ -77,16 +98,16 @@ class Channel:
         finally:
             self.endpoint.close_stream(stream.stream_id)
 
-    def server_stream(self, path, req, metadata=None):
+    def server_stream(self, path, req, metadata=None, timeout=None):
         """Start a server-streaming call; returns a ClientStream."""
-        stream = self._open(path, metadata)
+        stream = self._open(path, metadata, timeout)
         self._send_message(stream, req)
         self._half_close(stream)
         return stream
 
-    def client_stream(self, path, reqs, resp, metadata=None):
+    def client_stream(self, path, reqs, resp, metadata=None, timeout=None):
         """Send all requests, then decode the one response into resp."""
-        stream = self._open(path, metadata)
+        stream = self._open(path, metadata, timeout)
         try:
             self._send_all(stream, reqs)
             got = False
@@ -108,9 +129,9 @@ class Channel:
         finally:
             self.endpoint.close_stream(stream.stream_id)
 
-    def bidi(self, path, reqs, metadata=None):
+    def bidi(self, path, reqs, metadata=None, timeout=None):
         """Start a bidi call with all requests sent up front."""
-        stream = self._open(path, metadata)
+        stream = self._open(path, metadata, timeout)
         self._send_all(stream, reqs)
         return stream
 
@@ -123,15 +144,28 @@ class ClientStream:
         self.stream_id = stream_id
         self._input = stream_input
         self.headers = None
+        self.deadline = None
+
+    def _fail_deadline(self):
+        self._endpoint.cancel_stream(self.stream_id)
+        raise StatusError(CODE_DEADLINE_EXCEEDED, "deadline exceeded")
 
     def recv(self, resp):
         """Decode the next response into resp.
 
         Raises EOFError when the call completed OK; StatusError
-        reports the trailers status.
+        reports the trailers status (or DEADLINE_EXCEEDED when
+        the stream's deadline passed waiting for a response).
         """
         while True:
-            event = self._input.get()
+            wait = None
+            if self.deadline is not None:
+                wait = self.deadline - _monotonic()
+                if wait <= 0:
+                    self._fail_deadline()
+            event = self._input.get(timeout=wait)
+            if event is TIMEOUT:
+                self._fail_deadline()
             if event is None:
                 raise StatusError(CODE_UNAVAILABLE, "data channel closed")
             if event.kind == EVENT_HEADERS:
@@ -207,24 +241,25 @@ class AsyncChannel:
     def endpoint(self):
         return self._channel.endpoint
 
-    async def unary(self, path, req, resp, metadata=None):
+    async def unary(self, path, req, resp, metadata=None, timeout=None):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None, lambda: self._channel.unary(path, req, resp, metadata))
+            None, lambda: self._channel.unary(path, req, resp, metadata, timeout))
 
-    async def client_stream(self, path, reqs, resp, metadata=None):
+    async def client_stream(self, path, reqs, resp, metadata=None, timeout=None):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None, lambda: self._channel.client_stream(path, reqs, resp, metadata))
+            None,
+            lambda: self._channel.client_stream(path, reqs, resp, metadata, timeout))
 
-    async def server_stream(self, path, req, metadata=None):
+    async def server_stream(self, path, req, metadata=None, timeout=None):
         loop = asyncio.get_running_loop()
         stream = await loop.run_in_executor(
-            None, lambda: self._channel.server_stream(path, req, metadata))
+            None, lambda: self._channel.server_stream(path, req, metadata, timeout))
         return AsyncClientStream(stream)
 
-    async def bidi(self, path, reqs, metadata=None):
+    async def bidi(self, path, reqs, metadata=None, timeout=None):
         loop = asyncio.get_running_loop()
         stream = await loop.run_in_executor(
-            None, lambda: self._channel.bidi(path, reqs, metadata))
+            None, lambda: self._channel.bidi(path, reqs, metadata, timeout))
         return AsyncClientStream(stream)

@@ -3,6 +3,7 @@
 
 import queue
 import threading
+import time as _time
 
 from .codec import (
     StatusError,
@@ -10,9 +11,14 @@ from .codec import (
     headers_frame,
     parse_headers,
     parse_status,
+    parse_timeout,
     status_frame,
     to_status,
 )
+
+
+def _monotonic():
+    return _time.monotonic()
 from .wire_gen import (
     CODE_CANCELLED,
     CODE_INTERNAL,
@@ -29,6 +35,7 @@ EVENT_TRAILERS = "trailers"
 EVENT_RST = "rst"
 
 _CLOSED = object()
+TIMEOUT = object()
 
 
 class Transport:
@@ -65,9 +72,16 @@ class StreamInput:
     def close(self):
         self.events.put(_CLOSED)
 
-    def get(self):
-        """Next event, or None once the stream is closed."""
-        event = self.events.get()
+    def get(self, timeout=None):
+        """Next event, or None once the stream is closed.
+
+        With a timeout (seconds), returns the TIMEOUT sentinel
+        instead of an event when the wait expires.
+        """
+        try:
+            event = self.events.get(timeout=timeout)
+        except queue.Empty:
+            return TIMEOUT
         if event is _CLOSED:
             return None
         return event
@@ -96,10 +110,26 @@ class ResponseSink:
 
 
 class CallContext:
-    """Per-call context: metadata sent in HEADERS."""
+    """Per-call context: metadata sent in HEADERS, plus the call's
+    deadline derived from the grpc-timeout metadata value."""
 
     def __init__(self, metadata=None):
         self.metadata = metadata or {}
+        self.deadline = None
+        remaining = parse_timeout(self.metadata.get("grpc-timeout"))
+        if remaining is not None:
+            self.deadline = _monotonic() + remaining
+
+    def time_remaining(self):
+        """Seconds until the deadline (may be negative), or None
+        when the call carries no deadline."""
+        if self.deadline is None:
+            return None
+        return self.deadline - _monotonic()
+
+    def deadline_exceeded(self):
+        remaining = self.time_remaining()
+        return remaining is not None and remaining <= 0
 
 
 class Endpoint:

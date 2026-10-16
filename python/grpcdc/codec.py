@@ -114,6 +114,32 @@ def parse_headers(payload):
     return Headers(body.get("path"), metadata)
 
 
+# gRPC timeout grammar (grpc-timeout metadata): <digits><unit> with
+# units H/M/S/m/u/n. Encoding picks milliseconds (seconds past the
+# 8-digit limit); values are rounded up so a deadline never shrinks.
+_TIMEOUT_UNITS = {"H": 3600.0, "M": 60.0, "S": 1.0, "m": 1e-3, "u": 1e-6, "n": 1e-9}
+
+
+def encode_timeout(seconds):
+    import math
+
+    ms = int(math.ceil(seconds * 1000.0))
+    if ms <= 99999999:
+        return f"{ms}m"
+    return f"{int(math.ceil(seconds))}S"
+
+
+def parse_timeout(text):
+    """Seconds for a grpc-timeout value, or None when malformed."""
+    if not isinstance(text, str) or len(text) < 2:
+        return None
+    unit = _TIMEOUT_UNITS.get(text[-1])
+    digits = text[:-1]
+    if unit is None or not digits.isdigit() or len(digits) > 8:
+        return None
+    return int(digits) * unit
+
+
 def status_frame(frame_type, stream_id, status):
     body = {"code": status.code, "message": status.message}
     return encode_frame(frame_type, stream_id, json.dumps(body).encode("utf-8"))

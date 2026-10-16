@@ -34,24 +34,24 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "    def ~a(self, req, metadata=None):\n"
-              "~a        return self._channel.unary(~s, req, ~a.~a(), metadata)\n\n")
+              "    def ~a(self, req, metadata=None, timeout=None):\n"
+              "~a        return self._channel.unary(~s, req, ~a.~a(), metadata, timeout)\n\n")
              name (py-deprecated m) path pb resp)]
     [(server-streaming)
      (format (string-append
-              "    def ~a(self, req, metadata=None):\n"
-              "~a        stream = self._channel.server_stream(~s, req, metadata)\n"
+              "    def ~a(self, req, metadata=None, timeout=None):\n"
+              "~a        stream = self._channel.server_stream(~s, req, metadata, timeout)\n"
               "        return _RecvStream(stream, ~a.~a)\n\n")
              name (py-deprecated m) path pb resp)]
     [(client-streaming)
      (format (string-append
-              "    def ~a(self, reqs, metadata=None):\n"
-              "~a        return self._channel.client_stream(~s, reqs, ~a.~a(), metadata)\n\n")
+              "    def ~a(self, reqs, metadata=None, timeout=None):\n"
+              "~a        return self._channel.client_stream(~s, reqs, ~a.~a(), metadata, timeout)\n\n")
              name (py-deprecated m) path pb resp)]
     [(bidi)
      (format (string-append
-              "    def ~a(self, reqs, metadata=None):\n"
-              "~a        stream = self._channel.bidi(~s, reqs, metadata)\n"
+              "    def ~a(self, reqs, metadata=None, timeout=None):\n"
+              "~a        stream = self._channel.bidi(~s, reqs, metadata, timeout)\n"
               "        return _RecvStream(stream, ~a.~a)\n\n")
              name (py-deprecated m) path pb resp)]))
 
@@ -65,24 +65,24 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "    async def ~a(self, req, metadata=None):\n"
-              "~a        return await self._channel.unary(~s, req, ~a.~a(), metadata)\n\n")
+              "    async def ~a(self, req, metadata=None, timeout=None):\n"
+              "~a        return await self._channel.unary(~s, req, ~a.~a(), metadata, timeout)\n\n")
              name (py-deprecated m) path pb resp)]
     [(server-streaming)
      (format (string-append
-              "    async def ~a(self, req, metadata=None):\n"
-              "~a        stream = await self._channel.server_stream(~s, req, metadata)\n"
+              "    async def ~a(self, req, metadata=None, timeout=None):\n"
+              "~a        stream = await self._channel.server_stream(~s, req, metadata, timeout)\n"
               "        return _AsyncRecvStream(stream, ~a.~a)\n\n")
              name (py-deprecated m) path pb resp)]
     [(client-streaming)
      (format (string-append
-              "    async def ~a(self, reqs, metadata=None):\n"
-              "~a        return await self._channel.client_stream(~s, reqs, ~a.~a(), metadata)\n\n")
+              "    async def ~a(self, reqs, metadata=None, timeout=None):\n"
+              "~a        return await self._channel.client_stream(~s, reqs, ~a.~a(), metadata, timeout)\n\n")
              name (py-deprecated m) path pb resp)]
     [(bidi)
      (format (string-append
-              "    async def ~a(self, reqs, metadata=None):\n"
-              "~a        stream = await self._channel.bidi(~s, reqs, metadata)\n"
+              "    async def ~a(self, reqs, metadata=None, timeout=None):\n"
+              "~a        stream = await self._channel.bidi(~s, reqs, metadata, timeout)\n"
               "        return _AsyncRecvStream(stream, ~a.~a)\n\n")
              name (py-deprecated m) path pb resp)]))
 

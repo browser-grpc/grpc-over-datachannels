@@ -47,6 +47,20 @@ Rust, JavaScript, and Racket codecs from that one source.
 - Unknown frame types are ignored for forward compatibility. A DATA payload
   over 16 MiB is rejected with `RESOURCE_EXHAUSTED`.
 
+## Deadlines
+
+Deadlines propagate as the `grpc-timeout` HEADERS metadata key, using
+the standard gRPC timeout grammar (`<digits><unit>`, units `H`/`M`/`S`/
+`m`/`u`/`n`, at most 8 digits). The value is the time *remaining* when
+the HEADERS frame is sent, so each hop that forwards a call recomputes
+it. Clients enforce the deadline while waiting for responses: on
+expiry they abort the stream with RST and surface `DEADLINE_EXCEEDED`.
+Servers expose the received budget on the call context (remaining
+time / deadline instant) and may check it in handlers; the wire has
+no separate deadline frame. Runtimes are adopting this incrementally
+(Python first; others currently pass `grpc-timeout` through as opaque
+metadata, which stays wire-compatible).
+
 ## Backpressure
 
 SCTP applies its own flow control per channel. Senders must still respect

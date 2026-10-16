@@ -98,18 +98,18 @@ class EchoClient:
     def __init__(self, channel):
         self._channel = channel
 
-    def Unary(self, req, metadata=None):
-        return self._channel.unary("/echo.Echo/Unary", req, echo_pb.EchoResponse(), metadata)
+    def Unary(self, req, metadata=None, timeout=None):
+        return self._channel.unary("/echo.Echo/Unary", req, echo_pb.EchoResponse(), metadata, timeout)
 
-    def ServerStream(self, req, metadata=None):
-        stream = self._channel.server_stream("/echo.Echo/ServerStream", req, metadata)
+    def ServerStream(self, req, metadata=None, timeout=None):
+        stream = self._channel.server_stream("/echo.Echo/ServerStream", req, metadata, timeout)
         return _RecvStream(stream, echo_pb.EchoResponse)
 
-    def ClientStream(self, reqs, metadata=None):
-        return self._channel.client_stream("/echo.Echo/ClientStream", reqs, echo_pb.EchoResponse(), metadata)
+    def ClientStream(self, reqs, metadata=None, timeout=None):
+        return self._channel.client_stream("/echo.Echo/ClientStream", reqs, echo_pb.EchoResponse(), metadata, timeout)
 
-    def Bidi(self, reqs, metadata=None):
-        stream = self._channel.bidi("/echo.Echo/Bidi", reqs, metadata)
+    def Bidi(self, reqs, metadata=None, timeout=None):
+        stream = self._channel.bidi("/echo.Echo/Bidi", reqs, metadata, timeout)
         return _RecvStream(stream, echo_pb.EchoResponse)
 
 class EchoClientAsync:
@@ -121,18 +121,18 @@ class EchoClientAsync:
         else:
             self._channel = grpcdc.AsyncChannel(channel=channel)
 
-    async def Unary(self, req, metadata=None):
-        return await self._channel.unary("/echo.Echo/Unary", req, echo_pb.EchoResponse(), metadata)
+    async def Unary(self, req, metadata=None, timeout=None):
+        return await self._channel.unary("/echo.Echo/Unary", req, echo_pb.EchoResponse(), metadata, timeout)
 
-    async def ServerStream(self, req, metadata=None):
-        stream = await self._channel.server_stream("/echo.Echo/ServerStream", req, metadata)
+    async def ServerStream(self, req, metadata=None, timeout=None):
+        stream = await self._channel.server_stream("/echo.Echo/ServerStream", req, metadata, timeout)
         return _AsyncRecvStream(stream, echo_pb.EchoResponse)
 
-    async def ClientStream(self, reqs, metadata=None):
-        return await self._channel.client_stream("/echo.Echo/ClientStream", reqs, echo_pb.EchoResponse(), metadata)
+    async def ClientStream(self, reqs, metadata=None, timeout=None):
+        return await self._channel.client_stream("/echo.Echo/ClientStream", reqs, echo_pb.EchoResponse(), metadata, timeout)
 
-    async def Bidi(self, reqs, metadata=None):
-        stream = await self._channel.bidi("/echo.Echo/Bidi", reqs, metadata)
+    async def Bidi(self, reqs, metadata=None, timeout=None):
+        stream = await self._channel.bidi("/echo.Echo/Bidi", reqs, metadata, timeout)
         return _AsyncRecvStream(stream, echo_pb.EchoResponse)
 
 def register_echo_server(server, impl):
