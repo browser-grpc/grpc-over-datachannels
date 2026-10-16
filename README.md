@@ -220,8 +220,10 @@ Makefile                 generate / test / demos
 - Deadlines/cancellation: cancellation sends RST in every runtime.
   Deadline propagation (`grpc-timeout` metadata, client-side
   `DEADLINE_EXCEEDED` enforcement, server call-context budget — see
-  SPEC.md) is implemented in Python so far and being rolled out to
-  the other runtimes; until then they carry it as opaque metadata.
+  SPEC.md) is implemented in all 13 runtimes, each in its idiom
+  (Go drives it through `context.Context`). Caveats: Rust/Zig on
+  wasm32 propagate but do not yet enforce locally, and cooperative
+  pump runtimes check deadlines between messages.
 - Async surfaces: Python `asyncio`, C++ coroutines (plus
   `std::future`), Ruby Fibers, and Lua coroutines ship alongside the
   older JS/Kotlin/Dart/Go/Rust async surfaces. Zig has no async

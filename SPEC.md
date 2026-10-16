@@ -57,9 +57,17 @@ it. Clients enforce the deadline while waiting for responses: on
 expiry they abort the stream with RST and surface `DEADLINE_EXCEEDED`.
 Servers expose the received budget on the call context (remaining
 time / deadline instant) and may check it in handlers; the wire has
-no separate deadline frame. Runtimes are adopting this incrementally
-(Python first; others currently pass `grpc-timeout` through as opaque
-metadata, which stays wire-compatible).
+no separate deadline frame. All 13 runtimes implement this (in each
+language's idiom: Python `timeout=`, JS `{timeout}`, Go
+`context.Context`, Rust `CallOptions`, Java/Kotlin `Duration`, C#
+`TimeSpan`, C++ `std::chrono::milliseconds`, Swift/Dart
+`Duration`/`TimeInterval`, Ruby `timeout:`, Lua seconds argument,
+Zig `timeout_ms`). Two caveats are implementation limits, not wire
+differences: on wasm32 the Rust and Zig runtimes propagate but do
+not yet locally enforce (no timer/clock seam there yet), and in
+cooperative pump runtimes (Lua single-threaded, Zig inline mode) a
+handler already running inline cannot be preempted — the deadline
+is checked between messages.
 
 ## Backpressure
 
