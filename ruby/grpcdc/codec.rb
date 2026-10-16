@@ -51,7 +51,7 @@ module Grpcdc
   class Headers
     attr_reader :path, :metadata
 
-    def initialize(path = nil, metadata = nil)
+    def initialize(path = nil, metadata = nil, timeout: nil)
       @path = path
       @metadata = metadata || {}
     end
@@ -120,7 +120,35 @@ module Grpcdc
       Headers.new(body["path"], metadata)
     end
 
-    def status_frame(frame_type, stream_id, status)
+        # gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+    # units H/M/S/m/u/n (at most 8 digits). Encoding uses
+    # milliseconds (seconds past the digit limit), rounded up.
+    def encode_timeout(seconds)
+      ms = (seconds * 1000.0).ceil
+      return "#{ms}m" if ms <= 99999999
+
+      "#{seconds.ceil}S"
+    end
+
+    # Decoded grpc-timeout in seconds, or nil when malformed.
+    def parse_timeout(text)
+      return nil unless text.is_a?(String) && text.length >= 2 && text.length <= 9
+
+      digits = text[0...-1]
+      return nil unless digits.match?(/\A\d+\z/)
+
+      n = digits.to_i.to_f
+      case text[-1]
+      when "H" then n * 3600.0
+      when "M" then n * 60.0
+      when "S" then n
+      when "m" then n / 1000.0
+      when "u" then n / 1000000.0
+      when "n" then n / 1000000000.0
+      end
+    end
+
+def status_frame(frame_type, stream_id, status)
       body = { "code" => status.code, "message" => status.message }
       encode_frame(frame_type, stream_id, JSON.generate(body).b)
     end

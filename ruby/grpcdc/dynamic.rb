@@ -621,34 +621,34 @@ module Grpcdc
       @model = file_model
     end
 
-    def unary(service_name, method_name, request, metadata = nil)
+    def unary(service_name, method_name, request, metadata = nil, timeout: nil)
       method = resolve(service_name, method_name)
       resp = BoundMessage.new(method.output, nil, @model)
-      @channel.unary(method.path, BoundMessage.new(method.input, request, @model), resp, metadata)
+      @channel.unary(method.path, BoundMessage.new(method.input, request, @model), resp, metadata, timeout: timeout)
       resp.generic
     end
 
-    def server_stream(service_name, method_name, request, metadata = nil)
+    def server_stream(service_name, method_name, request, metadata = nil, timeout: nil)
       method = resolve(service_name, method_name)
       stream = @channel.server_stream(
-        method.path, BoundMessage.new(method.input, request, @model), metadata
+        method.path, BoundMessage.new(method.input, request, @model), metadata, timeout: timeout
       )
       DynamicRecvStream.new(stream, method.output, @model)
     end
 
-    def client_stream(service_name, method_name, requests, metadata = nil)
+    def client_stream(service_name, method_name, requests, metadata = nil, timeout: nil)
       method = resolve(service_name, method_name)
       resp = BoundMessage.new(method.output, nil, @model)
       @channel.client_stream(
-        method.path, requests.map { |r| BoundMessage.new(method.input, r, @model) }, resp, metadata
+        method.path, requests.map { |r| BoundMessage.new(method.input, r, @model) }, resp, metadata, timeout: timeout
       )
       resp.generic
     end
 
-    def bidi(service_name, method_name, requests, metadata = nil)
+    def bidi(service_name, method_name, requests, metadata = nil, timeout: nil)
       method = resolve(service_name, method_name)
       stream = @channel.bidi(
-        method.path, requests.map { |r| BoundMessage.new(method.input, r, @model) }, metadata
+        method.path, requests.map { |r| BoundMessage.new(method.input, r, @model) }, metadata, timeout: timeout
       )
       DynamicRecvStream.new(stream, method.output, @model)
     end

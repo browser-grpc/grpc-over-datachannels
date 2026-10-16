@@ -136,21 +136,21 @@ module EchoGrpcDc
       @channel = channel
     end
 
-    def Unary(req, metadata = nil)
-      @channel.unary("/echo.Echo/Unary", req, EchoPb::EchoResponse.new, metadata)
+    def Unary(req, metadata = nil, timeout: nil)
+      @channel.unary("/echo.Echo/Unary", req, EchoPb::EchoResponse.new, metadata, timeout: timeout)
     end
 
-    def ServerStream(req, metadata = nil)
-      stream = @channel.server_stream("/echo.Echo/ServerStream", req, metadata)
+    def ServerStream(req, metadata = nil, timeout: nil)
+      stream = @channel.server_stream("/echo.Echo/ServerStream", req, metadata, timeout: timeout)
       RecvStream.new(stream, EchoPb::EchoResponse)
     end
 
-    def ClientStream(reqs, metadata = nil)
-      @channel.client_stream("/echo.Echo/ClientStream", reqs, EchoPb::EchoResponse.new, metadata)
+    def ClientStream(reqs, metadata = nil, timeout: nil)
+      @channel.client_stream("/echo.Echo/ClientStream", reqs, EchoPb::EchoResponse.new, metadata, timeout: timeout)
     end
 
-    def Bidi(reqs, metadata = nil)
-      stream = @channel.bidi("/echo.Echo/Bidi", reqs, metadata)
+    def Bidi(reqs, metadata = nil, timeout: nil)
+      stream = @channel.bidi("/echo.Echo/Bidi", reqs, metadata, timeout: timeout)
       RecvStream.new(stream, EchoPb::EchoResponse)
     end
 
@@ -162,21 +162,21 @@ module EchoGrpcDc
       @channel = channel.is_a?(Grpcdc::FiberChannel) ? channel : Grpcdc::FiberChannel.new(channel)
     end
 
-    def Unary(req, metadata = nil)
-      @channel.unary("/echo.Echo/Unary", req, EchoPb::EchoResponse.new, metadata)
+    def Unary(req, metadata = nil, timeout: nil)
+      @channel.unary("/echo.Echo/Unary", req, EchoPb::EchoResponse.new, metadata, timeout: timeout)
     end
 
-    def ServerStream(req, metadata = nil)
-      stream = @channel.server_stream("/echo.Echo/ServerStream", req, metadata)
+    def ServerStream(req, metadata = nil, timeout: nil)
+      stream = @channel.server_stream("/echo.Echo/ServerStream", req, metadata, timeout: timeout)
       FiberRecvStream.new(stream, EchoPb::EchoResponse)
     end
 
-    def ClientStream(reqs, metadata = nil)
-      @channel.client_stream("/echo.Echo/ClientStream", reqs, EchoPb::EchoResponse.new, metadata)
+    def ClientStream(reqs, metadata = nil, timeout: nil)
+      @channel.client_stream("/echo.Echo/ClientStream", reqs, EchoPb::EchoResponse.new, metadata, timeout: timeout)
     end
 
-    def Bidi(reqs, metadata = nil)
-      stream = @channel.bidi("/echo.Echo/Bidi", reqs, metadata)
+    def Bidi(reqs, metadata = nil, timeout: nil)
+      stream = @channel.bidi("/echo.Echo/Bidi", reqs, metadata, timeout: timeout)
       FiberRecvStream.new(stream, EchoPb::EchoResponse)
     end
 

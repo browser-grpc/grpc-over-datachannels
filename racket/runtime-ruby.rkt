@@ -67,7 +67,7 @@ module Grpcdc
   class Headers
     attr_reader :path, :metadata
 
-    def initialize(path = nil, metadata = nil)
+    def initialize(path = nil, metadata = nil, timeout: nil)
       @path = path
       @metadata = metadata || {}
     end
@@ -136,7 +136,35 @@ module Grpcdc
       Headers.new(body["path"], metadata)
     end
 
-    def status_frame(frame_type, stream_id, status)
+        # gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+    # units H/M/S/m/u/n (at most 8 digits). Encoding uses
+    # milliseconds (seconds past the digit limit), rounded up.
+    def encode_timeout(seconds)
+      ms = (seconds * 1000.0).ceil
+      return "#{ms}m" if ms <= 99999999
+
+      "#{seconds.ceil}S"
+    end
+
+    # Decoded grpc-timeout in seconds, or nil when malformed.
+    def parse_timeout(text)
+      return nil unless text.is_a?(String) && text.length >= 2 && text.length <= 9
+
+      digits = text[0...-1]
+      return nil unless digits.match?(/\A\d+\z/)
+
+      n = digits.to_i.to_f
+      case text[-1]
+      when "H" then n * 3600.0
+      when "M" then n * 60.0
+      when "S" then n
+      when "m" then n / 1000.0
+      when "u" then n / 1000000.0
+      when "n" then n / 1000000000.0
+      end
+    end
+
+def status_frame(frame_type, stream_id, status)
       body = { "code" => status.code, "message" => status.message }
       encode_frame(frame_type, stream_id, JSON.generate(body).b)
     end
@@ -216,9 +244,14 @@ module Grpcdc
       @events << CLOSED
     end
 
-    # Next event, or nil once the stream is closed.
-    def get
-      event = @events.pop
+    TIMEOUT = Object.new
+
+    # Next event, or nil once the stream is closed. With a
+    # timeout (seconds), returns TIMEOUT when the wait expires.
+    def get(timeout = nil)
+      event = timeout.nil? ? @events.pop : @events.pop(timeout: timeout)
+      return TIMEOUT if !timeout.nil? && event.nil?
+
       event.equal?(CLOSED) ? nil : event
     end
   end
@@ -247,12 +280,25 @@ module Grpcdc
     end
   end
 
-  # Per-call context: metadata sent in HEADERS.
+  # Per-call context: metadata sent in HEADERS, plus deadline.
   class CallContext
-    attr_reader :metadata
+    attr_reader :metadata, :deadline
 
-    def initialize(metadata = nil)
+    def initialize(metadata = nil, timeout: nil)
       @metadata = metadata || {}
+      remaining = Codec.parse_timeout(@metadata["grpc-timeout"])
+      @deadline = remaining.nil? ? nil : Process.clock_gettime(Process::CLOCK_MONOTONIC) + remaining
+    end
+
+    # Seconds left before the deadline, or nil when unbounded.
+    def time_remaining
+      return nil if @deadline.nil?
+
+      [@deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC), 0.0].max
+    end
+
+    def deadline_exceeded?
+      time_remaining == 0.0
     end
   end
 
@@ -480,8 +526,8 @@ module Grpcdc
       @endpoint.start
     end
 
-    def unary(path, req, resp, metadata = nil)
-      stream = open_call(path, metadata)
+    def unary(path, req, resp, metadata = nil, timeout: nil)
+      stream = open_call(path, metadata, timeout)
       begin
         send_message(stream, req)
         half_close(stream)
@@ -505,15 +551,15 @@ module Grpcdc
       end
     end
 
-    def server_stream(path, req, metadata = nil)
-      stream = open_call(path, metadata)
+    def server_stream(path, req, metadata = nil, timeout: nil)
+      stream = open_call(path, metadata, timeout)
       send_message(stream, req)
       half_close(stream)
       stream
     end
 
-    def client_stream(path, reqs, resp, metadata = nil)
-      stream = open_call(path, metadata)
+    def client_stream(path, reqs, resp, metadata = nil, timeout: nil)
+      stream = open_call(path, metadata, timeout)
       begin
         send_all(stream, reqs)
         got = false
@@ -538,15 +584,20 @@ module Grpcdc
       end
     end
 
-    def bidi(path, reqs, metadata = nil)
-      stream = open_call(path, metadata)
+    def bidi(path, reqs, metadata = nil, timeout: nil)
+      stream = open_call(path, metadata, timeout)
       send_all(stream, reqs)
       stream
     end
 
     private
 
-    def open_call(path, metadata)
+    def open_call(path, metadata, timeout = nil)
+      deadline = nil
+      unless timeout.nil?
+        deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+        metadata = (metadata || {}).merge("grpc-timeout" => Codec.encode_timeout(timeout))
+      end
       stream_id, stream_input = @endpoint.open_stream
       begin
         @endpoint.send_frame(Codec.headers_frame(stream_id, path, metadata))
@@ -554,7 +605,9 @@ module Grpcdc
         @endpoint.close_stream(stream_id)
         raise
       end
-      ClientStream.new(@endpoint, stream_id, stream_input)
+      stream = ClientStream.new(@endpoint, stream_id, stream_input)
+      stream.deadline = deadline
+      stream
     end
 
     def send_message(stream, msg)
@@ -575,11 +628,14 @@ module Grpcdc
   class ClientStream
     attr_reader :stream_id, :headers, :endpoint
 
+    attr_accessor :deadline
+
     def initialize(endpoint, stream_id, stream_input)
       @endpoint = endpoint
       @stream_id = stream_id
       @input = stream_input
       @headers = nil
+      @deadline = nil
     end
 
     # Decode the next response into resp.
@@ -588,7 +644,17 @@ module Grpcdc
     # reports the trailers status.
     def recv(resp)
       loop do
-        event = @input.get
+        event =
+          if @deadline.nil?
+            @input.get
+          else
+            remaining = @deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+            remaining <= 0 ? StreamInput::TIMEOUT : @input.get(remaining)
+          end
+        if event.equal?(StreamInput::TIMEOUT)
+          @endpoint.cancel_stream(@stream_id)
+          raise StatusError.new(CODE_DEADLINE_EXCEEDED, "deadline exceeded")
+        end
         raise StatusError.new(CODE_UNAVAILABLE, "data channel closed") if event.nil?
 
         case event.kind
@@ -660,20 +726,20 @@ module Grpcdc
       @channel.endpoint
     end
 
-    def unary(path, req, resp, metadata = nil)
-      Fiber.new { @channel.unary(path, req, resp, metadata) }.resume
+    def unary(path, req, resp, metadata = nil, timeout: nil)
+      Fiber.new { @channel.unary(path, req, resp, metadata, timeout: timeout) }.resume
     end
 
-    def client_stream(path, reqs, resp, metadata = nil)
-      Fiber.new { @channel.client_stream(path, reqs, resp, metadata) }.resume
+    def client_stream(path, reqs, resp, metadata = nil, timeout: nil)
+      Fiber.new { @channel.client_stream(path, reqs, resp, metadata, timeout: timeout) }.resume
     end
 
-    def server_stream(path, req, metadata = nil)
-      FiberClientStream.new(@channel.server_stream(path, req, metadata))
+    def server_stream(path, req, metadata = nil, timeout: nil)
+      FiberClientStream.new(@channel.server_stream(path, req, metadata, timeout: timeout))
     end
 
-    def bidi(path, reqs, metadata = nil)
-      FiberClientStream.new(@channel.bidi(path, reqs, metadata))
+    def bidi(path, reqs, metadata = nil, timeout: nil)
+      FiberClientStream.new(@channel.bidi(path, reqs, metadata, timeout: timeout))
     end
   end
 end
@@ -1455,34 +1521,34 @@ module Grpcdc
       @model = file_model
     end
 
-    def unary(service_name, method_name, request, metadata = nil)
+    def unary(service_name, method_name, request, metadata = nil, timeout: nil)
       method = resolve(service_name, method_name)
       resp = BoundMessage.new(method.output, nil, @model)
-      @channel.unary(method.path, BoundMessage.new(method.input, request, @model), resp, metadata)
+      @channel.unary(method.path, BoundMessage.new(method.input, request, @model), resp, metadata, timeout: timeout)
       resp.generic
     end
 
-    def server_stream(service_name, method_name, request, metadata = nil)
+    def server_stream(service_name, method_name, request, metadata = nil, timeout: nil)
       method = resolve(service_name, method_name)
       stream = @channel.server_stream(
-        method.path, BoundMessage.new(method.input, request, @model), metadata
+        method.path, BoundMessage.new(method.input, request, @model), metadata, timeout: timeout
       )
       DynamicRecvStream.new(stream, method.output, @model)
     end
 
-    def client_stream(service_name, method_name, requests, metadata = nil)
+    def client_stream(service_name, method_name, requests, metadata = nil, timeout: nil)
       method = resolve(service_name, method_name)
       resp = BoundMessage.new(method.output, nil, @model)
       @channel.client_stream(
-        method.path, requests.map { |r| BoundMessage.new(method.input, r, @model) }, resp, metadata
+        method.path, requests.map { |r| BoundMessage.new(method.input, r, @model) }, resp, metadata, timeout: timeout
       )
       resp.generic
     end
 
-    def bidi(service_name, method_name, requests, metadata = nil)
+    def bidi(service_name, method_name, requests, metadata = nil, timeout: nil)
       method = resolve(service_name, method_name)
       stream = @channel.bidi(
-        method.path, requests.map { |r| BoundMessage.new(method.input, r, @model) }, metadata
+        method.path, requests.map { |r| BoundMessage.new(method.input, r, @model) }, metadata, timeout: timeout
       )
       DynamicRecvStream.new(stream, method.output, @model)
     end

@@ -53,9 +53,14 @@ module Grpcdc
       @events << CLOSED
     end
 
-    # Next event, or nil once the stream is closed.
-    def get
-      event = @events.pop
+    TIMEOUT = Object.new
+
+    # Next event, or nil once the stream is closed. With a
+    # timeout (seconds), returns TIMEOUT when the wait expires.
+    def get(timeout = nil)
+      event = timeout.nil? ? @events.pop : @events.pop(timeout: timeout)
+      return TIMEOUT if !timeout.nil? && event.nil?
+
       event.equal?(CLOSED) ? nil : event
     end
   end
@@ -84,12 +89,25 @@ module Grpcdc
     end
   end
 
-  # Per-call context: metadata sent in HEADERS.
+  # Per-call context: metadata sent in HEADERS, plus deadline.
   class CallContext
-    attr_reader :metadata
+    attr_reader :metadata, :deadline
 
-    def initialize(metadata = nil)
+    def initialize(metadata = nil, timeout: nil)
       @metadata = metadata || {}
+      remaining = Codec.parse_timeout(@metadata["grpc-timeout"])
+      @deadline = remaining.nil? ? nil : Process.clock_gettime(Process::CLOCK_MONOTONIC) + remaining
+    end
+
+    # Seconds left before the deadline, or nil when unbounded.
+    def time_remaining
+      return nil if @deadline.nil?
+
+      [@deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC), 0.0].max
+    end
+
+    def deadline_exceeded?
+      time_remaining == 0.0
     end
   end
 

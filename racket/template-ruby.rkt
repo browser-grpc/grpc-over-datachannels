@@ -43,27 +43,27 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "    def ~a(req, metadata = nil)\n"
-              "~a      @channel.unary(~s, req, ~a::~a.new, metadata)\n"
+              "    def ~a(req, metadata = nil, timeout: nil)\n"
+              "~a      @channel.unary(~s, req, ~a::~a.new, metadata, timeout: timeout)\n"
               "    end\n\n")
              name (rb-deprecated m) path pb resp)]
     [(server-streaming)
      (format (string-append
-              "    def ~a(req, metadata = nil)\n"
-              "~a      stream = @channel.server_stream(~s, req, metadata)\n"
+              "    def ~a(req, metadata = nil, timeout: nil)\n"
+              "~a      stream = @channel.server_stream(~s, req, metadata, timeout: timeout)\n"
               "      RecvStream.new(stream, ~a::~a)\n"
               "    end\n\n")
              name (rb-deprecated m) path pb resp)]
     [(client-streaming)
      (format (string-append
-              "    def ~a(reqs, metadata = nil)\n"
-              "~a      @channel.client_stream(~s, reqs, ~a::~a.new, metadata)\n"
+              "    def ~a(reqs, metadata = nil, timeout: nil)\n"
+              "~a      @channel.client_stream(~s, reqs, ~a::~a.new, metadata, timeout: timeout)\n"
               "    end\n\n")
              name (rb-deprecated m) path pb resp)]
     [(bidi)
      (format (string-append
-              "    def ~a(reqs, metadata = nil)\n"
-              "~a      stream = @channel.bidi(~s, reqs, metadata)\n"
+              "    def ~a(reqs, metadata = nil, timeout: nil)\n"
+              "~a      stream = @channel.bidi(~s, reqs, metadata, timeout: timeout)\n"
               "      RecvStream.new(stream, ~a::~a)\n"
               "    end\n\n")
              name (rb-deprecated m) path pb resp)]))
@@ -78,27 +78,27 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "    def ~a(req, metadata = nil)\n"
-              "~a      @channel.unary(~s, req, ~a::~a.new, metadata)\n"
+              "    def ~a(req, metadata = nil, timeout: nil)\n"
+              "~a      @channel.unary(~s, req, ~a::~a.new, metadata, timeout: timeout)\n"
               "    end\n\n")
              name (rb-deprecated m) path pb resp)]
     [(server-streaming)
      (format (string-append
-              "    def ~a(req, metadata = nil)\n"
-              "~a      stream = @channel.server_stream(~s, req, metadata)\n"
+              "    def ~a(req, metadata = nil, timeout: nil)\n"
+              "~a      stream = @channel.server_stream(~s, req, metadata, timeout: timeout)\n"
               "      FiberRecvStream.new(stream, ~a::~a)\n"
               "    end\n\n")
              name (rb-deprecated m) path pb resp)]
     [(client-streaming)
      (format (string-append
-              "    def ~a(reqs, metadata = nil)\n"
-              "~a      @channel.client_stream(~s, reqs, ~a::~a.new, metadata)\n"
+              "    def ~a(reqs, metadata = nil, timeout: nil)\n"
+              "~a      @channel.client_stream(~s, reqs, ~a::~a.new, metadata, timeout: timeout)\n"
               "    end\n\n")
              name (rb-deprecated m) path pb resp)]
     [(bidi)
      (format (string-append
-              "    def ~a(reqs, metadata = nil)\n"
-              "~a      stream = @channel.bidi(~s, reqs, metadata)\n"
+              "    def ~a(reqs, metadata = nil, timeout: nil)\n"
+              "~a      stream = @channel.bidi(~s, reqs, metadata, timeout: timeout)\n"
               "      FiberRecvStream.new(stream, ~a::~a)\n"
               "    end\n\n")
              name (rb-deprecated m) path pb resp)]))
