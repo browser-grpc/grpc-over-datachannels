@@ -162,6 +162,7 @@ from .codec import (
     to_status,
 )
 from .wire_gen import (
+    CODE_CANCELLED,
     CODE_INTERNAL,
     CODE_UNAVAILABLE,
     CODE_UNIMPLEMENTED,
@@ -295,6 +296,24 @@ class Endpoint:
         with self._streams_lock:
             self._streams.pop(stream_id, None)
 
+    def cancel_stream(self, stream_id):
+        """Abort one stream: RST towards the peer, forget it locally.
+
+        Any thread blocked in recv on this stream wakes with the
+        cancellation status (the local input is closed with a
+        synthetic RST event).
+        """
+        status = StatusError(CODE_CANCELLED, "call cancelled")
+        with self._streams_lock:
+            stream_input = self._streams.pop(stream_id, None)
+        if stream_input is not None:
+            stream_input.put(StreamEvent(EVENT_RST, status=status))
+            stream_input.close()
+        try:
+            self.send_frame(status_frame(FRAME_RST, stream_id, status))
+        except Exception:
+            pass
+
     def _stream(self, stream_id):
         with self._streams_lock:
             return self._streams.get(stream_id)
@@ -426,6 +445,8 @@ GRPC_RUNTIME_EOF
 #<<GRPC_RUNTIME_EOF
 """Channel: the client side of one Endpoint."""
 
+import asyncio
+
 from .codec import StatusError, encode_frame, headers_frame
 from .endpoint import (
     EVENT_DATA,
@@ -468,6 +489,10 @@ class Channel:
         for req in reqs:
             self._send_message(stream, req)
         self._half_close(stream)
+
+    def cancel(self, stream):
+        """Abort an open ClientStream (sends RST)."""
+        self.endpoint.cancel_stream(stream.stream_id)
 
     def unary(self, path, req, resp, metadata=None):
         """Run a unary call, decoding the single response into resp."""
@@ -564,6 +589,89 @@ class ClientStream:
                 raise EOFError("call completed")
             elif event.kind == EVENT_RST:
                 raise event.status
+
+
+class AsyncClientStream:
+    """Asyncio receiving stream wrapping a ClientStream.
+
+    The blocking wait runs on the event loop's default executor,
+    so awaiting never stalls the loop. Cancelling the awaiting
+    task aborts the stream with RST (CODE_CANCELLED).
+    """
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    @property
+    def stream_id(self):
+        return self._stream.stream_id
+
+    @property
+    def headers(self):
+        return self._stream.headers
+
+    async def recv(self, resp):
+        loop = asyncio.get_running_loop()
+        # shield: task cancellation surfaces immediately (the
+        # executor thread cannot be cancelled); we then abort
+        # the stream, which wakes that thread with RST.
+        future = loop.run_in_executor(None, self._stream.recv, resp)
+        try:
+            return await asyncio.shield(future)
+        except asyncio.CancelledError:
+            self.cancel()
+            raise
+
+    def cancel(self):
+        self._stream._endpoint.cancel_stream(self._stream.stream_id)
+
+
+class AsyncChannel:
+    """Asyncio client facade over Channel (mirrors grpc.aio shape).
+
+    Unary and client-streaming calls are awaited on executor
+    threads; server-streaming and bidi calls return an
+    AsyncClientStream. Construct directly over a transport or
+    wrap an existing sync Channel to share its Endpoint.
+    """
+
+    def __init__(self, channel=None, transport=None, endpoint=None):
+        if isinstance(channel, Channel):
+            self._channel = channel
+        elif channel is not None and transport is None and endpoint is None:
+            self._channel = Channel(channel)  # a bare transport
+        else:
+            self._channel = Channel(transport, endpoint)
+
+    @property
+    def channel(self):
+        return self._channel
+
+    @property
+    def endpoint(self):
+        return self._channel.endpoint
+
+    async def unary(self, path, req, resp, metadata=None):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, lambda: self._channel.unary(path, req, resp, metadata))
+
+    async def client_stream(self, path, reqs, resp, metadata=None):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, lambda: self._channel.client_stream(path, reqs, resp, metadata))
+
+    async def server_stream(self, path, req, metadata=None):
+        loop = asyncio.get_running_loop()
+        stream = await loop.run_in_executor(
+            None, lambda: self._channel.server_stream(path, req, metadata))
+        return AsyncClientStream(stream)
+
+    async def bidi(self, path, reqs, metadata=None):
+        loop = asyncio.get_running_loop()
+        stream = await loop.run_in_executor(
+            None, lambda: self._channel.bidi(path, reqs, metadata))
+        return AsyncClientStream(stream)
 GRPC_RUNTIME_EOF
 )
 
@@ -708,7 +816,7 @@ GRPC_RUNTIME_EOF
 #<<GRPC_RUNTIME_EOF
 """grpcdc: gRPC over WebRTC DataChannels (generated runtime)."""
 
-from .channel import Channel, ClientStream
+from .channel import AsyncChannel, AsyncClientStream, Channel, ClientStream
 from .codec import (
     CallClosed,
     Headers,
@@ -746,6 +854,8 @@ __all__ = [
     "FileModel",
     "GenericMessage",
     "CallContext",
+    "AsyncChannel",
+    "AsyncClientStream",
     "Channel",
     "ClientStream",
     "Endpoint",

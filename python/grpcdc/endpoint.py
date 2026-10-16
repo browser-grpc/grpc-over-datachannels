@@ -14,6 +14,7 @@ from .codec import (
     to_status,
 )
 from .wire_gen import (
+    CODE_CANCELLED,
     CODE_INTERNAL,
     CODE_UNAVAILABLE,
     CODE_UNIMPLEMENTED,
@@ -146,6 +147,24 @@ class Endpoint:
     def close_stream(self, stream_id):
         with self._streams_lock:
             self._streams.pop(stream_id, None)
+
+    def cancel_stream(self, stream_id):
+        """Abort one stream: RST towards the peer, forget it locally.
+
+        Any thread blocked in recv on this stream wakes with the
+        cancellation status (the local input is closed with a
+        synthetic RST event).
+        """
+        status = StatusError(CODE_CANCELLED, "call cancelled")
+        with self._streams_lock:
+            stream_input = self._streams.pop(stream_id, None)
+        if stream_input is not None:
+            stream_input.put(StreamEvent(EVENT_RST, status=status))
+            stream_input.close()
+        try:
+            self.send_frame(status_frame(FRAME_RST, stream_id, status))
+        except Exception:
+            pass
 
     def _stream(self, stream_id):
         with self._streams_lock:

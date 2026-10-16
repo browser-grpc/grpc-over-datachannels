@@ -71,6 +71,29 @@ class _BidiStream:
         return self._reqs.recv_into(self._req_cls())
 
 
+class _AsyncRecvStream:
+    """Async client receiving stream: async-for or await recv()."""
+
+    def __init__(self, stream, resp_cls):
+        self._stream = stream
+        self._resp_cls = resp_cls
+
+    async def recv(self):
+        return await self._stream.recv(self._resp_cls())
+
+    def cancel(self):
+        self._stream.cancel()
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return await self.recv()
+        except EOFError:
+            raise StopAsyncIteration
+
+
 class EchoClient:
     def __init__(self, channel):
         self._channel = channel
@@ -88,6 +111,29 @@ class EchoClient:
     def Bidi(self, reqs, metadata=None):
         stream = self._channel.bidi("/echo.Echo/Bidi", reqs, metadata)
         return _RecvStream(stream, echo_pb.EchoResponse)
+
+class EchoClientAsync:
+    """Asyncio client: wrap a grpcdc.AsyncChannel (a sync Channel is wrapped)."""
+
+    def __init__(self, channel):
+        if isinstance(channel, grpcdc.AsyncChannel):
+            self._channel = channel
+        else:
+            self._channel = grpcdc.AsyncChannel(channel=channel)
+
+    async def Unary(self, req, metadata=None):
+        return await self._channel.unary("/echo.Echo/Unary", req, echo_pb.EchoResponse(), metadata)
+
+    async def ServerStream(self, req, metadata=None):
+        stream = await self._channel.server_stream("/echo.Echo/ServerStream", req, metadata)
+        return _AsyncRecvStream(stream, echo_pb.EchoResponse)
+
+    async def ClientStream(self, reqs, metadata=None):
+        return await self._channel.client_stream("/echo.Echo/ClientStream", reqs, echo_pb.EchoResponse(), metadata)
+
+    async def Bidi(self, reqs, metadata=None):
+        stream = await self._channel.bidi("/echo.Echo/Bidi", reqs, metadata)
+        return _AsyncRecvStream(stream, echo_pb.EchoResponse)
 
 def register_echo_server(server, impl):
     def _Unary_handler(ctx, reqs, sink):

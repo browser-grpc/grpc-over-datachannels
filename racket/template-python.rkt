@@ -58,6 +58,34 @@
 (define (py-client-method pb m)
   (py-client-method/raw pb m))
 
+(define (py-async-client-method/raw pb m)
+  (define name (hash-ref m 'name))
+  (define resp (hash-ref m 'output))
+  (define path (hash-ref m 'path))
+  (case (hash-ref m 'kind)
+    [(unary)
+     (format (string-append
+              "    async def ~a(self, req, metadata=None):\n"
+              "~a        return await self._channel.unary(~s, req, ~a.~a(), metadata)\n\n")
+             name (py-deprecated m) path pb resp)]
+    [(server-streaming)
+     (format (string-append
+              "    async def ~a(self, req, metadata=None):\n"
+              "~a        stream = await self._channel.server_stream(~s, req, metadata)\n"
+              "        return _AsyncRecvStream(stream, ~a.~a)\n\n")
+             name (py-deprecated m) path pb resp)]
+    [(client-streaming)
+     (format (string-append
+              "    async def ~a(self, reqs, metadata=None):\n"
+              "~a        return await self._channel.client_stream(~s, reqs, ~a.~a(), metadata)\n\n")
+             name (py-deprecated m) path pb resp)]
+    [(bidi)
+     (format (string-append
+              "    async def ~a(self, reqs, metadata=None):\n"
+              "~a        stream = await self._channel.bidi(~s, reqs, metadata)\n"
+              "        return _AsyncRecvStream(stream, ~a.~a)\n\n")
+             name (py-deprecated m) path pb resp)]))
+
 (define (py-server-handler pb m)
   (define name (hash-ref m 'name))
   (define impl-name (method-impl-name m))
@@ -148,7 +176,23 @@
    "    def send(self, resp):\n"
    "        self._sink.send(resp.marshal_dc())\n\n"
    "    def recv(self):\n"
-   "        return self._reqs.recv_into(self._req_cls())\n\n\n"))
+   "        return self._reqs.recv_into(self._req_cls())\n\n\n"
+   "class _AsyncRecvStream:\n"
+   "    \"\"\"Async client receiving stream: async-for or await recv().\"\"\"\n\n"
+   "    def __init__(self, stream, resp_cls):\n"
+   "        self._stream = stream\n"
+   "        self._resp_cls = resp_cls\n\n"
+   "    async def recv(self):\n"
+   "        return await self._stream.recv(self._resp_cls())\n\n"
+   "    def cancel(self):\n"
+   "        self._stream.cancel()\n\n"
+   "    def __aiter__(self):\n"
+   "        return self\n\n"
+   "    async def __anext__(self):\n"
+   "        try:\n"
+   "            return await self.recv()\n"
+   "        except EOFError:\n"
+   "            raise StopAsyncIteration\n\n\n"))
 
 (define (py-service pb svc)
   (define sname (hash-ref svc 'name))
@@ -157,6 +201,8 @@
     (string-append
      (format "class ~aClient:\n    def __init__(self, channel):\n        self._channel = channel\n\n" sname)
      (apply string-append (map (lambda (m) (py-client-method pb m)) (append methods (alias-client-methods svc))))
+     (format "class ~aClientAsync:\n    \"\"\"Asyncio client: wrap a grpcdc.AsyncChannel (a sync Channel is wrapped).\"\"\"\n\n    def __init__(self, channel):\n        if isinstance(channel, grpcdc.AsyncChannel):\n            self._channel = channel\n        else:\n            self._channel = grpcdc.AsyncChannel(channel=channel)\n\n" sname)
+     (apply string-append (map (lambda (m) (py-async-client-method/raw pb m)) (append methods (alias-client-methods svc))))
      (format "def register_~a_server(server, impl):\n" (snake (string->symbol sname)))
      (apply string-append (map (lambda (m) (py-server-handler pb m)) (append methods (alias-server-methods svc))))
      (format "    server.register_service(grpcdc.ServiceDesc(\n        ~s,\n        [\n"
