@@ -132,6 +132,21 @@ func (ep *Endpoint) closeStream(id uint32) {
 	ep.streams.Delete(id)
 }
 
+// cancelStream aborts one stream with RST and forgets it locally.
+// The goroutine blocked in Recv selects on the call context, so it
+// wakes on its own; the synthetic event covers races where Recv is
+// entered after the abort.
+func (ep *Endpoint) cancelStream(id uint32) {
+	if in, ok := ep.streams.LoadAndDelete(id); ok {
+		input := in.(*streamInput)
+		input.events <- streamEvent{kind: eventRST, status: NewStatus(CodeCancelled, "call cancelled")}
+		close(input.events)
+	}
+	if frame, err := statusFrame(FrameRst, id, NewStatus(CodeCancelled, "call cancelled")); err == nil {
+		_ = ep.SendFrame(frame)
+	}
+}
+
 func (ep *Endpoint) stream(id uint32) *streamInput {
 	in, ok := ep.streams.Load(id)
 	if !ok {
@@ -249,6 +264,11 @@ func (ep *Endpoint) onHeaders(streamID uint32, payload []byte) {
 			return
 		}
 		ctx := context.WithValue(context.Background(), metadataKey{}, headers.Metadata)
+		if d, ok := ParseTimeout(headers.Metadata["grpc-timeout"]); ok {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, d)
+			defer cancel()
+		}
 		status := ep.dispatcher(ctx, headers, in, sink)
 		if status == nil {
 			status = NewStatus(CodeOk, "")

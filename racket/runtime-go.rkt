@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // HeaderLen is the frame header size: type:u8 | stream:u32be | len:u32be.
@@ -115,6 +116,50 @@ type headersBody struct {
 type Headers struct {
 	Path     *string
 	Metadata map[string]string
+}
+
+// gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+// units H/M/S/m/u/n (at most 8 digits). Encoding uses
+// milliseconds (seconds past the digit limit), rounded up so a
+// deadline never shrinks in propagation.
+func EncodeTimeout(d time.Duration) string {
+	ms := (d + time.Millisecond - 1) / time.Millisecond
+	if ms <= 99999999 {
+		return fmt.Sprintf("%dm", ms)
+	}
+	return fmt.Sprintf("%dS", (d+time.Second-1)/time.Second)
+}
+
+// ParseTimeout decodes a grpc-timeout value; ok is false when malformed.
+func ParseTimeout(text string) (time.Duration, bool) {
+	if len(text) < 2 || len(text) > 9 {
+		return 0, false
+	}
+	var unit time.Duration
+	switch text[len(text)-1] {
+	case 'H':
+		unit = time.Hour
+	case 'M':
+		unit = time.Minute
+	case 'S':
+		unit = time.Second
+	case 'm':
+		unit = time.Millisecond
+	case 'u':
+		unit = time.Microsecond
+	case 'n':
+		unit = time.Nanosecond
+	default:
+		return 0, false
+	}
+	n := 0
+	for _, c := range text[:len(text)-1] {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+	}
+	return time.Duration(n) * unit, true
 }
 
 func headersFrame(streamID uint32, path *string, metadata map[string]string) ([]byte, error) {
@@ -305,6 +350,21 @@ func (ep *Endpoint) closeStream(id uint32) {
 	ep.streams.Delete(id)
 }
 
+// cancelStream aborts one stream with RST and forgets it locally.
+// The goroutine blocked in Recv selects on the call context, so it
+// wakes on its own; the synthetic event covers races where Recv is
+// entered after the abort.
+func (ep *Endpoint) cancelStream(id uint32) {
+	if in, ok := ep.streams.LoadAndDelete(id); ok {
+		input := in.(*streamInput)
+		input.events <- streamEvent{kind: eventRST, status: NewStatus(CodeCancelled, "call cancelled")}
+		close(input.events)
+	}
+	if frame, err := statusFrame(FrameRst, id, NewStatus(CodeCancelled, "call cancelled")); err == nil {
+		_ = ep.SendFrame(frame)
+	}
+}
+
 func (ep *Endpoint) stream(id uint32) *streamInput {
 	in, ok := ep.streams.Load(id)
 	if !ok {
@@ -409,6 +469,11 @@ func (ep *Endpoint) onHeaders(streamID uint32, payload []byte) {
 			return
 		}
 		ctx := context.WithValue(context.Background(), metadataKey{}, headers.Metadata)
+		if d, ok := ParseTimeout(headers.Metadata["grpc-timeout"]); ok {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, d)
+			defer cancel()
+		}
 		status := ep.dispatcher(ctx, headers, in, sink)
 		if status == nil {
 			status = NewStatus(CodeOk, "")
@@ -431,7 +496,9 @@ package grpcdc
 
 import (
 	"context"
+	"errors"
 	"io"
+	"time"
 )
 
 type metadataKey struct{}
@@ -471,13 +538,28 @@ type ClientStream struct {
 	in     *streamInput
 	header Headers
 	gotHdr bool
+	ctx    context.Context
 }
 
 // Recv decodes the next response into resp. io.EOF means the call
 // completed OK; a *StatusError reports the trailers status.
 func (s *ClientStream) Recv(resp Unmarshaler) error {
 	for {
-		ev, ok := <-s.in.events
+		var ev streamEvent
+		var ok bool
+		if s.ctx != nil {
+			select {
+			case ev, ok = <-s.in.events:
+			case <-s.ctx.Done():
+				s.ep.cancelStream(s.id)
+				if errors.Is(s.ctx.Err(), context.DeadlineExceeded) {
+					return NewStatus(CodeDeadlineExceeded, "deadline exceeded")
+				}
+				return NewStatus(CodeCancelled, "call cancelled")
+			}
+		} else {
+			ev, ok = <-s.in.events
+		}
 		if !ok {
 			return NewStatus(CodeUnavailable, "data channel closed")
 		}
@@ -498,6 +580,14 @@ func (s *ClientStream) Recv(resp Unmarshaler) error {
 }
 
 func (ch *Channel) open(ctx context.Context, path string, metadata map[string]string) (*ClientStream, error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		merged := make(map[string]string, len(metadata)+1)
+		for k, v := range metadata {
+			merged[k] = v
+		}
+		merged["grpc-timeout"] = EncodeTimeout(time.Until(deadline))
+		metadata = merged
+	}
 	id, in := ch.ep.openStream()
 	frame, err := headersFrame(id, &path, metadata)
 	if err == nil {
@@ -507,7 +597,14 @@ func (ch *Channel) open(ctx context.Context, path string, metadata map[string]st
 		ch.ep.closeStream(id)
 		return nil, err
 	}
-	return &ClientStream{ep: ch.ep, id: id, in: in}, nil
+	return &ClientStream{ep: ch.ep, id: id, in: in, ctx: ctx}, nil
+}
+
+// Cancel aborts the call: RST towards the peer; a pending Recv
+// returns CodeCancelled (or CodeDeadlineExceeded when the abort
+// came from the context deadline).
+func (s *ClientStream) Cancel() {
+	s.ep.cancelStream(s.id)
 }
 
 func (ch *Channel) sendMessage(stream *ClientStream, msg Marshaler) error {

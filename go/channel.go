@@ -4,7 +4,9 @@ package grpcdc
 
 import (
 	"context"
+	"errors"
 	"io"
+	"time"
 )
 
 type metadataKey struct{}
@@ -44,13 +46,28 @@ type ClientStream struct {
 	in     *streamInput
 	header Headers
 	gotHdr bool
+	ctx    context.Context
 }
 
 // Recv decodes the next response into resp. io.EOF means the call
 // completed OK; a *StatusError reports the trailers status.
 func (s *ClientStream) Recv(resp Unmarshaler) error {
 	for {
-		ev, ok := <-s.in.events
+		var ev streamEvent
+		var ok bool
+		if s.ctx != nil {
+			select {
+			case ev, ok = <-s.in.events:
+			case <-s.ctx.Done():
+				s.ep.cancelStream(s.id)
+				if errors.Is(s.ctx.Err(), context.DeadlineExceeded) {
+					return NewStatus(CodeDeadlineExceeded, "deadline exceeded")
+				}
+				return NewStatus(CodeCancelled, "call cancelled")
+			}
+		} else {
+			ev, ok = <-s.in.events
+		}
 		if !ok {
 			return NewStatus(CodeUnavailable, "data channel closed")
 		}
@@ -71,6 +88,14 @@ func (s *ClientStream) Recv(resp Unmarshaler) error {
 }
 
 func (ch *Channel) open(ctx context.Context, path string, metadata map[string]string) (*ClientStream, error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		merged := make(map[string]string, len(metadata)+1)
+		for k, v := range metadata {
+			merged[k] = v
+		}
+		merged["grpc-timeout"] = EncodeTimeout(time.Until(deadline))
+		metadata = merged
+	}
 	id, in := ch.ep.openStream()
 	frame, err := headersFrame(id, &path, metadata)
 	if err == nil {
@@ -80,7 +105,14 @@ func (ch *Channel) open(ctx context.Context, path string, metadata map[string]st
 		ch.ep.closeStream(id)
 		return nil, err
 	}
-	return &ClientStream{ep: ch.ep, id: id, in: in}, nil
+	return &ClientStream{ep: ch.ep, id: id, in: in, ctx: ctx}, nil
+}
+
+// Cancel aborts the call: RST towards the peer; a pending Recv
+// returns CodeCancelled (or CodeDeadlineExceeded when the abort
+// came from the context deadline).
+func (s *ClientStream) Cancel() {
+	s.ep.cancelStream(s.id)
 }
 
 func (ch *Channel) sendMessage(stream *ClientStream, msg Marshaler) error {

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // HeaderLen is the frame header size: type:u8 | stream:u32be | len:u32be.
@@ -101,6 +102,50 @@ type headersBody struct {
 type Headers struct {
 	Path     *string
 	Metadata map[string]string
+}
+
+// gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+// units H/M/S/m/u/n (at most 8 digits). Encoding uses
+// milliseconds (seconds past the digit limit), rounded up so a
+// deadline never shrinks in propagation.
+func EncodeTimeout(d time.Duration) string {
+	ms := (d + time.Millisecond - 1) / time.Millisecond
+	if ms <= 99999999 {
+		return fmt.Sprintf("%dm", ms)
+	}
+	return fmt.Sprintf("%dS", (d+time.Second-1)/time.Second)
+}
+
+// ParseTimeout decodes a grpc-timeout value; ok is false when malformed.
+func ParseTimeout(text string) (time.Duration, bool) {
+	if len(text) < 2 || len(text) > 9 {
+		return 0, false
+	}
+	var unit time.Duration
+	switch text[len(text)-1] {
+	case 'H':
+		unit = time.Hour
+	case 'M':
+		unit = time.Minute
+	case 'S':
+		unit = time.Second
+	case 'm':
+		unit = time.Millisecond
+	case 'u':
+		unit = time.Microsecond
+	case 'n':
+		unit = time.Nanosecond
+	default:
+		return 0, false
+	}
+	n := 0
+	for _, c := range text[:len(text)-1] {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+	}
+	return time.Duration(n) * unit, true
 }
 
 func headersFrame(streamID uint32, path *string, metadata map[string]string) ([]byte, error) {
