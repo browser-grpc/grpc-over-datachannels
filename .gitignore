@@ -6,6 +6,7 @@ browser-test/echo_zig.wasm
 browser-test/echo_zig_native.wasm
 browser-test/wasm_exec.js
 __pycache__/
+/go/build/
 /java/build/
 /csharp/**/bin/
 /csharp/**/obj/

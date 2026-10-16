@@ -143,6 +143,8 @@ enum EchoGrpcDc {
         func BidiAsync(_ stream: EchoBidiServer) async throws
     }
 
+    #endif
+
     private final class EchoServerStreamServerImpl: EchoServerStreamServer {
         private var ctxRef: Endpoint.CallContext
         private let sink: Server.ServerSink
@@ -189,6 +191,7 @@ enum EchoGrpcDc {
         var context: Endpoint.CallContext { ctxRef }
     }
 
+    #if canImport(Foundation)
     private final class EchoServerAsyncAdapter: EchoServer {
         private let impl: EchoServerAsync
         init(_ impl: EchoServerAsync) { self.impl = impl }
@@ -205,6 +208,8 @@ enum EchoGrpcDc {
             try RunBlocking { try await self.impl.BidiAsync(stream) }
         }
     }
+
+    #endif
 
     /// Register an implementation of echo.Echo on a Server.
     static func RegisterEchoServer(_ server: Server, _ impl: EchoServer) {
@@ -234,6 +239,7 @@ enum EchoGrpcDc {
         ]))
     }
 
+    #if canImport(Foundation)
     /// Register an async implementation of echo.Echo on a Server.
     static func RegisterEchoServerAsync(_ server: Server, _ impl: EchoServerAsync) {
         // Adapters are retained for the process lifetime: registration is

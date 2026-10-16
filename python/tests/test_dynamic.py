@@ -18,6 +18,28 @@ from stdio import StdioTransport
 from oracle_scenarios_generated import SCENARIOS
 from test_oracle import free_port, java_classpath, unmsg
 
+
+def kill_and_wait(proc):
+    """addCleanup target: kill, reap, and close pipes so the
+    interpreter does not report still-running subprocesses or
+    unclosed pipe files at shutdown."""
+    try:
+        proc.kill()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=10)
+    except Exception:
+        pass
+    for stream in (proc.stdin, proc.stdout, proc.stderr):
+        try:
+            if stream is not None:
+                stream.close()
+        except Exception:
+            pass
+
+
+
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 SERVICE = "echo.Echo"
 
@@ -128,7 +150,7 @@ class TestDynamicOracle(unittest.TestCase):
             ["java", "-cp", cp, "dc.oracle.OracleServer", str(port)],
             stderr=subprocess.PIPE,
         )
-        self.addCleanup(server.kill)
+        self.addCleanup(kill_and_wait, server)
         ready = False
         while True:
             line = server.stderr.readline()
@@ -144,7 +166,7 @@ class TestDynamicOracle(unittest.TestCase):
              "dc-to-http2", "--grpc", f"127.0.0.1:{port}"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         )
-        self.addCleanup(bridge.kill)
+        self.addCleanup(kill_and_wait, bridge)
         transport = StdioTransport(bridge.stdin, bridge.stdout)
         client = grpcdc.DynamicClient(grpcdc.Channel(transport), self.model)
         run_scenarios(self, client, self.model)
@@ -161,7 +183,7 @@ class TestDynamicOracle(unittest.TestCase):
              "http2-to-dc", "--port", str(port), "--target-cmd", server_cmd],
             stderr=subprocess.PIPE,
         )
-        self.addCleanup(bridge.kill)
+        self.addCleanup(kill_and_wait, bridge)
         line = bridge.stderr.readline()
         if b"listening" not in line:
             self.skipTest(f"bridge did not start: {line!r}")

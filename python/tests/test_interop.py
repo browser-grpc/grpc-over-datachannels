@@ -18,6 +18,28 @@ import echo_grpc_dc
 from echo_pb import EchoRequest
 from stdio import StdioTransport
 
+
+def kill_and_wait(proc):
+    """addCleanup target: kill, reap, and close pipes so the
+    interpreter does not report still-running subprocesses or
+    unclosed pipe files at shutdown."""
+    try:
+        proc.kill()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=10)
+    except Exception:
+        pass
+    for stream in (proc.stdin, proc.stdout, proc.stderr):
+        try:
+            if stream is not None:
+                stream.close()
+        except Exception:
+            pass
+
+
+
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 GO_DIR = os.path.join(ROOT, "go")
 PY_DIR = os.path.join(ROOT, "python")
@@ -44,7 +66,7 @@ class TestInterop(unittest.TestCase):
             server = subprocess.Popen(
                 [server_bin], stdin=subprocess.PIPE, stdout=subprocess.PIPE
             )
-            self.addCleanup(server.kill)
+            self.addCleanup(kill_and_wait, server)
             transport = StdioTransport(server.stdin, server.stdout)
             client = echo_grpc_dc.EchoClient(grpcdc.Channel(transport))
 
@@ -78,12 +100,12 @@ class TestInterop(unittest.TestCase):
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
             )
-            self.addCleanup(server.kill)
+            self.addCleanup(kill_and_wait, server)
             client = subprocess.Popen(
                 [client_bin], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-            self.addCleanup(client.kill)
+            self.addCleanup(kill_and_wait, client)
             import threading
 
             def pump(src, dst):

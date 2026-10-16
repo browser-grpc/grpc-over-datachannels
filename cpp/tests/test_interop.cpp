@@ -54,7 +54,8 @@ void TestInterop() {
   std::signal(SIGPIPE, SIG_IGN);  // pump writes may race peer exit
   std::string root = Root();
   std::string tmp = "/tmp/grpcdc_cpp_interop";
-  std::system(("mkdir -p " + tmp).c_str());
+  const int mkdir_rc = std::system(("mkdir -p " + tmp).c_str());
+  (void)mkdir_rc; // best-effort: the build below fails loudly if the dir is unusable
   std::string server_bin = tmp + "/echo_server_stdio";
   if (!BuildGo(root, server_bin, "./examples/echo_server_stdio")) {
     std::fprintf(stderr, "TestInterop SKIP (no go)\n");

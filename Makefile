@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-interop-matrix demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -368,20 +368,22 @@ test-swift-wasm-native-browser:
 		swift/grpcdc/Endpoint.swift swift/grpcdc/Channel.swift \
 		swift/grpcdc/Server.swift swift/grpcdc/MemoryTransport.swift \
 		swift/examples/Pb.swift swift/examples/EchoMessages.swift \
-		swift/examples/EchoGrpcDc.swift \
+		swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift \
 		wasm/swift/native/dc_transport.swift \
 		wasm/swift/native/echo_client.swift \
+		wasm/swift/native/echo_server.swift \
 		-o wasm/swift/build/echo_swift_native.o
 	$(ZIG) cc -target wasm32-freestanding -O1 -c wasm/swift/support.c \
 		-o wasm/swift/build/support.o
 	$(WASM_LD) --no-entry --allow-undefined \
-		--export=run_echo_client \
+		--export=run_echo_client --export=run_echo_server \
 		wasm/swift/build/echo_swift_native.o wasm/swift/build/support.o \
 		$(SWIFT_WASM_LIBDIR)/libswiftUnicodeDataTables.a \
 		$(SWIFT_WASM_LIBDIR)/libswiftEmbeddedPlatformPOSIX.a \
 		$(SWIFT_WASM_LIBDIR)/libswiftExclusivitySingleThreaded.a \
 		-o browser-test/echo_swift_native.wasm
 	cd browser-test && node wasm_swift_native.test.mjs all
+	cd browser-test && node wasm_swift_native_server.test.mjs all
 
 KOTLINC_JS ?= kotlinc-js
 KOTLIN_WASM_STDLIB ?= $(firstword $(wildcard $(HOME)/.local/kotlin-dist/kotlinc/lib/kotlin-stdlib-wasm-js.klib /usr/local/kotlinc/lib/kotlin-stdlib-wasm-js.klib))
@@ -424,7 +426,8 @@ test-kotlin-wasm-native-browser:
 		-module-kind es -target es2015 -main noCall -Xir-produce-klib-file \
 		wasm/kotlin/grpcdc/*.kt wasm/kotlin/Pb.kt \
 		wasm/kotlin/EchoMessages.kt wasm/kotlin/native/EchoGrpcDc.kt \
-		wasm/kotlin/native/dc_transport.kt wasm/kotlin/native/echo_client.kt
+		wasm/kotlin/native/dc_transport.kt wasm/kotlin/native/echo_client.kt \
+		wasm/kotlin/native/echo_server.kt
 	$(KOTLINC_JS) -Xwasm -Xwasm-target=wasm-js \
 		-Xwasm-use-new-exception-proposal \
 		-libraries $(KOTLIN_WASM_STDLIB) \
@@ -433,8 +436,14 @@ test-kotlin-wasm-native-browser:
 		-ir-output-name echo_kotlin_native \
 		-module-kind es -target es2015 -main noCall -Xir-produce-js
 	cd browser-test && node wasm_kotlin_native.test.mjs all
+	cd browser-test && node wasm_kotlin_native_server.test.mjs all
 
-test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser
+## Cross-language interop matrix: every stdio Echo client
+## against every stdio Echo server (12 x 12 ordered pairs).
+test-interop-matrix:
+	cd js && node test/interop-matrix.mjs
+
+test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-interop-matrix
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo

@@ -21,13 +21,13 @@ private final class AsyncEchoService: EchoGrpcDc.EchoServerAsync {
         return try inner.Unary(ctx, req)
     }
     func ServerStreamAsync(_ req: EchoRequest, _ stream: EchoGrpcDc.EchoServerStreamServer) async throws {
-        try await inner.ServerStream(req, stream)
+        try inner.ServerStream(req, stream)
     }
     func ClientStreamAsync(_ stream: EchoGrpcDc.EchoClientStreamServer) async throws {
-        try await inner.ClientStream(stream)
+        try inner.ClientStream(stream)
     }
     func BidiAsync(_ stream: EchoGrpcDc.EchoBidiServer) async throws {
-        try await inner.Bidi(stream)
+        try inner.Bidi(stream)
     }
 }
 

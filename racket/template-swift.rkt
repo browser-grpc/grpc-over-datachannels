@@ -353,18 +353,23 @@
      (format "    protocol ~aServerAsync: AnyObject {\n" sname)
      (apply string-append (map swift-server-async-iface-method methods))
      "    }\n\n"
+     "    #endif\n\n"
      (apply string-append (map swift-stream-impl methods))
+     "    #if canImport(Foundation)\n"
      (format "    private final class ~aServerAsyncAdapter: ~aServer {\n" sname sname)
      (format "        private let impl: ~aServerAsync\n" sname)
      (format "        init(_ impl: ~aServerAsync) { self.impl = impl }\n" sname)
      (apply string-append (map swift-server-async-adapter-method methods))
      "    }\n\n"
+     "    #endif\n\n"
      (format "    /// Register an implementation of ~a on a Server.\n" (hash-ref svc 'full-name))
+
      (format "    static func Register~aServer(_ server: Server, _ impl: ~aServer) {\n" sname sname)
      (format "        server.RegisterService(Server.ServiceDesc(name: ~s, methods: [\n"
              (hash-ref svc 'full-name))
      (apply string-append (map swift-register-method (append methods (alias-server-methods svc))))
      "        ]))\n    }\n\n"
+     "    #if canImport(Foundation)\n"
      (format "    /// Register an async implementation of ~a on a Server.\n" (hash-ref svc 'full-name))
      (format "    static func Register~aServerAsync(_ server: Server, _ impl: ~aServerAsync) {\n" sname sname)
      "        // Adapters are retained for the process lifetime: registration is\n"

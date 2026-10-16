@@ -8,9 +8,15 @@
 // grpcdcNowNanos) backs deadlines/timeouts.
 
 onmessage = async (event) => {
-  const { sab, wasmUrl } = event.data;
+  const { sab, wasmUrl, mode } = event.data;
   try {
     const mod = await import(wasmUrl);
+    if (mode === "server") {
+      postMessage({ t: "ready" });
+      mod.runEchoServerNative(sab);
+      // runEchoServerNative never returns (inline pump loop).
+      return;
+    }
     const json = mod.runEchoClientNative(sab);
     postMessage({ t: "result", json });
   } catch (err) {

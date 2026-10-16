@@ -21,6 +21,28 @@ from echo_pb import EchoRequest
 from stdio import StdioTransport
 from oracle_scenarios_generated import SCENARIOS
 
+
+def kill_and_wait(proc):
+    """addCleanup target: kill, reap, and close pipes so the
+    interpreter does not report still-running subprocesses or
+    unclosed pipe files at shutdown."""
+    try:
+        proc.kill()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=10)
+    except Exception:
+        pass
+    for stream in (proc.stdin, proc.stdout, proc.stderr):
+        try:
+            if stream is not None:
+                stream.close()
+        except Exception:
+            pass
+
+
+
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 
 
@@ -100,7 +122,7 @@ class TestOracle(unittest.TestCase):
             ["java", "-cp", cp, "dc.oracle.OracleServer", str(port)],
             stderr=subprocess.PIPE,
         )
-        self.addCleanup(server.kill)
+        self.addCleanup(kill_and_wait, server)
         # Wait for READY on stderr.
         ready = False
         while True:
@@ -124,7 +146,7 @@ class TestOracle(unittest.TestCase):
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
         )
-        self.addCleanup(bridge.kill)
+        self.addCleanup(kill_and_wait, bridge)
         transport = StdioTransport(bridge.stdin, bridge.stdout)
         client = echo_grpc_dc.EchoClient(grpcdc.Channel(transport))
         run_scenarios(self, client)
@@ -148,7 +170,7 @@ class TestOracle(unittest.TestCase):
             ],
             stderr=subprocess.PIPE,
         )
-        self.addCleanup(bridge.kill)
+        self.addCleanup(kill_and_wait, bridge)
         # The bridge prints its listening line to stderr.
         line = bridge.stderr.readline()
         if b"listening" not in line:

@@ -47,6 +47,10 @@ private fun jsI32Wait(array: JsInt32Array, index: Int, value: Int) {
     js("Atomics.wait(array, index, value)")
 }
 
+private fun jsI32WaitTimeout(array: JsInt32Array, index: Int, value: Int, timeoutMs: Int) {
+    js("Atomics.wait(array, index, value, timeoutMs)")
+}
+
 private fun jsSabBytes(sab: JsAny): JsUint8Array =
     js("new Uint8Array(sab)")
 
@@ -94,4 +98,9 @@ class DcTransport(sab: JsAny) : Transport {
     }
 
     override fun close() {}
+
+    /** Brief mailbox wait for server pump loops (5 ms). */
+    fun waitBriefly() {
+        if (jsI32Load(i32, 0) == 0) jsI32WaitTimeout(i32, 0, 0, 5)
+    }
 }
