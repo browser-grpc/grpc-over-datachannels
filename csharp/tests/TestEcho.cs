@@ -152,7 +152,7 @@ public static class TestEcho
         cts.Cancel();
         try
         {
-            await client.UnaryAsync(Req("hello", 0), null, cts.Token);
+            await client.UnaryAsync(Req("hello", 0), null, cancellationToken: cts.Token);
             Program.Check(false, "cancelled call should throw");
         }
         catch (OperationCanceledException)

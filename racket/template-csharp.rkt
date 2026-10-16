@@ -35,34 +35,34 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "        public ~a ~a(~a req, IDictionary<string, string> metadata = null)\n"
+              "        public ~a ~a(~a req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)\n"
               "        {\n"
               "            var resp = new ~a();\n"
-              "            _channel.Unary(~s, req, resp, metadata);\n"
+              "            _channel.Unary(~s, req, resp, metadata, timeout);\n"
               "            return resp;\n"
               "        }\n\n")
              resp name req resp path)]
     [(server-streaming)
      (format (string-append
-              "        public ~a~aStream ~a(~a req, IDictionary<string, string> metadata = null)\n"
+              "        public ~a~aStream ~a(~a req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)\n"
               "        {\n"
-              "            return new ~a~aStream(_channel.ServerStream(~s, req, metadata));\n"
+              "            return new ~a~aStream(_channel.ServerStream(~s, req, metadata, timeout));\n"
               "        }\n\n")
              svc name name req svc name path)]
     [(client-streaming)
      (format (string-append
-              "        public ~a ~a(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null)\n"
+              "        public ~a ~a(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)\n"
               "        {\n"
               "            var resp = new ~a();\n"
-              "            _channel.ClientStreamCall(~s, reqs, resp, metadata);\n"
+              "            _channel.ClientStreamCall(~s, reqs, resp, metadata, timeout);\n"
               "            return resp;\n"
               "        }\n\n")
              resp name req resp path)]
     [(bidi)
      (format (string-append
-              "        public ~a~aStream ~a(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null)\n"
+              "        public ~a~aStream ~a(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)\n"
               "        {\n"
-              "            return new ~a~aStream(_channel.Bidi(~s, reqs, metadata));\n"
+              "            return new ~a~aStream(_channel.Bidi(~s, reqs, metadata, timeout));\n"
               "        }\n\n")
              svc name name req svc name path)]))
 
@@ -275,18 +275,18 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "        public Task<~a> ~aAsync(~a req, IDictionary<string, string> metadata = null,\n"
+              "        public Task<~a> ~aAsync(~a req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n"
               "            CancellationToken cancellationToken = default)\n"
               "        {\n"
-              "            return AsyncPump.Run(() => Unary(req, metadata), cancellationToken);\n"
+              "            return AsyncPump.Run(() => Unary(req, metadata, timeout), cancellationToken);\n"
               "        }\n\n")
              resp name req)]
     [(server-streaming)
      (format (string-append
-              "        public async IAsyncEnumerable<~a> ~aAsync(~a req, IDictionary<string, string> metadata = null,\n"
+              "        public async IAsyncEnumerable<~a> ~aAsync(~a req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n"
               "            [EnumeratorCancellation] CancellationToken cancellationToken = default)\n"
               "        {\n"
-              "            var stream = ~a(req, metadata);\n"
+              "            var stream = ~a(req, metadata, timeout);\n"
               "            await foreach (var item in AsyncPump.Stream(stream.Recv, cancellationToken))\n"
               "            {\n"
               "                yield return item;\n"
@@ -295,18 +295,18 @@
              resp name req name)]
     [(client-streaming)
      (format (string-append
-              "        public Task<~a> ~aAsync(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null,\n"
+              "        public Task<~a> ~aAsync(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n"
               "            CancellationToken cancellationToken = default)\n"
               "        {\n"
-              "            return AsyncPump.Run(() => ClientStream(reqs, metadata), cancellationToken);\n"
+              "            return AsyncPump.Run(() => ClientStream(reqs, metadata, timeout), cancellationToken);\n"
               "        }\n\n")
              resp name req)]
     [(bidi)
      (format (string-append
-              "        public async IAsyncEnumerable<~a> ~aAsync(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null,\n"
+              "        public async IAsyncEnumerable<~a> ~aAsync(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n"
               "            [EnumeratorCancellation] CancellationToken cancellationToken = default)\n"
               "        {\n"
-              "            var stream = ~a(reqs, metadata);\n"
+              "            var stream = ~a(reqs, metadata, timeout);\n"
               "            await foreach (var item in AsyncPump.Stream(stream.Recv, cancellationToken))\n"
               "            {\n"
               "                yield return item;\n"
@@ -412,6 +412,7 @@
         (string-append
          "// @generated by protoc-gen-grpc-dc-csharp (Racket metaprogram). DO NOT EDIT.\n"
          (format "// source: ~a\n\n" (hash-ref file-model 'name))
+         "using System;\n"
          "using System.Collections.Generic;\n"
          "using System.Runtime.CompilerServices;\n"
          "using System.Threading;\n"

@@ -24,15 +24,44 @@ public class Channel
     /// <summary>Receives response messages of one call.</summary>
     public sealed class ClientStream
     {
+        private readonly Endpoint _endpoint;
         private readonly Endpoint.StreamInput _input;
 
         public uint StreamId { get; }
         public Codec.Headers Headers { get; private set; }
+        internal long DeadlineTimestamp = -1;
 
-        internal ClientStream(uint streamId, Endpoint.StreamInput input)
+        internal ClientStream(Endpoint endpoint, uint streamId, Endpoint.StreamInput input)
         {
+            _endpoint = endpoint;
             StreamId = streamId;
             _input = input;
+        }
+
+        /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>
+        public void Cancel() => _endpoint.CancelStream(StreamId);
+
+        private Endpoint.StreamEvent NextEvent()
+        {
+            if (DeadlineTimestamp < 0)
+            {
+                return _input.Get();
+            }
+            long remainingTicks = DeadlineTimestamp - System.Diagnostics.Stopwatch.GetTimestamp();
+            try
+            {
+                if (remainingTicks <= 0)
+                {
+                    throw new TimeoutException();
+                }
+                return _input.Get(TimeSpan.FromSeconds(
+                    (double)remainingTicks / System.Diagnostics.Stopwatch.Frequency));
+            }
+            catch (TimeoutException)
+            {
+                _endpoint.CancelStream(StreamId);
+                throw new StatusException(Wire.CodeDeadlineExceeded, "deadline exceeded");
+            }
         }
 
         /// <summary>
@@ -44,7 +73,7 @@ public class Channel
         {
             while (true)
             {
-                Endpoint.StreamEvent evt = _input.Get();
+                Endpoint.StreamEvent evt = NextEvent();
                 if (evt == null)
                 {
                     throw new StatusException(Wire.CodeUnavailable, "data channel closed");
@@ -72,8 +101,19 @@ public class Channel
         }
     }
 
-    private ClientStream Open(string path, IDictionary<string, string> metadata)
+    private ClientStream Open(string path, IDictionary<string, string> metadata, TimeSpan? timeout = null)
     {
+        long deadline = -1;
+        if (timeout != null)
+        {
+            deadline = System.Diagnostics.Stopwatch.GetTimestamp()
+                + (long)(timeout.Value.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
+            var merged = metadata == null
+                ? new Dictionary<string, string>()
+                : new Dictionary<string, string>(metadata);
+            merged["grpc-timeout"] = Codec.EncodeTimeout(timeout.Value);
+            metadata = merged;
+        }
         (uint id, Endpoint.StreamInput input) = _endpoint.OpenStream();
         try
         {
@@ -84,7 +124,7 @@ public class Channel
             _endpoint.CloseStream(id);
             throw;
         }
-        return new ClientStream(id, input);
+        return new ClientStream(_endpoint, id, input) { DeadlineTimestamp = deadline };
     }
 
     private void SendMessage(ClientStream stream, IMarshaler msg)
@@ -107,9 +147,9 @@ public class Channel
     }
 
     /// <summary>Run a unary call, decoding the single response into resp.</summary>
-    public void Unary(string path, IMarshaler req, IUnmarshaler resp, IDictionary<string, string> metadata = null)
+    public void Unary(string path, IMarshaler req, IUnmarshaler resp, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
     {
-        ClientStream stream = Open(path, metadata);
+        ClientStream stream = Open(path, metadata, timeout);
         try
         {
             SendMessage(stream, req);
@@ -143,9 +183,9 @@ public class Channel
     }
 
     /// <summary>Start a server-streaming call.</summary>
-    public ClientStream ServerStream(string path, IMarshaler req, IDictionary<string, string> metadata = null)
+    public ClientStream ServerStream(string path, IMarshaler req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
     {
-        ClientStream stream = Open(path, metadata);
+        ClientStream stream = Open(path, metadata, timeout);
         SendMessage(stream, req);
         HalfClose(stream);
         return stream;
@@ -153,9 +193,9 @@ public class Channel
 
     /// <summary>Send all requests, then decode the one response into resp.</summary>
     public void ClientStreamCall(string path, IEnumerable<IMarshaler> reqs, IUnmarshaler resp,
-        IDictionary<string, string> metadata = null)
+        IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
     {
-        ClientStream stream = Open(path, metadata);
+        ClientStream stream = Open(path, metadata, timeout);
         try
         {
             SendAll(stream, reqs);
@@ -189,9 +229,9 @@ public class Channel
     }
 
     /// <summary>Start a bidi call with all requests sent up front.</summary>
-    public ClientStream Bidi(string path, IEnumerable<IMarshaler> reqs, IDictionary<string, string> metadata = null)
+    public ClientStream Bidi(string path, IEnumerable<IMarshaler> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
     {
-        ClientStream stream = Open(path, metadata);
+        ClientStream stream = Open(path, metadata, timeout);
         SendAll(stream, reqs);
         return stream;
     }

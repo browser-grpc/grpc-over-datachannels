@@ -7,7 +7,7 @@ public static class Program
     {
         if (args.Length < 1)
         {
-            Console.Error.WriteLine("usage: GrpcdcTests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd>");
+            Console.Error.WriteLine("usage: GrpcdcTests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline>");
             return 2;
         }
         try
@@ -20,6 +20,7 @@ public static class Program
                 case "TestOracle": TestOracle.Run(); break;
                 case "TestDynamic": TestDynamic.Run(); break;
                 case "TestBdd": TestBdd.Run(); break;
+                case "TestDeadline": TestDeadline.Run(); break;
                 default:
                     Console.Error.WriteLine($"unknown test: {args[0]}");
                     return 2;

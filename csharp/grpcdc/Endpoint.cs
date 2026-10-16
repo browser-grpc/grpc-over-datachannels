@@ -41,17 +41,50 @@ public class Endpoint
             object item = _events.Take();
             return item == Closed ? null : (StreamEvent)item;
         }
+
+        /// <summary>
+        /// Next event within timeout, or null once closed.
+        /// Throws TimeoutException on expiry.
+        /// </summary>
+        public StreamEvent Get(TimeSpan timeout)
+        {
+            if (!_events.TryTake(out object item, timeout))
+            {
+                throw new TimeoutException();
+            }
+            return item == Closed ? null : (StreamEvent)item;
+        }
     }
 
-    /// <summary>Per-call context: metadata sent in HEADERS.</summary>
+    /// <summary>Per-call context: metadata sent in HEADERS, plus deadline.</summary>
     public sealed class CallContext
     {
         public Dictionary<string, string> Metadata { get; }
 
+        /// <summary>Deadline propagated via grpc-timeout, when set.</summary>
+        public DateTimeOffset? Deadline { get; }
+
         public CallContext(Dictionary<string, string> metadata)
         {
             Metadata = metadata ?? new Dictionary<string, string>();
+            TimeSpan? remaining = Metadata.TryGetValue("grpc-timeout", out string text)
+                ? Codec.ParseTimeout(text)
+                : null;
+            Deadline = remaining == null ? null : DateTimeOffset.UtcNow + remaining.Value;
         }
+
+        /// <summary>Time left before the deadline, or null when unbounded.</summary>
+        public TimeSpan? TimeRemaining()
+        {
+            if (Deadline == null)
+            {
+                return null;
+            }
+            TimeSpan left = Deadline.Value - DateTimeOffset.UtcNow;
+            return left < TimeSpan.Zero ? TimeSpan.Zero : left;
+        }
+
+        public bool DeadlineExceeded => TimeRemaining() == TimeSpan.Zero;
     }
 
     /// <summary>Server-side call handler installed by Server.</summary>
@@ -146,6 +179,26 @@ public class Endpoint
     }
 
     public void CloseStream(uint id) => _streams.TryRemove(id, out _);
+
+    /// <summary>Abort one stream: RST out; a pending Recv wakes with Cancelled.</summary>
+    public void CancelStream(uint id)
+    {
+        if (_streams.TryRemove(id, out StreamInput input))
+        {
+            input.Put(new StreamEvent(EventKind.Rst, null, null,
+                new StatusException(Wire.CodeCancelled, "call cancelled")));
+            input.Close();
+        }
+        try
+        {
+            SendFrame(Codec.StatusFrame(Wire.FrameRst, id,
+                new StatusException(Wire.CodeCancelled, "call cancelled")));
+        }
+        catch
+        {
+            // Transport already gone; the local abort still stands.
+        }
+    }
 
     private StreamInput Stream(uint id) => _streams.TryGetValue(id, out StreamInput input) ? input : null;
 

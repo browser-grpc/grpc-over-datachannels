@@ -140,6 +140,47 @@ public static class Codec
         }
     }
 
+    // gRPC timeout grammar (grpc-timeout metadata): <digits><unit>,
+    // units H/M/S/m/u/n (at most 8 digits). Encoding uses
+    // milliseconds (seconds past the digit limit), rounded up.
+    public static string EncodeTimeout(TimeSpan timeout)
+    {
+        long ms = (long)Math.Ceiling(timeout.TotalMilliseconds);
+        if (ms <= 99999999L)
+        {
+            return ms + "m";
+        }
+        return (long)Math.Ceiling(timeout.TotalSeconds) + "S";
+    }
+
+    /// <summary>Decoded grpc-timeout, or null when malformed/absent.</summary>
+    public static TimeSpan? ParseTimeout(string text)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length < 2 || text.Length > 9)
+        {
+            return null;
+        }
+        string digits = text.Substring(0, text.Length - 1);
+        foreach (char c in digits)
+        {
+            if (!char.IsDigit(c))
+            {
+                return null;
+            }
+        }
+        long n = long.Parse(digits);
+        return text[text.Length - 1] switch
+        {
+            'H' => TimeSpan.FromHours(n),
+            'M' => TimeSpan.FromMinutes(n),
+            'S' => TimeSpan.FromSeconds(n),
+            'm' => TimeSpan.FromMilliseconds(n),
+            'u' => TimeSpan.FromTicks(n * 10),
+            'n' => TimeSpan.FromTicks((n + 99) / 100),
+            _ => null,
+        };
+    }
+
     public static byte[] StatusFrame(int frameType, uint streamId, StatusException status)
     {
         var body = new Dictionary<string, object>
