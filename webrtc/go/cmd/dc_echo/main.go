@@ -91,13 +91,13 @@ func main() {
 		}
 		fmt.Fprintln(os.Stderr, "HANDSHAKE_OK")
 		endpoint := dcwebrtc.NewDcEndpoint(dtls, "server")
-		endpoint.OnChannel = func(channel *dcwebrtc.DataChannel) {
+		endpoint.SetOnChannel(func(channel *dcwebrtc.DataChannel) {
 			fmt.Fprintf(os.Stderr, "CHANNEL_OPEN stream=%d label=%s\n", channel.ID, channel.Label)
 			channel.OnMessage(func(data []byte, isText bool) {
 				reply := append([]byte("re:"), data...)
 				channel.Send(reply)
 			})
-		}
+		})
 		select {}
 	case "client":
 		serverAddr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: port}

@@ -22,6 +22,7 @@ import (
 	"math/big"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -386,6 +387,10 @@ type dtlsRecord struct {
 
 // DtlsConnection is an established (or establishing) DTLS association.
 type DtlsConnection struct {
+	// sendMu serializes sendRecord: sequence numbers and the
+	// AEAD nonce are per-connection state, but SendApp runs on
+	// the pump goroutine and application goroutines alike.
+	sendMu       sync.Mutex
 	io           PacketIO
 	role         string
 	writeKeys    *recordKeys
@@ -435,6 +440,8 @@ func seq48(seq uint64) []byte {
 }
 
 func (c *DtlsConnection) sendRecord(contentType byte, epoch int, body []byte) ([]byte, error) {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
 	var packet []byte
 	if epoch == 0 {
 		seq := c.epoch0Seq

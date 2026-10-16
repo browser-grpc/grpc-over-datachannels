@@ -110,11 +110,11 @@ func connectPair(t *testing.T, ipsA, ipsB []string, wantInOffer, payload string)
 	}
 
 	replies := make(chan string, 4)
-	epB.OnChannel = func(channel *DataChannel) {
+	epB.SetOnChannel(func(channel *DataChannel) {
 		channel.OnMessage(func(data []byte, isText bool) {
 			channel.Send([]byte("echo:" + string(data)))
 		})
-	}
+	})
 	ch := epA.OpenChannel(DefaultChannelParams("echo"))
 	ch.OnMessage(func(data []byte, isText bool) { replies <- string(data) })
 	ch.Send([]byte(payload))

@@ -31,7 +31,7 @@ func NewDcTransport(channel *dcwebrtc.DataChannel) *DcTransport {
 
 // Send sends one frame as one DataChannel message.
 func (t *DcTransport) Send(payload []byte) error {
-	if t.channel.ReadyState != "open" {
+	if t.channel.ReadyState() != "open" {
 		return errors.New("datachannel not open")
 	}
 	t.channel.Send(payload)

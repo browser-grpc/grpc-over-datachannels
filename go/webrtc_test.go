@@ -51,9 +51,9 @@ func TestGrpcOverGoWebRtc(t *testing.T) {
 	go func() {
 		endpoint, err := answererPeer.ConnectWithOptions(true)
 		if endpoint != nil {
-			endpoint.OnChannel = func(channel *dcwebrtc.DataChannel) {
+			endpoint.SetOnChannel(func(channel *dcwebrtc.DataChannel) {
 				server.ServeTransport(grpcdc.NewDcTransport(channel))
-			}
+			})
 		}
 		answererCh <- connectResult{endpoint, err}
 	}()

@@ -59,10 +59,10 @@ func TestDataChannelCloseViaStreamReset(t *testing.T) {
 	remoteClosed := make(chan struct{}, 1)
 	localClosed := make(chan struct{}, 1)
 	messages := make(chan string, 4)
-	epB.OnChannel = func(channel *DataChannel) {
+	epB.SetOnChannel(func(channel *DataChannel) {
 		channel.OnMessage(func(data []byte, isText bool) { messages <- string(data) })
 		channel.OnClose(func() { remoteClosed <- struct{}{} })
-	}
+	})
 	ch1 := epA.OpenChannel(DefaultChannelParams("one"))
 	ch1.OnClose(func() { localClosed <- struct{}{} })
 	ch1.Send([]byte("before-close"))
@@ -76,8 +76,8 @@ func TestDataChannelCloseViaStreamReset(t *testing.T) {
 	}
 
 	ch1.Close()
-	if ch1.ReadyState != "closing" && ch1.ReadyState != "closed" {
-		t.Fatalf("ReadyState after Close = %q", ch1.ReadyState)
+	if ch1.ReadyState() != "closing" && ch1.ReadyState() != "closed" {
+		t.Fatalf("ReadyState after Close = %q", ch1.ReadyState())
 	}
 	for name, ch := range map[string]chan struct{}{"local": localClosed, "remote": remoteClosed} {
 		select {
@@ -86,8 +86,8 @@ func TestDataChannelCloseViaStreamReset(t *testing.T) {
 			t.Fatalf("%s close never fired", name)
 		}
 	}
-	if ch1.ReadyState != "closed" {
-		t.Fatalf("ReadyState = %q, want closed", ch1.ReadyState)
+	if ch1.ReadyState() != "closed" {
+		t.Fatalf("ReadyState = %q, want closed", ch1.ReadyState())
 	}
 
 	// The association survives: a second channel still works.

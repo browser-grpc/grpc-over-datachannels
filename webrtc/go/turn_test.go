@@ -472,11 +472,11 @@ func TestTurnRelayOfferAnswerConnect(t *testing.T) {
 	}
 	epA, epB := resA.ep, resB.ep
 	done := make(chan string, 1)
-	epA.OnChannel = func(ch *DataChannel) {
+	epA.SetOnChannel(func(ch *DataChannel) {
 		ch.OnMessage(func(data []byte, isText bool) {
 			done <- string(data)
 		})
-	}
+	})
 	out := epB.OpenChannel(DefaultChannelParams("echo"))
 	out.Send([]byte("via-relay"))
 	select {
@@ -579,11 +579,11 @@ func TestTurnRelayWithTrickledRelayCandidates(t *testing.T) {
 	}
 	epA, epB := resA.ep, resB.ep
 	done := make(chan string, 1)
-	epA.OnChannel = func(ch *DataChannel) {
+	epA.SetOnChannel(func(ch *DataChannel) {
 		ch.OnMessage(func(data []byte, isText bool) {
 			done <- string(data)
 		})
-	}
+	})
 	out := epB.OpenChannel(DefaultChannelParams("echo"))
 	out.Send([]byte("trickled-relay"))
 	select {
@@ -658,11 +658,11 @@ func TestTurnRefreshKeepsRelayAlive(t *testing.T) {
 	epA, epB := resA.ep, resB.ep
 
 	done := make(chan string, 2)
-	epA.OnChannel = func(ch *DataChannel) {
+	epA.SetOnChannel(func(ch *DataChannel) {
 		ch.OnMessage(func(data []byte, isText bool) {
 			done <- string(data)
 		})
-	}
+	})
 	out := epB.OpenChannel(DefaultChannelParams("echo"))
 	out.Send([]byte("before-expiry"))
 	select {
@@ -745,9 +745,9 @@ func TestTurnChannelBindCarriesTraffic(t *testing.T) {
 	}
 	epA, epB := resA.ep, resB.ep
 	done := make(chan string, 1)
-	epA.OnChannel = func(ch *DataChannel) {
+	epA.SetOnChannel(func(ch *DataChannel) {
 		ch.OnMessage(func(data []byte, isText bool) { done <- string(data) })
-	}
+	})
 	out := epB.OpenChannel(DefaultChannelParams("echo"))
 	out.Send([]byte("via-channel"))
 	select {

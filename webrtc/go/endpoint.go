@@ -6,6 +6,7 @@ package dcwebrtc
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,7 +20,7 @@ type DataChannel struct {
 	ID         uint16
 	Label      string
 	Params     ChannelParams
-	ReadyState string
+	readyState string
 
 	endpoint *DcEndpoint
 	mu       sync.Mutex
@@ -77,16 +78,24 @@ func (c *DataChannel) emitClose() {
 	}
 }
 
+// ReadyState reports the channel state ("open", "closing",
+// or "closed"); safe to call from any goroutine.
+func (c *DataChannel) ReadyState() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.readyState
+}
+
 // Close closes the channel: an SCTP stream reset is signaled
 // to the peer (ReadyState "closing" until both directions are
 // reset, then "closed" and the close handler fires).
 func (c *DataChannel) Close() {
 	c.mu.Lock()
-	if c.ReadyState != "open" {
+	if c.readyState != "open" {
 		c.mu.Unlock()
 		return
 	}
-	c.ReadyState = "closing"
+	c.readyState = "closing"
 	c.mu.Unlock()
 	c.endpoint.closeChannel(c)
 }
@@ -105,8 +114,8 @@ func (c *DataChannel) emitMessage(data []byte, isText bool) {
 
 // DcEndpoint is a DTLS+SCTP association with DCEP channels.
 type DcEndpoint struct {
-	// OnChannel fires for inbound channels.
-	OnChannel func(*DataChannel)
+	// onChannel fires for inbound channels.
+	onChannel atomic.Value // func(*DataChannel)
 
 	dtls       *DtlsConnection
 	assoc      *Association
@@ -114,9 +123,14 @@ type DcEndpoint struct {
 	channels   map[uint16]*DataChannel
 	nextStream uint16
 	start      time.Time
-	closed     bool
+	closed     atomic.Bool
 	mu         sync.Mutex
-	done       chan struct{}
+	// assocMu serializes every Association call: the
+	// association is a single-threaded state machine, but the
+	// pump goroutine (HandlePacket/Tick) races application
+	// goroutines (SendData/CloseStream/Close) without it.
+	assocMu sync.Mutex
+	done    chan struct{}
 }
 
 // NewDcEndpoint wraps an established DTLS connection. Role "client"
@@ -151,15 +165,52 @@ func (e *DcEndpoint) now() int64 {
 	return time.Since(e.start).Milliseconds()
 }
 
+func (e *DcEndpoint) assocSendData(stream uint16, ppid uint32, data []byte, opts SendOptions) [][]byte {
+	e.assocMu.Lock()
+	defer e.assocMu.Unlock()
+	return e.assoc.SendData(stream, ppid, data, opts, e.now())
+}
+
+func (e *DcEndpoint) assocHandlePacket(packet []byte) ([][]byte, []SctpEvent) {
+	e.assocMu.Lock()
+	defer e.assocMu.Unlock()
+	return e.assoc.HandlePacket(packet, e.now())
+}
+
+func (e *DcEndpoint) assocTick() ([][]byte, []SctpEvent) {
+	e.assocMu.Lock()
+	defer e.assocMu.Unlock()
+	return e.assoc.Tick(e.now())
+}
+
+func (e *DcEndpoint) assocCloseStream(id uint16) [][]byte {
+	e.assocMu.Lock()
+	defer e.assocMu.Unlock()
+	return e.assoc.CloseStream(id)
+}
+
+func (e *DcEndpoint) assocClose() [][]byte {
+	e.assocMu.Lock()
+	defer e.assocMu.Unlock()
+	return e.assoc.Close(e.now())
+}
+
+// SetOnChannel registers the inbound-channel callback. It is
+// safe to call after Connect (the pump goroutine reads it
+// atomically).
+func (e *DcEndpoint) SetOnChannel(fn func(*DataChannel)) {
+	e.onChannel.Store(fn)
+}
+
 // OpenChannel opens a channel via DCEP.
 func (e *DcEndpoint) OpenChannel(params ChannelParams) *DataChannel {
 	e.mu.Lock()
 	stream := e.nextStream
 	e.nextStream += 2
-	channel := &DataChannel{ID: stream, Label: params.Label, Params: params, ReadyState: "open", endpoint: e}
+	channel := &DataChannel{ID: stream, Label: params.Label, Params: params, readyState: "open", endpoint: e}
 	e.channels[stream] = channel
 	e.mu.Unlock()
-	packets := e.assoc.SendData(stream, PpidDcep, EncodeOpen(params), SendOptions{}, e.now())
+	packets := e.assocSendData(stream, PpidDcep, EncodeOpen(params), SendOptions{})
 	e.sendPackets(packets)
 	return channel
 }
@@ -182,31 +233,31 @@ func (e *DcEndpoint) sendData(channel *DataChannel, data []byte, isText bool) {
 	default:
 		ppid = PpidBinary
 	}
-	packets := e.assoc.SendData(channel.ID, ppid, data, channel.Params.SendOptions(), e.now())
+	packets := e.assocSendData(channel.ID, ppid, data, channel.Params.SendOptions())
 	e.sendPackets(packets)
 }
 
 func (e *DcEndpoint) closeChannel(channel *DataChannel) {
 	// Keep the channel registered until the reset completes so
 	// in-flight messages still deliver; onSctpEvent removes it.
-	e.sendPackets(e.assoc.CloseStream(channel.ID))
+	e.sendPackets(e.assocCloseStream(channel.ID))
 }
 
 func (e *DcEndpoint) pump() {
 	defer close(e.done)
-	for !e.closed {
+	for !e.closed.Load() {
 		packet, err := e.dtls.RecvAppTimeout(10)
 		if err != nil {
 			return
 		}
 		if packet != nil {
-			packets, events := e.assoc.HandlePacket(packet, e.now())
+			packets, events := e.assocHandlePacket(packet)
 			e.sendPackets(packets)
 			for _, event := range events {
 				e.onSctpEvent(event)
 			}
 		}
-		packets, events := e.assoc.Tick(e.now())
+		packets, events := e.assocTick()
 		e.sendPackets(packets)
 		for _, event := range events {
 			e.onSctpEvent(event)
@@ -222,7 +273,7 @@ func (e *DcEndpoint) onSctpEvent(event SctpEvent) {
 		e.mu.Unlock()
 		if channel != nil {
 			channel.mu.Lock()
-			channel.ReadyState = "closed"
+			channel.readyState = "closed"
 			channel.mu.Unlock()
 			channel.emitClose()
 		}
@@ -236,14 +287,14 @@ func (e *DcEndpoint) onSctpEvent(event SctpEvent) {
 		if msg == nil || msg.IsAck {
 			return
 		}
-		channel := &DataChannel{ID: event.Stream, Label: msg.Params.Label, Params: msg.Params, ReadyState: "open", endpoint: e}
+		channel := &DataChannel{ID: event.Stream, Label: msg.Params.Label, Params: msg.Params, readyState: "open", endpoint: e}
 		e.mu.Lock()
 		e.channels[event.Stream] = channel
 		e.mu.Unlock()
-		packets := e.assoc.SendData(event.Stream, PpidDcep, EncodeAck(), SendOptions{}, e.now())
+		packets := e.assocSendData(event.Stream, PpidDcep, EncodeAck(), SendOptions{})
 		e.sendPackets(packets)
-		if e.OnChannel != nil {
-			e.OnChannel(channel)
+		if fn := e.onChannel.Load(); fn != nil {
+			fn.(func(*DataChannel))(channel)
 		}
 		return
 	}
@@ -259,6 +310,6 @@ func (e *DcEndpoint) onSctpEvent(event SctpEvent) {
 
 // Close shuts down the association.
 func (e *DcEndpoint) Close() {
-	e.closed = true
-	e.sendPackets(e.assoc.Close(e.now()))
+	e.closed.Store(true)
+	e.sendPackets(e.assocClose())
 }

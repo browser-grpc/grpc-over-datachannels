@@ -143,11 +143,11 @@ func TestSrflxOfferAnswerConnect(t *testing.T) {
 		err  error
 	}
 	done := make(chan result, 1)
-	epA.OnChannel = func(ch *DataChannel) {
+	epA.SetOnChannel(func(ch *DataChannel) {
 		ch.OnMessage(func(data []byte, isText bool) {
 			done <- result{string(data), nil}
 		})
-	}
+	})
 	out := epB.OpenChannel(DefaultChannelParams("echo"))
 	out.Send([]byte("via-srflx"))
 	select {

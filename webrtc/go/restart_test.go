@@ -75,11 +75,11 @@ func TestICERestartRenominates(t *testing.T) {
 	}
 
 	replies := make(chan string, 8)
-	epB.OnChannel = func(channel *DataChannel) {
+	epB.SetOnChannel(func(channel *DataChannel) {
 		channel.OnMessage(func(data []byte, isText bool) {
 			channel.Send([]byte("echo:" + string(data)))
 		})
-	}
+	})
 	ch := epA.OpenChannel(DefaultChannelParams("echo"))
 	ch.OnMessage(func(data []byte, isText bool) { replies <- string(data) })
 	echo := func(msg string) {

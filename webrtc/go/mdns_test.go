@@ -15,8 +15,8 @@ func mdnsResponse(name string, rtype uint16, rdata []byte) []byte {
 	binary.BigEndian.PutUint16(out[4:6], 1)      // QDCOUNT
 	binary.BigEndian.PutUint16(out[6:8], 1)      // ANCOUNT
 	out = append(out, encodeDNSName(name)...)
-	out = append(out, 0, 1, 0, 1)   // question: A, IN
-	out = append(out, 0xc0, 0x0c)   // answer name: pointer to question
+	out = append(out, 0, 1, 0, 1) // question: A, IN
+	out = append(out, 0xc0, 0x0c) // answer name: pointer to question
 	fixed := make([]byte, 10)
 	binary.BigEndian.PutUint16(fixed[0:2], rtype)
 	binary.BigEndian.PutUint16(fixed[2:4], 1) // IN

@@ -167,12 +167,12 @@ func runTrickleEcho(t *testing.T, duringConnect bool) {
 	}
 	epA, epB := endpoints[0], endpoints[1]
 
-	epB.OnChannel = func(channel *DataChannel) {
+	epB.SetOnChannel(func(channel *DataChannel) {
 		channel.OnMessage(func(data []byte, isText bool) {
 			reply := append([]byte("echo:"), data...)
 			channel.Send(reply)
 		})
-	}
+	})
 	channel := epA.OpenChannel(DefaultChannelParams("echo"))
 	got := make(chan []byte, 1)
 	channel.OnMessage(func(data []byte, isText bool) {

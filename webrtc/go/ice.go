@@ -156,8 +156,8 @@ type IceAgent struct {
 	LocalCandidates  []Candidate
 	RemoteCandidates []Candidate
 	outstanding      map[string]outstandingCheck
-	valid     map[string]bool
-	Nominated *net.UDPAddr
+	valid            map[string]bool
+	Nominated        *net.UDPAddr
 	// nominatingSentAt paces nomination retransmission per
 	// pair (see DueChecks).
 	nominatingSentAt map[string]time.Time

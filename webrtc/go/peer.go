@@ -719,6 +719,9 @@ func (p *Peer) LocalCandidates() []Candidate { return p.agent.LocalCandidates }
 
 // Close tears down the endpoint and socket.
 func (p *Peer) Close() {
+	p.mu.Lock()
+	p.closed = true
+	p.mu.Unlock()
 	p.consentOnce.Do(func() {
 		if p.consentStop != nil {
 			close(p.consentStop)

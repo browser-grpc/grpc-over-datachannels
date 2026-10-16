@@ -387,9 +387,9 @@ func streamRelayConnect(t *testing.T, fake *fakeStreamTurn, serverAddr string, c
 		t.Fatal(resB.err)
 	}
 	done := make(chan string, 1)
-	resA.ep.OnChannel = func(ch *DataChannel) {
+	resA.ep.SetOnChannel(func(ch *DataChannel) {
 		ch.OnMessage(func(data []byte, isText bool) { done <- string(data) })
-	}
+	})
 	out := resB.ep.OpenChannel(DefaultChannelParams("echo"))
 	out.Send([]byte("via-stream-relay"))
 	select {

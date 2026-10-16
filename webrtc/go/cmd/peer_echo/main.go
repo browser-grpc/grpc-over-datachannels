@@ -71,7 +71,7 @@ func main() {
 			panic(err)
 		}
 		fmt.Fprintln(os.Stderr, "CONNECTED")
-		endpoint.OnChannel = func(channel *dcwebrtc.DataChannel) {
+		endpoint.SetOnChannel(func(channel *dcwebrtc.DataChannel) {
 			fmt.Fprintf(os.Stderr, "CHANNEL_OPEN stream=%d\n", channel.ID)
 			channel.OnClose(func() {
 				fmt.Fprintf(os.Stderr, "CHANNEL_CLOSED stream=%d\n", channel.ID)
@@ -80,7 +80,7 @@ func main() {
 				reply := append([]byte("re:"), data...)
 				channel.Send(reply)
 			})
-		}
+		})
 		select {}
 	case "offerer":
 		peer := loopbackPeer()

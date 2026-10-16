@@ -65,8 +65,8 @@ func main() {
 	fmt.Fprintln(os.Stderr, "CONNECTED")
 	server := grpcdc.NewServer()
 	echo.RegisterEchoServer(server, echo.EchoService{})
-	endpoint.OnChannel = func(channel *dcwebrtc.DataChannel) {
+	endpoint.SetOnChannel(func(channel *dcwebrtc.DataChannel) {
 		server.ServeTransport(grpcdc.NewDcTransport(channel))
-	}
+	})
 	select {}
 }
