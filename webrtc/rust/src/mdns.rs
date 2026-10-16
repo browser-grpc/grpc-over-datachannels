@@ -1,7 +1,7 @@
 //! Minimal mDNS (RFC 6762) A-record resolution: browsers hide host
 //! IPs behind "<uuid>.local" ICE candidates, and a native peer must
 //! resolve them to reach the browser. One multicast query to
-//! 224.0.0.251:5353; responders reply unicast to our ephemeral port.
+//! 224.0.0.251:5353; replies may come unicast or multicast.
 //! std-only, mirroring webrtc/js/mdns.js.
 
 use std::net::{Ipv4Addr, UdpSocket};
@@ -22,7 +22,10 @@ fn build_query(id: u16, name: &str) -> Vec<u8> {
     out.extend_from_slice(&id.to_be_bytes());
     out.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 0, 0, 0]); // QDCOUNT=1
     out.extend_from_slice(&encode_name(name));
-    out.extend_from_slice(&[0, 1, 0, 1]); // A, IN
+    // A, IN|QU: the QU bit (RFC 6762 section 5.4) asks for a
+    // unicast response to our ephemeral port; without it some
+    // responders (Firefox) answer by multicast to :5353 only.
+    out.extend_from_slice(&[0, 1, 0x80, 1]);
     out
 }
 
@@ -115,31 +118,41 @@ mod tests {
 }
 
 /// Resolve a ".local" hostname to an IPv4 address (1.5 s budget).
+/// Responders may answer unicast to the query socket (the query
+/// asks with the QU bit) or multicast to the group address —
+/// Chromium does the latter — so listen on both: the ephemeral
+/// query socket and a group membership on :5353 (best effort;
+/// the port may be taken).
 pub fn resolve_ipv4(name: &str) -> Option<Ipv4Addr> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
-    socket.set_read_timeout(Some(Duration::from_millis(1500))).ok()?;
-    let query = build_query(0x4d44, name);
+    let group = UdpSocket::bind("0.0.0.0:5353").ok().and_then(|socket| {
+        socket
+            .join_multicast_v4(&Ipv4Addr::new(224, 0, 0, 251), &Ipv4Addr::UNSPECIFIED)
+            .ok()?;
+        Some(socket)
+    });
+    let query = build_query(0, name);
     socket.send_to(&query, "224.0.0.251:5353").ok()?;
-    let mut buf = [0u8; 4096];
     let deadline = std::time::Instant::now() + Duration::from_millis(1500);
+    let resend_at = std::time::Instant::now() + Duration::from_millis(750);
     let mut resent = false;
+    let mut buf = [0u8; 4096];
     loop {
-        match socket.recv_from(&mut buf) {
-            Ok((n, _)) => {
+        if !resent && std::time::Instant::now() >= resend_at {
+            resent = true;
+            let _ = socket.send_to(&query, "224.0.0.251:5353");
+        }
+        if std::time::Instant::now() > deadline {
+            return None;
+        }
+        for candidate in [Some(&socket), group.as_ref()].into_iter().flatten() {
+            candidate
+                .set_read_timeout(Some(Duration::from_millis(50)))
+                .ok()?;
+            if let Ok((n, _)) = candidate.recv_from(&mut buf) {
                 if let Some(ip) = parse_a_record(&buf[..n], name) {
                     return Some(ip);
                 }
-                if std::time::Instant::now() > deadline {
-                    return None;
-                }
-            }
-            Err(_) => {
-                if !resent {
-                    resent = true;
-                    let _ = socket.send_to(&query, "224.0.0.251:5353");
-                    continue;
-                }
-                return None;
             }
         }
     }
