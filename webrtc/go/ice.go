@@ -156,9 +156,11 @@ type IceAgent struct {
 	LocalCandidates  []Candidate
 	RemoteCandidates []Candidate
 	outstanding      map[string]outstandingCheck
-	valid            map[string]bool
-	Nominated        *net.UDPAddr
-	nominatingSentTo map[string]bool
+	valid     map[string]bool
+	Nominated *net.UDPAddr
+	// nominatingSentAt paces nomination retransmission per
+	// pair (see DueChecks).
+	nominatingSentAt map[string]time.Time
 
 	// lastConsent is when consent for the nominated pair was
 	// last confirmed (nomination, or a Binding success for it).
@@ -188,7 +190,7 @@ func NewIceAgent(controlling bool) *IceAgent {
 		tieBreaker:       binary.BigEndian.Uint64(tb[:]),
 		outstanding:      map[string]outstandingCheck{},
 		valid:            map[string]bool{},
-		nominatingSentTo: map[string]bool{},
+		nominatingSentAt: map[string]time.Time{},
 	}
 }
 
@@ -209,7 +211,7 @@ func (a *IceAgent) SetRemote(ufrag, pwd string, candidates []Candidate) {
 	// (initial connect: already empty).
 	a.valid = map[string]bool{}
 	a.outstanding = map[string]outstandingCheck{}
-	a.nominatingSentTo = map[string]bool{}
+	a.nominatingSentAt = map[string]time.Time{}
 }
 
 // Restart begins an ICE restart (RFC 8445 §5.1): fresh local
@@ -224,7 +226,7 @@ func (a *IceAgent) Restart() {
 	a.generation++
 	a.valid = map[string]bool{}
 	a.outstanding = map[string]outstandingCheck{}
-	a.nominatingSentTo = map[string]bool{}
+	a.nominatingSentAt = map[string]time.Time{}
 }
 
 // Generation is the current ICE generation (0 at connect, +1
@@ -300,6 +302,10 @@ func (a *IceAgent) buildCheck(remote Candidate, nominate bool) Check {
 	return Check{Bytes: bytes, Remote: remote}
 }
 
+// nominationRetransmit paces re-sends of the nominating check
+// for one pair until its Binding success arrives.
+const nominationRetransmit = 250 * time.Millisecond
+
 // DueChecks returns the checks to send now.
 func (a *IceAgent) DueChecks() []Check {
 	a.mu.Lock()
@@ -312,9 +318,17 @@ func (a *IceAgent) DueChecks() []Check {
 		out = append(out, a.buildCheck(remote, false))
 	}
 	if a.controlling {
-		if best := a.bestValidPair(); best != nil && !a.nominatingSentTo[best.Key()] {
-			a.nominatingSentTo[best.Key()] = true
-			out = append(out, a.buildCheck(*best, true))
+		// Nominate the best valid pair, retransmitting the
+		// nominating check until its success response lands
+		// (RFC 8489 transactions are not fire-and-forget: a
+		// single USE-CANDIDATE can be lost, or reach the peer
+		// before its side of the pair has validated).
+		if best := a.bestValidPair(); best != nil {
+			key := best.Key()
+			if last, ok := a.nominatingSentAt[key]; !ok || time.Since(last) >= nominationRetransmit {
+				a.nominatingSentAt[key] = time.Now()
+				out = append(out, a.buildCheck(*best, true))
+			}
 		}
 	}
 	return out
