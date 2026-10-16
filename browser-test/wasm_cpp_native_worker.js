@@ -119,7 +119,7 @@ const env = {
 };
 
 onmessage = async (event) => {
-  const { sab, wasmUrl } = event.data;
+  const { sab, wasmUrl, mode } = event.data;
   sabI32 = new Int32Array(sab);
   sabBytes = new Uint8Array(sab);
   try {
@@ -129,6 +129,12 @@ onmessage = async (event) => {
       wasi_snapshot_preview1: wasiStubs(),
     }));
     instance.exports._initialize?.();
+    if (mode === "server") {
+      postMessage({ t: "ready" });
+      instance.exports.run_echo_server();
+      // run_echo_server never returns (inline pump loop).
+      return;
+    }
     instance.exports.run_echo_client();
     // run_echo_client only returns after reporting via
     // on_result/on_error (or never, if the peer stalls).

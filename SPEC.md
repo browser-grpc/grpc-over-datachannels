@@ -72,9 +72,10 @@ the endpoint in inline pump mode: Transports may offer a
 bounded `TryRecv`, in which case no read/dispatch threads are
 spawned and stream waits pump the transport. The native Swift
 (Embedded Swift, `wasm32-unknown-none-wasm`) and Kotlin
-(Kotlin/Wasm) runtimes use the same inline pump mode in both
-client and server roles (a server-only worker drives its
-endpoint with PollOnce/pollOnce): Swift
+(Kotlin/Wasm) runtimes — like the native Zig and C++ wasm
+runtimes — use the same inline pump mode in both client and
+server roles (a server-only worker drives its endpoint with
+PollOnce/pollOnce): Swift
 deadlines run on a monotonic `Double` millisecond clock
 (`GrpcTime.NowMs()`, `performance.now()` in the worker via
 `js_now_ms`, Foundation wall clock natively), and Kotlin/Wasm

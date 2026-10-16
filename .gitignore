@@ -4,6 +4,7 @@ node_modules/
 browser-test/echo.wasm
 browser-test/echo_zig.wasm
 browser-test/echo_zig_native.wasm
+browser-test/echo_zig_native_server.wasm
 browser-test/wasm_exec.js
 __pycache__/
 /go/build/
@@ -32,6 +33,7 @@ browser-test/echo_lua.wasm
 wasm/lua/modules.h
 browser-test/echo_cpp.wasm
 browser-test/echo_cpp_native.wasm
+browser-test/echo_cpp_native_server.wasm
 browser-test/echo_swift.wasm
 browser-test/echo_swift_native.wasm
 /browser-test/kotlin_wasm_gen/

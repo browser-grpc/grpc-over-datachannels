@@ -166,12 +166,15 @@ real `grpcdc` runtime (a generated Kotlin/Wasm variant of the JVM
 bodies — `wasm/kotlin/grpcdc`, plugin
 `protoc-gen-grpc-dc-kotlin-native`) and native generated stub
 compiled to Kotlin/Wasm with an inline pump endpoint in a worker
-(`wasm/kotlin/native`). The Swift and Kotlin native WASM builds
-also run in the server role: the same worker hosts the generated
-Echo server (inline pump loop driven by `PollOnce`/`pollOnce`),
-and the Node test's JS client drives the four call shapes plus a
-deadline (`make test-swift-wasm-native-browser` and `make
-test-kotlin-wasm-native-browser` run both roles). Cross-language
+(`wasm/kotlin/native`). The Swift, Kotlin, Zig, and C++ native WASM
+builds also run in the server role: the same worker hosts the
+generated Echo server (inline pump loop driven by
+`PollOnce`/`pollOnce`), and the Node test's JS client drives
+the four call shapes plus a deadline (`make
+test-swift-wasm-native-browser`, `make
+test-kotlin-wasm-native-browser`, `make
+test-zig-wasm-native-browser`, and `make
+test-cpp-wasm-native-browser` run both roles). Cross-language
 wire compatibility is covered pairwise by `make
 test-interop-matrix`: every language's stdio Echo client against
 every language's stdio Echo server (12 × 12 ordered pairs over a

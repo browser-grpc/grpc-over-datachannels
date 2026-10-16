@@ -273,7 +273,14 @@ test-zig-wasm-native-browser:
 		--dep grpcdc -Mecho_stub=zig/examples/echo_grpc_dc.zig \
 		-Mgrpcdc=zig/grpcdc/grpcdc.zig \
 		-femit-bin=browser-test/echo_zig_native.wasm
+	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
+		--dep grpcdc --dep echo_stub \
+		-Mroot=wasm/zig/native/echo_server.zig \
+		--dep grpcdc -Mecho_stub=zig/examples/echo_grpc_dc.zig \
+		-Mgrpcdc=zig/grpcdc/grpcdc.zig \
+		-femit-bin=browser-test/echo_zig_native_server.wasm
 	cd browser-test && node wasm_zig_native.test.mjs all
+	cd browser-test && node wasm_zig_native_server.test.mjs all
 
 test-zig-wasm-browser:
 	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
@@ -323,7 +330,15 @@ test-cpp-wasm-native-browser:
 		-Wl,--export=_initialize -Wl,--export=run_echo_client \
 		wasm/cpp/native/echo_client.cpp \
 		-o browser-test/echo_cpp_native.wasm
+	$(WASI_CXX) -target wasm32-wasip1 -std=c++17 -O1 -mexec-model=reactor \
+		-fwasm-exceptions -mllvm -wasm-use-legacy-eh=false \
+		-Icpp -I. -Iwasm/cpp/native \
+		-L$(WASI_SDK)/share/wasi-sysroot/lib/wasm32-wasip1/eh -lunwind \
+		-Wl,--export=_initialize -Wl,--export=run_echo_server \
+		wasm/cpp/native/echo_server.cpp \
+		-o browser-test/echo_cpp_native_server.wasm
 	cd browser-test && node wasm_cpp_native.test.mjs all
+	cd browser-test && node wasm_cpp_native_server.test.mjs all
 
 WASM_LD ?= wasm-ld
 SWIFT_WASM_LIBDIR ?= $(shell $(SWIFTC) -print-target-info 2>/dev/null | sed -n 's/.*"runtimeResourcePath": "\([^"]*\)".*/\1/p')/embedded/wasm32-unknown-none-wasm
