@@ -180,7 +180,9 @@ pub struct IceAgent {
     outstanding: HashMap<[u8; 12], (SocketAddr, bool)>, // tid -> (remote, nominate?)
     valid: HashSet<SocketAddr>,
     pub nominated: Option<SocketAddr>,
-    nominating_sent_to: HashSet<SocketAddr>,
+    // Pair -> when its last nominating check was sent (paces
+    // nomination retransmission; see due_checks).
+    nominating_sent_at: HashMap<SocketAddr, std::time::Instant>,
     last_consent: Option<std::time::Instant>,
     // ICE generations (RFC 8445 section 5.1 restarts):
     // nominated_gen is the generation that produced the
@@ -190,6 +192,10 @@ pub struct IceAgent {
     generation: u64,
     nominated_gen: u64,
 }
+
+/// Paces re-sends of the nominating check for one pair until
+/// its Binding success arrives.
+const NOMINATION_RETRANSMIT: std::time::Duration = std::time::Duration::from_millis(250);
 
 impl IceAgent {
     pub fn new(controlling: bool) -> Self {
@@ -205,7 +211,7 @@ impl IceAgent {
             outstanding: HashMap::new(),
             valid: HashSet::new(),
             nominated: None,
-            nominating_sent_to: HashSet::new(),
+            nominating_sent_at: HashMap::new(),
             last_consent: None,
             generation: 0,
             nominated_gen: 0,
@@ -222,7 +228,7 @@ impl IceAgent {
         self.generation += 1;
         self.valid.clear();
         self.outstanding.clear();
-        self.nominating_sent_to.clear();
+        self.nominating_sent_at.clear();
     }
 
     /// The current ICE generation (0 at connect, +1 per restart).
@@ -244,7 +250,7 @@ impl IceAgent {
         // (initial connect: already empty).
         self.valid.clear();
         self.outstanding.clear();
-        self.nominating_sent_to.clear();
+        self.nominating_sent_at.clear();
     }
 
     /// Trickle one remote candidate in after the remote
@@ -306,9 +312,18 @@ impl IceAgent {
             out.push(self.build_check(remote, false));
         }
         if self.controlling {
+            // Nominate the best valid pair, retransmitting the
+            // nominating check until its success response lands
+            // (RFC 8489 transactions are not fire-and-forget: a
+            // single USE-CANDIDATE can be lost, or reach the
+            // peer before its side of the pair has validated).
             if let Some(best) = self.best_valid_pair() {
-                if !self.nominating_sent_to.contains(&best) {
-                    self.nominating_sent_to.insert(best);
+                let due = self
+                    .nominating_sent_at
+                    .get(&best)
+                    .map_or(true, |last| last.elapsed() >= NOMINATION_RETRANSMIT);
+                if due {
+                    self.nominating_sent_at.insert(best, std::time::Instant::now());
                     let candidate = self
                         .remote_candidates
                         .iter()
@@ -469,5 +484,69 @@ impl IceAgent {
             }
         }
         (responses, events)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    fn nominating_count(checks: &[(Vec<u8>, SocketAddr)]) -> usize {
+        checks
+            .iter()
+            .filter(|(bytes, _)| {
+                Message::decode(bytes)
+                    .map(|msg| msg.attr(stun_attr::USE_CANDIDATE).is_some())
+                    .unwrap_or(false)
+            })
+            .count()
+    }
+
+    /// The nominating check is a STUN transaction, not a
+    /// one-shot: it must be retransmitted (paced) until its
+    /// Binding success arrives, and stop once nominated.
+    #[test]
+    fn nomination_check_retransmits_until_answered() {
+        let addr = |port| SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+        let mut a = IceAgent::new(true); // controlling
+        let mut b = IceAgent::new(false);
+        a.local_candidates = vec![Candidate::host(addr(4000), "a")];
+        b.local_candidates = vec![Candidate::host(addr(5000), "b")];
+        a.set_remote(&b.local_ufrag.clone(), &b.local_pwd.clone(), b.local_candidates.clone());
+        b.set_remote(&a.local_ufrag.clone(), &a.local_pwd.clone(), a.local_candidates.clone());
+
+        // B's regular check validates the pair at A.
+        let b_checks = b.due_checks();
+        a.handle_stun(&b_checks[0].0, addr(5000));
+
+        let checks = a.due_checks();
+        assert_eq!(nominating_count(&checks), 1, "first due_checks nominates");
+        let checks = a.due_checks();
+        assert_eq!(nominating_count(&checks), 0, "immediate re-poll is paced");
+
+        // Age the stamp past the retransmit interval.
+        a.nominating_sent_at.insert(
+            addr(5000),
+            std::time::Instant::now() - std::time::Duration::from_secs(1),
+        );
+        let checks = a.due_checks();
+        assert_eq!(nominating_count(&checks), 1, "retransmit after the interval");
+
+        // Deliver it to B and return the success: nominated,
+        // and checks stop.
+        let nominating = checks
+            .iter()
+            .find(|(bytes, _)| {
+                Message::decode(bytes)
+                    .map(|msg| msg.attr(stun_attr::USE_CANDIDATE).is_some())
+                    .unwrap_or(false)
+            })
+            .expect("nominating check present");
+        let (responses, _) = b.handle_stun(&nominating.0, addr(4000));
+        assert_eq!(responses.len(), 1);
+        a.handle_stun(&responses[0].0, addr(5000));
+        assert_eq!(a.nominated, Some(addr(5000)));
+        assert!(a.due_checks().is_empty(), "checks stop after nomination");
     }
 }
