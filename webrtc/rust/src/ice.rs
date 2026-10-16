@@ -182,6 +182,13 @@ pub struct IceAgent {
     pub nominated: Option<SocketAddr>,
     nominating_sent_to: HashSet<SocketAddr>,
     last_consent: Option<std::time::Instant>,
+    // ICE generations (RFC 8445 section 5.1 restarts):
+    // nominated_gen is the generation that produced the
+    // current nomination. While they differ a restart is in
+    // flight: checks run again and consent pauses; the old
+    // pair keeps serving media until renomination.
+    generation: u64,
+    nominated_gen: u64,
 }
 
 impl IceAgent {
@@ -200,13 +207,44 @@ impl IceAgent {
             nominated: None,
             nominating_sent_to: HashSet::new(),
             last_consent: None,
+            generation: 0,
+            nominated_gen: 0,
         }
+    }
+
+    /// Begin an ICE restart (RFC 8445 section 5.1): fresh local
+    /// credentials, check state cleared, generation bumped. The
+    /// nominated pair is retained until a pair from the new
+    /// generation is nominated.
+    pub fn restart(&mut self) {
+        self.local_ufrag = random_ufrag();
+        self.local_pwd = random_password();
+        self.generation += 1;
+        self.valid.clear();
+        self.outstanding.clear();
+        self.nominating_sent_to.clear();
+    }
+
+    /// The current ICE generation (0 at connect, +1 per restart).
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Whether the nominated pair belongs to the current
+    /// generation (no restart in flight).
+    pub fn renominated(&self) -> bool {
+        self.nominated.is_some() && self.nominated_gen == self.generation
     }
 
     pub fn set_remote(&mut self, ufrag: &str, pwd: &str, candidates: Vec<Candidate>) {
         self.remote_ufrag = ufrag.to_string();
         self.remote_pwd = pwd.to_string();
         self.remote_candidates = candidates;
+        // New remote credentials invalidate prior check state
+        // (initial connect: already empty).
+        self.valid.clear();
+        self.outstanding.clear();
+        self.nominating_sent_to.clear();
     }
 
     /// Trickle one remote candidate in after the remote
@@ -255,7 +293,7 @@ impl IceAgent {
     /// check for the best valid pair.
     pub fn due_checks(&mut self) -> Vec<(Vec<u8>, SocketAddr)> {
         let mut out = Vec::new();
-        if self.nominated.is_some() {
+        if self.renominated() {
             return out;
         }
         let remotes = self.remote_candidates.clone();
@@ -288,6 +326,10 @@ impl IceAgent {
     /// pair (RFC 8445 section 10 / RFC 7675); None before
     /// nomination.
     pub fn consent_check(&mut self) -> Option<(Vec<u8>, SocketAddr)> {
+        // Paused pre-nomination and while a restart is in flight.
+        if !self.renominated() {
+            return None;
+        }
         let nominated = self.nominated?;
         let candidate = self
             .remote_candidates
@@ -309,6 +351,9 @@ impl IceAgent {
     /// Whether consent for the nominated pair has lapsed (no
     /// Binding success for it within `expiry`).
     pub fn consent_expired(&self, expiry: std::time::Duration) -> bool {
+        if !self.renominated() {
+            return false;
+        }
         match (self.nominated, self.last_consent) {
             (Some(_), Some(last)) => last.elapsed() > expiry,
             _ => false,
@@ -399,6 +444,7 @@ impl IceAgent {
             }
             if !self.controlling && msg.attr(stun_attr::USE_CANDIDATE).is_some() {
                 self.nominated = Some(src);
+                self.nominated_gen = self.generation;
                 self.last_consent = Some(std::time::Instant::now());
                 events.push(IceEvent::Nominated { remote: src });
             }
@@ -416,6 +462,7 @@ impl IceAgent {
                 }
                 if nominate {
                     self.nominated = Some(remote);
+                    self.nominated_gen = self.generation;
                     self.last_consent = Some(std::time::Instant::now());
                     events.push(IceEvent::Nominated { remote });
                 }

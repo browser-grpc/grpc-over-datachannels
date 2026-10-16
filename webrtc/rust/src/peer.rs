@@ -72,6 +72,7 @@ pub struct Peer {
 struct IceDtlsIo {
     socket: UdpSocket,
     peer: SocketAddr,
+    agent: Arc<Mutex<IceAgent>>,
     inbox: Receiver<Vec<u8>>,
     turn: Option<crate::turn::TurnClient>,
     relay_active: bool,
@@ -79,7 +80,10 @@ struct IceDtlsIo {
 
 impl DtlsIo for IceDtlsIo {
     fn send_packet(&mut self, packet: &[u8]) -> io::Result<()> {
-        crate::turn::send_pair(&self.socket, self.turn.as_ref(), self.relay_active, packet, self.peer)
+        // Follow the agent's nominated pair so an ICE restart
+        // switches media at renomination (old pair until then).
+        let dest = self.agent.lock().unwrap().nominated.unwrap_or(self.peer);
+        crate::turn::send_pair(&self.socket, self.turn.as_ref(), self.relay_active, packet, dest)
     }
 
     fn recv_packet(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>> {
@@ -359,6 +363,12 @@ impl Peer {
     /// Run ICE connectivity checks, then the DTLS handshake over the
     /// nominated pair, and spawn the datachannel endpoint.
     pub fn connect(self) -> io::Result<DcEndpoint> {
+        Ok(self.connect_inner(None)?.0)
+    }
+
+    /// connect() plus a RestartHandle for ICE restarts
+    /// (RFC 8445 section 5.1) on the live association.
+    pub fn connect_with_handle(self) -> io::Result<(DcEndpoint, RestartHandle)> {
         self.connect_inner(None)
     }
 
@@ -370,10 +380,13 @@ impl Peer {
     /// connect starts; candidates trickled later reach the peer
     /// directly or peer-reflexively, not through the relay.
     pub fn connect_trickled(self, trickle: Receiver<String>) -> io::Result<DcEndpoint> {
-        self.connect_inner(Some(trickle))
+        Ok(self.connect_inner(Some(trickle))?.0)
     }
 
-    fn connect_inner(self, trickle: Option<Receiver<String>>) -> io::Result<DcEndpoint> {
+    fn connect_inner(
+        self,
+        trickle: Option<Receiver<String>>,
+    ) -> io::Result<(DcEndpoint, RestartHandle)> {
         let Peer {
             socket,
             mut agent,
@@ -514,18 +527,30 @@ impl Peer {
             }
         });
 
+        let fingerprint = certificate.fingerprint();
         let dtls_config = DtlsConfig {
             certificate,
             expected_peer_fingerprint: Some(remote_desc.fingerprint.clone()),
             require_peer_certificate: config.require_peer_certificate,
         };
         let consent_socket = socket.try_clone()?;
-        let io = IceDtlsIo { socket, peer: selected, inbox: dtls_rx, turn: turn.clone(), relay_active };
+        let io = IceDtlsIo { socket: socket.try_clone()?, peer: selected, agent: agent.clone(), inbox: dtls_rx, turn: turn.clone(), relay_active };
         let dtls = match dtls_role {
             Role::Client => Dtls::connect(io, &dtls_config)?,
             Role::Server => Dtls::accept(io, &dtls_config)?,
         };
         let endpoint = DcEndpoint::spawn_with_alive_flag(dtls, dtls_role, crate::sctp::SCTP_PORT, alive.clone());
+        let restart_handle = RestartHandle {
+            agent: agent.clone(),
+            socket: socket.try_clone()?,
+            turn: turn.clone(),
+            relay_active,
+            alive: alive.clone(),
+            fingerprint,
+            dtls_role,
+            restart_target: Mutex::new(0),
+            loop_gen: Mutex::new(0),
+        };
         // Consent freshness (RFC 7675): periodically re-check
         // the nominated pair; on expiry shut the endpoint down
         // and fire the failure callback once.
@@ -564,7 +589,184 @@ impl Peer {
                 }
             });
         }
-        Ok(endpoint)
+        Ok((endpoint, restart_handle))
+    }
+}
+
+/// Handle for ICE restarts (RFC 8445 section 5.1) on a live
+/// association, returned by Peer::connect_with_handle. The
+/// Peer itself is consumed by connect; this holds the shared
+/// agent/socket/TURN state the restart signaling needs. Media
+/// keeps flowing on the old pair until renomination (the DTLS
+/// io destination follows the agent's nominated pair);
+/// wait_renominated reports completion.
+pub struct RestartHandle {
+    agent: Arc<Mutex<IceAgent>>,
+    socket: UdpSocket,
+    turn: Option<crate::turn::TurnClient>,
+    relay_active: bool,
+    alive: Arc<AtomicBool>,
+    fingerprint: String,
+    dtls_role: Role,
+    restart_target: Mutex<u64>,
+    loop_gen: Mutex<u64>,
+}
+
+impl RestartHandle {
+    fn local_description(&self, setup: &str) -> SessionDescription {
+        let agent = self.agent.lock().unwrap();
+        SessionDescription {
+            ufrag: agent.local_ufrag.clone(),
+            pwd: agent.local_pwd.clone(),
+            fingerprint: self.fingerprint.clone(),
+            setup: setup.to_string(),
+            candidates: agent.local_candidates.clone(),
+            sctp_port: crate::sctp::SCTP_PORT,
+        }
+    }
+
+    fn restart_setup(&self) -> &'static str {
+        match self.dtls_role {
+            Role::Client => "active",
+            Role::Server => "passive",
+        }
+    }
+
+    /// Begin an ICE restart: fresh local credentials, same
+    /// candidates and DTLS fingerprint. Hand the result to the
+    /// remote's handle_restart_offer and apply its answer with
+    /// handle_restart_answer.
+    pub fn create_restart_offer(&self) -> String {
+        let generation = {
+            let mut agent = self.agent.lock().unwrap();
+            agent.restart();
+            agent.generation()
+        };
+        *self.restart_target.lock().unwrap() = generation;
+        generate(&self.local_description(self.restart_setup()), true)
+    }
+
+    /// Apply a restart offer (fresh local credentials too) and
+    /// return the restart answer SDP.
+    pub fn handle_restart_offer(&self, offer_sdp: &str) -> io::Result<String> {
+        let remote = parse(offer_sdp).map_err(|e| bad(e))?;
+        let generation = {
+            let mut agent = self.agent.lock().unwrap();
+            agent.restart();
+            agent.set_remote(&remote.ufrag, &remote.pwd, remote.candidates.clone());
+            agent.generation()
+        };
+        *self.restart_target.lock().unwrap() = generation;
+        self.start_restart_checks(generation);
+        Ok(generate(&self.local_description(self.restart_setup()), false))
+    }
+
+    /// Apply a restart answer SDP.
+    pub fn handle_restart_answer(&self, answer_sdp: &str) -> io::Result<()> {
+        let remote = parse(answer_sdp).map_err(|e| bad(e))?;
+        let generation = {
+            let mut agent = self.agent.lock().unwrap();
+            agent.set_remote(&remote.ufrag, &remote.pwd, remote.candidates.clone());
+            agent.generation()
+        };
+        self.start_restart_checks(generation);
+        Ok(())
+    }
+
+    /// Poll until the current restart renominates (or timeout).
+    pub fn wait_renominated(&self, timeout: Duration) -> bool {
+        let target = *self.restart_target.lock().unwrap();
+        let deadline = Instant::now() + timeout;
+        loop {
+            {
+                let agent = self.agent.lock().unwrap();
+                if agent.renominated() && agent.generation() >= target {
+                    return true;
+                }
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    /// The current ICE generation (0 at connect, +1 per restart
+    /// minted locally; a remote-initiated restart also bumps it
+    /// via handle_restart_offer's local credential rotation).
+    pub fn generation(&self) -> u64 {
+        self.agent.lock().unwrap().generation()
+    }
+
+    fn resolve_remote_candidates(&self) {
+        let mut agent = self.agent.lock().unwrap();
+        for candidate in &mut agent.remote_candidates {
+            if let Some(name) = &candidate.mdns_name {
+                if let Some(ip) = crate::mdns::resolve_ipv4(name) {
+                    candidate.addr = SocketAddr::new(IpAddr::V4(ip), candidate.addr.port());
+                }
+            }
+        }
+    }
+
+    /// Drive connectivity checks for one restart generation
+    /// until renomination. TURN: send-only permission refresh
+    /// for the restart candidates (bindings for genuinely new
+    /// addresses fall back to Send indications; the awaited
+    /// bind exchange would race the demux thread's reads).
+    fn start_restart_checks(&self, generation: u64) {
+        {
+            let mut loop_gen = self.loop_gen.lock().unwrap();
+            if *loop_gen == generation {
+                return;
+            }
+            *loop_gen = generation;
+        }
+        self.resolve_remote_candidates();
+        if let Some(client) = &self.turn {
+            let peers: Vec<SocketAddr> = {
+                let agent = self.agent.lock().unwrap();
+                agent
+                    .remote_candidates
+                    .iter()
+                    .map(|c| c.addr)
+                    .filter(|a| !a.ip().is_unspecified())
+                    .collect()
+            };
+            for peer in &peers {
+                crate::turn::send_permission(&self.socket, client, peer);
+            }
+        }
+        let agent = self.agent.clone();
+        let socket = match self.socket.try_clone() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let turn = self.turn.clone();
+        let relay_active = self.relay_active;
+        let alive = self.alive.clone();
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(15);
+            loop {
+                if !alive.load(Ordering::SeqCst) || Instant::now() >= deadline {
+                    return;
+                }
+                let checks = {
+                    let mut agent = agent.lock().unwrap();
+                    if agent.generation() != generation {
+                        return; // superseded by a newer restart
+                    }
+                    if agent.renominated() {
+                        return;
+                    }
+                    agent.due_checks()
+                };
+                for (bytes, dest) in checks {
+                    let _ = crate::turn::send_pair(&socket, turn.as_ref(), relay_active, &bytes, dest);
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        });
     }
 }
 
