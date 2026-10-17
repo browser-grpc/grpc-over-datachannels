@@ -56,10 +56,10 @@ public final class TestInterop {
             StdioTransport transport = new StdioTransport(server.getOutputStream(), server.getInputStream());
             EchoGrpcDc.EchoClient client = new EchoGrpcDc.EchoClient(new Channel(transport));
 
-            EchoResponse unary = client.Unary(new EchoRequest("hello", 0));
+            EchoResponse unary = client.Unary(new EchoRequest("hello", 0, 0));
             check(unary.message.equals("echo: hello"), "unary: " + unary);
 
-            EchoGrpcDc.EchoServerStreamStream stream = client.ServerStream(new EchoRequest("tick", 3));
+            EchoGrpcDc.EchoServerStreamStream stream = client.ServerStream(new EchoRequest("tick", 3, 0));
             List<Integer> indexes = new ArrayList<>();
             while (true) {
                 EchoResponse resp;
@@ -73,11 +73,11 @@ public final class TestInterop {
             check(indexes.equals(List.of(0, 1, 2)), "server stream: " + indexes);
 
             EchoResponse joined = client.ClientStream(List.of(
-                    new EchoRequest("a", 0), new EchoRequest("b", 0), new EchoRequest("c", 0)));
+                    new EchoRequest("a", 0, 0), new EchoRequest("b", 0, 0), new EchoRequest("c", 0, 0)));
             check(joined.message.equals("a+b+c"), "client stream: " + joined);
 
             EchoGrpcDc.EchoBidiStream bidi = client.Bidi(List.of(
-                    new EchoRequest("x", 0), new EchoRequest("y", 0)));
+                    new EchoRequest("x", 0, 0), new EchoRequest("y", 0, 0)));
             List<String> echoed = new ArrayList<>();
             while (true) {
                 EchoResponse resp;
@@ -91,7 +91,7 @@ public final class TestInterop {
             check(echoed.equals(List.of("x", "y")), "bidi: " + echoed);
 
             try {
-                client.Unary(new EchoRequest("fail", 0));
+                client.Unary(new EchoRequest("fail", 0, 0));
                 check(false, "fail should throw");
             } catch (StatusException e) {
                 check(e.code == 3, "fail status: " + e);

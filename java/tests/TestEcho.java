@@ -27,7 +27,7 @@ public final class TestEcho {
     }
 
     private static EchoRequest req(String message, int count) {
-        return new EchoRequest(message, count);
+        return new EchoRequest(message, count, 0);
     }
 
     static void check(boolean condition, String what) {

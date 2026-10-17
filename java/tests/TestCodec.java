@@ -45,7 +45,7 @@ public final class TestCodec {
             check(hex(frame.payload).equals(vector[4]), name + ": payload");
         }
 
-        EchoRequest req = new EchoRequest("hi", 2);
+        EchoRequest req = new EchoRequest("hi", 2, 0);
         check(hex(req.marshalDc()).equals(Fixtures.PROTO_HEX), "protobuf encode");
         EchoRequest decoded = new EchoRequest();
         decoded.unmarshalDc(hexBytes(Fixtures.PROTO_HEX));

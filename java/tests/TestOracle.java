@@ -73,7 +73,7 @@ public final class TestOracle {
                 case "UNARY" -> {
                     String message = messages.get(0);
                     try {
-                        EchoResponse resp = client.Unary(new EchoRequest(message, 0));
+                        EchoResponse resp = client.Unary(new EchoRequest(message, 0, 0));
                         check(expectStatus < 0, line + ": expected failure, got " + resp);
                         check(resp.message.equals("echo: " + message) && resp.index == 0,
                                 line + ": " + resp);
@@ -85,7 +85,7 @@ public final class TestOracle {
                 case "SERVER_STREAM" -> {
                     String message = messages.get(0);
                     EchoGrpcDc.EchoServerStreamStream stream =
-                            client.ServerStream(new EchoRequest(message, count));
+                            client.ServerStream(new EchoRequest(message, count, 0));
                     int got = 0;
                     while (true) {
                         EchoResponse resp;
@@ -103,7 +103,7 @@ public final class TestOracle {
                 case "CLIENT_STREAM" -> {
                     List<EchoRequest> reqs = new ArrayList<>();
                     for (String m : messages) {
-                        reqs.add(new EchoRequest(m, 0));
+                        reqs.add(new EchoRequest(m, 0, 0));
                     }
                     EchoResponse resp = client.ClientStream(reqs);
                     check(resp.message.equals(String.join("+", messages)) && resp.index == messages.size(),
@@ -112,7 +112,7 @@ public final class TestOracle {
                 case "BIDI" -> {
                     List<EchoRequest> reqs = new ArrayList<>();
                     for (String m : messages) {
-                        reqs.add(new EchoRequest(m, 0));
+                        reqs.add(new EchoRequest(m, 0, 0));
                     }
                     EchoGrpcDc.EchoBidiStream stream = client.Bidi(reqs);
                     int got = 0;

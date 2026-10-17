@@ -72,7 +72,7 @@ public final class TestDeadline {
 
         long start = System.nanoTime();
         try {
-            client.Unary(new EchoRequest("hello", 0), null, Duration.ofMillis(50));
+            client.Unary(new EchoRequest("hello", 0, 0), null, Duration.ofMillis(50));
             throw new AssertionError("expected deadline");
         } catch (StatusException e) {
             check(e.code == Wire.CODE_DEADLINE_EXCEEDED, "code " + e.code);
@@ -86,7 +86,7 @@ public final class TestDeadline {
         check(ctx.timeRemaining() != null, "ctx remaining");
 
         EchoGrpcDc.EchoServerStreamStream stream =
-                client.ServerStream(new EchoRequest("tick", 5), null, Duration.ofMillis(150));
+                client.ServerStream(new EchoRequest("tick", 5, 0), null, Duration.ofMillis(150));
         check(stream.recv().index == 0, "stream first");
         try {
             stream.recv();
@@ -96,7 +96,7 @@ public final class TestDeadline {
         }
 
         EchoResponse joined = client.ClientStream(
-                java.util.List.of(new EchoRequest("a", 0), new EchoRequest("b", 0)),
+                java.util.List.of(new EchoRequest("a", 0, 0), new EchoRequest("b", 0, 0)),
                 Map.of(), Duration.ofSeconds(5));
         check(joined.message.equals("a+b"), "generous timeout: " + joined.message);
     }

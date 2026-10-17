@@ -15,7 +15,7 @@ public final class EchoClientStdio {
     private EchoClientStdio() {}
 
     private static EchoRequest req(String message, int count) {
-        return new EchoRequest(message, count);
+        return new EchoRequest(message, count, 0);
     }
 
     public static void main(String[] args) throws Exception {

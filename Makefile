@@ -144,7 +144,8 @@ test-java:
 	cd java && mkdir -p build && javac -encoding UTF-8 -d build $$(find grpcdc examples tests -name '*.java') \
 		&& java -cp build tests.TestCodec && java -cp build tests.TestEcho \
 		&& java -cp build tests.TestInterop && java -cp build tests.TestOracle \
-		&& java -cp build tests.TestDynamic && java -cp build tests.TestBdd && java -cp build tests.TestDeadline
+		&& java -cp build tests.TestDynamic && java -cp build tests.TestBdd && java -cp build tests.TestDeadline \
+		&& java -cp build tests.TestPbMessages
 
 test-csharp:
 	cd csharp && dotnet build tests/Tests.csproj --nologo -v q \
