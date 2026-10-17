@@ -55,3 +55,10 @@ browser-test/echo_swift_server.wasm
 browser-test/echo_go_server.wasm
 browser-test/echo_go_stream_server.wasm
 /scala/build/
+browser-test/echo_zig_stream_server.wasm
+browser-test/echo_cpp_stream_server.wasm
+browser-test/echo_swift_stream_server.wasm
+browser-test/scalajs_gen/
+
+# scala-cli build workspace
+.scala-build/

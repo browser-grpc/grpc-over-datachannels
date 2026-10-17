@@ -206,10 +206,16 @@ Kotlin and Go handlers incrementally: the bridge's
 pull source (`next()` per request as it arrives), and the
 browser tests prove incrementality with a ping-pong bidi call
 whose first response lands before the second request is sent;
-the Zig/C++/Swift export-shaped handlers still receive request
-streams collected. `make test-wasm-matrix` additionally pairs
-native browser clients and servers across runtimes (Kotlin→Zig,
-Swift→Kotlin, C++→Swift, Zig→C++ today) through a byte relay.
+the Zig/C++/Swift export-shaped handlers receive the same feed
+one request at a time through generated serve_*Start/Feed/End
+exports, so all five facades are incremental. Scala additionally ships a Scala.js facade
+(`protoc-gen-grpc-dc-wasm-scala`, packaged with scala-cli;
+`make test-scalajs-browser`) with the same client, server, and
+incremental-server surfaces. `make test-wasm-matrix`
+additionally pairs browser clients and servers across runtimes
+(native pairs Kotlin→Zig, Swift→Kotlin, C++→Swift, Zig→C++ plus
+facade×native and facade×facade pairs, nine today) through a
+byte relay.
 `make test-wasm`, `make
 test-zig-wasm-browser`, `make test-zig-wasm-native-browser`,
 `make test-lua-wasm-browser`, `make test-dart-browser`,

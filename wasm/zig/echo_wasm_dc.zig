@@ -249,3 +249,64 @@ export fn serve_bidi(call_id: u32, payload_ptr: [*]const u8, payload_len: usize,
     if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);
 }
 
+/// Incremental service implementation for echo.Echo: requests arrive one at a time via serve_*Start/Feed/End.
+pub const EchoStreamServer = struct {
+    ctx: *anyopaque,
+    clientStreamBegin_fn: *const fn (ctx: *anyopaque, call_id: u32, md: []const bridge_mod.MdPair) void,
+    clientStreamRequest_fn: *const fn (ctx: *anyopaque, call_id: u32, req: *const EchoRequest) void,
+    clientStreamEnd_fn: *const fn (ctx: *anyopaque, call_id: u32) CallResult(EchoResponse),
+    bidiBegin_fn: *const fn (ctx: *anyopaque, call_id: u32, md: []const bridge_mod.MdPair) void,
+    bidiRequest_fn: *const fn (ctx: *anyopaque, call_id: u32, req: *const EchoRequest, sink: *ServerSink) Status,
+    bidiEnd_fn: *const fn (ctx: *anyopaque, call_id: u32) Status,
+};
+
+var g_stream_impl: ?*EchoStreamServer = null;
+
+/// Register the incremental implementation used by the serve_*Start/Feed/End exports.
+pub fn registerEchoStreamServer(impl: *EchoStreamServer) void {
+    g_stream_impl = impl;
+}
+
+export fn serve_clientStreamStart(call_id: u32, md_ptr: [*]const u8, md_len: usize) void {
+    const a = bridge_mod.bridgeAllocator();
+    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };
+    defer a.free(md);
+    g_stream_impl.?.clientStreamBegin_fn(g_stream_impl.?.ctx, call_id, md);
+}
+
+export fn serve_clientStreamFeed(call_id: u32, payload_ptr: [*]const u8, payload_len: usize) void {
+    const a = bridge_mod.bridgeAllocator();
+    var req = EchoRequest{};
+    req.unmarshalDc(a, payload_ptr[0..payload_len]);
+    g_stream_impl.?.clientStreamRequest_fn(g_stream_impl.?.ctx, call_id, &req);
+}
+
+export fn serve_clientStreamEnd(call_id: u32) void {
+    const a = bridge_mod.bridgeAllocator();
+    switch (g_stream_impl.?.clientStreamEnd_fn(g_stream_impl.?.ctx, call_id)) {
+        .ok => |resp| { const bytes = resp.marshalDc(a); defer a.free(bytes); bridge_mod.serverRespond(call_id, bytes); },
+        .status => |st| bridge_mod.serverFail(call_id, st),
+    }
+}
+
+export fn serve_bidiStart(call_id: u32, md_ptr: [*]const u8, md_len: usize) void {
+    const a = bridge_mod.bridgeAllocator();
+    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };
+    defer a.free(md);
+    g_stream_impl.?.bidiBegin_fn(g_stream_impl.?.ctx, call_id, md);
+}
+
+export fn serve_bidiFeed(call_id: u32, payload_ptr: [*]const u8, payload_len: usize) void {
+    const a = bridge_mod.bridgeAllocator();
+    var req = EchoRequest{};
+    req.unmarshalDc(a, payload_ptr[0..payload_len]);
+    var sink = ServerSink{ .call_id = call_id };
+    const st = g_stream_impl.?.bidiRequest_fn(g_stream_impl.?.ctx, call_id, &req, &sink);
+    if (!st.isOk()) bridge_mod.serverFail(call_id, st);
+}
+
+export fn serve_bidiEnd(call_id: u32) void {
+    const st = g_stream_impl.?.bidiEnd_fn(g_stream_impl.?.ctx, call_id);
+    if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);
+}
+

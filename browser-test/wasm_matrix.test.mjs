@@ -46,11 +46,19 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const baseUrl = `http://127.0.0.1:${server.address().port}/browser-test`;
 
+// Fifth element: whether the client page's summary carries the
+// slow-call deadline check (native clients do; facade client
+// pages do not run a slow call in their summary).
 const PAIRS = [
-  ["Kotlin native client", "wasm_kotlin_native_page.html", "Zig native server", "wasm_zig_native_server_page.html"],
-  ["Swift native client", "wasm_swift_native_page.html", "Kotlin native server", "wasm_kotlin_native_server_page.html"],
-  ["C++ native client", "wasm_cpp_native_page.html", "Swift native server", "wasm_swift_native_server_page.html"],
-  ["Zig native client", "wasm_zig_native_page.html", "C++ native server", "wasm_cpp_native_server_page.html"],
+  ["Kotlin native client", "wasm_kotlin_native_page.html", "Zig native server", "wasm_zig_native_server_page.html", true],
+  ["Swift native client", "wasm_swift_native_page.html", "Kotlin native server", "wasm_kotlin_native_server_page.html", true],
+  ["C++ native client", "wasm_cpp_native_page.html", "Swift native server", "wasm_swift_native_server_page.html", true],
+  ["Zig native client", "wasm_zig_native_page.html", "C++ native server", "wasm_cpp_native_server_page.html", true],
+  ["Go facade client", "wasm_page.html", "Kotlin native server", "wasm_kotlin_native_server_page.html", false],
+  ["Kotlin facade client", "wasm_kotlin_page.html", "C++ native server", "wasm_cpp_native_server_page.html", false],
+  ["Zig facade client", "wasm_zig_page.html", "Swift facade server", "wasm_swift_facade_server_page.html", false],
+  ["C++ facade client", "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm", "Go facade server", "wasm_go_facade_server_page.html", false],
+  ["Swift facade client", "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm", "Kotlin facade server", "wasm_kotlin_facade_server_page.html", false],
 ];
 
 function relay(from, to) {
@@ -73,7 +81,7 @@ async function channelOf(peer) {
   return dc;
 }
 
-async function runPair(name, engine, [clientLabel, clientPage, serverLabel, serverPage]) {
+async function runPair(name, engine, [clientLabel, clientPage, serverLabel, serverPage, expectDeadline]) {
   const launchOptions = { args: ["--enable-features=SharedArrayBuffer"] };
   if (name === "firefox") {
     launchOptions.firefoxUserPrefs = {
@@ -114,7 +122,7 @@ async function runPair(name, engine, [clientLabel, clientPage, serverLabel, serv
     assert.deepEqual(result.ticks, [0, 1, 2]);
     assert.equal(result.joined, "a+b");
     assert.deepEqual(result.echoed, ["x", "y"]);
-    assert.equal(result.deadlineCode, 4);
+    if (expectDeadline) assert.equal(result.deadlineCode, 4);
     console.log(`${name}: ${clientLabel} -> ${serverLabel} OK`, result);
   } finally {
     await browser.close();

@@ -101,6 +101,18 @@ RUN curl -fsSL https://github.com/scala/scala3/releases/download/3.3.6/scala3-3.
 ENV SCALA3_HOME=/usr/local/scala3
 ENV PATH="/usr/local/scala3/bin:${PATH}"
 
+# scala-cli packages the Scala.js facade (test-scalajs-browser);
+# pinned release; arch-matched asset like the other toolchains.
+RUN case "$(uname -m)" in \
+      x86_64) asset=scala-cli-x86_64-pc-linux.gz ;; \
+      aarch64) asset=scala-cli-aarch64-pc-linux.gz ;; \
+      *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;; \
+    esac \
+  && curl -fsSL "https://github.com/VirtusLab/scala-cli/releases/download/v1.11.0/$asset" -o /tmp/scala-cli.gz \
+  && cd /tmp && gunzip -f scala-cli.gz \
+  && install -m 0755 /tmp/scala-cli /usr/local/bin/scala-cli \
+  && rm -f /tmp/scala-cli.gz
+
 # Zig toolchain for the Zig runtime (stdlib only, no packages;
 # arch-aware like the Swift/Dart stages).
 ARG TARGETARCH
@@ -244,6 +256,14 @@ RUN mkdir -p kotlin/build \
   && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoServerStdio/Main.kt -d kotlin/build/echo_server_stdio.jar \
   && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoClientStdio/Main.kt -d kotlin/build/echo_client_stdio.jar \
   && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/examples/DynamicEchoServerStdio/Main.kt -d kotlin/build/dynamic_echo_server_stdio.jar
+
+# Warm the Scala.js facade package (scala-cli deps + JS linker).
+RUN mkdir -p browser-test/scalajs_gen \
+  && scala-cli --power package --force --js --js-module-kind esmodule --scala-version 3.3.6 \
+       -o browser-test/scalajs_gen/echo_scalajs_client.mjs \
+       wasm/scalajs/bridge.scala wasm/scalajs/EchoScalaJsGrpcDc.scala \
+       scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala \
+       scala/examples/Pb.scala scala/examples/EchoMessages.scala wasm/scalajs/echo_client.scala
 
 # Warm the Dart builds (SDK only).
 RUN mkdir -p dart/build \

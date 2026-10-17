@@ -143,6 +143,23 @@ struct EchoWasmGrpcDc {
 
   /// Register the service implementation used by the serve_* exports.
   static void registerEchoServer(EchoServer& impl) { g_impl = &impl; }
+
+  /// Incremental service implementation for echo.Echo: requests arrive one at a time via serve_*Start/Feed/End.
+  class EchoStreamServer {
+   public:
+    virtual ~EchoStreamServer() = default;
+    virtual void ClientStreamBegin(std::uint32_t call_id, const std::vector<grpcdc_wasm::MdPair>& md) = 0;
+    virtual void ClientStreamRequest(std::uint32_t call_id, const EchoRequest& req) = 0;
+    virtual std::pair<grpcdc_wasm::Status, EchoResponse> ClientStreamEnd(std::uint32_t call_id) = 0;
+    virtual void BidiBegin(std::uint32_t call_id, const std::vector<grpcdc_wasm::MdPair>& md) = 0;
+    virtual grpcdc_wasm::Status BidiRequest(std::uint32_t call_id, const EchoRequest& req, EchoServerSink& sink) = 0;
+    virtual grpcdc_wasm::Status BidiEnd(std::uint32_t call_id) = 0;
+  };
+
+  static inline EchoStreamServer* g_stream_impl = nullptr;
+
+  /// Register the incremental implementation used by the serve_*Start/Feed/End exports.
+  static void registerEchoStreamServer(EchoStreamServer& impl) { g_stream_impl = &impl; }
 };
 
 extern "C" void serve_unary(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len, const std::uint8_t* md_ptr, std::size_t md_len) {
@@ -178,6 +195,41 @@ extern "C" void serve_bidi(std::uint32_t call_id, const std::uint8_t* payload_pt
   for (const auto& chunk : grpcdc_wasm::Unpack(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { EchoRequest req; if (!req.UnmarshalDc(chunk)) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; } reqs.push_back(req); }
   EchoWasmGrpcDc::EchoServerSink sink{call_id};
   auto st = EchoWasmGrpcDc::g_impl->Bidi(reqs, md, sink);
+  if (st.ok()) grpcdc_wasm::ServerComplete(call_id); else grpcdc_wasm::ServerFail(call_id, st);
+}
+
+extern "C" void serve_clientStreamStart(std::uint32_t call_id, const std::uint8_t* md_ptr, std::size_t md_len) {
+  auto md = grpcdc_wasm::DecodeMetadata(grpcdc_wasm::Bytes(md_ptr, md_ptr + md_len));
+  EchoWasmGrpcDc::g_stream_impl->ClientStreamBegin(call_id, md);
+}
+
+extern "C" void serve_clientStreamFeed(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len) {
+  EchoRequest req;
+  if (!req.UnmarshalDc(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; }
+  EchoWasmGrpcDc::g_stream_impl->ClientStreamRequest(call_id, req);
+}
+
+extern "C" void serve_clientStreamEnd(std::uint32_t call_id) {
+  auto result = EchoWasmGrpcDc::g_stream_impl->ClientStreamEnd(call_id);
+  if (!result.first.ok()) { grpcdc_wasm::ServerFail(call_id, result.first); return; }
+  grpcdc_wasm::ServerRespond(call_id, result.second.MarshalDc());
+}
+
+extern "C" void serve_bidiStart(std::uint32_t call_id, const std::uint8_t* md_ptr, std::size_t md_len) {
+  auto md = grpcdc_wasm::DecodeMetadata(grpcdc_wasm::Bytes(md_ptr, md_ptr + md_len));
+  EchoWasmGrpcDc::g_stream_impl->BidiBegin(call_id, md);
+}
+
+extern "C" void serve_bidiFeed(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len) {
+  EchoRequest req;
+  if (!req.UnmarshalDc(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; }
+  EchoWasmGrpcDc::EchoServerSink sink{call_id};
+  auto st = EchoWasmGrpcDc::g_stream_impl->BidiRequest(call_id, req, sink);
+  if (!st.ok()) grpcdc_wasm::ServerFail(call_id, st);
+}
+
+extern "C" void serve_bidiEnd(std::uint32_t call_id) {
+  auto st = EchoWasmGrpcDc::g_stream_impl->BidiEnd(call_id);
   if (st.ok()) grpcdc_wasm::ServerComplete(call_id); else grpcdc_wasm::ServerFail(call_id, st);
 }
 

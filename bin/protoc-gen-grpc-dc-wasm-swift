@@ -604,6 +604,135 @@
       enum-name
       (current-service)))))
 
+(define (wasm-swift-stream-iface-method m)
+  (define name (hash-ref m 'name))
+  (define req (hash-ref m 'input))
+  (define resp (hash-ref m 'output))
+  (define svc (current-service))
+  (case (hash-ref m 'kind)
+    ((client-streaming)
+     (string-append
+      (format
+       "        func ~aBegin(_ callId: UInt32, _ metadata: [(String, String)])\n"
+       name)
+      (format "        func ~aRequest(_ callId: UInt32, _ req: ~a)\n" name req)
+      (format
+       "        func ~aEnd(_ callId: UInt32) -> Result<~a, StatusException>\n"
+       name
+       resp)))
+    ((bidi)
+     (string-append
+      (format
+       "        func ~aBegin(_ callId: UInt32, _ metadata: [(String, String)])\n"
+       name)
+      (format
+       "        func ~aRequest(_ callId: UInt32, _ req: ~a, _ sink: ~aServerSink) -> StatusException?\n"
+       name
+       req
+       svc)
+      (format
+       "        func ~aEnd(_ callId: UInt32) -> StatusException?\n"
+       name)))
+    (else "")))
+
+(define (wasm-swift-export-name m)
+  (let* ((raw (hash-ref m 'name))
+         (n (if (symbol? raw) (symbol->string raw) raw)))
+    (string-append
+     "serve_"
+     (string (char-downcase (string-ref n 0)))
+     (substring n 1))))
+
+(define (wasm-swift-stream-feed-export enum-name m)
+  (define name (hash-ref m 'name))
+  (define req (hash-ref m 'input))
+  (define export-name (wasm-swift-export-name m))
+  (case (hash-ref m 'kind)
+    ((client-streaming)
+     (string-append
+      (format
+       (string-append
+        "@_cdecl(~s)\n"
+        "public func ~a(_ callId: UInt32, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n"
+        "    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n"
+        "    ~a.streamImpl!.~aBegin(callId, metadata)\n"
+        "}\n\n")
+       (string-append export-name "Start")
+       (string-append export-name "Start")
+       enum-name
+       name)
+      (format
+       (string-append
+        "@_cdecl(~s)\n"
+        "public func ~a(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int) {\n"
+        "    let req = ~a()\n"
+        "    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n"
+        "    ~a.streamImpl!.~aRequest(callId, req)\n"
+        "}\n\n")
+       (string-append export-name "Feed")
+       (string-append export-name "Feed")
+       req
+       enum-name
+       name)
+      (format
+       (string-append
+        "@_cdecl(~s)\n"
+        "public func ~a(_ callId: UInt32) {\n"
+        "    switch ~a.streamImpl!.~aEnd(callId) {\n"
+        "    case .success(let resp): ServerRespond(callId, resp.MarshalDc())\n"
+        "    case .failure(let st): ServerFail(callId, st)\n"
+        "    }\n"
+        "}\n\n")
+       (string-append export-name "End")
+       (string-append export-name "End")
+       enum-name
+       name)))
+    ((bidi)
+     (string-append
+      (format
+       (string-append
+        "@_cdecl(~s)\n"
+        "public func ~a(_ callId: UInt32, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n"
+        "    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n"
+        "    ~a.streamImpl!.~aBegin(callId, metadata)\n"
+        "}\n\n")
+       (string-append export-name "Start")
+       (string-append export-name "Start")
+       enum-name
+       name)
+      (format
+       (string-append
+        "@_cdecl(~s)\n"
+        "public func ~a(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int) {\n"
+        "    let req = ~a()\n"
+        "    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n"
+        "    if let st = ~a.streamImpl!.~aRequest(callId, req, ~a.~aServerSink(callId: callId)) {\n"
+        "        ServerFail(callId, st)\n"
+        "    }\n"
+        "}\n\n")
+       (string-append export-name "Feed")
+       (string-append export-name "Feed")
+       req
+       enum-name
+       name
+       enum-name
+       (current-service))
+      (format
+       (string-append
+        "@_cdecl(~s)\n"
+        "public func ~a(_ callId: UInt32) {\n"
+        "    if let st = ~a.streamImpl!.~aEnd(callId) {\n"
+        "        ServerFail(callId, st)\n"
+        "    } else {\n"
+        "        ServerComplete(callId)\n"
+        "    }\n"
+        "}\n\n")
+       (string-append export-name "End")
+       (string-append export-name "End")
+       enum-name
+       name)))
+    (else "")))
+
 (define (wasm-swift-service svc)
   (define sname (hash-ref svc 'name))
   (define methods (hash-ref svc 'methods))
@@ -647,6 +776,21 @@
      sname
      sname)
     (format "        serverImpl = impl\n")
+    "    }\n\n"
+    (format
+     "    /// Incremental service implementation for ~a: requests arrive one at a time.\n"
+     (hash-ref svc 'full-name))
+    (format "    protocol ~aStreamServer {\n" sname)
+    (apply string-append (map wasm-swift-stream-iface-method methods))
+    "    }\n\n"
+    (format "    static var streamImpl: ~aStreamServer?\n\n" sname)
+    (format
+     "    /// Register the incremental implementation used by the serve_*Start/Feed/End exports.\n")
+    (format
+     "    static func register~aStreamServer(_ impl: ~aStreamServer) {\n"
+     sname
+     sname)
+    (format "        streamImpl = impl\n")
     "    }\n")))
 
 (define (emit-wasm-swift-file file-model params)
@@ -676,11 +820,17 @@
       ((svc (in-list (hash-ref file-model 'services))))
       (parameterize
        ((current-service (hash-ref svc 'name)))
-       (apply
-        string-append
-        (map
-         (lambda (m) (wasm-swift-serve-export enum-name m))
-         (hash-ref svc 'methods)))))))))
+       (string-append
+        (apply
+         string-append
+         (map
+          (lambda (m) (wasm-swift-serve-export enum-name m))
+          (hash-ref svc 'methods)))
+        (apply
+         string-append
+         (map
+          (lambda (m) (wasm-swift-stream-feed-export enum-name m))
+          (hash-ref svc 'methods))))))))))
 
 (define (plugin-main)
   (define request-bytes (port->bytes (current-input-port)))

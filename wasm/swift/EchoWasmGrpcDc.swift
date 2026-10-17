@@ -75,6 +75,23 @@ enum EchoWasmGrpcDc {
     static func registerEchoServer(_ impl: EchoServer) {
         serverImpl = impl
     }
+
+    /// Incremental service implementation for echo.Echo: requests arrive one at a time.
+    protocol EchoStreamServer {
+        func ClientStreamBegin(_ callId: UInt32, _ metadata: [(String, String)])
+        func ClientStreamRequest(_ callId: UInt32, _ req: EchoRequest)
+        func ClientStreamEnd(_ callId: UInt32) -> Result<EchoResponse, StatusException>
+        func BidiBegin(_ callId: UInt32, _ metadata: [(String, String)])
+        func BidiRequest(_ callId: UInt32, _ req: EchoRequest, _ sink: EchoServerSink) -> StatusException?
+        func BidiEnd(_ callId: UInt32) -> StatusException?
+    }
+
+    static var streamImpl: EchoStreamServer?
+
+    /// Register the incremental implementation used by the serve_*Start/Feed/End exports.
+    static func registerEchoStreamServer(_ impl: EchoStreamServer) {
+        streamImpl = impl
+    }
 }
 
 @_cdecl("serve_unary")
@@ -115,6 +132,51 @@ public func serve_bidi(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payl
     let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))
     let reqs = UnpackPacked(Array(UnsafeBufferPointer(start: payload, count: payloadLen))).map { bytes -> EchoRequest in let req = EchoRequest(); req.UnmarshalDc(bytes); return req }
     if let st = EchoWasmGrpcDc.serverImpl!.Bidi(reqs, metadata, EchoWasmGrpcDc.EchoServerSink(callId: callId)) {
+        ServerFail(callId, st)
+    } else {
+        ServerComplete(callId)
+    }
+}
+
+@_cdecl("serve_clientStreamStart")
+public func serve_clientStreamStart(_ callId: UInt32, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {
+    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))
+    EchoWasmGrpcDc.streamImpl!.ClientStreamBegin(callId, metadata)
+}
+
+@_cdecl("serve_clientStreamFeed")
+public func serve_clientStreamFeed(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int) {
+    let req = EchoRequest()
+    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))
+    EchoWasmGrpcDc.streamImpl!.ClientStreamRequest(callId, req)
+}
+
+@_cdecl("serve_clientStreamEnd")
+public func serve_clientStreamEnd(_ callId: UInt32) {
+    switch EchoWasmGrpcDc.streamImpl!.ClientStreamEnd(callId) {
+    case .success(let resp): ServerRespond(callId, resp.MarshalDc())
+    case .failure(let st): ServerFail(callId, st)
+    }
+}
+
+@_cdecl("serve_bidiStart")
+public func serve_bidiStart(_ callId: UInt32, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {
+    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))
+    EchoWasmGrpcDc.streamImpl!.BidiBegin(callId, metadata)
+}
+
+@_cdecl("serve_bidiFeed")
+public func serve_bidiFeed(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int) {
+    let req = EchoRequest()
+    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))
+    if let st = EchoWasmGrpcDc.streamImpl!.BidiRequest(callId, req, EchoWasmGrpcDc.EchoServerSink(callId: callId)) {
+        ServerFail(callId, st)
+    }
+}
+
+@_cdecl("serve_bidiEnd")
+public func serve_bidiEnd(_ callId: UInt32) {
+    if let st = EchoWasmGrpcDc.streamImpl!.BidiEnd(callId) {
         ServerFail(callId, st)
     } else {
         ServerComplete(callId)

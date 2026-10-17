@@ -218,6 +218,83 @@
     [(bidi)
      (format "    ~a_fn: *const fn (ctx: *anyopaque, reqs: []const ~a, md: []const bridge_mod.MdPair, sink: *ServerSink) Status,\n" name req)]))
 
+
+(define (wasm-stream-iface-field m)
+  (define name (lower-first (hash-ref m 'name)))
+  (define req (hash-ref m 'input))
+  (define resp (hash-ref m 'output))
+  (case (hash-ref m 'kind)
+    [(client-streaming)
+     (string-append
+      (format "    ~aBegin_fn: *const fn (ctx: *anyopaque, call_id: u32, md: []const bridge_mod.MdPair) void,\n" name)
+      (format "    ~aRequest_fn: *const fn (ctx: *anyopaque, call_id: u32, req: *const ~a) void,\n" name req)
+      (format "    ~aEnd_fn: *const fn (ctx: *anyopaque, call_id: u32) CallResult(~a),\n" name resp))]
+    [(bidi)
+     (string-append
+      (format "    ~aBegin_fn: *const fn (ctx: *anyopaque, call_id: u32, md: []const bridge_mod.MdPair) void,\n" name)
+      (format "    ~aRequest_fn: *const fn (ctx: *anyopaque, call_id: u32, req: *const ~a, sink: *ServerSink) Status,\n" name req)
+      (format "    ~aEnd_fn: *const fn (ctx: *anyopaque, call_id: u32) Status,\n" name))]
+    [else ""]))
+
+(define (wasm-stream-feed-export m)
+  (define name (lower-first (hash-ref m 'name)))
+  (define req (hash-ref m 'input))
+  (case (hash-ref m 'kind)
+    [(client-streaming)
+     (string-append
+      (format (string-append
+               "export fn serve_~aStart(call_id: u32, md_ptr: [*]const u8, md_len: usize) void {\n"
+               "    const a = bridge_mod.bridgeAllocator();\n"
+               "    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n"
+               "    defer a.free(md);\n"
+               "    g_stream_impl.?.~aBegin_fn(g_stream_impl.?.ctx, call_id, md);\n"
+               "}\n\n")
+              name name)
+      (format (string-append
+               "export fn serve_~aFeed(call_id: u32, payload_ptr: [*]const u8, payload_len: usize) void {\n"
+               "    const a = bridge_mod.bridgeAllocator();\n"
+               "    var req = ~a{};\n"
+               "    req.unmarshalDc(a, payload_ptr[0..payload_len]);\n"
+               "    g_stream_impl.?.~aRequest_fn(g_stream_impl.?.ctx, call_id, &req);\n"
+               "}\n\n")
+              name req name)
+      (format (string-append
+               "export fn serve_~aEnd(call_id: u32) void {\n"
+               "    const a = bridge_mod.bridgeAllocator();\n"
+               "    switch (g_stream_impl.?.~aEnd_fn(g_stream_impl.?.ctx, call_id)) {\n"
+               "        .ok => |resp| { const bytes = resp.marshalDc(a); defer a.free(bytes); bridge_mod.serverRespond(call_id, bytes); },\n"
+               "        .status => |st| bridge_mod.serverFail(call_id, st),\n"
+               "    }\n"
+               "}\n\n")
+              name name))]
+    [(bidi)
+     (string-append
+      (format (string-append
+               "export fn serve_~aStart(call_id: u32, md_ptr: [*]const u8, md_len: usize) void {\n"
+               "    const a = bridge_mod.bridgeAllocator();\n"
+               "    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n"
+               "    defer a.free(md);\n"
+               "    g_stream_impl.?.~aBegin_fn(g_stream_impl.?.ctx, call_id, md);\n"
+               "}\n\n")
+              name name)
+      (format (string-append
+               "export fn serve_~aFeed(call_id: u32, payload_ptr: [*]const u8, payload_len: usize) void {\n"
+               "    const a = bridge_mod.bridgeAllocator();\n"
+               "    var req = ~a{};\n"
+               "    req.unmarshalDc(a, payload_ptr[0..payload_len]);\n"
+               "    var sink = ServerSink{ .call_id = call_id };\n"
+               "    const st = g_stream_impl.?.~aRequest_fn(g_stream_impl.?.ctx, call_id, &req, &sink);\n"
+               "    if (!st.isOk()) bridge_mod.serverFail(call_id, st);\n"
+               "}\n\n")
+              name req name)
+      (format (string-append
+               "export fn serve_~aEnd(call_id: u32) void {\n"
+               "    const st = g_stream_impl.?.~aEnd_fn(g_stream_impl.?.ctx, call_id);\n"
+               "    if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);\n"
+               "}\n\n")
+              name name))]
+    [else ""]))
+
 (define (wasm-service svc)
   (define sname (hash-ref svc 'name))
   (define methods (hash-ref svc 'methods))
@@ -245,7 +322,15 @@
      (format "var g_server_impl: ?*~aServer = null;\n\n" sname)
      (format "/// Register the service implementation used by the serve_* exports.\n")
      (format "pub fn register~aServer(impl: *~aServer) void {\n    g_server_impl = impl;\n}\n\n" sname sname)
-     (apply string-append (map wasm-server-serve-export methods)))))
+     (apply string-append (map wasm-server-serve-export methods))
+     (format "/// Incremental service implementation for ~a: requests arrive one at a time via serve_*Start/Feed/End.\n" (hash-ref svc 'full-name))
+     (format "pub const ~aStreamServer = struct {\n    ctx: *anyopaque,\n" sname)
+     (apply string-append (map wasm-stream-iface-field methods))
+     "};\n\n"
+     (format "var g_stream_impl: ?*~aStreamServer = null;\n\n" sname)
+     (format "/// Register the incremental implementation used by the serve_*Start/Feed/End exports.\n")
+     (format "pub fn register~aStreamServer(impl: *~aStreamServer) void {\n    g_stream_impl = impl;\n}\n\n" sname sname)
+     (apply string-append (map wasm-stream-feed-export methods)))))
 
 (define (emit-wasm-zig-file file-model params)
   (define base (path->string (path-replace-extension

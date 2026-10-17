@@ -92,6 +92,7 @@
                                     [(emit-ruby-file) "template-ruby.rkt"]
                                     [(emit-php-file) "template-php.rkt"]
                                     [(emit-scala-file) "template-scala.rkt"]
+                                    [(emit-wasm-scala-file) "template-wasm-scala.rkt"]
                                     [(emit-wasm-go-file) "template-wasm-go.rkt"]
                                     [(emit-wasm-zig-file) "template-wasm-zig.rkt"]
                                     [(emit-wasm-cpp-file) "template-wasm-cpp.rkt"]
@@ -999,6 +1000,7 @@
   (write-plugin "protoc-gen-grpc-dc-ruby" 'emit-ruby-file)
   (write-plugin "protoc-gen-grpc-dc-php" 'emit-php-file)
   (write-plugin "protoc-gen-grpc-dc-scala" 'emit-scala-file)
+  (write-plugin "protoc-gen-grpc-dc-wasm-scala" 'emit-wasm-scala-file)
   (call-with-output-file (build-path root "rust" "src" "wire_gen.rs") #:exists 'replace
     (lambda (out) (display (emit-rust-wire) out)))
   (printf "generated rust/src/wire_gen.rs\n")

@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -79,6 +79,9 @@ stubs:
 	mkdir -p wasm/kotlin
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-wasm-kotlin=bin/protoc-gen-grpc-dc-wasm-kotlin \
 		--grpc-dc-wasm-kotlin_out=wasm/kotlin -I proto proto/echo.proto
+	mkdir -p wasm/scalajs
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-wasm-scala=bin/protoc-gen-grpc-dc-wasm-scala \
+		--grpc-dc-wasm-scala_out=wasm/scalajs -I proto proto/echo.proto
 	mkdir -p wasm/kotlin/native
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-kotlin-native=bin/protoc-gen-grpc-dc-kotlin-native \
 		--grpc-dc-kotlin-native_out=wasm/kotlin/native -I proto proto/echo.proto
@@ -355,6 +358,12 @@ test-zig-wasm-browser:
 		-femit-bin=browser-test/echo_zig_server.wasm
 	cd browser-test && node wasm_zig.test.mjs all
 	cd browser-test && node wasm_zig_facade_server.test.mjs all
+	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
+		--dep grpcdc_status --dep echo_messages \
+		-Mroot=wasm/zig/echo_stream_server.zig -Mgrpcdc_status=zig/grpcdc/status.zig \
+		-Mecho_messages=zig/examples/echo_messages.zig \
+		-femit-bin=browser-test/echo_zig_stream_server.wasm
+	cd browser-test && node wasm_zig_stream_server.test.mjs all
 
 test-dart-browser:
 	$(DART) compile js wasm/dart/echo_client.dart -o browser-test/echo_dart.js
@@ -390,6 +399,16 @@ test-cpp-wasm-browser:
 		-o browser-test/echo_cpp_server.wasm
 	cd browser-test && node wasm_facade.test.mjs C++ "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm" all
 	cd browser-test && node wasm_cpp_facade_server.test.mjs all
+	$(ZIG) c++ -target wasm32-wasi -std=c++17 -O1 -mexec-model=reactor \
+		-fno-exceptions -fno-rtti -Iwasm/cpp \
+		-Wl,--export=_initialize -Wl,--export=run_echo_stream_server \
+		-Wl,--export=wasm_alloc -Wl,--export=wasm_free \
+		-Wl,--export=serve_clientStreamStart -Wl,--export=serve_clientStreamFeed \
+		-Wl,--export=serve_clientStreamEnd -Wl,--export=serve_bidiStart \
+		-Wl,--export=serve_bidiFeed -Wl,--export=serve_bidiEnd \
+		wasm/cpp/bridge.cpp wasm/cpp/echo_stream_server.cpp \
+		-o browser-test/echo_cpp_stream_server.wasm
+	cd browser-test && node wasm_cpp_stream_server.test.mjs all
 
 WASI_SDK ?= $(firstword $(wildcard $(HOME)/.local/wasi-sdk-33 /usr/local/wasi-sdk-33 /opt/wasi-sdk-33))
 WASI_CXX ?= $(WASI_SDK)/bin/clang++
@@ -445,6 +464,24 @@ test-swift-wasm-browser:
 		$(SWIFT_WASM_LIBDIR)/libswiftExclusivitySingleThreaded.a \
 		-o browser-test/echo_swift_server.wasm
 	cd browser-test && node wasm_swift_facade_server.test.mjs all
+	$(SWIFTC) -target wasm32-unknown-none-wasm \
+		-enable-experimental-feature Embedded \
+		-enable-experimental-feature Extern -wmo -O \
+		-c wasm/swift/bridge.swift wasm/swift/EchoWasmGrpcDc.swift \
+		swift/grpcdc/Wire.swift swift/examples/Pb.swift \
+		swift/examples/EchoMessages.swift wasm/swift/echo_stream_server.swift \
+		-o wasm/swift/build/echo_swift_stream_server.o
+	$(WASM_LD) --no-entry --allow-undefined \
+		--export=run_echo_stream_server --export=wasm_alloc --export=wasm_free \
+		--export=serve_clientStreamStart --export=serve_clientStreamFeed \
+		--export=serve_clientStreamEnd --export=serve_bidiStart \
+		--export=serve_bidiFeed --export=serve_bidiEnd \
+		wasm/swift/build/echo_swift_stream_server.o wasm/swift/build/support.o \
+		$(SWIFT_WASM_LIBDIR)/libswiftUnicodeDataTables.a \
+		$(SWIFT_WASM_LIBDIR)/libswiftEmbeddedPlatformPOSIX.a \
+		$(SWIFT_WASM_LIBDIR)/libswiftExclusivitySingleThreaded.a \
+		-o browser-test/echo_swift_stream_server.wasm
+	cd browser-test && node wasm_swift_stream_server.test.mjs all
 
 	mkdir -p wasm/swift/build
 	$(SWIFTC) -target wasm32-unknown-none-wasm \
@@ -555,6 +592,25 @@ test-kotlin-wasm-native-browser:
 
 ## Cross-language interop matrix: every stdio Echo client
 ## against every stdio Echo server (14 x 14 ordered pairs).
+SCALACLI ?= scala-cli
+
+test-scalajs-browser:
+	mkdir -p browser-test/scalajs_gen
+	$(SCALACLI) --power package --force --js --js-module-kind esmodule --scala-version 3.3.6 \
+		-o browser-test/scalajs_gen/echo_scalajs_client.mjs \
+		wasm/scalajs/bridge.scala wasm/scalajs/EchoScalaJsGrpcDc.scala \
+		scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala \
+		scala/examples/Pb.scala scala/examples/EchoMessages.scala wasm/scalajs/echo_client.scala
+	$(SCALACLI) --power package --force --js --js-module-kind esmodule --scala-version 3.3.6 \
+		-o browser-test/scalajs_gen/echo_scalajs_server.mjs \
+		wasm/scalajs/bridge.scala wasm/scalajs/EchoScalaJsGrpcDc.scala \
+		scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala \
+		scala/examples/Pb.scala scala/examples/EchoMessages.scala \
+		wasm/scalajs/EchoServerImpl.scala wasm/scalajs/echo_server_facade.scala
+	cd browser-test && node wasm_facade.test.mjs ScalaJS wasm_scalajs_page.html all
+	cd browser-test && node wasm_scalajs_facade_server.test.mjs all
+	cd browser-test && node wasm_scalajs_stream_server.test.mjs all
+
 test-wasm-matrix:
 	cd browser-test && node wasm_matrix.test.mjs all
 
@@ -567,7 +623,7 @@ test-interop-matrix:
 test-webrtc-matrix:
 	cd browser-test && node webrtc_matrix.test.mjs
 
-test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix
+test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo
