@@ -1,10 +1,13 @@
-// Webapp parity test: the fully client-side generator (protocompile
-// WASM + generated JS generators in the page) must produce stubs
-// byte-identical to the native Racket protoc plugins, for the
-// repo's echo.proto and for a two-file test schema exercising
-// imports, all four method shapes, a deprecated method, and two
-// services. Drives the real UI: upload files, click Generate,
-// capture the downloaded zip, compare gen/<lang>/ entries.
+// Webapp parity test: the fully client-side generator must
+// produce stubs byte-identical to the native Racket protoc
+// plugins, for the repo's echo.proto and for a two-file test
+// schema exercising imports, all four method shapes, a deprecated
+// method, and two services. The primary path runs the actual
+// plugins inside the Racket/Wasm runtime (asserted via
+// window.__generatedVia); a final case forces the built-in JS
+// generators with ?gen=js and asserts identical output. Drives
+// the real UI: upload files, click Generate, capture the
+// downloaded zip, compare gen/<lang>/ entries.
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -32,7 +35,13 @@ const server = createServer(async (req, res) => {
     const path = normalize(join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname)));
     if (!path.startsWith(ROOT)) throw new Error("outside root");
     const body = await readFile(path);
-    res.writeHead(200, { "content-type": MIME[extname(path)] ?? "application/octet-stream" });
+    // Cross-origin isolation: the in-browser Racket/Wasm plugin
+    // runner needs SharedArrayBuffer.
+    res.writeHead(200, {
+      "content-type": MIME[extname(path)] ?? "application/octet-stream",
+      "cross-origin-opener-policy": "same-origin",
+      "cross-origin-embedder-policy": "require-corp",
+    });
     res.end(body);
   } catch {
     res.writeHead(404);
@@ -137,11 +146,21 @@ function readZip(buf) {
 
 async function downloadZip(page) {
   const [download] = await Promise.all([
-    page.waitForEvent("download", { timeout: 30000 }),
+    // The first Generate boots the Racket/Wasm runtime and
+    // compiles the plugins inside it; allow for slow engines.
+    page.waitForEvent("download", { timeout: 240000 }),
     page.click("#generate"),
   ]);
   const path = await download.path();
   return readZip(await readFile(path));
+}
+
+async function assertRacketVia(page, name) {
+  const via = await page.evaluate(() => window.__generatedVia);
+  assert.ok(
+    typeof via === "string" && via.startsWith("Racket plugins in-browser"),
+    `${name}: expected generation via the Racket/Wasm plugins, got: ${via}`,
+  );
 }
 
 async function runCase(name, engine) {
@@ -154,8 +173,10 @@ async function runCase(name, engine) {
     await page.waitForSelector("#status.ok", { timeout: 60000 });
     assert.match(await page.textContent("#tree"), /echo\.Echo/);
 
-    // Case 1: preloaded echo.proto, all three languages.
+    // Case 1: preloaded echo.proto, all languages, produced by
+    // the actual Racket protoc plugins running in a Wasm runtime.
     let entries = await downloadZip(page);
+    await assertRacketVia(page, name);
     let refs = await nativeReference(join(ROOT, "proto"), ["echo.proto"]);
     for (const lang of LANGS) {
       const stub = LANG_CONFIG[lang].stub("echo");
@@ -184,6 +205,7 @@ async function runCase(name, engine) {
       { timeout: 30000 },
     );
     entries = await downloadZip(page);
+    await assertRacketVia(page, name);
     refs = await nativeReference(join(ROOT, "webapp/testdata"), ["common.proto", "shop.proto", "my_api.proto"]);
     if (LANGS.includes("python")) {
       for (const base of ["common", "shop", "my_api"]) {
@@ -209,6 +231,7 @@ async function runCase(name, engine) {
     await page.fill('input[data-param="js"]', "pb_import=./custom_pb.js");
     await page.fill('input[data-param="go"]', "go_package=shopapi");
     entries = await downloadZip(page);
+    await assertRacketVia(page, name);
     refs = await nativeReference(join(ROOT, "proto"), ["echo.proto"], {
       js: "pb_import=./custom_pb.js",
       go: "go_package=shopapi",
@@ -234,7 +257,23 @@ async function runCase(name, engine) {
     assert.match(await page.textContent("#status"), /syntax error/);
     assert.ok(await page.isDisabled("#generate"), "Generate disabled on compile error");
     await page.waitForSelector("#highlight .line-err", { timeout: 30000 });
-    console.log(`${name}: webapp parity OK (echo + shop byte-identical, params, per-file download, error surfaced)`);
+
+    // Case 5: ?gen=js forces the built-in JS generators; output
+    // must still be byte-identical (this is also the fallback the
+    // app uses when the Racket runtime cannot start).
+    await page.goto(`${baseUrl}/webapp/index.html?gen=js`);
+    await page.waitForFunction(() => window.__webappReady, null, { timeout: 60000 });
+    await page.waitForSelector("#status.ok", { timeout: 60000 });
+    entries = await downloadZip(page);
+    assert.equal(await page.evaluate(() => window.__generatedVia), "built-in generators");
+    refs = await nativeReference(join(ROOT, "proto"), ["echo.proto"]);
+    for (const lang of LANGS) {
+      const stub = LANG_CONFIG[lang].stub("echo");
+      const expected = await readFile(join(refs[lang], stub));
+      const actual = entries.get(`gen/${lang}/${stub}`);
+      assert.ok(actual && actual.equals(expected), `${name}: fallback ${lang} stub differs from native plugin`);
+    }
+    console.log(`${name}: webapp parity OK (echo + shop byte-identical via Racket/Wasm plugins, params, per-file download, error surfaced, JS fallback identical)`);
   } finally {
     await browser.close();
   }

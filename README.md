@@ -95,20 +95,31 @@ edit `.proto` files, pick languages, and download a zip containing
 the schemas, generated stubs (`gen/<lang>/`), the matching runtimes
 (`runtime/<lang>/`), and a README. Schema compilation in the page is
 `protocompile` (the compiler library behind buf) built to
-WebAssembly (`webapp/compiler/`); the stub generators are stamped by
-the same Racket metaprogram into `webapp/gen/generators.js`
-(`racket/webgen.rkt`), mirroring `racket/desc.rkt` and the
-per-language templates. Browser generators cover all 15 native
-languages plus the 6 WASM/Scala.js facade generators.
+WebAssembly (`webapp/compiler/`).
+
+Generation itself runs the actual Racket protoc plugins: the 21
+assembled `bin/protoc-gen-grpc-dc-*` programs execute inside a
+Racket/WebAssembly runtime in a Web Worker (`webapp/racket/runner.rkt`,
+runtime built by `scripts/build-racket-wasm.sh`). The page reframes
+the compiled descriptor set as a protoc `CodeGeneratorRequest`, the
+runner invokes each plugin's `plugin-main`, and the framed
+`CodeGeneratorResponse`s become the zip's `gen/<lang>/` entries —
+the same code, not a port. This needs cross-origin isolation
+(SharedArrayBuffer), so serve with COOP/COEP headers. When the
+runtime cannot start (or with `?gen=js`), the app falls back to
+built-in JS generators stamped by the same Racket metaprogram into
+`webapp/gen/generators.js` (`racket/webgen.rkt`); those also still
+supply the JS message modules (`gen/js/<base>_pb.js`). Coverage is
+all 15 native languages plus the 6 WASM/Scala.js facade generators.
 `browser-test/webapp_parity.test.mjs` drives the real UI in
 Chromium and Firefox and asserts the zipped stubs are byte-identical
-to the native `protoc` plugins' output, so the browser path cannot
-drift from the plugins.
+to the native `protoc` plugins' output on both the Racket and the
+fallback path, so neither path can drift from the plugins.
 
 ```bash
 make webapp-dist          # build the self-contained static bundle
-python3 -m http.server -d webapp/dist 8000
-# open http://localhost:8000 in a browser
+make webapp-serve         # serve it with COOP/COEP (Racket runner)
+# open http://127.0.0.1:8006 in a browser
 ```
 
 ## Using it

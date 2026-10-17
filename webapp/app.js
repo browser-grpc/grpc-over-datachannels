@@ -9,7 +9,7 @@
 // bundled from this repository's generated runtime files; a
 // dependency-free store-only zip writer packs it all up.
 
-import { generateFiles, describeFiles } from "./gen/generators.js";
+import { generateFiles, describeFiles, buildPluginRequest, parsePluginResponse } from "./gen/generators.js";
 
 const ACTIVE_LANGS = [
   ["js", "JavaScript"],
@@ -374,6 +374,148 @@ function langParams() {
   return params;
 }
 
+// --- Racket/Wasm plugin runner ------------------------------------
+// The real protoc plugins (assembled bin/protoc-gen-grpc-dc-*)
+// execute inside a Racket/Wasm runtime in a Web Worker
+// (webapp/racket/runner.rkt). One boot per page; each Generate
+// sends one framed job batch. If the runtime cannot start
+// (no SharedArrayBuffer, assets missing), generation falls back
+// to the built-in JS generators; ?gen=js forces that path.
+const RUNNER_LANGS = ["js", "go", "python", "rust", "java", "csharp", "cpp", "swift", "kotlin", "dart", "zig", "lua", "ruby", "php", "scala", "wasm-go", "wasm-zig", "wasm-cpp", "wasm-swift", "wasm-kotlin", "wasm-scala"];
+let runnerState = null;
+
+function runnerRingDrain(state) {
+  const H = state.heap;
+  const tail = Atomics.load(H, state.outBase + 1);
+  if (tail === state.outHead) return;
+  const chunk = new Uint8Array(tail - state.outHead);
+  for (let i = 0; state.outHead !== tail; state.outHead++, i++) {
+    chunk[i] = H[state.outBase + 2 + (state.outHead % state.outCap)] & 0xff;
+  }
+  Atomics.store(H, state.outBase + 0, state.outHead);
+  if (!chunk.length) return;
+  const prev = state.buf;
+  state.buf = new Uint8Array(prev.length + chunk.length);
+  state.buf.set(prev);
+  state.buf.set(chunk, prev.length);
+  runnerParse(state);
+}
+
+function runnerParse(state) {
+  for (;;) {
+    if (state.expectBytes !== null) {
+      if (state.buf.length < state.expectBytes) return;
+      const body = state.buf.slice(0, state.expectBytes);
+      state.buf = state.buf.slice(state.expectBytes);
+      const frame = state.expectFrame;
+      state.expectBytes = null;
+      state.expectFrame = null;
+      state.onFrame(frame.lang, frame.err ? new Error(new TextDecoder().decode(body)) : body);
+      continue;
+    }
+    const nl = state.buf.indexOf(10);
+    if (nl < 0) return;
+    const line = new TextDecoder().decode(state.buf.slice(0, nl));
+    state.buf = state.buf.slice(nl + 1);
+    if (line === "GRPCDC-RUNNER-READY") {
+      state.onReady();
+    } else {
+      const m = line.match(/^GRPCDC\/1 (\S+) (\d+)$/) || line.match(/^GRPCDC-ERR (\S+) (\d+)$/);
+      if (!m) throw new Error("bad runner frame: " + line.slice(0, 80));
+      state.expectFrame = { lang: m[1], err: line.startsWith("GRPCDC-ERR") };
+      state.expectBytes = Number(m[2]);
+    }
+  }
+}
+
+async function ensureRunner() {
+  if (runnerState) return runnerState.ready;
+  if (typeof SharedArrayBuffer === "undefined") throw new Error("SharedArrayBuffer unavailable (serve with COOP/COEP headers)");
+  const state = {
+    heap: null, outBase: 0, outCap: 0, outHead: 0, buf: new Uint8Array(0),
+    expectBytes: null, expectFrame: null, batch: null, poll: 0,
+    ready: null, onReady: null, onFrame: null,
+  };
+  runnerState = state;
+  state.ready = (async () => {
+    const texts = new Map();
+    const fetches = [["/tmp/main.rkt", "assets/racket/runner.rkt"]];
+    for (const lang of RUNNER_LANGS) fetches.push([`/tmp/plugins/${lang}.rkt`, `assets/plugins/${lang}.rkt`]);
+    await Promise.all(fetches.map(async ([dest, url]) => {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error("missing runner asset " + url);
+      texts.set(dest, await resp.text());
+    }));
+    const files = {};
+    for (const [dest, text] of texts) files[dest] = text;
+    const readyPromise = new Promise((resolve) => { state.onReady = resolve; });
+    const worker = new Worker("assets/racket/shell-worker.js");
+    state.worker = worker;
+    worker.onmessage = (event) => {
+      const msg = event.data;
+      if (msg.type === "ready") {
+        state.heap = new Int32Array(msg.heap);
+        state.inBase = msg.inBase;
+        state.inCap = msg.inCap;
+        state.outBase = msg.outBase;
+        state.outCap = msg.outCap;
+        state.outHead = Atomics.load(state.heap, state.outBase + 0);
+        state.poll = setInterval(() => runnerRingDrain(state), 16);
+      } else if (msg.type === "fs-error") {
+        throw new Error("runner fs error at " + msg.path + ": " + msg.error);
+      } else if (msg.type === "exit") {
+        if (state.batch) state.batch.reject(new Error("racket runtime exited (code " + (msg.code | 0) + ")"));
+      }
+    };
+    worker.postMessage({ type: "init", argv: ["-u", "/tmp/main.rkt"], files });
+    await readyPromise;
+  })();
+  return state.ready;
+}
+
+async function runnerGenerate(jobs) {
+  await ensureRunner();
+  const state = runnerState;
+  return new Promise((resolve, reject) => {
+    const results = new Map();
+    let remaining = jobs.length;
+    state.batch = { reject };
+    state.onFrame = (lang, body) => {
+      if (body instanceof Error) { state.batch = null; reject(new Error(lang + ": " + body.message)); return; }
+      try {
+        results.set(lang, parsePluginResponse(body));
+      } catch (e) {
+        state.batch = null;
+        reject(new Error(lang + ": " + e.message));
+        return;
+      }
+      if (--remaining === 0) { state.batch = null; resolve(results); }
+    };
+    runnerWriteInput(state, JSON.stringify({ jobs: jobs.map((j) => ({ lang: j.lang, requestB64: j.requestB64 })) }) + "\n");
+  });
+}
+
+function bytesToB64(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 8192) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  }
+  return btoa(s);
+}
+
+function runnerWriteInput(state, text) {
+  // The page side of the stdin ring (same protocol as ide.js).
+  const H = state.heap;
+  const bytes = new TextEncoder().encode(text);
+  let tail = Atomics.load(H, state.inBase + 1);
+  for (let i = 0; i < bytes.length; i++) {
+    H[state.inBase + 2 + (tail % state.inCap)] = bytes[i];
+    tail++;
+  }
+  Atomics.store(H, state.inBase + 1, tail);
+  Atomics.notify(H, state.inBase + 1);
+}
+
 $("generate").addEventListener("click", async () => {
   if (!lastSetBytes) return;
   saveEditor();
@@ -385,12 +527,50 @@ $("generate").addEventListener("click", async () => {
   const generated = [];
   const names = [...files.keys()];
   for (const name of names) entries.push({ name: "proto/" + name, data: enc.encode(files.get(name)) });
-  for (const lang of langs) {
-    for (const f of generateFiles(lang, lastSetBytes, names, params.get(lang) || "")) {
-      const entry = { name: "gen/" + lang + "/" + f.name, data: enc.encode(f.content) };
-      entries.push(entry);
-      generated.push(entry);
+  const useRacket = new URLSearchParams(location.search).get("gen") !== "js";
+  let generatedVia = "built-in generators";
+  if (useRacket) {
+    try {
+      setStatus("starting Racket runtime (first use loads ~84MB of local assets)...", "");
+      const jobs = langs.map((lang) => ({
+        lang,
+        requestB64: bytesToB64(buildPluginRequest(lastSetBytes, names, params.get(lang) || "")),
+      }));
+      const t0 = performance.now();
+      const results = await runnerGenerate(jobs);
+      for (const lang of langs) {
+        for (const f of results.get(lang) || []) {
+          const entry = { name: "gen/" + lang + "/" + f.name, data: f.content };
+          entries.push(entry);
+          generated.push(entry);
+        }
+      }
+      // The native JS plugin emits stubs only; the JS message
+      // modules (<base>_pb.js) still come from the built-in
+      // generators until the plugin grows them.
+      for (const f of langs.includes("js") ? generateFiles("js", lastSetBytes, names, params.get("js") || "") : []) {
+        if (!f.name.endsWith("_pb.js")) continue;
+        const entry = { name: "gen/js/" + f.name, data: enc.encode(f.content) };
+        entries.push(entry);
+        generated.push(entry);
+      }
+      generatedVia = "Racket plugins in-browser (" + (performance.now() - t0).toFixed(0) + "ms)";
+    } catch (e) {
+      setStatus("Racket runtime unavailable (" + e.message + "); falling back to built-in generators", "err");
     }
+  }
+  if (!generated.length) {
+    for (const lang of langs) {
+      for (const f of generateFiles(lang, lastSetBytes, names, params.get(lang) || "")) {
+        const entry = { name: "gen/" + lang + "/" + f.name, data: enc.encode(f.content) };
+        entries.push(entry);
+        generated.push(entry);
+      }
+    }
+  } else {
+    setStatus("generated via " + generatedVia, "ok");
+  }
+  for (const lang of langs) {
     entries.push(...(await fetchRuntime(lang)));
   }
   // The JS-family runtimes import ../wire_gen.js, which resolves to
@@ -400,6 +580,7 @@ $("generate").addEventListener("click", async () => {
     if (!resp.ok) throw new Error("missing runtime asset wire_gen.js");
     entries.push({ name: "runtime/wire_gen.js", data: new Uint8Array(await resp.arrayBuffer()) });
   }
+  window.__generatedVia = generatedVia;
   renderResults(generated);
   entries.push({ name: "README.md", data: enc.encode(zipReadme(langs)) });
   entries.push({

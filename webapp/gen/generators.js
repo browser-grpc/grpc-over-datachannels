@@ -1523,6 +1523,49 @@ function emitPythonPbFile(model) {
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Plugin protocol reframing for the in-browser Racket runner
+// (webapp/racket/runner.rkt): the protocompile compiler emits a
+// FileDescriptorSet; protoc hands plugins a CodeGeneratorRequest
+// instead. Reframe the former into the latter, and decode the
+// CodeGeneratorResponse a plugin run produces.
+// ---------------------------------------------------------------------------
+
+function varintFieldBytes(value) {
+  let n = BigInt.asUintN(64, BigInt(value));
+  const out = [];
+  while (n > 0x7fn) {
+    out.push(Number((n & 0x7fn) | 0x80n));
+    n >>= 7n;
+  }
+  out.push(Number(n));
+  return out;
+}
+
+export function buildPluginRequest(setBytes, entries, parameter) {
+  const files = getAllBytes(pbParse(setBytes), 1);
+  const enc = new TextEncoder();
+  const out = [];
+  const pushField = (num, payload) => {
+    out.push(...varintFieldBytes((BigInt(num) << 3n) | 2n), ...varintFieldBytes(payload.length), ...payload);
+  };
+  for (const e of entries) pushField(1, enc.encode(e));
+  if (parameter) pushField(2, enc.encode(parameter));
+  for (const f of files) pushField(15, f);
+  return new Uint8Array(out);
+}
+
+export function parsePluginResponse(bytes) {
+  const fields = pbParse(bytes);
+  const err = firstBytes(fields, 1);
+  if (err !== null) throw new Error(utf8.decode(err));
+  return getAllBytes(fields, 15).map((entry) => {
+    const ef = pbParse(entry);
+    const content = firstBytes(ef, 15);
+    return { name: getString(ef, 1), content: content === null ? new Uint8Array(0) : content };
+  });
+}
+
 // Entry points. generateFiles mirrors the protoc plugin contract:
 // one output file per file-to-generate, stamped with the generated
 // code license header exactly like racket/desc.rkt does.

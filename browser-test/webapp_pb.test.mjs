@@ -32,7 +32,12 @@ const server = createServer(async (req, res) => {
     const path = normalize(join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname)));
     if (!path.startsWith(ROOT)) throw new Error("outside root");
     const body = await readFile(path);
-    res.writeHead(200, { "content-type": MIME[extname(path)] ?? "application/octet-stream" });
+    // Cross-origin isolation for the Racket/Wasm plugin runner.
+    res.writeHead(200, {
+      "content-type": MIME[extname(path)] ?? "application/octet-stream",
+      "cross-origin-opener-policy": "same-origin",
+      "cross-origin-embedder-policy": "require-corp",
+    });
     res.end(body);
   } catch {
     res.writeHead(404);
@@ -159,9 +164,13 @@ async function runCase(name, engine) {
       for (const cb of els) cb.checked = cb.dataset.lang === "js";
     });
     const [download] = await Promise.all([
-      page.waitForEvent("download", { timeout: 30000 }),
+      page.waitForEvent("download", { timeout: 240000 }),
       page.click("#generate"),
     ]);
+    // The zip under execution must come from the real Racket
+    // plugins running in the Wasm runtime.
+    const via = await page.evaluate(() => window.__generatedVia);
+    assert.ok(typeof via === "string" && via.startsWith("Racket plugins in-browser"), `${name}: expected Racket/Wasm generation, got: ${via}`);
     const entries = readZip(await readFile(await download.path()));
     for (const f of ["echo_pb.js", "common_pb.js", "kitchen_pb.js", "echo_grpc_dc.js"]) {
       assert.ok(entries.has(`gen/js/${f}`), `zip missing gen/js/${f}`);
