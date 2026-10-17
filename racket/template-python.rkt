@@ -563,8 +563,13 @@
    "\n\n"))
 
 (define (emit-python-pb-file file-model)
-  (let/ec return-false
-    (emit-python-pb-file/inner file-model return-false)))
+  ;; Models without message metadata (synthetic test models that
+  ;; predate the desc 'types registry) get no pb companion; real
+  ;; desc.rkt models always carry 'messages/'types.
+  (and (hash-has-key? file-model 'messages)
+       (hash-has-key? file-model 'types)
+       (let/ec return-false
+         (emit-python-pb-file/inner file-model return-false))))
 
 (define (emit-python-pb-file/inner file-model return-false)
   (define messages (hash-ref file-model 'messages))
