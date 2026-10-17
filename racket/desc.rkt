@@ -47,6 +47,8 @@
           'path (method-path package service-name name)
           'input (simple-type-name (pb-get-string fields 2))
           'output (simple-type-name (pb-get-string fields 3))
+          'input-full (string-trim (pb-get-string fields 2) ".")
+          'output-full (string-trim (pb-get-string fields 3) ".")
           'kind (streaming-kind client? server?)
           'client-streaming client?
           'server-streaming server?
@@ -63,16 +65,84 @@
           'methods (for/list ([m (in-list (pb-get-all fields 2))])
                      (parse-method (pb-parse m) package name))))
 
-;; FileDescriptorProto: name=1 package=2 service=6
+;; EnumDescriptorProto: name=1 value=2 (EnumValueDescriptorProto:
+;; name=1 number=2)
+(define (parse-enum-desc fields)
+  (hasheq 'name (pb-get-string fields 1)
+          'values (for/list ([v (in-list (pb-get-all fields 2))])
+                    (define vf (pb-parse v))
+                    (hasheq 'name (pb-get-string vf 1)
+                            'number (pb-get vf 2 0)))))
+
+;; FieldDescriptorProto: name=1 number=3 label=4 type=5 type_name=6
+;; json_name=10. Label: 1 optional, 2 required, 3 repeated. Type
+;; codes match descriptor.proto (1 double .. 18 sint64); the
+;; message generators (template-pb-*.rkt, webgen.rkt) share them.
+(define (parse-field-desc fields)
+  (hasheq 'name (pb-get-string fields 1)
+          'number (pb-get fields 3 0)
+          'label (pb-get fields 4 1)
+          'type (pb-get fields 5 0)
+          'type-name (string-trim (pb-get-string fields 6 "") ".")
+          'json-name (pb-get-string fields 10 "")))
+
+;; DescriptorProto: name=1 field=2 nested_type=3 enum_type=4
+;; options=7 (MessageOptions.map_entry=7)
+(define (parse-message-desc fields prefix)
+  (define name (pb-get-string fields 1))
+  (define full (if (string=? prefix "") name (format "~a.~a" prefix name)))
+  (define opts (pb-get fields 7 #f))
+  (hasheq 'name name
+          'full-name full
+          'fields (for/list ([f (in-list (pb-get-all fields 2))])
+                    (parse-field-desc (pb-parse f)))
+          'nested (for/list ([n (in-list (pb-get-all fields 3))])
+                    (parse-message-desc (pb-parse n) full))
+          'enums (for/list ([e (in-list (pb-get-all fields 4))])
+                   (parse-enum-desc (pb-parse e)))
+          'map-entry (and (bytes? opts) (pb-get-bool (pb-parse opts) 7))))
+
+;; FileDescriptorProto: name=1 package=2 dependency=3
+;; message_type=4 enum_type=5 service=6
 (define (parse-file-desc fields)
   (define package (pb-get-string fields 2 ""))
   (hasheq 'name (pb-get-string fields 1)
           'package package
+          'dependencies (for/list ([d (in-list (pb-get-all fields 3))])
+                          (bytes->string/utf-8 d))
           'services (for/list ([s (in-list (pb-get-all fields 6))])
-                      (parse-service (pb-parse s) package))))
+                      (parse-service (pb-parse s) package))
+          'messages (for/list ([m (in-list (pb-get-all fields 4))])
+                      (parse-message-desc (pb-parse m) package))
+          'enums (for/list ([e (in-list (pb-get-all fields 5))])
+                   (parse-enum-desc (pb-parse e)))))
+
+;; Global type registry across every file in the request, so the
+;; message generators can resolve field types across imports.
+;; Maps full type name -> #hash((kind . message|map|enum)
+;; (msg . message-model|#f) (enum . enum-model|#f) (file . str)
+;; (pkg . str)).
+(define (build-type-registry files)
+  (define reg (make-hash))
+  (define (reg-msg file pkg msg)
+    (hash-set! reg (hash-ref msg 'full-name)
+               (hasheq 'kind (if (hash-ref msg 'map-entry) 'map 'message)
+                       'msg msg 'enum #f 'file file 'pkg pkg))
+    (for ([n (in-list (hash-ref msg 'nested))]) (reg-msg file pkg n))
+    (for ([e (in-list (hash-ref msg 'enums))])
+      (hash-set! reg (format "~a.~a" (hash-ref msg 'full-name) (hash-ref e 'name))
+                 (hasheq 'kind 'enum 'msg #f 'enum e 'file file 'pkg pkg))))
+  (for ([f (in-list files)])
+    (define pkg (hash-ref f 'package))
+    (for ([m (in-list (hash-ref f 'messages))]) (reg-msg (hash-ref f 'name) pkg m))
+    (for ([e (in-list (hash-ref f 'enums))])
+      (hash-set! reg (if (string=? pkg "") (hash-ref e 'name) (format "~a.~a" pkg (hash-ref e 'name)))
+                 (hasheq 'kind 'enum 'msg #f 'enum e 'file (hash-ref f 'name) 'pkg pkg))))
+  reg)
 
 ;; CodeGeneratorRequest: file_to_generate=1 parameter=2 proto_file=15
 ;; -> (values (listof file-model) parameter-string)
+;; Each returned file-model carries a 'types registry (above).
 (define (parse-request bstr)
   (define fields (pb-parse bstr))
   (define wanted (map (lambda (b) (bytes->string/utf-8 b)) (pb-get-all fields 1)))
@@ -81,10 +151,12 @@
     (for/list ([f (in-list (pb-get-all fields 15))])
       (parse-file-desc (pb-parse f))))
   (define by-name (for/hash ([f (in-list files)]) (values (hash-ref f 'name) f)))
+  (define registry (build-type-registry files))
   (values (for/list ([w (in-list wanted)])
-            (hash-ref by-name w
-                      (lambda ()
-                        (error 'parse-request "file_to_generate not in request: ~a" w))))
+            (hash-set (hash-ref by-name w
+                                (lambda ()
+                                  (error 'parse-request "file_to_generate not in request: ~a" w)))
+                      'types registry))
           parameter))
 
 ;; "message_module=crate::pb,pb_import=./echo_pb.js" -> #hash((sym . str))

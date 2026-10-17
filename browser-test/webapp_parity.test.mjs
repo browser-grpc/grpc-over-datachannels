@@ -165,6 +165,12 @@ async function runCase(name, engine) {
       assert.ok(actual.equals(expected), `${name}: browser ${lang} stub differs from native plugin`);
       assert.ok(entries.has(`runtime/${lang}/` + LANG_CONFIG[lang].runtime), "runtime bundled for " + lang);
     }
+    if (LANGS.includes("python")) {
+      const expectedPb = await readFile(join(refs.python, "echo_pb.py"));
+      const actualPb = entries.get("gen/python/echo_pb.py");
+      assert.ok(actualPb, "zip missing gen/python/echo_pb.py");
+      assert.ok(actualPb.equals(expectedPb), `${name}: browser python messages differ from native plugin`);
+    }
     assert.ok(entries.has("proto/echo.proto"), "zip carries the schema");
     for (const lang of LANGS) {
       assert.ok(JSON.parse(entries.get("manifest.json").toString()).languages.includes(lang), "manifest lists " + lang);
@@ -179,6 +185,14 @@ async function runCase(name, engine) {
     );
     entries = await downloadZip(page);
     refs = await nativeReference(join(ROOT, "webapp/testdata"), ["common.proto", "shop.proto", "my_api.proto"]);
+    if (LANGS.includes("python")) {
+      for (const base of ["common", "shop", "my_api"]) {
+        const expectedPb = await readFile(join(refs.python, `${base}_pb.py`));
+        const actualPb = entries.get(`gen/python/${base}_pb.py`);
+        assert.ok(actualPb, `zip missing gen/python/${base}_pb.py`);
+        assert.ok(actualPb.equals(expectedPb), `${name}: browser python ${base} messages differ from native plugin`);
+      }
+    }
     for (const lang of LANGS) {
       for (const base of ["common", "shop", "my_api"]) {
         const stub = LANG_CONFIG[lang].stub(base);

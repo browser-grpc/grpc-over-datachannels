@@ -66,7 +66,12 @@
      (define request-bytes (port->bytes (current-input-port)))
      (define-values (files parameter) (parse-request request-bytes))
      (define params (parse-parameters parameter))
-     (write-bytes (encode-response (map (lambda (f) (stamp-generated-header (EMIT-FN f params))) files))
+     ;; An emit function returns one (name . content) pair or a
+     ;; list of them (stub + generated message classes).
+     (define (as-file-list out)
+       (if (and (pair? out) (string? (car out))) (list out) out))
+     (write-bytes (encode-response
+                   (append-map (lambda (f) (map stamp-generated-header (as-file-list (EMIT-FN f params)))) files))
                   (current-output-port))
      (flush-output)))
 

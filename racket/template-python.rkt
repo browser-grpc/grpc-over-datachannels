@@ -210,11 +210,478 @@
      (apply string-append (map py-method-entry (append methods (alias-server-methods svc))))
      "        ],\n    ))\n")))
 
+;; ---------------------------------------------------------------------------
+;; Generated message classes (<base>_pb.py): dependency-free
+;; protobuf wire format with the marshal_dc()/unmarshal_dc()
+;; surface the stubs consume. Field type codes match desc.rkt.
+;; ---------------------------------------------------------------------------
+
+(define py-pb-preamble
+  (string-append
+   "import struct as _struct\n\n\n"
+   "def _append_varint(out, value):\n"
+   "    v = value & 0xFFFFFFFFFFFFFFFF\n"
+   "    while v > 0x7F:\n"
+   "        out.append((v & 0x7F) | 0x80)\n"
+   "        v >>= 7\n"
+   "    out.append(v)\n"
+   "    return out\n\n\n"
+   "def _append_tag(out, field, wire):\n"
+   "    return _append_varint(out, (field << 3) | wire)\n\n\n"
+   "def _append_varint_field(out, field, value):\n"
+   "    if value == 0:\n"
+   "        return out\n"
+   "    out = _append_tag(out, field, 0)\n"
+   "    return _append_varint(out, value)\n\n\n"
+   "def _append_bytes_field(out, field, data):\n"
+   "    out = _append_tag(out, field, 2)\n"
+   "    out = _append_varint(out, len(data))\n"
+   "    out.extend(data)\n"
+   "    return out\n\n\n"
+   "def _append_string_field(out, field, value):\n"
+   "    if value == \"\":\n"
+   "        return out\n"
+   "    return _append_bytes_field(out, field, value.encode(\"utf-8\"))\n\n\n"
+   "def _append_fixed_field(out, field, payload):\n"
+   "    out = _append_tag(out, field, 1 if len(payload) == 8 else 5)\n"
+   "    out.extend(payload)\n"
+   "    return out\n\n\n"
+   "class _Reader:\n"
+   "    def __init__(self, buf):\n"
+   "        self.buf = bytes(buf)\n"
+   "        self.pos = 0\n\n"
+   "    def varint(self):\n"
+   "        result = 0\n"
+   "        shift = 0\n"
+   "        while True:\n"
+   "            if self.pos >= len(self.buf):\n"
+   "                raise ValueError(\"truncated varint\")\n"
+   "            b = self.buf[self.pos]\n"
+   "            self.pos += 1\n"
+   "            result |= (b & 0x7F) << shift\n"
+   "            if not (b & 0x80):\n"
+   "                return result\n"
+   "            shift += 7\n"
+   "            if shift >= 64:\n"
+   "                raise ValueError(\"varint too long\")\n\n"
+   "    def take(self, n):\n"
+   "        if self.pos + n > len(self.buf):\n"
+   "            raise ValueError(\"truncated field\")\n"
+   "        value = self.buf[self.pos:self.pos + n]\n"
+   "        self.pos += n\n"
+   "        return value\n\n"
+   "    def field(self):\n"
+   "        if self.pos >= len(self.buf):\n"
+   "            return None\n"
+   "        tag = self.varint()\n"
+   "        num, wire = tag >> 3, tag & 7\n"
+   "        if wire == 0:\n"
+   "            return num, wire, self.varint()\n"
+   "        if wire == 2:\n"
+   "            return num, wire, self.take(self.varint())\n"
+   "        if wire == 1:\n"
+   "            return num, wire, self.take(8)\n"
+   "        if wire == 5:\n"
+   "            return num, wire, self.take(4)\n"
+   "        raise ValueError(\"bad wire type\")\n\n\n"
+   "def _as_int32(value):\n"
+   "    return ((value & 0xFFFFFFFF) ^ 0x80000000) - 0x80000000\n\n\n"
+   "def _as_int64(value):\n"
+   "    return ((value & 0xFFFFFFFFFFFFFFFF) ^ 0x8000000000000000) - 0x8000000000000000\n\n\n"
+   "def _unzz32(value):\n"
+   "    v = value & 0xFFFFFFFF\n"
+   "    return (v >> 1) ^ -(v & 1)\n\n\n"
+   "def _unzz64(value):\n"
+   "    v = value & 0xFFFFFFFFFFFFFFFF\n"
+   "    return (v >> 1) ^ -(v & 1)\n\n\n"))
+
+(define pb-varint-types '(3 4 5 8 13 14 17 18)) ; int64 uint64 int32 bool uint32 enum sint32 sint64
+(define pb-fixed-formats '((2 . "<f") (1 . "<d") (7 . "<I") (6 . "<Q") (15 . "<i") (16 . "<q")))
+(define pb-fixed-sizes '((2 . 4) (1 . 8) (7 . 4) (6 . 8) (15 . 4) (16 . 8)))
+
+(define (py-pb-flat pkg full)
+  (define rel (if (and pkg (not (string=? pkg ""))
+                       (string-prefix? full (string-append pkg ".")))
+                  (substring full (add1 (string-length pkg)))
+                  full))
+  (string-join (string-split rel ".") "_"))
+
+(define (py-pb-resolve model type-name)
+  (hash-ref (hash-ref model 'types) type-name
+            (lambda () (error 'emit-python-pb-file "unresolved type ~a" type-name))))
+
+(define (py-pb-ref model entry)
+  (define flat (py-pb-flat (hash-ref entry 'pkg)
+                           (if (eq? (hash-ref entry 'kind) 'enum)
+                               (let ([e (hash-ref entry 'enum)])
+                                 (format "~a~a" (if (hash-ref entry 'msg)
+                                                    (string-append (hash-ref (hash-ref entry 'msg) 'full-name) ".")
+                                                    (if (string=? (hash-ref entry 'pkg) "") "" (string-append (hash-ref entry 'pkg) ".")))
+                                         (hash-ref e 'name)))
+                               (hash-ref (hash-ref entry 'msg) 'full-name))))
+  (if (equal? (hash-ref entry 'file) (hash-ref model 'name))
+      flat
+      (format "~a_pb.~a" (path->string (path-replace-extension
+                                        (file-name-from-path (hash-ref entry 'file)) ""))
+              flat)))
+
+(define (py-pb-varint-expr f v)
+  (case (hash-ref f 'type)
+    [(8) (format "(1 if ~a else 0)" v)]
+    [(17) (format "(((~a << 1) ^ (~a >> 31)) & 0xFFFFFFFF)" v v)]
+    [(18) (format "(((~a << 1) ^ (~a >> 63)) & 0xFFFFFFFFFFFFFFFF)" v v)]
+    [else v]))
+
+(define (py-pb-varint-decode f v)
+  (case (hash-ref f 'type)
+    [(5 14) (format "_as_int32(~a)" v)]
+    [(13) (format "(~a & 0xFFFFFFFF)" v)]
+    [(3) (format "_as_int64(~a)" v)]
+    [(4) v]
+    [(8) (format "(~a != 0)" v)]
+    [(17) (format "_unzz32(~a)" v)]
+    [(18) (format "_unzz64(~a)" v)]))
+
+(define (py-pb-default f model)
+  (cond [(= (hash-ref f 'label) 3)
+         (let ([t (and (= (hash-ref f 'type) 11)
+                       (hash-ref (hash-ref model 'types) (hash-ref f 'type-name) #f))])
+           (if (and t (eq? (hash-ref t 'kind) 'map)) "dict" "list"))]
+        [else
+         (case (hash-ref f 'type)
+           [(9) "\"\""]
+           [(12) "b\"\""]
+           [(8) "False"]
+           [(11 10) "None"]
+           [(1 2) "0.0"]
+           [else "0"])]))
+
+(define (py-pb-encode-singular model f v indent)
+  (define n (hash-ref f 'number))
+  (define type (hash-ref f 'type))
+  (cond [(memv type pb-varint-types)
+         (format "~aout = _append_varint_field(out, ~a, ~a)\n" indent n (py-pb-varint-expr f v))]
+        [(assv type pb-fixed-formats)
+         => (lambda (p)
+              (format "~aif ~a: out = _append_fixed_field(out, ~a, _struct.pack(~s, ~a))\n"
+                      indent v n (cdr p) v))]
+        [(= type 9) (format "~aout = _append_string_field(out, ~a, ~a)\n" indent n v)]
+        [(= type 12) (format "~aif ~a: out = _append_bytes_field(out, ~a, ~a)\n" indent v n v)]
+        [(= type 11)
+         (define entry (py-pb-resolve model (hash-ref f 'type-name)))
+         (format "~aif ~a is not None: out = _append_bytes_field(out, ~a, ~a.marshal_dc())\n" indent v n v)]
+        [else (error 'emit-python-pb-file "unsupported field type ~a (groups)" type)]))
+
+(define (py-pb-encode-field model f)
+  (define a (hash-ref f 'name))
+  (define v (format "self.~a" a))
+  (define n (hash-ref f 'number))
+  (define type (hash-ref f 'type))
+  (cond [(and (= type 11)
+              (eq? (hash-ref (py-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
+         (define entry (py-pb-resolve model (hash-ref f 'type-name)))
+         (define helper (format "_encode_~aEntry" (py-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name))))
+         (format "        if self.~a:\n            for k, val in self.~a.items():\n                out = _append_bytes_field(out, ~a, ~a(k, val))\n" a a n helper)]
+        [(not (= (hash-ref f 'label) 3)) (py-pb-encode-singular model f v "        ")]
+        [(memv type pb-varint-types)
+         (string-append
+          (format "        if self.~a:\n            payload = bytearray()\n            for v in self.~a:\n" a a)
+          (format "                payload = _append_varint(payload, ~a)\n" (py-pb-varint-expr f "v"))
+          (format "            out = _append_bytes_field(out, ~a, bytes(payload))\n" n))]
+        [(assv type pb-fixed-formats)
+         => (lambda (p)
+              (string-append
+               (format "        if self.~a:\n            payload = bytearray()\n            for v in self.~a:\n" a a)
+               (format "                payload.extend(_struct.pack(~s, v))\n" (cdr p))
+               (format "            out = _append_bytes_field(out, ~a, bytes(payload))\n" n)))]
+        [(= type 9)
+         (format "        for v in self.~a:\n            out = _append_bytes_field(out, ~a, v.encode(\"utf-8\"))\n" a n)]
+        [(= type 12)
+         (format "        for v in self.~a:\n            out = _append_bytes_field(out, ~a, v)\n" a n)]
+        [(= type 11)
+         (define entry (py-pb-resolve model (hash-ref f 'type-name)))
+         (format "        for v in self.~a:\n            out = _append_bytes_field(out, ~a, v.marshal_dc())\n" a n)]
+        [else (error 'emit-python-pb-file "unsupported repeated field type ~a" type)]))
+
+(define (py-pb-decode-singular model f target src indent)
+  (define type (hash-ref f 'type))
+  (cond [(memv type pb-varint-types)
+         (format "~a~a = ~a\n" indent target (py-pb-varint-decode f src))]
+        [(assv type pb-fixed-formats)
+         => (lambda (p)
+              (format "~a~a = _struct.unpack(~s, ~a)[0]\n" indent target (cdr p) src))]
+        [(= type 9) (format "~a~a = ~a.decode(\"utf-8\")\n" indent target src)]
+        [(= type 12) (format "~a~a = bytes(~a)\n" indent target src)]
+        [(= type 11)
+         (define ref (py-pb-ref model (py-pb-resolve model (hash-ref f 'type-name))))
+         (string-append
+          (format "~atmp = ~a()\n" indent ref)
+          (format "~atmp.unmarshal_dc(~a)\n" indent src)
+          (format "~a~a = tmp\n" indent target))]
+        [else (error 'emit-python-pb-file "unsupported field type ~a" type)]))
+
+(define (py-pb-decode-case model f first?)
+  (define a (hash-ref f 'name))
+  (define target (format "self.~a" a))
+  (define n (hash-ref f 'number))
+  (define type (hash-ref f 'type))
+  (define head (format "            ~a num == ~a:\n" (if first? "if" "elif") n))
+  (cond [(and (= type 11)
+              (eq? (hash-ref (py-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
+         (define entry (py-pb-resolve model (hash-ref f 'type-name)))
+         (define helper (format "_decode_~aEntry" (py-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name))))
+         (string-append head
+                        (format "                k, val = ~a(value)\n" helper)
+                        (format "                self.~a[k] = val\n" a))]
+        [(not (= (hash-ref f 'label) 3))
+         (string-append head (py-pb-decode-singular model f target "value" "                "))]
+        [(memv type pb-varint-types)
+         (string-append
+          head
+          "                if wire == 2:\n"
+          "                    sub = _Reader(value)\n"
+          "                    while sub.pos < len(sub.buf):\n"
+          (format "                        self.~a.append(~a)\n" a (py-pb-varint-decode f "sub.varint()"))
+          "                else:\n"
+          (format "                    self.~a.append(~a)\n" a (py-pb-varint-decode f "value")))]
+        [(assv type pb-fixed-formats)
+         => (lambda (p)
+              (define size (cdr (assv type pb-fixed-sizes)))
+              (string-append
+               head
+               "                if wire == 2:\n"
+               (format "                    for off in range(0, len(value), ~a):\n" size)
+               (format "                        self.~a.append(_struct.unpack(~s, value[off:off + ~a])[0])\n" a (cdr p) size)
+               "                else:\n"
+               (format "                    self.~a.append(_struct.unpack(~s, value)[0])\n" a (cdr p))))]
+        [(= type 9) (string-append head (format "                self.~a.append(value.decode(\"utf-8\"))\n" a))]
+        [(= type 12) (string-append head (format "                self.~a.append(bytes(value))\n" a))]
+        [(= type 11)
+         (string-append head
+                        (py-pb-decode-singular model f "tmp2" "value" "                ")
+                        (format "                self.~a.append(tmp2)\n" a))]
+        [else (error 'emit-python-pb-file "unsupported repeated field type ~a" type)]))
+
+(define (py-pb-map-helpers model entry)
+  (define msg (hash-ref entry 'msg))
+  (define base (py-pb-flat (hash-ref entry 'pkg) (hash-ref msg 'full-name)))
+  (define key-f (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref msg 'fields)))
+  (define val-f (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref msg 'fields)))
+  (unless (and key-f val-f) (error 'emit-python-pb-file "map entry ~a lacks key/value" (hash-ref msg 'full-name)))
+  (string-append
+   (format "def _encode_~aEntry(key, value):\n    out = bytearray()\n" base)
+   (py-pb-encode-singular model key-f "key" "    ")
+   (py-pb-encode-singular model val-f "value" "    ")
+   "    return bytes(out)\n\n\n"
+   (format "def _decode_~aEntry(data):\n" base)
+   (format "    key = ~a\n    value = ~a\n" (py-pb-default-expr model key-f) (py-pb-default-expr model val-f))
+   "    reader = _Reader(data)\n"
+   "    while True:\n"
+   "        item = reader.field()\n"
+   "        if item is None:\n"
+   "            return key, value\n"
+   "        num, wire, raw = item\n"
+   "        if num == 1:\n"
+   (py-pb-decode-singular model key-f "key" "raw" "            ")
+   "        elif num == 2:\n"
+   (py-pb-decode-singular model val-f "value" "raw" "            ")
+   "\n"))
+
+(define (py-pb-default-expr model f)
+  (define d (py-pb-default f model))
+  (cond [(equal? d "list") "[]"]
+        [(equal? d "dict") "{}"]
+        [(equal? d "None") "None"]
+        [else d]))
+
+(define (py-pb-init-line model f)
+  (define a (hash-ref f 'name))
+  (cond [(= (hash-ref f 'label) 3)
+         (define d (py-pb-default f model))
+         (format "        self.~a = ~a(~a) if ~a is not None else ~a\n"
+                 a d a a (if (equal? d "dict") "{}" "[]"))]
+        [(= (hash-ref f 'type) 11)
+         (define entry (py-pb-resolve model (hash-ref f 'type-name)))
+         (if (eq? (hash-ref entry 'kind) 'map)
+             (format "        self.~a = dict(~a) if ~a is not None else {}\n" a a a)
+             (format "        self.~a = ~a\n" a a))]
+        [else (format "        self.~a = ~a\n" a a)]))
+
+(define (py-pb-class model msg)
+  (define flat (py-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
+  (define fields (hash-ref msg 'fields))
+  (define params
+    (string-join
+     (for/list ([f (in-list fields)])
+       (format "~a=~a" (hash-ref f 'name)
+               (let ([d (py-pb-default f model)])
+                 (if (or (equal? d "list") (equal? d "dict")) "None" d))))
+     ", "))
+  (string-append
+   (format "class ~a:\n    \"\"\"Message ~a.\"\"\"\n\n" flat (hash-ref msg 'full-name))
+   (format "    def __init__(self, ~a):\n" params)
+   (apply string-append (map (lambda (f) (py-pb-init-line model f)) fields))
+   "\n    def marshal_dc(self):\n        out = bytearray()\n"
+   (apply string-append (map (lambda (f) (py-pb-encode-field model f)) fields))
+   "        return bytes(out)\n"
+   "\n    def unmarshal_dc(self, data):\n"
+   (apply string-append
+          (for/list ([f (in-list fields)])
+            (format "        self.~a = ~a\n" (hash-ref f 'name)
+                    (let ([d (py-pb-default f model)])
+                      (cond [(equal? d "list") "[]"]
+                            [(equal? d "dict") "{}"]
+                            [else d])))))
+   "        reader = _Reader(data)\n"
+   "        while True:\n"
+   "            item = reader.field()\n"
+   "            if item is None:\n"
+   "                return self\n"
+   "            num, wire, value = item\n"
+   (apply string-append
+          (for/list ([f (in-list fields)] [i (in-naturals)])
+            (py-pb-decode-case model f (zero? i))))
+   (format "\n    def __eq__(self, other):\n        return isinstance(other, ~a) and self.__dict__ == other.__dict__\n" flat)
+   (format "\n    def __repr__(self):\n        return f\"~a(~a)\"\n\n\n"
+           flat
+           (string-join (for/list ([f (in-list fields)])
+                          (format "~a={self.~a!r}" (hash-ref f 'name) (hash-ref f 'name)))
+                        ", "))))
+
+(define (py-pb-enum entry)
+  (define e (hash-ref entry 'enum))
+  (define full (if (hash-ref entry 'msg)
+                   (format "~a.~a" (hash-ref (hash-ref entry 'msg) 'full-name) (hash-ref e 'name))
+                   (if (string=? (hash-ref entry 'pkg) "")
+                       (hash-ref e 'name)
+                       (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name)))))
+  (string-append
+   (format "class ~a:\n    \"\"\"Enum ~a.\"\"\"\n" (py-pb-flat (hash-ref entry 'pkg) full) full)
+   (apply string-append
+          (for/list ([v (in-list (hash-ref e 'values))])
+            (format "    ~a = ~a\n" (hash-ref v 'name) (hash-ref v 'number))))
+   "\n\n"))
+
+(define (emit-python-pb-file file-model)
+  (let/ec return-false
+    (emit-python-pb-file/inner file-model return-false)))
+
+(define (emit-python-pb-file/inner file-model return-false)
+  (define messages (hash-ref file-model 'messages))
+  ;; Types the stubs import from this file's pb module: re-export
+  ;; any living in imported files so generated code runs as-is.
+  (define service-types
+    (remove-duplicates
+     (append-map (lambda (svc)
+                   (append-map (lambda (m) (list (hash-ref m 'input-full) (hash-ref m 'output-full)))
+                               (hash-ref svc 'methods)))
+                 (hash-ref file-model 'services))))
+  (define imports (make-hash)) ; dep file -> set of flat names
+  (define reexports (make-hash))
+  (define (add-import! entry also-export?)
+    (unless (equal? (hash-ref entry 'file) (hash-ref file-model 'name))
+      (define flat (py-pb-ref file-model entry))
+      (define dep (hash-ref entry 'file))
+      (hash-update! imports dep (lambda (s) (set-add s flat)) (set))
+      (when also-export?
+        (hash-update! reexports dep (lambda (s) (set-add s flat)) (set)))))
+  (define (scan-fields msg)
+    (for ([f (in-list (hash-ref msg 'fields))])
+      (when (memv (hash-ref f 'type) '(11 14))
+        (define e (py-pb-resolve file-model (hash-ref f 'type-name)))
+        (add-import! e #f)
+        (when (and (= (hash-ref f 'type) 11) (eq? (hash-ref e 'kind) 'map))
+          (for ([ef (in-list (hash-ref (hash-ref e 'msg) 'fields))])
+            (when (memv (hash-ref ef 'type) '(11 14))
+              (add-import! (py-pb-resolve file-model (hash-ref ef 'type-name)) #f))))))
+    (for ([n (in-list (hash-ref msg 'nested))]) (scan-fields n)))
+  (for ([m (in-list messages)]) (scan-fields m))
+  (for ([t (in-list service-types)])
+    (define e (hash-ref (hash-ref file-model 'types) t #f))
+    (when (and e (not (eq? (hash-ref e 'kind) 'enum))) (add-import! e #t)))
+  (when (and (null? messages) (zero? (hash-count reexports)))
+    (return-false #f))
+  (define base (path->string (path-replace-extension
+                              (file-name-from-path (hash-ref file-model 'name)) "")))
+  (define out (open-output-string))
+  (fprintf out "# @generated by protoc-gen-grpc-dc-python (Racket metaprogram). DO NOT EDIT.\n")
+  (fprintf out "# source: ~a\n\n" (hash-ref file-model 'name))
+  (fprintf out "\"\"\"Generated protobuf messages (dependency-free wire format).\"\"\"\n\n")
+  (for ([dep (in-list (sort (hash-keys imports) string<?))])
+    (define dep-base (path->string (path-replace-extension (file-name-from-path dep) "")))
+    (fprintf out "try:\n    from . import ~a_pb\nexcept ImportError:  # direct module load\n    import ~a_pb\n\n" dep-base dep-base))
+  (when (positive? (hash-count reexports))
+    (for ([dep (in-list (sort (hash-keys reexports) string<?))])
+      (for ([flat (in-list (sort (set->list (hash-ref reexports dep)) string<?))])
+        (define short (last (string-split flat ".")))
+        (fprintf out "~a = ~a\n" short flat)))
+    (fprintf out "\n"))
+  (display py-pb-preamble out)
+  ;; enums (file-level + nested), map helpers, then classes
+  (define (all-enum-entries)
+    (define acc '())
+    (define (walk msg)
+      (for ([e (in-list (hash-ref msg 'enums))])
+        (set! acc (cons (hash-ref (hash-ref file-model 'types)
+                                  (format "~a.~a" (hash-ref msg 'full-name) (hash-ref e 'name)))
+                        acc)))
+      (for ([n (in-list (hash-ref msg 'nested))]) (walk n)))
+    (for ([m (in-list messages)]) (walk m))
+    (for ([e (in-list (hash-ref file-model 'enums))])
+      (set! acc (cons (hash-ref (hash-ref file-model 'types)
+                                (if (string=? (hash-ref file-model 'package) "")
+                                    (hash-ref e 'name)
+                                    (format "~a.~a" (hash-ref file-model 'package) (hash-ref e 'name))))
+                      acc)))
+    (reverse acc))
+  (define seen-enums (mutable-set))
+  (for ([e (in-list (all-enum-entries))])
+    (when e
+      (define flat (py-pb-flat (hash-ref e 'pkg)
+                               (if (hash-ref e 'msg)
+                                   (format "~a.~a" (hash-ref (hash-ref e 'msg) 'full-name) (hash-ref (hash-ref e 'enum) 'name))
+                                   (if (string=? (hash-ref e 'pkg) "") (hash-ref (hash-ref e 'enum) 'name)
+                                       (format "~a.~a" (hash-ref e 'pkg) (hash-ref (hash-ref e 'enum) 'name))))))
+      (unless (set-member? seen-enums flat)
+        (set-add! seen-enums flat)
+        (display (py-pb-enum e) out))))
+  (define seen-maps (mutable-set))
+  (define (emit-map-helpers msg)
+    (for ([f (in-list (hash-ref msg 'fields))])
+      (when (= (hash-ref f 'type) 11)
+        (define e (py-pb-resolve file-model (hash-ref f 'type-name)))
+        (when (and (eq? (hash-ref e 'kind) 'map)
+                   (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
+          (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
+          (display (py-pb-map-helpers file-model e) out))))
+    (for ([n (in-list (hash-ref msg 'nested))]) (emit-map-helpers n)))
+  (for ([m (in-list messages)]) (emit-map-helpers m))
+  (define exported (mutable-set))
+  (define (emit-msg msg)
+    (unless (hash-ref msg 'map-entry)
+      (display (py-pb-class file-model msg) out)
+      (set-add! exported (py-pb-flat (hash-ref file-model 'package) (hash-ref msg 'full-name)))
+      (for ([n (in-list (hash-ref msg 'nested))]) (emit-msg n))))
+  (for ([m (in-list messages)]) (emit-msg m))
+  ;; Simple-name aliases for nested messages (stubs import the
+  ;; simple name), when unambiguous.
+  (define (emit-aliases msg)
+    (for ([n (in-list (hash-ref msg 'nested))])
+      (when (and (not (hash-ref n 'map-entry))
+                 (not (set-member? exported (hash-ref n 'name))))
+        (fprintf out "~a = ~a\n" (hash-ref n 'name)
+                 (py-pb-flat (hash-ref file-model 'package) (hash-ref n 'full-name)))
+        (set-add! exported (hash-ref n 'name)))
+      (emit-aliases n)))
+  (for ([m (in-list messages)]) (emit-aliases m))
+  (cons (string-append base "_pb.py") (get-output-string out)))
+
 (define (emit-python-file file-model params)
   (define base (path->string (path-replace-extension
                               (file-name-from-path (hash-ref file-model 'name)) "")))
   (define pb (string-append base "_pb"))
-  (cons (string-append base "_grpc_dc.py")
+  (define stub
+    (cons (string-append base "_grpc_dc.py")
         (string-append
          "# @generated by protoc-gen-grpc-dc-python (Racket metaprogram). DO NOT EDIT.\n"
          (format "# source: ~a\n\n" (hash-ref file-model 'name))
@@ -224,3 +691,5 @@
          (apply string-append
                 (map (lambda (svc) (py-service pb svc))
                      (hash-ref file-model 'services))))))
+  (define pb-file (emit-python-pb-file file-model))
+  (if pb-file (list stub pb-file) stub))

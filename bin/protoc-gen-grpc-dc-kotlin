@@ -262,6 +262,10 @@
    (simple-type-name (pb-get-string fields 2))
    'output
    (simple-type-name (pb-get-string fields 3))
+   'input-full
+   (string-trim (pb-get-string fields 2) ".")
+   'output-full
+   (string-trim (pb-get-string fields 3) ".")
    'kind
    (streaming-kind client? server?)
    'client-streaming
@@ -287,6 +291,55 @@
     ((m (in-list (pb-get-all fields 2))))
     (parse-method (pb-parse m) package name))))
 
+(define (parse-enum-desc fields)
+  (hasheq
+   'name
+   (pb-get-string fields 1)
+   'values
+   (for/list
+    ((v (in-list (pb-get-all fields 2))))
+    (define vf (pb-parse v))
+    (hasheq 'name (pb-get-string vf 1) 'number (pb-get vf 2 0)))))
+
+(define (parse-field-desc fields)
+  (hasheq
+   'name
+   (pb-get-string fields 1)
+   'number
+   (pb-get fields 3 0)
+   'label
+   (pb-get fields 4 1)
+   'type
+   (pb-get fields 5 0)
+   'type-name
+   (string-trim (pb-get-string fields 6 "") ".")
+   'json-name
+   (pb-get-string fields 10 "")))
+
+(define (parse-message-desc fields prefix)
+  (define name (pb-get-string fields 1))
+  (define full (if (string=? prefix "") name (format "~a.~a" prefix name)))
+  (define opts (pb-get fields 7 #f))
+  (hasheq
+   'name
+   name
+   'full-name
+   full
+   'fields
+   (for/list
+    ((f (in-list (pb-get-all fields 2))))
+    (parse-field-desc (pb-parse f)))
+   'nested
+   (for/list
+    ((n (in-list (pb-get-all fields 3))))
+    (parse-message-desc (pb-parse n) full))
+   'enums
+   (for/list
+    ((e (in-list (pb-get-all fields 4))))
+    (parse-enum-desc (pb-parse e)))
+   'map-entry
+   (and (bytes? opts) (pb-get-bool (pb-parse opts) 7))))
+
 (define (parse-file-desc fields)
   (define package (pb-get-string fields 2 ""))
   (hasheq
@@ -294,10 +347,60 @@
    (pb-get-string fields 1)
    'package
    package
+   'dependencies
+   (for/list ((d (in-list (pb-get-all fields 3)))) (bytes->string/utf-8 d))
    'services
    (for/list
     ((s (in-list (pb-get-all fields 6))))
-    (parse-service (pb-parse s) package))))
+    (parse-service (pb-parse s) package))
+   'messages
+   (for/list
+    ((m (in-list (pb-get-all fields 4))))
+    (parse-message-desc (pb-parse m) package))
+   'enums
+   (for/list
+    ((e (in-list (pb-get-all fields 5))))
+    (parse-enum-desc (pb-parse e)))))
+
+(define (build-type-registry files)
+  (define reg (make-hash))
+  (define (reg-msg file pkg msg)
+    (hash-set!
+     reg
+     (hash-ref msg 'full-name)
+     (hasheq
+      'kind
+      (if (hash-ref msg 'map-entry) 'map 'message)
+      'msg
+      msg
+      'enum
+      #f
+      'file
+      file
+      'pkg
+      pkg))
+    (for ((n (in-list (hash-ref msg 'nested)))) (reg-msg file pkg n))
+    (for
+     ((e (in-list (hash-ref msg 'enums))))
+     (hash-set!
+      reg
+      (format "~a.~a" (hash-ref msg 'full-name) (hash-ref e 'name))
+      (hasheq 'kind 'enum 'msg #f 'enum e 'file file 'pkg pkg))))
+  (for
+   ((f (in-list files)))
+   (define pkg (hash-ref f 'package))
+   (for
+    ((m (in-list (hash-ref f 'messages))))
+    (reg-msg (hash-ref f 'name) pkg m))
+   (for
+    ((e (in-list (hash-ref f 'enums))))
+    (hash-set!
+     reg
+     (if (string=? pkg "")
+       (hash-ref e 'name)
+       (format "~a.~a" pkg (hash-ref e 'name)))
+     (hasheq 'kind 'enum 'msg #f 'enum e 'file (hash-ref f 'name) 'pkg pkg))))
+  reg)
 
 (define (parse-request bstr)
   (define fields (pb-parse bstr))
@@ -310,14 +413,18 @@
      (parse-file-desc (pb-parse f))))
   (define by-name
     (for/hash ((f (in-list files))) (values (hash-ref f 'name) f)))
+  (define registry (build-type-registry files))
   (values
    (for/list
     ((w (in-list wanted)))
-    (hash-ref
-     by-name
-     w
-     (lambda ()
-       (error 'parse-request "file_to_generate not in request: ~a" w))))
+    (hash-set
+     (hash-ref
+      by-name
+      w
+      (lambda ()
+        (error 'parse-request "file_to_generate not in request: ~a" w)))
+     'types
+     registry))
    parameter))
 
 (define (parse-parameters parameter)
@@ -1066,10 +1173,13 @@
   (define request-bytes (port->bytes (current-input-port)))
   (define-values (files parameter) (parse-request request-bytes))
   (define params (parse-parameters parameter))
+  (define (as-file-list out)
+    (if (and (pair? out) (string? (car out))) (list out) out))
   (write-bytes
    (encode-response
-    (map
-     (lambda (f) (stamp-generated-header (emit-kotlin-file f params)))
+    (append-map
+     (lambda (f)
+       (map stamp-generated-header (as-file-list (emit-kotlin-file f params))))
      files))
    (current-output-port))
   (flush-output))
