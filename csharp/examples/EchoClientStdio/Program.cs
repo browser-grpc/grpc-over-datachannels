@@ -7,7 +7,7 @@ using Grpcdc;
 var transport = new StdioTransport(Console.OpenStandardOutput(), Console.OpenStandardInput());
 var client = new EchoGrpcDc.EchoClient(new Channel(transport));
 
-EchoRequest Req(string message, int count) => new(message, count);
+EchoRequest Req(string message, int count) => new(message, count, 0);
 
 EchoResponse unary = client.Unary(Req("hello", 0));
 Console.Error.WriteLine($"unary={unary.Message}");

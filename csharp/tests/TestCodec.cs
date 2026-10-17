@@ -27,7 +27,7 @@ public static class TestCodec
                 $"{name}: payload");
         }
 
-        var req = new EchoRequest("hi", 2);
+        var req = new EchoRequest("hi", 2, 0);
         Program.Check(
             Convert.ToHexString(req.MarshalDc()).Equals(Fixtures.ProtoHex, StringComparison.OrdinalIgnoreCase),
             "protobuf encode");

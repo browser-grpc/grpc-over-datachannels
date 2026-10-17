@@ -8,7 +8,7 @@ namespace Tests;
 /// against a loopback client+server — the executable examples.</summary>
 public static class TestBdd
 {
-    private static EchoRequest Req(string message, int count) => new(message, count);
+    private static EchoRequest Req(string message, int count) => new(message, count, 0);
 
     public static void Run()
     {

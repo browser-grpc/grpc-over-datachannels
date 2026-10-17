@@ -35,7 +35,7 @@ public static class TestDeadline
         public void Bidi(EchoGrpcDc.EchoBidiServer stream) => _inner.Bidi(stream);
     }
 
-    private static EchoRequest Req(string message, int count) => new(message, count);
+    private static EchoRequest Req(string message, int count) => new(message, count, 0);
 
     public static void Run()
     {

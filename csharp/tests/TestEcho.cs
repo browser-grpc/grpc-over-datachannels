@@ -15,7 +15,7 @@ public static class TestEcho
         return new EchoGrpcDc.EchoClient(new Channel(a));
     }
 
-    private static EchoRequest Req(string message, int count) => new(message, count);
+    private static EchoRequest Req(string message, int count) => new(message, count, 0);
 
     public static void Run()
     {

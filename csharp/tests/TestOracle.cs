@@ -57,7 +57,7 @@ public static class TestOracle
                     string message = messages[0];
                     try
                     {
-                        EchoResponse resp = client.Unary(new EchoRequest(message, 0));
+                        EchoResponse resp = client.Unary(new EchoRequest(message, 0, 0));
                         Program.Check(expectStatus < 0, $"{line}: expected failure, got {resp}");
                         Program.Check(resp.Message == "echo: " + message && resp.Index == 0, $"{line}: {resp}");
                     }
@@ -71,7 +71,7 @@ public static class TestOracle
                 case "SERVER_STREAM":
                 {
                     string message = messages[0];
-                    var stream = client.ServerStream(new EchoRequest(message, count));
+                    var stream = client.ServerStream(new EchoRequest(message, count, 0));
                     int got = 0;
                     while (true)
                     {
@@ -92,14 +92,14 @@ public static class TestOracle
                 }
                 case "CLIENT_STREAM":
                 {
-                    EchoResponse resp = client.ClientStream(messages.Select(m => new EchoRequest(m, 0)).ToList());
+                    EchoResponse resp = client.ClientStream(messages.Select(m => new EchoRequest(m, 0, 0)).ToList());
                     Program.Check(resp.Message == string.Join("+", messages) && resp.Index == messages.Count,
                         $"{line}: {resp}");
                     break;
                 }
                 case "BIDI":
                 {
-                    var stream = client.Bidi(messages.Select(m => new EchoRequest(m, 0)).ToList());
+                    var stream = client.Bidi(messages.Select(m => new EchoRequest(m, 0, 0)).ToList());
                     int got = 0;
                     while (true)
                     {

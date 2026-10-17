@@ -60,10 +60,10 @@ public static class TestInterop
             var transport = new StdioTransport(server.StandardInput.BaseStream, server.StandardOutput.BaseStream);
             var client = new EchoGrpcDc.EchoClient(new Channel(transport));
 
-            EchoResponse unary = client.Unary(new EchoRequest("hello", 0));
+            EchoResponse unary = client.Unary(new EchoRequest("hello", 0, 0));
             Program.Check(unary.Message == "echo: hello", $"unary: {unary}");
 
-            var stream = client.ServerStream(new EchoRequest("tick", 3));
+            var stream = client.ServerStream(new EchoRequest("tick", 3, 0));
             var indexes = new List<int>();
             while (true)
             {
@@ -80,10 +80,10 @@ public static class TestInterop
             }
             Program.Check(indexes.SequenceEqual(new[] { 0, 1, 2 }), $"server stream: {string.Join(",", indexes)}");
 
-            EchoResponse joined = client.ClientStream(new[] { new EchoRequest("a", 0), new EchoRequest("b", 0), new EchoRequest("c", 0) });
+            EchoResponse joined = client.ClientStream(new[] { new EchoRequest("a", 0, 0), new EchoRequest("b", 0, 0), new EchoRequest("c", 0, 0) });
             Program.Check(joined.Message == "a+b+c", $"client stream: {joined}");
 
-            var bidi = client.Bidi(new[] { new EchoRequest("x", 0), new EchoRequest("y", 0) });
+            var bidi = client.Bidi(new[] { new EchoRequest("x", 0, 0), new EchoRequest("y", 0, 0) });
             var echoed = new List<string>();
             while (true)
             {
@@ -102,7 +102,7 @@ public static class TestInterop
 
             try
             {
-                client.Unary(new EchoRequest("fail", 0));
+                client.Unary(new EchoRequest("fail", 0, 0));
                 Program.Check(false, "fail should throw");
             }
             catch (StatusException e)

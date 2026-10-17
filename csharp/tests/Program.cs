@@ -21,6 +21,7 @@ public static class Program
                 case "TestDynamic": TestDynamic.Run(); break;
                 case "TestBdd": TestBdd.Run(); break;
                 case "TestDeadline": TestDeadline.Run(); break;
+                case "TestPbMessages": TestPbMessages.Run(); break;
                 default:
                     Console.Error.WriteLine($"unknown test: {args[0]}");
                     return 2;

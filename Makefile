@@ -157,7 +157,8 @@ test-csharp:
 		&& dotnet build examples/DynamicEchoServerStdio/DynamicEchoServerStdio.csproj --nologo -v q \
 		&& dotnet run --project tests --no-build -- TestOracle \
 		&& dotnet run --project tests --no-build -- TestDynamic \
-		&& dotnet run --project tests --no-build -- TestBdd && dotnet run --project tests --no-build -- TestDeadline
+		&& dotnet run --project tests --no-build -- TestBdd && dotnet run --project tests --no-build -- TestDeadline \
+		&& dotnet run --project tests --no-build -- TestPbMessages
 
 CXX ?= g++
 CXXFLAGS ?= -std=c++17 -pthread -O1 -Icpp -I.
