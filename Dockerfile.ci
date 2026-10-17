@@ -284,6 +284,15 @@ RUN cd oracle/java && mvn -q package -DskipTests
 RUN cd webapp/compiler && go mod download \
   && GOOS=js GOARCH=wasm go build -o /tmp/protocompile.wasm .
 
+# Build the Racket/Wasm runtime for the webapp's in-browser plugin
+# execution (scripted spike-validated setup: Emscripten 5.0.7,
+# host Chez + host Racket bootstrapped from the pinned tree; ~45
+# min cold, cached in this layer; tests then run it offline).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends libncurses-dev libx11-dev x11proto-dev \
+  && RACKET_WASM_WORK=/opt/racket-wasm-work ./scripts/build-racket-wasm.sh webapp/assets/racket \
+  && make webapp-plugins
+
 # Playwright browsers + OS libraries for the real-browser test
 # (browser-test/test.mjs: native RTCDataChannel in Chromium and
 # Firefox against the reimplemented stack). Installed at build time;

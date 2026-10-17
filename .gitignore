@@ -66,3 +66,6 @@ browser-test/scalajs_gen/
 # webapp build assets and static bundle
 /webapp/assets/
 /webapp/dist/
+
+# racket-wasm app build output (runtime assets live in /webapp/assets/)
+/webapp/racket/dist/

@@ -698,6 +698,41 @@ webapp-dist: webapp-assets
 test-webapp: webapp-assets
 	cd browser-test && node webapp_parity.test.mjs all && node webapp_pb.test.mjs all
 
+# Racket/Wasm runtime for the webapp's in-browser plugin execution:
+# built once by scripts/build-racket-wasm.sh (Emscripten 5.0.7 +
+# pinned-tree Racket cross-build; ~45 min cold, cached under
+# RACKET_WASM_WORK afterwards) into webapp/assets/racket/.
+webapp-racket-runtime:
+	./scripts/build-racket-wasm.sh webapp/assets/racket
+
+# Stage the assembled plugin sources + runner for the webapp: the
+# in-browser Racket runs these verbatim, so they can never drift
+# from the native protoc plugins.
+webapp-plugins: generate
+	mkdir -p webapp/assets/plugins
+	cp bin/protoc-gen-grpc-dc-js webapp/assets/plugins/js.rkt
+	cp bin/protoc-gen-grpc-dc-go webapp/assets/plugins/go.rkt
+	cp bin/protoc-gen-grpc-dc-python webapp/assets/plugins/python.rkt
+	cp bin/protoc-gen-grpc-dc-rust webapp/assets/plugins/rust.rkt
+	cp bin/protoc-gen-grpc-dc-java webapp/assets/plugins/java.rkt
+	cp bin/protoc-gen-grpc-dc-csharp webapp/assets/plugins/csharp.rkt
+	cp bin/protoc-gen-grpc-dc-cpp webapp/assets/plugins/cpp.rkt
+	cp bin/protoc-gen-grpc-dc-swift webapp/assets/plugins/swift.rkt
+	cp bin/protoc-gen-grpc-dc-kotlin webapp/assets/plugins/kotlin.rkt
+	cp bin/protoc-gen-grpc-dc-dart webapp/assets/plugins/dart.rkt
+	cp bin/protoc-gen-grpc-dc-zig webapp/assets/plugins/zig.rkt
+	cp bin/protoc-gen-grpc-dc-lua webapp/assets/plugins/lua.rkt
+	cp bin/protoc-gen-grpc-dc-ruby webapp/assets/plugins/ruby.rkt
+	cp bin/protoc-gen-grpc-dc-php webapp/assets/plugins/php.rkt
+	cp bin/protoc-gen-grpc-dc-scala webapp/assets/plugins/scala.rkt
+	cp bin/protoc-gen-grpc-dc-wasm-go webapp/assets/plugins/wasm-go.rkt
+	cp bin/protoc-gen-grpc-dc-wasm-zig webapp/assets/plugins/wasm-zig.rkt
+	cp bin/protoc-gen-grpc-dc-wasm-cpp webapp/assets/plugins/wasm-cpp.rkt
+	cp bin/protoc-gen-grpc-dc-wasm-swift webapp/assets/plugins/wasm-swift.rkt
+	cp bin/protoc-gen-grpc-dc-wasm-kotlin webapp/assets/plugins/wasm-kotlin.rkt
+	cp bin/protoc-gen-grpc-dc-wasm-scala webapp/assets/plugins/wasm-scala.rkt
+	cp webapp/racket/runner.rkt webapp/assets/racket/runner.rkt
+
 test-interop-matrix:
 	cd js && node test/interop-matrix.mjs
 
