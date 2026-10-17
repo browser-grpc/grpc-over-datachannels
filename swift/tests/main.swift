@@ -16,6 +16,7 @@ do {
     case "TestBdd": try TestBdd()
     case "TestDeadline": try TestDeadline()
     case "TestInlinePump": try TestInlinePump()
+    case "TestPbMessages": try TestPbMessages()
     default:
         FileHandle.standardError.write("unknown test: \(args[1])\n".data(using: .utf8)!)
         exit(2)

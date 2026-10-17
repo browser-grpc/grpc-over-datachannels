@@ -190,7 +190,7 @@ test-swift:
 	cd swift && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
-		&& ./build/tests TestInlinePump
+		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages
 
 KOTLINC ?= kotlinc
 
