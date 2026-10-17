@@ -18,6 +18,7 @@ fun main(args: Array<String>) {
             "TestBdd" -> testBdd()
             "TestDeadline" -> testDeadline()
             "TestInlinePump" -> testInlinePump()
+            "TestPbMessages" -> testPbMessages()
             else -> {
                 System.err.println("unknown test: ${args[0]}")
                 exitProcess(2)
