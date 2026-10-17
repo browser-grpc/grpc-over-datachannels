@@ -42,18 +42,60 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
-const LANGS = ["js", "go", "python"];
-const STUB_EXT = { js: "js", go: "go", python: "py" };
+function pascal(base) {
+  // The Racket templates' pascal only capitalizes the first
+  // character (their string-split separator is a literal string,
+  // so it never splits); mirror that exactly.
+  return base ? base[0].toUpperCase() + base.slice(1) : base;
+}
 
-async function nativeReference(includeDir, fileArgs) {
+function camel(base) {
+  // Scala's template splits on "_" for real (separator "_").
+  return base
+    .split("_")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join("");
+}
+
+// plugin: protoc plugin suffix (bin/protoc-gen-grpc-dc-<plugin>);
+// stub: generated file name for a proto base name; runtime: one
+// sentinel path inside the zip's runtime/<lang>/ tree.
+const LANG_CONFIG = {
+  js: { plugin: "js", stub: (b) => `${b}_grpc_dc.js`, runtime: "channel.js" },
+  go: { plugin: "go", stub: (b) => `${b}_grpc_dc.go`, runtime: "channel.go" },
+  python: { plugin: "python", stub: (b) => `${b}_grpc_dc.py`, runtime: "channel.py" },
+  rust: { plugin: "rust", stub: (b) => `${b}_grpc_dc.rs`, runtime: "src/lib.rs" },
+  java: { plugin: "java", stub: (b) => `${pascal(b)}GrpcDc.java`, runtime: "Channel.java" },
+  csharp: { plugin: "csharp", stub: (b) => `${pascal(b)}GrpcDc.cs`, runtime: "Channel.cs" },
+  cpp: { plugin: "cpp", stub: (b) => `${b}_grpc_dc.hpp`, runtime: "channel.hpp" },
+  swift: { plugin: "swift", stub: (b) => `${pascal(b)}GrpcDc.swift`, runtime: "Channel.swift" },
+  kotlin: { plugin: "kotlin", stub: (b) => `${pascal(b)}GrpcDc.kt`, runtime: "Channel.kt" },
+  dart: { plugin: "dart", stub: (b) => `${b}_grpc_dc.dart`, runtime: "channel.dart" },
+  zig: { plugin: "zig", stub: (b) => `${b}_grpc_dc.zig`, runtime: "grpcdc/grpcdc.zig" },
+  lua: { plugin: "lua", stub: (b) => `${b}_grpc_dc.lua`, runtime: "grpcdc/channel.lua" },
+  ruby: { plugin: "ruby", stub: (b) => `${b}_grpc_dc.rb`, runtime: "grpcdc.rb" },
+  php: { plugin: "php", stub: (b) => `${b}_grpc_dc.php`, runtime: "grpcdc.php" },
+  scala: { plugin: "scala", stub: (b) => `${camel(b)}GrpcDc.scala`, runtime: "Channel.scala" },
+  "wasm-go": { plugin: "wasm-go", stub: (b) => `${b}_wasm_dc.go`, runtime: "wasm_bridge.js" },
+  "wasm-zig": { plugin: "wasm-zig", stub: (b) => `${b}_wasm_dc.zig`, runtime: "wasm_bridge.js" },
+  "wasm-cpp": { plugin: "wasm-cpp", stub: (b) => `${b}_wasm_dc.hpp`, runtime: "wasm_bridge.js" },
+  "wasm-swift": { plugin: "wasm-swift", stub: (b) => `${pascal(b)}WasmGrpcDc.swift`, runtime: "wasm_bridge.js" },
+  "wasm-kotlin": { plugin: "wasm-kotlin", stub: (b) => `${pascal(b)}WasmGrpcDc.kt`, runtime: "wasm_bridge.js" },
+  "wasm-scala": { plugin: "wasm-scala", stub: (b) => `${camel(b)}ScalaJsGrpcDc.scala`, runtime: "wasm_bridge.js" },
+};
+const LANGS = (process.env.GRPC_DC_PARITY_LANGS ?? Object.keys(LANG_CONFIG).join(",")).split(",");
+
+async function nativeReference(includeDir, fileArgs, paramsByLang = {}) {
   const refs = {};
   for (const lang of LANGS) {
+    const plugin = LANG_CONFIG[lang].plugin;
     const outDir = await mkdtemp(join(tmpdir(), `grpcdc-ref-${lang}-`));
+    const param = paramsByLang[lang];
     await run(
       "protoc",
       [
-        `--plugin=protoc-gen-grpc-dc-${lang}=${join(ROOT, "bin", `protoc-gen-grpc-dc-${lang}`)}`,
-        `--grpc-dc-${lang}_out=${outDir}`,
+        `--plugin=protoc-gen-grpc-dc-${plugin}=${join(ROOT, "bin", `protoc-gen-grpc-dc-${plugin}`)}`,
+        `--grpc-dc-${plugin}_out=${param ? param + ":" : ""}${outDir}`,
         "-I", includeDir,
         ...fileArgs,
       ],
@@ -116,39 +158,69 @@ async function runCase(name, engine) {
     let entries = await downloadZip(page);
     let refs = await nativeReference(join(ROOT, "proto"), ["echo.proto"]);
     for (const lang of LANGS) {
-      const expected = await readFile(join(refs[lang], `echo_grpc_dc.${STUB_EXT[lang]}`));
-      const actual = entries.get(`gen/${lang}/echo_grpc_dc.${STUB_EXT[lang]}`);
-      assert.ok(actual, `zip missing gen/${lang}/echo_grpc_dc.${STUB_EXT[lang]}`);
+      const stub = LANG_CONFIG[lang].stub("echo");
+      const expected = await readFile(join(refs[lang], stub));
+      const actual = entries.get(`gen/${lang}/${stub}`);
+      assert.ok(actual, `zip missing gen/${lang}/${stub}`);
       assert.ok(actual.equals(expected), `${name}: browser ${lang} stub differs from native plugin`);
-      assert.ok(entries.has(`runtime/${lang}/` + { js: "channel.js", go: "channel.go", python: "channel.py" }[lang]), "runtime bundled for " + lang);
+      assert.ok(entries.has(`runtime/${lang}/` + LANG_CONFIG[lang].runtime), "runtime bundled for " + lang);
     }
     assert.ok(entries.has("proto/echo.proto"), "zip carries the schema");
-    assert.deepEqual(JSON.parse(entries.get("manifest.json").toString()).languages, LANGS);
+    for (const lang of LANGS) {
+      assert.ok(JSON.parse(entries.get("manifest.json").toString()).languages.includes(lang), "manifest lists " + lang);
+    }
 
     // Case 2: two-file schema uploaded through the file input.
-    await page.setInputFiles("#upload", [join(ROOT, "webapp/testdata/common.proto"), join(ROOT, "webapp/testdata/shop.proto")]);
+    await page.setInputFiles("#upload", [join(ROOT, "webapp/testdata/common.proto"), join(ROOT, "webapp/testdata/shop.proto"), join(ROOT, "webapp/testdata/my_api.proto")]);
     await page.waitForFunction(
       () => document.querySelector("#tree").textContent.includes("BillingAPI"),
       null,
       { timeout: 30000 },
     );
     entries = await downloadZip(page);
-    refs = await nativeReference(join(ROOT, "webapp/testdata"), ["common.proto", "shop.proto"]);
+    refs = await nativeReference(join(ROOT, "webapp/testdata"), ["common.proto", "shop.proto", "my_api.proto"]);
     for (const lang of LANGS) {
-      for (const base of ["common", "shop"]) {
-        const expected = await readFile(join(refs[lang], `${base}_grpc_dc.${STUB_EXT[lang]}`));
-        const actual = entries.get(`gen/${lang}/${base}_grpc_dc.${STUB_EXT[lang]}`);
-        assert.ok(actual, `zip missing gen/${lang}/${base}_grpc_dc.${STUB_EXT[lang]}`);
+      for (const base of ["common", "shop", "my_api"]) {
+        const stub = LANG_CONFIG[lang].stub(base);
+        const expected = await readFile(join(refs[lang], stub));
+        const actual = entries.get(`gen/${lang}/${stub}`);
+        assert.ok(actual, `zip missing gen/${lang}/${stub}`);
         assert.ok(actual.equals(expected), `${name}: browser ${lang} ${base} stub differs from native plugin`);
       }
     }
 
-    // Case 3: a broken schema surfaces a compiler error and disables Generate.
+    // Case 3: plugin parameters flow into generation; per-file
+    // downloads match the zip entries; highlighting is rendered.
+    await page.locator(".tab", { hasText: "echo.proto" }).first().click();
+    await page.fill('input[data-param="js"]', "pb_import=./custom_pb.js");
+    await page.fill('input[data-param="go"]', "go_package=shopapi");
+    entries = await downloadZip(page);
+    refs = await nativeReference(join(ROOT, "proto"), ["echo.proto"], {
+      js: "pb_import=./custom_pb.js",
+      go: "go_package=shopapi",
+    });
+    for (const lang of ["js", "go"]) {
+      if (!LANG_CONFIG[lang]) continue;
+      const stub = LANG_CONFIG[lang].stub("echo");
+      const expected = await readFile(join(refs[lang], stub));
+      assert.ok(entries.get(`gen/${lang}/${stub}`).equals(expected), `${name}: ${lang} stub with plugin params differs`);
+    }
+    const [single] = await Promise.all([
+      page.waitForEvent("download", { timeout: 30000 }),
+      page.locator("#results a", { hasText: "gen/js/echo_grpc_dc.js" }).first().click(),
+    ]);
+    const singleBytes = await readFile(await single.path());
+    assert.ok(singleBytes.equals(entries.get("gen/js/echo_grpc_dc.js")), "per-file download matches zip entry");
+    assert.ok((await page.locator("#highlight .tok-kw").count()) > 0, "syntax highlighting rendered");
+
+    // Case 4: a broken schema surfaces a compiler error, marks the
+    // error line, and disables Generate.
     await page.fill("#editor", 'syntax = "proto3";\nservice {\n');
     await page.waitForSelector("#status.err", { timeout: 30000 });
     assert.match(await page.textContent("#status"), /syntax error/);
     assert.ok(await page.isDisabled("#generate"), "Generate disabled on compile error");
-    console.log(`${name}: webapp parity OK (echo + shop byte-identical, error surfaced)`);
+    await page.waitForSelector("#highlight .line-err", { timeout: 30000 });
+    console.log(`${name}: webapp parity OK (echo + shop byte-identical, params, per-file download, error surfaced)`);
   } finally {
     await browser.close();
   }

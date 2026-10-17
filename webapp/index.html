@@ -18,7 +18,10 @@
       <button id="new-file" type="button">New file</button>
     </div>
     <div id="tabs" class="tabs"></div>
-    <textarea id="editor" spellcheck="false"></textarea>
+    <div class="editor-wrap">
+      <pre class="highlight" aria-hidden="true"><code id="highlight"></code></pre>
+      <textarea id="editor" spellcheck="false"></textarea>
+    </div>
     <div id="status" class="status">loading compiler…</div>
   </section>
   <section class="pane side-pane">
@@ -27,6 +30,7 @@
     <h2>Languages</h2>
     <div id="langs" class="langs"></div>
     <button id="generate" type="button" disabled>Generate zip</button>
+    <div id="results" class="results"></div>
     <p class="hint">Stubs land in <code>gen/&lt;lang&gt;/</code>, the matching runtime in
        <code>runtime/&lt;lang&gt;/</code>, schemas in <code>proto/</code>.
        Message classes (<code>&lt;base&gt;_pb</code>) are yours to provide — see the zip's README.</p>

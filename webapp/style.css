@@ -8,7 +8,29 @@ main { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: st
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
 .tab { border: 1px solid #8888; border-radius: 6px 6px 0 0; padding: 4px 8px; cursor: pointer; font-family: ui-monospace, monospace; }
 .tab.active { font-weight: 700; border-bottom-color: transparent; }
-#editor { width: 100%; height: 55vh; font-family: ui-monospace, monospace; font-size: 13px; box-sizing: border-box; }
+.editor-wrap { position: relative; height: 55vh; border: 1px solid #8888; border-radius: 6px; overflow: hidden; }
+.editor-wrap .highlight, #editor {
+  position: absolute; inset: 0; margin: 0; padding: 10px; box-sizing: border-box;
+  font-family: ui-monospace, monospace; font-size: 13px; line-height: 1.45;
+  white-space: pre; tab-size: 2;
+}
+.editor-wrap .highlight { overflow: hidden; pointer-events: none; }
+#editor { background: transparent; color: transparent; caret-color: #cf222e; resize: none; border: 0; outline: none; overflow: auto; }
+.tok-com { color: #6a737d; font-style: italic; }
+.tok-str { color: #032f62; }
+.tok-kw { color: #d73a49; }
+.tok-type { color: #005cc5; }
+.tok-num { color: #005cc5; }
+.line-err { background: rgba(207, 34, 46, 0.18); }
+@media (prefers-color-scheme: dark) {
+  .tok-str { color: #a5d6ff; }
+  .tok-kw { color: #ff7b72; }
+  .tok-type, .tok-num { color: #79c0ff; }
+  .tok-com { color: #8b949e; }
+}
+.lang-param { display: block; width: 100%; box-sizing: border-box; margin: 2px 0 6px; font-family: ui-monospace, monospace; font-size: 11px; }
+.results { margin-top: 10px; font-family: ui-monospace, monospace; font-size: 12px; }
+.results a { display: block; padding: 1px 0; }
 .status { font-family: ui-monospace, monospace; font-size: 12px; margin-top: 8px; white-space: pre-wrap; }
 .status.ok { color: #1a7f37; }
 .status.err { color: #cf222e; }

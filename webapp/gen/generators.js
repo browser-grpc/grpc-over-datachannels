@@ -623,14 +623,21 @@ function emitPythonFile(model, params) {
 // ---------------------------------------------------------------------------
 
 function stampGeneratedHeader(file) {
-  const prefix = file.name.endsWith('.py') ? '#' : '//';
+  // Mirrors racket/desc.rkt's stamp-generated-header, PHP included.
+  if (file.name.endsWith('.php')) {
+    return {
+      name: file.name,
+      content: '<?php\n// Generated code: use without restriction (see GENERATED-CODE-LICENSE.md).\n' + file.content.slice('<?php\n'.length),
+    };
+  }
+  const prefix = file.name.endsWith('.py') || file.name.endsWith('.rb') ? '#' : file.name.endsWith('.lua') ? '--' : '//';
   return {
     name: file.name,
     content: prefix + ' Generated code: use without restriction (see GENERATED-CODE-LICENSE.md).\n' + file.content,
   };
 }
 
-const EMITTERS = { js: emitJsFile, go: emitGoFile, python: emitPythonFile };
+const EMITTERS = { js: emitJsFile, go: emitGoFile, python: emitPythonFile, rust: emitRustFile, java: emitJavaFile, csharp: emitCsharpFile, cpp: emitCppFile, swift: emitSwiftFile, kotlin: emitKotlinFile, dart: emitDartFile, zig: emitZigFile, lua: emitLuaFile, ruby: emitRubyFile, php: emitPhpFile, scala: emitScalaFile, 'wasm-go': emitWasmGoFile, 'wasm-zig': emitWasmZigFile, 'wasm-cpp': emitWasmCppFile, 'wasm-swift': emitWasmSwiftFile, 'wasm-kotlin': emitWasmKotlinFile, 'wasm-scala': emitWasmScalaFile };
 
 export const GENERATOR_LANGUAGES = Object.keys(EMITTERS);
 
@@ -643,4 +650,4219 @@ export function generateFiles(lang, setBytes, entries, parameter) {
   if (!emit) throw new Error('unsupported generator language: ' + lang);
   const params = parseParams(parameter || '');
   return buildModel(setBytes, entries).map((model) => stampGeneratedHeader(emit(model, params)));
+}// ---------------------------------------------------------------------------
+// Rust emitter (mirrors racket/template-rust.rkt).
+// ---------------------------------------------------------------------------
+
+function snakeCase(s) {
+  let out = '';
+  let prevLower = false;
+  for (const c of s) {
+    if (c >= 'A' && c <= 'Z') {
+      if (prevLower && out.length) out += '_';
+      out += c.toLowerCase();
+      prevLower = false;
+    } else {
+      out += c;
+      prevLower = true;
+    }
+  }
+  return out;
+}
+
+function rustDeprecated(m, indent) {
+  return m.deprecated ? indent + '#[deprecated = "deprecated in the proto schema"]\n' : '';
+}
+
+function rustClientMethod(m, msgmod) {
+  const fn = snakeCase(m.name);
+  const req = msgmod + '::' + m.input;
+  const resp = msgmod + '::' + m.output;
+  const path = q(m.path);
+  const depr = rustDeprecated(m, '    ');
+  switch (m.kind) {
+    case 'unary':
+      return depr + '    pub async fn ' + fn + '(&self, req: ' + req + ') -> Result<' + resp + ', ::grpc_dc::Status> {\n        self.channel.unary(' + path + ', req).await\n    }\n';
+    case 'server-streaming':
+      return depr + '    pub async fn ' + fn + '(&self, req: ' + req + ') -> Result<::grpc_dc::ResponseStream<' + resp + '>, ::grpc_dc::Status> {\n        self.channel.server_stream(' + path + ', req).await\n    }\n';
+    case 'client-streaming':
+      return depr + '    pub async fn ' + fn + '<S>(&self, reqs: S) -> Result<' + resp + ', ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ' + req + '> + Send + \'static {\n        self.channel.client_stream(' + path + ', reqs).await\n    }\n';
+    default:
+      return depr + '    pub async fn ' + fn + '<S>(&self, reqs: S) -> Result<::grpc_dc::ResponseStream<' + resp + '>, ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ' + req + '> + Send + \'static {\n        self.channel.bidi(' + path + ', reqs).await\n    }\n';
+  }
+}
+
+function rustClientOptionsMethod(m, msgmod) {
+  const fn = snakeCase(m.name);
+  const req = msgmod + '::' + m.input;
+  const resp = msgmod + '::' + m.output;
+  const path = q(m.path);
+  const depr = rustDeprecated(m, '    ');
+  switch (m.kind) {
+    case 'unary':
+      return depr + '    pub async fn ' + fn + '_with_options(&self, req: ' + req + ', options: ::grpc_dc::CallOptions) -> Result<' + resp + ', ::grpc_dc::Status> {\n        self.channel.unary_with_options(' + path + ', req, options).await\n    }\n';
+    case 'server-streaming':
+      return depr + '    pub async fn ' + fn + '_with_options(&self, req: ' + req + ', options: ::grpc_dc::CallOptions) -> Result<::grpc_dc::ResponseStream<' + resp + '>, ::grpc_dc::Status> {\n        self.channel.server_stream_with_options(' + path + ', req, options).await\n    }\n';
+    case 'client-streaming':
+      return depr + '    pub async fn ' + fn + '_with_options<S>(&self, reqs: S, options: ::grpc_dc::CallOptions) -> Result<' + resp + ', ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ' + req + '> + Send + \'static {\n        self.channel.client_stream_with_options(' + path + ', reqs, options).await\n    }\n';
+    default:
+      return depr + '    pub async fn ' + fn + '_with_options<S>(&self, reqs: S, options: ::grpc_dc::CallOptions) -> Result<::grpc_dc::ResponseStream<' + resp + '>, ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ' + req + '> + Send + \'static {\n        self.channel.bidi_with_options(' + path + ', reqs, options).await\n    }\n';
+  }
+}
+
+function rustTraitMethod(m, msgmod) {
+  const fn = snakeCase(m.name);
+  const req = msgmod + '::' + m.input;
+  const resp = msgmod + '::' + m.output;
+  switch (m.kind) {
+    case 'unary':
+      return '    async fn ' + fn + '(&self, req: ' + req + ', ctx: ::grpc_dc::CallCtx) -> Result<' + resp + ', ::grpc_dc::Status>;\n';
+    case 'server-streaming':
+      return '    async fn ' + fn + '(&self, req: ' + req + ', ctx: ::grpc_dc::CallCtx) -> Result<::grpc_dc::ResponseStream<' + resp + '>, ::grpc_dc::Status>;\n';
+    case 'client-streaming':
+      return '    async fn ' + fn + '(&self, reqs: ::grpc_dc::RequestStream<' + req + '>, ctx: ::grpc_dc::CallCtx) -> Result<' + resp + ', ::grpc_dc::Status>;\n';
+    default:
+      return '    async fn ' + fn + '(&self, reqs: ::grpc_dc::RequestStream<' + req + '>, ctx: ::grpc_dc::CallCtx) -> Result<::grpc_dc::ResponseStream<' + resp + '>, ::grpc_dc::Status>;\n';
+  }
+}
+
+const RUST_HELPERS = {
+  unary: 'unary_method',
+  'server-streaming': 'server_stream_method',
+  'client-streaming': 'client_stream_method',
+  bidi: 'bidi_method',
+};
+
+function rustRegisterMethod(m, serviceVar) {
+  return '        ::grpc_dc::' + RUST_HELPERS[m.kind] + '(' + q(m.name) + ', { let svc = ' + serviceVar + '.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.' + snakeCase(m.implName) + '(req, ctx).await } } }),\n';
+}
+
+function rustService(svc, msgmod) {
+  const sname = svc.name;
+  return 'pub struct ' + sname + 'Client { channel: ::grpc_dc::Channel }\n\n'
+    + 'impl ' + sname + 'Client {\n    pub fn new(channel: ::grpc_dc::Channel) -> Self { Self { channel } }\n'
+    + svc.methods.concat(aliasClientMethods(svc)).map((m) => rustClientMethod(m, msgmod)).join('')
+    + svc.methods.concat(aliasClientMethods(svc)).map((m) => rustClientOptionsMethod(m, msgmod)).join('')
+    + '}\n\n'
+    + '#[::grpc_dc::async_trait]\npub trait ' + sname + ': Send + Sync + \'static {\n'
+    + svc.methods.map((m) => rustDeprecated(m, '    ') + rustTraitMethod(m, msgmod)).join('')
+    + '}\n\n'
+    + 'pub fn ' + snakeCase(sname) + '_service<S: ' + sname + '>(svc: std::sync::Arc<S>) -> ::grpc_dc::ServiceDef {\n    ::grpc_dc::ServiceDef::new(' + q(svc.fullName) + ', vec![\n'
+    + svc.methods.concat(aliasServerMethods(svc)).map((m) => rustRegisterMethod(m, 'svc')).join('')
+    + '    ])\n}\n';
+}
+
+function emitRustFile(model, params) {
+  const msgmod = params.message_module || 'crate::pb';
+  const base = baseName(model.name);
+  return {
+    name: base + '_grpc_dc.rs',
+    content: '// @generated by protoc-gen-grpc-dc-rust (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n'
+      + '#![allow(dead_code, unused_imports, clippy::all)]\n\n'
+      + model.services.map((s) => rustService(s, msgmod)).join(''),
+  };
+}
+// ---------------------------------------------------------------------------
+// Java emitter (mirrors racket/template-java.rkt).
+// ---------------------------------------------------------------------------
+
+function pascalName(s) {
+  // The Racket templates define pascal via string-split with a
+  // *string* separator, which Racket treats literally — so no
+  // split ever happens and pascal is just capitalize-first.
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+function javaDeprecated(m, indent) {
+  return m.deprecated ? indent + '@Deprecated\n' : '';
+}
+
+function javaClientMethodRaw(m, svc) {
+  const name = m.name;
+  const req = m.input;
+  const resp = m.output;
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '        public ' + resp + ' ' + name + '(' + req + ' req, Map<String, String> metadata) throws Exception {\n'
+        + '            ' + resp + ' resp = new ' + resp + '();\n'
+        + '            channel.unary(' + path + ', req, resp, metadata);\n'
+        + '            return resp;\n        }\n\n'
+        + '        public ' + resp + ' ' + name + '(' + req + ' req) throws Exception {\n'
+        + '            return ' + name + '(req, null);\n        }\n';
+    case 'server-streaming':
+      return '        public ' + svc + name + 'Stream ' + name + '(' + req + ' req, Map<String, String> metadata) throws Exception {\n'
+        + '            return new ' + svc + name + 'Stream(channel.serverStream(' + path + ', req, metadata));\n        }\n\n'
+        + '        public ' + svc + name + 'Stream ' + name + '(' + req + ' req) throws Exception {\n'
+        + '            return ' + name + '(req, null);\n        }\n';
+    case 'client-streaming':
+      return '        public ' + resp + ' ' + name + '(List<' + req + '> reqs, Map<String, String> metadata) throws Exception {\n'
+        + '            ' + resp + ' resp = new ' + resp + '();\n'
+        + '            channel.clientStream(' + path + ', reqs, resp, metadata);\n'
+        + '            return resp;\n        }\n\n'
+        + '        public ' + resp + ' ' + name + '(List<' + req + '> reqs) throws Exception {\n'
+        + '            return ' + name + '(reqs, null);\n        }\n';
+    default:
+      return '        public ' + svc + name + 'Stream ' + name + '(List<' + req + '> reqs, Map<String, String> metadata) throws Exception {\n'
+        + '            return new ' + svc + name + 'Stream(channel.bidi(' + path + ', reqs, metadata));\n        }\n\n'
+        + '        public ' + svc + name + 'Stream ' + name + '(List<' + req + '> reqs) throws Exception {\n'
+        + '            return ' + name + '(reqs, null);\n        }\n';
+  }
+}
+
+function javaClientTimeoutMethod(m, svc) {
+  const name = m.name;
+  const req = m.input;
+  const resp = m.output;
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '\n        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */\n'
+        + '        public ' + resp + ' ' + name + '(' + req + ' req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n'
+        + '            ' + resp + ' resp = new ' + resp + '();\n'
+        + '            channel.unary(' + path + ', req, resp, metadata, timeout);\n'
+        + '            return resp;\n        }\n';
+    case 'server-streaming':
+      return '\n        /** Deadline variant of ' + name + '. */\n'
+        + '        public ' + svc + name + 'Stream ' + name + '(' + req + ' req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n'
+        + '            return new ' + svc + name + 'Stream(channel.serverStream(' + path + ', req, metadata, timeout));\n        }\n';
+    case 'client-streaming':
+      return '\n        /** Deadline variant of ' + name + '. */\n'
+        + '        public ' + resp + ' ' + name + '(List<' + req + '> reqs, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n'
+        + '            ' + resp + ' resp = new ' + resp + '();\n'
+        + '            channel.clientStream(' + path + ', reqs, resp, metadata, timeout);\n'
+        + '            return resp;\n        }\n';
+    default:
+      return '\n        /** Deadline variant of ' + name + '. */\n'
+        + '        public ' + svc + name + 'Stream ' + name + '(List<' + req + '> reqs, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n'
+        + '            return new ' + svc + name + 'Stream(channel.bidi(' + path + ', reqs, metadata, timeout));\n        }\n';
+  }
+}
+
+function javaClientStreamClass(m, svc) {
+  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
+  return '    /** Receiving stream for ' + svc + '.' + m.name + ': recv() throws EOFException at end. */\n'
+    + '    public static final class ' + svc + m.name + 'Stream {\n'
+    + '        private final Channel.ClientStream stream;\n\n'
+    + '        ' + svc + m.name + 'Stream(Channel.ClientStream stream) {\n'
+    + '            this.stream = stream;\n        }\n\n'
+    + '        public ' + m.output + ' recv() throws Exception {\n'
+    + '            ' + m.output + ' resp = new ' + m.output + '();\n'
+    + '            stream.recv(resp);\n            return resp;\n        }\n    }\n\n';
+}
+
+function javaServerIfaceMethodRaw(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        ' + m.output + ' ' + m.name + '(Endpoint.CallContext ctx, ' + m.input + ' req) throws Exception;\n';
+    case 'server-streaming':
+      return '        void ' + m.name + '(' + m.input + ' req, ' + svc + m.name + 'Server stream) throws Exception;\n';
+    default:
+      return '        void ' + m.name + '(' + svc + m.name + 'Server stream) throws Exception;\n';
+  }
+}
+
+function javaServerStreamIfaces(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return '    /** Server-streaming sink passed to service implementations. */\n'
+        + '    public interface ' + svc + m.name + 'Server {\n'
+        + '        void send(' + m.output + ' resp) throws Exception;\n'
+        + '        Endpoint.CallContext context();\n    }\n\n';
+    case 'client-streaming':
+      return '    /** Client-streaming stream passed to service implementations. */\n'
+        + '    public interface ' + svc + m.name + 'Server {\n'
+        + '        ' + m.input + ' recv() throws Exception;\n'
+        + '        void sendAndClose(' + m.output + ' resp) throws Exception;\n'
+        + '        Endpoint.CallContext context();\n    }\n\n';
+    default:
+      return '    /** Bidi stream passed to service implementations. */\n'
+        + '    public interface ' + svc + m.name + 'Server {\n'
+        + '        void send(' + m.output + ' resp) throws Exception;\n'
+        + '        ' + m.input + ' recv() throws Exception;\n'
+        + '        Endpoint.CallContext context();\n    }\n\n';
+  }
+}
+
+const JAVA_KIND_CONSTS = {
+  unary: 'KIND_UNARY',
+  'server-streaming': 'KIND_SERVER_STREAMING',
+  'client-streaming': 'KIND_CLIENT_STREAMING',
+  bidi: 'KIND_BIDI',
+};
+
+function javaRegisterMethod(m, svc) {
+  const impl = m.implName;
+  const head = '                    new Server.Method(' + q(m.name) + ', ' + q(m.path) + ', Server.' + JAVA_KIND_CONSTS[m.kind] + ', (ctx, reqs, sink) -> {\n';
+  switch (m.kind) {
+    case 'unary':
+      return head
+        + '                        ' + m.input + ' req = new ' + m.input + '();\n'
+        + '                        reqs.recvInto(req);\n'
+        + '                        sink.send(impl.' + impl + '(ctx, req).marshalDc());\n'
+        + '                    }),\n';
+    case 'server-streaming':
+      return head
+        + '                        ' + m.input + ' req = new ' + m.input + '();\n'
+        + '                        reqs.recvInto(req);\n'
+        + '                        impl.' + impl + '(req, new ' + svc + impl + 'ServerImpl(ctx, sink));\n'
+        + '                    }),\n';
+    case 'client-streaming':
+      return head
+        + '                        ' + svc + impl + 'ServerImpl stream = new ' + svc + impl + 'ServerImpl(ctx, reqs);\n'
+        + '                        impl.' + impl + '(stream);\n'
+        + '                        if (stream.resp == null) {\n'
+        + '                            throw new StatusException(Wire.CODE_INTERNAL,\n'
+        + '                                    "client-streaming handler never called SendAndClose");\n'
+        + '                        }\n'
+        + '                        sink.send(stream.resp.marshalDc());\n'
+        + '                    }),\n';
+    default:
+      return head
+        + '                        impl.' + impl + '(new ' + svc + impl + 'ServerImpl(ctx, reqs, sink));\n'
+        + '                    }),\n';
+  }
+}
+
+function javaStreamImpls(m, svc) {
+  const head = '    private static final class ' + svc + m.name + 'ServerImpl implements ' + svc + m.name + 'Server {\n';
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return head
+        + '        private final Endpoint.CallContext ctx;\n'
+        + '        private final Server.ServerSink sink;\n\n'
+        + '        ' + svc + m.name + 'ServerImpl(Endpoint.CallContext ctx, Server.ServerSink sink) {\n'
+        + '            this.ctx = ctx;\n            this.sink = sink;\n        }\n\n'
+        + '        public void send(' + m.output + ' resp) throws Exception {\n'
+        + '            sink.send(resp.marshalDc());\n        }\n\n'
+        + '        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n';
+    case 'client-streaming':
+      return head
+        + '        private final Endpoint.CallContext ctx;\n'
+        + '        private final Server.RequestStream reqs;\n'
+        + '        ' + m.output + ' resp;\n\n'
+        + '        ' + svc + m.name + 'ServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs) {\n'
+        + '            this.ctx = ctx;\n            this.reqs = reqs;\n        }\n\n'
+        + '        public ' + m.input + ' recv() throws Exception {\n'
+        + '            ' + m.input + ' req = new ' + m.input + '();\n'
+        + '            reqs.recvInto(req);\n            return req;\n        }\n\n'
+        + '        public void sendAndClose(' + m.output + ' resp) {\n'
+        + '            this.resp = resp;\n        }\n\n'
+        + '        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n';
+    default:
+      return head
+        + '        private final Endpoint.CallContext ctx;\n'
+        + '        private final Server.RequestStream reqs;\n'
+        + '        private final Server.ServerSink sink;\n\n'
+        + '        ' + svc + m.name + 'ServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs, Server.ServerSink sink) {\n'
+        + '            this.ctx = ctx;\n            this.reqs = reqs;\n            this.sink = sink;\n        }\n\n'
+        + '        public void send(' + m.output + ' resp) throws Exception {\n'
+        + '            sink.send(resp.marshalDc());\n        }\n\n'
+        + '        public ' + m.input + ' recv() throws Exception {\n'
+        + '            ' + m.input + ' req = new ' + m.input + '();\n'
+        + '            reqs.recvInto(req);\n            return req;\n        }\n\n'
+        + '        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n';
+  }
+}
+
+function javaClientAsyncMethod(m, svc) {
+  const name = m.name;
+  const req = m.input;
+  const resp = m.output;
+  switch (m.kind) {
+    case 'unary':
+      return '        public CompletableFuture<' + resp + '> ' + name + 'Async(' + req + ' req, Map<String, String> metadata) {\n'
+        + '            return CompletableFuture.supplyAsync(() -> {\n'
+        + '                try {\n                    return ' + name + '(req, metadata);\n'
+        + '                } catch (Exception e) {\n                    throw new CompletionException(e);\n                }\n            });\n        }\n\n'
+        + '        public CompletableFuture<' + resp + '> ' + name + 'Async(' + req + ' req) {\n'
+        + '            return ' + name + 'Async(req, null);\n        }\n';
+    case 'server-streaming':
+      return '        /** Collect-all async convenience over the blocking stream. */\n'
+        + '        public CompletableFuture<List<' + resp + '>> ' + name + 'AllAsync(' + req + ' req, Map<String, String> metadata) {\n'
+        + '            return CompletableFuture.supplyAsync(() -> {\n'
+        + '                try {\n                    List<' + resp + '> out = new ArrayList<>();\n'
+        + '                    ' + svc + name + 'Stream stream = ' + name + '(req, metadata);\n'
+        + '                    while (true) {\n                        try {\n                            out.add(stream.recv());\n'
+        + '                        } catch (java.io.EOFException eof) {\n                            return out;\n                        }\n                    }\n'
+        + '                } catch (Exception e) {\n                    throw new CompletionException(e);\n                }\n            });\n        }\n\n'
+        + '        public CompletableFuture<List<' + resp + '>> ' + name + 'AllAsync(' + req + ' req) {\n'
+        + '            return ' + name + 'AllAsync(req, null);\n        }\n';
+    case 'client-streaming':
+      return '        public CompletableFuture<' + resp + '> ' + name + 'Async(List<' + req + '> reqs, Map<String, String> metadata) {\n'
+        + '            return CompletableFuture.supplyAsync(() -> {\n'
+        + '                try {\n                    return ' + name + '(reqs, metadata);\n'
+        + '                } catch (Exception e) {\n                    throw new CompletionException(e);\n                }\n            });\n        }\n\n'
+        + '        public CompletableFuture<' + resp + '> ' + name + 'Async(List<' + req + '> reqs) {\n'
+        + '            return ' + name + 'Async(reqs, null);\n        }\n';
+    default:
+      return '        /** Collect-all async convenience over the blocking stream. */\n'
+        + '        public CompletableFuture<List<' + resp + '>> ' + name + 'AllAsync(List<' + req + '> reqs, Map<String, String> metadata) {\n'
+        + '            return CompletableFuture.supplyAsync(() -> {\n'
+        + '                try {\n                    List<' + resp + '> out = new ArrayList<>();\n'
+        + '                    ' + svc + name + 'Stream stream = ' + name + '(reqs, metadata);\n'
+        + '                    while (true) {\n                        try {\n                            out.add(stream.recv());\n'
+        + '                        } catch (java.io.EOFException eof) {\n                            return out;\n                        }\n                    }\n'
+        + '                } catch (Exception e) {\n                    throw new CompletionException(e);\n                }\n            });\n        }\n\n'
+        + '        public CompletableFuture<List<' + resp + '>> ' + name + 'AllAsync(List<' + req + '> reqs) {\n'
+        + '            return ' + name + 'AllAsync(reqs, null);\n        }\n';
+  }
+}
+
+function javaServerAsyncIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        CompletableFuture<' + m.output + '> ' + m.name + 'Async(Endpoint.CallContext ctx, ' + m.input + ' req);\n';
+    case 'server-streaming':
+      return '        CompletableFuture<Void> ' + m.name + 'Async(' + m.input + ' req, ' + svc + m.name + 'Server stream);\n';
+    default:
+      return '        CompletableFuture<Void> ' + m.name + 'Async(' + svc + m.name + 'Server stream);\n';
+  }
+}
+
+const JAVA_ADAPTER_CATCH =
+  '            } catch (CompletionException e) {\n'
+  + '                Throwable cause = e.getCause();\n'
+  + '                if (cause instanceof Exception ex) throw ex;\n'
+  + '                throw e;\n            }\n';
+
+function javaServerAsyncAdapterMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        public ' + m.output + ' ' + m.name + '(Endpoint.CallContext ctx, ' + m.input + ' req) throws Exception {\n'
+        + '            try {\n                return impl.' + m.name + 'Async(ctx, req).join();\n'
+        + JAVA_ADAPTER_CATCH + '        }\n\n';
+    case 'server-streaming':
+      return '        public void ' + m.name + '(' + m.input + ' req, ' + svc + m.name + 'Server stream) throws Exception {\n'
+        + '            try {\n                impl.' + m.name + 'Async(req, stream).join();\n'
+        + JAVA_ADAPTER_CATCH + '        }\n\n';
+    default:
+      return '        public void ' + m.name + '(' + svc + m.name + 'Server stream) throws Exception {\n'
+        + '            try {\n                impl.' + m.name + 'Async(stream).join();\n'
+        + JAVA_ADAPTER_CATCH + '        }\n\n';
+  }
+}
+
+function javaService(svc) {
+  const sname = svc.name;
+  const all = svc.methods.concat(aliasClientMethods(svc));
+  return '    /** Client for ' + svc.fullName + '. */\n'
+    + '    public static final class ' + sname + 'Client {\n'
+    + '        private final Channel channel;\n\n'
+    + '        public ' + sname + 'Client(Channel channel) {\n            this.channel = channel;\n        }\n\n'
+    + all.map((m) => javaDeprecated(m, '        ') + javaClientMethodRaw(m, sname) + javaClientTimeoutMethod(m, sname)).join('')
+    + all.map((m) => javaClientAsyncMethod(m, sname)).join('')
+    + '    }\n\n'
+    + svc.methods.map((m) => javaClientStreamClass(m, sname)).join('')
+    + '    /** Service implementation interface for ' + svc.fullName + '. */\n'
+    + '    public interface ' + sname + 'Server {\n'
+    + svc.methods.map((m) => javaDeprecated(m, '        ') + javaServerIfaceMethodRaw(m, sname)).join('')
+    + '    }\n\n'
+    + svc.methods.map((m) => javaServerStreamIfaces(m, sname)).join('')
+    + svc.methods.map((m) => javaStreamImpls(m, sname)).join('')
+    + '    /** Async service implementation interface for ' + svc.fullName + '. */\n'
+    + '    public interface ' + sname + 'ServerAsync {\n'
+    + svc.methods.map((m) => javaServerAsyncIfaceMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    private static final class ' + sname + 'ServerAsyncAdapter implements ' + sname + 'Server {\n'
+    + '        private final ' + sname + 'ServerAsync impl;\n\n'
+    + '        ' + sname + 'ServerAsyncAdapter(' + sname + 'ServerAsync impl) {\n            this.impl = impl;\n        }\n\n'
+    + svc.methods.map((m) => javaServerAsyncAdapterMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    /** Register an implementation of ' + svc.fullName + ' on a Server. */\n'
+    + '    public static void register' + sname + 'Server(Server server, ' + sname + 'Server impl) {\n'
+    + '        server.registerService(new Server.ServiceDesc(\n                ' + q(svc.fullName) + ',\n                List.of(\n'
+    + svc.methods.concat(aliasServerMethods(svc)).map((m) => javaRegisterMethod(m, sname).replace(/\}\),[ \t\r\n]*$/, '})')).join(',\n')
+    + '\n                )));\n    }\n'
+    + '    /** Register an async implementation of ' + svc.fullName + ' on a Server. */\n'
+    + '    public static void register' + sname + 'ServerAsync(Server server, ' + sname + 'ServerAsync impl) {\n'
+    + '        register' + sname + 'Server(server, new ' + sname + 'ServerAsyncAdapter(impl));\n    }\n';
+}
+
+function emitJavaFile(model, params) {
+  const base = baseName(model.name);
+  const className = pascalName(base) + 'GrpcDc';
+  const pkg = model.package;
+  return {
+    name: className + '.java',
+    content: '// @generated by protoc-gen-grpc-dc-java (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n\n'
+      + (pkg ? 'package ' + pkg + ';\n\n' : '')
+      + 'import grpcdc.Channel;\nimport grpcdc.Endpoint;\nimport grpcdc.Server;\nimport grpcdc.StatusException;\nimport grpcdc.Wire;\n'
+      + 'import java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n'
+      + 'import java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.CompletionException;\n\n'
+      + '/** Generated gRPC-over-DataChannels stubs for ' + model.name + '. */\n'
+      + 'public final class ' + className + ' {\n    private ' + className + '() {}\n\n'
+      + model.services.map(javaService).join('')
+      + '}\n',
+  };
+}
+// ---------------------------------------------------------------------------
+// C# emitter (mirrors racket/template-csharp.rkt).
+// ---------------------------------------------------------------------------
+
+function pascalCs(s) {
+  // See pascalName: the template's string-split never splits.
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+function csDeprecated(m, indent) {
+  return m.deprecated ? indent + '[Obsolete("deprecated in the proto schema")]\n' : '';
+}
+
+function csClientMethodRaw(m, svc) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '        public ' + m.output + ' ' + m.name + '(' + m.input + ' req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)\n'
+        + '        {\n            var resp = new ' + m.output + '();\n'
+        + '            _channel.Unary(' + path + ', req, resp, metadata, timeout);\n'
+        + '            return resp;\n        }\n\n';
+    case 'server-streaming':
+      return '        public ' + svc + m.name + 'Stream ' + m.name + '(' + m.input + ' req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)\n'
+        + '        {\n            return new ' + svc + m.name + 'Stream(_channel.ServerStream(' + path + ', req, metadata, timeout));\n        }\n\n';
+    case 'client-streaming':
+      return '        public ' + m.output + ' ' + m.name + '(IEnumerable<' + m.input + '> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)\n'
+        + '        {\n            var resp = new ' + m.output + '();\n'
+        + '            _channel.ClientStreamCall(' + path + ', reqs, resp, metadata, timeout);\n'
+        + '            return resp;\n        }\n\n';
+    default:
+      return '        public ' + svc + m.name + 'Stream ' + m.name + '(IEnumerable<' + m.input + '> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)\n'
+        + '        {\n            return new ' + svc + m.name + 'Stream(_channel.Bidi(' + path + ', reqs, metadata, timeout));\n        }\n\n';
+  }
+}
+
+function csClientStreamClass(m, svc) {
+  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
+  return '    /// <summary>Receiving stream for ' + svc + '.' + m.name + ': Recv() throws EndOfStreamException at end.</summary>\n'
+    + '    public sealed class ' + svc + m.name + 'Stream\n    {\n'
+    + '        private readonly Channel.ClientStream _stream;\n\n'
+    + '        internal ' + svc + m.name + 'Stream(Channel.ClientStream stream)\n        {\n            _stream = stream;\n        }\n\n'
+    + '        public ' + m.output + ' Recv()\n        {\n'
+    + '            var resp = new ' + m.output + '();\n'
+    + '            _stream.Recv(resp);\n            return resp;\n        }\n    }\n\n';
+}
+
+function csServerIfaceMethodRaw(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        ' + m.output + ' ' + m.name + '(Endpoint.CallContext ctx, ' + m.input + ' req);\n';
+    case 'server-streaming':
+      return '        void ' + m.name + '(' + m.input + ' req, ' + svc + m.name + 'Server stream);\n';
+    default:
+      return '        void ' + m.name + '(' + svc + m.name + 'Server stream);\n';
+  }
+}
+
+function csServerStreamIfaces(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return '    /// <summary>Server-streaming sink passed to service implementations.</summary>\n'
+        + '    public interface ' + svc + m.name + 'Server\n    {\n'
+        + '        void Send(' + m.output + ' resp);\n'
+        + '        Endpoint.CallContext Context { get; }\n    }\n\n';
+    case 'client-streaming':
+      return '    /// <summary>Client-streaming stream passed to service implementations.</summary>\n'
+        + '    public interface ' + svc + m.name + 'Server\n    {\n'
+        + '        ' + m.input + ' Recv();\n'
+        + '        void SendAndClose(' + m.output + ' resp);\n'
+        + '        Endpoint.CallContext Context { get; }\n    }\n\n';
+    default:
+      return '    /// <summary>Bidi stream passed to service implementations.</summary>\n'
+        + '    public interface ' + svc + m.name + 'Server\n    {\n'
+        + '        void Send(' + m.output + ' resp);\n'
+        + '        ' + m.input + ' Recv();\n'
+        + '        Endpoint.CallContext Context { get; }\n    }\n\n';
+  }
+}
+
+const CS_KIND_CONSTS = {
+  unary: 'KindUnary',
+  'server-streaming': 'KindServerStreaming',
+  'client-streaming': 'KindClientStreaming',
+  bidi: 'KindBidi',
+};
+
+function csRegisterMethod(m, svc) {
+  const impl = m.implName;
+  const head = '                new Server.Method(' + q(m.name) + ', ' + q(m.path) + ', Server.' + CS_KIND_CONSTS[m.kind] + ', (ctx, reqs, sink) =>\n                {\n';
+  switch (m.kind) {
+    case 'unary':
+      return head
+        + '                    var req = new ' + m.input + '();\n'
+        + '                    reqs.RecvInto(req);\n'
+        + '                    sink(impl.' + impl + '(ctx, req).MarshalDc());\n                }),\n';
+    case 'server-streaming':
+      return head
+        + '                    var req = new ' + m.input + '();\n'
+        + '                    reqs.RecvInto(req);\n'
+        + '                    impl.' + impl + '(req, new ' + svc + impl + 'ServerImpl(ctx, sink));\n                }),\n';
+    case 'client-streaming':
+      return head
+        + '                    var stream = new ' + svc + impl + 'ServerImpl(ctx, reqs);\n'
+        + '                    impl.' + impl + '(stream);\n'
+        + '                    if (stream.Resp == null)\n                    {\n'
+        + '                        throw new StatusException(Wire.CodeInternal,\n'
+        + '                            "client-streaming handler never called SendAndClose");\n'
+        + '                    }\n'
+        + '                    sink(stream.Resp.MarshalDc());\n                }),\n';
+    default:
+      return head
+        + '                    impl.' + impl + '(new ' + svc + impl + 'ServerImpl(ctx, reqs, sink));\n                }),\n';
+  }
+}
+
+function csStreamImpls(m, svc) {
+  const head = '    private sealed class ' + svc + m.name + 'ServerImpl : ' + svc + m.name + 'Server\n    {\n';
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return head
+        + '        private readonly Server.ServerSink _sink;\n\n'
+        + '        internal ' + svc + m.name + 'ServerImpl(Endpoint.CallContext ctx, Server.ServerSink sink)\n'
+        + '        {\n            Context = ctx;\n            _sink = sink;\n        }\n\n'
+        + '        public Endpoint.CallContext Context { get; }\n\n'
+        + '        public void Send(' + m.output + ' resp) => _sink(resp.MarshalDc());\n    }\n\n';
+    case 'client-streaming':
+      return head
+        + '        private readonly Server.RequestStream _reqs;\n\n'
+        + '        internal ' + svc + m.name + 'ServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs)\n'
+        + '        {\n            Context = ctx;\n            _reqs = reqs;\n        }\n\n'
+        + '        public Endpoint.CallContext Context { get; }\n'
+        + '        public ' + m.output + ' Resp { get; private set; }\n\n'
+        + '        public ' + m.input + ' Recv()\n        {\n'
+        + '            var req = new ' + m.input + '();\n'
+        + '            _reqs.RecvInto(req);\n            return req;\n        }\n\n'
+        + '        public void SendAndClose(' + m.output + ' resp) => Resp = resp;\n    }\n\n';
+    default:
+      return head
+        + '        private readonly Server.RequestStream _reqs;\n'
+        + '        private readonly Server.ServerSink _sink;\n\n'
+        + '        internal ' + svc + m.name + 'ServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs, Server.ServerSink sink)\n'
+        + '        {\n            Context = ctx;\n            _reqs = reqs;\n            _sink = sink;\n        }\n\n'
+        + '        public Endpoint.CallContext Context { get; }\n\n'
+        + '        public void Send(' + m.output + ' resp) => _sink(resp.MarshalDc());\n\n'
+        + '        public ' + m.input + ' Recv()\n        {\n'
+        + '            var req = new ' + m.input + '();\n'
+        + '            _reqs.RecvInto(req);\n            return req;\n        }\n    }\n\n';
+  }
+}
+
+function csClientAsyncMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      // Mirrors the Racket template verbatim, including its call to
+      // the literal name Unary (the template does not substitute the
+      // method name here); parity with the native plugin is what
+      // matters, and the parity test keeps both honest.
+      return '        public Task<' + m.output + '> ' + m.name + 'Async(' + m.input + ' req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n'
+        + '            CancellationToken cancellationToken = default)\n'
+        + '        {\n            return AsyncPump.Run(() => Unary(req, metadata, timeout), cancellationToken);\n        }\n\n';
+    case 'server-streaming':
+      return '        public async IAsyncEnumerable<' + m.output + '> ' + m.name + 'Async(' + m.input + ' req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n'
+        + '            [EnumeratorCancellation] CancellationToken cancellationToken = default)\n'
+        + '        {\n            var stream = ' + m.name + '(req, metadata, timeout);\n'
+        + '            await foreach (var item in AsyncPump.Stream(stream.Recv, cancellationToken))\n'
+        + '            {\n                yield return item;\n            }\n        }\n\n';
+    case 'client-streaming':
+      return '        public Task<' + m.output + '> ' + m.name + 'Async(IEnumerable<' + m.input + '> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n'
+        + '            CancellationToken cancellationToken = default)\n'
+        + '        {\n            return AsyncPump.Run(() => ClientStream(reqs, metadata, timeout), cancellationToken);\n        }\n\n';
+    default:
+      return '        public async IAsyncEnumerable<' + m.output + '> ' + m.name + 'Async(IEnumerable<' + m.input + '> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n'
+        + '            [EnumeratorCancellation] CancellationToken cancellationToken = default)\n'
+        + '        {\n            var stream = ' + m.name + '(reqs, metadata, timeout);\n'
+        + '            await foreach (var item in AsyncPump.Stream(stream.Recv, cancellationToken))\n'
+        + '            {\n                yield return item;\n            }\n        }\n\n';
+  }
+}
+
+function csServerAsyncIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        Task<' + m.output + '> ' + m.name + 'Async(Endpoint.CallContext ctx, ' + m.input + ' req);\n';
+    case 'server-streaming':
+      return '        Task ' + m.name + 'Async(' + m.input + ' req, ' + svc + m.name + 'Server stream);\n';
+    default:
+      return '        Task ' + m.name + 'Async(' + svc + m.name + 'Server stream);\n';
+  }
+}
+
+function csServerAsyncAdapterMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        public ' + m.output + ' ' + m.name + '(Endpoint.CallContext ctx, ' + m.input + ' req)\n'
+        + '        {\n            return _impl.' + m.name + 'Async(ctx, req).GetAwaiter().GetResult();\n        }\n\n';
+    case 'server-streaming':
+      return '        public void ' + m.name + '(' + m.input + ' req, ' + svc + m.name + 'Server stream)\n'
+        + '        {\n            _impl.' + m.name + 'Async(req, stream).GetAwaiter().GetResult();\n        }\n\n';
+    default:
+      return '        public void ' + m.name + '(' + svc + m.name + 'Server stream)\n'
+        + '        {\n            _impl.' + m.name + 'Async(stream).GetAwaiter().GetResult();\n        }\n\n';
+  }
+}
+
+function csService(svc) {
+  const sname = svc.name;
+  const all = svc.methods.concat(aliasClientMethods(svc));
+  return '    /// <summary>Client for ' + svc.fullName + '.</summary>\n'
+    + '    public sealed class ' + sname + 'Client\n    {\n'
+    + '        private readonly Channel _channel;\n\n'
+    + '        public ' + sname + 'Client(Channel channel)\n        {\n            _channel = channel;\n        }\n\n'
+    + all.map((m) => csDeprecated(m, '        ') + csClientMethodRaw(m, sname)).join('')
+    + all.map((m) => csClientAsyncMethod(m, sname)).join('')
+    + '    }\n\n'
+    + svc.methods.map((m) => csClientStreamClass(m, sname)).join('')
+    + '    /// <summary>Service implementation interface for ' + svc.fullName + '.</summary>\n'
+    + '    public interface ' + sname + 'Server\n    {\n'
+    + svc.methods.map((m) => csDeprecated(m, '        ') + csServerIfaceMethodRaw(m, sname)).join('')
+    + '    }\n\n'
+    + svc.methods.map((m) => csServerStreamIfaces(m, sname)).join('')
+    + svc.methods.map((m) => csStreamImpls(m, sname)).join('')
+    + '    /// <summary>Async service implementation interface for ' + svc.fullName + '.</summary>\n'
+    + '    public interface ' + sname + 'ServerAsync\n    {\n'
+    + svc.methods.map((m) => csServerAsyncIfaceMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    private sealed class ' + sname + 'ServerAsyncAdapter : ' + sname + 'Server\n    {\n'
+    + '        private readonly ' + sname + 'ServerAsync _impl;\n\n'
+    + '        internal ' + sname + 'ServerAsyncAdapter(' + sname + 'ServerAsync impl)\n        {\n            _impl = impl;\n        }\n\n'
+    + svc.methods.map((m) => csServerAsyncAdapterMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    /// <summary>Register an implementation of ' + svc.fullName + ' on a Server.</summary>\n'
+    + '    public static void Register' + sname + 'Server(Server server, ' + sname + 'Server impl)\n    {\n'
+    + '        server.RegisterService(new Server.ServiceDesc(\n            ' + q(svc.fullName) + ',\n            new List<Server.Method>\n            {\n'
+    + svc.methods.concat(aliasServerMethods(svc)).map((m) => csRegisterMethod(m, sname)).join('')
+    + '            }));\n    }\n'
+    + '    /// <summary>Register an async implementation of ' + svc.fullName + ' on a Server.</summary>\n'
+    + '    public static void Register' + sname + 'ServerAsync(Server server, ' + sname + 'ServerAsync impl)\n    {\n'
+    + '        Register' + sname + 'Server(server, new ' + sname + 'ServerAsyncAdapter(impl));\n    }\n';
+}
+
+function emitCsharpFile(model, params) {
+  const base = baseName(model.name);
+  const className = pascalCs(base) + 'GrpcDc';
+  const ns = model.package ? pascalCs(model.package) : 'Proto';
+  return {
+    name: className + '.cs',
+    content: '// @generated by protoc-gen-grpc-dc-csharp (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n\n'
+      + 'using System;\nusing System.Collections.Generic;\nusing System.Runtime.CompilerServices;\nusing System.Threading;\nusing System.Threading.Tasks;\nusing Grpcdc;\n\n'
+      + 'namespace ' + ns + ';\n\n'
+      + '/// <summary>Generated gRPC-over-DataChannels stubs for ' + model.name + '.</summary>\n'
+      + 'public static class ' + className + '\n{\n'
+      + model.services.map(csService).join('')
+      + '}\n',
+  };
+}
+// ---------------------------------------------------------------------------
+// C++ emitter (mirrors racket/template-cpp.rkt).
+// ---------------------------------------------------------------------------
+
+function cppDeprecated(m, indent) {
+  return m.deprecated ? indent + '[[deprecated("deprecated in the proto schema")]]\n' : '';
+}
+
+function cppClientMethodRaw(m, svc) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '    ' + m.output + ' ' + m.name + '(' + m.input + ' req,\n'
+        + '                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
+        + '      ' + m.output + ' resp;\n'
+        + '      channel_->Unary(' + path + ', req, resp, metadata, timeout);\n'
+        + '      return resp;\n    }\n\n';
+    case 'server-streaming':
+      return '    ' + svc + m.name + 'Stream ' + m.name + '(\n'
+        + '        ' + m.input + ' req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
+        + '      return ' + svc + m.name + 'Stream(\n'
+        + '          channel_->ServerStream(' + path + ', req, metadata, timeout));\n    }\n\n';
+    case 'client-streaming':
+      return '    ' + m.output + ' ' + m.name + '(std::vector<' + m.input + '> reqs,\n'
+        + '                              const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
+        + '      std::vector<const grpcdc::Marshaler*> ptrs;\n'
+        + '      for (auto& r : reqs) ptrs.push_back(&r);\n'
+        + '      ' + m.output + ' resp;\n'
+        + '      channel_->ClientStreamCall(' + path + ', ptrs, resp, metadata, timeout);\n'
+        + '      return resp;\n    }\n\n';
+    default:
+      return '    ' + svc + m.name + 'Stream ' + m.name + '(std::vector<' + m.input + '> reqs,\n'
+        + '                        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
+        + '      std::vector<const grpcdc::Marshaler*> ptrs;\n'
+        + '      for (auto& r : reqs) ptrs.push_back(&r);\n'
+        + '      return ' + svc + m.name + 'Stream(channel_->Bidi(' + path + ', ptrs, metadata, timeout));\n    }\n\n';
+  }
+}
+
+function cppClientStreamClass(m, svc) {
+  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
+  return '    class ' + svc + m.name + 'Stream {\n'
+    + '     public:\n'
+    + '      explicit ' + svc + m.name + 'Stream(grpcdc::Channel::ClientStream stream)\n'
+    + '          : stream_(std::move(stream)) {}\n'
+    + '      ' + m.output + ' Recv() {\n'
+    + '        ' + m.output + ' resp;\n'
+    + '        stream_.Recv(resp);\n        return resp;\n      }\n\n'
+    + '     private:\n'
+    + '      grpcdc::Channel::ClientStream stream_;\n    };\n\n';
+}
+
+const CPP_ASYNC_COLLECT = (capture) =>
+  '      return std::async(std::launch::async, [this, ' + capture + ', metadata, timeout] {\n';
+
+function cppClientAsyncMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '    std::future<' + m.output + '> ' + m.name + 'Async(\n'
+        + '        ' + m.input + ' req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
+        + '      return std::async(std::launch::async,\n'
+        + '                        [this, req, metadata, timeout] { return ' + m.name + '(req, metadata, timeout); });\n    }\n\n';
+    case 'server-streaming':
+      return '    std::future<std::vector<' + m.output + '>> ' + m.name + 'Async(\n'
+        + '        ' + m.input + ' req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
+        + CPP_ASYNC_COLLECT('req')
+        + '        auto stream = ' + m.name + '(req, metadata, timeout);\n'
+        + '        std::vector<' + m.output + '> out;\n'
+        + '        while (true) {\n          try {\n            out.push_back(stream.Recv());\n'
+        + '          } catch (const grpcdc::EndOfStream&) {\n            break;\n          }\n        }\n'
+        + '        return out;\n      });\n    }\n\n';
+    case 'client-streaming':
+      return '    std::future<' + m.output + '> ' + m.name + 'Async(\n'
+        + '        std::vector<' + m.input + '> reqs,\n'
+        + '        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
+        + '      return std::async(\n'
+        + '          std::launch::async,\n'
+        + '          [this, reqs, metadata, timeout] { return ' + m.name + '(reqs, metadata, timeout); });\n    }\n\n';
+    default:
+      return '    std::future<std::vector<' + m.output + '>> ' + m.name + 'Async(\n'
+        + '        std::vector<' + m.input + '> reqs,\n'
+        + '        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
+        + CPP_ASYNC_COLLECT('reqs')
+        + '        auto stream = ' + m.name + '(reqs, metadata, timeout);\n'
+        + '        std::vector<' + m.output + '> out;\n'
+        + '        while (true) {\n          try {\n            out.push_back(stream.Recv());\n'
+        + '          } catch (const grpcdc::EndOfStream&) {\n            break;\n          }\n        }\n'
+        + '        return out;\n      });\n    }\n\n';
+  }
+}
+
+function cppClientCoroStreamClass(m, svc) {
+  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
+  return '    class ' + svc + m.name + 'Stream {\n'
+    + '     public:\n'
+    + '      explicit ' + svc + m.name + 'Stream(grpcdc::AsyncClientStream stream)\n'
+    + '          : stream_(std::move(stream)) {}\n'
+    + '      /// Next response, or std::nullopt when the call completed OK.\n'
+    + '      grpcdc::Task<std::optional<' + m.output + '>> Recv() {\n'
+    + '        ' + m.output + ' resp;\n'
+    + '        try {\n          co_await stream_.Recv(resp);\n'
+    + '        } catch (const grpcdc::EndOfStream&) {\n          co_return std::nullopt;\n        }\n'
+    + '        co_return resp;\n      }\n'
+    + '      void Cancel() { stream_.Cancel(); }\n\n'
+    + '     private:\n'
+    + '      grpcdc::AsyncClientStream stream_;\n    };\n\n';
+}
+
+function cppClientCoroMethod(m, svc) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '    grpcdc::Task<' + m.output + '> ' + m.name + '(' + m.input + ' req,\n'
+        + '                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
+        + '      ' + m.output + ' resp;\n'
+        + '      co_await channel_->Unary(' + path + ', req, resp, metadata, timeout);\n'
+        + '      co_return resp;\n    }\n\n';
+    case 'server-streaming':
+      return '    grpcdc::Task<' + svc + m.name + 'Stream> ' + m.name + '(\n'
+        + '        ' + m.input + ' req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
+        + '      co_return ' + svc + m.name + 'Stream(\n'
+        + '          co_await channel_->ServerStream(' + path + ', req, metadata, timeout));\n    }\n\n';
+    case 'client-streaming':
+      return '    grpcdc::Task<' + m.output + '> ' + m.name + '(std::vector<' + m.input + '> reqs,\n'
+        + '                              const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
+        + '      std::vector<const grpcdc::Marshaler*> ptrs;\n'
+        + '      for (auto& r : reqs) ptrs.push_back(&r);\n'
+        + '      ' + m.output + ' resp;\n'
+        + '      co_await channel_->ClientStreamCall(' + path + ', ptrs, resp, metadata, timeout);\n'
+        + '      co_return resp;\n    }\n\n';
+    default:
+      return '    grpcdc::Task<' + svc + m.name + 'Stream> ' + m.name + '(std::vector<' + m.input + '> reqs,\n'
+        + '                        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
+        + '      std::vector<const grpcdc::Marshaler*> ptrs;\n'
+        + '      for (auto& r : reqs) ptrs.push_back(&r);\n'
+        + '      co_return ' + svc + m.name + 'Stream(\n'
+        + '          co_await channel_->Bidi(' + path + ', ptrs, metadata, timeout));\n    }\n\n';
+  }
+}
+
+function cppServerStreamIface(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return '  /// Server-streaming sink passed to service implementations.\n'
+        + '  struct ' + svc + m.name + 'Server {\n'
+        + '    virtual ~' + svc + m.name + 'Server() = default;\n'
+        + '    virtual void Send(' + m.output + '& resp) = 0;\n'
+        + '    virtual grpcdc::Endpoint::CallContext& Context() = 0;\n  };\n\n';
+    case 'client-streaming':
+      return '  /// Client-streaming stream passed to service implementations.\n'
+        + '  struct ' + svc + m.name + 'Server {\n'
+        + '    virtual ~' + svc + m.name + 'Server() = default;\n'
+        + '    virtual ' + m.input + ' Recv() = 0;\n'
+        + '    virtual void SendAndClose(' + m.output + '& resp) = 0;\n'
+        + '    virtual grpcdc::Endpoint::CallContext& Context() = 0;\n  };\n\n';
+    default:
+      return '  /// Bidi stream passed to service implementations.\n'
+        + '  struct ' + svc + m.name + 'Server {\n'
+        + '    virtual ~' + svc + m.name + 'Server() = default;\n'
+        + '    virtual void Send(' + m.output + '& resp) = 0;\n'
+        + '    virtual ' + m.input + ' Recv() = 0;\n'
+        + '    virtual grpcdc::Endpoint::CallContext& Context() = 0;\n  };\n\n';
+  }
+}
+
+function cppServerIfaceMethodRaw(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '    virtual ' + m.output + ' ' + m.name + '(grpcdc::Endpoint::CallContext& ctx,\n                               ' + m.input + '& req) = 0;\n';
+    case 'server-streaming':
+      return '    virtual void ' + m.name + '(' + m.input + '& req,\n                              ' + svc + m.name + 'Server& stream) = 0;\n';
+    default:
+      return '    virtual void ' + m.name + '(' + svc + m.name + 'Server& stream) = 0;\n';
+  }
+}
+
+function cppServerAsyncIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '    virtual std::future<' + m.output + '> ' + m.name + 'Async(\n        grpcdc::Endpoint::CallContext& ctx, ' + m.input + '& req) = 0;\n';
+    case 'server-streaming':
+      return '    virtual std::future<void> ' + m.name + 'Async(\n        ' + m.input + '& req, ' + svc + m.name + 'Server& stream) = 0;\n';
+    case 'client-streaming':
+      return '    virtual std::future<void> ' + m.name + 'Async(\n        ' + svc + m.name + 'Server& stream) = 0;\n';
+    default:
+      return '    virtual std::future<void> ' + m.name + 'Async(' + svc + m.name + 'Server& stream) = 0;\n';
+  }
+}
+
+function cppServerAsyncAdapterMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '    ' + m.output + ' ' + m.name + '(grpcdc::Endpoint::CallContext& ctx,\n'
+        + '                       ' + m.input + '& req) override {\n'
+        + '      return impl_->' + m.name + 'Async(ctx, req).get();\n    }\n';
+    case 'server-streaming':
+      return '    void ' + m.name + '(' + m.input + '& req,\n'
+        + '                      ' + svc + m.name + 'Server& stream) override {\n'
+        + '      impl_->' + m.name + 'Async(req, stream).get();\n    }\n';
+    case 'client-streaming':
+      return '    void ' + m.name + '(' + svc + m.name + 'Server& stream) override {\n'
+        + '      impl_->' + m.name + 'Async(stream).get();\n    }\n';
+    default:
+      return '    void ' + m.name + '(' + svc + m.name + 'Server& stream) override { impl_->' + m.name + 'Async(stream).get(); }\n';
+  }
+}
+
+function cppStreamImpl(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return '  class ' + svc + m.name + 'ServerImpl : public ' + svc + m.name + 'Server {\n'
+        + '   public:\n'
+        + '    ' + svc + m.name + 'ServerImpl(grpcdc::Endpoint::CallContext& ctx,\n'
+        + '                               grpcdc::Server::ServerSink& sink)\n'
+        + '        : ctx_(ctx), sink_(sink) {}\n'
+        + '    void Send(' + m.output + '& resp) override { sink_(resp.MarshalDc()); }\n'
+        + '    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n\n'
+        + '   private:\n'
+        + '    grpcdc::Endpoint::CallContext& ctx_;\n'
+        + '    grpcdc::Server::ServerSink& sink_;\n  };\n\n';
+    case 'client-streaming':
+      return '  class ' + svc + m.name + 'ServerImpl : public ' + svc + m.name + 'Server {\n'
+        + '   public:\n'
+        + '    ' + svc + m.name + 'ServerImpl(grpcdc::Endpoint::CallContext& ctx,\n'
+        + '                               grpcdc::Server::RequestStream& reqs)\n'
+        + '        : ctx_(ctx), reqs_(reqs) {}\n'
+        + '    ' + m.input + ' Recv() override {\n'
+        + '      ' + m.input + ' req;\n      reqs_.RecvInto(req);\n      return req;\n    }\n'
+        + '    void SendAndClose(' + m.output + '& resp) override {\n'
+        + '      resp_ = resp;\n      has_resp_ = true;\n    }\n'
+        + '    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n'
+        + '    ' + m.output + ' Resp() const { return resp_; }\n'
+        + '    bool HasResp() const { return has_resp_; }\n\n'
+        + '   private:\n'
+        + '    grpcdc::Endpoint::CallContext& ctx_;\n'
+        + '    grpcdc::Server::RequestStream& reqs_;\n'
+        + '    ' + m.output + ' resp_;\n'
+        + '    bool has_resp_ = false;\n  };\n\n';
+    default:
+      return '  class ' + svc + m.name + 'ServerImpl : public ' + svc + m.name + 'Server {\n'
+        + '   public:\n'
+        + '    ' + svc + m.name + 'ServerImpl(grpcdc::Endpoint::CallContext& ctx,\n'
+        + '                       grpcdc::Server::RequestStream& reqs,\n'
+        + '                       grpcdc::Server::ServerSink& sink)\n'
+        + '        : ctx_(ctx), reqs_(reqs), sink_(sink) {}\n'
+        + '    void Send(' + m.output + '& resp) override { sink_(resp.MarshalDc()); }\n'
+        + '    ' + m.input + ' Recv() override {\n'
+        + '      ' + m.input + ' req;\n      reqs_.RecvInto(req);\n      return req;\n    }\n'
+        + '    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n\n'
+        + '   private:\n'
+        + '    grpcdc::Endpoint::CallContext& ctx_;\n'
+        + '    grpcdc::Server::RequestStream& reqs_;\n'
+        + '    grpcdc::Server::ServerSink& sink_;\n  };\n\n';
+  }
+}
+
+const CPP_KIND_CONSTS = {
+  unary: 'kKindUnary',
+  'server-streaming': 'kKindServerStreaming',
+  'client-streaming': 'kKindClientStreaming',
+  bidi: 'kKindBidi',
+};
+
+function cppRegisterMethod(m, svc) {
+  const impl = m.implName;
+  const kind = CPP_KIND_CONSTS[m.kind];
+  switch (m.kind) {
+    case 'unary':
+      return '            {' + q(m.name) + ', ' + q(m.path) + ', grpcdc::Server::' + kind + ',\n'
+        + '             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n'
+        + '                     grpcdc::Server::RequestStream& reqs,\n'
+        + '                     grpcdc::Server::ServerSink& sink) {\n'
+        + '               ' + m.input + ' req;\n               reqs.RecvInto(req);\n'
+        + '               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);\n'
+        + '               ' + m.output + ' resp = impl.' + impl + '(mutable_ctx, req);\n'
+        + '               sink(resp.MarshalDc());\n             }},\n';
+    case 'server-streaming':
+      return '            {' + q(m.name) + ', ' + q(m.path) + ',\n'
+        + '             grpcdc::Server::' + kind + ',\n'
+        + '             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n'
+        + '                     grpcdc::Server::RequestStream& reqs,\n'
+        + '                     grpcdc::Server::ServerSink& sink) {\n'
+        + '               ' + m.input + ' req;\n               reqs.RecvInto(req);\n'
+        + '               ' + svc + m.name + 'ServerImpl stream(\n'
+        + '                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), sink);\n'
+        + '               impl.' + impl + '(req, stream);\n             }},\n';
+    case 'client-streaming':
+      return '            {' + q(m.name) + ', ' + q(m.path) + ',\n'
+        + '             grpcdc::Server::' + kind + ',\n'
+        + '             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n'
+        + '                     grpcdc::Server::RequestStream& reqs,\n'
+        + '                     grpcdc::Server::ServerSink& sink) {\n'
+        + '               ' + svc + m.name + 'ServerImpl stream(\n'
+        + '                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), reqs);\n'
+        + '               impl.' + impl + '(stream);\n'
+        + '               if (!stream.HasResp()) {\n'
+        + '                 throw grpcdc::StatusException(\n'
+        + '                     grpcdc::wire::kCodeInternal,\n'
+        + '                     "client-streaming handler never called SendAndClose");\n'
+        + '               }\n'
+        + '               ' + m.output + ' resp = stream.Resp();\n'
+        + '               sink(resp.MarshalDc());\n             }},\n';
+    default:
+      return '            {' + q(m.name) + ', ' + q(m.path) + ', grpcdc::Server::' + kind + ',\n'
+        + '             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n'
+        + '                     grpcdc::Server::RequestStream& reqs,\n'
+        + '                     grpcdc::Server::ServerSink& sink) {\n'
+        + '               ' + svc + m.name + 'ServerImpl stream(\n'
+        + '                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), reqs, sink);\n'
+        + '               impl.' + impl + '(stream);\n             }},\n';
+  }
+}
+
+function cppService(svc) {
+  const sname = svc.name;
+  const all = svc.methods.concat(aliasClientMethods(svc));
+  return '  /// Client for ' + svc.fullName + '.\n'
+    + '  class ' + sname + 'Client {\n'
+    + '   public:\n'
+    + '    explicit ' + sname + 'Client(std::shared_ptr<grpcdc::Channel> channel)\n        : channel_(std::move(channel)) {}\n\n'
+    + svc.methods.map((m) => cppClientStreamClass(m, sname)).join('')
+    + all.map((m) => cppDeprecated(m, '    ') + cppClientMethodRaw(m, sname)).join('')
+    + '    // -- async (std::future) surface -------------------------------------\n\n'
+    + all.map((m) => cppClientAsyncMethod(m, sname)).join('')
+    + '   private:\n    std::shared_ptr<grpcdc::Channel> channel_;\n  };\n\n'
+    + '#if __cplusplus >= 202002L\n'
+    + '  /// C++20 coroutine client for ' + svc.fullName + ' (co_await / grpcdc::Task).\n'
+    + '  class ' + sname + 'ClientCoro {\n'
+    + '   public:\n'
+    + '    explicit ' + sname + 'ClientCoro(std::shared_ptr<grpcdc::AsyncChannel> channel)\n        : channel_(std::move(channel)) {}\n'
+    + '    explicit ' + sname + 'ClientCoro(std::shared_ptr<grpcdc::Channel> channel)\n        : channel_(std::make_shared<grpcdc::AsyncChannel>(std::move(channel))) {}\n\n'
+    + all.map((m) => cppClientCoroStreamClass(m, sname)).join('')
+    + all.map((m) => cppClientCoroMethod(m, sname)).join('')
+    + '   private:\n    std::shared_ptr<grpcdc::AsyncChannel> channel_;\n  };\n'
+    + '#endif  // __cplusplus >= 202002L\n\n'
+    + svc.methods.map((m) => cppServerStreamIface(m, sname)).join('')
+    + '  /// Service implementation interface for ' + svc.fullName + '.\n'
+    + '  struct ' + sname + 'Server {\n    virtual ~' + sname + 'Server() = default;\n'
+    + svc.methods.map((m) => cppDeprecated(m, '    ') + cppServerIfaceMethodRaw(m, sname)).join('')
+    + '  };\n\n'
+    + '  /// Async service implementation interface for ' + svc.fullName + '.\n'
+    + '  struct ' + sname + 'ServerAsync {\n    virtual ~' + sname + 'ServerAsync() = default;\n'
+    + svc.methods.map((m) => cppServerAsyncIfaceMethod(m, sname)).join('')
+    + '  };\n\n'
+    + ' private:\n'
+    + svc.methods.map((m) => cppStreamImpl(m, sname)).join('')
+    + '  class ' + sname + 'ServerAsyncAdapter : public ' + sname + 'Server {\n'
+    + '   public:\n    explicit ' + sname + 'ServerAsyncAdapter(' + sname + 'ServerAsync* impl) : impl_(impl) {}\n'
+    + svc.methods.map((m) => cppServerAsyncAdapterMethod(m, sname)).join('')
+    + '\n   private:\n    ' + sname + 'ServerAsync* impl_;\n  };\n\n'
+    + ' public:\n'
+    + '  /// Register an implementation of ' + svc.fullName + ' on a Server.\n'
+    + '  static void Register' + sname + 'Server(grpcdc::Server& server, ' + sname + 'Server& impl) {\n'
+    + '    server.RegisterService(grpcdc::Server::ServiceDesc{\n        ' + q(svc.fullName) + ',\n        {\n'
+    + svc.methods.concat(aliasServerMethods(svc)).map((m) => cppRegisterMethod(m, sname)).join('')
+    + '        }});\n  }\n\n'
+    + '  /// Register an async implementation of ' + svc.fullName + ' on a Server.\n'
+    + '  static void Register' + sname + 'ServerAsync(grpcdc::Server& server,\n                                      ' + sname + 'ServerAsync& impl) {\n'
+    + '    // Adapters are retained for the process lifetime: registration is\n'
+    + '    // once-per-process and bounded by service count.\n'
+    + '    static std::vector<std::shared_ptr<' + sname + 'ServerAsyncAdapter>> adapters;\n'
+    + '    auto adapter = std::make_shared<' + sname + 'ServerAsyncAdapter>(&impl);\n'
+    + '    adapters.push_back(adapter);\n'
+    + '    Register' + sname + 'Server(server, *adapter);\n  }\n';
+}
+
+function emitCppFile(model, params) {
+  const base = baseName(model.name);
+  const structName = pascalName(base) + 'GrpcDc';
+  const ns = model.package || 'proto';
+  return {
+    name: base + '_grpc_dc.hpp',
+    content: '// @generated by protoc-gen-grpc-dc-cpp (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n'
+      + '#pragma once\n\n'
+      + '#include <future>\n#include <optional>\n\n#if __cplusplus >= 202002L\n#include "grpcdc/async.hpp"\n#endif\n'
+      + '#include <memory>\n#include <vector>\n\n'
+      + '#include "examples/' + base + '_messages.hpp"\n'
+      + '#include "grpcdc/channel.hpp"\n#include "grpcdc/server.hpp"\n\n'
+      + 'namespace ' + ns + ' {\n\n'
+      + '/// Generated gRPC-over-DataChannels stubs for ' + model.name + '.\n'
+      + 'struct ' + structName + ' {\n'
+      + model.services.map(cppService).join('')
+      + '};\n\n'
+      + '}  // namespace ' + ns + '\n',
+  };
+}
+// ---------------------------------------------------------------------------
+// Swift emitter (mirrors racket/template-swift.rkt).
+// ---------------------------------------------------------------------------
+
+function swiftDeprecated(m, indent) {
+  return m.deprecated ? indent + '@available(*, deprecated, message: "deprecated in the proto schema")\n' : '';
+}
+
+function swiftClientMethodRaw(m, svc) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '        func ' + m.name + '(_ req: ' + m.input + ', _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ' + m.output + ' {\n'
+        + '            let resp = ' + m.output + '()\n'
+        + '            try channel.Unary(' + path + ', req, resp, metadata, timeout)\n'
+        + '            return resp\n        }\n\n';
+    case 'server-streaming':
+      return '        func ' + m.name + '(_ req: ' + m.input + ', _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ' + svc + m.name + 'Stream {\n'
+        + '            return ' + svc + m.name + 'Stream(try channel.ServerStream(' + path + ', req, metadata, timeout))\n        }\n\n';
+    case 'client-streaming':
+      return '        func ' + m.name + '(_ reqs: [' + m.input + '], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ' + m.output + ' {\n'
+        + '            let resp = ' + m.output + '()\n'
+        + '            try channel.ClientStreamCall(' + path + ', reqs, resp, metadata, timeout)\n'
+        + '            return resp\n        }\n\n';
+    default:
+      return '        func ' + m.name + '(_ reqs: [' + m.input + '], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ' + svc + m.name + 'Stream {\n'
+        + '            return ' + svc + m.name + 'Stream(try channel.Bidi(' + path + ', reqs, metadata, timeout))\n        }\n\n';
+  }
+}
+
+function swiftClientStreamClass(m, svc) {
+  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
+  return '        final class ' + svc + m.name + 'Stream {\n'
+    + '            private let stream: Channel.ClientStream\n'
+    + '            init(_ stream: Channel.ClientStream) { self.stream = stream }\n'
+    + '            func Recv() throws -> ' + m.output + ' {\n'
+    + '                let resp = ' + m.output + '()\n'
+    + '                try stream.Recv(resp)\n                return resp\n            }\n        }\n\n';
+}
+
+function swiftClientAsyncMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        func ' + m.name + 'Async(_ req: ' + m.input + ', _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ' + m.output + ' {\n'
+        + '            try await Task.detached { try self.' + m.name + '(req, metadata, timeout) }.value\n        }\n\n';
+    case 'server-streaming':
+    case 'bidi': {
+      const reqsType = m.kind === 'bidi' ? '[' + m.input + ']' : m.input;
+      return '        func ' + m.name + 'Async(_ reqs: ' + reqsType + ', _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<' + m.output + ', Error> {\n'
+        + '            AsyncThrowingStream { continuation in\n'
+        + '                let task = Task.detached {\n'
+        + '                    do {\n'
+        + '                        let stream = try self.' + m.name + '(reqs, metadata, timeout)\n'
+        + '                        while true {\n'
+        + '                            continuation.yield(try stream.Recv())\n                        }\n'
+        + '                    } catch is EndOfStreamError {\n'
+        + '                        continuation.finish()\n'
+        + '                    } catch {\n'
+        + '                        continuation.finish(throwing: error)\n                    }\n'
+        + '                }\n'
+        + '                continuation.onTermination = { _ in task.cancel() }\n            }\n        }\n\n';
+    }
+    default:
+      return '        func ' + m.name + 'Async(_ reqs: [' + m.input + '], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ' + m.output + ' {\n'
+        + '            try await Task.detached { try self.' + m.name + '(reqs, metadata, timeout) }.value\n        }\n\n';
+  }
+}
+
+function swiftServerStreamIface(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return '    /// Server-streaming sink passed to service implementations.\n'
+        + '    protocol ' + svc + m.name + 'Server: AnyObject {\n'
+        + '        func Send(_ resp: ' + m.output + ') throws\n'
+        + '        var context: Endpoint.CallContext { get }\n    }\n\n';
+    case 'client-streaming':
+      return '    /// Client-streaming stream passed to service implementations.\n'
+        + '    protocol ' + svc + m.name + 'Server: AnyObject {\n'
+        + '        func Recv() throws -> ' + m.input + '\n'
+        + '        func SendAndClose(_ resp: ' + m.output + ')\n'
+        + '        var context: Endpoint.CallContext { get }\n    }\n\n';
+    default:
+      return '    /// Bidi stream passed to service implementations.\n'
+        + '    protocol ' + svc + m.name + 'Server: AnyObject {\n'
+        + '        func Send(_ resp: ' + m.output + ') throws\n'
+        + '        func Recv() throws -> ' + m.input + '\n'
+        + '        var context: Endpoint.CallContext { get }\n    }\n\n';
+  }
+}
+
+function swiftServerIfaceMethodRaw(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        func ' + m.name + '(_ ctx: Endpoint.CallContext, _ req: ' + m.input + ') throws -> ' + m.output + '\n';
+    case 'server-streaming':
+      return '        func ' + m.name + '(_ req: ' + m.input + ', _ stream: ' + svc + m.name + 'Server) throws\n';
+    default:
+      return '        func ' + m.name + '(_ stream: ' + svc + m.name + 'Server) throws\n';
+  }
+}
+
+function swiftServerAsyncIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        func ' + m.name + 'Async(_ ctx: Endpoint.CallContext, _ req: ' + m.input + ') async throws -> ' + m.output + '\n';
+    case 'server-streaming':
+      return '        func ' + m.name + 'Async(_ req: ' + m.input + ', _ stream: ' + svc + m.name + 'Server) async throws\n';
+    default:
+      return '        func ' + m.name + 'Async(_ stream: ' + svc + m.name + 'Server) async throws\n';
+  }
+}
+
+function swiftServerAsyncAdapterMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        func ' + m.name + '(_ ctx: Endpoint.CallContext, _ req: ' + m.input + ') throws -> ' + m.output + ' {\n'
+        + '            try RunBlocking { try await self.impl.' + m.name + 'Async(ctx, req) }\n        }\n';
+    case 'server-streaming':
+      return '        func ' + m.name + '(_ req: ' + m.input + ', _ stream: ' + svc + m.name + 'Server) throws {\n'
+        + '            try RunBlocking { try await self.impl.' + m.name + 'Async(req, stream) }\n        }\n';
+    default:
+      return '        func ' + m.name + '(_ stream: ' + svc + m.name + 'Server) throws {\n'
+        + '            try RunBlocking { try await self.impl.' + m.name + 'Async(stream) }\n        }\n';
+  }
+}
+
+function swiftStreamImpl(m, svc) {
+  const head = '    private final class ' + svc + m.name + 'ServerImpl: ' + svc + m.name + 'Server {\n';
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return head
+        + '        private var ctxRef: Endpoint.CallContext\n'
+        + '        private let sink: Server.ServerSink\n'
+        + '        init(_ ctx: Endpoint.CallContext, _ sink: @escaping Server.ServerSink) {\n'
+        + '            ctxRef = ctx\n            self.sink = sink\n        }\n'
+        + '        func Send(_ resp: ' + m.output + ') throws { try sink(resp.MarshalDc()) }\n'
+        + '        var context: Endpoint.CallContext { ctxRef }\n    }\n\n';
+    case 'client-streaming':
+      return head
+        + '        private var ctxRef: Endpoint.CallContext\n'
+        + '        private let reqs: Server.RequestStream\n'
+        + '        private(set) var resp: ' + m.output + '?\n'
+        + '        init(_ ctx: Endpoint.CallContext, _ reqs: Server.RequestStream) {\n'
+        + '            ctxRef = ctx\n            self.reqs = reqs\n        }\n'
+        + '        func Recv() throws -> ' + m.input + ' {\n'
+        + '            let req = ' + m.input + '()\n'
+        + '            try reqs.RecvInto(req)\n            return req\n        }\n'
+        + '        func SendAndClose(_ resp: ' + m.output + ') { self.resp = resp }\n'
+        + '        var context: Endpoint.CallContext { ctxRef }\n    }\n\n';
+    default:
+      return head
+        + '        private var ctxRef: Endpoint.CallContext\n'
+        + '        private let reqs: Server.RequestStream\n'
+        + '        private let sink: Server.ServerSink\n'
+        + '        init(_ ctx: Endpoint.CallContext, _ reqs: Server.RequestStream, _ sink: @escaping Server.ServerSink) {\n'
+        + '            ctxRef = ctx\n            self.reqs = reqs\n            self.sink = sink\n        }\n'
+        + '        func Send(_ resp: ' + m.output + ') throws { try sink(resp.MarshalDc()) }\n'
+        + '        func Recv() throws -> ' + m.input + ' {\n'
+        + '            let req = ' + m.input + '()\n'
+        + '            try reqs.RecvInto(req)\n            return req\n        }\n'
+        + '        var context: Endpoint.CallContext { ctxRef }\n    }\n\n';
+  }
+}
+
+const SWIFT_KIND_CONSTS = {
+  unary: 'KindUnary',
+  'server-streaming': 'KindServerStreaming',
+  'client-streaming': 'KindClientStreaming',
+  bidi: 'KindBidi',
+};
+
+function swiftRegisterMethod(m, svc) {
+  const impl = m.implName;
+  const head = '            Server.Method(name: ' + q(m.name) + ', path: ' + q(m.path) + ', kind: Server.' + SWIFT_KIND_CONSTS[m.kind] + ') { ctx, reqs, sink in\n';
+  switch (m.kind) {
+    case 'unary':
+      return head
+        + '                let req = ' + m.input + '()\n'
+        + '                try reqs.RecvInto(req)\n'
+        + '                let resp = try impl.' + impl + '(ctx, req)\n'
+        + '                try sink(resp.MarshalDc())\n            },\n';
+    case 'server-streaming':
+      return head
+        + '                let req = ' + m.input + '()\n'
+        + '                try reqs.RecvInto(req)\n'
+        + '                try impl.' + impl + '(req, ' + svc + m.name + 'ServerImpl(ctx, sink))\n            },\n';
+    case 'client-streaming':
+      return head
+        + '                let stream = ' + svc + m.name + 'ServerImpl(ctx, reqs)\n'
+        + '                try impl.' + impl + '(stream)\n'
+        + '                guard let resp = stream.resp else {\n'
+        + '                    throw StatusException(Wire.CodeInternal, "client-streaming handler never called SendAndClose")\n'
+        + '                }\n'
+        + '                try sink(resp.MarshalDc())\n            },\n';
+    default:
+      return head
+        + '                try impl.' + impl + '(' + svc + m.name + 'ServerImpl(ctx, reqs, sink))\n            },\n';
+  }
+}
+
+function swiftService(svc) {
+  const sname = svc.name;
+  const all = svc.methods.concat(aliasClientMethods(svc));
+  return '    /// Client for ' + svc.fullName + '.\n'
+    + '    final class ' + sname + 'Client {\n'
+    + '        private let channel: Channel\n\n'
+    + '        init(_ channel: Channel) {\n            self.channel = channel\n        }\n\n'
+    + svc.methods.map((m) => swiftClientStreamClass(m, sname)).join('')
+    + all.map((m) => swiftDeprecated(m, '        ') + swiftClientMethodRaw(m, sname)).join('')
+    + '        // -- async (Swift concurrency) surface ---------------------------\n'
+    + '        #if canImport(Foundation)\n\n'
+    + all.map((m) => swiftClientAsyncMethod(m, sname)).join('')
+    + '        #endif\n'
+    + '    }\n\n'
+    + svc.methods.map((m) => swiftServerStreamIface(m, sname)).join('')
+    + '    /// Service implementation interface for ' + svc.fullName + '.\n'
+    + '    protocol ' + sname + 'Server: AnyObject {\n'
+    + svc.methods.map((m) => swiftDeprecated(m, '        ') + swiftServerIfaceMethodRaw(m, sname)).join('')
+    + '    }\n\n'
+    + '    #if canImport(Foundation)\n'
+    + '    /// Async service implementation interface for ' + svc.fullName + '.\n'
+    + '    protocol ' + sname + 'ServerAsync: AnyObject {\n'
+    + svc.methods.map((m) => swiftServerAsyncIfaceMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    #endif\n\n'
+    + svc.methods.map((m) => swiftStreamImpl(m, sname)).join('')
+    + '    #if canImport(Foundation)\n'
+    + '    private final class ' + sname + 'ServerAsyncAdapter: ' + sname + 'Server {\n'
+    + '        private let impl: ' + sname + 'ServerAsync\n'
+    + '        init(_ impl: ' + sname + 'ServerAsync) { self.impl = impl }\n'
+    + svc.methods.map((m) => swiftServerAsyncAdapterMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    #endif\n\n'
+    + '    /// Register an implementation of ' + svc.fullName + ' on a Server.\n'
+    + '    static func Register' + sname + 'Server(_ server: Server, _ impl: ' + sname + 'Server) {\n'
+    + '        server.RegisterService(Server.ServiceDesc(name: ' + q(svc.fullName) + ', methods: [\n'
+    + svc.methods.concat(aliasServerMethods(svc)).map((m) => swiftRegisterMethod(m, sname)).join('')
+    + '        ]))\n    }\n\n'
+    + '    #if canImport(Foundation)\n'
+    + '    /// Register an async implementation of ' + svc.fullName + ' on a Server.\n'
+    + '    static func Register' + sname + 'ServerAsync(_ server: Server, _ impl: ' + sname + 'ServerAsync) {\n'
+    + '        // Adapters are retained for the process lifetime: registration is\n'
+    + '        // once-per-process and bounded by service count.\n'
+    + '        adapters.append(' + sname + 'ServerAsyncAdapter(impl))\n'
+    + '        Register' + sname + 'Server(server, adapters.last!)\n    }\n\n'
+    + '    private static var adapters: [' + sname + 'ServerAsyncAdapter] = []\n'
+    + '    #endif\n';
+}
+
+const SWIFT_RUN_BLOCKING =
+  '#if canImport(Foundation)\n'
+  + '/// Run an async operation to completion on a blocking thread.\n'
+  + 'func RunBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {\n'
+  + '    let semaphore = DispatchSemaphore(value: 0)\n'
+  + '    var result: Result<T, Error>!\n'
+  + '    Task.detached {\n'
+  + '        do {\n            result = .success(try await body())\n'
+  + '        } catch {\n            result = .failure(error)\n        }\n'
+  + '        semaphore.signal()\n    }\n'
+  + '    semaphore.wait()\n'
+  + '    return try result.get()\n}\n'
+  + '#endif\n';
+
+function emitSwiftFile(model, params) {
+  const base = baseName(model.name);
+  const enumName = pascalName(base) + 'GrpcDc';
+  return {
+    name: pascalName(base) + 'GrpcDc.swift',
+    content: '// @generated by protoc-gen-grpc-dc-swift (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n\n'
+      + '#if canImport(Foundation)\nimport Foundation\n#endif\n\n'
+      + '/// Generated gRPC-over-DataChannels stubs for ' + model.name + '.\n'
+      + 'enum ' + enumName + ' {\n'
+      + model.services.map(swiftService).join('')
+      + '}\n\n'
+      + SWIFT_RUN_BLOCKING,
+  };
+}
+// ---------------------------------------------------------------------------
+// Kotlin emitter (mirrors racket/template-kotlin.rkt, native mode).
+// ---------------------------------------------------------------------------
+
+function kotlinDeprecated(m, indent) {
+  return m.deprecated ? indent + '@Deprecated("deprecated in the proto schema")\n' : '';
+}
+
+function kotlinClientMethodRaw(m, svc) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '        fun ' + m.name + '(req: ' + m.input + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ' + m.output + ' {\n'
+        + '            val resp = ' + m.output + '()\n'
+        + '            channel.unary(' + path + ', req, resp, metadata, timeout)\n'
+        + '            return resp\n        }\n\n';
+    case 'server-streaming':
+      return '        fun ' + m.name + '(req: ' + m.input + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ' + svc + m.name + 'Stream {\n'
+        + '            return ' + svc + m.name + 'Stream(channel.serverStream(' + path + ', req, metadata, timeout))\n        }\n\n';
+    case 'client-streaming':
+      return '        fun ' + m.name + '(reqs: List<' + m.input + '>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ' + m.output + ' {\n'
+        + '            val resp = ' + m.output + '()\n'
+        + '            channel.clientStreamCall(' + path + ', reqs, resp, metadata, timeout)\n'
+        + '            return resp\n        }\n\n';
+    default:
+      return '        fun ' + m.name + '(reqs: List<' + m.input + '>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ' + svc + m.name + 'Stream {\n'
+        + '            return ' + svc + m.name + 'Stream(channel.bidi(' + path + ', reqs, metadata, timeout))\n        }\n\n';
+  }
+}
+
+function kotlinClientStreamClass(m, svc) {
+  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
+  return '        class ' + svc + m.name + 'Stream(private val stream: Channel.ClientStream) {\n'
+    + '            fun recv(): ' + m.output + ' {\n'
+    + '                val resp = ' + m.output + '()\n'
+    + '                stream.recv(resp)\n                return resp\n            }\n        }\n\n';
+}
+
+function kotlinClientAsyncMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        suspend fun ' + m.name + 'Async(req: ' + m.input + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ' + m.output + ' {\n'
+        + '            return AsyncPump.await(' + m.name + 'Future(req, metadata, timeout))\n        }\n\n'
+        + '        fun ' + m.name + 'Future(req: ' + m.input + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<' + m.output + '> {\n'
+        + '            return AsyncPump.future { ' + m.name + '(req, metadata, timeout) }\n        }\n\n';
+    case 'server-streaming':
+    case 'bidi': {
+      const reqsSig = m.kind === 'bidi' ? 'reqs: List<' + m.input + '>' : 'req: ' + m.input;
+      const callArgs = m.kind === 'bidi' ? 'reqs' : 'req';
+      return '        suspend fun ' + m.name + 'Async(' + reqsSig + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): List<' + m.output + '> {\n'
+        + '            return AsyncPump.await(' + m.name + 'Future(' + callArgs + ', metadata, timeout))\n        }\n\n'
+        + '        fun ' + m.name + 'Future(' + reqsSig + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<List<' + m.output + '>> {\n'
+        + '            return AsyncPump.future {\n'
+        + '                val stream = ' + m.name + '(' + callArgs + ', metadata, timeout)\n'
+        + '                val out = ArrayList<' + m.output + '>()\n'
+        + '                while (true) {\n'
+        + '                    try {\n                        out.add(stream.recv())\n'
+        + '                    } catch (e: EOFException) {\n                        break\n                    }\n                }\n'
+        + '                out\n            }\n        }\n\n';
+    }
+    default:
+      return '        suspend fun ' + m.name + 'Async(reqs: List<' + m.input + '>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ' + m.output + ' {\n'
+        + '            return AsyncPump.await(' + m.name + 'Future(reqs, metadata, timeout))\n        }\n\n'
+        + '        fun ' + m.name + 'Future(reqs: List<' + m.input + '>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<' + m.output + '> {\n'
+        + '            return AsyncPump.future { ' + m.name + '(reqs, metadata, timeout) }\n        }\n\n';
+  }
+}
+
+function kotlinServerStreamIface(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return '    /** Server-streaming sink passed to service implementations. */\n'
+        + '    interface ' + svc + m.name + 'Server {\n'
+        + '        fun send(resp: ' + m.output + ')\n'
+        + '        val context: Endpoint.CallContext\n    }\n\n';
+    case 'client-streaming':
+      return '    /** Client-streaming stream passed to service implementations. */\n'
+        + '    interface ' + svc + m.name + 'Server {\n'
+        + '        fun recv(): ' + m.input + '\n'
+        + '        fun sendAndClose(resp: ' + m.output + ')\n'
+        + '        val context: Endpoint.CallContext\n    }\n\n';
+    default:
+      return '    /** Bidi stream passed to service implementations. */\n'
+        + '    interface ' + svc + m.name + 'Server {\n'
+        + '        fun send(resp: ' + m.output + ')\n'
+        + '        fun recv(): ' + m.input + '\n'
+        + '        val context: Endpoint.CallContext\n    }\n\n';
+  }
+}
+
+function kotlinServerIfaceMethodRaw(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        fun ' + m.name + '(ctx: Endpoint.CallContext, req: ' + m.input + '): ' + m.output + '\n';
+    case 'server-streaming':
+      return '        fun ' + m.name + '(req: ' + m.input + ', stream: ' + svc + m.name + 'Server)\n';
+    default:
+      return '        fun ' + m.name + '(stream: ' + svc + m.name + 'Server)\n';
+  }
+}
+
+function kotlinServerAsyncIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        suspend fun ' + m.name + 'Async(ctx: Endpoint.CallContext, req: ' + m.input + '): ' + m.output + '\n';
+    case 'server-streaming':
+      return '        suspend fun ' + m.name + 'Async(req: ' + m.input + ', stream: ' + svc + m.name + 'Server)\n';
+    default:
+      return '        suspend fun ' + m.name + 'Async(stream: ' + svc + m.name + 'Server)\n';
+  }
+}
+
+function kotlinServerAsyncAdapterMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        override fun ' + m.name + '(ctx: Endpoint.CallContext, req: ' + m.input + '): ' + m.output + ' {\n'
+        + '            return AsyncPump.runSuspend { impl.' + m.name + 'Async(ctx, req) }\n        }\n\n';
+    case 'server-streaming':
+      return '        override fun ' + m.name + '(req: ' + m.input + ', stream: ' + svc + m.name + 'Server) {\n'
+        + '            AsyncPump.runSuspend { impl.' + m.name + 'Async(req, stream) }\n        }\n\n';
+    default:
+      return '        override fun ' + m.name + '(stream: ' + svc + m.name + 'Server) {\n'
+        + '            AsyncPump.runSuspend { impl.' + m.name + 'Async(stream) }\n        }\n\n';
+  }
+}
+
+function kotlinStreamImpl(m, svc) {
+  const head = '    private class ' + svc + m.name + 'ServerImpl(\n';
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return head
+        + '        override val context: Endpoint.CallContext,\n'
+        + '        private val sink: Server.ServerSink\n'
+        + '    ) : ' + svc + m.name + 'Server {\n'
+        + '        override fun send(resp: ' + m.output + ') {\n'
+        + '            sink.send(resp.marshalDc())\n        }\n    }\n\n';
+    case 'client-streaming':
+      return head
+        + '        override val context: Endpoint.CallContext,\n'
+        + '        private val reqs: Server.RequestStream\n'
+        + '    ) : ' + svc + m.name + 'Server {\n'
+        + '        var resp: ' + m.output + '? = null\n'
+        + '            private set\n\n'
+        + '        override fun recv(): ' + m.input + ' {\n'
+        + '            val req = ' + m.input + '()\n'
+        + '            reqs.recvInto(req)\n            return req\n        }\n\n'
+        + '        override fun sendAndClose(resp: ' + m.output + ') {\n'
+        + '            this.resp = resp\n        }\n    }\n\n';
+    default:
+      return head
+        + '        override val context: Endpoint.CallContext,\n'
+        + '        private val reqs: Server.RequestStream,\n'
+        + '        private val sink: Server.ServerSink\n'
+        + '    ) : ' + svc + m.name + 'Server {\n'
+        + '        override fun send(resp: ' + m.output + ') {\n'
+        + '            sink.send(resp.marshalDc())\n        }\n\n'
+        + '        override fun recv(): ' + m.input + ' {\n'
+        + '            val req = ' + m.input + '()\n'
+        + '            reqs.recvInto(req)\n            return req\n        }\n    }\n\n';
+  }
+}
+
+const KOTLIN_KIND_CONSTS = {
+  unary: 'KIND_UNARY',
+  'server-streaming': 'KIND_SERVER_STREAMING',
+  'client-streaming': 'KIND_CLIENT_STREAMING',
+  bidi: 'KIND_BIDI',
+};
+
+function kotlinRegisterMethod(m, svc) {
+  const impl = m.implName;
+  const head = '                    Server.Method(' + q(m.name) + ', ' + q(m.path) + ', Server.' + KOTLIN_KIND_CONSTS[m.kind] + ') { ctx, reqs, sink ->\n';
+  switch (m.kind) {
+    case 'unary':
+      return head
+        + '                        val req = ' + m.input + '()\n'
+        + '                        reqs.recvInto(req)\n'
+        + '                        sink.send(impl.' + impl + '(ctx, req).marshalDc())\n                    },\n';
+    case 'server-streaming':
+      return head
+        + '                        val req = ' + m.input + '()\n'
+        + '                        reqs.recvInto(req)\n'
+        + '                        impl.' + impl + '(req, ' + svc + m.name + 'ServerImpl(ctx, sink))\n                    },\n';
+    case 'client-streaming':
+      return head
+        + '                        val stream = ' + svc + m.name + 'ServerImpl(ctx, reqs)\n'
+        + '                        impl.' + impl + '(stream)\n'
+        + '                        val resp = stream.resp\n'
+        + '                            ?: throw StatusException(\n'
+        + '                                Wire.CODE_INTERNAL,\n'
+        + '                                "client-streaming handler never called sendAndClose"\n'
+        + '                            )\n'
+        + '                        sink.send(resp.marshalDc())\n                    },\n';
+    default:
+      return head
+        + '                        impl.' + impl + '(' + svc + m.name + 'ServerImpl(ctx, reqs, sink))\n                    },\n';
+  }
+}
+
+function kotlinService(svc) {
+  const sname = svc.name;
+  const all = svc.methods.concat(aliasClientMethods(svc));
+  let regs = svc.methods.concat(aliasServerMethods(svc)).map((m) => kotlinRegisterMethod(m, sname)).join('');
+  if (regs.endsWith(',\n')) regs = regs.slice(0, regs.length - 2) + '\n';
+  return '    /** Client for ' + svc.fullName + '. */\n'
+    + '    class ' + sname + 'Client(private val channel: Channel) {\n'
+    + svc.methods.map((m) => kotlinClientStreamClass(m, sname)).join('')
+    + all.map((m) => kotlinDeprecated(m, '        ') + kotlinClientMethodRaw(m, sname)).join('')
+    + '        // -- async (coroutine / CompletableFuture) surface ---------------\n\n'
+    + all.map((m) => kotlinClientAsyncMethod(m, sname)).join('')
+    + '    }\n\n'
+    + svc.methods.map((m) => kotlinServerStreamIface(m, sname)).join('')
+    + '    /** Service implementation interface for ' + svc.fullName + '. */\n'
+    + '    interface ' + sname + 'Server {\n'
+    + svc.methods.map((m) => kotlinDeprecated(m, '        ') + kotlinServerIfaceMethodRaw(m, sname)).join('')
+    + '    }\n\n'
+    + '    /** Async service implementation interface for ' + svc.fullName + '. */\n'
+    + '    interface ' + sname + 'ServerAsync {\n'
+    + svc.methods.map((m) => kotlinServerAsyncIfaceMethod(m, sname)).join('')
+    + '    }\n\n'
+    + svc.methods.map((m) => kotlinStreamImpl(m, sname)).join('')
+    + '    private class ' + sname + 'ServerAsyncAdapter(private val impl: ' + sname + 'ServerAsync) : ' + sname + 'Server {\n'
+    + svc.methods.map((m) => kotlinServerAsyncAdapterMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    /** Register an implementation of ' + svc.fullName + ' on a Server. */\n'
+    + '    fun register' + sname + 'Server(server: Server, impl: ' + sname + 'Server) {\n'
+    + '        server.registerService(\n'
+    + '            Server.ServiceDesc(\n'
+    + '                ' + q(svc.fullName) + ',\n'
+    + '                listOf(\n'
+    + regs
+    + '                )\n            )\n        )\n    }\n\n'
+    + '    /** Register an async implementation of ' + svc.fullName + ' on a Server. */\n'
+    + '    fun register' + sname + 'ServerAsync(server: Server, impl: ' + sname + 'ServerAsync) {\n'
+    + '        // Adapters are retained for the process lifetime: registration is\n'
+    + '        // once-per-process and bounded by service count.\n'
+    + '        val adapter = ' + sname + 'ServerAsyncAdapter(impl)\n'
+    + '        adapters.add(adapter)\n'
+    + '        register' + sname + 'Server(server, adapter)\n    }\n\n'
+    + '    private val adapters = ArrayList<' + sname + 'ServerAsyncAdapter>()\n';
+}
+
+function emitKotlinFile(model, params) {
+  const base = baseName(model.name);
+  const objectName = pascalName(base) + 'GrpcDc';
+  const pkg = model.package || 'proto';
+  return {
+    name: objectName + '.kt',
+    content: '// @generated by protoc-gen-grpc-dc-kotlin (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n'
+      + 'package ' + pkg + '\n\n'
+      + 'import grpcdc.AsyncPump\nimport grpcdc.Channel\nimport grpcdc.Endpoint\nimport grpcdc.Server\nimport grpcdc.StatusException\nimport grpcdc.Wire\n'
+      + 'import java.io.EOFException\nimport java.util.concurrent.CompletableFuture\n\n'
+      + '/** Generated gRPC-over-DataChannels stubs for ' + model.name + '. */\n'
+      + 'object ' + objectName + ' {\n'
+      + model.services.map(kotlinService).join('')
+      + '}\n',
+  };
+}
+// ---------------------------------------------------------------------------
+// Dart emitter (mirrors racket/template-dart.rkt).
+// ---------------------------------------------------------------------------
+
+function dartDeprecated(m, indent) {
+  return m.deprecated ? indent + "@Deprecated('deprecated in the proto schema')\n" : '';
+}
+
+function dartClientMethodRaw(m, svc) {
+  const name = lowerFirst(m.name);
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '  Future<' + m.output + '> ' + name + '(' + m.input + ' req,\n'
+        + '      {Map<String, String>? metadata, Duration? timeout}) async {\n'
+        + '    final resp = ' + m.output + '();\n'
+        + '    await _channel.unary(' + path + ', req, resp, metadata: metadata, timeout: timeout);\n'
+        + '    return resp;\n  }\n\n';
+    case 'server-streaming':
+      return '  Future<' + svc + m.name + 'Stream> ' + name + '(' + m.input + ' req,\n'
+        + '      {Map<String, String>? metadata, Duration? timeout}) async {\n'
+        + '    return ' + svc + m.name + 'Stream(\n'
+        + '        await _channel.serverStream(' + path + ', req,\n'
+        + '            metadata: metadata, timeout: timeout));\n  }\n\n';
+    case 'client-streaming':
+      return '  Future<' + m.output + '> ' + name + '(List<' + m.input + '> reqs,\n'
+        + '      {Map<String, String>? metadata, Duration? timeout}) async {\n'
+        + '    final resp = ' + m.output + '();\n'
+        + '    await _channel.clientStreamCall(' + path + ', reqs, resp,\n'
+        + '        metadata: metadata, timeout: timeout);\n'
+        + '    return resp;\n  }\n\n';
+    default:
+      return '  Future<' + svc + m.name + 'Stream> ' + name + '(List<' + m.input + '> reqs,\n'
+        + '      {Map<String, String>? metadata, Duration? timeout}) async {\n'
+        + '    return ' + svc + m.name + 'Stream(\n'
+        + '        await _channel.bidi(' + path + ', reqs, metadata: metadata, timeout: timeout));\n  }\n\n';
+  }
+}
+
+function dartClientStreamClass(m, svc) {
+  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
+  return '/// Receiving stream for ' + svc + '/' + m.name + ' responses.\n'
+    + 'class ' + svc + m.name + 'Stream {\n'
+    + '  final ClientStream _stream;\n\n'
+    + '  ' + svc + m.name + 'Stream(this._stream);\n\n'
+    + '  Future<' + m.output + '> recv() async {\n'
+    + '    final resp = ' + m.output + '();\n'
+    + '    await _stream.recv(resp);\n    return resp;\n  }\n\n'
+    + '  /// Responses as a Dart Stream (native async surface).\n'
+    + '  Stream<' + m.output + '> get responses async* {\n'
+    + '    while (true) {\n'
+    + '      try {\n        yield await recv();\n'
+    + '      } on EndOfStreamError {\n        return;\n      }\n    }\n  }\n}\n\n';
+}
+
+function dartServerStreamIface(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return '/// Server-streaming sink passed to service implementations.\n'
+        + 'abstract class ' + svc + m.name + 'Server {\n'
+        + '  void send(' + m.output + ' resp);\n'
+        + '  CallContext get context;\n}\n\n';
+    case 'client-streaming':
+      return '/// Client-streaming stream passed to service implementations.\n'
+        + 'abstract class ' + svc + m.name + 'Server {\n'
+        + '  Future<' + m.input + '> recv();\n'
+        + '  void sendAndClose(' + m.output + ' resp);\n'
+        + '  CallContext get context;\n}\n\n';
+    default:
+      return '/// Bidi stream passed to service implementations.\n'
+        + 'abstract class ' + svc + m.name + 'Server {\n'
+        + '  void send(' + m.output + ' resp);\n'
+        + '  Future<' + m.input + '> recv();\n'
+        + '  CallContext get context;\n}\n\n';
+  }
+}
+
+function dartServerIfaceMethodRaw(m, svc) {
+  const name = lowerFirst(m.name);
+  switch (m.kind) {
+    case 'unary':
+      return '  Future<' + m.output + '> ' + name + '(CallContext ctx, ' + m.input + ' req);\n';
+    case 'server-streaming':
+      return '  Future<void> ' + name + '(' + m.input + ' req, ' + svc + m.name + 'Server stream);\n';
+    default:
+      return '  Future<void> ' + name + '(' + svc + m.name + 'Server stream);\n';
+  }
+}
+
+function dartStreamImpl(m, svc) {
+  const head = 'class _' + svc + m.name + 'ServerImpl implements ' + svc + m.name + 'Server {\n';
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return head
+        + '  @override\n  final CallContext context;\n  final ServerSink _sink;\n\n'
+        + '  _' + svc + m.name + 'ServerImpl(this.context, this._sink);\n\n'
+        + '  @override\n  void send(' + m.output + ' resp) {\n    _sink(resp.marshalDc());\n  }\n}\n\n';
+    case 'client-streaming':
+      return head
+        + '  @override\n  final CallContext context;\n  final RequestStream _reqs;\n'
+        + '  ' + m.output + '? resp;\n\n'
+        + '  _' + svc + m.name + 'ServerImpl(this.context, this._reqs);\n\n'
+        + '  @override\n  Future<' + m.input + '> recv() async {\n'
+        + '    final req = ' + m.input + '();\n'
+        + '    await _reqs.recvInto(req);\n    return req;\n  }\n\n'
+        + '  @override\n  void sendAndClose(' + m.output + ' resp) {\n    this.resp = resp;\n  }\n}\n\n';
+    default:
+      return head
+        + '  @override\n  final CallContext context;\n  final RequestStream _reqs;\n  final ServerSink _sink;\n\n'
+        + '  _' + svc + m.name + 'ServerImpl(this.context, this._reqs, this._sink);\n\n'
+        + '  @override\n  void send(' + m.output + ' resp) {\n    _sink(resp.marshalDc());\n  }\n\n'
+        + '  @override\n  Future<' + m.input + '> recv() async {\n'
+        + '    final req = ' + m.input + '();\n'
+        + '    await _reqs.recvInto(req);\n    return req;\n  }\n}\n\n';
+  }
+}
+
+const DART_KIND_CONSTS = {
+  unary: 'kindUnary',
+  'server-streaming': 'kindServerStreaming',
+  'client-streaming': 'kindClientStreaming',
+  bidi: 'kindBidi',
+};
+
+function dartRegisterMethod(m, svc) {
+  const impl = lowerFirst(m.implName);
+  const kind = DART_KIND_CONSTS[m.kind];
+  switch (m.kind) {
+    case 'unary':
+      return '      Method(' + q(m.name) + ', ' + q(m.path) + ', Server.' + kind + ',\n'
+        + '          (ctx, reqs, sink) async {\n'
+        + '        final req = ' + m.input + '();\n'
+        + '        await reqs.recvInto(req);\n'
+        + '        sink((await impl.' + impl + '(ctx, req)).marshalDc());\n      }),\n';
+    case 'server-streaming':
+      return '      Method(' + q(m.name) + ', ' + q(m.path) + ',\n'
+        + '          Server.' + kind + ', (ctx, reqs, sink) async {\n'
+        + '        final req = ' + m.input + '();\n'
+        + '        await reqs.recvInto(req);\n'
+        + '        await impl.' + impl + '(req, _' + svc + m.name + 'ServerImpl(ctx, sink));\n      }),\n';
+    case 'client-streaming':
+      return '      Method(' + q(m.name) + ', ' + q(m.path) + ',\n'
+        + '          Server.' + kind + ', (ctx, reqs, sink) async {\n'
+        + '        final stream = _' + svc + m.name + 'ServerImpl(ctx, reqs);\n'
+        + '        await impl.' + impl + '(stream);\n'
+        + '        final resp = stream.resp;\n'
+        + '        if (resp == null) {\n'
+        + '          throw StatusException(Wire.codeInternal,\n'
+        + "              'client-streaming handler never called sendAndClose');\n"
+        + '        }\n'
+        + '        sink(resp.marshalDc());\n      }),\n';
+    default:
+      return '      Method(' + q(m.name) + ', ' + q(m.path) + ', Server.' + kind + ',\n'
+        + '          (ctx, reqs, sink) async {\n'
+        + '        await impl.' + impl + '(_' + svc + m.name + 'ServerImpl(ctx, reqs, sink));\n      }),\n';
+  }
+}
+
+function dartService(svc) {
+  const sname = svc.name;
+  return '/// Client for ' + svc.fullName + '.\n'
+    + 'class ' + sname + 'Client {\n'
+    + '  final Channel _channel;\n\n'
+    + '  ' + sname + 'Client(this._channel);\n\n'
+    + svc.methods.concat(aliasClientMethods(svc)).map((m) => dartDeprecated(m, '  ') + dartClientMethodRaw(m, sname)).join('')
+    + '}\n\n'
+    + svc.methods.map((m) => dartClientStreamClass(m, sname)).join('')
+    + svc.methods.map((m) => dartServerStreamIface(m, sname)).join('')
+    + '/// Service implementation interface for ' + svc.fullName + '.\n'
+    + 'abstract class ' + sname + 'Server {\n'
+    + svc.methods.map((m) => dartDeprecated(m, '  ') + dartServerIfaceMethodRaw(m, sname)).join('')
+    + '}\n\n'
+    + svc.methods.map((m) => dartStreamImpl(m, sname)).join('');
+}
+
+function dartRegisterService(svc) {
+  const sname = svc.name;
+  return '  /// Register an implementation of ' + svc.fullName + ' on a Server.\n'
+    + '  static void register' + sname + 'Server(Server server, ' + sname + 'Server impl) {\n'
+    + '    server.registerService(ServiceDesc(' + q(svc.fullName) + ', [\n'
+    + svc.methods.concat(aliasServerMethods(svc)).map((m) => dartRegisterMethod(m, sname)).join('')
+    + '    ]));\n  }\n';
+}
+
+function emitDartFile(model, params) {
+  const base = baseName(model.name);
+  const className = pascalName(base) + 'GrpcDc';
+  return {
+    name: base + '_grpc_dc.dart',
+    content: '// @generated by protoc-gen-grpc-dc-dart (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n\n'
+      + "import 'dart:async';\n\n"
+      + "import '../grpcdc/channel.dart';\nimport '../grpcdc/endpoint.dart';\nimport '../grpcdc/server.dart';\nimport '../grpcdc/status.dart';\nimport '../grpcdc/wire.dart';\n"
+      + "import '" + base + "_messages.dart';\n\n"
+      + model.services.map(dartService).join('')
+      + '/// Generated gRPC-over-DataChannels stubs for ' + model.name + '.\n'
+      + 'class ' + className + ' {\n'
+      + model.services.map(dartRegisterService).join('')
+      + '}\n',
+  };
+}
+// ---------------------------------------------------------------------------
+// Zig emitter (mirrors racket/template-zig.rkt).
+// ---------------------------------------------------------------------------
+
+function zigSnake(s) {
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c >= 'A' && c <= 'Z') out += (i === 0 ? '' : '_') + c.toLowerCase();
+    else out += c;
+  }
+  return out;
+}
+
+function zigDeprecated(m, indent) {
+  return m.deprecated ? indent + '/// Deprecated in the proto schema.\n' : '';
+}
+
+function zigClientMethodRaw(m, svc) {
+  const name = lowerFirst(m.name);
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '    pub fn ' + name + '(self: *' + svc + 'Client, req: *const ' + m.input + ', metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(' + m.output + ') {\n'
+        + '        var resp = ' + m.output + '{};\n'
+        + '        const st = self.channel.unary(' + path + ', req, &resp, metadata, timeout_ms);\n'
+        + '        if (!st.isOk()) return .{ .status = st };\n'
+        + '        return .{ .ok = resp };\n    }\n\n';
+    case 'server-streaming':
+      return '    pub fn ' + name + '(self: *' + svc + 'Client, req: *const ' + m.input + ', metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(' + svc + m.name + 'Client) {\n'
+        + '        switch (self.channel.serverStream(' + path + ', req, metadata, timeout_ms)) {\n'
+        + '            .ok => |stream| return .{ .ok = .{ .stream = stream } },\n'
+        + '            .status => |st| return .{ .status = st },\n        }\n    }\n\n';
+    case 'client-streaming':
+      return '    pub fn ' + name + '(self: *' + svc + 'Client, reqs: []const ' + m.input + ', metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(' + m.output + ') {\n'
+        + '        var resp = ' + m.output + '{};\n'
+        + '        const st = self.channel.clientStreamCall(' + path + ', reqs, &resp, metadata, timeout_ms);\n'
+        + '        if (!st.isOk()) return .{ .status = st };\n'
+        + '        return .{ .ok = resp };\n    }\n\n';
+    default:
+      return '    pub fn ' + name + '(self: *' + svc + 'Client, reqs: []const ' + m.input + ', metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(' + svc + m.name + 'Client) {\n'
+        + '        switch (self.channel.bidi(' + path + ', reqs, metadata, timeout_ms)) {\n'
+        + '            .ok => |stream| return .{ .ok = .{ .stream = stream } },\n'
+        + '            .status => |st| return .{ .status = st },\n        }\n    }\n\n';
+  }
+}
+
+function zigClientStreamClass(m, svc) {
+  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
+  return '/// Response stream of a ' + m.name + ' call.\n'
+    + 'pub const ' + svc + m.name + 'Client = struct {\n'
+    + '    stream: ClientStream,\n\n'
+    + '    pub fn recv(self: *' + svc + m.name + 'Client) status_mod.RecvResult(' + m.output + ') {\n'
+    + '        var resp = ' + m.output + '{};\n'
+    + '        switch (self.stream.recvInto(&resp)) {\n'
+    + '            .message => return .{ .message = resp },\n'
+    + '            .end => return .end,\n'
+    + '            .status => |st| return .{ .status = st },\n        }\n    }\n\n'
+    + '    pub fn deinit(self: *' + svc + m.name + 'Client) void {\n'
+    + '        self.stream.deinit();\n    }\n};\n\n';
+}
+
+function zigServerStreamStruct(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return '/// Sends responses of a ' + m.name + ' call.\n'
+        + 'pub const ' + svc + m.name + 'Server = struct {\n'
+        + '    sink: server_mod.Sink,\n    alloc: std.mem.Allocator,\n\n'
+        + '    pub fn send(self: *' + svc + m.name + 'Server, resp: *const ' + m.output + ') Status {\n'
+        + '        const payload = resp.marshalDc(self.alloc);\n'
+        + '        defer self.alloc.free(payload);\n'
+        + '        self.sink.send(payload);\n'
+        + '        return Status.ok();\n    }\n};\n\n';
+    case 'client-streaming':
+      return '/// Receives requests of a ' + m.name + ' call.\n'
+        + 'pub const ' + svc + m.name + 'Server = struct {\n'
+        + '    reqs: *server_mod.RequestStream,\n    alloc: std.mem.Allocator,\n'
+        + '    resp: ?' + m.output + ' = null,\n\n'
+        + '    pub fn recv(self: *' + svc + m.name + 'Server) status_mod.RecvResult(' + m.input + ') {\n'
+        + '        var req = ' + m.input + '{};\n'
+        + '        switch (self.reqs.recvInto(&req)) {\n'
+        + '            .message => return .{ .message = req },\n'
+        + '            .end => return .end,\n'
+        + '            .status => |st| return .{ .status = st },\n        }\n    }\n\n'
+        + '    pub fn sendAndClose(self: *' + svc + m.name + 'Server, resp: ' + m.output + ') void {\n'
+        + '        self.resp = resp;\n    }\n};\n\n';
+    default:
+      return '/// Full-duplex stream of a ' + m.name + ' call.\n'
+        + 'pub const ' + svc + m.name + 'Server = struct {\n'
+        + '    reqs: *server_mod.RequestStream,\n    sink: server_mod.Sink,\n    alloc: std.mem.Allocator,\n\n'
+        + '    pub fn recv(self: *' + svc + m.name + 'Server) status_mod.RecvResult(' + m.input + ') {\n'
+        + '        var req = ' + m.input + '{};\n'
+        + '        switch (self.reqs.recvInto(&req)) {\n'
+        + '            .message => return .{ .message = req },\n'
+        + '            .end => return .end,\n'
+        + '            .status => |st| return .{ .status = st },\n        }\n    }\n\n'
+        + '    pub fn send(self: *' + svc + m.name + 'Server, resp: *const ' + m.output + ') Status {\n'
+        + '        const payload = resp.marshalDc(self.alloc);\n'
+        + '        defer self.alloc.free(payload);\n'
+        + '        self.sink.send(payload);\n'
+        + '        return Status.ok();\n    }\n};\n\n';
+  }
+}
+
+function zigServerVtableField(m, svc) {
+  const name = zigSnake(m.name);
+  switch (m.kind) {
+    case 'unary':
+      return '    ' + name + '_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const ' + m.input + ', resp: *' + m.output + ', alloc: std.mem.Allocator) Status,\n';
+    case 'server-streaming':
+      return '    ' + name + '_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const ' + m.input + ', stream: *' + svc + m.name + 'Server) Status,\n';
+    default:
+      return '    ' + name + '_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, stream: *' + svc + m.name + 'Server) Status,\n';
+  }
+}
+
+function zigAdapter(m, svc) {
+  const name = lowerFirst(m.name);
+  const impl = zigSnake(m.implName);
+  const head = 'fn ' + name + 'Adapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n'
+    + '    const impl: *' + svc + 'Server = @ptrCast(@alignCast(ctx));\n';
+  switch (m.kind) {
+    case 'unary':
+      return head
+        + '    var req = ' + m.input + '{};\n'
+        + '    switch (reqs.recvInto(&req)) {\n'
+        + '        .message => {},\n'
+        + '        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),\n'
+        + '        .status => |st| return st,\n    }\n'
+        + '    var arena = std.heap.ArenaAllocator.init(reqs.alloc);\n'
+        + '    defer arena.deinit();\n'
+        + '    var resp = ' + m.output + '{};\n'
+        + '    const st = impl.' + impl + '_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());\n'
+        + '    if (!st.isOk()) return st;\n'
+        + '    const payload = resp.marshalDc(reqs.alloc);\n'
+        + '    defer reqs.alloc.free(payload);\n'
+        + '    sink.send(payload);\n'
+        + '    return Status.ok();\n}\n\n';
+    case 'server-streaming':
+      return head
+        + '    var req = ' + m.input + '{};\n'
+        + '    switch (reqs.recvInto(&req)) {\n'
+        + '        .message => {},\n'
+        + '        .end => return Status.init(wire.codeInternal, "server-streaming call closed with no request"),\n'
+        + '        .status => |st| return st,\n    }\n'
+        + '    var stream = ' + svc + m.name + 'Server{ .sink = sink, .alloc = reqs.alloc };\n'
+        + '    return impl.' + impl + '_fn(impl.ctx, call_ctx, &req, &stream);\n}\n\n';
+    case 'client-streaming':
+      return head
+        + '    var arena = std.heap.ArenaAllocator.init(reqs.alloc);\n'
+        + '    defer arena.deinit();\n'
+        + '    var stream = ' + svc + m.name + 'Server{ .reqs = reqs, .alloc = arena.allocator() };\n'
+        + '    const st = impl.' + impl + '_fn(impl.ctx, call_ctx, &stream);\n'
+        + '    if (!st.isOk()) return st;\n'
+        + '    const resp = stream.resp orelse\n'
+        + '        return Status.init(wire.codeInternal, "client-streaming handler never called sendAndClose");\n'
+        + '    const payload = resp.marshalDc(reqs.alloc);\n'
+        + '    defer reqs.alloc.free(payload);\n'
+        + '    sink.send(payload);\n'
+        + '    return Status.ok();\n}\n\n';
+    default:
+      return head
+        + '    var stream = ' + svc + m.name + 'Server{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc };\n'
+        + '    return impl.' + impl + '_fn(impl.ctx, call_ctx, &stream);\n}\n\n';
+  }
+}
+
+const ZIG_KIND_CONSTS = {
+  unary: 'unary',
+  'server-streaming': 'server_streaming',
+  'client-streaming': 'client_streaming',
+  bidi: 'bidi',
+};
+
+function zigRegisterMethod(m) {
+  return '                .{ .name = ' + q(m.name) + ', .path = ' + q(m.path) + ', .kind = .' + ZIG_KIND_CONSTS[m.kind] + ', .ctx = impl, .handler = ' + lowerFirst(m.name) + 'Adapter },\n';
+}
+
+function zigService(svc) {
+  const sname = svc.name;
+  return '/// Client for ' + svc.fullName + '.\n'
+    + 'pub const ' + sname + 'Client = struct {\n'
+    + '    channel: *Channel,\n\n'
+    + '    pub fn init(channel: *Channel) ' + sname + 'Client {\n'
+    + '        return .{ .channel = channel };\n    }\n\n'
+    + svc.methods.concat(aliasClientMethods(svc)).map((m) => zigDeprecated(m, '    ') + zigClientMethodRaw(m, sname)).join('')
+    + '};\n\n'
+    + svc.methods.map((m) => zigClientStreamClass(m, sname)).join('')
+    + svc.methods.map((m) => zigServerStreamStruct(m, sname)).join('')
+    + '/// Service implementation interface for ' + svc.fullName + ' (vtable: Zig has no\n'
+    + '/// interfaces, so generated stubs dispatch through fn pointers).\n'
+    + 'pub const ' + sname + 'Server = struct {\n'
+    + '    ctx: *anyopaque,\n'
+    + svc.methods.map((m) => zigServerVtableField(m, sname)).join('')
+    + '};\n\n'
+    + svc.methods.concat(aliasServerMethods(svc)).map((m) => zigAdapter(m, sname)).join('');
+}
+
+function zigMessageNames(model) {
+  const seen = [];
+  for (const svc of model.services) {
+    for (const m of svc.methods) {
+      for (const t of [m.input, m.output]) if (!seen.includes(t)) seen.push(t);
+    }
+  }
+  return seen;
+}
+
+function zigRegisterService(svc) {
+  const sname = svc.name;
+  return '    /// Register an implementation of ' + svc.fullName + ' on a Server.\n'
+    + '    pub fn register' + sname + 'Server(server: *Server, impl: *' + sname + 'Server) void {\n'
+    + '        server.registerService(.{\n'
+    + '            .name = ' + q(svc.fullName) + ',\n'
+    + '            .methods = &.{\n'
+    + svc.methods.concat(aliasServerMethods(svc)).map(zigRegisterMethod).join('')
+    + '            },\n        });\n    }\n';
+}
+
+function emitZigFile(model, params) {
+  const base = baseName(model.name);
+  const className = pascalName(base) + 'GrpcDc';
+  return {
+    name: base + '_grpc_dc.zig',
+    content: '// @generated by protoc-gen-grpc-dc-zig (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n\n'
+      + 'const std = @import("std");\n'
+      + 'const grpcdc = @import("grpcdc");\n'
+      + 'const channel_mod = grpcdc.channel;\nconst endpoint_mod = grpcdc.endpoint;\nconst server_mod = grpcdc.server;\nconst status_mod = grpcdc.status;\nconst wire = grpcdc.wire;\n'
+      + 'const messages = @import("' + base + '_messages.zig");\n\n'
+      + 'pub const Channel = channel_mod.Channel;\n'
+      + 'pub const ClientStream = channel_mod.ClientStream;\n'
+      + 'pub const CallContext = endpoint_mod.CallContext;\n'
+      + 'pub const Server = server_mod.Server;\n'
+      + 'pub const Status = status_mod.Status;\n'
+      + 'pub const Metadata = channel_mod.Metadata;\n'
+      + zigMessageNames(model).map((msg) => 'pub const ' + msg + ' = messages.' + msg + ';\n').join('')
+      + '\n'
+      + model.services.map(zigService).join('')
+      + '/// Generated gRPC-over-DataChannels stubs for ' + model.name + '.\n'
+      + 'pub const ' + className + ' = struct {\n'
+      + model.services.map(zigRegisterService).join('')
+      + '};\n',
+  };
+}
+// ---------------------------------------------------------------------------
+// Lua emitter (mirrors racket/template-lua.rkt).
+// ---------------------------------------------------------------------------
+
+function luaDeprecated(m) {
+  return m.deprecated ? '--- Deprecated in the proto schema.\n' : '';
+}
+
+function luaClientMethodRaw(m, svc) {
+  const name = lowerFirst(m.name);
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return 'function ' + svc + 'Client:' + name + '(req, metadata, timeout)\n'
+        + '  local resp = ' + m.output + '.new()\n'
+        + '  self.channel:unary(' + path + ', req, resp, metadata, timeout)\n'
+        + '  return resp\nend\n\n';
+    case 'server-streaming':
+      return 'function ' + svc + 'Client:' + name + '(req, metadata, timeout)\n'
+        + '  return ' + svc + m.name + 'Stream.new(\n'
+        + '    self.channel:serverStream(' + path + ', req, metadata, timeout))\nend\n\n';
+    case 'client-streaming':
+      return 'function ' + svc + 'Client:' + name + '(reqs, metadata, timeout)\n'
+        + '  local resp = ' + m.output + '.new()\n'
+        + '  self.channel:clientStreamCall(' + path + ', reqs, resp, metadata, timeout)\n'
+        + '  return resp\nend\n\n';
+    default:
+      return 'function ' + svc + 'Client:' + name + '(reqs, metadata, timeout)\n'
+        + '  return ' + svc + m.name + 'Stream.new(self.channel:bidi(' + path + ', reqs, metadata, timeout))\nend\n\n';
+  }
+}
+
+function luaCoroClientStreamClass(m, svc) {
+  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
+  const t = svc + m.name + 'CoroStream';
+  return '--- Coroutine receiving stream for ' + m.name + ' responses: a producer\n'
+    + '--- coroutine yields each response; next() returns nil at the\n'
+    + '--- end of the call and raises a Status on trailers errors.\n'
+    + 'local ' + t + ' = {}\n'
+    + t + '.__index = ' + t + '\n\n'
+    + 'function ' + t + '.new(stream)\n'
+    + '  local self = setmetatable({ stream = stream }, ' + t + ')\n'
+    + '  self.co = coroutine.create(function()\n'
+    + '    while true do\n'
+    + '      local resp = ' + m.output + '.new()\n'
+    + '      stream:recv(resp)\n'
+    + '      coroutine.yield(resp)\n    end\n  end)\n'
+    + '  return self\nend\n\n'
+    + 'function ' + t + ':next()\n'
+    + '  if coroutine.status(self.co) == "dead" then return nil end\n'
+    + '  local ok, value = coroutine.resume(self.co)\n'
+    + '  if not ok then\n'
+    + '    if value == EndOfStream then return nil end\n'
+    + '    error(value, 0)\n  end\n'
+    + '  return value\nend\n\n'
+    + 'function ' + t + ':cancel()\n  self.stream:cancel()\nend\n\n'
+    + '--- Generic-for iterator: for resp in stream:iter() do ... end\n'
+    + 'function ' + t + ':iter()\n  return function() return self:next() end\nend\n\n';
+}
+
+function luaCoroClientMethod(m, svc) {
+  const name = lowerFirst(m.name);
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return 'function ' + svc + 'ClientCoro:' + name + '(req, metadata, timeout)\n'
+        + '  local resp = ' + m.output + '.new()\n'
+        + '  self.channel:unary(' + path + ', req, resp, metadata, timeout)\n'
+        + '  return resp\nend\n\n';
+    case 'server-streaming':
+      return 'function ' + svc + 'ClientCoro:' + name + '(req, metadata, timeout)\n'
+        + '  return ' + svc + m.name + 'CoroStream.new(\n'
+        + '    self.channel:serverStream(' + path + ', req, metadata, timeout))\nend\n\n';
+    case 'client-streaming':
+      return 'function ' + svc + 'ClientCoro:' + name + '(reqs, metadata, timeout)\n'
+        + '  local resp = ' + m.output + '.new()\n'
+        + '  self.channel:clientStreamCall(' + path + ', reqs, resp, metadata, timeout)\n'
+        + '  return resp\nend\n\n';
+    default:
+      return 'function ' + svc + 'ClientCoro:' + name + '(reqs, metadata, timeout)\n'
+        + '  return ' + svc + m.name + 'CoroStream.new(self.channel:bidi(' + path + ', reqs, metadata, timeout))\nend\n\n';
+  }
+}
+
+function luaClientStreamClass(m, svc) {
+  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
+  const t = svc + m.name + 'Stream';
+  return '--- Receiving stream for ' + m.name + ' responses.\n'
+    + 'local ' + t + ' = {}\n'
+    + t + '.__index = ' + t + '\n\n'
+    + 'function ' + t + '.new(stream)\n'
+    + '  return setmetatable({ stream = stream }, ' + t + ')\nend\n\n'
+    + '--- Next response; raises EndOfStream at the end of the call.\n'
+    + 'function ' + t + ':recv()\n'
+    + '  local resp = ' + m.output + '.new()\n'
+    + '  self.stream:recv(resp)\n  return resp\nend\n\n';
+}
+
+function luaServerStreamClass(m, svc) {
+  const t = svc + m.name + 'Server';
+  switch (m.kind) {
+    case 'unary':
+      return '';
+    case 'server-streaming':
+      return '--- Server-streaming sink passed to service implementations.\n'
+        + 'local ' + t + ' = {}\n' + t + '.__index = ' + t + '\n\n'
+        + 'function ' + t + '.new(sink)\n'
+        + '  return setmetatable({ sink = sink }, ' + t + ')\nend\n\n'
+        + 'function ' + t + ':send(resp)\n  self.sink(resp:marshalDc())\nend\n\n';
+    case 'client-streaming':
+      return '--- Client-streaming stream passed to service implementations.\n'
+        + 'local ' + t + ' = {}\n' + t + '.__index = ' + t + '\n\n'
+        + 'function ' + t + '.new(reqs)\n'
+        + '  return setmetatable({ reqs = reqs, resp = nil }, ' + t + ')\nend\n\n'
+        + 'function ' + t + ':recv()\n'
+        + '  local req = ' + m.input + '.new()\n'
+        + '  self.reqs:recvInto(req)\n  return req\nend\n\n'
+        + 'function ' + t + ':sendAndClose(resp)\n  self.resp = resp\nend\n\n';
+    default:
+      return '--- Bidi stream passed to service implementations.\n'
+        + 'local ' + t + ' = {}\n' + t + '.__index = ' + t + '\n\n'
+        + 'function ' + t + '.new(reqs, sink)\n'
+        + '  return setmetatable({ reqs = reqs, sink = sink }, ' + t + ')\nend\n\n'
+        + 'function ' + t + ':send(resp)\n  self.sink(resp:marshalDc())\nend\n\n'
+        + 'function ' + t + ':recv()\n'
+        + '  local req = ' + m.input + '.new()\n'
+        + '  self.reqs:recvInto(req)\n  return req\nend\n\n';
+  }
+}
+
+const LUA_KIND_CONSTS = {
+  unary: 'KIND_UNARY',
+  'server-streaming': 'KIND_SERVER_STREAMING',
+  'client-streaming': 'KIND_CLIENT_STREAMING',
+  bidi: 'KIND_BIDI',
+};
+
+function luaRegisterMethod(m, svc) {
+  const impl = lowerFirst(m.implName);
+  const head = '      {\n        name = ' + q(m.name) + ',\n        path = ' + q(m.path) + ',\n        kind = Server.' + LUA_KIND_CONSTS[m.kind] + ',\n        handler = function(ctx, reqs, sink)\n';
+  switch (m.kind) {
+    case 'unary':
+      return head
+        + '          local req = ' + m.input + '.new()\n'
+        + '          reqs:recvInto(req)\n'
+        + '          sink(impl:' + impl + '(ctx, req):marshalDc())\n        end,\n      },\n';
+    case 'server-streaming':
+      return head
+        + '          local req = ' + m.input + '.new()\n'
+        + '          reqs:recvInto(req)\n'
+        + '          impl:' + impl + '(ctx, req, ' + svc + m.name + 'Server.new(sink))\n        end,\n      },\n';
+    case 'client-streaming':
+      return head
+        + '          local stream = ' + svc + m.name + 'Server.new(reqs)\n'
+        + '          impl:' + impl + '(ctx, stream)\n'
+        + '          local resp = stream.resp\n'
+        + '          if resp == nil then\n'
+        + '            error(Status.new(wire.CODE_INTERNAL,\n'
+        + '              "client-streaming handler never called sendAndClose"), 0)\n'
+        + '          end\n'
+        + '          sink(resp:marshalDc())\n        end,\n      },\n';
+    default:
+      return head
+        + '          impl:' + impl + '(ctx, ' + svc + m.name + 'Server.new(reqs, sink))\n        end,\n      },\n';
+  }
+}
+
+function luaService(svc) {
+  const sname = svc.name;
+  const all = svc.methods.concat(aliasClientMethods(svc));
+  return svc.methods.map((m) => luaClientStreamClass(m, sname)).join('')
+    + svc.methods.map((m) => luaServerStreamClass(m, sname)).join('')
+    + '--- Client for ' + svc.fullName + '.\n'
+    + 'local ' + sname + 'Client = {}\n'
+    + sname + 'Client.__index = ' + sname + 'Client\n\n'
+    + 'function ' + sname + 'Client.new(channel)\n'
+    + '  return setmetatable({ channel = channel }, ' + sname + 'Client)\nend\n\n'
+    + all.map((m) => luaDeprecated(m) + luaClientMethodRaw(m, sname)).join('')
+    + svc.methods.map((m) => luaCoroClientStreamClass(m, sname)).join('')
+    + '--- Coroutine client for ' + svc.fullName + '.\n'
+    + 'local ' + sname + 'ClientCoro = {}\n'
+    + sname + 'ClientCoro.__index = ' + sname + 'ClientCoro\n\n'
+    + 'function ' + sname + 'ClientCoro.new(channel)\n'
+    + '  return setmetatable({ channel = channelModule.CoroutineChannel.new(channel) }, ' + sname + 'ClientCoro)\nend\n\n'
+    + all.map((m) => luaDeprecated(m) + luaCoroClientMethod(m, sname)).join('');
+}
+
+function luaRegisterService(svc) {
+  const sname = svc.name;
+  return '--- Register an implementation of ' + svc.fullName + ' on a Server. The impl is\n'
+    + '--- a table with unary/serverStream/clientStream/bidi functions\n'
+    + '--- (duck-typed, mirroring the generated adapters below).\n'
+    + 'local function register' + sname + 'Server(server, impl)\n'
+    + '  server:registerService({\n'
+    + '    name = ' + q(svc.fullName) + ',\n'
+    + '    methods = {\n'
+    + svc.methods.concat(aliasServerMethods(svc)).map((m) => luaRegisterMethod(m, sname)).join('')
+    + '    },\n  })\nend\n\n';
+}
+
+function luaReturnEntry(svc) {
+  const sname = svc.name;
+  let out = '  ' + sname + 'Client = ' + sname + 'Client,\n'
+    + '  ' + sname + 'ClientCoro = ' + sname + 'ClientCoro,\n';
+  for (const m of svc.methods) {
+    if (m.kind === 'server-streaming' || m.kind === 'bidi') out += '  ' + sname + m.name + 'CoroStream = ' + sname + m.name + 'CoroStream,\n';
+  }
+  for (const m of svc.methods) {
+    if (m.kind === 'server-streaming' || m.kind === 'bidi') out += '  ' + sname + m.name + 'Stream = ' + sname + m.name + 'Stream,\n';
+  }
+  for (const m of svc.methods) {
+    if (m.kind !== 'unary') out += '  ' + sname + m.name + 'Server = ' + sname + m.name + 'Server,\n';
+  }
+  return out + '  register' + sname + 'Server = register' + sname + 'Server,\n';
+}
+
+function emitLuaFile(model, params) {
+  const base = baseName(model.name);
+  return {
+    name: base + '_grpc_dc.lua',
+    content: '-- @generated by protoc-gen-grpc-dc-lua (Racket metaprogram). DO NOT EDIT.\n'
+      + '-- source: ' + model.name + '\n\n'
+      + 'local channelModule = require("grpcdc.channel")\n'
+      + 'local serverModule = require("grpcdc.server")\n'
+      + 'local statusModule = require("grpcdc.status")\n'
+      + 'local wire = require("grpcdc.wire")\n'
+      + 'local messages = require("examples.' + base + '_messages")\n\n'
+      + 'local Channel = channelModule.Channel\n'
+      + 'local Server = serverModule.Server\n'
+      + 'local Status = statusModule.Status\n'
+      + 'local EndOfStream = statusModule.EndOfStream\n\n'
+      + zigMessageNames(model).map((msg) => 'local ' + msg + ' = messages.' + msg + '\n').join('')
+      + '\n'
+      + model.services.map(luaService).join('')
+      + model.services.map(luaRegisterService).join('')
+      + 'return {\n'
+      + model.services.map(luaReturnEntry).join('')
+      + '}\n',
+  };
+}
+// ---------------------------------------------------------------------------
+// Ruby emitter (mirrors racket/template-ruby.rkt).
+// ---------------------------------------------------------------------------
+
+function camelName(s) {
+  return s.split('_').map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part)).join('');
+}
+
+function rbDeprecated(m) {
+  return m.deprecated ? '      warn "deprecated"\n' : '';
+}
+
+function rbClientMethodKind(pb, m, fiber) {
+  const path = q(m.path);
+  const recvCls = fiber ? 'FiberRecvStream' : 'RecvStream';
+  switch (m.kind) {
+    case 'unary':
+      return '    def ' + m.name + '(req, metadata = nil, timeout: nil)\n'
+        + rbDeprecated(m)
+        + '      @channel.unary(' + path + ', req, ' + pb + '::' + m.output + '.new, metadata, timeout: timeout)\n    end\n\n';
+    case 'server-streaming':
+      return '    def ' + m.name + '(req, metadata = nil, timeout: nil)\n'
+        + rbDeprecated(m)
+        + '      stream = @channel.server_stream(' + path + ', req, metadata, timeout: timeout)\n'
+        + '      ' + recvCls + '.new(stream, ' + pb + '::' + m.output + ')\n    end\n\n';
+    case 'client-streaming':
+      return '    def ' + m.name + '(reqs, metadata = nil, timeout: nil)\n'
+        + rbDeprecated(m)
+        + '      @channel.client_stream(' + path + ', reqs, ' + pb + '::' + m.output + '.new, metadata, timeout: timeout)\n    end\n\n';
+    default:
+      return '    def ' + m.name + '(reqs, metadata = nil, timeout: nil)\n'
+        + rbDeprecated(m)
+        + '      stream = @channel.bidi(' + path + ', reqs, metadata, timeout: timeout)\n'
+        + '      ' + recvCls + '.new(stream, ' + pb + '::' + m.output + ')\n    end\n\n';
+  }
+}
+
+function rbServerHandler(pb, m) {
+  const handlerVar = snake(m.name) + '_handler';
+  const impl = m.implName;
+  switch (m.kind) {
+    case 'unary':
+      return '    ' + handlerVar + ' = lambda do |ctx, reqs, sink|\n'
+        + '      req = reqs.recv_into(' + pb + '::' + m.input + '.new)\n'
+        + '      resp = impl.' + impl + '(ctx, req)\n'
+        + '      sink.send(resp.marshal_dc)\n    end\n\n';
+    case 'server-streaming':
+      return '    ' + handlerVar + ' = lambda do |ctx, reqs, sink|\n'
+        + '      req = reqs.recv_into(' + pb + '::' + m.input + '.new)\n'
+        + '      impl.' + impl + '(req, SendStream.new(ctx, sink))\n    end\n\n';
+    case 'client-streaming':
+      return '    ' + handlerVar + ' = lambda do |ctx, reqs, sink|\n'
+        + '      stream = ClientStreamImpl.new(ctx, reqs, ' + pb + '::' + m.input + ')\n'
+        + '      impl.' + impl + '(stream)\n'
+        + '      if stream.resp.nil?\n'
+        + '        raise Grpcdc::StatusError.new(Grpcdc::CODE_INTERNAL, "client-streaming handler never called SendAndClose")\n'
+        + '      end\n'
+        + '      sink.send(stream.resp.marshal_dc)\n    end\n\n';
+    default:
+      return '    ' + handlerVar + ' = lambda do |ctx, reqs, sink|\n'
+        + '      impl.' + impl + '(BidiStream.new(ctx, reqs, sink, ' + pb + '::' + m.input + '))\n    end\n\n';
+  }
+}
+
+const RB_KIND_NAMES = {
+  unary: 'KIND_UNARY',
+  'server-streaming': 'KIND_SERVER_STREAMING',
+  'client-streaming': 'KIND_CLIENT_STREAMING',
+  bidi: 'KIND_BIDI',
+};
+
+function rbMethodEntry(m) {
+  return '        Grpcdc::Method.new(' + q(m.name) + ', ' + q(m.path) + ', Grpcdc::' + RB_KIND_NAMES[m.kind] + ', ' + snake(m.name) + '_handler),\n';
+}
+
+const RB_STREAM_HELPERS = `  # Client receiving stream: recv raises EOFError at end.
+  class RecvStream
+    include Enumerable
+
+    def initialize(stream, resp_cls)
+      @stream = stream
+      @resp_cls = resp_cls
+    end
+
+    def recv
+      @stream.recv(@resp_cls.new)
+    end
+
+    def each
+      return enum_for(:each) unless block_given?
+
+      loop do
+        begin
+          yield recv
+        rescue EOFError
+          return
+        end
+      end
+    end
+  end
+
+  # Server-streaming sink passed to service implementations.
+  class SendStream
+    attr_reader :context
+
+    def initialize(ctx, sink)
+      @context = ctx
+      @sink = sink
+    end
+
+    def send(resp)
+      @sink.send(resp.marshal_dc)
+    end
+  end
+
+  # Client-streaming stream passed to service implementations.
+  class ClientStreamImpl
+    attr_reader :context, :resp
+
+    def initialize(ctx, reqs, req_cls)
+      @context = ctx
+      @reqs = reqs
+      @req_cls = req_cls
+      @resp = nil
+    end
+
+    def recv
+      @reqs.recv_into(@req_cls.new)
+    end
+
+    def send_and_close(resp)
+      @resp = resp
+    end
+  end
+
+  # Bidi stream passed to service implementations.
+  class BidiStream
+    attr_reader :context
+
+    def initialize(ctx, reqs, sink, req_cls)
+      @context = ctx
+      @reqs = reqs
+      @sink = sink
+      @req_cls = req_cls
+    end
+
+    def send(resp)
+      @sink.send(resp.marshal_dc)
+    end
+
+    def recv
+      @reqs.recv_into(@req_cls.new)
+    end
+  end
+
+  # Fiber-based client receiving stream: a producer Fiber
+  # yields each response; next_msg resumes it and raises
+  # StopIteration when the call completes. cancel aborts
+  # the underlying stream (RST).
+  class FiberRecvStream
+    include Enumerable
+
+    DONE = Object.new
+
+    def initialize(stream, resp_cls)
+      @stream = stream
+      @resp_cls = resp_cls
+      @fiber = Fiber.new do
+        begin
+          loop { Fiber.yield(@stream.recv(@resp_cls.new)) }
+        rescue EOFError
+          DONE
+        end
+      end
+    end
+
+    def next_msg
+      value = @fiber.resume
+      raise StopIteration if value.equal?(DONE)
+
+      value
+    end
+
+    def cancel
+      @stream.cancel
+    end
+
+    def each
+      return enum_for(:each) unless block_given?
+
+      loop do
+        begin
+          yield next_msg
+        rescue StopIteration
+          return
+        end
+      end
+    end
+  end
+
+`;
+
+function rbService(pb, svc) {
+  const sname = svc.name;
+  const all = svc.methods.concat(aliasClientMethods(svc));
+  const allServer = svc.methods.concat(aliasServerMethods(svc));
+  return '  class ' + sname + 'Client\n    def initialize(channel)\n      @channel = channel\n    end\n\n'
+    + all.map((m) => rbClientMethodKind(pb, m, false)).join('')
+    + '  end\n\n'
+    + '  # Fiber client: wraps a Grpcdc::FiberChannel (a sync Channel is wrapped).\n'
+    + '  class ' + sname + 'ClientFiber\n    def initialize(channel)\n      @channel = channel.is_a?(Grpcdc::FiberChannel) ? channel : Grpcdc::FiberChannel.new(channel)\n    end\n\n'
+    + all.map((m) => rbClientMethodKind(pb, m, true)).join('')
+    + '  end\n\n'
+    + '  def self.register_' + snake(sname) + '_server(server, impl)\n'
+    + allServer.map((m) => rbServerHandler(pb, m)).join('')
+    + '    server.register_service(Grpcdc::ServiceDesc.new(\n      ' + q(svc.fullName) + ',\n      [\n'
+    + allServer.map(rbMethodEntry).join('')
+    + '      ]\n    ))\n  end\n';
+}
+
+function emitRubyFile(model, params) {
+  const base = baseName(model.name);
+  const pb = camelName(base) + 'Pb';
+  const mod = camelName(base) + 'GrpcDc';
+  return {
+    name: base + '_grpc_dc.rb',
+    content: '# @generated by protoc-gen-grpc-dc-ruby (Racket metaprogram). DO NOT EDIT.\n'
+      + '# source: ' + model.name + '\n\n'
+      + 'require_relative "' + base + '_pb"\nrequire "grpcdc"\n\n'
+      + 'module ' + mod + '\n'
+      + RB_STREAM_HELPERS
+      + model.services.map((svc) => rbService(pb, svc)).join('')
+      + 'end\n',
+  };
+}
+// ---------------------------------------------------------------------------
+// PHP emitter (mirrors racket/template-php.rkt).
+// ---------------------------------------------------------------------------
+
+function phpDeprecated(m) {
+  return m.deprecated ? '        trigger_error("deprecated", E_USER_DEPRECATED);\n' : '';
+}
+
+function phpClientMethodKind(pb, m, fiber) {
+  const path = q(m.path);
+  const depr = phpDeprecated(m);
+  const recvCls = fiber ? 'FiberRecvStream' : 'RecvStream';
+  const type = (t) => '\\' + pb + '\\' + t;
+  switch (m.kind) {
+    case 'unary':
+      return '    public function ' + m.name + '(' + type(m.input) + ' $req, ?array $metadata = null, ?float $timeout = null): ' + type(m.output) + '\n'
+        + '    {\n' + depr + '        return $this->channel->unary(' + path + ', $req, new ' + type(m.output) + '(), $metadata, $timeout);\n    }\n\n';
+    case 'server-streaming':
+      return '    public function ' + m.name + '(' + type(m.input) + ' $req, ?array $metadata = null, ?float $timeout = null): ' + recvCls + '\n'
+        + '    {\n' + depr + '        $stream = $this->channel->serverStream(' + path + ', $req, $metadata, $timeout);\n'
+        + '        return new ' + recvCls + '($stream, ' + type(m.output) + '::class);\n    }\n\n';
+    case 'client-streaming':
+      return '    public function ' + m.name + '(array $reqs, ?array $metadata = null, ?float $timeout = null): ' + type(m.output) + '\n'
+        + '    {\n' + depr + '        return $this->channel->clientStream(' + path + ', $reqs, new ' + type(m.output) + '(), $metadata, $timeout);\n    }\n\n';
+    default:
+      return '    public function ' + m.name + '(array $reqs, ?array $metadata = null, ?float $timeout = null): ' + recvCls + '\n'
+        + '    {\n' + depr + '        $stream = $this->channel->bidi(' + path + ', $reqs, $metadata, $timeout);\n'
+        + '        return new ' + recvCls + '($stream, ' + type(m.output) + '::class);\n    }\n\n';
+  }
+}
+
+function phpServerHandler(pb, m) {
+  const handlerVar = '$' + snake(m.name) + 'Handler';
+  const impl = m.implName;
+  const type = (t) => '\\' + pb + '\\' + t;
+  const head = '    ' + handlerVar + ' = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n';
+  switch (m.kind) {
+    case 'unary':
+      return head
+        + '        $req = $reqs->recvInto(new ' + type(m.input) + '());\n'
+        + '        $resp = $impl->' + impl + '($ctx, $req);\n'
+        + '        $sink->send($resp->marshalDc());\n    };\n\n';
+    case 'server-streaming':
+      return head
+        + '        $req = $reqs->recvInto(new ' + type(m.input) + '());\n'
+        + '        $impl->' + impl + '($req, new SendStream($ctx, $sink));\n    };\n\n';
+    case 'client-streaming':
+      return head
+        + '        $stream = new ClientStreamImpl($ctx, $reqs, ' + type(m.input) + '::class);\n'
+        + '        $impl->' + impl + '($stream);\n'
+        + '        if ($stream->resp === null) {\n'
+        + '            throw new \\Grpcdc\\StatusError(\\Grpcdc\\Wire::CODE_INTERNAL, "client-streaming handler never called sendAndClose");\n'
+        + '        }\n'
+        + '        $sink->send($stream->resp->marshalDc());\n    };\n\n';
+    default:
+      return head
+        + '        $impl->' + impl + '(new BidiStream($ctx, $reqs, $sink, ' + type(m.input) + '::class));\n    };\n\n';
+  }
+}
+
+const PHP_KIND_NAMES = {
+  unary: 'KIND_UNARY',
+  'server-streaming': 'KIND_SERVER_STREAMING',
+  'client-streaming': 'KIND_CLIENT_STREAMING',
+  bidi: 'KIND_BIDI',
+};
+
+function phpMethodEntry(m) {
+  return '            new \\Grpcdc\\Method(' + q(m.name) + ', ' + q(m.path) + ', \\Grpcdc\\Server::' + PHP_KIND_NAMES[m.kind] + ', $' + snake(m.name) + 'Handler),\n';
+}
+
+const PHP_STREAM_HELPERS = `// Client receiving stream: recv throws CallClosed at end.
+class RecvStream
+{
+    private \\Grpcdc\\ClientStream $stream;
+    private string $respClass;
+
+    public function __construct(\\Grpcdc\\ClientStream $stream, string $respClass)
+    {
+        $this->stream = $stream;
+        $this->respClass = $respClass;
+    }
+
+    public function recv(): object
+    {
+        $cls = $this->respClass;
+        return $this->stream->recv(new $cls());
+    }
+
+    /** @return \\Generator<int, object> */
+    public function iterate(): \\Generator
+    {
+        try {
+            while (true) {
+                yield $this->recv();
+            }
+        } catch (\\Grpcdc\\CallClosed $e) {
+            return;
+        }
+    }
+}
+
+// Server-streaming sink passed to service implementations.
+class SendStream
+{
+    public \\Grpcdc\\CallContext $context;
+    private \\Grpcdc\\ResponseSink $sink;
+
+    public function __construct(\\Grpcdc\\CallContext $ctx, \\Grpcdc\\ResponseSink $sink)
+    {
+        $this->context = $ctx;
+        $this->sink = $sink;
+    }
+
+    public function send(object $resp): void
+    {
+        $this->sink->send($resp->marshalDc());
+    }
+}
+
+// Client-streaming stream passed to service implementations.
+class ClientStreamImpl
+{
+    public \\Grpcdc\\CallContext $context;
+    public ?object $resp = null;
+    private \\Grpcdc\\RequestStream $reqs;
+    private string $reqClass;
+
+    public function __construct(\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, string $reqClass)
+    {
+        $this->context = $ctx;
+        $this->reqs = $reqs;
+        $this->reqClass = $reqClass;
+    }
+
+    public function recv(): object
+    {
+        $cls = $this->reqClass;
+        return $this->reqs->recvInto(new $cls());
+    }
+
+    public function sendAndClose(object $resp): void
+    {
+        $this->resp = $resp;
+    }
+}
+
+// Bidi stream passed to service implementations.
+class BidiStream
+{
+    public \\Grpcdc\\CallContext $context;
+    private \\Grpcdc\\RequestStream $reqs;
+    private \\Grpcdc\\ResponseSink $sink;
+    private string $reqClass;
+
+    public function __construct(\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink, string $reqClass)
+    {
+        $this->context = $ctx;
+        $this->reqs = $reqs;
+        $this->sink = $sink;
+        $this->reqClass = $reqClass;
+    }
+
+    public function send(object $resp): void
+    {
+        $this->sink->send($resp->marshalDc());
+    }
+
+    public function recv(): object
+    {
+        $cls = $this->reqClass;
+        return $this->reqs->recvInto(new $cls());
+    }
+}
+
+// Fiber-based client receiving stream: a producer Fiber suspends
+// per response; next() resumes it and throws CallClosed when the
+// call completes. cancel aborts the underlying stream (RST).
+class FiberRecvStream
+{
+    /** @var \\Grpcdc\\ClientStream|\\Grpcdc\\FiberClientStream */
+    private $stream;
+    private string $respClass;
+    private ?\\Fiber $fiber = null;
+    private bool $started = false;
+    private bool $done = false;
+
+    public function __construct($stream, string $respClass)
+    {
+        $this->stream = $stream;
+        $this->respClass = $respClass;
+    }
+
+    public function next(): object
+    {
+        if ($this->done) {
+            throw new \\Grpcdc\\CallClosed("stream exhausted");
+        }
+        if (!$this->started) {
+            $this->started = true;
+            $cls = $this->respClass;
+            $stream = $this->stream;
+            $this->fiber = new \\Fiber(function () use ($stream, $cls) {
+                try {
+                    while (true) {
+                        \\Fiber::suspend($stream->recv(new $cls()));
+                    }
+                } catch (\\Grpcdc\\CallClosed $e) {
+                    return;
+                }
+            });
+            $value = $this->fiber->start();
+        } else {
+            $value = $this->fiber->resume();
+        }
+        if ($this->fiber->isTerminated()) {
+            $this->done = true;
+            throw new \\Grpcdc\\CallClosed("stream exhausted");
+        }
+        return $value;
+    }
+
+    /** @return \\Generator<int, object> */
+    public function iterate(): \\Generator
+    {
+        try {
+            while (true) {
+                yield $this->next();
+            }
+        } catch (\\Grpcdc\\CallClosed $e) {
+            return;
+        }
+    }
+
+    public function cancel(): void
+    {
+        $this->stream->cancel();
+    }
+}
+
+`;
+
+function phpService(pb, svc) {
+  const sname = svc.name;
+  const all = svc.methods.concat(aliasClientMethods(svc));
+  const allServer = svc.methods.concat(aliasServerMethods(svc));
+  return 'class ' + sname + 'Client\n{\n    private \\Grpcdc\\Channel $channel;\n\n    public function __construct(\\Grpcdc\\Channel $channel)\n    {\n        $this->channel = $channel;\n    }\n\n'
+    + all.map((m) => phpClientMethodKind(pb, m, false)).join('')
+    + '}\n\n'
+    + '// Fiber client: wraps a Grpcdc\\FiberChannel (a sync Channel is wrapped).\n'
+    + 'class ' + sname + 'ClientFiber\n{\n    private \\Grpcdc\\FiberChannel $channel;\n\n    public function __construct($channel)\n    {\n        $this->channel = $channel instanceof \\Grpcdc\\FiberChannel ? $channel : new \\Grpcdc\\FiberChannel($channel);\n    }\n\n'
+    + all.map((m) => phpClientMethodKind(pb, m, true)).join('')
+    + '}\n\n'
+    + 'function register' + sname + 'Server(\\Grpcdc\\Server $server, object $impl): void\n{\n'
+    + allServer.map((m) => phpServerHandler(pb, m)).join('')
+    + '    $server->registerService(new \\Grpcdc\\ServiceDesc(\n        ' + q(svc.fullName) + ',\n        [\n'
+    + allServer.map(phpMethodEntry).join('')
+    + '        ]\n    ));\n}\n';
+}
+
+function emitPhpFile(model, params) {
+  const base = baseName(model.name);
+  const pb = camelName(base) + 'Pb';
+  const ns = camelName(base) + 'GrpcDc';
+  return {
+    name: base + '_grpc_dc.php',
+    content: '<?php\n// @generated by protoc-gen-grpc-dc-php (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n\n'
+      + 'namespace ' + ns + ';\n\n'
+      + 'require_once __DIR__ . "/' + base + '_pb.php";\n'
+      + 'require_once __DIR__ . "/../grpcdc.php";\n\n'
+      + PHP_STREAM_HELPERS
+      + model.services.map((svc) => phpService(pb, svc)).join(''),
+  };
+}
+// ---------------------------------------------------------------------------
+// Scala emitter (mirrors racket/template-scala.rkt). Note: the
+// template has no deprecated marker; stream helper classes use
+// the service's FIRST method's request/response types.
+// ---------------------------------------------------------------------------
+
+function scalaClientMethod(m, svc) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + m.output + ' = {\n'
+        + '            val resp = new ' + m.output + '()\n'
+        + '            channel.unary(' + path + ', req, resp, metadata, timeout)\n'
+        + '            resp\n        }\n\n';
+    case 'server-streaming':
+      return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + svc + 'ServerStreamStream = {\n'
+        + '            new ' + svc + 'ServerStreamStream(channel.serverStream(' + path + ', req, metadata, timeout))\n        }\n\n';
+    case 'client-streaming':
+      return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + m.output + ' = {\n'
+        + '            val resp = new ' + m.output + '()\n'
+        + '            channel.clientStreamCall(' + path + ', reqs, resp, metadata, timeout)\n'
+        + '            resp\n        }\n\n';
+    default:
+      return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + svc + 'BidiStream = {\n'
+        + '            new ' + svc + 'BidiStream(channel.bidi(' + path + ', reqs, metadata, timeout))\n        }\n\n';
+  }
+}
+
+function scalaFutureMethod(m) {
+  switch (m.kind) {
+    case 'unary':
+    case 'client-streaming': {
+      const sig = m.kind === 'unary' ? ': ' + m.input : 's: List[' + m.input + ']';
+      const arg = m.kind === 'unary' ? '' : 's';
+      return '        def ' + m.name + 'Future(req' + sig + ', metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[' + m.output + '] = {\n'
+        + '            grpcdc.Futures { ' + m.name + '(req' + arg + ', metadata, timeout) }\n        }\n\n';
+    }
+    default: {
+      const sig = m.kind === 'server-streaming' ? ': ' + m.input : 's: List[' + m.input + ']';
+      const arg = m.kind === 'server-streaming' ? '' : 's';
+      return '        def ' + m.name + 'Future(req' + sig + ', metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[List[' + m.output + ']] = {\n'
+        + '            grpcdc.Futures {\n'
+        + '                val stream = ' + m.name + '(req' + arg + ', metadata, timeout)\n'
+        + '                val out = scala.collection.mutable.ListBuffer[' + m.output + ']()\n'
+        + '                var done = false\n'
+        + '                while (!done) {\n'
+        + '                    try {\n'
+        + '                        out += stream.recv()\n'
+        + '                    } catch {\n'
+        + '                        case e: java.io.EOFException => done = true\n'
+        + '                    }\n                }\n'
+        + '                out.toList\n            }\n        }\n\n';
+    }
+  }
+}
+
+function scalaServerIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        def ' + m.name + '(ctx: grpcdc.Endpoint#CallContext, req: ' + m.input + '): ' + m.output + '\n';
+    case 'server-streaming':
+      return '        def ' + m.name + '(req: ' + m.input + ', stream: ' + svc + 'ServerStreamServer): Unit\n';
+    case 'client-streaming':
+      return '        def ' + m.name + '(stream: ' + svc + 'ClientStreamServer): Unit\n';
+    default:
+      return '        def ' + m.name + '(stream: ' + svc + 'BidiServer): Unit\n';
+  }
+}
+
+const SCALA_KIND_CONSTS = {
+  unary: 'KIND_UNARY',
+  'server-streaming': 'KIND_SERVER_STREAMING',
+  'client-streaming': 'KIND_CLIENT_STREAMING',
+  bidi: 'KIND_BIDI',
+};
+
+function scalaRegisterMethod(m, svc) {
+  const impl = m.implName;
+  const head = '            grpcdc.Server.Method(' + q(m.name) + ', ' + q(m.path) + ', grpcdc.Server.' + SCALA_KIND_CONSTS[m.kind] + ', (ctx, reqs, sink) => {\n';
+  switch (m.kind) {
+    case 'unary':
+      return head
+        + '                val req = new ' + m.input + '()\n'
+        + '                reqs.recvInto(req)\n'
+        + '                val resp = impl.' + impl + '(ctx, req)\n'
+        + '                sink.send(resp.marshalDc())\n            }),\n';
+    case 'server-streaming':
+      return head
+        + '                val req = new ' + m.input + '()\n'
+        + '                reqs.recvInto(req)\n'
+        + '                impl.' + impl + '(req, new ' + svc + 'ServerStreamServer {\n'
+        + '                    def send(resp: ' + m.output + '): Unit = sink.send(resp.marshalDc())\n'
+        + '                    val context: grpcdc.Endpoint#CallContext = ctx\n'
+        + '                })\n            }),\n';
+    case 'client-streaming':
+      return head
+        + '                var response: ' + m.output + ' = null\n'
+        + '                impl.' + impl + '(new ' + svc + 'ClientStreamServer {\n'
+        + '                    def recv(): ' + m.input + ' = {\n'
+        + '                        val req = new ' + m.input + '()\n'
+        + '                        reqs.recvInto(req)\n                        req\n                    }\n'
+        + '                    def sendAndClose(resp: ' + m.output + '): Unit = { response = resp }\n'
+        + '                    val context: grpcdc.Endpoint#CallContext = ctx\n'
+        + '                })\n'
+        + '                if (response == null) {\n'
+        + '                    throw grpcdc.StatusException(grpcdc.Wire.CODE_INTERNAL, "client-streaming handler never called sendAndClose")\n'
+        + '                }\n'
+        + '                sink.send(response.marshalDc())\n            }),\n';
+    default:
+      return head
+        + '                impl.' + impl + '(new ' + svc + 'BidiServer {\n'
+        + '                    def send(resp: ' + m.output + '): Unit = sink.send(resp.marshalDc())\n'
+        + '                    def recv(): ' + m.input + ' = {\n'
+        + '                        val req = new ' + m.input + '()\n'
+        + '                        reqs.recvInto(req)\n                        req\n                    }\n'
+        + '                    val context: grpcdc.Endpoint#CallContext = ctx\n'
+        + '                })\n            }),\n';
+  }
+}
+
+function scalaServerAsyncIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        def ' + m.name + 'Async(ctx: grpcdc.Endpoint#CallContext, req: ' + m.input + '): scala.concurrent.Future[' + m.output + ']\n';
+    case 'server-streaming':
+      return '        def ' + m.name + 'Async(req: ' + m.input + ', stream: ' + svc + 'ServerStreamServer): scala.concurrent.Future[Unit]\n';
+    case 'client-streaming':
+      return '        def ' + m.name + 'Async(stream: ' + svc + 'ClientStreamServer): scala.concurrent.Future[Unit]\n';
+    default:
+      return '        def ' + m.name + 'Async(stream: ' + svc + 'BidiServer): scala.concurrent.Future[Unit]\n';
+  }
+}
+
+function scalaServerAsyncAdapterMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '            def ' + m.name + '(ctx: grpcdc.Endpoint#CallContext, req: ' + m.input + '): ' + m.output + ' = {\n'
+        + '                scala.concurrent.Await.result(impl.' + m.implName + 'Async(ctx, req), scala.concurrent.duration.Duration.Inf)\n            }\n';
+    case 'server-streaming':
+      return '            def ' + m.name + '(req: ' + m.input + ', stream: ' + svc + 'ServerStreamServer): Unit = {\n'
+        + '                scala.concurrent.Await.result(impl.' + m.implName + 'Async(req, stream), scala.concurrent.duration.Duration.Inf)\n            }\n';
+    case 'client-streaming':
+      return '            def ' + m.name + '(stream: ' + svc + 'ClientStreamServer): Unit = {\n'
+        + '                scala.concurrent.Await.result(impl.' + m.implName + 'Async(stream), scala.concurrent.duration.Duration.Inf)\n            }\n';
+    default:
+      return '            def ' + m.name + '(stream: ' + svc + 'BidiServer): Unit = {\n'
+        + '                scala.concurrent.Await.result(impl.' + m.implName + 'Async(stream), scala.concurrent.duration.Duration.Inf)\n            }\n';
+  }
+}
+
+function scalaService(svc) {
+  const sname = svc.name;
+  const methods = svc.methods;
+  const first = methods[0];
+  const req0 = first.input;
+  const resp0 = first.output;
+  const all = methods.concat(aliasClientMethods(svc));
+  const allServer = methods.concat(aliasServerMethods(svc));
+  const streamClass = (label) =>
+    '        class ' + sname + label + '(private val stream: grpcdc.Channel#ClientStream) {\n'
+    + '            def recv(): ' + resp0 + ' = {\n'
+    + '                val resp = new ' + resp0 + '()\n'
+    + '                stream.recv(resp)\n                resp\n            }\n        }\n\n';
+  return '    /** Client for ' + svc.fullName + '. */\n'
+    + '    class ' + sname + 'Client(private val channel: grpcdc.Channel) {\n'
+    + streamClass('ServerStreamStream')
+    + streamClass('BidiStream')
+    + all.map((m) => scalaClientMethod(m, sname)).join('')
+    + '        // -- async (scala.concurrent.Future) surface ---------------\n\n'
+    + all.map(scalaFutureMethod).join('')
+    + '    }\n\n'
+    + '    /** Server-streaming sink passed to service implementations. */\n'
+    + '    trait ' + sname + 'ServerStreamServer {\n'
+    + '        def send(resp: ' + resp0 + '): Unit\n'
+    + '        val context: grpcdc.Endpoint#CallContext\n    }\n\n'
+    + '    /** Client-streaming stream passed to service implementations. */\n'
+    + '    trait ' + sname + 'ClientStreamServer {\n'
+    + '        def recv(): ' + req0 + '\n'
+    + '        def sendAndClose(resp: ' + resp0 + '): Unit\n'
+    + '        val context: grpcdc.Endpoint#CallContext\n    }\n\n'
+    + '    /** Bidi stream passed to service implementations. */\n'
+    + '    trait ' + sname + 'BidiServer {\n'
+    + '        def send(resp: ' + resp0 + '): Unit\n'
+    + '        def recv(): ' + req0 + '\n'
+    + '        val context: grpcdc.Endpoint#CallContext\n    }\n\n'
+    + '    /** Service implementation interface for ' + svc.fullName + '. */\n'
+    + '    trait ' + sname + 'Server {\n'
+    + methods.map((m) => scalaServerIfaceMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    /** Register an implementation of ' + svc.fullName + ' on a Server. */\n'
+    + '    def register' + sname + 'Server(server: grpcdc.Server, impl: ' + sname + 'Server): Unit = {\n'
+    + '        server.registerService(grpcdc.Server.ServiceDesc(' + q(svc.fullName) + ', List(\n'
+    + allServer.map((m) => scalaRegisterMethod(m, sname)).join('')
+    + '        )))\n    }\n\n'
+    + '    /** Async service implementation for ' + svc.fullName + ' (scala.concurrent.Future). */\n'
+    + '    trait ' + sname + 'ServerAsync {\n'
+    + methods.map((m) => scalaServerAsyncIfaceMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    /** Register a Future-based implementation (adapts to the sync trait). */\n'
+    + '    def register' + sname + 'ServerAsync(server: grpcdc.Server, impl: ' + sname + 'ServerAsync): Unit = {\n'
+    + '        register' + sname + 'Server(server, new ' + sname + 'Server {\n'
+    + methods.map((m) => scalaServerAsyncAdapterMethod(m, sname)).join('')
+    + '        })\n    }\n';
+}
+
+function emitScalaFile(model, params) {
+  const base = baseName(model.name);
+  const objName = camelName(base) + 'GrpcDc';
+  return {
+    name: objName + '.scala',
+    content: '// @generated by protoc-gen-grpc-dc-scala (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n'
+      + 'package ' + model.package + '\n\n'
+      + '/** Generated gRPC-over-DataChannels stubs. */\n'
+      + 'object ' + objName + ' {\n'
+      + model.services.map(scalaService).join('')
+      + '}\n',
+  };
+}
+// ---------------------------------------------------------------------------
+// WASM facade emitters (mirror racket/template-wasm-*.rkt). These
+// generate typed facades over the JS implementation's bridge
+// (js/src/wasm_bridge.js); message types keep the templates'
+// literal package prefixes.
+// ---------------------------------------------------------------------------
+
+function wasmGoClientMethod(m, svc) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return 'func (c *' + svc + 'Client) ' + m.name + '(req *echo.' + m.input + ') (*echo.' + m.output + ', error) {\n'
+        + '\tpayload, err := callUnary(c.bridge, ' + path + ', req.MarshalDC())\n'
+        + '\tif err != nil {\n\t\treturn nil, err\n\t}\n'
+        + '\tresp := new(echo.' + m.output + ')\n'
+        + '\tif err := resp.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n'
+        + '\treturn resp, nil\n}\n';
+    case 'server-streaming':
+      return 'func (c *' + svc + 'Client) ' + m.name + '(req *echo.' + m.input + ', onResp func(*echo.' + m.output + ') error) error {\n'
+        + '\treturn callStream(c.bridge, "serverStream", ' + path + ', req.MarshalDC(), func(payload []byte) error {\n'
+        + '\t\tresp := new(echo.' + m.output + ')\n'
+        + '\t\tif err := resp.UnmarshalDC(payload); err != nil {\n\t\t\treturn err\n\t\t}\n'
+        + '\t\treturn onResp(resp)\n\t})\n}\n';
+    case 'client-streaming':
+      return 'func (c *' + svc + 'Client) ' + m.name + '(reqs ...*echo.' + m.input + ') (*echo.' + m.output + ', error) {\n'
+        + '\tpayloads := make([][]byte, len(reqs))\n'
+        + '\tfor i, r := range reqs {\n\t\tpayloads[i] = r.MarshalDC()\n\t}\n'
+        + '\tpayload, err := callClientStream(c.bridge, ' + path + ', payloads)\n'
+        + '\tif err != nil {\n\t\treturn nil, err\n\t}\n'
+        + '\tresp := new(echo.' + m.output + ')\n'
+        + '\tif err := resp.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n'
+        + '\treturn resp, nil\n}\n';
+    default:
+      return 'func (c *' + svc + 'Client) ' + m.name + '(reqs []*echo.' + m.input + ', onResp func(*echo.' + m.output + ') error) error {\n'
+        + '\tpayloads := make([][]byte, len(reqs))\n'
+        + '\tfor i, r := range reqs {\n\t\tpayloads[i] = r.MarshalDC()\n\t}\n'
+        + '\treturn callStreamPayloads(c.bridge, "bidi", ' + path + ', payloads, func(payload []byte) error {\n'
+        + '\t\tresp := new(echo.' + m.output + ')\n'
+        + '\t\tif err := resp.UnmarshalDC(payload); err != nil {\n\t\t\treturn err\n\t\t}\n'
+        + '\t\treturn onResp(resp)\n\t})\n}\n';
+  }
+}
+
+function wasmGoServerIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '\t' + m.name + '(req *echo.' + m.input + ', metadata [][2]string) (*echo.' + m.output + ', error)\n';
+    case 'server-streaming':
+      return '\t' + m.name + '(req *echo.' + m.input + ', metadata [][2]string, sink *' + svc + 'ServerSink) error\n';
+    case 'client-streaming':
+      return '\t' + m.name + '(reqs []*echo.' + m.input + ', metadata [][2]string) (*echo.' + m.output + ', error)\n';
+    default:
+      return '\t' + m.name + '(reqs []*echo.' + m.input + ', metadata [][2]string, sink *' + svc + 'ServerSink) error\n';
+  }
+}
+
+function wasmGoRegisterMethod(m, svc) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '\tregisterUnaryHandler(bridge, ' + path + ', func(payload []byte, metadata [][2]string) ([]byte, error) {\n'
+        + '\t\treq := new(echo.' + m.input + ')\n'
+        + '\t\tif err := req.UnmarshalDC(payload); err != nil {\n\t\t\treturn nil, err\n\t\t}\n'
+        + '\t\tresp, err := impl.' + m.name + '(req, metadata)\n'
+        + '\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n'
+        + '\t\treturn resp.MarshalDC(), nil\n\t})\n';
+    case 'server-streaming':
+      return '\tregisterServerStreamHandler(bridge, ' + path + ', func(payload []byte, metadata [][2]string, sink *ServerSink) error {\n'
+        + '\t\treq := new(echo.' + m.input + ')\n'
+        + '\t\tif err := req.UnmarshalDC(payload); err != nil {\n\t\t\treturn err\n\t\t}\n'
+        + '\t\treturn impl.' + m.name + '(req, metadata, &' + svc + 'ServerSink{sink: sink})\n\t})\n';
+    case 'client-streaming':
+      return '\tregisterClientStreamHandler(bridge, ' + path + ', func(payloads [][]byte, metadata [][2]string) ([]byte, error) {\n'
+        + '\t\treqs := make([]*echo.' + m.input + ', len(payloads))\n'
+        + '\t\tfor i, payload := range payloads {\n'
+        + '\t\t\treqs[i] = new(echo.' + m.input + ')\n'
+        + '\t\t\tif err := reqs[i].UnmarshalDC(payload); err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t}\n'
+        + '\t\tresp, err := impl.' + m.name + '(reqs, metadata)\n'
+        + '\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n'
+        + '\t\treturn resp.MarshalDC(), nil\n\t})\n';
+    default:
+      return '\tregisterBidiHandler(bridge, ' + path + ', func(payloads [][]byte, metadata [][2]string, sink *ServerSink) error {\n'
+        + '\t\treqs := make([]*echo.' + m.input + ', len(payloads))\n'
+        + '\t\tfor i, payload := range payloads {\n'
+        + '\t\t\treqs[i] = new(echo.' + m.input + ')\n'
+        + '\t\t\tif err := reqs[i].UnmarshalDC(payload); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n'
+        + '\t\treturn impl.' + m.name + '(reqs, metadata, &' + svc + 'ServerSink{sink: sink})\n\t})\n';
+  }
+}
+
+function wasmGoStreamIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'client-streaming':
+      return '\t' + m.name + '(source *' + m.input + 'Source, metadata [][2]string) (*echo.' + m.output + ', error)\n';
+    case 'bidi':
+      return '\t' + m.name + '(source *' + m.input + 'Source, metadata [][2]string, sink *' + svc + 'ServerSink) error\n';
+    default:
+      return '';
+  }
+}
+
+function wasmGoStreamRegisterMethod(m, svc) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'client-streaming':
+      return '\tregisterClientStreamIncHandler(bridge, ' + path + ', func(source *RequestSource, metadata [][2]string) ([]byte, error) {\n'
+        + '\t\tresp, err := impl.' + m.name + '(&' + m.input + 'Source{raw: source}, metadata)\n'
+        + '\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n'
+        + '\t\treturn resp.MarshalDC(), nil\n\t})\n';
+    case 'bidi':
+      return '\tregisterBidiIncHandler(bridge, ' + path + ', func(source *RequestSource, metadata [][2]string, sink *ServerSink) error {\n'
+        + '\t\treturn impl.' + m.name + '(&' + m.input + 'Source{raw: source}, metadata, &' + svc + 'ServerSink{sink: sink})\n\t})\n';
+    default:
+      return '';
+  }
+}
+
+function wasmGoService(svc) {
+  const sname = svc.name;
+  const first = svc.methods[0];
+  return 'type ' + sname + 'Client struct {\n\tbridge js.Value\n}\n\n'
+    + 'func New' + sname + 'Client(bridge js.Value) *' + sname + 'Client {\n\treturn &' + sname + 'Client{bridge: bridge}\n}\n\n'
+    + svc.methods.map((m) => wasmGoClientMethod(m, sname)).join('')
+    + '\n// ' + sname + 'Server is the service implementation for ' + svc.fullName + '.\n'
+    + 'type ' + sname + 'Server interface {\n'
+    + svc.methods.map((m) => wasmGoServerIfaceMethod(m, sname)).join('')
+    + '}\n\n'
+    + '// ' + sname + 'ServerSink sends responses on streaming calls.\n'
+    + 'type ' + sname + 'ServerSink struct {\n\tsink *ServerSink\n}\n\n'
+    + '// Send marshals and forwards one response.\n'
+    + 'func (s *' + sname + 'ServerSink) Send(resp *echo.' + first.output + ') error {\n\ts.sink.Send(resp.MarshalDC())\n\treturn nil\n}\n\n'
+    + '// Register' + sname + 'Server registers impl on the JS server bridge and starts serving.\n'
+    + 'func Register' + sname + 'Server(bridge js.Value, impl ' + sname + 'Server) {\n'
+    + svc.methods.map((m) => wasmGoRegisterMethod(m, sname)).join('')
+    + '\tbridge.Call("start", ' + q(svc.fullName) + ')\n}\n'
+    + '\n// ' + first.input + 'Source pulls typed requests one at a time for incremental handlers.\n'
+    + 'type ' + first.input + 'Source struct {\n\traw *RequestSource\n}\n\n'
+    + '// Next returns the next request, or (nil, nil) at end of stream.\n'
+    + 'func (s *' + first.input + 'Source) Next() (*echo.' + first.input + ', error) {\n'
+    + '\tpayload, err := s.raw.Next()\n'
+    + '\tif err != nil || payload == nil {\n\t\treturn nil, err\n\t}\n'
+    + '\treq := new(echo.' + first.input + ')\n'
+    + '\tif err := req.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n'
+    + '\treturn req, nil\n}\n\n'
+    + '// ' + sname + 'StreamServer is the incremental implementation for ' + svc.fullName + ': requests arrive one at a time.\n'
+    + 'type ' + sname + 'StreamServer interface {\n'
+    + svc.methods.map((m) => wasmGoStreamIfaceMethod(m, sname)).join('')
+    + '}\n\n'
+    + '// Register' + sname + 'StreamServer registers an incremental impl; call bridge start after all registrations.\n'
+    + 'func Register' + sname + 'StreamServer(bridge js.Value, impl ' + sname + 'StreamServer) {\n'
+    + svc.methods.map((m) => wasmGoStreamRegisterMethod(m, sname)).join('')
+    + '}\n';
+}
+
+function emitWasmGoFile(model, params) {
+  const base = baseName(model.name);
+  const pkg = params.go_package || 'echowasm';
+  const messagesImport = params.messages_import || 'grpcdc/examples';
+  return {
+    name: base + '_wasm_dc.go',
+    content: '// @generated by protoc-gen-grpc-dc-wasm-go (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n\n'
+      + '//go:build js && wasm\n\n'
+      + 'package ' + pkg + '\n\n'
+      + 'import (\n\t"syscall/js"\n\n\techo ' + q(messagesImport) + '\n)\n\n'
+      + model.services.map(wasmGoService).join(''),
+  };
+}
+function wasmZigClientMethod(m, svc) {
+  const name = lowerFirst(m.name);
+  const orig = m.name;
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '    pub fn ' + name + '(self: *' + svc + 'Client, req: *const ' + m.input + ', ctx: *anyopaque,\n'
+        + '        callback: *const fn (ctx: *anyopaque, result: CallResult(' + m.output + ')) void) void {\n'
+        + '        const alloc = self.bridge.alloc;\n'
+        + '        const pending = alloc.create(' + orig + 'UnaryPending) catch {\n'
+        + '            callback(ctx, .{ .status = oomStatus() });\n            return;\n        };\n'
+        + '        pending.* = .{ .alloc = alloc, .ctx = ctx, .callback = callback };\n'
+        + '        const payload = req.marshalDc(alloc);\n'
+        + '        self.bridge.unary(' + path + ', payload, pending, ' + orig + 'UnaryPending.complete);\n'
+        + '        alloc.free(payload);\n    }\n\n';
+    case 'server-streaming':
+      return '    pub fn ' + name + '(self: *' + svc + 'Client, req: *const ' + m.input + ', ctx: *anyopaque,\n'
+        + '        on_message: *const fn (ctx: *anyopaque, resp: ' + m.output + ') void,\n'
+        + '        on_done: *const fn (ctx: *anyopaque, status: Status) void) void {\n'
+        + '        const alloc = self.bridge.alloc;\n'
+        + '        const pending = alloc.create(' + orig + 'StreamPending) catch {\n'
+        + '            on_done(ctx, oomStatus());\n            return;\n        };\n'
+        + '        pending.* = .{ .alloc = alloc, .ctx = ctx, .on_message = on_message, .on_done = on_done };\n'
+        + '        const payload = req.marshalDc(alloc);\n'
+        + '        self.bridge.serverStream(' + path + ', payload, pending, ' + orig + 'StreamPending.message, ' + orig + 'StreamPending.done);\n'
+        + '        alloc.free(payload);\n    }\n\n';
+    case 'client-streaming':
+      return '    pub fn ' + name + '(self: *' + svc + 'Client, reqs: []const ' + m.input + ', ctx: *anyopaque,\n'
+        + '        callback: *const fn (ctx: *anyopaque, result: CallResult(' + m.output + ')) void) void {\n'
+        + '        const alloc = self.bridge.alloc;\n'
+        + '        const pending = alloc.create(' + orig + 'UnaryPending) catch {\n'
+        + '            callback(ctx, .{ .status = oomStatus() });\n            return;\n        };\n'
+        + '        pending.* = .{ .alloc = alloc, .ctx = ctx, .callback = callback };\n'
+        + '        const payloads = marshalAll(' + m.input + ', reqs, alloc);\n'
+        + '        self.bridge.clientStream(' + path + ', payloads, pending, ' + orig + 'UnaryPending.complete);\n'
+        + '        freeAll(payloads, alloc);\n    }\n\n';
+    default:
+      return '    pub fn ' + name + '(self: *' + svc + 'Client, reqs: []const ' + m.input + ', ctx: *anyopaque,\n'
+        + '        on_message: *const fn (ctx: *anyopaque, resp: ' + m.output + ') void,\n'
+        + '        on_done: *const fn (ctx: *anyopaque, status: Status) void) void {\n'
+        + '        const alloc = self.bridge.alloc;\n'
+        + '        const pending = alloc.create(' + orig + 'StreamPending) catch {\n'
+        + '            on_done(ctx, oomStatus());\n            return;\n        };\n'
+        + '        pending.* = .{ .alloc = alloc, .ctx = ctx, .on_message = on_message, .on_done = on_done };\n'
+        + '        const payloads = marshalAll(' + m.input + ', reqs, alloc);\n'
+        + '        self.bridge.bidi(' + path + ', payloads, pending, ' + orig + 'StreamPending.message, ' + orig + 'StreamPending.done);\n'
+        + '        freeAll(payloads, alloc);\n    }\n\n';
+  }
+}
+
+function wasmZigPendingStructs(m) {
+  const orig = m.name;
+  if (m.kind === 'unary' || m.kind === 'client-streaming') {
+    return 'const ' + orig + 'UnaryPending = struct {\n'
+      + '    alloc: std.mem.Allocator,\n'
+      + '    ctx: *anyopaque,\n'
+      + '    callback: *const fn (ctx: *anyopaque, result: CallResult(' + m.output + ')) void,\n\n'
+      + '    fn complete(raw: *anyopaque, st: Status, payload: ?[]const u8) void {\n'
+      + '        const self: *@This() = @ptrCast(@alignCast(raw));\n'
+      + '        defer self.alloc.destroy(self);\n'
+      + '        if (!st.isOk()) {\n'
+      + '            self.callback(self.ctx, .{ .status = st });\n            return;\n        }\n'
+      + '        var resp = ' + m.output + '{};\n'
+      + '        resp.unmarshalDc(self.alloc, payload orelse "");\n'
+      + '        self.callback(self.ctx, .{ .ok = resp });\n    }\n};\n\n';
+  }
+  return 'const ' + orig + 'StreamPending = struct {\n'
+    + '    alloc: std.mem.Allocator,\n'
+    + '    ctx: *anyopaque,\n'
+    + '    on_message: *const fn (ctx: *anyopaque, resp: ' + m.output + ') void,\n'
+    + '    on_done: *const fn (ctx: *anyopaque, status: Status) void,\n\n'
+    + '    fn message(raw: *anyopaque, payload: []const u8) void {\n'
+    + '        const self: *@This() = @ptrCast(@alignCast(raw));\n'
+    + '        var resp = ' + m.output + '{};\n'
+    + '        resp.unmarshalDc(self.alloc, payload);\n'
+    + '        self.on_message(self.ctx, resp);\n    }\n\n'
+    + '    fn done(raw: *anyopaque, st: Status, _: ?[]const u8) void {\n'
+    + '        const self: *@This() = @ptrCast(@alignCast(raw));\n'
+    + '        defer self.alloc.destroy(self);\n'
+    + '        self.on_done(self.ctx, st);\n    }\n};\n\n';
+}
+
+function wasmZigServeExport(m) {
+  const name = lowerFirst(m.name);
+  const head = 'export fn serve_' + name + '(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {\n'
+    + '    const a = bridge_mod.bridgeAllocator();\n'
+    + '    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n'
+    + '    defer a.free(md);\n';
+  switch (m.kind) {
+    case 'unary':
+      return head
+        + '    var req = ' + m.input + '{};\n'
+        + '    req.unmarshalDc(a, payload_ptr[0..payload_len]);\n'
+        + '    switch (g_server_impl.?.' + name + '_fn(g_server_impl.?.ctx, &req, md)) {\n'
+        + '        .ok => |resp| { const bytes = resp.marshalDc(a); defer a.free(bytes); bridge_mod.serverRespond(call_id, bytes); },\n'
+        + '        .status => |st| bridge_mod.serverFail(call_id, st),\n    }\n}\n\n';
+    case 'server-streaming':
+      return head
+        + '    var req = ' + m.input + '{};\n'
+        + '    req.unmarshalDc(a, payload_ptr[0..payload_len]);\n'
+        + '    var sink = ServerSink{ .call_id = call_id };\n'
+        + '    const st = g_server_impl.?.' + name + '_fn(g_server_impl.?.ctx, &req, md, &sink);\n'
+        + '    if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);\n}\n\n';
+    case 'client-streaming':
+      return head
+        + '    const chunks = bridge_mod.unpack(a, payload_ptr[0..payload_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n'
+        + '    defer a.free(chunks);\n'
+        + '    const reqs = a.alloc(' + m.input + ', chunks.len) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n'
+        + '    defer a.free(reqs);\n'
+        + '    for (chunks, 0..) |chunk, i| { reqs[i] = ' + m.input + '{}; reqs[i].unmarshalDc(a, chunk); }\n'
+        + '    switch (g_server_impl.?.' + name + '_fn(g_server_impl.?.ctx, reqs, md)) {\n'
+        + '        .ok => |resp| { const bytes = resp.marshalDc(a); defer a.free(bytes); bridge_mod.serverRespond(call_id, bytes); },\n'
+        + '        .status => |st| bridge_mod.serverFail(call_id, st),\n    }\n}\n\n';
+    default:
+      return head
+        + '    const chunks = bridge_mod.unpack(a, payload_ptr[0..payload_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n'
+        + '    defer a.free(chunks);\n'
+        + '    const reqs = a.alloc(' + m.input + ', chunks.len) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n'
+        + '    defer a.free(reqs);\n'
+        + '    for (chunks, 0..) |chunk, i| { reqs[i] = ' + m.input + '{}; reqs[i].unmarshalDc(a, chunk); }\n'
+        + '    var sink = ServerSink{ .call_id = call_id };\n'
+        + '    const st = g_server_impl.?.' + name + '_fn(g_server_impl.?.ctx, reqs, md, &sink);\n'
+        + '    if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);\n}\n\n';
+  }
+}
+
+function wasmZigServerIfaceField(m) {
+  const name = lowerFirst(m.name);
+  switch (m.kind) {
+    case 'unary':
+      return '    ' + name + '_fn: *const fn (ctx: *anyopaque, req: *const ' + m.input + ', md: []const bridge_mod.MdPair) CallResult(' + m.output + '),\n';
+    case 'server-streaming':
+      return '    ' + name + '_fn: *const fn (ctx: *anyopaque, req: *const ' + m.input + ', md: []const bridge_mod.MdPair, sink: *ServerSink) Status,\n';
+    case 'client-streaming':
+      return '    ' + name + '_fn: *const fn (ctx: *anyopaque, reqs: []const ' + m.input + ', md: []const bridge_mod.MdPair) CallResult(' + m.output + '),\n';
+    default:
+      return '    ' + name + '_fn: *const fn (ctx: *anyopaque, reqs: []const ' + m.input + ', md: []const bridge_mod.MdPair, sink: *ServerSink) Status,\n';
+  }
+}
+
+function wasmZigStreamIfaceField(m) {
+  const name = lowerFirst(m.name);
+  switch (m.kind) {
+    case 'client-streaming':
+      return '    ' + name + 'Begin_fn: *const fn (ctx: *anyopaque, call_id: u32, md: []const bridge_mod.MdPair) void,\n'
+        + '    ' + name + 'Request_fn: *const fn (ctx: *anyopaque, call_id: u32, req: *const ' + m.input + ') void,\n'
+        + '    ' + name + 'End_fn: *const fn (ctx: *anyopaque, call_id: u32) CallResult(' + m.output + '),\n';
+    case 'bidi':
+      return '    ' + name + 'Begin_fn: *const fn (ctx: *anyopaque, call_id: u32, md: []const bridge_mod.MdPair) void,\n'
+        + '    ' + name + 'Request_fn: *const fn (ctx: *anyopaque, call_id: u32, req: *const ' + m.input + ', sink: *ServerSink) Status,\n'
+        + '    ' + name + 'End_fn: *const fn (ctx: *anyopaque, call_id: u32) Status,\n';
+    default:
+      return '';
+  }
+}
+
+function wasmZigStreamFeedExport(m) {
+  const name = lowerFirst(m.name);
+  if (m.kind !== 'client-streaming' && m.kind !== 'bidi') return '';
+  const start = 'export fn serve_' + name + 'Start(call_id: u32, md_ptr: [*]const u8, md_len: usize) void {\n'
+    + '    const a = bridge_mod.bridgeAllocator();\n'
+    + '    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n'
+    + '    defer a.free(md);\n'
+    + '    g_stream_impl.?.' + name + 'Begin_fn(g_stream_impl.?.ctx, call_id, md);\n}\n\n';
+  if (m.kind === 'client-streaming') {
+    return start
+      + 'export fn serve_' + name + 'Feed(call_id: u32, payload_ptr: [*]const u8, payload_len: usize) void {\n'
+      + '    const a = bridge_mod.bridgeAllocator();\n'
+      + '    var req = ' + m.input + '{};\n'
+      + '    req.unmarshalDc(a, payload_ptr[0..payload_len]);\n'
+      + '    g_stream_impl.?.' + name + 'Request_fn(g_stream_impl.?.ctx, call_id, &req);\n}\n\n'
+      + 'export fn serve_' + name + 'End(call_id: u32) void {\n'
+      + '    const a = bridge_mod.bridgeAllocator();\n'
+      + '    switch (g_stream_impl.?.' + name + 'End_fn(g_stream_impl.?.ctx, call_id)) {\n'
+      + '        .ok => |resp| { const bytes = resp.marshalDc(a); defer a.free(bytes); bridge_mod.serverRespond(call_id, bytes); },\n'
+      + '        .status => |st| bridge_mod.serverFail(call_id, st),\n    }\n}\n\n';
+  }
+  return start
+    + 'export fn serve_' + name + 'Feed(call_id: u32, payload_ptr: [*]const u8, payload_len: usize) void {\n'
+    + '    const a = bridge_mod.bridgeAllocator();\n'
+    + '    var req = ' + m.input + '{};\n'
+    + '    req.unmarshalDc(a, payload_ptr[0..payload_len]);\n'
+    + '    var sink = ServerSink{ .call_id = call_id };\n'
+    + '    const st = g_stream_impl.?.' + name + 'Request_fn(g_stream_impl.?.ctx, call_id, &req, &sink);\n'
+    + '    if (!st.isOk()) bridge_mod.serverFail(call_id, st);\n}\n\n'
+    + 'export fn serve_' + name + 'End(call_id: u32) void {\n'
+    + '    const st = g_stream_impl.?.' + name + 'End_fn(g_stream_impl.?.ctx, call_id);\n'
+    + '    if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);\n}\n\n';
+}
+
+function wasmZigService(svc) {
+  const sname = svc.name;
+  const first = svc.methods[0];
+  return svc.methods.map(wasmZigPendingStructs).join('')
+    + '/// Client for the service (browser/WASM facade; see module doc).\n'
+    + 'pub const ' + sname + 'Client = struct {\n    bridge: *bridge_mod.Bridge,\n\n    pub fn init(bridge: *bridge_mod.Bridge) ' + sname + 'Client {\n        return .{ .bridge = bridge };\n    }\n\n'
+    + svc.methods.map((m) => wasmZigClientMethod(m, sname)).join('')
+    + '};\n\n'
+    + '/// Streaming response sink for server handlers.\n'
+    + 'pub const ServerSink = struct {\n    call_id: u32,\n\n'
+    + '    pub fn send(self: *ServerSink, resp: *const ' + first.output + ') Status {\n'
+    + '        const a = bridge_mod.bridgeAllocator();\n'
+    + '        const bytes = resp.marshalDc(a);\n'
+    + '        defer a.free(bytes);\n'
+    + '        bridge_mod.serverSend(self.call_id, bytes);\n'
+    + '        return Status.ok();\n    }\n};\n\n'
+    + '/// Service implementation for ' + svc.fullName + ' (browser/WASM facade).\n'
+    + 'pub const ' + sname + 'Server = struct {\n    ctx: *anyopaque,\n'
+    + svc.methods.map(wasmZigServerIfaceField).join('')
+    + '};\n\n'
+    + 'var g_server_impl: ?*' + sname + 'Server = null;\n\n'
+    + '/// Register the service implementation used by the serve_* exports.\n'
+    + 'pub fn register' + sname + 'Server(impl: *' + sname + 'Server) void {\n    g_server_impl = impl;\n}\n\n'
+    + svc.methods.map(wasmZigServeExport).join('')
+    + '/// Incremental service implementation for ' + svc.fullName + ': requests arrive one at a time via serve_*Start/Feed/End.\n'
+    + 'pub const ' + sname + 'StreamServer = struct {\n    ctx: *anyopaque,\n'
+    + svc.methods.map(wasmZigStreamIfaceField).join('')
+    + '};\n\n'
+    + 'var g_stream_impl: ?*' + sname + 'StreamServer = null;\n\n'
+    + '/// Register the incremental implementation used by the serve_*Start/Feed/End exports.\n'
+    + 'pub fn register' + sname + 'StreamServer(impl: *' + sname + 'StreamServer) void {\n    g_stream_impl = impl;\n}\n\n'
+    + svc.methods.map(wasmZigStreamFeedExport).join('');
+}
+
+function emitWasmZigFile(model, params) {
+  const base = baseName(model.name);
+  const messagesImport = params.messages_import || 'echo_messages';
+  const statusImport = params.status_import || 'grpcdc_status';
+  return {
+    name: base + '_wasm_dc.zig',
+    content: '// @generated by protoc-gen-grpc-dc-wasm-zig (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n\n'
+      + 'const std = @import("std");\n'
+      + 'const bridge_mod = @import("bridge.zig");\n'
+      + 'const status_mod = @import(' + q(statusImport) + ');\n'
+      + 'const messages = @import(' + q(messagesImport) + ');\n\n'
+      + 'pub const Status = status_mod.Status;\n'
+      + 'pub const CallResult = status_mod.CallResult;\n'
+      + 'pub const EchoRequest = messages.EchoRequest;\n'
+      + 'pub const EchoResponse = messages.EchoResponse;\n\n'
+      + 'fn oomStatus() Status {\n    // gRPC INTERNAL (13): a request could not be marshaled.\n    return Status.init(13, "out of memory");\n}\n\n'
+      + 'fn marshalAll(comptime T: type, reqs: []const T, alloc: std.mem.Allocator) [][]u8 {\n'
+      + '    const out = alloc.alloc([]u8, reqs.len) catch return &.{};\n'
+      + '    for (reqs, 0..) |*req, i| out[i] = req.marshalDc(alloc);\n'
+      + '    return out;\n}\n\n'
+      + 'fn freeAll(payloads: [][]u8, alloc: std.mem.Allocator) void {\n'
+      + '    for (payloads) |p| alloc.free(p);\n'
+      + '    if (payloads.len > 0) alloc.free(payloads);\n}\n\n'
+      + model.services.map(wasmZigService).join(''),
+  };
+}
+function wasmCppClientMethodRaw(m) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '    void ' + m.name + '(' + m.input + ' req,\n'
+        + '            std::function<void(grpcdc_wasm::Status,\n'
+        + '                               std::optional<' + m.output + '>)> callback) {\n'
+        + '      bridge_->Unary(' + path + ', req.MarshalDc(),\n'
+        + '                     [callback](grpcdc_wasm::Status st,\n'
+        + '                                const grpcdc_wasm::Bytes* bytes) {\n'
+        + '                       HandleUnary<' + m.output + '>(std::move(st), bytes, callback);\n'
+        + '                     });\n    }\n\n';
+    case 'server-streaming':
+      return '    void ' + m.name + '(' + m.input + ' req,\n'
+        + '            std::function<void(' + m.output + ')> on_message,\n'
+        + '            grpcdc_wasm::DoneCallback on_done) {\n'
+        + '      auto finished = std::make_shared<bool>(false);\n'
+        + '      bridge_->ServerStream(\n'
+        + '          ' + path + ', req.MarshalDc(),\n'
+        + '          [on_message, on_done, finished](const grpcdc_wasm::Bytes& bytes) {\n'
+        + '            HandleMessage<' + m.output + '>(bytes, on_message, on_done, finished);\n          },\n'
+        + '          [on_done, finished](grpcdc_wasm::Status st) {\n'
+        + '            if (*finished) return;\n            *finished = true;\n            on_done(std::move(st));\n          });\n    }\n\n';
+    case 'client-streaming':
+      return '    void ' + m.name + '(std::vector<' + m.input + '> reqs,\n'
+        + '            std::function<void(grpcdc_wasm::Status,\n'
+        + '                               std::optional<' + m.output + '>)> callback) {\n'
+        + '      bridge_->ClientStream(\n'
+        + '          ' + path + ', MarshalAll(reqs),\n'
+        + '          [callback](grpcdc_wasm::Status st,\n'
+        + '                     const grpcdc_wasm::Bytes* bytes) {\n'
+        + '            HandleUnary<' + m.output + '>(std::move(st), bytes, callback);\n          });\n    }\n\n';
+    default:
+      return '    void ' + m.name + '(std::vector<' + m.input + '> reqs,\n'
+        + '            std::function<void(' + m.output + ')> on_message,\n'
+        + '            grpcdc_wasm::DoneCallback on_done) {\n'
+        + '      auto finished = std::make_shared<bool>(false);\n'
+        + '      bridge_->Bidi(\n'
+        + '          ' + path + ', MarshalAll(reqs),\n'
+        + '          [on_message, on_done, finished](const grpcdc_wasm::Bytes& bytes) {\n'
+        + '            HandleMessage<' + m.output + '>(bytes, on_message, on_done, finished);\n          },\n'
+        + '          [on_done, finished](grpcdc_wasm::Status st) {\n'
+        + '            if (*finished) return;\n            *finished = true;\n            on_done(std::move(st));\n          });\n    }\n\n';
+  }
+}
+
+const WASM_CPP_HELPERS =
+  '   private:\n'
+  + '    template <typename Resp, typename Callback>\n'
+  + '    static void HandleUnary(grpcdc_wasm::Status st,\n'
+  + '                            const grpcdc_wasm::Bytes* bytes,\n'
+  + '                            Callback callback) {\n'
+  + '      if (!st.ok()) {\n'
+  + '        callback(std::move(st), std::nullopt);\n        return;\n      }\n'
+  + '      Resp resp;\n'
+  + '      if (!resp.UnmarshalDc(bytes ? *bytes : grpcdc_wasm::Bytes{})) {\n'
+  + '        callback({3, "malformed response payload"}, std::nullopt);\n        return;\n      }\n'
+  + '      callback(grpcdc_wasm::Status::Ok(), resp);\n    }\n\n'
+  + '    template <typename Resp, typename OnMessage>\n'
+  + '    static void HandleMessage(const grpcdc_wasm::Bytes& bytes,\n'
+  + '                              OnMessage on_message,\n'
+  + '                              grpcdc_wasm::DoneCallback on_done,\n'
+  + '                              std::shared_ptr<bool> finished) {\n'
+  + '      if (*finished) return;\n'
+  + '      Resp resp;\n'
+  + '      if (!resp.UnmarshalDc(bytes)) {\n'
+  + '        *finished = true;\n'
+  + '        on_done({3, "malformed response payload"});\n        return;\n      }\n'
+  + '      on_message(resp);\n    }\n\n'
+  + '    template <typename Req>\n'
+  + '    static std::vector<grpcdc_wasm::Bytes> MarshalAll(\n'
+  + '        const std::vector<Req>& reqs) {\n'
+  + '      std::vector<grpcdc_wasm::Bytes> payloads;\n'
+  + '      for (const auto& req : reqs) payloads.push_back(req.MarshalDc());\n'
+  + '      return payloads;\n    }\n\n';
+
+function wasmCppExportName(m) {
+  return 'serve_' + lowerFirst(m.name);
+}
+
+function wasmCppServerExport(m, structName, svc) {
+  const exportName = wasmCppExportName(m);
+  const sig = 'extern "C" void ' + exportName + '(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len, const std::uint8_t* md_ptr, std::size_t md_len) {\n'
+    + '  auto md = grpcdc_wasm::DecodeMetadata(grpcdc_wasm::Bytes(md_ptr, md_ptr + md_len));\n';
+  switch (m.kind) {
+    case 'unary':
+      return sig
+        + '  ' + m.input + ' req;\n'
+        + '  if (!req.UnmarshalDc(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; }\n'
+        + '  auto result = ' + structName + '::g_impl->' + m.name + '(req, md);\n'
+        + '  if (!result.first.ok()) { grpcdc_wasm::ServerFail(call_id, result.first); return; }\n'
+        + '  grpcdc_wasm::ServerRespond(call_id, result.second.MarshalDc());\n}\n\n';
+    case 'server-streaming':
+      return sig
+        + '  ' + m.input + ' req;\n'
+        + '  if (!req.UnmarshalDc(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; }\n'
+        + '  ' + structName + '::' + svc + 'ServerSink sink{call_id};\n'
+        + '  auto st = ' + structName + '::g_impl->' + m.name + '(req, md, sink);\n'
+        + '  if (st.ok()) grpcdc_wasm::ServerComplete(call_id); else grpcdc_wasm::ServerFail(call_id, st);\n}\n\n';
+    case 'client-streaming':
+      return sig
+        + '  std::vector<' + m.input + '> reqs;\n'
+        + '  for (const auto& chunk : grpcdc_wasm::Unpack(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { ' + m.input + ' req; if (!req.UnmarshalDc(chunk)) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; } reqs.push_back(req); }\n'
+        + '  auto result = ' + structName + '::g_impl->' + m.name + '(reqs, md);\n'
+        + '  if (!result.first.ok()) { grpcdc_wasm::ServerFail(call_id, result.first); return; }\n'
+        + '  grpcdc_wasm::ServerRespond(call_id, result.second.MarshalDc());\n}\n\n';
+    default:
+      return sig
+        + '  std::vector<' + m.input + '> reqs;\n'
+        + '  for (const auto& chunk : grpcdc_wasm::Unpack(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { ' + m.input + ' req; if (!req.UnmarshalDc(chunk)) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; } reqs.push_back(req); }\n'
+        + '  ' + structName + '::' + svc + 'ServerSink sink{call_id};\n'
+        + '  auto st = ' + structName + '::g_impl->' + m.name + '(reqs, md, sink);\n'
+        + '  if (st.ok()) grpcdc_wasm::ServerComplete(call_id); else grpcdc_wasm::ServerFail(call_id, st);\n}\n\n';
+  }
+}
+
+function wasmCppServerIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '    virtual std::pair<grpcdc_wasm::Status, ' + m.output + '> ' + m.name + '(const ' + m.input + '& req, const std::vector<grpcdc_wasm::MdPair>& md) = 0;\n';
+    case 'server-streaming':
+      return '    virtual grpcdc_wasm::Status ' + m.name + '(const ' + m.input + '& req, const std::vector<grpcdc_wasm::MdPair>& md, ' + svc + 'ServerSink& sink) = 0;\n';
+    case 'client-streaming':
+      return '    virtual std::pair<grpcdc_wasm::Status, ' + m.output + '> ' + m.name + '(const std::vector<' + m.input + '>& reqs, const std::vector<grpcdc_wasm::MdPair>& md) = 0;\n';
+    default:
+      return '    virtual grpcdc_wasm::Status ' + m.name + '(const std::vector<' + m.input + '>& reqs, const std::vector<grpcdc_wasm::MdPair>& md, ' + svc + 'ServerSink& sink) = 0;\n';
+  }
+}
+
+function wasmCppStreamIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'client-streaming':
+      return '    virtual void ' + m.name + 'Begin(std::uint32_t call_id, const std::vector<grpcdc_wasm::MdPair>& md) = 0;\n'
+        + '    virtual void ' + m.name + 'Request(std::uint32_t call_id, const ' + m.input + '& req) = 0;\n'
+        + '    virtual std::pair<grpcdc_wasm::Status, ' + m.output + '> ' + m.name + 'End(std::uint32_t call_id) = 0;\n';
+    case 'bidi':
+      return '    virtual void ' + m.name + 'Begin(std::uint32_t call_id, const std::vector<grpcdc_wasm::MdPair>& md) = 0;\n'
+        + '    virtual grpcdc_wasm::Status ' + m.name + 'Request(std::uint32_t call_id, const ' + m.input + '& req, ' + svc + 'ServerSink& sink) = 0;\n'
+        + '    virtual grpcdc_wasm::Status ' + m.name + 'End(std::uint32_t call_id) = 0;\n';
+    default:
+      return '';
+  }
+}
+
+function wasmCppStreamFeedExport(m, structName, svc) {
+  const exportName = wasmCppExportName(m);
+  if (m.kind !== 'client-streaming' && m.kind !== 'bidi') return '';
+  const start = 'extern "C" void ' + exportName + 'Start(std::uint32_t call_id, const std::uint8_t* md_ptr, std::size_t md_len) {\n'
+    + '  auto md = grpcdc_wasm::DecodeMetadata(grpcdc_wasm::Bytes(md_ptr, md_ptr + md_len));\n'
+    + '  ' + structName + '::g_stream_impl->' + m.name + 'Begin(call_id, md);\n}\n\n';
+  if (m.kind === 'client-streaming') {
+    return start
+      + 'extern "C" void ' + exportName + 'Feed(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len) {\n'
+      + '  ' + m.input + ' req;\n'
+      + '  if (!req.UnmarshalDc(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; }\n'
+      + '  ' + structName + '::g_stream_impl->' + m.name + 'Request(call_id, req);\n}\n\n'
+      + 'extern "C" void ' + exportName + 'End(std::uint32_t call_id) {\n'
+      + '  auto result = ' + structName + '::g_stream_impl->' + m.name + 'End(call_id);\n'
+      + '  if (!result.first.ok()) { grpcdc_wasm::ServerFail(call_id, result.first); return; }\n'
+      + '  grpcdc_wasm::ServerRespond(call_id, result.second.MarshalDc());\n}\n\n';
+  }
+  return start
+    + 'extern "C" void ' + exportName + 'Feed(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len) {\n'
+    + '  ' + m.input + ' req;\n'
+    + '  if (!req.UnmarshalDc(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; }\n'
+    + '  ' + structName + '::' + svc + 'ServerSink sink{call_id};\n'
+    + '  auto st = ' + structName + '::g_stream_impl->' + m.name + 'Request(call_id, req, sink);\n'
+    + '  if (!st.ok()) grpcdc_wasm::ServerFail(call_id, st);\n}\n\n'
+    + 'extern "C" void ' + exportName + 'End(std::uint32_t call_id) {\n'
+    + '  auto st = ' + structName + '::g_stream_impl->' + m.name + 'End(call_id);\n'
+    + '  if (st.ok()) grpcdc_wasm::ServerComplete(call_id); else grpcdc_wasm::ServerFail(call_id, st);\n}\n\n';
+}
+
+function wasmCppService(svc, structName) {
+  const sname = svc.name;
+  const first = svc.methods[0];
+  return '  /// Client for ' + svc.fullName + ' (browser/WASM facade; see file doc).\n'
+    + '  class ' + sname + 'Client {\n   public:\n'
+    + '    explicit ' + sname + 'Client(grpcdc_wasm::Bridge& bridge =\n                          grpcdc_wasm::Bridge::Shared())\n        : bridge_(&bridge) {}\n\n'
+    + svc.methods.concat(aliasClientMethods(svc)).map((m) => cppDeprecated(m, '    ') + wasmCppClientMethodRaw(m)).join('')
+    + WASM_CPP_HELPERS
+    + '    grpcdc_wasm::Bridge* bridge_;\n  };\n\n'
+    + '  /// Streaming response sink for server handlers.\n'
+    + '  struct ' + sname + 'ServerSink {\n    std::uint32_t call_id;\n\n'
+    + '    grpcdc_wasm::Status Send(const ' + first.output + '& resp) {\n'
+    + '      grpcdc_wasm::ServerSend(call_id, resp.MarshalDc());\n'
+    + '      return grpcdc_wasm::Status::Ok();\n    }\n  };\n\n'
+    + '  /// Service implementation for ' + svc.fullName + ' (browser/WASM facade).\n'
+    + '  class ' + sname + 'Server {\n   public:\n'
+    + '    virtual ~' + sname + 'Server() = default;\n'
+    + svc.methods.map((m) => wasmCppServerIfaceMethod(m, sname)).join('')
+    + '  };\n\n'
+    + '  static inline ' + sname + 'Server* g_impl = nullptr;\n\n'
+    + '  /// Register the service implementation used by the serve_* exports.\n'
+    + '  static void register' + sname + 'Server(' + sname + 'Server& impl) { g_impl = &impl; }\n\n'
+    + '  /// Incremental service implementation for ' + svc.fullName + ': requests arrive one at a time via serve_*Start/Feed/End.\n'
+    + '  class ' + sname + 'StreamServer {\n   public:\n'
+    + '    virtual ~' + sname + 'StreamServer() = default;\n'
+    + svc.methods.map((m) => wasmCppStreamIfaceMethod(m, sname)).join('')
+    + '  };\n\n'
+    + '  static inline ' + sname + 'StreamServer* g_stream_impl = nullptr;\n\n'
+    + '  /// Register the incremental implementation used by the serve_*Start/Feed/End exports.\n'
+    + '  static void register' + sname + 'StreamServer(' + sname + 'StreamServer& impl) { g_stream_impl = &impl; }\n'
+    + '};\n\n'
+    + svc.methods.map((m) => wasmCppServerExport(m, structName, sname)).join('')
+    + svc.methods.map((m) => wasmCppStreamFeedExport(m, structName, sname)).join('');
+}
+
+function emitWasmCppFile(model, params) {
+  const base = baseName(model.name);
+  const structName = pascalName(base) + 'WasmGrpcDc';
+  const ns = model.package || 'proto';
+  const messagesInclude = params.messages_include || base + '_messages.hpp';
+  const bridgeInclude = params.bridge_include || 'bridge.hpp';
+  return {
+    name: base + '_wasm_dc.hpp',
+    content: '// @generated by protoc-gen-grpc-dc-wasm-cpp (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n'
+      + '#pragma once\n\n'
+      + '#include <functional>\n#include <memory>\n#include <optional>\n#include <utility>\n#include <vector>\n\n'
+      + '#include ' + q(bridgeInclude) + '\n'
+      + '#include ' + q(messagesInclude) + '\n\n'
+      + 'namespace ' + ns + ' {\n\n'
+      + '/// Generated WASM facade stubs for ' + model.name + '.\n'
+      + 'struct ' + structName + ' {\n'
+      + model.services.map((svc) => wasmCppService(svc, structName)).join('')
+      + '}  // namespace ' + ns + '\n',
+  };
+}
+function wasmSwiftClientMethod(m) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '        func ' + m.name + '(_ req: ' + m.input + ', _ callback: @escaping (Result<' + m.output + ', StatusException>) -> Void) {\n'
+        + '            bridge.unary(' + path + ', req.MarshalDc()) { result in\n'
+        + '                callback(result.map { bytes in\n'
+        + '                    let resp = ' + m.output + '()\n'
+        + '                    resp.UnmarshalDc(bytes)\n                    return resp\n                })\n            }\n        }\n\n';
+    case 'server-streaming':
+      return '        func ' + m.name + '(_ req: ' + m.input + ', _ onMessage: @escaping (' + m.output + ') -> Void,\n'
+        + '                _ onDone: @escaping (StatusException?) -> Void) {\n'
+        + '            bridge.serverStream(' + path + ', req.MarshalDc(), { bytes in\n'
+        + '                let resp = ' + m.output + '()\n'
+        + '                resp.UnmarshalDc(bytes)\n                onMessage(resp)\n            }, onDone)\n        }\n\n';
+    case 'client-streaming':
+      return '        func ' + m.name + '(_ reqs: [' + m.input + '], _ callback: @escaping (Result<' + m.output + ', StatusException>) -> Void) {\n'
+        + '            bridge.clientStream(' + path + ', reqs.map { $0.MarshalDc() }) { result in\n'
+        + '                callback(result.map { bytes in\n'
+        + '                    let resp = ' + m.output + '()\n'
+        + '                    resp.UnmarshalDc(bytes)\n                    return resp\n                })\n            }\n        }\n\n';
+    default:
+      return '        func ' + m.name + '(_ reqs: [' + m.input + '], _ onMessage: @escaping (' + m.output + ') -> Void,\n'
+        + '                _ onDone: @escaping (StatusException?) -> Void) {\n'
+        + '            bridge.bidi(' + path + ', reqs.map { $0.MarshalDc() }, { bytes in\n'
+        + '                let resp = ' + m.output + '()\n'
+        + '                resp.UnmarshalDc(bytes)\n                onMessage(resp)\n            }, onDone)\n        }\n\n';
+  }
+}
+
+function wasmSwiftServerIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        func ' + m.name + '(_ req: ' + m.input + ', _ metadata: [(String, String)]) -> Result<' + m.output + ', StatusException>\n';
+    case 'server-streaming':
+      return '        func ' + m.name + '(_ req: ' + m.input + ', _ metadata: [(String, String)], _ sink: ' + svc + 'ServerSink) -> StatusException?\n';
+    case 'client-streaming':
+      return '        func ' + m.name + '(_ reqs: [' + m.input + '], _ metadata: [(String, String)]) -> Result<' + m.output + ', StatusException>\n';
+    default:
+      return '        func ' + m.name + '(_ reqs: [' + m.input + '], _ metadata: [(String, String)], _ sink: ' + svc + 'ServerSink) -> StatusException?\n';
+  }
+}
+
+function wasmSwiftExportName(m) {
+  return 'serve_' + lowerFirst(m.name);
+}
+
+function wasmSwiftServeExport(enumName, m, svc) {
+  const exportName = wasmSwiftExportName(m);
+  const cdecl = '@_cdecl(' + q(exportName) + ')\n';
+  const sig = 'public func ' + exportName + '(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n'
+    + '    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n';
+  switch (m.kind) {
+    case 'unary':
+      return cdecl + sig
+        + '    let req = ' + m.input + '()\n'
+        + '    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n'
+        + '    switch ' + enumName + '.serverImpl!.' + m.name + '(req, metadata) {\n'
+        + '    case .success(let resp): ServerRespond(callId, resp.MarshalDc())\n'
+        + '    case .failure(let st): ServerFail(callId, st)\n    }\n}\n\n';
+    case 'server-streaming':
+      return cdecl + sig
+        + '    let req = ' + m.input + '()\n'
+        + '    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n'
+        + '    if let st = ' + enumName + '.serverImpl!.' + m.name + '(req, metadata, ' + enumName + '.' + svc + 'ServerSink(callId: callId)) {\n'
+        + '        ServerFail(callId, st)\n    } else {\n        ServerComplete(callId)\n    }\n}\n\n';
+    case 'client-streaming':
+      return cdecl + sig
+        + '    let reqs = UnpackPacked(Array(UnsafeBufferPointer(start: payload, count: payloadLen))).map { bytes -> ' + m.input + ' in let req = ' + m.input + '(); req.UnmarshalDc(bytes); return req }\n'
+        + '    switch ' + enumName + '.serverImpl!.' + m.name + '(reqs, metadata) {\n'
+        + '    case .success(let resp): ServerRespond(callId, resp.MarshalDc())\n'
+        + '    case .failure(let st): ServerFail(callId, st)\n    }\n}\n\n';
+    default:
+      return cdecl + sig
+        + '    let reqs = UnpackPacked(Array(UnsafeBufferPointer(start: payload, count: payloadLen))).map { bytes -> ' + m.input + ' in let req = ' + m.input + '(); req.UnmarshalDc(bytes); return req }\n'
+        + '    if let st = ' + enumName + '.serverImpl!.' + m.name + '(reqs, metadata, ' + enumName + '.' + svc + 'ServerSink(callId: callId)) {\n'
+        + '        ServerFail(callId, st)\n    } else {\n        ServerComplete(callId)\n    }\n}\n\n';
+  }
+}
+
+function wasmSwiftStreamIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'client-streaming':
+      return '        func ' + m.name + 'Begin(_ callId: UInt32, _ metadata: [(String, String)])\n'
+        + '        func ' + m.name + 'Request(_ callId: UInt32, _ req: ' + m.input + ')\n'
+        + '        func ' + m.name + 'End(_ callId: UInt32) -> Result<' + m.output + ', StatusException>\n';
+    case 'bidi':
+      return '        func ' + m.name + 'Begin(_ callId: UInt32, _ metadata: [(String, String)])\n'
+        + '        func ' + m.name + 'Request(_ callId: UInt32, _ req: ' + m.input + ', _ sink: ' + svc + 'ServerSink) -> StatusException?\n'
+        + '        func ' + m.name + 'End(_ callId: UInt32) -> StatusException?\n';
+    default:
+      return '';
+  }
+}
+
+function wasmSwiftStreamFeedExport(enumName, m, svc) {
+  const exportName = wasmSwiftExportName(m);
+  if (m.kind !== 'client-streaming' && m.kind !== 'bidi') return '';
+  const decl = (suffix, rest) => '@_cdecl(' + q(exportName + suffix) + ')\npublic func ' + exportName + suffix + rest;
+  const start = decl('Start', '(_ callId: UInt32, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n'
+    + '    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n'
+    + '    ' + enumName + '.streamImpl!.' + m.name + 'Begin(callId, metadata)\n}\n\n');
+  if (m.kind === 'client-streaming') {
+    return start
+      + decl('Feed', '(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int) {\n'
+        + '    let req = ' + m.input + '()\n'
+        + '    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n'
+        + '    ' + enumName + '.streamImpl!.' + m.name + 'Request(callId, req)\n}\n\n')
+      + decl('End', '(_ callId: UInt32) {\n'
+        + '    switch ' + enumName + '.streamImpl!.' + m.name + 'End(callId) {\n'
+        + '    case .success(let resp): ServerRespond(callId, resp.MarshalDc())\n'
+        + '    case .failure(let st): ServerFail(callId, st)\n    }\n}\n\n');
+  }
+  return start
+    + decl('Feed', '(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int) {\n'
+      + '    let req = ' + m.input + '()\n'
+      + '    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n'
+      + '    if let st = ' + enumName + '.streamImpl!.' + m.name + 'Request(callId, req, ' + enumName + '.' + svc + 'ServerSink(callId: callId)) {\n'
+      + '        ServerFail(callId, st)\n    }\n}\n\n')
+    + decl('End', '(_ callId: UInt32) {\n'
+      + '    if let st = ' + enumName + '.streamImpl!.' + m.name + 'End(callId) {\n'
+      + '        ServerFail(callId, st)\n    } else {\n        ServerComplete(callId)\n    }\n}\n\n');
+}
+
+function wasmSwiftService(svc) {
+  const sname = svc.name;
+  const first = svc.methods[0];
+  return '    /// Client for ' + svc.fullName + ' (browser/WASM facade; see file doc).\n'
+    + '    final class ' + sname + 'Client {\n'
+    + '        private let bridge: GrpcDcWasmBridge\n\n'
+    + '        init(_ bridge: GrpcDcWasmBridge = .shared) {\n            self.bridge = bridge\n        }\n\n'
+    + svc.methods.concat(aliasClientMethods(svc)).map(wasmSwiftClientMethod).join('')
+    + '    }\n\n'
+    + '    /// Streaming response sink for server handlers.\n'
+    + '    struct ' + sname + 'ServerSink {\n        let callId: UInt32\n\n'
+    + '        func Send(_ resp: ' + first.output + ') {\n            ServerSend(callId, resp.MarshalDc())\n        }\n    }\n\n'
+    + '    /// Service implementation for ' + svc.fullName + ' (browser/WASM facade).\n'
+    + '    protocol ' + sname + 'Server {\n'
+    + svc.methods.map((m) => wasmSwiftServerIfaceMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    static var serverImpl: ' + sname + 'Server?\n\n'
+    + '    /// Register the service implementation used by the serve_* exports.\n'
+    + '    static func register' + sname + 'Server(_ impl: ' + sname + 'Server) {\n        serverImpl = impl\n    }\n\n'
+    + '    /// Incremental service implementation for ' + svc.fullName + ': requests arrive one at a time.\n'
+    + '    protocol ' + sname + 'StreamServer {\n'
+    + svc.methods.map((m) => wasmSwiftStreamIfaceMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    static var streamImpl: ' + sname + 'StreamServer?\n\n'
+    + '    /// Register the incremental implementation used by the serve_*Start/Feed/End exports.\n'
+    + '    static func register' + sname + 'StreamServer(_ impl: ' + sname + 'StreamServer) {\n        streamImpl = impl\n    }\n';
+}
+
+function emitWasmSwiftFile(model, params) {
+  const base = baseName(model.name);
+  const enumName = pascalName(base) + 'WasmGrpcDc';
+  return {
+    name: enumName + '.swift',
+    content: '// @generated by protoc-gen-grpc-dc-wasm-swift (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n\n'
+      + '/// Generated WASM facade stubs for ' + model.name + '.\n'
+      + 'enum ' + enumName + ' {\n'
+      + model.services.map(wasmSwiftService).join('')
+      + '}\n\n'
+      + model.services.map((svc) => svc.methods.map((m) => wasmSwiftServeExport(enumName, m, svc.name)).join('') + svc.methods.map((m) => wasmSwiftStreamFeedExport(enumName, m, svc.name)).join('')).join(''),
+  };
+}
+function wasmKotlinClientMethod(m) {
+  const path = q(m.path);
+  const streamingBody = (bridgeCall) =>
+    '        fun ' + m.name + '(\n'
+    + '            req' + (m.kind === 'bidi' ? 's' : '') + ': ' + (m.kind === 'bidi' ? 'List<' + m.input + '>' : m.input) + ',\n'
+    + '            onMessage: (' + m.output + ') -> Unit,\n'
+    + '            onDone: (StatusException?) -> Unit\n        ) {\n'
+    + '            var finished = false\n'
+    + '            bridge.' + bridgeCall + '(' + path + ', req' + (m.kind === 'bidi' ? 's' : '') + '.map { it.marshalDc() }, { bytes ->\n'
+    + '                if (!finished) {\n'
+    + '                    try {\n'
+    + '                        onMessage(' + m.output + '().apply { unmarshalDc(bytes) })\n'
+    + '                    } catch (e: Throwable) {\n'
+    + '                        finished = true\n'
+    + '                        onDone(StatusException.toStatus(e))\n                    }\n                }\n'
+    + '            }) { err ->\n'
+    + '                if (!finished) {\n'
+    + '                    finished = true\n'
+    + '                    onDone(err)\n                }\n            }\n        }\n\n';
+  switch (m.kind) {
+    case 'unary':
+      return '        fun ' + m.name + '(req: ' + m.input + ', callback: (Result<' + m.output + '>) -> Unit) {\n'
+        + '            bridge.unary(' + path + ', req.marshalDc()) { result ->\n'
+        + '                callback(result.mapCatching { bytes ->\n'
+        + '                    ' + m.output + '().apply { unmarshalDc(bytes) }\n                })\n            }\n        }\n\n';
+    case 'server-streaming':
+      return '        fun ' + m.name + '(\n'
+        + '            req: ' + m.input + ',\n'
+        + '            onMessage: (' + m.output + ') -> Unit,\n'
+        + '            onDone: (StatusException?) -> Unit\n        ) {\n'
+        + '            var finished = false\n'
+        + '            bridge.serverStream(' + path + ', req.marshalDc(), { bytes ->\n'
+        + '                if (!finished) {\n'
+        + '                    try {\n'
+        + '                        onMessage(' + m.output + '().apply { unmarshalDc(bytes) })\n'
+        + '                    } catch (e: Throwable) {\n'
+        + '                        finished = true\n'
+        + '                        onDone(StatusException.toStatus(e))\n                    }\n                }\n'
+        + '            }) { err ->\n'
+        + '                if (!finished) {\n'
+        + '                    finished = true\n'
+        + '                    onDone(err)\n                }\n            }\n        }\n\n';
+    case 'client-streaming':
+      return '        fun ' + m.name + '(reqs: List<' + m.input + '>, callback: (Result<' + m.output + '>) -> Unit) {\n'
+        + '            bridge.clientStream(' + path + ', reqs.map { it.marshalDc() }) { result ->\n'
+        + '                callback(result.mapCatching { bytes ->\n'
+        + '                    ' + m.output + '().apply { unmarshalDc(bytes) }\n                })\n            }\n        }\n\n';
+    default:
+      return streamingBody('bidi');
+  }
+}
+
+function wasmKotlinServerIfaceMethod(m) {
+  switch (m.kind) {
+    case 'unary':
+      return '        fun ' + m.name + '(req: ' + m.input + ', metadata: Map<String, String>): ' + m.output + '\n';
+    case 'server-streaming':
+      return '        fun ' + m.name + '(req: ' + m.input + ', metadata: Map<String, String>, sink: (' + m.output + ') -> Unit)\n';
+    case 'client-streaming':
+      return '        fun ' + m.name + '(reqs: List<' + m.input + '>, metadata: Map<String, String>): ' + m.output + '\n';
+    default:
+      return '        fun ' + m.name + '(reqs: List<' + m.input + '>, metadata: Map<String, String>, sink: (' + m.output + ') -> Unit)\n';
+  }
+}
+
+function wasmKotlinRegisterMethod(m) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '        bridge.unary(' + path + ') { bytes, metadata ->\n'
+        + '            impl.' + m.name + '(' + m.input + '().apply { unmarshalDc(bytes) }, metadata).marshalDc()\n        }\n';
+    case 'server-streaming':
+      return '        bridge.serverStream(' + path + ') { bytes, metadata, sink ->\n'
+        + '            impl.' + m.name + '(' + m.input + '().apply { unmarshalDc(bytes) }, metadata) { resp -> sink(resp.marshalDc()) }\n        }\n';
+    case 'client-streaming':
+      return '        bridge.clientStream(' + path + ') { payloads, metadata ->\n'
+        + '            impl.' + m.name + '(payloads.map { bytes -> ' + m.input + '().apply { unmarshalDc(bytes) } }, metadata).marshalDc()\n        }\n';
+    default:
+      return '        bridge.bidi(' + path + ') { payloads, metadata, sink ->\n'
+        + '            impl.' + m.name + '(payloads.map { bytes -> ' + m.input + '().apply { unmarshalDc(bytes) } }, metadata) { resp -> sink(resp.marshalDc()) }\n        }\n';
+  }
+}
+
+function wasmKotlinStreamIfaceMethod(m) {
+  switch (m.kind) {
+    case 'client-streaming':
+      return '        fun ' + m.name + '(source: ' + m.input + 'Source, metadata: Map<String, String>, respond: (' + m.output + ') -> Unit, fail: (StatusException) -> Unit)\n';
+    case 'bidi':
+      return '        fun ' + m.name + '(source: ' + m.input + 'Source, metadata: Map<String, String>, sink: (' + m.output + ') -> Unit, done: () -> Unit, fail: (StatusException) -> Unit)\n';
+    default:
+      return '';
+  }
+}
+
+function wasmKotlinStreamRegisterMethod(m) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'client-streaming':
+      return '        bridge.clientStreamInc(' + path + ') { source, metadata, respond, fail ->\n'
+        + '            impl.' + m.name + '(' + m.input + 'Source(source), metadata, { resp -> respond(resp.marshalDc()) }, fail)\n        }\n';
+    case 'bidi':
+      return '        bridge.bidiInc(' + path + ') { source, metadata, sink, done, fail ->\n'
+        + '            impl.' + m.name + '(' + m.input + 'Source(source), metadata, { resp -> sink(resp.marshalDc()) }, done, fail)\n        }\n';
+    default:
+      return '';
+  }
+}
+
+function wasmKotlinService(svc) {
+  const sname = svc.name;
+  const first = svc.methods[0];
+  const allServer = svc.methods.concat(aliasServerMethods(svc));
+  return '    /** Client for ' + svc.fullName + ' (browser/WASM facade; see file doc). */\n'
+    + '    class ' + sname + 'Client(private val bridge: GrpcdcWasmBridge) {\n'
+    + svc.methods.concat(aliasClientMethods(svc)).map(wasmKotlinClientMethod).join('')
+    + '    }\n\n'
+    + '    /** Service implementation interface for ' + svc.fullName + ' (browser/WASM facade). */\n'
+    + '    interface ' + sname + 'Server {\n'
+    + svc.methods.map(wasmKotlinServerIfaceMethod).join('')
+    + '    }\n\n'
+    + '    /** Register an implementation of ' + svc.fullName + ' on a server bridge. */\n'
+    + '    fun register' + sname + 'Server(bridge: GrpcdcWasmServerBridge, impl: ' + sname + 'Server) {\n'
+    + allServer.map(wasmKotlinRegisterMethod).join('')
+    + '        bridge.start(' + q(svc.fullName) + ')\n    }\n\n'
+    + '    /** Typed pull source for incremental server handlers. */\n'
+    + '    class ' + first.input + 'Source internal constructor(private val raw: GrpcdcRequestSource) {\n'
+    + '        fun next(onRequest: ((' + first.input + '?) -> Unit), onError: (StatusException) -> Unit) {\n'
+    + '            raw.next({ bytes -> onRequest(bytes?.let { ' + first.input + '().apply { unmarshalDc(it) } }) }, onError)\n        }\n    }\n\n'
+    + '    /** Incremental service implementation for ' + svc.fullName + ': requests arrive one at a time. */\n'
+    + '    interface ' + sname + 'StreamServer {\n'
+    + svc.methods.map(wasmKotlinStreamIfaceMethod).join('')
+    + '    }\n\n'
+    + '    /** Register an incremental implementation; call bridge.start after all registrations. */\n'
+    + '    fun register' + sname + 'StreamServer(bridge: GrpcdcWasmServerBridge, impl: ' + sname + 'StreamServer) {\n'
+    + allServer.map(wasmKotlinStreamRegisterMethod).join('')
+    + '    }\n';
+}
+
+function emitWasmKotlinFile(model, params) {
+  const base = baseName(model.name);
+  const objectName = pascalName(base) + 'WasmGrpcDc';
+  const pkg = model.package || 'proto';
+  const bridgePackage = params.bridge_package || 'grpcdcwasm';
+  return {
+    name: objectName + '.kt',
+    content: '// @generated by protoc-gen-grpc-dc-wasm-kotlin (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n'
+      + 'package ' + pkg + '\n\n'
+      + 'import ' + bridgePackage + '.GrpcdcWasmBridge\n'
+      + 'import ' + bridgePackage + '.GrpcdcWasmServerBridge\n'
+      + 'import ' + bridgePackage + '.GrpcdcRequestSource\n'
+      + 'import ' + bridgePackage + '.StatusException\n\n'
+      + '/** Generated WASM facade stubs for ' + model.name + '. */\n'
+      + 'object ' + objectName + ' {\n'
+      + model.services.map(wasmKotlinService).join('')
+      + '}\n',
+  };
+}
+function wasmScalaClientMethod(m, svc) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '        def ' + m.name + '(req: ' + m.input + '): scala.concurrent.Future[' + m.output + '] = {\n'
+        + '            bridge.unary(' + path + ', req.marshalDc()).map { bytes =>\n'
+        + '                val resp = new ' + m.output + '()\n'
+        + '                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n\n';
+    case 'server-streaming':
+      return '        def ' + m.name + '(req: ' + m.input + '): ' + svc + 'ServerStreamStream = {\n'
+        + '            new ' + svc + 'ServerStreamStream(onMessage =>\n'
+        + '                bridge.serverStream(' + path + ', req.marshalDc(), onMessage))\n        }\n\n';
+    case 'client-streaming':
+      return '        def ' + m.name + '(reqs: List[' + m.input + ']): scala.concurrent.Future[' + m.output + '] = {\n'
+        + '            bridge.clientStream(' + path + ', reqs.map(_.marshalDc())).map { bytes =>\n'
+        + '                val resp = new ' + m.output + '()\n'
+        + '                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n\n';
+    default:
+      return '        def ' + m.name + '(reqs: List[' + m.input + ']): ' + svc + 'BidiStream = {\n'
+        + '            new ' + svc + 'BidiStream(onMessage =>\n'
+        + '                bridge.bidi(' + path + ', reqs.map(_.marshalDc()), onMessage))\n        }\n\n';
+  }
+}
+
+function wasmScalaServerIfaceMethod(m, svc) {
+  switch (m.kind) {
+    case 'unary':
+      return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String]): ' + m.output + '\n';
+    case 'server-streaming':
+      return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String], sink: ' + svc + 'ServerSink): Unit\n';
+    case 'client-streaming':
+      return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String]): ' + m.output + '\n';
+    default:
+      return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String], sink: ' + svc + 'ServerSink): Unit\n';
+  }
+}
+
+function wasmScalaRegisterMethod(m) {
+  const impl = m.implName;
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'unary':
+      return '        bridge.registerUnary(' + path + ', (payload, metadata) =>\n'
+        + '            val req = new ' + m.input + '()\n'
+        + '            req.unmarshalDc(payload)\n'
+        + '            impl.' + impl + '(req, metadata).marshalDc())\n';
+    case 'server-streaming':
+      return '        bridge.registerServerStream(' + path + ', (payload, metadata, onMessage) =>\n'
+        + '            val req = new ' + m.input + '()\n'
+        + '            req.unmarshalDc(payload)\n'
+        + '            impl.' + impl + '(req, metadata, resp => onMessage(resp.marshalDc())))\n';
+    case 'client-streaming':
+      return '        bridge.registerClientStream(' + path + ', (payloads, metadata) =>\n'
+        + '            val reqs = payloads.map { payload =>\n'
+        + '                val req = new ' + m.input + '()\n'
+        + '                req.unmarshalDc(payload)\n                req\n            }\n'
+        + '            impl.' + impl + '(reqs, metadata).marshalDc())\n';
+    default:
+      return '        bridge.registerBidi(' + path + ', (payloads, metadata, onMessage) =>\n'
+        + '            val reqs = payloads.map { payload =>\n'
+        + '                val req = new ' + m.input + '()\n'
+        + '                req.unmarshalDc(payload)\n                req\n            }\n'
+        + '            impl.' + impl + '(reqs, metadata, resp => onMessage(resp.marshalDc())))\n';
+  }
+}
+
+function wasmScalaStreamIfaceMethod(m) {
+  switch (m.kind) {
+    case 'client-streaming':
+      return '        def ' + m.name + '(source: ' + m.input + 'Source, metadata: Map[String, String]): scala.concurrent.Future[' + m.output + ']\n';
+    case 'bidi':
+      return '        def ' + m.name + '(source: ' + m.input + 'Source, metadata: Map[String, String], sink: ' + m.output + ' => Unit): scala.concurrent.Future[Unit]\n';
+    default:
+      return '';
+  }
+}
+
+function wasmScalaStreamRegisterMethod(m) {
+  const path = q(m.path);
+  switch (m.kind) {
+    case 'client-streaming':
+      return '        bridge.registerClientStreamInc(' + path + ', (source, metadata) =>\n'
+        + '            impl.' + m.name + '(new ' + m.input + 'Source(source), metadata).map(_.marshalDc()))\n';
+    case 'bidi':
+      return '        bridge.registerBidiInc(' + path + ', (source, metadata, onMessage) =>\n'
+        + '            impl.' + m.name + '(new ' + m.input + 'Source(source), metadata, resp => onMessage(resp.marshalDc())))\n';
+    default:
+      return '';
+  }
+}
+
+function wasmScalaService(svc) {
+  const sname = svc.name;
+  const first = svc.methods[0];
+  const req0 = first.input;
+  const resp0 = first.output;
+  const allServer = svc.methods.concat(aliasServerMethods(svc));
+  return '    /** Client for ' + svc.fullName + ' (browser/Scala.js facade; see file doc). */\n'
+    + '    class ' + sname + 'Client(private val bridge: grpcdcscalajs.GrpcdcScalaJsBridge) {\n'
+    + '        class ' + sname + 'ServerStreamStream(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ' + sname + 'RecvStream(call)\n\n'
+    + '        class ' + sname + 'BidiStream(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ' + sname + 'RecvStream(call)\n\n'
+    + svc.methods.concat(aliasClientMethods(svc)).map((m) => wasmScalaClientMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    /** Receiving stream: recv() futures queue in arrival order. */\n'
+    + '    class ' + sname + 'RecvStream(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) {\n'
+    + '        private val buffer = scala.collection.mutable.Queue[Array[Byte]]()\n'
+    + '        private var finished = false\n'
+    + '        private var failure: Throwable = null\n'
+    + '        private var waiter: scala.concurrent.Promise[Array[Byte]] = null\n'
+    + '        call { bytes =>\n'
+    + '            if (waiter != null) {\n'
+    + '                val w = waiter\n                waiter = null\n                w.success(bytes)\n'
+    + '            } else {\n                buffer.enqueue(bytes)\n            }\n'
+    + '            ()\n        }.onComplete {\n'
+    + '            case scala.util.Success(_) =>\n'
+    + '                finished = true\n'
+    + '                if (waiter != null) {\n'
+    + '                    val w = waiter\n                    waiter = null\n'
+    + '                    w.failure(new java.io.EOFException("call completed"))\n                }\n'
+    + '            case scala.util.Failure(err) =>\n'
+    + '                failure = err\n'
+    + '                if (waiter != null) {\n'
+    + '                    val w = waiter\n                    waiter = null\n                    w.failure(err)\n                }\n        }\n\n'
+    + '        def recvBytes(): scala.concurrent.Future[' + resp0 + '] = {\n'
+    + '            val buffered =\n'
+    + '                if (buffer.nonEmpty) scala.concurrent.Future.successful(buffer.dequeue())\n'
+    + '                else if (failure != null) scala.concurrent.Future.failed(failure)\n'
+    + '                else if (finished) scala.concurrent.Future.failed(new java.io.EOFException("call completed"))\n'
+    + '                else {\n'
+    + '                    waiter = scala.concurrent.Promise[Array[Byte]]()\n'
+    + '                    waiter.future\n                }\n'
+    + '            buffered.map { bytes =>\n'
+    + '                val resp = new ' + resp0 + '()\n'
+    + '                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n    }\n\n'
+    + '    /** Streaming response sink for server handlers. */\n'
+    + '    type ' + sname + 'ServerSink = ' + resp0 + ' => Unit\n\n'
+    + '    /** Service implementation for ' + svc.fullName + ' (browser/Scala.js facade). */\n'
+    + '    trait ' + sname + 'Server {\n'
+    + svc.methods.map((m) => wasmScalaServerIfaceMethod(m, sname)).join('')
+    + '    }\n\n'
+    + '    /** Register an implementation of ' + svc.fullName + ' on a server bridge. */\n'
+    + '    def register' + sname + 'Server(bridge: grpcdcscalajs.GrpcdcScalaJsServerBridge, impl: ' + sname + 'Server): Unit = {\n'
+    + allServer.map(wasmScalaRegisterMethod).join('')
+    + '        bridge.start(' + q(svc.fullName) + ')\n    }\n\n'
+    + '    /** Typed pull source for incremental server handlers. */\n'
+    + '    class ' + req0 + 'Source(private val raw: grpcdcscalajs.GrpcdcRequestSource) {\n'
+    + '        def next(): scala.concurrent.Future[Option[' + req0 + ']] = {\n'
+    + '            raw.next().map(_.map { bytes =>\n'
+    + '                val req = new ' + req0 + '()\n'
+    + '                req.unmarshalDc(bytes)\n                req\n            })\n        }\n    }\n\n'
+    + '    /** Incremental service implementation for ' + svc.fullName + ': requests arrive one at a time. */\n'
+    + '    trait ' + sname + 'StreamServer {\n'
+    + svc.methods.map(wasmScalaStreamIfaceMethod).join('')
+    + '    }\n\n'
+    + '    /** Register an incremental implementation; call bridge.start after all registrations. */\n'
+    + '    def register' + sname + 'StreamServer(bridge: grpcdcscalajs.GrpcdcScalaJsServerBridge, impl: ' + sname + 'StreamServer): Unit = {\n'
+    + allServer.map(wasmScalaStreamRegisterMethod).join('')
+    + '    }\n';
+}
+
+function emitWasmScalaFile(model, params) {
+  const base = baseName(model.name);
+  const objName = camelName(base) + 'ScalaJsGrpcDc';
+  return {
+    name: objName + '.scala',
+    content: '// @generated by protoc-gen-grpc-dc-wasm-scala (Racket metaprogram). DO NOT EDIT.\n'
+      + '// source: ' + model.name + '\n'
+      + 'package ' + model.package + '\n\n'
+      + 'import scala.concurrent.ExecutionContext.Implicits.global\n\n'
+      + '/** Generated Scala.js facade stubs (wrap the JS runtime). */\n'
+      + 'object ' + objName + ' {\n'
+      + model.services.map(wasmScalaService).join('')
+      + '}\n',
+  };
 }

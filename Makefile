@@ -644,6 +644,46 @@ webapp-assets:
 	cp js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/js/
 	cp go/channel.go go/codec.go go/dynamic.go go/endpoint.go go/loopback.go go/server.go go/wire_gen.go go/webrtc_transport.go webapp/assets/runtime/go/
 	cp python/grpcdc/__init__.py python/grpcdc/channel.py python/grpcdc/codec.py python/grpcdc/dynamic.py python/grpcdc/endpoint.py python/grpcdc/loopback.py python/grpcdc/server.py python/grpcdc/wire_gen.py webapp/assets/runtime/python/
+	mkdir -p webapp/assets/runtime/rust/src
+	cp rust/Cargo.toml webapp/assets/runtime/rust/Cargo.toml
+	cp rust/src/channel.rs rust/src/codec.rs rust/src/dynamic.rs rust/src/endpoint.rs rust/src/lib.rs rust/src/message.rs rust/src/server.rs rust/src/status.rs rust/src/transport.rs rust/src/webrtc_transport.rs rust/src/wire_gen.rs webapp/assets/runtime/rust/src/
+	mkdir -p webapp/assets/runtime/java
+	cp java/grpcdc/Channel.java java/grpcdc/Codec.java java/grpcdc/Dynamic.java java/grpcdc/Endpoint.java java/grpcdc/Marshaler.java java/grpcdc/MemoryTransport.java java/grpcdc/Server.java java/grpcdc/StatusException.java java/grpcdc/Transport.java java/grpcdc/Unmarshaler.java java/grpcdc/Wire.java webapp/assets/runtime/java/
+	mkdir -p webapp/assets/runtime/csharp
+	cp csharp/grpcdc/AsyncPump.cs csharp/grpcdc/Channel.cs csharp/grpcdc/Codec.cs csharp/grpcdc/Dynamic.cs csharp/grpcdc/Endpoint.cs csharp/grpcdc/Grpcdc.csproj csharp/grpcdc/MemoryTransport.cs csharp/grpcdc/Server.cs csharp/grpcdc/StatusException.cs csharp/grpcdc/Transport.cs csharp/grpcdc/Wire.cs webapp/assets/runtime/csharp/
+	mkdir -p webapp/assets/runtime/cpp
+	cp cpp/grpcdc/async.hpp cpp/grpcdc/channel.hpp cpp/grpcdc/codec.hpp cpp/grpcdc/dynamic.hpp cpp/grpcdc/endpoint.hpp cpp/grpcdc/memory_transport.hpp cpp/grpcdc/server.hpp cpp/grpcdc/status.hpp cpp/grpcdc/transport.hpp cpp/grpcdc/wire.hpp webapp/assets/runtime/cpp/
+	mkdir -p webapp/assets/runtime/swift
+	cp swift/grpcdc/Channel.swift swift/grpcdc/Codec.swift swift/grpcdc/Dynamic.swift swift/grpcdc/Endpoint.swift swift/grpcdc/MemoryTransport.swift swift/grpcdc/Server.swift swift/grpcdc/Status.swift swift/grpcdc/Transport.swift swift/grpcdc/Wire.swift webapp/assets/runtime/swift/
+	mkdir -p webapp/assets/runtime/kotlin
+	cp kotlin/grpcdc/AsyncPump.kt kotlin/grpcdc/Channel.kt kotlin/grpcdc/Codec.kt kotlin/grpcdc/Dynamic.kt kotlin/grpcdc/Endpoint.kt kotlin/grpcdc/MemoryTransport.kt kotlin/grpcdc/Server.kt kotlin/grpcdc/Status.kt kotlin/grpcdc/Transport.kt kotlin/grpcdc/Wire.kt webapp/assets/runtime/kotlin/
+	mkdir -p webapp/assets/runtime/dart
+	cp dart/grpcdc/channel.dart dart/grpcdc/codec.dart dart/grpcdc/dynamic.dart dart/grpcdc/endpoint.dart dart/grpcdc/memory_transport.dart dart/grpcdc/server.dart dart/grpcdc/status.dart dart/grpcdc/transport.dart dart/grpcdc/wire.dart webapp/assets/runtime/dart/
+	mkdir -p webapp/assets/runtime/zig/grpcdc
+	cp zig/build.zig webapp/assets/runtime/zig/build.zig
+	cp zig/grpcdc/channel.zig zig/grpcdc/codec.zig zig/grpcdc/dynamic.zig zig/grpcdc/endpoint.zig zig/grpcdc/grpcdc.zig zig/grpcdc/memory_transport.zig zig/grpcdc/server.zig zig/grpcdc/status.zig zig/grpcdc/transport.zig zig/grpcdc/wire.zig webapp/assets/runtime/zig/grpcdc/
+	mkdir -p webapp/assets/runtime/lua/grpcdc
+	cp lua/grpcdc/channel.lua lua/grpcdc/codec.lua lua/grpcdc/dynamic.lua lua/grpcdc/endpoint.lua lua/grpcdc/memory_transport.lua lua/grpcdc/server.lua lua/grpcdc/status.lua lua/grpcdc/transport.lua lua/grpcdc/wire.lua webapp/assets/runtime/lua/grpcdc/
+	mkdir -p webapp/assets/runtime/ruby/grpcdc
+	cp ruby/grpcdc.rb webapp/assets/runtime/ruby/grpcdc.rb
+	cp ruby/grpcdc/channel.rb ruby/grpcdc/codec.rb ruby/grpcdc/dynamic.rb ruby/grpcdc/endpoint.rb ruby/grpcdc/loopback.rb ruby/grpcdc/server.rb ruby/grpcdc/wire_gen.rb webapp/assets/runtime/ruby/grpcdc/
+	mkdir -p webapp/assets/runtime/php/grpcdc
+	cp php/grpcdc.php webapp/assets/runtime/php/grpcdc.php
+	cp php/grpcdc/channel.php php/grpcdc/codec.php php/grpcdc/dynamic.php php/grpcdc/endpoint.php php/grpcdc/loopback.php php/grpcdc/server.php php/grpcdc/wire_gen.php webapp/assets/runtime/php/grpcdc/
+	mkdir -p webapp/assets/runtime/scala
+	cp scala/grpcdc/Channel.scala scala/grpcdc/Codec.scala scala/grpcdc/Dynamic.scala scala/grpcdc/Endpoint.scala scala/grpcdc/Futures.scala scala/grpcdc/MemoryTransport.scala scala/grpcdc/Server.scala scala/grpcdc/Status.scala scala/grpcdc/Transport.scala scala/grpcdc/WireGen.scala webapp/assets/runtime/scala/
+	mkdir -p webapp/assets/runtime/wasm-go
+	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-go/
+	mkdir -p webapp/assets/runtime/wasm-zig
+	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-zig/
+	mkdir -p webapp/assets/runtime/wasm-cpp
+	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-cpp/
+	mkdir -p webapp/assets/runtime/wasm-swift
+	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-swift/
+	mkdir -p webapp/assets/runtime/wasm-kotlin
+	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-kotlin/
+	mkdir -p webapp/assets/runtime/wasm-scala
+	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-scala/
 
 ## Self-contained static bundle: serve webapp/dist with any
 ## static file server (e.g. python3 -m http.server -d webapp/dist).

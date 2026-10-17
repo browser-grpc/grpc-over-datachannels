@@ -98,8 +98,8 @@ the schemas, generated stubs (`gen/<lang>/`), the matching runtimes
 WebAssembly (`webapp/compiler/`); the stub generators are stamped by
 the same Racket metaprogram into `webapp/gen/generators.js`
 (`racket/webgen.rkt`), mirroring `racket/desc.rkt` and the
-per-language templates. Browser generators currently cover JS, Go,
-and Python; the other languages remain native-only for now.
+per-language templates. Browser generators cover all 15 native
+languages plus the 6 WASM/Scala.js facade generators.
 `browser-test/webapp_parity.test.mjs` drives the real UI in
 Chromium and Firefox and asserts the zipped stubs are byte-identical
 to the native `protoc` plugins' output, so the browser path cannot
