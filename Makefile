@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-interop-matrix demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-interop-matrix test-webrtc-matrix demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -223,6 +223,7 @@ test-lua-wasm-browser:
 	  grpcdc.server=lua/grpcdc/server.lua grpcdc.memory_transport=lua/grpcdc/memory_transport.lua \
 	  examples.pb=lua/examples/pb.lua examples.echo_messages=lua/examples/echo_messages.lua \
 	  examples.echo_grpc_dc=lua/examples/echo_grpc_dc.lua \
+	  examples.echo_service_impl=lua/examples/echo_service_impl.lua \
 	  dc_transport=wasm/lua/dc_transport.lua @main=wasm/lua/echo_client.lua
 	zig cc -target wasm32-wasi -O2 -s -mexception-handling -mllvm -wasm-enable-sjlj -mllvm -wasm-use-legacy-eh=false -mbulk-memory \
 	  -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_PROCESS_CLOCKS \
@@ -232,7 +233,25 @@ test-lua-wasm-browser:
 	    $(wildcard $(LUA_SRC)/*.c)) \
 	  -lm -lwasi-emulated-signal -lwasi-emulated-process-clocks \
 	  -o browser-test/echo_lua.wasm
+	python3 wasm/lua/embed_modules.py wasm/lua/modules.h \
+	  grpcdc.wire=lua/grpcdc/wire.lua grpcdc.status=lua/grpcdc/status.lua \
+	  grpcdc.codec=lua/grpcdc/codec.lua grpcdc.transport=lua/grpcdc/transport.lua \
+	  grpcdc.endpoint=lua/grpcdc/endpoint.lua grpcdc.channel=lua/grpcdc/channel.lua \
+	  grpcdc.server=lua/grpcdc/server.lua grpcdc.memory_transport=lua/grpcdc/memory_transport.lua \
+	  examples.pb=lua/examples/pb.lua examples.echo_messages=lua/examples/echo_messages.lua \
+	  examples.echo_grpc_dc=lua/examples/echo_grpc_dc.lua \
+	  examples.echo_service_impl=lua/examples/echo_service_impl.lua \
+	  dc_transport=wasm/lua/dc_transport.lua @main=wasm/lua/echo_server.lua
+	zig cc -target wasm32-wasi -O2 -s -mexception-handling -mllvm -wasm-enable-sjlj -mllvm -wasm-use-legacy-eh=false -mbulk-memory \
+	  -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_PROCESS_CLOCKS \
+	  -I $(LUA_SRC) -I wasm/lua wasm/lua/host.c wasm/lua/sjlj_rt.c \
+	  $(filter-out $(LUA_SRC)/lua.c $(LUA_SRC)/luac.c $(LUA_SRC)/loslib.c \
+	    $(LUA_SRC)/liolib.c $(LUA_SRC)/ldblib.c $(LUA_SRC)/linit.c, \
+	    $(wildcard $(LUA_SRC)/*.c)) \
+	  -lm -lwasi-emulated-signal -lwasi-emulated-process-clocks \
+	  -o browser-test/echo_lua_server.wasm
 	cd browser-test && node wasm_lua.test.mjs all
+	cd browser-test && node wasm_lua_server.test.mjs all
 
 RUBY ?= ruby
 
@@ -265,6 +284,7 @@ test-wasm:
 	cd wasm/rust && cargo build --release --target wasm32-unknown-unknown
 	$(WASM_BINDGEN) --target web --out-dir browser-test/wasm_rust_gen wasm/rust/target/wasm32-unknown-unknown/release/grpc_dc_wasm_rust.wasm
 	cd browser-test && node wasm.test.mjs all && node wasm_rust.test.mjs all
+	cd browser-test && node wasm_rust_server.test.mjs all
 
 test-zig-wasm-native-browser:
 	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
@@ -292,11 +312,15 @@ test-zig-wasm-browser:
 
 test-dart-browser:
 	$(DART) compile js wasm/dart/echo_client.dart -o browser-test/echo_dart.js
+	$(DART) compile js wasm/dart/echo_server.dart -o browser-test/echo_dart_server.js
 	cd browser-test && node dart.test.mjs all
+	cd browser-test && node dart_server.test.mjs all
 
 test-dart-wasm-browser:
 	$(DART) compile wasm wasm/dart/echo_client.dart -o browser-test/echo_dart_wasm.wasm
+	$(DART) compile wasm wasm/dart/echo_server.dart -o browser-test/echo_dart_server_wasm.wasm
 	cd browser-test && node dart_wasm.test.mjs all
+	cd browser-test && node dart_wasm_server.test.mjs all
 
 # C++ WASM facade: generated callback client over the JS bridge,
 # zig c++ wasm32-wasi reactor without exceptions (Zig's wasm32
@@ -458,7 +482,13 @@ test-kotlin-wasm-native-browser:
 test-interop-matrix:
 	cd js && node test/interop-matrix.mjs
 
-test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-interop-matrix
+## WebRTC-stack interop matrix: Go/JS/Rust stacks paired
+## over real ICE/DTLS/DataChannels (gRPC cells for Go/JS,
+## DataChannel echo cells for Rust pairings).
+test-webrtc-matrix:
+	cd browser-test && node webrtc_matrix.test.mjs
+
+test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-interop-matrix test-webrtc-matrix
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo

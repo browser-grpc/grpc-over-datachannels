@@ -3,6 +3,7 @@ package echo
 import (
 	"context"
 	"io"
+	"time"
 	"strings"
 
 	grpcdc "grpcdc"
@@ -16,6 +17,9 @@ type EchoService struct{}
 func (EchoService) Unary(ctx context.Context, req *EchoRequest) (*EchoResponse, error) {
 	if req.Message == "fail" {
 		return nil, grpcdc.NewStatus(grpcdc.CodeInvalidArgument, "asked to fail")
+	}
+	if req.DelayMs > 0 {
+		time.Sleep(time.Duration(req.DelayMs) * time.Millisecond)
 	}
 	suffix := ""
 	if md := grpcdc.MetadataFromContext(ctx); md["x-echo"] != "" {

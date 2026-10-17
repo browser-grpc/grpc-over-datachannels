@@ -60,6 +60,9 @@ struct EchoService;
 #[async_trait]
 impl Echo for EchoService {
     async fn unary(&self, req: pb::EchoRequest, ctx: CallCtx) -> Result<pb::EchoResponse, Status> {
+        if req.delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(req.delay_ms as u64)).await;
+        }
         if req.message == "fail" {
             return Err(Status::invalid_argument("asked to fail"));
         }

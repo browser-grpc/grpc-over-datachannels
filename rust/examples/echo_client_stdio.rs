@@ -88,6 +88,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         echoed.push(resp?.message);
     }
     eprintln!("bidi={}", echoed.join(","));
+
+    match client.unary(req("fail", 0)).await {
+        Ok(_) => eprintln!("error_case=no error"),
+        Err(st) => eprintln!("error_case={st}"),
+    }
+
+    let mut md = std::collections::HashMap::new();
+    md.insert("x-echo".to_string(), "meta".to_string());
+    let md_resp = client
+        .unary_with_options(req("hello", 0), grpc_dc::CallOptions::default().metadata(md))
+        .await?;
+    eprintln!("metadata={}", md_resp.message);
+
+    let mut slow = req("slow", 0);
+    slow.delay_ms = 400;
+    match client
+        .unary_with_options(slow, grpc_dc::CallOptions::with_timeout(std::time::Duration::from_millis(50)))
+        .await
+    {
+        Ok(_) => eprintln!("deadline=no error"),
+        Err(st) => eprintln!("deadline={}", st.code as i32),
+    }
     // The endpoint reader task parks on stdin forever; exit explicitly
     // rather than waiting for the runtime to drain blocking I/O.
     std::process::exit(0);

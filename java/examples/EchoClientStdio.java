@@ -54,6 +54,18 @@ public final class EchoClientStdio {
         }
         System.err.println("bidi=" + String.join(",", echoed));
 
+        EchoResponse mdResp = client.Unary(req("hello", 0), java.util.Map.of("x-echo", "meta"));
+        System.err.println("metadata=" + mdResp.message);
+
+        try {
+            EchoRequest slow = req("slow", 0);
+            slow.delayMs = 400;
+            client.Unary(slow, null, java.time.Duration.ofMillis(50));
+            System.err.println("deadline=no error");
+        } catch (StatusException se) {
+            System.err.println("deadline=" + se.code);
+        }
+
         try {
             client.Unary(req("fail", 0));
             System.err.println("error_case=no error");

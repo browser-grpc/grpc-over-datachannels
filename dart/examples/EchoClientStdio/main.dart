@@ -44,6 +44,16 @@ Future<void> run() async {
   }
   stderr.writeln('bidi=${echoed.join(',')}');
 
+  final mdResp = await client.unary(req('hello', 0), metadata: {'x-echo': 'meta'});
+  stderr.writeln('metadata=${mdResp.message}');
+
+  try {
+    await client.unary(EchoRequest('slow', 0, 400), timeout: Duration(milliseconds: 50));
+    stderr.writeln('deadline=no error');
+  } on StatusException catch (e) {
+    stderr.writeln('deadline=${e.code}');
+  }
+
   try {
     await client.unary(req('fail', 0));
     stderr.writeln('error_case=no error');

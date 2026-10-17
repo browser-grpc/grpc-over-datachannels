@@ -174,11 +174,21 @@ the four call shapes plus a deadline (`make
 test-swift-wasm-native-browser`, `make
 test-kotlin-wasm-native-browser`, `make
 test-zig-wasm-native-browser`, and `make
-test-cpp-wasm-native-browser` run both roles). Cross-language
+test-cpp-wasm-native-browser` run both roles). The Lua WASM
+build serves the same way (`wasm/lua/echo_server.lua`, in
+`make test-lua-wasm-browser`), and the async Dart and Rust
+WASM runtimes serve event-driven on the page thread with no
+worker at all (`make test-dart-browser`, `make
+test-dart-wasm-browser`, `make test-wasm`). Cross-language
 wire compatibility is covered pairwise by `make
-test-interop-matrix`: every language's stdio Echo client against
-every language's stdio Echo server (12 × 12 ordered pairs over a
-raw byte pump).
+test-interop-matrix`: every language's stdio Echo client
+against every language's stdio Echo server (12 × 12 ordered
+pairs over a raw byte pump, asserting the four call shapes
+plus the fail error case, `x-echo` metadata, and a slow-call
+deadline), and by `make test-webrtc-matrix`: the Go, JS, and
+Rust WebRTC stacks paired over real ICE/DTLS/DataChannels
+(gRPC Echo cells for Go/JS in both directions, DataChannel
+echo cells for the Rust pairings).
 **Facades** wrap the JS implementation: `js/src/wasm_bridge.js`
 exposes a byte-level bridge, and generated facades (plugins
 `protoc-gen-grpc-dc-wasm-{go,zig,cpp,swift,kotlin}`) give Go,

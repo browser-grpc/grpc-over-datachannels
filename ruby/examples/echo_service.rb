@@ -9,6 +9,9 @@ class EchoService
     if req.message == "fail"
       raise Grpcdc::StatusError.new(Grpcdc::CODE_INVALID_ARGUMENT, "asked to fail")
     end
+    if req.delay_ms > 0
+      sleep(req.delay_ms / 1000.0)
+    end
 
     suffix = ""
     if ctx.metadata["x-echo"]

@@ -26,6 +26,9 @@ fn unaryImpl(_: *anyopaque, ctx: *CallContext, req: *const EchoRequest, resp: *E
     if (std.mem.eql(u8, req.message, "fail")) {
         return Status.init(wire.codeInvalidArgument, "asked to fail");
     }
+    if (req.delay_ms > 0) {
+        std.Thread.sleep(@as(u64, @intCast(req.delay_ms)) * std.time.ns_per_ms);
+    }
     const marker = ctx.metadata.get("x-echo") orelse "";
     resp.message = if (marker.len > 0)
         std.fmt.allocPrint(alloc, "echo: {s} [{s}]", .{ req.message, marker }) catch return Status.init(wire.codeResourceExhausted, "out of memory")

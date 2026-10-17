@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "examples/echo_grpc_dc.hpp"
@@ -16,6 +18,9 @@ class EchoServiceImpl : public EchoGrpcDc::EchoServer {
     if (req.message == "fail") {
       throw grpcdc::StatusException(grpcdc::wire::kCodeInvalidArgument,
                                     "asked to fail");
+    }
+    if (req.delay_ms > 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(req.delay_ms));
     }
     std::string suffix;
     auto it = ctx.metadata.find("x-echo");

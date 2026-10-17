@@ -1,6 +1,8 @@
 """Reference Echo implementation (mirrors the Rust/JS/Go demos):
 "fail" is rejected, everything else echoes."""
 
+import time
+
 import grpcdc
 from grpcdc import StatusError
 from grpcdc.wire_gen import CODE_INVALID_ARGUMENT
@@ -12,6 +14,8 @@ class EchoService:
     def Unary(self, ctx, req):
         if req.message == "fail":
             raise StatusError(CODE_INVALID_ARGUMENT, "asked to fail")
+        if req.delay_ms > 0:
+            time.sleep(req.delay_ms / 1000.0)
         suffix = ""
         if ctx.metadata.get("x-echo"):
             suffix = " [" + ctx.metadata["x-echo"] + "]"

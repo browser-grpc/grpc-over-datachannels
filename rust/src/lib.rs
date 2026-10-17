@@ -124,11 +124,12 @@ pub mod platform_time {
     }
 }
 
-/// Sleep seam for deadline enforcement, mirroring spawn_task:
+/// Sleep seam for deadline enforcement, mirroring spawn_task.
+/// Public so wasm host crates can delay handlers (slow-call tests):
 /// native builds use Tokio's timer; wasm32 builds use the host
 /// JavaScript `setTimeout` through a Promise (window or worker).
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn sleep(duration: std::time::Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+pub fn sleep(duration: std::time::Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
     Box::pin(tokio::time::sleep(duration))
 }
 
@@ -155,7 +156,7 @@ impl<F: std::future::Future> std::future::Future for SendFuture<F> {
 
 /// Sleep seam (wasm32: host `setTimeout`, see above).
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn sleep(duration: std::time::Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+pub fn sleep(duration: std::time::Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
     Box::pin(SendFuture(async move {
         let millis = duration.as_millis().min(i32::MAX as u128) as i32;
         let promise = js_sys::Promise::new(&mut |resolve, _reject| {

@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,7 +24,8 @@ func main() {
 
 func run() error {
 	transport := echo.NewStdioTransport(os.Stdout, os.Stdin)
-	client := echo.NewEchoClient(grpcdc.NewChannel(transport))
+	channel := grpcdc.NewChannel(transport)
+	client := echo.NewEchoClient(channel)
 	ctx := context.Background()
 	req := func(message string, count int32) *echo.EchoRequest {
 		return &echo.EchoRequest{Message: message, Count: count}
@@ -74,5 +76,34 @@ func run() error {
 		echoed = append(echoed, resp.Message)
 	}
 	fmt.Fprintf(os.Stderr, "bidi=%s\n", strings.Join(echoed, ","))
+
+	_, err = client.Unary(ctx, req("fail", 0))
+	if err == nil {
+		fmt.Fprintln(os.Stderr, "error_case=no error")
+	} else {
+		fmt.Fprintf(os.Stderr, "error_case=%s\n", err)
+	}
+
+	mdResp := &echo.EchoResponse{}
+	err = channel.UnaryWithMetadata(ctx, "/echo.Echo/Unary", req("hello", 0), mdResp,
+		map[string]string{"x-echo": "meta"})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "metadata=%s\n", mdResp.Message)
+
+	slow := req("slow", 0)
+	slow.DelayMs = 400
+	dctx, dcancel := context.WithTimeout(ctx, 50_000_000)
+	defer dcancel()
+	_, err = client.Unary(dctx, slow)
+	var status *grpcdc.StatusError
+	if err == nil {
+		fmt.Fprintln(os.Stderr, "deadline=no error")
+	} else if errors.As(err, &status) {
+		fmt.Fprintf(os.Stderr, "deadline=%d\n", int(status.Code))
+	} else {
+		fmt.Fprintf(os.Stderr, "deadline=err:%s\n", err)
+	}
 	return nil
 }

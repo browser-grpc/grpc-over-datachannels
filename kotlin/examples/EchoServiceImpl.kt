@@ -13,6 +13,9 @@ class EchoServiceImpl : EchoGrpcDc.EchoServer {
         if (req.message == "fail") {
             throw StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail")
         }
+        if (req.delayMs > 0) {
+            Thread.sleep(req.delayMs.toLong())
+        }
         val marker = ctx.metadata["x-echo"]
         val suffix = if (marker.isNullOrEmpty()) "" else " [$marker]"
         return EchoResponse("echo: ${req.message}$suffix", 0)

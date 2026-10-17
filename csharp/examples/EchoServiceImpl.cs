@@ -14,6 +14,9 @@ public sealed class EchoServiceImpl : EchoGrpcDc.EchoServer
         {
             throw new StatusException(Wire.CodeInvalidArgument, "asked to fail");
         }
+        if (req.DelayMs > 0) {
+            System.Threading.Thread.Sleep(req.DelayMs);
+        }
         string suffix = "";
         if (ctx.Metadata.TryGetValue("x-echo", out string marker) && !string.IsNullOrEmpty(marker))
         {

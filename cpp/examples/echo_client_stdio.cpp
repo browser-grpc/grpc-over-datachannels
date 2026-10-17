@@ -65,6 +65,21 @@ int Run() {
   }
   std::fprintf(stderr, "bidi=%s\n", Join(echoed, ",").c_str());
 
+  {
+    std::map<std::string, std::string> md{{"x-echo", "meta"}};
+    auto mdResp = client.Unary(Req("hello", 0), &md, std::nullopt);
+    std::fprintf(stderr, "metadata=%s\n", mdResp.message.c_str());
+  }
+
+  try {
+    auto slow = Req("slow", 0);
+    slow.delay_ms = 400;
+    (void)client.Unary(slow, nullptr, std::chrono::milliseconds(50));
+    std::fprintf(stderr, "deadline=no error\n");
+  } catch (const grpcdc::StatusException& e) {
+    std::fprintf(stderr, "deadline=%d\n", e.code());
+  }
+
   try {
     client.Unary(Req("fail", 0));
     std::fprintf(stderr, "error_case=no error\n");

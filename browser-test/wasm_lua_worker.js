@@ -103,7 +103,7 @@ const env = {
 };
 
 onmessage = async (event) => {
-  const { sab, wasmUrl } = event.data;
+  const { sab, wasmUrl, mode } = event.data;
   sabI32 = new Int32Array(sab);
   sabBytes = new Uint8Array(sab);
   try {
@@ -112,6 +112,7 @@ onmessage = async (event) => {
       env,
       wasi_snapshot_preview1: wasiStubs(),
     }));
+    if (mode === "server") postMessage({ t: "ready" });
     instance.exports._start();
   } catch (err) {
     if (err && typeof err === "object" && "exitCode" in err) {

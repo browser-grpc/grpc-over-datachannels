@@ -54,6 +54,16 @@ private fun run() {
     }
     System.err.println("bidi=${echoed.joinToString(",")}")
 
+    val mdResp = client.Unary(req("hello", 0), mapOf("x-echo" to "meta"))
+    System.err.println("metadata=${mdResp.message}")
+
+    try {
+        client.Unary(EchoRequest("slow", 0, 400), null, java.time.Duration.ofMillis(50))
+        System.err.println("deadline=no error")
+    } catch (e: StatusException) {
+        System.err.println("deadline=${e.code}")
+    }
+
     try {
         client.Unary(req("fail", 0))
         System.err.println("error_case=no error")

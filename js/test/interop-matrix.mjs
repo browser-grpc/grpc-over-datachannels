@@ -73,7 +73,7 @@ const LANGS = {
     server: ["dart/build/echo_server_stdio"],
   },
   zig: {
-    build: "cd zig && zig build --prefix build",
+    build: `cd zig && ${process.env.ZIG || "zig"} build --prefix build`,
     client: ["zig/build/bin/echo_client_stdio"],
     server: ["zig/build/bin/echo_server_stdio"],
   },
@@ -94,7 +94,32 @@ const EXPECTED = [
   "server_stream=tick#0,tick#1,tick#2",
   "client_stream=a+b+c",
   "bidi=x,y",
+  "metadata=echo: hello [meta]",
 ];
+
+// Deadline waiver: the Lua client's stdio transport blocks
+// inside recvMessage, and Lua deadlines are only checked
+// between messages (the documented cooperative-transport
+// caveat in SPEC.md), so a slow-call deadline cannot fire
+// mid-wait over stdio. Lua clients may report
+// "deadline=no error"; every other client must report 4.
+const DEADLINE_WAIVED = new Set(["lua"]);
+
+function hasDeadline(lines, clientLang) {
+  if (lines.includes("deadline=4")) return true;
+  return DEADLINE_WAIVED.has(clientLang) && lines.includes("deadline=no error");
+}
+
+// The fail call's line format varies per language (status
+// name vs exception text); any error_case line carrying the
+// INVALID_ARGUMENT name or the canonical message counts.
+function hasErrorCase(lines) {
+  return lines.some(
+    (line) =>
+      line.startsWith("error_case=") &&
+      (line.includes("INVALID") || line.includes("asked to fail")),
+  );
+}
 
 function runPair(clientLang, serverLang) {
   return new Promise((resolve) => {
@@ -106,7 +131,7 @@ function runPair(clientLang, serverLang) {
     let finishing = false;
     const linesComplete = () => {
       const lines = stderr.split("\n").map((s) => s.trim());
-      return EXPECTED.every((line) => lines.includes(line));
+      return EXPECTED.every((line) => lines.includes(line)) && hasErrorCase(lines) && hasDeadline(lines, clientLang);
     };
     client.stderr.on("data", (d) => {
       stderr += d;
@@ -140,6 +165,8 @@ function runPair(clientLang, serverLang) {
       server.kill("SIGKILL");
       const lines = stderr.split("\n").map((s) => s.trim()).filter(Boolean);
       const missing = EXPECTED.filter((line) => !lines.includes(line));
+      if (!hasErrorCase(lines)) missing.push("error_case=<INVALID_ARGUMENT>");
+      if (!hasDeadline(lines, clientLang)) missing.push("deadline=4");
       if (missing.length) resolve({ ok: false, why: `missing ${missing.join(", ")} in: ${lines.join(" | ")}` });
       else if (code !== 0 && !finishing) resolve({ ok: false, why: `client exit ${code}: ${lines.join(" | ")}` });
       else resolve({ ok: true });

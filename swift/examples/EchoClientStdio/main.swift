@@ -40,6 +40,18 @@ func Run() throws {
     }
     FileHandle.standardError.write("bidi=\(echoed.joined(separator: ","))\n".data(using: .utf8)!)
 
+    let mdResp = try client.Unary(Req("hello", 0), ["x-echo": "meta"])
+    FileHandle.standardError.write("metadata=\(mdResp.message)\n".data(using: .utf8)!)
+
+    do {
+        let slowReq = Req("slow", 0)
+        slowReq.delayMs = 400
+        _ = try client.Unary(slowReq, nil, 0.05)
+        FileHandle.standardError.write("deadline=no error\n".data(using: .utf8)!)
+    } catch let e as StatusException {
+        FileHandle.standardError.write("deadline=\(e.code)\n".data(using: .utf8)!)
+    }
+
     do {
         _ = try client.Unary(Req("fail", 0))
         FileHandle.standardError.write("error_case=no error\n".data(using: .utf8)!)

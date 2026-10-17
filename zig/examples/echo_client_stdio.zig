@@ -98,6 +98,24 @@ fn run(alloc: std.mem.Allocator) bool {
     }
     std.debug.print("bidi={s}\n", .{echoed.items});
 
+    var md_map = grpcdc.transport.Metadata.init(alloc);
+    defer md_map.deinit();
+    md_map.put("x-echo", "meta") catch return false;
+    switch (client.unary(&req("hello", 0), &md_map, null)) {
+        .ok => |md_resp| std.debug.print("metadata={s}\n", .{md_resp.message}),
+        .status => |st| {
+            std.debug.print("metadata status: {d} {s}\n", .{ st.code, st.message });
+            return false;
+        },
+    }
+
+    var slow_req = req("slow", 0);
+    slow_req.delay_ms = 400;
+    switch (client.unary(&slow_req, null, 50)) {
+        .ok => std.debug.print("deadline=no error\n", .{}),
+        .status => |st| std.debug.print("deadline={d}\n", .{st.code}),
+    }
+
     switch (client.unary(&req("fail", 0), null, null)) {
         .ok => {
             std.debug.print("error_case=no error\n", .{});

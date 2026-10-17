@@ -15,6 +15,9 @@ class EchoServiceImpl implements EchoServer {
     if (req.message == 'fail') {
       throw StatusException(Wire.codeInvalidArgument, 'asked to fail');
     }
+    if (req.delayMs > 0) {
+      await Future<void>.delayed(Duration(milliseconds: req.delayMs));
+    }
     final marker = ctx.metadata['x-echo'];
     final suffix = (marker != null && marker.isNotEmpty) ? ' [$marker]' : '';
     return EchoResponse('echo: ${req.message}$suffix', 0);

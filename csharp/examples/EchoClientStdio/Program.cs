@@ -49,6 +49,21 @@ while (true)
 }
 Console.Error.WriteLine($"bidi={string.Join(",", echoed)}");
 
+var mdResp = client.Unary(Req("hello", 0), new Dictionary<string, string> { ["x-echo"] = "meta" });
+Console.Error.WriteLine($"metadata={mdResp.Message}");
+
+try
+{
+    var slow = Req("slow", 0);
+    slow.DelayMs = 400;
+    client.Unary(slow, null, TimeSpan.FromMilliseconds(50));
+    Console.Error.WriteLine("deadline=no error");
+}
+catch (StatusException se)
+{
+    Console.Error.WriteLine($"deadline={(int)se.Code}");
+}
+
 try
 {
     client.Unary(Req("fail", 0));

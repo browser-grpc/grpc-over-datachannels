@@ -5,6 +5,13 @@ final class EchoServiceImpl: EchoGrpcDc.EchoServer {
         if req.message == "fail" {
             throw StatusException(Wire.CodeInvalidArgument, "asked to fail")
         }
+        if req.delayMs > 0 {
+            // Busy-wait on the monotonic runtime clock: this
+            // file also compiles under Embedded Swift (no
+            // Foundation Thread.sleep in the WASM build).
+            let until = GrpcTime.NowMs() + Double(req.delayMs)
+            while GrpcTime.NowMs() < until {}
+        }
         var suffix = ""
         if let marker = ctx.metadata["x-echo"], !marker.isEmpty {
             suffix = " [\(marker)]"

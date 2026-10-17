@@ -52,6 +52,18 @@ local function run()
   end
   io.stderr:write("bidi=" .. table.concat(echoed, ",") .. "\n")
 
+  local md = client:unary(req("hello", 0), { ["x-echo"] = "meta" })
+  io.stderr:write("metadata=" .. md.message .. "\n")
+
+  local slowOk, slowErr = pcall(function()
+    return client:unary(EchoRequest.new("slow", 0, 400), nil, 0.05)
+  end)
+  if slowOk then
+    io.stderr:write("deadline=no error\n")
+  else
+    io.stderr:write("deadline=" .. tostring(slowErr.code) .. "\n")
+  end
+
   local ok, err = pcall(function() return client:unary(req("fail", 0)) end)
   if ok then
     io.stderr:write("error_case=no error\n")

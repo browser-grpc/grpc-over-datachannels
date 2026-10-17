@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc native WASM Rust server test</title>
+<script type="module">
+import init, { echo_server } from "/browser-test/wasm_rust_gen/grpc_dc_wasm_rust.js";
+
+// The calls originate in the Rust grpc_dc runtime compiled to
+// wasm32 (frame codec, endpoint multiplexer, generated Echo stub —
+// no JS gRPC code involved). The page only bridges the
+// RTCDataChannel send/receive pair into the Rust transport.
+// Signaling mirrors wasm_page.html.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+window.__runServer = async () => {
+  await init();
+  if (dc.readyState !== "open") {
+    await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+  }
+  dc.binaryType = "arraybuffer";
+  const transport = {
+    _onMessage: null,
+    send(data) {
+      dc.send(data);
+    },
+    setOnMessage(callback) {
+      this._onMessage = callback;
+    },
+  };
+  dc.addEventListener("message", (event) => {
+    if (transport._onMessage) {
+      transport._onMessage(new Uint8Array(event.data));
+    }
+  });
+  echo_server(transport);
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>

@@ -21,6 +21,13 @@ __pycache__/
 /browser-test/wasm_rust_gen/
 /wasm/rust/target/
 browser-test/echo_dart.js
+browser-test/echo_dart_server.js
+browser-test/echo_dart_server.js.map
+browser-test/echo_dart_server.js.deps
+browser-test/echo_dart_server_wasm.wasm
+browser-test/echo_dart_server_wasm.wasm.map
+browser-test/echo_dart_server_wasm.mjs
+browser-test/echo_dart_server_wasm.support.js
 browser-test/echo_dart.js.map
 browser-test/echo_dart.js.deps
 browser-test/echo_dart_wasm.wasm
@@ -30,6 +37,7 @@ browser-test/echo_dart_wasm.support.js
 /oracle/java/target/
 /.agents/
 browser-test/echo_lua.wasm
+browser-test/echo_lua_server.wasm
 wasm/lua/modules.h
 browser-test/echo_cpp.wasm
 browser-test/echo_cpp_native.wasm

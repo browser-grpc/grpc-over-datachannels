@@ -29,6 +29,16 @@ warn "client_stream=#{joined.message}"
 echoed = client.Bidi([req("x"), req("y")]).map(&:message)
 warn "bidi=#{echoed.join(',')}"
 
+md = client.Unary(req("hello", 0), { "x-echo" => "meta" })
+warn "metadata=#{md.message}"
+
+begin
+  client.Unary(EchoPb::EchoRequest.new(message: "slow", count: 0, delay_ms: 400), nil, timeout: 0.05)
+  warn "deadline=no error"
+rescue Grpcdc::StatusError => e
+  warn "deadline=#{e.code}"
+end
+
 begin
   client.Unary(req("fail"))
   warn "error_case=no error"

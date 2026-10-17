@@ -14,6 +14,14 @@ function EchoServiceImpl:unary(ctx, req)
   if req.message == "fail" then
     error(Status.new(wire.CODE_INVALID_ARGUMENT, "asked to fail"), 0)
   end
+  if req.delayMs > 0 then
+    -- Seconds clock: os.clock natively, host_now in the
+    -- WASM host (which excludes loslib).
+    local now = (type(host_now) == "function") and host_now or os.clock
+    local deadline = now() + req.delayMs / 1000.0
+    while now() < deadline do
+    end
+  end
   local marker = ctx.metadata["x-echo"]
   local suffix = (marker ~= nil and marker ~= "") and (" [" .. marker .. "]") or ""
   return EchoResponse.new("echo: " .. req.message .. suffix, 0)

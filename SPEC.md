@@ -75,7 +75,9 @@ spawned and stream waits pump the transport. The native Swift
 (Kotlin/Wasm) runtimes — like the native Zig and C++ wasm
 runtimes — use the same inline pump mode in both client and
 server roles (a server-only worker drives its endpoint with
-PollOnce/pollOnce): Swift
+PollOnce/pollOnce); the Lua WASM runtime serves the same
+way, and the async Dart/Rust WASM runtimes serve
+event-driven on the page thread: Swift
 deadlines run on a monotonic `Double` millisecond clock
 (`GrpcTime.NowMs()`, `performance.now()` in the worker via
 `js_now_ms`, Foundation wall clock natively), and Kotlin/Wasm

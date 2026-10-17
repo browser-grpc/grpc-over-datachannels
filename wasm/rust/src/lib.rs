@@ -9,7 +9,7 @@
 use bytes::Bytes;
 use futures_channel::mpsc;
 use futures_util::{StreamExt, TryStreamExt};
-use grpc_dc::{CallOptions, Channel, DcTransport, Status};
+use grpc_dc::{CallCtx, CallOptions, Channel, DcTransport, RequestStream, ResponseStream, Server, Status};
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -21,7 +21,7 @@ mod pb;
 #[path = "../../../rust/gen/echo_grpc_dc.rs"]
 mod stub;
 
-use stub::EchoClient;
+use stub::{echo_service, Echo, EchoClient};
 
 /// JS-side transport hooks: the page hands us an object with
 /// `send(Uint8Array)` and lets us register the inbound callback.
@@ -137,4 +137,88 @@ pub async fn echo_client(transport: JsTransport) -> Result<String, JsValue> {
         }
         Err(status) => Err(JsValue::from_str(&format!("{status}"))),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Server (browser-as-server): the generated Echo service over the
+// same JS transport, event-driven on the page thread (no worker
+// or blocking mailbox — the Rust runtime is async throughout).
+// The Node test's JS client drives the four call shapes plus a
+// deadline the slow handler must miss.
+// ---------------------------------------------------------------------------
+
+struct EchoService;
+
+#[grpc_dc::async_trait]
+impl Echo for EchoService {
+    async fn unary(&self, req: pb::EchoRequest, ctx: CallCtx) -> Result<pb::EchoResponse, Status> {
+        if req.delay_ms > 0 {
+            grpc_dc::sleep(std::time::Duration::from_millis(req.delay_ms as u64)).await;
+        }
+        if req.message == "fail" {
+            return Err(Status::invalid_argument("asked to fail"));
+        }
+        let suffix =
+            ctx.metadata.get("x-echo").map(|v| format!(" [{v}]")).unwrap_or_default();
+        Ok(pb::EchoResponse { message: format!("echo: {}{}", req.message, suffix), index: 0 })
+    }
+
+    async fn server_stream(
+        &self,
+        req: pb::EchoRequest,
+        _ctx: CallCtx,
+    ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        let responses = (0..req.count.max(0))
+            .map(move |i| Ok(pb::EchoResponse { message: req.message.clone(), index: i }));
+        Ok(Box::pin(futures_util::stream::iter(responses)))
+    }
+
+    async fn client_stream(
+        &self,
+        reqs: RequestStream<pb::EchoRequest>,
+        _ctx: CallCtx,
+    ) -> Result<pb::EchoResponse, Status> {
+        let parts: Vec<String> = reqs.map_ok(|r| r.message).try_collect().await?;
+        Ok(pb::EchoResponse { message: parts.join("+"), index: parts.len() as i32 })
+    }
+
+    async fn bidi(
+        &self,
+        reqs: RequestStream<pb::EchoRequest>,
+        _ctx: CallCtx,
+    ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        let stream =
+            futures_util::stream::unfold((reqs, 0i32), |(mut reqs, mut index)| async move {
+                match reqs.next().await {
+                    Some(Ok(req)) => {
+                        let resp = pb::EchoResponse { message: req.message, index };
+                        index += 1;
+                        Some((Ok(resp), (reqs, index)))
+                    }
+                    Some(Err(e)) => Some((Err(e), (reqs, index))),
+                    None => None,
+                }
+            });
+        Ok(Box::pin(stream))
+    }
+}
+
+/// Serve the generated Echo service over the given JS transport.
+/// Returns immediately; serving runs as a local task until the
+/// transport closes.
+#[wasm_bindgen]
+pub fn echo_server(transport: JsTransport) {
+    let (tx, rx) = mpsc::unbounded::<Vec<u8>>();
+    let callback = Closure::wrap(Box::new(move |data: Box<[u8]>| {
+        let _ = tx.unbounded_send(data.into_vec());
+    }) as Box<dyn FnMut(Box<[u8]>)>);
+    transport.set_on_message(&callback);
+    let wasm_transport = Arc::new(WasmTransport {
+        js: transport,
+        inbox: Mutex::new(rx),
+        _callback: callback,
+    });
+    wasm_bindgen_futures::spawn_local(async move {
+        Server::serve(wasm_transport, vec![echo_service(Arc::new(EchoService))]).await;
+    });
 }

@@ -33,6 +33,15 @@ def main():
     echoed = [r.message for r in client.Bidi([req("x"), req("y")])]
     print(f"bidi={','.join(echoed)}", file=sys.stderr)
 
+    md = client.Unary(req("hello"), metadata={"x-echo": "meta"})
+    print(f"metadata={md.message}", file=sys.stderr)
+
+    try:
+        client.Unary(EchoRequest(message="slow", delay_ms=400), timeout=0.05)
+        print("deadline=no error", file=sys.stderr)
+    except grpcdc.StatusError as e:
+        print(f"deadline={e.code}", file=sys.stderr)
+
     try:
         client.Unary(req("fail"))
         print("error_case=no error", file=sys.stderr)

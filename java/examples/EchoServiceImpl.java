@@ -17,6 +17,13 @@ public final class EchoServiceImpl implements EchoGrpcDc.EchoServer {
         if ("fail".equals(req.message)) {
             throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail");
         }
+        if (req.delayMs > 0) {
+            try {
+                Thread.sleep(req.delayMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
         String suffix = "";
         String marker = ctx.metadata.get("x-echo");
         if (marker != null && !marker.isEmpty()) {
