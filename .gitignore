@@ -54,3 +54,4 @@ browser-test/echo_swift_native.wasm
 browser-test/echo_swift_server.wasm
 browser-test/echo_go_server.wasm
 browser-test/echo_go_stream_server.wasm
+/scala/build/

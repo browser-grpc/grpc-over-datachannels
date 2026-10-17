@@ -1,5 +1,5 @@
 // Cross-language interop matrix: every language's stdio Echo
-// client against every language's stdio Echo server (12 x 12
+// client against every language's stdio Echo server (14 x 14
 // ordered pairs), connected by a raw byte pump. Both harnesses
 // speak the same length-prefixed stdio transport and print one
 // stderr line per call shape (stdout carries frames), so a pair
@@ -24,6 +24,10 @@ const KOTLINC = process.env.KOTLINC || "kotlinc";
 const DART = process.env.DART || "dart";
 const LUA = process.env.LUA || "lua";
 const RUBY = process.env.RUBY || "ruby";
+const PHP = process.env.PHP || "php";
+const SCALAC = process.env.SCALAC || "scalac";
+const SCALA3_HOME = process.env.SCALA3_HOME || "/usr/local/scala3";
+const SCALA_LIBS = `${SCALA3_HOME}/lib/scala3-library_3-3.3.6.jar:${SCALA3_HOME}/lib/scala-library-2.13.16.jar`;
 const CXX = process.env.CXX || "g++";
 
 const LANGS = {
@@ -87,6 +91,16 @@ const LANGS = {
     client: [RUBY, "ruby/examples/echo_client_stdio.rb"],
     server: [RUBY, "ruby/examples/echo_server_stdio.rb"],
   },
+  php: {
+    build: null,
+    client: [PHP, "php/examples/echo_client_stdio.php"],
+    server: [PHP, "php/examples/echo_server_stdio.php"],
+  },
+  scala: {
+    build: `mkdir -p scala/build && ${SCALAC} -d scala/build/echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/Pb.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/EchoServerStdio/Main.scala && ${SCALAC} -d scala/build/echo_client_stdio.jar scala/grpcdc/*.scala scala/examples/Pb.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/EchoClientStdio/Main.scala`,
+    client: ["java", "-cp", "scala/build/echo_client_stdio.jar:" + SCALA_LIBS, "echo.EchoClientStdio"],
+    server: ["java", "-cp", "scala/build/echo_server_stdio.jar:" + SCALA_LIBS, "echo.EchoServerStdio"],
+  },
 };
 
 const EXPECTED = [
@@ -97,13 +111,13 @@ const EXPECTED = [
   "metadata=echo: hello [meta]",
 ];
 
-// Deadline waiver: the Lua client's stdio transport blocks
-// inside recvMessage, and Lua deadlines are only checked
-// between messages (the documented cooperative-transport
-// caveat in SPEC.md), so a slow-call deadline cannot fire
-// mid-wait over stdio. Lua clients may report
+// Deadline waiver: the Lua and PHP clients' stdio transports
+// block inside recvMessage, and their deadlines are only
+// checked between messages (the documented cooperative-
+// transport caveat in SPEC.md), so a slow-call deadline cannot
+// fire mid-wait over stdio. Lua and PHP clients may report
 // "deadline=no error"; every other client must report 4.
-const DEADLINE_WAIVED = new Set(["lua"]);
+const DEADLINE_WAIVED = new Set(["lua", "php"]);
 
 function hasDeadline(lines, clientLang) {
   if (lines.includes("deadline=4")) return true;

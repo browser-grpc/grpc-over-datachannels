@@ -93,6 +93,13 @@ RUN curl -fsSL https://github.com/JetBrains/kotlin/releases/download/v2.2.0/kotl
      -o /usr/local/kotlinc/lib/kotlin-stdlib-wasm-js.klib \
   && echo "51d111704eb3477248eb57203bed7467b068de49  /usr/local/kotlinc/lib/kotlin-stdlib-wasm-js.klib" | sha1sum -c -
 ENV PATH="/usr/local/kotlinc/bin:${PATH}"
+# Scala 3 (native JVM runtime + tests; JDK already installed above).
+RUN curl -fsSL https://github.com/scala/scala3/releases/download/3.3.6/scala3-3.3.6.tar.gz -o /tmp/scala3.tar.gz \
+  && mkdir -p /usr/local/scala3 \
+  && tar -xzf /tmp/scala3.tar.gz -C /usr/local/scala3 --strip-components=1 \
+  && rm /tmp/scala3.tar.gz
+ENV SCALA3_HOME=/usr/local/scala3
+ENV PATH="/usr/local/scala3/bin:${PATH}"
 
 # Zig toolchain for the Zig runtime (stdlib only, no packages;
 # arch-aware like the Swift/Dart stages).
@@ -136,8 +143,10 @@ ENV LUA=lua5.4
 # Ruby for the Ruby runtime (stdlib only; no gems).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ruby \
+  && apt-get install -y --no-install-recommends php-cli \
   && rm -rf /var/lib/apt/lists/*
 ENV RUBY=ruby
+ENV PHP=php
 
 # Dart SDK for the Dart runtime (dart: libraries only, no pub
 # packages; arch-aware like the Swift stage).

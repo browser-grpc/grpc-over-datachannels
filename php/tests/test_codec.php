@@ -1,0 +1,38 @@
+<?php
+// Golden-vector codec tests: byte-exact frames from
+// fixtures/vectors.json (stamped by the Racket metaprogram).
+
+require_once __DIR__ . "/../grpcdc.php";
+require_once __DIR__ . "/../examples/echo_pb.php";
+require_once __DIR__ . "/test_util.php";
+
+final class TestCodec
+{
+    public static function run(): void
+    {
+        $root = T::root();
+        $vectors = json_decode(file_get_contents($root . "/fixtures/vectors.json"), true);
+
+        foreach ($vectors["frames"] as $vector) {
+            $raw = hex2bin($vector["hex"]);
+            [$frameType, $streamId, $payload] = \Grpcdc\Codec::decodeFrame($raw);
+            T::assertEq($frameType, $vector["type"], $vector["name"] . ": type");
+            T::assertEq(\Grpcdc\Codec::encodeFrame($frameType, $streamId, $payload), $raw, $vector["name"] . ": re-encode");
+        }
+
+        $vector = $vectors["protobuf"]["echo_request"];
+        $req = new \EchoPb\EchoRequest($vector["message"], $vector["count"]);
+        T::assertEq(bin2hex($req->marshalDc()), $vector["hex"], "protobuf encode");
+        $decoded = new \EchoPb\EchoRequest();
+        $decoded->unmarshalDc(hex2bin($vector["hex"]));
+        T::assertEq($decoded->message, $vector["message"], "protobuf message");
+        T::assertEq($decoded->count, $vector["count"], "protobuf count");
+
+        T::assertEq(\Grpcdc\Status::name(0), "OK");
+        T::assertEq(\Grpcdc\Status::name(3), "INVALID-ARGUMENT");
+        T::assertEq(\Grpcdc\Status::name(999), "CODE_999");
+        $err = new \Grpcdc\StatusError(5, "gone");
+        T::assertEq($err->statusCode, 5);
+        T::assertIncludes((string)$err, "NOT-FOUND");
+    }
+}

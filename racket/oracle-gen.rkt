@@ -10,7 +10,7 @@
 ;;; generated from here — it is the independent oracle.
 
 (require "oracle-spec.rkt")
-(provide emit-js-oracle-driver emit-go-oracle-driver emit-rust-oracle-driver emit-python-oracle-driver emit-java-oracle-driver emit-csharp-oracle-driver emit-cpp-oracle-driver emit-swift-oracle-driver emit-kotlin-oracle-driver emit-dart-oracle-driver emit-zig-oracle-driver emit-lua-oracle-driver emit-ruby-oracle-driver)
+(provide emit-js-oracle-driver emit-go-oracle-driver emit-rust-oracle-driver emit-python-oracle-driver emit-java-oracle-driver emit-csharp-oracle-driver emit-cpp-oracle-driver emit-swift-oracle-driver emit-kotlin-oracle-driver emit-dart-oracle-driver emit-zig-oracle-driver emit-lua-oracle-driver emit-ruby-oracle-driver emit-php-oracle-driver emit-scala-oracle-driver)
 
 ;; Normalize one raw entry to (kind messages expect-status count).
 (define (case-fields e)
@@ -607,3 +607,58 @@
          "ORACLE_SCENARIOS = [\n"
          (apply string-append (map ruby-case oracle-scenario-table))
          "].freeze\n")))
+
+;; ---------------------------------------------------------------------------
+;; PHP driver data -> php/tests/oracle_scenarios_generated.php
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (php-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "    [\"kind\" => ~s, \"messages\" => [~a], \"count\" => ~a, \"expect_status\" => ~a],\n"
+          (symbol->string kind)
+          (quoted-list (map symbol->string msgs) "\"")
+          count
+          (if expect expect "null")))
+
+(define (emit-php-oracle-driver)
+  (cons "oracle_scenarios_generated.php"
+        (string-append
+         "// Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         "// the runner is tests/test_oracle.php).\n"
+         "return [\n"
+         (apply string-append (map php-case oracle-scenario-table))
+         "];\n")))
+
+;; ---------------------------------------------------------------------------
+;; Scala driver data -> scala/tests/OracleScenarios.scala
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (scala-case e)
+  (define-values (kind msgs expect count)
+    (apply values (case-fields e)))
+  (format "        Case(~s, List(~a), ~a, ~a),\n"
+          (symbol->string kind)
+          (string-join
+           (for/list ([m (in-list msgs)]) (format "~s" (symbol->string m))) ", ")
+          count
+          (if expect expect -1)))
+
+(define (emit-scala-oracle-driver)
+  (cons "OracleScenarios.scala"
+        (string-append
+         "package tests\n\n"
+         "/** Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         " * the runner is TestOracle). Rows: kind, messages, count,\n"
+         " * expectStatus (-1 = none). */\n"
+         "object OracleScenarios {\n"
+         "    class Case(val kind: String, val messages: List[String], val count: Int, val expectStatus: Int)\n\n"
+         "    val Cases: List[Case] = List(\n"
+         (let ([rows (apply string-append (map scala-case oracle-scenario-table))])
+           (if (string-suffix? rows ",\n")
+               (string-append (substring rows 0 (- (string-length rows) 2)) "\n")
+               rows))
+         "    )\n"
+         "}\n")))

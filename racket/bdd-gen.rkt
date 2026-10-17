@@ -9,7 +9,7 @@
 (provide emit-bdd-docs
          emit-js-bdd emit-go-bdd emit-rust-bdd emit-python-bdd
          emit-java-bdd emit-csharp-bdd emit-cpp-bdd emit-swift-bdd
-         emit-kotlin-bdd emit-dart-bdd emit-zig-bdd emit-lua-bdd emit-ruby-bdd)
+         emit-kotlin-bdd emit-dart-bdd emit-zig-bdd emit-lua-bdd emit-ruby-bdd emit-php-bdd emit-scala-bdd)
 
 (define (q strs)
   (string-join (for/list ([s (in-list strs)]) (format "~s" s)) ", "))
@@ -402,3 +402,44 @@
                   (format "  [~s, ~s, [~a], ~a, ~s, ~s, ~s, ~a, ~a],\n"
                           name kind (q msgs) count path md em en (or es -1))))
          "].freeze\n")))
+
+;; ---------------------------------------------------------------------------
+;; PHP -> php/tests/bdd_scenarios_generated.php
+;; ---------------------------------------------------------------------------
+
+(define (emit-php-bdd)
+  (cons "bdd_scenarios_generated.php"
+        (string-append
+         "// Scenario table stamped from racket/bdd-spec.rkt (data only;\n"
+         "// the interpreter is tests/test_bdd.php). Rows: name, kind,\n"
+         "// messages, count, path, metadata, expectMessage, expectNum,\n"
+         "// expectStatus (-1 = none).\n"
+         "return [\n"
+         (apply string-append
+                (for/list ([sc (in-list bdd-scenarios)])
+                  (define-values (name kind msgs count path md em en es) (row sc))
+                  (format "    [~s, ~s, [~a], ~a, ~s, ~s, ~s, ~a, ~a],\n"
+                          name kind (q msgs) count path md em en (or es -1))))
+         "];\n")))
+
+;; ---------------------------------------------------------------------------
+;; Scala -> scala/tests/BddScenarios.scala
+;; ---------------------------------------------------------------------------
+
+(define (emit-scala-bdd)
+  (cons "BddScenarios.scala"
+        (string-append
+         "package tests\n\n"
+         "/** Scenario table stamped from racket/bdd-spec.rkt (data only;\n"
+         " * the interpreter is TestBdd). Rows: name, kind, messages, count,\n"
+         " * path, metadata, expectMessage, expectNum, expectStatus (-1 = none). */\n"
+         "object BddScenarios {\n"
+         "    class Case(val name: String, val kind: String, val messages: List[String], val count: Int, val path: String, val metadata: String, val expectMessage: String, val expectNum: Int, val expectStatus: Int)\n\n"
+         "    val Cases: List[Case] = List(\n"
+         (apply string-append
+                (for/list ([sc (in-list bdd-scenarios)])
+                  (define-values (name kind msgs count path md em en es) (row sc))
+                  (format "        Case(~s, ~s, List(~a), ~a, ~s, ~s, ~s, ~a, ~a),\n"
+                          name kind (q msgs) count path md em en (or es -1))))
+         "    )\n"
+         "}\n")))

@@ -57,11 +57,11 @@ it. Clients enforce the deadline while waiting for responses: on
 expiry they abort the stream with RST and surface `DEADLINE_EXCEEDED`.
 Servers expose the received budget on the call context (remaining
 time / deadline instant) and may check it in handlers; the wire has
-no separate deadline frame. All 13 runtimes implement this (in each
+no separate deadline frame. All 15 runtimes implement this (in each
 language's idiom: Python `timeout=`, JS `{timeout}`, Go
 `context.Context`, Rust `CallOptions`, Java/Kotlin `Duration`, C#
 `TimeSpan`, C++ `std::chrono::milliseconds`, Swift/Dart
-`Duration`/`TimeInterval`, Ruby `timeout:`, Lua seconds argument,
+`Duration`/`TimeInterval`, Ruby and PHP `timeout:`, Scala `Duration`, Lua seconds argument,
 Zig `timeout_ms`). On wasm32, Rust enforces deadlines through
 the host JavaScript `setTimeout`, and the native Zig runtime
 through a host monotonic-clock hook installed by its browser

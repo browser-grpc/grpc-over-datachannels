@@ -350,12 +350,20 @@
       "#")
      ((string-suffix? (car file-pair) ".lua") "--")
      (else "//")))
-  (cons
-   (car file-pair)
-   (string-append
-    prefix
-    " Generated code: use without restriction (see GENERATED-CODE-LICENSE.md).\n"
-    (cdr file-pair))))
+  (if (string-suffix? (car file-pair) ".php")
+    (cons
+     (car file-pair)
+     (string-append
+      "<?php\n"
+      prefix
+      " Generated code: use without restriction (see GENERATED-CODE-LICENSE.md).\n"
+      (substring (cdr file-pair) (string-length "<?php\n"))))
+    (cons
+     (car file-pair)
+     (string-append
+      prefix
+      " Generated code: use without restriction (see GENERATED-CODE-LICENSE.md).\n"
+      (cdr file-pair)))))
 
 (define (method-impl-name m) (hash-ref m 'impl-name (hash-ref m 'name)))
 

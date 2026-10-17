@@ -5,7 +5,7 @@ many concurrent calls (unary, server-, client-, and bidirectional
 streaming) are multiplexed onto one ordered, reliable data channel
 with a small frame protocol ([SPEC.md](SPEC.md)). Generated,
 dependency-free runtimes exist for **Rust, JavaScript, Go, Python,
-Java, C#, C++, Swift, Kotlin, Dart, Zig, Lua, and Ruby**, plus
+Java, C#, C++, Swift, Kotlin, Dart, Zig, Lua, Ruby, PHP, and Scala**, plus
 descriptor-driven dynamic clients/servers, a reimplemented
 zero-dependency WebRTC stack (Go/JS/Rust, [SPEC-WEBRTC.md](SPEC-WEBRTC.md)),
 and browser clients in JavaScript, native Rust/Dart/Zig/Lua/C++
@@ -282,7 +282,7 @@ Makefile                 generate / test / demos
 - Deadlines/cancellation: cancellation sends RST in every runtime.
   Deadline propagation (`grpc-timeout` metadata, client-side
   `DEADLINE_EXCEEDED` enforcement, server call-context budget — see
-  SPEC.md) is implemented in all 13 runtimes, each in its idiom
+  SPEC.md) is implemented in all 15 runtimes, each in its idiom
   (Go drives it through `context.Context`). Rust on wasm32
   enforces through the host `setTimeout`, and native Zig on
   wasm32 through a host monotonic-clock hook installed by its
@@ -290,7 +290,8 @@ Makefile                 generate / test / demos
   runtimes check deadlines between messages and cannot preempt
   a handler already running inline.
 - Async surfaces: Python `asyncio`, C++ coroutines (plus
-  `std::future`), Ruby Fibers, and Lua coroutines ship alongside the
+  `std::future`), Ruby and PHP Fibers, Scala
+  `scala.concurrent.Future`, and Lua coroutines ship alongside the
   older JS/Kotlin/Dart/Go/Rust async surfaces. Zig has no async
   surface yet (upstream removed language-level async; its runtime
   is single-threaded-pump by design).

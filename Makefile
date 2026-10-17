@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -57,6 +57,12 @@ stubs:
 	mkdir -p ruby/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-ruby=bin/protoc-gen-grpc-dc-ruby \
 		--grpc-dc-ruby_out=ruby/examples -I proto proto/echo.proto
+	mkdir -p php/examples
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-php=bin/protoc-gen-grpc-dc-php \
+		--grpc-dc-php_out=php/examples -I proto proto/echo.proto
+	mkdir -p scala/examples
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-scala=bin/protoc-gen-grpc-dc-scala \
+		--grpc-dc-scala_out=scala/examples -I proto proto/echo.proto
 	mkdir -p wasm/go
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-wasm-go=bin/protoc-gen-grpc-dc-wasm-go \
 		--grpc-dc-wasm-go_out=wasm/go -I proto proto/echo.proto
@@ -264,6 +270,36 @@ test-ruby:
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestBdd \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestFiber \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestDeadline
+
+PHP ?= php
+
+test-php:
+	PHP=$(PHP) $(PHP) php/tests/main.php TestCodec \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestEcho \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestInterop \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestOracle \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDynamic \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestBdd \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestFiber \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDeadline
+
+SCALAC ?= scalac
+SCALA3_HOME ?= /usr/local/scala3
+SCALA_LIBS = $(SCALA3_HOME)/lib/scala3-library_3-3.3.6.jar:$(SCALA3_HOME)/lib/scala-library-2.13.16.jar
+
+test-scala:
+	mkdir -p scala/build
+	$(SCALAC) -d scala/build/tests.jar scala/grpcdc/*.scala scala/examples/Pb.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/tests/*.scala
+	$(SCALAC) -d scala/build/echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/Pb.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/EchoServerStdio/Main.scala
+	$(SCALAC) -d scala/build/echo_client_stdio.jar scala/grpcdc/*.scala scala/examples/Pb.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/EchoClientStdio/Main.scala
+	$(SCALAC) -d scala/build/dynamic_echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/Pb.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/examples/DynamicEchoServerStdio/Main.scala
+	java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestCodec \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestEcho \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestInterop \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestOracle \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDynamic \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestBdd \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDeadline
 
 test-grpc-webrtc:
 	cd rust && $(CARGO) test --features webrtc
@@ -518,7 +554,7 @@ test-kotlin-wasm-native-browser:
 	cd browser-test && node wasm_kotlin_native_server.test.mjs all
 
 ## Cross-language interop matrix: every stdio Echo client
-## against every stdio Echo server (12 x 12 ordered pairs).
+## against every stdio Echo server (14 x 14 ordered pairs).
 test-wasm-matrix:
 	cd browser-test && node wasm_matrix.test.mjs all
 
@@ -531,7 +567,7 @@ test-interop-matrix:
 test-webrtc-matrix:
 	cd browser-test && node webrtc_matrix.test.mjs
 
-test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix
+test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo
@@ -539,8 +575,8 @@ demos:
 	cd go && go run ./examples/echo_demo
 
 clean-gen:
-	rm -f bin/protoc-gen-grpc-dc-kotlin bin/protoc-gen-grpc-dc-kotlin-native bin/protoc-gen-grpc-dc-rust bin/protoc-gen-grpc-dc-js bin/protoc-gen-grpc-dc-go bin/protoc-gen-grpc-dc-wasm-go bin/protoc-gen-grpc-dc-wasm-zig bin/protoc-gen-grpc-dc-wasm-cpp bin/protoc-gen-grpc-dc-wasm-swift bin/protoc-gen-grpc-dc-wasm-kotlin bin/protoc-gen-grpc-dc-cpp bin/protoc-gen-grpc-dc-swift
-	rm -f rust/gen/echo_grpc_dc.rs js/examples/echo_grpc_dc.js go/examples/echo_grpc_dc.go wasm/go/echo_wasm_dc.go wasm/zig/echo_wasm_dc.zig wasm/cpp/echo_wasm_dc.hpp wasm/swift/EchoWasmGrpcDc.swift wasm/kotlin/EchoWasmGrpcDc.kt cpp/examples/echo_grpc_dc.hpp swift/examples/EchoGrpcDc.swift kotlin/examples/EchoGrpcDc.kt
+	rm -f bin/protoc-gen-grpc-dc-kotlin bin/protoc-gen-grpc-dc-kotlin-native bin/protoc-gen-grpc-dc-rust bin/protoc-gen-grpc-dc-js bin/protoc-gen-grpc-dc-go bin/protoc-gen-grpc-dc-wasm-go bin/protoc-gen-grpc-dc-wasm-zig bin/protoc-gen-grpc-dc-wasm-cpp bin/protoc-gen-grpc-dc-wasm-swift bin/protoc-gen-grpc-dc-wasm-kotlin bin/protoc-gen-grpc-dc-cpp bin/protoc-gen-grpc-dc-swift bin/protoc-gen-grpc-dc-php bin/protoc-gen-grpc-dc-scala
+	rm -f rust/gen/echo_grpc_dc.rs js/examples/echo_grpc_dc.js go/examples/echo_grpc_dc.go wasm/go/echo_wasm_dc.go wasm/zig/echo_wasm_dc.zig wasm/cpp/echo_wasm_dc.hpp wasm/swift/EchoWasmGrpcDc.swift wasm/kotlin/EchoWasmGrpcDc.kt cpp/examples/echo_grpc_dc.hpp swift/examples/EchoGrpcDc.swift kotlin/examples/EchoGrpcDc.kt php/examples/echo_grpc_dc.php scala/examples/EchoGrpcDc.scala
 	rm -f rust/src/wire_gen.rs js/wire_gen.js go/wire_gen.go fixtures/vectors.json
 	rm -f rust/src/{lib,codec,status,message,transport,endpoint,channel,server,webrtc_transport}.rs
 	rm -f js/src/{codec,endpoint,channel,server,loopback}.js
