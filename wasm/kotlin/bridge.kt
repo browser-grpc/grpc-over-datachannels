@@ -5,6 +5,7 @@ package grpcdcwasm
 import kotlin.js.JsAny
 import kotlin.js.JsArray
 import kotlin.js.JsName
+import kotlin.js.JsString
 import kotlin.js.Promise
 import kotlin.js.js
 import kotlin.js.toJsArray
@@ -96,6 +97,143 @@ external interface GrpcdcJsBridge : JsAny {
 external interface JsStatusError : JsAny {
     val code: Int
     val message: String
+}
+
+/** Shape of js/src/wasm_bridge.js createGrpcDcServerBridge(). */
+external interface GrpcdcJsServerBridge : JsAny {
+    fun registerUnary(
+        path: String,
+        handler: (JsUint8Array, JsArray<JsString>) -> Promise<JsUint8Array>
+    )
+
+    fun registerServerStream(
+        path: String,
+        handler: (JsUint8Array, JsArray<JsString>, (JsUint8Array) -> Unit) -> Promise<JsAny?>
+    )
+
+    fun registerClientStream(
+        path: String,
+        handler: (JsArray<JsUint8Array>, JsArray<JsString>) -> Promise<JsUint8Array>
+    )
+
+    fun registerBidi(
+        path: String,
+        handler: (JsArray<JsUint8Array>, JsArray<JsString>, (JsUint8Array) -> Unit) -> Promise<JsAny?>
+    )
+
+    fun start(serviceName: String)
+}
+
+private fun jsArrayLength(array: JsArray<*>): Int = js("array.length")
+
+private fun jsArrayString(array: JsArray<JsString>, index: Int): String =
+    js("array[index]")
+
+/** Flattened [key, value, ...] bridge pairs to a metadata map. */
+fun JsArray<JsString>.toMetadataMap(): Map<String, String> {
+    val out = LinkedHashMap<String, String>()
+    var i = 0
+    while (i + 1 < jsArrayLength(this)) {
+        out[jsArrayString(this, i)] = jsArrayString(this, i + 1)
+        i += 2
+    }
+    return out
+}
+
+private fun jsErrorObject(code: Int, message: String): JsAny =
+    js("({ code: code, message: message })")
+
+private fun StatusException.toJsError(): JsAny =
+    jsErrorObject(code, message ?: "")
+
+private fun jsArrayBytes(array: JsArray<JsUint8Array>, index: Int): JsUint8Array =
+    js("array[index]")
+
+private fun JsArray<JsUint8Array>.toByteArrayList(): List<ByteArray> {
+    val out = ArrayList<ByteArray>()
+    var i = 0
+    val n = jsArrayLength(this)
+    while (i < n) {
+        out.add(jsArrayBytes(this, i).toByteArray())
+        i++
+    }
+    return out
+}
+
+/**
+ * Server bridge runtime for generated Kotlin/Wasm server
+ * facades. Handlers are synchronous typed functions; this
+ * wrapper adapts them to the JS bridge's Promise/callback
+ * shape, converting failures to {code, message} rejections
+ * the JS side turns back into StatusError.
+ */
+class GrpcdcWasmServerBridge(private val js: GrpcdcJsServerBridge) {
+    fun unary(path: String, handler: (ByteArray, Map<String, String>) -> ByteArray) {
+        js.registerUnary(path) { bytes, pairs ->
+            Promise { resolve, reject ->
+                try {
+                    resolve(handler(bytes.toByteArray(), pairs.toMetadataMap()).toJsUint8Array())
+                } catch (e: Throwable) {
+                    reject(StatusException.toStatus(e).toJsError())
+                }
+            }
+        }
+    }
+
+    fun serverStream(
+        path: String,
+        handler: (ByteArray, Map<String, String>, (ByteArray) -> Unit) -> Unit
+    ) {
+        js.registerServerStream(path) { bytes, pairs, onMessage ->
+            Promise { resolve, reject ->
+                try {
+                    handler(bytes.toByteArray(), pairs.toMetadataMap()) { resp ->
+                        onMessage(resp.toJsUint8Array())
+                    }
+                    resolve(null)
+                } catch (e: Throwable) {
+                    reject(StatusException.toStatus(e).toJsError())
+                }
+            }
+        }
+    }
+
+    fun clientStream(
+        path: String,
+        handler: (List<ByteArray>, Map<String, String>) -> ByteArray
+    ) {
+        js.registerClientStream(path) { payloads, pairs ->
+            Promise { resolve, reject ->
+                try {
+                    resolve(handler(payloads.toByteArrayList(), pairs.toMetadataMap()).toJsUint8Array())
+                } catch (e: Throwable) {
+                    reject(StatusException.toStatus(e).toJsError())
+                }
+            }
+        }
+    }
+
+    fun bidi(
+        path: String,
+        handler: (List<ByteArray>, Map<String, String>, (ByteArray) -> Unit) -> Unit
+    ) {
+        js.registerBidi(path) { payloads, pairs, onMessage ->
+            Promise { resolve, reject ->
+                try {
+                    handler(payloads.toByteArrayList(), pairs.toMetadataMap()) { resp ->
+                        onMessage(resp.toJsUint8Array())
+                    }
+                    resolve(null)
+                } catch (e: Throwable) {
+                    reject(StatusException.toStatus(e).toJsError())
+                }
+            }
+        }
+    }
+
+    fun start(serviceName: String) {
+        js.start(serviceName)
+    }
 }
 
 private fun JsAny.toStatusException(): StatusException {

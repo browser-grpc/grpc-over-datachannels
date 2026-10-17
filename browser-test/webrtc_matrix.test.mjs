@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Peer } from "../webrtc/js/peer.js";
-import { Channel, Server } from "../js/index.js";
+import { Channel, Server, StatusError } from "../js/index.js";
 import { EchoRequest, EchoResponse } from "../js/examples/echo_pb.js";
 import { EchoClient, createEchoService } from "../js/examples/echo_grpc_dc.js";
 
@@ -26,9 +26,12 @@ const GO = process.env.GO || "go";
 const CARGO = process.env.CARGO || "cargo";
 
 const handlers = {
-  async unary(req) {
+  async unary(req, ctx) {
+    if (req.message === "fail") throw new StatusError(3, "asked to fail");
     if (req.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, req.delayMs));
-    return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+    const marker = ctx?.metadata?.["x-echo"];
+    const suffix = marker ? ` [${marker}]` : "";
+    return new EchoResponse({ message: `echo: ${req.message}${suffix}`, index: 0 });
   },
   async *serverStream(req) {
     for (let i = 0; i < Math.max(0, req.count); i++) {
@@ -106,6 +109,25 @@ async function runJsClient(dc) {
   const echoed = [];
   for await (const resp of await client.bidi(xy())) echoed.push(resp.message);
   assert.deepEqual(echoed, ["x", "y"]);
+
+  let errorCode = 0;
+  try {
+    await client.unary(req("fail"));
+  } catch (e) {
+    errorCode = e.code;
+  }
+  assert.equal(errorCode, 3);
+
+  const md = await client.unary(req("hello"), { metadata: { "x-echo": "meta" } });
+  assert.equal(md.message, "echo: hello [meta]");
+
+  let deadlineCode = 0;
+  try {
+    await client.unary(req("slow", 0, 400), { timeout: 50 });
+  } catch (e) {
+    deadlineCode = e.code;
+  }
+  assert.equal(deadlineCode, 4);
 }
 
 function serveJs(endpoint) {
@@ -149,6 +171,8 @@ await cell("grpc go-client -> go-server", async () => {
   server.kill("SIGKILL");
   assert.equal(code, 0, client.getStderr());
   assert.match(client.getStderr(), /unary=echo: hello/);
+  assert.match(client.getStderr(), /metadata=echo: hello \[meta\]/);
+  assert.match(client.getStderr(), /deadline=4/);
 });
 
 await cell("grpc go-client -> js-server", async () => {
@@ -165,6 +189,8 @@ await cell("grpc go-client -> js-server", async () => {
     const code = await waitExit(client);
     assert.equal(code, 0, client.getStderr());
     assert.match(client.getStderr(), /unary=echo: hello/);
+    assert.match(client.getStderr(), /metadata=echo: hello \[meta\]/);
+    assert.match(client.getStderr(), /deadline=4/);
   } finally {
     client.kill("SIGKILL");
     await answerer.close();

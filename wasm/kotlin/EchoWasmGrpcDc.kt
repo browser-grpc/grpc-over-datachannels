@@ -4,6 +4,7 @@
 package echo
 
 import grpcdcwasm.GrpcdcWasmBridge
+import grpcdcwasm.GrpcdcWasmServerBridge
 import grpcdcwasm.StatusException
 
 /** Generated WASM facade stubs for echo.proto. */
@@ -74,4 +75,28 @@ object EchoWasmGrpcDc {
 
     }
 
+    /** Service implementation interface for echo.Echo (browser/WASM facade). */
+    interface EchoServer {
+        fun Unary(req: EchoRequest, metadata: Map<String, String>): EchoResponse
+        fun ServerStream(req: EchoRequest, metadata: Map<String, String>, sink: (EchoResponse) -> Unit)
+        fun ClientStream(reqs: List<EchoRequest>, metadata: Map<String, String>): EchoResponse
+        fun Bidi(reqs: List<EchoRequest>, metadata: Map<String, String>, sink: (EchoResponse) -> Unit)
+    }
+
+    /** Register an implementation of echo.Echo on a server bridge. */
+    fun registerEchoServer(bridge: GrpcdcWasmServerBridge, impl: EchoServer) {
+        bridge.unary("/echo.Echo/Unary") { bytes, metadata ->
+            impl.Unary(EchoRequest().apply { unmarshalDc(bytes) }, metadata).marshalDc()
+        }
+        bridge.serverStream("/echo.Echo/ServerStream") { bytes, metadata, sink ->
+            impl.ServerStream(EchoRequest().apply { unmarshalDc(bytes) }, metadata) { resp -> sink(resp.marshalDc()) }
+        }
+        bridge.clientStream("/echo.Echo/ClientStream") { payloads, metadata ->
+            impl.ClientStream(payloads.map { bytes -> EchoRequest().apply { unmarshalDc(bytes) } }, metadata).marshalDc()
+        }
+        bridge.bidi("/echo.Echo/Bidi") { payloads, metadata, sink ->
+            impl.Bidi(payloads.map { bytes -> EchoRequest().apply { unmarshalDc(bytes) } }, metadata) { resp -> sink(resp.marshalDc()) }
+        }
+        bridge.start("echo.Echo")
+    }
 }

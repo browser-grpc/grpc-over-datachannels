@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -83,7 +84,8 @@ func main() {
 	fmt.Fprintln(os.Stderr, "CONNECTED")
 
 	channel := endpoint.OpenChannel(dcwebrtc.DefaultChannelParams("grpc"))
-	client := echo.NewEchoClient(grpcdc.NewChannel(grpcdc.NewDcTransport(channel)))
+	grpcChannel := grpcdc.NewChannel(grpcdc.NewDcTransport(channel))
+	client := echo.NewEchoClient(grpcChannel)
 	ctx := context.Background()
 
 	unary, err := client.Unary(ctx, &echo.EchoRequest{Message: "hello"})
@@ -132,5 +134,32 @@ func main() {
 		echoed = append(echoed, resp.Message)
 	}
 	fmt.Fprintf(os.Stderr, "bidi=%s\n", strings.Join(echoed, ","))
+
+	_, err = client.Unary(ctx, &echo.EchoRequest{Message: "fail"})
+	if err == nil {
+		fmt.Fprintln(os.Stderr, "error_case=no error")
+	} else {
+		fmt.Fprintf(os.Stderr, "error_case=%s\n", err)
+	}
+
+	mdResp := &echo.EchoResponse{}
+	err = grpcChannel.UnaryWithMetadata(ctx, "/echo.Echo/Unary", &echo.EchoRequest{Message: "hello"}, mdResp,
+		map[string]string{"x-echo": "meta"})
+	if err != nil {
+		fatal(err)
+	}
+	fmt.Fprintf(os.Stderr, "metadata=%s\n", mdResp.Message)
+
+	dctx, dcancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	_, err = client.Unary(dctx, &echo.EchoRequest{Message: "slow", DelayMs: 400})
+	dcancel()
+	var status *grpcdc.StatusError
+	if err == nil {
+		fmt.Fprintln(os.Stderr, "deadline=no error")
+	} else if errors.As(err, &status) {
+		fmt.Fprintf(os.Stderr, "deadline=%d\n", int(status.Code))
+	} else {
+		fmt.Fprintf(os.Stderr, "deadline=err:%s\n", err)
+	}
 	fmt.Fprintln(os.Stderr, "CLIENT_DONE")
 }

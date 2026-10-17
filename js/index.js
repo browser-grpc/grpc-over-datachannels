@@ -18,7 +18,7 @@ export { Endpoint, StreamInput } from "./src/endpoint.js";
 export { Channel } from "./src/channel.js";
 export { Server } from "./src/server.js";
 export { memoryDataChannelPair } from "./src/loopback.js";
-export { createGrpcDcBridge } from "./src/wasm_bridge.js";
+export { createGrpcDcBridge, createGrpcDcServerBridge } from "./src/wasm_bridge.js";
 
 import { Channel } from "./src/channel.js";
 import { Endpoint } from "./src/endpoint.js";

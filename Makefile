@@ -442,7 +442,7 @@ test-kotlin-wasm-browser:
 		wasm/kotlin/bridge.kt wasm/kotlin/Pb.kt \
 		wasm/kotlin/grpcdc/Transport.kt \
 		wasm/kotlin/EchoMessages.kt wasm/kotlin/EchoWasmGrpcDc.kt \
-		wasm/kotlin/echo_client.kt
+		wasm/kotlin/echo_client.kt wasm/kotlin/echo_server_facade.kt
 	$(KOTLINC_JS) -Xwasm -Xwasm-target=wasm-js \
 		-Xwasm-use-new-exception-proposal \
 		-libraries $(KOTLIN_WASM_STDLIB) \
@@ -451,6 +451,7 @@ test-kotlin-wasm-browser:
 		-ir-output-name echo_kotlin \
 		-module-kind es -target es2015 -main noCall -Xir-produce-js
 	cd browser-test && node wasm_facade.test.mjs Kotlin wasm_kotlin_page.html all
+	cd browser-test && node wasm_kotlin_facade_server.test.mjs all
 
 ## Native Kotlin/Wasm client: the real grpcdc runtime
 ## (wasm/kotlin/grpcdc, generated Wasm variant) + native stubs

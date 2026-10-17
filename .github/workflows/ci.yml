@@ -1,0 +1,21 @@
+name: CI
+
+# All build/test/tooling concerns live in Dockerfile.ci; this
+# workflow only builds that image and runs the full suite in
+# it, mirroring the local gate:
+#   docker build -f Dockerfile.ci -t grpc-dc-ci .
+#   docker run --rm grpc-dc-ci make test
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build CI image
+        run: docker build -f Dockerfile.ci -t grpc-dc-ci .
+      - name: Run full test suite
+        run: docker run --rm grpc-dc-ci make test

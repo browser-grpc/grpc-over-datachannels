@@ -1,0 +1,66 @@
+@file:OptIn(kotlin.js.ExperimentalJsExport::class)
+
+// Browser test entry point (facade server role): registers
+// the generated Kotlin/Wasm facade server (EchoWasmGrpcDc)
+// over the JS server bridge (createGrpcDcServerBridge). The
+// JS grpc-dc implementation owns the wire; the typed Echo
+// handlers below run in Kotlin/Wasm. The Node test's JS
+// client drives the four call shapes plus a deadline the
+// slow handler must miss. Mirrors the native server entries
+// (wasm/kotlin/native/echo_server.kt).
+
+package echo
+
+import grpcdcwasm.GrpcdcJsServerBridge
+import grpcdcwasm.GrpcdcWasmServerBridge
+import grpcdcwasm.StatusException
+import kotlin.js.JsExport
+import kotlin.js.js
+import kotlin.math.max
+
+private fun nowMs(): Double = js("performance.now()")
+
+private class SlowEcho : EchoWasmGrpcDc.EchoServer {
+    private fun delay(req: EchoRequest) {
+        if (req.delayMs > 0) {
+            val until = nowMs() + req.delayMs.toDouble()
+            while (nowMs() < until) {
+            }
+        }
+    }
+
+    override fun Unary(req: EchoRequest, metadata: Map<String, String>): EchoResponse {
+        if (req.message == "fail") {
+            // INVALID_ARGUMENT (the facade has no Wire enum).
+            throw StatusException(3, "asked to fail")
+        }
+        delay(req)
+        val marker = metadata["x-echo"]
+        val suffix = if (marker.isNullOrEmpty()) "" else " [$marker]"
+        return EchoResponse("echo: ${req.message}$suffix", 0)
+    }
+
+    override fun ServerStream(req: EchoRequest, metadata: Map<String, String>, sink: (EchoResponse) -> Unit) {
+        for (i in 0 until max(0, req.count)) {
+            sink(EchoResponse(req.message, i))
+        }
+    }
+
+    override fun ClientStream(reqs: List<EchoRequest>, metadata: Map<String, String>): EchoResponse {
+        val parts = reqs.map { it.message }
+        return EchoResponse(parts.joinToString("+"), parts.size)
+    }
+
+    override fun Bidi(reqs: List<EchoRequest>, metadata: Map<String, String>, sink: (EchoResponse) -> Unit) {
+        var index = 0
+        for (req in reqs) {
+            sink(EchoResponse(req.message, index))
+            index++
+        }
+    }
+}
+
+@JsExport
+fun registerEchoFacadeServer(bridge: GrpcdcJsServerBridge) {
+    EchoWasmGrpcDc.registerEchoServer(GrpcdcWasmServerBridge(bridge), SlowEcho())
+}

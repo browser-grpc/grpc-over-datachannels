@@ -794,6 +794,8 @@ GRPC_RUNTIME_EOF
 // on OK trailers and rejects with StatusError otherwise.
 
 import { Channel } from "./channel.js";
+import { Server } from "./server.js";
+import { StatusError } from "./codec.js";
 
 const identity = { encode: (bytes) => bytes, decode: (bytes) => bytes };
 
@@ -817,6 +819,141 @@ export function createGrpcDcBridge(dcOrChannel) {
     async bidi(path, payloads, onMessage) {
       const responses = await channel.bidi(path, fromList(payloads), identity, identity);
       for await (const resp of responses) onMessage(resp);
+    },
+  };
+}
+
+// Server bridge: the mirror image for generated WASM server
+// facades. The JS runtime still owns the wire (a real Server
+// on the channel); the facade registers typed handlers per
+// path. Handlers receive protobuf bytes plus metadata as a
+// flattened [key, value, ...] string array and respond in
+// bytes; streaming handlers push responses through onMessage
+// and settle their promise at the end. Handler failures cross
+// as {code, message} objects and become StatusError here.
+// Facade client-streaming/bidi calls deliver all requests up
+// front, so clientStream/bidi handlers receive the full list
+// (same shape as the client bridge's payloads).
+function toStatusError(err) {
+  if (err instanceof StatusError) return err;
+  const code = err && typeof err.code === "number" ? err.code : 13;
+  const message = err && err.message ? String(err.message) : String(err);
+  return new StatusError(code, message);
+}
+
+function metadataPairs(metadata) {
+  return Object.entries(metadata ?? {}).flat();
+}
+
+async function* collectResponses(invoke) {
+  const queue = [];
+  let notify = null;
+  let settled = false;
+  let failure = null;
+  const wake = () => {
+    if (notify) {
+      const resolve = notify;
+      notify = null;
+      resolve();
+    }
+  };
+  invoke((bytes) => {
+    queue.push(bytes);
+    wake();
+  }).then(
+    () => {
+      settled = true;
+      wake();
+    },
+    (err) => {
+      failure = err;
+      settled = true;
+      wake();
+    }
+  );
+  for (;;) {
+    while (queue.length > 0) yield queue.shift();
+    if (settled) break;
+    await new Promise((resolve) => {
+      notify = resolve;
+    });
+  }
+  if (failure) throw toStatusError(failure);
+}
+
+export function createGrpcDcServerBridge(dcOrChannel) {
+  const channel = dcOrChannel instanceof Channel ? dcOrChannel : new Channel(dcOrChannel);
+  const server = new Server();
+  const methods = {};
+  let started = false;
+  const register = (path, method) => {
+    methods[path] = method;
+  };
+  return {
+    registerUnary(path, handler) {
+      register(path, {
+        path,
+        kind: "unary",
+        requestType: identity,
+        responseType: identity,
+        handler: async (req, ctx) => {
+          try {
+            return await handler(req, metadataPairs(ctx.metadata));
+          } catch (err) {
+            throw toStatusError(err);
+          }
+        },
+      });
+    },
+    registerServerStream(path, handler) {
+      register(path, {
+        path,
+        kind: "server-streaming",
+        requestType: identity,
+        responseType: identity,
+        handler: (req, ctx) =>
+          collectResponses((onMessage) => handler(req, metadataPairs(ctx.metadata), onMessage)),
+      });
+    },
+    registerClientStream(path, handler) {
+      register(path, {
+        path,
+        kind: "client-streaming",
+        requestType: identity,
+        responseType: identity,
+        handler: async (requests, ctx) => {
+          const payloads = [];
+          for await (const req of requests) payloads.push(req);
+          try {
+            return await handler(payloads, metadataPairs(ctx.metadata));
+          } catch (err) {
+            throw toStatusError(err);
+          }
+        },
+      });
+    },
+    registerBidi(path, handler) {
+      register(path, {
+        path,
+        kind: "bidi",
+        requestType: identity,
+        responseType: identity,
+        handler: async (requests, ctx) => {
+          const payloads = [];
+          for await (const req of requests) payloads.push(req);
+          return collectResponses((onMessage) =>
+            handler(payloads, metadataPairs(ctx.metadata), onMessage)
+          );
+        },
+      });
+    },
+    start(serviceName) {
+      if (started) return;
+      started = true;
+      server.addService({ name: serviceName ?? "grpc-dc-bridge", methods });
+      // Serve on the channel's endpoint (a raw DataChannel is
+      // wrapped by Server itself; a Channel must not be).
+      server.serve(channel instanceof Channel ? channel.endpoint : channel);
     },
   };
 }

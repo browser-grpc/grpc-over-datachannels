@@ -500,6 +500,79 @@
       path
       resp))))
 
+(define (wasm-kotlin-server-iface-method m)
+  (define name (hash-ref m 'name))
+  (define req (hash-ref m 'input))
+  (define resp (hash-ref m 'output))
+  (case (hash-ref m 'kind)
+    ((unary)
+     (format
+      "        fun ~a(req: ~a, metadata: Map<String, String>): ~a\n"
+      name
+      req
+      resp))
+    ((server-streaming)
+     (format
+      "        fun ~a(req: ~a, metadata: Map<String, String>, sink: (~a) -> Unit)\n"
+      name
+      req
+      resp))
+    ((client-streaming)
+     (format
+      "        fun ~a(reqs: List<~a>, metadata: Map<String, String>): ~a\n"
+      name
+      req
+      resp))
+    ((bidi)
+     (format
+      "        fun ~a(reqs: List<~a>, metadata: Map<String, String>, sink: (~a) -> Unit)\n"
+      name
+      req
+      resp))))
+
+(define (wasm-kotlin-register-method m)
+  (define name (hash-ref m 'name))
+  (define req (hash-ref m 'input))
+  (define resp (hash-ref m 'output))
+  (define path (hash-ref m 'path))
+  (case (hash-ref m 'kind)
+    ((unary)
+     (format
+      (string-append
+       "        bridge.unary(~s) { bytes, metadata ->\n"
+       "            impl.~a(~a().apply { unmarshalDc(bytes) }, metadata).marshalDc()\n"
+       "        }\n")
+      path
+      name
+      req))
+    ((server-streaming)
+     (format
+      (string-append
+       "        bridge.serverStream(~s) { bytes, metadata, sink ->\n"
+       "            impl.~a(~a().apply { unmarshalDc(bytes) }, metadata) { resp -> sink(resp.marshalDc()) }\n"
+       "        }\n")
+      path
+      name
+      req))
+    ((client-streaming)
+     (format
+      (string-append
+       "        bridge.clientStream(~s) { payloads, metadata ->\n"
+       "            impl.~a(payloads.map { bytes -> ~a().apply { unmarshalDc(bytes) } }, metadata).marshalDc()\n"
+       "        }\n")
+      path
+      name
+      req))
+    ((bidi)
+     (format
+      (string-append
+       "        bridge.bidi(~s) { payloads, metadata, sink ->\n"
+       "            impl.~a(payloads.map { bytes -> ~a().apply { unmarshalDc(bytes) } }, metadata) { resp -> sink(resp.marshalDc()) }\n"
+       "        }\n")
+      path
+      name
+      req))))
+
 (define (wasm-kotlin-service svc)
   (define sname (hash-ref svc 'name))
   (define methods (hash-ref svc 'methods))
@@ -517,7 +590,27 @@
      (map
       wasm-kotlin-client-method
       (append methods (alias-client-methods svc))))
-    "    }\n\n")))
+    "    }\n\n"
+    (format
+     "    /** Service implementation interface for ~a (browser/WASM facade). */\n"
+     (hash-ref svc 'full-name))
+    (format "    interface ~aServer {\n" sname)
+    (apply string-append (map wasm-kotlin-server-iface-method methods))
+    "    }\n\n"
+    (format
+     "    /** Register an implementation of ~a on a server bridge. */\n"
+     (hash-ref svc 'full-name))
+    (format
+     "    fun register~aServer(bridge: GrpcdcWasmServerBridge, impl: ~aServer) {\n"
+     sname
+     sname)
+    (apply
+     string-append
+     (map
+      wasm-kotlin-register-method
+      (append methods (alias-server-methods svc))))
+    (format "        bridge.start(~s)\n" (hash-ref svc 'full-name))
+    "    }\n")))
 
 (define (emit-wasm-kotlin-file file-model params)
   (define base
@@ -536,6 +629,7 @@
     (format "// source: ~a\n" (hash-ref file-model 'name))
     (format "package ~a\n\n" (if (string=? pkg "") "proto" pkg))
     (format "import ~a.GrpcdcWasmBridge\n" bridge-package)
+    (format "import ~a.GrpcdcWasmServerBridge\n" bridge-package)
     (format "import ~a.StatusException\n\n" bridge-package)
     (format
      "/** Generated WASM facade stubs for ~a. */\n"

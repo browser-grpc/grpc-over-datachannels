@@ -195,7 +195,11 @@ exposes a byte-level bridge, and generated facades (plugins
 Zig, C++ (exception-free `wasm32-wasi` reactor), Swift (Embedded
 Swift on `wasm32-unknown-none-wasm`, no Foundation), and Kotlin
 (Kotlin/Wasm JS interop) typed clients whose calls execute in
-the tested JS runtime. `make test-wasm`, `make
+the tested JS runtime. The Kotlin/Wasm facade also serves:
+`createGrpcDcServerBridge` in the JS bridge hosts a real JS
+`Server`, and the generated facade registers typed Kotlin
+handlers on it (`make test-kotlin-wasm-browser` runs both
+facade roles). `make test-wasm`, `make
 test-zig-wasm-browser`, `make test-zig-wasm-native-browser`,
 `make test-lua-wasm-browser`, `make test-dart-browser`,
 `make test-dart-wasm-browser`, `make test-cpp-wasm-browser`,
@@ -278,6 +282,24 @@ Makefile                 generate / test / demos
   older JS/Kotlin/Dart/Go/Rust async surfaces. Zig has no async
   surface yet (upstream removed language-level async; its runtime
   is single-threaded-pump by design).
+
+## CI and releases
+
+CI runs the same gate as local development — all toolchains
+live in `Dockerfile.ci`:
+
+```sh
+docker build -f Dockerfile.ci -t grpc-dc-ci .
+docker run --rm grpc-dc-ci make test
+```
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) does
+exactly this on every push and pull request (it takes effect
+once the project has a GitHub remote; no remote is configured
+in this checkout). Releases are plain Git tags on `master`
+(`git tag vX.Y.Z`): before tagging, run `make generate` (the
+tree must stay byte-stable), the host `make test`, and the
+two Docker commands above, twice each for the container runs.
 
 ## License
 
