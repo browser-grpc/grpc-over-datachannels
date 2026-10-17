@@ -756,7 +756,7 @@ demos:
 
 clean-gen:
 	rm -f bin/protoc-gen-grpc-dc-kotlin bin/protoc-gen-grpc-dc-kotlin-native bin/protoc-gen-grpc-dc-rust bin/protoc-gen-grpc-dc-js bin/protoc-gen-grpc-dc-go bin/protoc-gen-grpc-dc-wasm-go bin/protoc-gen-grpc-dc-wasm-zig bin/protoc-gen-grpc-dc-wasm-cpp bin/protoc-gen-grpc-dc-wasm-swift bin/protoc-gen-grpc-dc-wasm-kotlin bin/protoc-gen-grpc-dc-cpp bin/protoc-gen-grpc-dc-swift bin/protoc-gen-grpc-dc-php bin/protoc-gen-grpc-dc-scala
-	rm -f rust/gen/echo_grpc_dc.rs js/examples/echo_grpc_dc.js go/examples/echo_grpc_dc.go wasm/go/echo_wasm_dc.go wasm/zig/echo_wasm_dc.zig wasm/cpp/echo_wasm_dc.hpp wasm/swift/EchoWasmGrpcDc.swift wasm/kotlin/EchoWasmGrpcDc.kt cpp/examples/echo_grpc_dc.hpp swift/examples/EchoGrpcDc.swift kotlin/examples/EchoGrpcDc.kt php/examples/echo_grpc_dc.php scala/examples/EchoGrpcDc.scala
+	rm -f rust/gen/echo_grpc_dc.rs js/examples/echo_grpc_dc.js js/examples/echo_pb.js go/examples/echo_grpc_dc.go wasm/go/echo_wasm_dc.go wasm/zig/echo_wasm_dc.zig wasm/cpp/echo_wasm_dc.hpp wasm/swift/EchoWasmGrpcDc.swift wasm/kotlin/EchoWasmGrpcDc.kt cpp/examples/echo_grpc_dc.hpp swift/examples/EchoGrpcDc.swift kotlin/examples/EchoGrpcDc.kt php/examples/echo_grpc_dc.php scala/examples/EchoGrpcDc.scala
 	rm -f rust/src/wire_gen.rs js/wire_gen.js go/wire_gen.go fixtures/vectors.json
 	rm -f rust/src/{lib,codec,status,message,transport,endpoint,channel,server,webrtc_transport}.rs
 	rm -f js/src/{codec,endpoint,channel,server,loopback}.js

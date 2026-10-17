@@ -545,15 +545,6 @@ $("generate").addEventListener("click", async () => {
           generated.push(entry);
         }
       }
-      // The native JS plugin emits stubs only; the JS message
-      // modules (<base>_pb.js) still come from the built-in
-      // generators until the plugin grows them.
-      for (const f of langs.includes("js") ? generateFiles("js", lastSetBytes, names, params.get("js") || "") : []) {
-        if (!f.name.endsWith("_pb.js")) continue;
-        const entry = { name: "gen/js/" + f.name, data: enc.encode(f.content) };
-        entries.push(entry);
-        generated.push(entry);
-      }
       generatedVia = "Racket plugins in-browser (" + (performance.now() - t0).toFixed(0) + "ms)";
     } catch (e) {
       setStatus("Racket runtime unavailable (" + e.message + "); falling back to built-in generators", "err");
