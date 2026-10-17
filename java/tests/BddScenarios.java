@@ -16,7 +16,9 @@ public final class BddScenarios {
         {"server-stream-zero", "server-stream", new String[]{"zero"}, 0, "", "", "zero", 0, -1},
         {"client-stream-join", "client-stream", new String[]{"a", "b", "c"}, 0, "", "", "a+b+c", 3, -1},
         {"client-stream-solo", "client-stream", new String[]{"solo"}, 0, "", "", "solo", 1, -1},
+        {"client-stream-empty", "client-stream", new String[]{}, 0, "", "", "", 0, -1},
         {"bidi-order", "bidi", new String[]{"x", "y"}, 0, "", "", "", 2, -1},
+        {"bidi-single", "bidi", new String[]{"one"}, 0, "", "", "", 1, -1},
         {"metadata-marker", "unary", new String[]{"hello"}, 0, "", "meta", "echo: hello [meta]", 0, -1},
         {"unknown-method", "raw-unary", new String[]{"hello"}, 0, "/echo.Echo/Nope", "", "", 0, 12},
     };

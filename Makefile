@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline check-generated scalajs-gen test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -96,6 +96,20 @@ compat:
 ## Accept a deliberate breaking schema change: refresh the baseline.
 update-baseline:
 	cp fixtures/echo_descriptor_set.bin fixtures/echo_descriptor_set.baseline.bin
+
+## Generated-source drift gate: every generated file (runtimes,
+## stubs, fixtures, BDD.md and the per-language scenario tables) is
+## a pure function of the Racket sources, so regenerating must be
+## byte-stable. Hash the source tree, regenerate, hash again; any
+## difference means a generated file was hand-edited or a Racket
+## change was not regenerated — either way the docs/tests would
+## silently disagree with the implementation, so fail.
+check-generated:
+	@before=$$(find . -path ./.git -prune -o -path ./node_modules -prune -o -path '*/target' -prune -o -path '*/build' -prune -o -path '*/node_modules' -prune -o -path './browser-test/scalajs_gen' -prune -o -path '*/.scala-build' -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1); \
+	$(MAKE) --no-print-directory generate; \
+	after=$$(find . -path ./.git -prune -o -path ./node_modules -prune -o -path '*/target' -prune -o -path '*/build' -prune -o -path '*/node_modules' -prune -o -path './browser-test/scalajs_gen' -prune -o -path '*/.scala-build' -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1); \
+	if [ "$$before" != "$$after" ]; then echo "check-generated: FAIL (generated files drift from Racket sources; run make generate and commit the result)"; exit 1; fi; \
+	echo "check-generated: OK (generated tree is byte-stable)"
 
 test-racket:
 	raco test racket/tests/
@@ -594,7 +608,9 @@ test-kotlin-wasm-native-browser:
 ## against every stdio Echo server (14 x 14 ordered pairs).
 SCALACLI ?= scala-cli
 
-test-scalajs-browser:
+## Package the Scala.js facade bundles the browser tests load
+## (shared by test-scalajs-browser and test-wasm-matrix).
+scalajs-gen:
 	mkdir -p browser-test/scalajs_gen
 	$(SCALACLI) --power package --force --js --js-module-kind esmodule --scala-version 3.3.6 \
 		-o browser-test/scalajs_gen/echo_scalajs_client.mjs \
@@ -607,11 +623,13 @@ test-scalajs-browser:
 		scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala \
 		scala/examples/Pb.scala scala/examples/EchoMessages.scala \
 		wasm/scalajs/EchoServerImpl.scala wasm/scalajs/echo_server_facade.scala
+
+test-scalajs-browser: scalajs-gen
 	cd browser-test && node wasm_facade.test.mjs ScalaJS wasm_scalajs_page.html all
 	cd browser-test && node wasm_scalajs_facade_server.test.mjs all
 	cd browser-test && node wasm_scalajs_stream_server.test.mjs all
 
-test-wasm-matrix:
+test-wasm-matrix: scalajs-gen
 	cd browser-test && node wasm_matrix.test.mjs all
 
 test-interop-matrix:
@@ -623,7 +641,7 @@ test-interop-matrix:
 test-webrtc-matrix:
 	cd browser-test && node webrtc_matrix.test.mjs
 
-test: test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix
+test: check-generated test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo

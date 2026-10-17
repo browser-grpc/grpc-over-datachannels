@@ -9,15 +9,17 @@ public static class BddScenarios
 {
     public static readonly object[][] Cases =
     {
-        new object[] {"unary-echo", "unary", new[] {"hello"}, 0, "", "", "echo: hello", 0, -1},
-        new object[] {"unary-empty", "unary", new[] {""}, 0, "", "", "echo: ", 0, -1},
-        new object[] {"unary-failure", "unary", new[] {"fail"}, 0, "", "", "", 0, 3},
-        new object[] {"server-stream-count", "server-stream", new[] {"tick"}, 3, "", "", "tick", 3, -1},
-        new object[] {"server-stream-zero", "server-stream", new[] {"zero"}, 0, "", "", "zero", 0, -1},
-        new object[] {"client-stream-join", "client-stream", new[] {"a", "b", "c"}, 0, "", "", "a+b+c", 3, -1},
-        new object[] {"client-stream-solo", "client-stream", new[] {"solo"}, 0, "", "", "solo", 1, -1},
-        new object[] {"bidi-order", "bidi", new[] {"x", "y"}, 0, "", "", "", 2, -1},
-        new object[] {"metadata-marker", "unary", new[] {"hello"}, 0, "", "meta", "echo: hello [meta]", 0, -1},
-        new object[] {"unknown-method", "raw-unary", new[] {"hello"}, 0, "/echo.Echo/Nope", "", "", 0, 12},
+        new object[] {"unary-echo", "unary", new string[] {"hello"}, 0, "", "", "echo: hello", 0, -1},
+        new object[] {"unary-empty", "unary", new string[] {""}, 0, "", "", "echo: ", 0, -1},
+        new object[] {"unary-failure", "unary", new string[] {"fail"}, 0, "", "", "", 0, 3},
+        new object[] {"server-stream-count", "server-stream", new string[] {"tick"}, 3, "", "", "tick", 3, -1},
+        new object[] {"server-stream-zero", "server-stream", new string[] {"zero"}, 0, "", "", "zero", 0, -1},
+        new object[] {"client-stream-join", "client-stream", new string[] {"a", "b", "c"}, 0, "", "", "a+b+c", 3, -1},
+        new object[] {"client-stream-solo", "client-stream", new string[] {"solo"}, 0, "", "", "solo", 1, -1},
+        new object[] {"client-stream-empty", "client-stream", new string[] {}, 0, "", "", "", 0, -1},
+        new object[] {"bidi-order", "bidi", new string[] {"x", "y"}, 0, "", "", "", 2, -1},
+        new object[] {"bidi-single", "bidi", new string[] {"one"}, 0, "", "", "", 1, -1},
+        new object[] {"metadata-marker", "unary", new string[] {"hello"}, 0, "", "meta", "echo: hello [meta]", 0, -1},
+        new object[] {"unknown-method", "raw-unary", new string[] {"hello"}, 0, "/echo.Echo/Nope", "", "", 0, 12},
     };
 }

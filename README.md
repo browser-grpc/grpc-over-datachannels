@@ -121,6 +121,18 @@ in JS).
 
 ## Testing notes
 
+Behavior documentation is generated, not hand-written: the
+scenario table in `racket/bdd-spec.rkt` is the single source of
+truth. `make generate` stamps it into `BDD.md` (Given/When/Then
+prose) and into a `bdd_scenarios` data file per language, and
+each language's `TestBdd` suite interprets that same table
+against a loopback client and server — so the documented
+examples are exactly what all 15 test suites enforce, and the
+two cannot drift apart. `make test` also runs
+`make check-generated`, which regenerates the whole tree and
+fails if any generated file (docs included) differs from its
+Racket source.
+
 Beyond per-language loopback suites, the same golden frame/protobuf
 bytes (`fixtures/vectors.json`, authored by the Racket codec) are
 asserted in Racket, Rust, and JS, and `js/test/interop.test.js` runs
@@ -182,7 +194,7 @@ worker at all (`make test-dart-browser`, `make
 test-dart-wasm-browser`, `make test-wasm`). Cross-language
 wire compatibility is covered pairwise by `make
 test-interop-matrix`: every language's stdio Echo client
-against every language's stdio Echo server (12 × 12 ordered
+against every language's stdio Echo server (14 × 14 ordered
 pairs over a raw byte pump, asserting the four call shapes
 plus the fail error case, `x-echo` metadata, and a slow-call
 deadline), and by `make test-webrtc-matrix`: the Go, JS, and
@@ -214,8 +226,9 @@ exports, so all five facades are incremental. Scala additionally ships a Scala.j
 incremental-server surfaces. `make test-wasm-matrix`
 additionally pairs browser clients and servers across runtimes
 (native pairs Kotlin→Zig, Swift→Kotlin, C++→Swift, Zig→C++ plus
-facade×native and facade×facade pairs, nine today) through a
-byte relay.
+facade×native and facade×facade pairs — eleven today, including
+Scala.js facade→Kotlin native and Zig native→Scala.js facade)
+through a byte relay.
 `make test-wasm`, `make
 test-zig-wasm-browser`, `make test-zig-wasm-native-browser`,
 `make test-lua-wasm-browser`, `make test-dart-browser`,

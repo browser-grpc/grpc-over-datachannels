@@ -53,6 +53,12 @@ final class T
 
     public static function phpExe(): string
     {
+        // The interpreter running these tests is always right,
+        // even when `php` is not on PATH (host installs live
+        // outside PATH; Dockerfile.ci puts php-cli on PATH).
+        if (PHP_BINARY !== "") {
+            return PHP_BINARY;
+        }
         $env = getenv("PHP");
         return ($env !== false && $env !== "") ? $env : "php";
     }

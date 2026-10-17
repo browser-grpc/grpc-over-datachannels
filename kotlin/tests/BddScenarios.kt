@@ -16,7 +16,9 @@ object BddScenarios {
         Case("server-stream-zero", "server-stream", listOf("zero"), 0, "", "", "zero", 0, -1),
         Case("client-stream-join", "client-stream", listOf("a", "b", "c"), 0, "", "", "a+b+c", 3, -1),
         Case("client-stream-solo", "client-stream", listOf("solo"), 0, "", "", "solo", 1, -1),
+        Case("client-stream-empty", "client-stream", listOf(), 0, "", "", "", 0, -1),
         Case("bidi-order", "bidi", listOf("x", "y"), 0, "", "", "", 2, -1),
+        Case("bidi-single", "bidi", listOf("one"), 0, "", "", "", 1, -1),
         Case("metadata-marker", "unary", listOf("hello"), 0, "", "meta", "echo: hello [meta]", 0, -1),
         Case("unknown-method", "raw-unary", listOf("hello"), 0, "/echo.Echo/Nope", "", "", 0, 12),
     )

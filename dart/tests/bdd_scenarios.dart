@@ -26,7 +26,9 @@ const bddCases = <BddCase>[
   BddCase("server-stream-zero", "server-stream", ["zero"], 0, "", "", "zero", 0, -1),
   BddCase("client-stream-join", "client-stream", ["a", "b", "c"], 0, "", "", "a+b+c", 3, -1),
   BddCase("client-stream-solo", "client-stream", ["solo"], 0, "", "", "solo", 1, -1),
+  BddCase("client-stream-empty", "client-stream", [], 0, "", "", "", 0, -1),
   BddCase("bidi-order", "bidi", ["x", "y"], 0, "", "", "", 2, -1),
+  BddCase("bidi-single", "bidi", ["one"], 0, "", "", "", 1, -1),
   BddCase("metadata-marker", "unary", ["hello"], 0, "", "meta", "echo: hello [meta]", 0, -1),
   BddCase("unknown-method", "raw-unary", ["hello"], 0, "/echo.Echo/Nope", "", "", 0, 12),
 ];

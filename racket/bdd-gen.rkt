@@ -210,7 +210,9 @@
          (apply string-append
                 (for/list ([s (in-list bdd-scenarios)])
                   (define-values (name kind msgs count path md em en es) (row s))
-                  (format "        new object[] {~s, ~s, new[] {~a}, ~a, ~s, ~s, ~s, ~a, ~a},\n"
+                  ;; Typed array: an implicitly-typed new[] {} for
+                  ;; the empty-messages row has no best type (CS0826).
+                  (format "        new object[] {~s, ~s, new string[] {~a}, ~a, ~s, ~s, ~s, ~a, ~a},\n"
                           name kind (q msgs) count path md em en (or es -1))))
          "    };\n"
          "}\n")))

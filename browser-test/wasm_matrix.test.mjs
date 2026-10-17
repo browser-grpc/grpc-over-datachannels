@@ -59,6 +59,8 @@ const PAIRS = [
   ["Zig facade client", "wasm_zig_page.html", "Swift facade server", "wasm_swift_facade_server_page.html", false],
   ["C++ facade client", "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm", "Go facade server", "wasm_go_facade_server_page.html", false],
   ["Swift facade client", "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm", "Kotlin facade server", "wasm_kotlin_facade_server_page.html", false],
+  ["Scala.js facade client", "wasm_scalajs_page.html", "Kotlin native server", "wasm_kotlin_native_server_page.html", false],
+  ["Zig native client", "wasm_zig_native_page.html", "Scala.js facade server", "wasm_scalajs_facade_server_page.html", true],
 ];
 
 function relay(from, to) {

@@ -31,7 +31,9 @@ inline const std::vector<BddCase>& BddCases() {
       {"server-stream-zero", "server-stream", {"zero"}, 0, "", "", "zero", 0, -1},
       {"client-stream-join", "client-stream", {"a", "b", "c"}, 0, "", "", "a+b+c", 3, -1},
       {"client-stream-solo", "client-stream", {"solo"}, 0, "", "", "solo", 1, -1},
+      {"client-stream-empty", "client-stream", {}, 0, "", "", "", 0, -1},
       {"bidi-order", "bidi", {"x", "y"}, 0, "", "", "", 2, -1},
+      {"bidi-single", "bidi", {"one"}, 0, "", "", "", 1, -1},
       {"metadata-marker", "unary", {"hello"}, 0, "", "meta", "echo: hello [meta]", 0, -1},
       {"unknown-method", "raw-unary", {"hello"}, 0, "/echo.Echo/Nope", "", "", 0, 12},
   };

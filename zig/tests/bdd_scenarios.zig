@@ -23,7 +23,9 @@ pub const bdd_cases = [_]BddCase{
     .{ .name = "server-stream-zero", .kind = "server-stream", .messages = &.{ "zero" }, .count = 0, .path = "", .metadata = "", .expect_message = "zero", .expect_num = 0, .expect_status = -1 },
     .{ .name = "client-stream-join", .kind = "client-stream", .messages = &.{ "a", "b", "c" }, .count = 0, .path = "", .metadata = "", .expect_message = "a+b+c", .expect_num = 3, .expect_status = -1 },
     .{ .name = "client-stream-solo", .kind = "client-stream", .messages = &.{ "solo" }, .count = 0, .path = "", .metadata = "", .expect_message = "solo", .expect_num = 1, .expect_status = -1 },
+    .{ .name = "client-stream-empty", .kind = "client-stream", .messages = &.{  }, .count = 0, .path = "", .metadata = "", .expect_message = "", .expect_num = 0, .expect_status = -1 },
     .{ .name = "bidi-order", .kind = "bidi", .messages = &.{ "x", "y" }, .count = 0, .path = "", .metadata = "", .expect_message = "", .expect_num = 2, .expect_status = -1 },
+    .{ .name = "bidi-single", .kind = "bidi", .messages = &.{ "one" }, .count = 0, .path = "", .metadata = "", .expect_message = "", .expect_num = 1, .expect_status = -1 },
     .{ .name = "metadata-marker", .kind = "unary", .messages = &.{ "hello" }, .count = 0, .path = "", .metadata = "meta", .expect_message = "echo: hello [meta]", .expect_num = 0, .expect_status = -1 },
     .{ .name = "unknown-method", .kind = "raw-unary", .messages = &.{ "hello" }, .count = 0, .path = "/echo.Echo/Nope", .metadata = "", .expect_message = "", .expect_num = 0, .expect_status = 12 },
 };

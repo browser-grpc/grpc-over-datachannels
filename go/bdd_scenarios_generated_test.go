@@ -24,7 +24,9 @@ var bddCases = []bddCase{
 	{name: "server-stream-zero", kind: "server-stream", messages: []string{"zero"}, count: 0, path: "", metadata: "", expectMessage: "zero", expectNum: 0, expectStatus: -1},
 	{name: "client-stream-join", kind: "client-stream", messages: []string{"a", "b", "c"}, count: 0, path: "", metadata: "", expectMessage: "a+b+c", expectNum: 3, expectStatus: -1},
 	{name: "client-stream-solo", kind: "client-stream", messages: []string{"solo"}, count: 0, path: "", metadata: "", expectMessage: "solo", expectNum: 1, expectStatus: -1},
+	{name: "client-stream-empty", kind: "client-stream", messages: []string{}, count: 0, path: "", metadata: "", expectMessage: "", expectNum: 0, expectStatus: -1},
 	{name: "bidi-order", kind: "bidi", messages: []string{"x", "y"}, count: 0, path: "", metadata: "", expectMessage: "", expectNum: 2, expectStatus: -1},
+	{name: "bidi-single", kind: "bidi", messages: []string{"one"}, count: 0, path: "", metadata: "", expectMessage: "", expectNum: 1, expectStatus: -1},
 	{name: "metadata-marker", kind: "unary", messages: []string{"hello"}, count: 0, path: "", metadata: "meta", expectMessage: "echo: hello [meta]", expectNum: 0, expectStatus: -1},
 	{name: "unknown-method", kind: "raw-unary", messages: []string{"hello"}, count: 0, path: "/echo.Echo/Nope", metadata: "", expectMessage: "", expectNum: 0, expectStatus: 12},
 }

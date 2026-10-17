@@ -48,10 +48,18 @@
          "Client streaming accepts a single message"
          '(client-stream "solo")
          '(responds "solo" 1))
+   (list 'client-stream-empty
+         "Client streaming with no messages produces an empty response"
+         '(client-stream)
+         '(responds "" 0))
    (list 'bidi-order
          "Bidi streaming echoes each message in order"
          '(bidi "x" "y")
          '(echoes "x" "y"))
+   (list 'bidi-single
+         "Bidi streaming accepts a single message"
+         '(bidi "one")
+         '(echoes "one"))
    (list 'metadata-marker
          "Call metadata reaches the service implementation"
          '(unary-metadata "hello" "meta")

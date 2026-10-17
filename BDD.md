@@ -51,19 +51,31 @@ examples) connected to a client over a loopback DataChannel:
 - **When** the client calls ClientStream with messages "solo"
 - **Then** the response is "solo" with index 1
 
-## 8. Bidi streaming echoes each message in order
+## 8. Client streaming with no messages produces an empty response
+
+- **Given** the Echo service over a loopback DataChannel
+- **When** the client calls ClientStream with messages 
+- **Then** the response is "" with index 0
+
+## 9. Bidi streaming echoes each message in order
 
 - **Given** the Echo service over a loopback DataChannel
 - **When** the client calls Bidi with messages "x", "y"
 - **Then** the responses echo "x", "y" in order with increasing indexes
 
-## 9. Call metadata reaches the service implementation
+## 10. Bidi streaming accepts a single message
+
+- **Given** the Echo service over a loopback DataChannel
+- **When** the client calls Bidi with messages "one"
+- **Then** the responses echo "one" in order with increasing indexes
+
+## 11. Call metadata reaches the service implementation
 
 - **Given** the Echo service over a loopback DataChannel
 - **When** the client calls Unary with message "hello" and metadata x-echo: "meta"
 - **Then** the response is "echo: hello [meta]" with index 0
 
-## 10. Unknown methods are rejected as UNIMPLEMENTED
+## 12. Unknown methods are rejected as UNIMPLEMENTED
 
 - **Given** the Echo service over a loopback DataChannel
 - **When** the client calls the unknown method "/echo.Echo/Nope" with message "hello"
