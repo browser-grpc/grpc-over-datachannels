@@ -88,6 +88,29 @@ Message contract: Rust types implement `grpc_dc::Message` (one-line
 classes expose `static encode(msg)` / `static decode(bytes)`; Go types
 implement `MarshalDC() []byte` / `UnmarshalDC([]byte) error`.
 
+## Generating stubs in the browser (no install)
+
+The same generation runs fully client-side in `webapp/`: upload or
+edit `.proto` files, pick languages, and download a zip containing
+the schemas, generated stubs (`gen/<lang>/`), the matching runtimes
+(`runtime/<lang>/`), and a README. Schema compilation in the page is
+`protocompile` (the compiler library behind buf) built to
+WebAssembly (`webapp/compiler/`); the stub generators are stamped by
+the same Racket metaprogram into `webapp/gen/generators.js`
+(`racket/webgen.rkt`), mirroring `racket/desc.rkt` and the
+per-language templates. Browser generators currently cover JS, Go,
+and Python; the other languages remain native-only for now.
+`browser-test/webapp_parity.test.mjs` drives the real UI in
+Chromium and Firefox and asserts the zipped stubs are byte-identical
+to the native `protoc` plugins' output, so the browser path cannot
+drift from the plugins.
+
+```bash
+make webapp-dist          # build the self-contained static bundle
+python3 -m http.server -d webapp/dist 8000
+# open http://localhost:8000 in a browser
+```
+
 ## Using it
 
 Rust (runtime crate `grpc_dc` in [rust/](rust/)):

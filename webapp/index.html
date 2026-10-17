@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc generator — gRPC over DataChannels, in your browser</title>
+<link rel="stylesheet" href="style.css">
+<script src="assets/wasm_exec.js"></script>
+<body>
+<header>
+  <h1>grpc-dc stub generator</h1>
+  <p>Upload or edit <code>.proto</code> schemas, pick languages, download a zip of
+     generated gRPC-over-DataChannel stubs plus the dependency-free runtimes.
+     Everything — schema compilation included — runs in this page; no server sees your schemas.</p>
+</header>
+<main>
+  <section class="pane files-pane">
+    <div class="toolbar">
+      <label class="upload">Add .proto files <input id="upload" type="file" accept=".proto" multiple hidden></label>
+      <input id="new-name" placeholder="new file name (e.g. api.proto)">
+      <button id="new-file" type="button">New file</button>
+    </div>
+    <div id="tabs" class="tabs"></div>
+    <textarea id="editor" spellcheck="false"></textarea>
+    <div id="status" class="status">loading compiler…</div>
+  </section>
+  <section class="pane side-pane">
+    <h2>Services</h2>
+    <div id="tree" class="tree">(compile a schema to see its services)</div>
+    <h2>Languages</h2>
+    <div id="langs" class="langs"></div>
+    <button id="generate" type="button" disabled>Generate zip</button>
+    <p class="hint">Stubs land in <code>gen/&lt;lang&gt;/</code>, the matching runtime in
+       <code>runtime/&lt;lang&gt;/</code>, schemas in <code>proto/</code>.
+       Message classes (<code>&lt;base&gt;_pb</code>) are yours to provide — see the zip's README.</p>
+  </section>
+</main>
+<script type="module" src="app.js"></script>
+</body>

@@ -62,3 +62,7 @@ browser-test/scalajs_gen/
 
 # scala-cli build workspace
 .scala-build/
+
+# webapp build assets and static bundle
+/webapp/assets/
+/webapp/dist/

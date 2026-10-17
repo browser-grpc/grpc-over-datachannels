@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package shop.common;
+
+// Shared messages for shop.proto. Message shapes are irrelevant
+// to the grpc-dc stub generators (they only walk services), but
+// they exercise cross-file type references and imports.
+
+message Item {
+  string sku = 1;
+  int32 quantity = 2;
+}
+
+message GetRequest {
+  string sku = 1;
+}
+
+message Ack {
+  bool ok = 1;
+}

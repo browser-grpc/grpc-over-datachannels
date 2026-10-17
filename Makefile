@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline check-generated scalajs-gen test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-webapp test-interop-matrix test-webrtc-matrix demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -632,6 +632,31 @@ test-scalajs-browser: scalajs-gen
 test-wasm-matrix: scalajs-gen
 	cd browser-test && node wasm_matrix.test.mjs all
 
+## Fully client-side generator web app (webapp/): protocompile
+## compiled to WASM compiles schemas in the page, the generated
+## browser generators (webapp/gen, from racket/webgen.rkt) emit
+## stubs, and the app zips stubs + runtime with no server.
+webapp-assets:
+	mkdir -p webapp/assets/runtime/js webapp/assets/runtime/go webapp/assets/runtime/python
+	cd webapp/compiler && GOOS=js GOARCH=wasm go build -o ../assets/protocompile.wasm .
+	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" webapp/assets/wasm_exec.js
+	cp proto/echo.proto webapp/assets/echo.proto
+	cp js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/js/
+	cp go/channel.go go/codec.go go/dynamic.go go/endpoint.go go/loopback.go go/server.go go/wire_gen.go go/webrtc_transport.go webapp/assets/runtime/go/
+	cp python/grpcdc/__init__.py python/grpcdc/channel.py python/grpcdc/codec.py python/grpcdc/dynamic.py python/grpcdc/endpoint.py python/grpcdc/loopback.py python/grpcdc/server.py python/grpcdc/wire_gen.py webapp/assets/runtime/python/
+
+## Self-contained static bundle: serve webapp/dist with any
+## static file server (e.g. python3 -m http.server -d webapp/dist).
+webapp-dist: webapp-assets
+	rm -rf webapp/dist
+	mkdir -p webapp/dist
+	cp webapp/index.html webapp/app.js webapp/style.css webapp/dist/
+	cp -r webapp/gen webapp/dist/gen
+	cp -r webapp/assets webapp/dist/assets
+
+test-webapp: webapp-assets
+	cd browser-test && node webapp_parity.test.mjs all
+
 test-interop-matrix:
 	cd js && node test/interop-matrix.mjs
 
@@ -641,7 +666,7 @@ test-interop-matrix:
 test-webrtc-matrix:
 	cd browser-test && node webrtc_matrix.test.mjs
 
-test: check-generated test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-interop-matrix test-webrtc-matrix
+test: check-generated test-racket compat test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-webapp test-interop-matrix test-webrtc-matrix
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo

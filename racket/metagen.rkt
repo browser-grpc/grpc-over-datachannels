@@ -24,7 +24,7 @@
 ;;; the way down.
 
 (require "spec.rkt" "pb.rkt" json racket/runtime-path "webrtc-gen.rkt"
-         "oracle-spec.rkt" "oracle-gen.rkt" "bdd-gen.rkt"
+         "oracle-spec.rkt" "oracle-gen.rkt" "bdd-gen.rkt" "webgen.rkt"
          "runtime-go.rkt" "runtime-js.rkt" "runtime-rust.rkt" "runtime-python.rkt" "runtime-java.rkt" "runtime-csharp.rkt" "runtime-cpp.rkt" "runtime-swift.rkt" "runtime-kotlin.rkt" "runtime-dart.rkt" "runtime-zig.rkt" "runtime-lua.rkt" "runtime-ruby.rkt" "runtime-php.rkt" "runtime-scala.rkt")
 
 (define-runtime-path here ".")
@@ -977,8 +977,15 @@
     (lambda (out) (display (cdr docs) out)))
   (printf "generated ~a\n" (car docs)))
 
+;; Browser generators for the web app (see webgen.rkt): the same
+;; stub generation the protoc plugins do, stamped as an ES module
+;; the page runs client-side over protocompile's descriptor set.
+(define (write-web-generators)
+  (write-runtime-files "webapp/gen" "webgen.rkt" (list (emit-web-generators))))
+
 (module+ main
   (write-bdd-docs)
+  (write-web-generators)
   (write-plugin "protoc-gen-grpc-dc-rust" 'emit-rust-file)
   (write-plugin "protoc-gen-grpc-dc-js" 'emit-js-file)
   (write-plugin "protoc-gen-grpc-dc-go" 'emit-go-file)

@@ -279,6 +279,11 @@ RUN cd zig && zig build --prefix build
 # at image build time; tests then run offline).
 RUN cd oracle/java && mvn -q package -DskipTests
 
+# Warm the webapp schema compiler (protocompile -> WASM; module
+# downloads happen at image build time, test-webapp runs offline).
+RUN cd webapp/compiler && go mod download \
+  && GOOS=js GOARCH=wasm go build -o /tmp/protocompile.wasm .
+
 # Playwright browsers + OS libraries for the real-browser test
 # (browser-test/test.mjs: native RTCDataChannel in Chromium and
 # Firefox against the reimplemented stack). Installed at build time;

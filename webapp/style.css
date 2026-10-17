@@ -1,0 +1,19 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0 auto; max-width: 1200px; padding: 16px; }
+header p { max-width: 80ch; }
+main { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+.pane { border: 1px solid #8886; border-radius: 8px; padding: 12px; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.upload, button { border: 1px solid #888; border-radius: 6px; padding: 6px 10px; cursor: pointer; background: buttonface; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.tab { border: 1px solid #8888; border-radius: 6px 6px 0 0; padding: 4px 8px; cursor: pointer; font-family: ui-monospace, monospace; }
+.tab.active { font-weight: 700; border-bottom-color: transparent; }
+#editor { width: 100%; height: 55vh; font-family: ui-monospace, monospace; font-size: 13px; box-sizing: border-box; }
+.status { font-family: ui-monospace, monospace; font-size: 12px; margin-top: 8px; white-space: pre-wrap; }
+.status.ok { color: #1a7f37; }
+.status.err { color: #cf222e; }
+.tree { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; margin-bottom: 16px; }
+.langs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-bottom: 16px; }
+.langs label.disabled { opacity: 0.45; }
+#generate { font-size: 16px; width: 100%; }
+.hint { font-size: 12px; }
