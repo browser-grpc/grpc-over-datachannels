@@ -74,6 +74,13 @@ window.__runWasm = async () => {
         (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_message(id, p, l)),
       ).then(() => instance.exports.on_bridge_done(id, 0, 0, 0), (err) => fail(id, err));
     },
+    // Server-role imports (unused by the client build; the
+    // shared bridge declares them, so satisfy the linker).
+    js_now_ms: () => performance.now(),
+    js_server_respond() {},
+    js_server_send() {},
+    js_server_complete() {},
+    js_server_fail() {},
     on_result(ptr, len) { resolveRun(JSON.parse(readStr(ptr, len))); },
     on_error(ptr, len) { rejectRun(new Error(readStr(ptr, len))); },
   };

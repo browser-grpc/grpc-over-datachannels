@@ -125,6 +125,80 @@ export fn on_bridge_done(call_id: u32, has_payload: u32, ptr: [*]u8, len: usize)
     }
 }
 
+// ---- server side: generated serve_* exports report through
+// these imports to the page glue, which owns the JS server
+// bridge (createGrpcDcServerBridge). ----
+
+extern "env" fn js_server_respond(call_id: u32, ptr: [*]const u8, len: usize) void;
+extern "env" fn js_server_send(call_id: u32, ptr: [*]const u8, len: usize) void;
+extern "env" fn js_server_complete(call_id: u32) void;
+extern "env" fn js_server_fail(call_id: u32, code: i32, ptr: [*]const u8, len: usize) void;
+
+// Allocator accessor for generated serve_* exports.
+pub fn bridgeAllocator() std.mem.Allocator {
+    return alloc();
+}
+
+pub fn serverRespond(call_id: u32, payload: []const u8) void {
+    js_server_respond(call_id, payload.ptr, payload.len);
+}
+
+pub fn serverSend(call_id: u32, payload: []const u8) void {
+    js_server_send(call_id, payload.ptr, payload.len);
+}
+
+pub fn serverComplete(call_id: u32) void {
+    js_server_complete(call_id);
+}
+
+pub fn serverFail(call_id: u32, status: Status) void {
+    js_server_fail(call_id, status.code, status.message.ptr, status.message.len);
+}
+
+// Split a u32be length-prefixed packed buffer (no copies).
+pub fn unpack(allocator: std.mem.Allocator, data: []const u8) ![][]const u8 {
+    var count: usize = 0;
+    var pos: usize = 0;
+    while (pos + 4 <= data.len) {
+        const len = std.mem.readInt(u32, data[pos..][0..4], .big);
+        pos += 4 + len;
+        count += 1;
+    }
+    const out = try allocator.alloc([]const u8, count);
+    pos = 0;
+    var i: usize = 0;
+    while (pos + 4 <= data.len) {
+        const len = std.mem.readInt(u32, data[pos..][0..4], .big);
+        pos += 4;
+        out[i] = data[pos..][0..len];
+        pos += len;
+        i += 1;
+    }
+    return out;
+}
+
+/// One metadata key/value pair (views into the packed buffer).
+pub const MdPair = struct { key: []const u8, value: []const u8 };
+
+// Decode flattened [key, value, ...] packed metadata.
+pub fn decodeMetadata(allocator: std.mem.Allocator, data: []const u8) ![]MdPair {
+    const flat = try unpack(allocator, data);
+    defer allocator.free(flat);
+    const out = try allocator.alloc(MdPair, flat.len / 2);
+    var i: usize = 0;
+    while (i + 1 < flat.len) : (i += 2) {
+        out[i / 2] = .{ .key = flat[i], .value = flat[i + 1] };
+    }
+    return out;
+}
+
+pub fn metadataGet(pairs: []const MdPair, key: []const u8) ?[]const u8 {
+    for (pairs) |pair| {
+        if (std.mem.eql(u8, pair.key, key)) return pair.value;
+    }
+    return null;
+}
+
 export fn on_bridge_error(call_id: u32, code: i32, ptr: [*]u8, len: usize) void {
     defer if (len > 0) wasm_free(ptr, len);
     if (pending().fetchRemove(call_id)) |kv| {

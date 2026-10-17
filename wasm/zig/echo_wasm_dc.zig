@@ -167,3 +167,85 @@ pub const EchoClient = struct {
     }
 
 };
+
+/// Streaming response sink for server handlers.
+pub const ServerSink = struct {
+    call_id: u32,
+
+    pub fn send(self: *ServerSink, resp: *const EchoResponse) Status {
+        const a = bridge_mod.bridgeAllocator();
+        const bytes = resp.marshalDc(a);
+        defer a.free(bytes);
+        bridge_mod.serverSend(self.call_id, bytes);
+        return Status.ok();
+    }
+};
+
+/// Service implementation for echo.Echo (browser/WASM facade).
+pub const EchoServer = struct {
+    ctx: *anyopaque,
+    unary_fn: *const fn (ctx: *anyopaque, req: *const EchoRequest, md: []const bridge_mod.MdPair) CallResult(EchoResponse),
+    serverStream_fn: *const fn (ctx: *anyopaque, req: *const EchoRequest, md: []const bridge_mod.MdPair, sink: *ServerSink) Status,
+    clientStream_fn: *const fn (ctx: *anyopaque, reqs: []const EchoRequest, md: []const bridge_mod.MdPair) CallResult(EchoResponse),
+    bidi_fn: *const fn (ctx: *anyopaque, reqs: []const EchoRequest, md: []const bridge_mod.MdPair, sink: *ServerSink) Status,
+};
+
+var g_server_impl: ?*EchoServer = null;
+
+/// Register the service implementation used by the serve_* exports.
+pub fn registerEchoServer(impl: *EchoServer) void {
+    g_server_impl = impl;
+}
+
+export fn serve_unary(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {
+    const a = bridge_mod.bridgeAllocator();
+    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };
+    defer a.free(md);
+    var req = EchoRequest{};
+    req.unmarshalDc(a, payload_ptr[0..payload_len]);
+    switch (g_server_impl.?.unary_fn(g_server_impl.?.ctx, &req, md)) {
+        .ok => |resp| { const bytes = resp.marshalDc(a); defer a.free(bytes); bridge_mod.serverRespond(call_id, bytes); },
+        .status => |st| bridge_mod.serverFail(call_id, st),
+    }
+}
+
+export fn serve_serverStream(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {
+    const a = bridge_mod.bridgeAllocator();
+    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };
+    defer a.free(md);
+    var req = EchoRequest{};
+    req.unmarshalDc(a, payload_ptr[0..payload_len]);
+    var sink = ServerSink{ .call_id = call_id };
+    const st = g_server_impl.?.serverStream_fn(g_server_impl.?.ctx, &req, md, &sink);
+    if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);
+}
+
+export fn serve_clientStream(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {
+    const a = bridge_mod.bridgeAllocator();
+    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };
+    defer a.free(md);
+    const chunks = bridge_mod.unpack(a, payload_ptr[0..payload_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };
+    defer a.free(chunks);
+    const reqs = a.alloc(EchoRequest, chunks.len) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };
+    defer a.free(reqs);
+    for (chunks, 0..) |chunk, i| { reqs[i] = EchoRequest{}; reqs[i].unmarshalDc(a, chunk); }
+    switch (g_server_impl.?.clientStream_fn(g_server_impl.?.ctx, reqs, md)) {
+        .ok => |resp| { const bytes = resp.marshalDc(a); defer a.free(bytes); bridge_mod.serverRespond(call_id, bytes); },
+        .status => |st| bridge_mod.serverFail(call_id, st),
+    }
+}
+
+export fn serve_bidi(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {
+    const a = bridge_mod.bridgeAllocator();
+    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };
+    defer a.free(md);
+    const chunks = bridge_mod.unpack(a, payload_ptr[0..payload_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };
+    defer a.free(chunks);
+    const reqs = a.alloc(EchoRequest, chunks.len) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };
+    defer a.free(reqs);
+    for (chunks, 0..) |chunk, i| { reqs[i] = EchoRequest{}; reqs[i].unmarshalDc(a, chunk); }
+    var sink = ServerSink{ .call_id = call_id };
+    const st = g_server_impl.?.bidi_fn(g_server_impl.?.ctx, reqs, md, &sink);
+    if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);
+}
+

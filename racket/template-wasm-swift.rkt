@@ -78,6 +78,82 @@
               "        }\n\n")
              name req resp path resp)]))
 
+
+(define (wasm-swift-server-iface-method m)
+  (define name (hash-ref m 'name))
+  (define req (hash-ref m 'input))
+  (define resp (hash-ref m 'output))
+  (case (hash-ref m 'kind)
+    [(unary)
+     (format "        func ~a(_ req: ~a, _ metadata: [(String, String)]) -> Result<~a, StatusException>\n" name req resp)]
+    [(server-streaming)
+     (format "        func ~a(_ req: ~a, _ metadata: [(String, String)], _ sink: ~aServerSink) -> StatusException?\n" name req (current-service))]
+    [(client-streaming)
+     (format "        func ~a(_ reqs: [~a], _ metadata: [(String, String)]) -> Result<~a, StatusException>\n" name req resp)]
+    [(bidi)
+     (format "        func ~a(_ reqs: [~a], _ metadata: [(String, String)], _ sink: ~aServerSink) -> StatusException?\n" name req (current-service))]))
+
+(define (wasm-swift-serve-export enum-name m)
+  (define name (hash-ref m 'name))
+  (define req (hash-ref m 'input))
+  (define export-name
+    (let* ([raw (hash-ref m 'name)]
+           [n (if (symbol? raw) (symbol->string raw) raw)])
+      (string-append "serve_" (string (char-downcase (string-ref n 0))) (substring n 1))))
+  (case (hash-ref m 'kind)
+    [(unary)
+     (format (string-append
+              "@_cdecl(~s)\n"
+              "public func ~a(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n"
+              "    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n"
+              "    let req = ~a()\n"
+              "    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n"
+              "    switch ~a.serverImpl!.~a(req, metadata) {\n"
+              "    case .success(let resp): ServerRespond(callId, resp.MarshalDc())\n"
+              "    case .failure(let st): ServerFail(callId, st)\n"
+              "    }\n"
+              "}\n\n")
+             export-name export-name req enum-name name)]
+    [(server-streaming)
+     (format (string-append
+              "@_cdecl(~s)\n"
+              "public func ~a(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n"
+              "    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n"
+              "    let req = ~a()\n"
+              "    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n"
+              "    if let st = ~a.serverImpl!.~a(req, metadata, ~a.~aServerSink(callId: callId)) {\n"
+              "        ServerFail(callId, st)\n"
+              "    } else {\n"
+              "        ServerComplete(callId)\n"
+              "    }\n"
+              "}\n\n")
+             export-name export-name req enum-name name enum-name (current-service))]
+    [(client-streaming)
+     (format (string-append
+              "@_cdecl(~s)\n"
+              "public func ~a(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n"
+              "    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n"
+              "    let reqs = UnpackPacked(Array(UnsafeBufferPointer(start: payload, count: payloadLen))).map { bytes -> ~a in let req = ~a(); req.UnmarshalDc(bytes); return req }\n"
+              "    switch ~a.serverImpl!.~a(reqs, metadata) {\n"
+              "    case .success(let resp): ServerRespond(callId, resp.MarshalDc())\n"
+              "    case .failure(let st): ServerFail(callId, st)\n"
+              "    }\n"
+              "}\n\n")
+             export-name export-name req req enum-name name)]
+    [(bidi)
+     (format (string-append
+              "@_cdecl(~s)\n"
+              "public func ~a(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n"
+              "    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n"
+              "    let reqs = UnpackPacked(Array(UnsafeBufferPointer(start: payload, count: payloadLen))).map { bytes -> ~a in let req = ~a(); req.UnmarshalDc(bytes); return req }\n"
+              "    if let st = ~a.serverImpl!.~a(reqs, metadata, ~a.~aServerSink(callId: callId)) {\n"
+              "        ServerFail(callId, st)\n"
+              "    } else {\n"
+              "        ServerComplete(callId)\n"
+              "    }\n"
+              "}\n\n")
+             export-name export-name req req enum-name name enum-name (current-service))]))
+
 (define (wasm-swift-service svc)
   (define sname (hash-ref svc 'name))
   (define methods (hash-ref svc 'methods))
@@ -91,7 +167,23 @@
      "        }\n\n"
      (apply string-append
             (map wasm-swift-client-method (append methods (alias-client-methods svc))))
-     "    }\n\n")))
+     "    }\n\n"
+     (format "    /// Streaming response sink for server handlers.\n")
+     (format "    struct ~aServerSink {\n" sname)
+     "        let callId: UInt32\n\n"
+     (format "        func Send(_ resp: ~a) {\n" (hash-ref (car methods) 'output))
+     "            ServerSend(callId, resp.MarshalDc())\n"
+     "        }\n"
+     "    }\n\n"
+     (format "    /// Service implementation for ~a (browser/WASM facade).\n" (hash-ref svc 'full-name))
+     (format "    protocol ~aServer {\n" sname)
+     (apply string-append (map wasm-swift-server-iface-method methods))
+     "    }\n\n"
+     (format "    static var serverImpl: ~aServer?\n\n" sname)
+     (format "    /// Register the service implementation used by the serve_* exports.\n")
+     (format "    static func register~aServer(_ impl: ~aServer) {\n" sname sname)
+     (format "        serverImpl = impl\n")
+     "    }\n")))
 
 (define (emit-wasm-swift-file file-model params)
   (define base (path->string (path-replace-extension
@@ -105,4 +197,10 @@
          (format "enum ~a {\n" enum-name)
          (apply string-append
                 (map wasm-swift-service (hash-ref file-model 'services)))
-         "}\n")))
+         "}\n\n"
+         (apply string-append
+                (for/list ([svc (in-list (hash-ref file-model 'services))])
+                  (parameterize ([current-service (hash-ref svc 'name)])
+                    (apply string-append
+                           (map (lambda (m) (wasm-swift-serve-export enum-name m))
+                                (hash-ref svc 'methods)))))))))

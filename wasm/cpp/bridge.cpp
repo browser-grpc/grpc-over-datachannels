@@ -25,6 +25,17 @@ GRPCDC_WASM_IMPORT("js_bidi")
 void js_bidi(std::uint32_t call_id, const char* path_ptr,
              std::size_t path_len, const std::uint8_t* packed_ptr,
              std::size_t packed_len);
+GRPCDC_WASM_IMPORT("js_server_respond")
+void js_server_respond(std::uint32_t call_id, const std::uint8_t* ptr,
+                       std::size_t len);
+GRPCDC_WASM_IMPORT("js_server_send")
+void js_server_send(std::uint32_t call_id, const std::uint8_t* ptr,
+                    std::size_t len);
+GRPCDC_WASM_IMPORT("js_server_complete")
+void js_server_complete(std::uint32_t call_id);
+GRPCDC_WASM_IMPORT("js_server_fail")
+void js_server_fail(std::uint32_t call_id, int code, const char* ptr,
+                    std::size_t len);
 }
 
 namespace grpcdc_wasm {
@@ -181,3 +192,54 @@ void on_bridge_error(std::uint32_t call_id, std::int32_t code,
 }
 
 }  // extern "C"
+
+namespace grpcdc_wasm {
+std::vector<Bytes> Unpack(const Bytes& packed) {
+  std::vector<Bytes> out;
+  std::size_t pos = 0;
+  while (pos + 4 <= packed.size()) {
+    const auto n = (static_cast<std::uint32_t>(packed[pos]) << 24) |
+                   (static_cast<std::uint32_t>(packed[pos + 1]) << 16) |
+                   (static_cast<std::uint32_t>(packed[pos + 2]) << 8) |
+                   static_cast<std::uint32_t>(packed[pos + 3]);
+    pos += 4;
+    if (pos + n > packed.size()) break;
+    out.emplace_back(packed.begin() + pos, packed.begin() + pos + n);
+    pos += n;
+  }
+  return out;
+}
+
+std::vector<MdPair> DecodeMetadata(const Bytes& packed) {
+  const auto flat = Unpack(packed);
+  std::vector<MdPair> out;
+  for (std::size_t i = 0; i + 1 < flat.size(); i += 2) {
+    out.push_back({std::string(flat[i].begin(), flat[i].end()),
+                   std::string(flat[i + 1].begin(), flat[i + 1].end())});
+  }
+  return out;
+}
+
+const std::string* MetadataGet(const std::vector<MdPair>& pairs,
+                               const std::string& key) {
+  for (const auto& pair : pairs) {
+    if (pair.key == key) return &pair.value;
+  }
+  return nullptr;
+}
+
+void ServerRespond(std::uint32_t call_id, const Bytes& payload) {
+  js_server_respond(call_id, payload.data(), payload.size());
+}
+
+void ServerSend(std::uint32_t call_id, const Bytes& payload) {
+  js_server_send(call_id, payload.data(), payload.size());
+}
+
+void ServerComplete(std::uint32_t call_id) { js_server_complete(call_id); }
+
+void ServerFail(std::uint32_t call_id, const Status& status) {
+  js_server_fail(call_id, status.code, status.message.data(),
+                 status.message.size());
+}
+}  // namespace grpcdc_wasm

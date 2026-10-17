@@ -64,3 +64,54 @@ private class SlowEcho : EchoWasmGrpcDc.EchoServer {
 fun registerEchoFacadeServer(bridge: GrpcdcJsServerBridge) {
     EchoWasmGrpcDc.registerEchoServer(GrpcdcWasmServerBridge(bridge), SlowEcho())
 }
+
+private class SlowEchoStream : EchoWasmGrpcDc.EchoStreamServer {
+    override fun ClientStream(
+        source: EchoWasmGrpcDc.EchoRequestSource,
+        metadata: Map<String, String>,
+        respond: (EchoResponse) -> Unit,
+        fail: (StatusException) -> Unit
+    ) {
+        val parts = ArrayList<String>()
+        fun step() {
+            source.next({ req ->
+                if (req == null) {
+                    respond(EchoResponse(parts.joinToString("+"), parts.size))
+                } else {
+                    parts.add(req.message)
+                    step()
+                }
+            }, fail)
+        }
+        step()
+    }
+
+    override fun Bidi(
+        source: EchoWasmGrpcDc.EchoRequestSource,
+        metadata: Map<String, String>,
+        sink: (EchoResponse) -> Unit,
+        done: () -> Unit,
+        fail: (StatusException) -> Unit
+    ) {
+        var index = 0
+        fun step() {
+            source.next({ req ->
+                if (req == null) {
+                    done()
+                } else {
+                    sink(EchoResponse(req.message, index))
+                    index++
+                    step()
+                }
+            }, fail)
+        }
+        step()
+    }
+}
+
+@JsExport
+fun registerEchoStreamFacadeServer(bridge: GrpcdcJsServerBridge) {
+    val serverBridge = GrpcdcWasmServerBridge(bridge)
+    EchoWasmGrpcDc.registerEchoStreamServer(serverBridge, SlowEchoStream())
+    serverBridge.start("echo.Echo")
+}

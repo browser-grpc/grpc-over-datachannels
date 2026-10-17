@@ -18,6 +18,7 @@
 (provide emit-wasm-cpp-file)
 
 (define current-service (make-parameter ""))
+(define current-struct (make-parameter ""))
 
 (define (pascal sym) ; echo_service -> EchoService ; echo -> Echo
   (apply string-append
@@ -143,6 +144,76 @@
    "      return payloads;\n"
    "    }\n\n"))
 
+
+(define (wasm-cpp-server-export m)
+  (define name (hash-ref m 'name))
+  (define req (hash-ref m 'input))
+  (define resp (hash-ref m 'output))
+  (define export-name
+    (let* ([raw (hash-ref m 'name)]
+           [n (if (symbol? raw) (symbol->string raw) raw)])
+      (string-append "serve_" (string (char-downcase (string-ref n 0))) (substring n 1))))
+  (case (hash-ref m 'kind)
+    [(unary)
+     (format (string-append
+              "extern \"C\" void ~a(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len, const std::uint8_t* md_ptr, std::size_t md_len) {\n"
+              "  auto md = grpcdc_wasm::DecodeMetadata(grpcdc_wasm::Bytes(md_ptr, md_ptr + md_len));\n"
+              "  ~a req;\n"
+              "  if (!req.UnmarshalDc(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { grpcdc_wasm::ServerFail(call_id, {3, \"malformed request payload\"}); return; }\n"
+              "  auto result = ~a::g_impl->~a(req, md);\n"
+              "  if (!result.first.ok()) { grpcdc_wasm::ServerFail(call_id, result.first); return; }\n"
+              "  grpcdc_wasm::ServerRespond(call_id, result.second.MarshalDc());\n"
+              "}\n\n")
+             export-name req (current-struct) name)]
+    [(server-streaming)
+     (format (string-append
+              "extern \"C\" void ~a(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len, const std::uint8_t* md_ptr, std::size_t md_len) {\n"
+              "  auto md = grpcdc_wasm::DecodeMetadata(grpcdc_wasm::Bytes(md_ptr, md_ptr + md_len));\n"
+              "  ~a req;\n"
+              "  if (!req.UnmarshalDc(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { grpcdc_wasm::ServerFail(call_id, {3, \"malformed request payload\"}); return; }\n"
+              "  ~a::~aServerSink sink{call_id};\n"
+              "  auto st = ~a::g_impl->~a(req, md, sink);\n"
+              "  if (st.ok()) grpcdc_wasm::ServerComplete(call_id); else grpcdc_wasm::ServerFail(call_id, st);\n"
+              "}\n\n")
+             export-name req (current-struct) (current-service) (current-struct) name)]
+    [(client-streaming)
+     (format (string-append
+              "extern \"C\" void ~a(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len, const std::uint8_t* md_ptr, std::size_t md_len) {\n"
+              "  auto md = grpcdc_wasm::DecodeMetadata(grpcdc_wasm::Bytes(md_ptr, md_ptr + md_len));\n"
+              "  std::vector<~a> reqs;\n"
+              "  for (const auto& chunk : grpcdc_wasm::Unpack(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { ~a req; if (!req.UnmarshalDc(chunk)) { grpcdc_wasm::ServerFail(call_id, {3, \"malformed request payload\"}); return; } reqs.push_back(req); }\n"
+              "  auto result = ~a::g_impl->~a(reqs, md);\n"
+              "  if (!result.first.ok()) { grpcdc_wasm::ServerFail(call_id, result.first); return; }\n"
+              "  grpcdc_wasm::ServerRespond(call_id, result.second.MarshalDc());\n"
+              "}\n\n")
+             export-name req req (current-struct) name)]
+    [(bidi)
+     (format (string-append
+              "extern \"C\" void ~a(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len, const std::uint8_t* md_ptr, std::size_t md_len) {\n"
+              "  auto md = grpcdc_wasm::DecodeMetadata(grpcdc_wasm::Bytes(md_ptr, md_ptr + md_len));\n"
+              "  std::vector<~a> reqs;\n"
+              "  for (const auto& chunk : grpcdc_wasm::Unpack(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { ~a req; if (!req.UnmarshalDc(chunk)) { grpcdc_wasm::ServerFail(call_id, {3, \"malformed request payload\"}); return; } reqs.push_back(req); }\n"
+              "  ~a::~aServerSink sink{call_id};\n"
+              "  auto st = ~a::g_impl->~a(reqs, md, sink);\n"
+              "  if (st.ok()) grpcdc_wasm::ServerComplete(call_id); else grpcdc_wasm::ServerFail(call_id, st);\n"
+              "}\n\n")
+             export-name req req (current-struct) (current-service) (current-struct) name)]))
+
+
+(define (wasm-cpp-server-iface-method m)
+  (define name (hash-ref m 'name))
+  (define req (hash-ref m 'input))
+  (define resp (hash-ref m 'output))
+  (case (hash-ref m 'kind)
+    [(unary)
+     (format "    virtual std::pair<grpcdc_wasm::Status, ~a> ~a(const ~a& req, const std::vector<grpcdc_wasm::MdPair>& md) = 0;\n" resp name req)]
+    [(server-streaming)
+     (format "    virtual grpcdc_wasm::Status ~a(const ~a& req, const std::vector<grpcdc_wasm::MdPair>& md, ~aServerSink& sink) = 0;\n" name req (current-service))]
+    [(client-streaming)
+     (format "    virtual std::pair<grpcdc_wasm::Status, ~a> ~a(const std::vector<~a>& reqs, const std::vector<grpcdc_wasm::MdPair>& md) = 0;\n" resp name req)]
+    [(bidi)
+     (format "    virtual grpcdc_wasm::Status ~a(const std::vector<~a>& reqs, const std::vector<grpcdc_wasm::MdPair>& md, ~aServerSink& sink) = 0;\n" name req (current-service))]))
+
 (define (wasm-cpp-service svc)
   (define sname (hash-ref svc 'name))
   (define methods (hash-ref svc 'methods))
@@ -156,7 +227,25 @@
             (map wasm-cpp-client-method (append methods (alias-client-methods svc))))
      wasm-cpp-helpers
      "    grpcdc_wasm::Bridge* bridge_;\n"
-     "  };\n\n")))
+     "  };\n\n"
+     (format "  /// Streaming response sink for server handlers.\n")
+     (format "  struct ~aServerSink {\n" sname)
+     "    std::uint32_t call_id;\n\n"
+     (format "    grpcdc_wasm::Status Send(const ~a& resp) {\n" (hash-ref (car methods) 'output))
+     "      grpcdc_wasm::ServerSend(call_id, resp.MarshalDc());\n"
+     "      return grpcdc_wasm::Status::Ok();\n"
+     "    }\n"
+     "  };\n\n"
+     (format "  /// Service implementation for ~a (browser/WASM facade).\n" (hash-ref svc 'full-name))
+     (format "  class ~aServer {\n   public:\n" sname)
+     "    virtual ~" sname "Server() = default;\n"
+     (apply string-append (map wasm-cpp-server-iface-method methods))
+     "  };\n\n"
+     (format "  static inline ~aServer* g_impl = nullptr;\n\n" sname)
+     (format "  /// Register the service implementation used by the serve_* exports.\n")
+     (format "  static void register~aServer(~aServer& impl) { g_impl = &impl; }\n" sname sname)
+     "};\n\n"
+     (apply string-append (map wasm-cpp-server-export methods)))))
 
 (define (emit-wasm-cpp-file file-model params)
   (define base (path->string (path-replace-extension
@@ -183,6 +272,5 @@
          (format "/// Generated WASM facade stubs for ~a.\n" (hash-ref file-model 'name))
          (format "struct ~a {\n" struct-name)
          (apply string-append
-                (map wasm-cpp-service (hash-ref file-model 'services)))
-         "};\n\n"
+                (map (lambda (svc) (parameterize ([current-struct struct-name]) (wasm-cpp-service svc))) (hash-ref file-model 'services)))
          (format "}  // namespace ~a\n" ns))))

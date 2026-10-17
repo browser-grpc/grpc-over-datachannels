@@ -1,0 +1,50 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc WASM Go stream server test</title>
+<script src="/browser-test/wasm_exec.js"></script>
+<script type="module">
+import { Channel, createGrpcDcServerBridge } from "/js/index.js";
+
+// Server role for the Go/WASM facade: the page installs the JS
+// server bridge (createGrpcDcServerBridge) as
+// window.__grpcDcServerBridge; the Go program registers its
+// generated typed handlers with it at startup. The JS grpc-dc
+// Server owns the wire. Signaling mirrors wasm_page.html.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+window.__runServer = async () => {
+  if (dc.readyState !== "open") {
+    await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+  }
+  window.__grpcDcServerBridge = createGrpcDcServerBridge(new Channel(dc));
+  const go = new Go();
+  const { instance } = await WebAssembly.instantiateStreaming(
+    fetch("/browser-test/echo_go_stream_server.wasm"), go.importObject);
+  go.run(instance); // registers the Go handlers, then blocks
+  window.__serverReady = true;
+};
+
+pc.onicecandidate = (event) => {
+  if (event.candidate) {
+    window.__lastCandidate = event.candidate.candidate;
+  }
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+window.__pageReady = true;
+</script>

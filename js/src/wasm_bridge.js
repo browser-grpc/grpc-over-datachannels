@@ -101,6 +101,17 @@ async function* collectResponses(invoke) {
   if (failure) throw toStatusError(failure);
 }
 
+/** Pull-based view of a request stream for incremental handlers. */
+function requestSource(requests) {
+  const iterator = requests[Symbol.asyncIterator]();
+  return {
+    next: async () => {
+      const result = await iterator.next();
+      return result.done ? null : result.value;
+    },
+  };
+}
+
 export function createGrpcDcServerBridge(dcOrChannel) {
   const channel = dcOrChannel instanceof Channel ? dcOrChannel : new Channel(dcOrChannel);
   const server = new Server();
@@ -165,6 +176,37 @@ export function createGrpcDcServerBridge(dcOrChannel) {
             handler(payloads, metadataPairs(ctx.metadata), onMessage)
           );
         },
+      });
+    },
+    // Incremental variants: the handler pulls requests one at a
+    // time from source.next() (null at end of stream) instead of
+    // receiving every payload up front, so a bidi handler can
+    // answer each request before the next one is sent.
+    registerClientStreamInc(path, handler) {
+      register(path, {
+        path,
+        kind: "client-streaming",
+        requestType: identity,
+        responseType: identity,
+        handler: async (requests, ctx) => {
+          try {
+            return await handler(requestSource(requests), metadataPairs(ctx.metadata));
+          } catch (err) {
+            throw toStatusError(err);
+          }
+        },
+      });
+    },
+    registerBidiInc(path, handler) {
+      register(path, {
+        path,
+        kind: "bidi",
+        requestType: identity,
+        responseType: identity,
+        handler: (requests, ctx) =>
+          collectResponses((onMessage) =>
+            handler(requestSource(requests), metadataPairs(ctx.metadata), onMessage)
+          ),
       });
     },
     start(serviceName) {

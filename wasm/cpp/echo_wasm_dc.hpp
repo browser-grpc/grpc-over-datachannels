@@ -119,6 +119,66 @@ struct EchoWasmGrpcDc {
     grpcdc_wasm::Bridge* bridge_;
   };
 
+  /// Streaming response sink for server handlers.
+  struct EchoServerSink {
+    std::uint32_t call_id;
+
+    grpcdc_wasm::Status Send(const EchoResponse& resp) {
+      grpcdc_wasm::ServerSend(call_id, resp.MarshalDc());
+      return grpcdc_wasm::Status::Ok();
+    }
+  };
+
+  /// Service implementation for echo.Echo (browser/WASM facade).
+  class EchoServer {
+   public:
+    virtual ~EchoServer() = default;
+    virtual std::pair<grpcdc_wasm::Status, EchoResponse> Unary(const EchoRequest& req, const std::vector<grpcdc_wasm::MdPair>& md) = 0;
+    virtual grpcdc_wasm::Status ServerStream(const EchoRequest& req, const std::vector<grpcdc_wasm::MdPair>& md, EchoServerSink& sink) = 0;
+    virtual std::pair<grpcdc_wasm::Status, EchoResponse> ClientStream(const std::vector<EchoRequest>& reqs, const std::vector<grpcdc_wasm::MdPair>& md) = 0;
+    virtual grpcdc_wasm::Status Bidi(const std::vector<EchoRequest>& reqs, const std::vector<grpcdc_wasm::MdPair>& md, EchoServerSink& sink) = 0;
+  };
+
+  static inline EchoServer* g_impl = nullptr;
+
+  /// Register the service implementation used by the serve_* exports.
+  static void registerEchoServer(EchoServer& impl) { g_impl = &impl; }
 };
+
+extern "C" void serve_unary(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len, const std::uint8_t* md_ptr, std::size_t md_len) {
+  auto md = grpcdc_wasm::DecodeMetadata(grpcdc_wasm::Bytes(md_ptr, md_ptr + md_len));
+  EchoRequest req;
+  if (!req.UnmarshalDc(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; }
+  auto result = EchoWasmGrpcDc::g_impl->Unary(req, md);
+  if (!result.first.ok()) { grpcdc_wasm::ServerFail(call_id, result.first); return; }
+  grpcdc_wasm::ServerRespond(call_id, result.second.MarshalDc());
+}
+
+extern "C" void serve_serverStream(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len, const std::uint8_t* md_ptr, std::size_t md_len) {
+  auto md = grpcdc_wasm::DecodeMetadata(grpcdc_wasm::Bytes(md_ptr, md_ptr + md_len));
+  EchoRequest req;
+  if (!req.UnmarshalDc(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; }
+  EchoWasmGrpcDc::EchoServerSink sink{call_id};
+  auto st = EchoWasmGrpcDc::g_impl->ServerStream(req, md, sink);
+  if (st.ok()) grpcdc_wasm::ServerComplete(call_id); else grpcdc_wasm::ServerFail(call_id, st);
+}
+
+extern "C" void serve_clientStream(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len, const std::uint8_t* md_ptr, std::size_t md_len) {
+  auto md = grpcdc_wasm::DecodeMetadata(grpcdc_wasm::Bytes(md_ptr, md_ptr + md_len));
+  std::vector<EchoRequest> reqs;
+  for (const auto& chunk : grpcdc_wasm::Unpack(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { EchoRequest req; if (!req.UnmarshalDc(chunk)) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; } reqs.push_back(req); }
+  auto result = EchoWasmGrpcDc::g_impl->ClientStream(reqs, md);
+  if (!result.first.ok()) { grpcdc_wasm::ServerFail(call_id, result.first); return; }
+  grpcdc_wasm::ServerRespond(call_id, result.second.MarshalDc());
+}
+
+extern "C" void serve_bidi(std::uint32_t call_id, const std::uint8_t* payload_ptr, std::size_t payload_len, const std::uint8_t* md_ptr, std::size_t md_len) {
+  auto md = grpcdc_wasm::DecodeMetadata(grpcdc_wasm::Bytes(md_ptr, md_ptr + md_len));
+  std::vector<EchoRequest> reqs;
+  for (const auto& chunk : grpcdc_wasm::Unpack(grpcdc_wasm::Bytes(payload_ptr, payload_ptr + payload_len))) { EchoRequest req; if (!req.UnmarshalDc(chunk)) { grpcdc_wasm::ServerFail(call_id, {3, "malformed request payload"}); return; } reqs.push_back(req); }
+  EchoWasmGrpcDc::EchoServerSink sink{call_id};
+  auto st = EchoWasmGrpcDc::g_impl->Bidi(reqs, md, sink);
+  if (st.ok()) grpcdc_wasm::ServerComplete(call_id); else grpcdc_wasm::ServerFail(call_id, st);
+}
 
 }  // namespace echo

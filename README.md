@@ -195,18 +195,30 @@ exposes a byte-level bridge, and generated facades (plugins
 Zig, C++ (exception-free `wasm32-wasi` reactor), Swift (Embedded
 Swift on `wasm32-unknown-none-wasm`, no Foundation), and Kotlin
 (Kotlin/Wasm JS interop) typed clients whose calls execute in
-the tested JS runtime. The Kotlin/Wasm facade also serves:
+the tested JS runtime. All five facades also serve:
 `createGrpcDcServerBridge` in the JS bridge hosts a real JS
-`Server`, and the generated facade registers typed Kotlin
-handlers on it (`make test-kotlin-wasm-browser` runs both
-facade roles). `make test-wasm`, `make
+`Server`, and each generated facade registers typed handlers
+on it — Kotlin and Go handlers as bridge objects, Zig, C++, and
+Swift handlers as `serve_*` exports the page glue drives through
+`js_server_*` imports. Client-streaming and bidi requests reach
+Kotlin and Go handlers incrementally: the bridge's
+`registerClientStreamInc`/`registerBidiInc` hand the handler a
+pull source (`next()` per request as it arrives), and the
+browser tests prove incrementality with a ping-pong bidi call
+whose first response lands before the second request is sent;
+the Zig/C++/Swift export-shaped handlers still receive request
+streams collected. `make test-wasm-matrix` additionally pairs
+native browser clients and servers across runtimes (Kotlin→Zig,
+Swift→Kotlin, C++→Swift, Zig→C++ today) through a byte relay.
+`make test-wasm`, `make
 test-zig-wasm-browser`, `make test-zig-wasm-native-browser`,
 `make test-lua-wasm-browser`, `make test-dart-browser`,
 `make test-dart-wasm-browser`, `make test-cpp-wasm-browser`,
 `make test-cpp-wasm-native-browser`, `make
 test-swift-wasm-browser`, `make test-swift-wasm-native-browser`,
-`make test-kotlin-wasm-browser`, and `make
-test-kotlin-wasm-native-browser` run each in Chromium and Firefox
+`make test-kotlin-wasm-browser`, `make
+test-kotlin-wasm-native-browser`, and `make test-wasm-matrix`
+run each in Chromium and Firefox
 over a native `RTCDataChannel`.
 
 `make test` also covers the reimplemented WebRTC stack itself

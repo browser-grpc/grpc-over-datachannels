@@ -142,3 +142,186 @@ func callStreamPayloads(bridge js.Value, method, path string, payloads [][]byte,
 	}
 	return firstErr
 }
+
+// ---- server side: Register*Server in the generated stub hands
+// typed handlers to the page's JS server bridge
+// (createGrpcDcServerBridge); the JS Server owns the wire. ----
+
+// ServerSink sends one response message on a server-streaming
+// or bidi call.
+type ServerSink struct {
+	onMessage js.Value
+}
+
+// Send marshals and forwards one response payload.
+func (s *ServerSink) Send(payload []byte) {
+	s.onMessage.Invoke(uint8Array(payload))
+}
+
+func metadataPairsOf(v js.Value) [][2]string {
+	n := v.Length()
+	var out [][2]string
+	for i := 0; i+1 < n; i += 2 {
+		out = append(out, [2]string{v.Index(i).String(), v.Index(i + 1).String()})
+	}
+	return out
+}
+
+func payloadsOf(v js.Value) [][]byte {
+	n := v.Length()
+	out := make([][]byte, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, bytesOf(v.Index(i)))
+	}
+	return out
+}
+
+func statusObject(err error) js.Value {
+	obj := js.Global().Get("Object").New()
+	if se, ok := err.(*StatusError); ok {
+		obj.Set("code", se.Code)
+		obj.Set("message", se.Message)
+	} else {
+		obj.Set("code", 13)
+		obj.Set("message", err.Error())
+	}
+	return obj
+}
+
+func promiseOf(fn func(resolve, reject js.Value)) js.Value {
+	executor := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		fn(args[0], args[1])
+		return nil
+	})
+	promise := js.Global().Get("Promise").New(executor)
+	executor.Release()
+	return promise
+}
+
+func registerUnaryHandler(bridge js.Value, path string, handler func([]byte, [][2]string) ([]byte, error)) {
+	fn := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		payload := bytesOf(args[0])
+		metadata := metadataPairsOf(args[1])
+		return promiseOf(func(resolve, reject js.Value) {
+			go func() {
+				resp, err := handler(payload, metadata)
+				if err != nil {
+					reject.Invoke(statusObject(err))
+					return
+				}
+				resolve.Invoke(uint8Array(resp))
+			}()
+		})
+	})
+	bridge.Call("registerUnary", path, fn)
+}
+
+func registerServerStreamHandler(bridge js.Value, path string, handler func([]byte, [][2]string, *ServerSink) error) {
+	fn := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		payload := bytesOf(args[0])
+		metadata := metadataPairsOf(args[1])
+		sink := &ServerSink{onMessage: args[2]}
+		return promiseOf(func(resolve, reject js.Value) {
+			go func() {
+				if err := handler(payload, metadata, sink); err != nil {
+					reject.Invoke(statusObject(err))
+					return
+				}
+				resolve.Invoke(js.Undefined())
+			}()
+		})
+	})
+	bridge.Call("registerServerStream", path, fn)
+}
+
+func registerClientStreamHandler(bridge js.Value, path string, handler func([][]byte, [][2]string) ([]byte, error)) {
+	fn := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		payloads := payloadsOf(args[0])
+		metadata := metadataPairsOf(args[1])
+		return promiseOf(func(resolve, reject js.Value) {
+			go func() {
+				resp, err := handler(payloads, metadata)
+				if err != nil {
+					reject.Invoke(statusObject(err))
+					return
+				}
+				resolve.Invoke(uint8Array(resp))
+			}()
+		})
+	})
+	bridge.Call("registerClientStream", path, fn)
+}
+
+func registerBidiHandler(bridge js.Value, path string, handler func([][]byte, [][2]string, *ServerSink) error) {
+	fn := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		payloads := payloadsOf(args[0])
+		metadata := metadataPairsOf(args[1])
+		sink := &ServerSink{onMessage: args[2]}
+		return promiseOf(func(resolve, reject js.Value) {
+			go func() {
+				if err := handler(payloads, metadata, sink); err != nil {
+					reject.Invoke(statusObject(err))
+					return
+				}
+				resolve.Invoke(js.Undefined())
+			}()
+		})
+	})
+	bridge.Call("registerBidi", path, fn)
+}
+
+// RequestSource pulls requests one at a time from the JS
+// bridge's incremental source ({next(): Promise<bytes|null>}):
+// Next returns (nil, nil) at end of stream. Nothing is
+// collected up front, so handlers may answer as requests land.
+type RequestSource struct {
+	source js.Value
+}
+
+// Next awaits the next request payload.
+func (s *RequestSource) Next() ([]byte, error) {
+	value, err := await(s.source.Call("next"))
+	if err != nil {
+		return nil, err
+	}
+	if value.Type() == js.TypeNull || value.Type() == js.TypeUndefined {
+		return nil, nil
+	}
+	return bytesOf(value), nil
+}
+
+func registerClientStreamIncHandler(bridge js.Value, path string, handler func(*RequestSource, [][2]string) ([]byte, error)) {
+	fn := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		source := &RequestSource{source: args[0]}
+		metadata := metadataPairsOf(args[1])
+		return promiseOf(func(resolve, reject js.Value) {
+			go func() {
+				resp, err := handler(source, metadata)
+				if err != nil {
+					reject.Invoke(statusObject(err))
+					return
+				}
+				resolve.Invoke(uint8Array(resp))
+			}()
+		})
+	})
+	bridge.Call("registerClientStreamInc", path, fn)
+}
+
+func registerBidiIncHandler(bridge js.Value, path string, handler func(*RequestSource, [][2]string, *ServerSink) error) {
+	fn := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		source := &RequestSource{source: args[0]}
+		metadata := metadataPairsOf(args[1])
+		sink := &ServerSink{onMessage: args[2]}
+		return promiseOf(func(resolve, reject js.Value) {
+			go func() {
+				if err := handler(source, metadata, sink); err != nil {
+					reject.Invoke(statusObject(err))
+					return
+				}
+				resolve.Invoke(js.Undefined())
+			}()
+		})
+	})
+	bridge.Call("registerBidiInc", path, fn)
+}

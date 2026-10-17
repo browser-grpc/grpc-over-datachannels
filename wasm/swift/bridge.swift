@@ -188,3 +188,67 @@ public func on_bridge_error(_ callId: UInt32, _ code: Int32,
     let message = String(decoding: copyAndFree(ptr, len), as: UTF8.self)
     GrpcDcWasmBridge.shared.handleError(callId, StatusException(Int(code), message))
 }
+
+// ---- server side: generated serve_* exports report through
+// these imports to the page glue, which owns the JS server
+// bridge (createGrpcDcServerBridge). ----
+
+@_extern(c, "js_server_respond")
+func jsServerRespond(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int)
+
+@_extern(c, "js_server_send")
+func jsServerSend(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int)
+
+@_extern(c, "js_server_complete")
+func jsServerComplete(_ callId: UInt32)
+
+@_extern(c, "js_server_fail")
+func jsServerFail(_ callId: UInt32, _ code: Int, _ message: UnsafePointer<UInt8>, _ messageLen: Int)
+
+func ServerRespond(_ callId: UInt32, _ payload: [UInt8]) {
+    payload.withUnsafeBufferPointer { jsServerRespond(callId, $0.baseAddress!, $0.count) }
+}
+
+func ServerSend(_ callId: UInt32, _ payload: [UInt8]) {
+    payload.withUnsafeBufferPointer { jsServerSend(callId, $0.baseAddress!, $0.count) }
+}
+
+func ServerComplete(_ callId: UInt32) {
+    jsServerComplete(callId)
+}
+
+func ServerFail(_ callId: UInt32, _ status: StatusException) {
+    var message = Array(status.message.utf8)
+    message.withUnsafeBufferPointer { jsServerFail(callId, status.code, $0.baseAddress!, $0.count) }
+}
+
+/// Split a u32be length-prefixed packed buffer.
+func UnpackPacked(_ data: [UInt8]) -> [[UInt8]] {
+    var out: [[UInt8]] = []
+    var pos = 0
+    while pos + 4 <= data.count {
+        let n = (Int(data[pos]) << 24) | (Int(data[pos + 1]) << 16) | (Int(data[pos + 2]) << 8) | Int(data[pos + 3])
+        pos += 4
+        if pos + n > data.count { break }
+        out.append(Array(data[pos..<(pos + n)]))
+        pos += n
+    }
+    return out
+}
+
+/// Decode flattened [key, value, ...] packed metadata.
+func DecodeMetadata(_ data: [UInt8]) -> [(String, String)] {
+    let flat = UnpackPacked(data)
+    var out: [(String, String)] = []
+    var i = 0
+    while i + 1 < flat.count {
+        out.append((String(decoding: flat[i], as: UTF8.self), String(decoding: flat[i + 1], as: UTF8.self)))
+        i += 2
+    }
+    return out
+}
+
+func MetadataGet(_ pairs: [(String, String)], _ key: String) -> String? {
+    for pair in pairs where pair.0 == key { return pair.1 }
+    return nil
+}

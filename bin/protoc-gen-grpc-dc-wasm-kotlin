@@ -573,6 +573,50 @@
       name
       req))))
 
+(define (wasm-kotlin-stream-iface-method m)
+  (define name (hash-ref m 'name))
+  (define resp (hash-ref m 'output))
+  (define svc (current-service))
+  (case (hash-ref m 'kind)
+    ((client-streaming)
+     (format
+      "        fun ~a(source: ~aSource, metadata: Map<String, String>, respond: (~a) -> Unit, fail: (StatusException) -> Unit)\n"
+      name
+      (hash-ref m 'input)
+      resp))
+    ((bidi)
+     (format
+      "        fun ~a(source: ~aSource, metadata: Map<String, String>, sink: (~a) -> Unit, done: () -> Unit, fail: (StatusException) -> Unit)\n"
+      name
+      (hash-ref m 'input)
+      resp))
+    (else "")))
+
+(define (wasm-kotlin-stream-register-method m)
+  (define name (hash-ref m 'name))
+  (define path (hash-ref m 'path))
+  (define svc (current-service))
+  (case (hash-ref m 'kind)
+    ((client-streaming)
+     (format
+      (string-append
+       "        bridge.clientStreamInc(~s) { source, metadata, respond, fail ->\n"
+       "            impl.~a(~aSource(source), metadata, { resp -> respond(resp.marshalDc()) }, fail)\n"
+       "        }\n")
+      path
+      name
+      (hash-ref m 'input)))
+    ((bidi)
+     (format
+      (string-append
+       "        bridge.bidiInc(~s) { source, metadata, sink, done, fail ->\n"
+       "            impl.~a(~aSource(source), metadata, { resp -> sink(resp.marshalDc()) }, done, fail)\n"
+       "        }\n")
+      path
+      name
+      (hash-ref m 'input)))
+    (else "")))
+
 (define (wasm-kotlin-service svc)
   (define sname (hash-ref svc 'name))
   (define methods (hash-ref svc 'methods))
@@ -610,6 +654,36 @@
       wasm-kotlin-register-method
       (append methods (alias-server-methods svc))))
     (format "        bridge.start(~s)\n" (hash-ref svc 'full-name))
+    "    }\n\n"
+    (format "    /** Typed pull source for incremental server handlers. */\n")
+    (format
+     "    class ~aSource internal constructor(private val raw: GrpcdcRequestSource) {\n"
+     (hash-ref (car methods) 'input))
+    (format
+     "        fun next(onRequest: ((~a?) -> Unit), onError: (StatusException) -> Unit) {\n"
+     (hash-ref (car methods) 'input))
+    (format
+     "            raw.next({ bytes -> onRequest(bytes?.let { ~a().apply { unmarshalDc(it) } }) }, onError)\n"
+     (hash-ref (car methods) 'input))
+    "        }\n"
+    "    }\n\n"
+    (format
+     "    /** Incremental service implementation for ~a: requests arrive one at a time. */\n"
+     (hash-ref svc 'full-name))
+    (format "    interface ~aStreamServer {\n" sname)
+    (apply string-append (map wasm-kotlin-stream-iface-method methods))
+    "    }\n\n"
+    (format
+     "    /** Register an incremental implementation; call bridge.start after all registrations. */\n")
+    (format
+     "    fun register~aStreamServer(bridge: GrpcdcWasmServerBridge, impl: ~aStreamServer) {\n"
+     sname
+     sname)
+    (apply
+     string-append
+     (map
+      wasm-kotlin-stream-register-method
+      (append methods (alias-server-methods svc))))
     "    }\n")))
 
 (define (emit-wasm-kotlin-file file-model params)
@@ -630,6 +704,7 @@
     (format "package ~a\n\n" (if (string=? pkg "") "proto" pkg))
     (format "import ~a.GrpcdcWasmBridge\n" bridge-package)
     (format "import ~a.GrpcdcWasmServerBridge\n" bridge-package)
+    (format "import ~a.GrpcdcRequestSource\n" bridge-package)
     (format "import ~a.StatusException\n\n" bridge-package)
     (format
      "/** Generated WASM facade stubs for ~a. */\n"

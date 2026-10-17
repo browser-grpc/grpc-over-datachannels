@@ -65,4 +65,27 @@ class Bridge {
   std::vector<std::pair<std::uint32_t, Entry>> pending_;
 };
 
+/// One metadata key/value pair (views into a decoded buffer).
+struct MdPair {
+  std::string key;
+  std::string value;
+};
+
+/// Split a u32be length-prefixed packed buffer (copies).
+std::vector<Bytes> Unpack(const Bytes& packed);
+
+/// Decode flattened [key, value, ...] packed metadata.
+std::vector<MdPair> DecodeMetadata(const Bytes& packed);
+
+/// Look up a metadata key (first match wins).
+const std::string* MetadataGet(const std::vector<MdPair>& pairs,
+                               const std::string& key);
+
+// Server side: generated serve_* exports report through these
+// to the page glue, which owns the JS server bridge.
+void ServerRespond(std::uint32_t call_id, const Bytes& payload);
+void ServerSend(std::uint32_t call_id, const Bytes& payload);
+void ServerComplete(std::uint32_t call_id);
+void ServerFail(std::uint32_t call_id, const Status& status);
+
 }  // namespace grpcdc_wasm

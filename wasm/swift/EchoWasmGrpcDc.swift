@@ -52,4 +52,72 @@ enum EchoWasmGrpcDc {
 
     }
 
+    /// Streaming response sink for server handlers.
+    struct EchoServerSink {
+        let callId: UInt32
+
+        func Send(_ resp: EchoResponse) {
+            ServerSend(callId, resp.MarshalDc())
+        }
+    }
+
+    /// Service implementation for echo.Echo (browser/WASM facade).
+    protocol EchoServer {
+        func Unary(_ req: EchoRequest, _ metadata: [(String, String)]) -> Result<EchoResponse, StatusException>
+        func ServerStream(_ req: EchoRequest, _ metadata: [(String, String)], _ sink: EchoServerSink) -> StatusException?
+        func ClientStream(_ reqs: [EchoRequest], _ metadata: [(String, String)]) -> Result<EchoResponse, StatusException>
+        func Bidi(_ reqs: [EchoRequest], _ metadata: [(String, String)], _ sink: EchoServerSink) -> StatusException?
+    }
+
+    static var serverImpl: EchoServer?
+
+    /// Register the service implementation used by the serve_* exports.
+    static func registerEchoServer(_ impl: EchoServer) {
+        serverImpl = impl
+    }
 }
+
+@_cdecl("serve_unary")
+public func serve_unary(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {
+    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))
+    let req = EchoRequest()
+    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))
+    switch EchoWasmGrpcDc.serverImpl!.Unary(req, metadata) {
+    case .success(let resp): ServerRespond(callId, resp.MarshalDc())
+    case .failure(let st): ServerFail(callId, st)
+    }
+}
+
+@_cdecl("serve_serverStream")
+public func serve_serverStream(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {
+    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))
+    let req = EchoRequest()
+    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))
+    if let st = EchoWasmGrpcDc.serverImpl!.ServerStream(req, metadata, EchoWasmGrpcDc.EchoServerSink(callId: callId)) {
+        ServerFail(callId, st)
+    } else {
+        ServerComplete(callId)
+    }
+}
+
+@_cdecl("serve_clientStream")
+public func serve_clientStream(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {
+    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))
+    let reqs = UnpackPacked(Array(UnsafeBufferPointer(start: payload, count: payloadLen))).map { bytes -> EchoRequest in let req = EchoRequest(); req.UnmarshalDc(bytes); return req }
+    switch EchoWasmGrpcDc.serverImpl!.ClientStream(reqs, metadata) {
+    case .success(let resp): ServerRespond(callId, resp.MarshalDc())
+    case .failure(let st): ServerFail(callId, st)
+    }
+}
+
+@_cdecl("serve_bidi")
+public func serve_bidi(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {
+    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))
+    let reqs = UnpackPacked(Array(UnsafeBufferPointer(start: payload, count: payloadLen))).map { bytes -> EchoRequest in let req = EchoRequest(); req.UnmarshalDc(bytes); return req }
+    if let st = EchoWasmGrpcDc.serverImpl!.Bidi(reqs, metadata, EchoWasmGrpcDc.EchoServerSink(callId: callId)) {
+        ServerFail(callId, st)
+    } else {
+        ServerComplete(callId)
+    }
+}
+

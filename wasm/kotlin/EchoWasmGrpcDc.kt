@@ -5,6 +5,7 @@ package echo
 
 import grpcdcwasm.GrpcdcWasmBridge
 import grpcdcwasm.GrpcdcWasmServerBridge
+import grpcdcwasm.GrpcdcRequestSource
 import grpcdcwasm.StatusException
 
 /** Generated WASM facade stubs for echo.proto. */
@@ -98,5 +99,28 @@ object EchoWasmGrpcDc {
             impl.Bidi(payloads.map { bytes -> EchoRequest().apply { unmarshalDc(bytes) } }, metadata) { resp -> sink(resp.marshalDc()) }
         }
         bridge.start("echo.Echo")
+    }
+
+    /** Typed pull source for incremental server handlers. */
+    class EchoRequestSource internal constructor(private val raw: GrpcdcRequestSource) {
+        fun next(onRequest: ((EchoRequest?) -> Unit), onError: (StatusException) -> Unit) {
+            raw.next({ bytes -> onRequest(bytes?.let { EchoRequest().apply { unmarshalDc(it) } }) }, onError)
+        }
+    }
+
+    /** Incremental service implementation for echo.Echo: requests arrive one at a time. */
+    interface EchoStreamServer {
+        fun ClientStream(source: EchoRequestSource, metadata: Map<String, String>, respond: (EchoResponse) -> Unit, fail: (StatusException) -> Unit)
+        fun Bidi(source: EchoRequestSource, metadata: Map<String, String>, sink: (EchoResponse) -> Unit, done: () -> Unit, fail: (StatusException) -> Unit)
+    }
+
+    /** Register an incremental implementation; call bridge.start after all registrations. */
+    fun registerEchoStreamServer(bridge: GrpcdcWasmServerBridge, impl: EchoStreamServer) {
+        bridge.clientStreamInc("/echo.Echo/ClientStream") { source, metadata, respond, fail ->
+            impl.ClientStream(EchoRequestSource(source), metadata, { resp -> respond(resp.marshalDc()) }, fail)
+        }
+        bridge.bidiInc("/echo.Echo/Bidi") { source, metadata, sink, done, fail ->
+            impl.Bidi(EchoRequestSource(source), metadata, { resp -> sink(resp.marshalDc()) }, done, fail)
+        }
     }
 }

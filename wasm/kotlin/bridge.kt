@@ -99,6 +99,11 @@ external interface JsStatusError : JsAny {
     val message: String
 }
 
+/** Pull-based request source handed to incremental server handlers. */
+external interface GrpcdcJsServerSource : JsAny {
+    fun next(): Promise<JsUint8Array?>
+}
+
 /** Shape of js/src/wasm_bridge.js createGrpcDcServerBridge(). */
 external interface GrpcdcJsServerBridge : JsAny {
     fun registerUnary(
@@ -121,7 +126,31 @@ external interface GrpcdcJsServerBridge : JsAny {
         handler: (JsArray<JsUint8Array>, JsArray<JsString>, (JsUint8Array) -> Unit) -> Promise<JsAny?>
     )
 
+    fun registerClientStreamInc(
+        path: String,
+        handler: (GrpcdcJsServerSource, JsArray<JsString>) -> Promise<JsUint8Array>
+    )
+
+    fun registerBidiInc(
+        path: String,
+        handler: (GrpcdcJsServerSource, JsArray<JsString>, (JsUint8Array) -> Unit) -> Promise<JsAny?>
+    )
+
     fun start(serviceName: String)
+}
+
+/**
+ * Byte-level pull source for incremental server handlers:
+ * next() delivers one request payload, or null at end of
+ * stream, as it arrives — nothing is collected up front.
+ */
+class GrpcdcRequestSource internal constructor(private val js: GrpcdcJsServerSource) {
+    fun next(onRequest: (ByteArray?) -> Unit, onError: (StatusException) -> Unit) {
+        js.next().then(
+            { bytes -> onRequest(bytes?.toByteArray()); null },
+            { err -> onError(err.toStatusException()); null }
+        )
+    }
 }
 
 private fun jsArrayLength(array: JsArray<*>): Int = js("array.length")
@@ -227,6 +256,39 @@ class GrpcdcWasmServerBridge(private val js: GrpcdcJsServerBridge) {
                 } catch (e: Throwable) {
                     reject(StatusException.toStatus(e).toJsError())
                 }
+            }
+        }
+    }
+
+    fun clientStreamInc(
+        path: String,
+        handler: (GrpcdcRequestSource, Map<String, String>, (ByteArray) -> Unit, (StatusException) -> Unit) -> Unit
+    ) {
+        js.registerClientStreamInc(path) { source, pairs ->
+            Promise { resolve, reject ->
+                handler(
+                    GrpcdcRequestSource(source),
+                    pairs.toMetadataMap(),
+                    { resp -> resolve(resp.toJsUint8Array()) },
+                    { st -> reject(st.toJsError()) }
+                )
+            }
+        }
+    }
+
+    fun bidiInc(
+        path: String,
+        handler: (GrpcdcRequestSource, Map<String, String>, (ByteArray) -> Unit, () -> Unit, (StatusException) -> Unit) -> Unit
+    ) {
+        js.registerBidiInc(path) { source, pairs, onMessage ->
+            Promise { resolve, reject ->
+                handler(
+                    GrpcdcRequestSource(source),
+                    pairs.toMetadataMap(),
+                    { resp -> onMessage(resp.toJsUint8Array()) },
+                    { resolve(null) },
+                    { st -> reject(st.toJsError()) }
+                )
             }
         }
     }

@@ -137,6 +137,87 @@
               "};\n\n")
              orig-name resp resp)]))
 
+
+(define (wasm-server-serve-export m)
+  (define name (lower-first (hash-ref m 'name)))
+  (define req (hash-ref m 'input))
+  (define resp (hash-ref m 'output))
+  (case (hash-ref m 'kind)
+    [(unary)
+     (format (string-append
+              "export fn serve_~a(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {\n"
+              "    const a = bridge_mod.bridgeAllocator();\n"
+              "    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n"
+              "    defer a.free(md);\n"
+              "    var req = ~a{};\n"
+              "    req.unmarshalDc(a, payload_ptr[0..payload_len]);\n"
+              "    switch (g_server_impl.?.~a_fn(g_server_impl.?.ctx, &req, md)) {\n"
+              "        .ok => |resp| { const bytes = resp.marshalDc(a); defer a.free(bytes); bridge_mod.serverRespond(call_id, bytes); },\n"
+              "        .status => |st| bridge_mod.serverFail(call_id, st),\n"
+              "    }\n"
+              "}\n\n")
+             name req name)]
+    [(server-streaming)
+     (format (string-append
+              "export fn serve_~a(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {\n"
+              "    const a = bridge_mod.bridgeAllocator();\n"
+              "    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n"
+              "    defer a.free(md);\n"
+              "    var req = ~a{};\n"
+              "    req.unmarshalDc(a, payload_ptr[0..payload_len]);\n"
+              "    var sink = ServerSink{ .call_id = call_id };\n"
+              "    const st = g_server_impl.?.~a_fn(g_server_impl.?.ctx, &req, md, &sink);\n"
+              "    if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);\n"
+              "}\n\n")
+             name req name)]
+    [(client-streaming)
+     (format (string-append
+              "export fn serve_~a(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {\n"
+              "    const a = bridge_mod.bridgeAllocator();\n"
+              "    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n"
+              "    defer a.free(md);\n"
+              "    const chunks = bridge_mod.unpack(a, payload_ptr[0..payload_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n"
+              "    defer a.free(chunks);\n"
+              "    const reqs = a.alloc(~a, chunks.len) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n"
+              "    defer a.free(reqs);\n"
+              "    for (chunks, 0..) |chunk, i| { reqs[i] = ~a{}; reqs[i].unmarshalDc(a, chunk); }\n"
+              "    switch (g_server_impl.?.~a_fn(g_server_impl.?.ctx, reqs, md)) {\n"
+              "        .ok => |resp| { const bytes = resp.marshalDc(a); defer a.free(bytes); bridge_mod.serverRespond(call_id, bytes); },\n"
+              "        .status => |st| bridge_mod.serverFail(call_id, st),\n"
+              "    }\n"
+              "}\n\n")
+             name req req name)]
+    [(bidi)
+     (format (string-append
+              "export fn serve_~a(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {\n"
+              "    const a = bridge_mod.bridgeAllocator();\n"
+              "    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n"
+              "    defer a.free(md);\n"
+              "    const chunks = bridge_mod.unpack(a, payload_ptr[0..payload_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n"
+              "    defer a.free(chunks);\n"
+              "    const reqs = a.alloc(~a, chunks.len) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n"
+              "    defer a.free(reqs);\n"
+              "    for (chunks, 0..) |chunk, i| { reqs[i] = ~a{}; reqs[i].unmarshalDc(a, chunk); }\n"
+              "    var sink = ServerSink{ .call_id = call_id };\n"
+              "    const st = g_server_impl.?.~a_fn(g_server_impl.?.ctx, reqs, md, &sink);\n"
+              "    if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);\n"
+              "}\n\n")
+             name req req name)]))
+
+(define (wasm-server-iface-field m)
+  (define name (lower-first (hash-ref m 'name)))
+  (define req (hash-ref m 'input))
+  (define resp (hash-ref m 'output))
+  (case (hash-ref m 'kind)
+    [(unary)
+     (format "    ~a_fn: *const fn (ctx: *anyopaque, req: *const ~a, md: []const bridge_mod.MdPair) CallResult(~a),\n" name req resp)]
+    [(server-streaming)
+     (format "    ~a_fn: *const fn (ctx: *anyopaque, req: *const ~a, md: []const bridge_mod.MdPair, sink: *ServerSink) Status,\n" name req)]
+    [(client-streaming)
+     (format "    ~a_fn: *const fn (ctx: *anyopaque, reqs: []const ~a, md: []const bridge_mod.MdPair) CallResult(~a),\n" name req resp)]
+    [(bidi)
+     (format "    ~a_fn: *const fn (ctx: *anyopaque, reqs: []const ~a, md: []const bridge_mod.MdPair, sink: *ServerSink) Status,\n" name req)]))
+
 (define (wasm-service svc)
   (define sname (hash-ref svc 'name))
   (define methods (hash-ref svc 'methods))
@@ -145,7 +226,26 @@
      (apply string-append (map wasm-pending-structs methods))
      (format "/// Client for the service (browser/WASM facade; see module doc).\npub const ~aClient = struct {\n    bridge: *bridge_mod.Bridge,\n\n    pub fn init(bridge: *bridge_mod.Bridge) ~aClient {\n        return .{ .bridge = bridge };\n    }\n\n" sname sname)
      (apply string-append (map wasm-client-method* methods))
-     "};\n")))
+     "};\n\n"
+     "/// Streaming response sink for server handlers.\n"
+     "pub const ServerSink = struct {\n"
+     "    call_id: u32,\n\n"
+     (format "    pub fn send(self: *ServerSink, resp: *const ~a) Status {\n" (hash-ref (car methods) 'output))
+     "        const a = bridge_mod.bridgeAllocator();\n"
+     "        const bytes = resp.marshalDc(a);\n"
+     "        defer a.free(bytes);\n"
+     "        bridge_mod.serverSend(self.call_id, bytes);\n"
+     "        return Status.ok();\n"
+     "    }\n"
+     "};\n\n"
+     (format "/// Service implementation for ~a (browser/WASM facade).\n" (hash-ref svc 'full-name))
+     (format "pub const ~aServer = struct {\n    ctx: *anyopaque,\n" sname)
+     (apply string-append (map wasm-server-iface-field methods))
+     "};\n\n"
+     (format "var g_server_impl: ?*~aServer = null;\n\n" sname)
+     (format "/// Register the service implementation used by the serve_* exports.\n")
+     (format "pub fn register~aServer(impl: *~aServer) void {\n    g_server_impl = impl;\n}\n\n" sname sname)
+     (apply string-append (map wasm-server-serve-export methods)))))
 
 (define (emit-wasm-zig-file file-model params)
   (define base (path->string (path-replace-extension

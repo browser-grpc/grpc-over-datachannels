@@ -3,6 +3,7 @@
 node_modules/
 browser-test/echo.wasm
 browser-test/echo_zig.wasm
+browser-test/echo_zig_server.wasm
 browser-test/echo_zig_native.wasm
 browser-test/echo_zig_native_server.wasm
 browser-test/wasm_exec.js
@@ -40,6 +41,7 @@ browser-test/echo_lua.wasm
 browser-test/echo_lua_server.wasm
 wasm/lua/modules.h
 browser-test/echo_cpp.wasm
+browser-test/echo_cpp_server.wasm
 browser-test/echo_cpp_native.wasm
 browser-test/echo_cpp_native_server.wasm
 browser-test/echo_swift.wasm
@@ -49,3 +51,6 @@ browser-test/echo_swift_native.wasm
 /wasm/swift/build/
 /wasm/kotlin/build/
 /wasm/kotlin/native-build/
+browser-test/echo_swift_server.wasm
+browser-test/echo_go_server.wasm
+browser-test/echo_go_stream_server.wasm
