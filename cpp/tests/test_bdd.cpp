@@ -16,7 +16,7 @@ namespace tests {
 namespace {
 
 echo::EchoRequest Req(const std::string& message, std::int32_t count) {
-  return echo::EchoRequest(message, count);
+  echo::EchoRequest r; r.message = message; r.count = count; return r;
 }
 
 }  // namespace
@@ -47,7 +47,7 @@ void TestBdd() {
         echo::EchoResponse resp = client.Unary(Req(c.messages[0], 0), md_ptr);
         Check(c.expectStatus < 0, name + ": expected failure");
         Check(resp.message == c.expectMessage && resp.index == c.expectNum,
-              name + ": " + resp.ToString());
+              name + ": " + resp.message);
       } catch (const grpcdc::StatusException& e) {
         Check(c.expectStatus >= 0 && e.code() == c.expectStatus,
               name + ": status " + std::string(e.what()));
@@ -63,7 +63,7 @@ void TestBdd() {
           break;
         }
         Check(resp.message == c.expectMessage && resp.index == got,
-              name + ": " + resp.ToString());
+              name + ": " + resp.message);
         ++got;
       }
       Check(got == c.expectNum, name + ": count");
@@ -72,7 +72,7 @@ void TestBdd() {
       for (auto* m : c.messages) reqs.push_back(Req(m, 0));
       echo::EchoResponse resp = client.ClientStream(reqs);
       Check(resp.message == c.expectMessage && resp.index == c.expectNum,
-            name + ": " + resp.ToString());
+            name + ": " + resp.message);
     } else if (kind == "bidi") {
       std::vector<echo::EchoRequest> reqs;
       for (auto* m : c.messages) reqs.push_back(Req(m, 0));
@@ -88,7 +88,7 @@ void TestBdd() {
         Check(got < c.messages.size() &&
                   resp.message == c.messages[got] &&
                   resp.index == static_cast<std::int32_t>(got),
-              name + ": " + resp.ToString());
+              name + ": " + resp.message);
         ++got;
       }
       Check(static_cast<int>(got) == c.expectNum, name + ": count");

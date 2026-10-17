@@ -22,7 +22,7 @@ using echo::EchoRequest;
 using echo::EchoResponse;
 
 EchoRequest Req(const std::string& message, std::int32_t count) {
-  return EchoRequest(message, count);
+  EchoRequest r; r.message = message; r.count = count; return r;
 }
 
 std::shared_ptr<EchoGrpcDc::EchoClientCoro> Setup() {

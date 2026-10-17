@@ -15,7 +15,7 @@ namespace tests {
 namespace {
 
 echo::EchoRequest Req(const std::string& message, std::int32_t count) {
-  return echo::EchoRequest(message, count);
+  echo::EchoRequest r; r.message = message; r.count = count; return r;
 }
 
 std::shared_ptr<echo::EchoGrpcDc::EchoClient> Setup() {
@@ -60,7 +60,7 @@ void RunAsync() {
   // Async client surface against the sync loopback server.
   auto client = Setup();
   echo::EchoResponse unary = client->UnaryAsync(Req("hello", 0)).get();
-  Check(unary.message == "echo: hello", "async unary: " + unary.ToString());
+  Check(unary.message == "echo: hello", "async unary: " + unary.message);
 
   auto streamed = client->ServerStreamAsync(Req("tick", 3)).get();
   Check(streamed.size() == 3 && streamed[0].index == 0 && streamed[2].index == 2,
@@ -68,7 +68,7 @@ void RunAsync() {
 
   echo::EchoResponse joined =
       client->ClientStreamAsync({Req("a", 0), Req("b", 0)}).get();
-  Check(joined.message == "a+b", "async client stream: " + joined.ToString());
+  Check(joined.message == "a+b", "async client stream: " + joined.message);
 
   auto echoed = client->BidiAsync({Req("x", 0), Req("y", 0)}).get();
   Check(echoed.size() == 2 && echoed[1].message == "y", "async bidi");
@@ -82,7 +82,7 @@ void RunAsync() {
   auto channel = std::make_shared<grpcdc::Channel>(pair.first);
   echo::EchoGrpcDc::EchoClient client2(channel);
   echo::EchoResponse resp = client2.Unary(Req("hello", 0));
-  Check(resp.message == "echo: hello", "async server unary: " + resp.ToString());
+  Check(resp.message == "echo: hello", "async server unary: " + resp.message);
 }
 
 }  // namespace
@@ -93,7 +93,7 @@ void TestEcho() {
 
   echo::EchoResponse unary = client->Unary(Req("hello", 0));
   Check(unary.message == "echo: hello" && unary.index == 0,
-        "unary: " + unary.ToString());
+        "unary: " + unary.message);
 
   auto stream = client->ServerStream(Req("tick", 3));
   std::vector<std::int32_t> indexes;
@@ -104,7 +104,7 @@ void TestEcho() {
     } catch (const grpcdc::EndOfStream&) {
       break;
     }
-    Check(resp.message == "tick", "stream message: " + resp.ToString());
+    Check(resp.message == "tick", "stream message: " + resp.message);
     indexes.push_back(resp.index);
   }
   Check((indexes == std::vector<std::int32_t>{0, 1, 2}), "stream indexes");
@@ -112,7 +112,7 @@ void TestEcho() {
   echo::EchoResponse joined =
       client->ClientStream({Req("a", 0), Req("b", 0), Req("c", 0)});
   Check(joined.message == "a+b+c" && joined.index == 3,
-        "client stream: " + joined.ToString());
+        "client stream: " + joined.message);
 
   auto bidi = client->Bidi({Req("x", 0), Req("y", 0)});
   std::vector<std::string> echoed;
@@ -137,7 +137,7 @@ void TestEcho() {
   grpcdc::Metadata md{{"x-echo", "meta"}};
   echo::EchoResponse with_md = client->Unary(Req("hello", 0), &md);
   Check(with_md.message == "echo: hello [meta]",
-        "metadata: " + with_md.ToString());
+        "metadata: " + with_md.message);
 
   RunAsync();
   std::fprintf(stderr, "TestEcho OK\n");

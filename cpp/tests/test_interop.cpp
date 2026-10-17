@@ -25,7 +25,7 @@ bool BuildGo(const std::string& root, const std::string& output,
 }
 
 echo::EchoRequest Req(const std::string& m, std::int32_t c) {
-  return echo::EchoRequest(m, c);
+  echo::EchoRequest r; r.message = m; r.count = c; return r;
 }
 
 // Raw fd IO, not stdio fread/fwrite: fread would block trying to
@@ -74,7 +74,7 @@ void TestInterop() {
     echo::EchoGrpcDc::EchoClient client(channel);
 
     echo::EchoResponse unary = client.Unary(Req("hello", 0));
-    Check(unary.message == "echo: hello", "unary: " + unary.ToString());
+    Check(unary.message == "echo: hello", "unary: " + unary.message);
 
     auto stream = client.ServerStream(Req("tick", 3));
     std::vector<std::int32_t> indexes;
@@ -91,7 +91,7 @@ void TestInterop() {
 
     echo::EchoResponse joined =
         client.ClientStream({Req("a", 0), Req("b", 0), Req("c", 0)});
-    Check(joined.message == "a+b+c", "client stream: " + joined.ToString());
+    Check(joined.message == "a+b+c", "client stream: " + joined.message);
 
     auto bidi = client.Bidi({Req("x", 0), Req("y", 0)});
     std::vector<std::string> echoed;

@@ -33,7 +33,7 @@ using echo::EchoResponse;
 using std::chrono::milliseconds;
 
 EchoRequest Req(const std::string& message, std::int32_t count) {
-  return EchoRequest(message, count);
+  EchoRequest r; r.message = message; r.count = count; return r;
 }
 
 struct SharedQueue {
@@ -136,7 +136,7 @@ void RunClientInline() {
 
   // Generous deadline first (SlowEcho sleeps 400 ms per unary).
   EchoResponse unary = client.Unary(Req("hello", 0), nullptr, std::chrono::seconds(5));
-  Check(unary.message == "echo: hello", "inline unary: " + unary.ToString());
+  Check(unary.message == "echo: hello", "inline unary: " + unary.message);
 
   auto stream = client.ServerStream(Req("tick", 3));
   std::vector<std::int32_t> indexes;
@@ -150,7 +150,7 @@ void RunClientInline() {
   Check((indexes == std::vector<std::int32_t>{0, 1, 2}), "inline server stream");
 
   EchoResponse joined = client.ClientStream({Req("a", 0), Req("b", 0)});
-  Check(joined.message == "a+b", "inline client stream: " + joined.ToString());
+  Check(joined.message == "a+b", "inline client stream: " + joined.message);
 
   auto bidi = client.Bidi({Req("x", 0), Req("y", 0)});
   std::vector<std::string> echoed;

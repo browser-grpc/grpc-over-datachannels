@@ -13,6 +13,7 @@ void TestDynamic();
 void TestBdd();
 void TestDeadline();
 void TestInlinePump();
+void TestPbMessages();
 }  // namespace tests
 
 int main(int argc, char** argv) {
@@ -40,6 +41,8 @@ int main(int argc, char** argv) {
       tests::TestDeadline();
     } else if (name == "TestInlinePump") {
       tests::TestInlinePump();
+    } else if (name == "TestPbMessages") {
+      tests::TestPbMessages();
     } else {
       std::fprintf(stderr, "unknown test: %s\n", name.c_str());
       return 2;

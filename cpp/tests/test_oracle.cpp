@@ -33,7 +33,7 @@ std::string Unmsg(const char* token) {
 }
 
 echo::EchoRequest Req(const std::string& m, std::int32_t c) {
-  return echo::EchoRequest(m, c);
+  echo::EchoRequest r; r.message = m; r.count = c; return r;
 }
 
 std::vector<echo::EchoRequest> Reqs(const std::vector<std::string>& messages) {
@@ -56,7 +56,7 @@ void RunScenarios(echo::EchoGrpcDc::EchoClient& client) {
         echo::EchoResponse resp = client.Unary(Req(messages[0], 0));
         Check(c.expect_status < 0, line + ": expected failure");
         Check(resp.message == "echo: " + messages[0] && resp.index == 0,
-              line + ": " + resp.ToString());
+              line + ": " + resp.message);
       } catch (const grpcdc::StatusException& e) {
         Check(c.expect_status >= 0 && e.code() == c.expect_status,
               line + ": status " + std::string(e.what()));
@@ -72,7 +72,7 @@ void RunScenarios(echo::EchoGrpcDc::EchoClient& client) {
           break;
         }
         Check(resp.message == messages[0] && resp.index == got,
-              line + ": " + resp.ToString());
+              line + ": " + resp.message);
         ++got;
       }
       Check(got == c.count, line + ": count");
@@ -85,7 +85,7 @@ void RunScenarios(echo::EchoGrpcDc::EchoClient& client) {
       }
       Check(resp.message == joined &&
                 resp.index == static_cast<std::int32_t>(messages.size()),
-            line + ": " + resp.ToString());
+            line + ": " + resp.message);
     } else if (kind == "BIDI") {
       auto stream = client.Bidi(Reqs(messages));
       int got = 0;
@@ -98,7 +98,7 @@ void RunScenarios(echo::EchoGrpcDc::EchoClient& client) {
         }
         Check(got < static_cast<int>(messages.size()) &&
                   resp.message == messages[got] && resp.index == got,
-              line + ": " + resp.ToString());
+              line + ": " + resp.message);
         ++got;
       }
       Check(got == static_cast<int>(messages.size()), line + ": count");

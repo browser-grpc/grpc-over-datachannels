@@ -21,7 +21,7 @@ void TestCodec() {
           std::string(v.name) + ": payload");
   }
 
-  echo::EchoRequest req("hi", 2);
+  echo::EchoRequest req; req.message = "hi"; req.count = 2;
   Check(ToHex(req.MarshalDc()) == ProtoHex(), "protobuf encode");
   echo::EchoRequest decoded;
   decoded.UnmarshalDc(FromHex(ProtoHex()));

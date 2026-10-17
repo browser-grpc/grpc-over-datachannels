@@ -15,7 +15,7 @@
 namespace {
 
 echo::EchoRequest Req(const std::string& message, std::int32_t count) {
-  return echo::EchoRequest(message, count);
+  echo::EchoRequest r; r.message = message; r.count = count; return r;
 }
 
 std::string Join(const std::vector<std::string>& parts, const char* sep) {

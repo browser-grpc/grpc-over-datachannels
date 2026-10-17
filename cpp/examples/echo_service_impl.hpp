@@ -27,13 +27,13 @@ class EchoServiceImpl : public EchoGrpcDc::EchoServer {
     if (it != ctx.metadata.end() && !it->second.empty()) {
       suffix = " [" + it->second + "]";
     }
-    return EchoResponse("echo: " + req.message + suffix, 0);
+    { EchoResponse resp; resp.message = "echo: " + req.message + suffix; resp.index = 0; return resp; }
   }
 
   void ServerStream(EchoRequest& req,
                     EchoGrpcDc::EchoServerStreamServer& stream) override {
     for (std::int32_t i = 0; i < std::max(0, req.count); ++i) {
-      EchoResponse resp(req.message, i);
+      EchoResponse resp; resp.message = req.message; resp.index = i;
       stream.Send(resp);
     }
   }
@@ -54,7 +54,7 @@ class EchoServiceImpl : public EchoGrpcDc::EchoServer {
       if (i) joined += "+";
       joined += parts[i];
     }
-    EchoResponse resp(joined, static_cast<std::int32_t>(parts.size()));
+    EchoResponse resp; resp.message = joined; resp.index = static_cast<std::int32_t>(parts.size());
     stream.SendAndClose(resp);
   }
 
@@ -67,7 +67,7 @@ class EchoServiceImpl : public EchoGrpcDc::EchoServer {
       } catch (const grpcdc::EndOfStream&) {
         return;
       }
-      EchoResponse resp(req.message, index++);
+      EchoResponse resp; resp.message = req.message; resp.index = index++;
       stream.Send(resp);
     }
   }

@@ -528,15 +528,454 @@
      "    adapters.push_back(adapter);\n"
      (format "    Register~aServer(server, *adapter);\n  }\n" sname))))
 
+;; ---------------------------------------------------------------------------
+;; C++ message types (<base>_messages.hpp, matching the stub's
+;; include): classes implementing grpcdc::Marshaler/Unmarshaler
+;; plus a pb_<base> wire-support namespace per proto file.
+;; Dependency-free (std only). Mirrors the Java emitter on the
+;; shared desc.rkt model.
+;; ---------------------------------------------------------------------------
+
+(define cpp-pb-varint-types '(5 3 13 4 17 18 8 14))
+(define cpp-pb-fixed '((2 4 "Float") (1 8 "Double") (7 4 "Int32") (15 4 "Int32") (6 8 "Int64") (16 8 "Int64")))
+
+(define (cpp-pb-resolve model type-name)
+  (hash-ref (hash-ref model 'types) type-name
+            (lambda () (error 'emit-cpp-pb-file "unresolved type ~a" type-name))))
+
+(define (cpp-pb-ns pkg)
+  (if (string=? pkg "") "proto" (string-join (string-split pkg ".") "::")))
+
+(define (cpp-pb-rel pkg full)
+  (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
+                  (substring full (add1 (string-length pkg)))
+                  full))
+  (string-join (string-split rel ".") "::"))
+
+(define (cpp-pb-entry-ref model entry)
+  (define rel
+    (if (eq? (hash-ref entry 'kind) 'enum)
+        (let ([e (hash-ref entry 'enum)])
+          (if (hash-ref entry 'msg)
+              (string-append (cpp-pb-rel (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)) "::" (hash-ref e 'name))
+              (cpp-pb-rel (hash-ref entry 'pkg) (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name)))))
+        (cpp-pb-rel (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name))))
+  (if (equal? (hash-ref entry 'file) (hash-ref model 'name))
+      rel
+      (string-append "::" (cpp-pb-ns (hash-ref entry 'pkg)) "::" rel)))
+
+(define (cpp-pb-scalar f)
+  (case (hash-ref f 'type)
+    [(1) '("double" "0")] [(2) '("float" "0")] [(3) '("std::int64_t" "0")] [(4) '("std::uint64_t" "0")]
+    [(5) '("std::int32_t" "0")] [(6) '("std::uint64_t" "0")] [(7) '("std::uint32_t" "0")]
+    [(8) '("bool" "false")] [(9) '("std::string" "\"\"")] [(12) '("std::vector<std::uint8_t>" "{}")]
+    [(13) '("std::uint32_t" "0")] [(15) '("std::int32_t" "0")] [(16) '("std::int64_t" "0")]
+    [(17) '("std::int32_t" "0")] [(18) '("std::int64_t" "0")]
+    [else #f]))
+
+(define (cpp-pb-type model f)
+  (define type (hash-ref f 'type))
+  (define singular
+    (cond [(= type 11)
+           (define entry (cpp-pb-resolve model (hash-ref f 'type-name)))
+           (if (eq? (hash-ref entry 'kind) 'map)
+               (let* ([em (hash-ref entry 'msg)]
+                      [kf (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref em 'fields))]
+                      [vf (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref em 'fields))])
+                 (format "std::map<~a, ~a>" (cpp-pb-type model (hash-set kf 'label 1))
+                         (if (= (hash-ref vf 'type) 11)
+                             (cpp-pb-entry-ref model (cpp-pb-resolve model (hash-ref vf 'type-name)))
+                             (cpp-pb-type model (hash-set vf 'label 1)))))
+               (format "std::optional<~a>" (cpp-pb-entry-ref model entry)))]
+          [(= type 14) (cpp-pb-entry-ref model (cpp-pb-resolve model (hash-ref f 'type-name)))]
+          [else (first (cpp-pb-scalar f))]))
+  (cond [(and (= type 11)
+              (eq? (hash-ref (cpp-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
+         singular]
+        [(= (hash-ref f 'label) 3)
+         (if (= type 11)
+             (format "std::vector<~a>" (cpp-pb-entry-ref model (cpp-pb-resolve model (hash-ref f 'type-name))))
+             (format "std::vector<~a>" (cpp-pb-type model (hash-set f 'label 1))))]
+        [else singular]))
+
+(define (cpp-pb-default model f)
+  (cond [(and (= (hash-ref f 'type) 11)
+              (eq? (hash-ref (cpp-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
+         "{}"]
+        [(= (hash-ref f 'label) 3) "{}"]
+        [(= (hash-ref f 'type) 11) "std::nullopt"]
+        [(= (hash-ref f 'type) 14)
+         (define entry (cpp-pb-resolve model (hash-ref f 'type-name)))
+         (format "~a::~a" (cpp-pb-entry-ref model entry) (hash-ref (car (hash-ref (hash-ref entry 'enum) 'values)) 'name))]
+        [else (second (cpp-pb-scalar f))]))
+
+(define (cpp-pb-varint-expr f v)
+  (case (hash-ref f 'type)
+    [(8) (format "(~a ? 1 : 0)" v)]
+    [(17) (format "static_cast<std::uint64_t>((~a << 1) ^ (~a >> 31))" v v)]
+    [(18) (format "static_cast<std::uint64_t>((~a << 1) ^ (~a >> 63))" v v)]
+    [(14) (format "static_cast<std::int32_t>(~a)" v)]
+    [(5) (format "static_cast<std::int64_t>(~a)" v)]
+    [else (format "static_cast<std::uint64_t>(~a)" v)]))
+
+(define (cpp-pb-varint-decode f v)
+  (case (hash-ref f 'type)
+    [(5) (format "static_cast<std::int32_t>(~a)" v)]
+    [(13 7) (format "static_cast<std::uint32_t>(~a)" v)]
+    [(3) (format "static_cast<std::int64_t>(~a)" v)]
+    [(4 6) v]
+    [(8) (format "~a != 0" v)]
+    [(17) (format "static_cast<std::int32_t>((~a >> 1) ^ -static_cast<std::int64_t>(~a & 1))" v v)]
+    [(18) (format "static_cast<std::int64_t>((~a >> 1) ^ -static_cast<std::int64_t>(~a & 1))" v v)]))
+
+(define (cpp-pb-nonzero f v)
+  (case (hash-ref f 'type)
+    [(8) v]
+    [(14) (format "static_cast<std::int32_t>(~a) != 0" v)]
+    [else (format "~a != 0" v)]))
+
+(define (cpp-pb-encode-singular model f v indent support)
+  (define n (hash-ref f 'number))
+  (define type (hash-ref f 'type))
+  (cond [(memv type cpp-pb-varint-types)
+         (format "~aif (~a) { w.Tag(~a, 0); w.Varint(~a); }\n" indent (cpp-pb-nonzero f v) n (cpp-pb-varint-expr f v))]
+        [(assv type cpp-pb-fixed)
+         => (lambda (info)
+              (format "~aif (~a) { w.Tag(~a, ~a); w.Fixed~a(~a); }\n" indent (cpp-pb-nonzero f v) n
+                      (if (= (second info) 8) 1 5) (third info) v))]
+        [(= type 9) (format "~aw.StringField(~a, ~a);\n" indent n v)]
+        [(= type 12) (format "~aif (!~a.empty()) w.BytesField(~a, ~a);\n" indent v n v)]
+        [(= type 11) (format "~aif (~a) w.BytesField(~a, ~a->MarshalDc());\n" indent v n v)]
+        [else (error 'emit-cpp-pb-file "unsupported field type ~a (groups)" type)]))
+
+(define (cpp-pb-encode-field model f support)
+  (define v (hash-ref f 'name))
+  (define n (hash-ref f 'number))
+  (define type (hash-ref f 'type))
+  (cond [(and (= type 11)
+              (eq? (hash-ref (cpp-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
+         (define entry (cpp-pb-resolve model (hash-ref f 'type-name)))
+         (define helper (format "~a::~aEncode" support (cpp-pb-map-helper-name model entry)))
+         (format "    if (!~a.empty()) for (const auto& e : ~a) w.BytesField(~a, ~a(e.first, e.second));\n" v v n helper)]
+        [(not (= (hash-ref f 'label) 3)) (cpp-pb-encode-singular model f v "    " support)]
+        [(memv type cpp-pb-varint-types)
+         (string-append
+          (format "    if (!~a.empty()) {\n" v)
+          (format "        ~a::Writer payload;\n" support)
+          (format "        for (auto x : ~a) payload.Varint(~a);\n" v (cpp-pb-varint-expr f "x"))
+          (format "        w.BytesField(~a, payload.ToBytes());\n    }\n" n))]
+        [(assv type cpp-pb-fixed)
+         => (lambda (info)
+              (string-append
+               (format "    if (!~a.empty()) {\n" v)
+               (format "        ~a::Writer payload;\n" support)
+               (format "        for (auto x : ~a) payload.Fixed~a(x);\n" v (third info))
+               (format "        w.BytesField(~a, payload.ToBytes());\n    }\n" n)))]
+        [(= type 9) (format "    for (const auto& x : ~a) w.BytesField(~a, grpcdc::Bytes(x.begin(), x.end()));\n" v n)]
+        [(= type 12) (format "    for (const auto& x : ~a) w.BytesField(~a, x);\n" v n)]
+        [(= type 11) (format "    for (const auto& x : ~a) w.BytesField(~a, x.MarshalDc());\n" v n)]
+        [else (error 'emit-cpp-pb-file "unsupported repeated field type ~a" type)]))
+
+(define (cpp-pb-decode-singular model f target src indent support)
+  (define type (hash-ref f 'type))
+  (cond [(memv type cpp-pb-varint-types)
+         (format "~a~a = ~a;\n" indent target
+                 (if (= type 14)
+                     (format "static_cast<~a>(~a)" (cpp-pb-entry-ref model (cpp-pb-resolve model (hash-ref f 'type-name))) (cpp-pb-varint-decode (hash-set f 'type 5) src))
+                     (cpp-pb-varint-decode f src)))]
+        [(assv type cpp-pb-fixed)
+         => (lambda (info)
+              (format "~a~a = ~a;\n" indent target
+                      (case (hash-ref f 'type)
+                        [(2) (format "~a::BitsToFloat(static_cast<std::uint32_t>(~a))" support src)]
+                        [(1) (format "~a::BitsToDouble(~a)" support src)]
+                        [(7) (format "static_cast<std::uint32_t>(~a)" src)]
+                        [(15) (format "static_cast<std::int32_t>(~a)" src)]
+                        [else src])))]
+        [(= type 9) (format "~a~a = std::string(~a.begin(), ~a.end());\n" indent target src src)]
+        [(= type 12) (format "~a~a = ~a;\n" indent target src)]
+        [(= type 11)
+         (define ref (cpp-pb-entry-ref model (cpp-pb-resolve model (hash-ref f 'type-name))))
+         (string-append
+          (format "~a~a.emplace();\n" indent target)
+          (format "~a~a->UnmarshalDc(~a);\n" indent target src))]
+        [else (error 'emit-cpp-pb-file "unsupported field type ~a" type)]))
+
+(define (cpp-pb-decode-case model f support)
+  (define v (hash-ref f 'name))
+  (define type (hash-ref f 'type))
+  (define head (format "        case ~a: {\n" (hash-ref f 'number)))
+  (define tail "            break;\n        }\n")
+  (cond [(and (= type 11)
+              (eq? (hash-ref (cpp-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
+         (define entry (cpp-pb-resolve model (hash-ref f 'type-name)))
+         (define helper (format "~a::~aDecode" support (cpp-pb-map-helper-name model entry)))
+         (string-append head
+                        (format "            auto kv = ~a(field.bytes);\n" helper)
+                        (format "            ~a[kv.first] = kv.second;\n" v)
+                        tail)]
+        [(not (= (hash-ref f 'label) 3))
+         (string-append head
+                        (cpp-pb-decode-singular model f v
+                                                (cond [(memv type cpp-pb-varint-types) "field.varint"]
+                                                      [(assv type cpp-pb-fixed) "field.fixed"]
+                                                      [else "field.bytes"])
+                                                "            " support)
+                        tail)]
+        [(memv type cpp-pb-varint-types)
+         (string-append head
+                        "            if (field.wire == 2) {\n"
+                        (format "                ~a::Reader sub(field.bytes);\n" support)
+                        "                while (!sub.Done()) {\n"
+                        (format "                    ~a.push_back(~a);\n" v
+                                (let ([conv (cpp-pb-varint-decode f "sub.Varint()")])
+                                  (if (= type 14)
+                                      (format "static_cast<~a>(~a)" (cpp-pb-entry-ref model (cpp-pb-resolve model (hash-ref f 'type-name))) (cpp-pb-varint-decode (hash-set f 'type 5) "sub.Varint()"))
+                                      conv)))
+                        "                }\n            } else {\n"
+                        (format "                ~a.push_back(~a);\n" v
+                                (let ([conv (cpp-pb-varint-decode f "field.varint")])
+                                  (if (= type 14)
+                                      (format "static_cast<~a>(~a)" (cpp-pb-entry-ref model (cpp-pb-resolve model (hash-ref f 'type-name))) (cpp-pb-varint-decode (hash-set f 'type 5) "field.varint"))
+                                      conv)))
+                        "            }\n" tail)]
+        [(assv type cpp-pb-fixed)
+         => (lambda (info)
+              (string-append head
+                             "            if (field.wire == 2) {\n"
+                             (format "                ~a::Reader sub(field.bytes);\n" support)
+                             (format "                while (!sub.Done()) ~a.push_back(~a);\n" v
+                                     (case (hash-ref f 'type)
+                                       [(2) (format "~a::BitsToFloat(sub.Fixed32())" support)]
+                                       [(1) (format "~a::BitsToDouble(sub.Fixed64())" support)]
+                                       [(7) "static_cast<std::uint32_t>(sub.Fixed32())"]
+                                       [(15) "sub.Fixed32()"]
+                                       [else "sub.Fixed64()"]))
+                             "            } else {\n"
+                             (format "                ~a.push_back(~a);\n" v
+                                     (case (hash-ref f 'type)
+                                       [(2) (format "~a::BitsToFloat(static_cast<std::uint32_t>(field.fixed))" support)]
+                                       [(1) (format "~a::BitsToDouble(field.fixed)" support)]
+                                       [(7) "static_cast<std::uint32_t>(field.fixed)"]
+                                       [(15) "static_cast<std::int32_t>(field.fixed)"]
+                                       [else "field.fixed"]))
+                             "            }\n" tail))]
+        [(= type 9) (string-append head (format "            ~a.push_back(std::string(field.bytes.begin(), field.bytes.end()));\n" v) tail)]
+        [(= type 12) (string-append head (format "            ~a.push_back(field.bytes);\n" v) tail)]
+        [(= type 11)
+         (string-append head
+                        (format "            ~a item;\n" (cpp-pb-entry-ref model (cpp-pb-resolve model (hash-ref f 'type-name))))
+                        "            item.UnmarshalDc(field.bytes);\n"
+                        (format "            ~a.push_back(item);\n" v) tail)]
+        [else (error 'emit-cpp-pb-file "unsupported repeated field type ~a" type)]))
+
+(define (cpp-pb-map-helper-name model entry)
+  (define rel (cpp-pb-rel (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)))
+  (string-join (string-split rel "::") ""))
+
+(define (cpp-pb-map-helpers model entry support)
+  (define msg (hash-ref entry 'msg))
+  (define base (cpp-pb-map-helper-name model entry))
+  (define key-f (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref msg 'fields)))
+  (define val-f (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref msg 'fields)))
+  (unless (and key-f val-f) (error 'emit-cpp-pb-file "map entry ~a lacks key/value" (hash-ref msg 'full-name)))
+  (define kt (cpp-pb-type model (hash-set key-f 'label 1)))
+  (define vt (cpp-pb-type model (hash-set val-f 'label 1)))
+  ;; Message-typed values are optional<T> in field position; map
+  ;; values use plain T.
+  (define vt-plain (if (and (= (hash-ref val-f 'type) 11)
+                            (not (eq? (hash-ref (cpp-pb-resolve model (hash-ref val-f 'type-name)) 'kind) 'map)))
+                       (cpp-pb-entry-ref model (cpp-pb-resolve model (hash-ref val-f 'type-name)))
+                       vt))
+  (cons
+   (string-append
+    (format "inline grpcdc::Bytes ~aEncode(const ~a& key, const ~a& value);\n" base kt vt-plain)
+    (format "inline std::pair<~a, ~a> ~aDecode(const grpcdc::Bytes& bytes);\n" kt vt-plain base))
+   (string-append
+   (format "inline grpcdc::Bytes ~aEncode(const ~a& key, const ~a& value) {\n" base kt vt-plain)
+   "    Writer w;\n"
+   (cpp-pb-encode-singular model (hash-set key-f 'label 1) "key" "    " support)
+   (if (= (hash-ref val-f 'type) 11)
+       (format "    w.BytesField(~a, value.MarshalDc());\n" (hash-ref val-f 'number))
+       (cpp-pb-encode-singular model (hash-set val-f 'label 1) "value" "    " support))
+   "    return w.ToBytes();\n}\n\n"
+   (format "inline std::pair<~a, ~a> ~aDecode(const grpcdc::Bytes& bytes) {\n" kt vt-plain base)
+   (format "    ~a key = ~a;\n" kt (cpp-pb-default model (hash-set key-f 'label 1)))
+   (format "    ~a value~a;\n" vt-plain (if (= (hash-ref val-f 'type) 11) "" (string-append " = " (cpp-pb-default model (hash-set val-f 'label 1)))))
+   "    Reader r(bytes);\n    Field field;\n    while (r.Next(field)) {\n        switch (field.number) {\n"
+   (format "            case ~a: ~a break;\n" (hash-ref key-f 'number)
+           (string-trim (cpp-pb-decode-singular model (hash-set key-f 'label 1) "key"
+                                                (cond [(memv (hash-ref key-f 'type) cpp-pb-varint-types) "field.varint"]
+                                                      [(assv (hash-ref key-f 'type) cpp-pb-fixed) "field.fixed"]
+                                                      [else "field.bytes"]) "" support) "\n" #:left? #f #:repeat? #t))
+   (format "            case ~a: ~a break;\n" (hash-ref val-f 'number)
+           (if (= (hash-ref val-f 'type) 11)
+               "value.UnmarshalDc(field.bytes);"
+               (string-trim (cpp-pb-decode-singular model (hash-set val-f 'label 1)
+                                                    "value"
+                                                    (cond [(memv (hash-ref val-f 'type) cpp-pb-varint-types) "field.varint"]
+                                                          [(assv (hash-ref val-f 'type) cpp-pb-fixed) "field.fixed"]
+                                                          [else "field.bytes"]) "" support) "\n" #:left? #f #:repeat? #t)))
+   "            default: break;\n        }\n    }\n    return {key, value};\n}\n\n")))
+
+(define (cpp-pb-support-open base pkg deps)
+  (string-append
+   "// @generated by protoc-gen-grpc-dc-cpp (Racket metaprogram). DO NOT EDIT.\n"
+   "#pragma once\n\n"
+   "#include <cstdint>\n#include <cstring>\n#include <map>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <utility>\n#include <vector>\n\n"
+   "#include \"grpcdc/transport.hpp\"\n"
+   (apply string-append
+          (map (lambda (d)
+                 (format "#include \"~a_messages.hpp\"\n"
+                         (path->string (path-replace-extension (file-name-from-path d) ""))))
+               deps))
+   "\n"
+   (format "namespace ~a {\n\n" (cpp-pb-ns pkg))))
+
+(define (cpp-pb-support base pkg helpers)
+  (string-append
+   (format "namespace pb_~a {\n\n" base)
+   "class Writer {\n"
+   "    grpcdc::Bytes out_;\n"
+   "public:\n"
+   "    void Varint(std::uint64_t v) { while (v > 0x7f) { out_.push_back(static_cast<std::uint8_t>((v & 0x7f) | 0x80)); v >>= 7; } out_.push_back(static_cast<std::uint8_t>(v)); }\n"
+   "    void Tag(int field, int wire) { Varint(static_cast<std::uint64_t>((field << 3) | wire)); }\n"
+   "    void BytesField(int field, const grpcdc::Bytes& payload) { Tag(field, 2); Varint(payload.size()); out_.insert(out_.end(), payload.begin(), payload.end()); }\n"
+   "    void StringField(int field, const std::string& value) { if (value.empty()) return; BytesField(field, grpcdc::Bytes(value.begin(), value.end())); }\n"
+   "    void FixedInt32(std::int32_t v) { std::uint32_t u = static_cast<std::uint32_t>(v); for (int i = 0; i < 4; i++) out_.push_back(static_cast<std::uint8_t>((u >> (8 * i)) & 0xff)); }\n"
+   "    void FixedInt64(std::int64_t v) { std::uint64_t u = static_cast<std::uint64_t>(v); for (int i = 0; i < 8; i++) out_.push_back(static_cast<std::uint8_t>((u >> (8 * i)) & 0xff)); }\n"
+   "    void FixedFloat(float v) { std::uint32_t u; std::memcpy(&u, &v, 4); FixedInt32(static_cast<std::int32_t>(u)); }\n"
+   "    void FixedDouble(double v) { std::uint64_t u; std::memcpy(&u, &v, 8); FixedInt64(static_cast<std::int64_t>(u)); }\n"
+   "    grpcdc::Bytes ToBytes() const { return out_; }\n"
+   "};\n\n"
+   "inline float BitsToFloat(std::uint32_t u) { float v; std::memcpy(&v, &u, 4); return v; }\n"
+   "inline double BitsToDouble(std::uint64_t u) { double v; std::memcpy(&v, &u, 8); return v; }\n\n"
+   "struct Field {\n"
+   "    int number = 0; int wire = 0; std::uint64_t varint = 0; grpcdc::Bytes bytes; std::uint64_t fixed = 0;\n"
+   "};\n\n"
+   "class Reader {\n"
+   "    grpcdc::Bytes buf_; std::size_t pos_ = 0;\n"
+   "public:\n"
+   "    explicit Reader(const grpcdc::Bytes& buf) : buf_(buf) {}\n"
+   "    bool Done() const { return pos_ >= buf_.size(); }\n"
+   "    std::uint64_t Varint() { std::uint64_t result = 0; int shift = 0; while (true) { if (pos_ >= buf_.size()) throw std::invalid_argument(\"truncated varint\"); std::uint8_t b = buf_[pos_++]; result |= static_cast<std::uint64_t>(b & 0x7f) << shift; if ((b & 0x80) == 0) return result; shift += 7; if (shift >= 64) throw std::invalid_argument(\"varint too long\"); } }\n"
+   "    grpcdc::Bytes Take(std::size_t n) { if (pos_ + n > buf_.size()) throw std::invalid_argument(\"truncated field\"); grpcdc::Bytes v(buf_.begin() + pos_, buf_.begin() + pos_ + n); pos_ += n; return v; }\n"
+   "    std::uint32_t Fixed32() { auto b = Take(4); return static_cast<std::uint32_t>(b[0]) | (static_cast<std::uint32_t>(b[1]) << 8) | (static_cast<std::uint32_t>(b[2]) << 16) | (static_cast<std::uint32_t>(b[3]) << 24); }\n"
+   "    std::uint64_t Fixed64() { auto b = Take(8); std::uint64_t v = 0; for (int i = 0; i < 8; i++) v |= static_cast<std::uint64_t>(b[i]) << (8 * i); return v; }\n"
+   "    bool Next(Field& field) {\n"
+   "        if (pos_ >= buf_.size()) return false;\n"
+   "        std::uint64_t tag = Varint(); field.number = static_cast<int>(tag >> 3); field.wire = static_cast<int>(tag & 7);\n"
+   "        switch (field.wire) {\n"
+   "            case 0: field.varint = Varint(); return true;\n"
+   "            case 2: { std::size_t n = static_cast<std::size_t>(Varint()); field.bytes = Take(n); return true; }\n"
+   "            case 1: field.bytes = Take(8); field.fixed = 0; for (int i = 0; i < 8; i++) field.fixed |= static_cast<std::uint64_t>(field.bytes[i]) << (8 * i); return true;\n"
+   "            case 5: field.bytes = Take(4); field.fixed = static_cast<std::uint32_t>(field.bytes[0]) | (static_cast<std::uint32_t>(field.bytes[1]) << 8) | (static_cast<std::uint32_t>(field.bytes[2]) << 16) | (static_cast<std::uint32_t>(field.bytes[3]) << 24); return true;\n"
+   "            default: throw std::invalid_argument(\"bad wire type\");\n"
+   "        }\n"
+   "    }\n"
+   "};\n\n"
+   helpers
+   (format "}  // namespace pb_~a\n\n" base)))
+
+(define (cpp-pb-message-class model msg support indent)
+  (define name (hash-ref msg 'name))
+  (define fields (hash-ref msg 'fields))
+  (define pad indent)
+  (string-append
+   (format "~aclass ~a : public grpcdc::Marshaler, public grpcdc::Unmarshaler {\n~a public:\n" pad name pad)
+   (apply string-append
+          (map (lambda (f)
+                 (format "~a  ~a ~a = ~a;\n" pad (cpp-pb-type model f) (hash-ref f 'name) (cpp-pb-default model f)))
+               fields))
+   (format "~a  ~a() = default;\n" pad name)
+   (format "~a  grpcdc::Bytes MarshalDc() const override {\n" pad)
+   (format "~a    ~a::Writer w;\n" pad support)
+   (apply string-append (map (lambda (f) (cpp-pb-encode-field model f support)) fields))
+   (format "~a    return w.ToBytes();\n~a  }\n" pad pad)
+   (format "~a  void UnmarshalDc(const grpcdc::Bytes& data) override {\n" pad)
+   (apply string-append
+          (map (lambda (f) (format "~a    ~a = ~a;\n" pad (hash-ref f 'name) (cpp-pb-default model f))) fields))
+   (format "~a    ~a::Reader r(data);\n" pad support)
+   (format "~a    ~a::Field field;\n" pad support)
+   (format "~a    while (r.Next(field)) {\n~a      switch (field.number) {\n" pad pad)
+   (apply string-append (map (lambda (f) (cpp-pb-decode-case model f support)) fields))
+   (format "~a        default: break;\n~a      }\n~a    }\n~a  }\n" pad pad pad pad)
+   (apply string-append (map (lambda (n) (cpp-pb-message-class model n support (string-append indent "  "))) (hash-ref msg 'nested)))
+   (apply string-append (map (lambda (e) (cpp-pb-nested-enum e (string-append indent "  "))) (hash-ref msg 'enums)))
+   (format "~a};\n" pad)))
+
+(define (cpp-pb-nested-enum e indent)
+  (string-append
+   (format "~aenum class ~a : std::int32_t {\n" indent (hash-ref e 'name))
+   (string-join (map (lambda (v) (format "~a  ~a = ~a" indent (hash-ref v 'name) (hash-ref v 'number)))
+                     (hash-ref e 'values)) ",\n")
+   (format "\n~a};\n" indent)))
+
+(define (emit-cpp-pb-file file-model)
+  (and (hash-has-key? file-model 'messages)
+       (hash-has-key? file-model 'types)
+       (emit-cpp-pb-file/inner file-model)))
+
+(define (emit-cpp-pb-file/inner file-model)
+  (define messages (hash-ref file-model 'messages))
+  (define enums (hash-ref file-model 'enums))
+  (and (or (pair? messages) (pair? enums))
+       (let ()
+         (define base (path->string (path-replace-extension
+                                     (file-name-from-path (hash-ref file-model 'name)) "")))
+         (define pkg (hash-ref file-model 'package))
+         (define support (format "pb_~a" base))
+         (define seen-maps (mutable-set))
+         (define helpers '())
+         (define (collect msg)
+           (for ([f (in-list (hash-ref msg 'fields))])
+             (when (= (hash-ref f 'type) 11)
+               (define e (cpp-pb-resolve file-model (hash-ref f 'type-name)))
+               (when (and (eq? (hash-ref e 'kind) 'map)
+                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
+                          (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
+                 (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
+                 (set! helpers (cons (cpp-pb-map-helpers file-model e support) helpers)))))
+           (for ([n (in-list (hash-ref msg 'nested))]) (collect n)))
+         (for ([m (in-list messages)]) (collect m))
+         (define content
+           (string-append
+            (cpp-pb-support-open base pkg (hash-ref file-model 'dependencies))
+            (apply string-append
+                   (map (lambda (m) (format "class ~a;\n" (hash-ref m 'name)))
+                        (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))
+            "\n"
+            (cpp-pb-support base pkg (apply string-append (map car (reverse helpers))))
+            (apply string-append
+                   (map (lambda (e)
+                          (string-append
+                           (format "enum class ~a : std::int32_t {\n" (hash-ref e 'name))
+                           (string-join (map (lambda (v) (format "  ~a = ~a" (hash-ref v 'name) (hash-ref v 'number)))
+                                             (hash-ref e 'values)) ",\n")
+                           "\n};\n\n"))
+                        enums))
+            (apply string-append
+                   (map (lambda (m) (cpp-pb-message-class file-model m support ""))
+                        (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))
+            (if (null? helpers)
+                ""
+                (string-append
+                 (format "namespace pb_~a {\n\n" base)
+                 (apply string-append (map cdr (reverse helpers)))
+                 (format "}  // namespace pb_~a\n\n" base)))
+            (format "}  // namespace ~a\n" (cpp-pb-ns pkg))))
+         (cons (string-append base "_messages.hpp") content))))
+
 (define (emit-cpp-file file-model params)
   (define base (path->string (path-replace-extension
                               (file-name-from-path (hash-ref file-model 'name)) "")))
   (define struct-name (string-append (pascal (string->symbol base)) "GrpcDc"))
   (define pkg (hash-ref file-model 'package))
   (define ns (if (string=? pkg "") "proto" pkg))
-  (cons (string-append base "_grpc_dc.hpp")
-        (string-append
-         "// @generated by protoc-gen-grpc-dc-cpp (Racket metaprogram). DO NOT EDIT.\n"
+  (define stub
+    (cons (string-append base "_grpc_dc.hpp")
+          (string-append
+           "// @generated by protoc-gen-grpc-dc-cpp (Racket metaprogram). DO NOT EDIT.\n"
          (format "// source: ~a\n" (hash-ref file-model 'name))
          "#pragma once\n\n"
          "#include <future>\n#include <optional>\n\n#if __cplusplus >= 202002L\n#include \"grpcdc/async.hpp\"\n#endif\n"
@@ -552,3 +991,5 @@
                 (map cpp-service (hash-ref file-model 'services)))
          "};\n\n"
          (format "}  // namespace ~a\n" ns))))
+  (define pb-file (emit-cpp-pb-file file-model))
+  (if pb-file (list stub pb-file) stub))

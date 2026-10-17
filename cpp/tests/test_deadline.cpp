@@ -24,7 +24,7 @@ using echo::EchoResponse;
 using std::chrono::milliseconds;
 
 EchoRequest Req(const std::string& message, std::int32_t count) {
-  return EchoRequest(message, count);
+  EchoRequest r; r.message = message; r.count = count; return r;
 }
 
 class SlowEcho : public echo::EchoServiceImpl {
@@ -43,7 +43,7 @@ class SlowEcho : public echo::EchoServiceImpl {
                     EchoGrpcDc::EchoServerStreamServer& stream) override {
     for (std::int32_t i = 0; i < std::max(0, req.count); ++i) {
       if (i > 0) std::this_thread::sleep_for(milliseconds(300));
-      EchoResponse resp(req.message, i);
+      EchoResponse resp; resp.message = req.message; resp.index = i;
       stream.Send(resp);
     }
   }
