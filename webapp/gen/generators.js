@@ -70,6 +70,16 @@ function getBool(fields, num) {
   return all.some((e) => e.wire === 0 && e.varint !== 0n);
 }
 
+function getInt(fields, num, dflt) {
+  const all = fields.get(num) || [];
+  for (const e of all) if (e.wire === 0) return Number(e.varint);
+  return dflt || 0;
+}
+
+function getStrings(fields, num) {
+  return getAllBytes(fields, num).map((b) => utf8.decode(b));
+}
+
 // ---------------------------------------------------------------------------
 // Descriptor model (mirrors racket/desc.rkt).
 // ---------------------------------------------------------------------------
@@ -101,6 +111,8 @@ function parseMethod(fields, pkg, serviceName) {
     path: methodPath(pkg, serviceName, name),
     input: simpleTypeName(getString(fields, 2)),
     output: simpleTypeName(getString(fields, 3)),
+    inputFull: getString(fields, 2).replace(/^\./, ''),
+    outputFull: getString(fields, 3).replace(/^\./, ''),
     kind: streamingKind(client, server),
     clientStreaming: client,
     serverStreaming: server,
@@ -118,12 +130,53 @@ function parseService(fields, pkg) {
   };
 }
 
+// FieldDescriptorProto type codes (descriptor.proto Type).
+const FT = { DOUBLE: 1, FLOAT: 2, INT64: 3, UINT64: 4, INT32: 5, FIXED64: 6, FIXED32: 7, BOOL: 8, STRING: 9, GROUP: 10, MESSAGE: 11, BYTES: 12, UINT32: 13, ENUM: 14, SFIXED32: 15, SFIXED64: 16, SINT32: 17, SINT64: 18 };
+
+function parseEnumDesc(fields) {
+  return {
+    name: getString(fields, 1),
+    values: getAllBytes(fields, 2).map((v) => {
+      const vf = pbParse(v);
+      return { name: getString(vf, 1), number: getInt(vf, 2) };
+    }),
+  };
+}
+
+function parseFieldDesc(fields) {
+  return {
+    name: getString(fields, 1),
+    number: getInt(fields, 3),
+    label: getInt(fields, 4, 1), // 1 optional, 2 required, 3 repeated
+    type: getInt(fields, 5),
+    typeName: getString(fields, 6, '').replace(/^\./, ''),
+    jsonName: getString(fields, 10, ''),
+  };
+}
+
+function parseMessageDesc(fields, prefix) {
+  const name = getString(fields, 1);
+  const full = prefix ? prefix + '.' + name : name;
+  const opts = firstBytes(fields, 7);
+  return {
+    name,
+    fullName: full,
+    fields: getAllBytes(fields, 2).map((f) => parseFieldDesc(pbParse(f))),
+    nested: getAllBytes(fields, 3).map((n) => parseMessageDesc(pbParse(n), full)),
+    enums: getAllBytes(fields, 4).map((e) => parseEnumDesc(pbParse(e))),
+    mapEntry: opts !== null && getBool(pbParse(opts), 7),
+  };
+}
+
 function parseFileDesc(fields) {
   const pkg = getString(fields, 2, '');
   return {
     name: getString(fields, 1),
     package: pkg,
+    dependencies: getStrings(fields, 3),
     services: getAllBytes(fields, 6).map((s) => parseService(pbParse(s), pkg)),
+    messages: getAllBytes(fields, 4).map((m) => parseMessageDesc(pbParse(m), pkg)),
+    enums: getAllBytes(fields, 5).map((e) => parseEnumDesc(pbParse(e))),
   };
 }
 
@@ -133,9 +186,22 @@ function buildModel(setBytes, entries) {
     const f = parseFileDesc(pbParse(raw));
     byName.set(f.name, f);
   }
+  // Global type registry across the whole set, so JS message
+  // generation can resolve field types across imports.
+  const registry = new Map();
+  const registerMsg = (file, pkg, msg) => {
+    registry.set(msg.fullName, { kind: msg.mapEntry ? 'map' : 'message', msg, file, pkg });
+    for (const n of msg.nested) registerMsg(file, pkg, n);
+    for (const e of msg.enums) registry.set(msg.fullName + '.' + e.name, { kind: 'enum', enum: e, file, pkg });
+  };
+  for (const f of byName.values()) {
+    for (const m of f.messages) registerMsg(f.name, f.package, m);
+    for (const e of f.enums) registry.set((f.package ? f.package + '.' : '') + e.name, { kind: 'enum', enum: e, file: f.name, pkg: f.package });
+  }
   return entries.map((e) => {
     const f = byName.get(e);
     if (!f) throw new Error('file not in descriptor set: ' + e);
+    f.types = registry;
     return f;
   });
 }
@@ -235,6 +301,419 @@ function emitJsFile(model, params) {
       + (types.length ? 'import { ' + types.join(', ') + ' } from ' + q(pbImport) + ';\n\n' : '')
       + model.services.map(jsService).join(''),
   };
+}
+
+// ---------------------------------------------------------------------------
+// JS message classes (<base>_pb.js). The native plugins do not
+// generate message classes (users bring protobuf tooling output);
+// in the fully client-side web app there is no protoc to shell out
+// to, so the browser generator emits dependency-free classes with
+// the static encode/decode surface js/src/channel.js consumes —
+// the same shape as the hand-written js/examples/echo_pb.js.
+// Wire format is genuine protobuf (proto3 semantics; oneof fields
+// are generated as plain fields).
+// ---------------------------------------------------------------------------
+
+const PB_PREAMBLE = `function varintBytes(value) {
+  let n = BigInt.asUintN(64, BigInt(value));
+  const out = [];
+  while (n > 0x7fn) {
+    out.push(Number((n & 0x7fn) | 0x80n));
+    n >>= 7n;
+  }
+  out.push(Number(n));
+  return out;
+}
+
+function zz64(v) {
+  const b = BigInt(v);
+  return (b << 1n) ^ (b >> 63n);
+}
+
+function unzz64(v) {
+  return (v >> 1n) ^ (-(v & 1n));
+}
+
+class Reader {
+  constructor(bytes) {
+    this.bytes = bytes;
+    this.pos = 0;
+  }
+  get done() {
+    return this.pos >= this.bytes.length;
+  }
+  varint() {
+    let result = 0n;
+    let shift = 0n;
+    for (;;) {
+      if (this.pos >= this.bytes.length) throw new Error("truncated varint");
+      const byte = this.bytes[this.pos++];
+      result |= BigInt(byte & 0x7f) << shift;
+      if ((byte & 0x80) === 0) return result;
+      shift += 7n;
+      if (shift >= 64n) throw new Error("varint too long");
+    }
+  }
+  take(n) {
+    const value = this.bytes.slice(this.pos, this.pos + n);
+    if (value.length !== n) throw new Error("truncated field");
+    this.pos += n;
+    return value;
+  }
+  field() {
+    if (this.done) return null;
+    const tag = this.varint();
+    const field = Number(tag >> 3n);
+    const wire = Number(tag & 7n);
+    switch (wire) {
+      case 0:
+        return [field, wire, this.varint()];
+      case 2: {
+        const len = Number(this.varint());
+        return [field, wire, this.take(len)];
+      }
+      case 1:
+        return [field, wire, this.take(8)];
+      case 5:
+        return [field, wire, this.take(4)];
+      default:
+        throw new Error("bad wire type " + wire);
+    }
+  }
+}
+
+function putTag(out, num, wire) {
+  out.push(...varintBytes((BigInt(num) << 3n) | BigInt(wire)));
+}
+
+function putVarintField(out, num, value) {
+  if (value === 0n) return;
+  putTag(out, num, 0);
+  out.push(...varintBytes(value));
+}
+
+function putBytesField(out, num, payload) {
+  putTag(out, num, 2);
+  out.push(...varintBytes(payload.length), ...payload);
+}
+
+function putStringField(out, num, value) {
+  if (!value) return;
+  putBytesField(out, num, new TextEncoder().encode(value));
+}
+
+function putFixedField(out, num, payload) {
+  putTag(out, num, payload.length === 8 ? 1 : 5);
+  out.push(...payload);
+}
+
+function fixedBytes(value, size, write) {
+  const bytes = new Uint8Array(size);
+  write(new DataView(bytes.buffer), value);
+  return bytes;
+}
+
+function readFixed(bytes, read) {
+  return read(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+}
+
+`;
+
+function pbFlatName(pkg, fullName) {
+  const rel = pkg && fullName.startsWith(pkg + '.') ? fullName.slice(pkg.length + 1) : fullName;
+  return rel.split('.').join('_');
+}
+
+function pbJsName(f) {
+  if (f.jsonName) return f.jsonName;
+  return f.name.replace(/_([a-zA-Z0-9])/g, (_, c) => c.toUpperCase());
+}
+
+const PB_VARINT = new Set([FT.INT32, FT.INT64, FT.UINT32, FT.UINT64, FT.SINT32, FT.SINT64, FT.BOOL, FT.ENUM]);
+const PB_FIXED = { [FT.FLOAT]: [4, 'Float32'], [FT.DOUBLE]: [8, 'Float64'], [FT.FIXED32]: [4, 'Uint32'], [FT.SFIXED32]: [4, 'Int32'], [FT.FIXED64]: [8, 'BigUint64'], [FT.SFIXED64]: [8, 'BigInt64'] };
+const PB_BIGINT = new Set([FT.INT64, FT.UINT64, FT.SINT64, FT.FIXED64, FT.SFIXED64]);
+
+function pbVarintExpr(f, v) {
+  switch (f.type) {
+    case FT.BOOL: return '(' + v + ' ? 1n : 0n)';
+    case FT.SINT32: return 'BigInt(((' + v + ' << 1) ^ (' + v + ' >> 31)) >>> 0)';
+    case FT.SINT64: return 'zz64(' + v + ')';
+    default: return 'BigInt(' + v + ')';
+  }
+}
+
+function pbVarintDecode(f, v) {
+  switch (f.type) {
+    case FT.INT32: case FT.ENUM: return 'Number(BigInt.asIntN(32, ' + v + '))';
+    case FT.UINT32: return 'Number(BigInt.asUintN(32, ' + v + '))';
+    case FT.INT64: return 'BigInt.asIntN(64, ' + v + ')';
+    case FT.UINT64: return 'BigInt.asUintN(64, ' + v + ')';
+    case FT.BOOL: return v + ' !== 0n';
+    case FT.SINT32: return 'Number(unzz64(BigInt.asUintN(32, ' + v + ')))';
+    case FT.SINT64: return 'unzz64(' + v + ')';
+    default: throw new Error('not a varint type ' + f.type);
+  }
+}
+
+function pbDefault(f, model) {
+  if (f.label === 3) {
+    const t = model.types.get(f.typeName);
+    if (f.type === FT.MESSAGE && t && t.kind === 'map') return 'new Map()';
+    return '[]';
+  }
+  switch (f.type) {
+    case FT.STRING: return '""';
+    case FT.BYTES: return 'new Uint8Array(0)';
+    case FT.BOOL: return 'false';
+    case FT.MESSAGE: case FT.GROUP: return 'undefined';
+    default: return PB_BIGINT.has(f.type) ? '0n' : '0';
+  }
+}
+
+// Resolve a field's message/enum type through the registry.
+// Returns {entry, ref, external} where ref is the JS identifier.
+function pbResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName + ' (not in descriptor set)');
+  return entry;
+}
+
+// Statements encoding one singular field value expr into `out`.
+function pbEncodeSingular(model, f, v, indent) {
+  const n = f.number;
+  if (PB_VARINT.has(f.type)) return indent + 'putVarintField(out, ' + n + ', ' + pbVarintExpr(f, v) + ');\n';
+  if (PB_FIXED[f.type]) {
+    const [size, op] = PB_FIXED[f.type];
+    return indent + 'if (' + v + ') putFixedField(out, ' + n + ', fixedBytes(' + v + ', ' + size + ', (dv, x) => dv.set' + op + '(0, x, true)));\n';
+  }
+  switch (f.type) {
+    case FT.STRING: return indent + 'putStringField(out, ' + n + ', ' + v + ');\n';
+    case FT.BYTES: return indent + 'if (' + v + ' && ' + v + '.length) putBytesField(out, ' + n + ', ' + v + ');\n';
+    case FT.MESSAGE: {
+      const entry = pbResolve(model, f.typeName);
+      const ref = pbFlatName(entry.pkg, entry.msg.fullName);
+      return indent + 'if (' + v + ') putBytesField(out, ' + n + ', ' + ref + '.encode(' + v + '));\n';
+    }
+    default: throw new Error('unsupported field type ' + f.type + ' (groups are not supported)');
+  }
+}
+
+function pbEncodeField(model, f) {
+  const jn = pbJsName(f);
+  const v = 'msg.' + jn;
+  const n = f.number;
+  if (f.type === FT.MESSAGE) {
+    const entry = pbResolve(model, f.typeName);
+    if (entry.kind === 'map') {
+      const helper = pbFlatName(entry.pkg, entry.msg.fullName) + 'Encode';
+      return '    if (' + v + ') for (const [k, val] of ' + v + ') putBytesField(out, ' + n + ', ' + helper + '(k, val));\n';
+    }
+  }
+  if (f.label !== 3) return pbEncodeSingular(model, f, v, '    ');
+  if (PB_VARINT.has(f.type)) {
+    return '    if (' + v + ' && ' + v + '.length) {\n'
+      + '      const payload = [];\n'
+      + '      for (const x of ' + v + ') payload.push(...varintBytes(' + pbVarintExpr(f, 'x') + '));\n'
+      + '      putBytesField(out, ' + n + ', payload);\n    }\n';
+  }
+  if (PB_FIXED[f.type]) {
+    const [size, op] = PB_FIXED[f.type];
+    return '    if (' + v + ' && ' + v + '.length) {\n'
+      + '      const payload = new Uint8Array(' + v + '.length * ' + size + ');\n'
+      + '      const dv = new DataView(payload.buffer);\n'
+      + '      ' + v + '.forEach((x, i) => dv.set' + op + '(i * ' + size + ', x, true));\n'
+      + '      putBytesField(out, ' + n + ', payload);\n    }\n';
+  }
+  switch (f.type) {
+    case FT.STRING:
+      return '    if (' + v + ') for (const v of ' + v + ') putBytesField(out, ' + n + ', new TextEncoder().encode(v));\n';
+    case FT.BYTES:
+      return '    if (' + v + ') for (const v of ' + v + ') putBytesField(out, ' + n + ', v);\n';
+    case FT.MESSAGE: {
+      const entry = pbResolve(model, f.typeName);
+      const ref = pbFlatName(entry.pkg, entry.msg.fullName);
+      return '    if (' + v + ') for (const v of ' + v + ') putBytesField(out, ' + n + ', ' + ref + '.encode(v));\n';
+    }
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function pbDecodeSingular(model, f, target, src) {
+  const value = src || 'value';
+  if (PB_VARINT.has(f.type)) return target + ' = ' + pbVarintDecode(f, value) + ';';
+  if (PB_FIXED[f.type]) {
+    const [, op] = PB_FIXED[f.type];
+    return target + ' = readFixed(' + value + ', (dv) => dv.get' + op + '(0, true));';
+  }
+  switch (f.type) {
+    case FT.STRING: return target + ' = new TextDecoder().decode(' + value + ');';
+    case FT.BYTES: return target + ' = ' + value + ';';
+    case FT.MESSAGE: {
+      const entry = pbResolve(model, f.typeName);
+      return target + ' = ' + pbFlatName(entry.pkg, entry.msg.fullName) + '.decode(' + value + ');';
+    }
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function pbDecodeCase(model, f) {
+  const jn = pbJsName(f);
+  const target = 'msg.' + jn;
+  const head = '      case ' + f.number + ': ';
+  if (f.type === FT.MESSAGE) {
+    const entry = pbResolve(model, f.typeName);
+    if (entry.kind === 'map') {
+      const helper = pbFlatName(entry.pkg, entry.msg.fullName) + 'Decode';
+      return head + '{ const [k, val] = ' + helper + '(value); ' + target + '.set(k, val); break; }\n';
+    }
+  }
+  if (f.label !== 3) return head + pbDecodeSingular(model, f, target) + ' break;\n';
+  if (PB_VARINT.has(f.type)) {
+    return head + 'if (wire === 2) { const r = new Reader(value); while (!r.done) ' + target + '.push(' + pbVarintDecode(f, 'r.varint()') + '); } else ' + target + '.push(' + pbVarintDecode(f, 'value') + '); break;\n';
+  }
+  if (PB_FIXED[f.type]) {
+    const [size, op] = PB_FIXED[f.type];
+    return head + 'if (wire === 2) { const r = new Reader(value); while (!r.done) ' + target + '.push(readFixed(r.take(' + size + '), (dv) => dv.get' + op + '(0, true))); } else ' + target + '.push(readFixed(value, (dv) => dv.get' + op + '(0, true))); break;\n';
+  }
+  return head + target + '.push(' + (f.type === FT.STRING ? 'new TextDecoder().decode(value)' : f.type === FT.BYTES ? 'value' : pbFlatName(pbResolve(model, f.typeName).pkg, pbResolve(model, f.typeName).msg.fullName) + '.decode(value)') + '); break;\n';
+}
+
+function pbMapHelpers(model, entry) {
+  const msg = entry.msg;
+  const base = pbFlatName(entry.pkg, msg.fullName);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry ' + msg.fullName + ' lacks key/value fields');
+  const encBody = pbEncodeSingular(model, keyF, 'key', '  ') + pbEncodeSingular(model, valF, 'value', '  ');
+  const decCases = [keyF, valF].map((fld) => {
+    const target = fld.number === 1 ? 'key' : 'value';
+    return '      case ' + fld.number + ': ' + pbDecodeSingular(model, fld, target, 'raw') + ' break;\n';
+  }).join('');
+  return 'function ' + base + 'Encode(key, value) {\n  const out = [];\n' + encBody + '  return new Uint8Array(out);\n}\n\n'
+    + 'function ' + base + 'Decode(bytes) {\n'
+    + '  let key = ' + pbDefault(keyF, model) + ';\n  let value = ' + pbDefault(valF, model) + ';\n'
+    + '  const reader = new Reader(bytes);\n  let f;\n'
+    + '  while ((f = reader.field()) !== null) {\n    const [num, wire, raw] = f;\n    switch (num) {\n'
+    + decCases
+    + '    }\n  }\n  return [key, value];\n}\n\n';
+}
+
+function pbEnumConst(entry) {
+  const e = entry.kind === 'enum' ? entry.enum : null;
+  if (!e) return '';
+  const full = entry.msg ? entry.msg.fullName + '.' + e.name : (entry.pkg ? entry.pkg + '.' : '') + e.name;
+  const name = pbFlatName(entry.pkg, full);
+  return 'export const ' + name + ' = { ' + e.values.map((v) => v.name + ': ' + v.number).join(', ') + ' };\n\n';
+}
+
+function pbMessageClass(model, msg) {
+  const name = pbFlatName(model.package, msg.fullName);
+  const params = msg.fields.map((f) => pbJsName(f) + ' = ' + pbDefault(f, model)).join(', ');
+  const assigns = msg.fields.map((f) => '    this.' + pbJsName(f) + ' = ' + pbJsName(f) + ';\n').join('');
+  const enc = msg.fields.map((f) => pbEncodeField(model, f)).join('');
+  const dec = msg.fields.map((f) => pbDecodeCase(model, f)).join('');
+  return 'export class ' + name + ' {\n'
+    + '  constructor({ ' + params + ' } = {}) {\n' + assigns + '  }\n'
+    + '  static encode(msg) {\n    const out = [];\n' + enc + '    return new Uint8Array(out);\n  }\n'
+    + '  static decode(bytes) {\n    const msg = new ' + name + '();\n'
+    + '    const reader = new Reader(bytes);\n    let f;\n'
+    + '    while ((f = reader.field()) !== null) {\n      const [num, wire, value] = f;\n      switch (num) {\n'
+    + dec
+    + '      }\n    }\n    return msg;\n  }\n}\n\n';
+}
+
+function emitJsPbFile(model) {
+  const hasMessages = model.messages.length > 0;
+  // Types the stubs import from this file's pb module: re-export
+  // any that live in imported files so the zip runs as-is.
+  const serviceTypes = new Set();
+  for (const s of model.services) for (const m of s.methods) { serviceTypes.add(m.inputFull); serviceTypes.add(m.outputFull); }
+  const imports = new Map(); // dep file -> Set of names
+  const reexports = new Map();
+  const addImport = (entry, alsoExport) => {
+    if (entry.file === model.name) return;
+    const name = entry.kind === 'enum'
+      ? pbFlatName(entry.pkg, entry.msg ? entry.msg.fullName + '.' + entry.enum.name : (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name)
+      : pbFlatName(entry.pkg, entry.msg.fullName);
+    if (!imports.has(entry.file)) imports.set(entry.file, new Set());
+    imports.get(entry.file).add(name);
+    if (alsoExport) {
+      if (!reexports.has(entry.file)) reexports.set(entry.file, new Set());
+      reexports.get(entry.file).add(name);
+    }
+  };
+  const scanFields = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE || f.type === FT.ENUM) addImport(pbResolve(model, f.typeName), false);
+      if (f.type === FT.MESSAGE) {
+        const e = pbResolve(model, f.typeName);
+        if (e.kind === 'map') for (const ef of e.msg.fields) if (ef.type === FT.MESSAGE || ef.type === FT.ENUM) addImport(pbResolve(model, ef.typeName), false);
+      }
+    }
+    for (const n of msg.nested) scanFields(n);
+  };
+  for (const m of model.messages) scanFields(m);
+  for (const t of serviceTypes) {
+    const entry = model.types.get(t);
+    if (entry && entry.kind !== 'enum') addImport(entry, true);
+  }
+  if (!hasMessages && reexports.size === 0) return null;
+  let out = '// @generated by the grpc-dc web generator (protobuf messages for JS). DO NOT EDIT.\n'
+    + '// source: ' + model.name + '\n\n';
+  for (const [file, names] of imports) {
+    out += 'import { ' + [...names].join(', ') + ' } from "./' + baseName(file) + '_pb.js";\n';
+  }
+  if (imports.size) out += '\n';
+  out += PB_PREAMBLE;
+  const exported = new Set();
+  const enumEntries = [];
+  const collectEnums = (msg) => {
+    for (const e of msg.enums) enumEntries.push(model.types.get(msg.fullName + '.' + e.name));
+    for (const n of msg.nested) collectEnums(n);
+  };
+  for (const m of model.messages) collectEnums(m);
+  for (const e of model.enums) enumEntries.push(model.types.get((model.package ? model.package + '.' : '') + e.name));
+  for (const e of enumEntries) {
+    if (!e) continue;
+    const name = pbFlatName(e.pkg, e.msg ? e.msg.fullName + '.' + e.enum.name : (e.pkg ? e.pkg + '.' : '') + e.enum.name);
+    if (exported.has(name)) continue;
+    exported.add(name);
+    out += pbEnumConst(e);
+  }
+  // Map-entry helpers (entry types themselves are not exported).
+  const seenMaps = new Set();
+  const mapHelpers = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = pbResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) { seenMaps.add(e.msg.fullName); out += pbMapHelpers(model, e); }
+      }
+    }
+    for (const n of msg.nested) mapHelpers(n);
+  };
+  for (const m of model.messages) mapHelpers(m);
+  const emitMsg = (msg) => {
+    if (msg.mapEntry) return;
+    out += pbMessageClass(model, msg);
+    exported.add(pbFlatName(model.package, msg.fullName));
+    for (const n of msg.nested) emitMsg(n);
+  };
+  for (const m of model.messages) emitMsg(m);
+  // Simple-name aliases for nested messages (stub imports use the
+  // simple name), when unambiguous.
+  const alias = (msg, prefix) => {
+    for (const n of msg.nested) {
+      const flat = pbFlatName(model.package, n.fullName);
+      if (!exported.has(n.name) && !n.mapEntry) { out += 'export const ' + n.name + ' = ' + flat + ';\n'; exported.add(n.name); }
+      alias(n, prefix);
+    }
+  };
+  for (const m of model.messages) alias(m, '');
+  for (const [file, names] of reexports) {
+    const fresh = [...names].filter((n) => !exported.has(n));
+    if (fresh.length) out += 'export { ' + fresh.join(', ') + ' } from "./' + baseName(file) + '_pb.js";\n';
+  }
+  return { name: baseName(model.name) + '_pb.js', content: out };
 }
 
 // ---------------------------------------------------------------------------
@@ -649,7 +1128,15 @@ export function generateFiles(lang, setBytes, entries, parameter) {
   const emit = EMITTERS[lang];
   if (!emit) throw new Error('unsupported generator language: ' + lang);
   const params = parseParams(parameter || '');
-  return buildModel(setBytes, entries).map((model) => stampGeneratedHeader(emit(model, params)));
+  const files = [];
+  for (const model of buildModel(setBytes, entries)) {
+    files.push(emit(model, params));
+    if (lang === 'js') {
+      const pb = emitJsPbFile(model);
+      if (pb) files.push(pb);
+    }
+  }
+  return files.map(stampGeneratedHeader);
 }// ---------------------------------------------------------------------------
 // Rust emitter (mirrors racket/template-rust.rkt).
 // ---------------------------------------------------------------------------
@@ -1259,13 +1746,9 @@ function csStreamImpls(m, svc) {
 function csClientAsyncMethod(m, svc) {
   switch (m.kind) {
     case 'unary':
-      // Mirrors the Racket template verbatim, including its call to
-      // the literal name Unary (the template does not substitute the
-      // method name here); parity with the native plugin is what
-      // matters, and the parity test keeps both honest.
       return '        public Task<' + m.output + '> ' + m.name + 'Async(' + m.input + ' req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n'
         + '            CancellationToken cancellationToken = default)\n'
-        + '        {\n            return AsyncPump.Run(() => Unary(req, metadata, timeout), cancellationToken);\n        }\n\n';
+        + '        {\n            return AsyncPump.Run(() => ' + m.name + '(req, metadata, timeout), cancellationToken);\n        }\n\n';
     case 'server-streaming':
       return '        public async IAsyncEnumerable<' + m.output + '> ' + m.name + 'Async(' + m.input + ' req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n'
         + '            [EnumeratorCancellation] CancellationToken cancellationToken = default)\n'
@@ -1275,7 +1758,7 @@ function csClientAsyncMethod(m, svc) {
     case 'client-streaming':
       return '        public Task<' + m.output + '> ' + m.name + 'Async(IEnumerable<' + m.input + '> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n'
         + '            CancellationToken cancellationToken = default)\n'
-        + '        {\n            return AsyncPump.Run(() => ClientStream(reqs, metadata, timeout), cancellationToken);\n        }\n\n';
+        + '        {\n            return AsyncPump.Run(() => ' + m.name + '(reqs, metadata, timeout), cancellationToken);\n        }\n\n';
     default:
       return '        public async IAsyncEnumerable<' + m.output + '> ' + m.name + 'Async(IEnumerable<' + m.input + '> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n'
         + '            [EnumeratorCancellation] CancellationToken cancellationToken = default)\n'
@@ -3506,6 +3989,33 @@ function emitPhpFile(model, params) {
 // the service's FIRST method's request/response types.
 // ---------------------------------------------------------------------------
 
+function scalaKindOutputs(svc, kind) {
+  return [...new Set(svc.methods.filter((m) => m.kind === kind).map((m) => m.output))];
+}
+
+function scalaKindPairs(svc, kind) {
+  const seen = new Set();
+  const out = [];
+  for (const m of svc.methods.filter((x) => x.kind === kind)) {
+    const key = m.input + "/" + m.output;
+    if (!seen.has(key)) { seen.add(key); out.push([m.input, m.output]); }
+  }
+  return out;
+}
+
+function scalaSsTraitName(svc, out) {
+  return scalaKindOutputs(svc, 'server-streaming').length <= 1 ? svc.name + 'ServerStreamServer' : svc.name + out + 'ServerStreamServer';
+}
+
+function scalaPairTraitName(svc, kind, inp, out, suffix) {
+  return scalaKindPairs(svc, kind).length <= 1 ? svc.name + suffix : svc.name + inp + out + suffix;
+}
+
+function scalaClientStreamName(svc, kind, out) {
+  const suffix = kind === 'server-streaming' ? 'ServerStreamStream' : 'BidiStream';
+  return scalaKindOutputs(svc, kind).length <= 1 ? svc.name + suffix : svc.name + out + suffix;
+}
+
 function scalaClientMethod(m, svc) {
   const path = q(m.path);
   switch (m.kind) {
@@ -3515,16 +4025,16 @@ function scalaClientMethod(m, svc) {
         + '            channel.unary(' + path + ', req, resp, metadata, timeout)\n'
         + '            resp\n        }\n\n';
     case 'server-streaming':
-      return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + svc + 'ServerStreamStream = {\n'
-        + '            new ' + svc + 'ServerStreamStream(channel.serverStream(' + path + ', req, metadata, timeout))\n        }\n\n';
+      return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + scalaClientStreamName(svc, 'server-streaming', m.output) + ' = {\n'
+        + '            new ' + scalaClientStreamName(svc, 'server-streaming', m.output) + '(channel.serverStream(' + path + ', req, metadata, timeout))\n        }\n\n';
     case 'client-streaming':
       return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + m.output + ' = {\n'
         + '            val resp = new ' + m.output + '()\n'
         + '            channel.clientStreamCall(' + path + ', reqs, resp, metadata, timeout)\n'
         + '            resp\n        }\n\n';
     default:
-      return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + svc + 'BidiStream = {\n'
-        + '            new ' + svc + 'BidiStream(channel.bidi(' + path + ', reqs, metadata, timeout))\n        }\n\n';
+      return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + scalaClientStreamName(svc, 'bidi', m.output) + ' = {\n'
+        + '            new ' + scalaClientStreamName(svc, 'bidi', m.output) + '(channel.bidi(' + path + ', reqs, metadata, timeout))\n        }\n\n';
   }
 }
 
@@ -3561,11 +4071,11 @@ function scalaServerIfaceMethod(m, svc) {
     case 'unary':
       return '        def ' + m.name + '(ctx: grpcdc.Endpoint#CallContext, req: ' + m.input + '): ' + m.output + '\n';
     case 'server-streaming':
-      return '        def ' + m.name + '(req: ' + m.input + ', stream: ' + svc + 'ServerStreamServer): Unit\n';
+      return '        def ' + m.name + '(req: ' + m.input + ', stream: ' + scalaSsTraitName(svc, m.output) + '): Unit\n';
     case 'client-streaming':
-      return '        def ' + m.name + '(stream: ' + svc + 'ClientStreamServer): Unit\n';
+      return '        def ' + m.name + '(stream: ' + scalaPairTraitName(svc, 'client-streaming', m.input, m.output, 'ClientStreamServer') + '): Unit\n';
     default:
-      return '        def ' + m.name + '(stream: ' + svc + 'BidiServer): Unit\n';
+      return '        def ' + m.name + '(stream: ' + scalaPairTraitName(svc, 'bidi', m.input, m.output, 'BidiServer') + '): Unit\n';
   }
 }
 
@@ -3590,14 +4100,14 @@ function scalaRegisterMethod(m, svc) {
       return head
         + '                val req = new ' + m.input + '()\n'
         + '                reqs.recvInto(req)\n'
-        + '                impl.' + impl + '(req, new ' + svc + 'ServerStreamServer {\n'
+        + '                impl.' + impl + '(req, new ' + scalaSsTraitName(svc, m.output) + ' {\n'
         + '                    def send(resp: ' + m.output + '): Unit = sink.send(resp.marshalDc())\n'
         + '                    val context: grpcdc.Endpoint#CallContext = ctx\n'
         + '                })\n            }),\n';
     case 'client-streaming':
       return head
         + '                var response: ' + m.output + ' = null\n'
-        + '                impl.' + impl + '(new ' + svc + 'ClientStreamServer {\n'
+        + '                impl.' + impl + '(new ' + scalaPairTraitName(svc, 'client-streaming', m.input, m.output, 'ClientStreamServer') + ' {\n'
         + '                    def recv(): ' + m.input + ' = {\n'
         + '                        val req = new ' + m.input + '()\n'
         + '                        reqs.recvInto(req)\n                        req\n                    }\n'
@@ -3610,7 +4120,7 @@ function scalaRegisterMethod(m, svc) {
         + '                sink.send(response.marshalDc())\n            }),\n';
     default:
       return head
-        + '                impl.' + impl + '(new ' + svc + 'BidiServer {\n'
+        + '                impl.' + impl + '(new ' + scalaPairTraitName(svc, 'bidi', m.input, m.output, 'BidiServer') + ' {\n'
         + '                    def send(resp: ' + m.output + '): Unit = sink.send(resp.marshalDc())\n'
         + '                    def recv(): ' + m.input + ' = {\n'
         + '                        val req = new ' + m.input + '()\n'
@@ -3625,11 +4135,11 @@ function scalaServerAsyncIfaceMethod(m, svc) {
     case 'unary':
       return '        def ' + m.name + 'Async(ctx: grpcdc.Endpoint#CallContext, req: ' + m.input + '): scala.concurrent.Future[' + m.output + ']\n';
     case 'server-streaming':
-      return '        def ' + m.name + 'Async(req: ' + m.input + ', stream: ' + svc + 'ServerStreamServer): scala.concurrent.Future[Unit]\n';
+      return '        def ' + m.name + 'Async(req: ' + m.input + ', stream: ' + scalaSsTraitName(svc, m.output) + '): scala.concurrent.Future[Unit]\n';
     case 'client-streaming':
-      return '        def ' + m.name + 'Async(stream: ' + svc + 'ClientStreamServer): scala.concurrent.Future[Unit]\n';
+      return '        def ' + m.name + 'Async(stream: ' + scalaPairTraitName(svc, 'client-streaming', m.input, m.output, 'ClientStreamServer') + '): scala.concurrent.Future[Unit]\n';
     default:
-      return '        def ' + m.name + 'Async(stream: ' + svc + 'BidiServer): scala.concurrent.Future[Unit]\n';
+      return '        def ' + m.name + 'Async(stream: ' + scalaPairTraitName(svc, 'bidi', m.input, m.output, 'BidiServer') + '): scala.concurrent.Future[Unit]\n';
   }
 }
 
@@ -3639,13 +4149,13 @@ function scalaServerAsyncAdapterMethod(m, svc) {
       return '            def ' + m.name + '(ctx: grpcdc.Endpoint#CallContext, req: ' + m.input + '): ' + m.output + ' = {\n'
         + '                scala.concurrent.Await.result(impl.' + m.implName + 'Async(ctx, req), scala.concurrent.duration.Duration.Inf)\n            }\n';
     case 'server-streaming':
-      return '            def ' + m.name + '(req: ' + m.input + ', stream: ' + svc + 'ServerStreamServer): Unit = {\n'
+      return '            def ' + m.name + '(req: ' + m.input + ', stream: ' + scalaSsTraitName(svc, m.output) + '): Unit = {\n'
         + '                scala.concurrent.Await.result(impl.' + m.implName + 'Async(req, stream), scala.concurrent.duration.Duration.Inf)\n            }\n';
     case 'client-streaming':
-      return '            def ' + m.name + '(stream: ' + svc + 'ClientStreamServer): Unit = {\n'
+      return '            def ' + m.name + '(stream: ' + scalaPairTraitName(svc, 'client-streaming', m.input, m.output, 'ClientStreamServer') + '): Unit = {\n'
         + '                scala.concurrent.Await.result(impl.' + m.implName + 'Async(stream), scala.concurrent.duration.Duration.Inf)\n            }\n';
     default:
-      return '            def ' + m.name + '(stream: ' + svc + 'BidiServer): Unit = {\n'
+      return '            def ' + m.name + '(stream: ' + scalaPairTraitName(svc, 'bidi', m.input, m.output, 'BidiServer') + '): Unit = {\n'
         + '                scala.concurrent.Await.result(impl.' + m.implName + 'Async(stream), scala.concurrent.duration.Duration.Inf)\n            }\n';
   }
 }
@@ -3658,50 +4168,61 @@ function scalaService(svc) {
   const resp0 = first.output;
   const all = methods.concat(aliasClientMethods(svc));
   const allServer = methods.concat(aliasServerMethods(svc));
-  const streamClass = (label) =>
-    '        class ' + sname + label + '(private val stream: grpcdc.Channel#ClientStream) {\n'
-    + '            def recv(): ' + resp0 + ' = {\n'
-    + '                val resp = new ' + resp0 + '()\n'
+  const classOutputs = (kind) => {
+    const os = scalaKindOutputs(svc, kind);
+    return os.length ? os : [resp0];
+  };
+  const pairList = (kind) => {
+    const ps = scalaKindPairs(svc, kind);
+    return ps.length ? ps : [[req0, resp0]];
+  };
+  const streamClass = (kind, out) =>
+    '        class ' + scalaClientStreamName(svc, kind, out) + '(private val stream: grpcdc.Channel#ClientStream) {\n'
+    + '            def recv(): ' + out + ' = {\n'
+    + '                val resp = new ' + out + '()\n'
     + '                stream.recv(resp)\n                resp\n            }\n        }\n\n';
   return '    /** Client for ' + svc.fullName + '. */\n'
     + '    class ' + sname + 'Client(private val channel: grpcdc.Channel) {\n'
-    + streamClass('ServerStreamStream')
-    + streamClass('BidiStream')
-    + all.map((m) => scalaClientMethod(m, sname)).join('')
+    + classOutputs('server-streaming').map((out) => streamClass('server-streaming', out)).join('')
+    + classOutputs('bidi').map((out) => streamClass('bidi', out)).join('')
+    + all.map((m) => scalaClientMethod(m, svc)).join('')
     + '        // -- async (scala.concurrent.Future) surface ---------------\n\n'
     + all.map(scalaFutureMethod).join('')
     + '    }\n\n'
-    + '    /** Server-streaming sink passed to service implementations. */\n'
-    + '    trait ' + sname + 'ServerStreamServer {\n'
-    + '        def send(resp: ' + resp0 + '): Unit\n'
-    + '        val context: grpcdc.Endpoint#CallContext\n    }\n\n'
-    + '    /** Client-streaming stream passed to service implementations. */\n'
-    + '    trait ' + sname + 'ClientStreamServer {\n'
-    + '        def recv(): ' + req0 + '\n'
-    + '        def sendAndClose(resp: ' + resp0 + '): Unit\n'
-    + '        val context: grpcdc.Endpoint#CallContext\n    }\n\n'
-    + '    /** Bidi stream passed to service implementations. */\n'
-    + '    trait ' + sname + 'BidiServer {\n'
-    + '        def send(resp: ' + resp0 + '): Unit\n'
-    + '        def recv(): ' + req0 + '\n'
-    + '        val context: grpcdc.Endpoint#CallContext\n    }\n\n'
+    + classOutputs('server-streaming').map((out) =>
+        '    /** Server-streaming sink passed to service implementations. */\n'
+        + '    trait ' + scalaSsTraitName(svc, out) + ' {\n'
+        + '        def send(resp: ' + out + '): Unit\n'
+        + '        val context: grpcdc.Endpoint#CallContext\n    }\n\n').join('')
+    + pairList('client-streaming').map(([inp, out]) =>
+        '    /** Client-streaming stream passed to service implementations. */\n'
+        + '    trait ' + scalaPairTraitName(svc, 'client-streaming', inp, out, 'ClientStreamServer') + ' {\n'
+        + '        def recv(): ' + inp + '\n'
+        + '        def sendAndClose(resp: ' + out + '): Unit\n'
+        + '        val context: grpcdc.Endpoint#CallContext\n    }\n\n').join('')
+    + pairList('bidi').map(([inp, out]) =>
+        '    /** Bidi stream passed to service implementations. */\n'
+        + '    trait ' + scalaPairTraitName(svc, 'bidi', inp, out, 'BidiServer') + ' {\n'
+        + '        def send(resp: ' + out + '): Unit\n'
+        + '        def recv(): ' + inp + '\n'
+        + '        val context: grpcdc.Endpoint#CallContext\n    }\n\n').join('')
     + '    /** Service implementation interface for ' + svc.fullName + '. */\n'
     + '    trait ' + sname + 'Server {\n'
-    + methods.map((m) => scalaServerIfaceMethod(m, sname)).join('')
+    + methods.map((m) => scalaServerIfaceMethod(m, svc)).join('')
     + '    }\n\n'
     + '    /** Register an implementation of ' + svc.fullName + ' on a Server. */\n'
     + '    def register' + sname + 'Server(server: grpcdc.Server, impl: ' + sname + 'Server): Unit = {\n'
     + '        server.registerService(grpcdc.Server.ServiceDesc(' + q(svc.fullName) + ', List(\n'
-    + allServer.map((m) => scalaRegisterMethod(m, sname)).join('')
+    + allServer.map((m) => scalaRegisterMethod(m, svc)).join('')
     + '        )))\n    }\n\n'
     + '    /** Async service implementation for ' + svc.fullName + ' (scala.concurrent.Future). */\n'
     + '    trait ' + sname + 'ServerAsync {\n'
-    + methods.map((m) => scalaServerAsyncIfaceMethod(m, sname)).join('')
+    + methods.map((m) => scalaServerAsyncIfaceMethod(m, svc)).join('')
     + '    }\n\n'
     + '    /** Register a Future-based implementation (adapts to the sync trait). */\n'
     + '    def register' + sname + 'ServerAsync(server: grpcdc.Server, impl: ' + sname + 'ServerAsync): Unit = {\n'
     + '        register' + sname + 'Server(server, new ' + sname + 'Server {\n'
-    + methods.map((m) => scalaServerAsyncAdapterMethod(m, sname)).join('')
+    + methods.map((m) => scalaServerAsyncAdapterMethod(m, svc)).join('')
     + '        })\n    }\n';
 }
 
@@ -3762,16 +4283,21 @@ function wasmGoClientMethod(m, svc) {
   }
 }
 
+function wasmGoSinkName(svc, out) {
+  const outs = [...new Set(svc.methods.map((m) => m.output))];
+  return outs.length === 1 ? svc.name + 'ServerSink' : svc.name + out + 'ServerSink';
+}
+
 function wasmGoServerIfaceMethod(m, svc) {
   switch (m.kind) {
     case 'unary':
       return '\t' + m.name + '(req *echo.' + m.input + ', metadata [][2]string) (*echo.' + m.output + ', error)\n';
     case 'server-streaming':
-      return '\t' + m.name + '(req *echo.' + m.input + ', metadata [][2]string, sink *' + svc + 'ServerSink) error\n';
+      return '\t' + m.name + '(req *echo.' + m.input + ', metadata [][2]string, sink *' + wasmGoSinkName(svc, m.output) + ') error\n';
     case 'client-streaming':
       return '\t' + m.name + '(reqs []*echo.' + m.input + ', metadata [][2]string) (*echo.' + m.output + ', error)\n';
     default:
-      return '\t' + m.name + '(reqs []*echo.' + m.input + ', metadata [][2]string, sink *' + svc + 'ServerSink) error\n';
+      return '\t' + m.name + '(reqs []*echo.' + m.input + ', metadata [][2]string, sink *' + wasmGoSinkName(svc, m.output) + ') error\n';
   }
 }
 
@@ -3789,7 +4315,7 @@ function wasmGoRegisterMethod(m, svc) {
       return '\tregisterServerStreamHandler(bridge, ' + path + ', func(payload []byte, metadata [][2]string, sink *ServerSink) error {\n'
         + '\t\treq := new(echo.' + m.input + ')\n'
         + '\t\tif err := req.UnmarshalDC(payload); err != nil {\n\t\t\treturn err\n\t\t}\n'
-        + '\t\treturn impl.' + m.name + '(req, metadata, &' + svc + 'ServerSink{sink: sink})\n\t})\n';
+        + '\t\treturn impl.' + m.name + '(req, metadata, &' + wasmGoSinkName(svc, m.output) + '{sink: sink})\n\t})\n';
     case 'client-streaming':
       return '\tregisterClientStreamHandler(bridge, ' + path + ', func(payloads [][]byte, metadata [][2]string) ([]byte, error) {\n'
         + '\t\treqs := make([]*echo.' + m.input + ', len(payloads))\n'
@@ -3805,7 +4331,7 @@ function wasmGoRegisterMethod(m, svc) {
         + '\t\tfor i, payload := range payloads {\n'
         + '\t\t\treqs[i] = new(echo.' + m.input + ')\n'
         + '\t\t\tif err := reqs[i].UnmarshalDC(payload); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n'
-        + '\t\treturn impl.' + m.name + '(reqs, metadata, &' + svc + 'ServerSink{sink: sink})\n\t})\n';
+        + '\t\treturn impl.' + m.name + '(reqs, metadata, &' + wasmGoSinkName(svc, m.output) + '{sink: sink})\n\t})\n';
   }
 }
 
@@ -3814,7 +4340,7 @@ function wasmGoStreamIfaceMethod(m, svc) {
     case 'client-streaming':
       return '\t' + m.name + '(source *' + m.input + 'Source, metadata [][2]string) (*echo.' + m.output + ', error)\n';
     case 'bidi':
-      return '\t' + m.name + '(source *' + m.input + 'Source, metadata [][2]string, sink *' + svc + 'ServerSink) error\n';
+      return '\t' + m.name + '(source *' + m.input + 'Source, metadata [][2]string, sink *' + wasmGoSinkName(svc, m.output) + ') error\n';
     default:
       return '';
   }
@@ -3830,7 +4356,7 @@ function wasmGoStreamRegisterMethod(m, svc) {
         + '\t\treturn resp.MarshalDC(), nil\n\t})\n';
     case 'bidi':
       return '\tregisterBidiIncHandler(bridge, ' + path + ', func(source *RequestSource, metadata [][2]string, sink *ServerSink) error {\n'
-        + '\t\treturn impl.' + m.name + '(&' + m.input + 'Source{raw: source}, metadata, &' + svc + 'ServerSink{sink: sink})\n\t})\n';
+        + '\t\treturn impl.' + m.name + '(&' + m.input + 'Source{raw: source}, metadata, &' + wasmGoSinkName(svc, m.output) + '{sink: sink})\n\t})\n';
     default:
       return '';
   }
@@ -3844,32 +4370,36 @@ function wasmGoService(svc) {
     + svc.methods.map((m) => wasmGoClientMethod(m, sname)).join('')
     + '\n// ' + sname + 'Server is the service implementation for ' + svc.fullName + '.\n'
     + 'type ' + sname + 'Server interface {\n'
-    + svc.methods.map((m) => wasmGoServerIfaceMethod(m, sname)).join('')
+    + svc.methods.map((m) => wasmGoServerIfaceMethod(m, svc)).join('')
     + '}\n\n'
-    + '// ' + sname + 'ServerSink sends responses on streaming calls.\n'
-    + 'type ' + sname + 'ServerSink struct {\n\tsink *ServerSink\n}\n\n'
-    + '// Send marshals and forwards one response.\n'
-    + 'func (s *' + sname + 'ServerSink) Send(resp *echo.' + first.output + ') error {\n\ts.sink.Send(resp.MarshalDC())\n\treturn nil\n}\n\n'
+    + [...new Set(svc.methods.map((m) => m.output))].map((out) => {
+        const sink = wasmGoSinkName(svc, out);
+        return '// ' + sink + ' sends responses on streaming calls.\n'
+          + 'type ' + sink + ' struct {\n\tsink *ServerSink\n}\n\n'
+          + '// Send marshals and forwards one response.\n'
+          + 'func (s *' + sink + ') Send(resp *echo.' + out + ') error {\n\ts.sink.Send(resp.MarshalDC())\n\treturn nil\n}\n\n';
+      }).join('')
     + '// Register' + sname + 'Server registers impl on the JS server bridge and starts serving.\n'
     + 'func Register' + sname + 'Server(bridge js.Value, impl ' + sname + 'Server) {\n'
-    + svc.methods.map((m) => wasmGoRegisterMethod(m, sname)).join('')
+    + svc.methods.map((m) => wasmGoRegisterMethod(m, svc)).join('')
     + '\tbridge.Call("start", ' + q(svc.fullName) + ')\n}\n'
-    + '\n// ' + first.input + 'Source pulls typed requests one at a time for incremental handlers.\n'
-    + 'type ' + first.input + 'Source struct {\n\traw *RequestSource\n}\n\n'
-    + '// Next returns the next request, or (nil, nil) at end of stream.\n'
-    + 'func (s *' + first.input + 'Source) Next() (*echo.' + first.input + ', error) {\n'
-    + '\tpayload, err := s.raw.Next()\n'
-    + '\tif err != nil || payload == nil {\n\t\treturn nil, err\n\t}\n'
-    + '\treq := new(echo.' + first.input + ')\n'
-    + '\tif err := req.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n'
-    + '\treturn req, nil\n}\n\n'
+    + [...new Set(svc.methods.filter((m) => m.kind === 'client-streaming' || m.kind === 'bidi').map((m) => m.input))].map((inp) =>
+        '\n// ' + inp + 'Source pulls typed requests one at a time for incremental handlers.\n'
+        + 'type ' + inp + 'Source struct {\n\traw *RequestSource\n}\n\n'
+        + '// Next returns the next request, or (nil, nil) at end of stream.\n'
+        + 'func (s *' + inp + 'Source) Next() (*echo.' + inp + ', error) {\n'
+        + '\tpayload, err := s.raw.Next()\n'
+        + '\tif err != nil || payload == nil {\n\t\treturn nil, err\n\t}\n'
+        + '\treq := new(echo.' + inp + ')\n'
+        + '\tif err := req.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n'
+        + '\treturn req, nil\n}\n\n').join('')
     + '// ' + sname + 'StreamServer is the incremental implementation for ' + svc.fullName + ': requests arrive one at a time.\n'
     + 'type ' + sname + 'StreamServer interface {\n'
-    + svc.methods.map((m) => wasmGoStreamIfaceMethod(m, sname)).join('')
+    + svc.methods.map((m) => wasmGoStreamIfaceMethod(m, svc)).join('')
     + '}\n\n'
     + '// Register' + sname + 'StreamServer registers an incremental impl; call bridge start after all registrations.\n'
     + 'func Register' + sname + 'StreamServer(bridge js.Value, impl ' + sname + 'StreamServer) {\n'
-    + svc.methods.map((m) => wasmGoStreamRegisterMethod(m, sname)).join('')
+    + svc.methods.map((m) => wasmGoStreamRegisterMethod(m, svc)).join('')
     + '}\n';
 }
 
@@ -4087,7 +4617,7 @@ function wasmZigService(svc) {
     + '};\n\n'
     + '/// Streaming response sink for server handlers.\n'
     + 'pub const ServerSink = struct {\n    call_id: u32,\n\n'
-    + '    pub fn send(self: *ServerSink, resp: *const ' + first.output + ') Status {\n'
+    + '    pub fn send(self: *ServerSink, resp: anytype) Status {\n'
     + '        const a = bridge_mod.bridgeAllocator();\n'
     + '        const bytes = resp.marshalDc(a);\n'
     + '        defer a.free(bytes);\n'
@@ -4125,8 +4655,8 @@ function emitWasmZigFile(model, params) {
       + 'const messages = @import(' + q(messagesImport) + ');\n\n'
       + 'pub const Status = status_mod.Status;\n'
       + 'pub const CallResult = status_mod.CallResult;\n'
-      + 'pub const EchoRequest = messages.EchoRequest;\n'
-      + 'pub const EchoResponse = messages.EchoResponse;\n\n'
+      + zigMessageNames(model).map((msg) => 'pub const ' + msg + ' = messages.' + msg + ';\n').join('')
+      + '\n'
       + 'fn oomStatus() Status {\n    // gRPC INTERNAL (13): a request could not be marshaled.\n    return Status.init(13, "out of memory");\n}\n\n'
       + 'fn marshalAll(comptime T: type, reqs: []const T, alloc: std.mem.Allocator) [][]u8 {\n'
       + '    const out = alloc.alloc([]u8, reqs.len) catch return &.{};\n'
@@ -4322,9 +4852,11 @@ function wasmCppService(svc, structName) {
     + '    grpcdc_wasm::Bridge* bridge_;\n  };\n\n'
     + '  /// Streaming response sink for server handlers.\n'
     + '  struct ' + sname + 'ServerSink {\n    std::uint32_t call_id;\n\n'
-    + '    grpcdc_wasm::Status Send(const ' + first.output + '& resp) {\n'
-    + '      grpcdc_wasm::ServerSend(call_id, resp.MarshalDc());\n'
-    + '      return grpcdc_wasm::Status::Ok();\n    }\n  };\n\n'
+    + [...new Set(svc.methods.map((m) => m.output))].map((out) =>
+        '    grpcdc_wasm::Status Send(const ' + out + '& resp) {\n'
+        + '      grpcdc_wasm::ServerSend(call_id, resp.MarshalDc());\n'
+        + '      return grpcdc_wasm::Status::Ok();\n    }\n').join('')
+    + '  };\n\n'
     + '  /// Service implementation for ' + svc.fullName + ' (browser/WASM facade).\n'
     + '  class ' + sname + 'Server {\n   public:\n'
     + '    virtual ~' + sname + 'Server() = default;\n'
@@ -4502,7 +5034,9 @@ function wasmSwiftService(svc) {
     + '    }\n\n'
     + '    /// Streaming response sink for server handlers.\n'
     + '    struct ' + sname + 'ServerSink {\n        let callId: UInt32\n\n'
-    + '        func Send(_ resp: ' + first.output + ') {\n            ServerSend(callId, resp.MarshalDc())\n        }\n    }\n\n'
+    + [...new Set(svc.methods.map((m) => m.output))].map((out) =>
+        '        func Send(_ resp: ' + out + ') {\n            ServerSend(callId, resp.MarshalDc())\n        }\n').join('')
+    + '    }\n\n'
     + '    /// Service implementation for ' + svc.fullName + ' (browser/WASM facade).\n'
     + '    protocol ' + sname + 'Server {\n'
     + svc.methods.map((m) => wasmSwiftServerIfaceMethod(m, sname)).join('')
@@ -4657,10 +5191,11 @@ function wasmKotlinService(svc) {
     + '    fun register' + sname + 'Server(bridge: GrpcdcWasmServerBridge, impl: ' + sname + 'Server) {\n'
     + allServer.map(wasmKotlinRegisterMethod).join('')
     + '        bridge.start(' + q(svc.fullName) + ')\n    }\n\n'
-    + '    /** Typed pull source for incremental server handlers. */\n'
-    + '    class ' + first.input + 'Source internal constructor(private val raw: GrpcdcRequestSource) {\n'
-    + '        fun next(onRequest: ((' + first.input + '?) -> Unit), onError: (StatusException) -> Unit) {\n'
-    + '            raw.next({ bytes -> onRequest(bytes?.let { ' + first.input + '().apply { unmarshalDc(it) } }) }, onError)\n        }\n    }\n\n'
+    + [...new Set(svc.methods.filter((m) => m.kind === 'client-streaming' || m.kind === 'bidi').map((m) => m.input))].map((inp) =>
+        '    /** Typed pull source for incremental server handlers. */\n'
+        + '    class ' + inp + 'Source internal constructor(private val raw: GrpcdcRequestSource) {\n'
+        + '        fun next(onRequest: ((' + inp + '?) -> Unit), onError: (StatusException) -> Unit) {\n'
+        + '            raw.next({ bytes -> onRequest(bytes?.let { ' + inp + '().apply { unmarshalDc(it) } }) }, onError)\n        }\n    }\n\n').join('')
     + '    /** Incremental service implementation for ' + svc.fullName + ': requests arrive one at a time. */\n'
     + '    interface ' + sname + 'StreamServer {\n'
     + svc.methods.map(wasmKotlinStreamIfaceMethod).join('')
@@ -4691,6 +5226,27 @@ function emitWasmKotlinFile(model, params) {
       + '}\n',
   };
 }
+function wasmScalaKindOutputs(svc, kind) {
+  return [...new Set(svc.methods.filter((m) => m.kind === kind).map((m) => m.output))];
+}
+
+function wasmScalaStreamOutputs(svc) {
+  return [...new Set(svc.methods.filter((m) => m.kind === 'server-streaming' || m.kind === 'bidi').map((m) => m.output))];
+}
+
+function wasmScalaRecvName(svc, out) {
+  return wasmScalaStreamOutputs(svc).length <= 1 ? svc.name + 'RecvStream' : svc.name + out + 'RecvStream';
+}
+
+function wasmScalaSinkName(svc, out) {
+  return wasmScalaStreamOutputs(svc).length <= 1 ? svc.name + 'ServerSink' : svc.name + out + 'ServerSink';
+}
+
+function wasmScalaClientStreamName(svc, kind, out) {
+  const suffix = kind === 'server-streaming' ? 'ServerStreamStream' : 'BidiStream';
+  return wasmScalaKindOutputs(svc, kind).length <= 1 ? svc.name + suffix : svc.name + out + suffix;
+}
+
 function wasmScalaClientMethod(m, svc) {
   const path = q(m.path);
   switch (m.kind) {
@@ -4700,8 +5256,8 @@ function wasmScalaClientMethod(m, svc) {
         + '                val resp = new ' + m.output + '()\n'
         + '                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n\n';
     case 'server-streaming':
-      return '        def ' + m.name + '(req: ' + m.input + '): ' + svc + 'ServerStreamStream = {\n'
-        + '            new ' + svc + 'ServerStreamStream(onMessage =>\n'
+      return '        def ' + m.name + '(req: ' + m.input + '): ' + wasmScalaClientStreamName(svc, 'server-streaming', m.output) + ' = {\n'
+        + '            new ' + wasmScalaClientStreamName(svc, 'server-streaming', m.output) + '(onMessage =>\n'
         + '                bridge.serverStream(' + path + ', req.marshalDc(), onMessage))\n        }\n\n';
     case 'client-streaming':
       return '        def ' + m.name + '(reqs: List[' + m.input + ']): scala.concurrent.Future[' + m.output + '] = {\n'
@@ -4709,8 +5265,8 @@ function wasmScalaClientMethod(m, svc) {
         + '                val resp = new ' + m.output + '()\n'
         + '                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n\n';
     default:
-      return '        def ' + m.name + '(reqs: List[' + m.input + ']): ' + svc + 'BidiStream = {\n'
-        + '            new ' + svc + 'BidiStream(onMessage =>\n'
+      return '        def ' + m.name + '(reqs: List[' + m.input + ']): ' + wasmScalaClientStreamName(svc, 'bidi', m.output) + ' = {\n'
+        + '            new ' + wasmScalaClientStreamName(svc, 'bidi', m.output) + '(onMessage =>\n'
         + '                bridge.bidi(' + path + ', reqs.map(_.marshalDc()), onMessage))\n        }\n\n';
   }
 }
@@ -4720,11 +5276,11 @@ function wasmScalaServerIfaceMethod(m, svc) {
     case 'unary':
       return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String]): ' + m.output + '\n';
     case 'server-streaming':
-      return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String], sink: ' + svc + 'ServerSink): Unit\n';
+      return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String], sink: ' + wasmScalaSinkName(svc, m.output) + '): Unit\n';
     case 'client-streaming':
       return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String]): ' + m.output + '\n';
     default:
-      return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String], sink: ' + svc + 'ServerSink): Unit\n';
+      return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String], sink: ' + wasmScalaSinkName(svc, m.output) + '): Unit\n';
   }
 }
 
@@ -4782,20 +5338,10 @@ function wasmScalaStreamRegisterMethod(m) {
   }
 }
 
-function wasmScalaService(svc) {
-  const sname = svc.name;
-  const first = svc.methods[0];
-  const req0 = first.input;
-  const resp0 = first.output;
-  const allServer = svc.methods.concat(aliasServerMethods(svc));
-  return '    /** Client for ' + svc.fullName + ' (browser/Scala.js facade; see file doc). */\n'
-    + '    class ' + sname + 'Client(private val bridge: grpcdcscalajs.GrpcdcScalaJsBridge) {\n'
-    + '        class ' + sname + 'ServerStreamStream(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ' + sname + 'RecvStream(call)\n\n'
-    + '        class ' + sname + 'BidiStream(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ' + sname + 'RecvStream(call)\n\n'
-    + svc.methods.concat(aliasClientMethods(svc)).map((m) => wasmScalaClientMethod(m, sname)).join('')
-    + '    }\n\n'
-    + '    /** Receiving stream: recv() futures queue in arrival order. */\n'
-    + '    class ' + sname + 'RecvStream(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) {\n'
+function wasmScalaRecvStream(svc, out) {
+  const name = wasmScalaRecvName(svc, out);
+  return '    /** Receiving stream: recv() futures queue in arrival order. */\n'
+    + '    class ' + name + '(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) {\n'
     + '        private val buffer = scala.collection.mutable.Queue[Array[Byte]]()\n'
     + '        private var finished = false\n'
     + '        private var failure: Throwable = null\n'
@@ -4814,7 +5360,7 @@ function wasmScalaService(svc) {
     + '                failure = err\n'
     + '                if (waiter != null) {\n'
     + '                    val w = waiter\n                    waiter = null\n                    w.failure(err)\n                }\n        }\n\n'
-    + '        def recvBytes(): scala.concurrent.Future[' + resp0 + '] = {\n'
+    + '        def recvBytes(): scala.concurrent.Future[' + out + '] = {\n'
     + '            val buffered =\n'
     + '                if (buffer.nonEmpty) scala.concurrent.Future.successful(buffer.dequeue())\n'
     + '                else if (failure != null) scala.concurrent.Future.failed(failure)\n'
@@ -4823,24 +5369,49 @@ function wasmScalaService(svc) {
     + '                    waiter = scala.concurrent.Promise[Array[Byte]]()\n'
     + '                    waiter.future\n                }\n'
     + '            buffered.map { bytes =>\n'
-    + '                val resp = new ' + resp0 + '()\n'
-    + '                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n    }\n\n'
-    + '    /** Streaming response sink for server handlers. */\n'
-    + '    type ' + sname + 'ServerSink = ' + resp0 + ' => Unit\n\n'
+    + '                val resp = new ' + out + '()\n'
+    + '                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n    }\n\n';
+}
+
+function wasmScalaSource(typ) {
+  return '    /** Typed pull source for incremental server handlers. */\n'
+    + '    class ' + typ + 'Source(private val raw: grpcdcscalajs.GrpcdcRequestSource) {\n'
+    + '        def next(): scala.concurrent.Future[Option[' + typ + ']] = {\n'
+    + '            raw.next().map(_.map { bytes =>\n'
+    + '                val req = new ' + typ + '()\n'
+    + '                req.unmarshalDc(bytes)\n                req\n            })\n        }\n    }\n\n';
+}
+
+function wasmScalaService(svc) {
+  const sname = svc.name;
+  const first = svc.methods[0];
+  const req0 = first.input;
+  const resp0 = first.output;
+  const outsOr = (kind) => {
+    const os = wasmScalaKindOutputs(svc, kind);
+    return os.length ? os : [resp0];
+  };
+  const streamOutputs = wasmScalaStreamOutputs(svc);
+  const recvOuts = streamOutputs.length ? streamOutputs : [resp0];
+  const streamIns = [...new Set(svc.methods.filter((m) => m.kind === 'client-streaming' || m.kind === 'bidi').map((m) => m.input))];
+  const allServer = svc.methods.concat(aliasServerMethods(svc));
+  return '    /** Client for ' + svc.fullName + ' (browser/Scala.js facade; see file doc). */\n'
+    + '    class ' + sname + 'Client(private val bridge: grpcdcscalajs.GrpcdcScalaJsBridge) {\n'
+    + outsOr('server-streaming').map((out) => '        class ' + wasmScalaClientStreamName(svc, 'server-streaming', out) + '(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ' + wasmScalaRecvName(svc, out) + '(call)\n\n').join('')
+    + outsOr('bidi').map((out) => '        class ' + wasmScalaClientStreamName(svc, 'bidi', out) + '(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ' + wasmScalaRecvName(svc, out) + '(call)\n\n').join('')
+    + svc.methods.concat(aliasClientMethods(svc)).map((m) => wasmScalaClientMethod(m, svc)).join('')
+    + '    }\n\n'
+    + recvOuts.map((out) => wasmScalaRecvStream(svc, out)).join('')
+    + recvOuts.map((out) => '    /** Streaming response sink for server handlers. */\n    type ' + wasmScalaSinkName(svc, out) + ' = ' + out + ' => Unit\n\n').join('')
     + '    /** Service implementation for ' + svc.fullName + ' (browser/Scala.js facade). */\n'
     + '    trait ' + sname + 'Server {\n'
-    + svc.methods.map((m) => wasmScalaServerIfaceMethod(m, sname)).join('')
+    + svc.methods.map((m) => wasmScalaServerIfaceMethod(m, svc)).join('')
     + '    }\n\n'
     + '    /** Register an implementation of ' + svc.fullName + ' on a server bridge. */\n'
     + '    def register' + sname + 'Server(bridge: grpcdcscalajs.GrpcdcScalaJsServerBridge, impl: ' + sname + 'Server): Unit = {\n'
     + allServer.map(wasmScalaRegisterMethod).join('')
     + '        bridge.start(' + q(svc.fullName) + ')\n    }\n\n'
-    + '    /** Typed pull source for incremental server handlers. */\n'
-    + '    class ' + req0 + 'Source(private val raw: grpcdcscalajs.GrpcdcRequestSource) {\n'
-    + '        def next(): scala.concurrent.Future[Option[' + req0 + ']] = {\n'
-    + '            raw.next().map(_.map { bytes =>\n'
-    + '                val req = new ' + req0 + '()\n'
-    + '                req.unmarshalDc(bytes)\n                req\n            })\n        }\n    }\n\n'
+    + (streamIns.length ? streamIns : [req0]).map(wasmScalaSource).join('')
     + '    /** Incremental service implementation for ' + svc.fullName + ': requests arrive one at a time. */\n'
     + '    trait ' + sname + 'StreamServer {\n'
     + svc.methods.map(wasmScalaStreamIfaceMethod).join('')

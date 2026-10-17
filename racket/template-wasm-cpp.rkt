@@ -306,10 +306,12 @@
      (format "  /// Streaming response sink for server handlers.\n")
      (format "  struct ~aServerSink {\n" sname)
      "    std::uint32_t call_id;\n\n"
-     (format "    grpcdc_wasm::Status Send(const ~a& resp) {\n" (hash-ref (car methods) 'output))
-     "      grpcdc_wasm::ServerSend(call_id, resp.MarshalDc());\n"
-     "      return grpcdc_wasm::Status::Ok();\n"
-     "    }\n"
+     ;; One Send overload per distinct response type (first-use
+     ;; order): the sink must accept every method's response, not
+     ;; just the first method's.
+     (apply string-append
+            (for/list ([resp (in-list (remove-duplicates (map (lambda (m) (hash-ref m 'output)) methods)))])
+              (format "    grpcdc_wasm::Status Send(const ~a& resp) {\n      grpcdc_wasm::ServerSend(call_id, resp.MarshalDc());\n      return grpcdc_wasm::Status::Ok();\n    }\n" resp)))
      "  };\n\n"
      (format "  /// Service implementation for ~a (browser/WASM facade).\n" (hash-ref svc 'full-name))
      (format "  class ~aServer {\n   public:\n" sname)

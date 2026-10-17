@@ -307,7 +307,10 @@
      "/// Streaming response sink for server handlers.\n"
      "pub const ServerSink = struct {\n"
      "    call_id: u32,\n\n"
-     (format "    pub fn send(self: *ServerSink, resp: *const ~a) Status {\n" (hash-ref (car methods) 'output))
+     ;; anytype: the sink accepts every response type the service
+     ;; uses (Zig has no overloads; resp is comptime-duck-typed),
+     ;; not just the first method's.
+     "    pub fn send(self: *ServerSink, resp: anytype) Status {\n"
      "        const a = bridge_mod.bridgeAllocator();\n"
      "        const bytes = resp.marshalDc(a);\n"
      "        defer a.free(bytes);\n"
@@ -332,6 +335,13 @@
      (format "pub fn register~aStreamServer(impl: *~aStreamServer) void {\n    g_stream_impl = impl;\n}\n\n" sname sname)
      (apply string-append (map wasm-stream-feed-export methods)))))
 
+(define (wasm-zig-message-names file-model)
+  (remove-duplicates
+   (append-map (lambda (svc)
+                 (append-map (lambda (m) (list (hash-ref m 'input) (hash-ref m 'output)))
+                             (hash-ref svc 'methods)))
+               (hash-ref file-model 'services))))
+
 (define (emit-wasm-zig-file file-model params)
   (define base (path->string (path-replace-extension
                               (file-name-from-path (hash-ref file-model 'name)) "")))
@@ -347,8 +357,12 @@
          (format "const messages = @import(~s);\n\n" messages-import)
          "pub const Status = status_mod.Status;\n"
          "pub const CallResult = status_mod.CallResult;\n"
-         "pub const EchoRequest = messages.EchoRequest;\n"
-         "pub const EchoResponse = messages.EchoResponse;\n\n"
+         ;; Re-export every message type the services use (first-use
+         ;; order), not just Echo's two.
+         (apply string-append
+                (for/list ([msg (in-list (wasm-zig-message-names file-model))])
+                  (format "pub const ~a = messages.~a;\n" msg msg)))
+         "\n"
          "fn oomStatus() Status {\n"
          "    // gRPC INTERNAL (13): a request could not be marshaled.\n"
          "    return Status.init(13, \"out of memory\");\n"

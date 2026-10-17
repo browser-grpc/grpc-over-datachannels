@@ -34,11 +34,11 @@
              name req resp path resp)]
     [(server-streaming)
      (format (string-append
-              "        def ~a(req: ~a): ~aServerStreamStream = {\n"
-              "            new ~aServerStreamStream(onMessage =>\n"
+              "        def ~a(req: ~a): ~a = {\n"
+              "            new ~a(onMessage =>\n"
               "                bridge.serverStream(~s, req.marshalDc(), onMessage))\n"
               "        }\n\n")
-             name req svc svc path)]
+             name req (client-stream-name svc 'server-streaming resp) (client-stream-name svc 'server-streaming resp) path)]
     [(client-streaming)
      (format (string-append
               "        def ~a(reqs: List[~a]): scala.concurrent.Future[~a] = {\n"
@@ -51,11 +51,11 @@
              name req resp path resp)]
     [(bidi)
      (format (string-append
-              "        def ~a(reqs: List[~a]): ~aBidiStream = {\n"
-              "            new ~aBidiStream(onMessage =>\n"
+              "        def ~a(reqs: List[~a]): ~a = {\n"
+              "            new ~a(onMessage =>\n"
               "                bridge.bidi(~s, reqs.map(_.marshalDc()), onMessage))\n"
               "        }\n\n")
-             name req svc svc path)]))
+             name req (client-stream-name svc 'bidi resp) (client-stream-name svc 'bidi resp) path)]))
 
 (define (wasm-scala-server-iface-method m)
   (define name (hash-ref m 'name))
@@ -66,11 +66,11 @@
     [(unary)
      (format "        def ~a(req: ~a, metadata: Map[String, String]): ~a\n" name req resp)]
     [(server-streaming)
-     (format "        def ~a(req: ~a, metadata: Map[String, String], sink: ~aServerSink): Unit\n" name req svc)]
+     (format "        def ~a(req: ~a, metadata: Map[String, String], sink: ~a): Unit\n" name req (sink-name svc resp))]
     [(client-streaming)
      (format "        def ~a(reqs: List[~a], metadata: Map[String, String]): ~a\n" name req resp)]
     [(bidi)
-     (format "        def ~a(reqs: List[~a], metadata: Map[String, String], sink: ~aServerSink): Unit\n" name req svc)]))
+     (format "        def ~a(reqs: List[~a], metadata: Map[String, String], sink: ~a): Unit\n" name req (sink-name svc resp))]))
 
 (define (wasm-scala-register-method m)
   (define name (hash-ref m 'name))
@@ -141,68 +141,138 @@
              path name (hash-ref m 'input))]
     [else ""]))
 
+(define current-methods (make-parameter '()))
+
+;; Stream helper classes are typed by message type: while a
+;; service uses one response/request type they keep their
+;; historical names; heterogeneous services get one helper per
+;; type (mirrors the native Scala template's rule).
+(define (stream-outputs)
+  (remove-duplicates
+   (map (lambda (m) (hash-ref m 'output))
+        (filter (lambda (m) (memq (hash-ref m 'kind) '(server-streaming bidi))) (current-methods)))))
+
+(define (kind-outputs kind)
+  (remove-duplicates
+   (map (lambda (m) (hash-ref m 'output))
+        (filter (lambda (m) (eq? (hash-ref m 'kind) kind)) (current-methods)))))
+
+(define (recv-name svc out)
+  (if (<= (length (stream-outputs)) 1)
+      (format "~aRecvStream" svc)
+      (format "~a~aRecvStream" svc out)))
+
+(define (sink-name svc out)
+  (if (<= (length (stream-outputs)) 1)
+      (format "~aServerSink" svc)
+      (format "~a~aServerSink" svc out)))
+
+(define (client-stream-name svc kind out)
+  (define suffix (if (eq? kind 'server-streaming) "ServerStreamStream" "BidiStream"))
+  (if (<= (length (kind-outputs kind)) 1)
+      (format "~a~a" svc suffix)
+      (format "~a~a~a" svc out suffix)))
+
+(define (wasm-scala-recv-stream sname out)
+  (string-append
+   (format "    /** Receiving stream: recv() futures queue in arrival order. */\n")
+   (format "    class ~a(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) {\n" (recv-name sname out))
+   "        private val buffer = scala.collection.mutable.Queue[Array[Byte]]()\n"
+   "        private var finished = false\n"
+   "        private var failure: Throwable = null\n"
+   "        private var waiter: scala.concurrent.Promise[Array[Byte]] = null\n"
+   "        call { bytes =>\n"
+   "            if (waiter != null) {\n"
+   "                val w = waiter\n"
+   "                waiter = null\n"
+   "                w.success(bytes)\n"
+   "            } else {\n"
+   "                buffer.enqueue(bytes)\n"
+   "            }\n"
+   "            ()\n"
+   "        }.onComplete {\n"
+   "            case scala.util.Success(_) =>\n"
+   "                finished = true\n"
+   "                if (waiter != null) {\n"
+   "                    val w = waiter\n"
+   "                    waiter = null\n"
+   "                    w.failure(new java.io.EOFException(\"call completed\"))\n"
+   "                }\n"
+   "            case scala.util.Failure(err) =>\n"
+   "                failure = err\n"
+   "                if (waiter != null) {\n"
+   "                    val w = waiter\n"
+   "                    waiter = null\n"
+   "                    w.failure(err)\n"
+   "                }\n"
+   "        }\n\n"
+   (format "        def recvBytes(): scala.concurrent.Future[~a] = {\n" out)
+   (format "            val buffered =\n")
+   (format "                if (buffer.nonEmpty) scala.concurrent.Future.successful(buffer.dequeue())\n")
+   (format "                else if (failure != null) scala.concurrent.Future.failed(failure)\n")
+   (format "                else if (finished) scala.concurrent.Future.failed(new java.io.EOFException(\"call completed\"))\n")
+   (format "                else {\n")
+   (format "                    waiter = scala.concurrent.Promise[Array[Byte]]()\n")
+   (format "                    waiter.future\n")
+   (format "                }\n")
+   (format "            buffered.map { bytes =>\n")
+   (format "                val resp = new ~a()\n" out)
+   "                resp.unmarshalDc(bytes)\n"
+   "                resp\n"
+   "            }\n"
+   "        }\n"
+   "    }\n\n"))
+
+(define (wasm-scala-source typ)
+  (string-append
+   (format "    /** Typed pull source for incremental server handlers. */\n")
+   (format "    class ~aSource(private val raw: grpcdcscalajs.GrpcdcRequestSource) {\n" typ)
+   (format "        def next(): scala.concurrent.Future[Option[~a]] = {\n" typ)
+   "            raw.next().map(_.map { bytes =>\n"
+   (format "                val req = new ~a()\n" typ)
+   "                req.unmarshalDc(bytes)\n"
+   "                req\n"
+   "            })\n"
+   "        }\n"
+   "    }\n\n"))
+
 (define (wasm-scala-service svc)
   (define sname (hash-ref svc 'name))
   (define methods (hash-ref svc 'methods))
   (define req (hash-ref (car methods) 'input))
   (define resp (hash-ref (car methods) 'output))
-  (parameterize ([current-service sname])
+  (define (outs-or-default kind)
+    (define os (kind-outputs kind))
+    (if (null? os) (list resp) os))
+  (define recv-outs
+    (let ([os (stream-outputs)]) (if (null? os) (list resp) os)))
+  (define stream-ins
+    (let ([ins (remove-duplicates
+                (map (lambda (m) (hash-ref m 'input))
+                     (filter (lambda (m) (memq (hash-ref m 'kind) '(client-streaming bidi)))
+                             methods)))])
+      (if (null? ins) (list req) ins)))
+  (parameterize ([current-service sname] [current-methods methods])
     (string-append
      (format "    /** Client for ~a (browser/Scala.js facade; see file doc). */\n" (hash-ref svc 'full-name))
      (format "    class ~aClient(private val bridge: grpcdcscalajs.GrpcdcScalaJsBridge) {\n" sname)
-     (format "        class ~aServerStreamStream(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ~aRecvStream(call)\n\n" sname sname)
-     (format "        class ~aBidiStream(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ~aRecvStream(call)\n\n" sname sname)
+     (apply string-append
+            (for/list ([out (in-list (outs-or-default 'server-streaming))])
+              (format "        class ~a(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ~a(call)\n\n"
+                      (client-stream-name sname 'server-streaming out) (recv-name sname out))))
+     (apply string-append
+            (for/list ([out (in-list (outs-or-default 'bidi))])
+              (format "        class ~a(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ~a(call)\n\n"
+                      (client-stream-name sname 'bidi out) (recv-name sname out))))
      (apply string-append (map wasm-scala-client-method (append methods (alias-client-methods svc))))
      "    }\n\n"
-     (format "    /** Receiving stream: recv() futures queue in arrival order. */\n")
-     (format "    class ~aRecvStream(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) {\n" sname)
-     "        private val buffer = scala.collection.mutable.Queue[Array[Byte]]()\n"
-     "        private var finished = false\n"
-     "        private var failure: Throwable = null\n"
-     "        private var waiter: scala.concurrent.Promise[Array[Byte]] = null\n"
-     "        call { bytes =>\n"
-     "            if (waiter != null) {\n"
-     "                val w = waiter\n"
-     "                waiter = null\n"
-     "                w.success(bytes)\n"
-     "            } else {\n"
-     "                buffer.enqueue(bytes)\n"
-     "            }\n"
-     "            ()\n"
-     "        }.onComplete {\n"
-     "            case scala.util.Success(_) =>\n"
-     "                finished = true\n"
-     "                if (waiter != null) {\n"
-     "                    val w = waiter\n"
-     "                    waiter = null\n"
-     "                    w.failure(new java.io.EOFException(\"call completed\"))\n"
-     "                }\n"
-     "            case scala.util.Failure(err) =>\n"
-     "                failure = err\n"
-     "                if (waiter != null) {\n"
-     "                    val w = waiter\n"
-     "                    waiter = null\n"
-     "                    w.failure(err)\n"
-     "                }\n"
-     "        }\n\n"
-     (format "        def recvBytes(): scala.concurrent.Future[~a] = {\n" resp)
-     (format "            val buffered =\n")
-     (format "                if (buffer.nonEmpty) scala.concurrent.Future.successful(buffer.dequeue())\n")
-     (format "                else if (failure != null) scala.concurrent.Future.failed(failure)\n")
-     (format "                else if (finished) scala.concurrent.Future.failed(new java.io.EOFException(\"call completed\"))\n")
-     (format "                else {\n")
-     (format "                    waiter = scala.concurrent.Promise[Array[Byte]]()\n")
-     (format "                    waiter.future\n")
-     (format "                }\n")
-     (format "            buffered.map { bytes =>\n")
-     (format "                val resp = new ~a()\n" resp)
-     "                resp.unmarshalDc(bytes)\n"
-     "                resp\n"
-     "            }\n"
-     "        }\n"
-     "    }\n\n"
-     (format "    /** Streaming response sink for server handlers. */\n")
-     (format "    type ~aServerSink = ~a => Unit\n\n" sname resp)
+     (apply string-append
+            (for/list ([out (in-list recv-outs)])
+              (wasm-scala-recv-stream sname out)))
+     (apply string-append
+            (for/list ([out (in-list recv-outs)])
+              (format "    /** Streaming response sink for server handlers. */\n    type ~a = ~a => Unit\n\n"
+                      (sink-name sname out) out)))
      (format "    /** Service implementation for ~a (browser/Scala.js facade). */\n" (hash-ref svc 'full-name))
      (format "    trait ~aServer {\n" sname)
      (apply string-append (map wasm-scala-server-iface-method methods))
@@ -212,16 +282,7 @@
      (apply string-append (map wasm-scala-register-method (append methods (alias-server-methods svc))))
      (format "        bridge.start(~s)\n" (hash-ref svc 'full-name))
      "    }\n\n"
-     (format "    /** Typed pull source for incremental server handlers. */\n")
-     (format "    class ~aSource(private val raw: grpcdcscalajs.GrpcdcRequestSource) {\n" req)
-     (format "        def next(): scala.concurrent.Future[Option[~a]] = {\n" req)
-     "            raw.next().map(_.map { bytes =>\n"
-     (format "                val req = new ~a()\n" req)
-     "                req.unmarshalDc(bytes)\n"
-     "                req\n"
-     "            })\n"
-     "        }\n"
-     "    }\n\n"
+     (apply string-append (map wasm-scala-source stream-ins))
      (format "    /** Incremental service implementation for ~a: requests arrive one at a time. */\n" (hash-ref svc 'full-name))
      (format "    trait ~aStreamServer {\n" sname)
      (apply string-append (map wasm-scala-stream-iface-method methods))

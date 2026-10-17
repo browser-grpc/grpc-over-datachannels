@@ -278,9 +278,9 @@
               "        public Task<~a> ~aAsync(~a req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n"
               "            CancellationToken cancellationToken = default)\n"
               "        {\n"
-              "            return AsyncPump.Run(() => Unary(req, metadata, timeout), cancellationToken);\n"
+              "            return AsyncPump.Run(() => ~a(req, metadata, timeout), cancellationToken);\n"
               "        }\n\n")
-             resp name req)]
+             resp name req name)]
     [(server-streaming)
      (format (string-append
               "        public async IAsyncEnumerable<~a> ~aAsync(~a req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n"
@@ -298,9 +298,9 @@
               "        public Task<~a> ~aAsync(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n"
               "            CancellationToken cancellationToken = default)\n"
               "        {\n"
-              "            return AsyncPump.Run(() => ClientStream(reqs, metadata, timeout), cancellationToken);\n"
+              "            return AsyncPump.Run(() => ~a(reqs, metadata, timeout), cancellationToken);\n"
               "        }\n\n")
-             resp name req)]
+             resp name req name)]
     [(bidi)
      (format (string-append
               "        public async IAsyncEnumerable<~a> ~aAsync(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n"

@@ -172,7 +172,7 @@ pub const EchoClient = struct {
 pub const ServerSink = struct {
     call_id: u32,
 
-    pub fn send(self: *ServerSink, resp: *const EchoResponse) Status {
+    pub fn send(self: *ServerSink, resp: anytype) Status {
         const a = bridge_mod.bridgeAllocator();
         const bytes = resp.marshalDc(a);
         defer a.free(bytes);

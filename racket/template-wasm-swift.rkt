@@ -257,9 +257,10 @@
      (format "    /// Streaming response sink for server handlers.\n")
      (format "    struct ~aServerSink {\n" sname)
      "        let callId: UInt32\n\n"
-     (format "        func Send(_ resp: ~a) {\n" (hash-ref (car methods) 'output))
-     "            ServerSend(callId, resp.MarshalDc())\n"
-     "        }\n"
+     ;; One Send overload per distinct response type (first-use order).
+     (apply string-append
+            (for/list ([resp (in-list (remove-duplicates (map (lambda (m) (hash-ref m 'output)) methods)))])
+              (format "        func Send(_ resp: ~a) {\n            ServerSend(callId, resp.MarshalDc())\n        }\n" resp)))
      "    }\n\n"
      (format "    /// Service implementation for ~a (browser/WASM facade).\n" (hash-ref svc 'full-name))
      (format "    protocol ~aServer {\n" sname)

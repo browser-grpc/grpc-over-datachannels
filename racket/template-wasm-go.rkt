@@ -68,6 +68,17 @@
               "}\n")
              svc name req resp path resp)]))
 
+(define current-methods (make-parameter '()))
+
+;; Sink struct name for a response type: <Svc>ServerSink while the
+;; service has a single response type (the historical name), else
+;; <Svc><Resp>ServerSink per type.
+(define (wasm-sink-name svc out)
+  (define outs (remove-duplicates (map (lambda (m) (hash-ref m 'output)) (current-methods))))
+  (if (= (length outs) 1)
+      (format "~aServerSink" svc)
+      (format "~a~aServerSink" svc out)))
+
 (define (wasm-server-iface-method m)
   (define name (hash-ref m 'name))
   (define req (hash-ref m 'input))
@@ -77,11 +88,11 @@
     [(unary)
      (format "\t~a(req *echo.~a, metadata [][2]string) (*echo.~a, error)\n" name req resp)]
     [(server-streaming)
-     (format "\t~a(req *echo.~a, metadata [][2]string, sink *~aServerSink) error\n" name req svc)]
+     (format "\t~a(req *echo.~a, metadata [][2]string, sink *~a) error\n" name req (wasm-sink-name svc resp))]
     [(client-streaming)
      (format "\t~a(reqs []*echo.~a, metadata [][2]string) (*echo.~a, error)\n" name req resp)]
     [(bidi)
-     (format "\t~a(reqs []*echo.~a, metadata [][2]string, sink *~aServerSink) error\n" name req svc)]))
+     (format "\t~a(reqs []*echo.~a, metadata [][2]string, sink *~a) error\n" name req (wasm-sink-name svc resp))]))
 
 (define (wasm-register-method m)
   (define name (hash-ref m 'name))
@@ -103,9 +114,9 @@
               "\tregisterServerStreamHandler(bridge, ~s, func(payload []byte, metadata [][2]string, sink *ServerSink) error {\n"
               "\t\treq := new(echo.~a)\n"
               "\t\tif err := req.UnmarshalDC(payload); err != nil {\n\t\t\treturn err\n\t\t}\n"
-              "\t\treturn impl.~a(req, metadata, &~aServerSink{sink: sink})\n"
+              "\t\treturn impl.~a(req, metadata, &~a{sink: sink})\n"
               "\t})\n")
-             path req name (current-service))]
+             path req name (wasm-sink-name (current-service) (hash-ref m 'output)))]
     [(client-streaming)
      (format (string-append
               "\tregisterClientStreamHandler(bridge, ~s, func(payloads [][]byte, metadata [][2]string) ([]byte, error) {\n"
@@ -127,9 +138,9 @@
               "\t\t\treqs[i] = new(echo.~a)\n"
               "\t\t\tif err := reqs[i].UnmarshalDC(payload); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n"
               "\t\t}\n"
-              "\t\treturn impl.~a(reqs, metadata, &~aServerSink{sink: sink})\n"
+              "\t\treturn impl.~a(reqs, metadata, &~a{sink: sink})\n"
               "\t})\n")
-             path req req name (current-service))]))
+             path req req name (wasm-sink-name (current-service) (hash-ref m 'output)))]))
 
 (define (wasm-stream-iface-method m)
   (define name (hash-ref m 'name))
@@ -140,7 +151,7 @@
     [(client-streaming)
      (format "\t~a(source *~aSource, metadata [][2]string) (*echo.~a, error)\n" name req resp)]
     [(bidi)
-     (format "\t~a(source *~aSource, metadata [][2]string, sink *~aServerSink) error\n" name req svc)]
+     (format "\t~a(source *~aSource, metadata [][2]string, sink *~a) error\n" name req (wasm-sink-name svc (hash-ref m 'output)))]
     [else ""]))
 
 (define (wasm-stream-register-method m)
@@ -159,15 +170,15 @@
     [(bidi)
      (format (string-append
               "\tregisterBidiIncHandler(bridge, ~s, func(source *RequestSource, metadata [][2]string, sink *ServerSink) error {\n"
-              "\t\treturn impl.~a(&~aSource{raw: source}, metadata, &~aServerSink{sink: sink})\n"
+              "\t\treturn impl.~a(&~aSource{raw: source}, metadata, &~a{sink: sink})\n"
               "\t})\n")
-             path name req (current-service))]
+             path name req (wasm-sink-name (current-service) (hash-ref m 'output)))]
     [else ""]))
 
 (define (wasm-service svc)
   (define sname (hash-ref svc 'name))
   (define methods (hash-ref svc 'methods))
-  (parameterize ([current-service sname])
+  (parameterize ([current-service sname] [current-methods methods])
     (string-append
      (format "type ~aClient struct {\n\tbridge js.Value\n}\n\n" sname)
      (format "func New~aClient(bridge js.Value) *~aClient {\n\treturn &~aClient{bridge: bridge}\n}\n\n"
@@ -177,26 +188,36 @@
      (format "type ~aServer interface {\n" sname)
      (apply string-append (map wasm-server-iface-method methods))
      "}\n\n"
-     (format "// ~aServerSink sends responses on streaming calls.\n" sname)
-     (format "type ~aServerSink struct {\n\tsink *ServerSink\n}\n\n" sname)
-     (format "// Send marshals and forwards one response.\n")
-     (format "func (s *~aServerSink) Send(resp *echo.~a) error {\n\ts.sink.Send(resp.MarshalDC())\n\treturn nil\n}\n\n"
-             sname (hash-ref (car methods) 'output))
+     ;; One sink struct per distinct response type.
+     (apply string-append
+            (for/list ([out (in-list (remove-duplicates (map (lambda (m) (hash-ref m 'output)) methods)))])
+              (define sink (wasm-sink-name sname out))
+              (string-append
+               (format "// ~a sends responses on streaming calls.\n" sink)
+               (format "type ~a struct {\n\tsink *ServerSink\n}\n\n" sink)
+               (format "// Send marshals and forwards one response.\n")
+               (format "func (s *~a) Send(resp *echo.~a) error {\n\ts.sink.Send(resp.MarshalDC())\n\treturn nil\n}\n\n" sink out))))
      (format "// Register~aServer registers impl on the JS server bridge and starts serving.\n" sname)
      (format "func Register~aServer(bridge js.Value, impl ~aServer) {\n" sname sname)
      (apply string-append (map wasm-register-method methods))
      (format "\tbridge.Call(\"start\", ~s)\n}\n" (hash-ref svc 'full-name))
-     (format "\n// ~aSource pulls typed requests one at a time for incremental handlers.\n"
-             (hash-ref (car methods) 'input))
-     (format "type ~aSource struct {\n\traw *RequestSource\n}\n\n" (hash-ref (car methods) 'input))
-     (format "// Next returns the next request, or (nil, nil) at end of stream.\n")
-     (format "func (s *~aSource) Next() (*echo.~a, error) {\n" (hash-ref (car methods) 'input) (hash-ref (car methods) 'input))
-     "\tpayload, err := s.raw.Next()\n"
-     "\tif err != nil || payload == nil {\n\t\treturn nil, err\n\t}\n"
-     (format "\treq := new(echo.~a)\n" (hash-ref (car methods) 'input))
-     "\tif err := req.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n"
-     "\treturn req, nil\n"
-     "}\n\n"
+     ;; One pull source per distinct request type used by the
+     ;; incremental (client-streaming/bidi) methods.
+     (apply string-append
+            (for/list ([in (in-list (remove-duplicates
+                                     (map (lambda (m) (hash-ref m 'input))
+                                          (filter (lambda (m) (memq (hash-ref m 'kind) '(client-streaming bidi))) methods))))])
+              (string-append
+               (format "\n// ~aSource pulls typed requests one at a time for incremental handlers.\n" in)
+               (format "type ~aSource struct {\n\traw *RequestSource\n}\n\n" in)
+               (format "// Next returns the next request, or (nil, nil) at end of stream.\n")
+               (format "func (s *~aSource) Next() (*echo.~a, error) {\n" in in)
+               "\tpayload, err := s.raw.Next()\n"
+               "\tif err != nil || payload == nil {\n\t\treturn nil, err\n\t}\n"
+               (format "\treq := new(echo.~a)\n" in)
+               "\tif err := req.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n"
+               "\treturn req, nil\n"
+               "}\n\n")))
      (format "// ~aStreamServer is the incremental implementation for ~a: requests arrive one at a time.\n" sname (hash-ref svc 'full-name))
      (format "type ~aStreamServer interface {\n" sname)
      (apply string-append (map wasm-stream-iface-method methods))

@@ -663,18 +663,31 @@
       (append methods (alias-server-methods svc))))
     (format "        bridge.start(~s)\n" (hash-ref svc 'full-name))
     "    }\n\n"
-    (format "    /** Typed pull source for incremental server handlers. */\n")
-    (format
-     "    class ~aSource internal constructor(private val raw: GrpcdcRequestSource) {\n"
-     (hash-ref (car methods) 'input))
-    (format
-     "        fun next(onRequest: ((~a?) -> Unit), onError: (StatusException) -> Unit) {\n"
-     (hash-ref (car methods) 'input))
-    (format
-     "            raw.next({ bytes -> onRequest(bytes?.let { ~a().apply { unmarshalDc(it) } }) }, onError)\n"
-     (hash-ref (car methods) 'input))
-    "        }\n"
-    "    }\n\n"
+    (apply
+     string-append
+     (for/list
+      ((in
+        (in-list
+         (remove-duplicates
+          (map
+           (lambda (m) (hash-ref m 'input))
+           (filter
+            (lambda (m) (memq (hash-ref m 'kind) '(client-streaming bidi)))
+            methods))))))
+      (string-append
+       (format
+        "    /** Typed pull source for incremental server handlers. */\n")
+       (format
+        "    class ~aSource internal constructor(private val raw: GrpcdcRequestSource) {\n"
+        in)
+       (format
+        "        fun next(onRequest: ((~a?) -> Unit), onError: (StatusException) -> Unit) {\n"
+        in)
+       (format
+        "            raw.next({ bytes -> onRequest(bytes?.let { ~a().apply { unmarshalDc(it) } }) }, onError)\n"
+        in)
+       "        }\n"
+       "    }\n\n")))
     (format
      "    /** Incremental service implementation for ~a: requests arrive one at a time. */\n"
      (hash-ref svc 'full-name))

@@ -642,6 +642,7 @@ webapp-assets:
 	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" webapp/assets/wasm_exec.js
 	cp proto/echo.proto webapp/assets/echo.proto
 	cp js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/js/
+	cp js/wire_gen.js webapp/assets/runtime/wire_gen.js
 	cp go/channel.go go/codec.go go/dynamic.go go/endpoint.go go/loopback.go go/server.go go/wire_gen.go go/webrtc_transport.go webapp/assets/runtime/go/
 	cp python/grpcdc/__init__.py python/grpcdc/channel.py python/grpcdc/codec.py python/grpcdc/dynamic.py python/grpcdc/endpoint.py python/grpcdc/loopback.py python/grpcdc/server.py python/grpcdc/wire_gen.py webapp/assets/runtime/python/
 	mkdir -p webapp/assets/runtime/rust/src
@@ -695,7 +696,7 @@ webapp-dist: webapp-assets
 	cp -r webapp/assets webapp/dist/assets
 
 test-webapp: webapp-assets
-	cd browser-test && node webapp_parity.test.mjs all
+	cd browser-test && node webapp_parity.test.mjs all && node webapp_pb.test.mjs all
 
 test-interop-matrix:
 	cd js && node test/interop-matrix.mjs

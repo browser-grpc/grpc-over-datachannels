@@ -350,10 +350,13 @@ function zipReadme(langs) {
     "",
     "The stubs import message classes from a sibling <base>_pb module",
     "(echo_pb.js, the Echo types in the Go package, echo_pb.py).",
-    "Message classes are deliberately not generated: provide them by",
-    "hand (each runtime's stub header documents the encode/marshal",
-    "surface they must expose) or generate them with your usual",
-    "protobuf tooling and adapt them to that surface.",
+    "For JavaScript, dependency-free message classes are generated",
+    "next to the stubs (gen/js/<base>_pb.js: static encode/decode),",
+    "so the JS zip runs end-to-end as-is. For other languages,",
+    "provide message classes by hand (each runtime's stub header",
+    "documents the encode/marshal surface they must expose) or",
+    "generate them with your usual protobuf tooling and adapt",
+    "them to that surface.",
     "",
     "Languages in this zip: " + langs.join(", ") + ".",
     "",
@@ -387,6 +390,13 @@ $("generate").addEventListener("click", async () => {
       generated.push(entry);
     }
     entries.push(...(await fetchRuntime(lang)));
+  }
+  // The JS-family runtimes import ../wire_gen.js, which resolves to
+  // runtime/wire_gen.js in the zip layout; bundle it once.
+  if (langs.some((l) => (RUNTIME_FILES[l] || []).includes("codec.js"))) {
+    const resp = await fetch("assets/runtime/wire_gen.js");
+    if (!resp.ok) throw new Error("missing runtime asset wire_gen.js");
+    entries.push({ name: "runtime/wire_gen.js", data: new Uint8Array(await resp.arrayBuffer()) });
   }
   renderResults(generated);
   entries.push({ name: "README.md", data: enc.encode(zipReadme(langs)) });
