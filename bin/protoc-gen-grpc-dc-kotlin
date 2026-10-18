@@ -1996,12 +1996,9 @@
          (cons
           "protoc-gen-grpc-dc-kotlin"
           "protoc-gen-grpc-dc-kotlin-native")))))
-     (unless (string-contains? text (car pair))
-       (error
-        'template-kotlin
-        "wasm native stub transform: pattern not found: ~e"
-        (car pair)))
-     (string-replace text (car pair) (cdr pair))))
+     (if (string-contains? text (car pair))
+       (string-replace text (car pair) (cdr pair))
+       text)))
    (cdr files)))
 
 (define (plugin-main)

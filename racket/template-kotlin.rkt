@@ -883,7 +883,9 @@
                                    (cons "import java.io.EOFException\n" "import grpcdc.EOFException\n")
                                    (cons "java.time.Duration?" "Long?")
                                    (cons "protoc-gen-grpc-dc-kotlin" "protoc-gen-grpc-dc-kotlin-native")))])
-          (unless (string-contains? text (car pair))
-            (error 'template-kotlin "wasm native stub transform: pattern not found: ~e" (car pair)))
-          (string-replace text (car pair) (cdr pair))))
+          ;; Schemas without services legitimately lack the import
+          ;; and Duration patterns; rewrite what is present.
+          (if (string-contains? text (car pair))
+              (string-replace text (car pair) (cdr pair))
+              text)))
         (cdr files)))
