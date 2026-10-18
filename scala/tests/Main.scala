@@ -1,10 +1,10 @@
 package tests
 
-// Test runner: java -cp tests.jar:scala-library.jar tests.Main <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline>
+// Test runner: java -cp tests.jar:scala-library.jar tests.Main <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline|TestPbMessages>
 object Main {
   def main(args: Array[String]): Unit = {
     if (args.isEmpty) {
-      System.err.println("usage: tests.Main <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline>")
+      System.err.println("usage: tests.Main <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline|TestPbMessages>")
       System.exit(2)
     }
     try {
@@ -16,6 +16,7 @@ object Main {
         case "TestDynamic" => testDynamic()
         case "TestBdd" => testBdd()
         case "TestDeadline" => testDeadline()
+        case "TestPbMessages" => testPbMessages()
         case other =>
           System.err.println(s"unknown test: $other")
           System.exit(2)

@@ -318,17 +318,18 @@ SCALA_LIBS = $(SCALA3_HOME)/lib/scala3-library_3-3.3.6.jar:$(SCALA3_HOME)/lib/sc
 
 test-scala:
 	mkdir -p scala/build
-	$(SCALAC) -d scala/build/tests.jar scala/grpcdc/*.scala scala/examples/Pb.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/tests/*.scala
-	$(SCALAC) -d scala/build/echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/Pb.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/EchoServerStdio/Main.scala
-	$(SCALAC) -d scala/build/echo_client_stdio.jar scala/grpcdc/*.scala scala/examples/Pb.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/EchoClientStdio/Main.scala
-	$(SCALAC) -d scala/build/dynamic_echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/Pb.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/examples/DynamicEchoServerStdio/Main.scala
+	$(SCALAC) -d scala/build/tests.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/tests/*.scala
+	$(SCALAC) -d scala/build/echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/EchoServerStdio/Main.scala
+	$(SCALAC) -d scala/build/echo_client_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/EchoClientStdio/Main.scala
+	$(SCALAC) -d scala/build/dynamic_echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/examples/DynamicEchoServerStdio/Main.scala
 	java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestCodec \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestEcho \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestInterop \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestOracle \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDynamic \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestBdd \
-		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDeadline
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDeadline \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestPbMessages
 
 test-grpc-webrtc:
 	cd rust && $(CARGO) test --features webrtc
@@ -628,12 +629,12 @@ scalajs-gen:
 		-o browser-test/scalajs_gen/echo_scalajs_client.mjs \
 		wasm/scalajs/bridge.scala wasm/scalajs/EchoScalaJsGrpcDc.scala \
 		scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala \
-		scala/examples/Pb.scala scala/examples/EchoMessages.scala wasm/scalajs/echo_client.scala
+		scala/examples/EchoMessages.scala wasm/scalajs/echo_client.scala
 	$(SCALACLI) --power package --force --js --js-module-kind esmodule --scala-version 3.3.6 \
 		-o browser-test/scalajs_gen/echo_scalajs_server.mjs \
 		wasm/scalajs/bridge.scala wasm/scalajs/EchoScalaJsGrpcDc.scala \
 		scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala \
-		scala/examples/Pb.scala scala/examples/EchoMessages.scala \
+		scala/examples/EchoMessages.scala \
 		wasm/scalajs/EchoServerImpl.scala wasm/scalajs/echo_server_facade.scala
 
 test-scalajs-browser: scalajs-gen
