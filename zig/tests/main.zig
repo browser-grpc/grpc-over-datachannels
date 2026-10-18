@@ -6,6 +6,7 @@ const test_echo = @import("test_echo.zig");
 const test_interop = @import("test_interop.zig");
 const test_oracle = @import("test_oracle.zig");
 const test_dynamic = @import("test_dynamic.zig");
+const test_pb_messages = @import("test_pb_messages.zig");
 
 // Test runner: ./tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic>
 pub fn main() !void {
@@ -31,6 +32,8 @@ pub fn main() !void {
         test_dynamic.testDynamic(alloc);
     } else if (std.mem.eql(u8, name, "TestDeadline")) {
         test_deadline.testDeadline(alloc);
+    } else if (std.mem.eql(u8, name, "TestPbMessages")) {
+        test_pb_messages.testPbMessages(alloc);
     } else {
         std.debug.print("unknown test: {s}\n", .{name});
         std.process.exit(2);
