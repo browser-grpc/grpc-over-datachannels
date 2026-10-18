@@ -635,11 +635,16 @@ $("generate").addEventListener("click", async () => {
     [...entries, { name: "manifest.json", data: new Uint8Array(0) }],
     langs, bases, messageBases);
   window.__zipMissing = missing;
+  const usedFallback = !generatedVia.startsWith("Racket");
+  const fallbackNote = usedFallback
+    ? "Built-in JS fallback generators were used: stubs for every selected language, but generated message types only for js and python. Serve this app with cross-origin isolation (make webapp-serve) so the Racket plugins run in-browser and every language gets its message types."
+    : null;
   entries.push({
     name: "manifest.json",
     data: enc.encode(JSON.stringify({
       app: "grpc-dc-webapp",
       generatedVia,
+      fallbackNote,
       languages: langs,
       protos: names,
       files: [...entries.map((e) => e.name), "manifest.json"],
@@ -653,7 +658,8 @@ $("generate").addEventListener("click", async () => {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   if (missing.length) {
-    setStatus("generated grpcdc-stubs.zip (" + entries.length + " files); missing: " + missing.join(", "), "err");
+    setStatus("generated grpcdc-stubs.zip (" + entries.length + " files); missing: " + missing.join(", ")
+      + (usedFallback ? " — JS fallback: message types included for js/python only; serve via make webapp-serve for the full bundle" : ""), "err");
   } else {
     setStatus("generated grpcdc-stubs.zip (" + entries.length + " files)", "ok");
   }

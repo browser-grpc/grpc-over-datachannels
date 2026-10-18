@@ -307,6 +307,14 @@ async function runCase(name, engine) {
       const actual = entries.get(`gen/${lang}/${stub}`);
       assert.ok(actual && actual.equals(expected), `${name}: fallback ${lang} stub differs from native plugin`);
     }
+    // The fallback is honestly incomplete outside js/python: the
+    // manifest must say so (missing list + fallback note), never
+    // silently ship stubs without their message types.
+    const fbManifest = JSON.parse(entries.get("manifest.json").toString());
+    assert.match(fbManifest.fallbackNote ?? "", /js and python/, "fallback manifest explains the reduced coverage");
+    assert.ok(
+      fbManifest.missing.includes("gen/go/echo_pb.go"),
+      "fallback manifest reports missing message files: " + fbManifest.missing.join(", "));
     console.log(`${name}: webapp parity OK (echo + shop byte-identical via Racket/Wasm plugins, params, per-file download, error surfaced, JS fallback identical)`);
   } finally {
     await browser.close();
