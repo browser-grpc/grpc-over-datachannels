@@ -19,13 +19,14 @@ object EchoPb {
         fun fixedULong(value: ULong) { fixedLong(value.toLong()) }
         fun fixedFloat(value: Float) { fixedInt(value.toBits()) }
         fun fixedDouble(value: Double) { fixedLong(value.toBits()) }
+        fun raw(payload: ByteArray) { out.write(payload) }
         fun toBytes(): ByteArray = out.toByteArray()
     }
 
     fun bitsToFloat(u: UInt): Float = Float.fromBits(u.toInt())
     fun bitsToDouble(u: ULong): Double = Double.fromBits(u.toLong())
 
-    class Field(val number: Int, val wire: Int, val varintValue: Long, val bytesValue: ByteArray, val fixedValue: Long)
+    class Field(val number: Int, val wire: Int, val varintValue: Long, val bytesValue: ByteArray, val fixedValue: Long, val rawValue: ByteArray)
 
     class Reader(private val buf: ByteArray) {
         private var pos = 0
@@ -36,12 +37,13 @@ object EchoPb {
         fun fixed64(): ULong { val b = take(8); var v = 0UL; for (i in 0 until 8) v = v or ((b[i].toInt() and 0xff).toULong() shl (8 * i)); return v }
         fun next(): Field? {
             if (pos >= buf.size) return null
+            val start = pos
             val tag = varint(); val number = (tag shr 3).toInt(); val wire = (tag and 7).toInt()
             return when (wire) {
-                0 -> Field(number, wire, varint(), ByteArray(0), 0)
-                2 -> { val n = varint().toInt(); Field(number, wire, 0, take(n), 0) }
-                1 -> { val b = take(8); var v = 0L; for (i in 0 until 8) v = v or ((b[i].toInt() and 0xff).toLong() shl (8 * i)); Field(number, wire, 0, b, v) }
-                5 -> { val b = take(4); val v = (b[0].toInt() and 0xff) or ((b[1].toInt() and 0xff) shl 8) or ((b[2].toInt() and 0xff) shl 16) or ((b[3].toInt() and 0xff) shl 24); Field(number, wire, 0, b, v.toLong()) }
+                0 -> { val v = varint(); Field(number, wire, v, ByteArray(0), 0, buf.copyOfRange(start, pos)) }
+                2 -> { val n = varint().toInt(); val b = take(n); Field(number, wire, 0, b, 0, buf.copyOfRange(start, pos)) }
+                1 -> { val b = take(8); var v = 0L; for (i in 0 until 8) v = v or ((b[i].toInt() and 0xff).toLong() shl (8 * i)); Field(number, wire, 0, b, v, buf.copyOfRange(start, pos)) }
+                5 -> { val b = take(4); val v = (b[0].toInt() and 0xff) or ((b[1].toInt() and 0xff) shl 8) or ((b[2].toInt() and 0xff) shl 16) or ((b[3].toInt() and 0xff) shl 24); Field(number, wire, 0, b, v.toLong(), buf.copyOfRange(start, pos)) }
                 else -> throw IllegalArgumentException("bad wire type " + wire)
             }
         }
@@ -54,14 +56,17 @@ object EchoPb {
     var count: Int = 0,
     var delayMs: Int = 0,
 ) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
         val w = EchoPb.Writer()
         w.stringField(1, message)
         if (count != 0) { w.tag(2, 0); w.varint(count.toLong()) }
         if (delayMs != 0) { w.tag(3, 0); w.varint(delayMs.toLong()) }
+        w.raw(unknownFields)
         return w.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
         message = ""
         count = 0
         delayMs = 0
@@ -78,7 +83,7 @@ object EchoPb {
                 3 -> {
                     delayMs = field.varintValue.toInt()
                 }
-                else -> {}
+                else -> { unknownFields = unknownFields + field.rawValue }
             }
         }
     }
@@ -87,13 +92,16 @@ object EchoPb {
     var message: String = "",
     var index: Int = 0,
 ) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
         val w = EchoPb.Writer()
         w.stringField(1, message)
         if (index != 0) { w.tag(2, 0); w.varint(index.toLong()) }
+        w.raw(unknownFields)
         return w.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
         message = ""
         index = 0
         val r = EchoPb.Reader(data)
@@ -106,7 +114,7 @@ object EchoPb {
                 2 -> {
                     index = field.varintValue.toInt()
                 }
-                else -> {}
+                else -> { unknownFields = unknownFields + field.rawValue }
             }
         }
     }

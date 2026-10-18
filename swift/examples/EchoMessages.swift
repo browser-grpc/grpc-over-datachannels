@@ -19,6 +19,7 @@ enum EchoPb {
         func FixedUInt64(_ value: UInt64) { for i in 0..<8 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
         func FixedFloat(_ value: Float) { FixedUInt32(value.bitPattern) }
         func FixedDouble(_ value: Double) { FixedUInt64(value.bitPattern) }
+        func Raw(_ payload: [UInt8]) { out += payload }
         func ToBytes() -> [UInt8] { out }
     }
 
@@ -26,7 +27,7 @@ enum EchoPb {
     static func BitsToDouble(_ u: UInt64) -> Double { Double(bitPattern: u) }
 
     struct Field {
-        var number: Int; var wire: Int; var varintValue: UInt64; var bytesValue: [UInt8]; var fixedValue: UInt64
+        var number: Int; var wire: Int; var varintValue: UInt64; var bytesValue: [UInt8]; var fixedValue: UInt64; var rawValue: [UInt8]
     }
 
     final class Reader {
@@ -39,12 +40,13 @@ enum EchoPb {
         func Fixed64() -> UInt64 { let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return v }
         func Next() throws -> Field? {
             if pos >= buf.count { return nil }
+            let start = pos
             let tag = Varint(); let number = Int(tag >> 3); let wire = Int(tag & 7)
             switch wire {
-            case 0: return Field(number: number, wire: wire, varintValue: Varint(), bytesValue: [], fixedValue: 0)
-            case 2: let n = Int(Varint()); return Field(number: number, wire: wire, varintValue: 0, bytesValue: Take(n), fixedValue: 0)
-            case 1: let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: v)
-            case 5: let b = Take(4); let v = UInt64(UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24)); return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: v)
+            case 0: let v = Varint(); return Field(number: number, wire: wire, varintValue: v, bytesValue: [], fixedValue: 0, rawValue: [UInt8](buf[start..<pos]))
+            case 2: let n = Int(Varint()); let b = Take(n); return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: 0, rawValue: [UInt8](buf[start..<pos]))
+            case 1: let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: v, rawValue: [UInt8](buf[start..<pos]))
+            case 5: let b = Take(4); let v = UInt64(UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24)); return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: v, rawValue: [UInt8](buf[start..<pos]))
             default: throw BadWireType()
             }
         }
@@ -56,6 +58,7 @@ final class EchoRequest: Marshaler, Unmarshaler {
     var message: String = ""
     var count: Int32 = 0
     var delayMs: Int32 = 0
+    var unknownFields: [UInt8] = []
     init() {}
     init(_ message: String = "", _ count: Int32 = 0, _ delayMs: Int32 = 0) {
         self.message = message
@@ -67,9 +70,11 @@ final class EchoRequest: Marshaler, Unmarshaler {
         w.StringField(1, message)
         if count != 0 { w.Tag(2, 0); w.Varint(Int64(count)) }
         if delayMs != 0 { w.Tag(3, 0); w.Varint(Int64(delayMs)) }
+        w.Raw(unknownFields)
         return w.ToBytes()
     }
     func UnmarshalDc(_ data: [UInt8]) {
+        unknownFields = []
         message = ""
         count = 0
         delayMs = 0
@@ -85,7 +90,7 @@ final class EchoRequest: Marshaler, Unmarshaler {
                 count = Int32(truncatingIfNeeded: field.varintValue)
             case 3:
                 delayMs = Int32(truncatingIfNeeded: field.varintValue)
-            default: break
+            default: unknownFields += field.rawValue
             }
         }
     }
@@ -93,6 +98,7 @@ final class EchoRequest: Marshaler, Unmarshaler {
 final class EchoResponse: Marshaler, Unmarshaler {
     var message: String = ""
     var index: Int32 = 0
+    var unknownFields: [UInt8] = []
     init() {}
     init(_ message: String = "", _ index: Int32 = 0) {
         self.message = message
@@ -102,9 +108,11 @@ final class EchoResponse: Marshaler, Unmarshaler {
         let w = EchoPb.Writer()
         w.StringField(1, message)
         if index != 0 { w.Tag(2, 0); w.Varint(Int64(index)) }
+        w.Raw(unknownFields)
         return w.ToBytes()
     }
     func UnmarshalDc(_ data: [UInt8]) {
+        unknownFields = []
         message = ""
         index = 0
         let r = EchoPb.Reader(data)
@@ -117,7 +125,7 @@ final class EchoResponse: Marshaler, Unmarshaler {
                 message = String(decoding: field.bytesValue, as: UTF8.self)
             case 2:
                 index = Int32(truncatingIfNeeded: field.varintValue)
-            default: break
+            default: unknownFields += field.rawValue
             }
         }
     }

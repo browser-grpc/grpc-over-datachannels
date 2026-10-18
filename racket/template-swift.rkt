@@ -505,14 +505,27 @@
 (define (swift-pb-encode-singular model f v indent)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  ;; Proto2 optional/required fields have explicit presence.
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond [(memv type swift-pb-varint-types)
-         (format "~aif ~a { w.Tag(~a, 0); w.Varint(~a) }\n" indent (swift-pb-nonzero f v) n (swift-pb-varint-expr f v))]
+         (if proto2?
+             (format "~a{ w.Tag(~a, 0); w.Varint(~a) }\n" indent n (swift-pb-varint-expr f v))
+             (format "~aif ~a { w.Tag(~a, 0); w.Varint(~a) }\n" indent (swift-pb-nonzero f v) n (swift-pb-varint-expr f v)))]
         [(assv type swift-pb-fixed)
          => (lambda (info)
-              (format "~aif ~a { w.Tag(~a, ~a); w.Fixed~a(~a) }\n" indent (swift-pb-nonzero f v) n
-                      (if (= (second info) 8) 1 5) (third info) v))]
-        [(= type 9) (format "~aw.StringField(~a, ~a)\n" indent n v)]
-        [(= type 12) (format "~aif !~a.isEmpty { w.BytesField(~a, ~a) }\n" indent v n v)]
+              (if proto2?
+                  (format "~a{ w.Tag(~a, ~a); w.Fixed~a(~a) }\n" indent n
+                          (if (= (second info) 8) 1 5) (third info) v)
+                  (format "~aif ~a { w.Tag(~a, ~a); w.Fixed~a(~a) }\n" indent (swift-pb-nonzero f v) n
+                          (if (= (second info) 8) 1 5) (third info) v)))]
+        [(= type 9)
+         (if proto2?
+             (format "~aw.BytesField(~a, [UInt8](~a.utf8))\n" indent n v)
+             (format "~aw.StringField(~a, ~a)\n" indent n v))]
+        [(= type 12)
+         (if proto2?
+             (format "~aw.BytesField(~a, ~a)\n" indent n v)
+             (format "~aif !~a.isEmpty { w.BytesField(~a, ~a) }\n" indent v n v))]
         [(= type 11) (format "~aif let v = ~a { w.BytesField(~a, v.MarshalDc()) }\n" indent v n)]
         [else (error 'emit-swift-pb-file "unsupported field type ~a (groups)" type)]))
 
@@ -572,10 +585,17 @@
           (format "~a~a!.UnmarshalDc(~a)\n" indent target src))]
         [else (error 'emit-swift-pb-file "unsupported field type ~a" type)]))
 
+(define (swift-pb-oneof-clearing model f)
+  (apply string-append
+         (map (lambda (sib)
+                (format "                ~a = ~a\n" (swift-pb-field-name sib) (swift-pb-default model sib)))
+              (oneof-siblings model f))))
+
 (define (swift-pb-decode-case model f support)
   (define v (swift-pb-field-name f))
   (define type (hash-ref f 'type))
   (define head (format "            case ~a:\n" (hash-ref f 'number)))
+  (define clearing (swift-pb-oneof-clearing model f))
   (cond [(and (= type 11)
               (eq? (hash-ref (swift-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
          (define entry (swift-pb-resolve model (hash-ref f 'type-name)))
@@ -585,6 +605,7 @@
                         (format "                ~a[kv.0] = kv.1\n" v))]
         [(not (= (hash-ref f 'label) 3))
          (string-append head
+                        clearing
                         (swift-pb-decode-singular/support model f v
                                                           (cond [(memv type swift-pb-varint-types) "field.varintValue"]
                                                                 [(assv type swift-pb-fixed) "field.fixedValue"]
@@ -702,12 +723,13 @@
    "        func FixedUInt64(_ value: UInt64) { for i in 0..<8 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }\n"
    "        func FixedFloat(_ value: Float) { FixedUInt32(value.bitPattern) }\n"
    "        func FixedDouble(_ value: Double) { FixedUInt64(value.bitPattern) }\n"
+   "        func Raw(_ payload: [UInt8]) { out += payload }\n"
    "        func ToBytes() -> [UInt8] { out }\n"
    "    }\n\n"
    "    static func BitsToFloat(_ u: UInt32) -> Float { Float(bitPattern: u) }\n"
    "    static func BitsToDouble(_ u: UInt64) -> Double { Double(bitPattern: u) }\n\n"
    "    struct Field {\n"
-   "        var number: Int; var wire: Int; var varintValue: UInt64; var bytesValue: [UInt8]; var fixedValue: UInt64\n"
+   "        var number: Int; var wire: Int; var varintValue: UInt64; var bytesValue: [UInt8]; var fixedValue: UInt64; var rawValue: [UInt8]\n"
    "    }\n\n"
    "    final class Reader {\n"
    "        private let buf: [UInt8]; private var pos = 0\n"
@@ -719,12 +741,13 @@
    "        func Fixed64() -> UInt64 { let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return v }\n"
    "        func Next() throws -> Field? {\n"
    "            if pos >= buf.count { return nil }\n"
+   "            let start = pos\n"
    "            let tag = Varint(); let number = Int(tag >> 3); let wire = Int(tag & 7)\n"
    "            switch wire {\n"
-   "            case 0: return Field(number: number, wire: wire, varintValue: Varint(), bytesValue: [], fixedValue: 0)\n"
-   "            case 2: let n = Int(Varint()); return Field(number: number, wire: wire, varintValue: 0, bytesValue: Take(n), fixedValue: 0)\n"
-   "            case 1: let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: v)\n"
-   "            case 5: let b = Take(4); let v = UInt64(UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24)); return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: v)\n"
+   "            case 0: let v = Varint(); return Field(number: number, wire: wire, varintValue: v, bytesValue: [], fixedValue: 0, rawValue: [UInt8](buf[start..<pos]))\n"
+   "            case 2: let n = Int(Varint()); let b = Take(n); return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: 0, rawValue: [UInt8](buf[start..<pos]))\n"
+   "            case 1: let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: v, rawValue: [UInt8](buf[start..<pos]))\n"
+   "            case 5: let b = Take(4); let v = UInt64(UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24)); return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: v, rawValue: [UInt8](buf[start..<pos]))\n"
    "            default: throw BadWireType()\n"
    "            }\n"
    "        }\n"
@@ -741,6 +764,7 @@
           (map (lambda (f)
                  (format "~a    var ~a: ~a = ~a\n" indent (swift-pb-field-name f) (swift-pb-type model f) (swift-pb-default model f)))
                fields))
+   (format "~a    var unknownFields: [UInt8] = []\n" indent)
    (format "~a    init() {}\n" indent)
    (if (null? fields)
        ""
@@ -753,8 +777,10 @@
    (format "~a    func MarshalDc() -> [UInt8] {\n" indent)
    (format "~a        let w = ~a.Writer()\n" indent support)
    (apply string-append (map (lambda (f) (swift-pb-encode-field model f support)) fields))
+   (format "~a        w.Raw(unknownFields)\n" indent)
    (format "~a        return w.ToBytes()\n~a    }\n" indent indent)
    (format "~a    func UnmarshalDc(_ data: [UInt8]) {\n" indent)
+   (format "~a        unknownFields = []\n" indent)
    (apply string-append
           (map (lambda (f) (format "~a        ~a = ~a\n" indent (swift-pb-field-name f) (swift-pb-default model f))) fields))
    (format "~a        let r = ~a.Reader(data)\n" indent support)
@@ -764,7 +790,7 @@
    (format "~a            guard let field = next else { break }\n" indent)
    (format "~a            switch field.number {\n" indent)
    (apply string-append (map (lambda (f) (swift-pb-decode-case model f support)) fields))
-   (format "~a            default: break\n~a            }\n~a        }\n~a    }\n" indent indent indent indent)
+   (format "~a            default: unknownFields += field.rawValue\n~a            }\n~a        }\n~a    }\n" indent indent indent indent)
    (apply string-append (map (lambda (n) (swift-pb-message-class model n support (string-append indent "    ") "final")) (hash-ref msg 'nested)))
    (apply string-append (map (lambda (e) (swift-pb-nested-enum e (string-append indent "    "))) (hash-ref msg 'enums)))
    (format "~a}\n" indent)))

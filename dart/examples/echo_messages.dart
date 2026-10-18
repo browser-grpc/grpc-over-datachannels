@@ -14,6 +14,7 @@ class EchoPbWriter {
   void fixedInt32(int value) { final b = ByteData(4); b.setInt32(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }
   void fixedUint64(int value) { final b = ByteData(8); b.setUint64(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }
   void fixedInt64(int value) { final b = ByteData(8); b.setInt64(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }
+  void raw(List<int> payload) { _out.add(payload); }
   void fixedFloat32(double value) { final b = ByteData(4); b.setFloat32(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }
   void fixedFloat64(double value) { final b = ByteData(8); b.setFloat64(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }
   Uint8List toBytes() => _out.toBytes();
@@ -23,8 +24,8 @@ double EchoPbBitsToFloat32(int bits) { final b = ByteData(4); b.setUint32(0, bit
 double EchoPbBitsToFloat64(int bits) { final b = ByteData(8); b.setUint64(0, bits, Endian.little); return b.getFloat64(0, Endian.little); }
 
 class EchoPbField {
-  final int number; final int wire; final int varintValue; final Uint8List bytesValue; final int fixedValue;
-  EchoPbField(this.number, this.wire, this.varintValue, this.bytesValue, this.fixedValue);
+  final int number; final int wire; final int varintValue; final Uint8List bytesValue; final int fixedValue; final Uint8List rawValue;
+  EchoPbField(this.number, this.wire, this.varintValue, this.bytesValue, this.fixedValue, this.rawValue);
 }
 
 class EchoPbReader {
@@ -38,12 +39,13 @@ class EchoPbReader {
   int fixed64() { final b = take(8); var v = BigInt.zero; for (var i = 0; i < 8; i++) { v |= BigInt.from(b[i]) << (8 * i); } return _signed64(v); }
   EchoPbField? next() {
     if (_pos >= _buf.length) return null;
+    final start = _pos;
     final tag = varint(); final number = tag >> 3; final wire = tag & 7;
     switch (wire) {
-      case 0: return EchoPbField(number, wire, varint(), Uint8List(0), 0);
-      case 2: final n = varint(); return EchoPbField(number, wire, 0, take(n), 0);
-      case 1: final b = take(8); var v = BigInt.zero; for (var i = 0; i < 8; i++) { v |= BigInt.from(b[i]) << (8 * i); } return EchoPbField(number, wire, 0, b, _signed64(v));
-      case 5: final b = take(4); final v = b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); return EchoPbField(number, wire, 0, b, v);
+      case 0: return EchoPbField(number, wire, varint(), Uint8List(0), 0, Uint8List.fromList(_buf.sublist(start, _pos)));
+      case 2: final n = varint(); return EchoPbField(number, wire, 0, take(n), 0, Uint8List.fromList(_buf.sublist(start, _pos)));
+      case 1: final b = take(8); var v = BigInt.zero; for (var i = 0; i < 8; i++) { v |= BigInt.from(b[i]) << (8 * i); } return EchoPbField(number, wire, 0, b, _signed64(v), Uint8List.fromList(_buf.sublist(start, _pos)));
+      case 5: final b = take(4); final v = b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); return EchoPbField(number, wire, 0, b, v, Uint8List.fromList(_buf.sublist(start, _pos)));
       default: throw StateError('bad wire type');
     }
   }
@@ -53,6 +55,7 @@ class EchoRequest implements Marshaler, Unmarshaler {
   String message;
   int count;
   int delayMs;
+  Uint8List unknownFields = Uint8List(0);
   EchoRequest([this.message = '', this.count = 0, this.delayMs = 0]);
   @override
   Uint8List marshalDc() {
@@ -60,10 +63,12 @@ class EchoRequest implements Marshaler, Unmarshaler {
     w.stringField(1, message);
     if (count != 0) { w.tag(2, 0); w.varint(count); }
     if (delayMs != 0) { w.tag(3, 0); w.varint(delayMs); }
+    w.raw(unknownFields);
     return w.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
     message = '';
     count = 0;
     delayMs = 0;
@@ -82,6 +87,7 @@ class EchoRequest implements Marshaler, Unmarshaler {
           delayMs = (field.varintValue).toSigned(32);
           break;
         default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
           break;
       }
     }
@@ -90,16 +96,19 @@ class EchoRequest implements Marshaler, Unmarshaler {
 class EchoResponse implements Marshaler, Unmarshaler {
   String message;
   int index;
+  Uint8List unknownFields = Uint8List(0);
   EchoResponse([this.message = '', this.index = 0]);
   @override
   Uint8List marshalDc() {
     final w = EchoPbWriter();
     w.stringField(1, message);
     if (index != 0) { w.tag(2, 0); w.varint(index); }
+    w.raw(unknownFields);
     return w.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
     message = '';
     index = 0;
     final r = EchoPbReader(Uint8List.fromList(data));
@@ -114,6 +123,7 @@ class EchoResponse implements Marshaler, Unmarshaler {
           index = (field.varintValue).toSigned(32);
           break;
         default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
           break;
       }
     }

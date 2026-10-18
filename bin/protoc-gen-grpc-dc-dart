@@ -1157,28 +1157,52 @@
 (define (dart-pb-encode-singular model f v indent support)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond
    ((memv type dart-pb-varint-types)
-    (format
-     "~aif (~a) { w.tag(~a, 0); w.varint(~a); }\n"
-     indent
-     (dart-pb-nonzero f v)
-     n
-     (dart-pb-varint-expr f v)))
-   ((assv type dart-pb-fixed)
-    =>
-    (lambda (info)
+    (if proto2?
       (format
-       "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a); }\n"
+       "~a{ w.tag(~a, 0); w.varint(~a); }\n"
+       indent
+       n
+       (dart-pb-varint-expr f v))
+      (format
+       "~aif (~a) { w.tag(~a, 0); w.varint(~a); }\n"
        indent
        (dart-pb-nonzero f v)
        n
-       (if (= (second info) 8) 1 5)
-       (third info)
-       v)))
-   ((= type 9) (format "~aw.stringField(~a, ~a);\n" indent n v))
+       (dart-pb-varint-expr f v))))
+   ((assv type dart-pb-fixed)
+    =>
+    (lambda (info)
+      (if proto2?
+        (format
+         "~a{ w.tag(~a, ~a); w.fixed~a(~a); }\n"
+         indent
+         n
+         (if (= (second info) 8) 1 5)
+         (third info)
+         v)
+        (format
+         "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a); }\n"
+         indent
+         (dart-pb-nonzero f v)
+         n
+         (if (= (second info) 8) 1 5)
+         (third info)
+         v))))
+   ((= type 9)
+    (if proto2?
+      (format
+       "~aw.bytesField(~a, Uint8List.fromList(~a.codeUnits));\n"
+       indent
+       n
+       v)
+      (format "~aw.stringField(~a, ~a);\n" indent n v)))
    ((= type 12)
-    (format "~aif (~a.isNotEmpty) w.bytesField(~a, ~a);\n" indent v n v))
+    (if proto2?
+      (format "~aw.bytesField(~a, ~a);\n" indent n v)
+      (format "~aif (~a.isNotEmpty) w.bytesField(~a, ~a);\n" indent v n v)))
    ((= type 11)
     (format
      "~aif (~a != null) w.bytesField(~a, ~a!.marshalDc());\n"
@@ -1284,10 +1308,22 @@
      (format "~a~a!.unmarshalDc(~a);\n" indent target src)))
    (else (error 'emit-dart-pb-file "unsupported field type ~a" type))))
 
+(define (dart-pb-oneof-clearing model f)
+  (apply
+   string-append
+   (map
+    (lambda (sib)
+      (format
+       "          ~a = ~a;\n"
+       (dart-pb-field-name sib)
+       (dart-pb-default model sib)))
+    (oneof-siblings model f))))
+
 (define (dart-pb-decode-case model f support)
   (define v (dart-pb-field-name f))
   (define type (hash-ref f 'type))
   (define head (format "        case ~a:\n" (hash-ref f 'number)))
+  (define clearing (dart-pb-oneof-clearing model f))
   (define tail "          break;\n")
   (cond
    ((and (= type 11)
@@ -1305,6 +1341,7 @@
    ((not (= (hash-ref f 'label) 3))
     (string-append
      head
+     clearing
      (dart-pb-decode-singular
       model
       f
@@ -1519,6 +1556,7 @@
    "  void fixedInt32(int value) { final b = ByteData(4); b.setInt32(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n"
    "  void fixedUint64(int value) { final b = ByteData(8); b.setUint64(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n"
    "  void fixedInt64(int value) { final b = ByteData(8); b.setInt64(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n"
+   "  void raw(List<int> payload) { _out.add(payload); }\n"
    "  void fixedFloat32(double value) { final b = ByteData(4); b.setFloat32(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n"
    "  void fixedFloat64(double value) { final b = ByteData(8); b.setFloat64(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n"
    "  Uint8List toBytes() => _out.toBytes();\n"
@@ -1530,9 +1568,9 @@
     "double ~aBitsToFloat64(int bits) { final b = ByteData(8); b.setUint64(0, bits, Endian.little); return b.getFloat64(0, Endian.little); }\n\n"
     p)
    (format "class ~aField {\n" p)
-   "  final int number; final int wire; final int varintValue; final Uint8List bytesValue; final int fixedValue;\n"
+   "  final int number; final int wire; final int varintValue; final Uint8List bytesValue; final int fixedValue; final Uint8List rawValue;\n"
    (format
-    "  ~aField(this.number, this.wire, this.varintValue, this.bytesValue, this.fixedValue);\n"
+    "  ~aField(this.number, this.wire, this.varintValue, this.bytesValue, this.fixedValue, this.rawValue);\n"
     p)
    "}\n\n"
    (format "class ~aReader {\n" p)
@@ -1546,19 +1584,20 @@
    "  int fixed64() { final b = take(8); var v = BigInt.zero; for (var i = 0; i < 8; i++) { v |= BigInt.from(b[i]) << (8 * i); } return _signed64(v); }\n"
    (format "  ~aField? next() {\n" p)
    "    if (_pos >= _buf.length) return null;\n"
+   "    final start = _pos;\n"
    "    final tag = varint(); final number = tag >> 3; final wire = tag & 7;\n"
    "    switch (wire) {\n"
    (format
-    "      case 0: return ~aField(number, wire, varint(), Uint8List(0), 0);\n"
+    "      case 0: return ~aField(number, wire, varint(), Uint8List(0), 0, Uint8List.fromList(_buf.sublist(start, _pos)));\n"
     p)
    (format
-    "      case 2: final n = varint(); return ~aField(number, wire, 0, take(n), 0);\n"
+    "      case 2: final n = varint(); return ~aField(number, wire, 0, take(n), 0, Uint8List.fromList(_buf.sublist(start, _pos)));\n"
     p)
    (format
-    "      case 1: final b = take(8); var v = BigInt.zero; for (var i = 0; i < 8; i++) { v |= BigInt.from(b[i]) << (8 * i); } return ~aField(number, wire, 0, b, _signed64(v));\n"
+    "      case 1: final b = take(8); var v = BigInt.zero; for (var i = 0; i < 8; i++) { v |= BigInt.from(b[i]) << (8 * i); } return ~aField(number, wire, 0, b, _signed64(v), Uint8List.fromList(_buf.sublist(start, _pos)));\n"
     p)
    (format
-    "      case 5: final b = take(4); final v = b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); return ~aField(number, wire, 0, b, v);\n"
+    "      case 5: final b = take(4); final v = b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); return ~aField(number, wire, 0, b, v, Uint8List.fromList(_buf.sublist(start, _pos)));\n"
     p)
    "      default: throw StateError('bad wire type');\n"
    "    }\n"
@@ -1594,6 +1633,7 @@
         (dart-pb-type model f)
         (dart-pb-field-name f)))
      fields))
+   (format "~a  Uint8List unknownFields = Uint8List(0);\n" indent)
    (let ((params
           (filter
            (lambda (f)
@@ -1656,11 +1696,13 @@
    (apply
     string-append
     (map (lambda (f) (dart-pb-encode-field model f support)) fields))
+   (format "~a    w.raw(unknownFields);\n" indent)
    (format "~a    return w.toBytes();\n~a  }\n" indent indent)
    (format
     "~a  @override\n~a  void unmarshalDc(List<int> data) {\n"
     indent
     indent)
+   (format "~a    unknownFields = Uint8List(0);\n" indent)
    (apply
     string-append
     (map
@@ -1685,7 +1727,8 @@
     string-append
     (map (lambda (f) (dart-pb-decode-case model f support)) fields))
    (format
-    "~a        default:\n~a          break;\n~a      }\n~a    }\n~a  }\n"
+    "~a        default:\n~a          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);\n~a          break;\n~a      }\n~a    }\n~a  }\n"
+    indent
     indent
     indent
     indent

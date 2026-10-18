@@ -525,14 +525,27 @@
 (define (kt-pb-encode-singular model f v indent)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  ;; Proto2 optional/required fields have explicit presence.
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond [(memv type kt-pb-varint-types)
-         (format "~aif (~a) { w.tag(~a, 0); w.varint(~a) }\n" indent (kt-pb-nonzero f v) n (kt-pb-varint-expr f v))]
+         (if proto2?
+             (format "~a{ w.tag(~a, 0); w.varint(~a) }\n" indent n (kt-pb-varint-expr f v))
+             (format "~aif (~a) { w.tag(~a, 0); w.varint(~a) }\n" indent (kt-pb-nonzero f v) n (kt-pb-varint-expr f v)))]
         [(assv type kt-pb-fixed)
          => (lambda (info)
-              (format "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a) }\n" indent (kt-pb-nonzero f v) n
-                      (if (= (second info) 8) 1 5) (third info) v))]
-        [(= type 9) (format "~aw.stringField(~a, ~a)\n" indent n v)]
-        [(= type 12) (format "~aif (~a.isNotEmpty()) w.bytesField(~a, ~a)\n" indent v n v)]
+              (if proto2?
+                  (format "~a{ w.tag(~a, ~a); w.fixed~a(~a) }\n" indent n
+                          (if (= (second info) 8) 1 5) (third info) v)
+                  (format "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a) }\n" indent (kt-pb-nonzero f v) n
+                          (if (= (second info) 8) 1 5) (third info) v)))]
+        [(= type 9)
+         (if proto2?
+             (format "~aw.bytesField(~a, ~a.toByteArray(Charsets.UTF_8))\n" indent n v)
+             (format "~aw.stringField(~a, ~a)\n" indent n v))]
+        [(= type 12)
+         (if proto2?
+             (format "~aw.bytesField(~a, ~a)\n" indent n v)
+             (format "~aif (~a.isNotEmpty()) w.bytesField(~a, ~a)\n" indent v n v))]
         [(= type 11) (format "~a~a?.let { w.bytesField(~a, it.marshalDc()) }\n" indent v n)]
         [else (error 'emit-kotlin-pb-file "unsupported field type ~a (groups)" type)]))
 
@@ -591,10 +604,17 @@
           (format "~a~a!!.unmarshalDc(~a)\n" indent target src))]
         [else (error 'emit-kotlin-pb-file "unsupported field type ~a" type)]))
 
+(define (kt-pb-oneof-clearing model f)
+  (apply string-append
+         (map (lambda (sib)
+                (format "                    ~a = ~a\n" (kt-pb-field-name sib) (kt-pb-default model sib)))
+              (oneof-siblings model f))))
+
 (define (kt-pb-decode-case model f support)
   (define v (kt-pb-field-name f))
   (define type (hash-ref f 'type))
   (define head (format "                ~a -> {\n" (hash-ref f 'number)))
+  (define clearing (kt-pb-oneof-clearing model f))
   (define tail "                }\n")
   (cond [(and (= type 11)
               (eq? (hash-ref (kt-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
@@ -606,6 +626,7 @@
                         tail)]
         [(not (= (hash-ref f 'label) 3))
          (string-append head
+                        clearing
                         (kt-pb-decode-singular model f v
                                                (cond [(memv type kt-pb-varint-types) "field.varintValue"]
                                                      [(assv type kt-pb-fixed) "field.fixedValue"]
@@ -721,11 +742,12 @@
    "        fun fixedULong(value: ULong) { fixedLong(value.toLong()) }\n"
    "        fun fixedFloat(value: Float) { fixedInt(value.toBits()) }\n"
    "        fun fixedDouble(value: Double) { fixedLong(value.toBits()) }\n"
+   "        fun raw(payload: ByteArray) { out.write(payload) }\n"
    "        fun toBytes(): ByteArray = out.toByteArray()\n"
    "    }\n\n"
    "    fun bitsToFloat(u: UInt): Float = Float.fromBits(u.toInt())\n"
    "    fun bitsToDouble(u: ULong): Double = Double.fromBits(u.toLong())\n\n"
-   "    class Field(val number: Int, val wire: Int, val varintValue: Long, val bytesValue: ByteArray, val fixedValue: Long)\n\n"
+   "    class Field(val number: Int, val wire: Int, val varintValue: Long, val bytesValue: ByteArray, val fixedValue: Long, val rawValue: ByteArray)\n\n"
    "    class Reader(private val buf: ByteArray) {\n"
    "        private var pos = 0\n"
    "        fun done(): Boolean = pos >= buf.size\n"
@@ -735,12 +757,13 @@
    "        fun fixed64(): ULong { val b = take(8); var v = 0UL; for (i in 0 until 8) v = v or ((b[i].toInt() and 0xff).toULong() shl (8 * i)); return v }\n"
    "        fun next(): Field? {\n"
    "            if (pos >= buf.size) return null\n"
+   "            val start = pos\n"
    "            val tag = varint(); val number = (tag shr 3).toInt(); val wire = (tag and 7).toInt()\n"
    "            return when (wire) {\n"
-   "                0 -> Field(number, wire, varint(), ByteArray(0), 0)\n"
-   "                2 -> { val n = varint().toInt(); Field(number, wire, 0, take(n), 0) }\n"
-   "                1 -> { val b = take(8); var v = 0L; for (i in 0 until 8) v = v or ((b[i].toInt() and 0xff).toLong() shl (8 * i)); Field(number, wire, 0, b, v) }\n"
-   "                5 -> { val b = take(4); val v = (b[0].toInt() and 0xff) or ((b[1].toInt() and 0xff) shl 8) or ((b[2].toInt() and 0xff) shl 16) or ((b[3].toInt() and 0xff) shl 24); Field(number, wire, 0, b, v.toLong()) }\n"
+   "                0 -> { val v = varint(); Field(number, wire, v, ByteArray(0), 0, buf.copyOfRange(start, pos)) }\n"
+   "                2 -> { val n = varint().toInt(); val b = take(n); Field(number, wire, 0, b, 0, buf.copyOfRange(start, pos)) }\n"
+   "                1 -> { val b = take(8); var v = 0L; for (i in 0 until 8) v = v or ((b[i].toInt() and 0xff).toLong() shl (8 * i)); Field(number, wire, 0, b, v, buf.copyOfRange(start, pos)) }\n"
+   "                5 -> { val b = take(4); val v = (b[0].toInt() and 0xff) or ((b[1].toInt() and 0xff) shl 8) or ((b[2].toInt() and 0xff) shl 16) or ((b[3].toInt() and 0xff) shl 24); Field(number, wire, 0, b, v.toLong(), buf.copyOfRange(start, pos)) }\n"
    "                else -> throw IllegalArgumentException(\"bad wire type \" + wire)\n"
    "            }\n"
    "        }\n"
@@ -758,11 +781,14 @@
                      fields) ",\n")
    (if (null? fields) "" ",")
    (format "\n~a) : Marshaler, Unmarshaler {\n" indent)
+   (format "~a    var unknownFields: ByteArray = ByteArray(0)\n" indent)
    (format "~a    override fun marshalDc(): ByteArray {\n" indent)
    (format "~a        val w = ~a.Writer()\n" indent support)
    (apply string-append (map (lambda (f) (kt-pb-encode-field model f support)) fields))
+   (format "~a        w.raw(unknownFields)\n" indent)
    (format "~a        return w.toBytes()\n~a    }\n" indent indent)
    (format "~a    override fun unmarshalDc(data: ByteArray) {\n" indent)
+   (format "~a        unknownFields = ByteArray(0)\n" indent)
    (apply string-append
           (map (lambda (f) (format "~a        ~a = ~a\n" indent (kt-pb-field-name f) (kt-pb-default model f))) fields))
    (format "~a        val r = ~a.Reader(data)\n" indent support)
@@ -770,7 +796,7 @@
    (format "~a            val field = r.next() ?: break\n" indent)
    (format "~a            when (field.number) {\n" indent)
    (apply string-append (map (lambda (f) (kt-pb-decode-case model f support)) fields))
-   (format "~a                else -> {}\n~a            }\n~a        }\n~a    }\n" indent indent indent indent)
+   (format "~a                else -> { unknownFields = unknownFields + field.rawValue }\n~a            }\n~a        }\n~a    }\n" indent indent indent indent)
    (apply string-append (map (lambda (n) (kt-pb-message-class model n support (string-append indent "    ") "")) (hash-ref msg 'nested)))
    (apply string-append (map (lambda (e) (kt-pb-nested-enum e (string-append indent "    "))) (hash-ref msg 'enums)))
    (format "~a}\n" indent)))
