@@ -457,14 +457,28 @@
       'file
       file
       'pkg
-      pkg))
+      pkg
+      'full
+      (hash-ref msg 'full-name)))
     (for ((n (in-list (hash-ref msg 'nested)))) (reg-msg file pkg n))
     (for
      ((e (in-list (hash-ref msg 'enums))))
      (hash-set!
       reg
       (format "~a.~a" (hash-ref msg 'full-name) (hash-ref e 'name))
-      (hasheq 'kind 'enum 'msg #f 'enum e 'file file 'pkg pkg))))
+      (hasheq
+       'kind
+       'enum
+       'msg
+       #f
+       'enum
+       e
+       'file
+       file
+       'pkg
+       pkg
+       'full
+       (format "~a.~a" (hash-ref msg 'full-name) (hash-ref e 'name))))))
   (for
    ((f (in-list files)))
    (define pkg (hash-ref f 'package))
@@ -478,7 +492,21 @@
      (if (string=? pkg "")
        (hash-ref e 'name)
        (format "~a.~a" pkg (hash-ref e 'name)))
-     (hasheq 'kind 'enum 'msg #f 'enum e 'file (hash-ref f 'name) 'pkg pkg))))
+     (hasheq
+      'kind
+      'enum
+      'msg
+      #f
+      'enum
+      e
+      'file
+      (hash-ref f 'name)
+      'pkg
+      pkg
+      'full
+      (if (string=? pkg "")
+        (hash-ref e 'name)
+        (format "~a.~a" pkg (hash-ref e 'name)))))))
   reg)
 
 (define (parse-request bstr)

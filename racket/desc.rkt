@@ -207,17 +207,20 @@
   (define (reg-msg file pkg msg)
     (hash-set! reg (hash-ref msg 'full-name)
                (hasheq 'kind (if (hash-ref msg 'map-entry) 'map 'message)
-                       'msg msg 'enum #f 'file file 'pkg pkg))
+                       'msg msg 'enum #f 'file file 'pkg pkg
+                       'full (hash-ref msg 'full-name)))
     (for ([n (in-list (hash-ref msg 'nested))]) (reg-msg file pkg n))
     (for ([e (in-list (hash-ref msg 'enums))])
       (hash-set! reg (format "~a.~a" (hash-ref msg 'full-name) (hash-ref e 'name))
-                 (hasheq 'kind 'enum 'msg #f 'enum e 'file file 'pkg pkg))))
+                 (hasheq 'kind 'enum 'msg #f 'enum e 'file file 'pkg pkg
+                         'full (format "~a.~a" (hash-ref msg 'full-name) (hash-ref e 'name))))))
   (for ([f (in-list files)])
     (define pkg (hash-ref f 'package))
     (for ([m (in-list (hash-ref f 'messages))]) (reg-msg (hash-ref f 'name) pkg m))
     (for ([e (in-list (hash-ref f 'enums))])
       (hash-set! reg (if (string=? pkg "") (hash-ref e 'name) (format "~a.~a" pkg (hash-ref e 'name)))
-                 (hasheq 'kind 'enum 'msg #f 'enum e 'file (hash-ref f 'name) 'pkg pkg))))
+                 (hasheq 'kind 'enum 'msg #f 'enum e 'file (hash-ref f 'name) 'pkg pkg
+                         'full (if (string=? pkg "") (hash-ref e 'name) (format "~a.~a" pkg (hash-ref e 'name)))))))
   reg)
 
 ;; CodeGeneratorRequest: file_to_generate=1 parameter=2 proto_file=15
