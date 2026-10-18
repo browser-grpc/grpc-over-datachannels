@@ -50,24 +50,37 @@ class Reader {
   }
   field() {
     if (this.done) return null;
+    const start = this.pos;
     const tag = this.varint();
     const field = Number(tag >> 3n);
     const wire = Number(tag & 7n);
     switch (wire) {
       case 0:
-        return [field, wire, this.varint()];
+        return [field, wire, this.varint(), this.bytes.slice(start, this.pos)];
       case 2: {
         const len = Number(this.varint());
-        return [field, wire, this.take(len)];
+        const v = this.take(len);
+        return [field, wire, v, this.bytes.slice(start, this.pos)];
       }
-      case 1:
-        return [field, wire, this.take(8)];
-      case 5:
-        return [field, wire, this.take(4)];
+      case 1: {
+        const v = this.take(8);
+        return [field, wire, v, this.bytes.slice(start, this.pos)];
+      }
+      case 5: {
+        const v = this.take(4);
+        return [field, wire, v, this.bytes.slice(start, this.pos)];
+      }
       default:
         throw new Error("bad wire type " + wire);
     }
   }
+}
+
+function concatBytes(a, b) {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
+  return out;
 }
 
 function putTag(out, num, wire) {
@@ -110,12 +123,14 @@ export class EchoRequest {
     this.message = message;
     this.count = count;
     this.delayMs = delayMs;
+    this.unknownFields = new Uint8Array(0);
   }
   static encode(msg) {
     const out = [];
     putStringField(out, 1, msg.message);
     putVarintField(out, 2, BigInt(msg.count));
     putVarintField(out, 3, BigInt(msg.delayMs));
+    out.push(...msg.unknownFields);
     return new Uint8Array(out);
   }
   static decode(bytes) {
@@ -123,11 +138,12 @@ export class EchoRequest {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
-      const [num, wire, value] = f;
+      const [num, wire, value, raw] = f;
       switch (num) {
       case 1: msg.message = new TextDecoder().decode(value); break;
       case 2: msg.count = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.delayMs = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
@@ -138,11 +154,13 @@ export class EchoResponse {
   constructor({ message = "", index = 0 } = {}) {
     this.message = message;
     this.index = index;
+    this.unknownFields = new Uint8Array(0);
   }
   static encode(msg) {
     const out = [];
     putStringField(out, 1, msg.message);
     putVarintField(out, 2, BigInt(msg.index));
+    out.push(...msg.unknownFields);
     return new Uint8Array(out);
   }
   static decode(bytes) {
@@ -150,10 +168,11 @@ export class EchoResponse {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
-      const [num, wire, value] = f;
+      const [num, wire, value, raw] = f;
       switch (num) {
       case 1: msg.message = new TextDecoder().decode(value); break;
       case 2: msg.index = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;

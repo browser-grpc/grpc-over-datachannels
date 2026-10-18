@@ -119,7 +119,11 @@
   (define package (pb-get-string fields 2 ""))
   (hasheq 'name (pb-get-string fields 1)
           'package package
-          'syntax (pb-get-string fields 12 "")
+          ;; protoc only writes syntax for proto3/editions; an
+          ;; absent syntax means proto2. Normalize so generators
+          ;; can compare against "proto2" directly.
+          'syntax (let ([s (pb-get-string fields 12 "")])
+                    (if (string=? s "") "proto2" s))
           'dependencies (for/list ([d (in-list (pb-get-all fields 3))])
                           (bytes->string/utf-8 d))
           'services (for/list ([s (in-list (pb-get-all fields 6))])
@@ -155,6 +159,23 @@
            (hash-set f 'messages
                      (map (lambda (m) (add-to m ext)) (hash-ref f 'messages))))
          fs)))
+
+;; Fields sharing f's oneof group within its message (f excluded),
+;; located by identity in the file model's message tree. Empty for
+;; non-oneof fields and single-member (e.g. proto3 optional) oneofs.
+;; Decoders clear these siblings when f arrives: last one wins.
+(define (oneof-siblings model f)
+  (define idx (hash-ref f 'oneof-index #f))
+  (if (not idx)
+      '()
+      (let search ([msgs (hash-ref model 'messages '())])
+        (cond [(null? msgs) '()]
+              [(memq f (hash-ref (car msgs) 'fields))
+               (filter (lambda (x)
+                         (and (not (eq? x f))
+                              (equal? (hash-ref x 'oneof-index #f) idx)))
+                       (hash-ref (car msgs) 'fields))]
+              [else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))]))))
 
 ;; The descriptor's explicit (proto2) default for a singular scalar
 ;; or enum field, as a string; #f for repeated/message/bytes/group

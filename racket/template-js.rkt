@@ -78,7 +78,8 @@
    "class Reader {\n  constructor(bytes) {\n    this.bytes = bytes;\n    this.pos = 0;\n  }\n  get done() {\n    return this.pos >= this.bytes.length;\n  }\n"
    "  varint() {\n    let result = 0n;\n    let shift = 0n;\n    for (;;) {\n      if (this.pos >= this.bytes.length) throw new Error(\"truncated varint\");\n      const byte = this.bytes[this.pos++];\n      result |= BigInt(byte & 0x7f) << shift;\n      if ((byte & 0x80) === 0) return result;\n      shift += 7n;\n      if (shift >= 64n) throw new Error(\"varint too long\");\n    }\n  }\n"
    "  take(n) {\n    const value = this.bytes.slice(this.pos, this.pos + n);\n    if (value.length !== n) throw new Error(\"truncated field\");\n    this.pos += n;\n    return value;\n  }\n"
-   "  field() {\n    if (this.done) return null;\n    const tag = this.varint();\n    const field = Number(tag >> 3n);\n    const wire = Number(tag & 7n);\n    switch (wire) {\n      case 0:\n        return [field, wire, this.varint()];\n      case 2: {\n        const len = Number(this.varint());\n        return [field, wire, this.take(len)];\n      }\n      case 1:\n        return [field, wire, this.take(8)];\n      case 5:\n        return [field, wire, this.take(4)];\n      default:\n        throw new Error(\"bad wire type \" + wire);\n    }\n  }\n}\n\n"
+   "  field() {\n    if (this.done) return null;\n    const start = this.pos;\n    const tag = this.varint();\n    const field = Number(tag >> 3n);\n    const wire = Number(tag & 7n);\n    switch (wire) {\n      case 0:\n        return [field, wire, this.varint(), this.bytes.slice(start, this.pos)];\n      case 2: {\n        const len = Number(this.varint());\n        const v = this.take(len);\n        return [field, wire, v, this.bytes.slice(start, this.pos)];\n      }\n      case 1: {\n        const v = this.take(8);\n        return [field, wire, v, this.bytes.slice(start, this.pos)];\n      }\n      case 5: {\n        const v = this.take(4);\n        return [field, wire, v, this.bytes.slice(start, this.pos)];\n      }\n      default:\n        throw new Error(\"bad wire type \" + wire);\n    }\n  }\n}\n\n"
+   "function concatBytes(a, b) {\n  const out = new Uint8Array(a.length + b.length);\n  out.set(a);\n  out.set(b, a.length);\n  return out;\n}\n\n"
    "function putTag(out, num, wire) {\n  out.push(...varintBytes((BigInt(num) << 3n) | BigInt(wire)));\n}\n\n"
    "function putVarintField(out, num, value) {\n  if (value === 0n) return;\n  putTag(out, num, 0);\n  out.push(...varintBytes(value));\n}\n\n"
    "function putBytesField(out, num, payload) {\n  putTag(out, num, 2);\n  out.push(...varintBytes(payload.length), ...payload);\n}\n\n"
@@ -162,14 +163,28 @@
 (define (js-pb-encode-singular model f v indent)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  ;; Proto2 optional/required fields have explicit presence: they
+  ;; are written even when equal to the default.
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond [(memv type js-pb-varint-types)
-         (format "~aputVarintField(out, ~a, ~a);\n" indent n (js-pb-varint-expr f v))]
+         (if proto2?
+             (format "~aputTag(out, ~a, 0); out.push(...varintBytes(~a));\n" indent n (js-pb-varint-expr f v))
+             (format "~aputVarintField(out, ~a, ~a);\n" indent n (js-pb-varint-expr f v)))]
         [(js-pb-fixed-info type)
          => (lambda (info)
-              (format "~aif (~a) putFixedField(out, ~a, fixedBytes(~a, ~a, (dv, x) => dv.set~a(0, x, true)));\n"
-                      indent v n v (second info) (third info)))]
-        [(= type 9) (format "~aputStringField(out, ~a, ~a);\n" indent n v)]
-        [(= type 12) (format "~aif (~a && ~a.length) putBytesField(out, ~a, ~a);\n" indent v v n v)]
+              (if proto2?
+                  (format "~aputFixedField(out, ~a, fixedBytes(~a, ~a, (dv, x) => dv.set~a(0, x, true)));\n"
+                          indent n v (second info) (third info))
+                  (format "~aif (~a) putFixedField(out, ~a, fixedBytes(~a, ~a, (dv, x) => dv.set~a(0, x, true)));\n"
+                          indent v n v (second info) (third info))))]
+        [(= type 9)
+         (if proto2?
+             (format "~aputBytesField(out, ~a, new TextEncoder().encode(~a));\n" indent n v)
+             (format "~aputStringField(out, ~a, ~a);\n" indent n v))]
+        [(= type 12)
+         (if proto2?
+             (format "~aputBytesField(out, ~a, ~a);\n" indent n v)
+             (format "~aif (~a && ~a.length) putBytesField(out, ~a, ~a);\n" indent v v n v))]
         [(= type 11)
          (define entry (js-pb-resolve model (hash-ref f 'type-name)))
          (define ref (js-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)))
@@ -225,9 +240,16 @@
                  (js-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)) value)]
         [else (error 'emit-js-pb-file "unsupported field type ~a" type)]))
 
+(define (js-pb-oneof-clearing model f)
+  (apply string-append
+         (map (lambda (sib)
+                (format "msg.~a = ~a; " (js-pb-name sib) (js-pb-default sib model)))
+              (oneof-siblings model f))))
+
 (define (js-pb-decode-case model f)
   (define target (format "msg.~a" (js-pb-name f)))
   (define head (format "      case ~a: " (hash-ref f 'number)))
+  (define clearing (js-pb-oneof-clearing model f))
   (define type (hash-ref f 'type))
   (cond [(and (= type 11)
               (eq? (hash-ref (js-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
@@ -235,10 +257,10 @@
          (define helper (string-append (js-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)) "Decode"))
          (format "~a{ const [k, val] = ~a(value); ~a.set(k, val); break; }\n" head helper target)]
         [(not (= (hash-ref f 'label) 3))
-         (format "~a~a break;\n" head (js-pb-decode-singular model f target #f))]
+         (format "~a~a~a break;\n" head clearing (js-pb-decode-singular model f target #f))]
         [(memv type js-pb-varint-types)
-         (format "~aif (wire === 2) { const r = new Reader(value); while (!r.done) ~a.push(~a); } else ~a.push(~a); break;\n"
-                 head target (js-pb-varint-decode f "r.varint()") target (js-pb-varint-decode f "value"))]
+         (format "~a~aif (wire === 2) { const r = new Reader(value); while (!r.done) ~a.push(~a); } else ~a.push(~a); break;\n"
+                 head clearing target (js-pb-varint-decode f "r.varint()") target (js-pb-varint-decode f "value"))]
         [(js-pb-fixed-info type)
          => (lambda (info)
               (format "~aif (wire === 2) { const r = new Reader(value); while (!r.done) ~a.push(readFixed(r.take(~a), (dv) => dv.get~a(0, true))); } else ~a.push(readFixed(value, (dv) => dv.get~a(0, true))); break;\n"
@@ -289,13 +311,16 @@
    (format "export class ~a {\n" name)
    (format "  constructor({ ~a } = {}) {\n" params)
    (apply string-append (map (lambda (f) (format "    this.~a = ~a;\n" (js-pb-name f) (js-pb-name f))) (hash-ref msg 'fields)))
+   "    this.unknownFields = new Uint8Array(0);\n"
    "  }\n"
    "  static encode(msg) {\n    const out = [];\n"
    (apply string-append (map (lambda (f) (js-pb-encode-field model f)) (hash-ref msg 'fields)))
+   "    out.push(...msg.unknownFields);\n"
    "    return new Uint8Array(out);\n  }\n"
    (format "  static decode(bytes) {\n    const msg = new ~a();\n" name)
-   "    const reader = new Reader(bytes);\n    let f;\n    while ((f = reader.field()) !== null) {\n      const [num, wire, value] = f;\n      switch (num) {\n"
+   "    const reader = new Reader(bytes);\n    let f;\n    while ((f = reader.field()) !== null) {\n      const [num, wire, value, raw] = f;\n      switch (num) {\n"
    (apply string-append (map (lambda (f) (js-pb-decode-case model f)) (hash-ref msg 'fields)))
+   "        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n"
    "      }\n    }\n    return msg;\n  }\n}\n\n"))
 
 (define (emit-js-pb-file file-model)

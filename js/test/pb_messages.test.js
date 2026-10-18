@@ -174,4 +174,31 @@ count: 5
   assert.equal(fromLegacy.extNote, "extended");
   assert.equal(fromLegacy.extLevel, 9);
   assert.deepEqual(Legacy.decode(Legacy.encode(fromLegacy)), fromLegacy);
+
+  // Oneof: the last variant on the wire wins and clears the others.
+  const both = new Uint8Array([
+    ...Outer.encode(new Outer({ text: "first" })),
+    ...Outer.encode(new Outer({ code: 7 })),
+  ]);
+  const chosen = Outer.decode(both);
+  assert.equal(chosen.text, "");
+  assert.equal(chosen.code, 7);
+
+  // Proto2 presence: an explicitly zero optional field is written
+  // (it does not fall back to the descriptor default 42).
+  const zeroed = Legacy.decode(Legacy.encode(new Legacy({ name: "x", count: 0 })));
+  assert.equal(zeroed.count, 0);
+
+  // Unknown fields survive a decode/encode round-trip byte-exactly.
+  const withUnknown = new Uint8Array([
+    ...Legacy.encode(new Legacy({ name: "x" })),
+    0xb8, 0x3e, 0x7b, // field 999, varint 123
+    0x92, 0x03, 0x02, 0x7a, 0x7a, // field 50, bytes "zz"
+  ]);
+  const preserved = Legacy.decode(withUnknown);
+  assert.equal(preserved.name, "x");
+  assert.equal(
+    Buffer.from(Legacy.encode(preserved)).toString("hex"),
+    Buffer.from(withUnknown).toString("hex"),
+  );
 });

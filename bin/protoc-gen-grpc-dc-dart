@@ -362,7 +362,7 @@
    'package
    package
    'syntax
-   (pb-get-string fields 12 "")
+   (let ((s (pb-get-string fields 12 ""))) (if (string=? s "") "proto2" s))
    'dependencies
    (for/list ((d (in-list (pb-get-all fields 3)))) (bytes->string/utf-8 d))
    'services
@@ -409,6 +409,20 @@
        'messages
        (map (lambda (m) (add-to m ext)) (hash-ref f 'messages))))
     fs)))
+
+(define (oneof-siblings model f)
+  (define idx (hash-ref f 'oneof-index #f))
+  (if (not idx)
+    '()
+    (let search ((msgs (hash-ref model 'messages '())))
+      (cond
+       ((null? msgs) '())
+       ((memq f (hash-ref (car msgs) 'fields))
+        (filter
+         (lambda (x)
+           (and (not (eq? x f)) (equal? (hash-ref x 'oneof-index #f) idx)))
+         (hash-ref (car msgs) 'fields)))
+       (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
 
 (define (field-explicit-default f)
   (and (hash-ref f 'default #f)
