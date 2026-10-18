@@ -121,8 +121,19 @@
     [(17) (format "Number(unzz64(BigInt.asUintN(32, ~a)))" v)]
     [(18) (format "unzz64(~a)" v)]))
 
+(define (js-pb-explicit-literal model f)
+  (define d (field-explicit-default f))
+  (and d
+       (case (hash-ref f 'type)
+         [(9) (format "~s" d)]
+         [(8) d]
+         [(14) (format "~a" (enum-default-number model f))]
+         [(2) (format "~a" d)]
+         [else d])))
+
 (define (js-pb-default f model)
-  (cond [(= (hash-ref f 'label) 3)
+  (cond [(js-pb-explicit-literal model f) => (lambda (lit) lit)]
+        [(= (hash-ref f 'label) 3)
          (define t (and (= (hash-ref f 'type) 11)
                         (hash-ref (hash-ref model 'types) (hash-ref f 'type-name) #f)))
          (if (and t (eq? (hash-ref t 'kind) 'map)) "new Map()" "[]")]

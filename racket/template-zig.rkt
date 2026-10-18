@@ -397,8 +397,19 @@
                                   (zig-pb-type model (hash-set f 'label 1))))]
         [else singular]))
 
+(define (zig-pb-explicit-literal model f)
+  (define d (field-explicit-default f))
+  (and d
+       (case (hash-ref f 'type)
+         [(9) (format "~s" d)]
+         [(8) d]
+         [(14) (format ".~a" d)]
+         [(2) (format "~a" d)]
+         [else d])))
+
 (define (zig-pb-default model f)
-  (cond [(and (= (hash-ref f 'type) 11)
+  (cond [(zig-pb-explicit-literal model f) => (lambda (lit) lit)]
+        [(and (= (hash-ref f 'type) 11)
               (eq? (hash-ref (zig-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
          "&.{}"]
         [(= (hash-ref f 'label) 3) "&.{}"]

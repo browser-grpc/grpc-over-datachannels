@@ -321,8 +321,19 @@
 
 (define (rb-pb-field-name f) (hash-ref f 'name))
 
+(define (rb-pb-explicit-literal model f)
+  (define d (field-explicit-default f))
+  (and d
+       (case (hash-ref f 'type)
+         [(9) (format "~s" d)]
+         [(8) d]
+         [(14) (format "~a" (enum-default-number model f))]
+         [(2) (format "~a" d)]
+         [else d])))
+
 (define (rb-pb-default model f)
-  (cond [(and (= (hash-ref f 'type) 11)
+  (cond [(rb-pb-explicit-literal model f) => (lambda (lit) lit)]
+        [(and (= (hash-ref f 'type) 11)
               (eq? (hash-ref (rb-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
          "{}"]
         [(= (hash-ref f 'label) 3) "[]"]

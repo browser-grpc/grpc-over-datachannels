@@ -74,20 +74,27 @@
                     (hasheq 'name (pb-get-string vf 1)
                             'number (pb-get vf 2 0)))))
 
-;; FieldDescriptorProto: name=1 number=3 label=4 type=5 type_name=6
-;; json_name=10. Label: 1 optional, 2 required, 3 repeated. Type
-;; codes match descriptor.proto (1 double .. 18 sint64); the
-;; message generators (template-pb-*.rkt, webgen.rkt) share them.
+;; FieldDescriptorProto: name=1 extendee=2 number=3 label=4 type=5
+;; type_name=6 default_value=7 oneof_index=9 json_name=10. Label:
+;; 1 optional, 2 required, 3 repeated. Type codes match
+;; descriptor.proto (1 double .. 18 sint64); the message generators
+;; (template-pb-*.rkt, webgen.rkt) share them. `default` is the
+;; descriptor's default_value string (proto2 explicit defaults),
+;; #f when absent; `oneof-index` is #f for non-oneof fields.
 (define (parse-field-desc fields)
   (hasheq 'name (pb-get-string fields 1)
+          'extendee (string-trim (pb-get-string fields 2 "") ".")
           'number (pb-get fields 3 0)
           'label (pb-get fields 4 1)
           'type (pb-get fields 5 0)
           'type-name (string-trim (pb-get-string fields 6 "") ".")
+          'default (pb-get-string fields 7 #f)
+          'oneof-index (pb-get fields 9 #f)
           'json-name (pb-get-string fields 10 "")))
 
 ;; DescriptorProto: name=1 field=2 nested_type=3 enum_type=4
-;; options=7 (MessageOptions.map_entry=7)
+;; extension=6 options=7 (MessageOptions.map_entry=7) oneof_decl=8
+;; (OneofDescriptorProto: name=1)
 (define (parse-message-desc fields prefix)
   (define name (pb-get-string fields 1))
   (define full (if (string=? prefix "") name (format "~a.~a" prefix name)))
@@ -100,14 +107,19 @@
                     (parse-message-desc (pb-parse n) full))
           'enums (for/list ([e (in-list (pb-get-all fields 4))])
                    (parse-enum-desc (pb-parse e)))
+          'extensions (for/list ([f (in-list (pb-get-all fields 6))])
+                        (parse-field-desc (pb-parse f)))
+          'oneofs (for/list ([o (in-list (pb-get-all fields 8))])
+                    (pb-get-string (pb-parse o) 1))
           'map-entry (and (bytes? opts) (pb-get-bool (pb-parse opts) 7))))
 
 ;; FileDescriptorProto: name=1 package=2 dependency=3
-;; message_type=4 enum_type=5 service=6
+;; message_type=4 enum_type=5 service=6 extension=7 syntax=12
 (define (parse-file-desc fields)
   (define package (pb-get-string fields 2 ""))
   (hasheq 'name (pb-get-string fields 1)
           'package package
+          'syntax (pb-get-string fields 12 "")
           'dependencies (for/list ([d (in-list (pb-get-all fields 3))])
                           (bytes->string/utf-8 d))
           'services (for/list ([s (in-list (pb-get-all fields 6))])
@@ -115,7 +127,54 @@
           'messages (for/list ([m (in-list (pb-get-all fields 4))])
                       (parse-message-desc (pb-parse m) package))
           'enums (for/list ([e (in-list (pb-get-all fields 5))])
-                   (parse-enum-desc (pb-parse e)))))
+                   (parse-enum-desc (pb-parse e)))
+          'extensions (for/list ([f (in-list (pb-get-all fields 7))])
+                        (parse-field-desc (pb-parse f)))))
+
+;; Extension fields (extend blocks) are merged into their extendee
+;; message's field list, so every message generator emits them as
+;; ordinary fields (wire-correct by field number) without knowing
+;; about extensions at all. Extendees outside the request are
+;; dropped: their bytes stay unknown fields on the wire.
+(define (merge-extensions files)
+  (define exts
+    (append
+     (append-map (lambda (f) (hash-ref f 'extensions)) files)
+     (let loop ([msgs (append-map (lambda (f) (hash-ref f 'messages)) files)])
+       (if (null? msgs)
+           '()
+           (append (append-map (lambda (m) (hash-ref m 'extensions)) msgs)
+                   (loop (append-map (lambda (m) (hash-ref m 'nested)) msgs)))))))
+  (define (add-to msg ext)
+    (if (equal? (hash-ref msg 'full-name) (hash-ref ext 'extendee))
+        (hash-set msg 'fields (append (hash-ref msg 'fields) (list ext)))
+        (hash-set msg 'nested
+                  (map (lambda (n) (add-to n ext)) (hash-ref msg 'nested)))))
+  (for/fold ([fs files]) ([ext (in-list exts)])
+    (map (lambda (f)
+           (hash-set f 'messages
+                     (map (lambda (m) (add-to m ext)) (hash-ref f 'messages))))
+         fs)))
+
+;; The descriptor's explicit (proto2) default for a singular scalar
+;; or enum field, as a string; #f for repeated/message/bytes/group
+;; fields and when no default was declared. Message generators turn
+;; this into their language's literal (see *-pb-default emitters).
+(define (field-explicit-default f)
+  (and (hash-ref f 'default #f)
+       (not (= (hash-ref f 'label 1) 3))
+       (not (memv (hash-ref f 'type) '(10 11 12)))
+       (hash-ref f 'default)))
+
+;; The numeric value of a field's explicit enum default (the
+;; descriptor stores the value *name*), or #f.
+(define (enum-default-number model f)
+  (define types (and (hash-has-key? model 'types) (hash-ref model 'types)))
+  (define entry (and types (hash-ref types (hash-ref f 'type-name) #f)))
+  (define e (and entry (hash-ref entry 'enum #f)))
+  (define v (and e (findf (lambda (x) (equal? (hash-ref x 'name) (hash-ref f 'default)))
+                          (hash-ref e 'values))))
+  (and v (hash-ref v 'number)))
 
 ;; Global type registry across every file in the request, so the
 ;; message generators can resolve field types across imports.
@@ -148,8 +207,9 @@
   (define wanted (map (lambda (b) (bytes->string/utf-8 b)) (pb-get-all fields 1)))
   (define parameter (pb-get-string fields 2 ""))
   (define files
-    (for/list ([f (in-list (pb-get-all fields 15))])
-      (parse-file-desc (pb-parse f))))
+    (merge-extensions
+     (for/list ([f (in-list (pb-get-all fields 15))])
+       (parse-file-desc (pb-parse f)))))
   (define by-name (for/hash ([f (in-list files)]) (values (hash-ref f 'name) f)))
   (define registry (build-type-registry files))
   (values (for/list ([w (in-list wanted)])

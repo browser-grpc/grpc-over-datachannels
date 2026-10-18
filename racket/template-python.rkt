@@ -342,8 +342,19 @@
     [(17) (format "_unzz32(~a)" v)]
     [(18) (format "_unzz64(~a)" v)]))
 
+(define (py-pb-explicit-literal model f)
+  (define d (field-explicit-default f))
+  (and d
+       (case (hash-ref f 'type)
+         [(9) (format "~s" d)]
+         [(8) (if (equal? d "true") "True" "False")]
+         [(14) (format "~a" (enum-default-number model f))]
+         [(2) (format "~a" d)]
+         [else d])))
+
 (define (py-pb-default f model)
-  (cond [(= (hash-ref f 'label) 3)
+  (cond [(py-pb-explicit-literal model f) => (lambda (lit) lit)]
+        [(= (hash-ref f 'label) 3)
          (let ([t (and (= (hash-ref f 'type) 11)
                        (hash-ref (hash-ref model 'types) (hash-ref f 'type-name) #f))])
            (if (and t (eq? (hash-ref t 'kind) 'map)) "dict" "list"))]

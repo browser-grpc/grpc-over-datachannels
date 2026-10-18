@@ -80,6 +80,53 @@
 (check-equal? (hash-ref m 'input) "Req")
 (check-equal? (hash-ref m 'output) "Resp")
 
+;; --- descriptor features: oneofs, proto2 defaults, syntax, extensions -------
+;; Hand-built proto2 file: message Msg with an optional field carrying
+;; an explicit default, a oneof, and an in-file extension merged in.
+(define feat-field
+  (bytes-append (pb-string-field 1 "count")
+                (pb-varint-field 3 2)
+                (pb-varint-field 4 1)
+                (pb-varint-field 5 5)
+                (pb-string-field 7 "42")))
+(define feat-oneof-field
+  (bytes-append (pb-string-field 1 "text")
+                (pb-varint-field 3 3)
+                (pb-varint-field 4 1)
+                (pb-varint-field 5 9)
+                (pb-varint-field 9 0)))
+(define feat-ext-field
+  (bytes-append (pb-string-field 1 "ext_note")
+                (pb-string-field 2 ".feat.Msg")
+                (pb-varint-field 3 100)
+                (pb-varint-field 4 1)
+                (pb-varint-field 5 9)))
+(define feat-msg
+  (bytes-append (pb-string-field 1 "Msg")
+                (pb-bytes-field 2 feat-field)
+                (pb-bytes-field 2 feat-oneof-field)
+                (pb-bytes-field 8 (pb-string-field 1 "choice"))))
+(define feat-file
+  (bytes-append (pb-string-field 1 "feat.proto")
+                (pb-string-field 2 "feat")
+                (pb-string-field 12 "proto2")
+                (pb-bytes-field 4 feat-msg)
+                (pb-bytes-field 7 feat-ext-field)))
+(define feat-request
+  (bytes-append (pb-string-field 1 "feat.proto") (pb-bytes-field 15 feat-file)))
+(define-values (feat-files _feat-param) (parse-request feat-request))
+(define feat-model (first feat-files))
+(check-equal? (hash-ref feat-model 'syntax) "proto2")
+(define feat-msg-model (first (hash-ref feat-model 'messages)))
+(check-equal? (hash-ref feat-msg-model 'oneofs) '("choice"))
+(define feat-fields (hash-ref feat-msg-model 'fields))
+(check-equal? (map (lambda (f) (hash-ref f 'name)) feat-fields)
+              '("count" "text" "ext_note"))
+(check-equal? (hash-ref (first feat-fields) 'default) "42")
+(check-equal? (field-explicit-default (first feat-fields)) "42")
+(check-equal? (hash-ref (second feat-fields) 'oneof-index) 0)
+(check-false (field-explicit-default (second feat-fields)))
+
 ;; Response encoding parses back: error field and supported features.
 (define resp-fields (pb-parse (encode-response (list (cons "out.rs" "body")))))
 (check-equal? (pb-get resp-fields 2) 1)

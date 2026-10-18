@@ -453,8 +453,19 @@
                             (swift-pb-type model (hash-set f 'label 1))))]
         [else singular]))
 
+(define (swift-pb-explicit-literal model f)
+  (define d (field-explicit-default f))
+  (and d
+       (case (hash-ref f 'type)
+         [(9) (format "~s" d)]
+         [(8) d]
+         [(14) (format "~a.~a" (swift-pb-entry-ref model (swift-pb-resolve model (hash-ref f 'type-name))) d)]
+         [(2) (format "~a" d)]
+         [else d])))
+
 (define (swift-pb-default model f)
-  (cond [(and (= (hash-ref f 'type) 11)
+  (cond [(swift-pb-explicit-literal model f) => (lambda (lit) lit)]
+        [(and (= (hash-ref f 'type) 11)
               (eq? (hash-ref (swift-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
          "[:]"]
         [(= (hash-ref f 'label) 3) "[]"]

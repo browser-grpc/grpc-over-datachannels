@@ -375,8 +375,19 @@
                                 (dart-pb-type model (hash-set f 'label 1))))]
         [else singular]))
 
+(define (dart-pb-explicit-literal model f)
+  (define d (field-explicit-default f))
+  (and d
+       (case (hash-ref f 'type)
+         [(9) (format "~s" d)]
+         [(8) d]
+         [(14) (format "~a.~a" (dart-pb-entry-ref model (dart-pb-resolve model (hash-ref f 'type-name))) d)]
+         [(2) (format "~a" d)]
+         [else d])))
+
 (define (dart-pb-default model f)
-  (cond [(and (= (hash-ref f 'type) 11)
+  (cond [(dart-pb-explicit-literal model f) => (lambda (lit) lit)]
+        [(and (= (hash-ref f 'type) 11)
               (eq? (hash-ref (dart-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
          "{}"]
         [(= (hash-ref f 'label) 3) "[]"]

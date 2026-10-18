@@ -589,8 +589,19 @@
         [(= (hash-ref f 'label) 3) (format "java.util.List<~a>" (java-pb-type model (hash-set f 'label 1) #t))]
         [else singular]))
 
+(define (java-pb-explicit-literal model f)
+  (define d (field-explicit-default f))
+  (and d
+       (case (hash-ref f 'type)
+         [(9) (format "~s" d)]
+         [(8) d]
+         [(14) (format "~a.~a" (java-pb-entry-ref model (java-pb-resolve model (hash-ref f 'type-name))) d)]
+         [(2) (format "~af" d)]
+         [else d])))
+
 (define (java-pb-default model f)
-  (cond [(and (= (hash-ref f 'type) 11)
+  (cond [(java-pb-explicit-literal model f) => (lambda (lit) lit)]
+        [(and (= (hash-ref f 'type) 11)
               (eq? (hash-ref (java-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
          "new java.util.LinkedHashMap<>()"]
         [(= (hash-ref f 'label) 3) "new java.util.ArrayList<>()"]

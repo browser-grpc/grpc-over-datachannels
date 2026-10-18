@@ -305,6 +305,8 @@
   (hasheq
    'name
    (pb-get-string fields 1)
+   'extendee
+   (string-trim (pb-get-string fields 2 "") ".")
    'number
    (pb-get fields 3 0)
    'label
@@ -313,6 +315,10 @@
    (pb-get fields 5 0)
    'type-name
    (string-trim (pb-get-string fields 6 "") ".")
+   'default
+   (pb-get-string fields 7 #f)
+   'oneof-index
+   (pb-get fields 9 #f)
    'json-name
    (pb-get-string fields 10 "")))
 
@@ -337,6 +343,14 @@
    (for/list
     ((e (in-list (pb-get-all fields 4))))
     (parse-enum-desc (pb-parse e)))
+   'extensions
+   (for/list
+    ((f (in-list (pb-get-all fields 6))))
+    (parse-field-desc (pb-parse f)))
+   'oneofs
+   (for/list
+    ((o (in-list (pb-get-all fields 8))))
+    (pb-get-string (pb-parse o) 1))
    'map-entry
    (and (bytes? opts) (pb-get-bool (pb-parse opts) 7))))
 
@@ -347,6 +361,8 @@
    (pb-get-string fields 1)
    'package
    package
+   'syntax
+   (pb-get-string fields 12 "")
    'dependencies
    (for/list ((d (in-list (pb-get-all fields 3)))) (bytes->string/utf-8 d))
    'services
@@ -360,7 +376,56 @@
    'enums
    (for/list
     ((e (in-list (pb-get-all fields 5))))
-    (parse-enum-desc (pb-parse e)))))
+    (parse-enum-desc (pb-parse e)))
+   'extensions
+   (for/list
+    ((f (in-list (pb-get-all fields 7))))
+    (parse-field-desc (pb-parse f)))))
+
+(define (merge-extensions files)
+  (define exts
+    (append
+     (append-map (lambda (f) (hash-ref f 'extensions)) files)
+     (let loop ((msgs (append-map (lambda (f) (hash-ref f 'messages)) files)))
+       (if (null? msgs)
+         '()
+         (append
+          (append-map (lambda (m) (hash-ref m 'extensions)) msgs)
+          (loop (append-map (lambda (m) (hash-ref m 'nested)) msgs)))))))
+  (define (add-to msg ext)
+    (if (equal? (hash-ref msg 'full-name) (hash-ref ext 'extendee))
+      (hash-set msg 'fields (append (hash-ref msg 'fields) (list ext)))
+      (hash-set
+       msg
+       'nested
+       (map (lambda (n) (add-to n ext)) (hash-ref msg 'nested)))))
+  (for/fold
+   ((fs files))
+   ((ext (in-list exts)))
+   (map
+    (lambda (f)
+      (hash-set
+       f
+       'messages
+       (map (lambda (m) (add-to m ext)) (hash-ref f 'messages))))
+    fs)))
+
+(define (field-explicit-default f)
+  (and (hash-ref f 'default #f)
+       (not (= (hash-ref f 'label 1) 3))
+       (not (memv (hash-ref f 'type) '(10 11 12)))
+       (hash-ref f 'default)))
+
+(define (enum-default-number model f)
+  (define types (and (hash-has-key? model 'types) (hash-ref model 'types)))
+  (define entry (and types (hash-ref types (hash-ref f 'type-name) #f)))
+  (define e (and entry (hash-ref entry 'enum #f)))
+  (define v
+    (and e
+         (findf
+          (lambda (x) (equal? (hash-ref x 'name) (hash-ref f 'default)))
+          (hash-ref e 'values))))
+  (and v (hash-ref v 'number)))
 
 (define (build-type-registry files)
   (define reg (make-hash))
@@ -408,9 +473,10 @@
     (map (lambda (b) (bytes->string/utf-8 b)) (pb-get-all fields 1)))
   (define parameter (pb-get-string fields 2 ""))
   (define files
-    (for/list
-     ((f (in-list (pb-get-all fields 15))))
-     (parse-file-desc (pb-parse f))))
+    (merge-extensions
+     (for/list
+      ((f (in-list (pb-get-all fields 15))))
+      (parse-file-desc (pb-parse f)))))
   (define by-name
     (for/hash ((f (in-list files))) (values (hash-ref f 'name) f)))
   (define registry (build-type-registry files))
@@ -1031,8 +1097,19 @@
        (zig-pb-type model (hash-set f 'label 1)))))
    (else singular)))
 
+(define (zig-pb-explicit-literal model f)
+  (define d (field-explicit-default f))
+  (and d
+       (case (hash-ref f 'type)
+         ((9) (format "~s" d))
+         ((8) d)
+         ((14) (format ".~a" d))
+         ((2) (format "~a" d))
+         (else d))))
+
 (define (zig-pb-default model f)
   (cond
+   ((zig-pb-explicit-literal model f) => (lambda (lit) lit))
    ((and (= (hash-ref f 'type) 11)
          (eq?
           (hash-ref (zig-pb-resolve model (hash-ref f 'type-name)) 'kind)
