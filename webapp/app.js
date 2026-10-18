@@ -65,6 +65,64 @@ const RUNTIME_FILES = {
   "wasm-scala": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js"],
 };
 
+// Generated message-type file per language (native plugin naming),
+// for zip completeness checks. Languages absent here (rust, the
+// wasm-* facades) ship stubs that use hand-written or JS-hosted
+// message classes, so no message file is expected in the zip.
+function upperFirst(b) {
+  return b ? b[0].toUpperCase() + b.slice(1) : b;
+}
+function camelName(b) {
+  return b.split("_").map(upperFirst).join("");
+}
+const MESSAGE_FILES = {
+  js: (b) => `${b}_pb.js`,
+  go: (b) => `${b}_pb.go`,
+  python: (b) => `${b}_pb.py`,
+  java: (b) => `${upperFirst(b)}Pb.java`,
+  csharp: (b) => `${upperFirst(b)}Pb.cs`,
+  cpp: (b) => `${b}_messages.hpp`,
+  swift: (b) => `${upperFirst(b)}Messages.swift`,
+  kotlin: (b) => `${upperFirst(b)}Messages.kt`,
+  dart: (b) => `${b}_messages.dart`,
+  zig: (b) => `${b}_messages.zig`,
+  lua: (b) => `${b}_messages.lua`,
+  ruby: (b) => `${b}_pb.rb`,
+  php: (b) => `${b}_pb.php`,
+  scala: (b) => `${camelName(b)}Messages.scala`,
+};
+
+// Everything a complete zip must contain: the schemas, generated
+// stubs AND message types for every selected language, the bundled
+// runtimes, README.md and manifest.json. Returns the missing paths
+// (empty when the zip is complete).
+function zipCompleteness(entries, langs, bases, messageBases) {
+  const have = new Set(entries.map((e) => e.name));
+  const missing = [];
+  for (const base of bases) {
+    if (!have.has("proto/" + base + ".proto")) missing.push("proto/" + base + ".proto");
+  }
+  for (const lang of langs) {
+    if (![...have].some((n) => n.startsWith("gen/" + lang + "/"))) {
+      missing.push("gen/" + lang + "/ (no generated code)");
+    }
+    const mf = MESSAGE_FILES[lang];
+    if (mf) {
+      for (const base of messageBases) {
+        const p = "gen/" + lang + "/" + mf(base);
+        if (!have.has(p)) missing.push(p);
+      }
+    }
+    for (const r of RUNTIME_FILES[lang] || []) {
+      const p = "runtime/" + lang + "/" + r;
+      if (!have.has(p)) missing.push(p);
+    }
+  }
+  if (!have.has("README.md")) missing.push("README.md");
+  if (!have.has("manifest.json")) missing.push("manifest.json");
+  return missing;
+}
+
 const files = new Map(); // name -> source text
 let active = null;
 let compileTimer = 0;
@@ -348,17 +406,13 @@ function zipReadme(langs) {
     "- gen/      generated client/server stubs per language",
     "- runtime/  the dependency-free grpc-dc runtime per language",
     "",
-    "The stubs import message classes from a sibling <base>_pb module",
-    "(echo_pb.js, the Echo types in the Go package, echo_pb.py).",
-    "For JavaScript and Python, dependency-free message classes",
-    "are generated next to the stubs (gen/js/<base>_pb.js with",
-    "static encode/decode; gen/python/<base>_pb.py with",
-    "marshal_dc/unmarshal_dc), so those zips run end-to-end",
-    "as-is. For other languages,",
-    "provide message classes by hand (each runtime's stub header",
-    "documents the encode/marshal surface they must expose) or",
-    "generate them with your usual protobuf tooling and adapt",
-    "them to that surface.",
+    "Every language also gets generated, dependency-free message",
+    "types next to its stubs (gen/js/<base>_pb.js, gen/python/",
+    "<base>_pb.py, gen/go/<base>_pb.go, gen/cpp/<base>_messages.hpp,",
+    "and the <Base>Pb / <Base>Messages files of the JVM-family,",
+    "Dart, Zig, Lua, Ruby, PHP and Scala generators), so the zip",
+    "runs end-to-end as-is. manifest.json lists every file in the",
+    "zip and reports anything expected but missing under \"missing\"",
     "",
     "Languages in this zip: " + langs.join(", ") + ".",
     "",
@@ -574,9 +628,22 @@ $("generate").addEventListener("click", async () => {
   window.__generatedVia = generatedVia;
   renderResults(generated);
   entries.push({ name: "README.md", data: enc.encode(zipReadme(langs)) });
+  const bases = names.map((n) => n.split("/").pop().replace(/\.proto$/, ""));
+  const messageBases = bases.filter((b, i) => /\b(message|enum)\s/.test(files.get(names[i])));
+  const missing = zipCompleteness(
+    [...entries, { name: "manifest.json", data: new Uint8Array(0) }],
+    langs, bases, messageBases);
+  window.__zipMissing = missing;
   entries.push({
     name: "manifest.json",
-    data: enc.encode(JSON.stringify({ app: "grpc-dc-webapp", languages: langs, entries: names }, null, 2) + "\n"),
+    data: enc.encode(JSON.stringify({
+      app: "grpc-dc-webapp",
+      generatedVia,
+      languages: langs,
+      protos: names,
+      files: [...entries.map((e) => e.name), "manifest.json"],
+      missing,
+    }, null, 2) + "\n"),
   });
   const blob = makeZip(entries);
   const a = document.createElement("a");
@@ -584,7 +651,11 @@ $("generate").addEventListener("click", async () => {
   a.download = "grpcdc-stubs.zip";
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  setStatus("generated grpcdc-stubs.zip (" + entries.length + " files)", "ok");
+  if (missing.length) {
+    setStatus("generated grpcdc-stubs.zip (" + entries.length + " files); missing: " + missing.join(", "), "err");
+  } else {
+    setStatus("generated grpcdc-stubs.zip (" + entries.length + " files)", "ok");
+  }
 });
 
 function renderResults(generated) {

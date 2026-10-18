@@ -192,6 +192,40 @@ async function runCase(name, engine) {
       assert.ok(actualPb, "zip missing gen/python/echo_pb.py");
       assert.ok(actualPb.equals(expectedPb), `${name}: browser python messages differ from native plugin`);
     }
+    // Zip completeness: generated message types for every language
+    // that emits them, a manifest covering every entry with nothing
+    // missing, and the README.
+    const upperFirst = (b) => (b ? b[0].toUpperCase() + b.slice(1) : b);
+    const MESSAGE_FILES = {
+      js: (b) => `${b}_pb.js`,
+      go: (b) => `${b}_pb.go`,
+      python: (b) => `${b}_pb.py`,
+      java: (b) => `${upperFirst(b)}Pb.java`,
+      csharp: (b) => `${upperFirst(b)}Pb.cs`,
+      cpp: (b) => `${b}_messages.hpp`,
+      swift: (b) => `${upperFirst(b)}Messages.swift`,
+      kotlin: (b) => `${upperFirst(b)}Messages.kt`,
+      dart: (b) => `${b}_messages.dart`,
+      zig: (b) => `${b}_messages.zig`,
+      lua: (b) => `${b}_messages.lua`,
+      ruby: (b) => `${b}_pb.rb`,
+      php: (b) => `${b}_pb.php`,
+      scala: (b) => `${camel(b)}Messages.scala`,
+    };
+    for (const lang of LANGS) {
+      const mf = MESSAGE_FILES[lang];
+      if (!mf) continue;
+      const mfName = mf("echo");
+      const expectedMsg = await readFile(join(refs[lang], mfName));
+      const actualMsg = entries.get(`gen/${lang}/${mfName}`);
+      assert.ok(actualMsg, `zip missing gen/${lang}/${mfName}`);
+      assert.ok(actualMsg.equals(expectedMsg), `${name}: browser ${lang} messages differ from native plugin`);
+    }
+    assert.ok(entries.has("README.md"), "zip carries README.md");
+    assert.match(entries.get("README.md").toString(), /manifest\.json/, "README documents the manifest");
+    const manifest = JSON.parse(entries.get("manifest.json").toString());
+    assert.deepEqual(manifest.missing, [], "manifest reports nothing missing");
+    assert.deepEqual(new Set(manifest.files), new Set(entries.keys()), "manifest files cover every zip entry");
     assert.ok(entries.has("proto/echo.proto"), "zip carries the schema");
     for (const lang of LANGS) {
       assert.ok(JSON.parse(entries.get("manifest.json").toString()).languages.includes(lang), "manifest lists " + lang);
