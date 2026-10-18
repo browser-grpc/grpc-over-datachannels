@@ -31,6 +31,7 @@ public:
     void FixedInt64(std::int64_t v) { std::uint64_t u = static_cast<std::uint64_t>(v); for (int i = 0; i < 8; i++) out_.push_back(static_cast<std::uint8_t>((u >> (8 * i)) & 0xff)); }
     void FixedFloat(float v) { std::uint32_t u; std::memcpy(&u, &v, 4); FixedInt32(static_cast<std::int32_t>(u)); }
     void FixedDouble(double v) { std::uint64_t u; std::memcpy(&u, &v, 8); FixedInt64(static_cast<std::int64_t>(u)); }
+    void Raw(const grpcdc::Bytes& payload) { out_.insert(out_.end(), payload.begin(), payload.end()); }
     grpcdc::Bytes ToBytes() const { return out_; }
 };
 
@@ -38,7 +39,7 @@ inline float BitsToFloat(std::uint32_t u) { float v; std::memcpy(&v, &u, 4); ret
 inline double BitsToDouble(std::uint64_t u) { double v; std::memcpy(&v, &u, 8); return v; }
 
 struct Field {
-    int number = 0; int wire = 0; std::uint64_t varint = 0; grpcdc::Bytes bytes; std::uint64_t fixed = 0;
+    int number = 0; int wire = 0; std::uint64_t varint = 0; grpcdc::Bytes bytes; std::uint64_t fixed = 0; grpcdc::Bytes raw;
 };
 
 class Reader {
@@ -52,12 +53,13 @@ public:
     std::uint64_t Fixed64() { auto b = Take(8); std::uint64_t v = 0; for (int i = 0; i < 8; i++) v |= static_cast<std::uint64_t>(b[i]) << (8 * i); return v; }
     bool Next(Field& field) {
         if (pos_ >= buf_.size()) return false;
+        std::size_t start = pos_;
         std::uint64_t tag = Varint(); field.number = static_cast<int>(tag >> 3); field.wire = static_cast<int>(tag & 7);
         switch (field.wire) {
-            case 0: field.varint = Varint(); return true;
-            case 2: { std::size_t n = static_cast<std::size_t>(Varint()); field.bytes = Take(n); return true; }
-            case 1: field.bytes = Take(8); field.fixed = 0; for (int i = 0; i < 8; i++) field.fixed |= static_cast<std::uint64_t>(field.bytes[i]) << (8 * i); return true;
-            case 5: field.bytes = Take(4); field.fixed = static_cast<std::uint32_t>(field.bytes[0]) | (static_cast<std::uint32_t>(field.bytes[1]) << 8) | (static_cast<std::uint32_t>(field.bytes[2]) << 16) | (static_cast<std::uint32_t>(field.bytes[3]) << 24); return true;
+            case 0: field.varint = Varint(); field.raw.assign(buf_.begin() + start, buf_.begin() + pos_); return true;
+            case 2: { std::size_t n = static_cast<std::size_t>(Varint()); field.bytes = Take(n); field.raw.assign(buf_.begin() + start, buf_.begin() + pos_); return true; }
+            case 1: field.bytes = Take(8); field.fixed = 0; for (int i = 0; i < 8; i++) field.fixed |= static_cast<std::uint64_t>(field.bytes[i]) << (8 * i); field.raw.assign(buf_.begin() + start, buf_.begin() + pos_); return true;
+            case 5: field.bytes = Take(4); field.fixed = static_cast<std::uint32_t>(field.bytes[0]) | (static_cast<std::uint32_t>(field.bytes[1]) << 8) | (static_cast<std::uint32_t>(field.bytes[2]) << 16) | (static_cast<std::uint32_t>(field.bytes[3]) << 24); field.raw.assign(buf_.begin() + start, buf_.begin() + pos_); return true;
             default: throw std::invalid_argument("bad wire type");
         }
     }
@@ -70,15 +72,18 @@ class EchoRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   std::string message = "";
   std::int32_t count = 0;
   std::int32_t delay_ms = 0;
+  grpcdc::Bytes unknown_fields;
   EchoRequest() = default;
   grpcdc::Bytes MarshalDc() const override {
     pb_echo::Writer w;
     w.StringField(1, message);
     if (count != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(count)); }
     if (delay_ms != 0) { w.Tag(3, 0); w.Varint(static_cast<std::int64_t>(delay_ms)); }
+    w.Raw(unknown_fields);
     return w.ToBytes();
   }
   void UnmarshalDc(const grpcdc::Bytes& data) override {
+    unknown_fields.clear();
     message = "";
     count = 0;
     delay_ms = 0;
@@ -98,7 +103,7 @@ class EchoRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
             delay_ms = static_cast<std::int32_t>(field.varint);
             break;
         }
-        default: break;
+        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
       }
     }
   }
@@ -107,14 +112,17 @@ class EchoResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
  public:
   std::string message = "";
   std::int32_t index = 0;
+  grpcdc::Bytes unknown_fields;
   EchoResponse() = default;
   grpcdc::Bytes MarshalDc() const override {
     pb_echo::Writer w;
     w.StringField(1, message);
     if (index != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(index)); }
+    w.Raw(unknown_fields);
     return w.ToBytes();
   }
   void UnmarshalDc(const grpcdc::Bytes& data) override {
+    unknown_fields.clear();
     message = "";
     index = 0;
     pb_echo::Reader r(data);
@@ -129,7 +137,7 @@ class EchoResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
             index = static_cast<std::int32_t>(field.varint);
             break;
         }
-        default: break;
+        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
       }
     }
   }

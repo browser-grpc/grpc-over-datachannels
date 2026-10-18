@@ -1525,28 +1525,53 @@
 (define (cpp-pb-encode-singular model f v indent support)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond
    ((memv type cpp-pb-varint-types)
-    (format
-     "~aif (~a) { w.Tag(~a, 0); w.Varint(~a); }\n"
-     indent
-     (cpp-pb-nonzero f v)
-     n
-     (cpp-pb-varint-expr f v)))
-   ((assv type cpp-pb-fixed)
-    =>
-    (lambda (info)
+    (if proto2?
       (format
-       "~aif (~a) { w.Tag(~a, ~a); w.Fixed~a(~a); }\n"
+       "~a{ w.Tag(~a, 0); w.Varint(~a); }\n"
+       indent
+       n
+       (cpp-pb-varint-expr f v))
+      (format
+       "~aif (~a) { w.Tag(~a, 0); w.Varint(~a); }\n"
        indent
        (cpp-pb-nonzero f v)
        n
-       (if (= (second info) 8) 1 5)
-       (third info)
-       v)))
-   ((= type 9) (format "~aw.StringField(~a, ~a);\n" indent n v))
+       (cpp-pb-varint-expr f v))))
+   ((assv type cpp-pb-fixed)
+    =>
+    (lambda (info)
+      (if proto2?
+        (format
+         "~a{ w.Tag(~a, ~a); w.Fixed~a(~a); }\n"
+         indent
+         n
+         (if (= (second info) 8) 1 5)
+         (third info)
+         v)
+        (format
+         "~aif (~a) { w.Tag(~a, ~a); w.Fixed~a(~a); }\n"
+         indent
+         (cpp-pb-nonzero f v)
+         n
+         (if (= (second info) 8) 1 5)
+         (third info)
+         v))))
+   ((= type 9)
+    (if proto2?
+      (format
+       "~aw.BytesField(~a, grpcdc::Bytes(~a.begin(), ~a.end()));\n"
+       indent
+       n
+       v
+       v)
+      (format "~aw.StringField(~a, ~a);\n" indent n v)))
    ((= type 12)
-    (format "~aif (!~a.empty()) w.BytesField(~a, ~a);\n" indent v n v))
+    (if proto2?
+      (format "~aw.BytesField(~a, ~a);\n" indent n v)
+      (format "~aif (!~a.empty()) w.BytesField(~a, ~a);\n" indent v n v)))
    ((= type 11)
     (format "~aif (~a) w.BytesField(~a, ~a->MarshalDc());\n" indent v n v))
    (else (error 'emit-cpp-pb-file "unsupported field type ~a (groups)" type))))
@@ -1652,10 +1677,22 @@
      (format "~a~a->UnmarshalDc(~a);\n" indent target src)))
    (else (error 'emit-cpp-pb-file "unsupported field type ~a" type))))
 
+(define (cpp-pb-oneof-clearing model f)
+  (apply
+   string-append
+   (map
+    (lambda (sib)
+      (format
+       "            ~a = ~a;\n"
+       (hash-ref sib 'name)
+       (cpp-pb-default model sib)))
+    (oneof-siblings model f))))
+
 (define (cpp-pb-decode-case model f support)
   (define v (hash-ref f 'name))
   (define type (hash-ref f 'type))
   (define head (format "        case ~a: {\n" (hash-ref f 'number)))
+  (define clearing (cpp-pb-oneof-clearing model f))
   (define tail "            break;\n        }\n")
   (cond
    ((and (= type 11)
@@ -1673,6 +1710,7 @@
    ((not (= (hash-ref f 'label) 3))
     (string-append
      head
+     clearing
      (cpp-pb-decode-singular
       model
       f
@@ -1929,12 +1967,13 @@
    "    void FixedInt64(std::int64_t v) { std::uint64_t u = static_cast<std::uint64_t>(v); for (int i = 0; i < 8; i++) out_.push_back(static_cast<std::uint8_t>((u >> (8 * i)) & 0xff)); }\n"
    "    void FixedFloat(float v) { std::uint32_t u; std::memcpy(&u, &v, 4); FixedInt32(static_cast<std::int32_t>(u)); }\n"
    "    void FixedDouble(double v) { std::uint64_t u; std::memcpy(&u, &v, 8); FixedInt64(static_cast<std::int64_t>(u)); }\n"
+   "    void Raw(const grpcdc::Bytes& payload) { out_.insert(out_.end(), payload.begin(), payload.end()); }\n"
    "    grpcdc::Bytes ToBytes() const { return out_; }\n"
    "};\n\n"
    "inline float BitsToFloat(std::uint32_t u) { float v; std::memcpy(&v, &u, 4); return v; }\n"
    "inline double BitsToDouble(std::uint64_t u) { double v; std::memcpy(&v, &u, 8); return v; }\n\n"
    "struct Field {\n"
-   "    int number = 0; int wire = 0; std::uint64_t varint = 0; grpcdc::Bytes bytes; std::uint64_t fixed = 0;\n"
+   "    int number = 0; int wire = 0; std::uint64_t varint = 0; grpcdc::Bytes bytes; std::uint64_t fixed = 0; grpcdc::Bytes raw;\n"
    "};\n\n"
    "class Reader {\n"
    "    grpcdc::Bytes buf_; std::size_t pos_ = 0;\n"
@@ -1947,12 +1986,13 @@
    "    std::uint64_t Fixed64() { auto b = Take(8); std::uint64_t v = 0; for (int i = 0; i < 8; i++) v |= static_cast<std::uint64_t>(b[i]) << (8 * i); return v; }\n"
    "    bool Next(Field& field) {\n"
    "        if (pos_ >= buf_.size()) return false;\n"
+   "        std::size_t start = pos_;\n"
    "        std::uint64_t tag = Varint(); field.number = static_cast<int>(tag >> 3); field.wire = static_cast<int>(tag & 7);\n"
    "        switch (field.wire) {\n"
-   "            case 0: field.varint = Varint(); return true;\n"
-   "            case 2: { std::size_t n = static_cast<std::size_t>(Varint()); field.bytes = Take(n); return true; }\n"
-   "            case 1: field.bytes = Take(8); field.fixed = 0; for (int i = 0; i < 8; i++) field.fixed |= static_cast<std::uint64_t>(field.bytes[i]) << (8 * i); return true;\n"
-   "            case 5: field.bytes = Take(4); field.fixed = static_cast<std::uint32_t>(field.bytes[0]) | (static_cast<std::uint32_t>(field.bytes[1]) << 8) | (static_cast<std::uint32_t>(field.bytes[2]) << 16) | (static_cast<std::uint32_t>(field.bytes[3]) << 24); return true;\n"
+   "            case 0: field.varint = Varint(); field.raw.assign(buf_.begin() + start, buf_.begin() + pos_); return true;\n"
+   "            case 2: { std::size_t n = static_cast<std::size_t>(Varint()); field.bytes = Take(n); field.raw.assign(buf_.begin() + start, buf_.begin() + pos_); return true; }\n"
+   "            case 1: field.bytes = Take(8); field.fixed = 0; for (int i = 0; i < 8; i++) field.fixed |= static_cast<std::uint64_t>(field.bytes[i]) << (8 * i); field.raw.assign(buf_.begin() + start, buf_.begin() + pos_); return true;\n"
+   "            case 5: field.bytes = Take(4); field.fixed = static_cast<std::uint32_t>(field.bytes[0]) | (static_cast<std::uint32_t>(field.bytes[1]) << 8) | (static_cast<std::uint32_t>(field.bytes[2]) << 16) | (static_cast<std::uint32_t>(field.bytes[3]) << 24); field.raw.assign(buf_.begin() + start, buf_.begin() + pos_); return true;\n"
    "            default: throw std::invalid_argument(\"bad wire type\");\n"
    "        }\n"
    "    }\n"
@@ -1981,14 +2021,17 @@
         (hash-ref f 'name)
         (cpp-pb-default model f)))
      fields))
+   (format "~a  grpcdc::Bytes unknown_fields;\n" pad)
    (format "~a  ~a() = default;\n" pad name)
    (format "~a  grpcdc::Bytes MarshalDc() const override {\n" pad)
    (format "~a    ~a::Writer w;\n" pad support)
    (apply
     string-append
     (map (lambda (f) (cpp-pb-encode-field model f support)) fields))
+   (format "~a    w.Raw(unknown_fields);\n" pad)
    (format "~a    return w.ToBytes();\n~a  }\n" pad pad)
    (format "~a  void UnmarshalDc(const grpcdc::Bytes& data) override {\n" pad)
+   (format "~a    unknown_fields.clear();\n" pad)
    (apply
     string-append
     (map
@@ -2009,7 +2052,7 @@
     string-append
     (map (lambda (f) (cpp-pb-decode-case model f support)) fields))
    (format
-    "~a        default: break;\n~a      }\n~a    }\n~a  }\n"
+    "~a        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;\n~a      }\n~a    }\n~a  }\n"
     pad
     pad
     pad

@@ -530,14 +530,27 @@
 (define (cs-pb-encode-singular model f v indent)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  ;; Proto2 optional/required fields have explicit presence.
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond [(memv type cs-pb-varint-types)
-         (format "~aif (~a) { w.Tag(~a, 0); w.Varint(~a); }\n" indent (cs-pb-nonzero f v) n (cs-pb-varint-expr f v))]
+         (if proto2?
+             (format "~a{ w.Tag(~a, 0); w.Varint(~a); }\n" indent n (cs-pb-varint-expr f v))
+             (format "~aif (~a) { w.Tag(~a, 0); w.Varint(~a); }\n" indent (cs-pb-nonzero f v) n (cs-pb-varint-expr f v)))]
         [(assv type cs-pb-fixed)
          => (lambda (info)
-              (format "~aif (~a) { w.Tag(~a, ~a); w.Fixed~a(~a); }\n" indent (cs-pb-nonzero f v) n
-                      (if (= (second info) 8) 1 5) (third info) (cs-pb-fixed-bits f v)))]
-        [(= type 9) (format "~aw.StringField(~a, ~a);\n" indent n v)]
-        [(= type 12) (format "~aif (~a != null && ~a.Length > 0) w.BytesField(~a, ~a);\n" indent v v n v)]
+              (if proto2?
+                  (format "~a{ w.Tag(~a, ~a); w.Fixed~a(~a); }\n" indent n
+                          (if (= (second info) 8) 1 5) (third info) (cs-pb-fixed-bits f v))
+                  (format "~aif (~a) { w.Tag(~a, ~a); w.Fixed~a(~a); }\n" indent (cs-pb-nonzero f v) n
+                          (if (= (second info) 8) 1 5) (third info) (cs-pb-fixed-bits f v))))]
+        [(= type 9)
+         (if proto2?
+             (format "~aif (~a != null) w.BytesField(~a, System.Text.Encoding.UTF8.GetBytes(~a));\n" indent v n v)
+             (format "~aw.StringField(~a, ~a);\n" indent n v))]
+        [(= type 12)
+         (if proto2?
+             (format "~aif (~a != null) w.BytesField(~a, ~a);\n" indent v n v)
+             (format "~aif (~a != null && ~a.Length > 0) w.BytesField(~a, ~a);\n" indent v v n v))]
         [(= type 11) (format "~aif (~a != null) w.BytesField(~a, ~a.MarshalDc());\n" indent v n v)]
         [else (error 'emit-csharp-pb-file "unsupported field type ~a (groups)" type)]))
 
@@ -595,10 +608,17 @@
           (format "~a~a.UnmarshalDc(~a);\n" indent target src))]
         [else (error 'emit-csharp-pb-file "unsupported field type ~a" type)]))
 
+(define (cs-pb-oneof-clearing model f)
+  (apply string-append
+         (map (lambda (sib)
+                (format "                    ~a = ~a;\n" (cs-pb-pascal (hash-ref sib 'name)) (cs-pb-default model sib)))
+              (oneof-siblings model f))))
+
 (define (cs-pb-decode-case model f support)
   (define v (cs-pb-pascal (hash-ref f 'name)))
   (define type (hash-ref f 'type))
   (define head (format "                case ~a: {\n" (hash-ref f 'number)))
+  (define clearing (cs-pb-oneof-clearing model f))
   (define tail "                    break;\n                }\n")
   (cond [(and (= type 11)
               (eq? (hash-ref (cs-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
@@ -612,6 +632,7 @@
                         tail)]
         [(not (= (hash-ref f 'label) 3))
          (string-append head
+                        clearing
                         (cs-pb-decode-singular model f v
                                                (cond [(memv type cs-pb-varint-types) "field.VarintValue"]
                                                      [(assv type cs-pb-fixed) "field.FixedValue"]
@@ -711,15 +732,17 @@
    "        public void Tag(int field, int wire) { Varint((field << 3) | wire); }\n"
    "        public void BytesField(int field, byte[] payload) { Tag(field, 2); Varint(payload.Length); _out.Write(payload, 0, payload.Length); }\n"
    "        public void StringField(int field, string value) { if (string.IsNullOrEmpty(value)) return; BytesField(field, System.Text.Encoding.UTF8.GetBytes(value)); }\n"
+   "        public void Raw(byte[] payload) { _out.Write(payload, 0, payload.Length); }\n"
    "        public void FixedInt(int value) { _out.WriteByte((byte) value); _out.WriteByte((byte) (value >> 8)); _out.WriteByte((byte) (value >> 16)); _out.WriteByte((byte) (value >> 24)); }\n"
    "        public void FixedLong(long value) { for (int i = 0; i < 8; i++) _out.WriteByte((byte) (value >> (8 * i))); }\n"
    "        public void FixedFloat(float value) { FixedInt(BitConverter.SingleToInt32Bits(value)); }\n"
    "        public void FixedDouble(double value) { FixedLong(BitConverter.DoubleToInt64Bits(value)); }\n"
    "        public byte[] ToBytes() => _out.ToArray();\n"
    "    }\n\n"
+   "    internal static byte[] ConcatBytes(byte[] a, byte[] b) { var o = new byte[a.Length + b.Length]; Array.Copy(a, o, a.Length); Array.Copy(b, 0, o, a.Length, b.Length); return o; }\n\n"
    "    internal sealed class Field {\n"
-   "        public int Number { get; } public int Wire { get; } public long VarintValue { get; } public byte[] BytesValue { get; } public long FixedValue { get; }\n"
-   "        internal Field(int number, int wire, long varintValue, byte[] bytesValue, long fixedValue) { Number = number; Wire = wire; VarintValue = varintValue; BytesValue = bytesValue; FixedValue = fixedValue; }\n"
+   "        public int Number { get; } public int Wire { get; } public long VarintValue { get; } public byte[] BytesValue { get; } public long FixedValue { get; } public byte[] RawValue { get; }\n"
+   "        internal Field(int number, int wire, long varintValue, byte[] bytesValue, long fixedValue, byte[] rawValue) { Number = number; Wire = wire; VarintValue = varintValue; BytesValue = bytesValue; FixedValue = fixedValue; RawValue = rawValue; }\n"
    "    }\n\n"
    "    internal sealed class Reader {\n"
    "        private readonly byte[] _buf; private int _pos;\n"
@@ -727,16 +750,18 @@
    "        public bool Done => _pos >= _buf.Length;\n"
    "        public long Varint() { long result = 0; int shift = 0; while (true) { if (_pos >= _buf.Length) throw new ArgumentException(\"truncated varint\"); int b = _buf[_pos++]; result |= (long) (b & 0x7f) << shift; if ((b & 0x80) == 0) return result; shift += 7; if (shift >= 64) throw new ArgumentException(\"varint too long\"); } }\n"
    "        public byte[] Take(int n) { if (_pos + n > _buf.Length) throw new ArgumentException(\"truncated field\"); var v = new byte[n]; Array.Copy(_buf, _pos, v, 0, n); _pos += n; return v; }\n"
+   "        public byte[] TakeFrom(int start) { var v = new byte[_pos - start]; Array.Copy(_buf, start, v, 0, v.Length); return v; }\n"
    "        public int Fixed32() { var b = Take(4); return b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); }\n"
    "        public long Fixed64() { var b = Take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) b[i] << (8 * i); return v; }\n"
    "        public Field Next() {\n"
    "            if (_pos >= _buf.Length) return null;\n"
+   "            int start = _pos;\n"
    "            long tag = Varint(); int number = (int) (tag >> 3); int wire = (int) (tag & 7);\n"
    "            switch (wire) {\n"
-   "                case 0: return new Field(number, wire, Varint(), null, 0);\n"
-   "                case 2: { int n = (int) Varint(); return new Field(number, wire, 0, Take(n), 0); }\n"
-   "                case 1: { var b = Take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) b[i] << (8 * i); return new Field(number, wire, 0, b, v); }\n"
-   "                case 5: { var b = Take(4); int v = b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); return new Field(number, wire, 0, b, v); }\n"
+   "                case 0: { long v = Varint(); return new Field(number, wire, v, null, 0, TakeFrom(start)); }\n"
+   "                case 2: { int n = (int) Varint(); var b = Take(n); return new Field(number, wire, 0, b, 0, TakeFrom(start)); }\n"
+   "                case 1: { var b = Take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) b[i] << (8 * i); return new Field(number, wire, 0, b, v, TakeFrom(start)); }\n"
+   "                case 5: { var b = Take(4); int v = b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); return new Field(number, wire, 0, b, v, TakeFrom(start)); }\n"
    "                default: throw new ArgumentException(\"bad wire type \" + wire);\n"
    "            }\n"
    "        }\n"
@@ -755,6 +780,7 @@
                  (format "~a    public ~a ~a = ~a;\n" pad (cs-pb-type model f)
                          (cs-pb-pascal (hash-ref f 'name)) (cs-pb-default model f)))
                fields))
+   (format "~a    public byte[] UnknownFields = new byte[0];\n" pad)
    (format "~a    public ~a() {}\n" pad name)
    (if (null? fields)
        ""
@@ -774,15 +800,17 @@
    (format "~a    public byte[] MarshalDc() {\n" pad)
    (format "~a        var w = new ~a.Writer();\n" pad support)
    (apply string-append (map (lambda (f) (cs-pb-encode-field model f support)) fields))
+   (format "~a        w.Raw(UnknownFields);\n" pad)
    (format "~a        return w.ToBytes();\n~a    }\n" pad pad)
    (format "~a    public void UnmarshalDc(byte[] data) {\n" pad)
+   (format "~a        UnknownFields = new byte[0];\n" pad)
    (apply string-append
           (map (lambda (f) (format "~a        ~a = ~a;\n" pad (cs-pb-pascal (hash-ref f 'name)) (cs-pb-default model f))) fields))
    (format "~a        var r = new ~a.Reader(data);\n" pad support)
    (format "~a        ~a.Field field;\n" pad support)
    (format "~a        while ((field = r.Next()) != null) {\n~a            switch (field.Number) {\n" pad pad)
    (apply string-append (map (lambda (f) (cs-pb-decode-case model f support)) fields))
-   (format "~a                default: break;\n~a            }\n~a        }\n~a    }\n" pad pad pad pad)
+   (format "~a                default: UnknownFields = ~a.ConcatBytes(UnknownFields, field.RawValue); break;\n~a            }\n~a        }\n~a    }\n" pad support pad pad pad)
    (apply string-append (map (lambda (n) (cs-pb-message-class model n support (string-append indent "    ") "public sealed")) (hash-ref msg 'nested)))
    (apply string-append (map (lambda (e) (cs-pb-nested-enum e (string-append indent "    "))) (hash-ref msg 'enums)))
    (format "~a}\n" pad)))

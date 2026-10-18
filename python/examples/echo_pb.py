@@ -76,16 +76,17 @@ class _Reader:
     def field(self):
         if self.pos >= len(self.buf):
             return None
+        start = self.pos
         tag = self.varint()
         num, wire = tag >> 3, tag & 7
         if wire == 0:
-            return num, wire, self.varint()
+            return num, wire, self.varint(), self.buf[start:self.pos]
         if wire == 2:
-            return num, wire, self.take(self.varint())
+            return num, wire, self.take(self.varint()), self.buf[start:self.pos]
         if wire == 1:
-            return num, wire, self.take(8)
+            return num, wire, self.take(8), self.buf[start:self.pos]
         if wire == 5:
-            return num, wire, self.take(4)
+            return num, wire, self.take(4), self.buf[start:self.pos]
         raise ValueError("bad wire type")
 
 
@@ -114,15 +115,18 @@ class EchoRequest:
         self.message = message
         self.count = count
         self.delay_ms = delay_ms
+        self.unknown_fields = b""
 
     def marshal_dc(self):
         out = bytearray()
         out = _append_string_field(out, 1, self.message)
         out = _append_varint_field(out, 2, self.count)
         out = _append_varint_field(out, 3, self.delay_ms)
+        out += self.unknown_fields
         return bytes(out)
 
     def unmarshal_dc(self, data):
+        self.unknown_fields = b""
         self.message = ""
         self.count = 0
         self.delay_ms = 0
@@ -131,13 +135,15 @@ class EchoRequest:
             item = reader.field()
             if item is None:
                 return self
-            num, wire, value = item
+            num, wire, value, raw = item
             if num == 1:
                 self.message = value.decode("utf-8")
             elif num == 2:
                 self.count = _as_int32(value)
             elif num == 3:
                 self.delay_ms = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
 
     def __eq__(self, other):
         return isinstance(other, EchoRequest) and self.__dict__ == other.__dict__
@@ -152,14 +158,17 @@ class EchoResponse:
     def __init__(self, message="", index=0):
         self.message = message
         self.index = index
+        self.unknown_fields = b""
 
     def marshal_dc(self):
         out = bytearray()
         out = _append_string_field(out, 1, self.message)
         out = _append_varint_field(out, 2, self.index)
+        out += self.unknown_fields
         return bytes(out)
 
     def unmarshal_dc(self, data):
+        self.unknown_fields = b""
         self.message = ""
         self.index = 0
         reader = _Reader(data)
@@ -167,11 +176,13 @@ class EchoResponse:
             item = reader.field()
             if item is None:
                 return self
-            num, wire, value = item
+            num, wire, value, raw = item
             if num == 1:
                 self.message = value.decode("utf-8")
             elif num == 2:
                 self.index = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
 
     def __eq__(self, other):
         return isinstance(other, EchoResponse) and self.__dict__ == other.__dict__

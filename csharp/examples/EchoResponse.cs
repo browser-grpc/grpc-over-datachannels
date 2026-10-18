@@ -8,6 +8,7 @@ namespace Echo;
 public sealed class EchoResponse : IMarshaler, IUnmarshaler {
     public string Message = "";
     public int Index = 0;
+    public byte[] UnknownFields = new byte[0];
     public EchoResponse() {}
     public EchoResponse(string message, int index) {
         Message = message;
@@ -17,9 +18,11 @@ public sealed class EchoResponse : IMarshaler, IUnmarshaler {
         var w = new EchoPb.Writer();
         w.StringField(1, Message);
         if (Index != 0) { w.Tag(2, 0); w.Varint(Index); }
+        w.Raw(UnknownFields);
         return w.ToBytes();
     }
     public void UnmarshalDc(byte[] data) {
+        UnknownFields = new byte[0];
         Message = "";
         Index = 0;
         var r = new EchoPb.Reader(data);
@@ -34,7 +37,7 @@ public sealed class EchoResponse : IMarshaler, IUnmarshaler {
                     Index = (int) field.VarintValue;
                     break;
                 }
-                default: break;
+                default: UnknownFields = EchoPb.ConcatBytes(UnknownFields, field.RawValue); break;
             }
         }
     }

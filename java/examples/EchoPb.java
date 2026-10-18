@@ -17,12 +17,15 @@ final class EchoPb {
         void fixedLong(long value) { fixed64(value); }
         void fixedFloat(float value) { fixed32(Float.floatToIntBits(value)); }
         void fixedDouble(double value) { fixed64(Double.doubleToLongBits(value)); }
+        void raw(byte[] payload) { out.write(payload, 0, payload.length); }
         byte[] toBytes() { return out.toByteArray(); }
     }
 
+    static byte[] concatBytes(byte[] a, byte[] b) { byte[] out = java.util.Arrays.copyOf(a, a.length + b.length); System.arraycopy(b, 0, out, a.length, b.length); return out; }
+
     static final class Field {
-        final int number; final int wire; final long varintValue; final byte[] bytesValue; final long fixedValue;
-        Field(int number, int wire, long varintValue, byte[] bytesValue, long fixedValue) { this.number = number; this.wire = wire; this.varintValue = varintValue; this.bytesValue = bytesValue; this.fixedValue = fixedValue; }
+        final int number; final int wire; final long varintValue; final byte[] bytesValue; final long fixedValue; final byte[] rawValue;
+        Field(int number, int wire, long varintValue, byte[] bytesValue, long fixedValue, byte[] rawValue) { this.number = number; this.wire = wire; this.varintValue = varintValue; this.bytesValue = bytesValue; this.fixedValue = fixedValue; this.rawValue = rawValue; }
     }
 
     static final class Reader {
@@ -35,12 +38,13 @@ final class EchoPb {
         long fixed64() { byte[] b = take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) (b[i] & 0xff) << (8 * i); return v; }
         Field next() {
             if (pos >= buf.length) return null;
+            int start = pos;
             long tag = varint(); int number = (int) (tag >> 3); int wire = (int) (tag & 7);
             switch (wire) {
-                case 0: return new Field(number, wire, varint(), null, 0);
-                case 2: { int n = (int) varint(); return new Field(number, wire, 0, take(n), 0); }
-                case 1: { byte[] b = take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) (b[i] & 0xff) << (8 * i); return new Field(number, wire, 0, b, v); }
-                case 5: { byte[] b = take(4); int v = (b[0] & 0xff) | ((b[1] & 0xff) << 8) | ((b[2] & 0xff) << 16) | ((b[3] & 0xff) << 24); return new Field(number, wire, 0, b, v); }
+                case 0: { long v = varint(); return new Field(number, wire, v, null, 0, java.util.Arrays.copyOfRange(buf, start, pos)); }
+                case 2: { int n = (int) varint(); byte[] b = take(n); return new Field(number, wire, 0, b, 0, java.util.Arrays.copyOfRange(buf, start, pos)); }
+                case 1: { byte[] b = take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) (b[i] & 0xff) << (8 * i); return new Field(number, wire, 0, b, v, java.util.Arrays.copyOfRange(buf, start, pos)); }
+                case 5: { byte[] b = take(4); int v = (b[0] & 0xff) | ((b[1] & 0xff) << 8) | ((b[2] & 0xff) << 16) | ((b[3] & 0xff) << 24); return new Field(number, wire, 0, b, v, java.util.Arrays.copyOfRange(buf, start, pos)); }
                 default: throw new IllegalArgumentException("bad wire type " + wire);
             }
         }

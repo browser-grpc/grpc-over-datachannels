@@ -5,6 +5,7 @@ package echo;
 public final class EchoResponse implements grpcdc.Marshaler, grpcdc.Unmarshaler {
     public String message = "";
     public int index = 0;
+    public byte[] unknownFields = new byte[0];
     public EchoResponse() {}
     public EchoResponse(String message, int index) {
         this.message = message;
@@ -16,11 +17,13 @@ public final class EchoResponse implements grpcdc.Marshaler, grpcdc.Unmarshaler 
         EchoPb.Writer w = new EchoPb.Writer();
         w.stringField(1, message);
         if (index != 0) { w.tag(2, 0); w.varint(index); }
+        w.raw(unknownFields);
         return w.toBytes();
     }
 
     @Override
     public void unmarshalDc(byte[] data) {
+        unknownFields = new byte[0];
         message = "";
         index = 0;
         EchoPb.Reader r = new EchoPb.Reader(data);
@@ -33,7 +36,7 @@ public final class EchoResponse implements grpcdc.Marshaler, grpcdc.Unmarshaler 
                 case 2 -> {
                     index = (int) field.varintValue;
                 }
-                default -> {}
+                default -> { unknownFields = EchoPb.concatBytes(unknownFields, field.rawValue); }
             }
         }
     }

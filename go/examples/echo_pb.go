@@ -106,34 +106,36 @@ func (r *EchoPbReader) take(n int) ([]byte, error) {
 
 // field returns (number, value, done, error); value is uint64 for
 // varints and []byte for length-delimited/fixed fields.
-func (r *EchoPbReader) field() (int, any, bool, error) {
+func (r *EchoPbReader) field() (int, int, any, []byte, bool, error) {
 	if r.pos >= len(r.buf) {
-		return 0, nil, true, nil
+		return 0, 0, nil, nil, true, nil
 	}
+	start := r.pos
 	tag, err := r.varint()
 	if err != nil {
-		return 0, nil, false, err
+		return 0, 0, nil, nil, false, err
 	}
 	num := int(tag >> 3)
-	switch tag & 7 {
+	wire := int(tag & 7)
+	switch wire {
 	case 0:
 		v, err := r.varint()
-		return num, v, false, err
+		return num, wire, v, r.buf[start:r.pos], false, err
 	case 2:
 		n, err := r.varint()
 		if err != nil {
-			return 0, nil, false, err
+			return 0, 0, nil, nil, false, err
 		}
 		v, err := r.take(int(n))
-		return num, v, false, err
+		return num, wire, v, r.buf[start:r.pos], false, err
 	case 1:
 		v, err := r.take(8)
-		return num, v, false, err
+		return num, wire, v, r.buf[start:r.pos], false, err
 	case 5:
 		v, err := r.take(4)
-		return num, v, false, err
+		return num, wire, v, r.buf[start:r.pos], false, err
 	default:
-		return 0, nil, false, errors.New("bad wire type")
+		return 0, 0, nil, nil, false, errors.New("bad wire type")
 	}
 }
 
@@ -141,6 +143,7 @@ type EchoRequest struct {
 	Message string
 	Count int32
 	DelayMs int32
+	UnknownFields []byte
 }
 
 func (m *EchoRequest) MarshalDC() []byte {
@@ -154,13 +157,15 @@ func (m *EchoRequest) MarshalDC() []byte {
 		out = EchoPbAppendTag(out, 3, 0)
 		out = EchoPbAppendVarint(out, uint64(int64(m.DelayMs)))
 	}
+	out = append(out, m.UnknownFields...)
 	return out
 }
 
 func (m *EchoRequest) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
 	r := &EchoPbReader{buf: data}
 	for {
-		num, value, done, err := r.field()
+		num, _, value, raw, done, err := r.field()
 		if err != nil {
 			return err
 		}
@@ -180,6 +185,8 @@ func (m *EchoRequest) UnmarshalDC(data []byte) error {
 			if v, ok := value.(uint64); ok {
 				m.DelayMs = int32(v)
 			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
 		}
 	}
 }
@@ -187,6 +194,7 @@ func (m *EchoRequest) UnmarshalDC(data []byte) error {
 type EchoResponse struct {
 	Message string
 	Index int32
+	UnknownFields []byte
 }
 
 func (m *EchoResponse) MarshalDC() []byte {
@@ -196,13 +204,15 @@ func (m *EchoResponse) MarshalDC() []byte {
 		out = EchoPbAppendTag(out, 2, 0)
 		out = EchoPbAppendVarint(out, uint64(int64(m.Index)))
 	}
+	out = append(out, m.UnknownFields...)
 	return out
 }
 
 func (m *EchoResponse) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
 	r := &EchoPbReader{buf: data}
 	for {
-		num, value, done, err := r.field()
+		num, _, value, raw, done, err := r.field()
 		if err != nil {
 			return err
 		}
@@ -218,6 +228,8 @@ func (m *EchoResponse) UnmarshalDC(data []byte) error {
 			if v, ok := value.(uint64); ok {
 				m.Index = int32(v)
 			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
 		}
 	}
 }

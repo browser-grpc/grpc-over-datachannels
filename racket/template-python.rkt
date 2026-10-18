@@ -273,16 +273,17 @@
    "    def field(self):\n"
    "        if self.pos >= len(self.buf):\n"
    "            return None\n"
+   "        start = self.pos\n"
    "        tag = self.varint()\n"
    "        num, wire = tag >> 3, tag & 7\n"
    "        if wire == 0:\n"
-   "            return num, wire, self.varint()\n"
+   "            return num, wire, self.varint(), self.buf[start:self.pos]\n"
    "        if wire == 2:\n"
-   "            return num, wire, self.take(self.varint())\n"
+   "            return num, wire, self.take(self.varint()), self.buf[start:self.pos]\n"
    "        if wire == 1:\n"
-   "            return num, wire, self.take(8)\n"
+   "            return num, wire, self.take(8), self.buf[start:self.pos]\n"
    "        if wire == 5:\n"
-   "            return num, wire, self.take(4)\n"
+   "            return num, wire, self.take(4), self.buf[start:self.pos]\n"
    "        raise ValueError(\"bad wire type\")\n\n\n"
    "def _as_int32(value):\n"
    "    return ((value & 0xFFFFFFFF) ^ 0x80000000) - 0x80000000\n\n\n"
@@ -370,14 +371,26 @@
 (define (py-pb-encode-singular model f v indent)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  ;; Proto2 optional/required fields have explicit presence.
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond [(memv type pb-varint-types)
-         (format "~aout = _append_varint_field(out, ~a, ~a)\n" indent n (py-pb-varint-expr f v))]
+         (if proto2?
+             (format "~aout = _append_tag(out, ~a, 0)\n~aout = _append_varint(out, ~a)\n" indent n indent (py-pb-varint-expr f v))
+             (format "~aout = _append_varint_field(out, ~a, ~a)\n" indent n (py-pb-varint-expr f v)))]
         [(assv type pb-fixed-formats)
          => (lambda (p)
-              (format "~aif ~a: out = _append_fixed_field(out, ~a, _struct.pack(~s, ~a))\n"
-                      indent v n (cdr p) v))]
-        [(= type 9) (format "~aout = _append_string_field(out, ~a, ~a)\n" indent n v)]
-        [(= type 12) (format "~aif ~a: out = _append_bytes_field(out, ~a, ~a)\n" indent v n v)]
+              (if proto2?
+                  (format "~aout = _append_fixed_field(out, ~a, _struct.pack(~s, ~a))\n" indent n (cdr p) v)
+                  (format "~aif ~a: out = _append_fixed_field(out, ~a, _struct.pack(~s, ~a))\n"
+                          indent v n (cdr p) v)))]
+        [(= type 9)
+         (if proto2?
+             (format "~aout = _append_bytes_field(out, ~a, ~a.encode(\"utf-8\"))\n" indent n v)
+             (format "~aout = _append_string_field(out, ~a, ~a)\n" indent n v))]
+        [(= type 12)
+         (if proto2?
+             (format "~aout = _append_bytes_field(out, ~a, ~a)\n" indent n v)
+             (format "~aif ~a: out = _append_bytes_field(out, ~a, ~a)\n" indent v n v))]
         [(= type 11)
          (define entry (py-pb-resolve model (hash-ref f 'type-name)))
          (format "~aif ~a is not None: out = _append_bytes_field(out, ~a, ~a.marshal_dc())\n" indent v n v)]
@@ -431,11 +444,18 @@
           (format "~a~a = tmp\n" indent target))]
         [else (error 'emit-python-pb-file "unsupported field type ~a" type)]))
 
+(define (py-pb-oneof-clearing model f)
+  (apply string-append
+         (map (lambda (sib)
+                (format "                self.~a = ~a\n" (hash-ref sib 'name) (py-pb-default-expr model sib)))
+              (oneof-siblings model f))))
+
 (define (py-pb-decode-case model f first?)
   (define a (hash-ref f 'name))
   (define target (format "self.~a" a))
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  (define clearing (py-pb-oneof-clearing model f))
   (define head (format "            ~a num == ~a:\n" (if first? "if" "elif") n))
   (cond [(and (= type 11)
               (eq? (hash-ref (py-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
@@ -445,7 +465,7 @@
                         (format "                k, val = ~a(value)\n" helper)
                         (format "                self.~a[k] = val\n" a))]
         [(not (= (hash-ref f 'label) 3))
-         (string-append head (py-pb-decode-singular model f target "value" "                "))]
+         (string-append head clearing (py-pb-decode-singular model f target "value" "                "))]
         [(memv type pb-varint-types)
          (string-append
           head
@@ -491,7 +511,7 @@
    "        item = reader.field()\n"
    "        if item is None:\n"
    "            return key, value\n"
-   "        num, wire, raw = item\n"
+   "        num, wire, raw, _raw_bytes = item\n"
    "        if num == 1:\n"
    (py-pb-decode-singular model key-f "key" "raw" "            ")
    "        elif num == 2:\n"
@@ -532,10 +552,13 @@
    (format "class ~a:\n    \"\"\"Message ~a.\"\"\"\n\n" flat (hash-ref msg 'full-name))
    (format "    def __init__(self, ~a):\n" params)
    (apply string-append (map (lambda (f) (py-pb-init-line model f)) fields))
+   "        self.unknown_fields = b\"\"\n"
    "\n    def marshal_dc(self):\n        out = bytearray()\n"
    (apply string-append (map (lambda (f) (py-pb-encode-field model f)) fields))
+   "        out += self.unknown_fields\n"
    "        return bytes(out)\n"
    "\n    def unmarshal_dc(self, data):\n"
+   "        self.unknown_fields = b\"\"\n"
    (apply string-append
           (for/list ([f (in-list fields)])
             (format "        self.~a = ~a\n" (hash-ref f 'name)
@@ -548,10 +571,13 @@
    "            item = reader.field()\n"
    "            if item is None:\n"
    "                return self\n"
-   "            num, wire, value = item\n"
+   "            num, wire, value, raw = item\n"
    (apply string-append
           (for/list ([f (in-list fields)] [i (in-naturals)])
             (py-pb-decode-case model f (zero? i))))
+   (if (null? fields)
+       ""
+       "            else:\n                self.unknown_fields = self.unknown_fields + raw\n")
    (format "\n    def __eq__(self, other):\n        return isinstance(other, ~a) and self.__dict__ == other.__dict__\n" flat)
    (format "\n    def __repr__(self):\n        return f\"~a(~a)\"\n\n\n"
            flat

@@ -302,7 +302,7 @@
    "func (r *pbReader) varint() (uint64, error) {\n\tvar result uint64\n\tvar shift uint\n\tfor {\n\t\tif r.pos >= len(r.buf) {\n\t\t\treturn 0, errors.New(\"truncated varint\")\n\t\t}\n\t\tb := r.buf[r.pos]\n\t\tr.pos++\n\t\tresult |= uint64(b&0x7f) << shift\n\t\tif b&0x80 == 0 {\n\t\t\treturn result, nil\n\t\t}\n\t\tshift += 7\n\t\tif shift >= 64 {\n\t\t\treturn 0, errors.New(\"varint too long\")\n\t\t}\n\t}\n}\n\n"
    "func (r *pbReader) take(n int) ([]byte, error) {\n\tif r.pos+n > len(r.buf) {\n\t\treturn nil, errors.New(\"truncated field\")\n\t}\n\tv := r.buf[r.pos : r.pos+n]\n\tr.pos += n\n\treturn v, nil\n}\n\n"
    "// field returns (number, value, done, error); value is uint64 for\n// varints and []byte for length-delimited/fixed fields.\n"
-   "func (r *pbReader) field() (int, any, bool, error) {\n\tif r.pos >= len(r.buf) {\n\t\treturn 0, nil, true, nil\n\t}\n\ttag, err := r.varint()\n\tif err != nil {\n\t\treturn 0, nil, false, err\n\t}\n\tnum := int(tag >> 3)\n\tswitch tag & 7 {\n\tcase 0:\n\t\tv, err := r.varint()\n\t\treturn num, v, false, err\n\tcase 2:\n\t\tn, err := r.varint()\n\t\tif err != nil {\n\t\t\treturn 0, nil, false, err\n\t\t}\n\t\tv, err := r.take(int(n))\n\t\treturn num, v, false, err\n\tcase 1:\n\t\tv, err := r.take(8)\n\t\treturn num, v, false, err\n\tcase 5:\n\t\tv, err := r.take(4)\n\t\treturn num, v, false, err\n\tdefault:\n\t\treturn 0, nil, false, errors.New(\"bad wire type\")\n\t}\n}\n\n"))
+   "func (r *pbReader) field() (int, int, any, []byte, bool, error) {\n\tif r.pos >= len(r.buf) {\n\t\treturn 0, 0, nil, nil, true, nil\n\t}\n\tstart := r.pos\n\ttag, err := r.varint()\n\tif err != nil {\n\t\treturn 0, 0, nil, nil, false, err\n\t}\n\tnum := int(tag >> 3)\n\twire := int(tag & 7)\n\tswitch wire {\n\tcase 0:\n\t\tv, err := r.varint()\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tcase 2:\n\t\tn, err := r.varint()\n\t\tif err != nil {\n\t\t\treturn 0, 0, nil, nil, false, err\n\t\t}\n\t\tv, err := r.take(int(n))\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tcase 1:\n\t\tv, err := r.take(8)\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tcase 5:\n\t\tv, err := r.take(4)\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tdefault:\n\t\treturn 0, 0, nil, nil, false, errors.New(\"bad wire type\")\n\t}\n}\n\n"))
 
 (define (go-pb-pascal s)
   (string-join
@@ -397,24 +397,53 @@
     [("BigUint64") (format "fixed64Bytes(~a)" v)]
     [("BigInt64") (format "fixed64Bytes(uint64(~a))" v)]))
 
+(define (go-pb-zero f)
+  (case (hash-ref f 'type)
+    [(11 12) "nil"]
+    [(9) "\"\""]
+    [(8) "false"]
+    [else "0"]))
+
+(define (go-pb-oneof-clearing model f)
+  (apply string-append
+         (map (lambda (sib)
+                (format "\t\t\tm.~a = ~a\n" (go-pb-pascal (hash-ref sib 'name)) (go-pb-zero sib)))
+              (oneof-siblings model f))))
+
 (define (go-pb-encode-singular model f v indent)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  ;; Proto2 optional/required fields have explicit presence.
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond [(memv type go-pb-varint-types)
-         (string-append
-          (format "~aif ~a {\n" indent (if (= type 8) v (format "~a != 0" v)))
-          (format "~a\tout = appendTag(out, ~a, 0)\n" indent n)
-          (format "~a\tout = appendVarint(out, ~a)\n" indent (go-pb-varint-expr f v))
-          (format "~a}\n" indent))]
+         (if proto2?
+             (string-append
+              (format "~aout = appendTag(out, ~a, 0)\n" indent n)
+              (format "~aout = appendVarint(out, ~a)\n" indent (go-pb-varint-expr f v)))
+             (string-append
+              (format "~aif ~a {\n" indent (if (= type 8) v (format "~a != 0" v)))
+              (format "~a\tout = appendTag(out, ~a, 0)\n" indent n)
+              (format "~a\tout = appendVarint(out, ~a)\n" indent (go-pb-varint-expr f v))
+              (format "~a}\n" indent)))]
         [(assv type go-pb-fixed)
          => (lambda (info)
-              (string-append
-               (format "~aif ~a != 0 {\n" indent v)
-               (format "~a\tout = appendTag(out, ~a, ~a)\n" indent n (if (= (second info) 8) 1 5))
-               (format "~a\tout = append(out, ~a...)\n" indent (go-pb-fixed-encode info v))
-               (format "~a}\n" indent)))]
-        [(= type 9) (format "~aout = appendStringField(out, ~a, ~a)\n" indent n v)]
-        [(= type 12) (format "~aif len(~a) > 0 {\n~a\tout = appendBytesField(out, ~a, ~a)\n~a}\n" indent v indent n v indent)]
+              (if proto2?
+                  (string-append
+                   (format "~aout = appendTag(out, ~a, ~a)\n" indent n (if (= (second info) 8) 1 5))
+                   (format "~aout = append(out, ~a...)\n" indent (go-pb-fixed-encode info v)))
+                  (string-append
+                   (format "~aif ~a != 0 {\n" indent v)
+                   (format "~a\tout = appendTag(out, ~a, ~a)\n" indent n (if (= (second info) 8) 1 5))
+                   (format "~a\tout = append(out, ~a...)\n" indent (go-pb-fixed-encode info v))
+                   (format "~a}\n" indent))))]
+        [(= type 9)
+         (if proto2?
+             (format "~aout = appendBytesField(out, ~a, []byte(~a))\n" indent n v)
+             (format "~aout = appendStringField(out, ~a, ~a)\n" indent n v))]
+        [(= type 12)
+         (if proto2?
+             (format "~aout = appendBytesField(out, ~a, ~a)\n" indent n v)
+             (format "~aif len(~a) > 0 {\n~a\tout = appendBytesField(out, ~a, ~a)\n~a}\n" indent v indent n v indent))]
         [(= type 11)
          (format "~aif ~a != nil {\n~a\tout = appendBytesField(out, ~a, ~a.MarshalDC())\n~a}\n" indent v indent n v indent)]
         [else (error 'emit-go-pb-file "unsupported field type ~a (groups)" type)]))
@@ -490,6 +519,7 @@
           (format "\t\t\t\t~a[k] = val\n\t\t\t}\n" target))]
         [(not (= (hash-ref f 'label) 3))
          (string-append head
+                        (go-pb-oneof-clearing model f)
                         (if (memv type go-pb-varint-types)
                             (format "\t\t\tif v, ok := value.(uint64); ok {\n~a\t\t\t}\n"
                                     (go-pb-decode-singular model f target "v" "\t\t\t\t"))
@@ -549,7 +579,7 @@
    "\treturn out\n}\n\n"
    (format "func decode~a(data []byte) (~a, ~a, error) {\n" base kt vt)
    (format "\tvar key ~a\n\tvar value ~a\n" kt vt)
-   "\tr := &pbReader{buf: data}\n\tfor {\n\t\tnum, value0, done, err := r.field()\n\t\tif err != nil {\n\t\t\treturn key, value, err\n\t\t}\n\t\tif done {\n\t\t\treturn key, value, nil\n\t\t}\n\t\tswitch num {\n"
+   "\tr := &pbReader{buf: data}\n\tfor {\n\t\tnum, _, value0, _, done, err := r.field()\n\t\tif err != nil {\n\t\t\treturn key, value, err\n\t\t}\n\t\tif done {\n\t\t\treturn key, value, nil\n\t\t}\n\t\tswitch num {\n"
    (format "\t\tcase ~a:\n" (hash-ref key-f 'number))
    (if (memv (hash-ref key-f 'type) go-pb-varint-types)
        (format "\t\t\tif v, ok := value0.(uint64); ok {\n~a\t\t\t}\n" (go-pb-decode-singular model key-f "key" "v" "\t\t\t\t"))
@@ -570,6 +600,30 @@
                (hash-ref e 'values)))
    ")\n\n"))
 
+(define (go-pb-default-literal model f)
+  (define d (field-explicit-default f))
+  (and d
+       (case (hash-ref f 'type)
+         [(9) (format "~s" d)]
+         [(14) (format "~a(~a)" (go-pb-entry-type (go-pb-resolve model (hash-ref f 'type-name))) (enum-default-number model f))]
+         [else d])))
+
+(define (go-pb-constructor model msg)
+  (define name (go-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
+  (define inits
+    (filter values
+            (map (lambda (f)
+                   (define lit (go-pb-default-literal model f))
+                   (and lit (format "\t~a: ~a,\n" (go-pb-pascal (hash-ref f 'name)) lit)))
+                 (hash-ref msg 'fields))))
+  (if (null? inits)
+      ""
+      (string-append
+       (format "// New~a returns a ~a with the descriptor's explicit (proto2)\n// default values applied.\n" name name)
+       (format "func New~a() *~a {\n\treturn &~a{\n" name name name)
+       (apply string-append inits)
+       "\t}\n}\n\n")))
+
 (define (go-pb-message model msg)
   (define name (go-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
   (string-append
@@ -577,13 +631,18 @@
    (apply string-append
           (map (lambda (f) (format "\t~a ~a\n" (go-pb-pascal (hash-ref f 'name)) (go-pb-field-type model f)))
                (hash-ref msg 'fields)))
+   "\tUnknownFields []byte\n"
    "}\n\n"
+   (go-pb-constructor model msg)
    (format "func (m *~a) MarshalDC() []byte {\n\tvar out []byte\n" name)
    (apply string-append (map (lambda (f) (go-pb-encode-field model f)) (hash-ref msg 'fields)))
+   "\tout = append(out, m.UnknownFields...)\n"
    "\treturn out\n}\n\n"
    (format "func (m *~a) UnmarshalDC(data []byte) error {\n" name)
-   "\tr := &pbReader{buf: data}\n\tfor {\n\t\tnum, value, done, err := r.field()\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif done {\n\t\t\treturn nil\n\t\t}\n\t\tswitch num {\n"
+   "\tm.UnknownFields = nil\n"
+   "\tr := &pbReader{buf: data}\n\tfor {\n\t\tnum, _, value, raw, done, err := r.field()\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif done {\n\t\t\treturn nil\n\t\t}\n\t\tswitch num {\n"
    (apply string-append (map (lambda (f) (go-pb-decode-case model f)) (hash-ref msg 'fields)))
+   "\t\tdefault:\n\t\t\tm.UnknownFields = append(m.UnknownFields, raw...)\n"
    "\t\t}\n\t}\n}\n\n"))
 
 (define (go-pb-apply-prefix content prefix)

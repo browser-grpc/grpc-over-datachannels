@@ -632,17 +632,32 @@
 (define (java-pb-encode-singular model f v indent support)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  ;; Proto2 optional/required fields have explicit presence.
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond [(memv type java-pb-varint-types)
-         (format "~aif (~a) { w.tag(~a, 0); w.varint(~a); }\n" indent
-                 (java-pb-nonzero f v) n
-                 (if (= type 14) (format "~a.number" v) (java-pb-varint-expr f v)))]
+         (if proto2?
+             (format "~a{ w.tag(~a, 0); w.varint(~a); }\n" indent n
+                     (if (= type 14) (format "~a.number" v) (java-pb-varint-expr f v)))
+             (format "~aif (~a) { w.tag(~a, 0); w.varint(~a); }\n" indent
+                     (java-pb-nonzero f v) n
+                     (if (= type 14) (format "~a.number" v) (java-pb-varint-expr f v))))]
         [(assv type java-pb-fixed)
          => (lambda (info)
-              (format "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a); }\n" indent (java-pb-nonzero f v) n
-                      (if (= (second info) 8) 1 5) (third info)
-                      (java-pb-fixed-bits info f v)))]
-        [(= type 9) (format "~aw.stringField(~a, ~a);\n" indent n v)]
-        [(= type 12) (format "~aif (~a != null && ~a.length > 0) w.bytesField(~a, ~a);\n" indent v v n v)]
+              (if proto2?
+                  (format "~a{ w.tag(~a, ~a); w.fixed~a(~a); }\n" indent n
+                          (if (= (second info) 8) 1 5) (third info)
+                          (java-pb-fixed-bits info f v))
+                  (format "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a); }\n" indent (java-pb-nonzero f v) n
+                          (if (= (second info) 8) 1 5) (third info)
+                          (java-pb-fixed-bits info f v))))]
+        [(= type 9)
+         (if proto2?
+             (format "~aif (~a != null) w.bytesField(~a, ~a.getBytes(java.nio.charset.StandardCharsets.UTF_8));\n" indent v n v)
+             (format "~aw.stringField(~a, ~a);\n" indent n v))]
+        [(= type 12)
+         (if proto2?
+             (format "~aif (~a != null) w.bytesField(~a, ~a);\n" indent v n v)
+             (format "~aif (~a != null && ~a.length > 0) w.bytesField(~a, ~a);\n" indent v v n v))]
         [(= type 11) (format "~aif (~a != null) w.bytesField(~a, ~a.marshalDc());\n" indent v n v)]
         [else (error 'emit-java-pb-file "unsupported field type ~a (groups)" type)]))
 
@@ -712,10 +727,17 @@
           (format "~a~a.unmarshalDc(~a);\n" indent target src))]
         [else (error 'emit-java-pb-file "unsupported field type ~a" type)]))
 
+(define (java-pb-oneof-clearing model f)
+  (apply string-append
+         (map (lambda (sib)
+                (format "                    ~a = ~a;\n" (java-pb-field-name sib) (java-pb-default model sib)))
+              (oneof-siblings model f))))
+
 (define (java-pb-decode-case model f support)
   (define v (java-pb-field-name f))
   (define type (hash-ref f 'type))
   (define head (format "                case ~a -> {\n" (hash-ref f 'number)))
+  (define clearing (java-pb-oneof-clearing model f))
   (define tail "                }\n")
   (cond [(and (= type 11)
               (eq? (hash-ref (java-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
@@ -729,6 +751,7 @@
                         tail)]
         [(not (= (hash-ref f 'label) 3))
          (string-append head
+                        clearing
                         (java-pb-decode-singular model f v
                                                  (cond [(memv type java-pb-varint-types) "field.varintValue"]
                                                        [(assv type java-pb-fixed) "field.fixedValue"]
@@ -828,6 +851,7 @@
                  (format "        public ~a ~a = ~a;\n"
                          (java-pb-type model f #f) (java-pb-field-name f) (java-pb-default model f)))
                fields))
+   "        public byte[] unknownFields = new byte[0];\n"
    (format "        public ~a() {}\n" name)
    (if (null? fields)
        ""
@@ -840,15 +864,17 @@
    "\n        @Override\n        public byte[] marshalDc() {\n"
    (format "            ~a.Writer w = new ~a.Writer();\n" support support)
    (apply string-append (map (lambda (f) (java-pb-encode-field model f support)) fields))
+   "            w.raw(unknownFields);\n"
    "            return w.toBytes();\n        }\n\n"
    "        @Override\n        public void unmarshalDc(byte[] data) {\n"
+   "            unknownFields = new byte[0];\n"
    (apply string-append
           (map (lambda (f) (format "            ~a = ~a;\n" (java-pb-field-name f) (java-pb-default model f))) fields))
    (format "            ~a.Reader r = new ~a.Reader(data);\n" support support)
    (format "            ~a.Field field;\n" support)
    "            while ((field = r.next()) != null) {\n                switch (field.number) {\n"
    (apply string-append (map (lambda (f) (java-pb-decode-case model f support)) fields))
-   "                    default -> {}\n                }\n            }\n        }\n"
+   (format "                    default -> { unknownFields = ~a.concatBytes(unknownFields, field.rawValue); }\n                }\n            }\n        }\n" support)
    (apply string-append (map (lambda (n) (java-pb-message-class model n support #t)) (hash-ref msg 'nested)))
    (apply string-append (map (lambda (e) (java-pb-nested-enum model msg e)) (hash-ref msg 'enums)))
    "    }\n"))
@@ -898,6 +924,7 @@
                  (format "    public ~a ~a = ~a;\n"
                          (java-pb-type model f #f) (java-pb-field-name f) (java-pb-default model f)))
                fields))
+   "    public byte[] unknownFields = new byte[0];\n"
    (format "    public ~a() {}\n" name)
    (if (null? fields)
        ""
@@ -910,15 +937,17 @@
    "\n    @Override\n    public byte[] marshalDc() {\n"
    (format "        ~a.Writer w = new ~a.Writer();\n" support support)
    (apply string-append (map (lambda (f) (java-pb-encode-field model f support)) fields))
+   "        w.raw(unknownFields);\n"
    "        return w.toBytes();\n    }\n\n"
    "    @Override\n    public void unmarshalDc(byte[] data) {\n"
+   "        unknownFields = new byte[0];\n"
    (apply string-append
           (map (lambda (f) (format "        ~a = ~a;\n" (java-pb-field-name f) (java-pb-default model f))) fields))
    (format "        ~a.Reader r = new ~a.Reader(data);\n" support support)
    (format "        ~a.Field field;\n" support)
    "        while ((field = r.next()) != null) {\n            switch (field.number) {\n"
    (apply string-append (map (lambda (f) (java-pb-decode-case model f support)) fields))
-   "                default -> {}\n            }\n        }\n    }\n"
+   (format "                default -> { unknownFields = ~a.concatBytes(unknownFields, field.rawValue); }\n            }\n        }\n    }\n" support)
    (apply string-append (map (lambda (n) (java-pb-message-class model n support #t)) (hash-ref msg 'nested)))
    (apply string-append (map (lambda (e) (java-pb-nested-enum model msg e)) (hash-ref msg 'enums)))
    "}\n"))
@@ -985,11 +1014,13 @@
    "        void fixedLong(long value) { fixed64(value); }\n"
    "        void fixedFloat(float value) { fixed32(Float.floatToIntBits(value)); }\n"
    "        void fixedDouble(double value) { fixed64(Double.doubleToLongBits(value)); }\n"
+   "        void raw(byte[] payload) { out.write(payload, 0, payload.length); }\n"
    "        byte[] toBytes() { return out.toByteArray(); }\n"
    "    }\n\n"
+   "    static byte[] concatBytes(byte[] a, byte[] b) { byte[] out = java.util.Arrays.copyOf(a, a.length + b.length); System.arraycopy(b, 0, out, a.length, b.length); return out; }\n\n"
    "    static final class Field {\n"
-   "        final int number; final int wire; final long varintValue; final byte[] bytesValue; final long fixedValue;\n"
-   "        Field(int number, int wire, long varintValue, byte[] bytesValue, long fixedValue) { this.number = number; this.wire = wire; this.varintValue = varintValue; this.bytesValue = bytesValue; this.fixedValue = fixedValue; }\n"
+   "        final int number; final int wire; final long varintValue; final byte[] bytesValue; final long fixedValue; final byte[] rawValue;\n"
+   "        Field(int number, int wire, long varintValue, byte[] bytesValue, long fixedValue, byte[] rawValue) { this.number = number; this.wire = wire; this.varintValue = varintValue; this.bytesValue = bytesValue; this.fixedValue = fixedValue; this.rawValue = rawValue; }\n"
    "    }\n\n"
    "    static final class Reader {\n"
    "        private final byte[] buf; private int pos;\n"
@@ -1001,12 +1032,13 @@
    "        long fixed64() { byte[] b = take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) (b[i] & 0xff) << (8 * i); return v; }\n"
    "        Field next() {\n"
    "            if (pos >= buf.length) return null;\n"
+   "            int start = pos;\n"
    "            long tag = varint(); int number = (int) (tag >> 3); int wire = (int) (tag & 7);\n"
    "            switch (wire) {\n"
-   "                case 0: return new Field(number, wire, varint(), null, 0);\n"
-   "                case 2: { int n = (int) varint(); return new Field(number, wire, 0, take(n), 0); }\n"
-   "                case 1: { byte[] b = take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) (b[i] & 0xff) << (8 * i); return new Field(number, wire, 0, b, v); }\n"
-   "                case 5: { byte[] b = take(4); int v = (b[0] & 0xff) | ((b[1] & 0xff) << 8) | ((b[2] & 0xff) << 16) | ((b[3] & 0xff) << 24); return new Field(number, wire, 0, b, v); }\n"
+   "                case 0: { long v = varint(); return new Field(number, wire, v, null, 0, java.util.Arrays.copyOfRange(buf, start, pos)); }\n"
+   "                case 2: { int n = (int) varint(); byte[] b = take(n); return new Field(number, wire, 0, b, 0, java.util.Arrays.copyOfRange(buf, start, pos)); }\n"
+   "                case 1: { byte[] b = take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) (b[i] & 0xff) << (8 * i); return new Field(number, wire, 0, b, v, java.util.Arrays.copyOfRange(buf, start, pos)); }\n"
+   "                case 5: { byte[] b = take(4); int v = (b[0] & 0xff) | ((b[1] & 0xff) << 8) | ((b[2] & 0xff) << 16) | ((b[3] & 0xff) << 24); return new Field(number, wire, 0, b, v, java.util.Arrays.copyOfRange(buf, start, pos)); }\n"
    "                default: throw new IllegalArgumentException(\"bad wire type \" + wire);\n"
    "            }\n"
    "        }\n"

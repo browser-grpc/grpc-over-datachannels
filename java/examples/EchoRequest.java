@@ -6,6 +6,7 @@ public final class EchoRequest implements grpcdc.Marshaler, grpcdc.Unmarshaler {
     public String message = "";
     public int count = 0;
     public int delayMs = 0;
+    public byte[] unknownFields = new byte[0];
     public EchoRequest() {}
     public EchoRequest(String message, int count, int delayMs) {
         this.message = message;
@@ -19,11 +20,13 @@ public final class EchoRequest implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         w.stringField(1, message);
         if (count != 0) { w.tag(2, 0); w.varint(count); }
         if (delayMs != 0) { w.tag(3, 0); w.varint(delayMs); }
+        w.raw(unknownFields);
         return w.toBytes();
     }
 
     @Override
     public void unmarshalDc(byte[] data) {
+        unknownFields = new byte[0];
         message = "";
         count = 0;
         delayMs = 0;
@@ -40,7 +43,7 @@ public final class EchoRequest implements grpcdc.Marshaler, grpcdc.Unmarshaler {
                 case 3 -> {
                     delayMs = (int) field.varintValue;
                 }
-                default -> {}
+                default -> { unknownFields = EchoPb.concatBytes(unknownFields, field.rawValue); }
             }
         }
     }

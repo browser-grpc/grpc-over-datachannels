@@ -9,6 +9,7 @@ public sealed class EchoRequest : IMarshaler, IUnmarshaler {
     public string Message = "";
     public int Count = 0;
     public int DelayMs = 0;
+    public byte[] UnknownFields = new byte[0];
     public EchoRequest() {}
     public EchoRequest(string message, int count, int delayMs) {
         Message = message;
@@ -20,9 +21,11 @@ public sealed class EchoRequest : IMarshaler, IUnmarshaler {
         w.StringField(1, Message);
         if (Count != 0) { w.Tag(2, 0); w.Varint(Count); }
         if (DelayMs != 0) { w.Tag(3, 0); w.Varint(DelayMs); }
+        w.Raw(UnknownFields);
         return w.ToBytes();
     }
     public void UnmarshalDc(byte[] data) {
+        UnknownFields = new byte[0];
         Message = "";
         Count = 0;
         DelayMs = 0;
@@ -42,7 +45,7 @@ public sealed class EchoRequest : IMarshaler, IUnmarshaler {
                     DelayMs = (int) field.VarintValue;
                     break;
                 }
-                default: break;
+                default: UnknownFields = EchoPb.ConcatBytes(UnknownFields, field.RawValue); break;
             }
         }
     }

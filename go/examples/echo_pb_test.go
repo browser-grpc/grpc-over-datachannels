@@ -2,6 +2,7 @@ package echo
 
 import (
 	"encoding/hex"
+	"reflect"
 	"testing"
 )
 
@@ -17,7 +18,7 @@ func TestEchoRequestGoldenBytes(t *testing.T) {
 	if err := decoded.UnmarshalDC(raw); err != nil {
 		t.Fatal(err)
 	}
-	if decoded != *msg {
+	if !reflect.DeepEqual(decoded, *msg) {
 		t.Fatalf("decode = %+v, want %+v", decoded, *msg)
 	}
 }
