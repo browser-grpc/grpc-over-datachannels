@@ -7,6 +7,7 @@ import 'test_dynamic.dart';
 import 'test_echo.dart';
 import 'test_interop.dart';
 import 'test_oracle.dart';
+import 'test_pb_messages.dart';
 
 // Test runner: ./tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic>
 Future<void> main(List<String> args) async {
@@ -36,6 +37,9 @@ Future<void> main(List<String> args) async {
         break;
       case 'TestDeadline':
         await testDeadline();
+        break;
+      case 'TestPbMessages':
+        await testPbMessages();
         break;
       default:
         stderr.writeln('unknown test: ${args[0]}');

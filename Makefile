@@ -215,7 +215,8 @@ test-dart:
 	$(DART) compile exe dart/examples/DynamicEchoServerStdio/main.dart -o dart/build/dynamic_echo_server_stdio
 	cd dart && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestOracle \
-		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline
+		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
+		&& ./build/tests TestPbMessages
 
 ZIG ?= zig
 

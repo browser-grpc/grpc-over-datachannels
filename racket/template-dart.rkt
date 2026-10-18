@@ -295,13 +295,457 @@
      "}\n\n"
      (apply string-append (map dart-stream-impl methods)))))
 
+;; ---------------------------------------------------------------------------
+;; Dart message types (<base>_messages.dart, matching the stub's
+;; import): classes implementing Marshaler/Unmarshaler plus
+;; per-file <Base>Pb wire-support classes. Dependency-free
+;; (dart: core only). Mirrors the Kotlin emitter on the shared
+;; desc.rkt model.
+;; ---------------------------------------------------------------------------
+
+(define dart-pb-varint-types '(5 3 13 4 17 18 8 14))
+(define dart-pb-fixed '((2 4 "Float32") (1 8 "Float64") (7 4 "Uint32") (15 4 "Int32") (6 8 "Uint64") (16 8 "Int64")))
+
+(define (dart-pb-camel s)
+  (define parts (string-split s "_"))
+  (if (null? parts)
+      s
+      (apply string-append (car parts)
+             (map (lambda (p) (if (string=? p "") "" (string-append (string (char-upcase (string-ref p 0))) (substring p 1))))
+                  (cdr parts)))))
+
+(define (dart-pb-field-name f)
+  (define jn (hash-ref f 'json-name ""))
+  (if (and jn (not (string=? jn ""))) jn (dart-pb-camel (hash-ref f 'name))))
+
+(define (dart-pb-resolve model type-name)
+  (hash-ref (hash-ref model 'types) type-name
+            (lambda () (error 'emit-dart-pb-file "unresolved type ~a" type-name))))
+
+(define (dart-pb-rel pkg full)
+  (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
+                  (substring full (add1 (string-length pkg)))
+                  full))
+  (string-join (string-split rel ".") "_"))
+
+(define (dart-pb-entry-ref model entry)
+  (dart-pb-rel (hash-ref entry 'pkg)
+               (if (eq? (hash-ref entry 'kind) 'enum)
+                   (let ([e (hash-ref entry 'enum)])
+                     (if (hash-ref entry 'msg)
+                         (format "~a.~a" (hash-ref (hash-ref entry 'msg) 'full-name) (hash-ref e 'name))
+                         (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name))))
+                   (hash-ref (hash-ref entry 'msg) 'full-name))))
+
+;; Dart type name for a message/enum entry: nested types flatten
+;; with _ like the JS emitter.
+(define (dart-pb-type-ref model entry)
+  (string-replace (dart-pb-entry-ref model entry) "." "_"))
+
+(define (dart-pb-scalar f)
+  (case (hash-ref f 'type)
+    [(1) '("double" "0")] [(2) '("double" "0")] [(3) '("int" "0")] [(4) '("int" "0")]
+    [(5) '("int" "0")] [(6) '("int" "0")] [(7) '("int" "0")] [(8) '("bool" "false")]
+    [(9) '("String" "''")] [(12) '("Uint8List" "Uint8List(0)")] [(13) '("int" "0")]
+    [(15) '("int" "0")] [(16) '("int" "0")] [(17) '("int" "0")] [(18) '("int" "0")]
+    [else #f]))
+
+(define (dart-pb-type model f)
+  (define type (hash-ref f 'type))
+  (define singular
+    (cond [(= type 11)
+           (define entry (dart-pb-resolve model (hash-ref f 'type-name)))
+           (if (eq? (hash-ref entry 'kind) 'map)
+               (let* ([em (hash-ref entry 'msg)]
+                      [kf (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref em 'fields))]
+                      [vf (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref em 'fields))])
+                 (format "Map<~a, ~a>" (dart-pb-type model (hash-set kf 'label 1))
+                         (if (= (hash-ref vf 'type) 11)
+                             (dart-pb-type-ref model (dart-pb-resolve model (hash-ref vf 'type-name)))
+                             (dart-pb-type model (hash-set vf 'label 1)))))
+               (format "~a?" (dart-pb-type-ref model entry)))]
+          [(= type 14) (dart-pb-type-ref model (dart-pb-resolve model (hash-ref f 'type-name)))]
+          [else (first (dart-pb-scalar f))]))
+  (cond [(and (= type 11)
+              (eq? (hash-ref (dart-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
+         singular]
+        [(= (hash-ref f 'label) 3)
+         (format "List<~a>" (if (= type 11)
+                                (dart-pb-type-ref model (dart-pb-resolve model (hash-ref f 'type-name)))
+                                (dart-pb-type model (hash-set f 'label 1))))]
+        [else singular]))
+
+(define (dart-pb-default model f)
+  (cond [(and (= (hash-ref f 'type) 11)
+              (eq? (hash-ref (dart-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
+         "{}"]
+        [(= (hash-ref f 'label) 3) "[]"]
+        [(= (hash-ref f 'type) 11) "null"]
+        [(= (hash-ref f 'type) 14)
+         (define entry (dart-pb-resolve model (hash-ref f 'type-name)))
+         (format "~a.~a" (dart-pb-type-ref model entry) (hash-ref (car (hash-ref (hash-ref entry 'enum) 'values)) 'name))]
+        [else (second (dart-pb-scalar f))]))
+
+(define (dart-pb-varint-expr f v)
+  (case (hash-ref f 'type)
+    [(8) (format "(~a ? 1 : 0)" v)]
+    [(17) (format "(((~a << 1) ^ (~a >> 31)) & 0xffffffff)" v v)]
+    [(18) (format "((~a << 1) ^ (~a >> 63))" v v)]
+    [(14) (format "~a.index" v)]
+    [else v]))
+
+(define (dart-pb-varint-decode f v)
+  (case (hash-ref f 'type)
+    [(5) (format "(~a).toSigned(32)" v)]
+    [(13 7 4 6) (format "(~a).toUnsigned(64)" v)]
+    [(8) (format "~a != 0" v)]
+    [(17) (format "(((~a >> 1) ^ -(~a & 1))).toSigned(32)" v v)]
+    [(18) (format "((~a >> 1) ^ -(~a & 1))" v v)]
+    [else v]))
+
+(define (dart-pb-nonzero f v)
+  (case (hash-ref f 'type)
+    [(8) v]
+    [(14) (format "~a.index != 0" v)]
+    [else (format "~a != 0" v)]))
+
+(define (dart-pb-encode-singular model f v indent support)
+  (define n (hash-ref f 'number))
+  (define type (hash-ref f 'type))
+  (cond [(memv type dart-pb-varint-types)
+         (format "~aif (~a) { w.tag(~a, 0); w.varint(~a); }\n" indent (dart-pb-nonzero f v) n (dart-pb-varint-expr f v))]
+        [(assv type dart-pb-fixed)
+         => (lambda (info)
+              (format "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a); }\n" indent (dart-pb-nonzero f v) n
+                      (if (= (second info) 8) 1 5) (third info) v))]
+        [(= type 9) (format "~aw.stringField(~a, ~a);\n" indent n v)]
+        [(= type 12) (format "~aif (~a.isNotEmpty) w.bytesField(~a, ~a);\n" indent v n v)]
+        [(= type 11) (format "~aif (~a != null) w.bytesField(~a, ~a!.marshalDc());\n" indent v n v)]
+        [else (error 'emit-dart-pb-file "unsupported field type ~a (groups)" type)]))
+
+(define (dart-pb-encode-field model f support)
+  (define v (dart-pb-field-name f))
+  (define n (hash-ref f 'number))
+  (define type (hash-ref f 'type))
+  (cond [(and (= type 11)
+              (eq? (hash-ref (dart-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
+         (define entry (dart-pb-resolve model (hash-ref f 'type-name)))
+         (define helper (format "~a~aEncode" support (dart-pb-map-helper-name model entry)))
+         (format "    ~a.forEach((k, val) { w.bytesField(~a, ~a(k, val)); });\n" v n helper)]
+        [(not (= (hash-ref f 'label) 3)) (dart-pb-encode-singular model f v "    " support)]
+        [(memv type dart-pb-varint-types)
+         (string-append
+          (format "    if (~a.isNotEmpty) {\n" v)
+          (format "        final payload = ~aWriter();\n" support)
+          (format "        for (final x in ~a) { payload.varint(~a); }\n" v (dart-pb-varint-expr f "x"))
+          (format "        w.bytesField(~a, payload.toBytes());\n    }\n" n))]
+        [(assv type dart-pb-fixed)
+         => (lambda (info)
+              (string-append
+               (format "    if (~a.isNotEmpty) {\n" v)
+               (format "        final payload = ~aWriter();\n" support)
+               (format "        for (final x in ~a) { payload.fixed~a(x); }\n" v (third info))
+               (format "        w.bytesField(~a, payload.toBytes());\n    }\n" n)))]
+        [(= type 9) (format "    for (final x in ~a) { w.bytesField(~a, Uint8List.fromList(x.codeUnits)); }\n" v n)]
+        [(= type 12) (format "    for (final x in ~a) { w.bytesField(~a, x); }\n" v n)]
+        [(= type 11) (format "    for (final x in ~a) { w.bytesField(~a, x.marshalDc()); }\n" v n)]
+        [else (error 'emit-dart-pb-file "unsupported repeated field type ~a" type)]))
+
+(define (dart-pb-decode-singular model f target src indent support)
+  (define type (hash-ref f 'type))
+  (cond [(memv type dart-pb-varint-types)
+         (format "~a~a = ~a;\n" indent target
+                 (if (= type 14)
+                     (format "~a.values[~a] " (dart-pb-type-ref model (dart-pb-resolve model (hash-ref f 'type-name))) (dart-pb-varint-decode (hash-set f 'type 5) src))
+                     (dart-pb-varint-decode f src)))]
+        [(assv type dart-pb-fixed)
+         => (lambda (info)
+              (format "~a~a = ~a;\n" indent target
+                      (case (hash-ref f 'type)
+                        [(2) (format "~aBitsToFloat32(~a)" support src)]
+                        [(1) (format "~aBitsToFloat64(~a)" support src)]
+                        [(7) (format "(~a).toUnsigned(32)" src)]
+                        [(15) (format "(~a).toSigned(32)" src)]
+                        [(6) (format "(~a).toUnsigned(64)" src)]
+                        [(16) (format "(~a).toSigned(64)" src)]
+                        [else src])))]
+        [(= type 9) (format "~a~a = String.fromCharCodes(~a);\n" indent target src)]
+        [(= type 12) (format "~a~a = ~a;\n" indent target src)]
+        [(= type 11)
+         (define ref (dart-pb-type-ref model (dart-pb-resolve model (hash-ref f 'type-name))))
+         (string-append
+          (format "~a~a = ~a();\n" indent target ref)
+          (format "~a~a!.unmarshalDc(~a);\n" indent target src))]
+        [else (error 'emit-dart-pb-file "unsupported field type ~a" type)]))
+
+(define (dart-pb-decode-case model f support)
+  (define v (dart-pb-field-name f))
+  (define type (hash-ref f 'type))
+  (define head (format "        case ~a:\n" (hash-ref f 'number)))
+  (define tail "          break;\n")
+  (cond [(and (= type 11)
+              (eq? (hash-ref (dart-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
+         (define entry (dart-pb-resolve model (hash-ref f 'type-name)))
+         (define helper (format "~a~aDecode" support (dart-pb-map-helper-name model entry)))
+         (string-append head
+                        (format "          final kv = ~a(field.bytesValue);\n" helper)
+                        (format "          ~a[kv.key] = kv.value;\n" v)
+                        tail)]
+        [(not (= (hash-ref f 'label) 3))
+         (string-append head
+                        (dart-pb-decode-singular model f v
+                                                 (cond [(memv type dart-pb-varint-types) "field.varintValue"]
+                                                       [(assv type dart-pb-fixed) "field.fixedValue"]
+                                                       [else "field.bytesValue"])
+                                                 "          " support)
+                        tail)]
+        [(memv type dart-pb-varint-types)
+         (string-append head
+                        "          if (field.wire == 2) {\n"
+                        (format "            final sub = ~aReader(field.bytesValue);\n" support)
+                        "            while (!sub.done()) {\n"
+                        (format "              ~a.add(~a);\n" v
+                                (let ([conv (dart-pb-varint-decode f "sub.varint()")])
+                                  (if (= type 14)
+                                      (format "~a.values[~a]" (dart-pb-type-ref model (dart-pb-resolve model (hash-ref f 'type-name))) (dart-pb-varint-decode (hash-set f 'type 5) "sub.varint()"))
+                                      conv)))
+                        "            }\n          } else {\n"
+                        (format "            ~a.add(~a);\n" v
+                                (let ([conv (dart-pb-varint-decode f "field.varintValue")])
+                                  (if (= type 14)
+                                      (format "~a.values[~a]" (dart-pb-type-ref model (dart-pb-resolve model (hash-ref f 'type-name))) (dart-pb-varint-decode (hash-set f 'type 5) "field.varintValue"))
+                                      conv)))
+                        "          }\n" tail)]
+        [(assv type dart-pb-fixed)
+         => (lambda (info)
+              (string-append head
+                             "          if (field.wire == 2) {\n"
+                             (format "            final sub = ~aReader(field.bytesValue);\n" support)
+                             (format "            while (!sub.done()) { ~a.add(~a); }\n" v
+                                     (case (hash-ref f 'type)
+                                       [(2) (format "~aBitsToFloat32(sub.fixed32())" support)]
+                                       [(1) (format "~aBitsToFloat64(sub.fixed64())" support)]
+                                       [(7) "(sub.fixed32()).toUnsigned(32)"]
+                                       [(15) "(sub.fixed32()).toSigned(32)"]
+                                       [(6) "(sub.fixed64()).toUnsigned(64)"]
+                                       [else "(sub.fixed64()).toSigned(64)"]))
+                             "          } else {\n"
+                             (format "            ~a.add(~a);\n" v
+                                     (case (hash-ref f 'type)
+                                       [(2) (format "~aBitsToFloat32(field.fixedValue)" support)]
+                                       [(1) (format "~aBitsToFloat64(field.fixedValue)" support)]
+                                       [(7) "(field.fixedValue).toUnsigned(32)"]
+                                       [(15) "(field.fixedValue).toSigned(32)"]
+                                       [(6) "(field.fixedValue).toUnsigned(64)"]
+                                       [else "(field.fixedValue).toSigned(64)"]))
+                             "          }\n" tail))]
+        [(= type 9) (string-append head (format "          ~a.add(String.fromCharCodes(field.bytesValue));\n" v) tail)]
+        [(= type 12) (string-append head (format "          ~a.add(field.bytesValue);\n" v) tail)]
+        [(= type 11)
+         (string-append head
+                        (format "          final item = ~a();\n" (dart-pb-type-ref model (dart-pb-resolve model (hash-ref f 'type-name))))
+                        "          item.unmarshalDc(field.bytesValue);\n"
+                        (format "          ~a.add(item);\n" v) tail)]
+        [else (error 'emit-dart-pb-file "unsupported repeated field type ~a" type)]))
+
+(define (dart-pb-map-helper-name model entry)
+  (define rel (dart-pb-rel (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)))
+  rel)
+
+(define (dart-pb-map-helpers model entry support)
+  (define msg (hash-ref entry 'msg))
+  (define base (dart-pb-map-helper-name model entry))
+  (define key-f (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref msg 'fields)))
+  (define val-f (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref msg 'fields)))
+  (unless (and key-f val-f) (error 'emit-dart-pb-file "map entry ~a lacks key/value" (hash-ref msg 'full-name)))
+  (define kt (dart-pb-type model (hash-set key-f 'label 1)))
+  (define vt (dart-pb-type model (hash-set val-f 'label 1)))
+  (define vt-plain (if (and (= (hash-ref val-f 'type) 11)
+                            (not (eq? (hash-ref (dart-pb-resolve model (hash-ref val-f 'type-name)) 'kind) 'map)))
+                       (dart-pb-type-ref model (dart-pb-resolve model (hash-ref val-f 'type-name)))
+                       vt))
+  (string-append
+   (format "Uint8List ~a~aEncode(~a key, ~a value) {\n" support base kt vt-plain)
+   (format "  final w = ~aWriter();\n" support)
+   (dart-pb-encode-singular model (hash-set key-f 'label 1) "key" "  " support)
+   (if (= (hash-ref val-f 'type) 11)
+       (format "  w.bytesField(~a, value.marshalDc());\n" (hash-ref val-f 'number))
+       (dart-pb-encode-singular model (hash-set val-f 'label 1) "value" "  " support))
+   "  return w.toBytes();\n}\n\n"
+   (format "MapEntry<~a, ~a> ~a~aDecode(Uint8List bytes) {\n" kt vt-plain support base)
+   (format "  ~a key = ~a;\n" kt (dart-pb-default model (hash-set key-f 'label 1)))
+   (format "  ~a value = ~a;\n" vt-plain (if (= (hash-ref val-f 'type) 11) (format "~a()" vt-plain) (dart-pb-default model (hash-set val-f 'label 1))))
+   (format "  final r = ~aReader(bytes);\n" support)
+   "  while (true) {\n    final field = r.next();\n    if (field == null) break;\n    switch (field.number) {\n"
+   (format "      case ~a:\n~a        break;\n" (hash-ref key-f 'number)
+           (dart-pb-decode-singular model (hash-set key-f 'label 1) "key"
+                                    (cond [(memv (hash-ref key-f 'type) dart-pb-varint-types) "field.varintValue"]
+                                          [(assv (hash-ref key-f 'type) dart-pb-fixed) "field.fixedValue"]
+                                          [else "field.bytesValue"]) "        " support))
+   (format "      case ~a:\n~a        break;\n" (hash-ref val-f 'number)
+           (if (= (hash-ref val-f 'type) 11)
+               "        value.unmarshalDc(field.bytesValue);\n"
+               (dart-pb-decode-singular model (hash-set val-f 'label 1) "value"
+                                        (cond [(memv (hash-ref val-f 'type) dart-pb-varint-types) "field.varintValue"]
+                                              [(assv (hash-ref val-f 'type) dart-pb-fixed) "field.fixedValue"]
+                                              [else "field.bytesValue"]) "        " support)))
+   "      default:\n        break;\n    }\n  }\n  return MapEntry(key, value);\n}\n\n"))
+
+(define (dart-pb-support base helpers)
+  (define p (string-append (pascal (string->symbol base)) "Pb"))
+  (string-append
+   "// @generated by protoc-gen-grpc-dc-dart (Racket metaprogram). DO NOT EDIT.\n"
+   "import 'dart:typed_data';\n\n"
+   "import '../grpcdc/transport.dart';\n\n"
+   (format "class ~aWriter {\n" p)
+   "  final BytesBuilder _out = BytesBuilder();\n"
+   "  void varint(int value) { var v = value; while (true) { final byte = v & 0x7f; v = (v >> 7) & 0x01ffffffffffffff; if (v == 0) { _out.addByte(byte); break; } _out.addByte(byte | 0x80); } }\n"
+   "  void tag(int field, int wire) { varint((field << 3) | wire); }\n"
+   "  void bytesField(int field, List<int> payload) { tag(field, 2); varint(payload.length); _out.add(payload); }\n"
+   "  void stringField(int field, String value) { if (value.isEmpty) return; bytesField(field, Uint8List.fromList(value.codeUnits)); }\n"
+   "  void fixedUint32(int value) { final b = ByteData(4); b.setUint32(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n"
+   "  void fixedInt32(int value) { final b = ByteData(4); b.setInt32(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n"
+   "  void fixedUint64(int value) { final b = ByteData(8); b.setUint64(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n"
+   "  void fixedInt64(int value) { final b = ByteData(8); b.setInt64(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n"
+   "  void fixedFloat32(double value) { final b = ByteData(4); b.setFloat32(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n"
+   "  void fixedFloat64(double value) { final b = ByteData(8); b.setFloat64(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n"
+   "  Uint8List toBytes() => _out.toBytes();\n"
+   "}\n\n"
+   (format "double ~aBitsToFloat32(int bits) { final b = ByteData(4); b.setUint32(0, bits, Endian.little); return b.getFloat32(0, Endian.little); }\n" p)
+   (format "double ~aBitsToFloat64(int bits) { final b = ByteData(8); b.setUint64(0, bits, Endian.little); return b.getFloat64(0, Endian.little); }\n\n" p)
+   (format "class ~aField {\n" p)
+   "  final int number; final int wire; final int varintValue; final Uint8List bytesValue; final int fixedValue;\n"
+   (format "  ~aField(this.number, this.wire, this.varintValue, this.bytesValue, this.fixedValue);\n" p)
+   "}\n\n"
+   (format "class ~aReader {\n" p)
+   "  final Uint8List _buf; int _pos = 0;\n"
+   (format "  ~aReader(this._buf);\n" p)
+   "  bool done() => _pos >= _buf.length;\n"
+   "  int varint() { var result = 0; var shift = 0; while (true) { if (_pos >= _buf.length) throw StateError('truncated varint'); final b = _buf[_pos++]; result |= (b & 0x7f) << shift; if ((b & 0x80) == 0) return result; shift += 7; if (shift >= 64) throw StateError('varint too long'); } }\n"
+   "  Uint8List take(int n) { if (_pos + n > _buf.length) throw StateError('truncated field'); final v = Uint8List.fromList(_buf.sublist(_pos, _pos + n)); _pos += n; return v; }\n"
+   "  int fixed32() { final b = take(4); return b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); }\n"
+   "  int fixed64() { final b = take(8); var v = 0; for (var i = 0; i < 8; i++) { v |= b[i] << (8 * i); } return v; }\n"
+   (format "  ~aField? next() {\n" p)
+   "    if (_pos >= _buf.length) return null;\n"
+   "    final tag = varint(); final number = tag >> 3; final wire = tag & 7;\n"
+   "    switch (wire) {\n"
+   (format "      case 0: return ~aField(number, wire, varint(), Uint8List(0), 0);\n" p)
+   (format "      case 2: final n = varint(); return ~aField(number, wire, 0, take(n), 0);\n" p)
+   (format "      case 1: final b = take(8); var v = 0; for (var i = 0; i < 8; i++) { v |= b[i] << (8 * i); } return ~aField(number, wire, 0, b, v);\n" p)
+   (format "      case 5: final b = take(4); final v = b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); return ~aField(number, wire, 0, b, v);\n" p)
+   "      default: throw StateError('bad wire type');\n"
+   "    }\n"
+   "  }\n"
+   "}\n\n"
+   helpers))
+
+(define (dart-pb-message-class model msg support indent)
+  (define name (dart-pb-type-ref model (hasheq 'kind 'message 'msg msg 'enum #f 'file "" 'pkg (hash-ref model 'package))))
+  (define fields (hash-ref msg 'fields))
+  (string-append
+   (format "~aclass ~a implements Marshaler, Unmarshaler {\n" indent name)
+   (apply string-append
+          (map (lambda (f)
+                 (format "~a  ~a ~a;\n" indent (dart-pb-type model f) (dart-pb-field-name f)))
+               fields))
+   (let ([params (filter (lambda (f) (not (or (= (hash-ref f 'label) 3)
+                                              (= (hash-ref f 'type) 12)
+                                              (and (= (hash-ref f 'type) 11)
+                                                   (eq? (hash-ref (dart-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map)))))
+                         fields)]
+         [inits (filter (lambda (f) (or (= (hash-ref f 'label) 3)
+                                        (= (hash-ref f 'type) 12)
+                                        (and (= (hash-ref f 'type) 11)
+                                             (eq? (hash-ref (dart-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))))
+                        fields)])
+     (if (and (null? params) (null? inits))
+         (format "~a  ~a();\n" indent name)
+         (string-append
+          (format "~a  ~a(" indent name)
+          (if (null? params)
+              ""
+              (string-append "[" (string-join (map (lambda (f) (format "this.~a = ~a" (dart-pb-field-name f) (dart-pb-default model f))) params) ", ") "]"))
+          (if (null? inits)
+              ");\n"
+              (string-append
+               ") : "
+               (string-join (map (lambda (f) (format "~a = ~a" (dart-pb-field-name f) (dart-pb-default model f))) inits) ", ")
+               ";\n")))))
+   (format "~a  @override\n~a  Uint8List marshalDc() {\n" indent indent)
+   (format "~a    final w = ~aWriter();\n" indent support)
+   (apply string-append (map (lambda (f) (dart-pb-encode-field model f support)) fields))
+   (format "~a    return w.toBytes();\n~a  }\n" indent indent)
+   (format "~a  @override\n~a  void unmarshalDc(List<int> data) {\n" indent indent)
+   (apply string-append
+          (map (lambda (f) (format "~a    ~a = ~a;\n" indent (dart-pb-field-name f) (dart-pb-default model f))) fields))
+   (format "~a    final r = ~aReader(Uint8List.fromList(data));\n" indent support)
+   (format "~a    while (true) {\n~a      final field = r.next();\n~a      if (field == null) break;\n~a      switch (field.number) {\n" indent indent indent indent)
+   (apply string-append (map (lambda (f) (dart-pb-decode-case model f support)) fields))
+   (format "~a        default:\n~a          break;\n~a      }\n~a    }\n~a  }\n" indent indent indent indent indent)
+   (format "~a}\n" indent)
+   (apply string-append (map (lambda (n) (dart-pb-message-class model n support indent)) (hash-ref msg 'nested)))
+   (apply string-append (map (lambda (e) (dart-pb-enum model msg e indent)) (hash-ref msg 'enums)))))
+
+(define (dart-pb-enum model msg e indent)
+  (define name (if msg
+                   (string-append (dart-pb-type-ref model (hasheq 'kind 'message 'msg msg 'enum #f 'file "" 'pkg (hash-ref model 'package))) "_" (hash-ref e 'name))
+                   (hash-ref e 'name)))
+  (string-append
+   (format "~aenum ~a {\n" indent name)
+   (string-join (map (lambda (v) (format "~a  ~a" indent (hash-ref v 'name))) (hash-ref e 'values)) ",\n")
+   (format "\n~a}\n" indent)))
+
+(define (emit-dart-pb-file file-model)
+  (and (hash-has-key? file-model 'messages)
+       (hash-has-key? file-model 'types)
+       (emit-dart-pb-file/inner file-model)))
+
+(define (emit-dart-pb-file/inner file-model)
+  (define messages (hash-ref file-model 'messages))
+  (define enums (hash-ref file-model 'enums))
+  (and (or (pair? messages) (pair? enums))
+       (let ()
+         (define base (path->string (path-replace-extension
+                                     (file-name-from-path (hash-ref file-model 'name)) "")))
+         (define support (string-append (pascal (string->symbol base)) "Pb"))
+         (define seen-maps (mutable-set))
+         (define helpers '())
+         (define (collect msg)
+           (for ([f (in-list (hash-ref msg 'fields))])
+             (when (= (hash-ref f 'type) 11)
+               (define e (dart-pb-resolve file-model (hash-ref f 'type-name)))
+               (when (and (eq? (hash-ref e 'kind) 'map)
+                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
+                          (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
+                 (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
+                 (set! helpers (cons (dart-pb-map-helpers file-model e support) helpers)))))
+           (for ([n (in-list (hash-ref msg 'nested))]) (collect n)))
+         (for ([m (in-list messages)]) (collect m))
+         (define dep-imports
+           (apply string-append
+                  (map (lambda (d)
+                         (format "import '~a_messages.dart';\n"
+                                 (path->string (path-replace-extension (file-name-from-path d) ""))))
+                       (hash-ref file-model 'dependencies))))
+         (define content
+           (string-append
+            dep-imports
+            (dart-pb-support base (apply string-append (reverse helpers)))
+            (apply string-append
+                   (map (lambda (e) (dart-pb-enum file-model #f e "")) enums))
+            (apply string-append
+                   (map (lambda (m) (dart-pb-message-class file-model m support ""))
+                        (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))))
+         (cons (string-append base "_messages.dart") content))))
+
 (define (emit-dart-file file-model params)
   (define base (path->string (path-replace-extension
                               (file-name-from-path (hash-ref file-model 'name)) "")))
   (define class-name (string-append (pascal (string->symbol base)) "GrpcDc"))
-  (cons (string-append base "_grpc_dc.dart")
-        (string-append
-         "// @generated by protoc-gen-grpc-dc-dart (Racket metaprogram). DO NOT EDIT.\n"
+  (define stub
+    (cons (string-append base "_grpc_dc.dart")
+          (string-append
+           "// @generated by protoc-gen-grpc-dc-dart (Racket metaprogram). DO NOT EDIT.\n"
          (format "// source: ~a\n\n" (hash-ref file-model 'name))
          "import 'dart:async';\n\n"
          "import '../grpcdc/channel.dart';\n"
@@ -333,3 +777,5 @@
                         "  }\n"))
                      (hash-ref file-model 'services)))
          "}\n")))
+  (define pb-file (emit-dart-pb-file file-model))
+  (if pb-file (list stub pb-file) stub))
