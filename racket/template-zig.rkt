@@ -448,14 +448,27 @@
 (define (zig-pb-encode-singular model f v indent)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  ;; Proto2 optional/required fields have explicit presence.
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond [(memv type zig-pb-varint-types)
-         (format "~aif (~a) { w.tag(~a, 0); w.varint(~a); }\n" indent (zig-pb-nonzero f v) n (zig-pb-varint-expr f v))]
+         (if proto2?
+             (format "~a{ w.tag(~a, 0); w.varint(~a); }\n" indent n (zig-pb-varint-expr f v))
+             (format "~aif (~a) { w.tag(~a, 0); w.varint(~a); }\n" indent (zig-pb-nonzero f v) n (zig-pb-varint-expr f v)))]
         [(assv type zig-pb-fixed)
          => (lambda (info)
-              (format "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a); }\n" indent (zig-pb-nonzero f v) n
-                      (if (= (second info) 8) 1 5) (third info) v))]
-        [(= type 9) (format "~aw.stringField(~a, ~a);\n" indent n v)]
-        [(= type 12) (format "~aif (~a.len > 0) w.bytesField(~a, ~a);\n" indent v n v)]
+              (if proto2?
+                  (format "~a{ w.tag(~a, ~a); w.fixed~a(~a); }\n" indent n
+                          (if (= (second info) 8) 1 5) (third info) v)
+                  (format "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a); }\n" indent (zig-pb-nonzero f v) n
+                          (if (= (second info) 8) 1 5) (third info) v)))]
+        [(= type 9)
+         (if proto2?
+             (format "~aw.bytesField(~a, ~a);\n" indent n v)
+             (format "~aw.stringField(~a, ~a);\n" indent n v))]
+        [(= type 12)
+         (if proto2?
+             (format "~aw.bytesField(~a, ~a);\n" indent n v)
+             (format "~aif (~a.len > 0) w.bytesField(~a, ~a);\n" indent v n v))]
         [(= type 11) (format "~aif (~a) |p| w.bytesField(~a, p.marshalDc(alloc));\n" indent v n)]
         [else (error 'emit-zig-pb-file "unsupported field type ~a (groups)" type)]))
 
@@ -512,10 +525,17 @@
           (format "~a~a.?.unmarshalDc(alloc, ~a);\n" indent target src))]
         [else (error 'emit-zig-pb-file "unsupported field type ~a" type)]))
 
+(define (zig-pb-oneof-clearing model f)
+  (apply string-append
+         (map (lambda (sib)
+                (format "                    self.~a = ~a;\n" (hash-ref sib 'name) (zig-pb-default model sib)))
+              (oneof-siblings model f))))
+
 (define (zig-pb-decode-case model f)
   (define v (format "self.~a" (hash-ref f 'name)))
   (define type (hash-ref f 'type))
   (define head (format "                ~a => {\n" (hash-ref f 'number)))
+  (define clearing (zig-pb-oneof-clearing model f))
   (define tail "                },\n")
   (cond [(and (= type 11)
               (eq? (hash-ref (zig-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
@@ -527,6 +547,7 @@
                         tail)]
         [(not (= (hash-ref f 'label) 3))
          (string-append head
+                        clearing
                         (zig-pb-decode-singular model f v
                                                 (cond [(memv type zig-pb-varint-types) "field.varint_value"]
                                                       [(assv type zig-pb-fixed) "field.fixed_value"]
@@ -632,6 +653,7 @@
    "    pub fn tag(self: *PbWriter, field: u32, wire: u3) void { self.varint((@as(u64, field) << 3) | @as(u64, wire)); }\n"
    "    pub fn bytesField(self: *PbWriter, field: u32, payload: []const u8) void { self.tag(field, 2); self.varint(payload.len); self.list.appendSlice(self.alloc, payload) catch {}; }\n"
    "    pub fn stringField(self: *PbWriter, field: u32, value: []const u8) void { if (value.len == 0) return; self.bytesField(field, value); }\n"
+   "    pub fn raw(self: *PbWriter, payload: []const u8) void { self.list.appendSlice(self.alloc, payload) catch {}; }\n"
    "    pub fn fixedf32(self: *PbWriter, value: f32) void { self.fixed32Bits(@bitCast(value)); }\n"
    "    pub fn fixedf64(self: *PbWriter, value: f64) void { self.fixed64Bits(@bitCast(value)); }\n"
    "    pub fn fixedu32(self: *PbWriter, value: u32) void { self.fixed32Bits(value); }\n"
@@ -643,7 +665,7 @@
    "    pub fn toBytes(self: *PbWriter) []u8 { return self.list.toOwnedSlice(self.alloc) catch &.{}; }\n"
    "};\n\n"
    "pub const PbField = struct {\n"
-   "    number: u32,\n    wire: u3,\n    varint_value: u64 = 0,\n    bytes_value: []const u8 = &.{},\n    fixed_value: u64 = 0,\n"
+   "    number: u32,\n    wire: u3,\n    varint_value: u64 = 0,\n    bytes_value: []const u8 = &.{},\n    fixed_value: u64 = 0,\n    raw_value: []const u8 = &.{},\n"
    "};\n\n"
    "pub const PbReader = struct {\n"
    "    buf: []const u8,\n    pos: usize = 0,\n"
@@ -655,6 +677,7 @@
    "    pub fn fixed64Of(self: *PbReader, field: PbField) u64 { _ = self; return field.fixed_value; }\n"
    "    pub fn next(self: *PbReader) ?PbField {\n"
    "        if (self.pos >= self.buf.len) return null;\n"
+   "        const start = self.pos;\n"
    "        const tagv = self.varint();\n"
    "        var field = PbField{ .number = @as(u32, @truncate(tagv >> 3)), .wire = @as(u3, @truncate(tagv & 7)) };\n"
    "        switch (field.wire) {\n"
@@ -664,6 +687,7 @@
    "            5 => { field.bytes_value = self.take(4); field.fixed_value = std.mem.readInt(u32, field.bytes_value[0..4], .little); },\n"
    "            else => return null,\n"
    "        }\n"
+   "        field.raw_value = self.buf[start..self.pos];\n"
    "        return field;\n"
    "    }\n"
    "};\n\n"))
@@ -677,10 +701,12 @@
           (map (lambda (f)
                  (format "~a    ~a: ~a = ~a,\n" indent (hash-ref f 'name) (zig-pb-type model f) (zig-pb-default model f)))
                fields))
+   (format "~a    unknown_fields: []const u8 = &.{},\n" indent)
    (format "~a    pub fn marshalDc(self: *const ~a, alloc: std.mem.Allocator) []u8 {\n" indent name)
    (format "~a        _ = .{ self, alloc };\n" indent)
    (format "~a        var w = PbWriter.init(alloc);\n~a        defer w.deinit();\n" indent indent)
    (apply string-append (map (lambda (f) (zig-pb-encode-field model f)) fields))
+   (format "~a        w.raw(self.unknown_fields);\n" indent)
    (format "~a        return w.toBytes();\n~a    }\n" indent indent)
    (format "~a    pub fn unmarshalDc(self: *~a, alloc: std.mem.Allocator, data: []const u8) void {\n" indent name)
    (format "~a        _ = .{ self, alloc, data };\n" indent)
@@ -701,10 +727,13 @@
                                      (zig-pb-type model (hash-set f 'label 1)))))
                      ""))
                fields))
+   (format "~a        self.unknown_fields = &.{};\n" indent)
+   (format "~a        var unknown_fields_list = std.ArrayList(u8).empty;\n" indent)
    (format "~a        var r = PbReader.init(data);\n" indent)
    (format "~a        while (r.next()) |field| {\n~a            switch (field.number) {\n" indent indent)
    (apply string-append (map (lambda (f) (zig-pb-decode-case model f)) fields))
-   (format "~a                else => {},\n~a            }\n~a        }\n" indent indent indent)
+   (format "~a                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },\n~a            }\n~a        }\n" indent indent indent)
+   (format "~a        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};\n" indent)
    (apply string-append
           (map (lambda (f)
                  (if (or (= (hash-ref f 'label) 3)

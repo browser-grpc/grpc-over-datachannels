@@ -442,13 +442,25 @@
 (define (lua-pb-encode-singular model f v indent)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  ;; Proto2 optional/required fields have explicit presence.
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond [(memv type lua-pb-varint-types)
-         (format "~aif ~a then w:tag(~a, 0) w:varint(~a) end\n" indent (lua-pb-nonzero f v) n (lua-pb-varint-expr f v))]
+         (if proto2?
+             (format "~aw:tag(~a, 0) w:varint(~a)\n" indent n (lua-pb-varint-expr f v))
+             (format "~aif ~a then w:tag(~a, 0) w:varint(~a) end\n" indent (lua-pb-nonzero f v) n (lua-pb-varint-expr f v)))]
         [(assv type lua-pb-fixed)
          => (lambda (info)
-              (string-append indent "if " v " ~= 0 then w:tag(" (number->string n) ", " (number->string (lua-pb-wire f)) ") w:fixed(" (format "~s" (lua-pb-fixed-fmt f)) ", " v ") end\n"))]
-        [(= type 9) (format "~aw:stringField(~a, ~a)\n" indent n v)]
-        [(= type 12) (format "~aif #~a > 0 then w:bytesField(~a, ~a) end\n" indent v n v)]
+              (if proto2?
+                  (string-append indent "w:tag(" (number->string n) ", " (number->string (lua-pb-wire f)) ") w:fixed(" (format "~s" (lua-pb-fixed-fmt f)) ", " v ")\n")
+                  (string-append indent "if " v " ~= 0 then w:tag(" (number->string n) ", " (number->string (lua-pb-wire f)) ") w:fixed(" (format "~s" (lua-pb-fixed-fmt f)) ", " v ") end\n")))]
+        [(= type 9)
+         (if proto2?
+             (format "~aw:bytesField(~a, ~a)\n" indent n v)
+             (format "~aw:stringField(~a, ~a)\n" indent n v))]
+        [(= type 12)
+         (if proto2?
+             (format "~aw:bytesField(~a, ~a)\n" indent n v)
+             (format "~aif #~a > 0 then w:bytesField(~a, ~a) end\n" indent v n v))]
         [(= type 11) (string-append indent "if " v " ~= nil then w:bytesField(" (number->string n) ", " v ":marshalDc()) end\n")]
         [else (error 'emit-lua-pb-file "unsupported field type ~a (groups)" type)]))
 
@@ -494,10 +506,17 @@
           (format "~a~a:unmarshalDc(~a)\n" indent target src))]
         [else (error 'emit-lua-pb-file "unsupported field type ~a" type)]))
 
+(define (lua-pb-oneof-clearing model f)
+  (apply string-append
+         (map (lambda (sib)
+                (format "      self.~a = ~a\n" (lua-pb-field-name sib) (lua-pb-default model sib)))
+              (oneof-siblings model f))))
+
 (define (lua-pb-decode-case model f)
   (define v (format "self.~a" (lua-pb-field-name f)))
   (define type (hash-ref f 'type))
   (define head (format "    elseif field.number == ~a then\n" (hash-ref f 'number)))
+  (define clearing (lua-pb-oneof-clearing model f))
   (cond [(and (= type 11)
               (eq? (hash-ref (lua-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
          (define entry (lua-pb-resolve model (hash-ref f 'type-name)))
@@ -507,6 +526,7 @@
                         (format "      ~a[kk] = vv\n" v))]
         [(not (= (hash-ref f 'label) 3))
          (string-append head
+                        clearing
                         (lua-pb-decode-singular model f v
                                                 (cond [(memv type lua-pb-varint-types) "field.varintValue"]
                                                       [(assv type lua-pb-fixed) "field.fixedValue"]
@@ -582,13 +602,14 @@
    "function Writer:bytesField(field, payload)\n  self:tag(field, 2)\n  self:varint(#payload)\n  self.parts[#self.parts + 1] = payload\nend\n\n"
    "function Writer:stringField(field, value)\n  if value == \"\" then return end\n  self:bytesField(field, value)\nend\n\n"
    "function Writer:fixed(fmt, value)\n  self.parts[#self.parts + 1] = string.pack(fmt, value)\nend\n\n"
+   "function Writer:raw(payload)\n  self.parts[#self.parts + 1] = payload\nend\n\n"
    "function Writer:toBytes()\n  return table.concat(self.parts)\nend\n\n"
    "local Reader = {}\nReader.__index = Reader\n\n"
    "function Reader.new(buf)\n  return setmetatable({ buf = buf, pos = 1 }, Reader)\nend\n\n"
    "function Reader:done()\n  return self.pos > #self.buf\nend\n\n"
    "function Reader:varint()\n  local result = 0\n  local shift = 0\n  while true do\n    if self.pos > #self.buf then error(\"truncated varint\") end\n    local b = self.buf:byte(self.pos)\n    self.pos = self.pos + 1\n    result = result | ((b & 0x7f) << shift)\n    if (b & 0x80) == 0 then return result end\n    shift = shift + 7\n    if shift >= 70 then error(\"varint too long\") end\n  end\nend\n\n"
    "function Reader:take(n)\n  if self.pos + n - 1 > #self.buf then error(\"truncated field\") end\n  local v = self.buf:sub(self.pos, self.pos + n - 1)\n  self.pos = self.pos + n\n  return v\nend\n\n"
-   "function Reader:next()\n  if self.pos > #self.buf then return nil end\n  local tag = self:varint()\n  local number = tag >> 3\n  local wire = tag & 7\n  if wire == 0 then\n    return { number = number, wire = wire, varintValue = self:varint(), bytesValue = \"\", fixedValue = \"\" }\n  elseif wire == 2 then\n    local n = self:varint()\n    return { number = number, wire = wire, varintValue = 0, bytesValue = self:take(n), fixedValue = \"\" }\n  elseif wire == 1 then\n    return { number = number, wire = wire, varintValue = 0, bytesValue = \"\", fixedValue = self:take(8) }\n  elseif wire == 5 then\n    return { number = number, wire = wire, varintValue = 0, bytesValue = \"\", fixedValue = self:take(4) }\n  end\n  error(\"bad wire type\")\nend\n\n"))
+   "function Reader:next()\n  if self.pos > #self.buf then return nil end\n  local start = self.pos\n  local tag = self:varint()\n  local number = tag >> 3\n  local wire = tag & 7\n  if wire == 0 then\n    local v = self:varint()\n    return { number = number, wire = wire, varintValue = v, bytesValue = \"\", fixedValue = \"\", rawValue = self.buf:sub(start, self.pos - 1) }\n  elseif wire == 2 then\n    local n = self:varint()\n    local b = self:take(n)\n    return { number = number, wire = wire, varintValue = 0, bytesValue = b, fixedValue = \"\", rawValue = self.buf:sub(start, self.pos - 1) }\n  elseif wire == 1 then\n    local b = self:take(8)\n    return { number = number, wire = wire, varintValue = 0, bytesValue = \"\", fixedValue = b, rawValue = self.buf:sub(start, self.pos - 1) }\n  elseif wire == 5 then\n    local b = self:take(4)\n    return { number = number, wire = wire, varintValue = 0, bytesValue = \"\", fixedValue = b, rawValue = self.buf:sub(start, self.pos - 1) }\n  end\n  error(\"bad wire type\")\nend\n\n"))
 
 (define (lua-pb-message-class model msg)
   (define name (lua-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
@@ -597,18 +618,21 @@
    (format "local ~a = {}\n~a.__index = ~a\n\n" name name name)
    (format "function ~a.new(~a)\n  return setmetatable({ ~a }, ~a)\nend\n\n" name
            (string-join (map lua-pb-field-name fields) ", ")
-           (string-join (map (lambda (f) (format "~a = ~a or ~a" (lua-pb-field-name f) (lua-pb-field-name f) (lua-pb-default model f))) fields) ", ")
+           (let ([parts (map (lambda (f) (format "~a = ~a or ~a" (lua-pb-field-name f) (lua-pb-field-name f) (lua-pb-default model f))) fields)])
+             (string-join (append parts (list "unknownFields = \"\"")) ", "))
            name)
    (format "function ~a:marshalDc()\n  local w = Writer.new()\n" name)
    (apply string-append (map (lambda (f) (lua-pb-encode-field model f)) fields))
+   "  w:raw(self.unknownFields)\n"
    "  return w:toBytes()\nend\n\n"
    (format "function ~a:unmarshalDc(data)\n" name)
+   "  self.unknownFields = \"\"\n"
    (apply string-append
           (map (lambda (f) (format "  self.~a = ~a\n" (lua-pb-field-name f) (lua-pb-default model f))) fields))
    "  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n"
    "    if false then\n"
    (apply string-append (map (lambda (f) (lua-pb-decode-case model f)) fields))
-   "    end\n  end\nend\n\n"
+   "    else\n      self.unknownFields = self.unknownFields .. field.rawValue\n    end\n  end\nend\n\n"
    (apply string-append (map (lambda (n) (lua-pb-message-class model n)) (hash-ref msg 'nested)))))
 
 (define (lua-pb-enum model e)

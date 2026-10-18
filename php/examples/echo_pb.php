@@ -52,6 +52,11 @@ final class Writer
         $this->out .= pack($fmt, $value);
     }
 
+    public function raw(string $payload): void
+    {
+        $this->out .= $payload;
+    }
+
     public function toBytes(): string
     {
         return $this->out;
@@ -114,19 +119,24 @@ final class Reader
         if ($this->done()) {
             return null;
         }
+        $start = $this->pos;
         $tag = $this->varint();
         $num = $tag >> 3;
         $wire = $tag & 7;
         switch ($wire) {
             case 0:
-                return [$num, $wire, $this->varint(), "", ""];
+                $v = $this->varint();
+                return [$num, $wire, $v, "", "", substr($this->buf, $start, $this->pos - $start)];
             case 2:
                 $n = $this->varint();
-                return [$num, $wire, 0, $this->take($n), ""];
+                $b = $this->take($n);
+                return [$num, $wire, 0, $b, "", substr($this->buf, $start, $this->pos - $start)];
             case 1:
-                return [$num, $wire, 0, "", $this->take(8)];
+                $b = $this->take(8);
+                return [$num, $wire, 0, "", $b, substr($this->buf, $start, $this->pos - $start)];
             case 5:
-                return [$num, $wire, 0, "", $this->take(4)];
+                $b = $this->take(4);
+                return [$num, $wire, 0, "", $b, substr($this->buf, $start, $this->pos - $start)];
             default:
                 throw new \InvalidArgumentException("bad wire type");
         }
@@ -139,6 +149,7 @@ class EchoRequest
     public int $count = 0;
     public int $delayMs = 0;
 
+    public string $unknownFields = "";
     public function __construct(string $message = "", int $count = 0, int $delayMs = 0)
     {
         $this->message = $message;
@@ -158,17 +169,19 @@ class EchoRequest
             $w->tag(3, 0);
             $w->varint($this->delayMs);
         }
+        $w->raw($this->unknownFields);
         return $w->toBytes();
     }
 
     public function unmarshalDc(string $data): self
     {
+        $this->unknownFields = "";
         $this->message = "";
         $this->count = 0;
         $this->delayMs = 0;
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
-            [$num, $wire, $varintValue, $bytesValue, $fixedValue] = $item;
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
             switch ($num) {
                 case 1:
                     $this->message = $bytesValue;
@@ -178,6 +191,9 @@ class EchoRequest
                     break;
                 case 3:
                     $this->delayMs = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
                     break;
             }
         }
@@ -198,6 +214,7 @@ class EchoResponse
     public string $message = "";
     public int $index = 0;
 
+    public string $unknownFields = "";
     public function __construct(string $message = "", int $index = 0)
     {
         $this->message = $message;
@@ -212,22 +229,27 @@ class EchoResponse
             $w->tag(2, 0);
             $w->varint($this->index);
         }
+        $w->raw($this->unknownFields);
         return $w->toBytes();
     }
 
     public function unmarshalDc(string $data): self
     {
+        $this->unknownFields = "";
         $this->message = "";
         $this->index = 0;
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
-            [$num, $wire, $varintValue, $bytesValue, $fixedValue] = $item;
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
             switch ($num) {
                 case 1:
                     $this->message = $bytesValue;
                     break;
                 case 2:
                     $this->index = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
                     break;
             }
         }

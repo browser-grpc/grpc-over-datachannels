@@ -36,6 +36,10 @@ object EchoPb {
       out.write(payload)
     }
 
+    def raw(payload: Array[Byte]): Unit = {
+      out.write(payload)
+    }
+
     def toBytes: Array[Byte] = out.toByteArray
   }
 
@@ -73,7 +77,7 @@ object EchoPb {
     result
   }
 
-  class Field(val number: Int, val wire: Int, val varintValue: Long, val bytesValue: Array[Byte], val fixedValue: Array[Byte])
+  class Field(val number: Int, val wire: Int, val varintValue: Long, val bytesValue: Array[Byte], val fixedValue: Array[Byte], val rawValue: Array[Byte])
 
   class Reader(private val buf: Array[Byte]) {
     private var pos = 0
@@ -114,16 +118,19 @@ object EchoPb {
       if (done) {
         return null
       }
+      val start = pos
       val tag = varint()
       val number = (tag >>> 3).toInt
       val wire = (tag & 7).toInt
       wire match {
-        case 0 => new Field(number, wire, varint(), Array.empty[Byte], Array.empty[Byte])
+        case 0 =>
+          val v = varint()
+          new Field(number, wire, v, Array.empty[Byte], Array.empty[Byte], buf.slice(start, pos))
         case 2 =>
           val n = varint().toInt
-          new Field(number, wire, 0L, take(n), Array.empty[Byte])
-        case 1 => new Field(number, wire, 0L, Array.empty[Byte], take(8))
-        case 5 => new Field(number, wire, 0L, Array.empty[Byte], take(4))
+          new Field(number, wire, 0L, take(n), Array.empty[Byte], buf.slice(start, pos))
+        case 1 => new Field(number, wire, 0L, Array.empty[Byte], take(8), buf.slice(start, pos))
+        case 5 => new Field(number, wire, 0L, Array.empty[Byte], take(4), buf.slice(start, pos))
         case _ => throw new IllegalArgumentException("bad wire type")
       }
     }
@@ -135,6 +142,7 @@ class EchoRequest(
     var count: Int = 0,
     var delayMs: Int = 0
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
     val w = new EchoPb.Writer()
     w.stringField(1, message)
@@ -146,10 +154,12 @@ class EchoRequest(
       w.tag(3, 0)
       w.varint((delayMs & 0xffffffffL))
     }
+    w.raw(unknownFields)
     w.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
     message = ""
     count = 0
     delayMs = 0
@@ -163,7 +173,7 @@ class EchoRequest(
           count = field.varintValue.toInt
         case 3 =>
           delayMs = field.varintValue.toInt
-        case _ => ()
+        case _ => unknownFields = unknownFields ++ field.rawValue
       }
       field = r.next()
     }
@@ -174,6 +184,7 @@ class EchoResponse(
     var message: String = "",
     var index: Int = 0
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
     val w = new EchoPb.Writer()
     w.stringField(1, message)
@@ -181,10 +192,12 @@ class EchoResponse(
       w.tag(2, 0)
       w.varint((index & 0xffffffffL))
     }
+    w.raw(unknownFields)
     w.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
     message = ""
     index = 0
     val r = new EchoPb.Reader(data)
@@ -195,7 +208,7 @@ class EchoResponse(
           message = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
           index = field.varintValue.toInt
-        case _ => ()
+        case _ => unknownFields = unknownFields ++ field.rawValue
       }
       field = r.next()
     }

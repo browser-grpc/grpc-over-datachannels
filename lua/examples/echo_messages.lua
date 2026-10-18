@@ -51,6 +51,10 @@ function Writer:fixed(fmt, value)
   self.parts[#self.parts + 1] = string.pack(fmt, value)
 end
 
+function Writer:raw(payload)
+  self.parts[#self.parts + 1] = payload
+end
+
 function Writer:toBytes()
   return table.concat(self.parts)
 end
@@ -89,18 +93,23 @@ end
 
 function Reader:next()
   if self.pos > #self.buf then return nil end
+  local start = self.pos
   local tag = self:varint()
   local number = tag >> 3
   local wire = tag & 7
   if wire == 0 then
-    return { number = number, wire = wire, varintValue = self:varint(), bytesValue = "", fixedValue = "" }
+    local v = self:varint()
+    return { number = number, wire = wire, varintValue = v, bytesValue = "", fixedValue = "", rawValue = self.buf:sub(start, self.pos - 1) }
   elseif wire == 2 then
     local n = self:varint()
-    return { number = number, wire = wire, varintValue = 0, bytesValue = self:take(n), fixedValue = "" }
+    local b = self:take(n)
+    return { number = number, wire = wire, varintValue = 0, bytesValue = b, fixedValue = "", rawValue = self.buf:sub(start, self.pos - 1) }
   elseif wire == 1 then
-    return { number = number, wire = wire, varintValue = 0, bytesValue = "", fixedValue = self:take(8) }
+    local b = self:take(8)
+    return { number = number, wire = wire, varintValue = 0, bytesValue = "", fixedValue = b, rawValue = self.buf:sub(start, self.pos - 1) }
   elseif wire == 5 then
-    return { number = number, wire = wire, varintValue = 0, bytesValue = "", fixedValue = self:take(4) }
+    local b = self:take(4)
+    return { number = number, wire = wire, varintValue = 0, bytesValue = "", fixedValue = b, rawValue = self.buf:sub(start, self.pos - 1) }
   end
   error("bad wire type")
 end
@@ -109,7 +118,7 @@ local EchoRequest = {}
 EchoRequest.__index = EchoRequest
 
 function EchoRequest.new(message, count, delayMs)
-  return setmetatable({ message = message or "", count = count or 0, delayMs = delayMs or 0 }, EchoRequest)
+  return setmetatable({ message = message or "", count = count or 0, delayMs = delayMs or 0, unknownFields = "" }, EchoRequest)
 end
 
 function EchoRequest:marshalDc()
@@ -117,10 +126,12 @@ function EchoRequest:marshalDc()
     w:stringField(1, self.message)
     if self.count ~= 0 then w:tag(2, 0) w:varint(self.count) end
     if self.delayMs ~= 0 then w:tag(3, 0) w:varint(self.delayMs) end
+  w:raw(self.unknownFields)
   return w:toBytes()
 end
 
 function EchoRequest:unmarshalDc(data)
+  self.unknownFields = ""
   self.message = ""
   self.count = 0
   self.delayMs = 0
@@ -135,6 +146,8 @@ function EchoRequest:unmarshalDc(data)
       self.count = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
     elseif field.number == 3 then
       self.delayMs = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
     end
   end
 end
@@ -143,17 +156,19 @@ local EchoResponse = {}
 EchoResponse.__index = EchoResponse
 
 function EchoResponse.new(message, index)
-  return setmetatable({ message = message or "", index = index or 0 }, EchoResponse)
+  return setmetatable({ message = message or "", index = index or 0, unknownFields = "" }, EchoResponse)
 end
 
 function EchoResponse:marshalDc()
   local w = Writer.new()
     w:stringField(1, self.message)
     if self.index ~= 0 then w:tag(2, 0) w:varint(self.index) end
+  w:raw(self.unknownFields)
   return w:toBytes()
 end
 
 function EchoResponse:unmarshalDc(data)
+  self.unknownFields = ""
   self.message = ""
   self.index = 0
   local r = Reader.new(data)
@@ -165,6 +180,8 @@ function EchoResponse:unmarshalDc(data)
       self.message = field.bytesValue
     elseif field.number == 2 then
       self.index = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
     end
   end
 end

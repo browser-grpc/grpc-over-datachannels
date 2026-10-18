@@ -41,6 +41,10 @@ end
       @out << [value].pack(fmt)
     end
 
+    def raw(payload)
+      @out << payload.b
+    end
+
     def to_bytes
       @out
     end
@@ -84,28 +88,36 @@ end
     def field
       return nil if done?
 
+      start = @pos
       tag = varint
       num = tag >> 3
       wire = tag & 7
+      raw = -> { @buf.byteslice(start, @pos - start) }
       case wire
-      when 0 then [num, wire, varint, "".b, "".b]
+      when 0 then [num, wire, varint, "".b, "".b, raw.call]
       when 2
         n = varint
-        [num, wire, 0, take(n), "".b]
-      when 1 then [num, wire, 0, "".b, take(8)]
-      when 5 then [num, wire, 0, "".b, take(4)]
+        v = take(n)
+        [num, wire, 0, v, "".b, raw.call]
+      when 1
+        v = take(8)
+        [num, wire, 0, "".b, v, raw.call]
+      when 5
+        v = take(4)
+        [num, wire, 0, "".b, v, raw.call]
       else raise ArgumentError, "bad wire type"
       end
     end
   end
 
   class EchoRequest
-    attr_accessor :message, :count, :delay_ms
+    attr_accessor :message, :count, :delay_ms, :unknown_fields
 
     def initialize(message: "", count: 0, delay_ms: 0)
       @message = message
       @count = count
       @delay_ms = delay_ms
+      @unknown_fields = "".b
     end
 
     def marshal_dc
@@ -119,10 +131,12 @@ end
       w.tag(3, 0)
       w.varint(@delay_ms)
     end
+      w.raw(@unknown_fields)
       w.to_bytes
     end
 
     def unmarshal_dc(data)
+      @unknown_fields = "".b
       @message = ""
       @count = 0
       @delay_ms = 0
@@ -131,7 +145,7 @@ end
         item = r.field
         break if item.nil?
 
-        num, wire, varint_value, bytes_value, fixed_value = item
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
         case num
       when 1
         @message = bytes_value.dup.force_encoding(Encoding::UTF_8)
@@ -139,6 +153,8 @@ end
         @count = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
       when 3
         @delay_ms = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
         end
       end
       self
@@ -150,11 +166,12 @@ end
   end
 
   class EchoResponse
-    attr_accessor :message, :index
+    attr_accessor :message, :index, :unknown_fields
 
     def initialize(message: "", index: 0)
       @message = message
       @index = index
+      @unknown_fields = "".b
     end
 
     def marshal_dc
@@ -164,10 +181,12 @@ end
       w.tag(2, 0)
       w.varint(@index)
     end
+      w.raw(@unknown_fields)
       w.to_bytes
     end
 
     def unmarshal_dc(data)
+      @unknown_fields = "".b
       @message = ""
       @index = 0
       r = Reader.new(data)
@@ -175,12 +194,14 @@ end
         item = r.field
         break if item.nil?
 
-        num, wire, varint_value, bytes_value, fixed_value = item
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
         case num
       when 1
         @message = bytes_value.dup.force_encoding(Encoding::UTF_8)
       when 2
         @index = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
         end
       end
       self

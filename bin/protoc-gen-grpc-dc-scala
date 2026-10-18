@@ -1285,37 +1285,65 @@
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
   (define obj (current-pb-obj))
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond
    ((memv type sc-pb-varint-types)
-    (format
-     "~aif (~a) {\n~a  w.tag(~a, 0)\n~a  w.varint(~a)\n~a}\n"
-     indent
-     (sc-pb-nonzero f v)
-     indent
-     n
-     indent
-     (sc-pb-varint-expr f v)
-     indent))
+    (if proto2?
+      (format
+       "~a{\n~a  w.tag(~a, 0)\n~a  w.varint(~a)\n~a}\n"
+       indent
+       indent
+       n
+       indent
+       (sc-pb-varint-expr f v)
+       indent)
+      (format
+       "~aif (~a) {\n~a  w.tag(~a, 0)\n~a  w.varint(~a)\n~a}\n"
+       indent
+       (sc-pb-nonzero f v)
+       indent
+       n
+       indent
+       (sc-pb-varint-expr f v)
+       indent)))
    ((assv type sc-pb-fixed)
-    (format
-     "~aif (~a != 0) {\n~a  w.fixed(~a, ~a, ~a)\n~a}\n"
-     indent
-     v
-     indent
-     n
-     (sc-pb-wire f)
-     (sc-pb-fixed-encode-expr f v)
-     indent))
-   ((= type 9) (format "~aw.stringField(~a, ~a)\n" indent n v))
+    (if proto2?
+      (format
+       "~a{\n~a  w.fixed(~a, ~a, ~a)\n~a}\n"
+       indent
+       indent
+       n
+       (sc-pb-wire f)
+       (sc-pb-fixed-encode-expr f v)
+       indent)
+      (format
+       "~aif (~a != 0) {\n~a  w.fixed(~a, ~a, ~a)\n~a}\n"
+       indent
+       v
+       indent
+       n
+       (sc-pb-wire f)
+       (sc-pb-fixed-encode-expr f v)
+       indent)))
+   ((= type 9)
+    (if proto2?
+      (format
+       "~aw.bytesField(~a, ~a.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n"
+       indent
+       n
+       v)
+      (format "~aw.stringField(~a, ~a)\n" indent n v)))
    ((= type 12)
-    (format
-     "~aif (~a.nonEmpty) {\n~a  w.bytesField(~a, ~a)\n~a}\n"
-     indent
-     v
-     indent
-     n
-     v
-     indent))
+    (if proto2?
+      (format "~aw.bytesField(~a, ~a)\n" indent n v)
+      (format
+       "~aif (~a.nonEmpty) {\n~a  w.bytesField(~a, ~a)\n~a}\n"
+       indent
+       v
+       indent
+       n
+       v
+       indent)))
    ((= type 11)
     (format
      "~aif (~a != null) {\n~a  w.bytesField(~a, ~a.marshalDc())\n~a}\n"
@@ -1404,11 +1432,23 @@
      (format "~a~a.unmarshalDc(~a)\n" indent target src)))
    (else (error 'emit-scala-pb-file "unsupported field type ~a" type))))
 
+(define (sc-pb-oneof-clearing model f)
+  (apply
+   string-append
+   (map
+    (lambda (sib)
+      (format
+       "          ~a = ~a\n"
+       (sc-pb-field-name sib)
+       (sc-pb-default model sib)))
+    (oneof-siblings model f))))
+
 (define (sc-pb-decode-case model f)
   (define v (sc-pb-field-name f))
   (define type (hash-ref f 'type))
   (define obj (current-pb-obj))
   (define head (format "        case ~a =>\n" (hash-ref f 'number)))
+  (define clearing (sc-pb-oneof-clearing model f))
   (cond
    ((and (= type 11)
          (eq?
@@ -1423,6 +1463,7 @@
    ((not (= (hash-ref f 'label) 3))
     (string-append
      head
+     clearing
      (sc-pb-decode-singular
       model
       f
@@ -1569,19 +1610,20 @@
    "    def bytesField(field: Int, payload: Array[Byte]): Unit = {\n      tag(field, 2)\n      varint(payload.length.toLong)\n      out.write(payload)\n    }\n\n"
    "    def stringField(field: Int, value: String): Unit = {\n      if (value.nonEmpty) {\n        bytesField(field, value.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n      }\n    }\n\n"
    "    def fixed(field: Int, wire: Int, payload: Array[Byte]): Unit = {\n      tag(field, wire)\n      out.write(payload)\n    }\n\n"
+   "    def raw(payload: Array[Byte]): Unit = {\n      out.write(payload)\n    }\n\n"
    "    def toBytes: Array[Byte] = out.toByteArray\n  }\n\n"
    "  def varintBytes(value: Long): Array[Byte] = {\n    val w = new Writer()\n    w.varint(value)\n    w.toBytes\n  }\n\n"
    "  def int32BytesLE(value: Int): Array[Byte] = {\n    Array((value & 0xff).toByte, ((value >> 8) & 0xff).toByte, ((value >> 16) & 0xff).toByte, ((value >> 24) & 0xff).toByte)\n  }\n\n"
    "  def int64BytesLE(value: Long): Array[Byte] = {\n    val out = new Array[Byte](8)\n    var i = 0\n    while (i < 8) {\n      out(i) = ((value >> (8 * i)) & 0xffL).toByte\n      i += 1\n    }\n    out\n  }\n\n"
    "  def toInt32LE(bytes: Array[Byte], off: Int): Int = {\n    (bytes(off) & 0xff) | ((bytes(off + 1) & 0xff) << 8) | ((bytes(off + 2) & 0xff) << 16) | ((bytes(off + 3) & 0xff) << 24)\n  }\n\n"
    "  def toInt64LE(bytes: Array[Byte], off: Int): Long = {\n    var result = 0L\n    var i = 0\n    while (i < 8) {\n      result |= (bytes(off + i) & 0xffL) << (8 * i)\n      i += 1\n    }\n    result\n  }\n\n"
-   "  class Field(val number: Int, val wire: Int, val varintValue: Long, val bytesValue: Array[Byte], val fixedValue: Array[Byte])\n\n"
+   "  class Field(val number: Int, val wire: Int, val varintValue: Long, val bytesValue: Array[Byte], val fixedValue: Array[Byte], val rawValue: Array[Byte])\n\n"
    "  class Reader(private val buf: Array[Byte]) {\n"
    "    private var pos = 0\n\n"
    "    def done: Boolean = pos >= buf.length\n\n"
    "    def varint(): Long = {\n      var result = 0L\n      var shift = 0\n      while (true) {\n        if (pos >= buf.length) {\n          throw new IllegalArgumentException(\"truncated varint\")\n        }\n        val b = buf(pos).toInt & 0xff\n        pos += 1\n        result = result | ((b & 0x7f).toLong << shift)\n        if ((b & 0x80) == 0) {\n          return result\n        }\n        shift += 7\n        if (shift >= 70) {\n          throw new IllegalArgumentException(\"varint too long\")\n        }\n      }\n      0L\n    }\n\n"
    "    def take(n: Int): Array[Byte] = {\n      if (pos + n > buf.length) {\n        throw new IllegalArgumentException(\"truncated field\")\n      }\n      val value = buf.slice(pos, pos + n)\n      pos += n\n      value\n    }\n\n"
-   "    def next(): Field = {\n      if (done) {\n        return null\n      }\n      val tag = varint()\n      val number = (tag >>> 3).toInt\n      val wire = (tag & 7).toInt\n      wire match {\n        case 0 => new Field(number, wire, varint(), Array.empty[Byte], Array.empty[Byte])\n        case 2 =>\n          val n = varint().toInt\n          new Field(number, wire, 0L, take(n), Array.empty[Byte])\n        case 1 => new Field(number, wire, 0L, Array.empty[Byte], take(8))\n        case 5 => new Field(number, wire, 0L, Array.empty[Byte], take(4))\n        case _ => throw new IllegalArgumentException(\"bad wire type\")\n      }\n    }\n  }\n"))
+   "    def next(): Field = {\n      if (done) {\n        return null\n      }\n      val start = pos\n      val tag = varint()\n      val number = (tag >>> 3).toInt\n      val wire = (tag & 7).toInt\n      wire match {\n        case 0 =>\n          val v = varint()\n          new Field(number, wire, v, Array.empty[Byte], Array.empty[Byte], buf.slice(start, pos))\n        case 2 =>\n          val n = varint().toInt\n          new Field(number, wire, 0L, take(n), Array.empty[Byte], buf.slice(start, pos))\n        case 1 => new Field(number, wire, 0L, Array.empty[Byte], take(8), buf.slice(start, pos))\n        case 5 => new Field(number, wire, 0L, Array.empty[Byte], take(4), buf.slice(start, pos))\n        case _ => throw new IllegalArgumentException(\"bad wire type\")\n      }\n    }\n  }\n"))
 
 (define (sc-pb-message-class model msg)
   (define name
@@ -1602,11 +1644,14 @@
     ",\n")
    (if (null? fields) "" "\n")
    ") extends grpcdc.Marshaler with grpcdc.Unmarshaler {\n"
+   "  var unknownFields: Array[Byte] = Array.empty[Byte]\n"
    "  def marshalDc(): Array[Byte] = {\n"
    (format "    val w = new ~a.Writer()\n" obj)
    (apply string-append (map (lambda (f) (sc-pb-encode-field model f)) fields))
+   "    w.raw(unknownFields)\n"
    "    w.toBytes\n  }\n\n"
    "  def unmarshalDc(data: Array[Byte]): Unit = {\n"
+   "    unknownFields = Array.empty[Byte]\n"
    (apply
     string-append
     (map
@@ -1616,7 +1661,7 @@
    (format "    val r = new ~a.Reader(data)\n" obj)
    "    var field = r.next()\n    while (field != null) {\n      field.number match {\n"
    (apply string-append (map (lambda (f) (sc-pb-decode-case model f)) fields))
-   "        case _ => ()\n      }\n      field = r.next()\n    }\n  }\n"
+   "        case _ => unknownFields = unknownFields ++ field.rawValue\n      }\n      field = r.next()\n    }\n  }\n"
    "}\n\n"
    (apply
     string-append

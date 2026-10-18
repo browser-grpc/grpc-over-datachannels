@@ -390,14 +390,28 @@
 (define (php-pb-encode-singular model f v indent)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  ;; Proto2 optional/required fields have explicit presence.
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond [(memv type php-pb-varint-types)
-         (format "~aif (~a) {\n~a    $w->tag(~a, 0);\n~a    $w->varint(~a);\n~a}\n" indent (php-pb-nonzero f v) indent n indent (php-pb-varint-expr f v) indent)]
+         (if proto2?
+             (format "~a{\n~a    $w->tag(~a, 0);\n~a    $w->varint(~a);\n~a}\n" indent indent n indent (php-pb-varint-expr f v) indent)
+             (format "~aif (~a) {\n~a    $w->tag(~a, 0);\n~a    $w->varint(~a);\n~a}\n" indent (php-pb-nonzero f v) indent n indent (php-pb-varint-expr f v) indent))]
         [(assv type php-pb-fixed)
-         (format "~aif (~a != 0) {\n~a    $w->tag(~a, ~a);\n~a    $w->fixed(~s, ~a);\n~a}\n" indent v indent n (php-pb-wire f) indent
-                 (if (= type 16) "P" (php-pb-fixed-fmt f))
-                 (if (= type 15) (format "(~a & 0xffffffff)" v) v) indent)]
-        [(= type 9) (format "~a$w->stringField(~a, ~a);\n" indent n v)]
-        [(= type 12) (format "~aif (strlen(~a) > 0) {\n~a    $w->bytesField(~a, ~a);\n~a}\n" indent v indent n v indent)]
+         (if proto2?
+             (format "~a{\n~a    $w->tag(~a, ~a);\n~a    $w->fixed(~s, ~a);\n~a}\n" indent indent n (php-pb-wire f) indent
+                     (if (= type 16) "P" (php-pb-fixed-fmt f))
+                     (if (= type 15) (format "(~a & 0xffffffff)" v) v) indent)
+             (format "~aif (~a != 0) {\n~a    $w->tag(~a, ~a);\n~a    $w->fixed(~s, ~a);\n~a}\n" indent v indent n (php-pb-wire f) indent
+                     (if (= type 16) "P" (php-pb-fixed-fmt f))
+                     (if (= type 15) (format "(~a & 0xffffffff)" v) v) indent))]
+        [(= type 9)
+         (if proto2?
+             (format "~a$w->bytesField(~a, ~a);\n" indent n v)
+             (format "~a$w->stringField(~a, ~a);\n" indent n v))]
+        [(= type 12)
+         (if proto2?
+             (format "~a$w->bytesField(~a, ~a);\n" indent n v)
+             (format "~aif (strlen(~a) > 0) {\n~a    $w->bytesField(~a, ~a);\n~a}\n" indent v indent n v indent))]
         [(= type 11) (format "~aif (~a !== null) {\n~a    $w->bytesField(~a, ~a->marshalDc());\n~a}\n" indent v indent n v indent)]
         [else (error 'emit-php-pb-file "unsupported field type ~a (groups)" type)]))
 
@@ -443,10 +457,17 @@
           (format "~a~a->unmarshalDc(~a);\n" indent target src))]
         [else (error 'emit-php-pb-file "unsupported field type ~a" type)]))
 
+(define (php-pb-oneof-clearing model f)
+  (apply string-append
+         (map (lambda (sib)
+                (format "                    $this->~a = ~a;\n" (php-pb-field-name sib) (php-pb-default model sib)))
+              (oneof-siblings model f))))
+
 (define (php-pb-decode-case model f)
   (define v (format "$this->~a" (php-pb-field-name f)))
   (define type (hash-ref f 'type))
   (define head (format "                case ~a:\n" (hash-ref f 'number)))
+  (define clearing (php-pb-oneof-clearing model f))
   (define foot "                    break;\n")
   (cond [(and (= type 11)
               (eq? (hash-ref (php-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
@@ -458,6 +479,7 @@
                         foot)]
         [(not (= (hash-ref f 'label) 3))
          (string-append head
+                        clearing
                         (php-pb-decode-singular model f v
                                                 (cond [(memv type php-pb-varint-types) "$varintValue"]
                                                       [(assv type php-pb-fixed) "$fixedValue"]
@@ -507,7 +529,7 @@
    "    return $w->toBytes();\n}\n\n"
    (format "function decode~a(string $data): array\n{\n" base)
    (format "    $key = ~a;\n    $value = ~a;\n" (php-pb-default model (hash-set key-f 'label 1)) (php-pb-default model (hash-set val-f 'label 1)))
-   "    $r = new Reader($data);\n    while (($item = $r->field()) !== null) {\n        [$num, $wire, $varintValue, $bytesValue, $fixedValue] = $item;\n"
+   "    $r = new Reader($data);\n    while (($item = $r->field()) !== null) {\n        [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;\n"
    (format "        if ($num === ~a) {\n~a" (hash-ref key-f 'number)
            (php-pb-decode-singular model (hash-set key-f 'label 1) "$key"
                                    (cond [(memv (hash-ref key-f 'type) php-pb-varint-types) "$varintValue"]
@@ -532,6 +554,7 @@
    "    public function bytesField(int $field, string $payload): void\n    {\n        $this->tag($field, 2);\n        $this->varint(strlen($payload));\n        $this->out .= $payload;\n    }\n\n"
    "    public function stringField(int $field, string $value): void\n    {\n        if ($value === \"\") {\n            return;\n        }\n        $this->bytesField($field, $value);\n    }\n\n"
    "    public function fixed(string $fmt, $value): void\n    {\n        $this->out .= pack($fmt, $value);\n    }\n\n"
+   "    public function raw(string $payload): void\n    {\n        $this->out .= $payload;\n    }\n\n"
    "    public function toBytes(): string\n    {\n        return $this->out;\n    }\n}\n\n"
    "final class Reader\n{\n    private string $buf;\n    private int $pos = 0;\n\n"
    "    public function __construct(string $buf)\n    {\n        $this->buf = $buf;\n    }\n\n"
@@ -539,7 +562,7 @@
    "    public function varint(): int\n    {\n        $result = 0;\n        $shift = 0;\n        while (true) {\n            if ($this->pos >= strlen($this->buf)) {\n                throw new \\InvalidArgumentException(\"truncated varint\");\n            }\n            $b = ord($this->buf[$this->pos]);\n            $this->pos++;\n            if ($shift < 63) {\n                $result |= ($b & 0x7f) << $shift;\n            } elseif (($b & 1) !== 0) {\n                $result |= PHP_INT_MIN;\n            }\n            if (($b & 0x80) === 0) {\n                return $result;\n            }\n            $shift += 7;\n            if ($shift >= 70) {\n                throw new \\InvalidArgumentException(\"varint too long\");\n            }\n        }\n    }\n\n"
    "    public function take(int $n): string\n    {\n        if ($this->pos + $n > strlen($this->buf)) {\n            throw new \\InvalidArgumentException(\"truncated field\");\n        }\n        $value = substr($this->buf, $this->pos, $n);\n        $this->pos += $n;\n        return $value;\n    }\n\n"
    "    /** [number, wire, varint_value, bytes_value, fixed_value] or null. */\n"
-   "    public function field(): ?array\n    {\n        if ($this->done()) {\n            return null;\n        }\n        $tag = $this->varint();\n        $num = $tag >> 3;\n        $wire = $tag & 7;\n        switch ($wire) {\n            case 0:\n                return [$num, $wire, $this->varint(), \"\", \"\"];\n            case 2:\n                $n = $this->varint();\n                return [$num, $wire, 0, $this->take($n), \"\"];\n            case 1:\n                return [$num, $wire, 0, \"\", $this->take(8)];\n            case 5:\n                return [$num, $wire, 0, \"\", $this->take(4)];\n            default:\n                throw new \\InvalidArgumentException(\"bad wire type\");\n        }\n    }\n}\n\n"))
+   "    public function field(): ?array\n    {\n        if ($this->done()) {\n            return null;\n        }\n        $start = $this->pos;\n        $tag = $this->varint();\n        $num = $tag >> 3;\n        $wire = $tag & 7;\n        switch ($wire) {\n            case 0:\n                $v = $this->varint();\n                return [$num, $wire, $v, \"\", \"\", substr($this->buf, $start, $this->pos - $start)];\n            case 2:\n                $n = $this->varint();\n                $b = $this->take($n);\n                return [$num, $wire, 0, $b, \"\", substr($this->buf, $start, $this->pos - $start)];\n            case 1:\n                $b = $this->take(8);\n                return [$num, $wire, 0, \"\", $b, substr($this->buf, $start, $this->pos - $start)];\n            case 5:\n                $b = $this->take(4);\n                return [$num, $wire, 0, \"\", $b, substr($this->buf, $start, $this->pos - $start)];\n            default:\n                throw new \\InvalidArgumentException(\"bad wire type\");\n        }\n    }\n}\n\n"))
 
 (define (php-pb-message-class model msg)
   (define name (php-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
@@ -549,17 +572,20 @@
    (apply string-append
           (map (lambda (f) (format "    public ~a $~a = ~a;\n" (php-pb-type model f) (php-pb-field-name f) (php-pb-default model f))) fields))
    (if (null? fields) "" "\n")
+   "    public string $unknownFields = \"\";\n"
    (format "    public function __construct(~a)\n    {\n" (string-join (map (lambda (f) (format "~a $~a = ~a" (php-pb-type model f) (php-pb-field-name f) (php-pb-default model f))) fields) ", "))
    (apply string-append (map (lambda (f) (format "        $this->~a = $~a;\n" (php-pb-field-name f) (php-pb-field-name f))) fields))
    "    }\n\n"
    "    public function marshalDc(): string\n    {\n        $w = new Writer();\n"
    (apply string-append (map (lambda (f) (php-pb-encode-field model f)) fields))
+   "        $w->raw($this->unknownFields);\n"
    "        return $w->toBytes();\n    }\n\n"
    "    public function unmarshalDc(string $data): self\n    {\n"
+   "        $this->unknownFields = \"\";\n"
    (apply string-append (map (lambda (f) (format "        $this->~a = ~a;\n" (php-pb-field-name f) (php-pb-default model f))) fields))
-   "        $r = new Reader($data);\n        while (($item = $r->field()) !== null) {\n            [$num, $wire, $varintValue, $bytesValue, $fixedValue] = $item;\n            switch ($num) {\n"
+   "        $r = new Reader($data);\n        while (($item = $r->field()) !== null) {\n            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;\n            switch ($num) {\n"
    (apply string-append (map (lambda (f) (php-pb-decode-case model f)) fields))
-   "            }\n        }\n        return $this;\n    }\n\n"
+   "                default:\n                    $this->unknownFields .= $rawValue;\n                    break;\n            }\n        }\n        return $this;\n    }\n\n"
    (format "    public function equals(?object $other): bool\n    {\n        return $other instanceof ~a~a;\n    }\n}\n\n" name
            (if (null? fields)
                ""

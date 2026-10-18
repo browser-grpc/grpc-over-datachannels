@@ -380,12 +380,24 @@
 (define (rb-pb-encode-singular model pb f v indent)
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
+  ;; Proto2 optional/required fields have explicit presence.
+  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
   (cond [(memv type rb-pb-varint-types)
-         (format "~aif ~a\n~a  w.tag(~a, 0)\n~a  w.varint(~a)\n~aend\n" indent (rb-pb-nonzero f v) indent n indent (rb-pb-varint-expr f v) indent)]
+         (if proto2?
+             (format "~aw.tag(~a, 0)\n~aw.varint(~a)\n" indent n indent (rb-pb-varint-expr f v))
+             (format "~aif ~a\n~a  w.tag(~a, 0)\n~a  w.varint(~a)\n~aend\n" indent (rb-pb-nonzero f v) indent n indent (rb-pb-varint-expr f v) indent))]
         [(assv type rb-pb-fixed)
-         (format "~aif ~a != 0\n~a  w.tag(~a, ~a)\n~a  w.fixed(~s, ~a)\n~aend\n" indent v indent n (rb-pb-wire f) indent (rb-pb-fixed-fmt f) v indent)]
-        [(= type 9) (format "~aw.string_field(~a, ~a)\n" indent n v)]
-        [(= type 12) (format "~aif ~a.bytesize > 0\n~a  w.bytes_field(~a, ~a)\n~aend\n" indent v indent n v indent)]
+         (if proto2?
+             (format "~aw.tag(~a, ~a)\n~aw.fixed(~s, ~a)\n" indent n (rb-pb-wire f) indent (rb-pb-fixed-fmt f) v)
+             (format "~aif ~a != 0\n~a  w.tag(~a, ~a)\n~a  w.fixed(~s, ~a)\n~aend\n" indent v indent n (rb-pb-wire f) indent (rb-pb-fixed-fmt f) v indent))]
+        [(= type 9)
+         (if proto2?
+             (format "~aw.bytes_field(~a, ~a.encode(Encoding::UTF_8).b)\n" indent n v)
+             (format "~aw.string_field(~a, ~a)\n" indent n v))]
+        [(= type 12)
+         (if proto2?
+             (format "~aw.bytes_field(~a, ~a)\n" indent n v)
+             (format "~aif ~a.bytesize > 0\n~a  w.bytes_field(~a, ~a)\n~aend\n" indent v indent n v indent))]
         [(= type 11) (format "~aunless ~a.nil?\n~a  w.bytes_field(~a, ~a.marshal_dc)\n~aend\n" indent v indent n v indent)]
         [else (error 'emit-ruby-pb-file "unsupported field type ~a (groups)" type)]))
 
@@ -429,10 +441,17 @@
           (format "~a~a.unmarshal_dc(~a)\n" indent target src))]
         [else (error 'emit-ruby-pb-file "unsupported field type ~a" type)]))
 
+(define (rb-pb-oneof-clearing model f)
+  (apply string-append
+         (map (lambda (sib)
+                (format "        @~a = ~a\n" (rb-pb-field-name sib) (rb-pb-default model sib)))
+              (oneof-siblings model f))))
+
 (define (rb-pb-decode-case model f)
   (define v (format "@~a" (rb-pb-field-name f)))
   (define type (hash-ref f 'type))
   (define head (format "      when ~a\n" (hash-ref f 'number)))
+  (define clearing (rb-pb-oneof-clearing model f))
   (cond [(and (= type 11)
               (eq? (hash-ref (rb-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
          (define entry (rb-pb-resolve model (hash-ref f 'type-name)))
@@ -443,6 +462,7 @@
                         (format "        ~a[kk] = vv\n" v))]
         [(not (= (hash-ref f 'label) 3))
          (string-append head
+                        clearing
                         (rb-pb-decode-singular model f v
                                                (cond [(memv type rb-pb-varint-types) "varint_value"]
                                                      [(assv type rb-pb-fixed) "fixed_value"]
@@ -488,7 +508,7 @@
    "    w.to_bytes\n  end\n\n"
    (format "  def self.decode_~a(data)\n" base)
    (format "    key = ~a\n    value = ~a\n" (rb-pb-default model (hash-set key-f 'label 1)) (rb-pb-default model (hash-set val-f 'label 1)))
-   "    r = Reader.new(data)\n    loop do\n      item = r.field\n      break if item.nil?\n\n      num, wire, varint_value, bytes_value, fixed_value = item\n"
+   "    r = Reader.new(data)\n    loop do\n      item = r.field\n      break if item.nil?\n\n      num, wire, varint_value, bytes_value, fixed_value, _raw_value = item\n"
    (format "      if num == ~a\n~a" (hash-ref key-f 'number)
            (rb-pb-decode-singular model (hash-set key-f 'label 1) "key"
                                   (cond [(memv (hash-ref key-f 'type) rb-pb-varint-types) "varint_value"]
@@ -515,6 +535,7 @@
    "    def bytes_field(field, payload)\n      tag(field, 2)\n      varint(payload.bytesize)\n      @out << payload.b\n    end\n\n"
    "    def string_field(field, value)\n      return if value.nil? || value.empty?\n\n      bytes_field(field, value.encode(Encoding::UTF_8).b)\n    end\n\n"
    "    def fixed(fmt, value)\n      @out << [value].pack(fmt)\n    end\n\n"
+   "    def raw(payload)\n      @out << payload.b\n    end\n\n"
    "    def to_bytes\n      @out\n    end\n  end\n\n"
    "  class Reader\n"
    "    def initialize(buf)\n      @buf = buf.b\n      @pos = 0\n    end\n\n"
@@ -522,7 +543,7 @@
    "    def varint\n      result = 0\n      shift = 0\n      loop do\n        raise ArgumentError, \"truncated varint\" if @pos >= @buf.bytesize\n\n        b = @buf.getbyte(@pos)\n        @pos += 1\n        result |= (b & 0x7f) << shift\n        return result if (b & 0x80).zero?\n\n        shift += 7\n        raise ArgumentError, \"varint too long\" if shift >= 70\n      end\n    end\n\n"
    "    def take(n)\n      raise ArgumentError, \"truncated field\" if @pos + n > @buf.bytesize\n\n      value = @buf.byteslice(@pos, n)\n      @pos += n\n      value\n    end\n\n"
    "    # [number, wire, varint_value, bytes_value, fixed_value] or nil.\n"
-   "    def field\n      return nil if done?\n\n      tag = varint\n      num = tag >> 3\n      wire = tag & 7\n      case wire\n      when 0 then [num, wire, varint, \"\".b, \"\".b]\n      when 2\n        n = varint\n        [num, wire, 0, take(n), \"\".b]\n      when 1 then [num, wire, 0, \"\".b, take(8)]\n      when 5 then [num, wire, 0, \"\".b, take(4)]\n      else raise ArgumentError, \"bad wire type\"\n      end\n    end\n  end\n\n"))
+   "    def field\n      return nil if done?\n\n      start = @pos\n      tag = varint\n      num = tag >> 3\n      wire = tag & 7\n      raw = -> { @buf.byteslice(start, @pos - start) }\n      case wire\n      when 0 then [num, wire, varint, \"\".b, \"\".b, raw.call]\n      when 2\n        n = varint\n        v = take(n)\n        [num, wire, 0, v, \"\".b, raw.call]\n      when 1\n        v = take(8)\n        [num, wire, 0, \"\".b, v, raw.call]\n      when 5\n        v = take(4)\n        [num, wire, 0, \"\".b, v, raw.call]\n      else raise ArgumentError, \"bad wire type\"\n      end\n    end\n  end\n\n"))
 
 (define (rb-pb-message-class model pb msg)
   (define name (rb-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
@@ -531,18 +552,21 @@
    (format "  class ~a\n" name)
    (if (null? fields)
        ""
-       (format "    attr_accessor ~a\n\n" (string-join (map (lambda (f) (format ":~a" (rb-pb-field-name f))) fields) ", ")))
+       (format "    attr_accessor ~a\n\n" (string-join (append (map (lambda (f) (format ":~a" (rb-pb-field-name f))) fields) (list ":unknown_fields")) ", ")))
    (format "    def initialize(~a)\n" (string-join (map (lambda (f) (format "~a: ~a" (rb-pb-field-name f) (rb-pb-default model f))) fields) ", "))
    (apply string-append (map (lambda (f) (format "      @~a = ~a\n" (rb-pb-field-name f) (rb-pb-field-name f))) fields))
+   "      @unknown_fields = \"\".b\n"
    "    end\n\n"
    "    def marshal_dc\n      w = Writer.new\n"
    (apply string-append (map (lambda (f) (rb-pb-encode-field model pb f)) fields))
+   "      w.raw(@unknown_fields)\n"
    "      w.to_bytes\n    end\n\n"
    "    def unmarshal_dc(data)\n"
+   "      @unknown_fields = \"\".b\n"
    (apply string-append (map (lambda (f) (format "      @~a = ~a\n" (rb-pb-field-name f) (rb-pb-default model f))) fields))
-   "      r = Reader.new(data)\n      loop do\n        item = r.field\n        break if item.nil?\n\n        num, wire, varint_value, bytes_value, fixed_value = item\n        case num\n"
+   "      r = Reader.new(data)\n      loop do\n        item = r.field\n        break if item.nil?\n\n        num, wire, varint_value, bytes_value, fixed_value, raw_value = item\n        case num\n"
    (apply string-append (map (lambda (f) (rb-pb-decode-case model f)) fields))
-   "        end\n      end\n      self\n    end\n\n"
+   "        else\n          @unknown_fields = @unknown_fields + raw_value\n        end\n      end\n      self\n    end\n\n"
    (format "    def ==(other)\n      other.is_a?(~a) && ~a\n    end\n" name
            (if (null? fields)
                "true"

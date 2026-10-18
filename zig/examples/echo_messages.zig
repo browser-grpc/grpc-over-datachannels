@@ -11,6 +11,7 @@ pub const PbWriter = struct {
     pub fn tag(self: *PbWriter, field: u32, wire: u3) void { self.varint((@as(u64, field) << 3) | @as(u64, wire)); }
     pub fn bytesField(self: *PbWriter, field: u32, payload: []const u8) void { self.tag(field, 2); self.varint(payload.len); self.list.appendSlice(self.alloc, payload) catch {}; }
     pub fn stringField(self: *PbWriter, field: u32, value: []const u8) void { if (value.len == 0) return; self.bytesField(field, value); }
+    pub fn raw(self: *PbWriter, payload: []const u8) void { self.list.appendSlice(self.alloc, payload) catch {}; }
     pub fn fixedf32(self: *PbWriter, value: f32) void { self.fixed32Bits(@bitCast(value)); }
     pub fn fixedf64(self: *PbWriter, value: f64) void { self.fixed64Bits(@bitCast(value)); }
     pub fn fixedu32(self: *PbWriter, value: u32) void { self.fixed32Bits(value); }
@@ -28,6 +29,7 @@ pub const PbField = struct {
     varint_value: u64 = 0,
     bytes_value: []const u8 = &.{},
     fixed_value: u64 = 0,
+    raw_value: []const u8 = &.{},
 };
 
 pub const PbReader = struct {
@@ -41,6 +43,7 @@ pub const PbReader = struct {
     pub fn fixed64Of(self: *PbReader, field: PbField) u64 { _ = self; return field.fixed_value; }
     pub fn next(self: *PbReader) ?PbField {
         if (self.pos >= self.buf.len) return null;
+        const start = self.pos;
         const tagv = self.varint();
         var field = PbField{ .number = @as(u32, @truncate(tagv >> 3)), .wire = @as(u3, @truncate(tagv & 7)) };
         switch (field.wire) {
@@ -50,6 +53,7 @@ pub const PbReader = struct {
             5 => { field.bytes_value = self.take(4); field.fixed_value = std.mem.readInt(u32, field.bytes_value[0..4], .little); },
             else => return null,
         }
+        field.raw_value = self.buf[start..self.pos];
         return field;
     }
 };
@@ -58,6 +62,7 @@ pub const EchoRequest = struct {
     message: []const u8 = "",
     count: i32 = 0,
     delay_ms: i32 = 0,
+    unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const EchoRequest, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
         var w = PbWriter.init(alloc);
@@ -65,6 +70,7 @@ pub const EchoRequest = struct {
         w.stringField(1, self.message);
         if (self.count != 0) { w.tag(2, 0); w.varint(@as(u64, @bitCast(@as(i64, self.count)))); }
         if (self.delay_ms != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(@as(i64, self.delay_ms)))); }
+        w.raw(self.unknown_fields);
         return w.toBytes();
     }
     pub fn unmarshalDc(self: *EchoRequest, alloc: std.mem.Allocator, data: []const u8) void {
@@ -72,6 +78,8 @@ pub const EchoRequest = struct {
         self.message = "";
         self.count = 0;
         self.delay_ms = 0;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
         var r = PbReader.init(data);
         while (r.next()) |field| {
             switch (field.number) {
@@ -84,26 +92,31 @@ pub const EchoRequest = struct {
                 3 => {
                     self.delay_ms = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
                 },
-                else => {},
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }
         }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
     }
 };
 pub const EchoResponse = struct {
     message: []const u8 = "",
     index: i32 = 0,
+    unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const EchoResponse, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
         var w = PbWriter.init(alloc);
         defer w.deinit();
         w.stringField(1, self.message);
         if (self.index != 0) { w.tag(2, 0); w.varint(@as(u64, @bitCast(@as(i64, self.index)))); }
+        w.raw(self.unknown_fields);
         return w.toBytes();
     }
     pub fn unmarshalDc(self: *EchoResponse, alloc: std.mem.Allocator, data: []const u8) void {
         _ = .{ self, alloc, data };
         self.message = "";
         self.index = 0;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
         var r = PbReader.init(data);
         while (r.next()) |field| {
             switch (field.number) {
@@ -113,8 +126,9 @@ pub const EchoResponse = struct {
                 2 => {
                     self.index = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
                 },
-                else => {},
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }
         }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
     }
 };
