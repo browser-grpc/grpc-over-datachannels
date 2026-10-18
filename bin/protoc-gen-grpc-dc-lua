@@ -968,113 +968,663 @@
      (unless (member t seen) (set! seen (append seen (list t)))))))
   seen)
 
+(define lua-pb-varint-types '(5 3 13 4 17 18 8 14))
+
+(define lua-pb-fixed
+  '((2 4 "f") (1 8 "d") (7 4 "I4") (15 4 "i4") (6 8 "I8") (16 8 "i8")))
+
+(define (lua-pb-camel s)
+  (define parts (string-split s "_"))
+  (if (null? parts)
+    s
+    (apply
+     string-append
+     (car parts)
+     (map
+      (lambda (p)
+        (if (string=? p "")
+          ""
+          (string-append
+           (string (char-upcase (string-ref p 0)))
+           (substring p 1))))
+      (cdr parts)))))
+
+(define (lua-pb-field-name f)
+  (define jn (hash-ref f 'json-name ""))
+  (if (and jn (not (string=? jn ""))) jn (lua-pb-camel (hash-ref f 'name))))
+
+(define (lua-pb-resolve model type-name)
+  (hash-ref
+   (hash-ref model 'types)
+   type-name
+   (lambda () (error 'emit-lua-pb-file "unresolved type ~a" type-name))))
+
+(define (lua-pb-flat pkg full)
+  (define rel
+    (if (and pkg
+             (not (string=? pkg ""))
+             (string-prefix? full (string-append pkg ".")))
+      (substring full (add1 (string-length pkg)))
+      full))
+  (string-join (string-split rel ".") "_"))
+
+(define (lua-pb-entry-flat model entry)
+  (define local
+    (lua-pb-flat
+     (hash-ref entry 'pkg)
+     (if (eq? (hash-ref entry 'kind) 'enum)
+       (let ((e (hash-ref entry 'enum)))
+         (if (hash-ref entry 'msg)
+           (format
+            "~a.~a"
+            (hash-ref (hash-ref entry 'msg) 'full-name)
+            (hash-ref e 'name))
+           (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name))))
+       (hash-ref (hash-ref entry 'msg) 'full-name))))
+  (if (or (eq? (hash-ref entry 'kind) 'map)
+          (equal? (hash-ref entry 'file) (hash-ref model 'name)))
+    local
+    (format
+     "~a_messagesMessages.~a"
+     (path->string
+      (path-replace-extension (file-name-from-path (hash-ref entry 'file)) ""))
+     (if (eq? (hash-ref entry 'kind) 'enum)
+       (hash-ref (hash-ref entry 'enum) 'name)
+       (hash-ref (hash-ref entry 'msg) 'name)))))
+
+(define (lua-pb-default model f)
+  (cond
+   ((and (= (hash-ref f 'type) 11)
+         (eq?
+          (hash-ref (lua-pb-resolve model (hash-ref f 'type-name)) 'kind)
+          'map))
+    "{}")
+   ((= (hash-ref f 'label) 3) "{}")
+   ((= (hash-ref f 'type) 11) "nil")
+   ((= (hash-ref f 'type) 9) "\"\"")
+   ((= (hash-ref f 'type) 12) "\"\"")
+   ((= (hash-ref f 'type) 8) "false")
+   ((= (hash-ref f 'type) 14)
+    (define entry (lua-pb-resolve model (hash-ref f 'type-name)))
+    (format
+     "~a"
+     (hash-ref (car (hash-ref (hash-ref entry 'enum) 'values)) 'number)))
+   (else "0")))
+
+(define (lua-pb-varint-expr f v)
+  (case (hash-ref f 'type)
+    ((8) (format "(~a and 1 or 0)" v))
+    ((17) (format "((bxor(~a << 1, ~a >> 31)) & 0xffffffff)" v v))
+    ((18) (format "(bxor(~a << 1, -(~a >> 63)))" v v))
+    (else v)))
+
+(define (lua-pb-varint-decode f v)
+  (case (hash-ref f 'type)
+    ((5 14)
+     (format
+      "((~a & 0xffffffff) >= 0x80000000 and (~a & 0xffffffff) - 0x100000000 or (~a & 0xffffffff))"
+      v
+      v
+      v))
+    ((13 7) (format "(~a & 0xffffffff)" v))
+    ((8) (string-append "(" v " ~= 0)"))
+    ((17)
+     (format
+      "(((bxor(~a >> 1, -(~a & 1))) & 0xffffffff) >= 0x80000000 and ((bxor(~a >> 1, -(~a & 1))) & 0xffffffff) - 0x100000000 or ((bxor(~a >> 1, -(~a & 1))) & 0xffffffff))"
+      v
+      v
+      v
+      v
+      v
+      v))
+    ((18) (format "(bxor(~a >> 1, -(~a & 1)))" v v))
+    (else v)))
+
+(define (lua-pb-fixed-fmt f)
+  (string-append "<" (third (assv (hash-ref f 'type) lua-pb-fixed))))
+
+(define (lua-pb-wire f)
+  (if (= (second (assv (hash-ref f 'type) lua-pb-fixed)) 8) 1 5))
+
+(define (lua-pb-nonzero f v)
+  (case (hash-ref f 'type) ((8) v) (else (string-append v " ~= 0"))))
+
+(define (lua-pb-encode-singular model f v indent)
+  (define n (hash-ref f 'number))
+  (define type (hash-ref f 'type))
+  (cond
+   ((memv type lua-pb-varint-types)
+    (format
+     "~aif ~a then w:tag(~a, 0) w:varint(~a) end\n"
+     indent
+     (lua-pb-nonzero f v)
+     n
+     (lua-pb-varint-expr f v)))
+   ((assv type lua-pb-fixed)
+    =>
+    (lambda (info)
+      (string-append
+       indent
+       "if "
+       v
+       " ~= 0 then w:tag("
+       (number->string n)
+       ", "
+       (number->string (lua-pb-wire f))
+       ") w:fixed("
+       (format "~s" (lua-pb-fixed-fmt f))
+       ", "
+       v
+       ") end\n")))
+   ((= type 9) (format "~aw:stringField(~a, ~a)\n" indent n v))
+   ((= type 12)
+    (format "~aif #~a > 0 then w:bytesField(~a, ~a) end\n" indent v n v))
+   ((= type 11)
+    (string-append
+     indent
+     "if "
+     v
+     " ~= nil then w:bytesField("
+     (number->string n)
+     ", "
+     v
+     ":marshalDc()) end\n"))
+   (else (error 'emit-lua-pb-file "unsupported field type ~a (groups)" type))))
+
+(define (lua-pb-encode-field model f)
+  (define v (format "self.~a" (lua-pb-field-name f)))
+  (define n (hash-ref f 'number))
+  (define type (hash-ref f 'type))
+  (cond
+   ((and (= type 11)
+         (eq?
+          (hash-ref (lua-pb-resolve model (hash-ref f 'type-name)) 'kind)
+          'map))
+    (define entry (lua-pb-resolve model (hash-ref f 'type-name)))
+    (define helper (format "~aEncode" (lua-pb-entry-flat model entry)))
+    (format
+     "    for k, val in pairs(~a) do w:bytesField(~a, ~a(k, val)) end\n"
+     v
+     n
+     helper))
+   ((not (= (hash-ref f 'label) 3)) (lua-pb-encode-singular model f v "    "))
+   ((memv type lua-pb-varint-types)
+    (string-append
+     (format "    if #~a > 0 then\n      local payload = {}\n" v)
+     (format
+      "      for _, x in ipairs(~a) do payload[#payload + 1] = varintBytes(~a) end\n"
+      v
+      (lua-pb-varint-expr f "x"))
+     (format "      w:bytesField(~a, table.concat(payload))\n    end\n" n)))
+   ((assv type lua-pb-fixed)
+    =>
+    (lambda (info)
+      (string-append
+       (format "    if #~a > 0 then\n      local payload = {}\n" v)
+       (format
+        "      for _, x in ipairs(~a) do payload[#payload + 1] = string.pack(~s, x) end\n"
+        v
+        (string-append "<" (third info)))
+       (format "      w:bytesField(~a, table.concat(payload))\n    end\n" n))))
+   ((= type 9)
+    (format "    for _, x in ipairs(~a) do w:bytesField(~a, x) end\n" v n))
+   ((= type 12)
+    (format "    for _, x in ipairs(~a) do w:bytesField(~a, x) end\n" v n))
+   ((= type 11)
+    (format
+     "    for _, x in ipairs(~a) do w:bytesField(~a, x:marshalDc()) end\n"
+     v
+     n))
+   (else (error 'emit-lua-pb-file "unsupported repeated field type ~a" type))))
+
+(define (lua-pb-decode-singular model f target src indent)
+  (define type (hash-ref f 'type))
+  (cond
+   ((memv type lua-pb-varint-types)
+    (format "~a~a = ~a\n" indent target (lua-pb-varint-decode f src)))
+   ((assv type lua-pb-fixed)
+    =>
+    (lambda (info)
+      (format
+       "~a~a = string.unpack(~s, ~a)\n"
+       indent
+       target
+       (string-append "<" (third info))
+       src)))
+   ((= type 9) (format "~a~a = ~a\n" indent target src))
+   ((= type 12) (format "~a~a = ~a\n" indent target src))
+   ((= type 11)
+    (define ref
+      (lua-pb-entry-flat model (lua-pb-resolve model (hash-ref f 'type-name))))
+    (string-append
+     (format "~a~a = ~a.new()\n" indent target ref)
+     (format "~a~a:unmarshalDc(~a)\n" indent target src)))
+   (else (error 'emit-lua-pb-file "unsupported field type ~a" type))))
+
+(define (lua-pb-decode-case model f)
+  (define v (format "self.~a" (lua-pb-field-name f)))
+  (define type (hash-ref f 'type))
+  (define head
+    (format "    elseif field.number == ~a then\n" (hash-ref f 'number)))
+  (cond
+   ((and (= type 11)
+         (eq?
+          (hash-ref (lua-pb-resolve model (hash-ref f 'type-name)) 'kind)
+          'map))
+    (define entry (lua-pb-resolve model (hash-ref f 'type-name)))
+    (define helper (format "~aDecode" (lua-pb-entry-flat model entry)))
+    (string-append
+     head
+     (format "      local kk, vv = ~a(field.bytesValue)\n" helper)
+     (format "      ~a[kk] = vv\n" v)))
+   ((not (= (hash-ref f 'label) 3))
+    (string-append
+     head
+     (lua-pb-decode-singular
+      model
+      f
+      v
+      (cond
+       ((memv type lua-pb-varint-types) "field.varintValue")
+       ((assv type lua-pb-fixed) "field.fixedValue")
+       (else "field.bytesValue"))
+      "      ")))
+   ((memv type lua-pb-varint-types)
+    (string-append
+     head
+     "      if field.wire == 2 then\n"
+     "        local sub = Reader.new(field.bytesValue)\n"
+     "        while not sub:done() do\n"
+     "          local raw = sub:varint()\n"
+     (format "          ~a[#~a + 1] = ~a\n" v v (lua-pb-varint-decode f "raw"))
+     "        end\n      else\n"
+     (format
+      "        ~a[#~a + 1] = ~a\n"
+      v
+      v
+      (lua-pb-varint-decode f "field.varintValue"))
+     "      end\n"))
+   ((assv type lua-pb-fixed)
+    =>
+    (lambda (info)
+      (string-append
+       head
+       "      if field.wire == 2 then\n"
+       (format "        local payload = field.bytesValue\n")
+       (format "        for i = 1, #payload, ~a do\n" (second info))
+       (format
+        "          ~a[#~a + 1] = string.unpack(~s, payload, i)\n"
+        v
+        v
+        (string-append "<" (third info)))
+       "        end\n      else\n"
+       (format
+        "        ~a[#~a + 1] = string.unpack(~s, field.fixedValue)\n"
+        v
+        v
+        (string-append "<" (third info)))
+       "      end\n")))
+   ((= type 9)
+    (string-append head (format "      ~a[#~a + 1] = field.bytesValue\n" v v)))
+   ((= type 12)
+    (string-append head (format "      ~a[#~a + 1] = field.bytesValue\n" v v)))
+   ((= type 11)
+    (string-append
+     head
+     (format
+      "      local item = ~a.new()\n"
+      (lua-pb-entry-flat model (lua-pb-resolve model (hash-ref f 'type-name))))
+     "      item:unmarshalDc(field.bytesValue)\n"
+     (format "      ~a[#~a + 1] = item\n" v v)))
+   (else (error 'emit-lua-pb-file "unsupported repeated field type ~a" type))))
+
+(define (lua-pb-map-helpers model entry)
+  (define msg (hash-ref entry 'msg))
+  (define base (lua-pb-entry-flat model entry))
+  (define key-f
+    (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref msg 'fields)))
+  (define val-f
+    (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref msg 'fields)))
+  (unless (and key-f val-f)
+    (error
+     'emit-lua-pb-file
+     "map entry ~a lacks key/value"
+     (hash-ref msg 'full-name)))
+  (string-append
+   (format "~aEncode = function(key, value)\n  local w = Writer.new()\n" base)
+   (lua-pb-encode-singular model (hash-set key-f 'label 1) "key" "  ")
+   (lua-pb-encode-singular model (hash-set val-f 'label 1) "value" "  ")
+   "  return w:toBytes()\nend\n\n"
+   (format "~aDecode = function(data)\n" base)
+   (format
+    "  local key = ~a\n  local value = ~a\n"
+    (lua-pb-default model (hash-set key-f 'label 1))
+    (lua-pb-default model (hash-set val-f 'label 1)))
+   "  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n"
+   (format
+    "    if field.number == ~a then\n~a"
+    (hash-ref key-f 'number)
+    (lua-pb-decode-singular
+     model
+     (hash-set key-f 'label 1)
+     "key"
+     (cond
+      ((memv (hash-ref key-f 'type) lua-pb-varint-types) "field.varintValue")
+      ((assv (hash-ref key-f 'type) lua-pb-fixed) "field.fixedValue")
+      (else "field.bytesValue"))
+     "      "))
+   (format
+    "    elseif field.number == ~a then\n~a"
+    (hash-ref val-f 'number)
+    (if (= (hash-ref val-f 'type) 11)
+      (format
+       "      value = ~a.new()\n      value:unmarshalDc(field.bytesValue)\n"
+       (lua-pb-entry-flat
+        model
+        (lua-pb-resolve model (hash-ref val-f 'type-name))))
+      (lua-pb-decode-singular
+       model
+       (hash-set val-f 'label 1)
+       "value"
+       (cond
+        ((memv (hash-ref val-f 'type) lua-pb-varint-types) "field.varintValue")
+        ((assv (hash-ref val-f 'type) lua-pb-fixed) "field.fixedValue")
+        (else "field.bytesValue"))
+       "      ")))
+   "    end\n  end\n  return key, value\nend\n\n"))
+
+(define lua-pb-support
+  (string-append
+   "-- @generated by protoc-gen-grpc-dc-lua (Racket metaprogram). DO NOT EDIT.\n"
+   "local Writer = {}\nWriter.__index = Writer\n\n"
+   "local function bxor(a, b) return a ~ b end\n\n"
+   "local function varintBytes(value)\n  local v = value\n  local parts = {}\n  if v < 0 then\n    for _ = 1, 9 do\n      parts[#parts + 1] = string.char((v & 0x7f) | 0x80)\n      v = v >> 7\n    end\n    parts[#parts + 1] = string.char(v & 0x7f)\n    return table.concat(parts)\n  end\n  while (v & ~0x7f) ~= 0 do\n    parts[#parts + 1] = string.char((v & 0x7f) | 0x80)\n    v = v >> 7\n  end\n  parts[#parts + 1] = string.char(v & 0x7f)\n  return table.concat(parts)\nend\n\n"
+   "function Writer.new()\n  return setmetatable({ parts = {} }, Writer)\nend\n\n"
+   "function Writer:varint(value)\n  self.parts[#self.parts + 1] = varintBytes(value)\nend\n\n"
+   "function Writer:tag(field, wire)\n  self:varint((field << 3) | wire)\nend\n\n"
+   "function Writer:bytesField(field, payload)\n  self:tag(field, 2)\n  self:varint(#payload)\n  self.parts[#self.parts + 1] = payload\nend\n\n"
+   "function Writer:stringField(field, value)\n  if value == \"\" then return end\n  self:bytesField(field, value)\nend\n\n"
+   "function Writer:fixed(fmt, value)\n  self.parts[#self.parts + 1] = string.pack(fmt, value)\nend\n\n"
+   "function Writer:toBytes()\n  return table.concat(self.parts)\nend\n\n"
+   "local Reader = {}\nReader.__index = Reader\n\n"
+   "function Reader.new(buf)\n  return setmetatable({ buf = buf, pos = 1 }, Reader)\nend\n\n"
+   "function Reader:done()\n  return self.pos > #self.buf\nend\n\n"
+   "function Reader:varint()\n  local result = 0\n  local shift = 0\n  while true do\n    if self.pos > #self.buf then error(\"truncated varint\") end\n    local b = self.buf:byte(self.pos)\n    self.pos = self.pos + 1\n    result = result | ((b & 0x7f) << shift)\n    if (b & 0x80) == 0 then return result end\n    shift = shift + 7\n    if shift >= 70 then error(\"varint too long\") end\n  end\nend\n\n"
+   "function Reader:take(n)\n  if self.pos + n - 1 > #self.buf then error(\"truncated field\") end\n  local v = self.buf:sub(self.pos, self.pos + n - 1)\n  self.pos = self.pos + n\n  return v\nend\n\n"
+   "function Reader:next()\n  if self.pos > #self.buf then return nil end\n  local tag = self:varint()\n  local number = tag >> 3\n  local wire = tag & 7\n  if wire == 0 then\n    return { number = number, wire = wire, varintValue = self:varint(), bytesValue = \"\", fixedValue = \"\" }\n  elseif wire == 2 then\n    local n = self:varint()\n    return { number = number, wire = wire, varintValue = 0, bytesValue = self:take(n), fixedValue = \"\" }\n  elseif wire == 1 then\n    return { number = number, wire = wire, varintValue = 0, bytesValue = \"\", fixedValue = self:take(8) }\n  elseif wire == 5 then\n    return { number = number, wire = wire, varintValue = 0, bytesValue = \"\", fixedValue = self:take(4) }\n  end\n  error(\"bad wire type\")\nend\n\n"))
+
+(define (lua-pb-message-class model msg)
+  (define name
+    (lua-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
+  (define fields (hash-ref msg 'fields))
+  (string-append
+   (format "local ~a = {}\n~a.__index = ~a\n\n" name name name)
+   (format
+    "function ~a.new(~a)\n  return setmetatable({ ~a }, ~a)\nend\n\n"
+    name
+    (string-join (map lua-pb-field-name fields) ", ")
+    (string-join
+     (map
+      (lambda (f)
+        (format
+         "~a = ~a or ~a"
+         (lua-pb-field-name f)
+         (lua-pb-field-name f)
+         (lua-pb-default model f)))
+      fields)
+     ", ")
+    name)
+   (format "function ~a:marshalDc()\n  local w = Writer.new()\n" name)
+   (apply
+    string-append
+    (map (lambda (f) (lua-pb-encode-field model f)) fields))
+   "  return w:toBytes()\nend\n\n"
+   (format "function ~a:unmarshalDc(data)\n" name)
+   (apply
+    string-append
+    (map
+     (lambda (f)
+       (format
+        "  self.~a = ~a\n"
+        (lua-pb-field-name f)
+        (lua-pb-default model f)))
+     fields))
+   "  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n"
+   "    if false then\n"
+   (apply string-append (map (lambda (f) (lua-pb-decode-case model f)) fields))
+   "    end\n  end\nend\n\n"
+   (apply
+    string-append
+    (map (lambda (n) (lua-pb-message-class model n)) (hash-ref msg 'nested)))))
+
+(define (lua-pb-enum model e)
+  (define name
+    (lua-pb-flat
+     (hash-ref model 'package)
+     (if (string=? (hash-ref model 'package) "")
+       (hash-ref e 'name)
+       (format "~a.~a" (hash-ref model 'package) (hash-ref e 'name)))))
+  (string-append
+   (format
+    "local ~a = { ~a }\n\n"
+    name
+    (string-join
+     (map
+      (lambda (v) (format "~a = ~a" (hash-ref v 'name) (hash-ref v 'number)))
+      (hash-ref e 'values))
+     ", "))))
+
+(define (emit-lua-pb-file file-model)
+  (and (hash-has-key? file-model 'messages)
+       (hash-has-key? file-model 'types)
+       (emit-lua-pb-file/inner file-model)))
+
+(define (emit-lua-pb-file/inner file-model)
+  (define messages (hash-ref file-model 'messages))
+  (define enums (hash-ref file-model 'enums))
+  (and (or (pair? messages) (pair? enums))
+       (let ()
+         (define base
+           (path->string
+            (path-replace-extension
+             (file-name-from-path (hash-ref file-model 'name))
+             "")))
+         (define pkg (hash-ref file-model 'package))
+         (define seen-maps (mutable-set))
+         (define helpers '())
+         (define helper-names '())
+         (define (collect msg)
+           (for
+            ((f (in-list (hash-ref msg 'fields))))
+            (when (= (hash-ref f 'type) 11)
+              (define e (lua-pb-resolve file-model (hash-ref f 'type-name)))
+              (when (and
+                     (eq? (hash-ref e 'kind) 'map)
+                     (equal? (hash-ref e 'file) (hash-ref file-model 'name))
+                     (not
+                      (set-member?
+                       seen-maps
+                       (hash-ref (hash-ref e 'msg) 'full-name))))
+                (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
+                (define base (lua-pb-entry-flat file-model e))
+                (set! helper-names
+                  (cons
+                   (format "~aEncode" base)
+                   (cons (format "~aDecode" base) helper-names)))
+                (set! helpers
+                  (cons (lua-pb-map-helpers file-model e) helpers)))))
+           (for ((n (in-list (hash-ref msg 'nested)))) (collect n)))
+         (for ((m (in-list messages))) (collect m))
+         (define dep-modules
+           (remove-duplicates
+            (map
+             (lambda (d)
+               (path->string
+                (path-replace-extension (file-name-from-path d) "")))
+             (hash-ref file-model 'dependencies))))
+         (define dep-requires
+           (apply
+            string-append
+            (map
+             (lambda (d)
+               (format
+                "local ~aMessages = require(\"~a_messages\")\n"
+                (lua-pb-flat "" (format "~a_messages" d))
+                d))
+             dep-modules)))
+         (define content
+           (string-append
+            lua-pb-support
+            dep-requires
+            (if (string=? dep-requires "") "" "\n")
+            (apply
+             string-append
+             (map (lambda (n) (format "local ~a\n" n)) (reverse helper-names)))
+            (apply
+             string-append
+             (map (lambda (e) (lua-pb-enum file-model e)) enums))
+            (apply
+             string-append
+             (map
+              (lambda (m) (lua-pb-message-class file-model m))
+              (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))
+            (apply string-append (reverse helpers))
+            "return {\n"
+            (apply
+             string-append
+             (map
+              (lambda (m)
+                (format
+                 "  ~a = ~a,\n"
+                 (hash-ref m 'name)
+                 (lua-pb-flat pkg (hash-ref m 'full-name))))
+              (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))
+            (apply
+             string-append
+             (map
+              (lambda (e)
+                (format
+                 "  ~a = ~a,\n"
+                 (hash-ref e 'name)
+                 (lua-pb-flat
+                  pkg
+                  (if (string=? pkg "")
+                    (hash-ref e 'name)
+                    (format "~a.~a" pkg (hash-ref e 'name))))))
+              enums))
+            "}\n"))
+         (cons (string-append base "_messages.lua") content))))
+
 (define (emit-lua-file file-model params)
   (define base
     (path->string
      (path-replace-extension
       (file-name-from-path (hash-ref file-model 'name))
       "")))
-  (cons
-   (string-append base "_grpc_dc.lua")
-   (string-append
-    "-- @generated by protoc-gen-grpc-dc-lua (Racket metaprogram). DO NOT EDIT.\n"
-    (format "-- source: ~a\n\n" (hash-ref file-model 'name))
-    "local channelModule = require(\"grpcdc.channel\")\n"
-    "local serverModule = require(\"grpcdc.server\")\n"
-    "local statusModule = require(\"grpcdc.status\")\n"
-    "local wire = require(\"grpcdc.wire\")\n"
-    (format "local messages = require(\"examples.~a_messages\")\n\n" base)
-    "local Channel = channelModule.Channel\n"
-    "local Server = serverModule.Server\n"
-    "local Status = statusModule.Status\n"
-    "local EndOfStream = statusModule.EndOfStream\n\n"
-    (apply
-     string-append
-     (map
-      (lambda (msg) (format "local ~a = messages.~a\n" msg msg))
-      (lua-message-names file-model)))
-    "\n"
-    (apply string-append (map lua-service (hash-ref file-model 'services)))
-    (apply
-     string-append
-     (map
-      (lambda (svc)
-        (define sname (hash-ref svc 'name))
-        (string-append
-         (format
-          "--- Register an implementation of ~a on a Server. The impl is\n"
-          (hash-ref svc 'full-name))
-         "--- a table with unary/serverStream/clientStream/bidi functions\n"
-         "--- (duck-typed, mirroring the generated adapters below).\n"
-         (format "local function register~aServer(server, impl)\n" sname)
-         "  server:registerService({\n"
-         (format "    name = ~s,\n" (hash-ref svc 'full-name))
-         "    methods = {\n"
-         (parameterize
-          ((current-service sname))
-          (apply
-           string-append
-           (map
-            lua-register-method
-            (append (hash-ref svc 'methods) (alias-server-methods svc)))))
-         "    },\n"
-         "  })\n"
-         "end\n\n"))
-      (hash-ref file-model 'services)))
-    "return {\n"
-    (apply
-     string-append
-     (map
-      (lambda (svc)
-        (define sname (hash-ref svc 'name))
-        (string-append
-         (format "  ~aClient = ~aClient,\n" sname sname)
-         (format "  ~aClientCoro = ~aClientCoro,\n" sname sname)
-         (apply
-          string-append
-          (map
-           (lambda (m)
-             (case (hash-ref m 'kind)
-               ((server-streaming bidi)
-                (format
-                 "  ~a~aCoroStream = ~a~aCoroStream,\n"
-                 sname
-                 (hash-ref m 'name)
-                 sname
-                 (hash-ref m 'name)))
-               (else "")))
-           (hash-ref svc 'methods)))
-         (apply
-          string-append
-          (map
-           (lambda (m)
-             (case (hash-ref m 'kind)
-               ((server-streaming bidi)
-                (format
-                 "  ~a~aStream = ~a~aStream,\n"
-                 sname
-                 (hash-ref m 'name)
-                 sname
-                 (hash-ref m 'name)))
-               (else "")))
-           (hash-ref svc 'methods)))
-         (apply
-          string-append
-          (map
-           (lambda (m)
-             (case (hash-ref m 'kind)
-               ((unary) "")
-               (else
-                (format
-                 "  ~a~aServer = ~a~aServer,\n"
-                 sname
-                 (hash-ref m 'name)
-                 sname
-                 (hash-ref m 'name)))))
-           (hash-ref svc 'methods)))
-         (format "  register~aServer = register~aServer,\n" sname sname)))
-      (hash-ref file-model 'services)))
-    "}\n")))
+  (define stub
+    (cons
+     (string-append base "_grpc_dc.lua")
+     (string-append
+      "-- @generated by protoc-gen-grpc-dc-lua (Racket metaprogram). DO NOT EDIT.\n"
+      (format "-- source: ~a\n\n" (hash-ref file-model 'name))
+      "local channelModule = require(\"grpcdc.channel\")\n"
+      "local serverModule = require(\"grpcdc.server\")\n"
+      "local statusModule = require(\"grpcdc.status\")\n"
+      "local wire = require(\"grpcdc.wire\")\n"
+      (format "local messages = require(\"examples.~a_messages\")\n\n" base)
+      "local Channel = channelModule.Channel\n"
+      "local Server = serverModule.Server\n"
+      "local Status = statusModule.Status\n"
+      "local EndOfStream = statusModule.EndOfStream\n\n"
+      (apply
+       string-append
+       (map
+        (lambda (msg) (format "local ~a = messages.~a\n" msg msg))
+        (lua-message-names file-model)))
+      "\n"
+      (apply string-append (map lua-service (hash-ref file-model 'services)))
+      (apply
+       string-append
+       (map
+        (lambda (svc)
+          (define sname (hash-ref svc 'name))
+          (string-append
+           (format
+            "--- Register an implementation of ~a on a Server. The impl is\n"
+            (hash-ref svc 'full-name))
+           "--- a table with unary/serverStream/clientStream/bidi functions\n"
+           "--- (duck-typed, mirroring the generated adapters below).\n"
+           (format "local function register~aServer(server, impl)\n" sname)
+           "  server:registerService({\n"
+           (format "    name = ~s,\n" (hash-ref svc 'full-name))
+           "    methods = {\n"
+           (parameterize
+            ((current-service sname))
+            (apply
+             string-append
+             (map
+              lua-register-method
+              (append (hash-ref svc 'methods) (alias-server-methods svc)))))
+           "    },\n"
+           "  })\n"
+           "end\n\n"))
+        (hash-ref file-model 'services)))
+      "return {\n"
+      (apply
+       string-append
+       (map
+        (lambda (svc)
+          (define sname (hash-ref svc 'name))
+          (string-append
+           (format "  ~aClient = ~aClient,\n" sname sname)
+           (format "  ~aClientCoro = ~aClientCoro,\n" sname sname)
+           (apply
+            string-append
+            (map
+             (lambda (m)
+               (case (hash-ref m 'kind)
+                 ((server-streaming bidi)
+                  (format
+                   "  ~a~aCoroStream = ~a~aCoroStream,\n"
+                   sname
+                   (hash-ref m 'name)
+                   sname
+                   (hash-ref m 'name)))
+                 (else "")))
+             (hash-ref svc 'methods)))
+           (apply
+            string-append
+            (map
+             (lambda (m)
+               (case (hash-ref m 'kind)
+                 ((server-streaming bidi)
+                  (format
+                   "  ~a~aStream = ~a~aStream,\n"
+                   sname
+                   (hash-ref m 'name)
+                   sname
+                   (hash-ref m 'name)))
+                 (else "")))
+             (hash-ref svc 'methods)))
+           (apply
+            string-append
+            (map
+             (lambda (m)
+               (case (hash-ref m 'kind)
+                 ((unary) "")
+                 (else
+                  (format
+                   "  ~a~aServer = ~a~aServer,\n"
+                   sname
+                   (hash-ref m 'name)
+                   sname
+                   (hash-ref m 'name)))))
+             (hash-ref svc 'methods)))
+           (format "  register~aServer = register~aServer,\n" sname sname)))
+        (hash-ref file-model 'services)))
+      "}\n")))
+  (define pb-file (emit-lua-pb-file file-model))
+  (if pb-file (list stub pb-file) stub))
 
 (define (plugin-main)
   (define request-bytes (port->bytes (current-input-port)))

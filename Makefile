@@ -237,7 +237,8 @@ test-lua:
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDynamic \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestBdd \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestCoro \
-		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDeadline
+		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDeadline \
+		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestPbMessages
 
 LUA_SRC ?= $(HOME)/.local/lua-build/src
 
