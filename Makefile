@@ -309,7 +309,8 @@ test-php:
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDynamic \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestBdd \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestFiber \
-		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDeadline
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDeadline \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestPbMessages
 
 SCALAC ?= scalac
 SCALA3_HOME ?= /usr/local/scala3

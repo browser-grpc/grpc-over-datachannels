@@ -1,11 +1,11 @@
 <?php
-// Test runner: php php/tests/main.php <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline>
+// Test runner: php php/tests/main.php <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestPbMessages>
 
 require_once __DIR__ . "/test_util.php";
 
 $name = $argv[1] ?? null;
 if ($name === null) {
-    fwrite(STDERR, "usage: main.php <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline>\n");
+    fwrite(STDERR, "usage: main.php <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestPbMessages>\n");
     exit(2);
 }
 
@@ -42,6 +42,10 @@ try {
         case "TestDeadline":
             require_once __DIR__ . "/test_deadline.php";
             TestDeadline::run();
+            break;
+        case "TestPbMessages":
+            require_once __DIR__ . "/test_pb_messages.php";
+            TestPbMessages::run();
             break;
         default:
             fwrite(STDERR, "unknown test: $name\n");
