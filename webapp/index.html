@@ -31,9 +31,11 @@
     <div id="langs" class="langs"></div>
     <button id="generate" type="button" disabled>Generate zip</button>
     <div id="results" class="results"></div>
+    <h2>JS bundle preview</h2>
+    <div id="preview" class="preview">(generate with JavaScript selected to preview the generated message bundle here)</div>
     <p class="hint">Stubs land in <code>gen/&lt;lang&gt;/</code>, the matching runtime in
        <code>runtime/&lt;lang&gt;/</code>, schemas in <code>proto/</code>.
-       Message classes (<code>&lt;base&gt;_pb</code>) are yours to provide — see the zip's README.</p>
+       Generated message classes (<code>&lt;base&gt;_pb</code>) are included — see the zip's README.</p>
   </section>
 </main>
 <script type="module" src="app.js"></script>

@@ -175,6 +175,13 @@ async function runCase(name, engine) {
     for (const f of ["echo_pb.js", "common_pb.js", "kitchen_pb.js", "echo_grpc_dc.js"]) {
       assert.ok(entries.has(`gen/js/${f}`), `zip missing gen/js/${f}`);
     }
+    // In-browser preview: the page itself imported the generated
+    // JS bundle and round-tripped every message class.
+    await page.waitForFunction(() => window.__jsPreview && window.__jsPreview.ok, null, { timeout: 60000 });
+    const preview = await page.evaluate(() => window.__jsPreview);
+    assert.ok(preview.files >= 3, `preview covered the pb files: ${JSON.stringify(preview)}`);
+    assert.ok(preview.classes >= 3, `preview round-tripped message classes: ${JSON.stringify(preview)}`);
+    assert.match(await page.textContent("#preview"), /round-trip OK/);
     const dir = await mkdtemp(join(tmpdir(), "grpcdc-pb-"));
     await mkdir(join(dir, "gen"), { recursive: true });
     await mkdir(join(dir, "runtime"), { recursive: true });

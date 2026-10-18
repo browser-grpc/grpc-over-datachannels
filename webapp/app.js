@@ -627,6 +627,7 @@ $("generate").addEventListener("click", async () => {
   }
   window.__generatedVia = generatedVia;
   renderResults(generated);
+  previewJsBundle(generated);
   entries.push({ name: "README.md", data: enc.encode(zipReadme(langs)) });
   const bases = names.map((n) => n.split("/").pop().replace(/\.proto$/, ""));
   const messageBases = bases.filter((b, i) => /\b(message|enum)\s/.test(files.get(names[i])));
@@ -657,6 +658,73 @@ $("generate").addEventListener("click", async () => {
     setStatus("generated grpcdc-stubs.zip (" + entries.length + " files)", "ok");
   }
 });
+
+// --- in-browser preview of the generated JS bundle -----------------
+// Imports the generated gen/js/*_pb.js modules right here in the
+// page (relative imports rewritten to Blob URLs) and smoke-tests
+// every exported message class: a default instance must survive an
+// encode/decode/encode round-trip byte-identically. Proves the
+// downloaded bundle loads and runs as-is, before unzipping.
+async function previewJsBundle(generated) {
+  const box = $("preview");
+  if (!box) return;
+  const jsEntries = generated.filter((e) => e.name.startsWith("gen/js/") && e.name.endsWith(".js"));
+  const pbEntries = jsEntries.filter((e) => e.name.endsWith("_pb.js"));
+  if (!pbEntries.length) {
+    box.textContent = "(no JavaScript message bundle in this generation)";
+    window.__jsPreview = { files: 0, classes: 0, ok: false };
+    return;
+  }
+  box.textContent = "loading generated JS bundle…";
+  const dec = new TextDecoder();
+  const urls = new Map();
+  for (const e of jsEntries) {
+    urls.set(e.name.split("/").pop(), URL.createObjectURL(new Blob([e.data], { type: "text/javascript" })));
+  }
+  const lines = [];
+  let classCount = 0;
+  try {
+    for (const e of pbEntries) {
+      let src = dec.decode(e.data);
+      src = src.replace(/from\s+"(\.\/[^"]+)"/g, (m, rel) => {
+        const target = urls.get(rel.slice(2));
+        return target ? `from "${target}"` : m;
+      });
+      const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+      const mod = await import(url);
+      URL.revokeObjectURL(url);
+      for (const [name, value] of Object.entries(mod)) {
+        if (typeof value === "function" && typeof value.encode === "function" && typeof value.decode === "function") {
+          const bytes = value.encode(new value());
+          const again = value.encode(value.decode(bytes));
+          const same = bytes.length === again.length && bytes.every((b, i) => b === again[i]);
+          if (!same) throw new Error(name + ": round-trip mismatch");
+          classCount++;
+          lines.push(`${e.name.split("/").pop()}: ${name} round-trip OK (${bytes.length} bytes)`);
+        }
+      }
+    }
+    box.textContent = "";
+    const head = document.createElement("div");
+    head.textContent = `preview: ${pbEntries.length} message file(s), ${classCount} message class(es) loaded and round-tripped in this page`;
+    box.appendChild(head);
+    for (const line of lines) {
+      const div = document.createElement("div");
+      div.textContent = line;
+      box.appendChild(div);
+    }
+    const pre = document.createElement("pre");
+    pre.className = "preview-source";
+    pre.textContent = dec.decode(pbEntries[0].data);
+    box.appendChild(pre);
+    window.__jsPreview = { files: pbEntries.length, classes: classCount, ok: true };
+  } catch (err) {
+    box.textContent = "preview failed: " + err.message;
+    window.__jsPreview = { files: pbEntries.length, classes: classCount, ok: false };
+  } finally {
+    for (const u of urls.values()) URL.revokeObjectURL(u);
+  }
+}
 
 function renderResults(generated) {
   const box = $("results");
