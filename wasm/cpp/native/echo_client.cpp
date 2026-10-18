@@ -30,7 +30,10 @@ void on_error(const char* ptr, std::size_t len);
 namespace {
 
 echo::EchoRequest Req(const char* message, std::int32_t count) {
-  return echo::EchoRequest(message, count);
+  echo::EchoRequest req;
+  req.message = message;
+  req.count = count;
+  return req;
 }
 
 [[noreturn]] void Fail(const std::string& message) {

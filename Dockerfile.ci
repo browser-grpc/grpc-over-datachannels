@@ -238,7 +238,7 @@ RUN cd wasm/go && GOOS=js GOARCH=wasm go build -o ../../browser-test/echo.wasm .
 
 # Warm the C++ builds (stdlib only).
 RUN mkdir -p cpp/build \
-  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp -o cpp/build/tests \
+  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp -o cpp/build/tests \
   && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio \
   && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio \
   && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/dynamic_echo_server_stdio.cpp -o cpp/build/dynamic_echo_server_stdio
@@ -263,7 +263,7 @@ RUN mkdir -p browser-test/scalajs_gen \
        -o browser-test/scalajs_gen/echo_scalajs_client.mjs \
        wasm/scalajs/bridge.scala wasm/scalajs/EchoScalaJsGrpcDc.scala \
        scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala \
-       scala/examples/Pb.scala scala/examples/EchoMessages.scala wasm/scalajs/echo_client.scala
+       scala/examples/EchoMessages.scala wasm/scalajs/echo_client.scala
 
 # Warm the Dart builds (SDK only).
 RUN mkdir -p dart/build \

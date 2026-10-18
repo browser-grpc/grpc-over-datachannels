@@ -708,7 +708,7 @@ webapp-dist: webapp-assets
 	cp -r webapp/gen webapp/dist/gen
 	cp -r webapp/assets webapp/dist/assets
 
-test-webapp: webapp-assets
+test-webapp: webapp-assets webapp-plugins
 	cd browser-test && node webapp_parity.test.mjs all && node webapp_pb.test.mjs all
 
 # Racket/Wasm runtime for the webapp's in-browser plugin execution:

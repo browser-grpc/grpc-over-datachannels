@@ -5,6 +5,7 @@ import Foundation
 #endif
 
 enum EchoPb {
+    struct BadWireType: Error {}
     final class Writer {
         private var out: [UInt8] = []
         func Varint(_ value: UInt64) { var v = value; while v > 0x7f { out.append(UInt8((v & 0x7f) | 0x80)); v >>= 7 }; out.append(UInt8(v)) }
@@ -44,7 +45,7 @@ enum EchoPb {
             case 2: let n = Int(Varint()); return Field(number: number, wire: wire, varintValue: 0, bytesValue: Take(n), fixedValue: 0)
             case 1: let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: v)
             case 5: let b = Take(4); let v = UInt64(UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24)); return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: v)
-            default: throw NSError(domain: "pb", code: 1)
+            default: throw BadWireType()
             }
         }
     }

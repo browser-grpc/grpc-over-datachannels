@@ -6,7 +6,7 @@ import '../grpcdc/transport.dart';
 
 class EchoPbWriter {
   final BytesBuilder _out = BytesBuilder();
-  void varint(int value) { var v = value; while (true) { final byte = v & 0x7f; v = (v >> 7) & 0x01ffffffffffffff; if (v == 0) { _out.addByte(byte); break; } _out.addByte(byte | 0x80); } }
+  void varint(int value) { var v = BigInt.from(value) & ((BigInt.one << 64) - BigInt.one); final continuation = BigInt.from(0x80); while (v >= continuation) { _out.addByte(((v & BigInt.from(0x7f)) | continuation).toInt()); v = v >> 7; } _out.addByte(v.toInt()); }
   void tag(int field, int wire) { varint((field << 3) | wire); }
   void bytesField(int field, List<int> payload) { tag(field, 2); varint(payload.length); _out.add(payload); }
   void stringField(int field, String value) { if (value.isEmpty) return; bytesField(field, Uint8List.fromList(value.codeUnits)); }
@@ -30,18 +30,19 @@ class EchoPbField {
 class EchoPbReader {
   final Uint8List _buf; int _pos = 0;
   EchoPbReader(this._buf);
+  int _signed64(BigInt value) { final masked = value & ((BigInt.one << 64) - BigInt.one); return (masked >= (BigInt.one << 63) ? masked - (BigInt.one << 64) : masked).toInt(); }
   bool done() => _pos >= _buf.length;
-  int varint() { var result = 0; var shift = 0; while (true) { if (_pos >= _buf.length) throw StateError('truncated varint'); final b = _buf[_pos++]; result |= (b & 0x7f) << shift; if ((b & 0x80) == 0) return result; shift += 7; if (shift >= 64) throw StateError('varint too long'); } }
+  int varint() { var result = BigInt.zero; var shift = 0; while (true) { if (_pos >= _buf.length) throw StateError('truncated varint'); final b = _buf[_pos++]; result |= BigInt.from(b & 0x7f) << shift; if ((b & 0x80) == 0) return _signed64(result); shift += 7; if (shift >= 70) throw StateError('varint too long'); } }
   Uint8List take(int n) { if (_pos + n > _buf.length) throw StateError('truncated field'); final v = Uint8List.fromList(_buf.sublist(_pos, _pos + n)); _pos += n; return v; }
   int fixed32() { final b = take(4); return b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); }
-  int fixed64() { final b = take(8); var v = 0; for (var i = 0; i < 8; i++) { v |= b[i] << (8 * i); } return v; }
+  int fixed64() { final b = take(8); var v = BigInt.zero; for (var i = 0; i < 8; i++) { v |= BigInt.from(b[i]) << (8 * i); } return _signed64(v); }
   EchoPbField? next() {
     if (_pos >= _buf.length) return null;
     final tag = varint(); final number = tag >> 3; final wire = tag & 7;
     switch (wire) {
       case 0: return EchoPbField(number, wire, varint(), Uint8List(0), 0);
       case 2: final n = varint(); return EchoPbField(number, wire, 0, take(n), 0);
-      case 1: final b = take(8); var v = 0; for (var i = 0; i < 8; i++) { v |= b[i] << (8 * i); } return EchoPbField(number, wire, 0, b, v);
+      case 1: final b = take(8); var v = BigInt.zero; for (var i = 0; i < 8; i++) { v |= BigInt.from(b[i]) << (8 * i); } return EchoPbField(number, wire, 0, b, _signed64(v));
       case 5: final b = take(4); final v = b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); return EchoPbField(number, wire, 0, b, v);
       default: throw StateError('bad wire type');
     }

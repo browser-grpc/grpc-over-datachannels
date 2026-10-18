@@ -97,7 +97,7 @@ const LANGS = {
     server: [PHP, "php/examples/echo_server_stdio.php"],
   },
   scala: {
-    build: `mkdir -p scala/build && ${SCALAC} -d scala/build/echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/Pb.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/EchoServerStdio/Main.scala && ${SCALAC} -d scala/build/echo_client_stdio.jar scala/grpcdc/*.scala scala/examples/Pb.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/EchoClientStdio/Main.scala`,
+    build: `mkdir -p scala/build && ${SCALAC} -d scala/build/echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/EchoServerStdio/Main.scala && ${SCALAC} -d scala/build/echo_client_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/EchoClientStdio/Main.scala`,
     client: ["java", "-cp", "scala/build/echo_client_stdio.jar:" + SCALA_LIBS, "echo.EchoClientStdio"],
     server: ["java", "-cp", "scala/build/echo_server_stdio.jar:" + SCALA_LIBS, "echo.EchoServerStdio"],
   },
