@@ -2,9 +2,11 @@
 //! MESSAGE-INTEGRITY (HMAC-SHA1) and FINGERPRINT (CRC-32), plus
 //! XOR-MAPPED-ADDRESS — exactly what ICE connectivity checks need.
 
+use alloc::string::String;
+use alloc::vec::Vec;
 use crate::crypto::{crc32, hmac_sha1, random_bytes};
 use crate::proto_gen::{stun_attr, stun_msg};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub const MAGIC: u32 = 0x2112_A442;
 
@@ -197,7 +199,7 @@ pub fn decode_xor_mapped(value: &[u8], transaction_id: &[u8; 12]) -> Option<Sock
     let ip: IpAddr = if ip_len == 4 {
         IpAddr::V4(Ipv4Addr::from(<[u8; 4]>::try_from(bytes.as_slice()).ok()?))
     } else {
-        IpAddr::V6(std::net::Ipv6Addr::from(<[u8; 16]>::try_from(bytes.as_slice()).ok()?))
+        IpAddr::V6(core::net::Ipv6Addr::from(<[u8; 16]>::try_from(bytes.as_slice()).ok()?))
     };
     Some(SocketAddr::new(normalize_ip(ip), port))
 }

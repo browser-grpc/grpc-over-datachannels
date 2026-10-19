@@ -4,14 +4,23 @@
 //! and feeds packets in. Remote candidates may arrive inline in
 //! SDP or trickled afterwards (add_remote_candidate).
 
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use crate::crypto::random_u64;
+use crate::platform::Clock;
+#[cfg(feature = "std")]
+use crate::platform::SystemClock;
 use crate::proto_gen::stun_attr;
 use crate::stun::{
     binding_error, binding_success, candidate_priority, host_priority, pair_priority,
     random_password, random_ufrag, Message,
 };
+#[cfg(feature = "std")]
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+#[cfg(not(feature = "std"))]
+use alloc::collections::{BTreeMap as HashMap, BTreeSet as HashSet};
+use alloc::sync::Arc;
+use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Candidate {
@@ -182,8 +191,11 @@ pub struct IceAgent {
     pub nominated: Option<SocketAddr>,
     // Pair -> when its last nominating check was sent (paces
     // nomination retransmission; see due_checks).
-    nominating_sent_at: HashMap<SocketAddr, std::time::Instant>,
-    last_consent: Option<std::time::Instant>,
+    nominating_sent_at: HashMap<SocketAddr, u64>,
+    last_consent: Option<u64>,
+    /// Monotonic clock (platform-injected; system clock by
+    /// default). All consent/nomination pacing reads through it.
+    clock: Arc<dyn Clock>,
     // ICE generations (RFC 8445 section 5.1 restarts):
     // nominated_gen is the generation that produced the
     // current nomination. While they differ a restart is in
@@ -195,10 +207,26 @@ pub struct IceAgent {
 
 /// Paces re-sends of the nominating check for one pair until
 /// its Binding success arrives.
-const NOMINATION_RETRANSMIT: std::time::Duration = std::time::Duration::from_millis(250);
+const NOMINATION_RETRANSMIT: core::time::Duration = core::time::Duration::from_millis(250);
+
+#[cfg(feature = "std")]
+fn default_clock() -> Arc<dyn Clock> {
+    Arc::new(SystemClock::new())
+}
+
+#[cfg(not(feature = "std"))]
+fn default_clock() -> Arc<dyn Clock> {
+    Arc::new(crate::platform::ManualClock::new(0))
+}
 
 impl IceAgent {
     pub fn new(controlling: bool) -> Self {
+        Self::new_with_clock(controlling, default_clock())
+    }
+
+    /// New agent reading time from `clock` (embedded/RTOS and
+    /// deterministic tests inject a manual clock here).
+    pub fn new_with_clock(controlling: bool, clock: Arc<dyn Clock>) -> Self {
         Self {
             local_ufrag: random_ufrag(),
             local_pwd: random_password(),
@@ -215,7 +243,12 @@ impl IceAgent {
             last_consent: None,
             generation: 0,
             nominated_gen: 0,
+            clock,
         }
+    }
+
+    fn now_ms(&self) -> u64 {
+        self.clock.now_ms()
     }
 
     /// Begin an ICE restart (RFC 8445 section 5.1): fresh local
@@ -318,12 +351,13 @@ impl IceAgent {
             // single USE-CANDIDATE can be lost, or reach the
             // peer before its side of the pair has validated).
             if let Some(best) = self.best_valid_pair() {
-                let due = self
-                    .nominating_sent_at
-                    .get(&best)
-                    .map_or(true, |last| last.elapsed() >= NOMINATION_RETRANSMIT);
+                let due = self.nominating_sent_at.get(&best).map_or(true, |last| {
+                    self.now_ms().saturating_sub(*last)
+                        >= NOMINATION_RETRANSMIT.as_millis() as u64
+                });
                 if due {
-                    self.nominating_sent_at.insert(best, std::time::Instant::now());
+                    let now = self.now_ms();
+                    self.nominating_sent_at.insert(best, now);
                     let candidate = self
                         .remote_candidates
                         .iter()
@@ -359,18 +393,20 @@ impl IceAgent {
     /// handshake just completed over this pair).
     pub fn touch_consent(&mut self) {
         if self.nominated.is_some() {
-            self.last_consent = Some(std::time::Instant::now());
+            self.last_consent = Some(self.now_ms());
         }
     }
 
     /// Whether consent for the nominated pair has lapsed (no
     /// Binding success for it within `expiry`).
-    pub fn consent_expired(&self, expiry: std::time::Duration) -> bool {
+    pub fn consent_expired(&self, expiry: core::time::Duration) -> bool {
         if !self.renominated() {
             return false;
         }
         match (self.nominated, self.last_consent) {
-            (Some(_), Some(last)) => last.elapsed() > expiry,
+            (Some(_), Some(last)) => {
+                self.now_ms().saturating_sub(last) > expiry.as_millis() as u64
+            }
             _ => false,
         }
     }
@@ -460,7 +496,7 @@ impl IceAgent {
             if !self.controlling && msg.attr(stun_attr::USE_CANDIDATE).is_some() {
                 self.nominated = Some(src);
                 self.nominated_gen = self.generation;
-                self.last_consent = Some(std::time::Instant::now());
+                self.last_consent = Some(self.now_ms());
                 events.push(IceEvent::Nominated { remote: src });
             }
         } else if msg.msg_type == crate::proto_gen::stun_msg::BINDING_SUCCESS {
@@ -473,12 +509,12 @@ impl IceAgent {
                     events.push(IceEvent::PairValid { remote });
                 }
                 if self.nominated == Some(remote) {
-                    self.last_consent = Some(std::time::Instant::now());
+                    self.last_consent = Some(self.now_ms());
                 }
                 if nominate {
                     self.nominated = Some(remote);
                     self.nominated_gen = self.generation;
-                    self.last_consent = Some(std::time::Instant::now());
+                    self.last_consent = Some(self.now_ms());
                     events.push(IceEvent::Nominated { remote });
                 }
             }
@@ -509,7 +545,9 @@ mod tests {
     #[test]
     fn nomination_check_retransmits_until_answered() {
         let addr = |port| SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-        let mut a = IceAgent::new(true); // controlling
+        // Manual clocks make pacing deterministic (platform seam).
+        let a_clock = std::sync::Arc::new(crate::platform::ManualClock::new(0));
+        let mut a = IceAgent::new_with_clock(true, a_clock.clone());
         let mut b = IceAgent::new(false);
         a.local_candidates = vec![Candidate::host(addr(4000), "a")];
         b.local_candidates = vec![Candidate::host(addr(5000), "b")];
@@ -525,11 +563,8 @@ mod tests {
         let checks = a.due_checks();
         assert_eq!(nominating_count(&checks), 0, "immediate re-poll is paced");
 
-        // Age the stamp past the retransmit interval.
-        a.nominating_sent_at.insert(
-            addr(5000),
-            std::time::Instant::now() - std::time::Duration::from_secs(1),
-        );
+        // Advance past the retransmit interval.
+        a_clock.advance(251);
         let checks = a.due_checks();
         assert_eq!(nominating_count(&checks), 1, "retransmit after the interval");
 

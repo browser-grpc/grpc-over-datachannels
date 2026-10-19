@@ -1,6 +1,8 @@
 //! DCEP (RFC 8832): DATA_CHANNEL_OPEN/ACK over SCTP PPID 50, and the
 //! channel-type byte mapping to SCTP partial-reliability policies.
 
+use alloc::string::String;
+use alloc::vec::Vec;
 use crate::sctp::SendOptions;
 
 pub const PPID_DCEP: u32 = 50;

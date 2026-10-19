@@ -4,9 +4,10 @@
 //! WebRTC pins certificates by their SHA-256 fingerprint in SDP, which
 //! is what `fingerprint` provides.
 
+use alloc::string::String;
+use alloc::vec::Vec;
 use crate::crypto::sha256;
 use crate::p256::{PrivateKey, PublicKey};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn der_len(len: usize) -> Vec<u8> {
     if len < 128 {
@@ -132,7 +133,7 @@ impl Certificate {
     pub fn generate_self_signed(cn: &str) -> Self {
         let (private, public) = PrivateKey::generate();
         let serial = crate::crypto::random_bytes(16);
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let now = crate::platform::wall_now_secs();
         let spki = {
             let alg = {
                 let mut v = der_oid(&[1, 2, 840, 10045, 2, 1]);

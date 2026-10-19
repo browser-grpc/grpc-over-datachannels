@@ -7,4 +7,11 @@ license = "Apache-2.0"
 
 # Zero external dependencies is a hard requirement (SPEC-WEBRTC.md):
 # std threads + blocking sockets + hand-rolled crypto only.
+[features]
+default = ["std"]
+# std: OS sockets/threads/clocks (Peer, endpoint, TURN, mDNS,
+# std transports). Disable for the alloc-only bare-metal core
+# (ICE/DTLS/SCTP/DCEP/SDP/STUN/net/platform traits).
+std = []
+
 [dependencies]

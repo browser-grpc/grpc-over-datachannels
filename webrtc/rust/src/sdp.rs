@@ -1,6 +1,8 @@
 //! SDP (RFC 8866) offer/answer subset for one datachannel m-section:
 //! ice-ufrag/pwd, DTLS fingerprint + setup, host candidates, sctp-port.
 
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use crate::ice::Candidate;
 
 #[derive(Clone, Debug, PartialEq)]

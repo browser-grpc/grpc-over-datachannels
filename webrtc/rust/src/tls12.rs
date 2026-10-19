@@ -16,10 +16,20 @@
 //! expected server (SAN dNSName / iPAddress, else CN), and
 //! the ServerKeyExchange signature must verify.
 
-use crate::crypto::{aes128_gcm_decrypt, aes128_gcm_encrypt, prf, random_bytes, sha256, sha384, sha512};
-use crate::p256::{PrivateKey, PublicKey};
-use std::io::{self, Read, Write};
-use std::net::{IpAddr, TcpStream};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use crate::crypto::{aes128_gcm_decrypt, aes128_gcm_encrypt, sha256, sha384, sha512};
+#[cfg(feature = "std")]
+use crate::crypto::{prf, random_bytes};
+use crate::io;
+#[cfg(feature = "std")]
+use crate::io::{Read, Write};
+use crate::p256::PublicKey;
+#[cfg(feature = "std")]
+use crate::p256::PrivateKey;
+use core::net::IpAddr;
+#[cfg(feature = "std")]
+use std::net::TcpStream;
 
 const SUITE_ECDHE_ECDSA_AES128_GCM_SHA256: u16 = 0xC02B;
 const VERSION: [u8; 2] = [3, 3];
@@ -83,12 +93,16 @@ impl Cipher {
 
 /// Record layer during the handshake (both directions on one
 /// stream); split into halves once application data flows.
+/// (TCP client halves are std-only; the DTLS engine in dtls.rs
+/// has its own record layer over `DtlsIo`.)
+#[cfg(feature = "std")]
 struct RecordConn {
     stream: TcpStream,
     read_cipher: Option<Cipher>,
     write_cipher: Option<Cipher>,
 }
 
+#[cfg(feature = "std")]
 impl RecordConn {
     fn write_record(&mut self, content_type: u8, payload: &[u8]) -> io::Result<()> {
         let body = match &mut self.write_cipher {
@@ -119,12 +133,14 @@ impl RecordConn {
 }
 
 /// Handshake-message view over decrypted record payloads.
+#[cfg(feature = "std")]
 struct HandshakeReader {
     conn: RecordConn,
     buf: Vec<u8>,
     transcript: Vec<u8>,
 }
 
+#[cfg(feature = "std")]
 impl HandshakeReader {
     /// Next handshake message as (type, body, transcript hash
     /// BEFORE this message — what Finished verify_data covers).
@@ -317,7 +333,7 @@ struct ParsedCert {
 }
 
 fn parse_time(tag: u8, text: &[u8]) -> io::Result<i64> {
-    let text = std::str::from_utf8(text).map_err(|_| bad("tls: bad validity time"))?;
+    let text = core::str::from_utf8(text).map_err(|_| bad("tls: bad validity time"))?;
     let digits = |s: &str| s.bytes().take_while(|b| b.is_ascii_digit()).count();
     let (year, rest) = if tag == 0x17 {
         // UTCTime YYMMDDHHMMSSZ
@@ -625,17 +641,17 @@ fn big_to_be(value: &BigUint, width: usize) -> Vec<u8> {
     out
 }
 
-fn big_cmp(a: &BigUint, b: &BigUint) -> std::cmp::Ordering {
+fn big_cmp(a: &BigUint, b: &BigUint) -> core::cmp::Ordering {
     let top = |v: &BigUint| v.iter().rposition(|limb| *limb != 0).map_or(0, |i| i + 1);
     match top(a).cmp(&top(b)) {
-        std::cmp::Ordering::Equal => {
+        core::cmp::Ordering::Equal => {
             for i in (0..top(a)).rev() {
                 match a[i].cmp(&b[i]) {
-                    std::cmp::Ordering::Equal => continue,
+                    core::cmp::Ordering::Equal => continue,
                     other => return other,
                 }
             }
-            std::cmp::Ordering::Equal
+            core::cmp::Ordering::Equal
         }
         other => other,
     }
@@ -668,7 +684,7 @@ fn big_addmod(a: &BigUint, b: &BigUint, modulus: &BigUint) -> BigUint {
         out[i] = sum as u32;
         carry = sum >> 32;
     }
-    if big_cmp(&out, modulus) != std::cmp::Ordering::Less {
+    if big_cmp(&out, modulus) != core::cmp::Ordering::Less {
         big_sub_assign(&mut out, modulus);
     }
     out.truncate(modulus.len());
@@ -692,7 +708,7 @@ fn big_mulmod(a: &BigUint, b: &BigUint, modulus: &BigUint) -> BigUint {
 fn rsa_pkcs1_verify(hash: HashAlg, digest: &[u8], sig: &[u8], modulus: &[u8], exponent: u64) -> bool {
     let n = big_from_be(modulus);
     let s = big_from_be(sig);
-    if big_cmp(&s, &n) != std::cmp::Ordering::Less {
+    if big_cmp(&s, &n) != core::cmp::Ordering::Less {
         return false;
     }
     // m = s^e mod n by square-and-multiply over the exponent bits.
@@ -824,6 +840,7 @@ impl RootStore {
 
     /// The platform root store: $SSL_CERT_FILE when set, else
     /// the first existing well-known bundle path.
+    #[cfg(feature = "std")]
     pub fn system() -> io::Result<Self> {
         let mut store = Self::empty();
         let mut candidates: Vec<std::path::PathBuf> = Vec::new();
@@ -855,6 +872,7 @@ impl RootStore {
     }
 }
 
+#[cfg(feature = "std")]
 fn system_roots() -> io::Result<&'static RootStore> {
     static ROOTS: std::sync::OnceLock<io::Result<RootStore>> = std::sync::OnceLock::new();
     match ROOTS.get_or_init(RootStore::system) {
@@ -867,10 +885,7 @@ fn verify_chain(certs: &[ParsedCert], roots: &RootStore, server_name: &str) -> i
     if certs.is_empty() {
         return Err(bad("tls: empty certificate chain"));
     }
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+    let now = crate::platform::wall_now_secs() as i64;
     let in_window = |cert: &ParsedCert| now >= cert.not_before && now <= cert.not_after;
     let leaf = &certs[0];
     if !in_window(leaf) {
@@ -903,7 +918,7 @@ fn verify_chain(certs: &[ParsedCert], roots: &RootStore, server_name: &str) -> i
         }
         // find() can return current itself for a self-signed
         // cert not in the root store.
-        if std::ptr::eq(issuer, current) {
+        if core::ptr::eq(issuer, current) {
             return Err(bad("tls: self-signed certificate is not a trusted root"));
         }
         current = issuer;
@@ -950,12 +965,14 @@ fn verify_server_name(leaf: &ParsedCert, server_name: &str) -> io::Result<()> {
 
 /// Decrypting read half: yields application-data plaintext via
 /// Read (other record types are consumed and ignored).
+#[cfg(feature = "std")]
 pub struct TlsReadHalf {
     stream: TcpStream,
     cipher: Cipher,
     plain: std::collections::VecDeque<u8>,
 }
 
+#[cfg(feature = "std")]
 impl Read for TlsReadHalf {
     fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
         while self.plain.is_empty() {
@@ -992,11 +1009,13 @@ impl Read for TlsReadHalf {
 }
 
 /// Encrypting write half (one record per write_all chunk).
+#[cfg(feature = "std")]
 pub struct TlsWriteHalf {
     stream: TcpStream,
     cipher: Cipher,
 }
 
+#[cfg(feature = "std")]
 impl TlsWriteHalf {
     pub fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
         for chunk in data.chunks(16_384) {
@@ -1011,6 +1030,7 @@ impl TlsWriteHalf {
 }
 
 /// connect with the system root store (see RootStore::system).
+#[cfg(feature = "std")]
 pub fn connect(
     stream: TcpStream,
     server_name: &str,
@@ -1025,6 +1045,7 @@ pub fn connect(
 /// None) unless insecure_skip_verify (the ServerKeyExchange
 /// signature is always verified unless skipping: without it
 /// the handshake proves nothing).
+#[cfg(feature = "std")]
 pub fn connect_with_roots(
     stream: TcpStream,
     server_name: &str,

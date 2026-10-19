@@ -11,9 +11,14 @@
 //! for datachannel close), HEARTBEAT, SHUTDOWN handshake,
 //! CRC-32C checksum (little-endian on the wire).
 
+use alloc::vec::Vec;
 use crate::crypto::{crc32c, hmac_sha256, random_bytes};
 use crate::proto_gen::{sctp_chunk, sctp_param, sctp_reconfig};
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
+#[cfg(feature = "std")]
+use std::collections::{HashMap, HashSet};
+#[cfg(not(feature = "std"))]
+use alloc::collections::{BTreeMap as HashMap, BTreeSet as HashSet};
 
 pub const SCTP_PORT: u16 = 5000;
 const MAX_DATA_PAYLOAD: usize = 1000;
@@ -106,7 +111,7 @@ pub struct Association {
     resets: HashMap<u16, StreamResetState>,
     pending_reconf: Vec<PendingOutgoingReset>,
     local_reset_seqs: HashMap<u32, (u16, bool)>, // seq -> (stream, outgoing?)
-    out_reset_done: std::collections::HashSet<u16>,
+    out_reset_done: HashSet<u16>,
     peer_initial_tsn: u32,
     last_peer_reconf_seq: Option<u32>,
 }
@@ -224,7 +229,7 @@ impl Association {
             resets: HashMap::new(),
             pending_reconf: Vec::new(),
             local_reset_seqs: HashMap::new(),
-            out_reset_done: std::collections::HashSet::new(),
+            out_reset_done: HashSet::new(),
             peer_initial_tsn: 0,
             last_peer_reconf_seq: None,
         }
@@ -397,7 +402,7 @@ impl Association {
 
     fn process_pending_resets(&mut self, packets: &mut Vec<Vec<u8>>, events: &mut Vec<Event>) {
         let mut remaining = Vec::new();
-        for pending in std::mem::take(&mut self.pending_reconf) {
+        for pending in core::mem::take(&mut self.pending_reconf) {
             if (pending.last_tsn.wrapping_sub(self.peer_cum_tsn) as i32) > 0 {
                 remaining.push(pending);
                 continue;
