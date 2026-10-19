@@ -23,7 +23,7 @@ fn free_port() -> u16 {
     UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
-fn wait_for_stderr(child: &mut Child, needle: &str, timeout: Duration) -> String {
+fn wait_for_stderr_opt(child: &mut Child, needle: &str, timeout: Duration) -> Option<String> {
     let stderr = child.stderr.take().expect("stderr piped");
     let (tx, rx) = mpsc::channel();
     let needle = needle.to_string();
@@ -48,9 +48,9 @@ fn wait_for_stderr(child: &mut Child, needle: &str, timeout: Duration) -> String
     let deadline = Instant::now() + timeout;
     loop {
         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(text) if text.contains(&needle) => return text,
+            Ok(text) if text.contains(&needle) => return Some(text),
             Ok(_) => continue,
-            Err(_) => panic!("timed out waiting for {needle:?}"),
+            Err(_) => return None,
         }
     }
 }
@@ -63,11 +63,26 @@ fn spawn_server(port: u16) -> Child {
         .expect("spawn dtls_echo server")
 }
 
+// Spawn the echo server and wait (generously) for it to listen.
+// Process startup under a full parallel test run can take far
+// longer than 5s, and the probed free port can be taken by a
+// sibling test before the server binds; retry with a fresh port
+// instead of flaking.
+fn start_server() -> (Child, u16) {
+    for _ in 0..3 {
+        let port = free_port();
+        let mut server = spawn_server(port);
+        if wait_for_stderr_opt(&mut server, "LISTENING", Duration::from_secs(30)).is_some() {
+            return (server, port);
+        }
+        server.kill().ok();
+    }
+    panic!("dtls_echo server did not start after 3 attempts");
+}
+
 #[test]
 fn rust_client_rust_server_echo() {
-    let port = free_port();
-    let mut server = spawn_server(port);
-    let _ = wait_for_stderr(&mut server, "LISTENING", Duration::from_secs(5));
+    let (mut server, port) = start_server();
 
     let mut client = Command::new(echo_binary())
         .args(["client", &port.to_string()])
@@ -155,9 +170,7 @@ fn openssl_client_rust_server() {
         eprintln!("openssl CLI not available; skipping");
         return;
     }
-    let port = free_port();
-    let mut server = spawn_server(port);
-    let _ = wait_for_stderr(&mut server, "LISTENING", Duration::from_secs(5));
+    let (mut server, port) = start_server();
 
     let mut client = Command::new("openssl")
         .args(["s_client", "-dtls1_2", "-connect", &format!("127.0.0.1:{port}")])
