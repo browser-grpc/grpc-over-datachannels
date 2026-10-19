@@ -200,6 +200,7 @@ async function runCase(name, engine) {
       js: (b) => `${b}_pb.js`,
       go: (b) => `${b}_pb.go`,
       python: (b) => `${b}_pb.py`,
+      rust: (b) => `${b}_pb.rs`,
       java: (b) => `${upperFirst(b)}Pb.java`,
       csharp: (b) => `${upperFirst(b)}Pb.cs`,
       cpp: (b) => `${b}_messages.hpp`,
@@ -307,13 +308,33 @@ async function runCase(name, engine) {
       const actual = entries.get(`gen/${lang}/${stub}`);
       assert.ok(actual && actual.equals(expected), `${name}: fallback ${lang} stub differs from native plugin`);
     }
-    // The fallback is honestly incomplete outside js/python: the
-    // manifest must say so (missing list + fallback note), never
-    // silently ship stubs without their message types.
+    // The fallback message generators now cover js, python and
+    // go (byte-identical to the native plugins); outside those,
+    // the manifest must honestly say so (missing list + fallback
+    // note), never silently ship stubs without their message
+    // types.
+    if (LANGS.includes("go")) {
+      const expectedGoPb = await readFile(join(refs.go, "echo_pb.go"));
+      const actualGoPb = entries.get("gen/go/echo_pb.go");
+      assert.ok(actualGoPb, "fallback zip missing gen/go/echo_pb.go");
+      assert.ok(actualGoPb.equals(expectedGoPb), `${name}: fallback go messages differ from native plugin`);
+    }
+    if (LANGS.includes("js")) {
+      const expectedJsPb = await readFile(join(refs.js, "echo_pb.js"));
+      const actualJsPb = entries.get("gen/js/echo_pb.js");
+      assert.ok(actualJsPb, "fallback zip missing gen/js/echo_pb.js");
+      assert.ok(actualJsPb.equals(expectedJsPb), `${name}: fallback js messages differ from native plugin`);
+    }
+    if (LANGS.includes("python")) {
+      const expectedPyPb = await readFile(join(refs.python, "echo_pb.py"));
+      const actualPyPb = entries.get("gen/python/echo_pb.py");
+      assert.ok(actualPyPb, "fallback zip missing gen/python/echo_pb.py");
+      assert.ok(actualPyPb.equals(expectedPyPb), `${name}: fallback python messages differ from native plugin`);
+    }
     const fbManifest = JSON.parse(entries.get("manifest.json").toString());
-    assert.match(fbManifest.fallbackNote ?? "", /js and python/, "fallback manifest explains the reduced coverage");
+    assert.match(fbManifest.fallbackNote ?? "", /js, python and go/, "fallback manifest explains the reduced coverage");
     assert.ok(
-      fbManifest.missing.includes("gen/go/echo_pb.go"),
+      fbManifest.missing.includes("gen/java/EchoPb.java"),
       "fallback manifest reports missing message files: " + fbManifest.missing.join(", "));
     console.log(`${name}: webapp parity OK (echo + shop byte-identical via Racket/Wasm plugins, params, per-file download, error surfaced, JS fallback identical)`);
   } finally {

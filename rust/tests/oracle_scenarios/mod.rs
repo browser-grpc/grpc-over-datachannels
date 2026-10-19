@@ -32,7 +32,7 @@ fn unmsg(token: &str) -> String {
 }
 
 fn req(message: &str, count: i32) -> pb::EchoRequest {
-    pb::EchoRequest { message: message.to_string(), count, delay_ms: 0 }
+    pb::EchoRequest { message: message.to_string(), count, delay_ms: 0, ..Default::default() }
 }
 
 /// Execute every generated scenario; Err describes the first mismatch.

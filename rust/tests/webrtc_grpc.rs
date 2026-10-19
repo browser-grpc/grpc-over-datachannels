@@ -4,8 +4,11 @@
 
 #![cfg(feature = "webrtc")]
 
-#[path = "../examples/echo_demo/pb.rs"]
+#[path = "../gen/echo_pb.rs"]
 mod pb;
+
+#[path = "../examples/echo_demo/pb_message_impl.rs"]
+mod pb_message_impl;
 
 #[path = "../gen/echo_grpc_dc.rs"]
 mod stub;
@@ -26,7 +29,7 @@ struct EchoService;
 #[grpc_dc::async_trait]
 impl Echo for EchoService {
     async fn unary(&self, req: pb::EchoRequest, _ctx: CallCtx) -> Result<pb::EchoResponse, Status> {
-        Ok(pb::EchoResponse { message: format!("echo: {}", req.message), index: 0 })
+        Ok(pb::EchoResponse { message: format!("echo: {}", req.message), index: 0 , ..Default::default() })
     }
     async fn server_stream(
         &self,
@@ -34,7 +37,7 @@ impl Echo for EchoService {
         _ctx: CallCtx,
     ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
         let responses = (0..req.count.max(0))
-            .map(move |i| Ok(pb::EchoResponse { message: req.message.clone(), index: i }));
+            .map(move |i| Ok(pb::EchoResponse { message: req.message.clone(), index: i , ..Default::default() }));
         Ok(Box::pin(futures_util::stream::iter(responses)))
     }
     async fn client_stream(
@@ -46,7 +49,7 @@ impl Echo for EchoService {
         while let Some(req) = reqs.next().await {
             parts.push(req?.message);
         }
-        Ok(pb::EchoResponse { message: parts.join("+"), index: parts.len() as i32 })
+        Ok(pb::EchoResponse { message: parts.join("+"), index: parts.len() as i32 , ..Default::default() })
     }
     async fn bidi(
         &self,
@@ -56,7 +59,7 @@ impl Echo for EchoService {
         let stream = futures_util::stream::unfold((reqs, 0i32), |(mut reqs, mut i)| async move {
             match reqs.next().await {
                 Some(Ok(req)) => {
-                    let r = pb::EchoResponse { message: req.message, index: i };
+                    let r = pb::EchoResponse { message: req.message, index: i , ..Default::default() };
                     i += 1;
                     Some((Ok(r), (reqs, i)))
                 }
@@ -79,7 +82,7 @@ fn loopback_peer() -> Peer {
 }
 
 fn req(message: &str, count: i32) -> pb::EchoRequest {
-    pb::EchoRequest { message: message.into(), count, delay_ms: 0 }
+    pb::EchoRequest { message: message.into(), count, delay_ms: 0, ..Default::default() }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

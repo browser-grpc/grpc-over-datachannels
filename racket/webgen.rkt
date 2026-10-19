@@ -176,12 +176,16 @@ function parseEnumDesc(fields) {
 }
 
 function parseFieldDesc(fields) {
+  const dfltRaw = firstBytes(fields, 7);
   return {
     name: getString(fields, 1),
+    extendee: getString(fields, 2, '').replace(/^\./, ''),
     number: getInt(fields, 3),
     label: getInt(fields, 4, 1), // 1 optional, 2 required, 3 repeated
     type: getInt(fields, 5),
     typeName: getString(fields, 6, '').replace(/^\./, ''),
+    default: dfltRaw === null ? null : utf8.decode(dfltRaw),
+    oneofIndex: fields.has(9) ? getInt(fields, 9) : null,
     jsonName: getString(fields, 10, ''),
   };
 }
@@ -196,20 +200,52 @@ function parseMessageDesc(fields, prefix) {
     fields: getAllBytes(fields, 2).map((f) => parseFieldDesc(pbParse(f))),
     nested: getAllBytes(fields, 3).map((n) => parseMessageDesc(pbParse(n), full)),
     enums: getAllBytes(fields, 4).map((e) => parseEnumDesc(pbParse(e))),
+    extensions: getAllBytes(fields, 6).map((f) => parseFieldDesc(pbParse(f))),
     mapEntry: opts !== null && getBool(pbParse(opts), 7),
   };
 }
 
 function parseFileDesc(fields) {
   const pkg = getString(fields, 2, '');
+  const syntaxRaw = getString(fields, 12, '');
   return {
     name: getString(fields, 1),
     package: pkg,
+    // protoc only writes syntax for proto3/editions; absent = proto2.
+    syntax: syntaxRaw === '' ? 'proto2' : syntaxRaw,
     dependencies: getStrings(fields, 3),
     services: getAllBytes(fields, 6).map((s) => parseService(pbParse(s), pkg)),
     messages: getAllBytes(fields, 4).map((m) => parseMessageDesc(pbParse(m), pkg)),
     enums: getAllBytes(fields, 5).map((e) => parseEnumDesc(pbParse(e))),
+    extensions: getAllBytes(fields, 7).map((f) => parseFieldDesc(pbParse(f))),
   };
+}
+
+// Extension fields merge into their extendee message's field list
+// (mirrors desc.rkt merge-extensions).
+function mergeExtensions(files) {
+  const exts = [];
+  const collect = (msgs) => {
+    for (const m of msgs) {
+      exts.push(...m.extensions);
+      collect(m.nested);
+    }
+  };
+  for (const f of files) {
+    exts.push(...f.extensions);
+    collect(f.messages);
+  }
+  const addTo = (msg, ext) => {
+    if (msg.fullName === ext.extendee) {
+      msg.fields = [...msg.fields, ext];
+    } else {
+      for (const n of msg.nested) addTo(n, ext);
+    }
+  };
+  for (const ext of exts) {
+    for (const f of files) for (const m of f.messages) addTo(m, ext);
+  }
+  return files;
 }
 
 function buildModel(setBytes, entries) {
@@ -220,15 +256,16 @@ function buildModel(setBytes, entries) {
   }
   // Global type registry across the whole set, so JS message
   // generation can resolve field types across imports.
+  mergeExtensions([...byName.values()]);
   const registry = new Map();
   const registerMsg = (file, pkg, msg) => {
-    registry.set(msg.fullName, { kind: msg.mapEntry ? 'map' : 'message', msg, file, pkg });
+    registry.set(msg.fullName, { kind: msg.mapEntry ? 'map' : 'message', msg, file, pkg, full: msg.fullName });
     for (const n of msg.nested) registerMsg(file, pkg, n);
-    for (const e of msg.enums) registry.set(msg.fullName + '.' + e.name, { kind: 'enum', enum: e, file, pkg });
+    for (const e of msg.enums) registry.set(msg.fullName + '.' + e.name, { kind: 'enum', enum: e, file, pkg, full: msg.fullName + '.' + e.name });
   };
   for (const f of byName.values()) {
     for (const m of f.messages) registerMsg(f.name, f.package, m);
-    for (const e of f.enums) registry.set((f.package ? f.package + '.' : '') + e.name, { kind: 'enum', enum: e, file: f.name, pkg: f.package });
+    for (const e of f.enums) registry.set((f.package ? f.package + '.' : '') + e.name, { kind: 'enum', enum: e, file: f.name, pkg: f.package, full: (f.package ? f.package + '.' : '') + e.name });
   }
   return entries.map((e) => {
     const f = byName.get(e);
@@ -236,6 +273,60 @@ function buildModel(setBytes, entries) {
     f.types = registry;
     return f;
   });
+}
+
+// Fields sharing f's oneof group within its message (f excluded),
+// by identity in the file model's message tree. Empty for non-oneof
+// fields and single-member (proto3 optional) oneofs.
+function oneofSiblings(model, f) {
+  if (f.oneofIndex === null || f.oneofIndex === undefined) return [];
+  let found = null;
+  const search = (msgs) => {
+    for (const m of msgs) {
+      if (m.fields.includes(f)) { found = m; return; }
+      search(m.nested);
+      if (found) return;
+    }
+  };
+  search(model.messages || []);
+  if (!found) return [];
+  const sibs = found.fields.filter((x) => x !== f && x.oneofIndex === f.oneofIndex);
+  return sibs.length ? sibs : [];
+}
+
+// Siblings of f that come after it in field order (encode winners).
+function oneofLaterSiblings(model, f) {
+  const sibs = oneofSiblings(model, f);
+  if (!sibs.length) return [];
+  let fields = null;
+  const search = (msgs) => {
+    for (const m of msgs) {
+      if (m.fields.includes(f)) { fields = m.fields; return; }
+      search(m.nested);
+      if (fields) return;
+    }
+  };
+  search(model.messages || []);
+  if (!fields) return [];
+  const idx = fields.indexOf(f);
+  return sibs.filter((x) => fields.indexOf(x) > idx);
+}
+
+// The descriptor's explicit (proto2) default for a singular scalar
+// or enum field, as a string; null otherwise.
+function fieldExplicitDefault(f) {
+  if (f.default === null || f.default === undefined) return null;
+  if (f.label === 3) return null;
+  if (f.type === FT.GROUP || f.type === FT.MESSAGE || f.type === FT.BYTES) return null;
+  return f.default;
+}
+
+// Numeric value of a field's explicit enum default, or null.
+function enumDefaultNumber(model, f) {
+  const entry = model.types ? model.types.get(f.typeName) : null;
+  if (!entry || entry.kind !== 'enum') return null;
+  const v = entry.enum.values.find((x) => x.name === f.default);
+  return v ? v.number : null;
 }
 
 function aliasesFor(fullName) {
@@ -401,24 +492,37 @@ class Reader {
   }
   field() {
     if (this.done) return null;
+    const start = this.pos;
     const tag = this.varint();
     const field = Number(tag >> 3n);
     const wire = Number(tag & 7n);
     switch (wire) {
       case 0:
-        return [field, wire, this.varint()];
+        return [field, wire, this.varint(), this.bytes.slice(start, this.pos)];
       case 2: {
         const len = Number(this.varint());
-        return [field, wire, this.take(len)];
+        const v = this.take(len);
+        return [field, wire, v, this.bytes.slice(start, this.pos)];
       }
-      case 1:
-        return [field, wire, this.take(8)];
-      case 5:
-        return [field, wire, this.take(4)];
+      case 1: {
+        const v = this.take(8);
+        return [field, wire, v, this.bytes.slice(start, this.pos)];
+      }
+      case 5: {
+        const v = this.take(4);
+        return [field, wire, v, this.bytes.slice(start, this.pos)];
+      }
       default:
         throw new Error("bad wire type " + wire);
     }
   }
+}
+
+function concatBytes(a, b) {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
+  return out;
 }
 
 function putTag(out, num, wire) {
@@ -494,7 +598,19 @@ function pbVarintDecode(f, v) {
   }
 }
 
+function pbExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case FT.STRING: return JSON.stringify(d);
+    case FT.ENUM: return String(enumDefaultNumber(model, f));
+    default: return d;
+  }
+}
+
 function pbDefault(f, model) {
+  const lit = pbExplicitLiteral(model, f);
+  if (lit !== null) return lit;
   if (f.label === 3) {
     const t = model.types.get(f.typeName);
     if (f.type === FT.MESSAGE && t && t.kind === 'map') return 'new Map()';
@@ -520,14 +636,27 @@ function pbResolve(model, typeName) {
 // Statements encoding one singular field value expr into `out`.
 function pbEncodeSingular(model, f, v, indent) {
   const n = f.number;
-  if (PB_VARINT.has(f.type)) return indent + 'putVarintField(out, ' + n + ', ' + pbVarintExpr(f, v) + ');\n';
+  // Proto2 optional/required fields have explicit presence: they
+  // are written even when equal to the default.
+  const proto2 = model.syntax === 'proto2';
+  if (PB_VARINT.has(f.type)) {
+    return proto2
+      ? indent + 'putTag(out, ' + n + ', 0); out.push(...varintBytes(' + pbVarintExpr(f, v) + '));\n'
+      : indent + 'putVarintField(out, ' + n + ', ' + pbVarintExpr(f, v) + ');\n';
+  }
   if (PB_FIXED[f.type]) {
     const [size, op] = PB_FIXED[f.type];
-    return indent + 'if (' + v + ') putFixedField(out, ' + n + ', fixedBytes(' + v + ', ' + size + ', (dv, x) => dv.set' + op + '(0, x, true)));\n';
+    return proto2
+      ? indent + 'putFixedField(out, ' + n + ', fixedBytes(' + v + ', ' + size + ', (dv, x) => dv.set' + op + '(0, x, true)));\n'
+      : indent + 'if (' + v + ') putFixedField(out, ' + n + ', fixedBytes(' + v + ', ' + size + ', (dv, x) => dv.set' + op + '(0, x, true)));\n';
   }
   switch (f.type) {
-    case FT.STRING: return indent + 'putStringField(out, ' + n + ', ' + v + ');\n';
-    case FT.BYTES: return indent + 'if (' + v + ' && ' + v + '.length) putBytesField(out, ' + n + ', ' + v + ');\n';
+    case FT.STRING: return proto2
+      ? indent + 'putBytesField(out, ' + n + ', new TextEncoder().encode(' + v + '));\n'
+      : indent + 'putStringField(out, ' + n + ', ' + v + ');\n';
+    case FT.BYTES: return proto2
+      ? indent + 'putBytesField(out, ' + n + ', ' + v + ');\n'
+      : indent + 'if (' + v + ' && ' + v + '.length) putBytesField(out, ' + n + ', ' + v + ');\n';
     case FT.MESSAGE: {
       const entry = pbResolve(model, f.typeName);
       const ref = pbFlatName(entry.pkg, entry.msg.fullName);
@@ -535,6 +664,29 @@ function pbEncodeSingular(model, f, v, indent) {
     }
     default: throw new Error('unsupported field type ' + f.type + ' (groups are not supported)');
   }
+}
+
+function pbOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => 'msg.' + pbJsName(sib) + ' = ' + pbDefault(sib, model) + '; ').join('');
+}
+
+function pbSetExpr(sib) {
+  const v = 'msg.' + pbJsName(sib);
+  switch (sib.type) {
+    case FT.MESSAGE: case FT.GROUP: return v;
+    case FT.STRING: return v + ' !== ""';
+    case FT.BYTES: return '(' + v + ' && ' + v + '.length > 0)';
+    case FT.BOOL: return v;
+    default: return PB_BIGINT.has(sib.type) ? v + ' !== 0n' : v + ' !== 0';
+  }
+}
+
+// Encode-side oneof clearing: suppress f when a later sibling is
+// set, so only the winning member is written.
+function pbEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '    if (!(' + later.map(pbSetExpr).join(' || ') + ')) {\n' + code + '    }\n';
 }
 
 function pbEncodeField(model, f) {
@@ -606,7 +758,7 @@ function pbDecodeCase(model, f) {
       return head + '{ const [k, val] = ' + helper + '(value); ' + target + '.set(k, val); break; }\n';
     }
   }
-  if (f.label !== 3) return head + pbDecodeSingular(model, f, target) + ' break;\n';
+  if (f.label !== 3) return head + pbOneofClearing(model, f) + pbDecodeSingular(model, f, target) + ' break;\n';
   if (PB_VARINT.has(f.type)) {
     return head + 'if (wire === 2) { const r = new Reader(value); while (!r.done) ' + target + '.push(' + pbVarintDecode(f, 'r.varint()') + '); } else ' + target + '.push(' + pbVarintDecode(f, 'value') + '); break;\n';
   }
@@ -649,15 +801,16 @@ function pbMessageClass(model, msg) {
   const name = pbFlatName(model.package, msg.fullName);
   const params = msg.fields.map((f) => pbJsName(f) + ' = ' + pbDefault(f, model)).join(', ');
   const assigns = msg.fields.map((f) => '    this.' + pbJsName(f) + ' = ' + pbJsName(f) + ';\n').join('');
-  const enc = msg.fields.map((f) => pbEncodeField(model, f)).join('');
+  const enc = msg.fields.map((f) => pbEncodeGuard(model, f, pbEncodeField(model, f))).join('');
   const dec = msg.fields.map((f) => pbDecodeCase(model, f)).join('');
   return 'export class ' + name + ' {\n'
-    + '  constructor({ ' + params + ' } = {}) {\n' + assigns + '  }\n'
-    + '  static encode(msg) {\n    const out = [];\n' + enc + '    return new Uint8Array(out);\n  }\n'
+    + '  constructor({ ' + params + ' } = {}) {\n' + assigns + '    this.unknownFields = new Uint8Array(0);\n  }\n'
+    + '  static encode(msg) {\n    const out = [];\n' + enc + '    out.push(...msg.unknownFields);\n    return new Uint8Array(out);\n  }\n'
     + '  static decode(bytes) {\n    const msg = new ' + name + '();\n'
     + '    const reader = new Reader(bytes);\n    let f;\n'
-    + '    while ((f = reader.field()) !== null) {\n      const [num, wire, value] = f;\n      switch (num) {\n'
+    + '    while ((f = reader.field()) !== null) {\n      const [num, wire, value, raw] = f;\n      switch (num) {\n'
     + dec
+    + '        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n'
     + '      }\n    }\n    return msg;\n  }\n}\n\n';
 }
 
@@ -697,10 +850,10 @@ function emitJsPbFile(model) {
     if (entry && entry.kind !== 'enum') addImport(entry, true);
   }
   if (!hasMessages && reexports.size === 0) return null;
-  let out = '// @generated by the grpc-dc web generator (protobuf messages for JS). DO NOT EDIT.\n'
+  let out = '// @generated by protoc-gen-grpc-dc-js (Racket metaprogram). DO NOT EDIT.\n'
     + '// source: ' + model.name + '\n\n';
   for (const [file, names] of imports) {
-    out += 'import { ' + [...names].join(', ') + ' } from "./' + baseName(file) + '_pb.js";\n';
+    out += 'import { ' + [...names].sort().join(', ') + ' } from "./' + baseName(file) + '_pb.js";\n';
   }
   if (imports.size) out += '\n';
   out += PB_PREAMBLE;
@@ -750,7 +903,7 @@ function emitJsPbFile(model) {
   for (const m of model.messages) alias(m, '');
   for (const [file, names] of reexports) {
     const fresh = [...names].filter((n) => !exported.has(n));
-    if (fresh.length) out += 'export { ' + fresh.join(', ') + ' } from "./' + baseName(file) + '_pb.js";\n';
+    if (fresh.length) out += 'export { ' + fresh.sort().join(', ') + ' } from "./' + baseName(file) + '_pb.js";\n';
   }
   return { name: baseName(model.name) + '_pb.js', content: out };
 }
@@ -910,9 +1063,475 @@ function goService(svc) {
     + '\t\t},\n\t})\n}\n';
 }
 
+// ---------------------------------------------------------------------------
+// Go message types (<base>_pb.go), mirroring racket/template-go.rkt
+// (the gp* functions): structs implementing MarshalDC/UnmarshalDC,
+// dependency-free (stdlib only), byte-identical to the native
+// protoc-gen-grpc-dc-go plugin.
+// ---------------------------------------------------------------------------
+
+const GP_VARINT = new Set([FT.INT32, FT.INT64, FT.UINT32, FT.UINT64, FT.SINT32, FT.SINT64, FT.BOOL, FT.ENUM]);
+const GP_FIXED = { [FT.FLOAT]: [4, 'Float32'], [FT.DOUBLE]: [8, 'Float64'], [FT.FIXED32]: [4, 'Uint32'], [FT.SFIXED32]: [4, 'Int32'], [FT.FIXED64]: [8, 'BigUint64'], [FT.SFIXED64]: [8, 'BigInt64'] };
+
+const GP_PREAMBLE = 'func appendVarint(out []byte, v uint64) []byte {\n\tfor v > 0x7f {\n\t\tout = append(out, byte(v&0x7f)|0x80)\n\t\tv >>= 7\n\t}\n\treturn append(out, byte(v))\n}\n\n'
+  + 'func appendTag(out []byte, field int, wire int) []byte {\n\treturn appendVarint(out, uint64(field<<3|wire))\n}\n\n'
+  + 'func appendBytesField(out []byte, field int, payload []byte) []byte {\n\tout = appendTag(out, field, 2)\n\tout = appendVarint(out, uint64(len(payload)))\n\treturn append(out, payload...)\n}\n\n'
+  + 'func appendStringField(out []byte, field int, value string) []byte {\n\tif value == "" {\n\t\treturn out\n\t}\n\treturn appendBytesField(out, field, []byte(value))\n}\n\n'
+  + 'func zz32(v int32) uint64 { return uint64(uint32((v << 1) ^ (v >> 31))) }\n\nfunc zz64(v int64) uint64 { return uint64((v << 1) ^ (v >> 63)) }\n\n'
+  + 'func unzz32(v uint64) int32 { return int32(uint32(v>>1) ^ uint32(-int32(v&1))) }\n\nfunc unzz64(v uint64) int64 { return int64(v>>1) ^ -int64(v&1) }\n\n'
+  + 'type pbReader struct {\n\tbuf []byte\n\tpos int\n}\n\n'
+  + 'func (r *pbReader) varint() (uint64, error) {\n\tvar result uint64\n\tvar shift uint\n\tfor {\n\t\tif r.pos >= len(r.buf) {\n\t\t\treturn 0, errors.New("truncated varint")\n\t\t}\n\t\tb := r.buf[r.pos]\n\t\tr.pos++\n\t\tresult |= uint64(b&0x7f) << shift\n\t\tif b&0x80 == 0 {\n\t\t\treturn result, nil\n\t\t}\n\t\tshift += 7\n\t\tif shift >= 64 {\n\t\t\treturn 0, errors.New("varint too long")\n\t\t}\n\t}\n}\n\n'
+  + 'func (r *pbReader) take(n int) ([]byte, error) {\n\tif r.pos+n > len(r.buf) {\n\t\treturn nil, errors.New("truncated field")\n\t}\n\tv := r.buf[r.pos : r.pos+n]\n\tr.pos += n\n\treturn v, nil\n}\n\n'
+  + '// field returns (number, value, done, error); value is uint64 for\n// varints and []byte for length-delimited/fixed fields.\n'
+  + 'func (r *pbReader) field() (int, int, any, []byte, bool, error) {\n\tif r.pos >= len(r.buf) {\n\t\treturn 0, 0, nil, nil, true, nil\n\t}\n\tstart := r.pos\n\ttag, err := r.varint()\n\tif err != nil {\n\t\treturn 0, 0, nil, nil, false, err\n\t}\n\tnum := int(tag >> 3)\n\twire := int(tag & 7)\n\tswitch wire {\n\tcase 0:\n\t\tv, err := r.varint()\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tcase 2:\n\t\tn, err := r.varint()\n\t\tif err != nil {\n\t\t\treturn 0, 0, nil, nil, false, err\n\t\t}\n\t\tv, err := r.take(int(n))\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tcase 1:\n\t\tv, err := r.take(8)\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tcase 5:\n\t\tv, err := r.take(4)\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tdefault:\n\t\treturn 0, 0, nil, nil, false, errors.New("bad wire type")\n\t}\n}\n\n';
+
+function gpPascal(s) {
+  return s.split('_').map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
+}
+
+function gpFlat(pkg, full) {
+  const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+  return rel.split('.').join('_');
+}
+
+function gpResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function gpEntryType(entry) {
+  if (entry.kind === 'enum') {
+    // Mirrors template-go.rkt: registry enum entries carry no
+    // parent message, so nested enums flatten to their simple
+    // name (e.g. Outer.Middle.Kind -> Kind).
+    const full = entry.msg
+      ? entry.msg.fullName + '.' + entry.enum.name
+      : (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name;
+    return gpFlat(entry.pkg, full);
+  }
+  return gpFlat(entry.pkg, entry.msg.fullName);
+}
+
+function gpScalarType(f) {
+  switch (f.type) {
+    case FT.DOUBLE: return 'float64';
+    case FT.FLOAT: return 'float32';
+    case FT.INT64: case FT.SFIXED64: case FT.SINT64: return 'int64';
+    case FT.UINT64: case FT.FIXED64: return 'uint64';
+    case FT.INT32: case FT.SFIXED32: case FT.SINT32: return 'int32';
+    case FT.UINT32: case FT.FIXED32: return 'uint32';
+    case FT.BOOL: return 'bool';
+    case FT.STRING: return 'string';
+    case FT.BYTES: return '[]byte';
+    default: return null;
+  }
+}
+
+function gpFieldType(model, f) {
+  let base;
+  if (f.type === FT.MESSAGE) {
+    const entry = gpResolve(model, f.typeName);
+    if (entry.kind === 'map') {
+      const kf = entry.msg.fields.find((x) => x.number === 1);
+      const vf = entry.msg.fields.find((x) => x.number === 2);
+      base = 'map[' + gpFieldType(model, { ...kf, label: 1 }) + ']' + gpFieldType(model, { ...vf, label: 1 });
+    } else {
+      base = '*' + gpEntryType(entry);
+    }
+  } else if (f.type === FT.ENUM) {
+    base = gpEntryType(gpResolve(model, f.typeName));
+  } else {
+    base = gpScalarType(f);
+  }
+  if (f.label === 3) {
+    if (f.type === FT.MESSAGE && gpResolve(model, f.typeName).kind === 'map') return base;
+    return '[]' + base;
+  }
+  return base;
+}
+
+function gpVarintExpr(f, v) {
+  switch (f.type) {
+    case FT.BOOL: return 'boolToUint64(' + v + ')';
+    case FT.SINT32: return 'zz32(' + v + ')';
+    case FT.SINT64: return 'zz64(' + v + ')';
+    case FT.INT32: case FT.ENUM: return 'uint64(int64(' + v + '))';
+    default: return 'uint64(' + v + ')';
+  }
+}
+
+function gpVarintDecode(f, v) {
+  switch (f.type) {
+    case FT.INT32: case FT.ENUM: return 'int32(' + v + ')';
+    case FT.UINT32: return 'uint32(' + v + ')';
+    case FT.INT64: return 'int64(' + v + ')';
+    case FT.UINT64: return v;
+    case FT.BOOL: return v + ' != 0';
+    case FT.SINT32: return 'unzz32(' + v + ')';
+    case FT.SINT64: return 'unzz64(' + v + ')';
+    default: throw new Error('not a varint type ' + f.type);
+  }
+}
+
+function gpFixedDecode(info, v) {
+  switch (info[1]) {
+    case 'Float32': return 'pbFloat32FromBits(binary.LittleEndian.Uint32(' + v + '))';
+    case 'Float64': return 'pbFloat64FromBits(binary.LittleEndian.Uint64(' + v + '))';
+    case 'Uint32': return 'binary.LittleEndian.Uint32(' + v + ')';
+    case 'Int32': return 'int32(binary.LittleEndian.Uint32(' + v + '))';
+    case 'BigUint64': return 'binary.LittleEndian.Uint64(' + v + ')';
+    case 'BigInt64': return 'int64(binary.LittleEndian.Uint64(' + v + '))';
+    default: throw new Error('bad fixed kind');
+  }
+}
+
+function gpFixedEncode(info, v) {
+  switch (info[1]) {
+    case 'Float32': return 'fixed32Bytes(pbFloat32Bits(' + v + '))';
+    case 'Float64': return 'fixed64Bytes(pbFloat64Bits(' + v + '))';
+    case 'Uint32': return 'fixed32Bytes(' + v + ')';
+    case 'Int32': return 'fixed32Bytes(uint32(' + v + '))';
+    case 'BigUint64': return 'fixed64Bytes(' + v + ')';
+    case 'BigInt64': return 'fixed64Bytes(uint64(' + v + '))';
+    default: throw new Error('bad fixed kind');
+  }
+}
+
+function gpZero(f) {
+  switch (f.type) {
+    case FT.MESSAGE: case FT.GROUP: case FT.BYTES: return 'nil';
+    case FT.STRING: return '""';
+    case FT.BOOL: return 'false';
+    default: return '0';
+  }
+}
+
+function gpOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '\t\t\tm.' + gpPascal(sib.name) + ' = ' + gpZero(sib) + '\n').join('');
+}
+
+function gpSetExpr(sib) {
+  const v = 'm.' + gpPascal(sib.name);
+  switch (sib.type) {
+    case FT.MESSAGE: case FT.GROUP: return v + ' != nil';
+    case FT.STRING: return v + ' != ""';
+    case FT.BYTES: return 'len(' + v + ') > 0';
+    case FT.BOOL: return v;
+    default: return v + ' != 0';
+  }
+}
+
+// Encode-side oneof clearing: suppress f when a later sibling is
+// set, so only the winning member is written.
+function gpEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '\tif !(' + later.map(gpSetExpr).join(' || ') + ') {\n' + code + '\t}\n';
+}
+
+function gpEncodeSingular(model, f, v, indent) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (GP_VARINT.has(f.type)) {
+    if (proto2) {
+      return indent + 'out = appendTag(out, ' + n + ', 0)\n' + indent + 'out = appendVarint(out, ' + gpVarintExpr(f, v) + ')\n';
+    }
+    return indent + 'if ' + (f.type === FT.BOOL ? v : v + ' != 0') + ' {\n'
+      + indent + '\tout = appendTag(out, ' + n + ', 0)\n'
+      + indent + '\tout = appendVarint(out, ' + gpVarintExpr(f, v) + ')\n'
+      + indent + '}\n';
+  }
+  const fixed = GP_FIXED[f.type];
+  if (fixed) {
+    const wire = fixed[0] === 8 ? 1 : 5;
+    if (proto2) {
+      return indent + 'out = appendTag(out, ' + n + ', ' + wire + ')\n'
+        + indent + 'out = append(out, ' + gpFixedEncode(fixed, v) + '...)\n';
+    }
+    return indent + 'if ' + v + ' != 0 {\n'
+      + indent + '\tout = appendTag(out, ' + n + ', ' + wire + ')\n'
+      + indent + '\tout = append(out, ' + gpFixedEncode(fixed, v) + '...)\n'
+      + indent + '}\n';
+  }
+  switch (f.type) {
+    case FT.STRING:
+      return proto2
+        ? indent + 'out = appendBytesField(out, ' + n + ', []byte(' + v + '))\n'
+        : indent + 'out = appendStringField(out, ' + n + ', ' + v + ')\n';
+    case FT.BYTES:
+      return proto2
+        ? indent + 'out = appendBytesField(out, ' + n + ', ' + v + ')\n'
+        : indent + 'if len(' + v + ') > 0 {\n' + indent + '\tout = appendBytesField(out, ' + n + ', ' + v + ')\n' + indent + '}\n';
+    case FT.MESSAGE:
+      return indent + 'if ' + v + ' != nil {\n' + indent + '\tout = appendBytesField(out, ' + n + ', ' + v + '.MarshalDC())\n' + indent + '}\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function gpEncodeField(model, f) {
+  const v = 'm.' + gpPascal(f.name);
+  const n = f.number;
+  if (f.type === FT.MESSAGE && gpResolve(model, f.typeName).kind === 'map') {
+    const helper = 'encode' + gpEntryType(gpResolve(model, f.typeName));
+    return '\tfor k, val := range ' + v + ' {\n\t\tout = appendBytesField(out, ' + n + ', ' + helper + '(k, val))\n\t}\n';
+  }
+  if (f.label !== 3) return gpEncodeSingular(model, f, v, '\t');
+  if (GP_VARINT.has(f.type)) {
+    return '\tif len(' + v + ') > 0 {\n\t\tvar payload []byte\n'
+      + '\t\tfor _, x := range ' + v + ' {\n\t\t\tpayload = appendVarint(payload, ' + gpVarintExpr(f, 'x') + ')\n\t\t}\n'
+      + '\t\tout = appendBytesField(out, ' + n + ', payload)\n\t}\n';
+  }
+  const fixed = GP_FIXED[f.type];
+  if (fixed) {
+    return '\tif len(' + v + ') > 0 {\n\t\tvar payload []byte\n'
+      + '\t\tfor _, x := range ' + v + ' {\n\t\t\tpayload = append(payload, ' + gpFixedEncode(fixed, 'x') + '...)\n\t\t}\n'
+      + '\t\tout = appendBytesField(out, ' + n + ', payload)\n\t}\n';
+  }
+  switch (f.type) {
+    case FT.STRING:
+      return '\tfor _, x := range ' + v + ' {\n\t\tout = appendBytesField(out, ' + n + ', []byte(x))\n\t}\n';
+    case FT.BYTES:
+      return '\tfor _, x := range ' + v + ' {\n\t\tout = appendBytesField(out, ' + n + ', x)\n\t}\n';
+    case FT.MESSAGE:
+      return '\tfor _, x := range ' + v + ' {\n\t\tout = appendBytesField(out, ' + n + ', x.MarshalDC())\n\t}\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+function gpDecodeSingular(model, f, target, src, indent, errStmt) {
+  if (GP_VARINT.has(f.type)) {
+    const conv = f.type === FT.ENUM
+      ? gpEntryType(gpResolve(model, f.typeName)) + '(' + gpVarintDecode({ ...f, type: FT.INT32 }, src) + ')'
+      : gpVarintDecode(f, src);
+    return indent + target + ' = ' + conv + '\n';
+  }
+  const fixed = GP_FIXED[f.type];
+  if (fixed) return indent + target + ' = ' + gpFixedDecode(fixed, src) + '\n';
+  switch (f.type) {
+    case FT.STRING: return indent + target + ' = string(' + src + ')\n';
+    case FT.BYTES: return indent + target + ' = append([]byte(nil), ' + src + '...)\n';
+    case FT.MESSAGE: {
+      const tname = gpEntryType(gpResolve(model, f.typeName));
+      return indent + 'tmp' + f.number + ' := new(' + tname + ')\n'
+        + indent + 'if err := tmp' + f.number + '.UnmarshalDC(' + src + '); err != nil {\n'
+        + indent + '\t' + errStmt + '\n'
+        + indent + '}\n'
+        + indent + target + ' = tmp' + f.number + '\n';
+    }
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function gpDecodeCase(model, f) {
+  const target = 'm.' + gpPascal(f.name);
+  const head = '\t\tcase ' + f.number + ':\n';
+  if (f.type === FT.MESSAGE && gpResolve(model, f.typeName).kind === 'map') {
+    const helper = 'decode' + gpEntryType(gpResolve(model, f.typeName));
+    return head
+      + '\t\t\tif b, ok := value.([]byte); ok {\n'
+      + '\t\t\t\tk, val, err := ' + helper + '(b)\n'
+      + '\t\t\t\tif err != nil {\n\t\t\t\t\treturn err\n\t\t\t\t}\n'
+      + '\t\t\t\tif ' + target + ' == nil {\n\t\t\t\t\t' + target + ' = make(' + gpFieldType(model, f) + ')\n\t\t\t\t}\n'
+      + '\t\t\t\t' + target + '[k] = val\n\t\t\t}\n';
+  }
+  if (f.label !== 3) {
+    const inner = GP_VARINT.has(f.type)
+      ? '\t\t\tif v, ok := value.(uint64); ok {\n' + gpDecodeSingular(model, f, target, 'v', '\t\t\t\t', 'return err') + '\t\t\t}\n'
+      : '\t\t\tif b, ok := value.([]byte); ok {\n' + gpDecodeSingular(model, f, target, 'b', '\t\t\t\t', 'return err') + '\t\t\t}\n';
+    return head + gpOneofClearing(model, f) + inner;
+  }
+  if (GP_VARINT.has(f.type)) {
+    const conv = (src) => f.type === FT.ENUM
+      ? gpEntryType(gpResolve(model, f.typeName)) + '(' + gpVarintDecode({ ...f, type: FT.INT32 }, src) + ')'
+      : gpVarintDecode(f, src);
+    return head
+      + '\t\t\tswitch value := value.(type) {\n'
+      + '\t\t\tcase uint64:\n'
+      + '\t\t\t\t' + target + ' = append(' + target + ', ' + conv('value') + ')\n'
+      + '\t\t\tcase []byte:\n'
+      + '\t\t\t\tsub := &pbReader{buf: value}\n'
+      + '\t\t\t\tfor sub.pos < len(sub.buf) {\n'
+      + '\t\t\t\t\tv, err := sub.varint()\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\treturn err\n\t\t\t\t\t}\n'
+      + '\t\t\t\t\t' + target + ' = append(' + target + ', ' + conv('v') + ')\n'
+      + '\t\t\t\t}\n\t\t\t}\n';
+  }
+  const fixed = GP_FIXED[f.type];
+  if (fixed) {
+    const size = fixed[0];
+    return head
+      + '\t\t\tif b, ok := value.([]byte); ok {\n'
+      + '\t\t\t\tif len(b) == ' + size + ' {\n'
+      + '\t\t\t\t\t' + target + ' = append(' + target + ', ' + gpFixedDecode(fixed, 'b') + ')\n'
+      + '\t\t\t\t} else {\n'
+      + '\t\t\t\t\tfor off := 0; off+' + size + ' <= len(b); off += ' + size + ' {\n'
+      + '\t\t\t\t\t\t' + target + ' = append(' + target + ', ' + gpFixedDecode(fixed, 'b[off:off+' + size + ']') + ')\n'
+      + '\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n';
+  }
+  switch (f.type) {
+    case FT.STRING:
+      return head + '\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t' + target + ' = append(' + target + ', string(b))\n\t\t\t}\n';
+    case FT.BYTES:
+      return head + '\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t' + target + ' = append(' + target + ', append([]byte(nil), b...))\n\t\t\t}\n';
+    case FT.MESSAGE: {
+      return head
+        + '\t\t\tif b, ok := value.([]byte); ok {\n'
+        + '\t\t\t\tvar tmpv ' + gpFieldType(model, { ...f, label: 1 }) + '\n'
+        + gpDecodeSingular(model, f, 'tmpv', 'b', '\t\t\t\t', 'return err')
+        + '\t\t\t\t' + target + ' = append(' + target + ', tmpv)\n\t\t\t}\n';
+    }
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function gpMapHelpers(model, entry) {
+  const msg = entry.msg;
+  const base = gpEntryType(entry);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry ' + msg.fullName + ' lacks key/value fields');
+  const kt = gpFieldType(model, { ...keyF, label: 1 });
+  const vt = gpFieldType(model, { ...valF, label: 1 });
+  const errStmt = 'return key, value, err';
+  const decCase = (fld, targetName) => {
+    const inner = GP_VARINT.has(fld.type)
+      ? '\t\t\tif v, ok := value0.(uint64); ok {\n' + gpDecodeSingular(model, fld, targetName, 'v', '\t\t\t\t', errStmt) + '\t\t\t}\n'
+      : '\t\t\tif b, ok := value0.([]byte); ok {\n' + gpDecodeSingular(model, fld, targetName, 'b', '\t\t\t\t', errStmt) + '\t\t\t}\n';
+    return '\t\tcase ' + fld.number + ':\n' + inner;
+  };
+  return 'func encode' + base + '(key ' + kt + ', value ' + vt + ') []byte {\n\tvar out []byte\n'
+    + gpEncodeSingular(model, keyF, 'key', '\t')
+    + gpEncodeSingular(model, valF, 'value', '\t')
+    + '\treturn out\n}\n\n'
+    + 'func decode' + base + '(data []byte) (' + kt + ', ' + vt + ', error) {\n'
+    + '\tvar key ' + kt + '\n\tvar value ' + vt + '\n'
+    + '\tr := &pbReader{buf: data}\n\tfor {\n\t\tnum, _, value0, _, done, err := r.field()\n\t\tif err != nil {\n\t\t\treturn key, value, err\n\t\t}\n\t\tif done {\n\t\t\treturn key, value, nil\n\t\t}\n\t\tswitch num {\n'
+    + decCase(keyF, 'key')
+    + decCase(valF, 'value')
+    + '\t\t}\n\t}\n}\n\n';
+}
+
+function gpEnum(entry) {
+  const e = entry.enum;
+  const tname = gpEntryType(entry);
+  return 'type ' + tname + ' int32\n\nconst (\n'
+    + e.values.map((v) => '\t' + tname + '_' + v.name + ' ' + tname + ' = ' + v.number + '\n').join('')
+    + ')\n\n';
+}
+
+function gpDefaultLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case FT.STRING: return JSON.stringify(d);
+    case FT.ENUM: return gpEntryType(gpResolve(model, f.typeName)) + '(' + enumDefaultNumber(model, f) + ')';
+    default: return d;
+  }
+}
+
+function gpConstructor(model, msg) {
+  const name = gpFlat(model.package, msg.fullName);
+  const inits = [];
+  for (const f of msg.fields) {
+    const lit = gpDefaultLiteral(model, f);
+    if (lit !== null) inits.push('\t' + gpPascal(f.name) + ': ' + lit + ',\n');
+  }
+  if (!inits.length) return '';
+  return '// New' + name + ' returns a ' + name + ' with the descriptor\'s explicit (proto2)\n// default values applied.\n'
+    + 'func New' + name + '() *' + name + ' {\n\treturn &' + name + '{\n'
+    + inits.join('')
+    + '\t}\n}\n\n';
+}
+
+function gpMessage(model, msg) {
+  const name = gpFlat(model.package, msg.fullName);
+  return 'type ' + name + ' struct {\n'
+    + msg.fields.map((f) => '\t' + gpPascal(f.name) + ' ' + gpFieldType(model, f) + '\n').join('')
+    + '\tUnknownFields []byte\n'
+    + '}\n\n'
+    + gpConstructor(model, msg)
+    + 'func (m *' + name + ') MarshalDC() []byte {\n\tvar out []byte\n'
+    + msg.fields.map((f) => gpEncodeGuard(model, f, gpEncodeField(model, f))).join('')
+    + '\tout = append(out, m.UnknownFields...)\n'
+    + '\treturn out\n}\n\n'
+    + 'func (m *' + name + ') UnmarshalDC(data []byte) error {\n'
+    + '\tm.UnknownFields = nil\n'
+    + '\tr := &pbReader{buf: data}\n\tfor {\n\t\tnum, _, value, raw, done, err := r.field()\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif done {\n\t\t\treturn nil\n\t\t}\n\t\tswitch num {\n'
+    + msg.fields.map((f) => gpDecodeCase(model, f)).join('')
+    + '\t\tdefault:\n\t\t\tm.UnknownFields = append(m.UnknownFields, raw...)\n'
+    + '\t\t}\n\t}\n}\n\n';
+}
+
+function gpApplyPrefix(content, prefix) {
+  const pairs = [
+    ['appendVarint', 'AppendVarint'], ['appendTag', 'AppendTag'],
+    ['appendBytesField', 'AppendBytesField'], ['appendStringField', 'AppendStringField'],
+    ['boolToUint64', 'BoolToUint64'], ['fixed32Bytes', 'Fixed32Bytes'],
+    ['fixed64Bytes', 'Fixed64Bytes'], ['pbFloat32Bits', 'Float32Bits'],
+    ['pbFloat32FromBits', 'Float32FromBits'], ['pbFloat64Bits', 'Float64Bits'],
+    ['pbFloat64FromBits', 'Float64FromBits'], ['pbReader', 'Reader'],
+    ['unzz32', 'Unzz32'], ['unzz64', 'Unzz64'], ['zz32', 'Zz32'], ['zz64', 'Zz64'],
+  ];
+  let s = content;
+  for (const [from, to] of pairs) {
+    s = s.replace(new RegExp('\\b' + from + '\\b', 'g'), prefix + to);
+  }
+  return s;
+}
+
+function emitGoPbFile(model, params) {
+  if (!model.messages.length) return null;
+  const base = baseName(model.name);
+  let out = '// @generated by protoc-gen-grpc-dc-go (Racket metaprogram). DO NOT EDIT.\n'
+    + '// source: ' + model.name + '\n\n'
+    + 'package ' + goPackage(model, params) + '\n\n'
+    + 'import (\n\t"encoding/binary"\n\t"errors"\n\t"math"\n)\n\n'
+    + 'func boolToUint64(b bool) uint64 {\n\tif b {\n\t\treturn 1\n\t}\n\treturn 0\n}\n\n'
+    + 'func fixed32Bytes(v uint32) []byte {\n\tvar b [4]byte\n\tbinary.LittleEndian.PutUint32(b[:], v)\n\treturn b[:]\n}\n\n'
+    + 'func fixed64Bytes(v uint64) []byte {\n\tvar b [8]byte\n\tbinary.LittleEndian.PutUint64(b[:], v)\n\treturn b[:]\n}\n\n'
+    + 'func pbFloat32Bits(f float32) uint32 { return math.Float32bits(f) }\n\nfunc pbFloat32FromBits(u uint32) float32 { return math.Float32frombits(u) }\n\nfunc pbFloat64Bits(f float64) uint64 { return math.Float64bits(f) }\n\nfunc pbFloat64FromBits(u uint64) float64 { return math.Float64frombits(u) }\n\n'
+    + GP_PREAMBLE;
+  // Enums (file-level + nested), in descriptor order.
+  const enumEntries = [];
+  const walkEnums = (msg) => {
+    for (const e of msg.enums) {
+      const entry = model.types.get(msg.fullName + '.' + e.name);
+      if (entry) enumEntries.push(entry);
+    }
+    for (const n of msg.nested) walkEnums(n);
+  };
+  for (const m of model.messages) walkEnums(m);
+  for (const e of model.enums) {
+    const entry = model.types.get((model.package ? model.package + '.' : '') + e.name);
+    if (entry) enumEntries.push(entry);
+  }
+  for (const e of enumEntries) out += gpEnum(e);
+  // Map helpers for every map field in the file's messages.
+  const seenMaps = new Set();
+  const emitMapHelpers = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = gpResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+          seenMaps.add(e.msg.fullName);
+          out += gpMapHelpers(model, e);
+        }
+      }
+    }
+    for (const n of msg.nested) emitMapHelpers(n);
+  };
+  for (const m of model.messages) emitMapHelpers(m);
+  const emitMsg = (msg) => {
+    if (msg.mapEntry) return;
+    out += gpMessage(model, msg);
+    for (const n of msg.nested) emitMsg(n);
+  };
+  for (const m of model.messages) emitMsg(m);
+  return { name: base + '_pb.go', content: gpApplyPrefix(out, gpPascal(base) + 'Pb') };
+}
+
 function emitGoFile(model, params) {
   const base = baseName(model.name);
-  return {
+  const stub = {
     name: base + '_grpc_dc.go',
     content: '// @generated by protoc-gen-grpc-dc-go (Racket metaprogram). DO NOT EDIT.\n'
       + '// source: ' + model.name + '\n\n'
@@ -920,6 +1539,8 @@ function emitGoFile(model, params) {
       + 'import (\n\t"context"\n\n\tgrpcdc "grpcdc"\n)\n\n'
       + model.services.map(goService).join(''),
   };
+  const pb = emitGoPbFile(model, params);
+  return pb ? [stub, pb] : stub;
 }
 
 JS
@@ -1218,16 +1839,17 @@ class _Reader:
     def field(self):
         if self.pos >= len(self.buf):
             return None
+        start = self.pos
         tag = self.varint()
         num, wire = tag >> 3, tag & 7
         if wire == 0:
-            return num, wire, self.varint()
+            return num, wire, self.varint(), self.buf[start:self.pos]
         if wire == 2:
-            return num, wire, self.take(self.varint())
+            return num, wire, self.take(self.varint()), self.buf[start:self.pos]
         if wire == 1:
-            return num, wire, self.take(8)
+            return num, wire, self.take(8), self.buf[start:self.pos]
         if wire == 5:
-            return num, wire, self.take(4)
+            return num, wire, self.take(4), self.buf[start:self.pos]
         raise ValueError("bad wire type")
 
 
@@ -1299,7 +1921,20 @@ function pyPbVarintDecode(f, v) {
   }
 }
 
+function pyPbExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case 9: return JSON.stringify(d);
+    case 8: return d === 'true' ? 'True' : 'False';
+    case 14: return String(enumDefaultNumber(model, f));
+    default: return d;
+  }
+}
+
 function pyPbDefault(f, model) {
+  const lit = pyPbExplicitLiteral(model, f);
+  if (lit !== null) return lit;
   if (f.label === 3) {
     const t = f.type === 11 ? model.types.get(f.typeName) : null;
     return t && t.kind === 'map' ? 'dict' : 'list';
@@ -1323,14 +1958,42 @@ function pyPbDefaultExpr(f, model) {
 
 function pyPbEncodeSingular(model, f, v, indent) {
   const n = f.number;
-  if (PY_PB_VARINT.has(f.type)) return indent + 'out = _append_varint_field(out, ' + n + ', ' + pyPbVarintExpr(f, v) + ')\n';
-  if (PY_PB_FIXED_FORMATS[f.type]) return indent + 'if ' + v + ': out = _append_fixed_field(out, ' + n + ', _struct.pack(' + q(PY_PB_FIXED_FORMATS[f.type]) + ', ' + v + '))\n';
+  const proto2 = model.syntax === 'proto2';
+  if (PY_PB_VARINT.has(f.type)) {
+    return proto2
+      ? indent + 'out = _append_tag(out, ' + n + ', 0)\n' + indent + 'out = _append_varint(out, ' + pyPbVarintExpr(f, v) + ')\n'
+      : indent + 'out = _append_varint_field(out, ' + n + ', ' + pyPbVarintExpr(f, v) + ')\n';
+  }
+  if (PY_PB_FIXED_FORMATS[f.type]) {
+    return proto2
+      ? indent + 'out = _append_fixed_field(out, ' + n + ', _struct.pack(' + q(PY_PB_FIXED_FORMATS[f.type]) + ', ' + v + '))\n'
+      : indent + 'if ' + v + ': out = _append_fixed_field(out, ' + n + ', _struct.pack(' + q(PY_PB_FIXED_FORMATS[f.type]) + ', ' + v + '))\n';
+  }
   switch (f.type) {
-    case 9: return indent + 'out = _append_string_field(out, ' + n + ', ' + v + ')\n';
-    case 12: return indent + 'if ' + v + ': out = _append_bytes_field(out, ' + n + ', ' + v + ')\n';
+    case 9: return proto2
+      ? indent + 'out = _append_bytes_field(out, ' + n + ', ' + v + '.encode("utf-8"))\n'
+      : indent + 'out = _append_string_field(out, ' + n + ', ' + v + ')\n';
+    case 12: return proto2
+      ? indent + 'out = _append_bytes_field(out, ' + n + ', ' + v + ')\n'
+      : indent + 'if ' + v + ': out = _append_bytes_field(out, ' + n + ', ' + v + ')\n';
     case 11: return indent + 'if ' + v + ' is not None: out = _append_bytes_field(out, ' + n + ', ' + v + '.marshal_dc())\n';
     default: throw new Error('unsupported field type ' + f.type + ' (groups)');
   }
+}
+
+function pyPbOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '                self.' + sib.name + ' = ' + pyPbDefaultExpr(sib, model) + '\n').join('');
+}
+
+// Encode-side oneof clearing: suppress f when a later sibling is
+// set, so only the winning member is written.
+function pyPbEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  const lines = code.split('\n');
+  if (lines.length && lines[lines.length - 1] === '') lines.pop();
+  return '        if not (' + later.map((sib) => 'self.' + sib.name).join(' or ') + '):\n'
+    + lines.map((l) => (l === '' ? l : '    ' + l)).join('\n') + '\n';
 }
 
 function pyPbEncodeField(model, f) {
@@ -1388,7 +2051,7 @@ function pyPbDecodeCase(model, f, first) {
       return head + '                k, val = ' + helper + '(value)\n                self.' + a + '[k] = val\n';
     }
   }
-  if (f.label !== 3) return head + pyPbDecodeSingular(model, f, target, 'value', '                ');
+  if (f.label !== 3) return head + pyPbOneofClearing(model, f) + pyPbDecodeSingular(model, f, target, 'value', '                ');
   if (PY_PB_VARINT.has(f.type)) {
     return head + '                if wire == 2:\n                    sub = _Reader(value)\n                    while sub.pos < len(sub.buf):\n'
       + '                        self.' + a + '.append(' + pyPbVarintDecode(f, 'sub.varint()') + ')\n'
@@ -1420,7 +2083,7 @@ function pyPbMapHelpers(model, entry) {
     + '    return bytes(out)\n\n\n'
     + 'def _decode_' + base + 'Entry(data):\n'
     + '    key = ' + pyPbDefaultExpr(keyF, model) + '\n    value = ' + pyPbDefaultExpr(valF, model) + '\n'
-    + '    reader = _Reader(data)\n    while True:\n        item = reader.field()\n        if item is None:\n            return key, value\n        num, wire, raw = item\n        if num == 1:\n'
+    + '    reader = _Reader(data)\n    while True:\n        item = reader.field()\n        if item is None:\n            return key, value\n        num, wire, raw, _raw_bytes = item\n        if num == 1:\n'
     + pyPbDecodeSingular(model, keyF, 'key', 'raw', '            ')
     + '        elif num == 2:\n'
     + pyPbDecodeSingular(model, valF, 'value', 'raw', '            ')
@@ -1449,13 +2112,17 @@ function pyPbClass(model, msg) {
   return 'class ' + flat + ':\n    """Message ' + msg.fullName + '."""\n\n'
     + '    def __init__(self, ' + params + '):\n'
     + msg.fields.map((f) => pyPbInitLine(model, f)).join('')
+    + '        self.unknown_fields = b""\n'
     + '\n    def marshal_dc(self):\n        out = bytearray()\n'
-    + msg.fields.map((f) => pyPbEncodeField(model, f)).join('')
+    + msg.fields.map((f) => pyPbEncodeGuard(model, f, pyPbEncodeField(model, f))).join('')
+    + '        out += self.unknown_fields\n'
     + '        return bytes(out)\n'
     + '\n    def unmarshal_dc(self, data):\n'
+    + '        self.unknown_fields = b""\n'
     + msg.fields.map((f) => '        self.' + f.name + ' = ' + pyPbDefaultExpr(f, model) + '\n').join('')
-    + '        reader = _Reader(data)\n        while True:\n            item = reader.field()\n            if item is None:\n                return self\n            num, wire, value = item\n'
+    + '        reader = _Reader(data)\n        while True:\n            item = reader.field()\n            if item is None:\n                return self\n            num, wire, value, raw = item\n'
     + msg.fields.map((f, i) => pyPbDecodeCase(model, f, i === 0)).join('')
+    + (msg.fields.length ? '            else:\n                self.unknown_fields = self.unknown_fields + raw\n' : '')
     + '\n    def __eq__(self, other):\n        return isinstance(other, ' + flat + ') and self.__dict__ == other.__dict__\n'
     + '\n    def __repr__(self):\n        return f"' + flat + '(' + msg.fields.map((f) => f.name + '={self.' + f.name + '!r}').join(', ') + ')"\n\n\n';
 }

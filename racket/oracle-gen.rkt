@@ -241,7 +241,7 @@
          "    if token == \"-\" { String::new() } else { token.to_string() }\n"
          "}\n\n"
          "fn req(message: &str, count: i32) -> pb::EchoRequest {\n"
-         "    pb::EchoRequest { message: message.to_string(), count, delay_ms: 0 }\n"
+         "    pb::EchoRequest { message: message.to_string(), count, delay_ms: 0, ..Default::default() }\n"
          "}\n\n"
          "/// Execute every generated scenario; Err describes the first mismatch.\n"
          "pub async fn run_scenarios(client: &EchoClient) -> Result<(), String> {\n"

@@ -79,6 +79,7 @@ const MESSAGE_FILES = {
   js: (b) => `${b}_pb.js`,
   go: (b) => `${b}_pb.go`,
   python: (b) => `${b}_pb.py`,
+  rust: (b) => `${b}_pb.rs`,
   java: (b) => `${upperFirst(b)}Pb.java`,
   csharp: (b) => `${upperFirst(b)}Pb.cs`,
   cpp: (b) => `${b}_messages.hpp`,
@@ -637,7 +638,7 @@ $("generate").addEventListener("click", async () => {
   window.__zipMissing = missing;
   const usedFallback = !generatedVia.startsWith("Racket");
   const fallbackNote = usedFallback
-    ? "Built-in JS fallback generators were used: stubs for every selected language, but generated message types only for js and python. Serve this app with cross-origin isolation (make webapp-serve) so the Racket plugins run in-browser and every language gets its message types."
+    ? "Built-in JS fallback generators were used: stubs for every selected language, but generated message types only for js, python and go. Serve this app with cross-origin isolation (make webapp-serve) so the Racket plugins run in-browser and every language gets its message types."
     : null;
   entries.push({
     name: "manifest.json",

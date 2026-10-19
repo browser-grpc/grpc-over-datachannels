@@ -4,8 +4,11 @@
 //! racket/oracle-gen.rkt). Skips when the Java oracle or Node bridge
 //! are unavailable (Dockerfile.ci provides both).
 
-#[path = "../examples/echo_demo/pb.rs"]
+#[path = "../gen/echo_pb.rs"]
 mod pb;
+
+#[path = "../examples/echo_demo/pb_message_impl.rs"]
+mod pb_message_impl;
 
 #[path = "../gen/echo_grpc_dc.rs"]
 mod stub;

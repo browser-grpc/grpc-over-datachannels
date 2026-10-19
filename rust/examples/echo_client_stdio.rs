@@ -5,8 +5,11 @@
 //! shape and exits non-zero on any failure. The 4-byte length prefix only
 //! frames messages on stdio; each unit is one grpc-dc frame.
 
-#[path = "echo_demo/pb.rs"]
+#[path = "../gen/echo_pb.rs"]
 mod pb;
+
+#[path = "echo_demo/pb_message_impl.rs"]
+mod pb_message_impl;
 
 #[path = "../gen/echo_grpc_dc.rs"]
 mod stub;
@@ -55,7 +58,7 @@ impl DcTransport for StdioDc {
 }
 
 fn req(message: &str, count: i32) -> pb::EchoRequest {
-    pb::EchoRequest { message: message.into(), count, delay_ms: 0 }
+    pb::EchoRequest { message: message.into(), count, delay_ms: 0, ..Default::default() }
 }
 
 #[tokio::main]

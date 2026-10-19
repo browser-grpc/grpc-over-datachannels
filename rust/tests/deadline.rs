@@ -2,8 +2,11 @@
 //! enforced while awaiting responses (DEADLINE_EXCEEDED + RST);
 //! CallCtx exposes the remaining budget to handlers.
 
-#[path = "../examples/echo_demo/pb.rs"]
+#[path = "../gen/echo_pb.rs"]
 mod pb;
+
+#[path = "../examples/echo_demo/pb_message_impl.rs"]
+mod pb_message_impl;
 
 #[path = "../gen/echo_grpc_dc.rs"]
 mod stub;
@@ -29,7 +32,7 @@ impl Echo for SlowEcho {
             *slot.lock().unwrap() = Some(ctx.clone());
         }
         tokio::time::sleep(Duration::from_millis(400)).await;
-        Ok(pb::EchoResponse { message: format!("echo: {}", req.message), index: 0 })
+        Ok(pb::EchoResponse { message: format!("echo: {}", req.message), index: 0 , ..Default::default() })
     }
 
     async fn server_stream(
@@ -47,7 +50,7 @@ impl Echo for SlowEcho {
                 if i > 0 {
                     tokio::time::sleep(Duration::from_millis(300)).await;
                 }
-                Some((Ok(pb::EchoResponse { message, index: i }), i + 1))
+                Some((Ok(pb::EchoResponse { message, index: i , ..Default::default() }), i + 1))
             }
         });
         Ok(Box::pin(stream))
@@ -59,7 +62,7 @@ impl Echo for SlowEcho {
         _ctx: CallCtx,
     ) -> Result<pb::EchoResponse, Status> {
         let parts: Vec<String> = reqs.map_ok(|r| r.message).try_collect().await?;
-        Ok(pb::EchoResponse { message: parts.join("+"), index: parts.len() as i32 })
+        Ok(pb::EchoResponse { message: parts.join("+"), index: parts.len() as i32 , ..Default::default() })
     }
 
     async fn bidi(
@@ -69,7 +72,7 @@ impl Echo for SlowEcho {
     ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
         let mut index = 0i32;
         Ok(Box::pin(reqs.map_ok(move |r| {
-            let resp = pb::EchoResponse { message: r.message, index };
+            let resp = pb::EchoResponse { message: r.message, index , ..Default::default() };
             index += 1;
             resp
         })))
@@ -88,7 +91,7 @@ async fn setup() -> (EchoClient, std::sync::Arc<Mutex<Option<CallCtx>>>) {
 }
 
 fn req(message: &str, count: i32) -> pb::EchoRequest {
-    pb::EchoRequest { message: message.to_string(), count, delay_ms: 0 }
+    pb::EchoRequest { message: message.to_string(), count, delay_ms: 0, ..Default::default() }
 }
 
 #[test]

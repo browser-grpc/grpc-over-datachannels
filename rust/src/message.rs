@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The message contract generated code relies on.
 //!
-//! Hand-written message types implement this directly (see
-//! `examples/echo_demo/pb.rs`); with the `prost` feature, every
-//! `prost::Message` type implements it automatically. Raw `Bytes` and
-//! `Vec<u8>` pass through unchanged for byte-level callers.
+//! Hand-written message types implement this directly; the
+//! generated message types (`rust/gen/echo_pb.rs`) get impls from
+//! `examples/echo_demo/pb_message_impl.rs`. With the `prost`
+//! feature, every `prost::Message` type implements it automatically.
+//! Raw `Bytes` and `Vec<u8>` pass through unchanged for byte-level callers.
 
 use crate::status::Status;
 use bytes::Bytes;
