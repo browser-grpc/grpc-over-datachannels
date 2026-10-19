@@ -23,6 +23,7 @@ const ACTIVE_LANGS = [
   ["kotlin", "Kotlin"],
   ["dart", "Dart"],
   ["zig", "Zig"],
+  ["c", "C"],
   ["lua", "Lua"],
   ["ruby", "Ruby"],
   ["php", "PHP"],
@@ -50,6 +51,7 @@ const RUNTIME_FILES = {
   kotlin: ["AsyncPump.kt", "Channel.kt", "Codec.kt", "Dynamic.kt", "Endpoint.kt", "MemoryTransport.kt", "Server.kt", "Status.kt", "Transport.kt", "Wire.kt"],
   dart: ["channel.dart", "codec.dart", "dynamic.dart", "endpoint.dart", "memory_transport.dart", "server.dart", "status.dart", "transport.dart", "wire.dart"],
   zig: ["build.zig", "grpcdc/channel.zig", "grpcdc/codec.zig", "grpcdc/dynamic.zig", "grpcdc/endpoint.zig", "grpcdc/grpcdc.zig", "grpcdc/memory_transport.zig", "grpcdc/server.zig", "grpcdc/status.zig", "grpcdc/transport.zig", "grpcdc/wire.zig"],
+  c: ["grpcdc/grpcdc.h", "grpcdc/grpcdc.c", "grpcdc/memory_transport.h", "grpcdc/memory_transport.c"],
   lua: ["grpcdc/channel.lua", "grpcdc/codec.lua", "grpcdc/dynamic.lua", "grpcdc/endpoint.lua", "grpcdc/memory_transport.lua", "grpcdc/server.lua", "grpcdc/status.lua", "grpcdc/transport.lua", "grpcdc/wire.lua"],
   ruby: ["grpcdc.rb", "grpcdc/channel.rb", "grpcdc/codec.rb", "grpcdc/dynamic.rb", "grpcdc/endpoint.rb", "grpcdc/loopback.rb", "grpcdc/server.rb", "grpcdc/wire_gen.rb"],
   php: ["grpcdc.php", "grpcdc/channel.php", "grpcdc/codec.php", "grpcdc/dynamic.php", "grpcdc/endpoint.php", "grpcdc/loopback.php", "grpcdc/server.php", "grpcdc/wire_gen.php"],
@@ -436,7 +438,7 @@ function langParams() {
 // sends one framed job batch. If the runtime cannot start
 // (no SharedArrayBuffer, assets missing), generation falls back
 // to the built-in JS generators; ?gen=js forces that path.
-const RUNNER_LANGS = ["js", "go", "python", "rust", "java", "csharp", "cpp", "swift", "kotlin", "dart", "zig", "lua", "ruby", "php", "scala", "wasm-go", "wasm-zig", "wasm-cpp", "wasm-swift", "wasm-kotlin", "wasm-scala"];
+const RUNNER_LANGS = ["js", "go", "python", "rust", "java", "csharp", "cpp", "swift", "kotlin", "dart", "zig", "c", "lua", "ruby", "php", "scala", "wasm-go", "wasm-zig", "wasm-cpp", "wasm-swift", "wasm-kotlin", "wasm-scala"];
 let runnerState = null;
 
 function runnerRingDrain(state) {
