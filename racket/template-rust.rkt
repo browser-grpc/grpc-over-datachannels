@@ -196,6 +196,11 @@
         [(= type 7) "u32"]
         [else (rs-pb-scalar-type f)]))
 
+(define current-rust-no-std (make-parameter #f))
+
+(define (rs-pb-map-type)
+  (if (current-rust-no-std) "BTreeMap" "std::collections::HashMap"))
+
 (define (rs-pb-type model f)
   (cond [(and (= (hash-ref f 'type) 11)
               (eq? (hash-ref (rs-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
@@ -203,7 +208,7 @@
          (define msg (hash-ref entry 'msg))
          (define kf (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref msg 'fields)))
          (define vf (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref msg 'fields)))
-         (format "std::collections::HashMap<~a, ~a>" (rs-pb-elem-type model kf) (rs-pb-elem-type model vf))]
+         (format "~a<~a, ~a>" (rs-pb-map-type) (rs-pb-elem-type model kf) (rs-pb-elem-type model vf))]
         [(= (hash-ref f 'label) 3) (format "Vec<~a>" (rs-pb-elem-type model f))]
         [(= (hash-ref f 'type) 11) (format "Option<Box<~a>>" (rs-pb-elem-type model f))]
         [else (rs-pb-elem-type model f)]))
@@ -211,7 +216,7 @@
 (define (rs-pb-default model f)
   (cond [(and (= (hash-ref f 'type) 11)
               (eq? (hash-ref (rs-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         "std::collections::HashMap::new()"]
+         (format "~a::new()" (rs-pb-map-type))]
         [(= (hash-ref f 'label) 3) "Vec::new()"]
         [(= (hash-ref f 'type) 11) "None"]
         [(= (hash-ref f 'type) 9) "String::new()"]
@@ -576,6 +581,9 @@
             (format "// source: ~a\n" (hash-ref file-model 'name))
             "// Cross-file message types resolve to crate::<base>_pb modules.\n"
             "#![allow(dead_code, clippy::all)]\n\n"
+            (if (current-rust-no-std)
+                "extern crate alloc;\nuse alloc::{boxed::Box, collections::BTreeMap, string::{String, ToString}, vec::Vec};\n\n"
+                "")
             rs-pb-support
             (apply string-append (map (lambda (e) (rs-pb-enum file-model e)) enums))
             (apply string-append
@@ -597,5 +605,8 @@
            (apply string-append
                   (map (lambda (s) (rust-service s msgmod))
                        (hash-ref file-model 'services))))))
-  (define pb-file (emit-rust-pb-file file-model))
+  (define pb-file
+    (parameterize ([current-rust-no-std
+                    (member (hash-ref params 'rust_no_std "false") '("true" "1"))])
+      (emit-rust-pb-file file-model)))
   (if pb-file (list stub pb-file) stub))
