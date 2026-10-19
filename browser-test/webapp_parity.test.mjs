@@ -308,56 +308,28 @@ async function runCase(name, engine) {
       const actual = entries.get(`gen/${lang}/${stub}`);
       assert.ok(actual && actual.equals(expected), `${name}: fallback ${lang} stub differs from native plugin`);
     }
-    // The fallback message generators now cover js, python, go,
-    // rust and java (byte-identical to the native plugins); outside those,
-    // the manifest must honestly say so (missing list + fallback
-    // note), never silently ship stubs without their message
-    // types.
-    if (LANGS.includes("go")) {
-      const expectedGoPb = await readFile(join(refs.go, "echo_pb.go"));
-      const actualGoPb = entries.get("gen/go/echo_pb.go");
-      assert.ok(actualGoPb, "fallback zip missing gen/go/echo_pb.go");
-      assert.ok(actualGoPb.equals(expectedGoPb), `${name}: fallback go messages differ from native plugin`);
+    // The fallback message generators now cover every language
+    // (byte-identical to the native plugins): stubs and message
+    // types alike, so the fallback manifest reports nothing
+    // missing.
+    for (const lang of LANGS) {
+      const mf = MESSAGE_FILES[lang];
+      if (!mf) continue;
+      const mfName = mf("echo");
+      const expectedMsg = await readFile(join(refs[lang], mfName));
+      const actualMsg = entries.get(`gen/${lang}/${mfName}`);
+      assert.ok(actualMsg, `fallback zip missing gen/${lang}/${mfName}`);
+      assert.ok(actualMsg.equals(expectedMsg), `${name}: fallback ${lang} messages differ from native plugin`);
     }
-    if (LANGS.includes("js")) {
-      const expectedJsPb = await readFile(join(refs.js, "echo_pb.js"));
-      const actualJsPb = entries.get("gen/js/echo_pb.js");
-      assert.ok(actualJsPb, "fallback zip missing gen/js/echo_pb.js");
-      assert.ok(actualJsPb.equals(expectedJsPb), `${name}: fallback js messages differ from native plugin`);
-    }
-    if (LANGS.includes("rust")) {
-      const expectedRustPb = await readFile(join(refs.rust, "echo_pb.rs"));
-      const actualRustPb = entries.get("gen/rust/echo_pb.rs");
-      assert.ok(actualRustPb, "fallback zip missing gen/rust/echo_pb.rs");
-      assert.ok(actualRustPb.equals(expectedRustPb), `${name}: fallback rust messages differ from native plugin`);
-    }
-    if (LANGS.includes("python")) {
-      const expectedPyPb = await readFile(join(refs.python, "echo_pb.py"));
-      const actualPyPb = entries.get("gen/python/echo_pb.py");
-      assert.ok(actualPyPb, "fallback zip missing gen/python/echo_pb.py");
-      assert.ok(actualPyPb.equals(expectedPyPb), `${name}: fallback python messages differ from native plugin`);
-    }
-    const fbManifest = JSON.parse(entries.get("manifest.json").toString());
     if (LANGS.includes("java")) {
-      const expectedJava = await readFile(join(refs.java, "EchoPb.java"));
-      const actualJava = entries.get("gen/java/EchoPb.java");
-      assert.ok(actualJava, "fallback zip missing gen/java/EchoPb.java");
-      assert.ok(actualJava.equals(expectedJava), `${name}: fallback java messages differ from native plugin`);
       const expectedJavaReq = await readFile(join(refs.java, "EchoRequest.java"));
       const actualJavaReq = entries.get("gen/java/EchoRequest.java");
       assert.ok(actualJavaReq && actualJavaReq.equals(expectedJavaReq),
         `${name}: fallback java message class differs from native plugin`);
     }
-    if (LANGS.includes("kotlin")) {
-      const expectedKotlin = await readFile(join(refs.kotlin, "EchoMessages.kt"));
-      const actualKotlin = entries.get("gen/kotlin/EchoMessages.kt");
-      assert.ok(actualKotlin, "fallback zip missing gen/kotlin/EchoMessages.kt");
-      assert.ok(actualKotlin.equals(expectedKotlin), `${name}: fallback kotlin messages differ from native plugin`);
-    }
-    assert.match(fbManifest.fallbackNote ?? "", /js, python, go, rust, java and kotlin/, "fallback manifest explains the reduced coverage");
-    assert.ok(
-      fbManifest.missing.includes("gen/csharp/EchoPb.cs"),
-      "fallback manifest reports missing message files: " + fbManifest.missing.join(", "));
+    const fbManifest = JSON.parse(entries.get("manifest.json").toString());
+    assert.match(fbManifest.fallbackNote ?? "", /stubs and generated message types for every selected language/, "fallback manifest explains the coverage");
+    assert.deepEqual(fbManifest.missing, [], "fallback manifest reports nothing missing: " + fbManifest.missing.join(", "));
     console.log(`${name}: webapp parity OK (echo + shop byte-identical via Racket/Wasm plugins, params, per-file download, error surfaced, JS fallback identical)`);
   } finally {
     await browser.close();

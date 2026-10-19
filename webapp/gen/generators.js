@@ -3915,11 +3915,511 @@ function csService(svc) {
     + '        Register' + sname + 'Server(server, new ' + sname + 'ServerAsyncAdapter(impl));\n    }\n';
 }
 
+
+// ---------------------------------------------------------------------------
+// C# message types, mirroring racket/template-csharp.rkt (the
+// cs-pb-* functions): one public class per top-level message and
+// enum, plus an internal <Base>Pb wire-support class per proto
+// file. Byte-identical to the native protoc-gen-grpc-dc-csharp
+// plugin.
+// ---------------------------------------------------------------------------
+
+const CSP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
+const CSP_FIXED = { 2: [4, 'Float'], 1: [8, 'Double'], 7: [4, 'Int'], 15: [4, 'Int'], 6: [8, 'Long'], 16: [8, 'Long'] };
+
+function cspPascal(s) {
+  return s.split('_').map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
+}
+
+function cspFindOwner(model, f) {
+  const walk = (msg) => {
+    if (msg.fields.includes(f)) return msg;
+    for (const n of msg.nested) { const r = walk(n); if (r) return r; }
+    return null;
+  };
+  for (const m of model.messages) { const r = walk(m); if (r) return r; }
+  return null;
+}
+
+function cspFieldName(model, f) {
+  const n = cspPascal(f.name);
+  const owner = cspFindOwner(model, f);
+  if (owner && (owner.nested.some((m) => m.name === n) || owner.enums.some((e) => e.name === n))) return n + '_';
+  return n;
+}
+
+function cspResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function cspNs(pkg) {
+  return pkg === '' ? 'Proto' : pascalName(pkg);
+}
+
+function cspRel(pkg, full) {
+  const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+  return rel.split('.').join('.');
+}
+
+function cspEntryRef(model, entry) {
+  const rel = entry.kind === 'enum'
+    ? (entry.msg
+      ? cspRel(entry.pkg, entry.msg.fullName) + '.' + entry.enum.name
+      : cspRel(entry.pkg, (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name))
+    : cspRel(entry.pkg, entry.msg.fullName);
+  if (entry.file === model.name) return rel;
+  return cspNs(entry.pkg) + '.' + rel;
+}
+
+function cspScalar(f) {
+  switch (f.type) {
+    case 1: return ['double', '0'];
+    case 2: return ['float', '0'];
+    case 3: case 16: case 18: return ['long', '0'];
+    case 4: case 6: return ['ulong', '0'];
+    case 5: case 15: case 17: return ['int', '0'];
+    case 7: case 13: return ['uint', '0'];
+    case 8: return ['bool', 'false'];
+    case 9: return ['string', '""'];
+    case 12: return ['byte[]', 'new byte[0]'];
+    default: return null;
+  }
+}
+
+function cspType(model, f) {
+  let singular;
+  if (f.type === FT.MESSAGE) {
+    const entry = cspResolve(model, f.typeName);
+    if (entry.kind === 'map') {
+      const kf = entry.msg.fields.find((x) => x.number === 1);
+      const vf = entry.msg.fields.find((x) => x.number === 2);
+      singular = 'System.Collections.Generic.Dictionary<' + cspType(model, { ...kf, label: 1 }) + ', ' + cspType(model, { ...vf, label: 1 }) + '>';
+    } else {
+      singular = cspEntryRef(model, entry);
+    }
+  } else if (f.type === FT.ENUM) {
+    singular = cspEntryRef(model, cspResolve(model, f.typeName));
+  } else {
+    singular = cspScalar(f)[0];
+  }
+  if (f.type === FT.MESSAGE && cspResolve(model, f.typeName).kind === 'map') return singular;
+  if (f.label === 3) return 'System.Collections.Generic.List<' + cspType(model, { ...f, label: 1 }) + '>';
+  return singular;
+}
+
+function cspExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case 9: return JSON.stringify(d);
+    case 8: return d;
+    case 14: return cspEntryRef(model, cspResolve(model, f.typeName)) + '.' + d;
+    case 2: return d + 'f';
+    default: return d;
+  }
+}
+
+function cspDefault(model, f) {
+  const lit = cspExplicitLiteral(model, f);
+  if (lit !== null) return lit;
+  if (f.type === FT.MESSAGE && cspResolve(model, f.typeName).kind === 'map') return 'new ' + cspType(model, f) + '()';
+  if (f.label === 3) return 'new ' + cspType(model, f) + '()';
+  if (f.type === FT.MESSAGE) return 'null';
+  if (f.type === FT.ENUM) {
+    const entry = cspResolve(model, f.typeName);
+    return cspEntryRef(model, entry) + '.' + entry.enum.values[0].name;
+  }
+  return cspScalar(f)[1];
+}
+
+function cspVarintExpr(f, v) {
+  switch (f.type) {
+    case 8: return '(' + v + ' ? 1 : 0)';
+    case 17: return '((' + v + ' << 1) ^ (' + v + ' >> 31))';
+    case 18: return '((' + v + ' << 1) ^ (' + v + ' >> 63))';
+    case 14: return '(int) ' + v;
+    case 4: return '(long) ' + v;
+    default: return v;
+  }
+}
+
+function cspVarintDecode(f, v) {
+  switch (f.type) {
+    case 5: return '(int) ' + v;
+    case 17: return '(int) ((' + v + ' >> 1) ^ -(' + v + ' & 1))';
+    case 13: case 7: return '(uint) ' + v;
+    case 6: case 4: return '(ulong) ' + v;
+    case 3: return v;
+    case 18: return '((' + v + ' >> 1) ^ -(' + v + ' & 1))';
+    case 8: return v + ' != 0';
+    default: throw new Error('not a varint type');
+  }
+}
+
+function cspNonzero(f, v) {
+  switch (f.type) {
+    case 8: return v;
+    case 14: return '(int) ' + v + ' != 0';
+    default: return v + ' != 0';
+  }
+}
+
+function cspFixedBits(f, v) {
+  switch (f.type) {
+    case 7: return '(int) ' + v;
+    case 6: return '(long) ' + v;
+    default: return v;
+  }
+}
+
+function cspEncodeSingular(model, f, v, indent) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (CSP_VARINT.has(f.type)) {
+    return proto2
+      ? indent + '{ w.Tag(' + n + ', 0); w.Varint(' + cspVarintExpr(f, v) + '); }\n'
+      : indent + 'if (' + cspNonzero(f, v) + ') { w.Tag(' + n + ', 0); w.Varint(' + cspVarintExpr(f, v) + '); }\n';
+  }
+  const fixed = CSP_FIXED[f.type];
+  if (fixed) {
+    const wire = fixed[0] === 8 ? 1 : 5;
+    return proto2
+      ? indent + '{ w.Tag(' + n + ', ' + wire + '); w.Fixed' + fixed[1] + '(' + cspFixedBits(f, v) + '); }\n'
+      : indent + 'if (' + cspNonzero(f, v) + ') { w.Tag(' + n + ', ' + wire + '); w.Fixed' + fixed[1] + '(' + cspFixedBits(f, v) + '); }\n';
+  }
+  switch (f.type) {
+    case 9: return proto2
+      ? indent + 'if (' + v + ' != null) w.BytesField(' + n + ', System.Text.Encoding.UTF8.GetBytes(' + v + '));\n'
+      : indent + 'w.StringField(' + n + ', ' + v + ');\n';
+    case 12: return proto2
+      ? indent + 'if (' + v + ' != null) w.BytesField(' + n + ', ' + v + ');\n'
+      : indent + 'if (' + v + ' != null && ' + v + '.Length > 0) w.BytesField(' + n + ', ' + v + ');\n';
+    case 11: return indent + 'if (' + v + ' != null) w.BytesField(' + n + ', ' + v + '.MarshalDc());\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function cspSetExpr(model, sib) {
+  const v = cspFieldName(model, sib);
+  switch (sib.type) {
+    case 11: case 10: return v + ' != null';
+    case 9: case 12: return '(' + v + ' != null && ' + v + '.Length > 0)';
+    default: return cspNonzero(sib, v);
+  }
+}
+
+function cspEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '        if (!(' + later.map((s) => cspSetExpr(model, s)).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
+}
+
+function cspEncodeField(model, f, support) {
+  const v = cspFieldName(model, f);
+  const n = f.number;
+  if (f.type === FT.MESSAGE && cspResolve(model, f.typeName).kind === 'map') {
+    const entry = cspResolve(model, f.typeName);
+    const helper = support + '.' + cspMapHelperName(model, entry) + 'Encode';
+    return '        if (' + v + ' != null) foreach (var e in ' + v + ') w.BytesField(' + n + ', ' + helper + '(e.Key, e.Value));\n';
+  }
+  if (f.label !== 3) return cspEncodeSingular(model, f, v, '        ');
+  if (CSP_VARINT.has(f.type)) {
+    return '        if (' + v + ' != null && ' + v + '.Count > 0) {\n'
+      + '            var payload = new ' + support + '.Writer();\n'
+      + '            foreach (var x in ' + v + ') payload.Varint(' + cspVarintExpr(f, 'x') + ');\n'
+      + '            w.BytesField(' + n + ', payload.ToBytes());\n        }\n';
+  }
+  const fixed = CSP_FIXED[f.type];
+  if (fixed) {
+    return '        if (' + v + ' != null && ' + v + '.Count > 0) {\n'
+      + '            var payload = new ' + support + '.Writer();\n'
+      + '            foreach (var x in ' + v + ') payload.Fixed' + fixed[1] + '(' + cspFixedBits(f, 'x') + ');\n'
+      + '            w.BytesField(' + n + ', payload.ToBytes());\n        }\n';
+  }
+  switch (f.type) {
+    case 9: return '        if (' + v + ' != null) foreach (var x in ' + v + ') w.BytesField(' + n + ', System.Text.Encoding.UTF8.GetBytes(x));\n';
+    case 12: return '        if (' + v + ' != null) foreach (var x in ' + v + ') w.BytesField(' + n + ', x);\n';
+    case 11: return '        if (' + v + ' != null) foreach (var x in ' + v + ') w.BytesField(' + n + ', x.MarshalDc());\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function cspDecodeSingular(model, f, target, src, indent) {
+  if (CSP_VARINT.has(f.type)) {
+    return indent + target + ' = ' + (f.type === 14
+      ? '(' + cspEntryRef(model, cspResolve(model, f.typeName)) + ') ' + cspVarintDecode({ ...f, type: 5 }, src)
+      : cspVarintDecode(f, src)) + ';\n';
+  }
+  if (CSP_FIXED[f.type]) {
+    let conv;
+    switch (f.type) {
+      case 2: conv = 'BitConverter.Int32BitsToSingle((int) ' + src + ')'; break;
+      case 1: conv = 'BitConverter.Int64BitsToDouble(' + src + ')'; break;
+      case 7: conv = '(uint) ' + src; break;
+      case 15: conv = '(int) ' + src; break;
+      case 6: conv = '(ulong) ' + src; break;
+      default: conv = src;
+    }
+    return indent + target + ' = ' + conv + ';\n';
+  }
+  switch (f.type) {
+    case 9: return indent + target + ' = System.Text.Encoding.UTF8.GetString(' + src + ');\n';
+    case 12: return indent + target + ' = ' + src + ';\n';
+    case 11: {
+      const ref = cspEntryRef(model, cspResolve(model, f.typeName));
+      return indent + target + ' = new ' + ref + '();\n' + indent + target + '.UnmarshalDc(' + src + ');\n';
+    }
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function cspOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '                    ' + cspFieldName(model, sib) + ' = ' + cspDefault(model, sib) + ';\n').join('');
+}
+
+function cspSrc(f) {
+  return CSP_VARINT.has(f.type) ? 'field.VarintValue' : (CSP_FIXED[f.type] ? 'field.FixedValue' : 'field.BytesValue');
+}
+
+function cspDecodeCase(model, f, support) {
+  const v = cspFieldName(model, f);
+  const head = '                case ' + f.number + ': {\n';
+  const tail = '                    break;\n                }\n';
+  const clearing = cspOneofClearing(model, f);
+  if (f.type === FT.MESSAGE && cspResolve(model, f.typeName).kind === 'map') {
+    const entry = cspResolve(model, f.typeName);
+    const helper = support + '.' + cspMapHelperName(model, entry) + 'Decode';
+    const kf = entry.msg.fields.find((x) => x.number === 1);
+    const vf = entry.msg.fields.find((x) => x.number === 2);
+    return head
+      + '                    var kv = ' + helper + '(field.BytesValue);\n'
+      + '                    ' + v + '[(' + cspType(model, { ...kf, label: 1 }) + ') kv[0]] = (' + cspType(model, { ...vf, label: 1 }) + ') kv[1];\n'
+      + tail;
+  }
+  if (f.label !== 3) {
+    return head + clearing + cspDecodeSingular(model, f, v, cspSrc(f), '                    ') + tail;
+  }
+  if (CSP_VARINT.has(f.type)) {
+    const conv = (src) => f.type === 14
+      ? '(' + cspEntryRef(model, cspResolve(model, f.typeName)) + ') ' + cspVarintDecode({ ...f, type: 5 }, src)
+      : cspVarintDecode(f, src);
+    return head
+      + '                    if (field.Wire == 2) {\n'
+      + '                        var sub = new ' + support + '.Reader(field.BytesValue);\n'
+      + '                        while (!sub.Done) {\n'
+      + '                            ' + v + '.Add(' + conv('sub.Varint()') + ');\n'
+      + '                        }\n                    } else {\n'
+      + '                        ' + v + '.Add(' + conv('field.VarintValue') + ');\n'
+      + '                    }\n'
+      + tail;
+  }
+  const fixed = CSP_FIXED[f.type];
+  if (fixed) {
+    const subConv = f.type === 2 ? 'BitConverter.Int32BitsToSingle(sub.Fixed32())'
+      : f.type === 1 ? 'BitConverter.Int64BitsToDouble(sub.Fixed64())'
+      : f.type === 7 ? '(uint) sub.Fixed32()'
+      : f.type === 15 ? 'sub.Fixed32()' : 'sub.Fixed64()';
+    const oneConv = f.type === 2 ? 'BitConverter.Int32BitsToSingle((int) field.FixedValue)'
+      : f.type === 1 ? 'BitConverter.Int64BitsToDouble(field.FixedValue)'
+      : f.type === 7 ? '(uint) field.FixedValue'
+      : f.type === 15 ? '(int) field.FixedValue' : 'field.FixedValue';
+    return head
+      + '                    if (field.Wire == 2) {\n'
+      + '                        var sub = new ' + support + '.Reader(field.BytesValue);\n'
+      + '                        while (!sub.Done) ' + v + '.Add(' + subConv + ');\n'
+      + '                    } else {\n'
+      + '                        ' + v + '.Add(' + oneConv + ');\n'
+      + '                    }\n'
+      + tail;
+  }
+  switch (f.type) {
+    case 9: return head + '                    ' + v + '.Add(System.Text.Encoding.UTF8.GetString(field.BytesValue));\n' + tail;
+    case 12: return head + '                    ' + v + '.Add(field.BytesValue);\n' + tail;
+    case 11: return head
+      + '                    var item = new ' + cspType(model, { ...f, label: 1 }) + '();\n'
+      + '                    item.UnmarshalDc(field.BytesValue);\n'
+      + '                    ' + v + '.Add(item);\n'
+      + tail;
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function cspMapHelperName(model, entry) {
+  return cspRel(entry.pkg, entry.msg.fullName).split('.').join('');
+}
+
+function cspMapHelpers(model, entry, support) {
+  const msg = entry.msg;
+  const base = cspMapHelperName(model, entry);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry lacks key/value');
+  const kt = cspType(model, { ...keyF, label: 1 });
+  const vt = cspType(model, { ...valF, label: 1 });
+  return '    internal static byte[] ' + base + 'Encode(' + kt + ' key, ' + vt + ' value) {\n'
+    + '        var w = new Writer();\n'
+    + cspEncodeSingular(model, { ...keyF, label: 1 }, 'key', '        ')
+    + cspEncodeSingular(model, { ...valF, label: 1 }, 'value', '        ')
+    + '        return w.ToBytes();\n    }\n\n'
+    + '    internal static object[] ' + base + 'Decode(byte[] bytes) {\n'
+    + '        ' + kt + ' key = ' + cspDefault(model, { ...keyF, label: 1 }) + ';\n'
+    + '        ' + vt + ' value = ' + cspDefault(model, { ...valF, label: 1 }) + ';\n'
+    + '        var r = new Reader(bytes);\n        Field field;\n        while ((field = r.Next()) != null) {\n            switch (field.Number) {\n'
+    + '                case ' + keyF.number + ': ' + cspDecodeSingular(model, { ...keyF, label: 1 }, 'key', cspSrc(keyF), '').replace(/\s+$/, '') + ' break;\n'
+    + '                case ' + valF.number + ': ' + cspDecodeSingular(model, { ...valF, label: 1 }, 'value', cspSrc(valF), '').replace(/\s+$/, '') + ' break;\n'
+    + '                default: break;\n            }\n        }\n        return new object[] { key, value };\n    }\n\n';
+}
+
+const CSP_SUPPORT_BODY = '    internal sealed class Writer {\n'
+  + '        private readonly System.IO.MemoryStream _out = new();\n'
+  + '        public void Varint(long value) { ulong v = unchecked((ulong) value); while ((v & ~0x7fUL) != 0) { _out.WriteByte((byte) ((v & 0x7f) | 0x80)); v >>= 7; } _out.WriteByte((byte) v); }\n'
+  + '        public void Tag(int field, int wire) { Varint((field << 3) | wire); }\n'
+  + '        public void BytesField(int field, byte[] payload) { Tag(field, 2); Varint(payload.Length); _out.Write(payload, 0, payload.Length); }\n'
+  + '        public void StringField(int field, string value) { if (string.IsNullOrEmpty(value)) return; BytesField(field, System.Text.Encoding.UTF8.GetBytes(value)); }\n'
+  + '        public void Raw(byte[] payload) { _out.Write(payload, 0, payload.Length); }\n'
+  + '        public void FixedInt(int value) { _out.WriteByte((byte) value); _out.WriteByte((byte) (value >> 8)); _out.WriteByte((byte) (value >> 16)); _out.WriteByte((byte) (value >> 24)); }\n'
+  + '        public void FixedLong(long value) { for (int i = 0; i < 8; i++) _out.WriteByte((byte) (value >> (8 * i))); }\n'
+  + '        public void FixedFloat(float value) { FixedInt(BitConverter.SingleToInt32Bits(value)); }\n'
+  + '        public void FixedDouble(double value) { FixedLong(BitConverter.DoubleToInt64Bits(value)); }\n'
+  + '        public byte[] ToBytes() => _out.ToArray();\n'
+  + '    }\n\n'
+  + '    internal static byte[] ConcatBytes(byte[] a, byte[] b) { var o = new byte[a.Length + b.Length]; Array.Copy(a, o, a.Length); Array.Copy(b, 0, o, a.Length, b.Length); return o; }\n\n'
+  + '    internal sealed class Field {\n'
+  + '        public int Number { get; } public int Wire { get; } public long VarintValue { get; } public byte[] BytesValue { get; } public long FixedValue { get; } public byte[] RawValue { get; }\n'
+  + '        internal Field(int number, int wire, long varintValue, byte[] bytesValue, long fixedValue, byte[] rawValue) { Number = number; Wire = wire; VarintValue = varintValue; BytesValue = bytesValue; FixedValue = fixedValue; RawValue = rawValue; }\n'
+  + '    }\n\n'
+  + '    internal sealed class Reader {\n'
+  + '        private readonly byte[] _buf; private int _pos;\n'
+  + '        internal Reader(byte[] buf) { _buf = buf; }\n'
+  + '        public bool Done => _pos >= _buf.Length;\n'
+  + '        public long Varint() { long result = 0; int shift = 0; while (true) { if (_pos >= _buf.Length) throw new ArgumentException("truncated varint"); int b = _buf[_pos++]; result |= (long) (b & 0x7f) << shift; if ((b & 0x80) == 0) return result; shift += 7; if (shift >= 64) throw new ArgumentException("varint too long"); } }\n'
+  + '        public byte[] Take(int n) { if (_pos + n > _buf.Length) throw new ArgumentException("truncated field"); var v = new byte[n]; Array.Copy(_buf, _pos, v, 0, n); _pos += n; return v; }\n'
+  + '        public byte[] TakeFrom(int start) { var v = new byte[_pos - start]; Array.Copy(_buf, start, v, 0, v.Length); return v; }\n'
+  + '        public int Fixed32() { var b = Take(4); return b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); }\n'
+  + '        public long Fixed64() { var b = Take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) b[i] << (8 * i); return v; }\n'
+  + '        public Field Next() {\n'
+  + '            if (_pos >= _buf.Length) return null;\n'
+  + '            int start = _pos;\n'
+  + '            long tag = Varint(); int number = (int) (tag >> 3); int wire = (int) (tag & 7);\n'
+  + '            switch (wire) {\n'
+  + '                case 0: { long v = Varint(); return new Field(number, wire, v, null, 0, TakeFrom(start)); }\n'
+  + '                case 2: { int n = (int) Varint(); var b = Take(n); return new Field(number, wire, 0, b, 0, TakeFrom(start)); }\n'
+  + '                case 1: { var b = Take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) b[i] << (8 * i); return new Field(number, wire, 0, b, v, TakeFrom(start)); }\n'
+  + '                case 5: { var b = Take(4); int v = b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); return new Field(number, wire, 0, b, v, TakeFrom(start)); }\n'
+  + '                default: throw new ArgumentException("bad wire type " + wire);\n'
+  + '            }\n'
+  + '        }\n'
+  + '    }\n'
+  + '}\n';
+
+function cspSupportClass(base, pkg, helpersText) {
+  const support = pascalName(base) + 'Pb';
+  let content = '// @generated by protoc-gen-grpc-dc-csharp (Racket metaprogram). DO NOT EDIT.\n'
+    + 'using System;\n\n'
+    + 'namespace ' + cspNs(pkg) + ';\n\n'
+    + 'internal static class ' + support + ' {\n'
+    + CSP_SUPPORT_BODY;
+  if (helpersText) {
+    content = content.replace('    internal sealed class Writer {', helpersText + '    internal sealed class Writer {');
+  }
+  return { name: support + '.cs', content };
+}
+
+function cspParamName(model, f) {
+  const n = cspFieldName(model, f);
+  return n[0].toLowerCase() + n.slice(1);
+}
+
+function cspMessageClass(model, msg, support, indent, decl) {
+  const pad = indent;
+  const name = msg.name;
+  return pad + decl + ' class ' + name + ' : IMarshaler, IUnmarshaler {\n'
+    + msg.fields.map((f) => pad + '    public ' + cspType(model, f) + ' ' + cspFieldName(model, f) + ' = ' + cspDefault(model, f) + ';\n').join('')
+    + pad + '    public byte[] UnknownFields = new byte[0];\n'
+    + pad + '    public ' + name + '() {}\n'
+    + (msg.fields.length
+      ? pad + '    public ' + name + '(' + msg.fields.map((f) => cspType(model, f) + ' ' + cspParamName(model, f)).join(', ') + ') {\n'
+        + msg.fields.map((f) => pad + '        ' + cspFieldName(model, f) + ' = ' + cspParamName(model, f) + ';\n').join('')
+        + pad + '    }\n'
+      : '')
+    + pad + '    public byte[] MarshalDc() {\n'
+    + pad + '        var w = new ' + support + '.Writer();\n'
+    + msg.fields.map((f) => cspEncodeGuard(model, f, cspEncodeField(model, f, support))).join('')
+    + pad + '        w.Raw(UnknownFields);\n'
+    + pad + '        return w.ToBytes();\n' + pad + '    }\n'
+    + pad + '    public void UnmarshalDc(byte[] data) {\n'
+    + pad + '        UnknownFields = new byte[0];\n'
+    + msg.fields.map((f) => pad + '        ' + cspFieldName(model, f) + ' = ' + cspDefault(model, f) + ';\n').join('')
+    + pad + '        var r = new ' + support + '.Reader(data);\n'
+    + pad + '        ' + support + '.Field field;\n'
+    + pad + '        while ((field = r.Next()) != null) {\n' + pad + '            switch (field.Number) {\n'
+    + msg.fields.map((f) => cspDecodeCase(model, f, support)).join('')
+    + pad + '                default: UnknownFields = ' + support + '.ConcatBytes(UnknownFields, field.RawValue); break;\n'
+    + pad + '            }\n' + pad + '        }\n' + pad + '    }\n'
+    + msg.nested.map((n) => cspMessageClass(model, n, support, indent + '    ', 'public sealed')).join('')
+    + msg.enums.map((e) => cspNestedEnum(e, indent + '    ')).join('')
+    + pad + '}\n';
+}
+
+function cspNestedEnum(e, indent) {
+  return indent + 'public enum ' + e.name + ' {\n'
+    + e.values.map((v) => indent + '    ' + v.name + ' = ' + v.number).join(',\n')
+    + '\n' + indent + '}\n';
+}
+
+function cspTopEnum(model, e, pkg) {
+  return '// @generated by protoc-gen-grpc-dc-csharp (Racket metaprogram). DO NOT EDIT.\n'
+    + 'namespace ' + cspNs(pkg) + ';\n\n'
+    + 'public enum ' + e.name + ' {\n'
+    + e.values.map((v) => '    ' + v.name + ' = ' + v.number).join(',\n')
+    + '\n}\n';
+}
+
+function emitCsharpPbFiles(model) {
+  if (!model.messages.length && !model.enums.length) return [];
+  const base = baseName(model.name);
+  const pkg = model.package;
+  const support = pascalName(base) + 'Pb';
+  const seenMaps = new Set();
+  const helpers = [];
+  const collect = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = cspResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+          seenMaps.add(e.msg.fullName);
+          helpers.push(cspMapHelpers(model, e, support));
+        }
+      }
+    }
+    for (const n of msg.nested) collect(n);
+  };
+  for (const m of model.messages) collect(m);
+  const files = [cspSupportClass(base, pkg, helpers.length ? helpers.join('') : '')];
+  for (const m of model.messages) {
+    if (!m.mapEntry) {
+      files.push({
+        name: m.name + '.cs',
+        content: '// @generated by protoc-gen-grpc-dc-csharp (Racket metaprogram). DO NOT EDIT.\n'
+          + 'using System;\nusing Grpcdc;\n\n'
+          + 'namespace ' + cspNs(pkg) + ';\n\n'
+          + cspMessageClass(model, m, support, '', 'public sealed'),
+      });
+    }
+  }
+  for (const e of model.enums) {
+    files.push({ name: e.name + '.cs', content: cspTopEnum(model, e, pkg) });
+  }
+  return files;
+}
+
 function emitCsharpFile(model, params) {
   const base = baseName(model.name);
   const className = pascalCs(base) + 'GrpcDc';
   const ns = model.package ? pascalCs(model.package) : 'Proto';
-  return {
+  const stub = {
     name: className + '.cs',
     content: '// @generated by protoc-gen-grpc-dc-csharp (Racket metaprogram). DO NOT EDIT.\n'
       + '// source: ' + model.name + '\n\n'
@@ -3930,6 +4430,8 @@ function emitCsharpFile(model, params) {
       + model.services.map(csService).join('')
       + '}\n',
   };
+  const pbFiles = emitCsharpPbFiles(model);
+  return pbFiles.length ? [stub, ...pbFiles] : stub;
 }
 // ---------------------------------------------------------------------------
 // C++ emitter (mirrors racket/template-cpp.rkt).
@@ -4301,11 +4803,469 @@ function cppService(svc) {
     + '    Register' + sname + 'Server(server, *adapter);\n  }\n';
 }
 
+
+// ---------------------------------------------------------------------------
+// C++ message types, mirroring racket/template-cpp.rkt (the
+// cpp-pb-* functions): a single <base>_messages.hpp per proto file
+// with the pb_<base> wire-support namespace, enums and message
+// classes. Byte-identical to the native protoc-gen-grpc-dc-cpp
+// plugin.
+// ---------------------------------------------------------------------------
+
+const XPP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
+const XPP_FIXED = { 2: [4, 'Float'], 1: [8, 'Double'], 7: [4, 'Int32'], 15: [4, 'Int32'], 6: [8, 'Int64'], 16: [8, 'Int64'] };
+
+function xppResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function xppNs(pkg) {
+  return pkg === '' ? 'proto' : pkg.split('.').join('::');
+}
+
+function xppRel(pkg, full) {
+  const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+  return rel.split('.').join('::');
+}
+
+function xppEntryRef(model, entry) {
+  const rel = entry.kind === 'enum'
+    ? (entry.msg
+      ? xppRel(entry.pkg, entry.msg.fullName) + '::' + entry.enum.name
+      : xppRel(entry.pkg, (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name))
+    : xppRel(entry.pkg, entry.msg.fullName);
+  if (entry.file === model.name) return rel;
+  return '::' + xppNs(entry.pkg) + '::' + rel;
+}
+
+function xppScalar(f) {
+  switch (f.type) {
+    case 1: return ['double', '0'];
+    case 2: return ['float', '0'];
+    case 3: case 16: case 18: return ['std::int64_t', '0'];
+    case 4: case 6: return ['std::uint64_t', '0'];
+    case 5: case 15: case 17: return ['std::int32_t', '0'];
+    case 7: case 13: return ['std::uint32_t', '0'];
+    case 8: return ['bool', 'false'];
+    case 9: return ['std::string', '""'];
+    case 12: return ['std::vector<std::uint8_t>', '{}'];
+    default: return null;
+  }
+}
+
+function xppType(model, f) {
+  let singular;
+  if (f.type === FT.MESSAGE) {
+    const entry = xppResolve(model, f.typeName);
+    if (entry.kind === 'map') {
+      const kf = entry.msg.fields.find((x) => x.number === 1);
+      const vf = entry.msg.fields.find((x) => x.number === 2);
+      singular = 'std::map<' + xppType(model, { ...kf, label: 1 }) + ', '
+        + (vf.type === FT.MESSAGE
+          ? xppEntryRef(model, xppResolve(model, vf.typeName))
+          : xppType(model, { ...vf, label: 1 })) + '>';
+    } else {
+      singular = 'std::optional<' + xppEntryRef(model, entry) + '>';
+    }
+  } else if (f.type === FT.ENUM) {
+    singular = xppEntryRef(model, xppResolve(model, f.typeName));
+  } else {
+    singular = xppScalar(f)[0];
+  }
+  if (f.type === FT.MESSAGE && xppResolve(model, f.typeName).kind === 'map') return singular;
+  if (f.label === 3) {
+    return 'std::vector<' + (f.type === FT.MESSAGE
+      ? xppEntryRef(model, xppResolve(model, f.typeName))
+      : xppType(model, { ...f, label: 1 })) + '>';
+  }
+  return singular;
+}
+
+function xppExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case 9: return JSON.stringify(d);
+    case 8: return d;
+    case 14: return xppEntryRef(model, xppResolve(model, f.typeName)) + '::' + d;
+    default: return d;
+  }
+}
+
+function xppDefault(model, f) {
+  const lit = xppExplicitLiteral(model, f);
+  if (lit !== null) return lit;
+  if (f.type === FT.MESSAGE && xppResolve(model, f.typeName).kind === 'map') return '{}';
+  if (f.label === 3) return '{}';
+  if (f.type === FT.MESSAGE) return 'std::nullopt';
+  if (f.type === FT.ENUM) {
+    const entry = xppResolve(model, f.typeName);
+    return xppEntryRef(model, entry) + '::' + entry.enum.values[0].name;
+  }
+  return xppScalar(f)[1];
+}
+
+function xppVarintExpr(f, v) {
+  switch (f.type) {
+    case 8: return '(' + v + ' ? 1 : 0)';
+    case 17: return 'static_cast<std::uint64_t>((' + v + ' << 1) ^ (' + v + ' >> 31))';
+    case 18: return 'static_cast<std::uint64_t>((' + v + ' << 1) ^ (' + v + ' >> 63))';
+    case 14: return 'static_cast<std::int32_t>(' + v + ')';
+    case 5: return 'static_cast<std::int64_t>(' + v + ')';
+    default: return 'static_cast<std::uint64_t>(' + v + ')';
+  }
+}
+
+function xppVarintDecode(f, v) {
+  switch (f.type) {
+    case 5: return 'static_cast<std::int32_t>(' + v + ')';
+    case 13: case 7: return 'static_cast<std::uint32_t>(' + v + ')';
+    case 3: return 'static_cast<std::int64_t>(' + v + ')';
+    case 4: case 6: return v;
+    case 8: return v + ' != 0';
+    case 17: return 'static_cast<std::int32_t>((' + v + ' >> 1) ^ -static_cast<std::int64_t>(' + v + ' & 1))';
+    case 18: return 'static_cast<std::int64_t>((' + v + ' >> 1) ^ -static_cast<std::int64_t>(' + v + ' & 1))';
+    default: throw new Error('not a varint type');
+  }
+}
+
+function xppNonzero(f, v) {
+  switch (f.type) {
+    case 8: return v;
+    case 14: return 'static_cast<std::int32_t>(' + v + ') != 0';
+    default: return v + ' != 0';
+  }
+}
+
+function xppEncodeSingular(model, f, v, indent, support) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (XPP_VARINT.has(f.type)) {
+    return proto2
+      ? indent + '{ w.Tag(' + n + ', 0); w.Varint(' + xppVarintExpr(f, v) + '); }\n'
+      : indent + 'if (' + xppNonzero(f, v) + ') { w.Tag(' + n + ', 0); w.Varint(' + xppVarintExpr(f, v) + '); }\n';
+  }
+  const fixed = XPP_FIXED[f.type];
+  if (fixed) {
+    const wire = fixed[0] === 8 ? 1 : 5;
+    return proto2
+      ? indent + '{ w.Tag(' + n + ', ' + wire + '); w.Fixed' + fixed[1] + '(' + v + '); }\n'
+      : indent + 'if (' + xppNonzero(f, v) + ') { w.Tag(' + n + ', ' + wire + '); w.Fixed' + fixed[1] + '(' + v + '); }\n';
+  }
+  switch (f.type) {
+    case 9: return proto2
+      ? indent + 'w.BytesField(' + n + ', grpcdc::Bytes(' + v + '.begin(), ' + v + '.end()));\n'
+      : indent + 'w.StringField(' + n + ', ' + v + ');\n';
+    case 12: return proto2
+      ? indent + 'w.BytesField(' + n + ', ' + v + ');\n'
+      : indent + 'if (!' + v + '.empty()) w.BytesField(' + n + ', ' + v + ');\n';
+    case 11: return indent + 'if (' + v + ') w.BytesField(' + n + ', ' + v + '->MarshalDc());\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function xppSetExpr(sib) {
+  const v = sib.name;
+  switch (sib.type) {
+    case 11: case 10: return v + '.has_value()';
+    case 9: case 12: return '!' + v + '.empty()';
+    default: return xppNonzero(sib, v);
+  }
+}
+
+function xppEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '    if (!(' + later.map(xppSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '    }\n';
+}
+
+function xppEncodeField(model, f, support) {
+  const v = f.name;
+  const n = f.number;
+  if (f.type === FT.MESSAGE && xppResolve(model, f.typeName).kind === 'map') {
+    const entry = xppResolve(model, f.typeName);
+    const helper = support + '::' + xppMapHelperName(model, entry) + 'Encode';
+    return '    if (!' + v + '.empty()) for (const auto& e : ' + v + ') w.BytesField(' + n + ', ' + helper + '(e.first, e.second));\n';
+  }
+  if (f.label !== 3) return xppEncodeSingular(model, f, v, '    ', support);
+  if (XPP_VARINT.has(f.type)) {
+    return '    if (!' + v + '.empty()) {\n'
+      + '        ' + support + '::Writer payload;\n'
+      + '        for (auto x : ' + v + ') payload.Varint(' + xppVarintExpr(f, 'x') + ');\n'
+      + '        w.BytesField(' + n + ', payload.ToBytes());\n    }\n';
+  }
+  const fixed = XPP_FIXED[f.type];
+  if (fixed) {
+    return '    if (!' + v + '.empty()) {\n'
+      + '        ' + support + '::Writer payload;\n'
+      + '        for (auto x : ' + v + ') payload.Fixed' + fixed[1] + '(x);\n'
+      + '        w.BytesField(' + n + ', payload.ToBytes());\n    }\n';
+  }
+  switch (f.type) {
+    case 9: return '    for (const auto& x : ' + v + ') w.BytesField(' + n + ', grpcdc::Bytes(x.begin(), x.end()));\n';
+    case 12: return '    for (const auto& x : ' + v + ') w.BytesField(' + n + ', x);\n';
+    case 11: return '    for (const auto& x : ' + v + ') w.BytesField(' + n + ', x.MarshalDc());\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function xppDecodeSingular(model, f, target, src, indent, support) {
+  if (XPP_VARINT.has(f.type)) {
+    return indent + target + ' = ' + (f.type === 14
+      ? 'static_cast<' + xppEntryRef(model, xppResolve(model, f.typeName)) + '>(' + xppVarintDecode({ ...f, type: 5 }, src) + ')'
+      : xppVarintDecode(f, src)) + ';\n';
+  }
+  if (XPP_FIXED[f.type]) {
+    let conv;
+    switch (f.type) {
+      case 2: conv = support + '::BitsToFloat(static_cast<std::uint32_t>(' + src + '))'; break;
+      case 1: conv = support + '::BitsToDouble(' + src + ')'; break;
+      case 7: conv = 'static_cast<std::uint32_t>(' + src + ')'; break;
+      case 15: conv = 'static_cast<std::int32_t>(' + src + ')'; break;
+      default: conv = src;
+    }
+    return indent + target + ' = ' + conv + ';\n';
+  }
+  switch (f.type) {
+    case 9: return indent + target + ' = std::string(' + src + '.begin(), ' + src + '.end());\n';
+    case 12: return indent + target + ' = ' + src + ';\n';
+    case 11: return indent + target + '.emplace();\n' + indent + target + '->UnmarshalDc(' + src + ');\n';
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function xppOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '            ' + sib.name + ' = ' + xppDefault(model, sib) + ';\n').join('');
+}
+
+function xppSrc(f) {
+  return XPP_VARINT.has(f.type) ? 'field.varint' : (XPP_FIXED[f.type] ? 'field.fixed' : 'field.bytes');
+}
+
+function xppDecodeCase(model, f, support) {
+  const v = f.name;
+  const head = '        case ' + f.number + ': {\n';
+  const tail = '            break;\n        }\n';
+  const clearing = xppOneofClearing(model, f);
+  if (f.type === FT.MESSAGE && xppResolve(model, f.typeName).kind === 'map') {
+    const entry = xppResolve(model, f.typeName);
+    const helper = support + '::' + xppMapHelperName(model, entry) + 'Decode';
+    return head
+      + '            auto kv = ' + helper + '(field.bytes);\n'
+      + '            ' + v + '[kv.first] = kv.second;\n'
+      + tail;
+  }
+  if (f.label !== 3) {
+    return head + clearing + xppDecodeSingular(model, f, v, xppSrc(f), '            ', support) + tail;
+  }
+  if (XPP_VARINT.has(f.type)) {
+    const conv = (src) => f.type === 14
+      ? 'static_cast<' + xppEntryRef(model, xppResolve(model, f.typeName)) + '>(' + xppVarintDecode({ ...f, type: 5 }, src) + ')'
+      : xppVarintDecode(f, src);
+    return head
+      + '            if (field.wire == 2) {\n'
+      + '                ' + support + '::Reader sub(field.bytes);\n'
+      + '                while (!sub.Done()) {\n'
+      + '                    ' + v + '.push_back(' + conv('sub.Varint()') + ');\n'
+      + '                }\n            } else {\n'
+      + '                ' + v + '.push_back(' + conv('field.varint') + ');\n'
+      + '            }\n'
+      + tail;
+  }
+  const fixed = XPP_FIXED[f.type];
+  if (fixed) {
+    const subConv = f.type === 2 ? support + '::BitsToFloat(sub.Fixed32())'
+      : f.type === 1 ? support + '::BitsToDouble(sub.Fixed64())'
+      : f.type === 7 ? 'static_cast<std::uint32_t>(sub.Fixed32())'
+      : f.type === 15 ? 'sub.Fixed32()' : 'sub.Fixed64()';
+    const oneConv = f.type === 2 ? support + '::BitsToFloat(static_cast<std::uint32_t>(field.fixed))'
+      : f.type === 1 ? support + '::BitsToDouble(field.fixed)'
+      : f.type === 7 ? 'static_cast<std::uint32_t>(field.fixed)'
+      : f.type === 15 ? 'static_cast<std::int32_t>(field.fixed)' : 'field.fixed';
+    return head
+      + '            if (field.wire == 2) {\n'
+      + '                ' + support + '::Reader sub(field.bytes);\n'
+      + '                while (!sub.Done()) ' + v + '.push_back(' + subConv + ');\n'
+      + '            } else {\n'
+      + '                ' + v + '.push_back(' + oneConv + ');\n'
+      + '            }\n'
+      + tail;
+  }
+  switch (f.type) {
+    case 9: return head + '            ' + v + '.push_back(std::string(field.bytes.begin(), field.bytes.end()));\n' + tail;
+    case 12: return head + '            ' + v + '.push_back(field.bytes);\n' + tail;
+    case 11: return head
+      + '            ' + xppEntryRef(model, xppResolve(model, f.typeName)) + ' item;\n'
+      + '            item.UnmarshalDc(field.bytes);\n'
+      + '            ' + v + '.push_back(item);\n'
+      + tail;
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function xppMapHelperName(model, entry) {
+  return xppRel(entry.pkg, entry.msg.fullName).split('::').join('');
+}
+
+function xppMapHelpers(model, entry, support) {
+  const msg = entry.msg;
+  const base = xppMapHelperName(model, entry);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry lacks key/value');
+  const kt = xppType(model, { ...keyF, label: 1 });
+  const vt = xppType(model, { ...valF, label: 1 });
+  const vtPlain = (valF.type === FT.MESSAGE && xppResolve(model, valF.typeName).kind !== 'map')
+    ? xppEntryRef(model, xppResolve(model, valF.typeName))
+    : vt;
+  const decls = 'inline grpcdc::Bytes ' + base + 'Encode(const ' + kt + '& key, const ' + vtPlain + '& value);\n'
+    + 'inline std::pair<' + kt + ', ' + vtPlain + '> ' + base + 'Decode(const grpcdc::Bytes& bytes);\n';
+  const defs = 'inline grpcdc::Bytes ' + base + 'Encode(const ' + kt + '& key, const ' + vtPlain + '& value) {\n'
+    + '    Writer w;\n'
+    + xppEncodeSingular(model, { ...keyF, label: 1 }, 'key', '    ', support)
+    + (valF.type === FT.MESSAGE
+      ? '    w.BytesField(' + valF.number + ', value.MarshalDc());\n'
+      : xppEncodeSingular(model, { ...valF, label: 1 }, 'value', '    ', support))
+    + '    return w.ToBytes();\n}\n\n'
+    + 'inline std::pair<' + kt + ', ' + vtPlain + '> ' + base + 'Decode(const grpcdc::Bytes& bytes) {\n'
+    + '    ' + kt + ' key = ' + xppDefault(model, { ...keyF, label: 1 }) + ';\n'
+    + '    ' + vtPlain + ' value' + (valF.type === FT.MESSAGE ? '' : ' = ' + xppDefault(model, { ...valF, label: 1 })) + ';\n'
+    + '    Reader r(bytes);\n    Field field;\n    while (r.Next(field)) {\n        switch (field.number) {\n'
+    + '            case ' + keyF.number + ': ' + xppDecodeSingular(model, { ...keyF, label: 1 }, 'key', xppSrc(keyF), '', support).replace(/\s+$/, '') + ' break;\n'
+    + '            case ' + valF.number + ': ' + (valF.type === FT.MESSAGE
+      ? 'value.UnmarshalDc(field.bytes);'
+      : xppDecodeSingular(model, { ...valF, label: 1 }, 'value', xppSrc(valF), '', support).replace(/\s+$/, '')) + ' break;\n'
+    + '            default: break;\n        }\n    }\n    return {key, value};\n}\n\n';
+  return { decls, defs };
+}
+
+const XPP_SUPPORT_BODY = 'class Writer {\n'
+  + '    grpcdc::Bytes out_;\n'
+  + 'public:\n'
+  + '    void Varint(std::uint64_t v) { while (v > 0x7f) { out_.push_back(static_cast<std::uint8_t>((v & 0x7f) | 0x80)); v >>= 7; } out_.push_back(static_cast<std::uint8_t>(v)); }\n'
+  + '    void Tag(int field, int wire) { Varint(static_cast<std::uint64_t>((field << 3) | wire)); }\n'
+  + '    void BytesField(int field, const grpcdc::Bytes& payload) { Tag(field, 2); Varint(payload.size()); out_.insert(out_.end(), payload.begin(), payload.end()); }\n'
+  + '    void StringField(int field, const std::string& value) { if (value.empty()) return; BytesField(field, grpcdc::Bytes(value.begin(), value.end())); }\n'
+  + '    void FixedInt32(std::int32_t v) { std::uint32_t u = static_cast<std::uint32_t>(v); for (int i = 0; i < 4; i++) out_.push_back(static_cast<std::uint8_t>((u >> (8 * i)) & 0xff)); }\n'
+  + '    void FixedInt64(std::int64_t v) { std::uint64_t u = static_cast<std::uint64_t>(v); for (int i = 0; i < 8; i++) out_.push_back(static_cast<std::uint8_t>((u >> (8 * i)) & 0xff)); }\n'
+  + '    void FixedFloat(float v) { std::uint32_t u; std::memcpy(&u, &v, 4); FixedInt32(static_cast<std::int32_t>(u)); }\n'
+  + '    void FixedDouble(double v) { std::uint64_t u; std::memcpy(&u, &v, 8); FixedInt64(static_cast<std::int64_t>(u)); }\n'
+  + '    void Raw(const grpcdc::Bytes& payload) { out_.insert(out_.end(), payload.begin(), payload.end()); }\n'
+  + '    grpcdc::Bytes ToBytes() const { return out_; }\n'
+  + '};\n\n'
+  + 'inline float BitsToFloat(std::uint32_t u) { float v; std::memcpy(&v, &u, 4); return v; }\n'
+  + 'inline double BitsToDouble(std::uint64_t u) { double v; std::memcpy(&v, &u, 8); return v; }\n\n'
+  + 'struct Field {\n'
+  + '    int number = 0; int wire = 0; std::uint64_t varint = 0; grpcdc::Bytes bytes; std::uint64_t fixed = 0; grpcdc::Bytes raw;\n'
+  + '};\n\n'
+  + 'class Reader {\n'
+  + '    grpcdc::Bytes buf_; std::size_t pos_ = 0;\n'
+  + 'public:\n'
+  + '    explicit Reader(const grpcdc::Bytes& buf) : buf_(buf) {}\n'
+  + '    bool Done() const { return pos_ >= buf_.size(); }\n'
+  + '    std::uint64_t Varint() { std::uint64_t result = 0; int shift = 0; while (true) { if (pos_ >= buf_.size()) throw std::invalid_argument("truncated varint"); std::uint8_t b = buf_[pos_++]; result |= static_cast<std::uint64_t>(b & 0x7f) << shift; if ((b & 0x80) == 0) return result; shift += 7; if (shift >= 64) throw std::invalid_argument("varint too long"); } }\n'
+  + '    grpcdc::Bytes Take(std::size_t n) { if (pos_ + n > buf_.size()) throw std::invalid_argument("truncated field"); grpcdc::Bytes v(buf_.begin() + pos_, buf_.begin() + pos_ + n); pos_ += n; return v; }\n'
+  + '    std::uint32_t Fixed32() { auto b = Take(4); return static_cast<std::uint32_t>(b[0]) | (static_cast<std::uint32_t>(b[1]) << 8) | (static_cast<std::uint32_t>(b[2]) << 16) | (static_cast<std::uint32_t>(b[3]) << 24); }\n'
+  + '    std::uint64_t Fixed64() { auto b = Take(8); std::uint64_t v = 0; for (int i = 0; i < 8; i++) v |= static_cast<std::uint64_t>(b[i]) << (8 * i); return v; }\n'
+  + '    bool Next(Field& field) {\n'
+  + '        if (pos_ >= buf_.size()) return false;\n'
+  + '        std::size_t start = pos_;\n'
+  + '        std::uint64_t tag = Varint(); field.number = static_cast<int>(tag >> 3); field.wire = static_cast<int>(tag & 7);\n'
+  + '        switch (field.wire) {\n'
+  + '            case 0: field.varint = Varint(); field.raw.assign(buf_.begin() + start, buf_.begin() + pos_); return true;\n'
+  + '            case 2: { std::size_t n = static_cast<std::size_t>(Varint()); field.bytes = Take(n); field.raw.assign(buf_.begin() + start, buf_.begin() + pos_); return true; }\n'
+  + '            case 1: field.bytes = Take(8); field.fixed = 0; for (int i = 0; i < 8; i++) field.fixed |= static_cast<std::uint64_t>(field.bytes[i]) << (8 * i); field.raw.assign(buf_.begin() + start, buf_.begin() + pos_); return true;\n'
+  + '            case 5: field.bytes = Take(4); field.fixed = static_cast<std::uint32_t>(field.bytes[0]) | (static_cast<std::uint32_t>(field.bytes[1]) << 8) | (static_cast<std::uint32_t>(field.bytes[2]) << 16) | (static_cast<std::uint32_t>(field.bytes[3]) << 24); field.raw.assign(buf_.begin() + start, buf_.begin() + pos_); return true;\n'
+  + '            default: throw std::invalid_argument("bad wire type");\n'
+  + '        }\n'
+  + '    }\n'
+  + '};\n\n';
+
+function xppNestedEnum(e, indent) {
+  return indent + 'enum class ' + e.name + ' : std::int32_t {\n'
+    + e.values.map((v) => indent + '  ' + v.name + ' = ' + v.number).join(',\n')
+    + '\n' + indent + '};\n';
+}
+
+function xppMessageClass(model, msg, support, indent) {
+  const pad = indent;
+  const name = msg.name;
+  return pad + 'class ' + name + ' : public grpcdc::Marshaler, public grpcdc::Unmarshaler {\n'
+    + pad + ' public:\n'
+    + msg.enums.map((e) => xppNestedEnum(e, indent + '  ')).join('')
+    + msg.nested.map((n) => xppMessageClass(model, n, support, indent + '  ')).join('')
+    + msg.fields.map((f) => pad + '  ' + xppType(model, f) + ' ' + f.name + ' = ' + xppDefault(model, f) + ';\n').join('')
+    + pad + '  grpcdc::Bytes unknown_fields;\n'
+    + pad + '  ' + name + '() = default;\n'
+    + pad + '  grpcdc::Bytes MarshalDc() const override {\n'
+    + pad + '    ' + support + '::Writer w;\n'
+    + msg.fields.map((f) => xppEncodeGuard(model, f, xppEncodeField(model, f, support))).join('')
+    + pad + '    w.Raw(unknown_fields);\n'
+    + pad + '    return w.ToBytes();\n' + pad + '  }\n'
+    + pad + '  void UnmarshalDc(const grpcdc::Bytes& data) override {\n'
+    + pad + '    unknown_fields.clear();\n'
+    + msg.fields.map((f) => pad + '    ' + f.name + ' = ' + xppDefault(model, f) + ';\n').join('')
+    + pad + '    ' + support + '::Reader r(data);\n'
+    + pad + '    ' + support + '::Field field;\n'
+    + pad + '    while (r.Next(field)) {\n' + pad + '      switch (field.number) {\n'
+    + msg.fields.map((f) => xppDecodeCase(model, f, support)).join('')
+    + pad + '        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;\n'
+    + pad + '      }\n' + pad + '    }\n' + pad + '  }\n'
+    + pad + '};\n';
+}
+
+function emitCppPbFile(model) {
+  if (!model.messages.length && !model.enums.length) return null;
+  const base = baseName(model.name);
+  const pkg = model.package;
+  const support = 'pb_' + base;
+  const seenMaps = new Set();
+  const helpers = [];
+  const collect = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = xppResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+          seenMaps.add(e.msg.fullName);
+          helpers.push(xppMapHelpers(model, e, support));
+        }
+      }
+    }
+    for (const n of msg.nested) collect(n);
+  };
+  for (const m of model.messages) collect(m);
+  const deps = model.dependencies || [];
+  const content = '// @generated by protoc-gen-grpc-dc-cpp (Racket metaprogram). DO NOT EDIT.\n'
+    + '#pragma once\n\n'
+    + '#include <cstdint>\n#include <cstring>\n#include <map>\n#include <optional>\n#include <stdexcept>\n#include <string>\n#include <utility>\n#include <vector>\n\n'
+    + '#include "grpcdc/transport.hpp"\n'
+    + deps.map((d) => '#include "' + baseName(d) + '_messages.hpp"\n').join('')
+    + '\n'
+    + 'namespace ' + xppNs(pkg) + ' {\n\n'
+    + model.messages.filter((m) => !m.mapEntry).map((m) => 'class ' + m.name + ';\n').join('')
+    + '\n'
+    + model.enums.map((e) => 'enum class ' + e.name + ' : std::int32_t {\n'
+      + e.values.map((v) => '  ' + v.name + ' = ' + v.number).join(',\n')
+      + '\n};\n\n').join('')
+    + 'namespace pb_' + base + ' {\n\n'
+    + XPP_SUPPORT_BODY
+    + helpers.map((h) => h.decls).join('')
+    + '}  // namespace pb_' + base + '\n\n'
+    + model.messages.filter((m) => !m.mapEntry).map((m) => xppMessageClass(model, m, support, '')).join('')
+    + (helpers.length
+      ? 'namespace pb_' + base + ' {\n\n' + helpers.map((h) => h.defs).join('') + '}  // namespace pb_' + base + '\n\n'
+      : '')
+    + '}  // namespace ' + xppNs(pkg) + '\n';
+  return { name: base + '_messages.hpp', content };
+}
+
 function emitCppFile(model, params) {
   const base = baseName(model.name);
   const structName = pascalName(base) + 'GrpcDc';
   const ns = model.package || 'proto';
-  return {
+  const stub = {
     name: base + '_grpc_dc.hpp',
     content: '// @generated by protoc-gen-grpc-dc-cpp (Racket metaprogram). DO NOT EDIT.\n'
       + '// source: ' + model.name + '\n'
@@ -4321,6 +5281,8 @@ function emitCppFile(model, params) {
       + '};\n\n'
       + '}  // namespace ' + ns + '\n',
   };
+  const pbFile = emitCppPbFile(model);
+  return pbFile ? [stub, pbFile] : stub;
 }
 // ---------------------------------------------------------------------------
 // Swift emitter (mirrors racket/template-swift.rkt).
@@ -4589,10 +5551,464 @@ const SWIFT_RUN_BLOCKING =
   + '    return try result.get()\n}\n'
   + '#endif\n';
 
+
+// ---------------------------------------------------------------------------
+// Swift message types, mirroring racket/template-swift.rkt
+// (the swift-pb-* functions): a single <Base>Messages.swift per
+// proto file with the <Base>Pb wire-support enum, enums and
+// message classes. Byte-identical to the native
+// protoc-gen-grpc-dc-swift plugin.
+// ---------------------------------------------------------------------------
+
+const SWP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
+const SWP_FIXED = { 2: [4, 'Float'], 1: [8, 'Double'], 7: [4, 'UInt32'], 15: [4, 'Int32'], 6: [8, 'UInt64'], 16: [8, 'Int64'] };
+
+function swpCamel(s) {
+  const parts = s.split('_');
+  if (!parts.length) return s;
+  return parts[0] + parts.slice(1).map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
+}
+
+function swpFieldName(f) {
+  return f.jsonName ? f.jsonName : swpCamel(f.name);
+}
+
+function swpResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function swpRel(pkg, full) {
+  const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+  return rel.split('.').join('.');
+}
+
+function swpEntryRef(model, entry) {
+  return entry.kind === 'enum'
+    ? (entry.msg
+      ? swpRel(entry.pkg, entry.msg.fullName) + '.' + entry.enum.name
+      : swpRel(entry.pkg, (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name))
+    : swpRel(entry.pkg, entry.msg.fullName);
+}
+
+function swpScalar(f) {
+  switch (f.type) {
+    case 1: return ['Double', '0'];
+    case 2: return ['Float', '0'];
+    case 3: case 16: case 18: return ['Int64', '0'];
+    case 4: case 6: return ['UInt64', '0'];
+    case 5: case 15: case 17: return ['Int32', '0'];
+    case 7: case 13: return ['UInt32', '0'];
+    case 8: return ['Bool', 'false'];
+    case 9: return ['String', '""'];
+    case 12: return ['[UInt8]', '[]'];
+    default: return null;
+  }
+}
+
+function swpType(model, f) {
+  let singular;
+  if (f.type === FT.MESSAGE) {
+    const entry = swpResolve(model, f.typeName);
+    if (entry.kind === 'map') {
+      const kf = entry.msg.fields.find((x) => x.number === 1);
+      const vf = entry.msg.fields.find((x) => x.number === 2);
+      singular = '[' + swpType(model, { ...kf, label: 1 }) + ': '
+        + (vf.type === FT.MESSAGE
+          ? swpEntryRef(model, swpResolve(model, vf.typeName))
+          : swpType(model, { ...vf, label: 1 })) + ']';
+    } else {
+      singular = swpEntryRef(model, entry) + '?';
+    }
+  } else if (f.type === FT.ENUM) {
+    singular = swpEntryRef(model, swpResolve(model, f.typeName));
+  } else {
+    singular = swpScalar(f)[0];
+  }
+  if (f.type === FT.MESSAGE && swpResolve(model, f.typeName).kind === 'map') return singular;
+  if (f.label === 3) {
+    return '[' + (f.type === FT.MESSAGE
+      ? swpEntryRef(model, swpResolve(model, f.typeName))
+      : swpType(model, { ...f, label: 1 })) + ']';
+  }
+  return singular;
+}
+
+function swpExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case 9: return JSON.stringify(d);
+    case 8: return d;
+    case 14: return swpEntryRef(model, swpResolve(model, f.typeName)) + '.' + d;
+    default: return d;
+  }
+}
+
+function swpDefault(model, f) {
+  const lit = swpExplicitLiteral(model, f);
+  if (lit !== null) return lit;
+  if (f.type === FT.MESSAGE && swpResolve(model, f.typeName).kind === 'map') return '[:]';
+  if (f.label === 3) return '[]';
+  if (f.type === FT.MESSAGE) return 'nil';
+  if (f.type === FT.ENUM) {
+    const entry = swpResolve(model, f.typeName);
+    return swpEntryRef(model, entry) + '.' + entry.enum.values[0].name;
+  }
+  return swpScalar(f)[1];
+}
+
+function swpVarintExpr(f, v) {
+  switch (f.type) {
+    case 8: return '(' + v + ' ? Int64(1) : Int64(0))';
+    case 17: return 'UInt64(UInt32(bitPattern: (' + v + ' << 1) ^ (' + v + ' >> 31)))';
+    case 18: return 'UInt64(bitPattern: (' + v + ' << 1) ^ (' + v + ' >> 63))';
+    case 14: return 'Int64(' + v + '.rawValue)';
+    case 5: return 'Int64(' + v + ')';
+    case 13: case 7: return 'UInt64(' + v + ')';
+    case 3: return 'UInt64(bitPattern: ' + v + ')';
+    default: return v;
+  }
+}
+
+function swpVarintDecode(f, v) {
+  switch (f.type) {
+    case 5: return 'Int32(truncatingIfNeeded: ' + v + ')';
+    case 13: case 7: return 'UInt32(truncatingIfNeeded: ' + v + ')';
+    case 3: return 'Int64(bitPattern: ' + v + ')';
+    case 4: case 6: return v;
+    case 8: return v + ' != 0';
+    case 17: return 'Int32(bitPattern: UInt32(truncatingIfNeeded: (' + v + ' >> 1) ^ UInt64(bitPattern: -Int64(bitPattern: ' + v + ' & 1))))';
+    case 18: return 'Int64(bitPattern: (' + v + ' >> 1) ^ UInt64(bitPattern: -Int64(bitPattern: ' + v + ' & 1)))';
+    default: throw new Error('not a varint type');
+  }
+}
+
+function swpNonzero(f, v) {
+  switch (f.type) {
+    case 8: return v;
+    case 14: return v + '.rawValue != 0';
+    default: return v + ' != 0';
+  }
+}
+
+function swpEncodeSingular(model, f, v, indent) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (SWP_VARINT.has(f.type)) {
+    return proto2
+      ? indent + '{ w.Tag(' + n + ', 0); w.Varint(' + swpVarintExpr(f, v) + ') }\n'
+      : indent + 'if ' + swpNonzero(f, v) + ' { w.Tag(' + n + ', 0); w.Varint(' + swpVarintExpr(f, v) + ') }\n';
+  }
+  const fixed = SWP_FIXED[f.type];
+  if (fixed) {
+    const wire = fixed[0] === 8 ? 1 : 5;
+    return proto2
+      ? indent + '{ w.Tag(' + n + ', ' + wire + '); w.Fixed' + fixed[1] + '(' + v + ') }\n'
+      : indent + 'if ' + swpNonzero(f, v) + ' { w.Tag(' + n + ', ' + wire + '); w.Fixed' + fixed[1] + '(' + v + ') }\n';
+  }
+  switch (f.type) {
+    case 9: return proto2
+      ? indent + 'w.BytesField(' + n + ', [UInt8](' + v + '.utf8))\n'
+      : indent + 'w.StringField(' + n + ', ' + v + ')\n';
+    case 12: return proto2
+      ? indent + 'w.BytesField(' + n + ', ' + v + ')\n'
+      : indent + 'if !' + v + '.isEmpty { w.BytesField(' + n + ', ' + v + ') }\n';
+    case 11: return indent + 'if let v = ' + v + ' { w.BytesField(' + n + ', v.MarshalDc()) }\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function swpSetExpr(sib) {
+  const v = swpFieldName(sib);
+  switch (sib.type) {
+    case 11: case 10: return v + ' != nil';
+    case 9: case 12: return '!' + v + '.isEmpty';
+    default: return swpNonzero(sib, v);
+  }
+}
+
+function swpEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '        if !(' + later.map(swpSetExpr).join(' || ') + ') {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
+}
+
+function swpEncodeField(model, f, support) {
+  const v = swpFieldName(f);
+  const n = f.number;
+  if (f.type === FT.MESSAGE && swpResolve(model, f.typeName).kind === 'map') {
+    const entry = swpResolve(model, f.typeName);
+    const helper = support + '.' + swpMapHelperName(model, entry) + 'Encode';
+    return '        for (k, val) in ' + v + ' { w.BytesField(' + n + ', ' + helper + '(k, val)) }\n';
+  }
+  if (f.label !== 3) return swpEncodeSingular(model, f, v, '        ');
+  if (SWP_VARINT.has(f.type)) {
+    return '        if !' + v + '.isEmpty {\n'
+      + '            let payload = ' + support + '.Writer()\n'
+      + '            for x in ' + v + ' { payload.Varint(' + swpVarintExpr(f, 'x') + ') }\n'
+      + '            w.BytesField(' + n + ', payload.ToBytes())\n        }\n';
+  }
+  const fixed = SWP_FIXED[f.type];
+  if (fixed) {
+    return '        if !' + v + '.isEmpty {\n'
+      + '            let payload = ' + support + '.Writer()\n'
+      + '            for x in ' + v + ' { payload.Fixed' + fixed[1] + '(x) }\n'
+      + '            w.BytesField(' + n + ', payload.ToBytes())\n        }\n';
+  }
+  switch (f.type) {
+    case 9: return '        for x in ' + v + ' { w.BytesField(' + n + ', [UInt8](x.utf8)) }\n';
+    case 12: return '        for x in ' + v + ' { w.BytesField(' + n + ', x) }\n';
+    case 11: return '        for x in ' + v + ' { w.BytesField(' + n + ', x.MarshalDc()) }\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function swpDecodeSingular(model, f, target, src, indent, support) {
+  if (SWP_VARINT.has(f.type)) {
+    return indent + target + ' = ' + (f.type === 14
+      ? swpEntryRef(model, swpResolve(model, f.typeName)) + '(rawValue: ' + swpVarintDecode({ ...f, type: 5 }, src) + ') ?? ' + swpDefault(model, f)
+      : swpVarintDecode(f, src)) + '\n';
+  }
+  if (SWP_FIXED[f.type]) {
+    let conv;
+    switch (f.type) {
+      case 2: conv = support + '.BitsToFloat(UInt32(truncatingIfNeeded: ' + src + '))'; break;
+      case 1: conv = support + '.BitsToDouble(' + src + ')'; break;
+      case 7: conv = 'UInt32(truncatingIfNeeded: ' + src + ')'; break;
+      case 15: conv = 'Int32(truncatingIfNeeded: ' + src + ')'; break;
+      case 16: conv = 'Int64(bitPattern: ' + src + ')'; break;
+      default: conv = src;
+    }
+    return indent + target + ' = ' + conv + '\n';
+  }
+  switch (f.type) {
+    case 9: return indent + target + ' = String(decoding: ' + src + ', as: UTF8.self)\n';
+    case 12: return indent + target + ' = ' + src + '\n';
+    case 11: {
+      const ref = swpEntryRef(model, swpResolve(model, f.typeName));
+      return indent + target + ' = ' + ref + '()\n' + indent + target + '!.UnmarshalDc(' + src + ')\n';
+    }
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function swpOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '                ' + swpFieldName(sib) + ' = ' + swpDefault(model, sib) + '\n').join('');
+}
+
+function swpSrc(f) {
+  return SWP_VARINT.has(f.type) ? 'field.varintValue' : (SWP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
+}
+
+function swpDecodeCase(model, f, support) {
+  const v = swpFieldName(f);
+  const head = '            case ' + f.number + ':\n';
+  if (f.type === FT.MESSAGE && swpResolve(model, f.typeName).kind === 'map') {
+    const entry = swpResolve(model, f.typeName);
+    const helper = support + '.' + swpMapHelperName(model, entry) + 'Decode';
+    return head
+      + '                let kv = ' + helper + '(field.bytesValue)\n'
+      + '                ' + v + '[kv.0] = kv.1\n';
+  }
+  if (f.label !== 3) {
+    return head + swpOneofClearing(model, f) + swpDecodeSingular(model, f, v, swpSrc(f), '                ', support);
+  }
+  if (SWP_VARINT.has(f.type)) {
+    const conv = (src) => f.type === 14
+      ? swpEntryRef(model, swpResolve(model, f.typeName)) + '(rawValue: ' + swpVarintDecode({ ...f, type: 5 }, src) + ') ?? ' + swpDefault(model, f)
+      : swpVarintDecode(f, src);
+    return head
+      + '                if field.wire == 2 {\n'
+      + '                    let sub = ' + support + '.Reader(field.bytesValue)\n'
+      + '                    while !sub.Done() {\n'
+      + '                        ' + v + '.append(' + conv('sub.Varint()') + ')\n'
+      + '                    }\n                } else {\n'
+      + '                    ' + v + '.append(' + conv('field.varintValue') + ')\n'
+      + '                }\n';
+  }
+  const fixed = SWP_FIXED[f.type];
+  if (fixed) {
+    const subConv = f.type === 2 ? support + '.BitsToFloat(sub.Fixed32())'
+      : f.type === 1 ? support + '.BitsToDouble(sub.Fixed64())'
+      : f.type === 7 ? 'sub.Fixed32()'
+      : f.type === 15 ? 'Int32(bitPattern: sub.Fixed32())' : 'sub.Fixed64()';
+    const oneConv = f.type === 2 ? support + '.BitsToFloat(UInt32(truncatingIfNeeded: field.fixedValue))'
+      : f.type === 1 ? support + '.BitsToDouble(field.fixedValue)'
+      : f.type === 7 ? 'UInt32(truncatingIfNeeded: field.fixedValue)'
+      : f.type === 15 ? 'Int32(truncatingIfNeeded: field.fixedValue)' : 'field.fixedValue';
+    return head
+      + '                if field.wire == 2 {\n'
+      + '                    let sub = ' + support + '.Reader(field.bytesValue)\n'
+      + '                    while !sub.Done() { ' + v + '.append(' + subConv + ') }\n'
+      + '                } else {\n'
+      + '                    ' + v + '.append(' + oneConv + ')\n'
+      + '                }\n';
+  }
+  switch (f.type) {
+    case 9: return head + '                ' + v + '.append(String(decoding: field.bytesValue, as: UTF8.self))\n';
+    case 12: return head + '                ' + v + '.append(field.bytesValue)\n';
+    case 11: return head
+      + '                let item = ' + swpEntryRef(model, swpResolve(model, f.typeName)) + '()\n'
+      + '                item.UnmarshalDc(field.bytesValue)\n'
+      + '                ' + v + '.append(item)\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function swpMapHelperName(model, entry) {
+  return swpRel(entry.pkg, entry.msg.fullName).split('.').join('');
+}
+
+function swpMapHelpers(model, entry, support) {
+  const msg = entry.msg;
+  const base = swpMapHelperName(model, entry);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry lacks key/value');
+  const kt = swpType(model, { ...keyF, label: 1 });
+  const vt = swpType(model, { ...valF, label: 1 });
+  const vtPlain = (valF.type === FT.MESSAGE && swpResolve(model, valF.typeName).kind !== 'map')
+    ? swpEntryRef(model, swpResolve(model, valF.typeName))
+    : vt;
+  return '    static func ' + base + 'Encode(_ key: ' + kt + ', _ value: ' + vtPlain + ') -> [UInt8] {\n'
+    + '        let w = Writer()\n'
+    + swpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '        ')
+    + (valF.type === FT.MESSAGE
+      ? '        w.BytesField(' + valF.number + ', value.MarshalDc())\n'
+      : swpEncodeSingular(model, { ...valF, label: 1 }, 'value', '        '))
+    + '        return w.ToBytes()\n    }\n\n'
+    + '    static func ' + base + 'Decode(_ bytes: [UInt8]) -> (' + kt + ', ' + vtPlain + ') {\n'
+    + '        var key: ' + kt + ' = ' + swpDefault(model, { ...keyF, label: 1 }) + '\n'
+    + '        var value: ' + vtPlain + ' = ' + (valF.type === FT.MESSAGE ? vtPlain + '()' : swpDefault(model, { ...valF, label: 1 })) + '\n'
+    + '        let r = Reader(bytes)\n        while true {\n            let next: Field?\n            do { next = try r.Next() } catch { break }\n            guard let field = next else { break }\n            switch field.number {\n'
+    + '            case ' + keyF.number + ': ' + swpDecodeSingular(model, { ...keyF, label: 1 }, 'key', swpSrc(keyF), '', support).replace(/\s+$/, '') + '\n'
+    + '            case ' + valF.number + ': ' + (valF.type === FT.MESSAGE
+      ? 'value.UnmarshalDc(field.bytesValue)'
+      : swpDecodeSingular(model, { ...valF, label: 1 }, 'value', swpSrc(valF), '', support).replace(/\s+$/, '')) + '\n'
+    + '            default: break\n            }\n        }\n        return (key, value)\n    }\n\n';
+}
+
+const SWP_SUPPORT_BODY = '    struct BadWireType: Error {}\n'
+  + '    final class Writer {\n'
+  + '        private var out: [UInt8] = []\n'
+  + '        func Varint(_ value: UInt64) { var v = value; while v > 0x7f { out.append(UInt8((v & 0x7f) | 0x80)); v >>= 7 }; out.append(UInt8(v)) }\n'
+  + '        func Varint(_ value: Int64) { Varint(UInt64(bitPattern: value)) }\n'
+  + '        func Tag(_ field: Int, _ wire: Int) { Varint(UInt64((field << 3) | wire)) }\n'
+  + '        func BytesField(_ field: Int, _ payload: [UInt8]) { Tag(field, 2); Varint(UInt64(payload.count)); out += payload }\n'
+  + '        func StringField(_ field: Int, _ value: String) { if value.isEmpty { return }; BytesField(field, [UInt8](value.utf8)) }\n'
+  + '        func FixedInt32(_ value: Int32) { FixedUInt32(UInt32(bitPattern: value)) }\n'
+  + '        func FixedUInt32(_ value: UInt32) { for i in 0..<4 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }\n'
+  + '        func FixedInt64(_ value: Int64) { FixedUInt64(UInt64(bitPattern: value)) }\n'
+  + '        func FixedUInt64(_ value: UInt64) { for i in 0..<8 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }\n'
+  + '        func FixedFloat(_ value: Float) { FixedUInt32(value.bitPattern) }\n'
+  + '        func FixedDouble(_ value: Double) { FixedUInt64(value.bitPattern) }\n'
+  + '        func Raw(_ payload: [UInt8]) { out += payload }\n'
+  + '        func ToBytes() -> [UInt8] { out }\n'
+  + '    }\n\n'
+  + '    static func BitsToFloat(_ u: UInt32) -> Float { Float(bitPattern: u) }\n'
+  + '    static func BitsToDouble(_ u: UInt64) -> Double { Double(bitPattern: u) }\n\n'
+  + '    struct Field {\n'
+  + '        var number: Int; var wire: Int; var varintValue: UInt64; var bytesValue: [UInt8]; var fixedValue: UInt64; var rawValue: [UInt8]\n'
+  + '    }\n\n'
+  + '    final class Reader {\n'
+  + '        private let buf: [UInt8]; private var pos = 0\n'
+  + '        init(_ buf: [UInt8]) { self.buf = buf }\n'
+  + '        func Done() -> Bool { pos >= buf.count }\n'
+  + '        func Varint() -> UInt64 { var result: UInt64 = 0; var shift: UInt64 = 0; while true { precondition(pos < buf.count, "truncated varint"); let b = buf[pos]; pos += 1; result |= UInt64(b & 0x7f) << shift; if (b & 0x80) == 0 { return result }; shift += 7; precondition(shift < 64, "varint too long") } }\n'
+  + '        func Take(_ n: Int) -> [UInt8] { precondition(pos + n <= buf.count, "truncated field"); let v = [UInt8](buf[pos..<(pos + n)]); pos += n; return v }\n'
+  + '        func Fixed32() -> UInt32 { let b = Take(4); return UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24) }\n'
+  + '        func Fixed64() -> UInt64 { let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return v }\n'
+  + '        func Next() throws -> Field? {\n'
+  + '            if pos >= buf.count { return nil }\n'
+  + '            let start = pos\n'
+  + '            let tag = Varint(); let number = Int(tag >> 3); let wire = Int(tag & 7)\n'
+  + '            switch wire {\n'
+  + '            case 0: let v = Varint(); return Field(number: number, wire: wire, varintValue: v, bytesValue: [], fixedValue: 0, rawValue: [UInt8](buf[start..<pos]))\n'
+  + '            case 2: let n = Int(Varint()); let b = Take(n); return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: 0, rawValue: [UInt8](buf[start..<pos]))\n'
+  + '            case 1: let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: v, rawValue: [UInt8](buf[start..<pos]))\n'
+  + '            case 5: let b = Take(4); let v = UInt64(UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24)); return Field(number: number, wire: wire, varintValue: 0, bytesValue: b, fixedValue: v, rawValue: [UInt8](buf[start..<pos]))\n'
+  + '            default: throw BadWireType()\n'
+  + '            }\n'
+  + '        }\n'
+  + '    }\n\n';
+
+function swpNestedEnum(e, indent) {
+  return indent + 'enum ' + e.name + ': Int32 {\n'
+    + e.values.map((v) => indent + '    case ' + v.name + ' = ' + v.number).join('\n')
+    + '\n' + indent + '}\n';
+}
+
+function swpMessageClass(model, msg, support, indent, decl) {
+  const name = msg.name;
+  return indent + decl + ' class ' + name + ': Marshaler, Unmarshaler {\n'
+    + msg.fields.map((f) => indent + '    var ' + swpFieldName(f) + ': ' + swpType(model, f) + ' = ' + swpDefault(model, f) + '\n').join('')
+    + indent + '    var unknownFields: [UInt8] = []\n'
+    + indent + '    init() {}\n'
+    + (msg.fields.length
+      ? indent + '    init(' + msg.fields.map((f) => '_ ' + swpFieldName(f) + ': ' + swpType(model, f) + ' = ' + swpDefault(model, f)).join(', ') + ') {\n'
+        + msg.fields.map((f) => indent + '        self.' + swpFieldName(f) + ' = ' + swpFieldName(f) + '\n').join('')
+        + indent + '    }\n'
+      : '')
+    + indent + '    func MarshalDc() -> [UInt8] {\n'
+    + indent + '        let w = ' + support + '.Writer()\n'
+    + msg.fields.map((f) => swpEncodeGuard(model, f, swpEncodeField(model, f, support))).join('')
+    + indent + '        w.Raw(unknownFields)\n'
+    + indent + '        return w.ToBytes()\n' + indent + '    }\n'
+    + indent + '    func UnmarshalDc(_ data: [UInt8]) {\n'
+    + indent + '        unknownFields = []\n'
+    + msg.fields.map((f) => indent + '        ' + swpFieldName(f) + ' = ' + swpDefault(model, f) + '\n').join('')
+    + indent + '        let r = ' + support + '.Reader(data)\n'
+    + indent + '        while true {\n'
+    + indent + '            let next: ' + support + '.Field?\n'
+    + indent + '            do { next = try r.Next() } catch { break }\n'
+    + indent + '            guard let field = next else { break }\n'
+    + indent + '            switch field.number {\n'
+    + msg.fields.map((f) => swpDecodeCase(model, f, support)).join('')
+    + indent + '            default: unknownFields += field.rawValue\n'
+    + indent + '            }\n' + indent + '        }\n' + indent + '    }\n'
+    + msg.nested.map((n) => swpMessageClass(model, n, support, indent + '    ', 'final')).join('')
+    + msg.enums.map((e) => swpNestedEnum(e, indent + '    ')).join('')
+    + indent + '}\n';
+}
+
+function emitSwiftPbFile(model) {
+  if (!model.messages.length && !model.enums.length) return null;
+  const base = baseName(model.name);
+  const support = pascalName(base) + 'Pb';
+  const seenMaps = new Set();
+  const helpers = [];
+  const collect = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = swpResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+          seenMaps.add(e.msg.fullName);
+          helpers.push(swpMapHelpers(model, e, support));
+        }
+      }
+    }
+    for (const n of msg.nested) collect(n);
+  };
+  for (const m of model.messages) collect(m);
+  const content = '// @generated by protoc-gen-grpc-dc-swift (Racket metaprogram). DO NOT EDIT.\n'
+    + '#if canImport(Foundation)\nimport Foundation\n#endif\n\n'
+    + 'enum ' + support + ' {\n'
+    + SWP_SUPPORT_BODY
+    + helpers.join('')
+    + '}\n\n'
+    + model.enums.map((e) => 'enum ' + e.name + ': Int32 {\n'
+      + e.values.map((v) => '    case ' + v.name + ' = ' + v.number).join('\n')
+      + '\n}\n\n').join('')
+    + model.messages.filter((m) => !m.mapEntry).map((m) => swpMessageClass(model, m, support, '', 'final')).join('');
+  return { name: pascalName(base) + 'Messages.swift', content };
+}
+
 function emitSwiftFile(model, params) {
   const base = baseName(model.name);
   const enumName = pascalName(base) + 'GrpcDc';
-  return {
+  const stub = {
     name: pascalName(base) + 'GrpcDc.swift',
     content: '// @generated by protoc-gen-grpc-dc-swift (Racket metaprogram). DO NOT EDIT.\n'
       + '// source: ' + model.name + '\n\n'
@@ -4603,6 +6019,8 @@ function emitSwiftFile(model, params) {
       + '}\n\n'
       + SWIFT_RUN_BLOCKING,
   };
+  const pbFile = emitSwiftPbFile(model);
+  return pbFile ? [stub, pbFile] : stub;
 }
 // ---------------------------------------------------------------------------
 // Kotlin emitter (mirrors racket/template-kotlin.rkt, native mode).
@@ -5532,10 +6950,476 @@ function dartRegisterService(svc) {
     + '    ]));\n  }\n';
 }
 
+
+// ---------------------------------------------------------------------------
+// Dart message types, mirroring racket/template-dart.rkt
+// (the dart-pb-* functions): a single <base>_messages.dart per
+// proto file with <Base>Pb wire-support classes and flattened
+// message/enum classes. Byte-identical to the native
+// protoc-gen-grpc-dc-dart plugin.
+// ---------------------------------------------------------------------------
+
+const DTP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
+const DTP_FIXED = { 2: [4, 'Float32'], 1: [8, 'Float64'], 7: [4, 'Uint32'], 15: [4, 'Int32'], 6: [8, 'Uint64'], 16: [8, 'Int64'] };
+
+function dtpCamel(s) {
+  const parts = s.split('_');
+  if (!parts.length) return s;
+  return parts[0] + parts.slice(1).map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
+}
+
+function dtpFieldName(f) {
+  return f.jsonName ? f.jsonName : dtpCamel(f.name);
+}
+
+function dtpResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function dtpRel(pkg, full) {
+  const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+  return rel.split('.').join('_');
+}
+
+function dtpEntryRef(model, entry) {
+  if (entry.kind === 'enum') return dtpRel(entry.pkg, entry.full);
+  return dtpRel(entry.pkg, entry.msg.fullName);
+}
+
+function dtpTypeRef(model, entry) {
+  return dtpEntryRef(model, entry).split('.').join('_');
+}
+
+function dtpScalar(f) {
+  switch (f.type) {
+    case 1: case 2: return ['double', '0'];
+    case 3: case 4: case 5: case 6: case 7: case 13: case 15: case 16: case 17: case 18: return ['int', '0'];
+    case 8: return ['bool', 'false'];
+    case 9: return ['String', "''"];
+    case 12: return ['Uint8List', 'Uint8List(0)'];
+    default: return null;
+  }
+}
+
+function dtpType(model, f) {
+  let singular;
+  if (f.type === FT.MESSAGE) {
+    const entry = dtpResolve(model, f.typeName);
+    if (entry.kind === 'map') {
+      const kf = entry.msg.fields.find((x) => x.number === 1);
+      const vf = entry.msg.fields.find((x) => x.number === 2);
+      singular = 'Map<' + dtpType(model, { ...kf, label: 1 }) + ', '
+        + (vf.type === FT.MESSAGE
+          ? dtpTypeRef(model, dtpResolve(model, vf.typeName))
+          : dtpType(model, { ...vf, label: 1 })) + '>';
+    } else {
+      singular = dtpTypeRef(model, entry) + '?';
+    }
+  } else if (f.type === FT.ENUM) {
+    singular = dtpTypeRef(model, dtpResolve(model, f.typeName));
+  } else {
+    singular = dtpScalar(f)[0];
+  }
+  if (f.type === FT.MESSAGE && dtpResolve(model, f.typeName).kind === 'map') return singular;
+  if (f.label === 3) {
+    return 'List<' + (f.type === FT.MESSAGE
+      ? dtpTypeRef(model, dtpResolve(model, f.typeName))
+      : dtpType(model, { ...f, label: 1 })) + '>';
+  }
+  return singular;
+}
+
+function dtpExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case 9: return JSON.stringify(d);
+    case 8: return d;
+    case 14: return dtpEntryRef(model, dtpResolve(model, f.typeName)) + '.' + d;
+    default: return d;
+  }
+}
+
+function dtpDefault(model, f) {
+  const lit = dtpExplicitLiteral(model, f);
+  if (lit !== null) return lit;
+  if (f.type === FT.MESSAGE && dtpResolve(model, f.typeName).kind === 'map') return '{}';
+  if (f.label === 3) return '[]';
+  if (f.type === FT.MESSAGE) return 'null';
+  if (f.type === FT.ENUM) {
+    const entry = dtpResolve(model, f.typeName);
+    return dtpTypeRef(model, entry) + '.' + entry.enum.values[0].name;
+  }
+  return dtpScalar(f)[1];
+}
+
+function dtpVarintExpr(f, v) {
+  switch (f.type) {
+    case 8: return '(' + v + ' ? 1 : 0)';
+    case 17: return '(((' + v + ' << 1) ^ (' + v + ' >> 31)) & 0xffffffff)';
+    case 18: return '((' + v + ' << 1) ^ (' + v + ' >> 63))';
+    case 14: return v + '.index';
+    default: return v;
+  }
+}
+
+function dtpVarintDecode(f, v) {
+  switch (f.type) {
+    case 5: return '(' + v + ').toSigned(32)';
+    case 13: case 7: case 4: case 6: return '(' + v + ').toUnsigned(64)';
+    case 8: return v + ' != 0';
+    case 17: return '(((' + v + ' >> 1) ^ -(' + v + ' & 1))).toSigned(32)';
+    case 18: return '((' + v + ' >> 1) ^ -(' + v + ' & 1))';
+    default: return v;
+  }
+}
+
+function dtpNonzero(f, v) {
+  switch (f.type) {
+    case 8: return v;
+    case 14: return v + '.index != 0';
+    default: return v + ' != 0';
+  }
+}
+
+function dtpEncodeSingular(model, f, v, indent, support) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (DTP_VARINT.has(f.type)) {
+    return proto2
+      ? indent + '{ w.tag(' + n + ', 0); w.varint(' + dtpVarintExpr(f, v) + '); }\n'
+      : indent + 'if (' + dtpNonzero(f, v) + ') { w.tag(' + n + ', 0); w.varint(' + dtpVarintExpr(f, v) + '); }\n';
+  }
+  const fixed = DTP_FIXED[f.type];
+  if (fixed) {
+    const wire = fixed[0] === 8 ? 1 : 5;
+    return proto2
+      ? indent + '{ w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + v + '); }\n'
+      : indent + 'if (' + dtpNonzero(f, v) + ') { w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + v + '); }\n';
+  }
+  switch (f.type) {
+    case 9: return proto2
+      ? indent + 'w.bytesField(' + n + ', Uint8List.fromList(' + v + '.codeUnits));\n'
+      : indent + 'w.stringField(' + n + ', ' + v + ');\n';
+    case 12: return proto2
+      ? indent + 'w.bytesField(' + n + ', ' + v + ');\n'
+      : indent + 'if (' + v + '.isNotEmpty) w.bytesField(' + n + ', ' + v + ');\n';
+    case 11: return indent + 'if (' + v + ' != null) w.bytesField(' + n + ', ' + v + '!.marshalDc());\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function dtpSetExpr(sib) {
+  const v = dtpFieldName(sib);
+  switch (sib.type) {
+    case 11: case 10: return v + ' != null';
+    case 9: case 12: return v + '.isNotEmpty';
+    default: return dtpNonzero(sib, v);
+  }
+}
+
+function dtpEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '    if (!(' + later.map(dtpSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '    }\n';
+}
+
+function dtpEncodeField(model, f, support) {
+  const v = dtpFieldName(f);
+  const n = f.number;
+  if (f.type === FT.MESSAGE && dtpResolve(model, f.typeName).kind === 'map') {
+    const entry = dtpResolve(model, f.typeName);
+    const helper = support + dtpMapHelperName(model, entry) + 'Encode';
+    return '    ' + v + '.forEach((k, val) { w.bytesField(' + n + ', ' + helper + '(k, val)); });\n';
+  }
+  if (f.label !== 3) return dtpEncodeSingular(model, f, v, '    ', support);
+  if (DTP_VARINT.has(f.type)) {
+    return '    if (' + v + '.isNotEmpty) {\n'
+      + '        final payload = ' + support + 'Writer();\n'
+      + '        for (final x in ' + v + ') { payload.varint(' + dtpVarintExpr(f, 'x') + '); }\n'
+      + '        w.bytesField(' + n + ', payload.toBytes());\n    }\n';
+  }
+  const fixed = DTP_FIXED[f.type];
+  if (fixed) {
+    return '    if (' + v + '.isNotEmpty) {\n'
+      + '        final payload = ' + support + 'Writer();\n'
+      + '        for (final x in ' + v + ') { payload.fixed' + fixed[1] + '(x); }\n'
+      + '        w.bytesField(' + n + ', payload.toBytes());\n    }\n';
+  }
+  switch (f.type) {
+    case 9: return '    for (final x in ' + v + ') { w.bytesField(' + n + ', Uint8List.fromList(x.codeUnits)); }\n';
+    case 12: return '    for (final x in ' + v + ') { w.bytesField(' + n + ', x); }\n';
+    case 11: return '    for (final x in ' + v + ') { w.bytesField(' + n + ', x.marshalDc()); }\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function dtpDecodeSingular(model, f, target, src, indent, support) {
+  if (DTP_VARINT.has(f.type)) {
+    return indent + target + ' = ' + (f.type === 14
+      ? dtpTypeRef(model, dtpResolve(model, f.typeName)) + '.values[' + dtpVarintDecode({ ...f, type: 5 }, src) + '] '
+      : dtpVarintDecode(f, src)) + ';\n';
+  }
+  if (DTP_FIXED[f.type]) {
+    let conv;
+    switch (f.type) {
+      case 2: conv = support + 'BitsToFloat32(' + src + ')'; break;
+      case 1: conv = support + 'BitsToFloat64(' + src + ')'; break;
+      case 7: conv = '(' + src + ').toUnsigned(32)'; break;
+      case 15: conv = '(' + src + ').toSigned(32)'; break;
+      case 6: conv = '(' + src + ').toUnsigned(64)'; break;
+      case 16: conv = '(' + src + ').toSigned(64)'; break;
+      default: conv = src;
+    }
+    return indent + target + ' = ' + conv + ';\n';
+  }
+  switch (f.type) {
+    case 9: return indent + target + ' = String.fromCharCodes(' + src + ');\n';
+    case 12: return indent + target + ' = ' + src + ';\n';
+    case 11: {
+      const ref = dtpTypeRef(model, dtpResolve(model, f.typeName));
+      return indent + target + ' = ' + ref + '();\n' + indent + target + '!.unmarshalDc(' + src + ');\n';
+    }
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function dtpOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '          ' + dtpFieldName(sib) + ' = ' + dtpDefault(model, sib) + ';\n').join('');
+}
+
+function dtpSrc(f) {
+  return DTP_VARINT.has(f.type) ? 'field.varintValue' : (DTP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
+}
+
+function dtpDecodeCase(model, f, support) {
+  const v = dtpFieldName(f);
+  const head = '        case ' + f.number + ':\n';
+  const tail = '          break;\n';
+  if (f.type === FT.MESSAGE && dtpResolve(model, f.typeName).kind === 'map') {
+    const entry = dtpResolve(model, f.typeName);
+    const helper = support + dtpMapHelperName(model, entry) + 'Decode';
+    return head
+      + '          final kv = ' + helper + '(field.bytesValue);\n'
+      + '          ' + v + '[kv.key] = kv.value;\n'
+      + tail;
+  }
+  if (f.label !== 3) {
+    return head + dtpOneofClearing(model, f) + dtpDecodeSingular(model, f, v, dtpSrc(f), '          ', support) + tail;
+  }
+  if (DTP_VARINT.has(f.type)) {
+    const conv = (src) => f.type === 14
+      ? dtpTypeRef(model, dtpResolve(model, f.typeName)) + '.values[' + dtpVarintDecode({ ...f, type: 5 }, src) + ']'
+      : dtpVarintDecode(f, src);
+    return head
+      + '          if (field.wire == 2) {\n'
+      + '            final sub = ' + support + 'Reader(field.bytesValue);\n'
+      + '            while (!sub.done()) {\n'
+      + '              ' + v + '.add(' + conv('sub.varint()') + ');\n'
+      + '            }\n          } else {\n'
+      + '            ' + v + '.add(' + conv('field.varintValue') + ');\n'
+      + '          }\n'
+      + tail;
+  }
+  const fixed = DTP_FIXED[f.type];
+  if (fixed) {
+    const subConv = f.type === 2 ? support + 'BitsToFloat32(sub.fixed32())'
+      : f.type === 1 ? support + 'BitsToFloat64(sub.fixed64())'
+      : f.type === 7 ? '(sub.fixed32()).toUnsigned(32)'
+      : f.type === 15 ? '(sub.fixed32()).toSigned(32)'
+      : f.type === 6 ? '(sub.fixed64()).toUnsigned(64)' : '(sub.fixed64()).toSigned(64)';
+    const oneConv = f.type === 2 ? support + 'BitsToFloat32(field.fixedValue)'
+      : f.type === 1 ? support + 'BitsToFloat64(field.fixedValue)'
+      : f.type === 7 ? '(field.fixedValue).toUnsigned(32)'
+      : f.type === 15 ? '(field.fixedValue).toSigned(32)'
+      : f.type === 6 ? '(field.fixedValue).toUnsigned(64)' : '(field.fixedValue).toSigned(64)';
+    return head
+      + '          if (field.wire == 2) {\n'
+      + '            final sub = ' + support + 'Reader(field.bytesValue);\n'
+      + '            while (!sub.done()) { ' + v + '.add(' + subConv + '); }\n'
+      + '          } else {\n'
+      + '            ' + v + '.add(' + oneConv + ');\n'
+      + '          }\n'
+      + tail;
+  }
+  switch (f.type) {
+    case 9: return head + '          ' + v + '.add(String.fromCharCodes(field.bytesValue));\n' + tail;
+    case 12: return head + '          ' + v + '.add(field.bytesValue);\n' + tail;
+    case 11: return head
+      + '          final item = ' + dtpTypeRef(model, dtpResolve(model, f.typeName)) + '();\n'
+      + '          item.unmarshalDc(field.bytesValue);\n'
+      + '          ' + v + '.add(item);\n'
+      + tail;
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function dtpMapHelperName(model, entry) {
+  return dtpRel(entry.pkg, entry.msg.fullName);
+}
+
+function dtpMapHelpers(model, entry, support) {
+  const msg = entry.msg;
+  const base = dtpMapHelperName(model, entry);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry lacks key/value');
+  const kt = dtpType(model, { ...keyF, label: 1 });
+  const vt = dtpType(model, { ...valF, label: 1 });
+  const vtPlain = (valF.type === FT.MESSAGE && dtpResolve(model, valF.typeName).kind !== 'map')
+    ? dtpTypeRef(model, dtpResolve(model, valF.typeName))
+    : vt;
+  return 'Uint8List ' + support + base + 'Encode(' + kt + ' key, ' + vtPlain + ' value) {\n'
+    + '  final w = ' + support + 'Writer();\n'
+    + dtpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '  ', support)
+    + (valF.type === FT.MESSAGE
+      ? '  w.bytesField(' + valF.number + ', value.marshalDc());\n'
+      : dtpEncodeSingular(model, { ...valF, label: 1 }, 'value', '  ', support))
+    + '  return w.toBytes();\n}\n\n'
+    + 'MapEntry<' + kt + ', ' + vtPlain + '> ' + support + base + 'Decode(Uint8List bytes) {\n'
+    + '  ' + kt + ' key = ' + dtpDefault(model, { ...keyF, label: 1 }) + ';\n'
+    + '  ' + vtPlain + ' value = ' + (valF.type === FT.MESSAGE ? vtPlain + '()' : dtpDefault(model, { ...valF, label: 1 })) + ';\n'
+    + '  final r = ' + support + 'Reader(bytes);\n'
+    + '  while (true) {\n    final field = r.next();\n    if (field == null) break;\n    switch (field.number) {\n'
+    + '      case ' + keyF.number + ':\n' + dtpDecodeSingular(model, { ...keyF, label: 1 }, 'key', dtpSrc(keyF), '        ', support) + '        break;\n'
+    + '      case ' + valF.number + ':\n' + (valF.type === FT.MESSAGE
+      ? '        value.unmarshalDc(field.bytesValue);\n'
+      : dtpDecodeSingular(model, { ...valF, label: 1 }, 'value', dtpSrc(valF), '        ', support)) + '        break;\n'
+    + '      default:\n        break;\n    }\n  }\n  return MapEntry(key, value);\n}\n\n';
+}
+
+function dtpSupportHead(p) {
+  return '// @generated by protoc-gen-grpc-dc-dart (Racket metaprogram). DO NOT EDIT.\n'
+    + "import 'dart:typed_data';\n\n"
+    + "import '../grpcdc/transport.dart';\n\n"
+    + 'class ' + p + 'Writer {\n'
+    + '  final BytesBuilder _out = BytesBuilder();\n'
+    + '  void varint(int value) { var v = BigInt.from(value) & ((BigInt.one << 64) - BigInt.one); final continuation = BigInt.from(0x80); while (v >= continuation) { _out.addByte(((v & BigInt.from(0x7f)) | continuation).toInt()); v = v >> 7; } _out.addByte(v.toInt()); }\n'
+    + '  void tag(int field, int wire) { varint((field << 3) | wire); }\n'
+    + '  void bytesField(int field, List<int> payload) { tag(field, 2); varint(payload.length); _out.add(payload); }\n'
+    + '  void stringField(int field, String value) { if (value.isEmpty) return; bytesField(field, Uint8List.fromList(value.codeUnits)); }\n'
+    + '  void fixedUint32(int value) { final b = ByteData(4); b.setUint32(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n'
+    + '  void fixedInt32(int value) { final b = ByteData(4); b.setInt32(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n'
+    + '  void fixedUint64(int value) { final b = ByteData(8); b.setUint64(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n'
+    + '  void fixedInt64(int value) { final b = ByteData(8); b.setInt64(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n'
+    + '  void raw(List<int> payload) { _out.add(payload); }\n'
+    + '  void fixedFloat32(double value) { final b = ByteData(4); b.setFloat32(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n'
+    + '  void fixedFloat64(double value) { final b = ByteData(8); b.setFloat64(0, value, Endian.little); _out.add(b.buffer.asUint8List()); }\n'
+    + '  Uint8List toBytes() => _out.toBytes();\n'
+    + '}\n\n'
+    + 'double ' + p + 'BitsToFloat32(int bits) { final b = ByteData(4); b.setUint32(0, bits, Endian.little); return b.getFloat32(0, Endian.little); }\n'
+    + 'double ' + p + 'BitsToFloat64(int bits) { final b = ByteData(8); b.setUint64(0, bits, Endian.little); return b.getFloat64(0, Endian.little); }\n\n'
+    + 'class ' + p + 'Field {\n'
+    + '  final int number; final int wire; final int varintValue; final Uint8List bytesValue; final int fixedValue; final Uint8List rawValue;\n'
+    + '  ' + p + 'Field(this.number, this.wire, this.varintValue, this.bytesValue, this.fixedValue, this.rawValue);\n'
+    + '}\n\n'
+    + 'class ' + p + 'Reader {\n'
+    + '  final Uint8List _buf; int _pos = 0;\n'
+    + '  ' + p + 'Reader(this._buf);\n'
+    + '  int _signed64(BigInt value) { final masked = value & ((BigInt.one << 64) - BigInt.one); return (masked >= (BigInt.one << 63) ? masked - (BigInt.one << 64) : masked).toInt(); }\n'
+    + '  bool done() => _pos >= _buf.length;\n'
+    + "  int varint() { var result = BigInt.zero; var shift = 0; while (true) { if (_pos >= _buf.length) throw StateError('truncated varint'); final b = _buf[_pos++]; result |= BigInt.from(b & 0x7f) << shift; if ((b & 0x80) == 0) return _signed64(result); shift += 7; if (shift >= 70) throw StateError('varint too long'); } }\n"
+    + "  Uint8List take(int n) { if (_pos + n > _buf.length) throw StateError('truncated field'); final v = Uint8List.fromList(_buf.sublist(_pos, _pos + n)); _pos += n; return v; }\n"
+    + '  int fixed32() { final b = take(4); return b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); }\n'
+    + '  int fixed64() { final b = take(8); var v = BigInt.zero; for (var i = 0; i < 8; i++) { v |= BigInt.from(b[i]) << (8 * i); } return _signed64(v); }\n'
+    + '  ' + p + 'Field? next() {\n'
+    + '    if (_pos >= _buf.length) return null;\n'
+    + '    final start = _pos;\n'
+    + '    final tag = varint(); final number = tag >> 3; final wire = tag & 7;\n'
+    + '    switch (wire) {\n'
+    + '      case 0: return ' + p + 'Field(number, wire, varint(), Uint8List(0), 0, Uint8List.fromList(_buf.sublist(start, _pos)));\n'
+    + '      case 2: final n = varint(); return ' + p + 'Field(number, wire, 0, take(n), 0, Uint8List.fromList(_buf.sublist(start, _pos)));\n'
+    + '      case 1: final b = take(8); var v = BigInt.zero; for (var i = 0; i < 8; i++) { v |= BigInt.from(b[i]) << (8 * i); } return ' + p + 'Field(number, wire, 0, b, _signed64(v), Uint8List.fromList(_buf.sublist(start, _pos)));\n'
+    + '      case 5: final b = take(4); final v = b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24); return ' + p + 'Field(number, wire, 0, b, v, Uint8List.fromList(_buf.sublist(start, _pos)));\n'
+    + "      default: throw StateError('bad wire type');\n"
+    + '    }\n'
+    + '  }\n'
+    + '}\n\n';
+}
+
+function dtpClassName(model, msg) {
+  return dtpRel(model.package, msg.fullName);
+}
+
+function dtpMessageClass(model, msg, support, indent) {
+  const name = dtpClassName(model, msg);
+  const params = msg.fields.filter((f) => !(f.label === 3 || f.type === FT.BYTES
+    || (f.type === FT.MESSAGE && dtpResolve(model, f.typeName).kind === 'map')));
+  const inits = msg.fields.filter((f) => (f.label === 3 || f.type === FT.BYTES
+    || (f.type === FT.MESSAGE && dtpResolve(model, f.typeName).kind === 'map')));
+  let ctor;
+  if (!params.length && !inits.length) {
+    ctor = indent + '  ' + name + '();\n';
+  } else {
+    ctor = indent + '  ' + name + '('
+      + (params.length ? '[' + params.map((f) => 'this.' + dtpFieldName(f) + ' = ' + dtpDefault(model, f)).join(', ') + ']' : '')
+      + (inits.length
+        ? ') : ' + inits.map((f) => dtpFieldName(f) + ' = ' + dtpDefault(model, f)).join(', ') + ';\n'
+        : ');\n');
+  }
+  return indent + 'class ' + name + ' implements Marshaler, Unmarshaler {\n'
+    + msg.fields.map((f) => indent + '  ' + dtpType(model, f) + ' ' + dtpFieldName(f) + ';\n').join('')
+    + indent + '  Uint8List unknownFields = Uint8List(0);\n'
+    + ctor
+    + indent + '  @override\n' + indent + '  Uint8List marshalDc() {\n'
+    + indent + '    final w = ' + support + 'Writer();\n'
+    + msg.fields.map((f) => dtpEncodeGuard(model, f, dtpEncodeField(model, f, support))).join('')
+    + indent + '    w.raw(unknownFields);\n'
+    + indent + '    return w.toBytes();\n' + indent + '  }\n'
+    + indent + '  @override\n' + indent + '  void unmarshalDc(List<int> data) {\n'
+    + indent + '    unknownFields = Uint8List(0);\n'
+    + msg.fields.map((f) => indent + '    ' + dtpFieldName(f) + ' = ' + dtpDefault(model, f) + ';\n').join('')
+    + indent + '    final r = ' + support + 'Reader(Uint8List.fromList(data));\n'
+    + indent + '    while (true) {\n' + indent + '      final field = r.next();\n' + indent + '      if (field == null) break;\n' + indent + '      switch (field.number) {\n'
+    + msg.fields.map((f) => dtpDecodeCase(model, f, support)).join('')
+    + indent + '        default:\n' + indent + '          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);\n' + indent + '          break;\n'
+    + indent + '      }\n' + indent + '    }\n' + indent + '  }\n'
+    + indent + '}\n'
+    + msg.nested.map((n) => dtpMessageClass(model, n, support, indent)).join('')
+    + msg.enums.map((e) => dtpEnumDecl(model, msg, e, indent)).join('');
+}
+
+function dtpEnumDecl(model, msg, e, indent) {
+  const name = msg ? dtpClassName(model, msg) + '_' + e.name : e.name;
+  return indent + 'enum ' + name + ' {\n'
+    + e.values.map((v) => indent + '  ' + v.name).join(',\n')
+    + '\n' + indent + '}\n';
+}
+
+function emitDartPbFile(model) {
+  if (!model.messages.length && !model.enums.length) return null;
+  const base = baseName(model.name);
+  const support = pascalName(base) + 'Pb';
+  const seenMaps = new Set();
+  const helpers = [];
+  const collect = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = dtpResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+          seenMaps.add(e.msg.fullName);
+          helpers.push(dtpMapHelpers(model, e, support));
+        }
+      }
+    }
+    for (const n of msg.nested) collect(n);
+  };
+  for (const m of model.messages) collect(m);
+  const deps = model.dependencies || [];
+  const content = deps.map((d) => "import '" + baseName(d) + "_messages.dart';\n").join('')
+    + dtpSupportHead(support)
+    + helpers.join('')
+    + model.enums.map((e) => dtpEnumDecl(model, null, e, '')).join('')
+    + model.messages.filter((m) => !m.mapEntry).map((m) => dtpMessageClass(model, m, support, '')).join('');
+  return { name: base + '_messages.dart', content };
+}
+
 function emitDartFile(model, params) {
   const base = baseName(model.name);
   const className = pascalName(base) + 'GrpcDc';
-  return {
+  const stub = {
     name: base + '_grpc_dc.dart',
     content: '// @generated by protoc-gen-grpc-dc-dart (Racket metaprogram). DO NOT EDIT.\n'
       + '// source: ' + model.name + '\n\n'
@@ -5548,6 +7432,8 @@ function emitDartFile(model, params) {
       + model.services.map(dartRegisterService).join('')
       + '}\n',
   };
+  const pbFile = emitDartPbFile(model);
+  return pbFile ? [stub, pbFile] : stub;
 }
 // ---------------------------------------------------------------------------
 // Zig emitter (mirrors racket/template-zig.rkt).
@@ -5770,10 +7656,477 @@ function zigRegisterService(svc) {
     + '            },\n        });\n    }\n';
 }
 
+
+// ---------------------------------------------------------------------------
+// Zig message types, mirroring racket/template-zig.rkt
+// (the zig-pb-* functions): a single <base>_messages.zig per proto
+// file with Pb wire support, entry structs, enums and message
+// structs. Byte-identical to the native protoc-gen-grpc-dc-zig
+// plugin.
+// ---------------------------------------------------------------------------
+
+const ZGP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
+const ZGP_FIXED = { 2: [4, 'f32'], 1: [8, 'f64'], 7: [4, 'u32'], 15: [4, 'i32'], 6: [8, 'u64'], 16: [8, 'i64'] };
+
+function zgpResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function zgpRel(pkg, full) {
+  return pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+}
+
+function zgpEntryRef(model, entry) {
+  const rel = entry.kind === 'enum'
+    ? (entry.msg
+      ? zgpRel(entry.pkg, entry.msg.fullName) + '.' + entry.enum.name
+      : zgpRel(entry.pkg, (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name))
+    : zgpRel(entry.pkg, entry.msg.fullName);
+  if (entry.file === model.name) return rel;
+  return baseName(entry.file) + '_messages.' + rel;
+}
+
+function zgpScalar(f) {
+  switch (f.type) {
+    case 1: return ['f64', '0'];
+    case 2: return ['f32', '0'];
+    case 3: case 16: case 18: return ['i64', '0'];
+    case 4: case 6: return ['u64', '0'];
+    case 5: case 15: case 17: return ['i32', '0'];
+    case 7: case 13: return ['u32', '0'];
+    case 8: return ['bool', 'false'];
+    case 9: case 12: return ['[]const u8', '""'];
+    default: return null;
+  }
+}
+
+function zgpEntryStructName(model, entry) {
+  return zgpEntryRef(model, entry).split('.').join('_');
+}
+
+function zgpType(model, f) {
+  let singular;
+  if (f.type === FT.MESSAGE) {
+    const entry = zgpResolve(model, f.typeName);
+    singular = entry.kind === 'map'
+      ? '[]const ' + zgpEntryStructName(model, entry)
+      : '?*' + zgpEntryRef(model, entry);
+  } else if (f.type === FT.ENUM) {
+    singular = zgpEntryRef(model, zgpResolve(model, f.typeName));
+  } else {
+    singular = zgpScalar(f)[0];
+  }
+  if (f.type === FT.MESSAGE && zgpResolve(model, f.typeName).kind === 'map') return singular;
+  if (f.label === 3) {
+    return '[]const ' + (f.type === FT.MESSAGE
+      ? zgpEntryRef(model, zgpResolve(model, f.typeName))
+      : zgpType(model, { ...f, label: 1 }));
+  }
+  return singular;
+}
+
+function zgpExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case 9: return JSON.stringify(d);
+    case 8: return d;
+    case 14: return '.' + d;
+    default: return d;
+  }
+}
+
+function zgpDefault(model, f) {
+  const lit = zgpExplicitLiteral(model, f);
+  if (lit !== null) return lit;
+  if (f.type === FT.MESSAGE && zgpResolve(model, f.typeName).kind === 'map') return '&.{}';
+  if (f.label === 3) return '&.{}';
+  if (f.type === FT.MESSAGE) return 'null';
+  if (f.type === FT.ENUM) {
+    const entry = zgpResolve(model, f.typeName);
+    return '.' + entry.enum.values[0].name;
+  }
+  return zgpScalar(f)[1];
+}
+
+function zgpVarintExpr(f, v) {
+  switch (f.type) {
+    case 8: return '@intFromBool(' + v + ')';
+    case 17: return '@as(u64, @bitCast(@as(i64, ((' + v + ' << 1) ^ (' + v + ' >> 31)))))';
+    case 18: return '@as(u64, @bitCast(((' + v + ' << 1) ^ (' + v + ' >> 63))))';
+    case 14: return '@as(u64, @bitCast(@as(i64, @intFromEnum(' + v + '))))';
+    case 5: return '@as(u64, @bitCast(@as(i64, ' + v + ')))';
+    case 3: return '@as(u64, @bitCast(' + v + '))';
+    default: return v;
+  }
+}
+
+function zgpVarintDecode(f, v) {
+  switch (f.type) {
+    case 5: return '@as(i32, @truncate(@as(i64, @bitCast(' + v + '))))';
+    case 13: case 7: return '@as(u32, @truncate(' + v + '))';
+    case 3: return '@as(i64, @bitCast(' + v + '))';
+    case 4: case 6: return v;
+    case 8: return v + ' != 0';
+    case 17: return '@as(i32, @bitCast(@as(u32, @truncate((' + v + ' >> 1) ^ (0 -% (' + v + ' & 1))))))';
+    case 18: return '@as(i64, @bitCast((' + v + ' >> 1) ^ (0 -% (' + v + ' & 1))))';
+    default: throw new Error('not a varint type');
+  }
+}
+
+function zgpNonzero(f, v) {
+  switch (f.type) {
+    case 8: return v;
+    case 14: return '@intFromEnum(' + v + ') != 0';
+    default: return v + ' != 0';
+  }
+}
+
+function zgpEncodeSingular(model, f, v, indent) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (ZGP_VARINT.has(f.type)) {
+    return proto2
+      ? indent + '{ w.tag(' + n + ', 0); w.varint(' + zgpVarintExpr(f, v) + '); }\n'
+      : indent + 'if (' + zgpNonzero(f, v) + ') { w.tag(' + n + ', 0); w.varint(' + zgpVarintExpr(f, v) + '); }\n';
+  }
+  const fixed = ZGP_FIXED[f.type];
+  if (fixed) {
+    const wire = fixed[0] === 8 ? 1 : 5;
+    return proto2
+      ? indent + '{ w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + v + '); }\n'
+      : indent + 'if (' + zgpNonzero(f, v) + ') { w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + v + '); }\n';
+  }
+  switch (f.type) {
+    case 9: return proto2
+      ? indent + 'w.bytesField(' + n + ', ' + v + ');\n'
+      : indent + 'w.stringField(' + n + ', ' + v + ');\n';
+    case 12: return proto2
+      ? indent + 'w.bytesField(' + n + ', ' + v + ');\n'
+      : indent + 'if (' + v + '.len > 0) w.bytesField(' + n + ', ' + v + ');\n';
+    case 11: return indent + 'if (' + v + ') |p| w.bytesField(' + n + ', p.marshalDc(alloc));\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function zgpSetExpr(sib) {
+  const v = 'self.' + sib.name;
+  switch (sib.type) {
+    case 11: case 10: return v + ' != null';
+    case 9: case 12: return v + '.len > 0';
+    default: return zgpNonzero(sib, v);
+  }
+}
+
+function zgpEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '        if (!(' + later.map(zgpSetExpr).join(' or ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
+}
+
+function zgpEncodeField(model, f) {
+  const v = 'self.' + f.name;
+  const n = f.number;
+  if (f.type === FT.MESSAGE && zgpResolve(model, f.typeName).kind === 'map') {
+    const entry = zgpResolve(model, f.typeName);
+    return '        for (' + v + ') |e| w.bytesField(' + n + ', encode' + zgpEntryStructName(model, entry) + '(alloc, e.key, e.value));\n';
+  }
+  if (f.label !== 3) return zgpEncodeSingular(model, f, v, '        ');
+  if (ZGP_VARINT.has(f.type)) {
+    return '        if (' + v + '.len > 0) {\n            var payload = PbWriter.init(alloc);\n            defer payload.deinit();\n'
+      + '            for (' + v + ') |x| payload.varint(' + zgpVarintExpr(f, 'x') + ');\n'
+      + '            w.bytesField(' + n + ', payload.toBytes());\n        }\n';
+  }
+  const fixed = ZGP_FIXED[f.type];
+  if (fixed) {
+    return '        if (' + v + '.len > 0) {\n            var payload = PbWriter.init(alloc);\n            defer payload.deinit();\n'
+      + '            for (' + v + ') |x| payload.fixed' + fixed[1] + '(x);\n'
+      + '            w.bytesField(' + n + ', payload.toBytes());\n        }\n';
+  }
+  switch (f.type) {
+    case 9: case 12: return '        for (' + v + ') |x| w.bytesField(' + n + ', x);\n';
+    case 11: return '        for (' + v + ') |x| w.bytesField(' + n + ', x.marshalDc(alloc));\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function zgpDecodeSingular(model, f, target, src, indent) {
+  if (ZGP_VARINT.has(f.type)) {
+    return indent + target + ' = ' + (f.type === 14
+      ? '@enumFromInt(@as(i32, @truncate(@as(i64, @bitCast(' + src + ')))))'
+      : zgpVarintDecode(f, src)) + ';\n';
+  }
+  if (ZGP_FIXED[f.type]) {
+    let conv;
+    switch (f.type) {
+      case 2: conv = '@as(f32, @bitCast(@as(u32, @truncate(' + src + '))))'; break;
+      case 1: conv = '@as(f64, @bitCast(' + src + '))'; break;
+      case 7: conv = '@as(u32, @truncate(' + src + '))'; break;
+      case 15: conv = '@as(i32, @bitCast(@as(u32, @truncate(' + src + '))))'; break;
+      case 6: conv = src; break;
+      case 16: conv = '@as(i64, @bitCast(' + src + '))'; break;
+      default: conv = src;
+    }
+    return indent + target + ' = ' + conv + ';\n';
+  }
+  switch (f.type) {
+    case 9: return indent + target + ' = alloc.dupe(u8, ' + src + ') catch "";\n';
+    case 12: return indent + target + ' = alloc.dupe(u8, ' + src + ') catch &.{};\n';
+    case 11: {
+      const ref = zgpEntryRef(model, zgpResolve(model, f.typeName));
+      return indent + target + ' = alloc.create(' + ref + ') catch unreachable;\n'
+        + indent + target + '.?.* = .{};\n'
+        + indent + target + '.?.unmarshalDc(alloc, ' + src + ');\n';
+    }
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function zgpOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '                    self.' + sib.name + ' = ' + zgpDefault(model, sib) + ';\n').join('');
+}
+
+function zgpSrc(f) {
+  return ZGP_VARINT.has(f.type) ? 'field.varint_value' : (ZGP_FIXED[f.type] ? 'field.fixed_value' : 'field.bytes_value');
+}
+
+function zgpDecodeCase(model, f) {
+  const v = 'self.' + f.name;
+  const head = '                ' + f.number + ' => {\n';
+  const tail = '                },\n';
+  if (f.type === FT.MESSAGE && zgpResolve(model, f.typeName).kind === 'map') {
+    const entry = zgpResolve(model, f.typeName);
+    const sname = zgpEntryStructName(model, entry);
+    return head
+      + '                    const kv = decode' + sname + '(alloc, field.bytes_value);\n'
+      + '                    ' + f.name + '_list.append(alloc, kv) catch {};\n'
+      + tail;
+  }
+  if (f.label !== 3) {
+    return head + zgpOneofClearing(model, f) + zgpDecodeSingular(model, f, v, zgpSrc(f), '                    ') + tail;
+  }
+  if (ZGP_VARINT.has(f.type)) {
+    const conv = (src, raw) => f.type === 14
+      ? '@enumFromInt(@as(i32, @truncate(@as(i64, @bitCast(' + raw + ')))))'
+      : zgpVarintDecode(f, src);
+    return head
+      + '                    if (field.wire == 2) {\n'
+      + '                        var sub = PbReader.init(field.bytes_value);\n'
+      + '                        while (!sub.done()) {\n'
+      + '                            ' + f.name + '_list.append(alloc, ' + conv('sub.varint()', 'sub.varint()') + ') catch {};\n'
+      + '                        }\n                    } else {\n'
+      + '                        ' + f.name + '_list.append(alloc, ' + conv('field.varint_value', 'field.varint_value') + ') catch {};\n'
+      + '                    }\n'
+      + tail;
+  }
+  const fixed = ZGP_FIXED[f.type];
+  if (fixed) {
+    const subConv = f.type === 2 ? '@as(f32, @bitCast(std.mem.readInt(u32, sub.take(4)[0..4], .little)))'
+      : f.type === 1 ? '@as(f64, @bitCast(std.mem.readInt(u64, sub.take(8)[0..8], .little)))'
+      : f.type === 7 ? 'std.mem.readInt(u32, sub.take(4)[0..4], .little)'
+      : f.type === 15 ? '@as(i32, @bitCast(std.mem.readInt(u32, sub.take(4)[0..4], .little)))'
+      : f.type === 6 ? 'std.mem.readInt(u64, sub.take(8)[0..8], .little)'
+      : '@as(i64, @bitCast(std.mem.readInt(u64, sub.take(8)[0..8], .little)))';
+    const oneConv = f.type === 2 ? '@as(f32, @bitCast(@as(u32, @truncate(field.fixed_value))))'
+      : f.type === 1 ? '@as(f64, @bitCast(field.fixed_value))'
+      : f.type === 7 ? '@as(u32, @truncate(field.fixed_value))'
+      : f.type === 15 ? '@as(i32, @bitCast(@as(u32, @truncate(field.fixed_value))))'
+      : f.type === 6 ? 'field.fixed_value'
+      : '@as(i64, @bitCast(field.fixed_value))';
+    return head
+      + '                    if (field.wire == 2) {\n'
+      + '                        var sub = PbReader.init(field.bytes_value);\n'
+      + '                        while (!sub.done()) {\n'
+      + '                            ' + f.name + '_list.append(alloc, ' + subConv + ') catch {};\n'
+      + '                        }\n                    } else {\n'
+      + '                        ' + f.name + '_list.append(alloc, ' + oneConv + ') catch {};\n'
+      + '                    }\n'
+      + tail;
+  }
+  switch (f.type) {
+    case 9: return head + '                    ' + f.name + '_list.append(alloc, alloc.dupe(u8, field.bytes_value) catch "") catch {};\n' + tail;
+    case 12: return head + '                    ' + f.name + '_list.append(alloc, alloc.dupe(u8, field.bytes_value) catch &.{} ) catch {};\n' + tail;
+    case 11: return head
+      + '                    var item: ' + zgpEntryRef(model, zgpResolve(model, f.typeName)) + ' = .{};\n'
+      + '                    item.unmarshalDc(alloc, field.bytes_value);\n'
+      + '                    ' + f.name + '_list.append(alloc, item) catch {};\n'
+      + tail;
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function zgpMapHelpers(model, entry) {
+  const msg = entry.msg;
+  const sname = zgpEntryStructName(model, entry);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry lacks key/value');
+  const kt = zgpType(model, { ...keyF, label: 1 });
+  const vt = zgpType(model, { ...valF, label: 1 });
+  const vtPlain = (valF.type === FT.MESSAGE && zgpResolve(model, valF.typeName).kind !== 'map')
+    ? zgpEntryRef(model, zgpResolve(model, valF.typeName))
+    : vt;
+  return 'pub fn encode' + sname + '(alloc: std.mem.Allocator, key: ' + kt + ', value: ' + vtPlain + ') []u8 {\n'
+    + '    var w = PbWriter.init(alloc);\n    defer w.deinit();\n'
+    + zgpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '    ')
+    + (valF.type === FT.MESSAGE
+      ? '    w.bytesField(' + valF.number + ', value.marshalDc(alloc));\n'
+      : zgpEncodeSingular(model, { ...valF, label: 1 }, 'value', '    '))
+    + '    return w.toBytes();\n}\n\n'
+    + 'pub fn decode' + sname + '(alloc: std.mem.Allocator, data: []const u8) ' + sname + ' {\n'
+    + '    var result: ' + sname + ' = .{ .key = ' + zgpDefault(model, { ...keyF, label: 1 }) + ', .value = ' + (valF.type === FT.MESSAGE ? '.{}' : zgpDefault(model, { ...valF, label: 1 })) + ' };\n'
+    + '    var r = PbReader.init(data);\n    while (r.next()) |field| {\n        switch (field.number) {\n'
+    + '            ' + keyF.number + ' => { ' + zgpDecodeSingular(model, { ...keyF, label: 1 }, 'result.key', zgpSrc(keyF), '').replace(/\s+$/, '') + ' },\n'
+    + '            ' + valF.number + ' => { ' + (valF.type === FT.MESSAGE
+      ? 'result.value.unmarshalDc(alloc, field.bytes_value);'
+      : zgpDecodeSingular(model, { ...valF, label: 1 }, 'result.value', zgpSrc(valF), '').replace(/\s+$/, '')) + ' },\n'
+    + '            else => {},\n        }\n    }\n    return result;\n}\n\n';
+}
+
+const ZGP_SUPPORT = '// @generated by protoc-gen-grpc-dc-zig (Racket metaprogram). DO NOT EDIT.\n'
+  + 'const std = @import("std");\n\n'
+  + 'pub const PbWriter = struct {\n'
+  + '    alloc: std.mem.Allocator,\n'
+  + '    list: std.ArrayList(u8),\n'
+  + '    pub fn init(alloc: std.mem.Allocator) PbWriter { return .{ .alloc = alloc, .list = std.ArrayList(u8).empty }; }\n'
+  + '    pub fn deinit(self: *PbWriter) void { self.list.deinit(self.alloc); }\n'
+  + '    pub fn varint(self: *PbWriter, value: u64) void { var v = value; while (v > 0x7f) { self.list.append(self.alloc, @as(u8, @truncate((v & 0x7f) | 0x80))) catch {}; v >>= 7; } self.list.append(self.alloc, @as(u8, @truncate(v))) catch {}; }\n'
+  + '    pub fn tag(self: *PbWriter, field: u32, wire: u3) void { self.varint((@as(u64, field) << 3) | @as(u64, wire)); }\n'
+  + '    pub fn bytesField(self: *PbWriter, field: u32, payload: []const u8) void { self.tag(field, 2); self.varint(payload.len); self.list.appendSlice(self.alloc, payload) catch {}; }\n'
+  + '    pub fn stringField(self: *PbWriter, field: u32, value: []const u8) void { if (value.len == 0) return; self.bytesField(field, value); }\n'
+  + '    pub fn raw(self: *PbWriter, payload: []const u8) void { self.list.appendSlice(self.alloc, payload) catch {}; }\n'
+  + '    pub fn fixedf32(self: *PbWriter, value: f32) void { self.fixed32Bits(@bitCast(value)); }\n'
+  + '    pub fn fixedf64(self: *PbWriter, value: f64) void { self.fixed64Bits(@bitCast(value)); }\n'
+  + '    pub fn fixedu32(self: *PbWriter, value: u32) void { self.fixed32Bits(value); }\n'
+  + '    pub fn fixedi32(self: *PbWriter, value: i32) void { self.fixed32Bits(@bitCast(value)); }\n'
+  + '    pub fn fixedu64(self: *PbWriter, value: u64) void { self.fixed64Bits(value); }\n'
+  + '    pub fn fixedi64(self: *PbWriter, value: i64) void { self.fixed64Bits(@bitCast(value)); }\n'
+  + '    fn fixed32Bits(self: *PbWriter, value: u32) void { var b: [4]u8 = undefined; std.mem.writeInt(u32, &b, value, .little); self.list.appendSlice(self.alloc, &b) catch {}; }\n'
+  + '    fn fixed64Bits(self: *PbWriter, value: u64) void { var b: [8]u8 = undefined; std.mem.writeInt(u64, &b, value, .little); self.list.appendSlice(self.alloc, &b) catch {}; }\n'
+  + '    pub fn toBytes(self: *PbWriter) []u8 { return self.list.toOwnedSlice(self.alloc) catch &.{}; }\n'
+  + '};\n\n'
+  + 'pub const PbField = struct {\n'
+  + '    number: u32,\n    wire: u3,\n    varint_value: u64 = 0,\n    bytes_value: []const u8 = &.{},\n    fixed_value: u64 = 0,\n    raw_value: []const u8 = &.{},\n'
+  + '};\n\n'
+  + 'pub const PbReader = struct {\n'
+  + '    buf: []const u8,\n    pos: usize = 0,\n'
+  + '    pub fn init(buf: []const u8) PbReader { return .{ .buf = buf }; }\n'
+  + '    pub fn done(self: *PbReader) bool { return self.pos >= self.buf.len; }\n'
+  + '    pub fn varint(self: *PbReader) u64 { var result: u64 = 0; var shift: u6 = 0; while (true) { if (self.pos >= self.buf.len) return result; const b = self.buf[self.pos]; self.pos += 1; result |= @as(u64, b & 0x7f) << shift; if ((b & 0x80) == 0) return result; shift += 7; if (shift >= 64) return result; } }\n'
+  + '    pub fn take(self: *PbReader, n: usize) []const u8 { const end = @min(self.pos + n, self.buf.len); const v = self.buf[self.pos..end]; self.pos = end; return v; }\n'
+  + '    pub fn fixed32Of(self: *PbReader, field: PbField) u32 { _ = self; return @as(u32, @truncate(field.fixed_value)); }\n'
+  + '    pub fn fixed64Of(self: *PbReader, field: PbField) u64 { _ = self; return field.fixed_value; }\n'
+  + '    pub fn next(self: *PbReader) ?PbField {\n'
+  + '        if (self.pos >= self.buf.len) return null;\n'
+  + '        const start = self.pos;\n'
+  + '        const tagv = self.varint();\n'
+  + '        var field = PbField{ .number = @as(u32, @truncate(tagv >> 3)), .wire = @as(u3, @truncate(tagv & 7)) };\n'
+  + '        switch (field.wire) {\n'
+  + '            0 => field.varint_value = self.varint(),\n'
+  + '            2 => { const n = self.varint(); field.bytes_value = self.take(@as(usize, @truncate(n))); },\n'
+  + '            1 => { field.bytes_value = self.take(8); field.fixed_value = std.mem.readInt(u64, field.bytes_value[0..8], .little); },\n'
+  + '            5 => { field.bytes_value = self.take(4); field.fixed_value = std.mem.readInt(u32, field.bytes_value[0..4], .little); },\n'
+  + '            else => return null,\n'
+  + '        }\n'
+  + '        field.raw_value = self.buf[start..self.pos];\n'
+  + '        return field;\n'
+  + '    }\n'
+  + '};\n\n';
+
+function zgpNestedEnum(e, indent) {
+  return indent + 'pub const ' + e.name + ' = enum(i32) {\n'
+    + e.values.map((v) => indent + '    ' + v.name + ' = ' + v.number).join(',\n')
+    + ',\n' + indent + '};\n';
+}
+
+function zgpIsListField(model, f) {
+  return f.label === 3 || (f.type === FT.MESSAGE && zgpResolve(model, f.typeName).kind === 'map');
+}
+
+function zgpMessageStruct(model, msg, indent) {
+  const name = msg.name;
+  return indent + 'pub const ' + name + ' = struct {\n'
+    + msg.fields.map((f) => indent + '    ' + f.name + ': ' + zgpType(model, f) + ' = ' + zgpDefault(model, f) + ',\n').join('')
+    + indent + '    unknown_fields: []const u8 = &.{},\n'
+    + indent + '    pub fn marshalDc(self: *const ' + name + ', alloc: std.mem.Allocator) []u8 {\n'
+    + indent + '        _ = .{ self, alloc };\n'
+    + indent + '        var w = PbWriter.init(alloc);\n' + indent + '        defer w.deinit();\n'
+    + msg.fields.map((f) => zgpEncodeGuard(model, f, zgpEncodeField(model, f))).join('')
+    + indent + '        w.raw(self.unknown_fields);\n'
+    + indent + '        return w.toBytes();\n' + indent + '    }\n'
+    + indent + '    pub fn unmarshalDc(self: *' + name + ', alloc: std.mem.Allocator, data: []const u8) void {\n'
+    + indent + '        _ = .{ self, alloc, data };\n'
+    + msg.fields.map((f) => indent + '        self.' + f.name + ' = ' + zgpDefault(model, f) + ';\n').join('')
+    + msg.fields.filter((f) => zgpIsListField(model, f)).map((f) => {
+      const elem = (f.type === FT.MESSAGE && zgpResolve(model, f.typeName).kind === 'map')
+        ? zgpEntryStructName(model, zgpResolve(model, f.typeName))
+        : (f.type === FT.MESSAGE
+          ? zgpEntryRef(model, zgpResolve(model, f.typeName))
+          : zgpType(model, { ...f, label: 1 }));
+      return indent + '        var ' + f.name + '_list = std.ArrayList(' + elem + ').empty;\n';
+    }).join('')
+    + indent + '        self.unknown_fields = &.{};\n'
+    + indent + '        var unknown_fields_list = std.ArrayList(u8).empty;\n'
+    + indent + '        var r = PbReader.init(data);\n'
+    + indent + '        while (r.next()) |field| {\n' + indent + '            switch (field.number) {\n'
+    + msg.fields.map((f) => zgpDecodeCase(model, f)).join('')
+    + indent + '                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },\n'
+    + indent + '            }\n' + indent + '        }\n'
+    + indent + '        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};\n'
+    + msg.fields.filter((f) => zgpIsListField(model, f)).map((f) => indent + '        self.' + f.name + ' = ' + f.name + '_list.toOwnedSlice(alloc) catch &.{};\n').join('')
+    + indent + '    }\n'
+    + msg.nested.map((n) => zgpMessageStruct(model, n, indent + '    ')).join('')
+    + msg.enums.map((e) => zgpNestedEnum(e, indent + '    ')).join('')
+    + indent + '};\n';
+}
+
+function emitZigPbFile(model) {
+  if (!model.messages.length && !model.enums.length) return null;
+  const base = baseName(model.name);
+  const entryStructs = [];
+  const seenStructs = new Set();
+  const helpers = [];
+  const collect = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = zgpResolve(model, f.typeName);
+        if (e.kind === 'map') {
+          const sname = zgpEntryStructName(model, e);
+          if (!seenStructs.has(sname)) {
+            seenStructs.add(sname);
+            const em = e.msg;
+            const kf = em.fields.find((x) => x.number === 1);
+            const vf = em.fields.find((x) => x.number === 2);
+            entryStructs.push('pub const ' + sname + ' = struct { key: ' + zgpType(model, { ...kf, label: 1 }) + ', value: '
+              + (vf.type === FT.MESSAGE
+                ? zgpEntryRef(model, zgpResolve(model, vf.typeName))
+                : zgpType(model, { ...vf, label: 1 })) + ' };\n\n');
+            helpers.push(zgpMapHelpers(model, e));
+          }
+        }
+      }
+    }
+    for (const n of msg.nested) collect(n);
+  };
+  for (const m of model.messages) collect(m);
+  const deps = model.dependencies || [];
+  const content = ZGP_SUPPORT
+    + deps.map((d) => 'const ' + baseName(d) + '_messages = @import("' + baseName(d) + '_messages.zig");\n').join('')
+    + entryStructs.join('')
+    + model.enums.map((e) => 'pub const ' + e.name + ' = enum(i32) {\n'
+      + e.values.map((v) => '    ' + v.name + ' = ' + v.number).join(',\n')
+      + ',\n};\n\n').join('')
+    + model.messages.filter((m) => !m.mapEntry).map((m) => zgpMessageStruct(model, m, '')).join('')
+    + helpers.join('');
+  return { name: base + '_messages.zig', content };
+}
+
 function emitZigFile(model, params) {
   const base = baseName(model.name);
   const className = pascalName(base) + 'GrpcDc';
-  return {
+  const stub = {
     name: base + '_grpc_dc.zig',
     content: '// @generated by protoc-gen-grpc-dc-zig (Racket metaprogram). DO NOT EDIT.\n'
       + '// source: ' + model.name + '\n\n'
@@ -5795,6 +8148,8 @@ function emitZigFile(model, params) {
       + model.services.map(zigRegisterService).join('')
       + '};\n',
   };
+  const pbFile = emitZigPbFile(model);
+  return pbFile ? [stub, pbFile] : stub;
 }
 // ---------------------------------------------------------------------------
 // Lua emitter (mirrors racket/template-lua.rkt).
@@ -6012,9 +8367,349 @@ function luaReturnEntry(svc) {
   return out + '  register' + sname + 'Server = register' + sname + 'Server,\n';
 }
 
+
+// ---------------------------------------------------------------------------
+// Lua message types, mirroring racket/template-lua.rkt
+// (the lua-pb-* functions): a single <base>_messages.lua per proto
+// file with local Pb wire support, flattened message tables and
+// map helpers. Byte-identical to the native
+// protoc-gen-grpc-dc-lua plugin.
+// ---------------------------------------------------------------------------
+
+const LP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
+const LP_FIXED = { 2: [4, 'f'], 1: [8, 'd'], 7: [4, 'I4'], 15: [4, 'i4'], 6: [8, 'I8'], 16: [8, 'i8'] };
+
+function lpCamel(s) {
+  const parts = s.split('_');
+  if (!parts.length) return s;
+  return parts[0] + parts.slice(1).map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
+}
+
+function lpFieldName(f) {
+  return f.jsonName ? f.jsonName : lpCamel(f.name);
+}
+
+function lpResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function lpFlat(pkg, full) {
+  const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+  return rel.split('.').join('_');
+}
+
+function lpEntryFlat(model, entry) {
+  const local = lpFlat(entry.pkg, entry.kind === 'enum'
+    ? (entry.msg ? entry.msg.fullName + '.' + entry.enum.name : (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name)
+    : entry.msg.fullName);
+  if (entry.kind === 'map' || entry.file === model.name) return local;
+  return baseName(entry.file) + '_messagesMessages.' + (entry.kind === 'enum' ? entry.enum.name : entry.msg.name);
+}
+
+function lpExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case 9: return JSON.stringify(d);
+    case 8: return d;
+    case 14: return String(enumDefaultNumber(model, f));
+    default: return d;
+  }
+}
+
+function lpDefault(model, f) {
+  const lit = lpExplicitLiteral(model, f);
+  if (lit !== null) return lit;
+  if (f.type === FT.MESSAGE && lpResolve(model, f.typeName).kind === 'map') return '{}';
+  if (f.label === 3) return '{}';
+  if (f.type === FT.MESSAGE) return 'nil';
+  if (f.type === FT.STRING || f.type === FT.BYTES) return '""';
+  if (f.type === FT.BOOL) return 'false';
+  if (f.type === FT.ENUM) {
+    const entry = lpResolve(model, f.typeName);
+    return String(entry.enum.values[0].number);
+  }
+  return '0';
+}
+
+function lpVarintExpr(f, v) {
+  switch (f.type) {
+    case 8: return '(' + v + ' and 1 or 0)';
+    case 17: return '((bxor(' + v + ' << 1, ' + v + ' >> 31)) & 0xffffffff)';
+    case 18: return '(bxor(' + v + ' << 1, -(' + v + ' >> 63)))';
+    default: return v;
+  }
+}
+
+function lpVarintDecode(f, v) {
+  switch (f.type) {
+    case 5: case 14: return '((' + v + ' & 0xffffffff) >= 0x80000000 and (' + v + ' & 0xffffffff) - 0x100000000 or (' + v + ' & 0xffffffff))';
+    case 13: case 7: return '(' + v + ' & 0xffffffff)';
+    case 8: return '(' + v + ' ~= 0)';
+    case 17: return '(((bxor(' + v + ' >> 1, -(' + v + ' & 1))) & 0xffffffff) >= 0x80000000 and ((bxor(' + v + ' >> 1, -(' + v + ' & 1))) & 0xffffffff) - 0x100000000 or ((bxor(' + v + ' >> 1, -(' + v + ' & 1))) & 0xffffffff))';
+    case 18: return '(bxor(' + v + ' >> 1, -(' + v + ' & 1)))';
+    default: return v;
+  }
+}
+
+function lpFixedFmt(f) {
+  return '<' + LP_FIXED[f.type][1];
+}
+
+function lpWire(f) {
+  return LP_FIXED[f.type][0] === 8 ? 1 : 5;
+}
+
+function lpNonzero(f, v) {
+  return f.type === FT.BOOL ? v : v + ' ~= 0';
+}
+
+function lpEncodeSingular(model, f, v, indent) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (LP_VARINT.has(f.type)) {
+    return proto2
+      ? indent + 'w:tag(' + n + ', 0) w:varint(' + lpVarintExpr(f, v) + ')\n'
+      : indent + 'if ' + lpNonzero(f, v) + ' then w:tag(' + n + ', 0) w:varint(' + lpVarintExpr(f, v) + ') end\n';
+  }
+  if (LP_FIXED[f.type]) {
+    return proto2
+      ? indent + 'w:tag(' + n + ', ' + lpWire(f) + ') w:fixed(' + JSON.stringify(lpFixedFmt(f)) + ', ' + v + ')\n'
+      : indent + 'if ' + v + ' ~= 0 then w:tag(' + n + ', ' + lpWire(f) + ') w:fixed(' + JSON.stringify(lpFixedFmt(f)) + ', ' + v + ') end\n';
+  }
+  switch (f.type) {
+    case 9: return proto2
+      ? indent + 'w:bytesField(' + n + ', ' + v + ')\n'
+      : indent + 'w:stringField(' + n + ', ' + v + ')\n';
+    case 12: return proto2
+      ? indent + 'w:bytesField(' + n + ', ' + v + ')\n'
+      : indent + 'if #' + v + ' > 0 then w:bytesField(' + n + ', ' + v + ') end\n';
+    case 11: return indent + 'if ' + v + ' ~= nil then w:bytesField(' + n + ', ' + v + ':marshalDc()) end\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function lpSetExpr(sib) {
+  const v = 'self.' + lpFieldName(sib);
+  switch (sib.type) {
+    case 11: case 10: return v + ' ~= nil';
+    case 9: case 12: return '#' + v + ' > 0';
+    default: return lpNonzero(sib, v);
+  }
+}
+
+function lpEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '    if not (' + later.map(lpSetExpr).join(' or ') + ') then\n' + (code.endsWith('\n') ? code : code + '\n') + '    end\n';
+}
+
+function lpEncodeField(model, f) {
+  const v = 'self.' + lpFieldName(f);
+  const n = f.number;
+  if (f.type === FT.MESSAGE && lpResolve(model, f.typeName).kind === 'map') {
+    const entry = lpResolve(model, f.typeName);
+    const helper = lpEntryFlat(model, entry) + 'Encode';
+    return '    for k, val in pairs(' + v + ') do w:bytesField(' + n + ', ' + helper + '(k, val)) end\n';
+  }
+  if (f.label !== 3) return lpEncodeSingular(model, f, v, '    ');
+  if (LP_VARINT.has(f.type)) {
+    return '    if #' + v + ' > 0 then\n      local payload = {}\n'
+      + '      for _, x in ipairs(' + v + ') do payload[#payload + 1] = varintBytes(' + lpVarintExpr(f, 'x') + ') end\n'
+      + '      w:bytesField(' + n + ', table.concat(payload))\n    end\n';
+  }
+  const fixed = LP_FIXED[f.type];
+  if (fixed) {
+    return '    if #' + v + ' > 0 then\n      local payload = {}\n'
+      + '      for _, x in ipairs(' + v + ') do payload[#payload + 1] = string.pack(' + JSON.stringify('<' + fixed[1]) + ', x) end\n'
+      + '      w:bytesField(' + n + ', table.concat(payload))\n    end\n';
+  }
+  switch (f.type) {
+    case 9: case 12: return '    for _, x in ipairs(' + v + ') do w:bytesField(' + n + ', x) end\n';
+    case 11: return '    for _, x in ipairs(' + v + ') do w:bytesField(' + n + ', x:marshalDc()) end\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function lpDecodeSingular(model, f, target, src, indent) {
+  if (LP_VARINT.has(f.type)) {
+    return indent + target + ' = ' + lpVarintDecode(f, src) + '\n';
+  }
+  if (LP_FIXED[f.type]) {
+    return indent + target + ' = string.unpack(' + JSON.stringify('<' + LP_FIXED[f.type][1]) + ', ' + src + ')\n';
+  }
+  switch (f.type) {
+    case 9: case 12: return indent + target + ' = ' + src + '\n';
+    case 11: {
+      const ref = lpEntryFlat(model, lpResolve(model, f.typeName));
+      return indent + target + ' = ' + ref + '.new()\n' + indent + target + ':unmarshalDc(' + src + ')\n';
+    }
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function lpOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '      self.' + lpFieldName(sib) + ' = ' + lpDefault(model, sib) + '\n').join('');
+}
+
+function lpSrc(f) {
+  return LP_VARINT.has(f.type) ? 'field.varintValue' : (LP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
+}
+
+function lpDecodeCase(model, f) {
+  const v = 'self.' + lpFieldName(f);
+  const head = '    elseif field.number == ' + f.number + ' then\n';
+  if (f.type === FT.MESSAGE && lpResolve(model, f.typeName).kind === 'map') {
+    const entry = lpResolve(model, f.typeName);
+    const helper = lpEntryFlat(model, entry) + 'Decode';
+    return head
+      + '      local kk, vv = ' + helper + '(field.bytesValue)\n'
+      + '      ' + v + '[kk] = vv\n';
+  }
+  if (f.label !== 3) {
+    return head + lpOneofClearing(model, f) + lpDecodeSingular(model, f, v, lpSrc(f), '      ');
+  }
+  if (LP_VARINT.has(f.type)) {
+    return head
+      + '      if field.wire == 2 then\n'
+      + '        local sub = Reader.new(field.bytesValue)\n'
+      + '        while not sub:done() do\n'
+      + '          local raw = sub:varint()\n'
+      + '          ' + v + '[#' + v + ' + 1] = ' + lpVarintDecode(f, 'raw') + '\n'
+      + '        end\n      else\n'
+      + '        ' + v + '[#' + v + ' + 1] = ' + lpVarintDecode(f, 'field.varintValue') + '\n'
+      + '      end\n';
+  }
+  const fixed = LP_FIXED[f.type];
+  if (fixed) {
+    return head
+      + '      if field.wire == 2 then\n'
+      + '        local payload = field.bytesValue\n'
+      + '        for i = 1, #payload, ' + fixed[0] + ' do\n'
+      + '          ' + v + '[#' + v + ' + 1] = string.unpack(' + JSON.stringify('<' + fixed[1]) + ', payload, i)\n'
+      + '        end\n      else\n'
+      + '        ' + v + '[#' + v + ' + 1] = string.unpack(' + JSON.stringify('<' + fixed[1]) + ', field.fixedValue)\n'
+      + '      end\n';
+  }
+  switch (f.type) {
+    case 9: case 12: return head + '      ' + v + '[#' + v + ' + 1] = field.bytesValue\n';
+    case 11: return head
+      + '      local item = ' + lpEntryFlat(model, lpResolve(model, f.typeName)) + '.new()\n'
+      + '      item:unmarshalDc(field.bytesValue)\n'
+      + '      ' + v + '[#' + v + ' + 1] = item\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function lpMapHelpers(model, entry) {
+  const msg = entry.msg;
+  const base = lpEntryFlat(model, entry);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry lacks key/value');
+  return base + 'Encode = function(key, value)\n  local w = Writer.new()\n'
+    + lpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '  ')
+    + lpEncodeSingular(model, { ...valF, label: 1 }, 'value', '  ')
+    + '  return w:toBytes()\nend\n\n'
+    + base + 'Decode = function(data)\n'
+    + '  local key = ' + lpDefault(model, { ...keyF, label: 1 }) + '\n  local value = ' + lpDefault(model, { ...valF, label: 1 }) + '\n'
+    + '  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n'
+    + '    if field.number == ' + keyF.number + ' then\n'
+    + lpDecodeSingular(model, { ...keyF, label: 1 }, 'key', lpSrc(keyF), '      ')
+    + '    elseif field.number == ' + valF.number + ' then\n'
+    + (valF.type === FT.MESSAGE
+      ? '      value = ' + lpEntryFlat(model, lpResolve(model, valF.typeName)) + '.new()\n      value:unmarshalDc(field.bytesValue)\n'
+      : lpDecodeSingular(model, { ...valF, label: 1 }, 'value', lpSrc(valF), '      '))
+    + '    end\n  end\n  return key, value\nend\n\n';
+}
+
+const LP_SUPPORT = '-- @generated by protoc-gen-grpc-dc-lua (Racket metaprogram). DO NOT EDIT.\n'
+  + 'local Writer = {}\nWriter.__index = Writer\n\n'
+  + 'local function bxor(a, b) return a ~ b end\n\n'
+  + 'local function varintBytes(value)\n  local v = value\n  local parts = {}\n  if v < 0 then\n    for _ = 1, 9 do\n      parts[#parts + 1] = string.char((v & 0x7f) | 0x80)\n      v = v >> 7\n    end\n    parts[#parts + 1] = string.char(v & 0x7f)\n    return table.concat(parts)\n  end\n  while (v & ~0x7f) ~= 0 do\n    parts[#parts + 1] = string.char((v & 0x7f) | 0x80)\n    v = v >> 7\n  end\n  parts[#parts + 1] = string.char(v & 0x7f)\n  return table.concat(parts)\nend\n\n'
+  + 'function Writer.new()\n  return setmetatable({ parts = {} }, Writer)\nend\n\n'
+  + 'function Writer:varint(value)\n  self.parts[#self.parts + 1] = varintBytes(value)\nend\n\n'
+  + 'function Writer:tag(field, wire)\n  self:varint((field << 3) | wire)\nend\n\n'
+  + 'function Writer:bytesField(field, payload)\n  self:tag(field, 2)\n  self:varint(#payload)\n  self.parts[#self.parts + 1] = payload\nend\n\n'
+  + 'function Writer:stringField(field, value)\n  if value == "" then return end\n  self:bytesField(field, value)\nend\n\n'
+  + 'function Writer:fixed(fmt, value)\n  self.parts[#self.parts + 1] = string.pack(fmt, value)\nend\n\n'
+  + 'function Writer:raw(payload)\n  self.parts[#self.parts + 1] = payload\nend\n\n'
+  + 'function Writer:toBytes()\n  return table.concat(self.parts)\nend\n\n'
+  + 'local Reader = {}\nReader.__index = Reader\n\n'
+  + 'function Reader.new(buf)\n  return setmetatable({ buf = buf, pos = 1 }, Reader)\nend\n\n'
+  + 'function Reader:done()\n  return self.pos > #self.buf\nend\n\n'
+  + 'function Reader:varint()\n  local result = 0\n  local shift = 0\n  while true do\n    if self.pos > #self.buf then error("truncated varint") end\n    local b = self.buf:byte(self.pos)\n    self.pos = self.pos + 1\n    result = result | ((b & 0x7f) << shift)\n    if (b & 0x80) == 0 then return result end\n    shift = shift + 7\n    if shift >= 70 then error("varint too long") end\n  end\nend\n\n'
+  + 'function Reader:take(n)\n  if self.pos + n - 1 > #self.buf then error("truncated field") end\n  local v = self.buf:sub(self.pos, self.pos + n - 1)\n  self.pos = self.pos + n\n  return v\nend\n\n'
+  + 'function Reader:next()\n  if self.pos > #self.buf then return nil end\n  local start = self.pos\n  local tag = self:varint()\n  local number = tag >> 3\n  local wire = tag & 7\n  if wire == 0 then\n    local v = self:varint()\n    return { number = number, wire = wire, varintValue = v, bytesValue = "", fixedValue = "", rawValue = self.buf:sub(start, self.pos - 1) }\n  elseif wire == 2 then\n    local n = self:varint()\n    local b = self:take(n)\n    return { number = number, wire = wire, varintValue = 0, bytesValue = b, fixedValue = "", rawValue = self.buf:sub(start, self.pos - 1) }\n  elseif wire == 1 then\n    local b = self:take(8)\n    return { number = number, wire = wire, varintValue = 0, bytesValue = "", fixedValue = b, rawValue = self.buf:sub(start, self.pos - 1) }\n  elseif wire == 5 then\n    local b = self:take(4)\n    return { number = number, wire = wire, varintValue = 0, bytesValue = "", fixedValue = b, rawValue = self.buf:sub(start, self.pos - 1) }\n  end\n  error("bad wire type")\nend\n\n';
+
+function lpMessageClass(model, msg) {
+  const name = lpFlat(model.package, msg.fullName);
+  return name + ' = {}\n' + name + '.__index = ' + name + '\n\n'
+    + 'function ' + name + '.new(' + msg.fields.map(lpFieldName).join(', ') + ')\n'
+    + '  return setmetatable({ ' + [...msg.fields.map((f) => lpFieldName(f) + ' = ' + lpFieldName(f) + ' or ' + lpDefault(model, f)), 'unknownFields = ""'].join(', ') + ' }, ' + name + ')\nend\n\n'
+    + 'function ' + name + ':marshalDc()\n  local w = Writer.new()\n'
+    + msg.fields.map((f) => lpEncodeGuard(model, f, lpEncodeField(model, f))).join('')
+    + '  w:raw(self.unknownFields)\n'
+    + '  return w:toBytes()\nend\n\n'
+    + 'function ' + name + ':unmarshalDc(data)\n'
+    + '  self.unknownFields = ""\n'
+    + msg.fields.map((f) => '  self.' + lpFieldName(f) + ' = ' + lpDefault(model, f) + '\n').join('')
+    + '  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n'
+    + '    if false then\n'
+    + msg.fields.map((f) => lpDecodeCase(model, f)).join('')
+    + '    else\n      self.unknownFields = self.unknownFields .. field.rawValue\n    end\n  end\nend\n\n'
+    + msg.nested.map((n) => lpMessageClass(model, n)).join('');
+}
+
+function lpEnumDecl(model, e) {
+  const name = lpFlat(model.package, model.package === '' ? e.name : model.package + '.' + e.name);
+  return 'local ' + name + ' = { ' + e.values.map((v) => v.name + ' = ' + v.number).join(', ') + ' }\n\n';
+}
+
+function emitLuaPbFile(model) {
+  if (!model.messages.length && !model.enums.length) return null;
+  const base = baseName(model.name);
+  const seenMaps = new Set();
+  const helpers = [];
+  let helperNames = [];
+  const collect = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = lpResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+          seenMaps.add(e.msg.fullName);
+          const b = lpEntryFlat(model, e);
+          helperNames = [b + 'Encode', b + 'Decode', ...helperNames];
+          helpers.unshift(lpMapHelpers(model, e));
+        }
+      }
+    }
+    for (const n of msg.nested) collect(n);
+  };
+  for (const m of model.messages) collect(m);
+  const allMsgNames = (msg) => msg.mapEntry ? [] : [lpFlat(model.package, msg.fullName), ...msg.nested.flatMap(allMsgNames)];
+  const deps = [...new Set((model.dependencies || []).map((d) => baseName(d)))];
+  const depRequires = deps.map((d) => 'local ' + lpFlat('', d + '_messages') + 'Messages = require("' + d + '_messages")\n').join('');
+  const content = LP_SUPPORT
+    + depRequires
+    + (depRequires ? '\n' : '')
+    + [...helperNames].reverse().map((n) => 'local ' + n + '\n').join('')
+    + model.messages.flatMap(allMsgNames).map((n) => 'local ' + n + '\n').join('')
+    + model.enums.map((e) => lpEnumDecl(model, e)).join('')
+    + model.messages.filter((m) => !m.mapEntry).map((m) => lpMessageClass(model, m)).join('')
+    + [...helpers].reverse().join('')
+    + 'return {\n'
+    + model.messages.filter((m) => !m.mapEntry).map((m) => '  ' + m.name + ' = ' + lpFlat(model.package, m.fullName) + ',\n').join('')
+    + model.enums.map((e) => '  ' + e.name + ' = ' + lpFlat(model.package, model.package === '' ? e.name : model.package + '.' + e.name) + ',\n').join('')
+    + '}\n';
+  return { name: base + '_messages.lua', content };
+}
+
 function emitLuaFile(model, params) {
   const base = baseName(model.name);
-  return {
+  const stub = {
     name: base + '_grpc_dc.lua',
     content: '-- @generated by protoc-gen-grpc-dc-lua (Racket metaprogram). DO NOT EDIT.\n'
       + '-- source: ' + model.name + '\n\n'
@@ -6035,6 +8730,8 @@ function emitLuaFile(model, params) {
       + model.services.map(luaReturnEntry).join('')
       + '}\n',
   };
+  const pbFile = emitLuaPbFile(model);
+  return pbFile ? [stub, pbFile] : stub;
 }
 // ---------------------------------------------------------------------------
 // Ruby emitter (mirrors racket/template-ruby.rkt).
@@ -6256,11 +8953,357 @@ function rbService(pb, svc) {
     + '      ]\n    ))\n  end\n';
 }
 
+
+// ---------------------------------------------------------------------------
+// Ruby message types, mirroring racket/template-ruby.rkt
+// (the rb-pb-* functions): a single <base>_pb.rb per proto file
+// with the <Base>Pb module, wire support, enums and message
+// classes. Byte-identical to the native protoc-gen-grpc-dc-ruby
+// plugin.
+// ---------------------------------------------------------------------------
+
+const RBP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
+const RBP_FIXED = { 2: [4, 'e'], 1: [8, 'E'], 7: [4, 'V'], 15: [4, 'l<'], 6: [8, 'Q<'], 16: [8, 'q<'] };
+
+function rbpFlat(pkg, full) {
+  const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+  return rel.split('.').join('_');
+}
+
+function rbpResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function rbpModuleName(entry) {
+  return camelName(baseName(entry.file)) + 'Pb';
+}
+
+function rbpEntryRef(model, entry) {
+  const local = rbpFlat(entry.pkg, entry.kind === 'enum'
+    ? (entry.msg ? entry.msg.fullName + '.' + entry.enum.name : (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name)
+    : entry.msg.fullName);
+  if (entry.kind === 'map' || entry.file === model.name) return local;
+  return rbpModuleName(entry) + '::' + (entry.kind === 'enum' ? entry.enum.name : rbpFlat(entry.pkg, entry.msg.fullName));
+}
+
+function rbpExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case 9: return JSON.stringify(d);
+    case 8: return d;
+    case 14: return String(enumDefaultNumber(model, f));
+    default: return d;
+  }
+}
+
+function rbpDefault(model, f) {
+  const lit = rbpExplicitLiteral(model, f);
+  if (lit !== null) return lit;
+  if (f.type === FT.MESSAGE && rbpResolve(model, f.typeName).kind === 'map') return '{}';
+  if (f.label === 3) return '[]';
+  if (f.type === FT.MESSAGE) return 'nil';
+  if (f.type === FT.STRING) return '""';
+  if (f.type === FT.BYTES) return '"".b';
+  if (f.type === FT.BOOL) return 'false';
+  if (f.type === FT.DOUBLE || f.type === FT.FLOAT) return '0.0';
+  if (f.type === FT.ENUM) {
+    const entry = rbpResolve(model, f.typeName);
+    return String(entry.enum.values[0].number);
+  }
+  return '0';
+}
+
+function rbpVarintExpr(f, v) {
+  switch (f.type) {
+    case 8: return '(' + v + ' ? 1 : 0)';
+    case 17: return '(((' + v + ' << 1) ^ (' + v + ' >> 31)) & 0xffffffff)';
+    case 18: return '((' + v + ' << 1) ^ (' + v + ' >> 63))';
+    default: return v;
+  }
+}
+
+function rbpVarintDecode(f, v) {
+  switch (f.type) {
+    case 5: case 14: return '(((' + v + ' & 0xffffffff) ^ 0x80000000) - 0x80000000)';
+    case 13: case 7: return '(' + v + ' & 0xffffffff)';
+    case 3: return '(((' + v + ' & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)';
+    case 4: return '(' + v + ' & 0xffffffffffffffff)';
+    case 8: return '(' + v + ' != 0)';
+    case 17: return '(((' + v + ' & 0xffffffff) >> 1) ^ -((' + v + ' & 0xffffffff) & 1))';
+    case 18: return '((' + v + ' >> 1) ^ -(' + v + ' & 1))';
+    default: return v;
+  }
+}
+
+function rbpFixedFmt(f) {
+  return RBP_FIXED[f.type][1];
+}
+
+function rbpWire(f) {
+  return RBP_FIXED[f.type][0] === 8 ? 1 : 5;
+}
+
+function rbpNonzero(f, v) {
+  return f.type === FT.BOOL ? v : v + ' != 0';
+}
+
+function rbpEncodeSingular(model, pb, f, v, indent) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (RBP_VARINT.has(f.type)) {
+    return proto2
+      ? indent + 'w.tag(' + n + ', 0)\n' + indent + 'w.varint(' + rbpVarintExpr(f, v) + ')\n'
+      : indent + 'if ' + rbpNonzero(f, v) + '\n' + indent + '  w.tag(' + n + ', 0)\n' + indent + '  w.varint(' + rbpVarintExpr(f, v) + ')\n' + indent + 'end\n';
+  }
+  if (RBP_FIXED[f.type]) {
+    return proto2
+      ? indent + 'w.tag(' + n + ', ' + rbpWire(f) + ')\n' + indent + 'w.fixed(' + JSON.stringify(rbpFixedFmt(f)) + ', ' + v + ')\n'
+      : indent + 'if ' + v + ' != 0\n' + indent + '  w.tag(' + n + ', ' + rbpWire(f) + ')\n' + indent + '  w.fixed(' + JSON.stringify(rbpFixedFmt(f)) + ', ' + v + ')\n' + indent + 'end\n';
+  }
+  switch (f.type) {
+    case 9: return proto2
+      ? indent + 'w.bytes_field(' + n + ', ' + v + '.encode(Encoding::UTF_8).b)\n'
+      : indent + 'w.string_field(' + n + ', ' + v + ')\n';
+    case 12: return proto2
+      ? indent + 'w.bytes_field(' + n + ', ' + v + ')\n'
+      : indent + 'if ' + v + '.bytesize > 0\n' + indent + '  w.bytes_field(' + n + ', ' + v + ')\n' + indent + 'end\n';
+    case 11: return indent + 'unless ' + v + '.nil?\n' + indent + '  w.bytes_field(' + n + ', ' + v + '.marshal_dc)\n' + indent + 'end\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function rbpSetExpr(sib) {
+  const v = '@' + sib.name;
+  switch (sib.type) {
+    case 11: case 10: return '!' + v + '.nil?';
+    case 9: case 12: return '(!' + v + '.nil? && !' + v + '.empty?)';
+    default: return rbpNonzero(sib, v);
+  }
+}
+
+function rbpEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '    unless (' + later.map(rbpSetExpr).join(' || ') + ')\n' + (code.endsWith('\n') ? code : code + '\n') + '    end\n';
+}
+
+function rbpEncodeField(model, pb, f) {
+  const v = '@' + f.name;
+  const n = f.number;
+  if (f.type === FT.MESSAGE && rbpResolve(model, f.typeName).kind === 'map') {
+    const entry = rbpResolve(model, f.typeName);
+    const helper = pb + 'Pb.encode_' + snake(rbpEntryRef(model, entry));
+    return '    ' + v + '.each { |k, val| w.bytes_field(' + n + ', ' + helper + '(k, val)) }\n';
+  }
+  if (f.label !== 3) return rbpEncodeSingular(model, pb, f, v, '    ');
+  if (RBP_VARINT.has(f.type)) {
+    return '    unless ' + v + '.empty?\n      payload = +"".b\n'
+      + '      ' + v + '.each { |x| payload << ' + pb + 'PbVarint.call(' + rbpVarintExpr(f, 'x') + ') }\n'
+      + '      w.bytes_field(' + n + ', payload)\n    end\n';
+  }
+  const fixed = RBP_FIXED[f.type];
+  if (fixed) {
+    return '    unless ' + v + '.empty?\n'
+      + '      w.bytes_field(' + n + ', ' + v + '.pack(' + JSON.stringify(fixed[1] + '*') + '))\n    end\n';
+  }
+  switch (f.type) {
+    case 9: case 12: return '    ' + v + '.each { |x| w.bytes_field(' + n + ', x) }\n';
+    case 11: return '    ' + v + '.each { |x| w.bytes_field(' + n + ', x.marshal_dc) }\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function rbpDecodeSingular(model, f, target, src, indent) {
+  if (RBP_VARINT.has(f.type)) {
+    return indent + target + ' = ' + rbpVarintDecode(f, src) + '\n';
+  }
+  if (RBP_FIXED[f.type]) {
+    return indent + target + ' = ' + src + '.unpack1(' + JSON.stringify(rbpFixedFmt(f)) + ')\n';
+  }
+  switch (f.type) {
+    case 9: return indent + target + ' = ' + src + '.dup.force_encoding(Encoding::UTF_8)\n';
+    case 12: return indent + target + ' = ' + src + '\n';
+    case 11: {
+      const ref = rbpEntryRef(model, rbpResolve(model, f.typeName));
+      return indent + target + ' = ' + ref + '.new\n' + indent + target + '.unmarshal_dc(' + src + ')\n';
+    }
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function rbpOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '        @' + sib.name + ' = ' + rbpDefault(model, sib) + '\n').join('');
+}
+
+function rbpSrc(f) {
+  return RBP_VARINT.has(f.type) ? 'varint_value' : (RBP_FIXED[f.type] ? 'fixed_value' : 'bytes_value');
+}
+
+function rbpDecodeCase(model, f) {
+  const v = '@' + f.name;
+  const head = '      when ' + f.number + '\n';
+  if (f.type === FT.MESSAGE && rbpResolve(model, f.typeName).kind === 'map') {
+    const entry = rbpResolve(model, f.typeName);
+    const pb = camelName(baseName(model.name)) + 'Pb';
+    const helper = pb + '.decode_' + snake(rbpEntryRef(model, entry));
+    return head
+      + '        kk, vv = ' + helper + '(bytes_value)\n'
+      + '        ' + v + '[kk] = vv\n';
+  }
+  if (f.label !== 3) {
+    return head + rbpOneofClearing(model, f) + rbpDecodeSingular(model, f, v, rbpSrc(f), '        ');
+  }
+  if (RBP_VARINT.has(f.type)) {
+    return head
+      + '        if wire == 2\n'
+      + '          sub = Reader.new(bytes_value)\n'
+      + '          until sub.done?\n'
+      + '            raw = sub.varint\n'
+      + '            ' + v + ' << ' + rbpVarintDecode(f, 'raw') + '\n'
+      + '          end\n        else\n'
+      + '          ' + v + ' << ' + rbpVarintDecode(f, 'varint_value') + '\n'
+      + '        end\n';
+  }
+  const fixed = RBP_FIXED[f.type];
+  if (fixed) {
+    return head
+      + '        if wire == 2\n'
+      + '          bytes_value.unpack(' + JSON.stringify(fixed[1] + '*') + ').each { |x| ' + v + ' << x }\n'
+      + '        else\n'
+      + '          ' + v + ' << fixed_value.unpack1(' + JSON.stringify(fixed[1]) + ')\n'
+      + '        end\n';
+  }
+  switch (f.type) {
+    case 9: return head + '        ' + v + ' << bytes_value.dup.force_encoding(Encoding::UTF_8)\n';
+    case 12: return head + '        ' + v + ' << bytes_value\n';
+    case 11: return head
+      + '        item = ' + rbpEntryRef(model, rbpResolve(model, f.typeName)) + '.new\n'
+      + '        item.unmarshal_dc(bytes_value)\n'
+      + '        ' + v + ' << item\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function rbpMapHelpers(model, pb, entry) {
+  const msg = entry.msg;
+  const base = snake(rbpEntryRef(model, entry));
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry lacks key/value');
+  return '  def self.encode_' + base + '(key, value)\n    w = Writer.new\n'
+    + rbpEncodeSingular(model, pb, { ...keyF, label: 1 }, 'key', '    ')
+    + rbpEncodeSingular(model, pb, { ...valF, label: 1 }, 'value', '    ')
+    + '    w.to_bytes\n  end\n\n'
+    + '  def self.decode_' + base + '(data)\n'
+    + '    key = ' + rbpDefault(model, { ...keyF, label: 1 }) + '\n    value = ' + rbpDefault(model, { ...valF, label: 1 }) + '\n'
+    + '    r = Reader.new(data)\n    loop do\n      item = r.field\n      break if item.nil?\n\n      num, wire, varint_value, bytes_value, fixed_value, _raw_value = item\n'
+    + '      if num == ' + keyF.number + '\n'
+    + rbpDecodeSingular(model, { ...keyF, label: 1 }, 'key', rbpSrc(keyF), '        ')
+    + '      elsif num == ' + valF.number + '\n'
+    + (valF.type === FT.MESSAGE
+      ? '        value = ' + rbpEntryRef(model, rbpResolve(model, valF.typeName)) + '.new\n        value.unmarshal_dc(bytes_value)\n'
+      : rbpDecodeSingular(model, { ...valF, label: 1 }, 'value', rbpSrc(valF), '        '))
+    + '      end\n    end\n    [key, value]\n  end\n\n';
+}
+
+function rbpSupport(pb) {
+  return pb + 'PbVarint = lambda do |value|\n  out = +"".b\n  v = value & 0xffffffffffffffff\n  while v > 0x7f\n    out << ((v & 0x7f) | 0x80)\n    v >>= 7\n  end\n  out << v\n  out\nend\n\n'
+    + '  class Writer\n'
+    + '    def initialize\n      @out = String.new(encoding: Encoding::BINARY)\n    end\n\n'
+    + '    def varint(value)\n      @out << ' + pb + 'PbVarint.call(value)\n    end\n\n'
+    + '    def tag(field, wire)\n      varint((field << 3) | wire)\n    end\n\n'
+    + '    def bytes_field(field, payload)\n      tag(field, 2)\n      varint(payload.bytesize)\n      @out << payload.b\n    end\n\n'
+    + '    def string_field(field, value)\n      return if value.nil? || value.empty?\n\n      bytes_field(field, value.encode(Encoding::UTF_8).b)\n    end\n\n'
+    + '    def fixed(fmt, value)\n      @out << [value].pack(fmt)\n    end\n\n'
+    + '    def raw(payload)\n      @out << payload.b\n    end\n\n'
+    + '    def to_bytes\n      @out\n    end\n  end\n\n'
+    + '  class Reader\n'
+    + '    def initialize(buf)\n      @buf = buf.b\n      @pos = 0\n    end\n\n'
+    + '    def done?\n      @pos >= @buf.bytesize\n    end\n\n'
+    + '    def varint\n      result = 0\n      shift = 0\n      loop do\n        raise ArgumentError, "truncated varint" if @pos >= @buf.bytesize\n\n        b = @buf.getbyte(@pos)\n        @pos += 1\n        result |= (b & 0x7f) << shift\n        return result if (b & 0x80).zero?\n\n        shift += 7\n        raise ArgumentError, "varint too long" if shift >= 70\n      end\n    end\n\n'
+    + '    def take(n)\n      raise ArgumentError, "truncated field" if @pos + n > @buf.bytesize\n\n      value = @buf.byteslice(@pos, n)\n      @pos += n\n      value\n    end\n\n'
+    + '    # [number, wire, varint_value, bytes_value, fixed_value] or nil.\n'
+    + '    def field\n      return nil if done?\n\n      start = @pos\n      tag = varint\n      num = tag >> 3\n      wire = tag & 7\n      raw = -> { @buf.byteslice(start, @pos - start) }\n      case wire\n      when 0 then [num, wire, varint, "".b, "".b, raw.call]\n      when 2\n        n = varint\n        v = take(n)\n        [num, wire, 0, v, "".b, raw.call]\n      when 1\n        v = take(8)\n        [num, wire, 0, "".b, v, raw.call]\n      when 5\n        v = take(4)\n        [num, wire, 0, "".b, v, raw.call]\n      else raise ArgumentError, "bad wire type"\n      end\n    end\n  end\n\n';
+}
+
+function rbpMessageClass(model, pb, msg) {
+  const name = rbpFlat(model.package, msg.fullName);
+  return '  class ' + name + '\n'
+    + (msg.fields.length
+      ? '    attr_accessor ' + [...msg.fields.map((f) => ':' + f.name), ':unknown_fields'].join(', ') + '\n\n'
+      : '')
+    + '    def initialize(' + msg.fields.map((f) => f.name + ': ' + rbpDefault(model, f)).join(', ') + ')\n'
+    + msg.fields.map((f) => '      @' + f.name + ' = ' + f.name + '\n').join('')
+    + '      @unknown_fields = "".b\n'
+    + '    end\n\n'
+    + '    def marshal_dc\n      w = Writer.new\n'
+    + msg.fields.map((f) => rbpEncodeGuard(model, f, rbpEncodeField(model, pb, f))).join('')
+    + '      w.raw(@unknown_fields)\n'
+    + '      w.to_bytes\n    end\n\n'
+    + '    def unmarshal_dc(data)\n'
+    + '      @unknown_fields = "".b\n'
+    + msg.fields.map((f) => '      @' + f.name + ' = ' + rbpDefault(model, f) + '\n').join('')
+    + '      r = Reader.new(data)\n      loop do\n        item = r.field\n        break if item.nil?\n\n        num, wire, varint_value, bytes_value, fixed_value, raw_value = item\n        case num\n'
+    + msg.fields.map((f) => rbpDecodeCase(model, f)).join('')
+    + '        else\n          @unknown_fields = @unknown_fields + raw_value\n        end\n      end\n      self\n    end\n\n'
+    + '    def ==(other)\n      other.is_a?(' + name + ') && '
+    + (msg.fields.length ? msg.fields.map((f) => '@' + f.name + ' == other.' + f.name).join(' && ') : 'true')
+    + '\n    end\n'
+    + '  end\n\n'
+    + msg.nested.map((n) => rbpMessageClass(model, pb, n)).join('');
+}
+
+function rbpEnumDecl(model, e) {
+  const name = rbpFlat(model.package, model.package === '' ? e.name : model.package + '.' + e.name);
+  return '  module ' + name + '\n'
+    + e.values.map((v) => '    ' + v.name + ' = ' + v.number + '\n').join('')
+    + '  end\n\n';
+}
+
+function emitRubyPbFile(model) {
+  if (!model.messages.length && !model.enums.length) return null;
+  const base = baseName(model.name);
+  const pb = camelName(base);
+  const seenMaps = new Set();
+  const helpers = [];
+  const collect = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = rbpResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+          seenMaps.add(e.msg.fullName);
+          helpers.unshift(rbpMapHelpers(model, pb, e));
+        }
+      }
+    }
+    for (const n of msg.nested) collect(n);
+  };
+  for (const m of model.messages) collect(m);
+  const deps = [...new Set((model.dependencies || []).map((d) => baseName(d)))];
+  const content = deps.map((d) => 'require_relative "' + d + '_pb"\n').join('')
+    + (deps.length ? '\n' : '')
+    + 'module ' + pb + 'Pb\n'
+    + rbpSupportBody(pb)
+    + model.enums.map((e) => rbpEnumDecl(model, e)).join('')
+    + model.messages.filter((m) => !m.mapEntry).map((m) => rbpMessageClass(model, pb, m)).join('')
+    + [...helpers].reverse().join('')
+    + 'end\n';
+  return { name: base + '_pb.rb', content };
+}
+
+function rbpSupportBody(pb) {
+  return '# @generated by protoc-gen-grpc-dc-ruby (Racket metaprogram). DO NOT EDIT.\n'
+    + rbpSupport(pb);
+}
+
 function emitRubyFile(model, params) {
   const base = baseName(model.name);
   const pb = camelName(base) + 'Pb';
   const mod = camelName(base) + 'GrpcDc';
-  return {
+  const stub = {
     name: base + '_grpc_dc.rb',
     content: '# @generated by protoc-gen-grpc-dc-ruby (Racket metaprogram). DO NOT EDIT.\n'
       + '# source: ' + model.name + '\n\n'
@@ -6270,6 +9313,8 @@ function emitRubyFile(model, params) {
       + model.services.map((svc) => rbService(pb, svc)).join('')
       + 'end\n',
   };
+  const pbFile = emitRubyPbFile(model);
+  return pbFile ? [stub, pbFile] : stub;
 }
 // ---------------------------------------------------------------------------
 // PHP emitter (mirrors racket/template-php.rkt).
@@ -6531,11 +9576,382 @@ function phpService(pb, svc) {
     + '        ]\n    ));\n}\n';
 }
 
+
+// ---------------------------------------------------------------------------
+// PHP message types, mirroring racket/template-php.rkt
+// (the php-pb-* functions): a single <base>_pb.php per proto file
+// with the <Base>Pb namespace, wire support, enums and message
+// classes. Byte-identical to the native protoc-gen-grpc-dc-php
+// plugin.
+// ---------------------------------------------------------------------------
+
+const PHPB_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
+const PHPB_FIXED = { 2: [4, 'g'], 1: [8, 'e'], 7: [4, 'V'], 15: [4, 'V'], 6: [8, 'P'], 16: [8, 'P'] };
+
+function phpbCamel(s) {
+  const parts = s.split('_');
+  if (!parts.length) return s;
+  return parts[0] + parts.slice(1).map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
+}
+
+function phpbFieldName(f) {
+  return f.jsonName ? f.jsonName : phpbCamel(f.name);
+}
+
+function phpbFlat(pkg, full) {
+  const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+  return rel.split('.').join('_');
+}
+
+function phpbResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function phpbNamespace(entry) {
+  return camelName(baseName(entry.file)) + 'Pb';
+}
+
+function phpbEntryRef(model, entry) {
+  const local = phpbFlat(entry.pkg, entry.kind === 'enum'
+    ? (entry.msg ? entry.msg.fullName + '.' + entry.enum.name : (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name)
+    : entry.msg.fullName);
+  if (entry.kind === 'map' || entry.file === model.name) return local;
+  return '\\' + phpbNamespace(entry) + '\\' + (entry.kind === 'enum' ? entry.enum.name : phpbFlat(entry.pkg, entry.msg.fullName));
+}
+
+function phpbType(model, f) {
+  if (f.type === FT.MESSAGE && phpbResolve(model, f.typeName).kind === 'map') return 'array';
+  if (f.label === 3) return 'array';
+  if (f.type === FT.DOUBLE || f.type === FT.FLOAT) return 'float';
+  if (f.type === FT.STRING || f.type === FT.BYTES) return 'string';
+  if (f.type === FT.BOOL) return 'bool';
+  if (f.type === FT.MESSAGE) return '?' + phpbEntryRef(model, phpbResolve(model, f.typeName));
+  return 'int';
+}
+
+function phpbExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case 9: return JSON.stringify(d);
+    case 8: return d;
+    case 14: return String(enumDefaultNumber(model, f));
+    default: return d;
+  }
+}
+
+function phpbDefault(model, f) {
+  const lit = phpbExplicitLiteral(model, f);
+  if (lit !== null) return lit;
+  if (f.type === FT.MESSAGE && phpbResolve(model, f.typeName).kind === 'map') return '[]';
+  if (f.label === 3) return '[]';
+  if (f.type === FT.MESSAGE) return 'null';
+  if (f.type === FT.STRING || f.type === FT.BYTES) return '""';
+  if (f.type === FT.BOOL) return 'false';
+  if (f.type === FT.DOUBLE || f.type === FT.FLOAT) return '0.0';
+  if (f.type === FT.ENUM) {
+    const entry = phpbResolve(model, f.typeName);
+    return String(entry.enum.values[0].number);
+  }
+  return '0';
+}
+
+function phpbVarintExpr(f, v) {
+  switch (f.type) {
+    case 8: return '(' + v + ' ? 1 : 0)';
+    case 17: return '(((' + v + ' << 1) ^ (' + v + ' >> 31)) & 0xffffffff)';
+    case 18: return '((' + v + ' << 1) ^ (' + v + ' >> 63))';
+    default: return v;
+  }
+}
+
+function phpbVarintDecode(f, v) {
+  switch (f.type) {
+    case 5: case 14: return '(((' + v + ' & 0xffffffff) >= 0x80000000) ? ((' + v + ' & 0xffffffff) - 0x100000000) : (' + v + ' & 0xffffffff))';
+    case 13: case 7: return '(' + v + ' & 0xffffffff)';
+    case 8: return '(' + v + ' !== 0)';
+    case 17: return '(((' + v + ' & 0xffffffff) >> 1) ^ -((' + v + ' & 0xffffffff) & 1))';
+    case 18: return '((' + v + ' >> 1) ^ -(' + v + ' & 1))';
+    default: return v;
+  }
+}
+
+function phpbFixedFmt(f) {
+  return PHPB_FIXED[f.type][1];
+}
+
+function phpbWire(f) {
+  return PHPB_FIXED[f.type][0] === 8 ? 1 : 5;
+}
+
+function phpbNonzero(f, v) {
+  return f.type === FT.BOOL ? v : v + ' !== 0';
+}
+
+function phpbFixedDecode(f, src) {
+  switch (f.type) {
+    case 15: return "(((unpack('V', " + src + ")[1]) >= 0x80000000) ? (unpack('V', " + src + ")[1] - 0x100000000) : unpack('V', " + src + ")[1])";
+    case 16: return "(((((unpack('V', substr(" + src + ", 4, 4))[1]) >= 0x80000000) ? (unpack('V', substr(" + src + ", 4, 4))[1] - 0x100000000) : unpack('V', substr(" + src + ", 4, 4))[1]) << 32) | unpack('V', substr(" + src + ", 0, 4))[1])";
+    default: return 'unpack(' + JSON.stringify(phpbFixedFmt(f)) + ', ' + src + ')[1]';
+  }
+}
+
+function phpbEncodeSingular(model, f, v, indent) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (PHPB_VARINT.has(f.type)) {
+    return proto2
+      ? indent + '{\n' + indent + '    $w->tag(' + n + ', 0);\n' + indent + '    $w->varint(' + phpbVarintExpr(f, v) + ');\n' + indent + '}\n'
+      : indent + 'if (' + phpbNonzero(f, v) + ') {\n' + indent + '    $w->tag(' + n + ', 0);\n' + indent + '    $w->varint(' + phpbVarintExpr(f, v) + ');\n' + indent + '}\n';
+  }
+  if (PHPB_FIXED[f.type]) {
+    const fmt = f.type === 16 ? 'P' : phpbFixedFmt(f);
+    const val = f.type === 15 ? '(' + v + ' & 0xffffffff)' : v;
+    return proto2
+      ? indent + '{\n' + indent + '    $w->tag(' + n + ', ' + phpbWire(f) + ');\n' + indent + '    $w->fixed(' + JSON.stringify(fmt) + ', ' + val + ');\n' + indent + '}\n'
+      : indent + 'if (' + v + ' != 0) {\n' + indent + '    $w->tag(' + n + ', ' + phpbWire(f) + ');\n' + indent + '    $w->fixed(' + JSON.stringify(fmt) + ', ' + val + ');\n' + indent + '}\n';
+  }
+  switch (f.type) {
+    case 9: return proto2
+      ? indent + '$w->bytesField(' + n + ', ' + v + ');\n'
+      : indent + '$w->stringField(' + n + ', ' + v + ');\n';
+    case 12: return proto2
+      ? indent + '$w->bytesField(' + n + ', ' + v + ');\n'
+      : indent + 'if (strlen(' + v + ') > 0) {\n' + indent + '    $w->bytesField(' + n + ', ' + v + ');\n' + indent + '}\n';
+    case 11: return indent + 'if (' + v + ' !== null) {\n' + indent + '    $w->bytesField(' + n + ', ' + v + '->marshalDc());\n' + indent + '}\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function phpbSetExpr(sib) {
+  const v = '$this->' + phpbFieldName(sib);
+  switch (sib.type) {
+    case 11: case 10: return v + ' !== null';
+    case 9: case 12: return '(' + v + ' !== null && ' + v + ' !== "")';
+    case 1: case 2: return v + ' != 0';
+    default: return phpbNonzero(sib, v);
+  }
+}
+
+function phpbEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '        if (!(' + later.map(phpbSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
+}
+
+function phpbEncodeField(model, f) {
+  const v = '$this->' + phpbFieldName(f);
+  const n = f.number;
+  if (f.type === FT.MESSAGE && phpbResolve(model, f.typeName).kind === 'map') {
+    const entry = phpbResolve(model, f.typeName);
+    const helper = 'encode' + phpbEntryRef(model, entry);
+    return '        foreach (' + v + ' as $k => $val) {\n            $w->bytesField(' + n + ', ' + helper + '($k, $val));\n        }\n';
+  }
+  if (f.label !== 3) return phpbEncodeSingular(model, f, v, '        ');
+  if (PHPB_VARINT.has(f.type)) {
+    return '        if (!empty(' + v + ')) {\n            $payload = "";\n'
+      + '            foreach (' + v + ' as $x) {\n                $payload .= pbVarintBytes(' + phpbVarintExpr(f, '$x') + ');\n            }\n'
+      + '            $w->bytesField(' + n + ', $payload);\n        }\n';
+  }
+  const fixed = PHPB_FIXED[f.type];
+  if (fixed) {
+    const fmt = f.type === 16 ? 'P' : phpbFixedFmt(f);
+    const val = f.type === 15 ? '($x & 0xffffffff)' : '$x';
+    return '        if (!empty(' + v + ')) {\n            $payload = "";\n'
+      + '            foreach (' + v + ' as $x) {\n                $payload .= pack(' + JSON.stringify(fmt) + ', ' + val + ');\n            }\n'
+      + '            $w->bytesField(' + n + ', $payload);\n        }\n';
+  }
+  switch (f.type) {
+    case 9: case 12: return '        foreach (' + v + ' as $x) {\n            $w->bytesField(' + n + ', $x);\n        }\n';
+    case 11: return '        foreach (' + v + ' as $x) {\n            $w->bytesField(' + n + ', $x->marshalDc());\n        }\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function phpbDecodeSingular(model, f, target, src, indent) {
+  if (PHPB_VARINT.has(f.type)) {
+    return indent + target + ' = ' + phpbVarintDecode(f, src) + ';\n';
+  }
+  if (PHPB_FIXED[f.type]) {
+    return indent + target + ' = ' + phpbFixedDecode(f, src) + ';\n';
+  }
+  switch (f.type) {
+    case 9: case 12: return indent + target + ' = ' + src + ';\n';
+    case 11: {
+      const ref = phpbEntryRef(model, phpbResolve(model, f.typeName));
+      return indent + target + ' = new ' + ref + '();\n' + indent + target + '->unmarshalDc(' + src + ');\n';
+    }
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function phpbOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '                    $this->' + phpbFieldName(sib) + ' = ' + phpbDefault(model, sib) + ';\n').join('');
+}
+
+function phpbSrc(f) {
+  return PHPB_VARINT.has(f.type) ? '$varintValue' : (PHPB_FIXED[f.type] ? '$fixedValue' : '$bytesValue');
+}
+
+function phpbDecodeCase(model, f) {
+  const v = '$this->' + phpbFieldName(f);
+  const head = '                case ' + f.number + ':\n';
+  const foot = '                    break;\n';
+  if (f.type === FT.MESSAGE && phpbResolve(model, f.typeName).kind === 'map') {
+    const entry = phpbResolve(model, f.typeName);
+    const helper = 'decode' + phpbEntryRef(model, entry);
+    return head
+      + '                    [$kk, $vv] = ' + helper + '($bytesValue);\n'
+      + '                    ' + v + '[$kk] = $vv;\n'
+      + foot;
+  }
+  if (f.label !== 3) {
+    return head + phpbOneofClearing(model, f) + phpbDecodeSingular(model, f, v, phpbSrc(f), '                    ') + foot;
+  }
+  if (PHPB_VARINT.has(f.type)) {
+    return head
+      + '                    if ($wire === 2) {\n'
+      + '                        $sub = new Reader($bytesValue);\n'
+      + '                        while (!$sub->done()) {\n'
+      + '                            $raw = $sub->varint();\n'
+      + '                            ' + v + '[] = ' + phpbVarintDecode(f, '$raw') + ';\n'
+      + '                        }\n                    } else {\n'
+      + '                        ' + v + '[] = ' + phpbVarintDecode(f, '$varintValue') + ';\n'
+      + '                    }\n'
+      + foot;
+  }
+  const fixed = PHPB_FIXED[f.type];
+  if (fixed) {
+    return head
+      + '                    if ($wire === 2) {\n'
+      + '                        for ($i = 0; $i < strlen($bytesValue); $i += ' + fixed[0] + ') {\n'
+      + '                            ' + v + '[] = ' + phpbFixedDecode(f, 'substr($bytesValue, $i, ' + fixed[0] + ')') + ';\n'
+      + '                        }\n                    } else {\n'
+      + '                        ' + v + '[] = ' + phpbFixedDecode(f, '$fixedValue') + ';\n'
+      + '                    }\n'
+      + foot;
+  }
+  switch (f.type) {
+    case 9: case 12: return head + '                    ' + v + '[] = $bytesValue;\n' + foot;
+    case 11: return head
+      + '                    $item = new ' + phpbEntryRef(model, phpbResolve(model, f.typeName)) + '();\n'
+      + '                    $item->unmarshalDc($bytesValue);\n'
+      + '                    ' + v + '[] = $item;\n'
+      + foot;
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function phpbMapHelpers(model, entry) {
+  const msg = entry.msg;
+  const base = phpbEntryRef(model, entry);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry lacks key/value');
+  return 'function encode' + base + '($key, $value): string\n{\n    $w = new Writer();\n'
+    + phpbEncodeSingular(model, { ...keyF, label: 1 }, '$key', '    ')
+    + phpbEncodeSingular(model, { ...valF, label: 1 }, '$value', '    ')
+    + '    return $w->toBytes();\n}\n\n'
+    + 'function decode' + base + '(string $data): array\n{\n'
+    + '    $key = ' + phpbDefault(model, { ...keyF, label: 1 }) + ';\n    $value = ' + phpbDefault(model, { ...valF, label: 1 }) + ';\n'
+    + '    $r = new Reader($data);\n    while (($item = $r->field()) !== null) {\n        [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;\n'
+    + '        if ($num === ' + keyF.number + ') {\n'
+    + phpbDecodeSingular(model, { ...keyF, label: 1 }, '$key', phpbSrc(keyF), '            ')
+    + '        } elseif ($num === ' + valF.number + ') {\n'
+    + (valF.type === FT.MESSAGE
+      ? '            $value = new ' + phpbEntryRef(model, phpbResolve(model, valF.typeName)) + '();\n            $value->unmarshalDc($bytesValue);\n'
+      : phpbDecodeSingular(model, { ...valF, label: 1 }, '$value', phpbSrc(valF), '            '))
+    + '        }\n    }\n    return [$key, $value];\n}\n\n';
+}
+
+const PHPB_SUPPORT = 'function pbVarintBytes(int $value): string\n{\n    $out = "";\n    $v = $value;\n    while (true) {\n        $b = $v & 0x7f;\n        $v = ($v >> 7) & 0x01ffffffffffffff;\n        if ($v === 0) {\n            return $out . chr($b);\n        }\n        $out .= chr($b | 0x80);\n    }\n}\n\n'
+  + 'final class Writer\n{\n    private string $out = "";\n\n'
+  + '    public function varint(int $value): void\n    {\n        $this->out .= pbVarintBytes($value);\n    }\n\n'
+  + '    public function tag(int $field, int $wire): void\n    {\n        $this->varint(($field << 3) | $wire);\n    }\n\n'
+  + '    public function bytesField(int $field, string $payload): void\n    {\n        $this->tag($field, 2);\n        $this->varint(strlen($payload));\n        $this->out .= $payload;\n    }\n\n'
+  + '    public function stringField(int $field, string $value): void\n    {\n        if ($value === "") {\n            return;\n        }\n        $this->bytesField($field, $value);\n    }\n\n'
+  + '    public function fixed(string $fmt, $value): void\n    {\n        $this->out .= pack($fmt, $value);\n    }\n\n'
+  + '    public function raw(string $payload): void\n    {\n        $this->out .= $payload;\n    }\n\n'
+  + '    public function toBytes(): string\n    {\n        return $this->out;\n    }\n}\n\n'
+  + 'final class Reader\n{\n    private string $buf;\n    private int $pos = 0;\n\n'
+  + '    public function __construct(string $buf)\n    {\n        $this->buf = $buf;\n    }\n\n'
+  + '    public function done(): bool\n    {\n        return $this->pos >= strlen($this->buf);\n    }\n\n'
+  + '    public function varint(): int\n    {\n        $result = 0;\n        $shift = 0;\n        while (true) {\n            if ($this->pos >= strlen($this->buf)) {\n                throw new \\InvalidArgumentException("truncated varint");\n            }\n            $b = ord($this->buf[$this->pos]);\n            $this->pos++;\n            if ($shift < 63) {\n                $result |= ($b & 0x7f) << $shift;\n            } elseif (($b & 1) !== 0) {\n                $result |= PHP_INT_MIN;\n            }\n            if (($b & 0x80) === 0) {\n                return $result;\n            }\n            $shift += 7;\n            if ($shift >= 70) {\n                throw new \\InvalidArgumentException("varint too long");\n            }\n        }\n    }\n\n'
+  + '    public function take(int $n): string\n    {\n        if ($this->pos + $n > strlen($this->buf)) {\n            throw new \\InvalidArgumentException("truncated field");\n        }\n        $value = substr($this->buf, $this->pos, $n);\n        $this->pos += $n;\n        return $value;\n    }\n\n'
+  + '    /** [number, wire, varint_value, bytes_value, fixed_value] or null. */\n'
+  + '    public function field(): ?array\n    {\n        if ($this->done()) {\n            return null;\n        }\n        $start = $this->pos;\n        $tag = $this->varint();\n        $num = $tag >> 3;\n        $wire = $tag & 7;\n        switch ($wire) {\n            case 0:\n                $v = $this->varint();\n                return [$num, $wire, $v, "", "", substr($this->buf, $start, $this->pos - $start)];\n            case 2:\n                $n = $this->varint();\n                $b = $this->take($n);\n                return [$num, $wire, 0, $b, "", substr($this->buf, $start, $this->pos - $start)];\n            case 1:\n                $b = $this->take(8);\n                return [$num, $wire, 0, "", $b, substr($this->buf, $start, $this->pos - $start)];\n            case 5:\n                $b = $this->take(4);\n                return [$num, $wire, 0, "", $b, substr($this->buf, $start, $this->pos - $start)];\n            default:\n                throw new \\InvalidArgumentException("bad wire type");\n        }\n    }\n}\n\n';
+
+function phpbMessageClass(model, msg) {
+  const name = phpbFlat(model.package, msg.fullName);
+  return 'class ' + name + '\n{\n'
+    + msg.fields.map((f) => '    public ' + phpbType(model, f) + ' $' + phpbFieldName(f) + ' = ' + phpbDefault(model, f) + ';\n').join('')
+    + (msg.fields.length ? '\n' : '')
+    + '    public string $unknownFields = "";\n'
+    + '    public function __construct(' + msg.fields.map((f) => phpbType(model, f) + ' $' + phpbFieldName(f) + ' = ' + phpbDefault(model, f)).join(', ') + ')\n    {\n'
+    + msg.fields.map((f) => '        $this->' + phpbFieldName(f) + ' = $' + phpbFieldName(f) + ';\n').join('')
+    + '    }\n\n'
+    + '    public function marshalDc(): string\n    {\n        $w = new Writer();\n'
+    + msg.fields.map((f) => phpbEncodeGuard(model, f, phpbEncodeField(model, f))).join('')
+    + '        $w->raw($this->unknownFields);\n'
+    + '        return $w->toBytes();\n    }\n\n'
+    + '    public function unmarshalDc(string $data): self\n    {\n'
+    + '        $this->unknownFields = "";\n'
+    + msg.fields.map((f) => '        $this->' + phpbFieldName(f) + ' = ' + phpbDefault(model, f) + ';\n').join('')
+    + '        $r = new Reader($data);\n        while (($item = $r->field()) !== null) {\n            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;\n            switch ($num) {\n'
+    + msg.fields.map((f) => phpbDecodeCase(model, f)).join('')
+    + '                default:\n                    $this->unknownFields .= $rawValue;\n                    break;\n            }\n        }\n        return $this;\n    }\n\n'
+    + '    public function equals(?object $other): bool\n    {\n        return $other instanceof ' + name
+    + (msg.fields.length
+      ? '\n            && ' + msg.fields.map((f) => '$this->' + phpbFieldName(f) + ' === $other->' + phpbFieldName(f)).join('\n            && ')
+      : '')
+    + ';\n    }\n}\n\n'
+    + msg.nested.map((n) => phpbMessageClass(model, n)).join('');
+}
+
+function phpbEnumDecl(model, e) {
+  const name = phpbFlat(model.package, model.package === '' ? e.name : model.package + '.' + e.name);
+  return 'final class ' + name + '\n{\n'
+    + e.values.map((v) => '    public const ' + v.name + ' = ' + v.number + ';\n').join('')
+    + '}\n\n';
+}
+
+function emitPhpPbFile(model) {
+  if (!model.messages.length && !model.enums.length) return null;
+  const base = baseName(model.name);
+  const seenMaps = new Set();
+  const helpers = [];
+  const collect = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = phpbResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+          seenMaps.add(e.msg.fullName);
+          helpers.unshift(phpbMapHelpers(model, e));
+        }
+      }
+    }
+    for (const n of msg.nested) collect(n);
+  };
+  for (const m of model.messages) collect(m);
+  const deps = [...new Set((model.dependencies || []).map((d) => baseName(d)))];
+  const content = '<?php\n// @generated by protoc-gen-grpc-dc-php (Racket metaprogram). DO NOT EDIT.\n\n'
+    + 'namespace ' + camelName(base) + 'Pb;\n\n'
+    + deps.map((d) => 'require_once __DIR__ . "/' + d + '_pb.php";\n').join('')
+    + (deps.length ? '\n' : '')
+    + PHPB_SUPPORT
+    + model.enums.map((e) => phpbEnumDecl(model, e)).join('')
+    + model.messages.filter((m) => !m.mapEntry).map((m) => phpbMessageClass(model, m)).join('')
+    + [...helpers].reverse().join('');
+  return { name: base + '_pb.php', content };
+}
+
 function emitPhpFile(model, params) {
   const base = baseName(model.name);
   const pb = camelName(base) + 'Pb';
   const ns = camelName(base) + 'GrpcDc';
-  return {
+  const stub = {
     name: base + '_grpc_dc.php',
     content: '<?php\n// @generated by protoc-gen-grpc-dc-php (Racket metaprogram). DO NOT EDIT.\n'
       + '// source: ' + model.name + '\n\n'
@@ -6545,6 +9961,8 @@ function emitPhpFile(model, params) {
       + PHP_STREAM_HELPERS
       + model.services.map((svc) => phpService(pb, svc)).join(''),
   };
+  const pbFile = emitPhpPbFile(model);
+  return pbFile ? [stub, pbFile] : stub;
 }
 // ---------------------------------------------------------------------------
 // Scala emitter (mirrors racket/template-scala.rkt). Note: the
@@ -6789,10 +10207,411 @@ function scalaService(svc) {
     + '        })\n    }\n';
 }
 
+
+// ---------------------------------------------------------------------------
+// Scala message types, mirroring racket/template-scala.rkt
+// (the sc-pb-* functions): a single <Base>Messages.scala per proto
+// file with the <Base>Pb support object, enums and message
+// classes. Byte-identical to the native protoc-gen-grpc-dc-scala
+// plugin.
+// ---------------------------------------------------------------------------
+
+const SCP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
+const SCP_FIXED = { 1: [8, 'double'], 2: [4, 'float'], 6: [8, 'fixed64'], 7: [4, 'fixed32'], 15: [4, 'fixed32'], 16: [8, 'fixed64'] };
+
+function scpCamel(s) {
+  const parts = s.split('_');
+  if (!parts.length) return s;
+  return parts[0] + parts.slice(1).map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
+}
+
+function scpFieldName(f) {
+  return f.jsonName ? f.jsonName : scpCamel(f.name);
+}
+
+function scpFlat(pkg, full) {
+  const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+  return rel.split('.').join('_');
+}
+
+function scpResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function scpEntryRef(model, entry) {
+  const flat = scpFlat(entry.pkg, entry.kind === 'enum'
+    ? (entry.msg ? entry.msg.fullName + '.' + entry.enum.name : (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name)
+    : entry.msg.fullName);
+  const simple = entry.kind === 'enum' ? entry.enum.name : flat;
+  if (entry.kind === 'map' || entry.file === model.name) {
+    if (entry.kind === 'enum') {
+      return scpFlat(entry.pkg, entry.msg
+        ? entry.msg.fullName + '.' + simple
+        : (entry.pkg ? entry.pkg + '.' : '') + simple);
+    }
+    return flat;
+  }
+  return entry.pkg + '.' + simple;
+}
+
+function scpScalarType(f) {
+  switch (f.type) {
+    case 1: return 'Double';
+    case 2: return 'Float';
+    case 3: case 4: case 6: case 16: case 18: return 'Long';
+    case 8: return 'Boolean';
+    case 9: return 'String';
+    case 12: return 'Array[Byte]';
+    default: return 'Int';
+  }
+}
+
+function scpElemType(model, f) {
+  return f.type === FT.MESSAGE
+    ? scpEntryRef(model, scpResolve(model, f.typeName))
+    : scpScalarType(f);
+}
+
+function scpType(model, f) {
+  if (f.type === FT.MESSAGE && scpResolve(model, f.typeName).kind === 'map') {
+    const entry = scpResolve(model, f.typeName);
+    const kf = entry.msg.fields.find((x) => x.number === 1);
+    const vf = entry.msg.fields.find((x) => x.number === 2);
+    return 'Map[' + scpElemType(model, kf) + ', ' + scpElemType(model, vf) + ']';
+  }
+  if (f.label === 3) return 'List[' + scpElemType(model, f) + ']';
+  return scpElemType(model, f);
+}
+
+function scpExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case 9: return JSON.stringify(d);
+    case 8: return d;
+    case 14: return String(enumDefaultNumber(model, f));
+    case 2: return d + 'f';
+    default: return d;
+  }
+}
+
+function scpDefault(model, f) {
+  const lit = scpExplicitLiteral(model, f);
+  if (lit !== null) return lit;
+  if (f.type === FT.MESSAGE && scpResolve(model, f.typeName).kind === 'map') return 'Map.empty';
+  if (f.label === 3) return 'List.empty';
+  if (f.type === FT.MESSAGE) return 'null';
+  if (f.type === FT.STRING) return '""';
+  if (f.type === FT.BYTES) return 'Array.empty[Byte]';
+  if (f.type === FT.BOOL) return 'false';
+  if (f.type === FT.DOUBLE) return '0.0';
+  if (f.type === FT.FLOAT) return '0.0f';
+  if ([3, 4, 6, 16, 18].includes(f.type)) return '0L';
+  if (f.type === FT.ENUM) {
+    const entry = scpResolve(model, f.typeName);
+    return String(entry.enum.values[0].number);
+  }
+  return '0';
+}
+
+function scpVarintExpr(f, v) {
+  switch (f.type) {
+    case 8: return '(if (' + v + ') 1L else 0L)';
+    case 17: return '(((' + v + ' << 1) ^ (' + v + ' >> 31)) & 0xffffffffL)';
+    case 18: return '((' + v + ' << 1) ^ (' + v + ' >> 63))';
+    case 5: case 13: case 7: case 14: return '(' + v + ' & 0xffffffffL)';
+    default: return v + '.toLong';
+  }
+}
+
+function scpVarintDecode(f, v) {
+  switch (f.type) {
+    case 5: case 14: case 13: case 7: return v + '.toInt';
+    case 8: return '(' + v + ' != 0L)';
+    case 17: return '(((' + v + '.toInt) >>> 1) ^ -((' + v + '.toInt) & 1))';
+    case 18: return '((' + v + ' >>> 1) ^ -(' + v + ' & 1L))';
+    default: return v;
+  }
+}
+
+function scpWire(f) {
+  return SCP_FIXED[f.type][0] === 8 ? 1 : 5;
+}
+
+function scpFixedEncodeExpr(f, v, obj) {
+  switch (SCP_FIXED[f.type][1]) {
+    case 'double': return obj + '.int64BytesLE(java.lang.Double.doubleToRawLongBits(' + v + '))';
+    case 'float': return obj + '.int32BytesLE(java.lang.Float.floatToRawIntBits(' + v + '))';
+    case 'fixed64': return obj + '.int64BytesLE(' + v + ')';
+    case 'fixed32': return obj + '.int32BytesLE(' + v + ')';
+    default: throw new Error('bad fixed kind');
+  }
+}
+
+function scpFixedDecodeExpr(f, src, obj) {
+  switch (SCP_FIXED[f.type][1]) {
+    case 'double': return 'java.lang.Double.longBitsToDouble(' + obj + '.toInt64LE(' + src + ', 0))';
+    case 'float': return 'java.lang.Float.intBitsToFloat(' + obj + '.toInt32LE(' + src + ', 0))';
+    case 'fixed64': return obj + '.toInt64LE(' + src + ', 0)';
+    case 'fixed32': return obj + '.toInt32LE(' + src + ', 0)';
+    default: throw new Error('bad fixed kind');
+  }
+}
+
+function scpNonzero(f, v) {
+  return f.type === FT.BOOL ? v : v + ' != 0';
+}
+
+function scpEncodeSingular(model, f, v, indent, obj) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (SCP_VARINT.has(f.type)) {
+    return proto2
+      ? indent + '{\n' + indent + '  w.tag(' + n + ', 0)\n' + indent + '  w.varint(' + scpVarintExpr(f, v) + ')\n' + indent + '}\n'
+      : indent + 'if (' + scpNonzero(f, v) + ') {\n' + indent + '  w.tag(' + n + ', 0)\n' + indent + '  w.varint(' + scpVarintExpr(f, v) + ')\n' + indent + '}\n';
+  }
+  if (SCP_FIXED[f.type]) {
+    return proto2
+      ? indent + '{\n' + indent + '  w.fixed(' + n + ', ' + scpWire(f) + ', ' + scpFixedEncodeExpr(f, v, obj) + ')\n' + indent + '}\n'
+      : indent + 'if (' + v + ' != 0) {\n' + indent + '  w.fixed(' + n + ', ' + scpWire(f) + ', ' + scpFixedEncodeExpr(f, v, obj) + ')\n' + indent + '}\n';
+  }
+  switch (f.type) {
+    case 9: return proto2
+      ? indent + 'w.bytesField(' + n + ', ' + v + '.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n'
+      : indent + 'w.stringField(' + n + ', ' + v + ')\n';
+    case 12: return proto2
+      ? indent + 'w.bytesField(' + n + ', ' + v + ')\n'
+      : indent + 'if (' + v + '.nonEmpty) {\n' + indent + '  w.bytesField(' + n + ', ' + v + ')\n' + indent + '}\n';
+    case 11: return indent + 'if (' + v + ' != null) {\n' + indent + '  w.bytesField(' + n + ', ' + v + '.marshalDc())\n' + indent + '}\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function scpSetExpr(sib) {
+  const v = scpFieldName(sib);
+  switch (sib.type) {
+    case 11: case 10: return v + ' != null';
+    case 9: case 12: return v + '.nonEmpty';
+    default: return scpNonzero(sib, v);
+  }
+}
+
+function scpEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '    if (!(' + later.map(scpSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '    }\n';
+}
+
+function scpEncodeField(model, f, obj) {
+  const v = scpFieldName(f);
+  const n = f.number;
+  if (f.type === FT.MESSAGE && scpResolve(model, f.typeName).kind === 'map') {
+    const entry = scpResolve(model, f.typeName);
+    const helper = obj + '.encode' + scpEntryRef(model, entry);
+    return '    for ((k, v) <- ' + v + ') {\n      w.bytesField(' + n + ', ' + helper + '(k, v))\n    }\n';
+  }
+  if (f.label !== 3) return scpEncodeSingular(model, f, v, '    ', obj);
+  if (SCP_VARINT.has(f.type)) {
+    return '    if (' + v + '.nonEmpty) {\n      val payload = new java.io.ByteArrayOutputStream()\n'
+      + '      for (x <- ' + v + ') {\n        payload.write(' + obj + '.varintBytes(' + scpVarintExpr(f, 'x') + '))\n      }\n'
+      + '      w.bytesField(' + n + ', payload.toByteArray)\n    }\n';
+  }
+  if (SCP_FIXED[f.type]) {
+    return '    if (' + v + '.nonEmpty) {\n      val payload = new java.io.ByteArrayOutputStream()\n'
+      + '      for (x <- ' + v + ') {\n        payload.write(' + scpFixedEncodeExpr(f, 'x', obj) + ')\n      }\n'
+      + '      w.bytesField(' + n + ', payload.toByteArray)\n    }\n';
+  }
+  switch (f.type) {
+    case 9: return '    for (x <- ' + v + ') {\n      w.bytesField(' + n + ', x.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n    }\n';
+    case 12: return '    for (x <- ' + v + ') {\n      w.bytesField(' + n + ', x)\n    }\n';
+    case 11: return '    for (x <- ' + v + ') {\n      w.bytesField(' + n + ', x.marshalDc())\n    }\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function scpDecodeSingular(model, f, target, src, indent, obj) {
+  if (SCP_VARINT.has(f.type)) {
+    return indent + target + ' = ' + scpVarintDecode(f, src) + '\n';
+  }
+  if (SCP_FIXED[f.type]) {
+    return indent + target + ' = ' + scpFixedDecodeExpr(f, src, obj) + '\n';
+  }
+  switch (f.type) {
+    case 9: return indent + target + ' = new String(' + src + ', java.nio.charset.StandardCharsets.UTF_8)\n';
+    case 12: return indent + target + ' = ' + src + '\n';
+    case 11: {
+      const ref = scpEntryRef(model, scpResolve(model, f.typeName));
+      return indent + target + ' = new ' + ref + '()\n' + indent + target + '.unmarshalDc(' + src + ')\n';
+    }
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function scpOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '          ' + scpFieldName(sib) + ' = ' + scpDefault(model, sib) + '\n').join('');
+}
+
+function scpSrc(f) {
+  return SCP_VARINT.has(f.type) ? 'field.varintValue' : (SCP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
+}
+
+function scpDecodeCase(model, f, obj) {
+  const v = scpFieldName(f);
+  const head = '        case ' + f.number + ' =>\n';
+  if (f.type === FT.MESSAGE && scpResolve(model, f.typeName).kind === 'map') {
+    const entry = scpResolve(model, f.typeName);
+    const helper = obj + '.decode' + scpEntryRef(model, entry);
+    return head
+      + '          val (kk, vv) = ' + helper + '(field.bytesValue)\n'
+      + '          ' + v + ' = ' + v + ' + (kk -> vv)\n';
+  }
+  if (f.label !== 3) {
+    return head + scpOneofClearing(model, f) + scpDecodeSingular(model, f, v, scpSrc(f), '          ', obj);
+  }
+  if (SCP_VARINT.has(f.type)) {
+    return head
+      + '          if (field.wire == 2) {\n'
+      + '            val sub = new ' + obj + '.Reader(field.bytesValue)\n'
+      + '            while (!sub.done) {\n'
+      + '              val raw = sub.varint()\n'
+      + '              ' + v + ' = ' + v + ' :+ ' + scpVarintDecode(f, 'raw') + '\n'
+      + '            }\n          } else {\n'
+      + '            ' + v + ' = ' + v + ' :+ ' + scpVarintDecode(f, 'field.varintValue') + '\n'
+      + '          }\n';
+  }
+  if (SCP_FIXED[f.type]) {
+    const size = SCP_FIXED[f.type][0];
+    return head
+      + '          if (field.wire == 2) {\n'
+      + '            var i = 0\n            while (i < field.bytesValue.length) {\n'
+      + '              ' + v + ' = ' + v + ' :+ ' + scpFixedDecodeExpr(f, 'java.util.Arrays.copyOfRange(field.bytesValue, i, i + ' + size + ')', obj) + '\n'
+      + '              i += ' + size + '\n            }\n          } else {\n'
+      + '            ' + v + ' = ' + v + ' :+ ' + scpFixedDecodeExpr(f, 'field.fixedValue', obj) + '\n'
+      + '          }\n';
+  }
+  switch (f.type) {
+    case 9: return head + '          ' + v + ' = ' + v + ' :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)\n';
+    case 12: return head + '          ' + v + ' = ' + v + ' :+ field.bytesValue\n';
+    case 11: return head
+      + '          val item = new ' + scpEntryRef(model, scpResolve(model, f.typeName)) + '()\n'
+      + '          item.unmarshalDc(field.bytesValue)\n'
+      + '          ' + v + ' = ' + v + ' :+ item\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function scpMapHelpers(model, entry, obj) {
+  const msg = entry.msg;
+  const base = scpEntryRef(model, entry);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry lacks key/value');
+  return '  def encode' + base + '(key: ' + scpElemType(model, keyF) + ', value: ' + scpElemType(model, valF) + '): Array[Byte] = {\n    val w = new Writer()\n'
+    + scpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '    ', obj)
+    + scpEncodeSingular(model, { ...valF, label: 1 }, 'value', '    ', obj)
+    + '    w.toBytes\n  }\n\n'
+    + '  def decode' + base + '(data: Array[Byte]): (' + scpElemType(model, keyF) + ', ' + scpElemType(model, valF) + ') = {\n'
+    + '    var key: ' + scpElemType(model, keyF) + ' = ' + scpDefault(model, { ...keyF, label: 1 }) + '\n    var value: ' + scpElemType(model, valF) + ' = ' + scpDefault(model, { ...valF, label: 1 }) + '\n'
+    + '    val r = new Reader(data)\n    var field = r.next()\n    while (field != null) {\n      field.number match {\n'
+    + '        case ' + keyF.number + ' =>\n'
+    + scpDecodeSingular(model, { ...keyF, label: 1 }, 'key', scpSrc(keyF), '          ', obj)
+    + '        case ' + valF.number + ' =>\n'
+    + (valF.type === FT.MESSAGE
+      ? '          value = new ' + scpEntryRef(model, scpResolve(model, valF.typeName)) + '()\n          value.unmarshalDc(field.bytesValue)\n'
+      : scpDecodeSingular(model, { ...valF, label: 1 }, 'value', scpSrc(valF), '          ', obj))
+    + '        case _ => ()\n      }\n      field = r.next()\n    }\n    (key, value)\n  }\n\n';
+}
+
+function scpSupportHead(obj) {
+  return 'object ' + obj + ' {\n'
+    + '  class Writer {\n'
+    + '    private val out = new java.io.ByteArrayOutputStream()\n\n'
+    + '    def varint(value: Long): Unit = {\n      var v = value\n      while ((v & -0x80L) != 0L) {\n        out.write(((v & 0x7f) | 0x80).toInt)\n        v = v >>> 7\n      }\n      out.write(v.toInt)\n    }\n\n'
+    + '    def tag(field: Int, wire: Int): Unit = {\n      varint(((field << 3) | wire).toLong)\n    }\n\n'
+    + '    def bytesField(field: Int, payload: Array[Byte]): Unit = {\n      tag(field, 2)\n      varint(payload.length.toLong)\n      out.write(payload)\n    }\n\n'
+    + '    def stringField(field: Int, value: String): Unit = {\n      if (value.nonEmpty) {\n        bytesField(field, value.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n      }\n    }\n\n'
+    + '    def fixed(field: Int, wire: Int, payload: Array[Byte]): Unit = {\n      tag(field, wire)\n      out.write(payload)\n    }\n\n'
+    + '    def raw(payload: Array[Byte]): Unit = {\n      out.write(payload)\n    }\n\n'
+    + '    def toBytes: Array[Byte] = out.toByteArray\n  }\n\n'
+    + '  def varintBytes(value: Long): Array[Byte] = {\n    val w = new Writer()\n    w.varint(value)\n    w.toBytes\n  }\n\n'
+    + '  def int32BytesLE(value: Int): Array[Byte] = {\n    Array((value & 0xff).toByte, ((value >> 8) & 0xff).toByte, ((value >> 16) & 0xff).toByte, ((value >> 24) & 0xff).toByte)\n  }\n\n'
+    + '  def int64BytesLE(value: Long): Array[Byte] = {\n    val out = new Array[Byte](8)\n    var i = 0\n    while (i < 8) {\n      out(i) = ((value >> (8 * i)) & 0xffL).toByte\n      i += 1\n    }\n    out\n  }\n\n'
+    + '  def toInt32LE(bytes: Array[Byte], off: Int): Int = {\n    (bytes(off) & 0xff) | ((bytes(off + 1) & 0xff) << 8) | ((bytes(off + 2) & 0xff) << 16) | ((bytes(off + 3) & 0xff) << 24)\n  }\n\n'
+    + '  def toInt64LE(bytes: Array[Byte], off: Int): Long = {\n    var result = 0L\n    var i = 0\n    while (i < 8) {\n      result |= (bytes(off + i) & 0xffL) << (8 * i)\n      i += 1\n    }\n    result\n  }\n\n'
+    + '  class Field(val number: Int, val wire: Int, val varintValue: Long, val bytesValue: Array[Byte], val fixedValue: Array[Byte], val rawValue: Array[Byte])\n\n'
+    + '  class Reader(private val buf: Array[Byte]) {\n'
+    + '    private var pos = 0\n\n'
+    + '    def done: Boolean = pos >= buf.length\n\n'
+    + '    def varint(): Long = {\n      var result = 0L\n      var shift = 0\n      while (true) {\n        if (pos >= buf.length) {\n          throw new IllegalArgumentException("truncated varint")\n        }\n        val b = buf(pos).toInt & 0xff\n        pos += 1\n        result = result | ((b & 0x7f).toLong << shift)\n        if ((b & 0x80) == 0) {\n          return result\n        }\n        shift += 7\n        if (shift >= 70) {\n          throw new IllegalArgumentException("varint too long")\n        }\n      }\n      0L\n    }\n\n'
+    + '    def take(n: Int): Array[Byte] = {\n      if (pos + n > buf.length) {\n        throw new IllegalArgumentException("truncated field")\n      }\n      val value = buf.slice(pos, pos + n)\n      pos += n\n      value\n    }\n\n'
+    + '    def next(): Field = {\n      if (done) {\n        return null\n      }\n      val start = pos\n      val tag = varint()\n      val number = (tag >>> 3).toInt\n      val wire = (tag & 7).toInt\n      wire match {\n        case 0 =>\n          val v = varint()\n          new Field(number, wire, v, Array.empty[Byte], Array.empty[Byte], buf.slice(start, pos))\n        case 2 =>\n          val n = varint().toInt\n          new Field(number, wire, 0L, take(n), Array.empty[Byte], buf.slice(start, pos))\n        case 1 => new Field(number, wire, 0L, Array.empty[Byte], take(8), buf.slice(start, pos))\n        case 5 => new Field(number, wire, 0L, Array.empty[Byte], take(4), buf.slice(start, pos))\n        case _ => throw new IllegalArgumentException("bad wire type")\n      }\n    }\n  }\n';
+}
+
+function scpMessageClass(model, msg, obj) {
+  const name = scpFlat(model.package, msg.fullName);
+  return 'class ' + name + '(\n'
+    + msg.fields.map((f) => '    var ' + scpFieldName(f) + ': ' + scpType(model, f) + ' = ' + scpDefault(model, f)).join(',\n')
+    + (msg.fields.length ? '\n' : '')
+    + ') extends grpcdc.Marshaler with grpcdc.Unmarshaler {\n'
+    + '  var unknownFields: Array[Byte] = Array.empty[Byte]\n'
+    + '  def marshalDc(): Array[Byte] = {\n'
+    + '    val w = new ' + obj + '.Writer()\n'
+    + msg.fields.map((f) => scpEncodeGuard(model, f, scpEncodeField(model, f, obj))).join('')
+    + '    w.raw(unknownFields)\n'
+    + '    w.toBytes\n  }\n\n'
+    + '  def unmarshalDc(data: Array[Byte]): Unit = {\n'
+    + '    unknownFields = Array.empty[Byte]\n'
+    + msg.fields.map((f) => '    ' + scpFieldName(f) + ' = ' + scpDefault(model, f) + '\n').join('')
+    + '    val r = new ' + obj + '.Reader(data)\n'
+    + '    var field = r.next()\n    while (field != null) {\n      field.number match {\n'
+    + msg.fields.map((f) => scpDecodeCase(model, f, obj)).join('')
+    + '        case _ => unknownFields = unknownFields ++ field.rawValue\n      }\n      field = r.next()\n    }\n  }\n'
+    + '}\n\n'
+    + msg.nested.map((n) => scpMessageClass(model, n, obj)).join('');
+}
+
+function scpEnumDecl(model, e) {
+  const name = scpFlat(model.package, model.package === '' ? e.name : model.package + '.' + e.name);
+  return 'object ' + name + ' {\n'
+    + e.values.map((v) => '  final val ' + v.name + ': Int = ' + v.number + '\n').join('')
+    + '}\n\n';
+}
+
+function emitScalaPbFile(model) {
+  if (!model.messages.length && !model.enums.length) return null;
+  const base = baseName(model.name);
+  const obj = pascalName(base) + 'Pb';
+  const seenMaps = new Set();
+  const helpers = [];
+  const collect = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = scpResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+          seenMaps.add(e.msg.fullName);
+          helpers.unshift(scpMapHelpers(model, e, obj));
+        }
+      }
+    }
+    for (const n of msg.nested) collect(n);
+  };
+  for (const m of model.messages) collect(m);
+  const content = '// @generated by protoc-gen-grpc-dc-scala (Racket metaprogram). DO NOT EDIT.\n'
+    + (model.package ? 'package ' + model.package + '\n\n' : '')
+    + scpSupportHead(obj)
+    + helpers.join('')
+    + '}\n\n'
+    + model.enums.map((e) => scpEnumDecl(model, e)).join('')
+    + model.messages.filter((m) => !m.mapEntry).map((m) => scpMessageClass(model, m, obj)).join('');
+  return { name: pascalName(base) + 'Messages.scala', content };
+}
+
 function emitScalaFile(model, params) {
   const base = baseName(model.name);
   const objName = camelName(base) + 'GrpcDc';
-  return {
+  const stub = {
     name: objName + '.scala',
     content: '// @generated by protoc-gen-grpc-dc-scala (Racket metaprogram). DO NOT EDIT.\n'
       + '// source: ' + model.name + '\n'
@@ -6802,6 +10621,8 @@ function emitScalaFile(model, params) {
       + model.services.map(scalaService).join('')
       + '}\n',
   };
+  const pbFile = emitScalaPbFile(model);
+  return pbFile ? [stub, pbFile] : stub;
 }
 // ---------------------------------------------------------------------------
 // WASM facade emitters (mirror racket/template-wasm-*.rkt). These
