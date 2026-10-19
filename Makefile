@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-webapp test-interop-matrix test-webrtc-matrix test-schema-shapes demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-webapp test-interop-matrix test-webrtc-matrix test-schema-shapes demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -137,6 +137,13 @@ test-go:
 test-webrtc-rust:
 	cd webrtc/rust && $(CARGO) test
 
+# Bare-metal core proof: the protocol core (ICE/DTLS/SCTP/DCEP/
+# SDP/STUN/net/platform) compiles with no std at all — host
+# --no-default-features plus the wasm32 target (no std exists
+# there) so std cannot sneak back in.
+test-webrtc-nostd:
+	cd webrtc/rust && $(CARGO) build --no-default-features && $(CARGO) build --no-default-features --target wasm32-unknown-unknown
+
 test-webrtc-js:
 	cd webrtc/js && npm test
 
@@ -240,10 +247,10 @@ test-c:
 	mkdir -p c/build c/tests
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
 		--grpc-dc-c_out=c/tests -I webapp/testdata webapp/testdata/kitchen.proto webapp/testdata/features.proto webapp/testdata/common.proto
-	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/tests/main.c -o c/build/tests
+	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -o c/build/echo_server_stdio
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -o c/build/echo_client_stdio
-	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages
+	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestOracle && ./c/build/tests TestDynamic
 
 LUA ?= lua
 
@@ -776,8 +783,8 @@ test-c-cross:
 	@if command -v aarch64-linux-gnu-gcc >/dev/null && command -v riscv64-linux-gnu-gcc >/dev/null && command -v qemu-aarch64 >/dev/null; then \
 		set -e; \
 		mkdir -p c/build; \
-		aarch64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/tests/main.c -o c/build/tests-aarch64; \
-		riscv64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/tests/main.c -o c/build/tests-riscv64; \
+		aarch64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests-aarch64; \
+		riscv64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests-riscv64; \
 		qemu-aarch64 -L /usr/aarch64-linux-gnu ./c/build/tests-aarch64 TestCodec && qemu-aarch64 -L /usr/aarch64-linux-gnu ./c/build/tests-aarch64 TestPbMessages; \
 		qemu-riscv64 -L /usr/riscv64-linux-gnu ./c/build/tests-riscv64 TestCodec && qemu-riscv64 -L /usr/riscv64-linux-gnu ./c/build/tests-riscv64 TestPbMessages; \
 		aarch64-linux-gnu-g++ -std=c++17 -pthread -O1 -Icpp -I. -fsyntax-only cpp/examples/echo_messages.hpp; \

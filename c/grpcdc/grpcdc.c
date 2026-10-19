@@ -589,7 +589,10 @@ grpcdc_status grpcdc_channel_open(grpcdc_channel *ch, const char *path,
         free(s);
         return grpcdc_status_make(GRPCDC_UNAVAILABLE, "transport send failed");
     }
-    if (send_first && req) {
+    if (send_first) {
+        /* A zero-length message (req may be NULL when len is 0)
+           is still one DATA frame: the peer waits for exactly one
+           request message before responding. */
         st = send_data_message(ch, s->id, req, req_len);
         if (!grpcdc_status_is_ok(st)) {
             free(timeout);
@@ -1050,12 +1053,13 @@ grpcdc_status grpcdc_server_serve(grpcdc_server *srv,
             continue;
         }
         if (frame.type == GRPCDC_FRAME_DATA) {
+            /* One DATA frame carries exactly one message (SPEC.md);
+               a zero-length payload is a valid empty message. */
             size_t offset = 0;
-            while (offset < frame.payload_len) {
-                grpcdc_bytes msg;
-                grpcdc_status mst = grpcdc_decode_data_message(
-                    frame.payload, frame.payload_len, &offset, &msg);
-                if (!grpcdc_status_is_ok(mst)) break;
+            grpcdc_bytes msg;
+            grpcdc_status mst = grpcdc_decode_data_message(
+                frame.payload, frame.payload_len, &offset, &msg);
+            if (grpcdc_status_is_ok(mst)) {
                 active->requests = (grpcdc_bytes *)realloc(
                     active->requests,
                     sizeof(grpcdc_bytes) * (active->request_count + 1));

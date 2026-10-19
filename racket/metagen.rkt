@@ -1123,6 +1123,8 @@
   (printf "generated zig/grpcdc/wire.zig\n")
   (write-runtime-files "zig" "runtime-zig.rkt" (emit-zig-runtime-files))
   (write-runtime-files "c" "runtime-c.rkt" (emit-c-runtime-files))
+  (write-runtime-files "c/tests" "bdd-gen.rkt" (list (emit-c-bdd)))
+  (write-runtime-files "c/tests" "oracle-gen.rkt" (list (emit-c-oracle-driver)))
   (make-directory* (build-path root "zig" "tests"))
   (call-with-output-file (build-path root "zig" "tests" "fixtures.zig") #:exists 'replace
     (lambda (out) (display (emit-zig-fixtures) out)))

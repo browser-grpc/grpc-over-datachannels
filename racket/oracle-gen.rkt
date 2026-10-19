@@ -10,7 +10,7 @@
 ;;; generated from here — it is the independent oracle.
 
 (require "oracle-spec.rkt")
-(provide emit-js-oracle-driver emit-go-oracle-driver emit-rust-oracle-driver emit-python-oracle-driver emit-java-oracle-driver emit-csharp-oracle-driver emit-cpp-oracle-driver emit-swift-oracle-driver emit-kotlin-oracle-driver emit-dart-oracle-driver emit-zig-oracle-driver emit-lua-oracle-driver emit-ruby-oracle-driver emit-php-oracle-driver emit-scala-oracle-driver)
+(provide emit-js-oracle-driver emit-go-oracle-driver emit-rust-oracle-driver emit-python-oracle-driver emit-java-oracle-driver emit-csharp-oracle-driver emit-cpp-oracle-driver emit-swift-oracle-driver emit-kotlin-oracle-driver emit-dart-oracle-driver emit-zig-oracle-driver emit-lua-oracle-driver emit-ruby-oracle-driver emit-php-oracle-driver emit-scala-oracle-driver emit-c-oracle-driver)
 
 ;; Normalize one raw entry to (kind messages expect-status count).
 (define (case-fields e)
@@ -662,3 +662,43 @@
                rows))
          "    )\n"
          "}\n")))
+
+;; ---------------------------------------------------------------------------
+;; C driver data -> c/tests/oracle_scenarios.h
+;; (scenario cases as data literals; the runner is hand-written)
+;; ---------------------------------------------------------------------------
+
+(define (emit-c-oracle-driver)
+  (cons "oracle_scenarios.h"
+        (string-append
+         "/* Scenario table stamped from racket/oracle-spec.rkt (data only;\n"
+         "   the runner is TestOracle). Rows: kind, messages, count,\n"
+         "   expectStatus (-1 = none). \"-\" encodes the empty message. */\n"
+         "#ifndef GRPCDC_ORACLE_SCENARIOS_H\n"
+         "#define GRPCDC_ORACLE_SCENARIOS_H\n\n"
+         "#include <stddef.h>\n\n"
+         "typedef struct {\n"
+         "    const char *kind;\n"
+         "    const char *const *messages;\n"
+         "    size_t messages_count;\n"
+         "    int count;\n"
+         "    int expect_status;\n"
+         "} oracle_case;\n\n"
+         (apply string-append
+                (for/list ([e (in-list oracle-scenario-table)] [i (in-naturals)])
+                  (define-values (_kind msgs _expect _count) (apply values (case-fields e)))
+                  (format "static const char *const oracle_msgs_~a[] = {~a};\n"
+                          i
+                          (string-join
+                           (for/list ([m (in-list msgs)]) (format "~s" (symbol->string m)))
+                           ", "))))
+         "\nstatic const oracle_case oracle_cases[] = {\n"
+         (apply string-append
+                (for/list ([e (in-list oracle-scenario-table)] [i (in-naturals)])
+                  (define-values (kind msgs expect count) (apply values (case-fields e)))
+                  (format "    {~s, oracle_msgs_~a, ~a, ~a, ~a},\n"
+                          (symbol->string kind) i (length msgs) count (if expect expect -1))))
+         "};\n\n"
+         "static const size_t oracle_cases_count =\n"
+         "    sizeof(oracle_cases) / sizeof(oracle_cases[0]);\n\n"
+         "#endif /* GRPCDC_ORACLE_SCENARIOS_H */\n")))

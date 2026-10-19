@@ -9,7 +9,7 @@
 (provide emit-bdd-docs
          emit-js-bdd emit-go-bdd emit-rust-bdd emit-python-bdd
          emit-java-bdd emit-csharp-bdd emit-cpp-bdd emit-swift-bdd
-         emit-kotlin-bdd emit-dart-bdd emit-zig-bdd emit-lua-bdd emit-ruby-bdd emit-php-bdd emit-scala-bdd)
+         emit-kotlin-bdd emit-dart-bdd emit-zig-bdd emit-lua-bdd emit-ruby-bdd emit-php-bdd emit-scala-bdd emit-c-bdd)
 
 (define (q strs)
   (string-join (for/list ([s (in-list strs)]) (format "~s" s)) ", "))
@@ -423,6 +423,51 @@
                   (format "    [~s, ~s, [~a], ~a, ~s, ~s, ~s, ~a, ~a],\n"
                           name kind (q msgs) count path md em en (or es -1))))
          "];\n")))
+
+;; ---------------------------------------------------------------------------
+;; C -> c/tests/bdd_scenarios.h
+;; ---------------------------------------------------------------------------
+
+(define (emit-c-bdd)
+  (cons "bdd_scenarios.h"
+        (string-append
+         "/* Scenario table stamped from racket/bdd-spec.rkt (data only;\n"
+         "   the interpreter is TestBdd in tests/main.c). Rows: name, kind,\n"
+         "   messages, count, path, metadata, expectMessage, expectNum,\n"
+         "   expectStatus (-1 = none). */\n"
+         "#ifndef GRPCDC_BDD_SCENARIOS_H\n"
+         "#define GRPCDC_BDD_SCENARIOS_H\n\n"
+         "#include <stddef.h>\n\n"
+         "typedef struct {\n"
+         "    const char *name;\n"
+         "    const char *kind;\n"
+         "    const char *const *messages;\n"
+         "    size_t messages_count;\n"
+         "    int count;\n"
+         "    const char *path;\n"
+         "    const char *metadata;\n"
+         "    const char *expect_message;\n"
+         "    int expect_num;\n"
+         "    int expect_status;\n"
+         "} bdd_case;\n\n"
+         (apply string-append
+                (for/list ([s (in-list bdd-scenarios)] [i (in-naturals)])
+                  (define-values (_name _kind msgs _count _path _md _em _en _es) (row s))
+                  (if (null? msgs)
+                      ""
+                      (format "static const char *const bdd_msgs_~a[] = {~a};\n" i (q msgs)))))
+         "\nstatic const bdd_case bdd_cases[] = {\n"
+         (apply string-append
+                (for/list ([s (in-list bdd-scenarios)] [i (in-naturals)])
+                  (define-values (name kind msgs count path md em en es) (row s))
+                  (format "    {~s, ~s, ~a, ~a, ~a, ~s, ~s, ~s, ~a, ~a},\n"
+                          name kind
+                          (if (null? msgs) "NULL" (format "bdd_msgs_~a" i))
+                          (length msgs) count path md em en (or es -1))))
+         "};\n\n"
+         "static const size_t bdd_cases_count =\n"
+         "    sizeof(bdd_cases) / sizeof(bdd_cases[0]);\n\n"
+         "#endif /* GRPCDC_BDD_SCENARIOS_H */\n")))
 
 ;; ---------------------------------------------------------------------------
 ;; Scala -> scala/tests/BddScenarios.scala
