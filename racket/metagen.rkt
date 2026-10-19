@@ -989,9 +989,118 @@
 (define (write-web-generators)
   (write-runtime-files "webapp/gen" "webgen.rkt" (list (emit-web-generators))))
 
+;; ---------------------------------------------------------------------------
+;; Corpus manifest for the web app's Browse mode: which example and
+;; test files exist per language, discovered from the tree so the
+;; browser index can never drift from the repository. The Makefile
+;; copies exactly these paths into webapp/assets/corpus/.
+;; ---------------------------------------------------------------------------
+
+(define corpus-skip-dirs
+  '("build" "bin" "obj" "__pycache__" "target" ".zig-cache"
+    "node_modules" "dist" ".git" ".gradle" "out"))
+
+(define corpus-skip-suffixes
+  '(".pyc" ".class" ".jar" ".o" ".a" ".so" ".dll" ".exe" ".wasm"
+    ".lock" ".jar" ".idx" ".pack"))
+
+(define (corpus-file-ok? name)
+  (and (not (string-prefix? name "."))
+       (not (for/or ([s (in-list corpus-skip-suffixes)])
+              (string-suffix? name s)))))
+
+;; Sorted relative paths of source files under dir (recursive).
+(define (corpus-list dir #:filter [keep #f])
+  (define base (build-path root dir))
+  (if (not (directory-exists? base))
+      '()
+      (let walk ([rel ""])
+        (apply
+         append
+         (for/list ([entry (in-list (directory-list
+                                     (if (equal? rel "") base (build-path base rel))))]
+                    #:when (corpus-file-ok? (path->string entry)))
+           (define name (path->string entry))
+           (define child (if (equal? rel "") name (string-append rel "/" name)))
+           (cond
+             [(member name corpus-skip-dirs) '()]
+             [(directory-exists? (build-path base child)) (walk child)]
+             [(and keep (not (keep name))) '()]
+             [else (list child)]))))))
+
+(define (json-escape s)
+  (string-join
+   (for/list ([c (in-string s)])
+     (case c
+       [(#\") "\\\""]
+       [(#\\) "\\\\"]
+       [(#\newline) "\\n"]
+       [(#\tab) "\\t"]
+       [else (string c)]))
+   ""))
+
+(define (json-str-list xs)
+  (string-append "["
+                 (string-join (map (lambda (x) (format "\"~a\"" (json-escape x))) xs) ",")
+                 "]"))
+
+;; lang -> (examples-dir tests-dir tests-filter-name)
+(define corpus-langs
+  '(("js" "js/examples" "js/test" #f)
+    ("python" "python/examples" "python/tests" #f)
+    ("go" "go/examples" "go" go-tests)
+    ("rust" "rust/examples" "rust/tests" #f)
+    ("java" "java/examples" "java/tests" #f)
+    ("csharp" "csharp/examples" "csharp/tests" #f)
+    ("cpp" "cpp/examples" "cpp/tests" #f)
+    ("swift" "swift/examples" "swift/tests" #f)
+    ("kotlin" "kotlin/examples" "kotlin/tests" #f)
+    ("dart" "dart/examples" "dart/tests" #f)
+    ("zig" "zig/examples" "zig/tests" #f)
+    ("c" "c/examples" "c/tests" #f)
+    ("lua" "lua/examples" "lua/tests" #f)
+    ("ruby" "ruby/examples" "ruby/tests" #f)
+    ("php" "php/examples" "php/tests" #f)
+    ("scala" "scala/examples" "scala/tests" #f)))
+
+(define (write-corpus-manifest)
+  (define (go-test-file? name)
+    (string-suffix? name "_test.go"))
+  (define testdata
+    (sort (for/list ([e (in-list (directory-list (build-path root "webapp/testdata")))]
+                     #:when (string-suffix? (path->string e) ".proto"))
+            (path->string e))
+          string<?))
+  (define lang-json
+    (for/list ([spec (in-list corpus-langs)])
+      (define-values (lang ex-dir test-dir filter-name) (apply values spec))
+      (define examples (corpus-list ex-dir))
+      (define tests
+        (corpus-list test-dir
+                     #:filter (and (eq? filter-name 'go-tests) go-test-file?)))
+      (format "    \"~a\": {\"examplesDir\": \"~a\", \"testsDir\": \"~a\", \"examples\": ~a, \"tests\": ~a}"
+              lang ex-dir test-dir (json-str-list examples) (json-str-list tests))))
+  (define text
+    (string-append
+     "{\n"
+     "  \"generatedBy\": \"racket/metagen.rkt (write-corpus-manifest)\",\n"
+     "  \"schemas\": [\n"
+     "    {\"id\": \"echo\", \"label\": \"Echo (proto/echo.proto)\", \"dir\": \"\", \"files\": [\"echo.proto\"]},\n"
+     (format "    {\"id\": \"testdata\", \"label\": \"Testdata (webapp/testdata)\", \"dir\": \"testdata\", \"files\": ~a}\n"
+             (json-str-list testdata))
+     "  ],\n"
+     "  \"languages\": {\n"
+     (string-join lang-json ",\n")
+     "\n  }\n}\n"))
+  (call-with-output-file (build-path root "webapp/gen" "corpus-manifest.json")
+    #:exists 'replace
+    (lambda (out) (display text out)))
+  (printf "generated webapp/gen/corpus-manifest.json\n"))
+
 (module+ main
   (write-bdd-docs)
   (write-web-generators)
+  (write-corpus-manifest)
   (write-plugin "protoc-gen-grpc-dc-rust" 'emit-rust-file)
   (write-plugin "protoc-gen-grpc-dc-js" 'emit-js-file)
   (write-plugin "protoc-gen-grpc-dc-go" 'emit-go-file)

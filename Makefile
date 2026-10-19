@@ -725,6 +725,7 @@ webapp-assets:
 	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-kotlin/
 	mkdir -p webapp/assets/runtime/wasm-scala
 	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-scala/
+	python3 scripts/copy-corpus.py
 
 ## Self-contained static bundle: serve webapp/dist with any
 ## static file server (e.g. python3 -m http.server -d webapp/dist).
@@ -736,7 +737,7 @@ webapp-dist: webapp-assets
 	cp -r webapp/assets webapp/dist/assets
 
 test-webapp: webapp-assets webapp-plugins
-	cd browser-test && node webapp_parity.test.mjs all && node webapp_pb.test.mjs all
+	cd browser-test && node webapp_parity.test.mjs all && node webapp_pb.test.mjs all && node webapp_browse.test.mjs all
 
 # Racket/Wasm runtime for the webapp's in-browser plugin execution:
 # built once by scripts/build-racket-wasm.sh (Emscripten 5.0.7 +
