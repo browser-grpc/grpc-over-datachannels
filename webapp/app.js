@@ -802,6 +802,21 @@ async function browseAssetText(url) {
 }
 
 async function loadSchemaSet(schemaId) {
+  if (schemaId === "editor") {
+    // The Generator tab's current files, compiled as-is. Never
+    // cached: the editor may have changed since the last visit.
+    const texts = Object.fromEntries(files);
+    await whenCompilerReady();
+    const names = Object.keys(texts);
+    if (!names.length) throw new Error("editor has no .proto files");
+    const out = JSON.parse(window.__grpcdcCompile(JSON.stringify({ files: texts, entries: names })));
+    if (!out.ok) throw new Error("editor schema does not compile: " + out.error);
+    return {
+      setBytes: Uint8Array.from(atob(out.set), (c) => c.charCodeAt(0)),
+      names,
+      texts,
+    };
+  }
   if (browse.sets.has(schemaId)) return browse.sets.get(schemaId);
   const entry = browse.manifest.schemas.find((s) => s.id === schemaId);
   if (!entry) throw new Error("unknown schema " + schemaId);
@@ -1118,10 +1133,14 @@ async function ensureBrowse() {
     opt.selected = s.id === browse.schemaId;
     schemaSel.appendChild(opt);
   }
+  const editorOpt = document.createElement("option");
+  editorOpt.value = "editor";
+  editorOpt.textContent = "Current editor schema";
+  schemaSel.appendChild(editorOpt);
   schemaSel.addEventListener("change", () => {
     browse.schemaId = schemaSel.value;
     browse.current = null;
-    renderBrowse();
+    renderBrowse().catch((e) => browseStatus("browse failed: " + e.message));
   });
   browseEl("browse-compare").addEventListener("change", (e) => {
     browse.compareLang = e.target.value;

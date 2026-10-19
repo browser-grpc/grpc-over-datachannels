@@ -172,6 +172,17 @@ async function runCase(name, engine) {
     const restored = await page.evaluate(() => window.__browseCurrent);
     assert.ok(restored && restored.name, `${name}: deep link restored a file`);
 
+    // Editor schema: browse the Generator tab's current files
+    // (the preloaded echo.proto) without leaving the corpus.
+    await page.selectOption("#browse-schema", "editor");
+    await page.waitForSelector("#browse-files .file", { timeout: 30000 });
+    const editorFiles = await page.evaluate(() =>
+      [...document.querySelectorAll("#browse-files .file")].map((b) => b.textContent));
+    assert.ok(editorFiles.some((n) => n.includes("echo")),
+      `${name}: editor schema lists echo files, got ${editorFiles.slice(0, 3)}`);
+    await page.selectOption("#browse-schema", "echo");
+    await page.waitForSelector("#browse-files .file", { timeout: 30000 });
+
     // Handoff back to the Generator with the schema loaded.
     await page.click("#browse-open-generator");
     await page.waitForFunction(
