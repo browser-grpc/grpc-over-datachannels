@@ -68,6 +68,7 @@ pub struct DcEndpoint {
     cmd_tx: Sender<Cmd>,
     event_rx: std::sync::Mutex<Receiver<EndpointEvent>>,
     alive: Arc<AtomicBool>,
+    dtls_session: std::sync::Mutex<Option<crate::dtls::DtlsSession>>,
 }
 
 impl DcEndpoint {
@@ -97,7 +98,26 @@ impl DcEndpoint {
             run_loop(dtls, role, local_port, cmd_rx, thread_cmd_tx, event_tx);
             thread_alive.store(false, Ordering::SeqCst);
         });
-        Self { cmd_tx, event_rx: std::sync::Mutex::new(event_rx), alive }
+        Self {
+            cmd_tx,
+            event_rx: std::sync::Mutex::new(event_rx),
+            alive,
+            dtls_session: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// Attach DTLS resumption state captured during the
+    /// handshake (set by `Peer` before returning the endpoint).
+    pub fn set_dtls_session(&self, session: Option<crate::dtls::DtlsSession>) {
+        *self.dtls_session.lock().unwrap() = session;
+    }
+
+    /// Take the DTLS resumption state captured during the
+    /// handshake, if the server issued a session ticket. Persist
+    /// it and pass it back as `PeerConfig::resume_session` on the
+    /// next connect for an abbreviated handshake.
+    pub fn take_dtls_session(&self) -> Option<crate::dtls::DtlsSession> {
+        self.dtls_session.lock().unwrap().take()
     }
 
     /// True while the endpoint thread is running.

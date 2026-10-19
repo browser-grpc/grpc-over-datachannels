@@ -27,6 +27,21 @@ pub struct PeerConfig {
     /// sending any traffic).
     pub local_ips: Vec<IpAddr>,
     pub require_peer_certificate: bool,
+    /// Persistent DTLS identity. Default: a fresh self-signed
+    /// certificate per Peer. Supply one (and reuse it across
+    /// Peers) for a stable SDP fingerprint — required for DTLS
+    /// session resumption across reconnects.
+    pub certificate: Option<Certificate>,
+    /// Offer/accept DTLS session tickets (resumption). Servers
+    /// also need `session_ticket_key` to issue or honor tickets.
+    pub session_resumption: bool,
+    /// Server-side DTLS ticket sealing key (32 bytes).
+    pub session_ticket_key: Option<[u8; 32]>,
+    /// Client-side: resume this captured session (from
+    /// `DcEndpoint::take_dtls_session`) instead of a full DTLS
+    /// handshake. Falls back to a full handshake when the server
+    /// does not honor the ticket.
+    pub resume_session: Option<crate::dtls::DtlsSession>,
     /// STUN servers ("host:port") queried, in order, for
     /// server-reflexive candidates before an offer/answer is made.
     pub stun_servers: Vec<String>,
@@ -41,6 +56,10 @@ impl Default for PeerConfig {
         Self {
             local_ips: Vec::new(),
             require_peer_certificate: true,
+            certificate: None,
+            session_resumption: false,
+            session_ticket_key: None,
+            resume_session: None,
             stun_servers: Vec::new(),
             turn_servers: Vec::new(),
         }
@@ -154,7 +173,10 @@ impl Peer {
         Ok(Self {
             socket,
             agent,
-            certificate: Certificate::generate_self_signed("dc-webrtc"),
+            certificate: config
+                .certificate
+                .clone()
+                .unwrap_or_else(|| Certificate::generate_self_signed("dc-webrtc")),
             remote: None,
             dtls_role: Role::Server,
             config,
@@ -554,8 +576,8 @@ impl Peer {
             certificate,
             expected_peer_fingerprint: Some(remote_desc.fingerprint.clone()),
             require_peer_certificate: config.require_peer_certificate,
-            session_resumption: false,
-            session_ticket_key: None,
+            session_resumption: config.session_resumption,
+            session_ticket_key: config.session_ticket_key,
         };
         let consent_socket = socket.try_clone()?;
         let io = IceDtlsIo {
@@ -567,11 +589,18 @@ impl Peer {
             turn: turn.clone(),
             relay_active,
         };
-        let dtls = match dtls_role {
-            Role::Client => Dtls::connect(io, &dtls_config)?,
+        let mut dtls = match dtls_role {
+            Role::Client => match &config.resume_session {
+                Some(session) => Dtls::connect_resumed(io, &dtls_config, session)?,
+                None => Dtls::connect(io, &dtls_config)?,
+            },
             Role::Server => Dtls::accept(io, &dtls_config)?,
         };
+        // Stash any captured resumption state on the endpoint so
+        // the caller can persist it across a reconnect.
+        let captured_session = dtls.take_session();
         let endpoint = DcEndpoint::spawn_with_alive_flag(dtls, dtls_role, crate::sctp::SCTP_PORT, alive.clone());
+        endpoint.set_dtls_session(captured_session);
         let restart_handle = RestartHandle {
             agent: agent.clone(),
             socket: socket.try_clone()?,

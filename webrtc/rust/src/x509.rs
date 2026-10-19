@@ -123,6 +123,7 @@ fn utc_time(epoch_secs: u64) -> Vec<u8> {
     tlv(0x17, text.as_bytes())
 }
 
+#[derive(Clone)]
 pub struct Certificate {
     pub der: Vec<u8>,
     pub private: PrivateKey,

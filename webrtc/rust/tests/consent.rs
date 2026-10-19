@@ -84,6 +84,10 @@ fn healthy_pair_never_fires_consent_failure() {
         Peer::new(PeerConfig {
             local_ips: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
             require_peer_certificate: true,
+            certificate: None,
+            session_resumption: false,
+            session_ticket_key: None,
+            resume_session: None,
             stun_servers: Vec::new(),
             turn_servers: Vec::new(),
         })
@@ -119,6 +123,10 @@ fn consent_failure_fires_when_remote_endpoint_shuts_down() {
         Peer::new(PeerConfig {
             local_ips: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
             require_peer_certificate: true,
+            certificate: None,
+            session_resumption: false,
+            session_ticket_key: None,
+            resume_session: None,
             stun_servers: Vec::new(),
             turn_servers: Vec::new(),
         })

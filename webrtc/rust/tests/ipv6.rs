@@ -59,6 +59,10 @@ fn connect_pair(ips_a: Vec<IpAddr>, ips_b: Vec<IpAddr>, forward: &[u8], back: &[
         Peer::new(PeerConfig {
             local_ips: ips,
             require_peer_certificate: true,
+            certificate: None,
+            session_resumption: false,
+            session_ticket_key: None,
+            resume_session: None,
             stun_servers: Vec::new(),
             turn_servers: Vec::new(),
         })

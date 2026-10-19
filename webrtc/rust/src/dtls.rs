@@ -1375,27 +1375,9 @@ impl<I: DtlsIo> Dtls<I> {
         conn.send_hs(&mut hs, dtls_handshake::FINISHED, &verify_data, 1)?;
 
         // Issue a session ticket when resumption is enabled and
-        // the client offered ticket support. Best effort: a
-        // failed send must not fail the established connection.
+        // the client offered ticket support.
         if config.session_resumption && client_ticket.is_some() {
-            if let Some(key) = &config.session_ticket_key {
-                let ticket = seal_ticket(
-                    key,
-                    &conn.master_secret,
-                    conn.negotiated_srtp_profile,
-                    conn.peer_certificate.as_deref().unwrap_or(&[]),
-                );
-                let mut body = Vec::new();
-                body.extend_from_slice(&(TICKET_LIFETIME_SECS as u32).to_be_bytes());
-                body.extend_from_slice(&(ticket.len() as u16).to_be_bytes());
-                body.extend_from_slice(&ticket);
-                let _ = conn.send_hs(
-                    &mut hs,
-                    dtls_handshake::NEW_SESSION_TICKET,
-                    &body,
-                    1,
-                );
-            }
+            conn.issue_session_ticket(&mut hs, config);
         }
         Ok(conn)
     }
@@ -1459,6 +1441,29 @@ impl<I: DtlsIo> Dtls<I> {
         let _ccs = self.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
         let verify_data = prf(&self.master_secret, "server finished", &hs.hash(), 12);
         self.send_hs(hs, dtls_handshake::FINISHED, &verify_data, 1)?;
+        // Rotate a fresh ticket for the next reconnect.
+        if config.session_resumption {
+            self.issue_session_ticket(hs, config);
+        }
         Ok(self)
+    }
+
+    /// Seal and send a NewSessionTicket for the current session.
+    /// Best effort: a failed send must not fail the established
+    /// connection.
+    fn issue_session_ticket(&mut self, hs: &mut Hs, config: &DtlsConfig) {
+        if let Some(key) = &config.session_ticket_key {
+            let ticket = seal_ticket(
+                key,
+                &self.master_secret,
+                self.negotiated_srtp_profile,
+                self.peer_certificate.as_deref().unwrap_or(&[]),
+            );
+            let mut body = Vec::new();
+            body.extend_from_slice(&(TICKET_LIFETIME_SECS as u32).to_be_bytes());
+            body.extend_from_slice(&(ticket.len() as u16).to_be_bytes());
+            body.extend_from_slice(&ticket);
+            let _ = self.send_hs(hs, dtls_handshake::NEW_SESSION_TICKET, &body, 1);
+        }
     }
 }

@@ -423,6 +423,7 @@ impl PublicKey {
     }
 }
 
+#[derive(Clone)]
 pub struct PrivateKey(U256);
 
 impl PrivateKey {

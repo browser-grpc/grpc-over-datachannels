@@ -32,6 +32,10 @@ fn loopback_peer() -> Peer {
     Peer::new(PeerConfig {
         local_ips: if all_ips { Vec::new() } else { vec![IpAddr::V4(Ipv4Addr::LOCALHOST)] },
         require_peer_certificate: true,
+        certificate: None,
+        session_resumption: false,
+        session_ticket_key: None,
+        resume_session: None,
         stun_servers: Vec::new(),
         turn_servers: Vec::new(),
     })

@@ -43,6 +43,10 @@ fn srflx_peer(stun: &str) -> Peer {
     Peer::new(PeerConfig {
         local_ips: vec![IpAddr::V4(Ipv4Addr::new(10, 11, 12, 13))],
         require_peer_certificate: true,
+        certificate: None,
+        session_resumption: false,
+        session_ticket_key: None,
+        resume_session: None,
         stun_servers: vec![stun.to_string()],
         turn_servers: Vec::new(),
     })
@@ -56,6 +60,10 @@ fn gather_srflx_candidate() {
     let mut peer = Peer::new(PeerConfig {
         local_ips: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
         require_peer_certificate: true,
+        certificate: None,
+        session_resumption: false,
+        session_ticket_key: None,
+        resume_session: None,
         stun_servers: Vec::new(),
         turn_servers: Vec::new(),
     })
