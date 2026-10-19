@@ -38,6 +38,58 @@ WebRTC library underneath it.
 Demultiplexing on the single UDP socket follows RFC 7983: first byte
 0–3 → STUN, 20–63 → DTLS. SCTP rides inside DTLS application data.
 
+## Embedded profile
+
+The Rust crate is layered so the protocol core runs with no OS:
+
+- **Platform injection** (`platform.rs`): the core reads time,
+  entropy, and datagrams through `Clock` / `Rng` / `UdpTransport`
+  traits (std defaults). The ICE agent's nomination/consent
+  pacing runs on an injected clock (`Peer::new_with_platform`);
+  `ManualClock` + `SeededRng` + `MemoryNetwork` give a
+  deterministic, thread-free RTOS tick harness. Certificate
+  validity reads the installed clock's wall time.
+- **no_std core**: without the default `std` feature the crate is
+  `no_std` (alloc-only) — ICE/DTLS/SCTP/DCEP/SDP/STUN, the `net`
+  stack, and platform traits. OS surfaces (`Peer`, endpoint,
+  TURN, mDNS, std transports, the TLS-over-TCP client) are
+  std-gated. Gate `make test-webrtc-nostd` builds host + wasm32 +
+  thumbv7em-none-eabihf (Cortex-M; the core needs no 64-bit
+  atomics).
+- **L2–L4 stack** (`net.rs`): hand-rolled Ethernet II, ARP
+  (RFC 826), IPv4 (RFC 791, no options/fragmentation), UDP
+  (RFC 768), ICMP echo, and a DHCPv4 client (RFC 2131 subset:
+  DISCOVER/OFFER/REQUEST/ACK yielding address, mask, router,
+  DNS, lease). Pure frame-in/frame-out state machines; the
+  target supplies the NIC driver below Ethernet and ARP routing
+  is local-subnet only.
+- **DTLS session resumption** (RFC 5077 shape, opt-in, off by
+  default): servers with a 32-byte ticket key issue AES-128-GCM
+  sealed `NewSessionTicket`s; clients capture them
+  (`Dtls::take_session`, `DcEndpoint::take_dtls_session`) and
+  reconnect abbreviated (`connect_resumed`, or
+  `PeerConfig::resume_session` with a persistent
+  `PeerConfig::certificate`). The peer certificate travels
+  inside the sealed ticket and the SDP fingerprint check runs
+  against it unchanged — resumption skips re-presentation, not
+  identity. Tampered, expired (1 h), or foreign-key tickets fall
+  back to a full handshake. `Peer` level: the DTLS
+  offerer is the ticket issuer; the answerer captures/resumes.
+- **Crypto backend seam**: the DTLS suite operations (SHA-256,
+  HMAC-SHA-256, TLS PRF, AES-128-GCM) route through an installed
+  `CryptoBackend` (default: hand-rolled), so mbedTLS/PSA/wolfSSL
+  bindings can be installed at startup with no call-site
+  changes. Outside the v1 boundary: SHA-384/512, SHA-1/MD5
+  (cert-chain/STUN legacy), CRCs, and P-256/P-384 group ops.
+- **Headless signaling** (`signaling.rs`): SDP and candidate
+  lines framed over any byte stream (serial/BLE/UART) as
+  `[u32 BE length][u8 kind][payload]` — kinds: offer, answer,
+  candidate, end-of-candidates — with a stdio example
+  (`peer_serial`). Combined with consent expiry (sleep
+  detection) and ticket resumption (fast wake), this covers the
+  embedded connect → sleep → wake cycle with no HTTP/WebSocket
+  anywhere.
+
 ## Verification strategy (independent oracles first)
 
 1. Crypto against published NIST/RFC test vectors.

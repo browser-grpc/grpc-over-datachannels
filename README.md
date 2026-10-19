@@ -348,15 +348,21 @@ Makefile                 generate / test / demos
   stdlib-only with a two-function transport vtable (send/recv one
   DataChannel message) and a blocking, single-threaded call model
   shaped for poll loops; `make test-c-cross` builds it for
-  aarch64 and riscv64 Linux and runs the codec/message suites
-  under qemu-user with code sizes reported. Generated Rust
-  messages have a `rust_no_std=true` profile (alloc-only,
-  `BTreeMap` for maps) verified by `make test-rust-nostd`. Not
-  yet done: a bare-metal platform layer for the WebRTC stack
-  itself (it currently binds std UDP sockets/threads), DTLS
-  session resumption (the TLS stack explicitly does not offer
-  it), and C test suites beyond codec/echo/messages (no
-  oracle/dynamic/BDD drivers for C yet).
+  aarch64 and riscv64 Linux and runs the suites under qemu-user
+  with code sizes reported; C has the same codec/echo/messages,
+  BDD, oracle, and dynamic (descriptor-driven) suites as every
+  other language. Generated Rust messages have a
+  `rust_no_std=true` profile (alloc-only, `BTreeMap` for maps)
+  verified by `make test-rust-nostd`. The WebRTC stack itself is
+  embedded-ready: a platform layer (clock/RNG/UDP traits with a
+  deterministic tick harness), an alloc-only `no_std` protocol
+  core gated on host + wasm32 + Cortex-M
+  (`make test-webrtc-nostd`), a hand-rolled Ethernet/ARP/IPv4/
+  UDP + DHCPv4 stack for targets with no OS at all, DTLS session
+  resumption with a pluggable crypto backend, and serial/BLE
+  signaling for headless peers — see the Embedded profile in
+  SPEC-WEBRTC.md. Only the target's NIC driver and the OS-backed
+  `Peer`/endpoint shell remain platform code.
 - One data channel per endpoint; per-stream flow-control windows and
   partial reliability are v2 topics (see SPEC.md).
 - HEADERS/TRAILERS payloads are JSON by design (debuggability over
