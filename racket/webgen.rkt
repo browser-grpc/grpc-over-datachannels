@@ -271,6 +271,7 @@ function buildModel(setBytes, entries) {
     const f = byName.get(e);
     if (!f) throw new Error('file not in descriptor set: ' + e);
     f.types = registry;
+    f.generateFiles = entries;
     return f;
   });
 }
@@ -792,7 +793,7 @@ function pbMapHelpers(model, entry) {
 function pbEnumConst(entry) {
   const e = entry.kind === 'enum' ? entry.enum : null;
   if (!e) return '';
-  const full = entry.msg ? entry.msg.fullName + '.' + e.name : (entry.pkg ? entry.pkg + '.' : '') + e.name;
+  const full = entry.full;
   const name = pbFlatName(entry.pkg, full);
   return 'export const ' + name + ' = { ' + e.values.map((v) => v.name + ': ' + v.number).join(', ') + ' };\n\n';
 }
@@ -825,7 +826,7 @@ function emitJsPbFile(model) {
   const addImport = (entry, alsoExport) => {
     if (entry.file === model.name) return;
     const name = entry.kind === 'enum'
-      ? pbFlatName(entry.pkg, entry.msg ? entry.msg.fullName + '.' + entry.enum.name : (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name)
+      ? pbFlatName(entry.pkg, entry.full)
       : pbFlatName(entry.pkg, entry.msg.fullName);
     if (!imports.has(entry.file)) imports.set(entry.file, new Set());
     imports.get(entry.file).add(name);
@@ -1102,13 +1103,11 @@ function gpResolve(model, typeName) {
 
 function gpEntryType(entry) {
   if (entry.kind === 'enum') {
-    // Mirrors template-go.rkt: registry enum entries carry no
-    // parent message, so nested enums flatten to their simple
-    // name (e.g. Outer.Middle.Kind -> Kind).
-    const full = entry.msg
-      ? entry.msg.fullName + '.' + entry.enum.name
-      : (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name;
-    return gpFlat(entry.pkg, full);
+    // Mirrors template-go.rkt: 'full includes the parent
+    // message, so nested enums flatten to a qualified name
+    // (e.g. Outer.Middle.Kind -> Outer_Middle_Kind) and cannot
+    // collide on their simple name.
+    return gpFlat(entry.pkg, entry.full);
   }
   return gpFlat(entry.pkg, entry.msg.fullName);
 }
@@ -1383,6 +1382,21 @@ function gpDecodeCase(model, f) {
   }
 }
 
+// Mirrors desc.rkt map-entry-emitted-in-own-file?: will the map
+// entry's own file emit its helpers? (Go helpers are
+// package-level, so the using file must skip them then.)
+function gpMapEmittedInOwnFile(model, entry) {
+  if (entry.file === model.name) return false;
+  if (!(model.generateFiles || []).includes(entry.file)) return false;
+  for (const e of model.types.values()) {
+    if (e.kind !== 'message' || e.file !== entry.file) continue;
+    for (const f of e.msg.fields) {
+      if (f.type === FT.MESSAGE && f.typeName === entry.full) return true;
+    }
+  }
+  return false;
+}
+
 function gpMapHelpers(model, entry) {
   const msg = entry.msg;
   const base = gpEntryType(entry);
@@ -1511,7 +1525,7 @@ function emitGoPbFile(model, params) {
     for (const f of msg.fields) {
       if (f.type === FT.MESSAGE) {
         const e = gpResolve(model, f.typeName);
-        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName) && !gpMapEmittedInOwnFile(model, e)) {
           seenMaps.add(e.msg.fullName);
           out += gpMapHelpers(model, e);
         }
@@ -1889,8 +1903,7 @@ function pyPbResolve(model, typeName) {
 }
 
 function pyPbEnumFull(entry) {
-  if (entry.msg) return entry.msg.fullName + '.' + entry.enum.name;
-  return (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name;
+  return entry.full;
 }
 
 function pyPbRef(model, entry) {
@@ -2420,16 +2433,445 @@ function rustService(svc, msgmod) {
     + '    ])\n}\n';
 }
 
+
+// ---------------------------------------------------------------------------
+// Rust message types (<base>_pb.rs), mirroring racket/template-rust.rkt
+// (the rp* functions): structs with encode/decode, std-only,
+// byte-identical to the native protoc-gen-grpc-dc-rust plugin.
+// Cross-file types resolve to crate::<base>_pb::<Type> modules.
+// ---------------------------------------------------------------------------
+
+const RP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
+const RP_FIXED = { 1: [8, 'f64'], 2: [4, 'f32'], 6: [8, 'u64'], 7: [4, 'u32'], 15: [4, 'i32'], 16: [8, 'i64'] };
+
+const RP_SUPPORT = 'fn pb_append_varint(out: &mut Vec<u8>, value: u64) {\n    let mut v = value;\n    while v > 0x7f {\n        out.push(((v & 0x7f) as u8) | 0x80);\n        v >>= 7;\n    }\n    out.push(v as u8);\n}\n\n'
+  + 'fn pb_append_tag(out: &mut Vec<u8>, field: u32, wire: u32) {\n    pb_append_varint(out, ((field << 3) | wire) as u64);\n}\n\n'
+  + 'fn pb_append_bytes_field(out: &mut Vec<u8>, field: u32, payload: &[u8]) {\n    pb_append_tag(out, field, 2);\n    pb_append_varint(out, payload.len() as u64);\n    out.extend_from_slice(payload);\n}\n\n'
+  + 'fn pb_append_string_field(out: &mut Vec<u8>, field: u32, value: &str) {\n    if !value.is_empty() {\n        pb_append_bytes_field(out, field, value.as_bytes());\n    }\n}\n\n'
+  + 'fn pb_append_fixed32(out: &mut Vec<u8>, value: u32) {\n    out.extend_from_slice(&value.to_le_bytes());\n}\n\n'
+  + 'fn pb_append_fixed64(out: &mut Vec<u8>, value: u64) {\n    out.extend_from_slice(&value.to_le_bytes());\n}\n\n'
+  + '#[derive(Clone, Debug, Default)]\nstruct PbField {\n    number: u32,\n    wire: u32,\n    varint_value: u64,\n    bytes_value: Vec<u8>,\n    fixed_value: u64,\n    raw_value: Vec<u8>,\n}\n\n'
+  + 'struct PbReader<\'a> {\n    buf: &\'a [u8],\n    pos: usize,\n}\n\n'
+  + 'impl<\'a> PbReader<\'a> {\n    fn new(buf: &\'a [u8]) -> Self {\n        PbReader { buf, pos: 0 }\n    }\n\n'
+  + '    fn done(&self) -> bool {\n        self.pos >= self.buf.len()\n    }\n\n'
+  + '    fn varint(&mut self) -> Result<u64, String> {\n        let mut result: u64 = 0;\n        let mut shift = 0;\n        loop {\n            if self.pos >= self.buf.len() {\n                return Err("truncated varint".to_string());\n            }\n            let b = self.buf[self.pos];\n            self.pos += 1;\n            result |= ((b & 0x7f) as u64) << shift;\n            if b & 0x80 == 0 {\n                return Ok(result);\n            }\n            shift += 7;\n            if shift >= 70 {\n                return Err("varint too long".to_string());\n            }\n        }\n    }\n\n'
+  + '    fn take(&mut self, n: usize) -> Result<Vec<u8>, String> {\n        if self.pos + n > self.buf.len() {\n            return Err("truncated field".to_string());\n        }\n        let v = self.buf[self.pos..self.pos + n].to_vec();\n        self.pos += n;\n        Ok(v)\n    }\n\n'
+  + '    fn next(&mut self) -> Result<Option<PbField>, String> {\n        if self.done() {\n            return Ok(None);\n        }\n        let start = self.pos;\n        let tag = self.varint()?;\n        let mut field = PbField {\n            number: (tag >> 3) as u32,\n            wire: (tag & 7) as u32,\n            ..Default::default()\n        };\n        match field.wire {\n            0 => field.varint_value = self.varint()?,\n            2 => {\n                let n = self.varint()? as usize;\n                field.bytes_value = self.take(n)?;\n            }\n            1 => {\n                field.bytes_value = self.take(8)?;\n                field.fixed_value = u64::from_le_bytes(field.bytes_value[..8].try_into().unwrap());\n            }\n            5 => {\n                field.bytes_value = self.take(4)?;\n                field.fixed_value = u32::from_le_bytes(field.bytes_value[..4].try_into().unwrap()) as u64;\n            }\n            _ => return Err("bad wire type".to_string()),\n        }\n        field.raw_value = self.buf[start..self.pos].to_vec();\n        Ok(Some(field))\n    }\n}\n\n';
+
+function rpSnake(s) {
+  return s.split('_').map((p) => p.toLowerCase()).join('_');
+}
+
+function rpCamel(s) {
+  return s.split('_').map((p) => (p ? p[0].toUpperCase() + p.slice(1).toLowerCase() : '')).join('');
+}
+
+function rpFieldName(f) {
+  return rpSnake(f.name);
+}
+
+function rpFlat(pkg, full) {
+  const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+  return rel.split('.').join('_');
+}
+
+function rpResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function rpEntryRef(model, entry) {
+  const flat = rpFlat(entry.pkg, entry.full !== undefined && entry.full !== null
+    ? entry.full
+    : (entry.kind === 'enum'
+      ? (entry.msg ? entry.msg.fullName + '.' + entry.enum.name : (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name)
+      : entry.msg.fullName));
+  if (entry.kind === 'map' || entry.file === model.name) return flat;
+  return 'crate::' + baseName(entry.file) + '_pb::' + (entry.kind === 'enum' ? entry.enum.name : flat);
+}
+
+function rpElemType(model, f) {
+  if (f.type === FT.MESSAGE || f.type === FT.ENUM) return rpEntryRef(model, rpResolve(model, f.typeName));
+  if (f.type === 4 || f.type === 6) return 'u64';
+  if (f.type === 3 || f.type === 16 || f.type === 18) return 'i64';
+  if (f.type === 13) return 'u32';
+  if (f.type === 7) return 'u32';
+  switch (f.type) {
+    case 1: return 'f64';
+    case 2: return 'f32';
+    case 8: return 'bool';
+    case 9: return 'String';
+    case 12: return 'Vec<u8>';
+    default: return 'i32';
+  }
+}
+
+function rpType(model, f) {
+  if (f.type === FT.MESSAGE && rpResolve(model, f.typeName).kind === 'map') {
+    const entry = rpResolve(model, f.typeName);
+    const kf = entry.msg.fields.find((x) => x.number === 1);
+    const vf = entry.msg.fields.find((x) => x.number === 2);
+    return 'std::collections::HashMap<' + rpElemType(model, kf) + ', ' + rpElemType(model, vf) + '>';
+  }
+  if (f.label === 3) return 'Vec<' + rpElemType(model, f) + '>';
+  if (f.type === FT.MESSAGE) return 'Option<Box<' + rpElemType(model, f) + '>>';
+  return rpElemType(model, f);
+}
+
+function rpDefault(model, f) {
+  if (f.type === FT.MESSAGE && rpResolve(model, f.typeName).kind === 'map') return 'std::collections::HashMap::new()';
+  if (f.label === 3) return 'Vec::new()';
+  if (f.type === FT.MESSAGE) return 'None';
+  if (f.type === FT.STRING) return 'String::new()';
+  if (f.type === FT.BYTES) return 'Vec::new()';
+  if (f.type === FT.BOOL) return 'false';
+  if (f.type === 1 || f.type === 2) return '0.0';
+  if (f.type === FT.ENUM) {
+    const d = fieldExplicitDefault(f);
+    const entry = rpResolve(model, f.typeName);
+    if (d !== null) return rpEntryRef(model, entry) + '::' + rpCamel(d);
+    return rpEntryRef(model, entry) + '::' + rpCamel(entry.enum.values[0].name);
+  }
+  const d = fieldExplicitDefault(f);
+  if (d === null) return '0';
+  if (f.type === FT.STRING) return JSON.stringify(d) + '.to_string()';
+  return d;
+}
+
+function rpVarintExpr(f, v) {
+  switch (f.type) {
+    case 8: return '(if ' + v + ' { 1u64 } else { 0u64 })';
+    case 17: return '((((' + v + ' << 1) ^ (' + v + ' >> 31)) as u32) as u64)';
+    case 18: return '(((' + v + ' << 1) ^ (' + v + ' >> 63)) as u64)';
+    default: return '(' + v + ' as u64)';
+  }
+}
+
+function rpVarintDecode(f, v) {
+  switch (f.type) {
+    case 5: case 15: return '(' + v + ' as u32 as i32)';
+    case 14: return '(' + v + ' as i32)';
+    case 13: case 7: return '(' + v + ' as u32)';
+    case 8: return '(' + v + ' != 0)';
+    case 17: return '(((' + v + ' as u32 >> 1) as i32) ^ (-(((' + v + ' as u32) & 1) as i32)))';
+    case 18: return '(((' + v + ' >> 1) as i64) ^ (-((' + v + ' & 1) as i64)))';
+    case 4: case 6: return '(' + v + ' as u64)';
+    default: return '(' + v + ' as i64)';
+  }
+}
+
+function rpFixedInfo(f) {
+  return RP_FIXED[f.type] || null;
+}
+
+function rpWire(f) {
+  return rpFixedInfo(f)[0] === 8 ? 1 : 5;
+}
+
+function rpFixedEncodeExpr(f, v) {
+  switch (rpFixedInfo(f)[1]) {
+    case 'f64': return 'pb_append_fixed64(&mut out, ' + v + '.to_bits());';
+    case 'f32': return 'pb_append_fixed32(&mut out, ' + v + '.to_bits());';
+    case 'u64': return 'pb_append_fixed64(&mut out, ' + v + ');';
+    case 'i64': return 'pb_append_fixed64(&mut out, ' + v + ' as u64);';
+    case 'u32': return 'pb_append_fixed32(&mut out, ' + v + ');';
+    case 'i32': return 'pb_append_fixed32(&mut out, ' + v + ' as u32);';
+    default: throw new Error('bad fixed kind');
+  }
+}
+
+function rpFixedDecodeExpr(f, src) {
+  switch (rpFixedInfo(f)[1]) {
+    case 'f64': return 'f64::from_bits(' + src + ')';
+    case 'f32': return 'f32::from_bits(' + src + ' as u32)';
+    case 'u64': return '(' + src + ' as u64)';
+    case 'i64': return '(' + src + ' as u64 as i64)';
+    case 'u32': return '(' + src + ' as u32)';
+    case 'i32': return '(' + src + ' as u32 as i32)';
+    default: throw new Error('bad fixed kind');
+  }
+}
+
+function rpEncodeSingular(model, f, v, indent) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (RP_VARINT.has(f.type)) {
+    const expr = f.type === 14 ? '(' + v + ' as i32 as u64)' : rpVarintExpr(f, v);
+    if (proto2) {
+      return indent + '{ pb_append_tag(&mut out, ' + n + ', 0); pb_append_varint(&mut out, ' + expr + '); }\n';
+    }
+    const cond = f.type === 8 ? v : v + ' != ' + rpDefault(model, { ...f, label: 1 });
+    return indent + 'if ' + cond + ' { pb_append_tag(&mut out, ' + n + ', 0); pb_append_varint(&mut out, ' + expr + '); }\n';
+  }
+  if (rpFixedInfo(f)) {
+    if (proto2) {
+      return indent + '{ pb_append_tag(&mut out, ' + n + ', ' + rpWire(f) + '); ' + rpFixedEncodeExpr(f, v) + ' }\n';
+    }
+    return indent + 'if ' + v + ' != ' + rpDefault(model, { ...f, label: 1 }) + ' { pb_append_tag(&mut out, ' + n + ', ' + rpWire(f) + '); ' + rpFixedEncodeExpr(f, v) + ' }\n';
+  }
+  switch (f.type) {
+    case 9: return proto2
+      ? indent + 'pb_append_bytes_field(&mut out, ' + n + ', ' + v + '.as_bytes());\n'
+      : indent + 'pb_append_string_field(&mut out, ' + n + ', &' + v + ');\n';
+    case 12: return proto2
+      ? indent + 'pb_append_bytes_field(&mut out, ' + n + ', &' + v + ');\n'
+      : indent + 'if !' + v + '.is_empty() { pb_append_bytes_field(&mut out, ' + n + ', &' + v + '); }\n';
+    case 11: return indent + 'if let Some(v) = &' + v + ' { pb_append_bytes_field(&mut out, ' + n + ', &v.encode()); }\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function rpSetExpr(sib) {
+  const v = 'self.' + rpFieldName(sib);
+  switch (sib.type) {
+    case 11: case 10: return v + '.is_some()';
+    case 9: case 12: return '!' + v + '.is_empty()';
+    case 8: return v;
+    case 14: return '(' + v + ' as i32) != 0';
+    case 1: case 2: return v + ' != 0.0';
+    default: return v + ' != 0';
+  }
+}
+
+// Encode-side oneof clearing: suppress f when a later sibling is
+// set, so only the winning member is written.
+function rpEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '        if !(' + later.map(rpSetExpr).join(' || ') + ') {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
+}
+
+function rpFixedEncodeExprPayload(f, v) {
+  switch (rpFixedInfo(f)[1]) {
+    case 'f64': return 'payload.extend_from_slice(&' + v + '.to_bits().to_le_bytes());';
+    case 'f32': return 'payload.extend_from_slice(&' + v + '.to_bits().to_le_bytes());';
+    case 'u64': return 'payload.extend_from_slice(&' + v + '.to_le_bytes());';
+    case 'i64': return 'payload.extend_from_slice(&(' + v + ' as u64).to_le_bytes());';
+    case 'u32': return 'payload.extend_from_slice(&' + v + '.to_le_bytes());';
+    case 'i32': return 'payload.extend_from_slice(&(' + v + ' as u32).to_le_bytes());';
+    default: throw new Error('bad fixed kind');
+  }
+}
+
+function rpEncodeField(model, f) {
+  const v = 'self.' + rpFieldName(f);
+  const n = f.number;
+  if (f.type === FT.MESSAGE && rpResolve(model, f.typeName).kind === 'map') {
+    const helper = 'pb_encode_' + rpEntryRef(model, rpResolve(model, f.typeName));
+    return '        for (k, val) in &' + v + ' { pb_append_bytes_field(&mut out, ' + n + ', &' + helper + '(k, val)); }\n';
+  }
+  if (f.label !== 3) return rpEncodeSingular(model, f, v, '        ');
+  if (RP_VARINT.has(f.type)) {
+    return '        if !' + v + '.is_empty() {\n            let mut payload = Vec::new();\n'
+      + '            for x in &' + v + ' { pb_append_varint(&mut payload, ' + (f.type === 14 ? '(*x as i32 as u64)' : rpVarintExpr(f, '(*x)')) + '); }\n'
+      + '            pb_append_bytes_field(&mut out, ' + n + ', &payload);\n        }\n';
+  }
+  if (rpFixedInfo(f)) {
+    return '        if !' + v + '.is_empty() {\n            let mut payload = Vec::new();\n'
+      + '            for x in &' + v + ' { ' + rpFixedEncodeExprPayload(f, '(*x)') + ' }\n'
+      + '            pb_append_bytes_field(&mut out, ' + n + ', &payload);\n        }\n';
+  }
+  switch (f.type) {
+    case 9: return '        for x in &' + v + ' { pb_append_bytes_field(&mut out, ' + n + ', x.as_bytes()); }\n';
+    case 12: return '        for x in &' + v + ' { pb_append_bytes_field(&mut out, ' + n + ', x); }\n';
+    case 11: return '        for x in &' + v + ' { pb_append_bytes_field(&mut out, ' + n + ', &x.encode()); }\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function rpDecodeSingular(model, f, target, src, indent) {
+  if (RP_VARINT.has(f.type)) {
+    return indent + target + ' = ' + (f.type === 14
+      ? rpEntryRef(model, rpResolve(model, f.typeName)) + '::from_i32(' + src + ' as i32)'
+      : rpVarintDecode(f, src)) + ';\n';
+  }
+  if (rpFixedInfo(f)) return indent + target + ' = ' + rpFixedDecodeExpr(f, src) + ';\n';
+  switch (f.type) {
+    case 9: return indent + target + ' = String::from_utf8_lossy(&' + src + ').into_owned();\n';
+    case 12: return indent + target + ' = ' + src + ';\n';
+    case 11: return indent + target + ' = Some(Box::new(' + rpEntryRef(model, rpResolve(model, f.typeName)) + '::decode(&' + src + ')?));\n';
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function rpOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '                    msg.' + rpFieldName(sib) + ' = ' + rpDefault(model, sib) + ';\n').join('');
+}
+
+function rpFixedDecodeExpr32(f, src) {
+  switch (rpFixedInfo(f)[1]) {
+    case 'f32': return 'f32::from_bits(' + src + ' as u32)';
+    case 'u32': return '(' + src + ' as u32)';
+    case 'i32': return '(' + src + ' as u32 as i32)';
+    default: return rpFixedDecodeExpr(f, src);
+  }
+}
+
+function rpDecodeCase(model, f) {
+  const v = 'msg.' + rpFieldName(f);
+  const head = '                ' + f.number + ' => {\n';
+  const tail = '                }\n';
+  if (f.type === FT.MESSAGE && rpResolve(model, f.typeName).kind === 'map') {
+    const helper = 'pb_decode_' + rpEntryRef(model, rpResolve(model, f.typeName));
+    return head
+      + '                    let (kk, vv) = ' + helper + '(&field.bytes_value)?;\n'
+      + '                    ' + v + '.insert(kk, vv);\n'
+      + tail;
+  }
+  if (f.label !== 3) {
+    const src = RP_VARINT.has(f.type) ? 'field.varint_value' : (rpFixedInfo(f) ? 'field.fixed_value' : 'field.bytes_value');
+    return head + rpOneofClearing(model, f) + rpDecodeSingular(model, f, v, src, '                    ') + tail;
+  }
+  if (RP_VARINT.has(f.type)) {
+    const conv = (src) => f.type === 14
+      ? rpEntryRef(model, rpResolve(model, f.typeName)) + '::from_i32(' + src + ' as i32)'
+      : rpVarintDecode(f, src);
+    return head
+      + '                    if field.wire == 2 {\n                        let mut sub = PbReader::new(&field.bytes_value);\n                        while !sub.done() {\n                            let raw = sub.varint()?;\n'
+      + '                            ' + v + '.push(' + conv('raw') + ');\n'
+      + '                        }\n                    } else {\n'
+      + '                        ' + v + '.push(' + conv('field.varint_value') + ');\n'
+      + '                    }\n'
+      + tail;
+  }
+  if (rpFixedInfo(f)) {
+    const size = rpFixedInfo(f)[0];
+    const push = (src) => '                            ' + v + '.push(' + (size === 4 ? rpFixedDecodeExpr32(f, src) : rpFixedDecodeExpr(f, src)) + ');\n';
+    return head
+      + '                    if field.wire == 2 {\n                        let mut i = 0;\n                        while i < field.bytes_value.len() {\n'
+      + '                            let chunk = u64::from_le_bytes(field.bytes_value[i..i + ' + size + '].try_into().unwrap());\n'
+      + push('chunk')
+      + '                            i += ' + size + ';\n                        }\n                    } else {\n'
+      + '                        ' + v + '.push(' + rpFixedDecodeExpr(f, 'field.fixed_value') + ');\n'
+      + '                    }\n'
+      + tail;
+  }
+  switch (f.type) {
+    case 9: return head + '                    ' + v + '.push(String::from_utf8_lossy(&field.bytes_value).into_owned());\n' + tail;
+    case 12: return head + '                    ' + v + '.push(field.bytes_value.clone());\n' + tail;
+    case 11: return head + '                    ' + v + '.push(' + rpEntryRef(model, rpResolve(model, f.typeName)) + '::decode(&field.bytes_value)?);\n' + tail;
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function rpDecodeSingularKv(model, f, target, field, indent) {
+  const varint = field + '.varint_value';
+  const fixed = field + '.fixed_value';
+  const bytes = field + '.bytes_value';
+  if (RP_VARINT.has(f.type)) {
+    return indent + target + ' = ' + (f.type === 14
+      ? rpEntryRef(model, rpResolve(model, f.typeName)) + '::from_i32(' + varint + ' as i32)'
+      : rpVarintDecode(f, varint)) + ';\n';
+  }
+  if (rpFixedInfo(f)) return indent + target + ' = ' + rpFixedDecodeExpr(f, fixed) + ';\n';
+  switch (f.type) {
+    case 9: return indent + target + ' = String::from_utf8_lossy(&' + bytes + ').into_owned();\n';
+    case 12: return indent + target + ' = ' + bytes + '.clone();\n';
+    case 11: return indent + target + ' = ' + rpEntryRef(model, rpResolve(model, f.typeName)) + '::decode(&' + bytes + ')?;\n';
+    default: throw new Error('unsupported map value type ' + f.type);
+  }
+}
+
+function rpMapHelpers(model, entry) {
+  const msg = entry.msg;
+  const base = rpEntryRef(model, entry);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry lacks key/value');
+  return 'fn pb_encode_' + base + '(key: &' + rpElemType(model, keyF) + ', value: &' + rpElemType(model, valF) + ') -> Vec<u8> {\n    let mut out = Vec::new();\n'
+    + rpEncodeSingular(model, { ...keyF, label: 1 }, '(*key)', '    ')
+    + (valF.type === 11
+      ? '    pb_append_bytes_field(&mut out, ' + valF.number + ', &value.encode());\n'
+      : rpEncodeSingular(model, { ...valF, label: 1 }, '(*value)', '    '))
+    + '    out\n}\n\n'
+    + 'fn pb_decode_' + base + '(data: &[u8]) -> Result<(' + rpElemType(model, keyF) + ', ' + rpElemType(model, valF) + '), String> {\n'
+    + '    let mut key: ' + rpElemType(model, keyF) + ' = ' + rpDefault(model, { ...keyF, label: 1 }) + ';\n'
+    + '    let mut value: ' + rpElemType(model, valF) + ' = ' + (valF.type === 11
+      ? rpElemType(model, valF) + '::default()'
+      : rpDefault(model, { ...valF, label: 1 })) + ';\n'
+    + '    let mut r = PbReader::new(data);\n    while let Some(field) = r.next()? {\n        match field.number {\n'
+    + '            ' + keyF.number + ' => {\n' + rpDecodeSingularKv(model, { ...keyF, label: 1 }, 'key', 'field', '                ') + '            }\n'
+    + '            ' + valF.number + ' => {\n' + rpDecodeSingularKv(model, { ...valF, label: 1 }, 'value', 'field', '                ') + '            }\n'
+    + '            _ => {}\n        }\n    }\n    Ok((key, value))\n}\n\n';
+}
+
+function rpEnumNamed(model, full, e) {
+  const name = rpFlat(model.package, full);
+  return '#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\npub enum ' + name + ' {\n'
+    + e.values.map((v, i) => '    ' + (i === 0 ? '#[default]\n    ' : '') + rpCamel(v.name) + ' = ' + v.number + ',\n').join('')
+    + '}\n\n'
+    + 'impl ' + name + ' {\n    pub fn from_i32(v: i32) -> Self {\n        match v {\n'
+    + e.values.map((v) => '            ' + v.number + ' => ' + name + '::' + rpCamel(v.name) + ',\n').join('')
+    + '            _ => ' + name + '::' + rpCamel(e.values[0].name) + ',\n        }\n    }\n}\n\n';
+}
+
+function rpMessageStruct(model, msg) {
+  const name = rpFlat(model.package, msg.fullName);
+  return msg.enums.map((e) => rpEnumNamed(model, msg.fullName + '.' + e.name, e)).join('')
+    + '#[derive(Clone, Debug, PartialEq)]\npub struct ' + name + ' {\n'
+    + msg.fields.map((f) => '    pub ' + rpFieldName(f) + ': ' + rpType(model, f) + ',\n').join('')
+    + '    pub unknown_fields: Vec<u8>,\n}\n\n'
+    + 'impl Default for ' + name + ' {\n    fn default() -> Self {\n        Self {\n'
+    + msg.fields.map((f) => '            ' + rpFieldName(f) + ': ' + rpDefault(model, f) + ',\n').join('')
+    + '            unknown_fields: Vec::new(),\n        }\n    }\n}\n\n'
+    + 'impl ' + name + ' {\n    pub fn encode(&self) -> Vec<u8> {\n        let mut out = Vec::new();\n'
+    + msg.fields.map((f) => rpEncodeGuard(model, f, rpEncodeField(model, f))).join('')
+    + '        out.extend_from_slice(&self.unknown_fields);\n'
+    + '        out\n    }\n\n'
+    + '    pub fn decode(bytes: &[u8]) -> Result<Self, String> {\n        let mut msg = Self::default();\n        let mut reader = PbReader::new(bytes);\n        while let Some(field) = reader.next()? {\n            match field.number {\n'
+    + msg.fields.map((f) => rpDecodeCase(model, f)).join('')
+    + '                _ => {\n                    msg.unknown_fields.extend_from_slice(&field.raw_value);\n                }\n'
+    + '            }\n        }\n        Ok(msg)\n    }\n}\n\n'
+    + msg.nested.map((n) => rpMessageStruct(model, n)).join('');
+}
+
+function emitRustPbFile(model) {
+  if (!model.messages.length && !model.enums.length) return null;
+  const base = baseName(model.name);
+  let out = '// @generated by protoc-gen-grpc-dc-rust (Racket metaprogram). DO NOT EDIT.\n'
+    + '// source: ' + model.name + '\n'
+    + '// Cross-file message types resolve to crate::<base>_pb modules.\n'
+    + '#![allow(dead_code, clippy::all)]\n\n'
+    + RP_SUPPORT;
+  for (const e of model.enums) {
+    out += rpEnumNamed(model, (model.package === '' ? e.name : model.package + '.' + e.name), e);
+  }
+  // Map helpers for every map field in the file's messages.
+  const seenMaps = new Set();
+  const helpers = [];
+  const collect = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = rpResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+          seenMaps.add(e.msg.fullName);
+          helpers.push(rpMapHelpers(model, e));
+        }
+      }
+    }
+    for (const n of msg.nested) collect(n);
+  };
+  for (const m of model.messages) collect(m);
+  for (const m of model.messages) {
+    if (!m.mapEntry) out += rpMessageStruct(model, m);
+  }
+  out += helpers.join('');
+  return { name: base + '_pb.rs', content: out };
+}
+
 function emitRustFile(model, params) {
   const msgmod = params.message_module || 'crate::pb';
   const base = baseName(model.name);
-  return {
+  const stub = {
     name: base + '_grpc_dc.rs',
     content: '// @generated by protoc-gen-grpc-dc-rust (Racket metaprogram). DO NOT EDIT.\n'
       + '// source: ' + model.name + '\n'
       + '#![allow(dead_code, unused_imports, clippy::all)]\n\n'
       + model.services.map((s) => rustService(s, msgmod)).join(''),
   };
+  const pb = emitRustPbFile(model);
+  return pb ? [stub, pb] : stub;
 }
 
 JS
@@ -2757,11 +3199,519 @@ function javaService(svc) {
     + '        register' + sname + 'Server(server, new ' + sname + 'ServerAsyncAdapter(impl));\n    }\n';
 }
 
+
+// ---------------------------------------------------------------------------
+// Java message types, mirroring racket/template-java.rkt (the jp*
+// functions): one public class per top-level message and enum,
+// plus a package-private <Base>Pb wire-support class per proto
+// file. Byte-identical to the native protoc-gen-grpc-dc-java
+// plugin.
+// ---------------------------------------------------------------------------
+
+const JP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
+const JP_FIXED = { 2: [4, 'Float'], 1: [8, 'Double'], 7: [4, 'Int'], 15: [4, 'Int'], 6: [8, 'Long'], 16: [8, 'Long'] };
+
+function jpCamel(s) {
+  const parts = s.split('_');
+  if (!parts.length) return s;
+  return parts[0] + parts.slice(1).map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
+}
+
+function jpFieldName(f) {
+  return f.jsonName ? f.jsonName : jpCamel(f.name);
+}
+
+function jpResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function jpRel(pkg, full) {
+  const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+  return rel.split('.').join('.');
+}
+
+function jpEntryRef(model, entry) {
+  const rel = entry.kind === 'enum'
+    ? (entry.msg
+      ? jpRel(entry.pkg, entry.msg.fullName) + '.' + entry.enum.name
+      : jpRel(entry.pkg, (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name))
+    : jpRel(entry.pkg, entry.msg.fullName);
+  if (entry.file === model.name) return rel;
+  return entry.pkg === '' ? rel : entry.pkg + '.' + rel;
+}
+
+function jpScalar(f) {
+  switch (f.type) {
+    case 1: return ['double', 'Double', '0'];
+    case 2: return ['float', 'Float', '0'];
+    case 3: case 4: case 6: case 16: case 18: return ['long', 'Long', '0L'];
+    case 5: case 7: case 13: case 15: case 17: return ['int', 'Integer', '0'];
+    case 8: return ['boolean', 'Boolean', 'false'];
+    case 9: return ['String', 'String', '""'];
+    case 12: return ['byte[]', 'byte[]', 'new byte[0]'];
+    default: return null;
+  }
+}
+
+function jpType(model, f, boxed) {
+  let singular;
+  if (f.type === FT.MESSAGE) {
+    const entry = jpResolve(model, f.typeName);
+    if (entry.kind === 'map') {
+      const kf = entry.msg.fields.find((x) => x.number === 1);
+      const vf = entry.msg.fields.find((x) => x.number === 2);
+      singular = 'java.util.Map<' + jpType(model, { ...kf, label: 1 }, true) + ', ' + jpType(model, { ...vf, label: 1 }, true) + '>';
+    } else {
+      singular = jpEntryRef(model, entry);
+    }
+  } else if (f.type === FT.ENUM) {
+    singular = jpEntryRef(model, jpResolve(model, f.typeName));
+  } else {
+    const s = jpScalar(f);
+    singular = boxed ? s[1] : s[0];
+  }
+  if (f.type === FT.MESSAGE && jpResolve(model, f.typeName).kind === 'map') return singular;
+  if (f.label === 3) return 'java.util.List<' + jpType(model, { ...f, label: 1 }, true) + '>';
+  return singular;
+}
+
+function jpExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case 9: return JSON.stringify(d);
+    case 8: return d;
+    case 14: return jpEntryRef(model, jpResolve(model, f.typeName)) + '.' + d;
+    case 2: return d + 'f';
+    default: return d;
+  }
+}
+
+function jpDefault(model, f) {
+  const lit = jpExplicitLiteral(model, f);
+  if (lit !== null) return lit;
+  if (f.type === FT.MESSAGE && jpResolve(model, f.typeName).kind === 'map') return 'new java.util.LinkedHashMap<>()';
+  if (f.label === 3) return 'new java.util.ArrayList<>()';
+  if (f.type === FT.MESSAGE) return 'null';
+  if (f.type === FT.ENUM) {
+    const entry = jpResolve(model, f.typeName);
+    return jpEntryRef(model, entry) + '.' + entry.enum.values[0].name;
+  }
+  return jpScalar(f)[2];
+}
+
+function jpVarintExpr(f, v) {
+  switch (f.type) {
+    case 8: return '(' + v + ' ? 1 : 0)';
+    case 17: return '((' + v + ' << 1) ^ (' + v + ' >> 31))';
+    case 18: return '((' + v + ' << 1) ^ (' + v + ' >> 63))';
+    default: return v;
+  }
+}
+
+function jpVarintDecode(f, v) {
+  switch (f.type) {
+    case 5: case 14: case 13: return '(int) ' + v;
+    case 3: case 4: return v;
+    case 8: return v + ' != 0';
+    case 17: return '(int) ((' + v + ' >>> 1) ^ -(' + v + ' & 1))';
+    case 18: return '((' + v + ' >>> 1) ^ -(' + v + ' & 1))';
+    default: throw new Error('not a varint type');
+  }
+}
+
+function jpNonzero(f, v) {
+  switch (f.type) {
+    case 8: return v;
+    case 14: return v + ' != null && ' + v + '.number != 0';
+    default: return v + ' != 0';
+  }
+}
+
+function jpFixedBits(info, f, v) {
+  return v;
+}
+
+function jpEncodeSingular(model, f, v, indent, support) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (JP_VARINT.has(f.type)) {
+    const expr = f.type === 14 ? v + '.number' : jpVarintExpr(f, v);
+    if (proto2) return indent + '{ w.tag(' + n + ', 0); w.varint(' + expr + '); }\n';
+    return indent + 'if (' + jpNonzero(f, v) + ') { w.tag(' + n + ', 0); w.varint(' + expr + '); }\n';
+  }
+  const fixed = JP_FIXED[f.type];
+  if (fixed) {
+    const wire = fixed[0] === 8 ? 1 : 5;
+    if (proto2) return indent + '{ w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + jpFixedBits(fixed, f, v) + '); }\n';
+    return indent + 'if (' + jpNonzero(f, v) + ') { w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + jpFixedBits(fixed, f, v) + '); }\n';
+  }
+  switch (f.type) {
+    case 9: return proto2
+      ? indent + 'if (' + v + ' != null) w.bytesField(' + n + ', ' + v + '.getBytes(java.nio.charset.StandardCharsets.UTF_8));\n'
+      : indent + 'w.stringField(' + n + ', ' + v + ');\n';
+    case 12: return proto2
+      ? indent + 'if (' + v + ' != null) w.bytesField(' + n + ', ' + v + ');\n'
+      : indent + 'if (' + v + ' != null && ' + v + '.length > 0) w.bytesField(' + n + ', ' + v + ');\n';
+    case 11: return indent + 'if (' + v + ' != null) w.bytesField(' + n + ', ' + v + '.marshalDc());\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function jpSetExpr(sib) {
+  const v = jpFieldName(sib);
+  switch (sib.type) {
+    case 11: case 10: return v + ' != null';
+    case 9: return '(' + v + ' != null && !' + v + '.isEmpty())';
+    case 12: return '(' + v + ' != null && ' + v + '.length > 0)';
+    default: return jpNonzero(sib, v);
+  }
+}
+
+// Encode-side oneof clearing: suppress f when a later sibling is
+// set, so only the winning member is written.
+function jpEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '        if (!(' + later.map(jpSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
+}
+
+function jpEncodeField(model, f, support) {
+  const v = jpFieldName(f);
+  const n = f.number;
+  if (f.type === FT.MESSAGE && jpResolve(model, f.typeName).kind === 'map') {
+    const entry = jpResolve(model, f.typeName);
+    const helper = support + '.' + jpMapHelperName(model, entry) + 'Encode';
+    const kf = entry.msg.fields.find((x) => x.number === 1);
+    const vf = entry.msg.fields.find((x) => x.number === 2);
+    return '        if (' + v + ' != null) for (java.util.Map.Entry<' + jpType(model, { ...kf, label: 1 }, true) + ', ' + jpType(model, { ...vf, label: 1 }, true) + '> e : ' + v + '.entrySet()) w.bytesField(' + n + ', ' + helper + '(e.getKey(), e.getValue()));\n';
+  }
+  if (f.label !== 3) return jpEncodeSingular(model, f, v, '        ', support);
+  if (JP_VARINT.has(f.type)) {
+    return '        if (' + v + ' != null && !' + v + '.isEmpty()) {\n'
+      + '            ' + support + '.Writer payload = new ' + support + '.Writer();\n'
+      + '            for (' + jpType(model, { ...f, label: 1 }, true) + ' x : ' + v + ') payload.varint(' + (f.type === 14 ? 'x.number' : jpVarintExpr(f, 'x')) + ');\n'
+      + '            w.bytesField(' + n + ', payload.toBytes());\n        }\n';
+  }
+  const fixed = JP_FIXED[f.type];
+  if (fixed) {
+    return '        if (' + v + ' != null && !' + v + '.isEmpty()) {\n'
+      + '            ' + support + '.Writer payload = new ' + support + '.Writer();\n'
+      + '            for (' + jpType(model, { ...f, label: 1 }, true) + ' x : ' + v + ') payload.fixed' + fixed[1] + '(' + jpFixedBits(fixed, f, 'x') + ');\n'
+      + '            w.bytesField(' + n + ', payload.toBytes());\n        }\n';
+  }
+  switch (f.type) {
+    case 9: return '        if (' + v + ' != null) for (String x : ' + v + ') w.bytesField(' + n + ', x.getBytes(java.nio.charset.StandardCharsets.UTF_8));\n';
+    case 12: return '        if (' + v + ' != null) for (byte[] x : ' + v + ') w.bytesField(' + n + ', x);\n';
+    case 11: return '        if (' + v + ' != null) for (' + jpType(model, { ...f, label: 1 }, true) + ' x : ' + v + ') w.bytesField(' + n + ', x.marshalDc());\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function jpDecodeSingular(model, f, target, src, indent) {
+  if (JP_VARINT.has(f.type)) {
+    return indent + target + ' = ' + (f.type === 14
+      ? jpEntryRef(model, jpResolve(model, f.typeName)) + '.fromNumber(' + jpVarintDecode({ ...f, type: 5 }, src) + ')'
+      : jpVarintDecode(f, src)) + ';\n';
+  }
+  if (JP_FIXED[f.type]) {
+    let conv;
+    switch (f.type) {
+      case 2: conv = 'Float.intBitsToFloat((int) ' + src + ')'; break;
+      case 1: conv = 'Double.longBitsToDouble(' + src + ')'; break;
+      case 7: case 15: conv = '(int) ' + src; break;
+      default: conv = src;
+    }
+    return indent + target + ' = ' + conv + ';\n';
+  }
+  switch (f.type) {
+    case 9: return indent + target + ' = new String(' + src + ', java.nio.charset.StandardCharsets.UTF_8);\n';
+    case 12: return indent + target + ' = ' + src + ';\n';
+    case 11: {
+      const ref = jpEntryRef(model, jpResolve(model, f.typeName));
+      return indent + target + ' = new ' + ref + '();\n' + indent + target + '.unmarshalDc(' + src + ');\n';
+    }
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function jpOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '                    ' + jpFieldName(sib) + ' = ' + jpDefault(model, sib) + ';\n').join('');
+}
+
+function jpDecodeCase(model, f, support) {
+  const v = jpFieldName(f);
+  const head = '                case ' + f.number + ' -> {\n';
+  const tail = '                }\n';
+  if (f.type === FT.MESSAGE && jpResolve(model, f.typeName).kind === 'map') {
+    const entry = jpResolve(model, f.typeName);
+    const helper = support + '.' + jpMapHelperName(model, entry) + 'Decode';
+    const kf = entry.msg.fields.find((x) => x.number === 1);
+    const vf = entry.msg.fields.find((x) => x.number === 2);
+    return head
+      + '                    Object[] kv = ' + helper + '(field.bytesValue);\n'
+      + '                    ' + v + '.put((' + jpType(model, { ...kf, label: 1 }, true) + ') kv[0], (' + jpType(model, { ...vf, label: 1 }, true) + ') kv[1]);\n'
+      + tail;
+  }
+  if (f.label !== 3) {
+    const src = JP_VARINT.has(f.type) ? 'field.varintValue' : (JP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
+    return head + jpOneofClearing(model, f) + jpDecodeSingular(model, f, v, src, '                    ') + tail;
+  }
+  if (JP_VARINT.has(f.type)) {
+    const conv = (src) => f.type === 14
+      ? jpEntryRef(model, jpResolve(model, f.typeName)) + '.fromNumber(' + jpVarintDecode({ ...f, type: 5 }, src) + ')'
+      : jpVarintDecode(f, src);
+    return head
+      + '                    if (field.wire == 2) {\n'
+      + '                        ' + support + '.Reader sub = new ' + support + '.Reader(field.bytesValue);\n'
+      + '                        while (!sub.done()) {\n'
+      + '                            ' + v + '.add(' + conv('sub.varint()') + ');\n'
+      + '                        }\n                    } else {\n'
+      + '                        ' + v + '.add(' + conv('field.varintValue') + ');\n'
+      + '                    }\n'
+      + tail;
+  }
+  if (JP_FIXED[f.type]) {
+    const subConv = f.type === 2 ? 'Float.intBitsToFloat(sub.fixed32())'
+      : f.type === 1 ? 'Double.longBitsToDouble(sub.fixed64())'
+      : (f.type === 7 || f.type === 15) ? 'sub.fixed32()' : 'sub.fixed64()';
+    const oneConv = f.type === 2 ? 'Float.intBitsToFloat((int) field.fixedValue)'
+      : f.type === 1 ? 'Double.longBitsToDouble(field.fixedValue)'
+      : (f.type === 7 || f.type === 15) ? '(int) field.fixedValue' : 'field.fixedValue';
+    return head
+      + '                    if (field.wire == 2) {\n'
+      + '                        ' + support + '.Reader sub = new ' + support + '.Reader(field.bytesValue);\n'
+      + '                        while (!sub.done()) ' + v + '.add(' + subConv + ');\n'
+      + '                    } else {\n'
+      + '                        ' + v + '.add(' + oneConv + ');\n'
+      + '                    }\n'
+      + tail;
+  }
+  switch (f.type) {
+    case 9: return head + '                    ' + v + '.add(new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8));\n' + tail;
+    case 12: return head + '                    ' + v + '.add(field.bytesValue);\n' + tail;
+    case 11: return head
+      + '                    ' + jpType(model, { ...f, label: 1 }, true) + ' item = new ' + jpType(model, { ...f, label: 1 }, true) + '();\n'
+      + '                    item.unmarshalDc(field.bytesValue);\n'
+      + '                    ' + v + '.add(item);\n'
+      + tail;
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function jpMapHelperName(model, entry) {
+  return jpRel(entry.pkg, entry.msg.fullName).split('.').join('');
+}
+
+function jpDecodeSingularStmt(model, f, target) {
+  const src = JP_VARINT.has(f.type) ? 'field.varintValue' : (JP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
+  return jpDecodeSingular(model, f, target, src, '').replace(/\n+$/, '');
+}
+
+function jpMapHelpers(model, entry, support) {
+  const msg = entry.msg;
+  const base = jpMapHelperName(model, entry);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry lacks key/value');
+  const kt = jpType(model, { ...keyF, label: 1 }, true);
+  const vt = jpType(model, { ...valF, label: 1 }, true);
+  return '    static byte[] ' + base + 'Encode(' + kt + ' key, ' + vt + ' value) {\n'
+    + '        Writer w = new Writer();\n'
+    + jpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '        ', support)
+    + jpEncodeSingular(model, { ...valF, label: 1 }, 'value', '        ', support)
+    + '        return w.toBytes();\n    }\n\n'
+    + '    static Object[] ' + base + 'Decode(byte[] bytes) {\n'
+    + '        ' + kt + ' key = ' + jpDefault(model, { ...keyF, label: 1 }) + ';\n'
+    + '        ' + vt + ' value = ' + jpDefault(model, { ...valF, label: 1 }) + ';\n'
+    + '        Reader r = new Reader(bytes);\n        Field field;\n        while ((field = r.next()) != null) {\n            switch (field.number) {\n'
+    + '                case ' + keyF.number + ': ' + jpDecodeSingularStmt(model, { ...keyF, label: 1 }, 'key') + ' break;\n'
+    + '                case ' + valF.number + ': ' + jpDecodeSingularStmt(model, { ...valF, label: 1 }, 'value') + ' break;\n'
+    + '                default: break;\n            }\n        }\n        return new Object[] { key, value };\n    }\n\n';
+}
+
+function jpEnumValues(e) {
+  return e.values.map((v) => '        ' + v.name + '(' + v.number + ')').join(',\n') + ';\n';
+}
+
+function jpEnumBody(e, indent) {
+  return indent + 'public final int number;\n'
+    + indent + e.name + '(int number) { this.number = number; }\n'
+    + indent + 'public static ' + e.name + ' fromNumber(int number) {\n'
+    + indent + '    switch (number) {\n'
+    + e.values.map((v) => indent + '        case ' + v.number + ': return ' + v.name + ';\n').join('')
+    + indent + '        default: return ' + e.values[0].name + ';\n    }\n}\n';
+}
+
+function jpNestedEnum(model, msg, e) {
+  return '        public enum ' + e.name + ' {\n'
+    + jpEnumValues(e)
+    + jpEnumBody(e, '            ')
+    + '        }\n';
+}
+
+function jpMessageClass(model, msg, support) {
+  const name = msg.name;
+  return '    public static final class ' + name + ' implements grpcdc.Marshaler, grpcdc.Unmarshaler {\n'
+    + msg.fields.map((f) => '        public ' + jpType(model, f, false) + ' ' + jpFieldName(f) + ' = ' + jpDefault(model, f) + ';\n').join('')
+    + '        public byte[] unknownFields = new byte[0];\n'
+    + '        public ' + name + '() {}\n'
+    + (msg.fields.length
+      ? '        public ' + name + '(' + msg.fields.map((f) => jpType(model, f, false) + ' ' + jpFieldName(f)).join(', ') + ') {\n'
+        + msg.fields.map((f) => '            this.' + jpFieldName(f) + ' = ' + jpFieldName(f) + ';\n').join('')
+        + '        }\n'
+      : '')
+    + '\n        @Override\n        public byte[] marshalDc() {\n'
+    + '            ' + support + '.Writer w = new ' + support + '.Writer();\n'
+    + msg.fields.map((f) => jpEncodeGuard(model, f, jpEncodeField(model, f, support))).join('')
+    + '            w.raw(unknownFields);\n'
+    + '            return w.toBytes();\n        }\n\n'
+    + '        @Override\n        public void unmarshalDc(byte[] data) {\n'
+    + '            unknownFields = new byte[0];\n'
+    + msg.fields.map((f) => '            ' + jpFieldName(f) + ' = ' + jpDefault(model, f) + ';\n').join('')
+    + '            ' + support + '.Reader r = new ' + support + '.Reader(data);\n'
+    + '            ' + support + '.Field field;\n'
+    + '            while ((field = r.next()) != null) {\n                switch (field.number) {\n'
+    + msg.fields.map((f) => jpDecodeCase(model, f, support)).join('')
+    + '                    default -> { unknownFields = ' + support + '.concatBytes(unknownFields, field.rawValue); }\n                }\n            }\n        }\n'
+    + msg.nested.map((n) => jpMessageClass(model, n, support)).join('')
+    + msg.enums.map((e) => jpNestedEnum(model, msg, e)).join('')
+    + '    }\n';
+}
+
+function jpTopEnum(model, e, pkg) {
+  return '// @generated by protoc-gen-grpc-dc-java (Racket metaprogram). DO NOT EDIT.\n'
+    + (pkg ? 'package ' + pkg + ';\n\n' : '')
+    + 'public enum ' + e.name + ' {\n'
+    + jpEnumValues(e)
+    + jpEnumBody(e, '    ')
+    + '}\n';
+}
+
+function jpTopMessage(model, msg, pkg, support) {
+  const name = msg.name;
+  return '// @generated by protoc-gen-grpc-dc-java (Racket metaprogram). DO NOT EDIT.\n'
+    + (pkg ? 'package ' + pkg + ';\n\n' : '')
+    + 'public final class ' + name + ' implements grpcdc.Marshaler, grpcdc.Unmarshaler {\n'
+    + msg.fields.map((f) => '    public ' + jpType(model, f, false) + ' ' + jpFieldName(f) + ' = ' + jpDefault(model, f) + ';\n').join('')
+    + '    public byte[] unknownFields = new byte[0];\n'
+    + '    public ' + name + '() {}\n'
+    + (msg.fields.length
+      ? '    public ' + name + '(' + msg.fields.map((f) => jpType(model, f, false) + ' ' + jpFieldName(f)).join(', ') + ') {\n'
+        + msg.fields.map((f) => '        this.' + jpFieldName(f) + ' = ' + jpFieldName(f) + ';\n').join('')
+        + '    }\n'
+      : '')
+    + '\n    @Override\n    public byte[] marshalDc() {\n'
+    + '        ' + support + '.Writer w = new ' + support + '.Writer();\n'
+    + msg.fields.map((f) => jpEncodeGuard(model, f, jpEncodeField(model, f, support))).join('')
+    + '        w.raw(unknownFields);\n'
+    + '        return w.toBytes();\n    }\n\n'
+    + '    @Override\n    public void unmarshalDc(byte[] data) {\n'
+    + '        unknownFields = new byte[0];\n'
+    + msg.fields.map((f) => '        ' + jpFieldName(f) + ' = ' + jpDefault(model, f) + ';\n').join('')
+    + '        ' + support + '.Reader r = new ' + support + '.Reader(data);\n'
+    + '        ' + support + '.Field field;\n'
+    + '        while ((field = r.next()) != null) {\n            switch (field.number) {\n'
+    + msg.fields.map((f) => jpDecodeCase(model, f, support)).join('')
+    + '                default -> { unknownFields = ' + support + '.concatBytes(unknownFields, field.rawValue); }\n            }\n        }\n    }\n'
+    + msg.nested.map((n) => jpMessageClass(model, n, support)).join('')
+    + msg.enums.map((e) => jpNestedEnum(model, msg, e)).join('')
+    + '}\n';
+}
+
+const JP_SUPPORT_HEAD = '    static final class Writer {\n'
+  + '        private final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();\n'
+  + '        void varint(long value) { long v = value; while ((v & ~0x7fL) != 0) { out.write(((int) (v & 0x7f)) | 0x80); v >>>= 7; } out.write((int) v); }\n'
+  + '        void tag(int field, int wire) { varint((field << 3) | wire); }\n'
+  + '        void bytesField(int field, byte[] payload) { tag(field, 2); varint(payload.length); out.write(payload, 0, payload.length); }\n'
+  + '        void stringField(int field, String value) { if (value == null || value.isEmpty()) return; bytesField(field, value.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }\n'
+  + '        void fixed32(int value) { out.write(value & 0xff); out.write((value >>> 8) & 0xff); out.write((value >>> 16) & 0xff); out.write((value >>> 24) & 0xff); }\n'
+  + '        void fixed64(long value) { for (int i = 0; i < 8; i++) out.write((int) ((value >>> (8 * i)) & 0xff)); }\n'
+  + '        void fixedInt(int value) { fixed32(value); }\n'
+  + '        void fixedLong(long value) { fixed64(value); }\n'
+  + '        void fixedFloat(float value) { fixed32(Float.floatToIntBits(value)); }\n'
+  + '        void fixedDouble(double value) { fixed64(Double.doubleToLongBits(value)); }\n'
+  + '        void raw(byte[] payload) { out.write(payload, 0, payload.length); }\n'
+  + '        byte[] toBytes() { return out.toByteArray(); }\n'
+  + '    }\n\n'
+  + '    static byte[] concatBytes(byte[] a, byte[] b) { byte[] out = java.util.Arrays.copyOf(a, a.length + b.length); System.arraycopy(b, 0, out, a.length, b.length); return out; }\n\n'
+  + '    static final class Field {\n'
+  + '        final int number; final int wire; final long varintValue; final byte[] bytesValue; final long fixedValue; final byte[] rawValue;\n'
+  + '        Field(int number, int wire, long varintValue, byte[] bytesValue, long fixedValue, byte[] rawValue) { this.number = number; this.wire = wire; this.varintValue = varintValue; this.bytesValue = bytesValue; this.fixedValue = fixedValue; this.rawValue = rawValue; }\n'
+  + '    }\n\n'
+  + '    static final class Reader {\n'
+  + '        private final byte[] buf; private int pos;\n'
+  + '        Reader(byte[] buf) { this.buf = buf; }\n'
+  + '        boolean done() { return pos >= buf.length; }\n'
+  + '        long varint() { long result = 0; int shift = 0; while (true) { if (pos >= buf.length) throw new IllegalArgumentException("truncated varint"); int b = buf[pos++] & 0xff; result |= (long) (b & 0x7f) << shift; if ((b & 0x80) == 0) return result; shift += 7; if (shift >= 64) throw new IllegalArgumentException("varint too long"); } }\n'
+  + '        byte[] take(int n) { if (pos + n > buf.length) throw new IllegalArgumentException("truncated field"); byte[] v = new byte[n]; System.arraycopy(buf, pos, v, 0, n); pos += n; return v; }\n'
+  + '        int fixed32() { byte[] b = take(4); return (b[0] & 0xff) | ((b[1] & 0xff) << 8) | ((b[2] & 0xff) << 16) | ((b[3] & 0xff) << 24); }\n'
+  + '        long fixed64() { byte[] b = take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) (b[i] & 0xff) << (8 * i); return v; }\n'
+  + '        Field next() {\n'
+  + '            if (pos >= buf.length) return null;\n'
+  + '            int start = pos;\n'
+  + '            long tag = varint(); int number = (int) (tag >> 3); int wire = (int) (tag & 7);\n'
+  + '            switch (wire) {\n'
+  + '                case 0: { long v = varint(); return new Field(number, wire, v, null, 0, java.util.Arrays.copyOfRange(buf, start, pos)); }\n'
+  + '                case 2: { int n = (int) varint(); byte[] b = take(n); return new Field(number, wire, 0, b, 0, java.util.Arrays.copyOfRange(buf, start, pos)); }\n'
+  + '                case 1: { byte[] b = take(8); long v = 0; for (int i = 0; i < 8; i++) v |= (long) (b[i] & 0xff) << (8 * i); return new Field(number, wire, 0, b, v, java.util.Arrays.copyOfRange(buf, start, pos)); }\n'
+  + '                case 5: { byte[] b = take(4); int v = (b[0] & 0xff) | ((b[1] & 0xff) << 8) | ((b[2] & 0xff) << 16) | ((b[3] & 0xff) << 24); return new Field(number, wire, 0, b, v, java.util.Arrays.copyOfRange(buf, start, pos)); }\n'
+  + '                default: throw new IllegalArgumentException("bad wire type " + wire);\n'
+  + '            }\n'
+  + '        }\n'
+  + '    }\n'
+  + '}\n';
+
+function jpSupportClass(base, pkg, helpersText) {
+  const support = pascalName(base) + 'Pb';
+  let content = '// @generated by protoc-gen-grpc-dc-java (Racket metaprogram). DO NOT EDIT.\n'
+    + (pkg ? 'package ' + pkg + ';\n\n' : '')
+    + 'final class ' + support + ' {\n'
+    + '    private ' + support + '() {}\n\n'
+    + JP_SUPPORT_HEAD;
+  if (helpersText) {
+    content = content.replace('    static final class Writer {', helpersText + '    static final class Writer {');
+  }
+  return { name: support + '.java', content };
+}
+
+function emitJavaPbFiles(model) {
+  if (!model.messages.length && !model.enums.length) return [];
+  const base = baseName(model.name);
+  const pkg = model.package;
+  const support = pascalName(base) + 'Pb';
+  const seenMaps = new Set();
+  const helpers = [];
+  const collect = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = jpResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+          seenMaps.add(e.msg.fullName);
+          helpers.push(jpMapHelpers(model, e, support));
+        }
+      }
+    }
+    for (const n of msg.nested) collect(n);
+  };
+  for (const m of model.messages) collect(m);
+  const files = [jpSupportClass(base, pkg, helpers.length ? helpers.join('') : '')];
+  for (const m of model.messages) {
+    if (!m.mapEntry) files.push({ name: m.name + '.java', content: jpTopMessage(model, m, pkg, support) });
+  }
+  for (const e of model.enums) {
+    files.push({ name: e.name + '.java', content: jpTopEnum(model, e, pkg) });
+  }
+  return files;
+}
+
 function emitJavaFile(model, params) {
   const base = baseName(model.name);
   const className = pascalName(base) + 'GrpcDc';
   const pkg = model.package;
-  return {
+  const stub = {
     name: className + '.java',
     content: '// @generated by protoc-gen-grpc-dc-java (Racket metaprogram). DO NOT EDIT.\n'
       + '// source: ' + model.name + '\n\n'
@@ -2774,6 +3724,8 @@ function emitJavaFile(model, params) {
       + model.services.map(javaService).join('')
       + '}\n',
   };
+  const pbFiles = emitJavaPbFiles(model);
+  return pbFiles.length ? [stub, ...pbFiles] : stub;
 }
 
 JS
@@ -3970,11 +4922,486 @@ function kotlinService(svc) {
     + '    private val adapters = ArrayList<' + sname + 'ServerAsyncAdapter>()\n';
 }
 
+
+// ---------------------------------------------------------------------------
+// Kotlin message types, mirroring racket/template-kotlin.rkt
+// (the kt-pb-* functions): a single <Base>Messages.kt per proto
+// file with the <Base>Pb wire-support object, enums and message
+// classes. Byte-identical to the native protoc-gen-grpc-dc-kotlin
+// plugin.
+// ---------------------------------------------------------------------------
+
+const KT_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
+const KT_FIXED = { 2: [4, 'Float'], 1: [8, 'Double'], 7: [4, 'UInt'], 15: [4, 'Int'], 6: [8, 'ULong'], 16: [8, 'Long'] };
+
+function kpCamel(s) {
+  const parts = s.split('_');
+  if (!parts.length) return s;
+  return parts[0] + parts.slice(1).map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
+}
+
+function kpFieldName(f) {
+  return f.jsonName ? f.jsonName : kpCamel(f.name);
+}
+
+function kpResolve(model, typeName) {
+  const entry = model.types.get(typeName);
+  if (!entry) throw new Error('unresolved type ' + typeName);
+  return entry;
+}
+
+function kpRel(pkg, full) {
+  const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
+  return rel.split('.').join('.');
+}
+
+function kpEntryRef(model, entry) {
+  const rel = entry.kind === 'enum'
+    ? (entry.msg
+      ? kpRel(entry.pkg, entry.msg.fullName) + '.' + entry.enum.name
+      : kpRel(entry.pkg, (entry.pkg ? entry.pkg + '.' : '') + entry.enum.name))
+    : kpRel(entry.pkg, entry.msg.fullName);
+  if (entry.file === model.name) return rel;
+  return entry.pkg === '' ? rel : entry.pkg + '.' + rel;
+}
+
+function kpScalar(f) {
+  switch (f.type) {
+    case 1: return ['Double', '0.0'];
+    case 2: return ['Float', '0f'];
+    case 3: case 16: case 18: return ['Long', '0L'];
+    case 4: case 6: return ['ULong', '0uL'];
+    case 5: case 15: case 17: return ['Int', '0'];
+    case 7: case 13: return ['UInt', '0u'];
+    case 8: return ['Boolean', 'false'];
+    case 9: return ['String', '""'];
+    case 12: return ['ByteArray', 'ByteArray(0)'];
+    default: return null;
+  }
+}
+
+function kpType(model, f) {
+  let singular;
+  if (f.type === FT.MESSAGE) {
+    const entry = kpResolve(model, f.typeName);
+    if (entry.kind === 'map') {
+      const kf = entry.msg.fields.find((x) => x.number === 1);
+      const vf = entry.msg.fields.find((x) => x.number === 2);
+      singular = 'MutableMap<' + kpType(model, { ...kf, label: 1 }) + ', '
+        + (vf.type === FT.MESSAGE
+          ? kpEntryRef(model, kpResolve(model, vf.typeName))
+          : kpType(model, { ...vf, label: 1 })) + '>';
+    } else {
+      singular = kpEntryRef(model, entry) + '?';
+    }
+  } else if (f.type === FT.ENUM) {
+    singular = kpEntryRef(model, kpResolve(model, f.typeName));
+  } else {
+    singular = kpScalar(f)[0];
+  }
+  if (f.type === FT.MESSAGE && kpResolve(model, f.typeName).kind === 'map') return singular;
+  if (f.label === 3) {
+    return 'MutableList<' + (f.type === FT.MESSAGE
+      ? kpEntryRef(model, kpResolve(model, f.typeName))
+      : kpType(model, { ...f, label: 1 })) + '>';
+  }
+  return singular;
+}
+
+function kpExplicitLiteral(model, f) {
+  const d = fieldExplicitDefault(f);
+  if (d === null) return null;
+  switch (f.type) {
+    case 9: return JSON.stringify(d);
+    case 8: return d;
+    case 14: return kpEntryRef(model, kpResolve(model, f.typeName)) + '.' + d;
+    case 2: return d + 'f';
+    default: return d;
+  }
+}
+
+function kpDefault(model, f) {
+  const lit = kpExplicitLiteral(model, f);
+  if (lit !== null) return lit;
+  if (f.type === FT.MESSAGE && kpResolve(model, f.typeName).kind === 'map') return 'mutableMapOf()';
+  if (f.label === 3) return 'mutableListOf()';
+  if (f.type === FT.MESSAGE) return 'null';
+  if (f.type === FT.ENUM) {
+    const entry = kpResolve(model, f.typeName);
+    return kpEntryRef(model, entry) + '.' + entry.enum.values[0].name;
+  }
+  return kpScalar(f)[1];
+}
+
+function kpVarintExpr(f, v) {
+  switch (f.type) {
+    case 8: return 'if (' + v + ') 1L else 0L';
+    case 17: return '(((' + v + ' shl 1) xor (' + v + ' shr 31)).toLong() and 0xffffffffL)';
+    case 18: return '((' + v + ' shl 1) xor (' + v + ' shr 63))';
+    case 14: return v + '.number.toLong()';
+    case 5: return v + '.toLong()';
+    case 13: case 7: return v + '.toLong()';
+    case 3: return v;
+    default: return v + '.toLong()';
+  }
+}
+
+function kpVarintDecode(f, v) {
+  switch (f.type) {
+    case 5: return v + '.toInt()';
+    case 13: case 7: return v + '.toUInt()';
+    case 3: return v;
+    case 4: case 6: return v + '.toULong()';
+    case 8: return v + ' != 0L';
+    case 17: return '(((' + v + ' shr 1) xor -(' + v + ' and 1L)).toInt())';
+    case 18: return '((' + v + ' shr 1) xor -(' + v + ' and 1L))';
+    default: throw new Error('not a varint type');
+  }
+}
+
+function kpNonzero(f, v) {
+  switch (f.type) {
+    case 8: return v;
+    case 14: return v + '.number != 0';
+    default: return v + ' != ' + kpScalar(f)[1];
+  }
+}
+
+function kpEncodeSingular(model, f, v, indent) {
+  const n = f.number;
+  const proto2 = model.syntax === 'proto2';
+  if (KT_VARINT.has(f.type)) {
+    return proto2
+      ? indent + '{ w.tag(' + n + ', 0); w.varint(' + kpVarintExpr(f, v) + ') }\n'
+      : indent + 'if (' + kpNonzero(f, v) + ') { w.tag(' + n + ', 0); w.varint(' + kpVarintExpr(f, v) + ') }\n';
+  }
+  const fixed = KT_FIXED[f.type];
+  if (fixed) {
+    const wire = fixed[0] === 8 ? 1 : 5;
+    return proto2
+      ? indent + '{ w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + v + ') }\n'
+      : indent + 'if (' + kpNonzero(f, v) + ') { w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + v + ') }\n';
+  }
+  switch (f.type) {
+    case 9: return proto2
+      ? indent + 'w.bytesField(' + n + ', ' + v + '.toByteArray(Charsets.UTF_8))\n'
+      : indent + 'w.stringField(' + n + ', ' + v + ')\n';
+    case 12: return proto2
+      ? indent + 'w.bytesField(' + n + ', ' + v + ')\n'
+      : indent + 'if (' + v + '.isNotEmpty()) w.bytesField(' + n + ', ' + v + ')\n';
+    case 11: return indent + v + '?.let { w.bytesField(' + n + ', it.marshalDc()) }\n';
+    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
+  }
+}
+
+function kpSetExpr(sib) {
+  const v = kpFieldName(sib);
+  switch (sib.type) {
+    case 11: case 10: return v + ' != null';
+    case 9: case 12: return v + '.isNotEmpty()';
+    default: return kpNonzero(sib, v);
+  }
+}
+
+function kpEncodeGuard(model, f, code) {
+  const later = oneofLaterSiblings(model, f);
+  if (!later.length) return code;
+  return '        if (!(' + later.map(kpSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
+}
+
+function kpEncodeField(model, f, support) {
+  const v = kpFieldName(f);
+  const n = f.number;
+  if (f.type === FT.MESSAGE && kpResolve(model, f.typeName).kind === 'map') {
+    const entry = kpResolve(model, f.typeName);
+    const helper = support + '.' + kpMapHelperName(model, entry) + 'Encode';
+    return '        for (e in ' + v + ') w.bytesField(' + n + ', ' + helper + '(e.key, e.value))\n';
+  }
+  if (f.label !== 3) return kpEncodeSingular(model, f, v, '        ');
+  if (KT_VARINT.has(f.type)) {
+    return '        if (' + v + '.isNotEmpty()) {\n'
+      + '            val payload = ' + support + '.Writer()\n'
+      + '            for (x in ' + v + ') payload.varint(' + kpVarintExpr(f, 'x') + ')\n'
+      + '            w.bytesField(' + n + ', payload.toBytes())\n        }\n';
+  }
+  const fixed = KT_FIXED[f.type];
+  if (fixed) {
+    return '        if (' + v + '.isNotEmpty()) {\n'
+      + '            val payload = ' + support + '.Writer()\n'
+      + '            for (x in ' + v + ') payload.fixed' + fixed[1] + '(x)\n'
+      + '            w.bytesField(' + n + ', payload.toBytes())\n        }\n';
+  }
+  switch (f.type) {
+    case 9: return '        for (x in ' + v + ') w.bytesField(' + n + ', x.toByteArray(Charsets.UTF_8))\n';
+    case 12: return '        for (x in ' + v + ') w.bytesField(' + n + ', x)\n';
+    case 11: return '        for (x in ' + v + ') w.bytesField(' + n + ', x.marshalDc())\n';
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function kpDecodeSingular(model, f, target, src, indent, support) {
+  if (KT_VARINT.has(f.type)) {
+    return indent + target + ' = ' + (f.type === 14
+      ? kpEntryRef(model, kpResolve(model, f.typeName)) + '.fromNumber(' + kpVarintDecode({ ...f, type: 5 }, src) + ')'
+      : kpVarintDecode(f, src)) + '\n';
+  }
+  if (KT_FIXED[f.type]) {
+    let conv;
+    switch (f.type) {
+      case 2: conv = support + '.bitsToFloat(' + src + '.toUInt())'; break;
+      case 1: conv = support + '.bitsToDouble(' + src + '.toULong())'; break;
+      case 7: conv = src + '.toUInt()'; break;
+      case 15: conv = src + '.toInt()'; break;
+      case 6: conv = src + '.toULong()'; break;
+      default: conv = src;
+    }
+    return indent + target + ' = ' + conv + '\n';
+  }
+  switch (f.type) {
+    case 9: return indent + target + ' = String(' + src + ', Charsets.UTF_8)\n';
+    case 12: return indent + target + ' = ' + src + '\n';
+    case 11: {
+      const ref = kpEntryRef(model, kpResolve(model, f.typeName));
+      return indent + target + ' = ' + ref + '()\n' + indent + target + '!!.unmarshalDc(' + src + ')\n';
+    }
+    default: throw new Error('unsupported field type ' + f.type);
+  }
+}
+
+function kpOneofClearing(model, f) {
+  return oneofSiblings(model, f).map((sib) => '                    ' + kpFieldName(sib) + ' = ' + kpDefault(model, sib) + '\n').join('');
+}
+
+function kpSrc(f) {
+  return KT_VARINT.has(f.type) ? 'field.varintValue' : (KT_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
+}
+
+function kpDecodeCase(model, f, support) {
+  const v = kpFieldName(f);
+  const head = '                ' + f.number + ' -> {\n';
+  const tail = '                }\n';
+  const clearing = kpOneofClearing(model, f);
+  if (f.type === FT.MESSAGE && kpResolve(model, f.typeName).kind === 'map') {
+    const entry = kpResolve(model, f.typeName);
+    const helper = support + '.' + kpMapHelperName(model, entry) + 'Decode';
+    return head
+      + '                    val kv = ' + helper + '(field.bytesValue)\n'
+      + '                    ' + v + '[kv.first] = kv.second\n'
+      + tail;
+  }
+  if (f.label !== 3) {
+    return head + clearing + kpDecodeSingular(model, f, v, kpSrc(f), '                    ', support) + tail;
+  }
+  if (KT_VARINT.has(f.type)) {
+    const conv = (src) => f.type === 14
+      ? kpEntryRef(model, kpResolve(model, f.typeName)) + '.fromNumber(' + kpVarintDecode({ ...f, type: 5 }, src) + ')'
+      : kpVarintDecode(f, src);
+    return head
+      + '                    if (field.wire == 2) {\n'
+      + '                        val sub = ' + support + '.Reader(field.bytesValue)\n'
+      + '                        while (!sub.done()) {\n'
+      + '                            ' + v + '.add(' + conv('sub.varint()') + ')\n'
+      + '                        }\n                    } else {\n'
+      + '                        ' + v + '.add(' + conv('field.varintValue') + ')\n'
+      + '                    }\n'
+      + tail;
+  }
+  const fixed = KT_FIXED[f.type];
+  if (fixed) {
+    const subConv = f.type === 2 ? support + '.bitsToFloat(sub.fixed32())'
+      : f.type === 1 ? support + '.bitsToDouble(sub.fixed64())'
+      : f.type === 7 ? 'sub.fixed32()'
+      : f.type === 15 ? 'sub.fixed32().toInt()' : 'sub.fixed64()';
+    const oneConv = f.type === 2 ? support + '.bitsToFloat(field.fixedValue.toUInt())'
+      : f.type === 1 ? support + '.bitsToDouble(field.fixedValue.toULong())'
+      : f.type === 7 ? 'field.fixedValue.toUInt()'
+      : f.type === 15 ? 'field.fixedValue.toInt()'
+      : f.type === 6 ? 'field.fixedValue.toULong()' : 'field.fixedValue';
+    return head
+      + '                    if (field.wire == 2) {\n'
+      + '                        val sub = ' + support + '.Reader(field.bytesValue)\n'
+      + '                        while (!sub.done()) ' + v + '.add(' + subConv + ')\n'
+      + '                    } else {\n'
+      + '                        ' + v + '.add(' + oneConv + ')\n'
+      + '                    }\n'
+      + tail;
+  }
+  switch (f.type) {
+    case 9: return head + '                    ' + v + '.add(String(field.bytesValue, Charsets.UTF_8))\n' + tail;
+    case 12: return head + '                    ' + v + '.add(field.bytesValue)\n' + tail;
+    case 11: return head
+      + '                    val item = ' + kpEntryRef(model, kpResolve(model, f.typeName)) + '()\n'
+      + '                    item.unmarshalDc(field.bytesValue)\n'
+      + '                    ' + v + '.add(item)\n'
+      + tail;
+    default: throw new Error('unsupported repeated field type ' + f.type);
+  }
+}
+
+function kpMapHelperName(model, entry) {
+  return kpRel(entry.pkg, entry.msg.fullName).split('.').join('');
+}
+
+function kpMapHelpers(model, entry, support) {
+  const msg = entry.msg;
+  const base = kpMapHelperName(model, entry);
+  const keyF = msg.fields.find((x) => x.number === 1);
+  const valF = msg.fields.find((x) => x.number === 2);
+  if (!keyF || !valF) throw new Error('map entry lacks key/value');
+  const kt = kpType(model, { ...keyF, label: 1 });
+  const vt = kpType(model, { ...valF, label: 1 });
+  const vtPlain = (valF.type === FT.MESSAGE && kpResolve(model, valF.typeName).kind !== 'map')
+    ? kpEntryRef(model, kpResolve(model, valF.typeName))
+    : vt;
+  return '    fun ' + base + 'Encode(key: ' + kt + ', value: ' + vtPlain + '): ByteArray {\n'
+    + '        val w = Writer()\n'
+    + kpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '        ')
+    + (valF.type === FT.MESSAGE
+      ? '        w.bytesField(' + valF.number + ', value.marshalDc())\n'
+      : kpEncodeSingular(model, { ...valF, label: 1 }, 'value', '        '))
+    + '        return w.toBytes()\n    }\n\n'
+    + '    fun ' + base + 'Decode(bytes: ByteArray): Pair<' + kt + ', ' + vtPlain + '> {\n'
+    + '        var key: ' + kt + ' = ' + kpDefault(model, { ...keyF, label: 1 }) + '\n'
+    + '        var value: ' + vtPlain + ' = ' + (valF.type === FT.MESSAGE ? vtPlain + '()' : kpDefault(model, { ...valF, label: 1 })) + '\n'
+    + '        val r = Reader(bytes)\n        while (true) {\n            val field = r.next() ?: break\n            when (field.number) {\n'
+    + '                ' + keyF.number + ' -> ' + kpDecodeSingular(model, { ...keyF, label: 1 }, 'key', kpSrc(keyF), '', support).replace(/\s+$/, '') + '\n'
+    + '                ' + valF.number + ' -> ' + (valF.type === FT.MESSAGE
+      ? 'value.unmarshalDc(field.bytesValue)'
+      : kpDecodeSingular(model, { ...valF, label: 1 }, 'value', kpSrc(valF), '', support).replace(/\s+$/, '')) + '\n'
+    + '                else -> {}\n            }\n        }\n        return Pair(key, value)\n    }\n\n';
+}
+
+function kpSupport(base, pkg, helpers) {
+  const support = pascalName(base) + 'Pb';
+  return '// @generated by protoc-gen-grpc-dc-kotlin (Racket metaprogram). DO NOT EDIT.\n'
+    + 'package ' + (pkg || 'proto') + '\n\n'
+    + 'import grpcdc.Marshaler\nimport grpcdc.Unmarshaler\n\n'
+    + 'object ' + support + ' {\n'
+    + '    class Writer {\n'
+    + '        private val out = java.io.ByteArrayOutputStream()\n'
+    + '        fun varint(value: Long) { var v = value; while ((v and -0x80L) != 0L) { out.write(((v and 0x7f) or 0x80).toInt()); v = v ushr 7 }; out.write(v.toInt()) }\n'
+    + '        fun varint(value: ULong) { varint(value.toLong()) }\n'
+    + '        fun tag(field: Int, wire: Int) { varint(((field shl 3) or wire).toLong()) }\n'
+    + '        fun bytesField(field: Int, payload: ByteArray) { tag(field, 2); varint(payload.size.toLong()); out.write(payload) }\n'
+    + '        fun stringField(field: Int, value: String) { if (value.isEmpty()) return; bytesField(field, value.toByteArray(Charsets.UTF_8)) }\n'
+    + '        fun fixedInt(value: Int) { for (i in 0 until 4) out.write((value shr (8 * i)) and 0xff) }\n'
+    + '        fun fixedUInt(value: UInt) { fixedInt(value.toInt()) }\n'
+    + '        fun fixedLong(value: Long) { for (i in 0 until 8) out.write(((value shr (8 * i)) and 0xff).toInt()) }\n'
+    + '        fun fixedULong(value: ULong) { fixedLong(value.toLong()) }\n'
+    + '        fun fixedFloat(value: Float) { fixedInt(value.toBits()) }\n'
+    + '        fun fixedDouble(value: Double) { fixedLong(value.toBits()) }\n'
+    + '        fun raw(payload: ByteArray) { out.write(payload) }\n'
+    + '        fun toBytes(): ByteArray = out.toByteArray()\n'
+    + '    }\n\n'
+    + '    fun bitsToFloat(u: UInt): Float = Float.fromBits(u.toInt())\n'
+    + '    fun bitsToDouble(u: ULong): Double = Double.fromBits(u.toLong())\n\n'
+    + '    class Field(val number: Int, val wire: Int, val varintValue: Long, val bytesValue: ByteArray, val fixedValue: Long, val rawValue: ByteArray)\n\n'
+    + '    class Reader(private val buf: ByteArray) {\n'
+    + '        private var pos = 0\n'
+    + '        fun done(): Boolean = pos >= buf.size\n'
+    + '        fun varint(): Long { var result = 0L; var shift = 0; while (true) { if (pos >= buf.size) throw IllegalArgumentException("truncated varint"); val b = buf[pos++].toInt() and 0xff; result = result or ((b and 0x7f).toLong() shl shift); if ((b and 0x80) == 0) return result; shift += 7; if (shift >= 64) throw IllegalArgumentException("varint too long") } }\n'
+    + '        fun take(n: Int): ByteArray { if (pos + n > buf.size) throw IllegalArgumentException("truncated field"); val v = buf.copyOfRange(pos, pos + n); pos += n; return v }\n'
+    + '        fun fixed32(): UInt { val b = take(4); return (b[0].toInt() and 0xff).toUInt() or ((b[1].toInt() and 0xff).toUInt() shl 8) or ((b[2].toInt() and 0xff).toUInt() shl 16) or ((b[3].toInt() and 0xff).toUInt() shl 24) }\n'
+    + '        fun fixed64(): ULong { val b = take(8); var v = 0UL; for (i in 0 until 8) v = v or ((b[i].toInt() and 0xff).toULong() shl (8 * i)); return v }\n'
+    + '        fun next(): Field? {\n'
+    + '            if (pos >= buf.size) return null\n'
+    + '            val start = pos\n'
+    + '            val tag = varint(); val number = (tag shr 3).toInt(); val wire = (tag and 7).toInt()\n'
+    + '            return when (wire) {\n'
+    + '                0 -> { val v = varint(); Field(number, wire, v, ByteArray(0), 0, buf.copyOfRange(start, pos)) }\n'
+    + '                2 -> { val n = varint().toInt(); val b = take(n); Field(number, wire, 0, b, 0, buf.copyOfRange(start, pos)) }\n'
+    + '                1 -> { val b = take(8); var v = 0L; for (i in 0 until 8) v = v or ((b[i].toInt() and 0xff).toLong() shl (8 * i)); Field(number, wire, 0, b, v, buf.copyOfRange(start, pos)) }\n'
+    + '                5 -> { val b = take(4); val v = (b[0].toInt() and 0xff) or ((b[1].toInt() and 0xff) shl 8) or ((b[2].toInt() and 0xff) shl 16) or ((b[3].toInt() and 0xff) shl 24); Field(number, wire, 0, b, v.toLong(), buf.copyOfRange(start, pos)) }\n'
+    + '                else -> throw IllegalArgumentException("bad wire type " + wire)\n'
+    + '            }\n'
+    + '        }\n'
+    + '    }\n\n'
+    + helpers
+    + '}\n\n';
+}
+
+function kpEnumBody(e, indent) {
+  return e.values.map((v) => indent + '    ' + v.name + '(' + v.number + ')').join(',\n')
+    + ';\n'
+    + indent + '    companion object {\n'
+    + indent + '        fun fromNumber(number: Int): ' + e.name + ' =\n'
+    + indent + '            when (number) {\n'
+    + e.values.map((v) => indent + '                ' + v.number + ' -> ' + v.name + '\n').join('')
+    + indent + '                else -> ' + e.values[0].name + '\n'
+    + indent + '            }\n'
+    + indent + '    }\n'
+    + indent + '}\n';
+}
+
+function kpTopEnum(e) {
+  return 'enum class ' + e.name + '(val number: Int) {\n'
+    + kpEnumBody(e, '')
+    + '\n';
+}
+
+function kpNestedEnum(e, indent) {
+  return indent + 'enum class ' + e.name + '(val number: Int) {\n'
+    + kpEnumBody(e, indent);
+}
+
+function kpMessageClass(model, msg, support, indent, decl) {
+  const name = msg.name;
+  return indent + decl + ' class ' + name + '(\n'
+    + msg.fields.map((f) => indent + '    var ' + kpFieldName(f) + ': ' + kpType(model, f) + ' = ' + kpDefault(model, f)).join(',\n')
+    + (msg.fields.length ? ',' : '')
+    + '\n' + indent + ') : Marshaler, Unmarshaler {\n'
+    + indent + '    var unknownFields: ByteArray = ByteArray(0)\n'
+    + indent + '    override fun marshalDc(): ByteArray {\n'
+    + indent + '        val w = ' + support + '.Writer()\n'
+    + msg.fields.map((f) => kpEncodeGuard(model, f, kpEncodeField(model, f, support))).join('')
+    + indent + '        w.raw(unknownFields)\n'
+    + indent + '        return w.toBytes()\n' + indent + '    }\n'
+    + indent + '    override fun unmarshalDc(data: ByteArray) {\n'
+    + indent + '        unknownFields = ByteArray(0)\n'
+    + msg.fields.map((f) => indent + '        ' + kpFieldName(f) + ' = ' + kpDefault(model, f) + '\n').join('')
+    + indent + '        val r = ' + support + '.Reader(data)\n'
+    + indent + '        while (true) {\n'
+    + indent + '            val field = r.next() ?: break\n'
+    + indent + '            when (field.number) {\n'
+    + msg.fields.map((f) => kpDecodeCase(model, f, support)).join('')
+    + indent + '                else -> { unknownFields = unknownFields + field.rawValue }\n'
+    + indent + '            }\n' + indent + '        }\n' + indent + '    }\n'
+    + msg.nested.map((n) => kpMessageClass(model, n, support, indent + '    ', '')).join('')
+    + msg.enums.map((e) => kpNestedEnum(e, indent + '    ')).join('')
+    + indent + '}\n';
+}
+
+function emitKotlinPbFile(model) {
+  if (!model.messages.length && !model.enums.length) return null;
+  const base = baseName(model.name);
+  const pkg = model.package;
+  const support = pascalName(base) + 'Pb';
+  const seenMaps = new Set();
+  const helpers = [];
+  const collect = (msg) => {
+    for (const f of msg.fields) {
+      if (f.type === FT.MESSAGE) {
+        const e = kpResolve(model, f.typeName);
+        if (e.kind === 'map' && !seenMaps.has(e.msg.fullName)) {
+          seenMaps.add(e.msg.fullName);
+          helpers.push(kpMapHelpers(model, e, support));
+        }
+      }
+    }
+    for (const n of msg.nested) collect(n);
+  };
+  for (const m of model.messages) collect(m);
+  const content = kpSupport(base, pkg, helpers.join(''))
+    + model.enums.map(kpTopEnum).join('')
+    + model.messages.filter((m) => !m.mapEntry).map((m) => kpMessageClass(model, m, support, '', '')).join('');
+  return { name: pascalName(base) + 'Messages.kt', content };
+}
+
 function emitKotlinFile(model, params) {
   const base = baseName(model.name);
   const objectName = pascalName(base) + 'GrpcDc';
   const pkg = model.package || 'proto';
-  return {
+  const stub = {
     name: objectName + '.kt',
     content: '// @generated by protoc-gen-grpc-dc-kotlin (Racket metaprogram). DO NOT EDIT.\n'
       + '// source: ' + model.name + '\n'
@@ -3986,6 +5413,8 @@ function emitKotlinFile(model, params) {
       + model.services.map(kotlinService).join('')
       + '}\n',
   };
+  const pbFile = emitKotlinPbFile(model);
+  return pbFile ? [stub, pbFile] : stub;
 }
 
 JS

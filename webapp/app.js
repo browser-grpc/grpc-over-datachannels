@@ -638,7 +638,7 @@ $("generate").addEventListener("click", async () => {
   window.__zipMissing = missing;
   const usedFallback = !generatedVia.startsWith("Racket");
   const fallbackNote = usedFallback
-    ? "Built-in JS fallback generators were used: stubs for every selected language, but generated message types only for js, python and go. Serve this app with cross-origin isolation (make webapp-serve) so the Racket plugins run in-browser and every language gets its message types."
+    ? "Built-in JS fallback generators were used: stubs for every selected language, but generated message types only for js, python, go, rust, java and kotlin. Serve this app with cross-origin isolation (make webapp-serve) so the Racket plugins run in-browser and every language gets its message types."
     : null;
   entries.push({
     name: "manifest.json",
