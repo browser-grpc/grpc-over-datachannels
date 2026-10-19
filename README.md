@@ -122,6 +122,22 @@ make webapp-serve         # serve it with COOP/COEP (Racket runner)
 # open http://127.0.0.1:8006 in a browser
 ```
 
+The same page has a **Browse generated code** mode: pick a schema
+(the bundled `echo.proto` or the `webapp/testdata` set) and any of
+the 22 targets, and navigate every generated file — stubs and
+message types generated live in the page (byte-identical to the
+plugins), plus each language's runtime, examples, and tests. The
+repo-side index is `webapp/gen/corpus-manifest.json`, stamped by
+the Racket metaprogram from the tree itself, so what you browse is
+what CI compiles. Files open in a highlighted read-only viewer;
+search covers file names and contents, **Compare with** shows the
+same logical file in a second language side by side, views are
+deep-linkable (`#browse/<lang>/<schema>/<group>/<file>`), and
+**Open schema in Generator** hands the schema to the generator
+tab. `browser-test/webapp_browse.test.mjs` covers navigation,
+byte-identity, search, compare, and deep links in Chromium and
+Firefox.
+
 ## Using it
 
 Rust (runtime crate `grpc_dc` in [rust/](rust/)):

@@ -9,8 +9,12 @@
   <p>Upload or edit <code>.proto</code> schemas, pick languages, download a zip of
      generated gRPC-over-DataChannel stubs plus the dependency-free runtimes.
      Everything — schema compilation included — runs in this page; no server sees your schemas.</p>
+  <nav class="view-nav">
+    <button id="nav-generator" type="button" class="view-btn active">Generator</button>
+    <button id="nav-browse" type="button" class="view-btn">Browse generated code</button>
+  </nav>
 </header>
-<main>
+<main id="generator-view">
   <section class="pane files-pane">
     <div class="toolbar">
       <label class="upload">Add .proto files <input id="upload" type="file" accept=".proto" multiple hidden></label>
@@ -37,6 +41,34 @@
        <code>runtime/&lt;lang&gt;/</code>, schemas in <code>proto/</code>.
        Generated message classes (<code>&lt;base&gt;_pb</code>) are included — see the zip's README.</p>
   </section>
+</main>
+<main id="browse-view" hidden>
+  <section class="pane browse-controls">
+    <label>Schema
+      <select id="browse-schema"></select>
+    </label>
+    <label>Compare with
+      <select id="browse-compare"><option value="">(none)</option></select>
+    </label>
+    <input id="browse-search" type="search" placeholder="search files and contents…">
+    <button id="browse-open-generator" type="button">Open schema in Generator</button>
+    <span id="browse-status" class="status"></span>
+  </section>
+  <section class="browse-layout">
+    <div class="pane browse-langs" id="browse-langs"></div>
+    <div class="pane browse-files" id="browse-files">(pick a language)</div>
+    <div class="browse-viewers">
+      <div class="pane browse-viewer">
+        <div class="viewer-title" id="browse-title-a"></div>
+        <pre class="code-view" id="browse-code-a"></pre>
+      </div>
+      <div class="pane browse-viewer" id="browse-pane-b" hidden>
+        <div class="viewer-title" id="browse-title-b"></div>
+        <pre class="code-view" id="browse-code-b"></pre>
+      </div>
+    </div>
+  </section>
+  <div class="pane browse-results" id="browse-results" hidden></div>
 </main>
 <script type="module" src="app.js"></script>
 </body>

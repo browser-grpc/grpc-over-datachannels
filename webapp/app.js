@@ -758,6 +758,423 @@ function renderResults(generated) {
   }
 }
 
+// --- Browse generated code ---------------------------------------
+//
+// The corpus is (a) stubs/messages generated live in this page for
+// the bundled schemas (byte-identical to the native plugins — the
+// same generateFiles the Generator tab uses), merged with (b) the
+// repository runtime/examples/tests indexed by
+// gen/corpus-manifest.json, which racket/metagen.rkt stamps from
+// the tree so the index cannot drift from the code CI compiles.
+
+const browse = {
+  manifest: null,
+  ready: false,
+  schemaId: "echo",
+  lang: "rust",
+  compareLang: "",
+  current: null, // {group, name}
+  sets: new Map(), // schemaId -> {setBytes, names, texts}
+  generated: new Map(), // lang|schemaId -> [{group, name, content}]
+  textCache: new Map(), // url -> text
+};
+
+const browseEl = (id) => $(id);
+
+function browseStatus(msg) {
+  browseEl("browse-status").textContent = msg;
+}
+
+async function whenCompilerReady() {
+  for (let i = 0; i < 200 && !window.__grpcdcCompile; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  if (!window.__grpcdcCompile) throw new Error("schema compiler unavailable");
+}
+
+async function browseAssetText(url) {
+  if (!browse.textCache.has(url)) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error("missing asset " + url);
+    browse.textCache.set(url, await resp.text());
+  }
+  return browse.textCache.get(url);
+}
+
+async function loadSchemaSet(schemaId) {
+  if (browse.sets.has(schemaId)) return browse.sets.get(schemaId);
+  const entry = browse.manifest.schemas.find((s) => s.id === schemaId);
+  if (!entry) throw new Error("unknown schema " + schemaId);
+  const texts = {};
+  for (const name of entry.files) {
+    const url = entry.dir === "testdata" ? "assets/testdata/" + name : "assets/" + name;
+    texts[name] = await browseAssetText(url);
+  }
+  await whenCompilerReady();
+  const names = Object.keys(texts);
+  const out = JSON.parse(window.__grpcdcCompile(JSON.stringify({ files: texts, entries: names })));
+  if (!out.ok) throw new Error("schema compile failed: " + out.error);
+  const set = {
+    setBytes: Uint8Array.from(atob(out.set), (c) => c.charCodeAt(0)),
+    names,
+    texts,
+  };
+  browse.sets.set(schemaId, set);
+  return set;
+}
+
+async function browseGenerated(lang, schemaId) {
+  const key = lang + "|" + schemaId;
+  if (browse.generated.has(key)) return browse.generated.get(key);
+  const set = await loadSchemaSet(schemaId);
+  const produced = generateFiles(lang, set.setBytes, set.names, "");
+  // Classify: files matching the language's message-type naming
+  // for a schema base that declares messages/enums are Messages,
+  // everything else is Stubs.
+  const messageNames = new Set();
+  const mf = MESSAGE_FILES[lang];
+  if (mf) {
+    for (const name of set.names) {
+      const base = name.split("/").pop().replace(/\.proto$/, "");
+      if (/\b(message|enum)\s/.test(set.texts[name])) messageNames.add(mf(base));
+    }
+  }
+  const files = produced.map((f) => ({
+    group: messageNames.has(f.name) ? "Messages" : "Stubs",
+    name: f.name,
+    content: f.content,
+  }));
+  files.sort((a, b) => (a.group + a.name).localeCompare(b.group + b.name));
+  browse.generated.set(key, files);
+  return files;
+}
+
+/// All browsable files for (lang, schema): generated groups have
+/// inline content; asset groups load lazily by URL.
+async function corpusFiles(lang, schemaId) {
+  const files = [...(await browseGenerated(lang, schemaId))];
+  for (const name of RUNTIME_FILES[lang] || []) {
+    files.push({
+      group: "Runtime",
+      name,
+      url: "assets/runtime/" + lang + "/" + name,
+    });
+  }
+  const entry = browse.manifest.languages[lang];
+  if (entry) {
+    for (const rel of entry.examples) {
+      files.push({
+        group: "Examples",
+        name: rel,
+        url: "assets/corpus/" + lang + "/examples/" + rel,
+      });
+    }
+    for (const rel of entry.tests) {
+      files.push({
+        group: "Tests",
+        name: rel,
+        url: "assets/corpus/" + lang + "/tests/" + rel,
+      });
+    }
+  }
+  return files;
+}
+
+async function fileContent(file) {
+  return file.content !== undefined ? file.content : browseAssetText(file.url);
+}
+
+const CODE_KEYWORDS = new Set([
+  "fn", "pub", "struct", "enum", "impl", "trait", "use", "mod", "let", "mut",
+  "func", "package", "import", "type", "var", "const", "return", "if", "else",
+  "for", "while", "match", "switch", "case", "break", "continue",
+  "class", "interface", "public", "private", "static", "void", "int", "new",
+  "def", "from", "None", "True", "False", "end", "function", "local",
+  "object", "val", "var", "fun", "async", "await", "yield", "throw", "throws",
+]);
+
+function highlightCode(source) {
+  const token = /(\/\/[^\n]*|#[^\n]*|--[^\n]*|\/\*[\s\S]*?\*\/)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|\b([A-Za-z_][A-Za-z0-9_.]*)\b|\b(\d+(?:\.\d+)?)\b/g;
+  let html = "";
+  let last = 0;
+  for (const m of source.matchAll(token)) {
+    html += escHtml(source.slice(last, m.index));
+    const [, comment, str, word, num] = m;
+    const cls = comment ? "tok-com" : str ? "tok-str" : word
+      ? (CODE_KEYWORDS.has(word) ? "tok-kw" : /^[A-Z]/.test(word) ? "tok-type" : null)
+      : num ? "tok-num" : null;
+    html += cls ? '<span class="' + cls + '">' + escHtml(m[0]) + "</span>" : escHtml(m[0]);
+    last = m.index + m[0].length;
+  }
+  return html + escHtml(source.slice(last));
+}
+
+function renderCode(preEl, titleEl, title, content, focusLine) {
+  titleEl.textContent = title;
+  const lines = content.split("\n");
+  preEl.innerHTML = lines
+    .map((line, i) =>
+      '<span class="ln">' + (i + 1) + "</span>" +
+      (i + 1 === focusLine ? '<span id="browse-focus">' : "") +
+      highlightCode(line) +
+      (i + 1 === focusLine ? "</span>" : "") + "\n")
+    .join("");
+  const focus = preEl.querySelector("#browse-focus");
+  if (focus) focus.scrollIntoView({ block: "center" });
+}
+
+function browseHash() {
+  const parts = ["browse", browse.lang, browse.schemaId];
+  if (browse.current) {
+    parts.push(browse.current.group, browse.current.name);
+  }
+  return "#" + parts.map(encodeURIComponent).join("/");
+}
+
+function renderBrowseLangs() {
+  const box = browseEl("browse-langs");
+  box.textContent = "";
+  for (const [id, label] of ACTIVE_LANGS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.className = id === browse.lang ? "active" : "";
+    btn.addEventListener("click", () => {
+      browse.lang = id;
+      browse.current = null;
+      renderBrowse();
+    });
+    box.appendChild(btn);
+  }
+  const cmp = browseEl("browse-compare");
+  cmp.textContent = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "(none)";
+  cmp.appendChild(none);
+  for (const [id, label] of ACTIVE_LANGS) {
+    if (id === browse.lang) continue;
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = label;
+    opt.selected = id === browse.compareLang;
+    cmp.appendChild(opt);
+  }
+}
+
+async function renderBrowseFiles() {
+  const box = browseEl("browse-files");
+  box.textContent = "loading…";
+  const files = await corpusFiles(browse.lang, browse.schemaId);
+  box.textContent = "";
+  let lastGroup = null;
+  for (const file of files) {
+    if (file.group !== lastGroup) {
+      lastGroup = file.group;
+      const g = document.createElement("div");
+      g.className = "group";
+      g.textContent = file.group;
+      box.appendChild(g);
+    }
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "file" + (browse.current && browse.current.group === file.group && browse.current.name === file.name ? " active" : "");
+    btn.textContent = file.name;
+    btn.addEventListener("click", () => openBrowseFile(file.group, file.name));
+    box.appendChild(btn);
+  }
+  browseStatus(files.length + " files · " + browse.lang + " · " + browse.schemaId);
+}
+
+/// Normalized stem for cross-language counterpart matching.
+function stemOf(name) {
+  return name.split("/").pop().toLowerCase()
+    .replace(/\.[a-z0-9]+$/, "")
+    .replace(/[^a-z0-9]/g, "")
+    .replace(/(messages|message|grpc|pb)$/g, "");
+}
+
+async function counterpartFor(lang, group, name) {
+  const files = await corpusFiles(lang, browse.schemaId);
+  const inGroup = files.filter((f) => f.group === group);
+  const exact = inGroup.find((f) => f.name === name);
+  if (exact) return exact;
+  const stem = stemOf(name);
+  let best = null;
+  let bestScore = -1;
+  for (const f of inGroup) {
+    const s = stemOf(f.name);
+    let score = -1;
+    if (s === stem) score = 1000;
+    else {
+      let i = 0;
+      while (i < Math.min(s.length, stem.length) && s[i] === stem[i]) i++;
+      score = i;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = f;
+    }
+  }
+  return bestScore >= 3 ? best : null;
+}
+
+async function openBrowseFile(group, name, focusLine) {
+  browse.current = { group, name };
+  history.replaceState(null, "", browseHash());
+  const files = await corpusFiles(browse.lang, browse.schemaId);
+  const file = files.find((f) => f.group === group && f.name === name);
+  if (!file) return;
+  const content = await fileContent(file);
+  window.__browseCurrent = { lang: browse.lang, schema: browse.schemaId, group, name, content };
+  renderCode(browseEl("browse-code-a"), browseEl("browse-title-a"),
+    browse.lang + " · " + group + "/" + name, content, focusLine);
+  const paneB = browseEl("browse-pane-b");
+  const viewers = document.querySelector(".browse-viewers");
+  if (browse.compareLang) {
+    paneB.hidden = false;
+    viewers.classList.add("split");
+    const other = await counterpartFor(browse.compareLang, group, name);
+    if (other) {
+      renderCode(browseEl("browse-code-b"), browseEl("browse-title-b"),
+        browse.compareLang + " · " + other.group + "/" + other.name,
+        await fileContent(other), focusLine);
+    } else {
+      browseEl("browse-title-b").textContent = browse.compareLang;
+      browseEl("browse-code-b").textContent = "(no counterpart in this group)";
+    }
+  } else {
+    paneB.hidden = true;
+    viewers.classList.remove("split");
+  }
+  renderBrowseFiles();
+}
+
+async function runBrowseSearch(query) {
+  const box = browseEl("browse-results");
+  const q = query.trim().toLowerCase();
+  if (q.length < 2) {
+    box.hidden = true;
+    box.textContent = "";
+    return;
+  }
+  const files = await corpusFiles(browse.lang, browse.schemaId);
+  const hits = [];
+  for (const file of files) {
+    if (file.name.toLowerCase().includes(q)) {
+      hits.push({ file, line: 0, snippet: "(file name)" });
+      continue;
+    }
+    let content;
+    try {
+      content = await fileContent(file);
+    } catch {
+      continue;
+    }
+    if (content.length > 512 * 1024) continue;
+    const lines = content.split("\n");
+    for (let i = 0; i < lines.length && hits.length < 200; i++) {
+      if (lines[i].toLowerCase().includes(q)) {
+        hits.push({ file, line: i + 1, snippet: lines[i].trim().slice(0, 120) });
+      }
+    }
+    if (hits.length >= 200) break;
+  }
+  box.textContent = "";
+  box.hidden = false;
+  if (!hits.length) {
+    box.textContent = "no matches in " + browse.lang + " · " + browse.schemaId;
+    return;
+  }
+  for (const hit of hits) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "hit";
+    btn.textContent = hit.file.group + "/" + hit.file.name +
+      (hit.line ? ":" + hit.line : "") + "  " + hit.snippet;
+    btn.addEventListener("click", () =>
+      openBrowseFile(hit.file.group, hit.file.name, hit.line || undefined));
+    box.appendChild(btn);
+  }
+}
+
+async function renderBrowse() {
+  renderBrowseLangs();
+  await renderBrowseFiles();
+  if (browse.current) {
+    await openBrowseFile(browse.current.group, browse.current.name);
+  }
+}
+
+async function ensureBrowse() {
+  if (browse.ready) return;
+  browse.ready = true;
+  browse.manifest = await (await fetch("gen/corpus-manifest.json")).json();
+  const schemaSel = browseEl("browse-schema");
+  for (const s of browse.manifest.schemas) {
+    const opt = document.createElement("option");
+    opt.value = s.id;
+    opt.textContent = s.label;
+    opt.selected = s.id === browse.schemaId;
+    schemaSel.appendChild(opt);
+  }
+  schemaSel.addEventListener("change", () => {
+    browse.schemaId = schemaSel.value;
+    browse.current = null;
+    renderBrowse();
+  });
+  browseEl("browse-compare").addEventListener("change", (e) => {
+    browse.compareLang = e.target.value;
+    if (browse.current) openBrowseFile(browse.current.group, browse.current.name);
+    else renderBrowse();
+  });
+  let searchTimer = 0;
+  browseEl("browse-search").addEventListener("input", (e) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => runBrowseSearch(e.target.value), 250);
+  });
+  browseEl("browse-open-generator").addEventListener("click", async () => {
+    const set = await loadSchemaSet(browse.schemaId);
+    files.clear();
+    for (const [name, text] of Object.entries(set.texts)) files.set(name, text);
+    active = Object.keys(set.texts)[0];
+    editor.value = files.get(active);
+    renderTabs();
+    compile();
+    showView("generator");
+  });
+  await renderBrowse();
+}
+
+function showView(view) {
+  const gen = view === "generator";
+  $("generator-view").hidden = !gen;
+  $("browse-view").hidden = gen;
+  $("nav-generator").classList.toggle("active", gen);
+  $("nav-browse").classList.toggle("active", !gen);
+  if (!gen) {
+    history.replaceState(null, "", browseHash());
+    ensureBrowse().catch((e) => browseStatus("browse failed: " + e.message));
+  }
+}
+
+$("nav-generator").addEventListener("click", () => showView("generator"));
+$("nav-browse").addEventListener("click", () => showView("browse"));
+
+/// Apply a #browse/<lang>/<schema>/<group>/<file> deep link.
+async function applyBrowseHash() {
+  const parts = location.hash.replace(/^#/, "").split("/").map(decodeURIComponent);
+  if (parts[0] !== "browse") return false;
+  if (parts[1]) browse.lang = parts[1];
+  if (parts[2]) browse.schemaId = parts[2];
+  showView("browse");
+  await ensureBrowse();
+  if (parts[3] && parts[4]) {
+    await openBrowseFile(parts[3], parts.slice(4).join("/"));
+  }
+  return true;
+}
+
 // --- boot --------------------------------------------------------
 
 async function boot() {
@@ -783,6 +1200,7 @@ async function boot() {
   renderTabs();
   compile();
   window.__webappReady = true;
+  applyBrowseHash().catch((e) => browseStatus("browse failed: " + e.message));
 }
 
 boot();
