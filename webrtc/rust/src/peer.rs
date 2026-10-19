@@ -108,6 +108,17 @@ impl DtlsIo for IceDtlsIo {
 
 impl Peer {
     pub fn new(config: PeerConfig) -> io::Result<Self> {
+        Self::new_with_platform(config, crate::platform::Platform::system())
+    }
+
+    /// New peer whose ICE agent reads time from `platform`'s
+    /// clock (embedded/RTOS deployments inject a manual clock and
+    /// entropy source here). Socket and threads remain std; the
+    /// protocol core is what the platform drives.
+    pub fn new_with_platform(
+        config: PeerConfig,
+        platform: crate::platform::Platform,
+    ) -> io::Result<Self> {
         // A dual-stack IPv6 socket serves IPv6 candidates when
         // any local or STUN/TURN server address is IPv6 (IPv4
         // senders arrive mapped and are normalized on receive);
@@ -139,7 +150,7 @@ impl Peer {
             config.local_ips.clone()
         };
         ips.dedup();
-        let agent = IceAgent::new(true);
+        let agent = IceAgent::new_with_clock(true, platform.clock.clone());
         Ok(Self {
             socket,
             agent,
@@ -543,6 +554,8 @@ impl Peer {
             certificate,
             expected_peer_fingerprint: Some(remote_desc.fingerprint.clone()),
             require_peer_certificate: config.require_peer_certificate,
+            session_resumption: false,
+            session_ticket_key: None,
         };
         let consent_socket = socket.try_clone()?;
         let io = IceDtlsIo {

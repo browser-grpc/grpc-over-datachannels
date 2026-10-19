@@ -7,14 +7,20 @@
 //! and protect epoch-1 records with AES-GCM (explicit nonce = epoch‖seq).
 //! Verified against OpenSSL `s_server`/`s_client -dtls1_2`.
 
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use crate::crypto::{aes128_gcm_decrypt, aes128_gcm_encrypt, prf, random_bytes, sha256};
 use crate::p256::{PrivateKey, PublicKey};
 use crate::proto_gen::{dtls_content, dtls_handshake};
 use crate::x509::{fingerprint_of_der, Certificate};
+#[cfg(feature = "std")]
 use std::collections::HashMap;
-use std::io;
+#[cfg(not(feature = "std"))]
+use alloc::collections::BTreeMap as HashMap;
+use crate::io;
+use core::time::Duration;
+#[cfg(feature = "std")]
 use std::net::UdpSocket;
-use std::time::{Duration, Instant};
 
 pub trait DtlsIo {
     fn send_packet(&mut self, packet: &[u8]) -> io::Result<()>;
@@ -22,11 +28,13 @@ pub trait DtlsIo {
     fn recv_packet(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>>;
 }
 
+#[cfg(feature = "std")]
 pub struct UdpDtlsIo {
     pub socket: UdpSocket,
     pub peer: std::net::SocketAddr,
 }
 
+#[cfg(feature = "std")]
 impl DtlsIo for UdpDtlsIo {
     fn send_packet(&mut self, packet: &[u8]) -> io::Result<()> {
         self.socket.send_to(packet, self.peer)?;
@@ -65,6 +73,93 @@ pub struct DtlsConfig {
     /// WebRTC peers always present certificates; OpenSSL test clients
     /// may not, so this is configurable.
     pub require_peer_certificate: bool,
+    /// Offer/accept RFC 5077 session tickets (resumption). The
+    /// wire behavior is unchanged unless this is set.
+    pub session_resumption: bool,
+    /// Server-side ticket sealing key (32 bytes). Required on a
+    /// server for tickets to be issued or honored; clients ignore
+    /// it. Sealing goes through the installed crypto backend.
+    pub session_ticket_key: Option<[u8; 32]>,
+}
+
+/// Resumption state from a server-issued session ticket
+/// (RFC 5077 shape). The ticket is opaque and server-sealed;
+/// the rest is the client-side session cache. Identity is not
+/// weakened by resumption: the peer certificate travels inside
+/// the sealed ticket, and `check_peer_fingerprint` runs against
+/// it exactly as in a full handshake.
+#[derive(Clone, Debug)]
+pub struct DtlsSession {
+    pub ticket: Vec<u8>,
+    pub master_secret: Vec<u8>,
+    pub peer_certificate: Vec<u8>,
+    pub srtp_profile: Option<u16>,
+}
+
+const TICKET_LIFETIME_SECS: u64 = 3600;
+const TICKET_AAD: &[u8] = b"grpcdc-dtls-ticket-v1";
+
+/// Seal session state into a ticket (AES-128-GCM via the
+/// installed crypto backend; the AES key is the first half of
+/// the 32-byte ticket key).
+fn seal_ticket(
+    key: &[u8; 32],
+    master_secret: &[u8],
+    srtp_profile: Option<u16>,
+    peer_certificate: &[u8],
+) -> Vec<u8> {
+    let mut plain = Vec::new();
+    plain.extend_from_slice(master_secret);
+    plain.extend_from_slice(&srtp_profile.unwrap_or(0xffff).to_be_bytes());
+    plain.extend_from_slice(&crate::platform::wall_now_secs().to_be_bytes());
+    plain.extend_from_slice(&(peer_certificate.len() as u32).to_be_bytes()[1..]);
+    plain.extend_from_slice(peer_certificate);
+    let aes_key: &[u8; 16] = key[..16].try_into().unwrap();
+    let nonce_bytes = crate::crypto::random_bytes(12);
+    let nonce: &[u8; 12] = nonce_bytes.as_slice().try_into().unwrap();
+    let (ct, tag) = crate::crypto::aes128_gcm_encrypt(aes_key, nonce, &plain, TICKET_AAD);
+    let mut ticket = nonce_bytes;
+    ticket.extend_from_slice(&ct);
+    ticket.extend_from_slice(&tag);
+    ticket
+}
+
+/// Open a ticket; None when malformed, tampered, or expired.
+fn open_ticket(key: &[u8; 32], ticket: &[u8]) -> Option<DtlsSession> {
+    if ticket.len() < 12 + 16 {
+        return None;
+    }
+    let (nonce, rest) = ticket.split_at(12);
+    let (ct, tag) = rest.split_at(rest.len() - 16);
+    let aes_key: &[u8; 16] = key[..16].try_into().unwrap();
+    let plain = crate::crypto::aes128_gcm_decrypt(
+        aes_key,
+        nonce.try_into().unwrap(),
+        ct,
+        TICKET_AAD,
+        tag.try_into().unwrap(),
+    )?;
+    if plain.len() < 48 + 2 + 8 + 3 {
+        return None;
+    }
+    let master_secret = plain[..48].to_vec();
+    let profile_raw = u16::from_be_bytes([plain[48], plain[49]]);
+    let issued = u64::from_be_bytes(plain[50..58].try_into().unwrap());
+    let now = crate::platform::wall_now_secs();
+    if now > 0 && issued > 0 && now.saturating_sub(issued) > TICKET_LIFETIME_SECS {
+        return None;
+    }
+    let cert_len =
+        ((plain[58] as usize) << 16) | ((plain[59] as usize) << 8) | plain[60] as usize;
+    if plain.len() < 61 + cert_len {
+        return None;
+    }
+    Some(DtlsSession {
+        ticket: ticket.to_vec(),
+        master_secret,
+        peer_certificate: plain[61..61 + cert_len].to_vec(),
+        srtp_profile: if profile_raw == 0xffff { None } else { Some(profile_raw) },
+    })
 }
 
 const DTLS_1_2: [u8; 2] = [0xFE, 0xFD];
@@ -95,6 +190,9 @@ pub struct Dtls<I: DtlsIo> {
     negotiated_srtp_profile: Option<u16>,
     read_highest_seq: Option<u64>,
     read_replay_window: u64,
+    /// Resumption state captured from a server NewSessionTicket
+    /// (client) — take it with `take_session`.
+    session: Option<DtlsSession>,
 }
 
 fn err(msg: &str) -> io::Error {
@@ -296,6 +394,7 @@ impl<I: DtlsIo> Dtls<I> {
         aad.extend_from_slice(&(plaintext_len as u16).to_be_bytes());
         let plaintext = aes128_gcm_decrypt(&keys.key, &nonce, ciphertext, &aad, &tag)
             .ok_or_else(|| {
+                #[cfg(feature = "std")]
                 if std::env::var("DTLS_DEBUG").is_ok() {
                     eprintln!("AUTH FAIL type={} seq={} expl={:02x?} salt={:02x?} key={:02x?} ctlen={}",
                         content_type, sequence, explicit, &keys.salt, &keys.key, ciphertext.len());
@@ -508,6 +607,7 @@ macro_rules! dtls_new {
             negotiated_srtp_profile: None,
             read_highest_seq: None,
             read_replay_window: 0,
+            session: None,
         }
     };
 }
@@ -667,9 +767,12 @@ impl<I: DtlsIo> Dtls<I> {
     }
 
     pub fn recv_app_timeout(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>> {
-        let deadline = Instant::now() + timeout;
+        let clock = crate::platform::clock();
+        let deadline_ms = clock.now_ms() + timeout.as_millis() as u64;
         loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
+            let remaining = Duration::from_millis(
+                deadline_ms.saturating_sub(clock.now_ms()),
+            );
             if remaining.is_zero() {
                 return Ok(None);
             }
@@ -697,7 +800,12 @@ impl<I: DtlsIo> Dtls<I> {
 // ClientHello / ServerHello bodies
 // ---------------------------------------------------------------------------
 
-fn client_hello_body(random: &[u8; 32], cookie: &[u8], ems: bool) -> Vec<u8> {
+fn client_hello_body(
+    random: &[u8; 32],
+    cookie: &[u8],
+    ems: bool,
+    session_ticket: Option<&[u8]>,
+) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&DTLS_1_2);
     out.extend_from_slice(random);
@@ -726,6 +834,13 @@ fn client_hello_body(random: &[u8; 32], cookie: &[u8], ems: bool) -> Vec<u8> {
         exts.extend_from_slice(&23u16.to_be_bytes());
         exts.extend_from_slice(&[0, 0]);
     }
+    // session_ticket (35): empty offers support (server may send
+    // a NewSessionTicket); non-empty attempts resumption.
+    if let Some(ticket) = session_ticket {
+        exts.extend_from_slice(&35u16.to_be_bytes());
+        exts.extend_from_slice(&(ticket.len() as u16).to_be_bytes());
+        exts.extend_from_slice(ticket);
+    }
     out.extend_from_slice(&(exts.len() as u16).to_be_bytes());
     out.extend_from_slice(&exts);
     out
@@ -735,6 +850,8 @@ struct ServerHelloInfo {
     server_random: [u8; 32],
     ems: bool,
     srtp_profile: Option<u16>,
+    /// Server accepted our session ticket (abbreviated handshake).
+    resumed: bool,
 }
 
 fn parse_server_hello(body: &[u8]) -> io::Result<ServerHelloInfo> {
@@ -747,7 +864,7 @@ fn parse_server_hello(body: &[u8]) -> io::Result<ServerHelloInfo> {
         return Err(err("server picked an unsupported cipher suite"));
     }
     let _compression = r.u8()?;
-    let mut info = ServerHelloInfo { server_random, ems: false, srtp_profile: None };
+    let mut info = ServerHelloInfo { server_random, ems: false, srtp_profile: None, resumed: false };
     if !r.done() {
         let exts = r.vec16()?;
         let mut er = Reader::new(exts);
@@ -756,6 +873,7 @@ fn parse_server_hello(body: &[u8]) -> io::Result<ServerHelloInfo> {
             let data = er.vec16()?;
             match ty {
                 23 => info.ems = true,
+                35 => info.resumed = true,
                 14 => {
                     let mut sr = Reader::new(data);
                     let profiles = sr.vec16()?;
@@ -772,9 +890,36 @@ fn parse_server_hello(body: &[u8]) -> io::Result<ServerHelloInfo> {
 }
 
 impl<I: DtlsIo> Dtls<I> {
-    /// DTLS client handshake. `config.certificate` is presented if the
-    /// server requests one (WebRTC servers do).
+    /// DTLS client handshake (full). `config.certificate` is
+    /// presented if the server requests one (WebRTC servers do).
     pub fn connect(io: I, config: &DtlsConfig) -> io::Result<Self> {
+        Self::handshake(io, config, None)
+    }
+
+    /// DTLS client handshake attempting session resumption with
+    /// state captured from an earlier connection (`take_session`).
+    /// Falls back to a full handshake transparently when the
+    /// server does not honor the ticket; the peer fingerprint
+    /// check is enforced identically on both paths.
+    pub fn connect_resumed(
+        io: I,
+        config: &DtlsConfig,
+        session: &DtlsSession,
+    ) -> io::Result<Self> {
+        Self::handshake(io, config, Some(session))
+    }
+
+    /// Take resumption state captured from a NewSessionTicket,
+    /// if the server sent one (requires `session_resumption`).
+    pub fn take_session(&mut self) -> Option<DtlsSession> {
+        self.session.take()
+    }
+
+    fn handshake(
+        io: I,
+        config: &DtlsConfig,
+        resume: Option<&DtlsSession>,
+    ) -> io::Result<Self> {
         let mut conn = dtls_new!(io, Role::Client);
         let mut hs = Hs::default();
         conn.client_random = random_bytes(32).try_into().unwrap();
@@ -787,7 +932,12 @@ impl<I: DtlsIo> Dtls<I> {
             hs.transcript.clear();
             hs.send_seq = 0;
             hs.expect_seq = 0;
-            let body = client_hello_body(&conn.client_random, &cookie, true);
+            let ticket_offer: Option<&[u8]> = match resume {
+                Some(session) => Some(&session.ticket),
+                None if config.session_resumption => Some(&[]),
+                None => None,
+            };
+            let body = client_hello_body(&conn.client_random, &cookie, true, ticket_offer);
             let packet = conn.send_hs(&mut hs, dtls_handshake::CLIENT_HELLO, &body, 0)?;
             flight = vec![packet];
             loop {
@@ -810,6 +960,39 @@ impl<I: DtlsIo> Dtls<I> {
         }
         conn.server_random = server_hello.server_random;
         conn.negotiated_srtp_profile = server_hello.srtp_profile;
+
+        if let (Some(session), true) = (resume, server_hello.resumed) {
+            // Abbreviated handshake (RFC 5077): the sealed ticket
+            // carries the session; no certificates are exchanged,
+            // and the fingerprint check runs against the ticket's
+            // certificate, so identity enforcement is unchanged.
+            conn.master_secret = session.master_secret.clone();
+            conn.peer_certificate = Some(session.peer_certificate.clone());
+            conn.negotiated_srtp_profile = session.srtp_profile;
+            conn.check_peer_fingerprint(config)?;
+            conn.derive_keys(&conn.master_secret.clone());
+            let ccs = conn.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
+            let verify_data = prf(&conn.master_secret, "client finished", &hs.hash(), 12);
+            let fin = conn.send_hs(&mut hs, dtls_handshake::FINISHED, &verify_data, 1)?;
+            flight = vec![ccs, fin];
+            loop {
+                let (msg_type, raw, body) = conn.pump_until_message(&mut hs, &flight)?;
+                if msg_type == dtls_handshake::FINISHED {
+                    let expected =
+                        prf(&conn.master_secret, "server finished", &hs.hash(), 12);
+                    if body != expected.as_slice() {
+                        return Err(err("server Finished verification failed"));
+                    }
+                    hs.transcript.extend_from_slice(&raw);
+                    break;
+                }
+                hs.transcript.extend_from_slice(&raw);
+            }
+            if config.session_resumption {
+                conn.capture_session_ticket(&mut hs);
+            }
+            return Ok(conn);
+        }
 
         // Server flight: Certificate, ServerKeyExchange, [CertificateRequest], ServerHelloDone.
         let mut peer_ephemeral: Option<PublicKey> = None;
@@ -935,7 +1118,50 @@ impl<I: DtlsIo> Dtls<I> {
             }
             hs.transcript.extend_from_slice(&raw);
         }
+        if config.session_resumption {
+            conn.capture_session_ticket(&mut hs);
+        }
         Ok(conn)
+    }
+
+    /// Best-effort capture of a NewSessionTicket sent after the
+    /// server's Finished. Never fails the connection.
+    fn capture_session_ticket(&mut self, hs: &mut Hs) {
+        if self.session.is_some() {
+            return;
+        }
+        let find_ticket = |hs: &Hs| -> Option<Vec<u8>> {
+            hs.ready
+                .values()
+                .find(|(t, _, _)| *t == dtls_handshake::NEW_SESSION_TICKET)
+                .map(|(_, _, body)| body.clone())
+        };
+        let mut body = find_ticket(hs);
+        if body.is_none() {
+            // One short poll for a ticket sent in its own datagram.
+            if let Ok(Some(packet)) = self.io.recv_packet(Duration::from_millis(250)) {
+                if let Ok(records) = self.parse_records(&packet) {
+                    for record in records {
+                        if record.content_type == dtls_content::HANDSHAKE {
+                            hs.feed_handshake_bytes(&record.body);
+                        }
+                    }
+                }
+                body = find_ticket(hs);
+            }
+        }
+        if let Some(body) = body {
+            let mut r = Reader::new(&body);
+            let _ = r.take(4); // lifetime
+            if let Ok(ticket) = r.vec16() {
+                self.session = Some(DtlsSession {
+                    ticket: ticket.to_vec(),
+                    master_secret: self.master_secret.clone(),
+                    peer_certificate: self.peer_certificate.clone().unwrap_or_default(),
+                    srtp_profile: self.negotiated_srtp_profile,
+                });
+            }
+        }
     }
 
     /// DTLS server handshake (no HelloVerifyRequest cookie demand).
@@ -946,7 +1172,7 @@ impl<I: DtlsIo> Dtls<I> {
         // ClientHello.
         let (_t, raw, body) = conn.pump_until_message(&mut hs, &[])?;
         hs.transcript.extend_from_slice(&raw);
-        let (client_ems, client_srtp_profiles) = {
+        let (client_ems, client_srtp_profiles, client_ticket) = {
             let mut r = Reader::new(&body);
             let _v = [r.u8()?, r.u8()?];
             conn.client_random = r.take(32)?.try_into().unwrap();
@@ -959,6 +1185,7 @@ impl<I: DtlsIo> Dtls<I> {
             let _compression = r.vec8()?;
             let mut ems = false;
             let mut profiles = Vec::new();
+            let mut ticket: Option<Vec<u8>> = None;
             if !r.done() {
                 let exts = r.vec16()?;
                 let mut er = Reader::new(exts);
@@ -967,6 +1194,7 @@ impl<I: DtlsIo> Dtls<I> {
                     let data = er.vec16()?;
                     match ty {
                         23 => ems = true,
+                        35 => ticket = Some(data.to_vec()),
                         14 => {
                             let mut sr = Reader::new(data);
                             let list = sr.vec16()?;
@@ -978,7 +1206,7 @@ impl<I: DtlsIo> Dtls<I> {
                     }
                 }
             }
-            (ems, profiles)
+            (ems, profiles, ticket)
         };
         let srtp_profile = [0x0007u16, 0x0001, 0x0002, 0x0008]
             .iter()
@@ -986,6 +1214,24 @@ impl<I: DtlsIo> Dtls<I> {
             .find(|p| client_srtp_profiles.contains(p));
         conn.negotiated_srtp_profile = srtp_profile;
         conn.server_random = random_bytes(32).try_into().unwrap();
+
+        // Abbreviated handshake when the client presents a valid
+        // ticket we sealed earlier (RFC 5077).
+        if config.session_resumption {
+            if let (Some(key), Some(ticket)) =
+                (&config.session_ticket_key, &client_ticket)
+            {
+                if !ticket.is_empty() {
+                    if let Some(session) = open_ticket(key, ticket) {
+                        if !(config.require_peer_certificate
+                            && session.peer_certificate.is_empty())
+                        {
+                            return conn.finish_resumed_accept(&mut hs, config, session);
+                        }
+                    }
+                }
+            }
+        }
 
         // Server flight.
         let mut flight = Vec::new();
@@ -1127,6 +1373,92 @@ impl<I: DtlsIo> Dtls<I> {
         let _ = ccs;
         let verify_data = prf(&conn.master_secret, "server finished", &hs.hash(), 12);
         conn.send_hs(&mut hs, dtls_handshake::FINISHED, &verify_data, 1)?;
+
+        // Issue a session ticket when resumption is enabled and
+        // the client offered ticket support. Best effort: a
+        // failed send must not fail the established connection.
+        if config.session_resumption && client_ticket.is_some() {
+            if let Some(key) = &config.session_ticket_key {
+                let ticket = seal_ticket(
+                    key,
+                    &conn.master_secret,
+                    conn.negotiated_srtp_profile,
+                    conn.peer_certificate.as_deref().unwrap_or(&[]),
+                );
+                let mut body = Vec::new();
+                body.extend_from_slice(&(TICKET_LIFETIME_SECS as u32).to_be_bytes());
+                body.extend_from_slice(&(ticket.len() as u16).to_be_bytes());
+                body.extend_from_slice(&ticket);
+                let _ = conn.send_hs(
+                    &mut hs,
+                    dtls_handshake::NEW_SESSION_TICKET,
+                    &body,
+                    1,
+                );
+            }
+        }
         Ok(conn)
+    }
+
+    /// Abbreviated server handshake for a valid ticket: ServerHello
+    /// (signaling resumption), then CCS/Finished both ways. The
+    /// peer certificate comes from the sealed ticket, so the
+    /// fingerprint check enforces exactly what the full
+    /// handshake enforced when the ticket was issued.
+    fn finish_resumed_accept(
+        mut self,
+        hs: &mut Hs,
+        config: &DtlsConfig,
+        session: DtlsSession,
+    ) -> io::Result<Self> {
+        self.master_secret = session.master_secret.clone();
+        self.peer_certificate = Some(session.peer_certificate.clone());
+        self.negotiated_srtp_profile = session.srtp_profile;
+
+        let mut sh = Vec::new();
+        sh.extend_from_slice(&DTLS_1_2);
+        sh.extend_from_slice(&self.server_random);
+        sh.push(0); // session id: empty
+        sh.extend_from_slice(&SUITE.to_be_bytes());
+        sh.push(0); // compression: null
+        let mut exts = Vec::new();
+        if let Some(profile) = session.srtp_profile {
+            exts.extend_from_slice(&14u16.to_be_bytes());
+            let data = [0u8, 2, (profile >> 8) as u8, profile as u8, 0];
+            exts.extend_from_slice(&(data.len() as u16).to_be_bytes());
+            exts.extend_from_slice(&data);
+        }
+        // Empty session_ticket extension: ticket accepted.
+        exts.extend_from_slice(&35u16.to_be_bytes());
+        exts.extend_from_slice(&[0, 0]);
+        exts.extend_from_slice(&65281u16.to_be_bytes());
+        exts.extend_from_slice(&[0, 1, 0]);
+        sh.extend_from_slice(&(exts.len() as u16).to_be_bytes());
+        sh.extend_from_slice(&exts);
+        let packet = self.send_hs(hs, dtls_handshake::SERVER_HELLO, &sh, 0)?;
+        let flight = vec![packet];
+
+        self.derive_keys(&self.master_secret.clone());
+
+        // Client CCS + Finished.
+        loop {
+            let (msg_type, raw, body) = self.pump_until_message(hs, &flight)?;
+            if msg_type == dtls_handshake::FINISHED {
+                let expected = prf(&self.master_secret, "client finished", &hs.hash(), 12);
+                if body != expected.as_slice() {
+                    return Err(err("client Finished verification failed"));
+                }
+                hs.transcript.extend_from_slice(&raw);
+                break;
+            }
+            hs.transcript.extend_from_slice(&raw);
+        }
+        self.check_peer_fingerprint(config)?;
+
+        // Server CCS + Finished.
+        let _ccs = self.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
+        let verify_data = prf(&self.master_secret, "server finished", &hs.hash(), 12);
+        self.send_hs(hs, dtls_handshake::FINISHED, &verify_data, 1)?;
+        Ok(self)
     }
 }

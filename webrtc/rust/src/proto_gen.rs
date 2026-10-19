@@ -113,6 +113,7 @@ pub mod dtls_handshake {
     pub const CLIENT_HELLO: u8 = 1;
     pub const SERVER_HELLO: u8 = 2;
     pub const HELLO_VERIFY_REQUEST: u8 = 3;
+    pub const NEW_SESSION_TICKET: u8 = 4;
     pub const CERTIFICATE: u8 = 11;
     pub const SERVER_KEY_EXCHANGE: u8 = 12;
     pub const CERTIFICATE_REQUEST: u8 = 13;

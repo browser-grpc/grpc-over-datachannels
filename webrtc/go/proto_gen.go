@@ -98,6 +98,7 @@ const DtlsHandshakeHelloRequest = 0
 const DtlsHandshakeClientHello = 1
 const DtlsHandshakeServerHello = 2
 const DtlsHandshakeHelloVerifyRequest = 3
+const DtlsHandshakeNewSessionTicket = 4
 const DtlsHandshakeCertificate = 11
 const DtlsHandshakeServerKeyExchange = 12
 const DtlsHandshakeCertificateRequest = 13

@@ -13,6 +13,8 @@ fn config() -> DtlsConfig {
         certificate: Certificate::generate_self_signed("dc-webrtc"),
         expected_peer_fingerprint: None,
         require_peer_certificate: false,
+        session_resumption: false,
+        session_ticket_key: None,
     }
 }
 

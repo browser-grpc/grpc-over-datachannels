@@ -67,6 +67,7 @@
 
 (define dtls-handshake-types
   '((HelloRequest . 0) (ClientHello . 1) (ServerHello . 2) (HelloVerifyRequest . 3)
+    (NewSessionTicket . 4)
     (Certificate . 11) (ServerKeyExchange . 12) (CertificateRequest . 13)
     (ServerHelloDone . 14) (CertificateVerify . 15) (ClientKeyExchange . 16)
     (Finished . 20)))

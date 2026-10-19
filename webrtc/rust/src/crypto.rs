@@ -6,21 +6,18 @@
 //! Everything here is verified against published vectors in the tests
 //! below, and again end-to-end by the OpenSSL DTLS oracle tests.
 
+use alloc::vec::Vec;
 use crate::proto_gen::{AES_SBOX, CRC32_TABLE, SHA256_H, SHA256_K, SHA384_H, SHA512_H, SHA512_K};
-use std::fs::File;
-use std::io::Read;
 
 // ---------------------------------------------------------------------------
 // entropy
 // ---------------------------------------------------------------------------
 
 pub fn random_bytes(n: usize) -> Vec<u8> {
-    let mut buf = vec![0u8; n];
-    File::open("/dev/urandom")
-        .expect("open /dev/urandom")
-        .read_exact(&mut buf)
-        .expect("read /dev/urandom");
-    buf
+    // Routed through the platform RNG (installed via
+    // platform::install_rng; /dev/urandom by default) so embedded
+    // targets can substitute a hardware TRNG.
+    crate::platform::random_bytes(n)
 }
 
 pub fn random_u64() -> u64 {
@@ -127,7 +124,7 @@ impl Sha256 {
     }
 }
 
-pub fn sha256(data: &[u8]) -> [u8; 32] {
+fn sha256_native(data: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(data);
     h.finalize()
@@ -359,7 +356,7 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
 // HMAC + TLS 1.2 PRF (SHA-256)
 // ---------------------------------------------------------------------------
 
-pub fn hmac_sha256(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
+fn hmac_sha256_native(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
     hmac(key, parts, true)
 }
 
@@ -372,7 +369,7 @@ fn hmac(key: &[u8], parts: &[&[u8]], use256: bool) -> [u8; 32] {
     let block = 64usize;
     let mut k = if use256 {
         if key.len() > block {
-            sha256(key).to_vec()
+            sha256_native(key).to_vec()
         } else {
             key.to_vec()
         }
@@ -412,18 +409,18 @@ fn hmac(key: &[u8], parts: &[&[u8]], use256: bool) -> [u8; 32] {
 
 fn p_hash(secret: &[u8], seed: &[u8], out_len: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(out_len);
-    let mut a = hmac_sha256(secret, &[seed]).to_vec();
+    let mut a = hmac_sha256_native(secret, &[seed]).to_vec();
     while out.len() < out_len {
-        let chunk = hmac_sha256(secret, &[&a, seed]);
+        let chunk = hmac_sha256_native(secret, &[&a, seed]);
         out.extend_from_slice(&chunk);
-        a = hmac_sha256(secret, &[&a]).to_vec();
+        a = hmac_sha256_native(secret, &[&a]).to_vec();
     }
     out.truncate(out_len);
     out
 }
 
-/// TLS 1.2 PRF with SHA-256 (RFC 5246 section 5).
-pub fn prf(secret: &[u8], label: &str, seed: &[u8], out_len: usize) -> Vec<u8> {
+/// TLS 1.2 PRF with SHA-256 (RFC 5246 section 5), native impl.
+fn prf_native(secret: &[u8], label: &str, seed: &[u8], out_len: usize) -> Vec<u8> {
     let mut full_seed = label.as_bytes().to_vec();
     full_seed.extend_from_slice(seed);
     p_hash(secret, &full_seed, out_len)
@@ -589,7 +586,7 @@ fn gctr(aes: &Aes128, icb: &[u8; 16], input: &[u8]) -> Vec<u8> {
     out
 }
 
-pub fn aes128_gcm_encrypt(
+fn aes128_gcm_encrypt_native(
     key: &[u8; 16],
     nonce: &[u8; 12],
     plaintext: &[u8],
@@ -610,7 +607,7 @@ pub fn aes128_gcm_encrypt(
     (ciphertext, tag)
 }
 
-pub fn aes128_gcm_decrypt(
+fn aes128_gcm_decrypt_native(
     key: &[u8; 16],
     nonce: &[u8; 12],
     ciphertext: &[u8],
@@ -632,6 +629,139 @@ pub fn aes128_gcm_decrypt(
         return None;
     }
     Some(gctr(&aes, &j0, ciphertext))
+}
+
+
+// ---------------------------------------------------------------------------
+// Pluggable crypto backend
+// ---------------------------------------------------------------------------
+
+/// Crypto operations the DTLS 1.2 ECDHE-ECDSA AES-128-GCM-SHA256
+/// suite (and session tickets) are built from. The default
+/// backend is the hand-rolled implementation in this module;
+/// embedded vendors can install their own (mbedTLS/PSA/wolfSSL
+/// bindings) once at startup via `install_backend`, and every
+/// call site in the crate picks it up without code changes.
+///
+/// Outside this v1 boundary (still hand-rolled): SHA-384/512,
+/// SHA-1/MD5 (certificate-chain and STUN legacy paths), CRCs, and
+/// the P-256/P-384 group operations in p256.rs/p384.rs.
+pub trait CryptoBackend: Send + Sync {
+    fn sha256(&self, data: &[u8]) -> [u8; 32];
+    fn hmac_sha256(&self, key: &[u8], parts: &[&[u8]]) -> [u8; 32];
+    fn prf(&self, secret: &[u8], label: &str, seed: &[u8], out_len: usize) -> Vec<u8>;
+    fn aes128_gcm_encrypt(
+        &self,
+        key: &[u8; 16],
+        nonce: &[u8; 12],
+        plaintext: &[u8],
+        aad: &[u8],
+    ) -> (Vec<u8>, [u8; 16]);
+    fn aes128_gcm_decrypt(
+        &self,
+        key: &[u8; 16],
+        nonce: &[u8; 12],
+        ciphertext: &[u8],
+        aad: &[u8],
+        tag: &[u8; 16],
+    ) -> Option<Vec<u8>>;
+}
+
+/// The hand-rolled zero-dependency backend (default).
+pub struct HandRolledBackend;
+
+impl CryptoBackend for HandRolledBackend {
+    fn sha256(&self, data: &[u8]) -> [u8; 32] {
+        sha256_native(data)
+    }
+
+    fn hmac_sha256(&self, key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
+        hmac_sha256_native(key, parts)
+    }
+
+    fn prf(&self, secret: &[u8], label: &str, seed: &[u8], out_len: usize) -> Vec<u8> {
+        prf_native(secret, label, seed, out_len)
+    }
+
+    fn aes128_gcm_encrypt(
+        &self,
+        key: &[u8; 16],
+        nonce: &[u8; 12],
+        plaintext: &[u8],
+        aad: &[u8],
+    ) -> (Vec<u8>, [u8; 16]) {
+        aes128_gcm_encrypt_native(key, nonce, plaintext, aad)
+    }
+
+    fn aes128_gcm_decrypt(
+        &self,
+        key: &[u8; 16],
+        nonce: &[u8; 12],
+        ciphertext: &[u8],
+        aad: &[u8],
+        tag: &[u8; 16],
+    ) -> Option<Vec<u8>> {
+        aes128_gcm_decrypt_native(key, nonce, ciphertext, aad, tag)
+    }
+}
+
+static BACKEND: crate::platform::Mutex<Option<alloc::sync::Arc<dyn CryptoBackend>>> =
+    crate::platform::Mutex::new(None);
+
+/// Install the process-wide crypto backend. Call once at startup;
+/// returns false when a backend was already installed.
+pub fn install_backend(backend: alloc::sync::Arc<dyn CryptoBackend>) -> bool {
+    let mut slot = BACKEND.lock();
+    if slot.is_some() {
+        return false;
+    }
+    *slot = Some(backend);
+    true
+}
+
+/// The installed crypto backend (default: `HandRolledBackend`).
+pub fn backend() -> alloc::sync::Arc<dyn CryptoBackend> {
+    let mut slot = BACKEND.lock();
+    if slot.is_none() {
+        *slot = Some(alloc::sync::Arc::new(HandRolledBackend));
+    }
+    slot.as_ref().expect("backend installed").clone()
+}
+
+/// SHA-256 through the installed backend.
+pub fn sha256(data: &[u8]) -> [u8; 32] {
+    backend().sha256(data)
+}
+
+/// HMAC-SHA-256 through the installed backend.
+pub fn hmac_sha256(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
+    backend().hmac_sha256(key, parts)
+}
+
+/// TLS 1.2 PRF (SHA-256) through the installed backend.
+pub fn prf(secret: &[u8], label: &str, seed: &[u8], out_len: usize) -> Vec<u8> {
+    backend().prf(secret, label, seed, out_len)
+}
+
+/// AES-128-GCM encrypt through the installed backend.
+pub fn aes128_gcm_encrypt(
+    key: &[u8; 16],
+    nonce: &[u8; 12],
+    plaintext: &[u8],
+    aad: &[u8],
+) -> (Vec<u8>, [u8; 16]) {
+    backend().aes128_gcm_encrypt(key, nonce, plaintext, aad)
+}
+
+/// AES-128-GCM decrypt through the installed backend.
+pub fn aes128_gcm_decrypt(
+    key: &[u8; 16],
+    nonce: &[u8; 12],
+    ciphertext: &[u8],
+    aad: &[u8],
+    tag: &[u8; 16],
+) -> Option<Vec<u8>> {
+    backend().aes128_gcm_decrypt(key, nonce, ciphertext, aad, tag)
 }
 
 // ---------------------------------------------------------------------------
