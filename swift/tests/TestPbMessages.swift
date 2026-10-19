@@ -70,6 +70,11 @@ func TestPbMessages() throws {
             back.UnmarshalDc(k.MarshalDc())
             checkSame(back, k)
             if !Kitchen().MarshalDc().isEmpty { fail("empty must encode empty") }
+            let both = Kitchen()
+            both.text = "a"; both.code = 7
+            let bothBack = Kitchen()
+            bothBack.UnmarshalDc(both.MarshalDc())
+            if bothBack.text != "" || bothBack.code != 7 { fail("oneof encode clearing") }
             print("roundtrip OK")
         } else {
             let bytes = [UInt8](try Data(contentsOf: URL(fileURLWithPath: args[2])))

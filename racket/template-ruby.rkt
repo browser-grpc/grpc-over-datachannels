@@ -401,6 +401,24 @@
         [(= type 11) (format "~aunless ~a.nil?\n~a  w.bytes_field(~a, ~a.marshal_dc)\n~aend\n" indent v indent n v indent)]
         [else (error 'emit-ruby-pb-file "unsupported field type ~a (groups)" type)]))
 
+(define (rb-pb-set-expr sib)
+  (define v (format "@~a" (rb-pb-field-name sib)))
+  (case (hash-ref sib 'type)
+    [(11 10) (format "!~a.nil?" v)]
+    [(9 12) (format "(!~a.nil? && !~a.empty?)" v v)]
+    [else (rb-pb-nonzero sib v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (rb-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (string-append
+       (format "    unless (~a)\n" (string-join (map rb-pb-set-expr later) " || "))
+       (if (string-suffix? code "\n") code (string-append code "\n"))
+       "    end\n")))
+
 (define (rb-pb-encode-field model pb f)
   (define v (format "@~a" (rb-pb-field-name f)))
   (define n (hash-ref f 'number))
@@ -558,7 +576,7 @@
    "      @unknown_fields = \"\".b\n"
    "    end\n\n"
    "    def marshal_dc\n      w = Writer.new\n"
-   (apply string-append (map (lambda (f) (rb-pb-encode-field model pb f)) fields))
+   (apply string-append (map (lambda (f) (rb-pb-encode-guard model f (rb-pb-encode-field model pb f))) fields))
    "      w.raw(@unknown_fields)\n"
    "      w.to_bytes\n    end\n\n"
    "    def unmarshal_dc(data)\n"
@@ -607,7 +625,6 @@
              (when (= (hash-ref f 'type) 11)
                (define e (rb-pb-resolve file-model (hash-ref f 'type-name)))
                (when (and (eq? (hash-ref e 'kind) 'map)
-                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                           (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
                  (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
                  (set! helpers (cons (rb-pb-map-helpers file-model pb e) helpers)))))

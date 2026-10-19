@@ -331,9 +331,11 @@
 (define (dart-pb-entry-ref model entry)
   (dart-pb-rel (hash-ref entry 'pkg)
                (if (eq? (hash-ref entry 'kind) 'enum)
-                   (let ([e (hash-ref entry 'enum)])
-                     (if (hash-ref entry 'msg)
-                         (format "~a.~a" (hash-ref (hash-ref entry 'msg) 'full-name) (hash-ref e 'name))
+                   ;; The registry's 'full is the fully-qualified
+                   ;; name (nested enums included); 'msg is #f for
+                   ;; enums, so build from 'full.
+                   (or (hash-ref entry 'full #f)
+                       (let ([e (hash-ref entry 'enum)])
                          (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name))))
                    (hash-ref (hash-ref entry 'msg) 'full-name))))
 
@@ -446,6 +448,23 @@
              (format "~aif (~a.isNotEmpty) w.bytesField(~a, ~a);\n" indent v n v))]
         [(= type 11) (format "~aif (~a != null) w.bytesField(~a, ~a!.marshalDc());\n" indent v n v)]
         [else (error 'emit-dart-pb-file "unsupported field type ~a (groups)" type)]))
+
+(define (dart-pb-set-expr sib)
+  (define v (dart-pb-field-name sib))
+  (case (hash-ref sib 'type)
+    [(11 10) (format "~a != null" v)]
+    [(9 12) (format "~a.isNotEmpty" v)]
+    [else (dart-pb-nonzero sib v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (dart-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (format "    if (!(~a)) {\n~a    }\n"
+              (string-join (map dart-pb-set-expr later) " || ")
+              (if (string-suffix? code "\n") code (string-append code "\n")))))
 
 (define (dart-pb-encode-field model f support)
   (define v (dart-pb-field-name f))
@@ -709,7 +728,7 @@
                ";\n")))))
    (format "~a  @override\n~a  Uint8List marshalDc() {\n" indent indent)
    (format "~a    final w = ~aWriter();\n" indent support)
-   (apply string-append (map (lambda (f) (dart-pb-encode-field model f support)) fields))
+   (apply string-append (map (lambda (f) (dart-pb-encode-guard model f (dart-pb-encode-field model f support))) fields))
    (format "~a    w.raw(unknownFields);\n" indent)
    (format "~a    return w.toBytes();\n~a  }\n" indent indent)
    (format "~a  @override\n~a  void unmarshalDc(List<int> data) {\n" indent indent)
@@ -753,7 +772,6 @@
              (when (= (hash-ref f 'type) 11)
                (define e (dart-pb-resolve file-model (hash-ref f 'type-name)))
                (when (and (eq? (hash-ref e 'kind) 'map)
-                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                           (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
                  (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
                  (set! helpers (cons (dart-pb-map-helpers file-model e support) helpers)))))

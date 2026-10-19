@@ -57,6 +57,10 @@ public static class TestPbMessages
                     back.UnmarshalDc(k.MarshalDc());
                     CheckSame(back, k);
                     if (new KitchenT().MarshalDc().Length != 0) Fail("empty must encode empty");
+                    var both = new KitchenT { Text = "a", Code = 7 };
+                    var bothBack = new KitchenT();
+                    bothBack.UnmarshalDc(both.MarshalDc());
+                    if (bothBack.Text != "" || bothBack.Code != 7) Fail("oneof encode clearing");
                     Console.WriteLine("roundtrip OK");
                     return 0;
                 }

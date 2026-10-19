@@ -472,6 +472,23 @@
         [(= type 11) (format "~aif (~a) |p| w.bytesField(~a, p.marshalDc(alloc));\n" indent v n)]
         [else (error 'emit-zig-pb-file "unsupported field type ~a (groups)" type)]))
 
+(define (zig-pb-set-expr sib)
+  (define v (format "self.~a" (hash-ref sib 'name)))
+  (case (hash-ref sib 'type)
+    [(11 10) (format "~a != null" v)]
+    [(9 12) (format "~a.len > 0" v)]
+    [else (zig-pb-nonzero sib v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (zig-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (format "        if (!(~a)) {\n~a        }\n"
+              (string-join (map zig-pb-set-expr later) " or ")
+              (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (zig-pb-encode-field model f)
   (define v (format "self.~a" (hash-ref f 'name)))
   (define n (hash-ref f 'number))
@@ -705,7 +722,7 @@
    (format "~a    pub fn marshalDc(self: *const ~a, alloc: std.mem.Allocator) []u8 {\n" indent name)
    (format "~a        _ = .{ self, alloc };\n" indent)
    (format "~a        var w = PbWriter.init(alloc);\n~a        defer w.deinit();\n" indent indent)
-   (apply string-append (map (lambda (f) (zig-pb-encode-field model f)) fields))
+   (apply string-append (map (lambda (f) (zig-pb-encode-guard model f (zig-pb-encode-field model f))) fields))
    (format "~a        w.raw(self.unknown_fields);\n" indent)
    (format "~a        return w.toBytes();\n~a    }\n" indent indent)
    (format "~a    pub fn unmarshalDc(self: *~a, alloc: std.mem.Allocator, data: []const u8) void {\n" indent name)
@@ -773,8 +790,7 @@
            (for ([f (in-list (hash-ref msg 'fields))])
              (when (= (hash-ref f 'type) 11)
                (define e (zig-pb-resolve file-model (hash-ref f 'type-name)))
-               (when (and (eq? (hash-ref e 'kind) 'map)
-                          (equal? (hash-ref e 'file) (hash-ref file-model 'name)))
+               (when (eq? (hash-ref e 'kind) 'map)
                  (define sname (zig-pb-entry-struct-name file-model e))
                  (unless (member sname (map car entry-structs))
                    (define em (hash-ref e 'msg))

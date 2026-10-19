@@ -100,6 +100,10 @@ pub fn testPbMessages(alloc: std.mem.Allocator) void {
         \\        checkSame(back, k);
         \\        var empty = kitchen.Kitchen{};
         \\        if (empty.marshalDc(alloc).len != 0) fail("empty");
+        \\        var both = kitchen.Kitchen{ .text = "a", .code = 7 };
+        \\        var both_back = kitchen.Kitchen{};
+        \\        both_back.unmarshalDc(alloc, both.marshalDc(alloc));
+        \\        if (both_back.text.len != 0 or both_back.code != 7) fail("oneof encode clearing");
         \\        std.debug.print("roundtrip OK\n", .{});
         \\        return;
         \\    }

@@ -529,6 +529,23 @@
         [(= type 11) (format "~aif let v = ~a { w.BytesField(~a, v.MarshalDc()) }\n" indent v n)]
         [else (error 'emit-swift-pb-file "unsupported field type ~a (groups)" type)]))
 
+(define (swift-pb-set-expr sib)
+  (define v (swift-pb-field-name sib))
+  (case (hash-ref sib 'type)
+    [(11 10) (format "~a != nil" v)]
+    [(9 12) (format "!~a.isEmpty" v)]
+    [else (swift-pb-nonzero sib v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (swift-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (format "        if !(~a) {\n~a        }\n"
+              (string-join (map swift-pb-set-expr later) " || ")
+              (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (swift-pb-encode-field model f support)
   (define v (swift-pb-field-name f))
   (define n (hash-ref f 'number))
@@ -776,7 +793,7 @@
         (format "~a    }\n" indent)))
    (format "~a    func MarshalDc() -> [UInt8] {\n" indent)
    (format "~a        let w = ~a.Writer()\n" indent support)
-   (apply string-append (map (lambda (f) (swift-pb-encode-field model f support)) fields))
+   (apply string-append (map (lambda (f) (swift-pb-encode-guard model f (swift-pb-encode-field model f support))) fields))
    (format "~a        w.Raw(unknownFields)\n" indent)
    (format "~a        return w.ToBytes()\n~a    }\n" indent indent)
    (format "~a    func UnmarshalDc(_ data: [UInt8]) {\n" indent)
@@ -822,7 +839,6 @@
              (when (= (hash-ref f 'type) 11)
                (define e (swift-pb-resolve file-model (hash-ref f 'type-name)))
                (when (and (eq? (hash-ref e 'kind) 'map)
-                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                           (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
                  (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
                  (set! helpers (cons (swift-pb-map-helpers file-model e support) helpers)))))

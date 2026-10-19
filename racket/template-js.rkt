@@ -246,6 +246,27 @@
                 (format "msg.~a = ~a; " (js-pb-name sib) (js-pb-default sib model)))
               (oneof-siblings model f))))
 
+(define (js-pb-set-expr sib)
+  (define v (format "msg.~a" (js-pb-name sib)))
+  (case (hash-ref sib 'type)
+    [(11 10) v]
+    [(9) (format "~a !== \"\"" v)]
+    [(12) (format "(~a && ~a.length > 0)" v v)]
+    [(8) v]
+    [else (if (memv (hash-ref sib 'type) js-pb-bigint-types)
+              (format "~a !== 0n" v)
+              (format "~a !== 0" v))]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (js-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (format "    if (!(~a)) {\n~a    }\n"
+              (string-join (map js-pb-set-expr later) " || ")
+              (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (js-pb-decode-case model f)
   (define target (format "msg.~a" (js-pb-name f)))
   (define head (format "      case ~a: " (hash-ref f 'number)))
@@ -314,7 +335,7 @@
    "    this.unknownFields = new Uint8Array(0);\n"
    "  }\n"
    "  static encode(msg) {\n    const out = [];\n"
-   (apply string-append (map (lambda (f) (js-pb-encode-field model f)) (hash-ref msg 'fields)))
+   (apply string-append (map (lambda (f) (js-pb-encode-guard model f (js-pb-encode-field model f))) (hash-ref msg 'fields)))
    "    out.push(...msg.unknownFields);\n"
    "    return new Uint8Array(out);\n  }\n"
    (format "  static decode(bytes) {\n    const msg = new ~a();\n" name)

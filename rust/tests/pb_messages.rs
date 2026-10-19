@@ -114,6 +114,13 @@ fn main() {
         if !Kitchen::default().encode().is_empty() {
             fail("empty");
         }
+        let mut both = Kitchen::default();
+        both.text = "a".to_string();
+        both.code = 7;
+        let both_back = Kitchen::decode(&both.encode()).unwrap();
+        if !(both_back.text.is_empty() && both_back.code == 7) {
+            fail("oneof encode clearing");
+        }
         println!("roundtrip OK");
         return;
     }

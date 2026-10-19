@@ -177,6 +177,29 @@
                        (hash-ref (car msgs) 'fields))]
               [else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))]))))
 
+;; Siblings of f that come after it in its message's field order.
+;; Encoders emit fields in field order, so a later sibling that is
+;; set wins on the wire (matching decode's last-one-wins); earlier
+;; siblings check this list and suppress themselves when non-empty.
+(define (oneof-later-siblings model f)
+  (define sibs (oneof-siblings model f))
+  (if (null? sibs)
+      '()
+      (let search ([msgs (hash-ref model 'messages '())])
+        (cond [(null? msgs) '()]
+              [(memq f (hash-ref (car msgs) 'fields))
+               (define fields (hash-ref (car msgs) 'fields))
+               (filter (lambda (x) (memq x (cdr (memq f fields)))) sibs)]
+              [else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))]))))
+
+;; The message model whose field list contains f (by identity),
+;; or #f. Templates use this for owner-scoped naming decisions.
+(define (field-owner model f)
+  (let search ([msgs (hash-ref model 'messages '())])
+    (cond [(null? msgs) #f]
+          [(memq f (hash-ref (car msgs) 'fields)) (car msgs)]
+          [else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))])))
+
 ;; The descriptor's explicit (proto2) default for a singular scalar
 ;; or enum field, as a string; #f for repeated/message/bytes/group
 ;; fields and when no default was declared. Message generators turn

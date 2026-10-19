@@ -549,6 +549,23 @@
         [(= type 11) (format "~a~a?.let { w.bytesField(~a, it.marshalDc()) }\n" indent v n)]
         [else (error 'emit-kotlin-pb-file "unsupported field type ~a (groups)" type)]))
 
+(define (kt-pb-set-expr sib)
+  (define v (kt-pb-field-name sib))
+  (case (hash-ref sib 'type)
+    [(11 10) (format "~a != null" v)]
+    [(9 12) (format "~a.isNotEmpty()" v)]
+    [else (kt-pb-nonzero sib v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (kt-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (format "        if (!(~a)) {\n~a        }\n"
+              (string-join (map kt-pb-set-expr later) " || ")
+              (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (kt-pb-encode-field model f support)
   (define v (kt-pb-field-name f))
   (define n (hash-ref f 'number))
@@ -784,7 +801,7 @@
    (format "~a    var unknownFields: ByteArray = ByteArray(0)\n" indent)
    (format "~a    override fun marshalDc(): ByteArray {\n" indent)
    (format "~a        val w = ~a.Writer()\n" indent support)
-   (apply string-append (map (lambda (f) (kt-pb-encode-field model f support)) fields))
+   (apply string-append (map (lambda (f) (kt-pb-encode-guard model f (kt-pb-encode-field model f support))) fields))
    (format "~a        w.raw(unknownFields)\n" indent)
    (format "~a        return w.toBytes()\n~a    }\n" indent indent)
    (format "~a    override fun unmarshalDc(data: ByteArray) {\n" indent)
@@ -835,7 +852,6 @@
              (when (= (hash-ref f 'type) 11)
                (define e (kt-pb-resolve file-model (hash-ref f 'type-name)))
                (when (and (eq? (hash-ref e 'kind) 'map)
-                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                           (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
                  (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
                  (set! helpers (cons (kt-pb-map-helpers file-model e support) helpers)))))

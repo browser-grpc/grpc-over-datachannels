@@ -78,6 +78,11 @@ fun testPbMessages() {
                 back.unmarshalDc(k.marshalDc())
                 checkSame(back, k)
                 if (Kitchen().marshalDc().isNotEmpty()) fail("empty must encode empty")
+                val both = Kitchen()
+                both.text = "a"; both.code = 7
+                val bothBack = Kitchen()
+                bothBack.unmarshalDc(both.marshalDc())
+                if (bothBack.text != "" || bothBack.code != 7) fail("oneof encode clearing")
                 println("roundtrip OK")
                 return
             }

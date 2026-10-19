@@ -464,6 +464,24 @@
         [(= type 11) (string-append indent "if " v " ~= nil then w:bytesField(" (number->string n) ", " v ":marshalDc()) end\n")]
         [else (error 'emit-lua-pb-file "unsupported field type ~a (groups)" type)]))
 
+(define (lua-pb-set-expr sib)
+  (define v (format "self.~a" (lua-pb-field-name sib)))
+  (case (hash-ref sib 'type)
+    [(11 10) (string-append v " ~= nil")]
+    [(9 12) (string-append "#" v " > 0")]
+    [else (lua-pb-nonzero sib v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (lua-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (string-append
+       "    if not (" (string-join (map lua-pb-set-expr later) " or ") ") then\n"
+       (if (string-suffix? code "\n") code (string-append code "\n"))
+       "    end\n")))
+
 (define (lua-pb-encode-field model f)
   (define v (format "self.~a" (lua-pb-field-name f)))
   (define n (hash-ref f 'number))
@@ -615,14 +633,17 @@
   (define name (lua-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
   (define fields (hash-ref msg 'fields))
   (string-append
-   (format "local ~a = {}\n~a.__index = ~a\n\n" name name name)
+   ;; The class local is forward-declared at the top of the file
+   ;; (see emit-lua-pb-file/inner): parent classes reference their
+   ;; nested classes, which are defined after them.
+   (format "~a = {}\n~a.__index = ~a\n\n" name name name)
    (format "function ~a.new(~a)\n  return setmetatable({ ~a }, ~a)\nend\n\n" name
            (string-join (map lua-pb-field-name fields) ", ")
            (let ([parts (map (lambda (f) (format "~a = ~a or ~a" (lua-pb-field-name f) (lua-pb-field-name f) (lua-pb-default model f))) fields)])
              (string-join (append parts (list "unknownFields = \"\"")) ", "))
            name)
    (format "function ~a:marshalDc()\n  local w = Writer.new()\n" name)
-   (apply string-append (map (lambda (f) (lua-pb-encode-field model f)) fields))
+   (apply string-append (map (lambda (f) (lua-pb-encode-guard model f (lua-pb-encode-field model f))) fields))
    "  w:raw(self.unknownFields)\n"
    "  return w:toBytes()\nend\n\n"
    (format "function ~a:unmarshalDc(data)\n" name)
@@ -666,7 +687,6 @@
              (when (= (hash-ref f 'type) 11)
                (define e (lua-pb-resolve file-model (hash-ref f 'type-name)))
                (when (and (eq? (hash-ref e 'kind) 'map)
-                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                           (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
                  (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
                  (define base (lua-pb-entry-flat file-model e))
@@ -674,6 +694,11 @@
                  (set! helpers (cons (lua-pb-map-helpers file-model e) helpers)))))
            (for ([n (in-list (hash-ref msg 'nested))]) (collect n)))
          (for ([m (in-list messages)]) (collect m))
+         (define (all-msg-names msg)
+           (if (hash-ref msg 'map-entry)
+               '()
+               (cons (lua-pb-flat pkg (hash-ref msg 'full-name))
+                     (append-map all-msg-names (hash-ref msg 'nested)))))
          ;; Modules this file's types reference: service input/output
          ;; types re-export from the returned table.
          (define dep-modules
@@ -694,6 +719,8 @@
             (if (string=? dep-requires "") "" "\n")
             (apply string-append
                    (map (lambda (n) (format "local ~a\n" n)) (reverse helper-names)))
+            (apply string-append
+                   (map (lambda (n) (format "local ~a\n" n)) (append-map all-msg-names messages)))
             (apply string-append (map (lambda (e) (lua-pb-enum file-model e)) enums))
             (apply string-append
                    (map (lambda (m) (lua-pb-message-class file-model m))

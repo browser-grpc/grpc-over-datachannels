@@ -671,6 +671,24 @@
   ;; The support Writer's fixed* methods take the value itself.
   v)
 
+(define (java-pb-set-expr sib)
+  (define v (java-pb-field-name sib))
+  (case (hash-ref sib 'type)
+    [(11 10) (format "~a != null" v)]
+    [(9) (format "(~a != null && !~a.isEmpty())" v v)]
+    [(12) (format "(~a != null && ~a.length > 0)" v v)]
+    [else (java-pb-nonzero sib v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (java-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (format "        if (!(~a)) {\n~a        }\n"
+              (string-join (map java-pb-set-expr later) " || ")
+              (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (java-pb-encode-field model f support)
   (define v (java-pb-field-name f))
   (define n (hash-ref f 'number))
@@ -785,14 +803,14 @@
                                      (case (hash-ref f 'type)
                                        [(2) "Float.intBitsToFloat(sub.fixed32())"]
                                        [(1) "Double.longBitsToDouble(sub.fixed64())"]
-                                       [(15) "sub.fixed32()"]
+                                       [(7 15) "sub.fixed32()"]
                                        [else "sub.fixed64()"]))
                              "                    } else {\n"
                              (format "                        ~a.add(~a);\n" v
                                      (case (hash-ref f 'type)
                                        [(2) "Float.intBitsToFloat((int) field.fixedValue)"]
                                        [(1) "Double.longBitsToDouble(field.fixedValue)"]
-                                       [(15) "(int) field.fixedValue"]
+                                       [(7 15) "(int) field.fixedValue"]
                                        [else "field.fixedValue"]))
                              "                    }\n" tail))]
         [(= type 9) (string-append head (format "                    ~a.add(new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8));\n" v) tail)]
@@ -863,7 +881,7 @@
         "        }\n"))
    "\n        @Override\n        public byte[] marshalDc() {\n"
    (format "            ~a.Writer w = new ~a.Writer();\n" support support)
-   (apply string-append (map (lambda (f) (java-pb-encode-field model f support)) fields))
+   (apply string-append (map (lambda (f) (java-pb-encode-guard model f (java-pb-encode-field model f support))) fields))
    "            w.raw(unknownFields);\n"
    "            return w.toBytes();\n        }\n\n"
    "        @Override\n        public void unmarshalDc(byte[] data) {\n"
@@ -936,7 +954,7 @@
         "    }\n"))
    "\n    @Override\n    public byte[] marshalDc() {\n"
    (format "        ~a.Writer w = new ~a.Writer();\n" support support)
-   (apply string-append (map (lambda (f) (java-pb-encode-field model f support)) fields))
+   (apply string-append (map (lambda (f) (java-pb-encode-guard model f (java-pb-encode-field model f support))) fields))
    "        w.raw(unknownFields);\n"
    "        return w.toBytes();\n    }\n\n"
    "    @Override\n    public void unmarshalDc(byte[] data) {\n"
@@ -974,7 +992,6 @@
              (when (= (hash-ref f 'type) 11)
                (define e (java-pb-resolve file-model (hash-ref f 'type-name)))
                (when (and (eq? (hash-ref e 'kind) 'map)
-                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                           (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
                  (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
                  (set! helpers (cons (java-pb-map-helpers file-model e support) helpers)))))

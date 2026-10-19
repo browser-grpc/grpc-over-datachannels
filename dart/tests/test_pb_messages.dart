@@ -78,6 +78,11 @@ Future<void> main(List<String> args) async {
     back.unmarshalDc(k.marshalDc());
     checkSame(back, k);
     if (Kitchen().marshalDc().isNotEmpty) fail('empty must encode empty');
+    final both = Kitchen();
+    both.text = 'a'; both.code = 7;
+    final bothBack = Kitchen();
+    bothBack.unmarshalDc(both.marshalDc());
+    if (bothBack.text != '' || bothBack.code != 7) fail('oneof encode clearing');
     print('roundtrip OK');
     return;
   }

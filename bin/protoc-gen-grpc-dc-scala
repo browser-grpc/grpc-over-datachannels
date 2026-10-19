@@ -424,6 +424,25 @@
          (hash-ref (car msgs) 'fields)))
        (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
 
+(define (oneof-later-siblings model f)
+  (define sibs (oneof-siblings model f))
+  (if (null? sibs)
+    '()
+    (let search ((msgs (hash-ref model 'messages '())))
+      (cond
+       ((null? msgs) '())
+       ((memq f (hash-ref (car msgs) 'fields))
+        (define fields (hash-ref (car msgs) 'fields))
+        (filter (lambda (x) (memq x (cdr (memq f fields)))) sibs))
+       (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
+
+(define (field-owner model f)
+  (let search ((msgs (hash-ref model 'messages '())))
+    (cond
+     ((null? msgs) #f)
+     ((memq f (hash-ref (car msgs) 'fields)) (car msgs))
+     (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))))))
+
 (define (field-explicit-default f)
   (and (hash-ref f 'default #f)
        (not (= (hash-ref f 'label 1) 3))
@@ -1384,6 +1403,22 @@
    (else
     (error 'emit-scala-pb-file "unsupported field type ~a (groups)" type))))
 
+(define (sc-pb-set-expr sib)
+  (define v (sc-pb-field-name sib))
+  (case (hash-ref sib 'type)
+    ((11 10) (format "~a != null" v))
+    ((9 12) (format "~a.nonEmpty" v))
+    (else (sc-pb-nonzero sib v))))
+
+(define (sc-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+    code
+    (format
+     "    if (!(~a)) {\n~a    }\n"
+     (string-join (map sc-pb-set-expr later) " || ")
+     (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (sc-pb-encode-field model f)
   (define v (sc-pb-field-name f))
   (define n (hash-ref f 'number))
@@ -1675,7 +1710,11 @@
    "  var unknownFields: Array[Byte] = Array.empty[Byte]\n"
    "  def marshalDc(): Array[Byte] = {\n"
    (format "    val w = new ~a.Writer()\n" obj)
-   (apply string-append (map (lambda (f) (sc-pb-encode-field model f)) fields))
+   (apply
+    string-append
+    (map
+     (lambda (f) (sc-pb-encode-guard model f (sc-pb-encode-field model f)))
+     fields))
    "    w.raw(unknownFields)\n"
    "    w.toBytes\n  }\n\n"
    "  def unmarshalDc(data: Array[Byte]): Unit = {\n"
@@ -1741,7 +1780,6 @@
               (define e (sc-pb-resolve file-model (hash-ref f 'type-name)))
               (when (and
                      (eq? (hash-ref e 'kind) 'map)
-                     (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                      (not
                       (set-member?
                        seen-maps

@@ -416,6 +416,19 @@
           (if (string=? part "") "" (string-append (string (char-upcase (string-ref part 0))) (substring part 1))))
         (string-split s "_")) ""))
 
+;; Generated field name: PascalCase, with a trailing underscore
+;; when it would collide with a nested message/enum type of the
+;; same message (C# forbids a field and a nested type sharing a
+;; name, e.g. field `middle` next to nested class `Middle`).
+(define (cs-pb-field-name model f)
+  (define n (cs-pb-pascal (hash-ref f 'name)))
+  (define owner (field-owner model f))
+  (if (and owner
+           (or (member n (map (lambda (m) (hash-ref m 'name)) (hash-ref owner 'nested)))
+               (member n (map (lambda (e) (hash-ref e 'name)) (hash-ref owner 'enums)))))
+      (string-append n "_")
+      n))
+
 (define cs-pb-varint-types '(5 3 13 4 17 18 8 14))
 (define cs-pb-fixed '((2 4 "Float") (1 8 "Double") (7 4 "Int") (15 4 "Int") (6 8 "Long") (16 8 "Long")))
 
@@ -554,8 +567,26 @@
         [(= type 11) (format "~aif (~a != null) w.BytesField(~a, ~a.MarshalDc());\n" indent v n v)]
         [else (error 'emit-csharp-pb-file "unsupported field type ~a (groups)" type)]))
 
+(define (cs-pb-set-expr model sib)
+  (define v (cs-pb-field-name model sib))
+  (case (hash-ref sib 'type)
+    [(11 10) (format "~a != null" v)]
+    [(9) (format "(~a != null && ~a.Length > 0)" v v)]
+    [(12) (format "(~a != null && ~a.Length > 0)" v v)]
+    [else (cs-pb-nonzero sib v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (cs-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (format "        if (!(~a)) {\n~a        }\n"
+              (string-join (map (lambda (sib) (cs-pb-set-expr model sib)) later) " || ")
+              (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (cs-pb-encode-field model f support)
-  (define v (cs-pb-pascal (hash-ref f 'name)))
+  (define v (cs-pb-field-name model f))
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
   (cond [(and (= type 11)
@@ -611,11 +642,11 @@
 (define (cs-pb-oneof-clearing model f)
   (apply string-append
          (map (lambda (sib)
-                (format "                    ~a = ~a;\n" (cs-pb-pascal (hash-ref sib 'name)) (cs-pb-default model sib)))
+                (format "                    ~a = ~a;\n" (cs-pb-field-name model sib) (cs-pb-default model sib)))
               (oneof-siblings model f))))
 
 (define (cs-pb-decode-case model f support)
-  (define v (cs-pb-pascal (hash-ref f 'name)))
+  (define v (cs-pb-field-name model f))
   (define type (hash-ref f 'type))
   (define head (format "                case ~a: {\n" (hash-ref f 'number)))
   (define clearing (cs-pb-oneof-clearing model f))
@@ -778,7 +809,7 @@
    (apply string-append
           (map (lambda (f)
                  (format "~a    public ~a ~a = ~a;\n" pad (cs-pb-type model f)
-                         (cs-pb-pascal (hash-ref f 'name)) (cs-pb-default model f)))
+                         (cs-pb-field-name model f) (cs-pb-default model f)))
                fields))
    (format "~a    public byte[] UnknownFields = new byte[0];\n" pad)
    (format "~a    public ~a() {}\n" pad name)
@@ -787,25 +818,25 @@
        (string-append
         (format "~a    public ~a(~a) {\n" pad name
                 (string-join (map (lambda (f) (format "~a ~a" (cs-pb-type model f)
-                                                      (let ([n (cs-pb-pascal (hash-ref f 'name))])
+                                                      (let ([n (cs-pb-field-name model f)])
                                                         (string-append (string (char-downcase (string-ref n 0))) (substring n 1)))))
                                   fields) ", "))
         (apply string-append
                (map (lambda (f)
-                      (let ([n (cs-pb-pascal (hash-ref f 'name))])
+                      (let ([n (cs-pb-field-name model f)])
                         (format "~a        ~a = ~a;\n" pad n
                                 (string-append (string (char-downcase (string-ref n 0))) (substring n 1)))))
                     fields))
         (format "~a    }\n" pad)))
    (format "~a    public byte[] MarshalDc() {\n" pad)
    (format "~a        var w = new ~a.Writer();\n" pad support)
-   (apply string-append (map (lambda (f) (cs-pb-encode-field model f support)) fields))
+   (apply string-append (map (lambda (f) (cs-pb-encode-guard model f (cs-pb-encode-field model f support))) fields))
    (format "~a        w.Raw(UnknownFields);\n" pad)
    (format "~a        return w.ToBytes();\n~a    }\n" pad pad)
    (format "~a    public void UnmarshalDc(byte[] data) {\n" pad)
    (format "~a        UnknownFields = new byte[0];\n" pad)
    (apply string-append
-          (map (lambda (f) (format "~a        ~a = ~a;\n" pad (cs-pb-pascal (hash-ref f 'name)) (cs-pb-default model f))) fields))
+          (map (lambda (f) (format "~a        ~a = ~a;\n" pad (cs-pb-field-name model f) (cs-pb-default model f))) fields))
    (format "~a        var r = new ~a.Reader(data);\n" pad support)
    (format "~a        ~a.Field field;\n" pad support)
    (format "~a        while ((field = r.Next()) != null) {\n~a            switch (field.Number) {\n" pad pad)
@@ -852,7 +883,6 @@
              (when (= (hash-ref f 'type) 11)
                (define e (cs-pb-resolve file-model (hash-ref f 'type-name)))
                (when (and (eq? (hash-ref e 'kind) 'map)
-                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                           (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
                  (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
                  (set! helpers (cons (cs-pb-map-helpers file-model e support) helpers)))))

@@ -125,6 +125,14 @@ final class TestPbMessages
             if ((new Kitchen())->marshalDc() !== "") {
                 fail("empty");
             }
+            $both = new Kitchen();
+            $both->text = "a";
+            $both->code = 7;
+            $bothBack = new Kitchen();
+            $bothBack->unmarshalDc($both->marshalDc());
+            if ($bothBack->text !== "" || $bothBack->code !== 7) {
+                fail("oneof encode clearing");
+            }
             echo "roundtrip OK\n";
         } else {
             $from = new Kitchen();

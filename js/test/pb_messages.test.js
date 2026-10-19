@@ -117,6 +117,19 @@ test("descriptor features: nesting, oneof, proto2 defaults, extensions", async (
   assert.deepEqual(Outer.decode(Outer.encode(o)), o);
   assert.equal(Outer.encode(new Outer()).length, 0);
 
+  // Encode-side oneof clearing: with several variants set, only
+  // the last one in field order is written (matching decode's
+  // last-one-wins), for scalar and message variants alike.
+  const bothScalar = Outer.decode(Outer.encode(new Outer({ text: "a", code: 7 })));
+  assert.equal(bothScalar.text, "");
+  assert.equal(bothScalar.code, 7);
+  const bothPicked = Outer.decode(
+    Outer.encode(new Outer({ text: "a", code: 7, picked: new Outer_Middle({}) })),
+  );
+  assert.equal(bothPicked.text, "");
+  assert.equal(bothPicked.code, 0);
+  assert.ok(bothPicked.picked instanceof Outer_Middle);
+
   // Protoc oracle: the oneof message variant on the wire.
   const pickedText = `
 middle { inner { v: "deep" n: 7 } kind: BETA }

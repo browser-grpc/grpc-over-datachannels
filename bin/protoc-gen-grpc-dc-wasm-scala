@@ -424,6 +424,25 @@
          (hash-ref (car msgs) 'fields)))
        (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
 
+(define (oneof-later-siblings model f)
+  (define sibs (oneof-siblings model f))
+  (if (null? sibs)
+    '()
+    (let search ((msgs (hash-ref model 'messages '())))
+      (cond
+       ((null? msgs) '())
+       ((memq f (hash-ref (car msgs) 'fields))
+        (define fields (hash-ref (car msgs) 'fields))
+        (filter (lambda (x) (memq x (cdr (memq f fields)))) sibs))
+       (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
+
+(define (field-owner model f)
+  (let search ((msgs (hash-ref model 'messages '())))
+    (cond
+     ((null? msgs) #f)
+     ((memq f (hash-ref (car msgs) 'fields)) (car msgs))
+     (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))))))
+
 (define (field-explicit-default f)
   (and (hash-ref f 'default #f)
        (not (= (hash-ref f 'label 1) 3))

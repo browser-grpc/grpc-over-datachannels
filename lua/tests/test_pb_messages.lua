@@ -90,6 +90,12 @@ if arg[1] == "roundtrip" then
   back:unmarshalDc(k:marshalDc())
   checkSame(back, k)
   if kitchen.Kitchen.new():marshalDc() ~= "" then fail("empty") end
+  local both = kitchen.Kitchen.new()
+  both.text = "a"
+  both.code = 7
+  local bothBack = kitchen.Kitchen.new()
+  bothBack:unmarshalDc(both:marshalDc())
+  if bothBack.text ~= "" or bothBack.code ~= 7 then fail("oneof encode clearing") end
   print("roundtrip OK")
   return
 end

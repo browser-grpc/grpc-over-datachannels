@@ -129,6 +129,11 @@ private val harnessSource: String =
     |      back.unmarshalDc(k.marshalDc())
     |      checkSame(back, k)
     |      if (new Kitchen().marshalDc().nonEmpty) fail("empty")
+    |      val both = new Kitchen()
+    |      both.text = "a"; both.code = 7
+    |      val bothBack = new Kitchen()
+    |      bothBack.unmarshalDc(both.marshalDc())
+    |      if (bothBack.text != "" || bothBack.code != 7) fail("oneof encode clearing")
     |      println("roundtrip OK")
     |    } else {
     |      val from = new Kitchen()

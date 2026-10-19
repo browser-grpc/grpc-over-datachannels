@@ -424,6 +424,25 @@
          (hash-ref (car msgs) 'fields)))
        (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
 
+(define (oneof-later-siblings model f)
+  (define sibs (oneof-siblings model f))
+  (if (null? sibs)
+    '()
+    (let search ((msgs (hash-ref model 'messages '())))
+      (cond
+       ((null? msgs) '())
+       ((memq f (hash-ref (car msgs) 'fields))
+        (define fields (hash-ref (car msgs) 'fields))
+        (filter (lambda (x) (memq x (cdr (memq f fields)))) sibs))
+       (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
+
+(define (field-owner model f)
+  (let search ((msgs (hash-ref model 'messages '())))
+    (cond
+     ((null? msgs) #f)
+     ((memq f (hash-ref (car msgs) 'fields)) (car msgs))
+     (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))))))
+
 (define (field-explicit-default f)
   (and (hash-ref f 'default #f)
        (not (= (hash-ref f 'label 1) 3))
@@ -1202,6 +1221,21 @@
     (string-split s "_"))
    ""))
 
+(define (cs-pb-field-name model f)
+  (define n (cs-pb-pascal (hash-ref f 'name)))
+  (define owner (field-owner model f))
+  (if (and owner
+           (or (member
+                n
+                (map (lambda (m) (hash-ref m 'name)) (hash-ref owner 'nested)))
+               (member
+                n
+                (map
+                 (lambda (e) (hash-ref e 'name))
+                 (hash-ref owner 'enums)))))
+    (string-append n "_")
+    n))
+
 (define cs-pb-varint-types '(5 3 13 4 17 18 8 14))
 
 (define cs-pb-fixed
@@ -1439,8 +1473,25 @@
    (else
     (error 'emit-csharp-pb-file "unsupported field type ~a (groups)" type))))
 
+(define (cs-pb-set-expr model sib)
+  (define v (cs-pb-field-name model sib))
+  (case (hash-ref sib 'type)
+    ((11 10) (format "~a != null" v))
+    ((9) (format "(~a != null && ~a.Length > 0)" v v))
+    ((12) (format "(~a != null && ~a.Length > 0)" v v))
+    (else (cs-pb-nonzero sib v))))
+
+(define (cs-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+    code
+    (format
+     "        if (!(~a)) {\n~a        }\n"
+     (string-join (map (lambda (sib) (cs-pb-set-expr model sib)) later) " || ")
+     (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (cs-pb-encode-field model f support)
-  (define v (cs-pb-pascal (hash-ref f 'name)))
+  (define v (cs-pb-field-name model f))
   (define n (hash-ref f 'number))
   (define type (hash-ref f 'type))
   (cond
@@ -1555,12 +1606,12 @@
     (lambda (sib)
       (format
        "                    ~a = ~a;\n"
-       (cs-pb-pascal (hash-ref sib 'name))
+       (cs-pb-field-name model sib)
        (cs-pb-default model sib)))
     (oneof-siblings model f))))
 
 (define (cs-pb-decode-case model f support)
-  (define v (cs-pb-pascal (hash-ref f 'name)))
+  (define v (cs-pb-field-name model f))
   (define type (hash-ref f 'type))
   (define head (format "                case ~a: {\n" (hash-ref f 'number)))
   (define clearing (cs-pb-oneof-clearing model f))
@@ -1841,7 +1892,7 @@
         "~a    public ~a ~a = ~a;\n"
         pad
         (cs-pb-type model f)
-        (cs-pb-pascal (hash-ref f 'name))
+        (cs-pb-field-name model f)
         (cs-pb-default model f)))
      fields))
    (format "~a    public byte[] UnknownFields = new byte[0];\n" pad)
@@ -1859,7 +1910,7 @@
            (format
             "~a ~a"
             (cs-pb-type model f)
-            (let ((n (cs-pb-pascal (hash-ref f 'name))))
+            (let ((n (cs-pb-field-name model f)))
               (string-append
                (string (char-downcase (string-ref n 0)))
                (substring n 1)))))
@@ -1869,7 +1920,7 @@
        string-append
        (map
         (lambda (f)
-          (let ((n (cs-pb-pascal (hash-ref f 'name))))
+          (let ((n (cs-pb-field-name model f)))
             (format
              "~a        ~a = ~a;\n"
              pad
@@ -1883,7 +1934,10 @@
    (format "~a        var w = new ~a.Writer();\n" pad support)
    (apply
     string-append
-    (map (lambda (f) (cs-pb-encode-field model f support)) fields))
+    (map
+     (lambda (f)
+       (cs-pb-encode-guard model f (cs-pb-encode-field model f support)))
+     fields))
    (format "~a        w.Raw(UnknownFields);\n" pad)
    (format "~a        return w.ToBytes();\n~a    }\n" pad pad)
    (format "~a    public void UnmarshalDc(byte[] data) {\n" pad)
@@ -1895,7 +1949,7 @@
        (format
         "~a        ~a = ~a;\n"
         pad
-        (cs-pb-pascal (hash-ref f 'name))
+        (cs-pb-field-name model f)
         (cs-pb-default model f)))
      fields))
    (format "~a        var r = new ~a.Reader(data);\n" pad support)
@@ -1982,7 +2036,6 @@
               (define e (cs-pb-resolve file-model (hash-ref f 'type-name)))
               (when (and
                      (eq? (hash-ref e 'kind) 'map)
-                     (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                      (not
                       (set-member?
                        seen-maps

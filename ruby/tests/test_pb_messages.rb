@@ -112,6 +112,10 @@ module TestPbMessages
       back.unmarshal_dc(k.marshal_dc)
       check_same(back, k)
       fail!("empty") unless KitchenPb::Kitchen.new.marshal_dc == "".b
+      both = KitchenPb::Kitchen.new(text: "a", code: 7)
+      both_back = KitchenPb::Kitchen.new
+      both_back.unmarshal_dc(both.marshal_dc)
+      fail!("oneof encode clearing") unless both_back.text == "" && both_back.code == 7
       puts "roundtrip OK"
     else
       from = KitchenPb::Kitchen.new

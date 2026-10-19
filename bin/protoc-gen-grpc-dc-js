@@ -424,6 +424,25 @@
          (hash-ref (car msgs) 'fields)))
        (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
 
+(define (oneof-later-siblings model f)
+  (define sibs (oneof-siblings model f))
+  (if (null? sibs)
+    '()
+    (let search ((msgs (hash-ref model 'messages '())))
+      (cond
+       ((null? msgs) '())
+       ((memq f (hash-ref (car msgs) 'fields))
+        (define fields (hash-ref (car msgs) 'fields))
+        (filter (lambda (x) (memq x (cdr (memq f fields)))) sibs))
+       (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
+
+(define (field-owner model f)
+  (let search ((msgs (hash-ref model 'messages '())))
+    (cond
+     ((null? msgs) #f)
+     ((memq f (hash-ref (car msgs) 'fields)) (car msgs))
+     (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))))))
+
 (define (field-explicit-default f)
   (and (hash-ref f 'default #f)
        (not (= (hash-ref f 'label 1) 3))
@@ -983,6 +1002,27 @@
       (format "msg.~a = ~a; " (js-pb-name sib) (js-pb-default sib model)))
     (oneof-siblings model f))))
 
+(define (js-pb-set-expr sib)
+  (define v (format "msg.~a" (js-pb-name sib)))
+  (case (hash-ref sib 'type)
+    ((11 10) v)
+    ((9) (format "~a !== \"\"" v))
+    ((12) (format "(~a && ~a.length > 0)" v v))
+    ((8) v)
+    (else
+     (if (memv (hash-ref sib 'type) js-pb-bigint-types)
+       (format "~a !== 0n" v)
+       (format "~a !== 0" v)))))
+
+(define (js-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+    code
+    (format
+     "    if (!(~a)) {\n~a    }\n"
+     (string-join (map js-pb-set-expr later) " || ")
+     (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (js-pb-decode-case model f)
   (define target (format "msg.~a" (js-pb-name f)))
   (define head (format "      case ~a: " (hash-ref f 'number)))
@@ -1123,7 +1163,9 @@
    "  static encode(msg) {\n    const out = [];\n"
    (apply
     string-append
-    (map (lambda (f) (js-pb-encode-field model f)) (hash-ref msg 'fields)))
+    (map
+     (lambda (f) (js-pb-encode-guard model f (js-pb-encode-field model f)))
+     (hash-ref msg 'fields)))
    "    out.push(...msg.unknownFields);\n"
    "    return new Uint8Array(out);\n  }\n"
    (format "  static decode(bytes) {\n    const msg = new ~a();\n" name)

@@ -518,6 +518,23 @@
         [(= type 11) (format "~aif (~a != null) {\n~a  w.bytesField(~a, ~a.marshalDc())\n~a}\n" indent v indent n v indent)]
         [else (error 'emit-scala-pb-file "unsupported field type ~a (groups)" type)]))
 
+(define (sc-pb-set-expr sib)
+  (define v (sc-pb-field-name sib))
+  (case (hash-ref sib 'type)
+    [(11 10) (format "~a != null" v)]
+    [(9 12) (format "~a.nonEmpty" v)]
+    [else (sc-pb-nonzero sib v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (sc-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (format "    if (!(~a)) {\n~a    }\n"
+              (string-join (map sc-pb-set-expr later) " || ")
+              (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (sc-pb-encode-field model f)
   (define v (sc-pb-field-name f))
   (define n (hash-ref f 'number))
@@ -681,7 +698,7 @@
    "  var unknownFields: Array[Byte] = Array.empty[Byte]\n"
    "  def marshalDc(): Array[Byte] = {\n"
    (format "    val w = new ~a.Writer()\n" obj)
-   (apply string-append (map (lambda (f) (sc-pb-encode-field model f)) fields))
+   (apply string-append (map (lambda (f) (sc-pb-encode-guard model f (sc-pb-encode-field model f))) fields))
    "    w.raw(unknownFields)\n"
    "    w.toBytes\n  }\n\n"
    "  def unmarshalDc(data: Array[Byte]): Unit = {\n"
@@ -727,7 +744,6 @@
              (when (= (hash-ref f 'type) 11)
                (define e (sc-pb-resolve file-model (hash-ref f 'type-name)))
                (when (and (eq? (hash-ref e 'kind) 'map)
-                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                           (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
                  (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
                  (set! helpers (cons (sc-pb-map-helpers file-model e) helpers)))))

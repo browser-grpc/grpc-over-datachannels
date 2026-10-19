@@ -66,6 +66,11 @@ public final class TestPbMessages {
                         back.unmarshalDc(k.marshalDc());
                         checkSame(back, k);
                         if (new Kitchen().marshalDc().length != 0) fail("empty must encode empty");
+                        Kitchen both = new Kitchen();
+                        both.text = "a"; both.code = 7;
+                        Kitchen bothBack = new Kitchen();
+                        bothBack.unmarshalDc(both.marshalDc());
+                        if (!bothBack.text.equals("") || bothBack.code != 7) fail("oneof encode clearing");
                         System.out.println("roundtrip OK");
                         return;
                     }

@@ -82,6 +82,11 @@ int main(int argc, char** argv) {
     back.UnmarshalDc(k.MarshalDc());
     CheckSame(back, k);
     if (!kitchen::v1::Kitchen().MarshalDc().empty()) Fail("empty must encode empty");
+    kitchen::v1::Kitchen both;
+    both.text = "a"; both.code = 7;
+    kitchen::v1::Kitchen both_back;
+    both_back.UnmarshalDc(both.MarshalDc());
+    if (!both_back.text.empty() || both_back.code != 7) Fail("oneof encode clearing");
     std::printf("roundtrip OK\n");
     return 0;
   }

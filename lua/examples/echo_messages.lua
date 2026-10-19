@@ -114,7 +114,9 @@ function Reader:next()
   error("bad wire type")
 end
 
-local EchoRequest = {}
+local EchoRequest
+local EchoResponse
+EchoRequest = {}
 EchoRequest.__index = EchoRequest
 
 function EchoRequest.new(message, count, delayMs)
@@ -152,7 +154,7 @@ function EchoRequest:unmarshalDc(data)
   end
 end
 
-local EchoResponse = {}
+EchoResponse = {}
 EchoResponse.__index = EchoResponse
 
 function EchoResponse.new(message, index)

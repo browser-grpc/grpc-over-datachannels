@@ -298,6 +298,26 @@
         [(= type 11) (format "~aif let Some(v) = &~a { pb_append_bytes_field(&mut out, ~a, &v.encode()); }\n" indent v n)]
         [else (error 'emit-rust-pb-file "unsupported field type ~a (groups)" type)]))
 
+(define (rs-pb-set-expr sib)
+  (define v (format "self.~a" (rs-pb-field-name sib)))
+  (case (hash-ref sib 'type)
+    [(11 10) (format "~a.is_some()" v)]
+    [(9 12) (format "!~a.is_empty()" v)]
+    [(8) v]
+    [(14) (format "(~a as i32) != 0" v)]
+    [(1 2) (format "~a != 0.0" v)]
+    [else (format "~a != 0" v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (rs-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (format "        if !(~a) {\n~a        }\n"
+              (string-join (map rs-pb-set-expr later) " || ")
+              (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (rs-pb-encode-field model f)
   (define v (format "self.~a" (rs-pb-field-name f)))
   (define n (hash-ref f 'number))
@@ -493,7 +513,7 @@
           (map (lambda (f) (format "            ~a: ~a,\n" (rs-pb-field-name f) (rs-pb-default model f))) fields))
    "            unknown_fields: Vec::new(),\n        }\n    }\n}\n\n"
    (format "impl ~a {\n    pub fn encode(&self) -> Vec<u8> {\n        let mut out = Vec::new();\n" name)
-   (apply string-append (map (lambda (f) (rs-pb-encode-field model f)) fields))
+   (apply string-append (map (lambda (f) (rs-pb-encode-guard model f (rs-pb-encode-field model f))) fields))
    "        out.extend_from_slice(&self.unknown_fields);\n"
    ;; (nested enums are emitted alongside their message below)
    "        out\n    }\n\n"
@@ -545,7 +565,6 @@
              (when (= (hash-ref f 'type) 11)
                (define e (rs-pb-resolve file-model (hash-ref f 'type-name)))
                (when (and (eq? (hash-ref e 'kind) 'map)
-                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                           (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
                  (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
                  (set! helpers (cons (rs-pb-map-helpers file-model e) helpers)))))

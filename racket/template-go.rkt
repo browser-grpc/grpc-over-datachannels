@@ -448,6 +448,25 @@
          (format "~aif ~a != nil {\n~a\tout = appendBytesField(out, ~a, ~a.MarshalDC())\n~a}\n" indent v indent n v indent)]
         [else (error 'emit-go-pb-file "unsupported field type ~a (groups)" type)]))
 
+(define (go-pb-set-expr sib)
+  (define v (format "m.~a" (go-pb-pascal (hash-ref sib 'name))))
+  (case (hash-ref sib 'type)
+    [(11 10) (format "~a != nil" v)]
+    [(9) (format "~a != \"\"" v)]
+    [(12) (format "len(~a) > 0" v)]
+    [(8) v]
+    [else (format "~a != 0" v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (go-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (format "\tif !(~a) {\n~a\t}\n"
+              (string-join (map go-pb-set-expr later) " || ")
+              (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (go-pb-encode-field model f)
   (define fname (go-pb-pascal (hash-ref f 'name)))
   (define v (format "m.~a" fname))
@@ -635,7 +654,7 @@
    "}\n\n"
    (go-pb-constructor model msg)
    (format "func (m *~a) MarshalDC() []byte {\n\tvar out []byte\n" name)
-   (apply string-append (map (lambda (f) (go-pb-encode-field model f)) (hash-ref msg 'fields)))
+   (apply string-append (map (lambda (f) (go-pb-encode-guard model f (go-pb-encode-field model f))) (hash-ref msg 'fields)))
    "\tout = append(out, m.UnknownFields...)\n"
    "\treturn out\n}\n\n"
    (format "func (m *~a) UnmarshalDC(data []byte) error {\n" name)

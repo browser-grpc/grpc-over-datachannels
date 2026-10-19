@@ -415,6 +415,24 @@
         [(= type 11) (format "~aif (~a !== null) {\n~a    $w->bytesField(~a, ~a->marshalDc());\n~a}\n" indent v indent n v indent)]
         [else (error 'emit-php-pb-file "unsupported field type ~a (groups)" type)]))
 
+(define (php-pb-set-expr sib)
+  (define v (format "$this->~a" (php-pb-field-name sib)))
+  (case (hash-ref sib 'type)
+    [(11 10) (format "~a !== null" v)]
+    [(9 12) (format "(~a !== null && ~a !== \"\")" v v)]
+    [(1 2) (format "~a != 0" v)]
+    [else (php-pb-nonzero sib v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (php-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (format "        if (!(~a)) {\n~a        }\n"
+              (string-join (map php-pb-set-expr later) " || ")
+              (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (php-pb-encode-field model f)
   (define v (format "$this->~a" (php-pb-field-name f)))
   (define n (hash-ref f 'number))
@@ -577,7 +595,7 @@
    (apply string-append (map (lambda (f) (format "        $this->~a = $~a;\n" (php-pb-field-name f) (php-pb-field-name f))) fields))
    "    }\n\n"
    "    public function marshalDc(): string\n    {\n        $w = new Writer();\n"
-   (apply string-append (map (lambda (f) (php-pb-encode-field model f)) fields))
+   (apply string-append (map (lambda (f) (php-pb-encode-guard model f (php-pb-encode-field model f))) fields))
    "        $w->raw($this->unknownFields);\n"
    "        return $w->toBytes();\n    }\n\n"
    "    public function unmarshalDc(string $data): self\n    {\n"
@@ -624,7 +642,6 @@
              (when (= (hash-ref f 'type) 11)
                (define e (php-pb-resolve file-model (hash-ref f 'type-name)))
                (when (and (eq? (hash-ref e 'kind) 'map)
-                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                           (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
                  (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
                  (set! helpers (cons (php-pb-map-helpers file-model e) helpers)))))

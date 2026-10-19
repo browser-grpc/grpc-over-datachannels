@@ -424,6 +424,25 @@
          (hash-ref (car msgs) 'fields)))
        (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
 
+(define (oneof-later-siblings model f)
+  (define sibs (oneof-siblings model f))
+  (if (null? sibs)
+    '()
+    (let search ((msgs (hash-ref model 'messages '())))
+      (cond
+       ((null? msgs) '())
+       ((memq f (hash-ref (car msgs) 'fields))
+        (define fields (hash-ref (car msgs) 'fields))
+        (filter (lambda (x) (memq x (cdr (memq f fields)))) sibs))
+       (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
+
+(define (field-owner model f)
+  (let search ((msgs (hash-ref model 'messages '())))
+    (cond
+     ((null? msgs) #f)
+     ((memq f (hash-ref (car msgs) 'fields)) (car msgs))
+     (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))))))
+
 (define (field-explicit-default f)
   (and (hash-ref f 'default #f)
        (not (= (hash-ref f 'label 1) 3))
@@ -1242,6 +1261,24 @@
      indent))
    (else (error 'emit-go-pb-file "unsupported field type ~a (groups)" type))))
 
+(define (go-pb-set-expr sib)
+  (define v (format "m.~a" (go-pb-pascal (hash-ref sib 'name))))
+  (case (hash-ref sib 'type)
+    ((11 10) (format "~a != nil" v))
+    ((9) (format "~a != \"\"" v))
+    ((12) (format "len(~a) > 0" v))
+    ((8) v)
+    (else (format "~a != 0" v))))
+
+(define (go-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+    code
+    (format
+     "\tif !(~a) {\n~a\t}\n"
+     (string-join (map go-pb-set-expr later) " || ")
+     (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (go-pb-encode-field model f)
   (define fname (go-pb-pascal (hash-ref f 'name)))
   (define v (format "m.~a" fname))
@@ -1566,7 +1603,9 @@
    (format "func (m *~a) MarshalDC() []byte {\n\tvar out []byte\n" name)
    (apply
     string-append
-    (map (lambda (f) (go-pb-encode-field model f)) (hash-ref msg 'fields)))
+    (map
+     (lambda (f) (go-pb-encode-guard model f (go-pb-encode-field model f)))
+     (hash-ref msg 'fields)))
    "\tout = append(out, m.UnknownFields...)\n"
    "\treturn out\n}\n\n"
    (format "func (m *~a) UnmarshalDC(data []byte) error {\n" name)

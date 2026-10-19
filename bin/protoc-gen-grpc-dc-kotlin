@@ -424,6 +424,25 @@
          (hash-ref (car msgs) 'fields)))
        (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
 
+(define (oneof-later-siblings model f)
+  (define sibs (oneof-siblings model f))
+  (if (null? sibs)
+    '()
+    (let search ((msgs (hash-ref model 'messages '())))
+      (cond
+       ((null? msgs) '())
+       ((memq f (hash-ref (car msgs) 'fields))
+        (define fields (hash-ref (car msgs) 'fields))
+        (filter (lambda (x) (memq x (cdr (memq f fields)))) sibs))
+       (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
+
+(define (field-owner model f)
+  (let search ((msgs (hash-ref model 'messages '())))
+    (cond
+     ((null? msgs) #f)
+     ((memq f (hash-ref (car msgs) 'fields)) (car msgs))
+     (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))))))
+
 (define (field-explicit-default f)
   (and (hash-ref f 'default #f)
        (not (= (hash-ref f 'label 1) 3))
@@ -1463,6 +1482,22 @@
    (else
     (error 'emit-kotlin-pb-file "unsupported field type ~a (groups)" type))))
 
+(define (kt-pb-set-expr sib)
+  (define v (kt-pb-field-name sib))
+  (case (hash-ref sib 'type)
+    ((11 10) (format "~a != null" v))
+    ((9 12) (format "~a.isNotEmpty()" v))
+    (else (kt-pb-nonzero sib v))))
+
+(define (kt-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+    code
+    (format
+     "        if (!(~a)) {\n~a        }\n"
+     (string-join (map kt-pb-set-expr later) " || ")
+     (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (kt-pb-encode-field model f support)
   (define v (kt-pb-field-name f))
   (define n (hash-ref f 'number))
@@ -1867,7 +1902,10 @@
    (format "~a        val w = ~a.Writer()\n" indent support)
    (apply
     string-append
-    (map (lambda (f) (kt-pb-encode-field model f support)) fields))
+    (map
+     (lambda (f)
+       (kt-pb-encode-guard model f (kt-pb-encode-field model f support)))
+     fields))
    (format "~a        w.raw(unknownFields)\n" indent)
    (format "~a        return w.toBytes()\n~a    }\n" indent indent)
    (format "~a    override fun unmarshalDc(data: ByteArray) {\n" indent)
@@ -1967,7 +2005,6 @@
               (define e (kt-pb-resolve file-model (hash-ref f 'type-name)))
               (when (and
                      (eq? (hash-ref e 'kind) 'map)
-                     (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                      (not
                       (set-member?
                        seen-maps

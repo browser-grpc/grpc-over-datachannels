@@ -424,6 +424,25 @@
          (hash-ref (car msgs) 'fields)))
        (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
 
+(define (oneof-later-siblings model f)
+  (define sibs (oneof-siblings model f))
+  (if (null? sibs)
+    '()
+    (let search ((msgs (hash-ref model 'messages '())))
+      (cond
+       ((null? msgs) '())
+       ((memq f (hash-ref (car msgs) 'fields))
+        (define fields (hash-ref (car msgs) 'fields))
+        (filter (lambda (x) (memq x (cdr (memq f fields)))) sibs))
+       (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
+
+(define (field-owner model f)
+  (let search ((msgs (hash-ref model 'messages '())))
+    (cond
+     ((null? msgs) #f)
+     ((memq f (hash-ref (car msgs) 'fields)) (car msgs))
+     (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))))))
+
 (define (field-explicit-default f)
   (and (hash-ref f 'default #f)
        (not (= (hash-ref f 'label 1) 3))
@@ -1604,6 +1623,22 @@
     (format "~aif (~a) w.BytesField(~a, ~a->MarshalDc());\n" indent v n v))
    (else (error 'emit-cpp-pb-file "unsupported field type ~a (groups)" type))))
 
+(define (cpp-pb-set-expr sib)
+  (define v (hash-ref sib 'name))
+  (case (hash-ref sib 'type)
+    ((11 10) (format "~a.has_value()" v))
+    ((9 12) (format "!~a.empty()" v))
+    (else (cpp-pb-nonzero sib v))))
+
+(define (cpp-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+    code
+    (format
+     "    if (!(~a)) {\n~a    }\n"
+     (string-join (map cpp-pb-set-expr later) " || ")
+     (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (cpp-pb-encode-field model f support)
   (define v (hash-ref f 'name))
   (define n (hash-ref f 'number))
@@ -2041,6 +2076,17 @@
    (apply
     string-append
     (map
+     (lambda (e) (cpp-pb-nested-enum e (string-append indent "  ")))
+     (hash-ref msg 'enums)))
+   (apply
+    string-append
+    (map
+     (lambda (n)
+       (cpp-pb-message-class model n support (string-append indent "  ")))
+     (hash-ref msg 'nested)))
+   (apply
+    string-append
+    (map
      (lambda (f)
        (format
         "~a  ~a ~a = ~a;\n"
@@ -2055,7 +2101,10 @@
    (format "~a    ~a::Writer w;\n" pad support)
    (apply
     string-append
-    (map (lambda (f) (cpp-pb-encode-field model f support)) fields))
+    (map
+     (lambda (f)
+       (cpp-pb-encode-guard model f (cpp-pb-encode-field model f support)))
+     fields))
    (format "~a    w.Raw(unknown_fields);\n" pad)
    (format "~a    return w.ToBytes();\n~a  }\n" pad pad)
    (format "~a  void UnmarshalDc(const grpcdc::Bytes& data) override {\n" pad)
@@ -2085,17 +2134,6 @@
     pad
     pad
     pad)
-   (apply
-    string-append
-    (map
-     (lambda (n)
-       (cpp-pb-message-class model n support (string-append indent "  ")))
-     (hash-ref msg 'nested)))
-   (apply
-    string-append
-    (map
-     (lambda (e) (cpp-pb-nested-enum e (string-append indent "  ")))
-     (hash-ref msg 'enums)))
    (format "~a};\n" pad)))
 
 (define (cpp-pb-nested-enum e indent)
@@ -2135,7 +2173,6 @@
               (define e (cpp-pb-resolve file-model (hash-ref f 'type-name)))
               (when (and
                      (eq? (hash-ref e 'kind) 'map)
-                     (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                      (not
                       (set-member?
                        seen-maps
@@ -2154,10 +2191,6 @@
               (lambda (m) (format "class ~a;\n" (hash-ref m 'name)))
               (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))
             "\n"
-            (cpp-pb-support
-             base
-             pkg
-             (apply string-append (map car (reverse helpers))))
             (apply
              string-append
              (map
@@ -2175,6 +2208,10 @@
                   ",\n")
                  "\n};\n\n"))
               enums))
+            (cpp-pb-support
+             base
+             pkg
+             (apply string-append (map car (reverse helpers))))
             (apply
              string-append
              (map

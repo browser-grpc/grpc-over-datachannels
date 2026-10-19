@@ -70,6 +70,16 @@ func main() {
 		if len(new(pb.Kitchen).MarshalDC()) != 0 {
 			fail("empty message must encode to zero bytes")
 		}
+		// Encode-side oneof clearing: with both variants set, only
+		// the last in field order is written.
+		both := &pb.Kitchen{Text: "a", Code: 7}
+		bothBack := new(pb.Kitchen)
+		if err := bothBack.UnmarshalDC(both.MarshalDC()); err != nil {
+			fail("oneof unmarshal: %v", err)
+		}
+		if bothBack.Text != "" || bothBack.Code != 7 {
+			fail("oneof encode clearing: got text=%q code=%d", bothBack.Text, bothBack.Code)
+		}
 		fmt.Println("roundtrip OK")
 		return
 	}

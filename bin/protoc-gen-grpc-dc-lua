@@ -424,6 +424,25 @@
          (hash-ref (car msgs) 'fields)))
        (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
 
+(define (oneof-later-siblings model f)
+  (define sibs (oneof-siblings model f))
+  (if (null? sibs)
+    '()
+    (let search ((msgs (hash-ref model 'messages '())))
+      (cond
+       ((null? msgs) '())
+       ((memq f (hash-ref (car msgs) 'fields))
+        (define fields (hash-ref (car msgs) 'fields))
+        (filter (lambda (x) (memq x (cdr (memq f fields)))) sibs))
+       (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
+
+(define (field-owner model f)
+  (let search ((msgs (hash-ref model 'messages '())))
+    (cond
+     ((null? msgs) #f)
+     ((memq f (hash-ref (car msgs) 'fields)) (car msgs))
+     (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))))))
+
 (define (field-explicit-default f)
   (and (hash-ref f 'default #f)
        (not (= (hash-ref f 'label 1) 3))
@@ -1274,6 +1293,24 @@
      ":marshalDc()) end\n"))
    (else (error 'emit-lua-pb-file "unsupported field type ~a (groups)" type))))
 
+(define (lua-pb-set-expr sib)
+  (define v (format "self.~a" (lua-pb-field-name sib)))
+  (case (hash-ref sib 'type)
+    ((11 10) (string-append v " ~= nil"))
+    ((9 12) (string-append "#" v " > 0"))
+    (else (lua-pb-nonzero sib v))))
+
+(define (lua-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+    code
+    (string-append
+     "    if not ("
+     (string-join (map lua-pb-set-expr later) " or ")
+     ") then\n"
+     (if (string-suffix? code "\n") code (string-append code "\n"))
+     "    end\n")))
+
 (define (lua-pb-encode-field model f)
   (define v (format "self.~a" (lua-pb-field-name f)))
   (define n (hash-ref f 'number))
@@ -1515,7 +1552,7 @@
     (lua-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
   (define fields (hash-ref msg 'fields))
   (string-append
-   (format "local ~a = {}\n~a.__index = ~a\n\n" name name name)
+   (format "~a = {}\n~a.__index = ~a\n\n" name name name)
    (format
     "function ~a.new(~a)\n  return setmetatable({ ~a }, ~a)\nend\n\n"
     name
@@ -1534,7 +1571,9 @@
    (format "function ~a:marshalDc()\n  local w = Writer.new()\n" name)
    (apply
     string-append
-    (map (lambda (f) (lua-pb-encode-field model f)) fields))
+    (map
+     (lambda (f) (lua-pb-encode-guard model f (lua-pb-encode-field model f)))
+     fields))
    "  w:raw(self.unknownFields)\n"
    "  return w:toBytes()\nend\n\n"
    (format "function ~a:unmarshalDc(data)\n" name)
@@ -1599,7 +1638,6 @@
               (define e (lua-pb-resolve file-model (hash-ref f 'type-name)))
               (when (and
                      (eq? (hash-ref e 'kind) 'map)
-                     (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                      (not
                       (set-member?
                        seen-maps
@@ -1614,6 +1652,12 @@
                   (cons (lua-pb-map-helpers file-model e) helpers)))))
            (for ((n (in-list (hash-ref msg 'nested)))) (collect n)))
          (for ((m (in-list messages))) (collect m))
+         (define (all-msg-names msg)
+           (if (hash-ref msg 'map-entry)
+             '()
+             (cons
+              (lua-pb-flat pkg (hash-ref msg 'full-name))
+              (append-map all-msg-names (hash-ref msg 'nested)))))
          (define dep-modules
            (remove-duplicates
             (map
@@ -1639,6 +1683,11 @@
             (apply
              string-append
              (map (lambda (n) (format "local ~a\n" n)) (reverse helper-names)))
+            (apply
+             string-append
+             (map
+              (lambda (n) (format "local ~a\n" n))
+              (append-map all-msg-names messages)))
             (apply
              string-append
              (map (lambda (e) (lua-pb-enum file-model e)) enums))

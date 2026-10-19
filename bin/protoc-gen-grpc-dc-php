@@ -424,6 +424,25 @@
          (hash-ref (car msgs) 'fields)))
        (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
 
+(define (oneof-later-siblings model f)
+  (define sibs (oneof-siblings model f))
+  (if (null? sibs)
+    '()
+    (let search ((msgs (hash-ref model 'messages '())))
+      (cond
+       ((null? msgs) '())
+       ((memq f (hash-ref (car msgs) 'fields))
+        (define fields (hash-ref (car msgs) 'fields))
+        (filter (lambda (x) (memq x (cdr (memq f fields)))) sibs))
+       (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs))))))))
+
+(define (field-owner model f)
+  (let search ((msgs (hash-ref model 'messages '())))
+    (cond
+     ((null? msgs) #f)
+     ((memq f (hash-ref (car msgs) 'fields)) (car msgs))
+     (else (search (append (hash-ref (car msgs) 'nested) (cdr msgs)))))))
+
 (define (field-explicit-default f)
   (and (hash-ref f 'default #f)
        (not (= (hash-ref f 'label 1) 3))
@@ -1203,6 +1222,23 @@
      indent))
    (else (error 'emit-php-pb-file "unsupported field type ~a (groups)" type))))
 
+(define (php-pb-set-expr sib)
+  (define v (format "$this->~a" (php-pb-field-name sib)))
+  (case (hash-ref sib 'type)
+    ((11 10) (format "~a !== null" v))
+    ((9 12) (format "(~a !== null && ~a !== \"\")" v v))
+    ((1 2) (format "~a != 0" v))
+    (else (php-pb-nonzero sib v))))
+
+(define (php-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+    code
+    (format
+     "        if (!(~a)) {\n~a        }\n"
+     (string-join (map php-pb-set-expr later) " || ")
+     (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (php-pb-encode-field model f)
   (define v (format "$this->~a" (php-pb-field-name f)))
   (define n (hash-ref f 'number))
@@ -1495,7 +1531,9 @@
    "    public function marshalDc(): string\n    {\n        $w = new Writer();\n"
    (apply
     string-append
-    (map (lambda (f) (php-pb-encode-field model f)) fields))
+    (map
+     (lambda (f) (php-pb-encode-guard model f (php-pb-encode-field model f)))
+     fields))
    "        $w->raw($this->unknownFields);\n"
    "        return $w->toBytes();\n    }\n\n"
    "    public function unmarshalDc(string $data): self\n    {\n"
@@ -1577,7 +1615,6 @@
               (define e (php-pb-resolve file-model (hash-ref f 'type-name)))
               (when (and
                      (eq? (hash-ref e 'kind) 'map)
-                     (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                      (not
                       (set-member?
                        seen-maps

@@ -672,6 +672,23 @@
         [(= type 11) (format "~aif (~a) w.BytesField(~a, ~a->MarshalDc());\n" indent v n v)]
         [else (error 'emit-cpp-pb-file "unsupported field type ~a (groups)" type)]))
 
+(define (cpp-pb-set-expr sib)
+  (define v (hash-ref sib 'name))
+  (case (hash-ref sib 'type)
+    [(11 10) (format "~a.has_value()" v)]
+    [(9 12) (format "!~a.empty()" v)]
+    [else (cpp-pb-nonzero sib v)]))
+
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set, so only the winning member is written.
+(define (cpp-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (format "    if (!(~a)) {\n~a    }\n"
+              (string-join (map cpp-pb-set-expr later) " || ")
+              (if (string-suffix? code "\n") code (string-append code "\n")))))
+
 (define (cpp-pb-encode-field model f support)
   (define v (hash-ref f 'name))
   (define n (hash-ref f 'number))
@@ -917,6 +934,11 @@
   (define pad indent)
   (string-append
    (format "~aclass ~a : public grpcdc::Marshaler, public grpcdc::Unmarshaler {\n~a public:\n" pad name pad)
+   ;; Nested enums and message classes come first: fields below
+   ;; hold them by value (std::optional) and use their defaults,
+   ;; so they must be declared and complete before the fields.
+   (apply string-append (map (lambda (e) (cpp-pb-nested-enum e (string-append indent "  "))) (hash-ref msg 'enums)))
+   (apply string-append (map (lambda (n) (cpp-pb-message-class model n support (string-append indent "  "))) (hash-ref msg 'nested)))
    (apply string-append
           (map (lambda (f)
                  (format "~a  ~a ~a = ~a;\n" pad (cpp-pb-type model f) (hash-ref f 'name) (cpp-pb-default model f)))
@@ -925,7 +947,7 @@
    (format "~a  ~a() = default;\n" pad name)
    (format "~a  grpcdc::Bytes MarshalDc() const override {\n" pad)
    (format "~a    ~a::Writer w;\n" pad support)
-   (apply string-append (map (lambda (f) (cpp-pb-encode-field model f support)) fields))
+   (apply string-append (map (lambda (f) (cpp-pb-encode-guard model f (cpp-pb-encode-field model f support))) fields))
    (format "~a    w.Raw(unknown_fields);\n" pad)
    (format "~a    return w.ToBytes();\n~a  }\n" pad pad)
    (format "~a  void UnmarshalDc(const grpcdc::Bytes& data) override {\n" pad)
@@ -937,8 +959,6 @@
    (format "~a    while (r.Next(field)) {\n~a      switch (field.number) {\n" pad pad)
    (apply string-append (map (lambda (f) (cpp-pb-decode-case model f support)) fields))
    (format "~a        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;\n~a      }\n~a    }\n~a  }\n" pad pad pad pad)
-   (apply string-append (map (lambda (n) (cpp-pb-message-class model n support (string-append indent "  "))) (hash-ref msg 'nested)))
-   (apply string-append (map (lambda (e) (cpp-pb-nested-enum e (string-append indent "  "))) (hash-ref msg 'enums)))
    (format "~a};\n" pad)))
 
 (define (cpp-pb-nested-enum e indent)
@@ -969,7 +989,6 @@
              (when (= (hash-ref f 'type) 11)
                (define e (cpp-pb-resolve file-model (hash-ref f 'type-name)))
                (when (and (eq? (hash-ref e 'kind) 'map)
-                          (equal? (hash-ref e 'file) (hash-ref file-model 'name))
                           (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
                  (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
                  (set! helpers (cons (cpp-pb-map-helpers file-model e support) helpers)))))
@@ -982,7 +1001,8 @@
                    (map (lambda (m) (format "class ~a;\n" (hash-ref m 'name)))
                         (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))
             "\n"
-            (cpp-pb-support base pkg (apply string-append (map car (reverse helpers))))
+            ;; Top-level enums precede the support block: its map
+            ;; helper declarations name enum value types.
             (apply string-append
                    (map (lambda (e)
                           (string-append
@@ -991,6 +1011,7 @@
                                              (hash-ref e 'values)) ",\n")
                            "\n};\n\n"))
                         enums))
+            (cpp-pb-support base pkg (apply string-append (map car (reverse helpers))))
             (apply string-append
                    (map (lambda (m) (cpp-pb-message-class file-model m support ""))
                         (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))

@@ -450,6 +450,22 @@
                 (format "                self.~a = ~a\n" (hash-ref sib 'name) (py-pb-default-expr model sib)))
               (oneof-siblings model f))))
 
+;; Encode-side oneof clearing: suppress f when a later sibling is
+;; set (Python truthiness matches proto3 zero checks; a message
+;; instance is present even when empty), so only the winner is
+;; written.
+(define (py-pb-encode-guard model f code)
+  (define later (oneof-later-siblings model f))
+  (if (null? later)
+      code
+      (string-append
+       (format "        if not (~a):\n"
+               (string-join (map (lambda (sib) (format "self.~a" (hash-ref sib 'name))) later) " or "))
+       (string-join (map (lambda (l) (if (string=? l "") l (string-append "    " l)))
+                         (string-split code "\n"))
+                    "\n")
+       "\n")))
+
 (define (py-pb-decode-case model f first?)
   (define a (hash-ref f 'name))
   (define target (format "self.~a" a))
@@ -554,7 +570,7 @@
    (apply string-append (map (lambda (f) (py-pb-init-line model f)) fields))
    "        self.unknown_fields = b\"\"\n"
    "\n    def marshal_dc(self):\n        out = bytearray()\n"
-   (apply string-append (map (lambda (f) (py-pb-encode-field model f)) fields))
+   (apply string-append (map (lambda (f) (py-pb-encode-guard model f (py-pb-encode-field model f))) fields))
    "        out += self.unknown_fields\n"
    "        return bytes(out)\n"
    "\n    def unmarshal_dc(self, data):\n"
