@@ -545,14 +545,33 @@
    (for/list
     ((w (in-list wanted)))
     (hash-set
-     (hash-ref
-      by-name
-      w
-      (lambda ()
-        (error 'parse-request "file_to_generate not in request: ~a" w)))
-     'types
-     registry))
+     (hash-set
+      (hash-ref
+       by-name
+       w
+       (lambda ()
+         (error 'parse-request "file_to_generate not in request: ~a" w)))
+      'types
+      registry)
+     'generate-set
+     wanted))
    parameter))
+
+(define (map-entry-emitted-in-own-file? model entry)
+  (define types (hash-ref model 'types #f))
+  (and types
+       (not (equal? (hash-ref entry 'file) (hash-ref model 'name)))
+       (member (hash-ref entry 'file) (hash-ref model 'generate-set '()))
+       (for/or
+        (((k e) (in-hash types)))
+        (and (eq? (hash-ref e 'kind) 'message)
+             (equal? (hash-ref e 'file) (hash-ref entry 'file))
+             (for/or
+              ((f (in-list (hash-ref (hash-ref e 'msg) 'fields))))
+              (and (= (hash-ref f 'type) 11)
+                   (equal?
+                    (hash-ref f 'type-name)
+                    (hash-ref entry 'full))))))))
 
 (define (parse-parameters parameter)
   (for/hash
@@ -1022,15 +1041,7 @@
     (py-pb-flat
      (hash-ref entry 'pkg)
      (if (eq? (hash-ref entry 'kind) 'enum)
-       (let ((e (hash-ref entry 'enum)))
-         (format
-          "~a~a"
-          (if (hash-ref entry 'msg)
-            (string-append (hash-ref (hash-ref entry 'msg) 'full-name) ".")
-            (if (string=? (hash-ref entry 'pkg) "")
-              ""
-              (string-append (hash-ref entry 'pkg) ".")))
-          (hash-ref e 'name)))
+       (hash-ref entry 'full)
        (hash-ref (hash-ref entry 'msg) 'full-name))))
   (if (equal? (hash-ref entry 'file) (hash-ref model 'name))
     flat
@@ -1476,15 +1487,7 @@
 
 (define (py-pb-enum entry)
   (define e (hash-ref entry 'enum))
-  (define full
-    (if (hash-ref entry 'msg)
-      (format
-       "~a.~a"
-       (hash-ref (hash-ref entry 'msg) 'full-name)
-       (hash-ref e 'name))
-      (if (string=? (hash-ref entry 'pkg) "")
-        (hash-ref e 'name)
-        (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name)))))
+  (define full (hash-ref entry 'full))
   (string-append
    (format
     "class ~a:\n    \"\"\"Enum ~a.\"\"\"\n"

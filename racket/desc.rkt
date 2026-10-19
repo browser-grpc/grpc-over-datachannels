@@ -260,11 +260,29 @@
   (define by-name (for/hash ([f (in-list files)]) (values (hash-ref f 'name) f)))
   (define registry (build-type-registry files))
   (values (for/list ([w (in-list wanted)])
-            (hash-set (hash-ref by-name w
-                                (lambda ()
-                                  (error 'parse-request "file_to_generate not in request: ~a" w)))
-                      'types registry))
+            (hash-set (hash-set (hash-ref by-name w
+                                          (lambda ()
+                                            (error 'parse-request "file_to_generate not in request: ~a" w)))
+                                'types registry)
+                      'generate-set wanted))
           parameter))
+
+;; Will the map entry's own file emit its encode/decode helpers?
+;; True when that file is also being generated and some message in
+;; it uses the entry as a map field. Go emitters use this to avoid
+;; emitting the same package-level helpers twice (other languages
+;; scope helpers per file/module and do not need it).
+(define (map-entry-emitted-in-own-file? model entry)
+  (define types (hash-ref model 'types #f))
+  (and types
+       (not (equal? (hash-ref entry 'file) (hash-ref model 'name)))
+       (member (hash-ref entry 'file) (hash-ref model 'generate-set '()))
+       (for/or ([(k e) (in-hash types)])
+         (and (eq? (hash-ref e 'kind) 'message)
+              (equal? (hash-ref e 'file) (hash-ref entry 'file))
+              (for/or ([f (in-list (hash-ref (hash-ref e 'msg) 'fields))])
+                (and (= (hash-ref f 'type) 11)
+                     (equal? (hash-ref f 'type-name) (hash-ref entry 'full))))))))
 
 ;; "message_module=crate::pb,pb_import=./echo_pb.js" -> #hash((sym . str))
 (define (parse-parameters parameter)

@@ -101,7 +101,7 @@ test("descriptor features: nesting, oneof, proto2 defaults, extensions", async (
 
   const feat = await import(pathToFileURL(join(out, "features_pb.js")));
   const legacy = await import(pathToFileURL(join(out, "legacy_pb.js")));
-  const { Outer, Outer_Middle, Outer_Middle_Inner, Kind, Shade } = feat;
+  const { Outer, Outer_Middle, Outer_Middle_Inner, Outer_Middle_Kind: Kind, Shade } = feat;
 
   // Three levels of nesting, nested enum, enum-valued map, oneof
   // (plain fields; producers set one variant), packed fixed32.

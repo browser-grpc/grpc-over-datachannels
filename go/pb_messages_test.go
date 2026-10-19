@@ -28,6 +28,19 @@ by_id { key: 7 value { note: "z" level: 9 } }
 text: "chosen" big_negative: -9007199254740993 neg32: -123456
 `
 
+const duelProto = `
+syntax = "proto3";
+package duel;
+message First {
+  enum Kind { KIND_UNSPECIFIED = 0; ALPHA = 1; }
+  Kind kind = 1;
+}
+message Second {
+  enum Kind { KIND_UNSPECIFIED = 0; BETA = 1; }
+  Kind kind = 1;
+}
+`
+
 const harnessMain = `
 package main
 
@@ -46,6 +59,25 @@ func fail(format string, args ...any) {
 
 func main() {
 		mode := os.Args[1]
+		if mode == "duel" {
+			// Two messages with same-named nested enums: the enum
+			// types must be qualified by their parent (First_Kind /
+			// Second_Kind) or the generated file does not compile.
+			f := &pb.First{Kind: pb.First_Kind_ALPHA}
+			s := &pb.Second{Kind: pb.Second_Kind_BETA}
+			fb, sb := new(pb.First), new(pb.Second)
+			if err := fb.UnmarshalDC(f.MarshalDC()); err != nil {
+				fail("duel unmarshal: %v", err)
+			}
+			if err := sb.UnmarshalDC(s.MarshalDC()); err != nil {
+				fail("duel unmarshal: %v", err)
+			}
+			if fb.Kind != pb.First_Kind_ALPHA || sb.Kind != pb.Second_Kind_BETA {
+				fail("duel kinds: %v %v", fb.Kind, sb.Kind)
+			}
+			fmt.Println("duel OK")
+			return
+		}
 		if mode == "roundtrip" {
 		k := &pb.Kitchen{
 			D: 1.5, F: 2.5, I32: -3, I64: -4, U32: 5, U64: 6, S32: -7, S64: -8,
@@ -186,7 +218,38 @@ func TestGeneratedGoMessages(t *testing.T) {
 			t.Fatalf("harness %v: %v\n%s", args, err, b)
 		}
 	}
+	// Duel schema: same-named nested enums in two messages, plus
+	// a package rename like the kitchen files above.
+	duelDir := filepath.Join(tmp, "duel")
+	if err := os.MkdirAll(duelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(duelDir, "duel.proto"), []byte(duelProto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dout := exec.Command("protoc",
+		"--plugin=protoc-gen-grpc-dc-go="+plugin,
+		"--grpc-dc-go_out="+genDir,
+		"-I", duelDir, "duel.proto")
+	dout.Dir = duelDir
+	if b, err := dout.CombinedOutput(); err != nil {
+		t.Fatalf("duel plugin: %v\n%s", err, b)
+	}
+	if err := os.Remove(filepath.Join(genDir, "duel_grpc_dc.go")); err != nil {
+		t.Fatal(err)
+	}
+	dp := filepath.Join(genDir, "duel_pb.go")
+	db, err := os.ReadFile(dp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dp, []byte(strings.Replace(string(db), "package duel\n", "package gen\n", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runHarness("duel")
+
 	runHarness("roundtrip")
+
 
 	enc := exec.Command("protoc", "--encode=kitchen.v1.Kitchen",
 		"-I", testdata, "kitchen.proto")

@@ -314,11 +314,10 @@
 (define (py-pb-ref model entry)
   (define flat (py-pb-flat (hash-ref entry 'pkg)
                            (if (eq? (hash-ref entry 'kind) 'enum)
-                               (let ([e (hash-ref entry 'enum)])
-                                 (format "~a~a" (if (hash-ref entry 'msg)
-                                                    (string-append (hash-ref (hash-ref entry 'msg) 'full-name) ".")
-                                                    (if (string=? (hash-ref entry 'pkg) "") "" (string-append (hash-ref entry 'pkg) ".")))
-                                         (hash-ref e 'name)))
+                               ;; 'full includes the parent message:
+                               ;; nested enums must not collide on
+                               ;; their simple name.
+                               (hash-ref entry 'full)
                                (hash-ref (hash-ref entry 'msg) 'full-name))))
   (if (equal? (hash-ref entry 'file) (hash-ref model 'name))
       flat
@@ -603,11 +602,9 @@
 
 (define (py-pb-enum entry)
   (define e (hash-ref entry 'enum))
-  (define full (if (hash-ref entry 'msg)
-                   (format "~a.~a" (hash-ref (hash-ref entry 'msg) 'full-name) (hash-ref e 'name))
-                   (if (string=? (hash-ref entry 'pkg) "")
-                       (hash-ref e 'name)
-                       (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name)))))
+  ;; 'full includes the parent message: nested enums must not
+  ;; collide on their simple name.
+  (define full (hash-ref entry 'full))
   (string-append
    (format "class ~a:\n    \"\"\"Enum ~a.\"\"\"\n" (py-pb-flat (hash-ref entry 'pkg) full) full)
    (apply string-append

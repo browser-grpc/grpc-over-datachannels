@@ -324,11 +324,11 @@
 (define (go-pb-entry-type entry)
   (go-pb-flat (hash-ref entry 'pkg)
               (if (eq? (hash-ref entry 'kind) 'enum)
-                  (let ([e (hash-ref entry 'enum)])
-                    (format "~a~a" (if (hash-ref entry 'msg)
-                                       (string-append (hash-ref (hash-ref entry 'msg) 'full-name) ".")
-                                       (if (string=? (hash-ref entry 'pkg) "") "" (string-append (hash-ref entry 'pkg) ".")))
-                            (hash-ref e 'name)))
+                  ;; 'full is the fully-qualified name, parent
+                  ;; message included: nested enums must not
+                  ;; collide on their simple name (registry enum
+                  ;; entries carry no parent in 'msg).
+                  (hash-ref entry 'full)
                   (hash-ref (hash-ref entry 'msg) 'full-name))))
 
 (define (go-pb-scalar-type f)
@@ -729,6 +729,11 @@
              (when (= (hash-ref f 'type) 11)
                (define e (go-pb-resolve file-model (hash-ref f 'type-name)))
                (when (and (eq? (hash-ref e 'kind) 'map)
+                          ;; Skip when the entry's own file is
+                          ;; generated too and emits the helpers
+                          ;; itself: Go helpers are package-level
+                          ;; and would collide.
+                          (not (map-entry-emitted-in-own-file? file-model e))
                           (not (set-member? seen-maps (hash-ref (hash-ref e 'msg) 'full-name))))
                  (set-add! seen-maps (hash-ref (hash-ref e 'msg) 'full-name))
                  (display (go-pb-map-helpers file-model e) out))))

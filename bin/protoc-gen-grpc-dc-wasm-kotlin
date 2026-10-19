@@ -545,14 +545,33 @@
    (for/list
     ((w (in-list wanted)))
     (hash-set
-     (hash-ref
-      by-name
-      w
-      (lambda ()
-        (error 'parse-request "file_to_generate not in request: ~a" w)))
-     'types
-     registry))
+     (hash-set
+      (hash-ref
+       by-name
+       w
+       (lambda ()
+         (error 'parse-request "file_to_generate not in request: ~a" w)))
+      'types
+      registry)
+     'generate-set
+     wanted))
    parameter))
+
+(define (map-entry-emitted-in-own-file? model entry)
+  (define types (hash-ref model 'types #f))
+  (and types
+       (not (equal? (hash-ref entry 'file) (hash-ref model 'name)))
+       (member (hash-ref entry 'file) (hash-ref model 'generate-set '()))
+       (for/or
+        (((k e) (in-hash types)))
+        (and (eq? (hash-ref e 'kind) 'message)
+             (equal? (hash-ref e 'file) (hash-ref entry 'file))
+             (for/or
+              ((f (in-list (hash-ref (hash-ref e 'msg) 'fields))))
+              (and (= (hash-ref f 'type) 11)
+                   (equal?
+                    (hash-ref f 'type-name)
+                    (hash-ref entry 'full))))))))
 
 (define (parse-parameters parameter)
   (for/hash

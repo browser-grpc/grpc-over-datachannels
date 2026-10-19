@@ -135,7 +135,6 @@ proto_file {
         ).stdout
         plugin = os.path.join(ROOT, "bin", "protoc-gen-grpc-dc-python")
         resp = subprocess.run([plugin], input=req, capture_output=True, check=True).stdout
-
         def fields(buf):
             pos = 0
 
@@ -191,6 +190,44 @@ proto_file {
                 f"--grpc-dc-python_out={out}",
                 "-I", td, "base.proto", cwd=td,
             )
+
+        # Go dedupe: when base.proto is generated too AND its
+        # Shared message uses the entry as a map field, the Go
+        # helpers (package-level) must come from base_pb.go only;
+        # uses_pb.go must not re-emit them.
+        both_text = request_text.replace(
+            'file_to_generate: "uses.proto"',
+            'file_to_generate: "base.proto"\nfile_to_generate: "uses.proto"',
+        ).replace(
+            '    field { name: "name" number: 1 label: LABEL_OPTIONAL type: TYPE_STRING json_name: "name" }',
+            '    field { name: "name" number: 1 label: LABEL_OPTIONAL type: TYPE_STRING json_name: "name" }\n'
+            '    field { name: "counts" number: 2 label: LABEL_REPEATED type: TYPE_MESSAGE type_name: ".x.Shared.CountsEntry" json_name: "counts" }',
+        )
+        both_req = _protoc(
+            f"-I{include}",
+            "--encode=google.protobuf.compiler.CodeGeneratorRequest",
+            "google/protobuf/compiler/plugin.proto",
+            input=both_text.encode(), capture_output=True,
+        ).stdout
+        go_resp = subprocess.run(
+            [os.path.join(ROOT, "bin", "protoc-gen-grpc-dc-go")],
+            input=both_req, capture_output=True, check=True,
+        ).stdout
+        go_files = {}
+        for num, val in fields(go_resp):
+            self.assertNotEqual(num, 1, "go plugin reported an error")
+            if num == 15:
+                name = content = None
+                for n2, v2 in fields(val):
+                    if n2 == 1:
+                        name = v2.decode()
+                    if n2 == 15:
+                        content = v2.decode()
+                go_files[name] = content
+        self.assertIn("func encodeShared_CountsEntry", go_files["base_pb.go"])
+        self.assertNotIn("func encodeShared_CountsEntry", go_files["uses_pb.go"])
+
+
         sys.path.insert(0, out)
         try:
             import uses_pb
