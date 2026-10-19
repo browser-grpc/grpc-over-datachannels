@@ -26,7 +26,6 @@ use crate::io;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::net::SocketAddr;
-use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;
 
 #[cfg(feature = "std")]
@@ -163,37 +162,39 @@ impl Clock for SystemClock {
     }
 }
 
-/// Test/RTOS clock advanced explicitly by the driver.
+/// Test/RTOS clock advanced explicitly by the driver. Backed by
+/// the platform mutex rather than `AtomicU64`: Cortex-M class
+/// targets have no 64-bit atomics.
 pub struct ManualClock {
-    now: AtomicU64,
-    wall: AtomicU64,
+    now: Mutex<u64>,
+    wall: Mutex<u64>,
 }
 
 impl ManualClock {
     pub fn new(start_ms: u64) -> Self {
-        Self { now: AtomicU64::new(start_ms), wall: AtomicU64::new(0) }
+        Self { now: Mutex::new(start_ms), wall: Mutex::new(0) }
     }
 
     pub fn advance(&self, delta_ms: u64) {
-        self.now.fetch_add(delta_ms, Ordering::SeqCst);
+        *self.now.lock() += delta_ms;
     }
 
     pub fn set(&self, now_ms: u64) {
-        self.now.store(now_ms, Ordering::SeqCst);
+        *self.now.lock() = now_ms;
     }
 
     pub fn set_wall_secs(&self, secs: u64) {
-        self.wall.store(secs, Ordering::SeqCst);
+        *self.wall.lock() = secs;
     }
 }
 
 impl Clock for ManualClock {
     fn now_ms(&self) -> u64 {
-        self.now.load(Ordering::SeqCst)
+        *self.now.lock()
     }
 
     fn wall_now_secs(&self) -> u64 {
-        self.wall.load(Ordering::SeqCst)
+        *self.wall.lock()
     }
 }
 

@@ -373,6 +373,171 @@ impl IpStack {
 }
 
 // ---------------------------------------------------------------------------
+// DHCPv4 client (RFC 2131 subset)
+// ---------------------------------------------------------------------------
+
+/// A granted DHCP lease.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DhcpLease {
+    pub address: Ipv4Addr,
+    pub server: Ipv4Addr,
+    pub lease_secs: u32,
+    pub subnet_mask: Option<Ipv4Addr>,
+    pub router: Option<Ipv4Addr>,
+    pub dns: Option<Ipv4Addr>,
+}
+
+const DHCP_MAGIC: [u8; 4] = [0x63, 0x82, 0x53, 0x63];
+const DHCP_CLIENT_PORT: u16 = 68;
+const DHCP_SERVER_PORT: u16 = 67;
+
+/// Minimal DHCPv4 client state machine:
+/// DISCOVER -> OFFER -> REQUEST -> ACK. Frames are raw Ethernet
+/// (broadcast); `handle_frame` returns the next frame to put on
+/// the wire, if any. No timers — the caller drives retransmits.
+pub struct DhcpClient {
+    mac: MacAddr,
+    xid: u32,
+    lease: Option<DhcpLease>,
+    offered: Option<Ipv4Addr>,
+}
+
+impl DhcpClient {
+    pub fn new(mac: MacAddr, xid: u32) -> Self {
+        Self { mac, xid, lease: None, offered: None }
+    }
+
+    pub fn lease(&self) -> Option<&DhcpLease> {
+        self.lease.as_ref()
+    }
+
+    fn bootp(&self, msg_type: u8, requested: Option<Ipv4Addr>, server: Option<Ipv4Addr>) -> Vec<u8> {
+        let mut pkt = alloc::vec![0u8; 240];
+        pkt[0] = 1; // op: request
+        pkt[1] = 1; // htype: Ethernet
+        pkt[2] = 6; // hlen
+        pkt[4..8].copy_from_slice(&self.xid.to_be_bytes());
+        pkt[12..16].copy_from_slice(&requested.unwrap_or(Ipv4Addr::UNSPECIFIED).octets());
+        pkt[28..34].copy_from_slice(&self.mac);
+        pkt[236..240].copy_from_slice(&DHCP_MAGIC);
+        let mut opts = alloc::vec![53, 1, msg_type];
+        if msg_type == 1 {
+            // DISCOVER: parameter request list (mask, router, dns, lease)
+            opts.extend_from_slice(&[55, 4, 1, 3, 6, 51]);
+        }
+        if let Some(ip) = requested {
+            opts.extend_from_slice(&[50, 4]);
+            opts.extend_from_slice(&ip.octets());
+        }
+        if let Some(ip) = server {
+            opts.extend_from_slice(&[54, 4]);
+            opts.extend_from_slice(&ip.octets());
+        }
+        opts.push(255);
+        pkt.extend_from_slice(&opts);
+        pkt
+    }
+
+    fn broadcast_frame(&self, payload: &[u8]) -> Vec<u8> {
+        let dgram = udp_build(
+            Ipv4Addr::UNSPECIFIED,
+            Ipv4Addr::BROADCAST,
+            DHCP_CLIENT_PORT,
+            DHCP_SERVER_PORT,
+            payload,
+        );
+        let pkt = ipv4_build(Ipv4Addr::UNSPECIFIED, Ipv4Addr::BROADCAST, 17, &dgram);
+        ethernet_frame(BROADCAST_MAC, self.mac, ETHERTYPE_IPV4, &pkt)
+    }
+
+    /// The DHCPDISCOVER frame.
+    pub fn discover_frame(&self) -> Vec<u8> {
+        self.broadcast_frame(&self.bootp(1, None, None))
+    }
+
+    /// Feed one inbound Ethernet frame. On OFFER returns the
+    /// DHCPREQUEST frame to send; on ACK records the lease and
+    /// returns None. Anything else is ignored.
+    pub fn handle_frame(&mut self, frame: &[u8]) -> Option<Vec<u8>> {
+        let (_, _, ethertype, ip_bytes) = ethernet_parse(frame)?;
+        if ethertype != ETHERTYPE_IPV4 {
+            return None;
+        }
+        let pkt = ipv4_parse(ip_bytes)?;
+        if pkt.protocol != 17 {
+            return None;
+        }
+        let (_, dst_port, payload) = udp_parse(pkt.src, pkt.dst, pkt.payload)?;
+        if dst_port != DHCP_CLIENT_PORT || payload.len() < 240 {
+            return None;
+        }
+        if payload[0] != 2 || payload[4..8] != self.xid.to_be_bytes() {
+            return None; // not a reply to us
+        }
+        if payload[236..240] != DHCP_MAGIC {
+            return None;
+        }
+        let yiaddr = Ipv4Addr::new(payload[16], payload[17], payload[18], payload[19]);
+        // Parse options.
+        let mut msg_type = None;
+        let mut server = None;
+        let mut lease_secs = None;
+        let mut mask = None;
+        let mut router = None;
+        let mut dns = None;
+        let mut i = 240;
+        while i < payload.len() {
+            let code = payload[i];
+            if code == 255 {
+                break;
+            }
+            if code == 0 {
+                i += 1;
+                continue;
+            }
+            if i + 1 >= payload.len() {
+                break;
+            }
+            let len = payload[i + 1] as usize;
+            let val = payload.get(i + 2..i + 2 + len);
+            let Some(val) = val else { break };
+            match code {
+                53 if len == 1 => msg_type = Some(val[0]),
+                54 if len == 4 => server = Some(Ipv4Addr::new(val[0], val[1], val[2], val[3])),
+                51 if len == 4 => {
+                    lease_secs = Some(u32::from_be_bytes(val.try_into().unwrap()))
+                }
+                1 if len == 4 => mask = Some(Ipv4Addr::new(val[0], val[1], val[2], val[3])),
+                3 if len >= 4 => router = Some(Ipv4Addr::new(val[0], val[1], val[2], val[3])),
+                6 if len >= 4 => dns = Some(Ipv4Addr::new(val[0], val[1], val[2], val[3])),
+                _ => {}
+            }
+            i += 2 + len;
+        }
+        match msg_type {
+            Some(2) => {
+                // OFFER: request the offered address.
+                self.offered = Some(yiaddr);
+                Some(self.broadcast_frame(&self.bootp(3, Some(yiaddr), server)))
+            }
+            Some(5) => {
+                // ACK: lease granted.
+                self.lease = Some(DhcpLease {
+                    address: yiaddr,
+                    server: server.unwrap_or(pkt.src),
+                    lease_secs: lease_secs.unwrap_or(3600),
+                    subnet_mask: mask,
+                    router,
+                    dns,
+                });
+                None
+            }
+            _ => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // UdpTransport over raw Ethernet (virtual cable for tests/harness)
 // ---------------------------------------------------------------------------
 
@@ -387,6 +552,36 @@ pub struct EthernetCable {
 impl EthernetCable {
     pub fn new() -> Self {
         Self { inboxes: Mutex::new(HashMap::new()) }
+    }
+
+    /// Route one frame by destination MAC (broadcast to all
+    /// other endpoints).
+    pub fn deliver(&self, frame: Vec<u8>) {
+        let Some((dst_mac, src_mac, _, _)) = ethernet_parse(&frame) else {
+            return;
+        };
+        let inboxes = self.inboxes.lock().unwrap();
+        if dst_mac == BROADCAST_MAC {
+            for (mac, tx) in inboxes.iter() {
+                if *mac != src_mac {
+                    let _ = tx.send(frame.clone());
+                }
+            }
+        } else if let Some(tx) = inboxes.get(&dst_mac) {
+            let _ = tx.send(frame);
+        }
+    }
+
+    /// Create a raw frame endpoint (DHCP, custom L2 protocols,
+    /// test harnesses scripting a server).
+    pub fn raw_endpoint(self: &Arc<Self>, mac: MacAddr) -> Arc<RawEthernetPort> {
+        let (tx, rx) = mpsc::channel();
+        self.inboxes.lock().unwrap().insert(mac, tx);
+        Arc::new(RawEthernetPort {
+            mac,
+            inbox: Mutex::new(rx),
+            cable: self.clone(),
+        })
     }
 
     /// Create a transport endpoint: one IP stack bound to `addr`.
@@ -425,21 +620,31 @@ pub struct EthernetUdpTransport {
 }
 
 #[cfg(feature = "std")]
+/// Raw Ethernet frame endpoint on the virtual cable.
+#[cfg(feature = "std")]
+pub struct RawEthernetPort {
+    #[allow(dead_code)]
+    mac: MacAddr,
+    inbox: Mutex<mpsc::Receiver<Vec<u8>>>,
+    cable: Arc<EthernetCable>,
+}
+
+#[cfg(feature = "std")]
+impl RawEthernetPort {
+    pub fn send_frame(&self, frame: Vec<u8>) {
+        self.cable.deliver(frame);
+    }
+
+    /// Next inbound frame; None on timeout.
+    pub fn recv_frame(&self, timeout: Duration) -> Option<Vec<u8>> {
+        self.inbox.lock().unwrap().recv_timeout(timeout).ok()
+    }
+}
+
+#[cfg(feature = "std")]
 impl EthernetUdpTransport {
     fn put_on_cable(&self, frame: Vec<u8>) {
-        let Some((dst_mac, src_mac, _, _)) = ethernet_parse(&frame) else {
-            return;
-        };
-        let inboxes = self.cable.inboxes.lock().unwrap();
-        if dst_mac == BROADCAST_MAC {
-            for (mac, tx) in inboxes.iter() {
-                if *mac != src_mac {
-                    let _ = tx.send(frame.clone());
-                }
-            }
-        } else if let Some(tx) = inboxes.get(&dst_mac) {
-            let _ = tx.send(frame);
-        }
+        self.cable.deliver(frame);
     }
 
     fn pump_outbox(&self) {
@@ -539,6 +744,55 @@ mod tests {
         assert_eq!(flushed.len(), 1, "pending UDP flushed on ARP reply");
         b.input(&flushed[0]);
         assert_eq!(b.recv_udp(6000).unwrap().0, b"queued");
+    }
+
+    fn dhcp_reply(xid: u32, client_mac: MacAddr, msg_type: u8, yiaddr: Ipv4Addr) -> Vec<u8> {
+        let server_ip = Ipv4Addr::new(10, 0, 0, 254);
+        let mut pkt = vec![0u8; 240];
+        pkt[0] = 2; // reply
+        pkt[1] = 1;
+        pkt[2] = 6;
+        pkt[4..8].copy_from_slice(&xid.to_be_bytes());
+        pkt[16..20].copy_from_slice(&yiaddr.octets());
+        pkt[28..34].copy_from_slice(&client_mac);
+        pkt[236..240].copy_from_slice(&DHCP_MAGIC);
+        let mut opts = vec![53, 1, msg_type, 54, 4];
+        opts.extend_from_slice(&server_ip.octets());
+        opts.extend_from_slice(&[51, 4, 0, 0, 0x1c, 0x20]); // 7200s
+        opts.extend_from_slice(&[1, 4, 255, 255, 255, 0]);
+        opts.extend_from_slice(&[3, 4]);
+        opts.extend_from_slice(&server_ip.octets());
+        opts.push(255);
+        pkt.extend_from_slice(&opts);
+        let dgram = udp_build(server_ip, Ipv4Addr::BROADCAST, 67, 68, &pkt);
+        let ip = ipv4_build(server_ip, Ipv4Addr::BROADCAST, 17, &dgram);
+        ethernet_frame(client_mac, [0x02, 0, 0, 0, 0, 254], ETHERTYPE_IPV4, &ip)
+    }
+
+    #[test]
+    fn dhcp_acquires_lease() {
+        let mut client = DhcpClient::new(mac(9), 0xdead_beef);
+        let discover = client.discover_frame();
+        assert_eq!(ethernet_parse(&discover).unwrap().0, BROADCAST_MAC);
+
+        // Wrong xid is ignored.
+        let foreign = dhcp_reply(0x1234, mac(9), 2, Ipv4Addr::new(10, 0, 0, 50));
+        assert!(client.handle_frame(&foreign).is_none());
+        assert!(client.lease().is_none());
+
+        let offer = dhcp_reply(0xdead_beef, mac(9), 2, Ipv4Addr::new(10, 0, 0, 50));
+        let request = client.handle_frame(&offer).expect("REQUEST after OFFER");
+        assert!(client.lease().is_none());
+        let _ = request;
+
+        let ack = dhcp_reply(0xdead_beef, mac(9), 5, Ipv4Addr::new(10, 0, 0, 50));
+        assert!(client.handle_frame(&ack).is_none());
+        let lease = client.lease().expect("lease after ACK");
+        assert_eq!(lease.address, Ipv4Addr::new(10, 0, 0, 50));
+        assert_eq!(lease.server, Ipv4Addr::new(10, 0, 0, 254));
+        assert_eq!(lease.lease_secs, 7200);
+        assert_eq!(lease.subnet_mask, Some(Ipv4Addr::new(255, 255, 255, 0)));
+        assert_eq!(lease.router, Some(Ipv4Addr::new(10, 0, 0, 254)));
     }
 
     #[test]

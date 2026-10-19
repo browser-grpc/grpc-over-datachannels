@@ -139,10 +139,11 @@ test-webrtc-rust:
 
 # Bare-metal core proof: the protocol core (ICE/DTLS/SCTP/DCEP/
 # SDP/STUN/net/platform) compiles with no std at all — host
-# --no-default-features plus the wasm32 target (no std exists
-# there) so std cannot sneak back in.
+# --no-default-features plus wasm32 (no std exists there) and
+# thumbv7em-none-eabihf (Cortex-M: no 64-bit atomics, no OS) so
+# std cannot sneak back in.
 test-webrtc-nostd:
-	cd webrtc/rust && $(CARGO) build --no-default-features && $(CARGO) build --no-default-features --target wasm32-unknown-unknown
+	cd webrtc/rust && $(CARGO) build --no-default-features && $(CARGO) build --no-default-features --target wasm32-unknown-unknown && $(CARGO) build --no-default-features --target thumbv7em-none-eabihf
 
 test-webrtc-js:
 	cd webrtc/js && npm test
