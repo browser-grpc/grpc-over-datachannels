@@ -1,5 +1,5 @@
 // Cross-language interop matrix: every language's stdio Echo
-// client against every language's stdio Echo server (14 x 14
+// client against every language's stdio Echo server (15 x 15
 // ordered pairs), connected by a raw byte pump. Both harnesses
 // speak the same length-prefixed stdio transport and print one
 // stderr line per call shape (stdout carries frames), so a pair
@@ -80,6 +80,11 @@ const LANGS = {
     build: `cd zig && ${process.env.ZIG || "zig"} build --prefix build`,
     client: ["zig/build/bin/echo_client_stdio"],
     server: ["zig/build/bin/echo_server_stdio"],
+  },
+  c: {
+    build: "mkdir -p c/build && gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -o c/build/echo_server_stdio && gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -o c/build/echo_client_stdio",
+    client: ["c/build/echo_client_stdio"],
+    server: ["c/build/echo_server_stdio"],
   },
   lua: {
     build: null,

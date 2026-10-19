@@ -51,6 +51,9 @@ stubs:
 	mkdir -p zig/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-zig=bin/protoc-gen-grpc-dc-zig \
 		--grpc-dc-zig_out=zig/examples -I proto proto/echo.proto
+	mkdir -p c/examples
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
+		--grpc-dc-c_out=c/examples -I proto proto/echo.proto
 	mkdir -p lua/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-lua=bin/protoc-gen-grpc-dc-lua \
 		--grpc-dc-lua_out=lua/examples -I proto proto/echo.proto
@@ -121,6 +124,9 @@ test-racket:
 
 test-rust:
 	cd rust && $(CARGO) test
+
+test-rust-nostd:
+	python3 scripts/test-rust-nostd.py
 
 test-js:
 	cd js && node --test test/*.test.js
@@ -226,6 +232,18 @@ test-zig:
 		&& ./build/bin/tests TestInterop && ./build/bin/tests TestOracle \
 		&& ./build/bin/tests TestDynamic && ./build/bin/tests TestBdd && ./build/bin/tests TestDeadline \
 		&& ./build/bin/tests TestPbMessages
+
+CC ?= gcc
+CFLAGS_C ?= -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests
+
+test-c:
+	mkdir -p c/build c/tests
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
+		--grpc-dc-c_out=c/tests -I webapp/testdata webapp/testdata/kitchen.proto webapp/testdata/features.proto webapp/testdata/common.proto
+	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/tests/main.c -o c/build/tests
+	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -o c/build/echo_server_stdio
+	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -o c/build/echo_client_stdio
+	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages
 
 LUA ?= lua
 
@@ -676,6 +694,8 @@ webapp-assets:
 	mkdir -p webapp/assets/runtime/zig/grpcdc
 	cp zig/build.zig webapp/assets/runtime/zig/build.zig
 	cp zig/grpcdc/channel.zig zig/grpcdc/codec.zig zig/grpcdc/dynamic.zig zig/grpcdc/endpoint.zig zig/grpcdc/grpcdc.zig zig/grpcdc/memory_transport.zig zig/grpcdc/server.zig zig/grpcdc/status.zig zig/grpcdc/transport.zig zig/grpcdc/wire.zig webapp/assets/runtime/zig/grpcdc/
+	mkdir -p webapp/assets/runtime/c/grpcdc
+	cp c/grpcdc/grpcdc.h c/grpcdc/grpcdc.c c/grpcdc/memory_transport.h c/grpcdc/memory_transport.c webapp/assets/runtime/c/grpcdc/
 	mkdir -p webapp/assets/runtime/lua/grpcdc
 	cp lua/grpcdc/channel.lua lua/grpcdc/codec.lua lua/grpcdc/dynamic.lua lua/grpcdc/endpoint.lua lua/grpcdc/memory_transport.lua lua/grpcdc/server.lua lua/grpcdc/status.lua lua/grpcdc/transport.lua lua/grpcdc/wire.lua webapp/assets/runtime/lua/grpcdc/
 	mkdir -p webapp/assets/runtime/ruby/grpcdc
@@ -734,6 +754,7 @@ webapp-plugins: generate
 	cp bin/protoc-gen-grpc-dc-kotlin webapp/assets/plugins/kotlin.rkt
 	cp bin/protoc-gen-grpc-dc-dart webapp/assets/plugins/dart.rkt
 	cp bin/protoc-gen-grpc-dc-zig webapp/assets/plugins/zig.rkt
+	cp bin/protoc-gen-grpc-dc-c webapp/assets/plugins/c.rkt
 	cp bin/protoc-gen-grpc-dc-lua webapp/assets/plugins/lua.rkt
 	cp bin/protoc-gen-grpc-dc-ruby webapp/assets/plugins/ruby.rkt
 	cp bin/protoc-gen-grpc-dc-php webapp/assets/plugins/php.rkt
@@ -746,6 +767,26 @@ webapp-plugins: generate
 	cp bin/protoc-gen-grpc-dc-wasm-scala webapp/assets/plugins/wasm-scala.rkt
 	cp webapp/racket/runner.rkt webapp/assets/racket/runner.rkt
 
+# Cross-compile gate for embedded targets: build the C harness
+# for aarch64 and riscv64 Linux, run the codec/pb suites under
+# qemu-user, and report code sizes. Also syntax-checks generated
+# C++ messages for aarch64. Runs in Dockerfile.ci (which installs
+# the cross compilers and qemu-user).
+test-c-cross:
+	@if command -v aarch64-linux-gnu-gcc >/dev/null && command -v riscv64-linux-gnu-gcc >/dev/null && command -v qemu-aarch64 >/dev/null; then \
+		set -e; \
+		mkdir -p c/build; \
+		aarch64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/tests/main.c -o c/build/tests-aarch64; \
+		riscv64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/tests/main.c -o c/build/tests-riscv64; \
+		qemu-aarch64 -L /usr/aarch64-linux-gnu ./c/build/tests-aarch64 TestCodec && qemu-aarch64 -L /usr/aarch64-linux-gnu ./c/build/tests-aarch64 TestPbMessages; \
+		qemu-riscv64 -L /usr/riscv64-linux-gnu ./c/build/tests-riscv64 TestCodec && qemu-riscv64 -L /usr/riscv64-linux-gnu ./c/build/tests-riscv64 TestPbMessages; \
+		aarch64-linux-gnu-g++ -std=c++17 -pthread -O1 -Icpp -I. -fsyntax-only cpp/examples/echo_messages.hpp; \
+		echo "== cross code sizes (text/data/bss) =="; \
+		size c/build/tests-aarch64 c/build/tests-riscv64 c/build/echo_server_stdio 2>/dev/null || true; \
+	else \
+		echo "test-c-cross: cross compilers/qemu-user not installed (Dockerfile.ci provisions them); skipping"; \
+	fi
+
 test-interop-matrix:
 	cd js && node test/interop-matrix.mjs
 
@@ -755,7 +796,7 @@ test-interop-matrix:
 test-webrtc-matrix:
 	cd browser-test && node webrtc_matrix.test.mjs
 
-test: check-generated test-racket compat test-schema-shapes test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-webapp test-interop-matrix test-webrtc-matrix
+test: check-generated test-racket compat test-schema-shapes test-rust test-rust-nostd test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-c test-c-cross test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-webapp test-interop-matrix test-webrtc-matrix
 
 test-schema-shapes:
 	python3 scripts/test-schema-shapes.py

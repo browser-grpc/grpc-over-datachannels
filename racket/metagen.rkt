@@ -25,7 +25,7 @@
 
 (require "spec.rkt" "pb.rkt" json racket/runtime-path "webrtc-gen.rkt"
          "oracle-spec.rkt" "oracle-gen.rkt" "bdd-gen.rkt" "webgen.rkt"
-         "runtime-go.rkt" "runtime-js.rkt" "runtime-rust.rkt" "runtime-python.rkt" "runtime-java.rkt" "runtime-csharp.rkt" "runtime-cpp.rkt" "runtime-swift.rkt" "runtime-kotlin.rkt" "runtime-dart.rkt" "runtime-zig.rkt" "runtime-lua.rkt" "runtime-ruby.rkt" "runtime-php.rkt" "runtime-scala.rkt")
+         "runtime-go.rkt" "runtime-js.rkt" "runtime-rust.rkt" "runtime-python.rkt" "runtime-java.rkt" "runtime-csharp.rkt" "runtime-cpp.rkt" "runtime-swift.rkt" "runtime-kotlin.rkt" "runtime-dart.rkt" "runtime-zig.rkt" "runtime-c.rkt" "runtime-lua.rkt" "runtime-ruby.rkt" "runtime-php.rkt" "runtime-scala.rkt")
 
 (define-runtime-path here ".")
 (define root (build-path here ".."))
@@ -93,6 +93,7 @@
                                     [(emit-kotlin-file) "template-kotlin.rkt"]
                                     [(emit-dart-file) "template-dart.rkt"]
                                     [(emit-zig-file) "template-zig.rkt"]
+                                    [(emit-c-file) "template-c.rkt"]
                                     [(emit-lua-file) "template-lua.rkt"]
                                     [(emit-ruby-file) "template-ruby.rkt"]
                                     [(emit-php-file) "template-php.rkt"]
@@ -1008,6 +1009,7 @@
   (write-plugin "protoc-gen-grpc-dc-kotlin" 'emit-kotlin-file)
   (write-plugin "protoc-gen-grpc-dc-dart" 'emit-dart-file)
   (write-plugin "protoc-gen-grpc-dc-zig" 'emit-zig-file)
+  (write-plugin "protoc-gen-grpc-dc-c" 'emit-c-file)
   (write-plugin "protoc-gen-grpc-dc-lua" 'emit-lua-file)
   (write-plugin "protoc-gen-grpc-dc-ruby" 'emit-ruby-file)
   (write-plugin "protoc-gen-grpc-dc-php" 'emit-php-file)
@@ -1120,6 +1122,7 @@
     (lambda (out) (display (emit-zig-wire) out)))
   (printf "generated zig/grpcdc/wire.zig\n")
   (write-runtime-files "zig" "runtime-zig.rkt" (emit-zig-runtime-files))
+  (write-runtime-files "c" "runtime-c.rkt" (emit-c-runtime-files))
   (make-directory* (build-path root "zig" "tests"))
   (call-with-output-file (build-path root "zig" "tests" "fixtures.zig") #:exists 'replace
     (lambda (out) (display (emit-zig-fixtures) out)))
