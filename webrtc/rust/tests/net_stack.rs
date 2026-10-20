@@ -6,7 +6,7 @@
 use dc_webrtc::ice::{Candidate, IceAgent};
 use dc_webrtc::net::EthernetCable;
 use dc_webrtc::platform::{Platform, UdpTransport};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,6 +56,40 @@ fn ice_nomination_over_raw_ethernet() {
 
     // No static ARP entries: the first ticks must ARP-resolve
     // before STUN checks can flow.
+    let mut ticks = 0;
+    while (a.nominated.is_none() || b.nominated.is_none()) && ticks < 400 {
+        tick(&mut a, &mut b, &ta, &tb);
+        clock_a.advance(10);
+        clock_b.advance(10);
+        ticks += 1;
+    }
+    assert_eq!(a.nominated, Some(b_addr));
+    assert_eq!(b.nominated, Some(a_addr));
+    assert!(ticks < 400, "nominated within the tick budget");
+}
+
+#[test]
+fn ice_nomination_over_ipv6_ethernet() {
+    let ip_a = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
+    let ip_b = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2);
+    let a_addr = SocketAddr::new(IpAddr::V6(ip_a), 5001);
+    let b_addr = SocketAddr::new(IpAddr::V6(ip_b), 5002);
+
+    let cable = Arc::new(EthernetCable::new());
+    let ta: Arc<dyn UdpTransport> = cable.endpoint6([0x02, 0, 0, 0, 0, 1], a_addr);
+    let tb: Arc<dyn UdpTransport> = cable.endpoint6([0x02, 0, 0, 0, 0, 2], b_addr);
+
+    let (platform_a, clock_a) = Platform::manual(3);
+    let (platform_b, clock_b) = Platform::manual(5);
+    let mut a = IceAgent::new_with_clock(true, platform_a.clock.clone());
+    let mut b = IceAgent::new_with_clock(false, platform_b.clock.clone());
+    a.local_candidates = vec![Candidate::host(a_addr, "a")];
+    b.local_candidates = vec![Candidate::host(b_addr, "b")];
+    a.set_remote(&b.local_ufrag.clone(), &b.local_pwd.clone(), b.local_candidates.clone());
+    b.set_remote(&a.local_ufrag.clone(), &a.local_pwd.clone(), a.local_candidates.clone());
+
+    // No static NDP entries: STUN checks must wait for neighbour
+    // solicitation over the solicited-node multicast.
     let mut ticks = 0;
     while (a.nominated.is_none() || b.nominated.is_none()) && ticks < 400 {
         tick(&mut a, &mut b, &ta, &tb);
@@ -212,4 +246,66 @@ fn dhcp_lease_then_udp_over_cable() {
     let (payload, src) = got.expect("UDP delivered on the leased address");
     assert_eq!(payload, b"on-lease");
     assert_eq!(src, client_addr);
+}
+
+fn bootp_has_option(frame: &[u8], want: u8) -> bool {
+    let bootp = &frame[14 + 20 + 8..];
+    let mut i = 240;
+    while i + 1 < bootp.len() {
+        let code = bootp[i];
+        if code == 255 {
+            break;
+        }
+        if code == 0 {
+            i += 1;
+            continue;
+        }
+        if code == want {
+            return true;
+        }
+        i += 2 + bootp[i + 1] as usize;
+    }
+    false
+}
+
+/// Grant a 7200s lease directly (no cable) at the client's
+/// current tick time.
+fn grant_lease(dhcp: &mut DhcpClient, client_mac: [u8; 6]) {
+    let server_mac = [0x02, 0, 0, 0, 0, 254];
+    let server_ip = Ipv4Addr::new(10, 0, 0, 254);
+    let offered = Ipv4Addr::new(10, 0, 0, 50);
+    let offer = bootp_reply(server_mac, server_ip, 0xcafe, client_mac, 2, offered);
+    assert!(dhcp.handle_frame(&offer).is_some(), "OFFER yields REQUEST");
+    let ack = bootp_reply(server_mac, server_ip, 0xcafe, client_mac, 5, offered);
+    assert!(dhcp.handle_frame(&ack).is_none());
+    assert!(dhcp.lease().is_some());
+}
+
+#[test]
+fn dhcp_t1_renews_t2_rebinds_and_expiry_drops_lease() {
+    let client_mac = [0x02, 0, 0, 0, 0, 9];
+    // Lease is 7200s: T1 at 3_600_000 ms, T2 at 6_300_000 ms.
+    let mut dhcp = DhcpClient::new(client_mac, 0xcafe);
+    assert!(dhcp.tick(0).is_none());
+    grant_lease(&mut dhcp, client_mac);
+    assert!(dhcp.tick(3_599_999).is_none());
+    let renew = dhcp.tick(3_600_000).expect("T1 fires a renew");
+    let (_, msg_type, _) = parse_bootp(&renew).expect("renew parses");
+    assert_eq!(msg_type, 3);
+    assert!(bootp_has_option(&renew, 54), "renew carries server id");
+    assert!(dhcp.tick(3_600_001).is_none(), "T1 fires once");
+    // ACK at T1 re-arms the clock from 3_600_000.
+    grant_lease(&mut dhcp, client_mac);
+    assert!(dhcp.tick(7_200_000).is_none());
+    assert!(dhcp.tick(7_200_001).is_some(), "T1 re-armed after ACK");
+
+    // No ACKs at all: T1, then T2 rebind (no server id), then drop.
+    let mut dhcp = DhcpClient::new(client_mac, 0xcafe);
+    assert!(dhcp.tick(0).is_none());
+    grant_lease(&mut dhcp, client_mac);
+    assert!(dhcp.tick(3_600_000).is_some());
+    let rebind = dhcp.tick(6_300_000).expect("T2 fires a rebind");
+    assert!(!bootp_has_option(&rebind, 54), "rebind omits server id");
+    assert!(dhcp.tick(7_200_000).is_none(), "expiry sends nothing");
+    assert!(dhcp.lease().is_none(), "expired lease dropped");
 }

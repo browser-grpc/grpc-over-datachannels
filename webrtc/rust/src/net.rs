@@ -574,11 +574,24 @@ pub struct DhcpClient {
     xid: u32,
     lease: Option<DhcpLease>,
     offered: Option<Ipv4Addr>,
+    now_ms: u64,
+    lease_start_ms: u64,
+    t1_sent: bool,
+    t2_sent: bool,
 }
 
 impl DhcpClient {
     pub fn new(mac: MacAddr, xid: u32) -> Self {
-        Self { mac, xid, lease: None, offered: None }
+        Self {
+            mac,
+            xid,
+            lease: None,
+            offered: None,
+            now_ms: 0,
+            lease_start_ms: 0,
+            t1_sent: false,
+            t2_sent: false,
+        }
     }
 
     pub fn lease(&self) -> Option<&DhcpLease> {
@@ -591,6 +604,40 @@ impl DhcpClient {
     pub fn renew_frame(&self) -> Option<Vec<u8>> {
         let lease = self.lease.as_ref()?;
         Some(self.broadcast_frame(&self.bootp(3, Some(lease.address), Some(lease.server))))
+    }
+
+    /// DHCPREQUEST rebinding at T2 (87.5% of the lease): like a
+    /// renew but with no server-id option, so any server may ACK.
+    pub fn rebind_frame(&self) -> Option<Vec<u8>> {
+        let lease = self.lease.as_ref()?;
+        Some(self.broadcast_frame(&self.bootp(3, Some(lease.address), None)))
+    }
+
+    /// Advance time; returns the frame to send when a lease timer
+    /// fires: renew at T1 (50% of the lease), rebind at T2
+    /// (87.5%), and nothing at expiry — the lease is dropped and
+    /// `lease()` returns None so the caller can re-DISCOVER.
+    /// Timers re-arm on every ACK (which restarts the lease clock).
+    pub fn tick(&mut self, now_ms: u64) -> Option<Vec<u8>> {
+        self.now_ms = now_ms;
+        let lease = self.lease?;
+        let elapsed = now_ms.saturating_sub(self.lease_start_ms);
+        let lease_ms = (lease.lease_secs as u64).saturating_mul(1000);
+        if elapsed >= lease_ms {
+            self.lease = None;
+            self.t1_sent = false;
+            self.t2_sent = false;
+            return None;
+        }
+        if !self.t2_sent && elapsed >= lease_ms * 7 / 8 {
+            self.t2_sent = true;
+            return self.rebind_frame();
+        }
+        if !self.t1_sent && elapsed >= lease_ms / 2 {
+            self.t1_sent = true;
+            return self.renew_frame();
+        }
+        None
     }
 
     fn bootp(&self, msg_type: u8, requested: Option<Ipv4Addr>, server: Option<Ipv4Addr>) -> Vec<u8> {
@@ -703,7 +750,10 @@ impl DhcpClient {
                 Some(self.broadcast_frame(&self.bootp(3, Some(yiaddr), server)))
             }
             Some(5) => {
-                // ACK: lease granted.
+                // ACK: lease granted; (re)start the T1/T2 clock.
+                self.lease_start_ms = self.now_ms;
+                self.t1_sent = false;
+                self.t2_sent = false;
                 self.lease = Some(DhcpLease {
                     address: yiaddr,
                     server: server.unwrap_or(pkt.src),
@@ -857,6 +907,8 @@ pub struct IpStack6 {
     outbox: Vec<Vec<u8>>,
     now_ms: u64,
     default_router: Option<Ipv6Addr>,
+    forwarding: bool,
+    pending_fwd: Vec<(Ipv6Addr, Vec<u8>)>,
 }
 
 impl IpStack6 {
@@ -871,6 +923,8 @@ impl IpStack6 {
             outbox: Vec::new(),
             now_ms: 0,
             default_router: None,
+            forwarding: false,
+            pending_fwd: Vec::new(),
         }
     }
 
@@ -884,6 +938,39 @@ impl IpStack6 {
 
     pub fn set_default_router(&mut self, router: Ipv6Addr) {
         self.default_router = Some(router);
+    }
+
+    pub fn default_router(&self) -> Option<Ipv6Addr> {
+        self.default_router
+    }
+
+    /// Forward packets addressed to other hosts (router mode),
+    /// mirroring `IpStack::set_forwarding` for IPv4.
+    pub fn set_forwarding(&mut self, on: bool) {
+        self.forwarding = on;
+    }
+
+    /// Router Solicitation (ICMPv6 133) to ff02::2; routers answer
+    /// with a Router Advertisement, which `input` consumes.
+    pub fn send_router_solicitation(&mut self) {
+        let mut icmp = Vec::with_capacity(16);
+        icmp.push(133);
+        icmp.push(0);
+        icmp.extend_from_slice(&[0, 0]); // checksum below
+        icmp.extend_from_slice(&[0, 0, 0, 0]); // reserved
+        icmp.push(1); // source link-layer option
+        icmp.push(1);
+        icmp.extend_from_slice(&self.mac);
+        let all_routers = Ipv6Addr::from(0xff02_0000_0000_0000_0000_0000_0000_0002u128);
+        let cksum = ipv6_checksum(self.addr, all_routers, 58, &icmp);
+        icmp[2..4].copy_from_slice(&cksum.to_be_bytes());
+        let pkt = ipv6_build(self.addr, all_routers, 58, &icmp);
+        self.outbox.push(ethernet_frame(
+            multicast_mac(all_routers),
+            self.mac,
+            ETHERTYPE_IPV6,
+            &pkt,
+        ));
     }
 
     pub fn add_static_neighbor(&mut self, ip: Ipv6Addr, mac: MacAddr) {
@@ -961,11 +1048,40 @@ impl IpStack6 {
             .push(ethernet_frame(multicast_mac(mcast), self.mac, ETHERTYPE_IPV6, &pkt));
     }
 
+    fn forward_packet(&mut self, raw: &[u8], dst: Ipv6Addr) {
+        if raw.len() < 40 || raw[7] <= 1 {
+            return; // hop limit exhausted
+        }
+        let mut pkt = raw.to_vec();
+        pkt[7] -= 1;
+        let next = self.next_hop(dst);
+        match self.neighbors.get(&next).map(|e| e.mac) {
+            Some(mac) => {
+                self.outbox
+                    .push(ethernet_frame(mac, self.mac, ETHERTYPE_IPV6, &pkt));
+            }
+            None => {
+                self.pending_fwd.push((next, pkt));
+                self.neighbor_solicitation(next);
+            }
+        }
+    }
+
     fn learn_neighbor(&mut self, ip: Ipv6Addr, mac: MacAddr) {
         self.neighbors.insert(
             ip,
             ArpEntry { mac, inserted_ms: self.now_ms, permanent: false },
         );
+        let mut still_fwd = Vec::new();
+        for (next, pkt) in core::mem::take(&mut self.pending_fwd) {
+            if next == ip {
+                self.outbox
+                    .push(ethernet_frame(mac, self.mac, ETHERTYPE_IPV6, &pkt));
+            } else {
+                still_fwd.push((next, pkt));
+            }
+        }
+        self.pending_fwd = still_fwd;
         let mut still = Vec::new();
         for (src_port, dst, payload) in core::mem::take(&mut self.pending) {
             let dst6 = match dst.ip() {
@@ -993,7 +1109,11 @@ impl IpStack6 {
         }
         let Some(pkt) = ipv6_parse(payload) else { return };
         if pkt.dst != self.addr && !pkt.dst.is_multicast() {
-            return; // not for us (no v6 forwarding)
+            if self.forwarding {
+                let raw = payload.to_vec();
+                self.forward_packet(&raw, pkt.dst);
+            }
+            return;
         }
         match pkt.next_header {
             17 => {
@@ -1057,6 +1177,35 @@ impl IpStack6 {
                 }
                 self.learn_neighbor(target, mac);
             }
+            134 if icmp.len() >= 16 => {
+                // Router Advertisement: source becomes the default
+                // router (lifetime 0 withdraws it); a Prefix
+                // Information option with the on-link flag sets our
+                // prefix length.
+                let lifetime = u16::from_be_bytes([icmp[6], icmp[7]]);
+                if lifetime > 0 {
+                    self.default_router = Some(pkt.src);
+                } else if self.default_router == Some(pkt.src) {
+                    self.default_router = None;
+                }
+                if !pkt.src.is_unspecified() {
+                    self.learn_neighbor(pkt.src, src_mac);
+                }
+                let mut i = 16;
+                while i + 1 < icmp.len() {
+                    let (otype, olen) = (icmp[i], icmp[i + 1] as usize * 8);
+                    if olen < 8 || i + olen > icmp.len() {
+                        break;
+                    }
+                    if otype == 3 && olen >= 32 {
+                        let flags = icmp[i + 3];
+                        if flags & 0x80 != 0 {
+                            self.prefix_len = icmp[i + 2];
+                        }
+                    }
+                    i += olen;
+                }
+            }
             128 if icmp.len() >= 8 => {
                 let mut reply = icmp.to_vec();
                 reply[0] = 129;
@@ -1097,7 +1246,10 @@ impl EthernetCable {
             return;
         };
         let inboxes = self.inboxes.lock().unwrap();
-        if dst_mac == BROADCAST_MAC {
+        let multicast = dst_mac == BROADCAST_MAC
+            || dst_mac[..2] == [0x33, 0x33]
+            || dst_mac[..3] == [0x01, 0x00, 0x5e];
+        if multicast {
             for (mac, tx) in inboxes.iter() {
                 if *mac != src_mac {
                     let _ = tx.send(frame.clone());
@@ -1115,6 +1267,25 @@ impl EthernetCable {
         self.inboxes.lock().unwrap().insert(mac, tx);
         Arc::new(RawEthernetPort {
             mac,
+            inbox: Mutex::new(rx),
+            cable: self.clone(),
+        })
+    }
+
+    /// Create an IPv6 transport endpoint: an `IpStack6` bound to
+    /// `addr` (must be a V6 socket address), so ICE/DTLS can run
+    /// over NDP instead of ARP.
+    pub fn endpoint6(self: &Arc<Self>, mac: MacAddr, addr: SocketAddr) -> Arc<EthernetUdpTransport6> {
+        let (tx, rx) = mpsc::channel();
+        self.inboxes.lock().unwrap().insert(mac, tx);
+        let ip = match addr.ip() {
+            IpAddr::V6(v6) => v6,
+            IpAddr::V4(_) => Ipv6Addr::UNSPECIFIED,
+        };
+        Arc::new(EthernetUdpTransport6 {
+            mac,
+            addr,
+            stack: Mutex::new(IpStack6::new(mac, ip)),
             inbox: Mutex::new(rx),
             cable: self.clone(),
         })
@@ -1193,6 +1364,62 @@ impl EthernetUdpTransport {
 
 #[cfg(feature = "std")]
 impl UdpTransport for EthernetUdpTransport {
+    fn send_to(&self, buf: &[u8], dest: SocketAddr) -> io::Result<()> {
+        self.stack.lock().unwrap().send_udp(self.addr.port(), dest, buf);
+        self.pump_outbox();
+        Ok(())
+    }
+
+    fn recv_from(&self, timeout: Duration) -> io::Result<Option<(Vec<u8>, SocketAddr)>> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(packet) = self.stack.lock().unwrap().recv_udp(self.addr.port()) {
+                return Ok(Some(packet));
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(None);
+            }
+            match self.inbox.lock().unwrap().recv_timeout(deadline - now) {
+                Ok(frame) => {
+                    self.stack.lock().unwrap().input(&frame);
+                    self.pump_outbox();
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => return Ok(None),
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(io::Error::new(io::ErrorKind::BrokenPipe, "cable closed"));
+                }
+            }
+        }
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        Ok(self.addr)
+    }
+}
+
+#[cfg(feature = "std")]
+pub struct EthernetUdpTransport6 {
+    #[allow(dead_code)]
+    mac: MacAddr,
+    addr: SocketAddr,
+    stack: Mutex<IpStack6>,
+    inbox: Mutex<mpsc::Receiver<Vec<u8>>>,
+    cable: Arc<EthernetCable>,
+}
+
+#[cfg(feature = "std")]
+impl EthernetUdpTransport6 {
+    fn pump_outbox(&self) {
+        let frames = self.stack.lock().unwrap().take_output();
+        for frame in frames {
+            self.cable.deliver(frame);
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl UdpTransport for EthernetUdpTransport6 {
     fn send_to(&self, buf: &[u8], dest: SocketAddr) -> io::Result<()> {
         self.stack.lock().unwrap().send_udp(self.addr.port(), dest, buf);
         self.pump_outbox();
@@ -1530,6 +1757,76 @@ mod tests {
         let pkt = ipv6_parse(ip_bytes).unwrap();
         assert_eq!(pkt.dst, solicited_node_addr(router), "solicits the router, not the remote");
         assert_eq!(pkt.payload[0], 135);
+    }
+
+    fn router_advertisement(router: Ipv6Addr, router_mac: MacAddr, lifetime: u16) -> Vec<u8> {
+        let all_nodes = Ipv6Addr::from(0xff02_0000_0000_0000_0000_0000_0000_0001u128);
+        let mut icmp = alloc::vec![134u8, 0, 0, 0, 64, 0];
+        icmp.extend_from_slice(&lifetime.to_be_bytes());
+        icmp.extend_from_slice(&[0; 8]); // reachable + retrans timers
+        // Prefix Information: 2001:db8::/64, on-link + autonomous.
+        icmp.extend_from_slice(&[3, 4, 64, 0xc0]);
+        icmp.extend_from_slice(&0xffffffffu32.to_be_bytes());
+        icmp.extend_from_slice(&3600u32.to_be_bytes());
+        icmp.extend_from_slice(&[0; 4]);
+        icmp.extend_from_slice(&Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0).octets());
+        let cksum = ipv6_checksum(router, all_nodes, 58, &icmp);
+        icmp[2..4].copy_from_slice(&cksum.to_be_bytes());
+        ethernet_frame(multicast_mac(all_nodes), router_mac, ETHERTYPE_IPV6, &ipv6_build(router, all_nodes, 58, &icmp))
+    }
+
+    #[test]
+    fn ipv6_router_advertisement_sets_and_withdraws_router() {
+        let router = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+        let mut a = IpStack6::new(mac(1), Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 5));
+        a.set_prefix_len(48);
+        a.send_router_solicitation();
+        let rs = a.take_output();
+        assert_eq!(rs.len(), 1);
+        let (_, _, _, rs_ip) = ethernet_parse(&rs[0]).unwrap();
+        assert_eq!(ipv6_parse(rs_ip).unwrap().payload[0], 133, "router solicitation");
+        assert_eq!(a.default_router(), None);
+        a.input(&router_advertisement(router, mac(254), 1800));
+        assert_eq!(a.default_router(), Some(router));
+        assert_eq!(a.prefix_len, 64, "on-link prefix info applied");
+        a.input(&router_advertisement(router, mac(254), 0));
+        assert_eq!(a.default_router(), None, "lifetime 0 withdraws the router");
+    }
+
+    #[test]
+    fn ipv6_forwarding_routes_between_subnets() {
+        let ip_a = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 5);
+        let ip_r = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
+        let ip_b = Ipv6Addr::new(0x2001, 0xdb8, 1, 0, 0, 0, 0, 7);
+        let mut a = IpStack6::new(mac(1), ip_a);
+        let mut r = IpStack6::new(mac(2), ip_r);
+        let mut b = IpStack6::new(mac(7), ip_b);
+        r.set_forwarding(true);
+        a.set_default_router(ip_r);
+        a.send_udp(5000, SocketAddr::new(IpAddr::V6(ip_b), 6000), b"across");
+        // A solicits the router; the router answers; A sends to the
+        // router; the router solicits B, then forwards; B receives.
+        let mut delivered = false;
+        for _ in 0..12 {
+            if b.recv_udp(6000).map(|(p, _)| p == b"across").unwrap_or(false) {
+                delivered = true;
+                break;
+            }
+            let mut stacks: [&mut IpStack6; 3] = [&mut a, &mut r, &mut b];
+            let mut frames = Vec::new();
+            for s in stacks.iter_mut() {
+                frames.extend(s.take_output());
+            }
+            if frames.is_empty() {
+                break;
+            }
+            for f in frames {
+                for s in stacks.iter_mut() {
+                    s.input(&f);
+                }
+            }
+        }
+        assert!(delivered, "packet forwarded A -> router -> B");
     }
 
     #[test]
