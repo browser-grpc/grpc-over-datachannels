@@ -770,6 +770,211 @@ impl DhcpClient {
 }
 
 // ---------------------------------------------------------------------------
+// DHCPv6 client (RFC 8415 subset)
+// ---------------------------------------------------------------------------
+
+pub const DHCP6_CLIENT_PORT: u16 = 546;
+pub const DHCP6_SERVER_PORT: u16 = 547;
+
+/// A granted DHCPv6 lease (one IA_NA address).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Dhcp6Lease {
+    pub address: Ipv6Addr,
+    pub dns: Option<Ipv6Addr>,
+    pub valid_secs: u32,
+}
+
+/// Minimal DHCPv6 client: SOLICIT -> ADVERTISE -> REQUEST ->
+/// REPLY, over UDP/IPv6 multicast (ff02::1:2) from our link-local
+/// address. Stateless beyond the lease; `tick` renews at half
+/// the valid lifetime (REQUEST again) and drops at expiry.
+/// DUID-LL identity derived from the MAC.
+pub struct Dhcp6Client {
+    mac: MacAddr,
+    xid: u32,
+    lease: Option<Dhcp6Lease>,
+    server_duid: Option<Vec<u8>>,
+    offered: Option<Ipv6Addr>,
+    now_ms: u64,
+    lease_start_ms: u64,
+    renew_sent: bool,
+}
+
+impl Dhcp6Client {
+    pub fn new(mac: MacAddr, xid: u32) -> Self {
+        Self {
+            mac,
+            xid: xid & 0x00ff_ffff,
+            lease: None,
+            server_duid: None,
+            offered: None,
+            now_ms: 0,
+            lease_start_ms: 0,
+            renew_sent: false,
+        }
+    }
+
+    pub fn lease(&self) -> Option<&Dhcp6Lease> {
+        self.lease.as_ref()
+    }
+
+    fn duid(&self) -> Vec<u8> {
+        // DUID-LL: type 3, hw type 1 (Ethernet), MAC.
+        let mut d = vec![0, 3, 0, 1];
+        d.extend_from_slice(&self.mac);
+        d
+    }
+
+    fn option(code: u16, data: &[u8]) -> Vec<u8> {
+        let mut o = Vec::with_capacity(4 + data.len());
+        o.extend_from_slice(&code.to_be_bytes());
+        o.extend_from_slice(&(data.len() as u16).to_be_bytes());
+        o.extend_from_slice(data);
+        o
+    }
+
+    fn message(&self, msg_type: u8, with_server: bool, ia_addr: Option<Ipv6Addr>) -> Vec<u8> {
+        let mut msg = vec![msg_type];
+        msg.extend_from_slice(&self.xid.to_be_bytes()[1..]);
+        msg.extend_from_slice(&Self::option(1, &self.duid()));
+        if with_server {
+            if let Some(duid) = &self.server_duid {
+                msg.extend_from_slice(&Self::option(2, duid));
+            }
+        }
+        // IA_NA: IAID 1, T1/T2 0 (server picks), optional IA Address.
+        let mut ia = Vec::new();
+        ia.extend_from_slice(&1u32.to_be_bytes());
+        ia.extend_from_slice(&0u32.to_be_bytes());
+        ia.extend_from_slice(&0u32.to_be_bytes());
+        if let Some(addr) = ia_addr {
+            let mut sub = Vec::new();
+            sub.extend_from_slice(&addr.octets());
+            sub.extend_from_slice(&3600u32.to_be_bytes()); // preferred
+            sub.extend_from_slice(&7200u32.to_be_bytes()); // valid
+            ia.extend_from_slice(&Self::option(5, &sub));
+        }
+        msg.extend_from_slice(&Self::option(3, &ia));
+        // Option Request: DNS servers (23).
+        msg.extend_from_slice(&Self::option(6, &23u16.to_be_bytes()));
+        msg
+    }
+
+    fn multicast_frame(&self, payload: &[u8]) -> Vec<u8> {
+        let src = link_local_addr(self.mac);
+        let dst = Ipv6Addr::from(0xff02_0000_0000_0000_0000_0000_0001_0002u128);
+        let udp = udp6_build(src, dst, DHCP6_CLIENT_PORT, DHCP6_SERVER_PORT, payload);
+        let pkt = ipv6_build(src, dst, 17, &udp);
+        ethernet_frame(multicast_mac(dst), self.mac, ETHERTYPE_IPV6, &pkt)
+    }
+
+    /// The SOLICIT frame.
+    pub fn solicit_frame(&self) -> Vec<u8> {
+        self.multicast_frame(&self.message(1, false, None))
+    }
+
+    /// REQUEST renewing the current lease; drive from `tick`.
+    pub fn renew_frame(&self) -> Option<Vec<u8>> {
+        let lease = self.lease.as_ref()?;
+        Some(self.multicast_frame(&self.message(3, true, Some(lease.address))))
+    }
+
+    /// Advance time: returns the renew frame at half the valid
+    /// lifetime; at expiry the lease is dropped.
+    pub fn tick(&mut self, now_ms: u64) -> Option<Vec<u8>> {
+        self.now_ms = now_ms;
+        let lease = self.lease.as_ref()?;
+        let elapsed = now_ms.saturating_sub(self.lease_start_ms);
+        let valid_ms = (lease.valid_secs as u64).saturating_mul(1000);
+        if elapsed >= valid_ms {
+            self.lease = None;
+            self.renew_sent = false;
+            return None;
+        }
+        if !self.renew_sent && elapsed >= valid_ms / 2 {
+            self.renew_sent = true;
+            return self.renew_frame();
+        }
+        None
+    }
+
+    /// Feed one inbound Ethernet frame. On ADVERTISE returns the
+    /// REQUEST frame; on REPLY records the lease. Anything else
+    /// is ignored.
+    pub fn handle_frame(&mut self, frame: &[u8]) -> Option<Vec<u8>> {
+        let (_, _, ethertype, ip_bytes) = ethernet_parse(frame)?;
+        if ethertype != ETHERTYPE_IPV6 {
+            return None;
+        }
+        let pkt = ipv6_parse(ip_bytes)?;
+        if pkt.next_header != 17 {
+            return None;
+        }
+        let (_, dst_port, payload) = udp6_parse(pkt.src, pkt.dst, pkt.payload)?;
+        if dst_port != DHCP6_CLIENT_PORT || payload.len() < 4 {
+            return None;
+        }
+        if payload[1..4] != self.xid.to_be_bytes()[1..] {
+            return None;
+        }
+        // Walk options: ServerID(2), IA_NA(3) -> IA Address(5), DNS(23).
+        let mut server_duid = None;
+        let mut address = None;
+        let mut valid_secs = 7200u32;
+        let mut dns = None;
+        let mut i = 4;
+        while i + 4 <= payload.len() {
+            let code = u16::from_be_bytes([payload[i], payload[i + 1]]);
+            let len = u16::from_be_bytes([payload[i + 2], payload[i + 3]]) as usize;
+            let val = payload.get(i + 4..i + 4 + len)?;
+            match code {
+                2 => server_duid = Some(val.to_vec()),
+                3 if val.len() >= 12 => {
+                    let mut j = 12;
+                    while j + 4 <= val.len() {
+                        let scode = u16::from_be_bytes([val[j], val[j + 1]]);
+                        let slen = u16::from_be_bytes([val[j + 2], val[j + 3]]) as usize;
+                        let sval = val.get(j + 4..j + 4 + slen)?;
+                        if scode == 5 && sval.len() >= 24 {
+                            address = Some(Ipv6Addr::from(
+                                <[u8; 16]>::try_from(&sval[..16]).unwrap(),
+                            ));
+                            valid_secs = u32::from_be_bytes(sval[20..24].try_into().unwrap());
+                        }
+                        j += 4 + slen;
+                    }
+                }
+                23 if val.len() >= 16 => {
+                    dns = Some(Ipv6Addr::from(<[u8; 16]>::try_from(&val[..16]).unwrap()));
+                }
+                _ => {}
+            }
+            i += 4 + len;
+        }
+        match payload[0] {
+            2 => {
+                // ADVERTISE: request the offered address.
+                self.server_duid = server_duid;
+                self.offered = address;
+                Some(self.multicast_frame(&self.message(3, true, address)))
+            }
+            7 => {
+                // REPLY: lease granted; (re)start the timer.
+                self.lease_start_ms = self.now_ms;
+                self.renew_sent = false;
+                self.lease = Some(Dhcp6Lease {
+                    address: address.or(self.offered)?,
+                    dns,
+                    valid_secs,
+                });
+                None
+            }
+            _ => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // IPv6 (RFC 8200) + NDP (RFC 4861) + UDP/ICMPv6 — beside IPv4
 // ---------------------------------------------------------------------------
 
@@ -948,6 +1153,39 @@ impl IpStack6 {
     /// mirroring `IpStack::set_forwarding` for IPv4.
     pub fn set_forwarding(&mut self, on: bool) {
         self.forwarding = on;
+    }
+
+    /// Originate a Router Advertisement (ICMPv6 134) to ff02::1:
+    /// we are the router. Carries our link-layer address and one
+    /// on-link/autonomous Prefix Information option. `lifetime`
+    /// 0 withdraws us as a default router at receivers.
+    pub fn send_router_advertisement(&mut self, prefix: Ipv6Addr, prefix_len: u8, lifetime: u16) {
+        let all_nodes = Ipv6Addr::from(0xff02_0000_0000_0000_0000_0000_0000_0001u128);
+        let mut icmp = Vec::with_capacity(48);
+        icmp.push(134);
+        icmp.push(0);
+        icmp.extend_from_slice(&[0, 0]); // checksum below
+        icmp.push(64); // current hop limit
+        icmp.push(0); // flags
+        icmp.extend_from_slice(&lifetime.to_be_bytes());
+        icmp.extend_from_slice(&[0; 8]); // reachable + retrans timers
+        icmp.extend_from_slice(&[3, 4, prefix_len, 0xc0]); // Prefix Information, L+A
+        icmp.extend_from_slice(&0xffffffffu32.to_be_bytes()); // valid lifetime
+        icmp.extend_from_slice(&3600u32.to_be_bytes()); // preferred lifetime
+        icmp.extend_from_slice(&[0; 4]); // reserved
+        icmp.extend_from_slice(&prefix.octets());
+        icmp.push(1); // source link-layer option
+        icmp.push(1);
+        icmp.extend_from_slice(&self.mac);
+        let cksum = ipv6_checksum(self.addr, all_nodes, 58, &icmp);
+        icmp[2..4].copy_from_slice(&cksum.to_be_bytes());
+        let pkt = ipv6_build(self.addr, all_nodes, 58, &icmp);
+        self.outbox.push(ethernet_frame(
+            multicast_mac(all_nodes),
+            self.mac,
+            ETHERTYPE_IPV6,
+            &pkt,
+        ));
     }
 
     /// Router Solicitation (ICMPv6 133) to ff02::2; routers answer
@@ -1791,6 +2029,85 @@ mod tests {
         assert_eq!(a.prefix_len, 64, "on-link prefix info applied");
         a.input(&router_advertisement(router, mac(254), 0));
         assert_eq!(a.default_router(), None, "lifetime 0 withdraws the router");
+    }
+
+    fn dhcp6_reply(
+        server_mac: MacAddr,
+        server_ip: Ipv6Addr,
+        client_mac: MacAddr,
+        client_ip: Ipv6Addr,
+        xid: u32,
+        msg_type: u8,
+        offered: Ipv6Addr,
+    ) -> Vec<u8> {
+        let server_duid: [u8; 10] = [0, 3, 0, 1, 0x02, 0, 0, 0, 0, 0xfe];
+        let mut msg = vec![msg_type];
+        msg.extend_from_slice(&xid.to_be_bytes()[1..]);
+        let mut opt = |code: u16, data: &[u8]| {
+            let mut o = code.to_be_bytes().to_vec();
+            o.extend_from_slice(&(data.len() as u16).to_be_bytes());
+            o.extend_from_slice(data);
+            o
+        };
+        msg.extend_from_slice(&opt(2, &server_duid));
+        let mut ia = Vec::new();
+        ia.extend_from_slice(&1u32.to_be_bytes());
+        ia.extend_from_slice(&0u32.to_be_bytes());
+        ia.extend_from_slice(&0u32.to_be_bytes());
+        let mut sub = Vec::new();
+        sub.extend_from_slice(&offered.octets());
+        sub.extend_from_slice(&3600u32.to_be_bytes());
+        sub.extend_from_slice(&7200u32.to_be_bytes());
+        ia.extend_from_slice(&opt(5, &sub));
+        msg.extend_from_slice(&opt(3, &ia));
+        msg.extend_from_slice(&opt(23, &Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 53).octets()));
+        let udp = udp6_build(server_ip, client_ip, DHCP6_SERVER_PORT, DHCP6_CLIENT_PORT, &msg);
+        ethernet_frame(client_mac, server_mac, ETHERTYPE_IPV6, &ipv6_build(server_ip, client_ip, 17, &udp))
+    }
+
+    #[test]
+    fn dhcp6_lease_renew_and_expire() {
+        let client_mac = mac(9);
+        let server_mac = mac(254);
+        let server_ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 0xfe);
+        let client_ip = link_local_addr(client_mac);
+        let offered = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 50);
+        let mut dhcp = Dhcp6Client::new(client_mac, 0x00ab_cdef);
+        assert!(dhcp.tick(0).is_none());
+        let solicit = dhcp.solicit_frame();
+        let (_, _, etype, _) = ethernet_parse(&solicit).unwrap();
+        assert_eq!(etype, ETHERTYPE_IPV6);
+        let adv = dhcp6_reply(server_mac, server_ip, client_mac, client_ip, 0x00ab_cdef, 2, offered);
+        let request = dhcp.handle_frame(&adv).expect("ADVERTISE yields REQUEST");
+        let (_, _, _, req_ip) = ethernet_parse(&request).unwrap();
+        let req_pkt = ipv6_parse(req_ip).unwrap();
+        let (_, _, req_payload) = udp6_parse(req_pkt.src, req_pkt.dst, req_pkt.payload).unwrap();
+        assert_eq!(req_payload[0], 3, "REQUEST");
+        let reply = dhcp6_reply(server_mac, server_ip, client_mac, client_ip, 0x00ab_cdef, 7, offered);
+        assert!(dhcp.handle_frame(&reply).is_none());
+        let lease = dhcp.lease().expect("lease granted");
+        assert_eq!(lease.address, offered);
+        assert_eq!(lease.dns, Some(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 53)));
+        // Valid 7200s: renew at 3_600_000 ms, expiry at 7_200_000.
+        assert!(dhcp.tick(3_599_999).is_none());
+        assert!(dhcp.tick(3_600_000).is_some(), "renew at half valid lifetime");
+        assert!(dhcp.tick(7_200_000).is_none());
+        assert!(dhcp.lease().is_none(), "expired lease dropped");
+    }
+
+    #[test]
+    fn ipv6_originated_ra_configures_peer() {
+        let router_ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+        let mut router = IpStack6::new(mac(254), router_ip);
+        let mut host = IpStack6::new(mac(1), Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 5));
+        router.send_router_advertisement(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0), 64, 1800);
+        let frames = router.take_output();
+        assert_eq!(frames.len(), 1);
+        host.input(&frames[0]);
+        assert_eq!(host.default_router(), Some(router_ip));
+        router.send_router_advertisement(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0), 64, 0);
+        host.input(&router.take_output()[0]);
+        assert_eq!(host.default_router(), None, "withdrawal works both directions");
     }
 
     #[test]
