@@ -159,6 +159,7 @@ test-java:
 		&& java -cp build tests.TestCodec && java -cp build tests.TestEcho \
 		&& java -cp build tests.TestInterop && java -cp build tests.TestOracle \
 		&& java -cp build tests.TestDynamic && java -cp build tests.TestBdd && java -cp build tests.TestDeadline \
+		&& java -cp build tests.TestSidecar \
 		&& java -cp build tests.TestPbMessages
 
 test-csharp:
@@ -230,7 +231,7 @@ test-dart:
 	cd dart && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
-		&& ./build/tests TestPbMessages
+		&& ./build/tests TestSidecar && ./build/tests TestPbMessages
 
 ZIG ?= zig
 
@@ -323,6 +324,7 @@ test-ruby:
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestBdd \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestFiber \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestDeadline \
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestSidecar \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestPbMessages
 
 PHP ?= php
@@ -336,6 +338,7 @@ test-php:
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestBdd \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestFiber \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDeadline \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestSidecar \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestPbMessages
 
 SCALAC ?= scalac

@@ -42,6 +42,9 @@ begin
   when "TestPbMessages"
     require_relative "test_pb_messages"
     TestPbMessages.run
+  when "TestSidecar"
+    require_relative "test_sidecar"
+    TestSidecar.run
   else
     warn "unknown test: #{name}"
     exit(2)

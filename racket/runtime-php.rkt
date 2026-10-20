@@ -1238,6 +1238,89 @@ function memoryTransportPair(): array
 GRPC_RUNTIME_EOF
 )
 
+(define php-sidecar-body
+#<<GRPC_RUNTIME_EOF
+// Transport over the Rust WebRTC-Direct sidecar: the sidecar
+// owns DTLS/SCTP/TURN and bridges one datachannel to a local
+// TCP socket using u32 big-endian length-prefixed messages
+// (one prefix per DataChannel message). Core PHP only.
+
+namespace Grpcdc;
+
+require_once __DIR__ . "/endpoint.php";
+
+class SidecarTransport extends Transport
+{
+    /** @var resource */
+    private $sock;
+    private string $buf = "";
+    private bool $closedFlag = false;
+
+    /** @param resource $sock */
+    public function __construct($sock)
+    {
+        $this->sock = $sock;
+    }
+
+    public static function connect(string $host, int $port): self
+    {
+        $sock = stream_socket_client("tcp://{$host}:{$port}", $errno, $errstr);
+        if ($sock === false) {
+            throw new CallClosed("sidecar connect failed: {$errstr}");
+        }
+        return new self($sock);
+    }
+
+    public function send(string $data): void
+    {
+        if ($this->closedFlag) {
+            throw new CallClosed("transport closed");
+        }
+        $frame = pack("N", strlen($data)) . $data;
+        $written = 0;
+        while ($written < strlen($frame)) {
+            $n = fwrite($this->sock, substr($frame, $written));
+            if ($n === false || $n === 0) {
+                throw new CallClosed("transport closed");
+            }
+            $written += $n;
+        }
+    }
+
+    public function recvMessage(): ?string
+    {
+        $this->fill(4);
+        $length = unpack("N", substr($this->buf, 0, 4))[1];
+        $this->buf = substr($this->buf, 4);
+        $this->fill($length);
+        $payload = substr($this->buf, 0, $length);
+        $this->buf = substr($this->buf, $length);
+        return $payload;
+    }
+
+    public function close(): void
+    {
+        $this->closedFlag = true;
+        if (is_resource($this->sock)) {
+            fclose($this->sock);
+        }
+    }
+
+    private function fill(int $need): void
+    {
+        while (strlen($this->buf) < $need) {
+            $chunk = fread($this->sock, 65536);
+            if ($chunk === false || $chunk === "") {
+                $this->gone = true;
+                throw new CallClosed("transport closed");
+            }
+            $this->buf .= $chunk;
+        }
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
 (define php-init-body
 #<<GRPC_RUNTIME_EOF
 // grpcdc: gRPC over WebRTC DataChannels (generated runtime).
@@ -1248,6 +1331,7 @@ require_once __DIR__ . "/grpcdc/endpoint.php";
 require_once __DIR__ . "/grpcdc/channel.php";
 require_once __DIR__ . "/grpcdc/server.php";
 require_once __DIR__ . "/grpcdc/loopback.php";
+require_once __DIR__ . "/grpcdc/sidecar.php";
 require_once __DIR__ . "/grpcdc/dynamic.php";
 GRPC_RUNTIME_EOF
 )
@@ -1260,6 +1344,7 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/channel.php" php-channel-body)
    (cons "grpcdc/server.php" php-server-body)
    (cons "grpcdc/loopback.php" php-loopback-body)
+   (cons "grpcdc/sidecar.php" php-sidecar-body)
    (cons "grpcdc/dynamic.php" php-dynamic-body)))
 
 (define php-dynamic-body

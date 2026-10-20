@@ -1077,6 +1077,72 @@ func MemoryTransportPair() (Transport, Transport) {
 GRPC_RUNTIME_EOF
 )
 
+(define go-sidecar-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+// Transport over the Rust WebRTC-Direct sidecar: the sidecar
+// owns DTLS/SCTP/TURN and bridges one datachannel to a local
+// TCP socket using u32 big-endian length-prefixed messages
+// (one prefix per DataChannel message). Stdlib only; see
+// grpcdc.SidecarTransport in the Python runtime for the same
+// framing in another language.
+
+import (
+	"encoding/binary"
+	"io"
+	"net"
+)
+
+// SidecarTransport is one length-prefixed TCP connection to a
+// direct_sidecar process.
+type SidecarTransport struct {
+	conn net.Conn
+}
+
+// NewSidecarTransport wraps an established TCP connection.
+func NewSidecarTransport(conn net.Conn) *SidecarTransport {
+	return &SidecarTransport{conn: conn}
+}
+
+// DialSidecar connects to a direct_sidecar at addr ("host:port").
+func DialSidecar(addr string) (*SidecarTransport, error) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	return &SidecarTransport{conn: conn}, nil
+}
+
+// Send sends one frame as one length-prefixed message.
+func (t *SidecarTransport) Send(data []byte) error {
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], uint32(len(data)))
+	if _, err := t.conn.Write(header[:]); err != nil {
+		return err
+	}
+	_, err := t.conn.Write(data)
+	return err
+}
+
+// Recv returns the next length-prefixed message.
+func (t *SidecarTransport) Recv() ([]byte, error) {
+	var header [4]byte
+	if _, err := io.ReadFull(t.conn, header[:]); err != nil {
+		return nil, err
+	}
+	payload := make([]byte, binary.BigEndian.Uint32(header[:]))
+	if _, err := io.ReadFull(t.conn, payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+// Close closes the connection.
+func (t *SidecarTransport) Close() error { return t.conn.Close() }
+GRPC_RUNTIME_EOF
+)
+
 ;; Frame dispatch: switch arms are expanded from spec.rkt's frame
 ;; table, one arm per table entry; the arm bodies are the per-language
 ;; handlers for each frame name.
@@ -1112,6 +1178,7 @@ GRPC_RUNTIME_EOF
    (cons "channel.go" go-channel-body)
    (cons "server.go" go-server-body)
    (cons "loopback.go" go-loopback-body)
+   (cons "sidecar.go" go-sidecar-body)
    (cons "dynamic.go" go-dynamic-body)))
 
 (define go-dynamic-body

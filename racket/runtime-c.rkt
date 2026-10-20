@@ -1694,6 +1694,141 @@ void grpcdc_memory_pair_free(grpcdc_memory_pair *pair) {
 GRPC_RUNTIME_EOF
 )
 
+
+(define c-sidecar-header
+#<<GRPC_RUNTIME_EOF
+#ifndef GRPCDC_SIDECAR_TRANSPORT_H
+#define GRPCDC_SIDECAR_TRANSPORT_H
+
+#include "grpcdc.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Transport over the Rust WebRTC-Direct sidecar: the sidecar
+   owns DTLS/SCTP/TURN and bridges one datachannel to a local
+   TCP socket using u32 big-endian length-prefixed messages
+   (one prefix per DataChannel message). POSIX sockets only;
+   host must be an IPv4 literal (the sidecar is local). */
+typedef struct grpcdc_sidecar grpcdc_sidecar;
+
+grpcdc_sidecar *grpcdc_sidecar_connect(const char *host, uint16_t port);
+/* Fills *transport with the sidecar transport. */
+void grpcdc_sidecar_transport(grpcdc_sidecar *sidecar, grpcdc_transport *transport);
+void grpcdc_sidecar_free(grpcdc_sidecar *sidecar);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* GRPCDC_SIDECAR_TRANSPORT_H */
+GRPC_RUNTIME_EOF
+)
+
+(define c-sidecar-body
+#<<GRPC_RUNTIME_EOF
+#include "sidecar_transport.h"
+
+#include <arpa/inet.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+struct grpcdc_sidecar {
+    int fd;
+    uint8_t *buf;
+    size_t len;
+    size_t cap;
+};
+
+static int write_all(int fd, const uint8_t *data, size_t len) {
+    size_t off = 0;
+    while (off < len) {
+        ssize_t n = send(fd, data + off, len - off, 0);
+        if (n <= 0) return -1;
+        off += (size_t)n;
+    }
+    return 0;
+}
+
+static int fill(grpcdc_sidecar *s, size_t need) {
+    uint8_t tmp[65536];
+    while (s->len < need) {
+        ssize_t n = recv(s->fd, tmp, sizeof(tmp), 0);
+        if (n <= 0) return -1;
+        if (s->len + (size_t)n > s->cap) {
+            size_t cap = (s->len + (size_t)n) * 2;
+            s->buf = (uint8_t *)realloc(s->buf, cap);
+            s->cap = cap;
+        }
+        memcpy(s->buf + s->len, tmp, (size_t)n);
+        s->len += (size_t)n;
+    }
+    return 0;
+}
+
+static int sidecar_send(void *ctx, const uint8_t *data, size_t len) {
+    grpcdc_sidecar *s = (grpcdc_sidecar *)ctx;
+    uint8_t header[4] = {(uint8_t)(len >> 24), (uint8_t)(len >> 16),
+                         (uint8_t)(len >> 8), (uint8_t)len};
+    if (write_all(s->fd, header, 4) != 0) return -1;
+    return write_all(s->fd, data, len);
+}
+
+static int sidecar_recv(void *ctx, uint8_t **out, size_t *len) {
+    grpcdc_sidecar *s = (grpcdc_sidecar *)ctx;
+    if (fill(s, 4) != 0) return -1;
+    size_t payload_len = ((size_t)s->buf[0] << 24) | ((size_t)s->buf[1] << 16) |
+                         ((size_t)s->buf[2] << 8) | (size_t)s->buf[3];
+    memmove(s->buf, s->buf + 4, s->len - 4);
+    s->len -= 4;
+    if (fill(s, payload_len) != 0) return -1;
+    *out = (uint8_t *)malloc(payload_len ? payload_len : 1);
+    memcpy(*out, s->buf, payload_len);
+    memmove(s->buf, s->buf + payload_len, s->len - payload_len);
+    s->len -= payload_len;
+    *len = payload_len;
+    return 0;
+}
+
+grpcdc_sidecar *grpcdc_sidecar_connect(const char *host, uint16_t port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return NULL;
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+        close(fd);
+        return NULL;
+    }
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        close(fd);
+        return NULL;
+    }
+    grpcdc_sidecar *s = (grpcdc_sidecar *)calloc(1, sizeof(*s));
+    s->fd = fd;
+    return s;
+}
+
+void grpcdc_sidecar_transport(grpcdc_sidecar *sidecar, grpcdc_transport *transport) {
+    transport->ctx = sidecar;
+    transport->send = sidecar_send;
+    transport->recv = sidecar_recv;
+    transport->recv_until = NULL;
+}
+
+void grpcdc_sidecar_free(grpcdc_sidecar *sidecar) {
+    if (!sidecar) return;
+    close(sidecar->fd);
+    free(sidecar->buf);
+    free(sidecar);
+}
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-c-runtime-files)
   (define header
     (string-replace
@@ -1711,4 +1846,6 @@ GRPC_RUNTIME_EOF
                         "\n"
                         c-server-body))
    (cons "grpcdc/memory_transport.h" c-memory-header)
+   (cons "grpcdc/sidecar_transport.h" c-sidecar-header)
+   (cons "grpcdc/sidecar_transport.c" c-sidecar-body)
    (cons "grpcdc/memory_transport.c" c-memory-body)))

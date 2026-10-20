@@ -1219,6 +1219,87 @@ public static class MemoryTransport
 GRPC_RUNTIME_EOF
 )
 
+
+(define csharp-sidecar-body
+#<<GRPC_RUNTIME_EOF
+using System.Net.Sockets;
+
+namespace Grpcdc;
+
+/// <summary>
+/// Transport over the Rust WebRTC-Direct sidecar: the sidecar
+/// owns DTLS/SCTP/TURN and bridges one datachannel to a local
+/// TCP socket using u32 big-endian length-prefixed messages
+/// (one prefix per DataChannel message). BCL only.
+/// </summary>
+public sealed class SidecarTransport : ITransport
+{
+    private readonly TcpClient _client;
+    private readonly NetworkStream _stream;
+    private volatile bool _closed;
+
+    public SidecarTransport(TcpClient client)
+    {
+        _client = client;
+        _stream = client.GetStream();
+    }
+
+    public static SidecarTransport Connect(string host, int port)
+    {
+        return new SidecarTransport(new TcpClient(host, port));
+    }
+
+    public void Send(byte[] data)
+    {
+        if (_closed)
+        {
+            throw new EndOfStreamException("transport closed");
+        }
+        var header = new byte[4];
+        header[0] = (byte)(data.Length >> 24);
+        header[1] = (byte)(data.Length >> 16);
+        header[2] = (byte)(data.Length >> 8);
+        header[3] = (byte)data.Length;
+        lock (_stream)
+        {
+            _stream.Write(header, 0, header.Length);
+            _stream.Write(data, 0, data.Length);
+            _stream.Flush();
+        }
+    }
+
+    public byte[] Recv()
+    {
+        var header = ReadExact(4);
+        int length = (header[0] << 24) | (header[1] << 16) | (header[2] << 8) | header[3];
+        return ReadExact(length);
+    }
+
+    private byte[] ReadExact(int count)
+    {
+        var buf = new byte[count];
+        int offset = 0;
+        while (offset < count)
+        {
+            int n = _stream.Read(buf, offset, count - offset);
+            if (n == 0)
+            {
+                throw new EndOfStreamException("transport closed");
+            }
+            offset += n;
+        }
+        return buf;
+    }
+
+    public void Close()
+    {
+        _closed = true;
+        _client.Close();
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
 (define csharp-dispatch-arms
   '((HEADERS    . "OnHeaders(streamId, payload);")
     (DATA       . "PushEvent(streamId, new StreamEvent(EventKind.Data, null, payload, null));")
@@ -1256,6 +1337,7 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/Channel.cs" csharp-channel-body)
    (cons "grpcdc/Server.cs" csharp-server-body)
    (cons "grpcdc/MemoryTransport.cs" csharp-loopback-body)
+   (cons "grpcdc/SidecarTransport.cs" csharp-sidecar-body)
    (cons "grpcdc/AsyncPump.cs" csharp-async-body)
    (cons "grpcdc/Dynamic.cs" csharp-dynamic-body)))
 

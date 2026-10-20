@@ -1024,6 +1024,72 @@ end
 GRPC_RUNTIME_EOF
 )
 
+(define ruby-sidecar-body
+#<<GRPC_RUNTIME_EOF
+# Transport over the Rust WebRTC-Direct sidecar: the sidecar
+# owns DTLS/SCTP/TURN and bridges one datachannel to a local
+# TCP socket using u32 big-endian length-prefixed messages
+# (one prefix per DataChannel message). Stdlib only.
+
+require "socket"
+require_relative "endpoint"
+
+module Grpcdc
+  class SidecarTransport < Transport
+    def initialize(sock)
+      super()
+      @sock = sock
+      @buf = +"".b
+      @closed = false
+    end
+
+    def self.connect(host, port)
+      new(TCPSocket.new(host, port))
+    end
+
+    def self.from_socket(sock)
+      new(sock)
+    end
+
+    def send(data)
+      raise EOFError, "transport closed" if @closed
+
+      payload = data.b
+      @sock.write([payload.bytesize].pack("N") + payload)
+    end
+
+    def recv
+      fill(4)
+      length = @buf.unpack1("N")
+      @buf = @buf.byteslice(4..) || +"".b
+      fill(length)
+      payload = @buf.byteslice(0, length) || +"".b
+      @buf = @buf.byteslice(length..) || +"".b
+      payload
+    end
+
+    def close
+      @closed = true
+      @sock.close
+    rescue IOError
+      nil
+    end
+
+    private
+
+    def fill(need)
+      while @buf.bytesize < need
+        chunk = @sock.readpartial(65_536)
+        raise EOFError, "transport closed" if chunk.nil? || chunk.empty?
+
+        @buf << chunk.b
+      end
+    end
+  end
+end
+GRPC_RUNTIME_EOF
+)
+
 (define ruby-dynamic-body
 #<<GRPC_RUNTIME_EOF
 # Dynamic, descriptor-driven client and server.
@@ -1699,6 +1765,7 @@ require_relative "grpcdc/endpoint"
 require_relative "grpcdc/channel"
 require_relative "grpcdc/server"
 require_relative "grpcdc/loopback"
+require_relative "grpcdc/sidecar"
 require_relative "grpcdc/dynamic"
 GRPC_RUNTIME_EOF
 )
@@ -1732,4 +1799,5 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/channel.rb" ruby-channel-body)
    (cons "grpcdc/server.rb" ruby-server-body)
    (cons "grpcdc/loopback.rb" ruby-loopback-body)
+   (cons "grpcdc/sidecar.rb" ruby-sidecar-body)
    (cons "grpcdc/dynamic.rb" ruby-dynamic-body)))

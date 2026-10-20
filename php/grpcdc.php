@@ -9,4 +9,5 @@ require_once __DIR__ . "/grpcdc/endpoint.php";
 require_once __DIR__ . "/grpcdc/channel.php";
 require_once __DIR__ . "/grpcdc/server.php";
 require_once __DIR__ . "/grpcdc/loopback.php";
+require_once __DIR__ . "/grpcdc/sidecar.php";
 require_once __DIR__ . "/grpcdc/dynamic.php";

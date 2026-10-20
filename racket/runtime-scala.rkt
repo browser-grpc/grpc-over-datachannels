@@ -1121,6 +1121,69 @@ object MemoryTransport {
 GRPC_RUNTIME_EOF
 )
 
+
+(define scala-sidecar-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+import java.io.DataInputStream
+import java.io.EOFException
+import java.net.Socket
+
+/**
+ * Transport over the Rust WebRTC-Direct sidecar: the sidecar
+ * owns DTLS/SCTP/TURN and bridges one datachannel to a local
+ * TCP socket using u32 big-endian length-prefixed messages
+ * (one prefix per DataChannel message). JDK only.
+ */
+class SidecarTransport(private val socket: Socket) extends Transport {
+  private val input = new DataInputStream(socket.getInputStream())
+  private val output = socket.getOutputStream()
+
+  @volatile
+  private var closed = false
+
+  def send(data: Array[Byte]): Unit = {
+    if (closed) {
+      throw new EOFException("transport closed")
+    }
+    val header = Array[Byte](
+      (data.length >>> 24).toByte,
+      (data.length >>> 16).toByte,
+      (data.length >>> 8).toByte,
+      data.length.toByte
+    )
+    output.synchronized {
+      output.write(header)
+      output.write(data)
+      output.flush()
+    }
+  }
+
+  def recv(): Array[Byte] = {
+    val length = input.readInt()
+    val payload = new Array[Byte](length)
+    input.readFully(payload)
+    payload
+  }
+
+  override def close(): Unit = {
+    closed = true
+    try {
+      socket.close()
+    } catch {
+      case _: Exception => ()
+    }
+  }
+}
+
+object SidecarTransport {
+  def connect(host: String, port: Int): SidecarTransport =
+    new SidecarTransport(new Socket(host, port))
+}
+GRPC_RUNTIME_EOF
+)
+
 (define scala-futures-body
 #<<GRPC_RUNTIME_EOF
 package grpcdc
@@ -1792,5 +1855,6 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/Channel.scala" scala-channel-body)
    (cons "grpcdc/Server.scala" scala-server-body)
    (cons "grpcdc/MemoryTransport.scala" scala-memory-body)
+   (cons "grpcdc/SidecarTransport.scala" scala-sidecar-body)
    (cons "grpcdc/Futures.scala" scala-futures-body)
    (cons "grpcdc/Dynamic.scala" scala-dynamic-body)))

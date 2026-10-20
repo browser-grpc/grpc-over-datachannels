@@ -1196,6 +1196,68 @@ object MemoryTransport {
 GRPC_RUNTIME_EOF
 )
 
+
+(define kotlin-sidecar-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+import java.io.DataInputStream
+import java.io.EOFException
+import java.net.Socket
+
+/**
+ * Transport over the Rust WebRTC-Direct sidecar: the sidecar
+ * owns DTLS/SCTP/TURN and bridges one datachannel to a local
+ * TCP socket using u32 big-endian length-prefixed messages
+ * (one prefix per DataChannel message). JDK only.
+ */
+class SidecarTransport(private val socket: Socket) : Transport {
+    private val input = DataInputStream(socket.getInputStream())
+    private val output = socket.getOutputStream()
+
+    @Volatile
+    private var closed = false
+
+    override fun send(data: ByteArray) {
+        if (closed) {
+            throw EOFException("transport closed")
+        }
+        val header = byteArrayOf(
+            (data.size ushr 24).toByte(),
+            (data.size ushr 16).toByte(),
+            (data.size ushr 8).toByte(),
+            data.size.toByte()
+        )
+        synchronized(output) {
+            output.write(header)
+            output.write(data)
+            output.flush()
+        }
+    }
+
+    override fun recv(): ByteArray {
+        val length = input.readInt()
+        val payload = ByteArray(length)
+        input.readFully(payload)
+        return payload
+    }
+
+    override fun close() {
+        closed = true
+        try {
+            socket.close()
+        } catch (ignored: Exception) {
+        }
+    }
+
+    companion object {
+        fun connect(host: String, port: Int): SidecarTransport =
+            SidecarTransport(Socket(host, port))
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
 (define kotlin-async-body
 #<<GRPC_RUNTIME_EOF
 package grpcdc
@@ -1929,6 +1991,7 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/Channel.kt" kotlin-channel-body)
    (cons "grpcdc/Server.kt" kotlin-server-body)
    (cons "grpcdc/MemoryTransport.kt" kotlin-loopback-body)
+   (cons "grpcdc/SidecarTransport.kt" kotlin-sidecar-body)
    (cons "grpcdc/AsyncPump.kt" kotlin-async-body)
    (cons "grpcdc/Dynamic.kt" kotlin-dynamic-body)))
 

@@ -43,6 +43,10 @@ try {
             require_once __DIR__ . "/test_deadline.php";
             TestDeadline::run();
             break;
+        case "TestSidecar":
+            require_once __DIR__ . "/test_sidecar.php";
+            TestSidecar::run();
+            break;
         case "TestPbMessages":
             require_once __DIR__ . "/test_pb_messages.php";
             TestPbMessages::run();
