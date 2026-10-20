@@ -27,7 +27,6 @@ function authorized(msg, raw) {
 // RFC values) so client refresh behavior is observable in tests.
 export async function fakeTurnServer({ lifetimeSeconds = 600, permissionSeconds = 300 } = {}) {
   const socket = dgram.createSocket("udp4");
-  let nextPort = 51100;
   const byClient = new Map();
   const byRelay = new Map();
   const relaySockets = [];
@@ -57,15 +56,23 @@ export async function fakeTurnServer({ lifetimeSeconds = 600, permissionSeconds 
     socket.send(ind.encode(null), dest.client.port, dest.client.address);
   }
 
-  function listenRelay(alloc) {
+  function listenRelay(alloc, onReady) {
     const relaySocket = dgram.createSocket("udp4");
+    alloc.relaySocket = relaySocket;
     relaySockets.push(relaySocket);
     relaySocket.on("message", (data, rinfo) => {
       const src = { address: rinfo.address, port: rinfo.port };
       if (!live(alloc) || !permOK(alloc, `${src.address}:${src.port}`)) return;
       deliver(alloc, src, data);
     });
-    relaySocket.bind(alloc.relayed.port, alloc.relayed.address);
+    // Ephemeral relay port: parallel test files each run a fake
+    // server in the same network namespace, so a fixed range
+    // collides (EADDRINUSE) across processes.
+    relaySocket.bind(0, alloc.relayed.address, () => {
+      alloc.relayed.port = relaySocket.address().port;
+      byRelay.set(`${alloc.relayed.address}:${alloc.relayed.port}`, alloc);
+      onReady?.();
+    });
   }
 
   socket.on("message", (msg, rinfo) => {
@@ -79,6 +86,14 @@ export async function fakeTurnServer({ lifetimeSeconds = 600, permissionSeconds 
       const peerKey = sender.channels.get(framed.channel);
       if (!peerKey) return;
       const dest = byRelay.get(peerKey);
+      if (!dest) {
+        // Direct (non-TURN) peer: deliver from the relay socket.
+        const cut = peerKey.lastIndexOf(":");
+        const address = peerKey.slice(0, cut);
+        const port = Number(peerKey.slice(cut + 1));
+        if (live(sender) && sender.relaySocket) sender.relaySocket.send(framed.data, port, address);
+        return;
+      }
       if (!live(dest) || !permOK(dest, `${sender.relayed.address}:${sender.relayed.port}`)) return;
       stats.chanData += 1;
       deliver(dest, sender.relayed, framed.data);
@@ -107,8 +122,7 @@ export async function fakeTurnServer({ lifetimeSeconds = 600, permissionSeconds 
         socket.send(resp.encode(null), src.port, src.address);
         return;
       }
-      nextPort += 1;
-      const relayed = { address: "127.0.0.1", port: nextPort };
+      const relayed = { address: "127.0.0.1", port: 0 };
       const alloc = {
         client: src,
         relayed,
@@ -118,15 +132,15 @@ export async function fakeTurnServer({ lifetimeSeconds = 600, permissionSeconds 
         peerChan: new Map(), // peer key -> channel
       };
       byClient.set(`${src.address}:${src.port}`, alloc);
-      byRelay.set(`${relayed.address}:${relayed.port}`, alloc);
-      listenRelay(alloc);
-      const resp = new StunMessage(StunMessageType.ALLOCATE_SUCCESS);
-      resp.transactionId = Buffer.from(request.transactionId);
-      resp.attrs.push([StunAttribute.XOR_RELAYED_ADDRESS, xorAddressValue(relayed, resp.transactionId)]);
-      resp.attrs.push([StunAttribute.XOR_MAPPED_ADDRESS, xorAddressValue(src, resp.transactionId)]);
-      resp.attrs.push([StunAttribute.LIFETIME, lifetimeAttr()]);
-      resp.attrs.push([StunAttribute.SOFTWARE, Buffer.from("dc-webrtc-fake")]);
-      socket.send(resp.encode(key()), src.port, src.address);
+      listenRelay(alloc, () => {
+        const resp = new StunMessage(StunMessageType.ALLOCATE_SUCCESS);
+        resp.transactionId = Buffer.from(request.transactionId);
+        resp.attrs.push([StunAttribute.XOR_RELAYED_ADDRESS, xorAddressValue(relayed, resp.transactionId)]);
+        resp.attrs.push([StunAttribute.XOR_MAPPED_ADDRESS, xorAddressValue(src, resp.transactionId)]);
+        resp.attrs.push([StunAttribute.LIFETIME, lifetimeAttr()]);
+        resp.attrs.push([StunAttribute.SOFTWARE, Buffer.from("dc-webrtc-fake")]);
+        socket.send(resp.encode(key()), src.port, src.address);
+      });
     } else if (request.type === StunMessageType.REFRESH_REQUEST) {
       const alloc = byClient.get(`${src.address}:${src.port}`);
       if (!alloc || !authorized(request, raw)) return;
@@ -181,7 +195,13 @@ export async function fakeTurnServer({ lifetimeSeconds = 600, permissionSeconds 
       if (!peer || !data) return;
       const sender = byClient.get(`${src.address}:${src.port}`);
       const dest = byRelay.get(`${peer.address}:${peer.port}`);
-      if (!live(sender) || !live(dest)) return;
+      if (!live(sender)) return;
+      if (!dest) {
+        // Direct (non-TURN) peer: deliver from the relay socket.
+        if (sender.relaySocket) sender.relaySocket.send(data, peer.port, peer.address);
+        return;
+      }
+      if (!live(dest)) return;
       if (!permOK(dest, `${sender.relayed.address}:${sender.relayed.port}`)) return;
       deliver(dest, sender.relayed, data);
     }

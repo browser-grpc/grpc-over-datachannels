@@ -23,6 +23,8 @@ extern crate alloc;
 
 pub mod crypto;
 pub mod dcep;
+#[cfg(feature = "std")]
+pub mod direct;
 pub mod dtls;
 #[cfg(feature = "std")]
 pub mod endpoint;
