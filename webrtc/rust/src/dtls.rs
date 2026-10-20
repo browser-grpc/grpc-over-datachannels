@@ -193,6 +193,9 @@ pub struct Dtls<I: DtlsIo> {
     /// Resumption state captured from a server NewSessionTicket
     /// (client) — take it with `take_session`.
     session: Option<DtlsSession>,
+    /// This connection was established by an abbreviated
+    /// (ticket-resumed) handshake.
+    resumed: bool,
 }
 
 fn err(msg: &str) -> io::Error {
@@ -608,6 +611,7 @@ macro_rules! dtls_new {
             read_highest_seq: None,
             read_replay_window: 0,
             session: None,
+            resumed: false,
         }
     };
 }
@@ -745,6 +749,19 @@ impl<I: DtlsIo> Dtls<I> {
     pub fn send_app(&mut self, data: &[u8]) -> io::Result<()> {
         self.send_record(dtls_content::APPLICATION_DATA, 1, data)?;
         Ok(())
+    }
+
+    /// Whether this connection came from an abbreviated
+    /// (ticket-resumed) handshake rather than a full one.
+    pub fn was_resumed(&self) -> bool {
+        self.resumed
+    }
+
+    /// Send a close_notify alert (best effort). Lets the peer
+    /// release the session — e.g. a `s_server -naccept 2` moves
+    /// on to the next connection only once this one closes.
+    pub fn close(&mut self) {
+        let _ = self.send_record(dtls_content::ALERT, 1, &[1, 0]);
     }
 
     pub fn recv_app(&mut self) -> io::Result<Vec<u8>> {
@@ -961,7 +978,48 @@ impl<I: DtlsIo> Dtls<I> {
         conn.server_random = server_hello.server_random;
         conn.negotiated_srtp_profile = server_hello.srtp_profile;
 
-        if let (Some(session), true) = (resume, server_hello.resumed) {
+        // Resumption is signalled two ways: the session_ticket
+        // extension in ServerHello (our own servers), or an
+        // abbreviated flight straight to Finished (OpenSSL omits
+        // the extension on resume). The encrypted Finished cannot
+        // be ordered-pumped before keys exist, so classify at the
+        // record layer: an epoch-1 handshake record already
+        // deferred (or arriving next) with no plaintext flight in
+        // hand means the server abbreviated.
+        let mut peeked: Option<(u8, Vec<u8>, Vec<u8>)> = None;
+        let resumed = match (resume, server_hello.resumed) {
+            (Some(_), true) => true,
+            (Some(_), false) => {
+                fn epoch1_handshake(packet: &[u8]) -> bool {
+                    let mut off = 0;
+                    while off + 13 <= packet.len() {
+                        let len =
+                            u16::from_be_bytes([packet[off + 11], packet[off + 12]]) as usize;
+                        if packet[off] == dtls_content::HANDSHAKE
+                            && packet[off + 3] == 0
+                            && packet[off + 4] == 1
+                        {
+                            return true;
+                        }
+                        off += 13 + len;
+                    }
+                    false
+                }
+                let mut abbreviated = hs.ready.is_empty()
+                    && hs.pending.iter().any(|p| epoch1_handshake(p));
+                if !abbreviated && hs.ready.is_empty() {
+                    if let Ok(Some(packet)) =
+                        conn.io.recv_packet(Duration::from_millis(1500))
+                    {
+                        abbreviated = epoch1_handshake(&packet);
+                        hs.pending.push(packet);
+                    }
+                }
+                abbreviated
+            }
+            _ => false,
+        };
+        if let (Some(session), true) = (resume, resumed) {
             // Abbreviated handshake (RFC 5077): the sealed ticket
             // carries the session; no certificates are exchanged,
             // and the fingerprint check runs against the ticket's
@@ -969,25 +1027,44 @@ impl<I: DtlsIo> Dtls<I> {
             conn.master_secret = session.master_secret.clone();
             conn.peer_certificate = Some(session.peer_certificate.clone());
             conn.negotiated_srtp_profile = session.srtp_profile;
+            conn.resumed = true;
             conn.check_peer_fingerprint(config)?;
             conn.derive_keys(&conn.master_secret.clone());
-            let ccs = conn.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
-            let verify_data = prf(&conn.master_secret, "client finished", &hs.hash(), 12);
-            let fin = conn.send_hs(&mut hs, dtls_handshake::FINISHED, &verify_data, 1)?;
-            flight = vec![ccs, fin];
+            // Abbreviated flight order: the server's Finished
+            // comes first (its verify_data covers the transcript
+            // through ServerHello, snapshotted here), and ours
+            // answers it — our verify_data covers the transcript
+            // including the server's Finished, which is how
+            // reference stacks check it.
+            let mut resume_transcript = hs.transcript.clone();
             loop {
-                let (msg_type, raw, body) = conn.pump_until_message(&mut hs, &flight)?;
+                let (msg_type, raw, body) = match peeked.take() {
+                    Some(m) => m,
+                    None => conn.pump_until_message(&mut hs, &flight)?,
+                };
+                if msg_type == dtls_handshake::NEW_SESSION_TICKET {
+                    conn.store_ticket_body(&body);
+                }
                 if msg_type == dtls_handshake::FINISHED {
-                    let expected =
-                        prf(&conn.master_secret, "server finished", &hs.hash(), 12);
+                    let expected = prf(
+                        &conn.master_secret,
+                        "server finished",
+                        &sha256(&resume_transcript),
+                        12,
+                    );
                     if body != expected.as_slice() {
                         return Err(err("server Finished verification failed"));
                     }
                     hs.transcript.extend_from_slice(&raw);
                     break;
                 }
+                resume_transcript.extend_from_slice(&raw);
                 hs.transcript.extend_from_slice(&raw);
             }
+            let ccs = conn.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
+            let verify_data = prf(&conn.master_secret, "client finished", &hs.hash(), 12);
+            let fin = conn.send_hs(&mut hs, dtls_handshake::FINISHED, &verify_data, 1)?;
+            flight = vec![ccs, fin];
             if config.session_resumption {
                 conn.capture_session_ticket(&mut hs);
             }
@@ -1000,7 +1077,10 @@ impl<I: DtlsIo> Dtls<I> {
         let mut ske_signature: Option<Vec<u8>> = None;
         let mut cert_requested = false;
         loop {
-            let (msg_type, raw, body) = conn.pump_until_message(&mut hs, &flight)?;
+            let (msg_type, raw, body) = match peeked.take() {
+                Some(m) => m,
+                None => conn.pump_until_message(&mut hs, &flight)?,
+            };
             hs.transcript.extend_from_slice(&raw);
             match msg_type {
                 t if t == dtls_handshake::CERTIFICATE => {
@@ -1107,6 +1187,9 @@ impl<I: DtlsIo> Dtls<I> {
         // Server CCS + Finished.
         loop {
             let (msg_type, raw, body) = conn.pump_until_message(&mut hs, &flight)?;
+            if msg_type == dtls_handshake::NEW_SESSION_TICKET {
+                conn.store_ticket_body(&body);
+            }
             if msg_type == dtls_handshake::FINISHED {
                 let expected =
                     prf(&conn.master_secret, "server finished", &hs.hash(), 12);
@@ -1151,16 +1234,24 @@ impl<I: DtlsIo> Dtls<I> {
             }
         }
         if let Some(body) = body {
-            let mut r = Reader::new(&body);
-            let _ = r.take(4); // lifetime
-            if let Ok(ticket) = r.vec16() {
-                self.session = Some(DtlsSession {
-                    ticket: ticket.to_vec(),
-                    master_secret: self.master_secret.clone(),
-                    peer_certificate: self.peer_certificate.clone().unwrap_or_default(),
-                    srtp_profile: self.negotiated_srtp_profile,
-                });
-            }
+            self.store_ticket_body(&body);
+        }
+    }
+
+    /// Parse a NewSessionTicket body into resumption state.
+    /// Called directly when the handshake pump surfaces the
+    /// ticket (the usual case: it precedes the server Finished),
+    /// so capture does not depend on packet timing.
+    fn store_ticket_body(&mut self, body: &[u8]) {
+        let mut r = Reader::new(body);
+        let _ = r.take(4); // lifetime
+        if let Ok(ticket) = r.vec16() {
+            self.session = Some(DtlsSession {
+                ticket: ticket.to_vec(),
+                master_secret: self.master_secret.clone(),
+                peer_certificate: self.peer_certificate.clone().unwrap_or_default(),
+                srtp_profile: self.negotiated_srtp_profile,
+            });
         }
     }
 
@@ -1396,6 +1487,7 @@ impl<I: DtlsIo> Dtls<I> {
         self.master_secret = session.master_secret.clone();
         self.peer_certificate = Some(session.peer_certificate.clone());
         self.negotiated_srtp_profile = session.srtp_profile;
+        self.resumed = true;
 
         let mut sh = Vec::new();
         sh.extend_from_slice(&DTLS_1_2);
@@ -1418,9 +1510,20 @@ impl<I: DtlsIo> Dtls<I> {
         sh.extend_from_slice(&(exts.len() as u16).to_be_bytes());
         sh.extend_from_slice(&exts);
         let packet = self.send_hs(hs, dtls_handshake::SERVER_HELLO, &sh, 0)?;
-        let flight = vec![packet];
 
         self.derive_keys(&self.master_secret.clone());
+
+        // Abbreviated flight order: our CCS + Finished go out
+        // before the client's Finished is read. Our verify_data
+        // covers the transcript through ServerHello; the client's
+        // answer is checked against the transcript including
+        // our Finished (send_hs has already appended it).
+        let ccs_packet = self.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
+        let verify_data = prf(&self.master_secret, "server finished", &hs.hash(), 12);
+        let fin_packet = self.send_hs(hs, dtls_handshake::FINISHED, &verify_data, 1)?;
+        // Retransmit the whole flight (ServerHello included, in
+        // case the client never saw it) while awaiting the answer.
+        let flight = vec![packet, ccs_packet, fin_packet];
 
         // Client CCS + Finished.
         loop {
@@ -1436,11 +1539,6 @@ impl<I: DtlsIo> Dtls<I> {
             hs.transcript.extend_from_slice(&raw);
         }
         self.check_peer_fingerprint(config)?;
-
-        // Server CCS + Finished.
-        let _ccs = self.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
-        let verify_data = prf(&self.master_secret, "server finished", &hs.hash(), 12);
-        self.send_hs(hs, dtls_handshake::FINISHED, &verify_data, 1)?;
         // Rotate a fresh ticket for the next reconnect.
         if config.session_resumption {
             self.issue_session_ticket(hs, config);

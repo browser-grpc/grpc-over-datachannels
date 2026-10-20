@@ -129,18 +129,30 @@ fn rust_client_openssl_server() {
         return;
     }
     let (cert, key) = openssl_cert();
-    let port = free_port();
-    let mut server = Command::new("openssl")
-        .args([
-            "s_server", "-accept", &port.to_string(), "-dtls1_2",
-            "-cert", cert.to_str().unwrap(), "-key", key.to_str().unwrap(),
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn openssl s_server");
-    std::thread::sleep(Duration::from_millis(500));
+    // The probed free port can be taken by a sibling test before
+    // s_server binds (parallel runs); retry with a fresh port
+    // when the server dies during startup.
+    let mut server = None;
+    let mut port = 0;
+    for _ in 0..3 {
+        port = free_port();
+        let mut candidate = Command::new("openssl")
+            .args([
+                "s_server", "-accept", &port.to_string(), "-dtls1_2",
+                "-cert", cert.to_str().unwrap(), "-key", key.to_str().unwrap(),
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn openssl s_server");
+        std::thread::sleep(Duration::from_millis(500));
+        if candidate.try_wait().unwrap().is_none() {
+            server = Some(candidate);
+            break;
+        }
+    }
+    let mut server = server.expect("openssl s_server did not stay up after 3 attempts");
 
     let mut client = Command::new(echo_binary())
         .args(["client", &port.to_string()])
@@ -161,6 +173,194 @@ fn rust_client_openssl_server() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "from-openssl");
+    server.kill().ok();
+}
+
+struct WireIo {
+    socket: UdpSocket,
+    peer: std::net::SocketAddr,
+    seen: std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+}
+
+impl dc_webrtc::dtls::DtlsIo for WireIo {
+    fn send_packet(&mut self, packet: &[u8]) -> std::io::Result<()> {
+        self.socket.send_to(packet, self.peer)?;
+        Ok(())
+    }
+    fn recv_packet(&mut self, timeout: Duration) -> std::io::Result<Option<Vec<u8>>> {
+        self.socket.set_read_timeout(Some(timeout))?;
+        let mut buf = vec![0u8; 65536];
+        match self.socket.recv(&mut buf) {
+            Ok(n) => {
+                buf.truncate(n);
+                self.seen.lock().unwrap().push(buf.clone());
+                Ok(Some(buf))
+            }
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+/// Handshake message types (first per record) seen on the wire.
+fn handshake_types(packets: &[Vec<u8>]) -> Vec<u8> {
+    let mut types = Vec::new();
+    for packet in packets {
+        let mut off = 0;
+        while off + 13 <= packet.len() {
+            let content = packet[off];
+            let len = u16::from_be_bytes([packet[off + 11], packet[off + 12]]) as usize;
+            if content == 22 && off + 14 <= packet.len() {
+                types.push(packet[off + 13]);
+            }
+            off += 13 + len;
+        }
+    }
+    types
+}
+
+#[test]
+fn openssl_server_ticket_resumption() {
+    use dc_webrtc::dtls::{Dtls, DtlsConfig};
+    if !have_openssl() {
+        eprintln!("openssl CLI not available; skipping");
+        return;
+    }
+    let (cert, key) = openssl_cert();
+
+    let cfg = |fp: Option<String>| DtlsConfig {
+        certificate: dc_webrtc::x509::Certificate::generate_self_signed("dc-webrtc"),
+        expected_peer_fingerprint: fp,
+        require_peer_certificate: false,
+        session_resumption: true,
+        session_ticket_key: None,
+    };
+    let wire = |port| {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        (
+            WireIo {
+                socket: UdpSocket::bind("127.0.0.1:0").unwrap(),
+                peer: format!("127.0.0.1:{port}").parse().unwrap(),
+                seen: seen.clone(),
+            },
+            seen,
+        )
+    };
+
+    // 1) Full handshake; OpenSSL must issue a session ticket.
+    // Server startup under full-suite load can lose the port
+    // race or start slowly; retry the pairing on a fresh port.
+    let (mut server, server_log, port, mut conn1) = {
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let port = free_port();
+            let mut server = Command::new("openssl")
+                .args([
+                    "s_server", "-accept", &port.to_string(), "-dtls1_2",
+                    "-cert", cert.to_str().unwrap(), "-key", key.to_str().unwrap(),
+                    "-state",
+                ])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("spawn openssl s_server");
+            let server_log = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+            let pipes: [Box<dyn std::io::Read + Send>; 2] = [
+                Box::new(server.stderr.take().unwrap()),
+                Box::new(server.stdout.take().unwrap()),
+            ];
+            for mut pipe in pipes {
+                let log = server_log.clone();
+                std::thread::spawn(move || {
+                    use std::io::Read as _;
+                    let mut buf = [0u8; 4096];
+                    loop {
+                        match pipe.read(&mut buf) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => log
+                                .lock()
+                                .unwrap()
+                                .push_str(&String::from_utf8_lossy(&buf[..n])),
+                        }
+                    }
+                });
+            }
+            std::thread::sleep(Duration::from_millis(500));
+            let (io1, _seen1) = wire(port);
+            match Dtls::connect(io1, &cfg(None)) {
+                Ok(conn1) => break (server, server_log, port, conn1),
+                Err(e) => {
+                    server.kill().ok();
+                    if attempt >= 3 {
+                        panic!("full handshake vs OpenSSL after 3 attempts: {e}");
+                    }
+                }
+            }
+        }
+    };
+    let session = conn1
+        .take_session()
+        .expect("OpenSSL issued a session ticket our client captured");
+    let fp = conn1.peer_fingerprint().expect("peer fingerprint");
+    // Exchange data so the server is fully in its data phase,
+    // then close politely so it accepts connection 2.
+    server.stdin.as_mut().unwrap().write_all(b"from-server\n").unwrap();
+    let data = conn1
+        .recv_app_timeout(Duration::from_secs(10))
+        .expect("io ok")
+        .expect("app data on first session");
+    assert_eq!(data, b"from-server\n");
+    conn1.close();
+    // Read the server's close_notify answer (arrives as an alert)
+    // so its accept loop releases the peer binding cleanly.
+    let _ = conn1.recv_app_timeout(Duration::from_secs(2));
+    drop(conn1);
+    std::thread::sleep(Duration::from_millis(300));
+
+    // 2) Resumed handshake: must succeed, keep identity, and be
+    // abbreviated on the wire (no Certificate flight from OpenSSL).
+    let (io2, seen2) = wire(port);
+    let mut conn2 = Dtls::connect_resumed(io2, &cfg(Some(fp.clone())), &session)
+        .expect("resumed handshake vs OpenSSL");
+    assert!(conn2.was_resumed(), "handshake actually abbreviated");
+    assert_eq!(conn2.peer_fingerprint().as_deref(), Some(fp.as_str()));
+    let types = handshake_types(&seen2.lock().unwrap());
+    assert!(types.contains(&2), "ServerHello seen: {types:?}");
+    assert!(
+        !types.contains(&11),
+        "no Certificate flight in resumed handshake: {types:?}"
+    );
+
+    // 3) Application data flows on the resumed session, both
+    // ways: ours lands on the server's stdout; a stdin line
+    // comes back to us.
+    conn2.send_app(b"from-client\n").unwrap();
+    let mut data = None;
+    for _ in 0..10 {
+        if server_log.lock().unwrap().contains("from-client") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    assert!(
+        server_log.lock().unwrap().contains("from-client"),
+        "server received app data on resumed session"
+    );
+    for _ in 0..5 {
+        server.stdin.as_mut().unwrap().write_all(b"resumed-ok\n").unwrap();
+        if let Ok(Some(d)) = conn2.recv_app_timeout(Duration::from_secs(3)) {
+            data = Some(d);
+            break;
+        }
+    }
+    assert_eq!(data.as_deref(), Some(b"resumed-ok\n".as_slice()), "app data on resumed session");
     server.kill().ok();
 }
 
