@@ -65,12 +65,18 @@ impl DtlsIo for ClientIo {
 }
 
 fn config() -> DtlsConfig {
+    config_resume(false)
+}
+
+fn config_resume(session_resumption: bool) -> DtlsConfig {
     DtlsConfig {
         certificate: Certificate::generate_self_signed("dc-webrtc"),
         expected_peer_fingerprint: None,
         require_peer_certificate: false,
-        session_resumption: false,
-        session_ticket_key: None,
+        session_resumption,
+        // Servers need a sealing key to issue/honor RFC 5077
+        // tickets. Fixed key: test harness only, never production.
+        session_ticket_key: if session_resumption { Some([0x42; 32]) } else { None },
     }
 }
 
@@ -80,16 +86,47 @@ fn main() -> io::Result<()> {
     let port: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(4443);
     match mode {
         "server" => {
+            // `server <port> resume`: issue RFC 5077 tickets and
+            // keep accepting (idle timeout per connection) so a
+            // client can resume against the same server process.
+            let resume = args.get(3).map(|s| s.as_str()) == Some("resume");
             let socket = UdpSocket::bind(("127.0.0.1", port))?;
             eprintln!("LISTENING {port}");
-            let io = ServerIo { socket, peer: Mutex::new(None) };
-            let mut conn = Dtls::accept(io, &config())?;
-            eprintln!("HANDSHAKE_OK peer_fp={}", conn.peer_fingerprint().unwrap_or_default());
             loop {
-                let data = conn.recv_app()?;
-                let mut reply = b"echo:".to_vec();
-                reply.extend_from_slice(&data);
-                conn.send_app(&reply)?;
+                let io = ServerIo { socket: socket.try_clone()?, peer: Mutex::new(None) };
+                let mut conn = match Dtls::accept(io, &config_resume(resume)) {
+                    Ok(conn) => conn,
+                    Err(e) if resume => {
+                        eprintln!("accept retry after: {e}");
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                };
+                eprintln!(
+                    "HANDSHAKE_OK peer_fp={} resumed={}",
+                    conn.peer_fingerprint().unwrap_or_default(),
+                    conn.was_resumed()
+                );
+                loop {
+                    let data = if resume {
+                        match conn.recv_app_timeout(Duration::from_secs(3)) {
+                            Ok(Some(data)) => data,
+                            _ => break, // idle or closed: accept the next connection
+                        }
+                    } else {
+                        conn.recv_app()?
+                    };
+                    let mut reply = b"echo:".to_vec();
+                    reply.extend_from_slice(&data);
+                    conn.send_app(&reply)?;
+                }
+                if !resume {
+                    return Ok(());
+                }
+                // Answer close_notify so the peer finishes its
+                // shutdown (OpenSSL s_client only then writes
+                // -sess_out and exits).
+                conn.close();
             }
         }
         "client" => {

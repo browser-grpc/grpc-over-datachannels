@@ -365,6 +365,117 @@ fn openssl_server_ticket_resumption() {
 }
 
 #[test]
+fn openssl_client_ticket_resumption() {
+    if !have_openssl() {
+        eprintln!("openssl CLI not available; skipping");
+        return;
+    }
+    // Rust server in resume mode: tickets on, accept loop.
+    let port = free_port();
+    let mut server = Command::new(echo_binary())
+        .args(["server", &port.to_string(), "resume"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn dtls_echo server resume");
+    let server_log = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    {
+        let log = server_log.clone();
+        let mut stderr = server.stderr.take().unwrap();
+        std::thread::spawn(move || {
+            use std::io::Read as _;
+            let mut buf = [0u8; 4096];
+            loop {
+                match stderr.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => log.lock().unwrap().push_str(&String::from_utf8_lossy(&buf[..n])),
+                }
+            }
+        });
+    }
+    let sess_file = std::env::temp_dir().join(format!("grpcdc-sess-{port}.pem"));
+    let run_client = |extra: &[&str], line: &str| -> String {
+        let mut args = vec!["s_client", "-dtls1_2", "-connect"];
+        let target = format!("127.0.0.1:{port}");
+        args.push(&target);
+        args.extend_from_slice(extra);
+        let mut client = Command::new("openssl")
+            .args(&args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn openssl s_client");
+        let out_buf = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        {
+            let out_buf = out_buf.clone();
+            let mut stdout = client.stdout.take().unwrap();
+            std::thread::spawn(move || {
+                use std::io::Read as _;
+                let mut buf = [0u8; 4096];
+                loop {
+                    match stdout.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => out_buf
+                            .lock()
+                            .unwrap()
+                            .push_str(&String::from_utf8_lossy(&buf[..n])),
+                    }
+                }
+            });
+        }
+        client.stdin.as_mut().unwrap().write_all(line.as_bytes()).unwrap();
+        // Wait for the echo (handshake + round trip) up to 20s:
+        // the server may need a moment to return to accept.
+        let want = format!("echo:{}", line.trim());
+        for _ in 0..80 {
+            if out_buf.lock().unwrap().contains(&want) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        // "Q" makes s_client shut down cleanly — only then does
+        // it write -sess_out; killing it loses the session file.
+        // (Ignore BrokenPipe: it may already have exited.)
+        let _ = client.stdin.as_mut().unwrap().write_all(b"Q\n");
+        drop(client.stdin.take());
+        std::thread::sleep(Duration::from_millis(500));
+        client.kill().ok();
+        let _ = client.wait();
+        let out = out_buf.lock().unwrap().clone();
+        out
+    };
+    let wait_log = |needle: &str| {
+        for _ in 0..40 {
+            if server_log.lock().unwrap().contains(needle) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        false
+    };
+    assert!(wait_log("LISTENING"), "server listening");
+
+    // 1) Full handshake; s_client saves the session (ticket).
+    let sess = sess_file.to_str().unwrap().to_string();
+    let out1 = run_client(&["-sess_out", &sess], "hello-one\n");
+    assert!(out1.contains("echo:hello-one"), "first echo: {out1}");
+    assert!(wait_log("resumed=false"), "full handshake logged: {}", server_log.lock().unwrap());
+
+    // 2) Second s_client reuses the session: OpenSSL reports the
+    // session Reused and our server reports an abbreviated
+    // (resumed) handshake; echo still flows. Give the server a
+    // moment to leave connection 1's echo loop (idle timeout)
+    // and return to accept.
+    std::thread::sleep(Duration::from_secs(4));
+    let out2 = run_client(&["-sess_in", &sess], "hello-two\n");
+    assert!(out2.contains("echo:hello-two"), "resumed echo: {out2}");
+    assert!(out2.contains("Reused"), "OpenSSL reports session reuse: {out2}");
+    assert!(wait_log("resumed=true"), "server resumed: {}", server_log.lock().unwrap());
+    std::fs::remove_file(&sess_file).ok();
+    server.kill().ok();
+}
+
+#[test]
 fn openssl_client_rust_server() {
     if !have_openssl() {
         eprintln!("openssl CLI not available; skipping");

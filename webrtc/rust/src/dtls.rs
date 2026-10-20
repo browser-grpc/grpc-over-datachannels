@@ -822,11 +822,16 @@ fn client_hello_body(
     cookie: &[u8],
     ems: bool,
     session_ticket: Option<&[u8]>,
+    session_id: &[u8],
 ) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&DTLS_1_2);
     out.extend_from_slice(random);
-    out.push(0); // session id: empty
+    // Session id: empty normally; a random id when attempting
+    // ticket resumption — the server echoes it to signal the
+    // ticket was honored (the OpenSSL convention).
+    out.push(session_id.len() as u8);
+    out.extend_from_slice(session_id);
     out.push(cookie.len() as u8);
     out.extend_from_slice(cookie);
     out.extend_from_slice(&[0, 2, 0xC0, 0x2B]); // cipher suites: len + C02B
@@ -864,6 +869,7 @@ fn client_hello_body(
 }
 
 struct ServerHelloInfo {
+    session_id: Vec<u8>,
     server_random: [u8; 32],
     ems: bool,
     srtp_profile: Option<u16>,
@@ -875,13 +881,19 @@ fn parse_server_hello(body: &[u8]) -> io::Result<ServerHelloInfo> {
     let mut r = Reader::new(body);
     let _version = [r.u8()?, r.u8()?];
     let server_random: [u8; 32] = r.take(32)?.try_into().unwrap();
-    let _session = r.vec8()?;
+    let session_id = r.vec8()?.to_vec();
     let suite = r.u16()?;
     if suite != SUITE {
         return Err(err("server picked an unsupported cipher suite"));
     }
     let _compression = r.u8()?;
-    let mut info = ServerHelloInfo { server_random, ems: false, srtp_profile: None, resumed: false };
+    let mut info = ServerHelloInfo {
+        session_id,
+        server_random,
+        ems: false,
+        srtp_profile: None,
+        resumed: false,
+    };
     if !r.done() {
         let exts = r.vec16()?;
         let mut er = Reader::new(exts);
@@ -890,7 +902,6 @@ fn parse_server_hello(body: &[u8]) -> io::Result<ServerHelloInfo> {
             let data = er.vec16()?;
             match ty {
                 23 => info.ems = true,
-                35 => info.resumed = true,
                 14 => {
                     let mut sr = Reader::new(data);
                     let profiles = sr.vec16()?;
@@ -942,6 +953,12 @@ impl<I: DtlsIo> Dtls<I> {
         conn.client_random = random_bytes(32).try_into().unwrap();
 
         // First flight: ClientHello (re-sent with cookie on HelloVerify).
+        // When resuming, offer a random session id; its echo in
+        // ServerHello is the resumption signal.
+        let offered_session_id: Vec<u8> = match resume {
+            Some(_) => random_bytes(32),
+            None => Vec::new(),
+        };
         let mut cookie: Vec<u8> = Vec::new();
         let mut flight;
         let server_hello;
@@ -954,7 +971,13 @@ impl<I: DtlsIo> Dtls<I> {
                 None if config.session_resumption => Some(&[]),
                 None => None,
             };
-            let body = client_hello_body(&conn.client_random, &cookie, true, ticket_offer);
+            let body = client_hello_body(
+                &conn.client_random,
+                &cookie,
+                true,
+                ticket_offer,
+                &offered_session_id,
+            );
             let packet = conn.send_hs(&mut hs, dtls_handshake::CLIENT_HELLO, &body, 0)?;
             flight = vec![packet];
             loop {
@@ -967,7 +990,11 @@ impl<I: DtlsIo> Dtls<I> {
                         continue 'cookie_loop;
                     }
                     t if t == dtls_handshake::SERVER_HELLO => {
-                        server_hello = parse_server_hello(&body)?;
+                        let mut hello = parse_server_hello(&body)?;
+                        hello.resumed = resume.is_some()
+                            && !offered_session_id.is_empty()
+                            && hello.session_id == offered_session_id;
+                        server_hello = hello;
                         hs.transcript.extend_from_slice(&raw);
                         break 'cookie_loop;
                     }
@@ -978,10 +1005,10 @@ impl<I: DtlsIo> Dtls<I> {
         conn.server_random = server_hello.server_random;
         conn.negotiated_srtp_profile = server_hello.srtp_profile;
 
-        // Resumption is signalled two ways: the session_ticket
-        // extension in ServerHello (our own servers), or an
-        // abbreviated flight straight to Finished (OpenSSL omits
-        // the extension on resume). The encrypted Finished cannot
+        // Resumption is signalled by the echoed session id; when
+        // that classification is unavailable, an abbreviated
+        // flight straight to Finished also proves it (OpenSSL
+        // omits the extension on resume). The encrypted Finished cannot
         // be ordered-pumped before keys exist, so classify at the
         // record layer: an epoch-1 handshake record already
         // deferred (or arriving next) with no plaintext flight in
@@ -1067,6 +1094,12 @@ impl<I: DtlsIo> Dtls<I> {
             flight = vec![ccs, fin];
             if config.session_resumption {
                 conn.capture_session_ticket(&mut hs);
+                if conn.session.is_none() {
+                    // No rotated ticket followed (servers must not
+                    // send one post-handshake): the presented
+                    // session remains valid for the next reconnect.
+                    conn.session = Some(session.clone());
+                }
             }
             return Ok(conn);
         }
@@ -1263,11 +1296,11 @@ impl<I: DtlsIo> Dtls<I> {
         // ClientHello.
         let (_t, raw, body) = conn.pump_until_message(&mut hs, &[])?;
         hs.transcript.extend_from_slice(&raw);
-        let (client_ems, client_srtp_profiles, client_ticket) = {
+        let (client_ems, client_srtp_profiles, client_ticket, client_session_id) = {
             let mut r = Reader::new(&body);
             let _v = [r.u8()?, r.u8()?];
             conn.client_random = r.take(32)?.try_into().unwrap();
-            let _session = r.vec8()?;
+            let session_id = r.vec8()?.to_vec();
             let _cookie = r.vec8()?;
             let suites = r.vec16()?;
             if !suites.chunks_exact(2).any(|c| u16::from_be_bytes([c[0], c[1]]) == SUITE) {
@@ -1297,7 +1330,7 @@ impl<I: DtlsIo> Dtls<I> {
                     }
                 }
             }
-            (ems, profiles, ticket)
+            (ems, profiles, ticket, session_id)
         };
         let srtp_profile = [0x0007u16, 0x0001, 0x0002, 0x0008]
             .iter()
@@ -1317,7 +1350,13 @@ impl<I: DtlsIo> Dtls<I> {
                         if !(config.require_peer_certificate
                             && session.peer_certificate.is_empty())
                         {
-                            return conn.finish_resumed_accept(&mut hs, config, session);
+                            return conn.finish_resumed_accept(
+                                &mut hs,
+                                config,
+                                session,
+                                &client_session_id,
+                                client_ems,
+                            );
                         }
                     }
                 }
@@ -1342,6 +1381,13 @@ impl<I: DtlsIo> Dtls<I> {
             }
             if client_ems {
                 exts.extend_from_slice(&23u16.to_be_bytes());
+                exts.extend_from_slice(&[0, 0]);
+            }
+            if config.session_resumption && client_ticket.is_some() {
+                // session_ticket (35), empty: signals a
+                // NewSessionTicket follows. Without this echo
+                // OpenSSL rejects the ticket as unexpected.
+                exts.extend_from_slice(&35u16.to_be_bytes());
                 exts.extend_from_slice(&[0, 0]);
             }
             exts.extend_from_slice(&65281u16.to_be_bytes());
@@ -1459,17 +1505,21 @@ impl<I: DtlsIo> Dtls<I> {
         }
         conn.check_peer_fingerprint(config)?;
 
+        // Issue a session ticket when resumption is enabled and
+        // the client offered ticket support. Like OpenSSL, the
+        // ticket goes out at epoch 0 before CCS: an epoch-1 ticket
+        // after Finished arrives post-handshake at OpenSSL
+        // clients, which reject it as unexpected_message. The
+        // ticket joins the Finished transcript on both sides.
+        if config.session_resumption && client_ticket.is_some() {
+            conn.issue_session_ticket(&mut hs, config, 0);
+        }
+
         // Server CCS + Finished.
         let ccs = conn.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
         let _ = ccs;
         let verify_data = prf(&conn.master_secret, "server finished", &hs.hash(), 12);
         conn.send_hs(&mut hs, dtls_handshake::FINISHED, &verify_data, 1)?;
-
-        // Issue a session ticket when resumption is enabled and
-        // the client offered ticket support.
-        if config.session_resumption && client_ticket.is_some() {
-            conn.issue_session_ticket(&mut hs, config);
-        }
         Ok(conn)
     }
 
@@ -1483,6 +1533,8 @@ impl<I: DtlsIo> Dtls<I> {
         hs: &mut Hs,
         config: &DtlsConfig,
         session: DtlsSession,
+        client_session_id: &[u8],
+        client_ems: bool,
     ) -> io::Result<Self> {
         self.master_secret = session.master_secret.clone();
         self.peer_certificate = Some(session.peer_certificate.clone());
@@ -1492,7 +1544,10 @@ impl<I: DtlsIo> Dtls<I> {
         let mut sh = Vec::new();
         sh.extend_from_slice(&DTLS_1_2);
         sh.extend_from_slice(&self.server_random);
-        sh.push(0); // session id: empty
+        // Echo the client's session id: OpenSSL only recognizes
+        // ticket resumption when the id it offered comes back.
+        sh.push(client_session_id.len() as u8);
+        sh.extend_from_slice(client_session_id);
         sh.extend_from_slice(&SUITE.to_be_bytes());
         sh.push(0); // compression: null
         let mut exts = Vec::new();
@@ -1502,9 +1557,13 @@ impl<I: DtlsIo> Dtls<I> {
             exts.extend_from_slice(&(data.len() as u16).to_be_bytes());
             exts.extend_from_slice(&data);
         }
-        // Empty session_ticket extension: ticket accepted.
-        exts.extend_from_slice(&35u16.to_be_bytes());
-        exts.extend_from_slice(&[0, 0]);
+        // No session_ticket extension in the resumed hello:
+        // OpenSSL signals ticket acceptance by the echoed
+        // session id alone (its own servers omit 35 here).
+        if client_ems {
+            exts.extend_from_slice(&23u16.to_be_bytes());
+            exts.extend_from_slice(&[0, 0]);
+        }
         exts.extend_from_slice(&65281u16.to_be_bytes());
         exts.extend_from_slice(&[0, 1, 0]);
         sh.extend_from_slice(&(exts.len() as u16).to_be_bytes());
@@ -1539,17 +1598,17 @@ impl<I: DtlsIo> Dtls<I> {
             hs.transcript.extend_from_slice(&raw);
         }
         self.check_peer_fingerprint(config)?;
-        // Rotate a fresh ticket for the next reconnect.
-        if config.session_resumption {
-            self.issue_session_ticket(hs, config);
-        }
+        // No ticket rotation here: a post-handshake
+        // NewSessionTicket (epoch 1, after Finished) is rejected
+        // by OpenSSL TLS 1.2 clients and poisons the data path.
+        // The presented ticket stays valid for the next reconnect.
         Ok(self)
     }
 
     /// Seal and send a NewSessionTicket for the current session.
     /// Best effort: a failed send must not fail the established
     /// connection.
-    fn issue_session_ticket(&mut self, hs: &mut Hs, config: &DtlsConfig) {
+    fn issue_session_ticket(&mut self, hs: &mut Hs, config: &DtlsConfig, epoch: u16) {
         if let Some(key) = &config.session_ticket_key {
             let ticket = seal_ticket(
                 key,
@@ -1561,7 +1620,7 @@ impl<I: DtlsIo> Dtls<I> {
             body.extend_from_slice(&(TICKET_LIFETIME_SECS as u32).to_be_bytes());
             body.extend_from_slice(&(ticket.len() as u16).to_be_bytes());
             body.extend_from_slice(&ticket);
-            let _ = self.send_hs(hs, dtls_handshake::NEW_SESSION_TICKET, &body, 1);
+            let _ = self.send_hs(hs, dtls_handshake::NEW_SESSION_TICKET, &body, epoch);
         }
     }
 }
