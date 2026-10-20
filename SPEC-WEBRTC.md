@@ -38,6 +38,65 @@ WebRTC library underneath it.
 Demultiplexing on the single UDP socket follows RFC 7983: first byte
 0–3 → STUN, 20–63 → DTLS. SCTP rides inside DTLS application data.
 
+## WebRTC-Direct (libp2p-style)
+
+Signaling-free client→server connections for listeners with a
+reachable UDP address: no ICE negotiation, no SDP exchange.
+
+- **Identity**: the listener's self-signed certificate, pinned by
+  its *certhash* — multibase `f` + base64url of the sha2-256
+  multihash (`0x12 0x20 || SHA-256(cert DER)`) of the certificate,
+  exactly as in libp2p multiaddrs. Dialers verify the DTLS peer
+  certificate against it (`expected_peer_fingerprint`); a wrong
+  certhash fails the handshake.
+- **Address**: `/ip4/<a>/udp/<p>/webrtc-direct/certhash/<hash>`
+  (or `ip6`). `parse_direct_multiaddr` / `parseDirectMultiaddr`
+  return the socket address + pinned digest.
+- **Roles are fixed**: dialer is DTLS client (even SCTP streams,
+  opens the `grpc` channel), listener is DTLS server. The
+  listener learns the dialer address from the first datagram.
+- **Over TURN (symmetric NAT)**: `direct_dial_turn` /
+  `directDialTurn` allocate on a TURN server, install a
+  permission + channel binding for the listener address, and run
+  the entire DTLS/SCTP session inside Send/Data indications or
+  ChannelData. The dialer never exchanges a direct packet with
+  the listener, so NAT mapping behavior (including symmetric
+  NAT) cannot break it; a background refresher keeps the
+  allocation alive. The listener needs no TURN awareness — it
+  sees ordinary UDP from the relayed address.
+- **Browser shape**: browsers cannot bind UDP or allocate TURN
+  in this raw form, so a browser is always the dialer, via a
+  native `RTCPeerConnection` with relay-only ICE
+  (`iceTransportPolicy: "relay"` + `iceServers`) to a full
+  `Peer` — that is the existing browser path. The raw-allocation
+  form above is the native (Rust/JS-Node) equivalent proven
+  against the same fake-TURN fixtures.
+- **Implementations**: Rust `webrtc/rust/src/direct.rs`
+  (`DirectListener`, `direct_dial(_multiaddr)`,
+  `direct_dial_turn(_multiaddr)`) and JS `webrtc/js/direct.js`
+  (same names in camelCase). Generated gRPC support: Rust
+  `grpc_dc::webrtc_direct` (`direct_listener`,
+  `accept_direct_transport`, `direct_client`,
+  `direct_client_turn`, from `racket/runtime-rust.rkt`).
+- **All other languages**: the Rust binary
+  `webrtc/rust/examples/direct_sidecar.rs` owns the stack and
+  bridges one `grpc` datachannel to a local TCP socket with u32
+  big-endian length-prefixed messages (one prefix per
+  DataChannel message). `dial` mode dials a listener (optionally
+  over TURN); `listen` mode is the listener and connects each
+  accepted channel to a language server socket. Generated
+  runtimes plug in with a stdlib-only framed-TCP transport
+  (reference: `grpcdc.SidecarTransport` in Python, generated
+  from `racket/runtime-python.rkt`; the framing is identical in
+  every language).
+- **Tests**: `webrtc/rust/tests/webrtc_direct.rs` (echo, wrong
+  certhash rejected, echo over fake TURN),
+  `webrtc/js/test/direct.test.js` (same three + certhash
+  round-trip), `rust/tests/webrtc_direct_grpc.rs` (generated
+  Echo client/server by multiaddr), and
+  `python/tests/test_sidecar_direct.py` (Python↔Python gRPC
+  through two sidecars).
+
 ## Embedded profile
 
 The Rust crate is layered so the protocol core runs with no OS:

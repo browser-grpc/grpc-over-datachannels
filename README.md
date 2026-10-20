@@ -175,6 +175,32 @@ const server = new Server().addService(createEchoService(handlers));
 server.serve(rtcDataChannel);
 ```
 
+### WebRTC-Direct (libp2p-style, no signaling)
+
+For client→server shapes, the generated Rust runtime can skip
+signaling entirely: a listener is identified only by its
+certhash multiaddr.
+
+```rust
+let listener = Arc::new(grpc_dc::webrtc_direct::direct_listener(addr)?);
+println!("{}", listener.multiaddr()); // /ip4/.../udp/.../webrtc-direct/certhash/f...
+let transport = grpc_dc::webrtc_direct::accept_direct_transport(listener).await?;
+tokio::spawn(grpc_dc::Server::serve(transport, vec![echo_service(svc)]));
+
+let transport = grpc_dc::webrtc_direct::direct_client(multiaddr).await?;
+let client = EchoClient::new(grpc_dc::Channel::new(transport));
+```
+
+Behind a symmetric NAT, dial through a TURN allocation instead
+with `direct_client_turn(multiaddr, &turn_cfg)` — the listener
+needs no TURN awareness. JS (Node) has the same surface in
+`webrtc/js/direct.js`. Every other generated language calls the
+Rust implementation through the `direct_sidecar` binary, which
+bridges one datachannel to a local length-prefixed TCP socket
+(reference transport: `grpcdc.SidecarTransport`). Browsers stay
+dial-only via native `RTCPeerConnection`. Details and test map:
+[SPEC-WEBRTC.md](SPEC-WEBRTC.md#webrtc-direct-libp2p-style).
+
 Signaling/ICE stay with your app: hand an *open* channel to these APIs.
 Rust plugs a real `RTCDataChannel` in through the `DcTransport` trait
 (`InboxDc` adapts callback-style stacks such as the `webrtc` crate); JS

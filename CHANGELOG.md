@@ -3,6 +3,30 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.14.0 — 2026-10-20
+
+- libp2p-style WebRTC-Direct: signaling-free client→server
+  connections identified by certhash multiaddrs
+  (`/ip4/.../udp/.../webrtc-direct/certhash/f...`). Rust
+  `dc_webrtc::direct` (`DirectListener`, `direct_dial_multiaddr`,
+  `direct_dial_turn_multiaddr`) and JS `webrtc/js/direct.js`
+  (Node), with fixed DTLS roles and certificate pinning (wrong
+  certhash fails the handshake), tested in both stacks.
+- WebRTC-Direct over TURN: the dialer runs its whole DTLS/SCTP
+  session inside a TURN allocation (permission + channel
+  binding, background refresh) — the symmetric-NAT path; the
+  listener needs no TURN awareness. Echo-tested against fake
+  TURN servers in Rust and JS.
+- Generator support (Racket): generated Rust runtime gains
+  `grpc_dc::webrtc_direct` (`direct_listener`,
+  `accept_direct_transport`, `direct_client`,
+  `direct_client_turn`); generated Python runtime gains
+  `grpcdc.SidecarTransport`.
+- Rust `direct_sidecar` binary bridges one `grpc` datachannel
+  to a local length-prefixed TCP socket (`dial`/`listen`
+  modes), so every generated language can call the Rust Direct
+  impl (proven Python↔Python through two sidecars).
+
 ## v0.13.0 — 2026-10-20
 
 - `trace=hooks` stub baking in every language generator
