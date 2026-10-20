@@ -3,6 +3,20 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.11.1 — 2026-10-20
+
+- Deflake `dtls_openssl` (test harness only, no protocol
+  changes): the ~10% failure rate traced to three harness
+  bugs — both `s_server` tests raced cert generation in one
+  shared pid-named temp dir (`key values mismatch` at
+  startup), startup synced on fixed 500ms sleeps instead of
+  the `ACCEPT` readiness signal, and `handshake_types` parsed
+  encrypted epoch-1 records as plaintext (phantom Certificate
+  flights). Unique cert dirs, readiness polling with captured
+  openssl logs in panic messages, epoch-0-only type parsing.
+  Baseline 2/20 failing → 100/100 host runs and 20/20 Docker
+  `test-webrtc-rust` runs clean (95% upper bound ~3%).
+
 ## v0.11.0 — 2026-10-20
 
 - Tracing follow-through: printing-observer demos
