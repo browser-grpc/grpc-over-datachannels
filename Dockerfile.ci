@@ -152,6 +152,12 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 ENV LUA=lua5.4
 
+# coturn: a real TURN server for the WebRTC-Direct over-TURN
+# interop tests (they skip when turnserver is not on PATH).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends coturn \
+  && rm -rf /var/lib/apt/lists/*
+
 # Ruby for the Ruby runtime (stdlib only; no gems).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ruby \

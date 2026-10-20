@@ -85,7 +85,15 @@ CHEZ="$CLONE/racket/src/ChezScheme"
 if [ ! -f "$CHEZ/boot/pb/scheme.boot" ]; then
   say "seeding Chez pb boot files from Racket 9.3 source tarball"
   if [ ! -f "$WORK/racket-9.3-src.tgz" ]; then
-    curl -sL -o "$WORK/racket-9.3-src.tgz" "$RACKET_SRC_URL"
+    # download.racket-lang.org 302s to mirror.racket-lang.org;
+    # individual mirror nodes intermittently fail TLS
+    # verification in CI builds (curl 60), so retry and fall
+    # back to the mirror host directly.
+    curl -fsSL --retry 5 --retry-all-errors -o "$WORK/racket-9.3-src.tgz" "$RACKET_SRC_URL" \
+      || curl -fsSL --retry 5 --retry-all-errors -o "$WORK/racket-9.3-src.tgz" \
+           "https://mirror.racket-lang.org/installers/9.3/racket-9.3-src.tgz" \
+      || curl -fsSL --retry 5 --retry-all-errors -o "$WORK/racket-9.3-src.tgz" \
+           "https://www.cs.utah.edu/plt/installers/9.3/racket-9.3-src.tgz"
   fi
   tar -xzf "$WORK/racket-9.3-src.tgz" -C "$WORK" racket-9.3/src/ChezScheme/boot
   mkdir -p "$CHEZ/boot"

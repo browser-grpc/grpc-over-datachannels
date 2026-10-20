@@ -297,6 +297,95 @@ fn direct_over_turn_echo_symmetric_nat_shape() {
     client.shutdown();
 }
 
+/// Real-TURN interop: same symmetric-NAT shape against coturn
+/// (skipped when `turnserver` is not on PATH; Dockerfile.ci
+/// installs it, so CI always runs this leg).
+#[test]
+fn direct_over_real_turn_coturn() {
+    use std::io::Write as _;
+    let Ok(mut turn) = std::process::Command::new("turnserver")
+        .args([
+            "-n",
+            "--listening-ip=127.0.0.1",
+            "--listening-port=0",
+            "--relay-ip=127.0.0.1",
+            "--realm=dc.test",
+            "--user=dcuser:dcpass",
+            "--lt-cred-mech",
+            "--allow-loopback-peers",
+            "--no-cli",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    else {
+        eprintln!("turnserver not on PATH; skipping coturn interop");
+        return;
+    };
+    // turnserver with --listening-port=0 picks an ephemeral port
+    // we cannot read back, so allocate against the conventional
+    // port after restarting on a probed free port instead.
+    let _ = turn.kill();
+    let probe = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = probe.local_addr().unwrap().port();
+    drop(probe);
+    let mut turn = std::process::Command::new("turnserver")
+        .args([
+            "-n",
+            "--listening-ip=127.0.0.1",
+            &format!("--listening-port={port}"),
+            "--relay-ip=127.0.0.1",
+            "--realm=dc.test",
+            "--user=dcuser:dcpass",
+            "--lt-cred-mech",
+            "--allow-loopback-peers",
+            "--no-cli",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn turnserver");
+    let result = std::panic::catch_unwind(|| {
+        std::thread::sleep(Duration::from_millis(800));
+        let listener = DirectListener::bind(loopback(), Certificate::generate_self_signed("srv"))
+            .expect("bind listener");
+        let multiaddr = listener.multiaddr();
+        let server = echo_server(listener);
+        let cfg = TurnServerConfig::new(&format!("127.0.0.1:{port}"), TURN_USER, TURN_PASS);
+        let mut client = None;
+        for _ in 0..10 {
+            match direct_dial_turn_multiaddr(&multiaddr, Certificate::generate_self_signed("cli"), &cfg) {
+                Ok(ep) => {
+                    client = Some(ep);
+                    break;
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(500)),
+            }
+        }
+        let client = client.expect("direct dial over coturn");
+        let channel = client
+            .open_channel(dc_webrtc::dcep::ChannelParams { label: "echo".into(), ..Default::default() })
+            .expect("open channel");
+        channel.send_binary(b"via-coturn").expect("send");
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        let mut reply = None;
+        while std::time::Instant::now() < deadline {
+            if let Some(EndpointEvent::Message { data, .. }) =
+                client.recv_event_timeout(Duration::from_millis(200))
+            {
+                reply = Some(data);
+                break;
+            }
+        }
+        assert_eq!(reply.as_deref(), Some(&b"direct-reply"[..]));
+        assert_eq!(server.join().expect("server thread"), b"via-coturn");
+        client.shutdown();
+        let _ = std::io::stdout().flush();
+    });
+    let _ = turn.kill();
+    result.expect("coturn interop");
+}
+
 #[test]
 fn direct_dial_rejects_wrong_certhash() {
     let listener = DirectListener::bind(loopback(), Certificate::generate_self_signed("srv"))
