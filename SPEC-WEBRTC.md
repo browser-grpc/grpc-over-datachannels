@@ -60,9 +60,21 @@ The Rust crate is layered so the protocol core runs with no OS:
   (RFC 826), IPv4 (RFC 791, no options/fragmentation), UDP
   (RFC 768), ICMP echo, and a DHCPv4 client (RFC 2131 subset:
   DISCOVER/OFFER/REQUEST/ACK yielding address, mask, router,
-  DNS, lease). Pure frame-in/frame-out state machines; the
-  target supplies the NIC driver below Ethernet and ARP routing
-  is local-subnet only.
+  DNS, lease). `DhcpClient::tick` drives lease timers: renew
+  (server-id REQUEST) at T1 = 50% of the lease, rebind
+  (broadcast REQUEST) at T2 = 87.5%, lease dropped at expiry;
+  every ACK re-arms the clock. Pure frame-in/frame-out state
+  machines; the target supplies the NIC driver below Ethernet
+  and ARP routing is local-subnet only.
+- **IPv6 beside IPv4** (`IpStack6`): NDP neighbour discovery,
+  ICMPv6 echo, UDP/6, EUI-64/SLAAC addresses, Router
+  Solicitation/Advertisement (an RA installs the sender as
+  default router, lifetime 0 withdraws it, on-link Prefix
+  Information sets the prefix length), opt-in forwarding with
+  hop-limit decrement and pending-forward queueing until NDP
+  resolves. `EthernetCable::endpoint6` binds the stack to a
+  `UdpTransport`, so ICE nomination runs over IPv6/NDP exactly
+  as over IPv4/ARP (`ice_nomination_over_ipv6_ethernet`).
 - **DTLS session resumption** (RFC 5077 shape, opt-in, off by
   default): servers with a 32-byte ticket key issue AES-128-GCM
   sealed `NewSessionTicket`s; clients capture them
@@ -75,6 +87,15 @@ The Rust crate is layered so the protocol core runs with no OS:
   identity. Tampered, expired (1 h), or foreign-key tickets fall
   back to a full handshake. `Peer` level: the DTLS
   offerer is the ticket issuer; the answerer captures/resumes.
+  OpenSSL interop notes: the ticket is issued at epoch 0 before
+  CCS (an epoch-1 ticket after Finished is rejected by OpenSSL
+  TLS 1.2 clients as post-handshake), servers echo the client's
+  session id in the resumed `ServerHello` (the resumption
+  signal; no `session_ticket` extension in that hello), and no
+  fresh ticket is rotated after an abbreviated handshake.
+  `openssl_client_ticket_resumption` covers `s_client -sess_in`
+  against our server; `openssl_server_ticket_resumption` covers
+  the reverse.
 - **Crypto backend seam**: the DTLS suite operations (SHA-256,
   HMAC-SHA-256, TLS PRF, AES-128-GCM) route through an installed
   `CryptoBackend` (default: hand-rolled), so mbedTLS/PSA/wolfSSL

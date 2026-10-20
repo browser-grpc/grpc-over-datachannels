@@ -112,6 +112,15 @@ where the generator supports it (currently the Python stub
 re-exports `grpcdc.set_tracer`); any other value is a plugin
 error. The runtime API itself is always present and dormant.
 
+Examples live outside the runtimes: `tracing_demo` (Python and
+JS) prints one parented trace per call, and `otlp_tracer`
+(Python and JS) is an observer that batches ended spans and
+POSTs OTLP/JSON to a collector with only the standard library /
+platform fetch — proof the hooks suffice for a real backend,
+with export failures swallowed by design. The browser
+generator offers a per-language `trace` select that feeds the
+same plugin parameter.
+
 ## Backpressure
 
 SCTP applies its own flow control per channel. Senders must still respect

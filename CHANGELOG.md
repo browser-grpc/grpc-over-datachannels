@@ -3,6 +3,35 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.11.0 — 2026-10-20
+
+- Tracing follow-through: printing-observer demos
+  (`tracing_demo` in Python and JS) and an OTLP/JSON exporter
+  observer (`otlp_tracer` in Python and JS) as examples — the
+  runtimes stay dependency-free; the exporter batches ended
+  spans to a collector with stdlib/platform fetch only and
+  swallows export failures. Browser generator gains a
+  per-language `trace` select feeding the `trace=` parameter.
+- Net stack: DHCP lease timers driven from `DhcpClient::tick`
+  (renew at T1 = 50%, rebind at T2 = 87.5%, drop at expiry,
+  ACK re-arms); IPv6 Router Solicitation/Advertisement (RA
+  installs/withdraws the default router, on-link prefix info),
+  opt-in IPv6 forwarding with hop-limit decrement and
+  pending-forward queueing; `EthernetCable::endpoint6` runs
+  ICE nomination over IPv6/NDP (cable now delivers Ethernet
+  multicast).
+- DTLS resumption interop completed in both directions:
+  `openssl_client_ticket_resumption` (`s_client -sess_in`
+  against our server). Fixes along the way: `NewSessionTicket`
+  now issued at epoch 0 before CCS with the `session_ticket`
+  extension echoed in the full `ServerHello`; resumed hellos
+  echo the client session id (the resumption signal) and omit
+  the ticket extension; no post-handshake ticket rotation
+  (OpenSSL rejects it and it poisoned the data path); clients
+  offer a random session id when resuming and keep the
+  presented session when no rotation follows. The `dtls_echo`
+  example gained a `server <port> resume` mode.
+
 ## v0.10.0 — 2026-10-19
 
 - Homegrown tracing (all runtimes + browser JS core): W3C
