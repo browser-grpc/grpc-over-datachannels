@@ -480,6 +480,7 @@ impl Peer {
         let agent = Arc::new(Mutex::new(agent));
         let (selected, trickled_addrs) =
             run_ice(&socket, &agent, &dtls_tx, turn.as_ref(), relay_active, trickle.as_ref())?;
+        crate::trace::emit("ice.nominated", selected.to_string());
         // Candidates trickled in during ICE got send-only
         // permissions in the loop; now that socket reads are
         // free (demux thread not yet spawned), bind their
@@ -596,10 +597,22 @@ impl Peer {
             },
             Role::Server => Dtls::accept(io, &dtls_config)?,
         };
+        crate::trace::emit(
+            "dtls.handshake",
+            if dtls.was_resumed() { "resumed" } else { "full" }.to_string(),
+        );
         // Stash any captured resumption state on the endpoint so
         // the caller can persist it across a reconnect.
         let captured_session = dtls.take_session();
         let endpoint = DcEndpoint::spawn_with_alive_flag(dtls, dtls_role, crate::sctp::SCTP_PORT, alive.clone());
+        crate::trace::emit(
+            "endpoint.ready",
+            match dtls_role {
+                Role::Client => "client",
+                Role::Server => "server",
+            }
+            .to_string(),
+        );
         endpoint.set_dtls_session(captured_session);
         let restart_handle = RestartHandle {
             agent: agent.clone(),

@@ -44,6 +44,8 @@ pub mod sdp;
 pub mod stun;
 pub mod tls12;
 #[cfg(feature = "std")]
+pub mod trace;
+#[cfg(feature = "std")]
 pub mod turn;
 pub mod x509;
 
