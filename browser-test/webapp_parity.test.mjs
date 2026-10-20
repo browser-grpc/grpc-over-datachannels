@@ -267,13 +267,20 @@ async function runCase(name, engine) {
     await page.locator(".tab", { hasText: "echo.proto" }).first().click();
     await page.fill('input[data-param="js"]', "pb_import=./custom_pb.js");
     await page.fill('input[data-param="go"]', "go_package=shopapi");
+    await page.selectOption('select[data-trace="python"]', "hooks");
     entries = await downloadZip(page);
     await assertRacketVia(page, name);
     refs = await nativeReference(join(ROOT, "proto"), ["echo.proto"], {
       js: "pb_import=./custom_pb.js",
       go: "go_package=shopapi",
+      python: "trace=hooks",
     });
-    for (const lang of ["js", "go"]) {
+    assert.match(
+      entries.get("gen/python/echo_grpc_dc.py").toString(),
+      /set_tracer = grpcdc\.set_tracer/,
+      "trace=hooks select wires the Python tracer re-export",
+    );
+    for (const lang of ["js", "go", "python"]) {
       if (!LANG_CONFIG[lang]) continue;
       const stub = LANG_CONFIG[lang].stub("echo");
       const expected = await readFile(join(refs[lang], stub));

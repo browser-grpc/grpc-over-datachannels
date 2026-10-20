@@ -97,5 +97,21 @@ class TestTracing(unittest.TestCase):
         self.assertEqual(self.recorder.ends, [])
 
 
+class TestTracingDemo(unittest.TestCase):
+    def test_demo_prints_one_parented_trace(self):
+        import tracing_demo
+
+        lines = []
+        tracer = tracing_demo.run_demo(out=lines.append)
+        self.assertEqual(len(lines), 4)
+        starts = [e for e in tracer.events if e[0] == "start"]
+        self.assertEqual([s[1] for s in starts], ["client", "server"])
+        self.assertEqual(starts[0][2], starts[1][2])
+        self.assertEqual(starts[1][4], starts[0][3])
+        joined = "\n".join(lines)
+        self.assertIn("/echo.Echo/Unary", joined)
+        self.assertIn("status=OK", joined)
+
+
 if __name__ == "__main__":
     unittest.main()

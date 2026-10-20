@@ -118,6 +118,46 @@ test("error status observed on both ends", async () => {
   assert.equal(byKind.server, "INVALID-ARGUMENT");
 });
 
+test("demo prints one parented trace", async () => {
+  const { runDemo } = await import("../examples/tracing_demo.js");
+  const lines = [];
+  const tracer = await runDemo((line) => lines.push(line));
+  assert.equal(lines.length, 4);
+  const starts = tracer.events.filter((e) => e[0] === "start");
+  assert.deepEqual(starts.map((s) => s[1]), ["client", "server"]);
+  assert.equal(starts[0][2], starts[1][2]);
+  assert.equal(starts[1][4], starts[0][3]);
+  const joined = lines.join("\n");
+  assert.match(joined, /\/echo\.Echo\/Unary/);
+  assert.match(joined, /status=OK/);
+});
+
+test("OTLP example exports parented spans", async () => {
+  const { OtlpTracer } = await import("../examples/otlp_tracer.js");
+  const sent = [];
+  const tracer = new OtlpTracer({
+    serviceName: "echo-test",
+    sender: (payload) => sent.push(payload),
+  });
+  const client = setup(tracer);
+  try {
+    await client.unary(new EchoRequest({ message: "hello" }));
+    await tracer.flush();
+  } finally {
+    setTracer(null);
+  }
+  assert.equal(sent.length, 1);
+  const resource = sent[0].resourceSpans[0];
+  assert.equal(resource.resource.attributes[0].value.stringValue, "echo-test");
+  const spans = resource.scopeSpans[0].spans;
+  assert.equal(spans.length, 2);
+  const clientSpan = spans.find((s) => s.kind === 3);
+  const serverSpan = spans.find((s) => s.kind === 2);
+  assert.equal(clientSpan.traceId, serverSpan.traceId);
+  assert.equal(serverSpan.parentSpanId, clientSpan.spanId);
+  assert.deepEqual(clientSpan.status, { code: 1 });
+});
+
 test("dormant without a tracer", async () => {
   const client = setup(null);
   const resp = await client.unary(new EchoRequest({ message: "hello" }));

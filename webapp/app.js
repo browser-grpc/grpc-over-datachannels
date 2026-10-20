@@ -316,6 +316,17 @@ function renderLangs() {
     param.dataset.param = id;
     param.placeholder = "plugin params (key=value,…)";
     wrap.appendChild(param);
+    const trace = document.createElement("select");
+    trace.className = "lang-trace";
+    trace.dataset.trace = id;
+    trace.title = "trace plugin parameter (off = dormant hooks, hooks = wire the tracer registrar)";
+    for (const [value, text] of [["off", "trace: off"], ["hooks", "trace: hooks"]]) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = text;
+      trace.appendChild(opt);
+    }
+    wrap.appendChild(trace);
     box.appendChild(wrap);
   }
   for (const label of PLANNED_LANGS) {
@@ -427,6 +438,13 @@ function langParams() {
   const params = new Map();
   for (const input of $("langs").querySelectorAll("input[data-param]")) {
     if (input.value.trim()) params.set(input.dataset.param, input.value.trim());
+  }
+  for (const select of $("langs").querySelectorAll("select[data-trace]")) {
+    if (select.value === "hooks") {
+      const lang = select.dataset.trace;
+      const typed = params.get(lang);
+      params.set(lang, typed ? typed + ",trace=hooks" : "trace=hooks");
+    }
   }
   return params;
 }
