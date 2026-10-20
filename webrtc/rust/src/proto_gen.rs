@@ -36,6 +36,7 @@ pub mod stun_attr {
     pub const REALM: u16 = 0x0014;
     pub const NONCE: u16 = 0x0015;
     pub const XOR_RELAYED_ADDRESS: u16 = 0x0016;
+    pub const REQUESTED_ADDRESS_FAMILY: u16 = 0x0017;
     pub const REQUESTED_TRANSPORT: u16 = 0x0019;
     pub const XOR_MAPPED_ADDRESS: u16 = 0x0020;
     pub const PRIORITY: u16 = 0x0024;

@@ -33,6 +33,7 @@ const StunAttrData = 19
 const StunAttrRealm = 20
 const StunAttrNonce = 21
 const StunAttrXorRelayedAddress = 22
+const StunAttrRequestedAddressFamily = 23
 const StunAttrRequestedTransport = 25
 const StunAttrXorMappedAddress = 32
 const StunAttrPriority = 36

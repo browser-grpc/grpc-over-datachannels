@@ -63,6 +63,10 @@ pub struct TurnServerConfig {
     /// system store (self-signed/private-CA deployments).
     /// Ignored for non-TLS transports.
     pub root_certs_pem: Option<Vec<u8>>,
+    /// Ask the server for an IPv6 relayed address
+    /// (REQUESTED-ADDRESS-FAMILY, RFC 8656). Default: server's
+    /// choice (typically IPv4).
+    pub request_ipv6_relay: bool,
 }
 
 impl TurnServerConfig {
@@ -75,6 +79,7 @@ impl TurnServerConfig {
             server_name: None,
             insecure_skip_verify: false,
             root_certs_pem: None,
+            request_ipv6_relay: false,
         }
     }
 }
@@ -439,6 +444,11 @@ pub fn allocate_turn(
         let mut msg = Message::new(stun_msg::ALLOCATE_REQUEST);
         msg.attrs
             .push((stun_attr::REQUESTED_TRANSPORT, vec![17, 0, 0, 0]));
+        if cfg.request_ipv6_relay {
+            // REQUESTED-ADDRESS-FAMILY: family 2 (IPv6).
+            msg.attrs
+                .push((stun_attr::REQUESTED_ADDRESS_FAMILY, vec![2, 0, 0, 0]));
+        }
         if auth {
             msg.attrs.push((stun_attr::USERNAME, cfg.username.clone().into_bytes()));
             msg.attrs.push((stun_attr::REALM, client.realm.clone().into_bytes()));

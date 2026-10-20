@@ -30,7 +30,7 @@
     (ErrorCode . #x0009) (UnknownAttributes . #x000A) (ChannelNumber . #x000C)
     (Lifetime . #x000D)
     (XorPeerAddress . #x0012) (Data . #x0013) (Realm . #x0014)
-    (Nonce . #x0015) (XorRelayedAddress . #x0016) (RequestedTransport . #x0019)
+    (Nonce . #x0015) (XorRelayedAddress . #x0016) (RequestedAddressFamily . #x0017) (RequestedTransport . #x0019)
     (XorMappedAddress . #x0020) (Priority . #x0024)
     (UseCandidate . #x0025) (Software . #x8022) (Fingerprint . #x8028)
     (IceControlled . #x8029) (IceControlling . #x802A)))

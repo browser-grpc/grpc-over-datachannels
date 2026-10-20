@@ -83,8 +83,20 @@ fn fake_turn_server() -> String {
 /// Fake whose allocations live lifetime_secs and permissions
 /// permission_secs, both enforced. Returns the server address
 /// and the shared state (for refresh counters).
+fn fake_turn_server6() -> String {
+    fake_turn_server_impl(600, 300, true).0
+}
+
 fn fake_turn_server_with(lifetime_secs: u32, permission_secs: u64) -> (String, Arc<Mutex<FakeState>>) {
-    let socket = Arc::new(UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap());
+    fake_turn_server_impl(lifetime_secs, permission_secs, false)
+}
+
+fn fake_turn_server_impl(lifetime_secs: u32, permission_secs: u64, v6: bool) -> (String, Arc<Mutex<FakeState>>) {
+    let socket = Arc::new(if v6 {
+        UdpSocket::bind((std::net::Ipv6Addr::LOCALHOST, 0)).unwrap()
+    } else {
+        UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap()
+    });
     let addr = socket.local_addr().unwrap();
     let state = Arc::new(Mutex::new(FakeState {
         next_port: 52100,
@@ -117,7 +129,16 @@ fn fake_turn_server_with(lifetime_secs: u32, permission_secs: u64) -> (String, A
                     let relayed = {
                         let mut st = state.lock().unwrap();
                         st.next_port += 1;
-                        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), st.next_port)
+                        // Honor REQUESTED-ADDRESS-FAMILY (IPv6)
+                        // when the client asks for it.
+                        let wants_v6 = msg
+                            .attr(stun_attr::REQUESTED_ADDRESS_FAMILY)
+                            .is_some_and(|v| v.first() == Some(&2));
+                        if v6 || wants_v6 {
+                            SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::LOCALHOST), st.next_port)
+                        } else {
+                            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), st.next_port)
+                        }
                     };
                     let alloc = FakeAlloc {
                         client: src,
@@ -404,6 +425,22 @@ fn listen_relay(server: Arc<UdpSocket>, state: Arc<Mutex<FakeState>>, relayed: S
     });
 }
 
+fn turn_peer6(server: &str) -> Peer {
+    let mut cfg = TurnServerConfig::new(server, USER, PASS);
+    cfg.request_ipv6_relay = true;
+    Peer::new(PeerConfig {
+        local_ips: vec![IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)],
+        require_peer_certificate: true,
+        certificate: None,
+        session_resumption: false,
+        session_ticket_key: None,
+        resume_session: None,
+        stun_servers: Vec::new(),
+        turn_servers: vec![cfg],
+    })
+    .unwrap()
+}
+
 fn turn_peer(server: &str) -> Peer {
     Peer::new(PeerConfig {
         local_ips: vec![IpAddr::V4(Ipv4Addr::new(10, 11, 12, 13))],
@@ -449,6 +486,55 @@ fn allocate_gathers_relay_candidate() {
     );
     let priority: u32 = line.split_whitespace().nth(3).unwrap().parse().unwrap();
     assert_eq!(priority >> 24, 0, "relay priority type bits");
+}
+
+#[test]
+fn allocate_gathers_ipv6_relay_candidate() {
+    let server = fake_turn_server6();
+    let mut peer = turn_peer6(&server);
+    let offer = peer.create_offer();
+    let line = offer
+        .lines()
+        .find(|l| l.contains("typ relay"))
+        .unwrap_or_else(|| panic!("no relay candidate in offer:\n{offer}"));
+    assert!(
+        line.contains("::1") || line.contains("raddr ::1"),
+        "IPv6 relay line: {line}"
+    );
+}
+
+#[test]
+fn peers_connect_over_turn_relay_ipv6() {
+    let server = fake_turn_server6();
+    let mut offerer = turn_peer6(&server);
+    let mut answerer = turn_peer6(&server);
+
+    let offer = offerer.create_offer();
+    assert!(offer.contains("typ relay"), "offer:\n{offer}");
+    let answer = answerer.handle_offer(&offer).unwrap();
+    assert!(answer.contains("typ relay"), "answer:\n{answer}");
+    offerer.handle_answer(&answer).unwrap();
+
+    let answerer_thread = std::thread::spawn(move || answerer.connect());
+    let offerer_ep = offerer.connect().expect("offerer connect");
+    let answerer_ep = answerer_thread.join().unwrap().expect("answerer connect");
+
+    let channel = offerer_ep
+        .open_channel(ChannelParams { label: "echo".into(), ..Default::default() })
+        .unwrap();
+    channel.send_binary(b"via-relay-v6").unwrap();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut received = false;
+    while std::time::Instant::now() < deadline && !received {
+        if let Some(EndpointEvent::Message { data, .. }) =
+            answerer_ep.recv_event_timeout(Duration::from_millis(200))
+        {
+            assert_eq!(data, b"via-relay-v6");
+            received = true;
+        }
+    }
+    assert!(received, "no message arrived over the IPv6 TURN-relayed peers");
 }
 
 #[test]
