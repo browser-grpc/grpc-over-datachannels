@@ -193,13 +193,17 @@ let client = EchoClient::new(grpc_dc::Channel::new(transport));
 
 Behind a symmetric NAT, dial through a TURN allocation instead
 with `direct_client_turn(multiaddr, &turn_cfg)` — the listener
-needs no TURN awareness. JS (Node) has the same surface in
-`webrtc/js/direct.js`. Every other generated language calls the
-Rust implementation through the `direct_sidecar` binary, which
-bridges one datachannel to a local length-prefixed TCP socket
-(reference transport: `grpcdc.SidecarTransport`). Browsers stay
-dial-only via native `RTCPeerConnection`. Details and test map:
-[SPEC-WEBRTC.md](SPEC-WEBRTC.md#webrtc-direct-libp2p-style).
+needs no TURN awareness. JS (Node) and Go have the same surface
+in `webrtc/js/direct.js` and `webrtc/go/direct.go`. Every other
+generated language calls the Rust implementation through the
+`direct_sidecar` binary, which bridges one datachannel to a
+local length-prefixed TCP socket; a generated
+`SidecarTransport` for that framing ships for Python, Go,
+Ruby, PHP, Dart, Java, Kotlin, Scala, C#, Swift, C++, Zig,
+and C (Lua excepted: no stdlib socket). Browsers stay dial-only
+via native `RTCPeerConnection` — proven relay-only (symmetric
+NAT shape) in `browser-test/direct_turn.test.mjs`. Details and
+test map: [SPEC-WEBRTC.md](SPEC-WEBRTC.md#webrtc-direct-libp2p-style).
 
 Signaling/ICE stay with your app: hand an *open* channel to these APIs.
 Rust plugs a real `RTCDataChannel` in through the `DcTransport` trait

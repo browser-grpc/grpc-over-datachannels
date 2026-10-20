@@ -3,6 +3,28 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.15.0 — 2026-10-20
+
+- Go WebRTC-Direct parity: `dcwebrtc` `direct.go`
+  (certhash/multiaddr, listener, dial, dial over TURN reusing
+  the Peer TURN demux) with the same test set as Rust/JS, plus
+  generated-runtime adapter `grpcdc` direct helpers and a Go
+  gRPC-over-Direct multiaddr test. The Go and JS fake TURN
+  fixtures now deliver to direct (non-TURN) peers from the
+  relay socket, like real TURN servers.
+- Browser proof: `browser-test/direct_turn.test.mjs`
+  (Playwright/Chromium) dials with relay-only ICE — the
+  symmetric-NAT shape — and asserts the nominated pair is
+  relay<->relay with the echo crossing it.
+- Real TURN interop: coturn is installed in `Dockerfile.ci`;
+  Rust and JS direct-over-TURN tests run against it (skipping
+  when `turnserver` is absent).
+- Generated `SidecarTransport` for Go, Ruby, PHP, Dart, Java,
+  Kotlin, Scala, C#, Swift, C++, Zig, and C (Python shipped in
+  v0.14.0), all from the Racket runtime sources; gRPC through
+  two sidecars is tested in Go, Ruby, PHP, Dart, and Java.
+  Lua remains the documented exception (no stdlib socket).
+
 ## v0.14.0 — 2026-10-20
 
 - libp2p-style WebRTC-Direct: signaling-free client→server

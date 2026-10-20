@@ -68,16 +68,27 @@ reachable UDP address: no ICE negotiation, no SDP exchange.
   in this raw form, so a browser is always the dialer, via a
   native `RTCPeerConnection` with relay-only ICE
   (`iceTransportPolicy: "relay"` + `iceServers`) to a full
-  `Peer` — that is the existing browser path. The raw-allocation
-  form above is the native (Rust/JS-Node) equivalent proven
-  against the same fake-TURN fixtures.
+  `Peer`. Proven by `browser-test/direct_turn.test.mjs`
+  (Playwright/Chromium): the browser offers only relay
+  candidates, the nominated pair is relay<->relay, and the echo
+  crosses it. The raw-allocation form above is the native
+  equivalent, proven against fake TURN fixtures and against
+  real coturn (`direct_over_real_turn_coturn` in Rust,
+  `direct_coturn.test.js` in JS; both skip without
+  `turnserver`, which `Dockerfile.ci` installs).
 - **Implementations**: Rust `webrtc/rust/src/direct.rs`
   (`DirectListener`, `direct_dial(_multiaddr)`,
-  `direct_dial_turn(_multiaddr)`) and JS `webrtc/js/direct.js`
-  (same names in camelCase). Generated gRPC support: Rust
+  `direct_dial_turn(_multiaddr)`), JS `webrtc/js/direct.js`
+  (same names in camelCase), and Go `webrtc/go/direct.go`
+  (`NewDirectListener`, `DirectDialMultiaddr`,
+  `DirectDialTurnMultiaddr` -- the TURN path reuses the Peer's
+  TURN demux). Generated gRPC support: Rust
   `grpc_dc::webrtc_direct` (`direct_listener`,
   `accept_direct_transport`, `direct_client`,
-  `direct_client_turn`, from `racket/runtime-rust.rkt`).
+  `direct_client_turn`, from `racket/runtime-rust.rkt`) and
+  the Go adapter `go/webrtc_direct.go` (`DirectListener`,
+  `AcceptDirectTransport`, `DirectClientTransport`,
+  `DirectClientTurnTransport`).
 - **All other languages**: the Rust binary
   `webrtc/rust/examples/direct_sidecar.rs` owns the stack and
   bridges one `grpc` datachannel to a local TCP socket with u32
@@ -90,12 +101,16 @@ reachable UDP address: no ICE negotiation, no SDP exchange.
   from `racket/runtime-python.rkt`; the framing is identical in
   every language).
 - **Tests**: `webrtc/rust/tests/webrtc_direct.rs` (echo, wrong
-  certhash rejected, echo over fake TURN),
-  `webrtc/js/test/direct.test.js` (same three + certhash
-  round-trip), `rust/tests/webrtc_direct_grpc.rs` (generated
-  Echo client/server by multiaddr), and
-  `python/tests/test_sidecar_direct.py` (Python↔Python gRPC
-  through two sidecars).
+  certhash rejected, echo over fake TURN, echo over coturn),
+  `webrtc/js/test/direct.test.js` (same set + certhash
+  round-trip) and `direct_coturn.test.js`,
+  `webrtc/go/direct_test.go` (same set),
+  `browser-test/direct_turn.test.mjs` (Chromium relay-only
+  dial, nominated relay<->relay pair),
+  `rust/tests/webrtc_direct_grpc.rs` and
+  `go/webrtc_direct_test.go` (generated Echo client/server by
+  multiaddr), and same-language gRPC through two sidecars in
+  Python, Go, Ruby, PHP, Dart, and Java test suites.
 
 ## Embedded profile
 
