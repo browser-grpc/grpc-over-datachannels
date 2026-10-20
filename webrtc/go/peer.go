@@ -636,6 +636,7 @@ func (p *Peer) ConnectWithOptions(requirePeerCert bool) (*DcEndpoint, error) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
+	emitStackEvent("ice.nominated", selected.String())
 	io := &peerIO{peer: p, selected: selected, connectGen: p.agent.Generation()}
 	config := DtlsConfig{
 		Certificate:             p.certificate,
@@ -652,7 +653,9 @@ func (p *Peer) ConnectWithOptions(requirePeerCert bool) (*DcEndpoint, error) {
 	if err != nil {
 		return nil, err
 	}
+	emitStackEvent("dtls.handshake", "full")
 	p.endpoint = NewDcEndpoint(dtls, p.dtlsRole)
+	emitStackEvent("endpoint.ready", p.dtlsRole)
 	p.startConsentLoop()
 	return p.endpoint, nil
 }

@@ -8,6 +8,7 @@ import dgram from "node:dgram";
 import net from "node:net";
 import os from "node:os";
 import { DtlsConnection } from "./dtls.js";
+import { emitStackEvent } from "./trace.js";
 import { resolveMdns } from "./mdns.js";
 import { DcEndpoint } from "./endpoint.js";
 import { Candidate, IceAgent } from "./ice.js";
@@ -483,6 +484,7 @@ export class Peer {
       await new Promise((r) => setTimeout(r, 50));
     }
     const selected = this.#agent.nominated;
+    emitStackEvent("ice.nominated", String(selected));
     const connectGen = this.#agent.generation;
     let ioDest = selected;
     const self = this;
@@ -525,7 +527,9 @@ export class Peer {
       this.#dtlsRole === "client"
         ? await DtlsConnection.connect(io, config)
         : await DtlsConnection.accept(io, config);
+    emitStackEvent("dtls.handshake", dtls.wasResumed?.() ? "resumed" : "full");
     this.#endpoint = new DcEndpoint(dtls, this.#dtlsRole);
+    emitStackEvent("endpoint.ready", this.#dtlsRole);
     this.#startConsentLoop();
     return this.#endpoint;
   }

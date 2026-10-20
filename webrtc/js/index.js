@@ -4,6 +4,7 @@ export { Certificate, fingerprintOfDer } from "./x509.js";
 export { Association } from "./sctp.js";
 export { DcEndpoint, DataChannel } from "./endpoint.js";
 export { Peer } from "./peer.js";
+export { setStackObserver } from "./trace.js";
 export { IceAgent, Candidate } from "./ice.js";
 export * as sdp from "./sdp.js";
 export * as proto from "./proto_gen.js";
