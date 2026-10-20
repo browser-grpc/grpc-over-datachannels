@@ -758,6 +758,19 @@
            (format "// source: ~a\n\n" (hash-ref file-model 'name))
            (format "package ~a\n\n" (go-package file-model params))
            "import (\n\t\"context\"\n\n\tgrpcdc \"grpcdc\"\n)\n\n"
+           ;; trace=hooks: re-export the runtime tracer registrar;
+           ;; trace_methods bakes the filter in at init.
+           (if (equal? (hash-ref params 'trace #f) "hooks")
+               (string-append
+                "// Tracing (trace=hooks): register an observer with\n"
+                "// grpcdc.SetTracer, e.g. via the alias below.\n"
+                "var SetTracer = grpcdc.SetTracer\n\n"
+                "var SetTraceFilter = grpcdc.SetTraceFilter\n\n"
+                (let ([methods (hash-ref params 'trace_methods #f)])
+                  (if methods
+                      (format "func init() { grpcdc.SetTraceFilter(~s) }\n\n" methods)
+                      "")))
+               "")
            (apply string-append
                   (map go-service (hash-ref file-model 'services))))))
   (define pb-file (emit-go-pb-file file-model params))

@@ -934,6 +934,18 @@
          (format "namespace ~a;\n\n" ns)
          (format "/// <summary>Generated gRPC-over-DataChannels stubs for ~a.</summary>\n" (hash-ref file-model 'name))
          (format "public static class ~a\n{\n" class-name)
+         ;; trace=hooks: delegate the tracer registrar to Grpcdc.Tracing.
+         (if (equal? (hash-ref params 'trace #f) "hooks")
+             (string-append
+              "    // Tracing (trace=hooks): register an observer via SetTracer.\n"
+              "    public static void SetTracer(ITracer tracer) => Tracing.SetTracer(tracer);\n"
+              "    public static void SetTraceFilter(string patterns) => Tracing.SetTraceFilter(patterns);\n"
+              (let ([methods (hash-ref params 'trace_methods #f)])
+                (if methods
+                    (format "    static ~a() { Tracing.SetTraceFilter(~s); }\n" class-name methods)
+                    ""))
+              "\n")
+             "")
          (apply string-append
                 (map csharp-service (hash-ref file-model 'services)))
          "}\n")))

@@ -856,6 +856,17 @@
          "pub const Server = server_mod.Server;\n"
          "pub const Status = status_mod.Status;\n"
          "pub const Metadata = channel_mod.Metadata;\n"
+         ;; trace=hooks: re-export the tracer registrar.
+         (if (equal? (hash-ref params 'trace #f) "hooks")
+             (string-append
+              "\n/// Tracing (trace=hooks): register an observer via setTracer.\n"
+              "pub const setTracer = status_mod.setTracer;\n"
+              "pub const setTraceFilter = status_mod.setTraceFilter;\n"
+              (let ([methods (hash-ref params 'trace_methods #f)])
+                (if methods
+                    (format "\n/// Apply the baked-in trace filter (trace_methods) once.\npub fn applyTraceFilter() void {\n    status_mod.setTraceFilter(~s);\n}\n" methods)
+                    "")))
+             "")
          (apply string-append
                 (map (lambda (msg)
                        (format "pub const ~a = messages.~a;\n" msg msg))

@@ -776,6 +776,18 @@
          (format "package ~a\n\n" pkg)
          "/** Generated gRPC-over-DataChannels stubs. */\n"
          (format "object ~a {\n" obj-name)
+         ;; trace=hooks: delegate the tracer registrar to grpcdc.Tracing.
+         (if (equal? (hash-ref params 'trace #f) "hooks")
+             (string-append
+              "  // Tracing (trace=hooks): register an observer via setTracer.\n"
+              "  def setTracer(t: grpcdc.Tracing.Tracer): Unit = grpcdc.Tracing.setTracer(t)\n"
+              "  def setTraceFilter(patterns: String): Unit = grpcdc.Tracing.setTraceFilter(patterns)\n"
+              (let ([methods (hash-ref params 'trace_methods #f)])
+                (if methods
+                    (format "  grpcdc.Tracing.setTraceFilter(~s)\n" methods)
+                    ""))
+              "\n")
+             "")
          (apply string-append
                 (map scala-service (hash-ref file-model 'services)))
          "}\n")))

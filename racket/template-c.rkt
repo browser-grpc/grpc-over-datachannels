@@ -799,6 +799,14 @@
                   (map (lambda (d) (format "#include \"~a_messages.h\"\n" (path->string (path-replace-extension (file-name-from-path d) ""))))
                        (hash-ref file-model 'dependencies)))
            (if (emit-c-pb-file file-model) (format "#include \"~a_messages.h\"\n" base) "")
+           ;; trace=hooks: apply the baked filter from a generated
+           ;; initializer the caller invokes once.
+           (if (equal? (hash-ref params 'trace #f) "hooks")
+               (let ([methods (hash-ref params 'trace_methods #f)])
+                 (if methods
+                     (format "\n/* Tracing (trace=hooks): call once at startup to apply\n   the baked trace_methods filter. */\nstatic inline void grpcdc_~a_apply_trace_filter(void) {\n    grpcdc_set_trace_filter(~s);\n}\n" base methods)
+                     "\n/* Tracing (trace=hooks): register an observer via\n   grpcdc_set_tracer (grpcdc/grpcdc.h). */\n"))
+               "")
            "\n"
            (apply string-append
                   (map (lambda (svc) (c-service file-model svc support)) (hash-ref file-model 'services)))

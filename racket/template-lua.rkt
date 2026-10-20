@@ -759,6 +759,18 @@
          "local Server = serverModule.Server\n"
          "local Status = statusModule.Status\n"
          "local EndOfStream = statusModule.EndOfStream\n\n"
+         ;; trace=hooks: aliases into the runtime registrar.
+         (if (equal? (hash-ref params 'trace #f) "hooks")
+             (string-append
+              "-- Tracing (trace=hooks): register an observer via set_tracer.\n"
+              "local set_tracer = statusModule.setTracer\n"
+              "local set_trace_filter = statusModule.setTraceFilter\n"
+              (let ([methods (hash-ref params 'trace_methods #f)])
+                (if methods
+                    (format "statusModule.setTraceFilter(~s)\n" methods)
+                    ""))
+              "\n")
+             "")
          (apply string-append
                 (map (lambda (msg)
                        (format "local ~a = messages.~a\n" msg msg))

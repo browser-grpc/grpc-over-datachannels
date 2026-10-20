@@ -2103,6 +2103,19 @@
       "import grpcdc.Wire\n"
       "import java.io.EOFException\n"
       "import java.util.concurrent.CompletableFuture\n\n"
+      (if (equal? (hash-ref params 'trace #f) "hooks")
+        (string-append
+         "// Tracing (trace=hooks): register an observer via setTracer.\n"
+         "fun setTracer(t: grpcdc.Tracing.Tracer?) = grpcdc.Tracing.setTracer(t)\n"
+         "fun setTraceFilter(patterns: String) = grpcdc.Tracing.setTraceFilter(patterns)\n"
+         (let ((methods (hash-ref params 'trace_methods #f)))
+           (if methods
+             (format
+              "private val _grpcdcTraceFilterApplied: Boolean = run { grpcdc.Tracing.setTraceFilter(~s); true }\n"
+              methods)
+             ""))
+         "\n")
+        "")
       (format
        "/** Generated gRPC-over-DataChannels stubs for ~a. */\n"
        (hash-ref file-model 'name))

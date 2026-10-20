@@ -872,6 +872,18 @@
          "#if canImport(Foundation)\nimport Foundation\n#endif\n\n"
          (format "/// Generated gRPC-over-DataChannels stubs for ~a.\n" (hash-ref file-model 'name))
          (format "enum ~a {\n" enum-name)
+         ;; trace=hooks: delegate the tracer registrar to Tracing.
+         (if (equal? (hash-ref params 'trace #f) "hooks")
+             (string-append
+              "    // Tracing (trace=hooks): register an observer via SetTracer.\n"
+              "    static func SetTracer(_ t: Tracer?) { Tracing.SetTracer(t) }\n"
+              "    static func SetTraceFilter(_ patterns: String) { Tracing.SetTraceFilter(patterns) }\n"
+              (let ([methods (hash-ref params 'trace_methods #f)])
+                (if methods
+                    (format "    static let _traceFilterApplied: Bool = { Tracing.SetTraceFilter(~s); return true }()\n" methods)
+                    ""))
+              "\n")
+             "")
          (apply string-append
                 (map swift-service (hash-ref file-model 'services)))
          "}\n\n"

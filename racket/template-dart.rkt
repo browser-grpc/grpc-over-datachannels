@@ -809,7 +809,18 @@
          "import '../grpcdc/server.dart';\n"
          "import '../grpcdc/status.dart';\n"
          "import '../grpcdc/wire.dart';\n"
-         (format "import '~a_messages.dart';\n\n" base)
+         (format "import '~a_messages.dart';\n" base)
+         ;; trace=hooks: re-export the tracer registrar; bake filter.
+         (if (equal? (hash-ref params 'trace #f) "hooks")
+             (string-append
+              "\n// Tracing (trace=hooks): register an observer via setTracer.\n"
+              "export '../grpcdc/status.dart' show setTracer, setTraceFilter;\n"
+              (let ([methods (hash-ref params 'trace_methods #f)])
+                (if methods
+                    (format "final _grpcdcTraceFilterApplied = () { setTraceFilter(~s); return true; }();\n" methods)
+                    "")))
+             "")
+         "\n"
          (apply string-append
                 (map (lambda (svc)
                        (let ([body (dart-service svc)])

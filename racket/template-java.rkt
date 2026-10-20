@@ -1085,6 +1085,18 @@
          "import java.util.concurrent.CompletionException;\n\n"
          (format "/** Generated gRPC-over-DataChannels stubs for ~a. */\n" (hash-ref file-model 'name))
          (format "public final class ~a {\n    private ~a() {}\n\n" class-name class-name)
+         ;; trace=hooks: delegate the tracer registrar to grpcdc.Tracing.
+         (if (equal? (hash-ref params 'trace #f) "hooks")
+             (string-append
+              "    // Tracing (trace=hooks): register an observer via setTracer.\n"
+              "    public static void setTracer(grpcdc.Tracing.Tracer t) { grpcdc.Tracing.setTracer(t); }\n"
+              "    public static void setTraceFilter(String patterns) { grpcdc.Tracing.setTraceFilter(patterns); }\n"
+              (let ([methods (hash-ref params 'trace_methods #f)])
+                (if methods
+                    (format "    static { grpcdc.Tracing.setTraceFilter(~s); }\n" methods)
+                    ""))
+              "\n")
+             "")
          (apply string-append
                 (map java-service (hash-ref file-model 'services)))
          "}\n")))

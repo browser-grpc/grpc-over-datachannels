@@ -662,6 +662,17 @@
          (format "# source: ~a\n\n" (hash-ref file-model 'name))
          (format "require_relative \"~a_pb\"\nrequire \"grpcdc\"\n\n" base)
          (format "module ~a\n" mod)
+         ;; trace=hooks: delegate the tracer registrar to the runtime.
+         (if (equal? (hash-ref params 'trace #f) "hooks")
+             (string-append
+              "  # Tracing (trace=hooks): register an observer via set_tracer.\n"
+              "  def self.set_tracer(t)\n    Grpcdc.set_tracer(t)\n  end\n\n"
+              "  def self.set_trace_filter(patterns)\n    Grpcdc.set_trace_filter(patterns)\n  end\n\n"
+              (let ([methods (hash-ref params 'trace_methods #f)])
+                (if methods
+                    (format "  Grpcdc.set_trace_filter(~s)\n\n" methods)
+                    "")))
+             "")
          rb-stream-helpers
          (apply string-append
                 (map (lambda (svc) (rb-service pb svc))

@@ -680,6 +680,17 @@
          (format "namespace ~a;\n\n" ns)
          (format "require_once __DIR__ . \"/~a_pb.php\";\n" base)
          "require_once __DIR__ . \"/../grpcdc.php\";\n\n"
+         ;; trace=hooks: baking + namespaced delegates to \Status.
+         (if (equal? (hash-ref params 'trace #f) "hooks")
+             (string-append
+              "// Tracing (trace=hooks): register an observer via set_tracer().\n"
+              "function set_tracer(mixed $t): void { \\Status::setTracer($t); }\n"
+              "function set_trace_filter(string $p): void { \\Status::setTraceFilter($p); }\n\n"
+              (let ([methods (hash-ref params 'trace_methods #f)])
+                (if methods
+                    (format "\\Status::setTraceFilter(~s);\n\n" methods)
+                    "")))
+             "")
          php-stream-helpers
          (apply string-append
                 (map (lambda (svc) (php-service pb svc))

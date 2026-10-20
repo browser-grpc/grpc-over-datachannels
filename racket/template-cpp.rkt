@@ -1043,6 +1043,18 @@
          "#include \"grpcdc/channel.hpp\"\n"
          "#include \"grpcdc/server.hpp\"\n\n"
          (format "namespace ~a {\n\n" ns)
+         ;; trace=hooks: delegate the tracer registrar to grpcdc::Tracing.
+         (if (equal? (hash-ref params 'trace #f) "hooks")
+             (string-append
+              "/// Tracing (trace=hooks): register an observer via SetTracer.\n"
+              "inline void SetTracer(grpcdc::Tracing::Tracer* t) { grpcdc::Tracing::SetTracer(t); }\n"
+              "inline void SetTraceFilter(const std::string& patterns) { grpcdc::Tracing::SetTraceFilter(patterns); }\n"
+              (let ([methods (hash-ref params 'trace_methods #f)])
+                (if methods
+                    (format "inline const bool _grpcdcTraceFilterApplied = [] { grpcdc::Tracing::SetTraceFilter(~s); return true; }();\n" methods)
+                    ""))
+              "\n")
+             "")
          (format "/// Generated gRPC-over-DataChannels stubs for ~a.\n" (hash-ref file-model 'name))
          (format "struct ~a {\n" struct-name)
          (apply string-append
