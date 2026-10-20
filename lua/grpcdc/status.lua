@@ -62,6 +62,29 @@ local function getTracer()
   return tracer
 end
 
+local traceFilter = {}
+
+-- Restrict traced methods: ';'-separated paths, a trailing
+-- '*' means prefix match ('/echo.Echo/*'). Empty = trace all.
+local function setTraceFilter(patterns)
+  traceFilter = {}
+  for p in string.gmatch(patterns, "[^;]+") do
+    traceFilter[#traceFilter + 1] = p
+  end
+end
+
+local function traceAllowed(method)
+  if #traceFilter == 0 then return true end
+  for _, p in ipairs(traceFilter) do
+    if p:sub(-1) == "*" then
+      if method:sub(1, #p - 1) == p:sub(1, -2) then return true end
+    elseif method == p then
+      return true
+    end
+  end
+  return false
+end
+
 local randCounter = 0
 local function randomHex(nbytes)
   randCounter = randCounter + 1
@@ -91,7 +114,7 @@ local function parseTraceparent(value)
 end
 
 local function traceStart(kind, method, parent)
-  if tracer == nil then return nil end
+  if tracer == nil or not traceAllowed(method) then return nil end
   local ctx = { spanId = randomHex(8) }
   if parent ~= nil then
     ctx.traceId = parent.traceId
@@ -123,6 +146,7 @@ return {
   toStatus = toStatus,
   raise = raise,
   setTracer = setTracer,
+  setTraceFilter = setTraceFilter,
   tracer = getTracer,
   formatTraceparent = formatTraceparent,
   parseTraceparent = parseTraceparent,

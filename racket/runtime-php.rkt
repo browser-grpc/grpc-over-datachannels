@@ -82,6 +82,30 @@ final class Status
         return self::$tracer;
     }
 
+    /** @var string[] */
+    private static array $traceFilter = [];
+
+    // Restrict traced methods: ';'-separated paths, a trailing
+    // '*' means prefix match ('/echo.Echo/*'). Empty = trace all.
+    public static function setTraceFilter(string $patterns): void
+    {
+        self::$traceFilter = array_values(array_filter(explode(";", $patterns), fn($p) => $p !== ""));
+    }
+
+    private static function traceAllowed(string $method): bool
+    {
+        foreach (self::$traceFilter as $p) {
+            if (str_ends_with($p, "*")) {
+                if (str_starts_with($method, substr($p, 0, -1))) {
+                    return true;
+                }
+            } elseif ($method === $p) {
+                return true;
+            }
+        }
+        return self::$traceFilter === [];
+    }
+
     public static function formatTraceparent(string $traceId, string $spanId): string
     {
         return "00-$traceId-$spanId-01";
@@ -106,7 +130,7 @@ final class Status
     /** @return array{trace_id:string,span_id:string,parent_span_id:string}|null */
     public static function traceStart(string $kind, string $method, ?array $parent): ?array
     {
-        if (self::$tracer === null) {
+        if (self::$tracer === null || !self::traceAllowed($method)) {
             return null;
         }
         $ctx = [

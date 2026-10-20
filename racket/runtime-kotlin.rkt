@@ -65,6 +65,21 @@ object Tracing {
         tracer = t
     }
 
+    private var traceFilter: List<String> = emptyList()
+
+    // Restrict traced methods: ';'-separated paths, a trailing
+    // '*' means prefix match ('/echo.Echo/*'). Empty = trace all.
+    fun setTraceFilter(patterns: String) {
+        traceFilter = patterns.split(";").filter { it.isNotEmpty() }
+    }
+
+    fun traceAllowed(method: String): Boolean {
+        if (traceFilter.isEmpty()) return true
+        return traceFilter.any { p ->
+            if (p.endsWith("*")) method.startsWith(p.dropLast(1)) else method == p
+        }
+    }
+
     fun enabled(): Boolean = tracer != null
 
     fun formatTraceparent(traceId: String, spanId: String): String =
@@ -92,6 +107,7 @@ object Tracing {
 
     fun traceStart(kind: String, method: String, parent: Parent?): TraceContext? {
         val t = tracer ?: return null
+        if (!traceAllowed(method)) return null
         val ctx = TraceContext(
             parent?.traceId ?: randomHex(16),
             randomHex(8),

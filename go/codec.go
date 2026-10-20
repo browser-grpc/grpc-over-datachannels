@@ -81,6 +81,38 @@ func getTracer() Tracer {
 	return tracer
 }
 
+var traceFilter []string
+
+// SetTraceFilter restricts traced methods: ';'-separated paths,
+// a trailing '*' means prefix match ('/echo.Echo/*'). Empty =
+// trace all.
+func SetTraceFilter(patterns string) {
+	tracerMu.Lock()
+	defer tracerMu.Unlock()
+	traceFilter = nil
+	for _, p := range strings.Split(patterns, ";") {
+		if p != "" {
+			traceFilter = append(traceFilter, p)
+		}
+	}
+}
+
+func traceAllowed(method string) bool {
+	if len(traceFilter) == 0 {
+		return true
+	}
+	for _, p := range traceFilter {
+		if strings.HasSuffix(p, "*") {
+			if strings.HasPrefix(method, p[:len(p)-1]) {
+				return true
+			}
+		} else if method == p {
+			return true
+		}
+	}
+	return false
+}
+
 type traceContext struct {
 	TraceID      string
 	SpanID       string
@@ -119,7 +151,7 @@ func ParseTraceparent(value string) *traceContext {
 
 func traceStart(kind, method string, parent *traceContext) *traceContext {
 	t := getTracer()
-	if t == nil {
+	if t == nil || !traceAllowed(method) {
 		return nil
 	}
 	ctx := &traceContext{SpanID: randomHex(8)}

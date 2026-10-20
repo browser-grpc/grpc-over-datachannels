@@ -745,7 +745,12 @@
          ;; trace=hooks: re-export the runtime tracer registrar so
          ;; tracing can be wired from generated code alone.
          (if (equal? (hash-ref params 'trace #f) "hooks")
-             "\n# trace=hooks: register an observer via grpcdc.set_tracer(...)\nset_tracer = grpcdc.set_tracer\n"
+             (string-append
+              "\n# trace=hooks: register an observer via grpcdc.set_tracer(...)\nset_tracer = grpcdc.set_tracer\nset_trace_filter = grpcdc.set_trace_filter\n"
+              (let ([methods (hash-ref params 'trace_methods #f)])
+                (if methods
+                    (format "grpcdc.set_trace_filter(~s)\n" methods)
+                    "")))
              "")
          "\n"
          py-stream-helpers

@@ -525,6 +525,34 @@ pub fn tracing_enabled() -> bool {
     tracer_slot().read().unwrap().is_some()
 }
 
+static TRACE_FILTER: std::sync::OnceLock<std::sync::RwLock<Vec<String>>> =
+    std::sync::OnceLock::new();
+
+fn trace_filter_slot() -> &'static std::sync::RwLock<Vec<String>> {
+    TRACE_FILTER.get_or_init(|| std::sync::RwLock::new(Vec::new()))
+}
+
+/// Restrict traced methods: `;`-separated paths, a trailing
+/// `*` means prefix match (`/echo.Echo/*`). Empty = trace all.
+pub fn set_trace_filter(patterns: &str) {
+    *trace_filter_slot().write().unwrap() =
+        patterns.split(';').filter(|p| !p.is_empty()).map(str::to_string).collect();
+}
+
+fn trace_allowed(method: &str) -> bool {
+    let filter = trace_filter_slot().read().unwrap();
+    if filter.is_empty() {
+        return true;
+    }
+    filter.iter().any(|p| {
+        if let Some(prefix) = p.strip_suffix('*') {
+            method.starts_with(prefix)
+        } else {
+            method == p
+        }
+    })
+}
+
 fn random_hex(bytes_len: usize) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -570,6 +598,9 @@ pub fn parse_traceparent(value: Option<&String>) -> Option<TraceParent> {
 
 /// Begin a span; returns None when tracing is dormant.
 pub fn trace_start(kind: &str, method: &str, parent: Option<TraceParent>) -> Option<TraceContext> {
+    if !trace_allowed(method) {
+        return None;
+    }
     let tracer = tracer_slot().read().unwrap().clone()?;
     let ctx = TraceContext {
         trace_id: parent

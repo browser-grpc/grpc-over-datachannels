@@ -89,6 +89,10 @@ typedef struct {
 void grpcdc_set_tracer(const grpcdc_tracer *tracer);
 bool grpcdc_tracing_enabled(void);
 
+/* Restrict traced methods: ';'-separated paths, a trailing '*'
+   means prefix match ('/echo.Echo/*'). Empty/NULL = trace all. */
+void grpcdc_set_trace_filter(const char *patterns);
+
 typedef struct {
     char trace_id[33];
     char span_id[17];
@@ -317,6 +321,36 @@ void grpcdc_set_tracer(const grpcdc_tracer *tracer) {
 
 bool grpcdc_tracing_enabled(void) { return g_tracer_set != 0; }
 
+static char g_trace_filter[512];
+
+void grpcdc_set_trace_filter(const char *patterns) {
+    if (!patterns) patterns = "";
+    size_t n = strlen(patterns);
+    if (n >= sizeof(g_trace_filter)) n = sizeof(g_trace_filter) - 1;
+    memcpy(g_trace_filter, patterns, n);
+    g_trace_filter[n] = 0;
+}
+
+static int trace_allowed(const char *method) {
+    if (g_trace_filter[0] == 0) return 1;
+    size_t mlen = strlen(method);
+    const char *p = g_trace_filter;
+    while (*p) {
+        const char *semi = strchr(p, ';');
+        size_t plen = semi ? (size_t)(semi - p) : strlen(p);
+        if (plen > 0) {
+            if (p[plen - 1] == '*') {
+                if (mlen >= plen - 1 && strncmp(method, p, plen - 1) == 0) return 1;
+            } else if (mlen == plen && strncmp(method, p, plen) == 0) {
+                return 1;
+            }
+        }
+        if (!semi) break;
+        p = semi + 1;
+    }
+    return 0;
+}
+
 static uint64_t trace_rng_state = 0;
 
 static void trace_random_hex(char *out, size_t nbytes) {
@@ -350,7 +384,7 @@ grpcdc_trace_context grpcdc_trace_start(const char *kind, const char *method,
                                         const char *parent_traceparent) {
     grpcdc_trace_context ctx;
     memset(&ctx, 0, sizeof(ctx));
-    if (!g_tracer_set || !g_tracer.on_start) return ctx;
+    if (!g_tracer_set || !g_tracer.on_start || !trace_allowed(method)) return ctx;
     if (parent_traceparent) {
         /* 00-<32>-<16>-01 */
         const char *p = parent_traceparent;

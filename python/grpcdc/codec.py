@@ -48,6 +48,28 @@ def set_tracer(tracer):
     _tracer = tracer
 
 
+_trace_filter = []
+
+
+def set_trace_filter(patterns):
+    """Restrict traced methods: ';'-separated paths, a trailing
+    '*' means prefix match ('/echo.Echo/*'). Empty = trace all."""
+    global _trace_filter
+    _trace_filter = [p for p in patterns.split(";") if p]
+
+
+def _trace_allowed(method):
+    if not _trace_filter:
+        return True
+    for pattern in _trace_filter:
+        if pattern.endswith("*"):
+            if method.startswith(pattern[:-1]):
+                return True
+        elif method == pattern:
+            return True
+    return False
+
+
 def get_tracer():
     return _tracer
 
@@ -88,7 +110,7 @@ def trace_start(kind, method, parent):
     Returns a context dict (keys: trace_id, span_id,
     parent_span_id) or None when no tracer is registered.
     """
-    if _tracer is None:
+    if _tracer is None or not _trace_allowed(method):
         return None
     if parent is not None:
         trace_id, parent_span_id = parent

@@ -72,6 +72,16 @@
      (define trace-opt (hash-ref params 'trace #f))
      (when (and trace-opt (not (member trace-opt '("off" "hooks"))))
        (error (format "unknown trace option ~a (expected off or hooks)" trace-opt)))
+     ;; trace_methods=';'-separated method paths (trailing '*'
+     ;; is a prefix match) restricts which methods are traced;
+     ;; only meaningful with trace=hooks.
+     (define trace-methods (hash-ref params 'trace_methods #f))
+     (when trace-methods
+       (unless (equal? trace-opt "hooks")
+         (error "trace_methods requires trace=hooks"))
+       (for ([p (in-list (string-split trace-methods ";"))])
+         (unless (string-prefix? p "/")
+           (error (format "trace_methods pattern must start with /: ~a" p)))))
      ;; An emit function returns one (name . content) pair or a
      ;; list of them (stub + generated message classes).
      (define (as-file-list out)

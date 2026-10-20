@@ -42,6 +42,7 @@ class TestTracing(unittest.TestCase):
 
     def tearDown(self):
         grpcdc.set_tracer(None)
+        grpcdc.set_trace_filter("")
 
     def test_unary_propagates_one_trace(self):
         resp = self.client.Unary(EchoRequest(message="hello"))
@@ -88,6 +89,22 @@ class TestTracing(unittest.TestCase):
         client = self.recorder.starts[0]
         self.assertEqual(client[2], trace_id)
         self.assertEqual(client[4], span_id)
+
+    def test_filter_restricts_methods(self):
+        grpcdc.set_trace_filter("/echo.Echo/ServerStream")
+        self.client.Unary(EchoRequest(message="hello"))
+        self.assertEqual(self.recorder.starts, [])
+        list(self.client.ServerStream(EchoRequest(message="tick", count=1)))
+        self.assertEqual([s[1] for s in self.recorder.starts],
+                         ["/echo.Echo/ServerStream"] * 2)
+        self.recorder.starts.clear()
+        grpcdc.set_trace_filter("/echo.Echo/*")
+        self.client.Unary(EchoRequest(message="hello"))
+        self.assertEqual(len(self.recorder.starts), 2)
+        self.recorder.starts.clear()
+        grpcdc.set_trace_filter("/other.Service/Method")
+        self.client.Unary(EchoRequest(message="hello"))
+        self.assertEqual(self.recorder.starts, [])
 
     def test_dormant_without_tracer(self):
         grpcdc.set_tracer(None)

@@ -54,6 +54,34 @@ public static class Tracing
 
     public static void SetTracer(ITracer tracer) => _tracer = tracer;
 
+    private static volatile string[] _traceFilter = new string[0];
+
+    // Restrict traced methods: ';'-separated paths, a trailing
+    // '*' means prefix match ('/echo.Echo/*'). Empty = trace all.
+    public static void SetTraceFilter(string patterns)
+    {
+        _traceFilter = patterns.Split(';', System.StringSplitOptions.RemoveEmptyEntries);
+    }
+
+    public static bool TraceAllowed(string method)
+    {
+        foreach (string p in _traceFilter)
+        {
+            if (p.EndsWith("*"))
+            {
+                if (method.StartsWith(p.Substring(0, p.Length - 1)))
+                {
+                    return true;
+                }
+            }
+            else if (method == p)
+            {
+                return true;
+            }
+        }
+        return _traceFilter.Length == 0;
+    }
+
     public static bool Enabled => _tracer != null;
 
     public static string FormatTraceparent(string traceId, string spanId) =>
@@ -91,7 +119,7 @@ public static class Tracing
     public static TraceContext TraceStart(string kind, string method, Parent parent)
     {
         ITracer tracer = _tracer;
-        if (tracer == null)
+        if (tracer == null || !TraceAllowed(method))
         {
             return null;
         }

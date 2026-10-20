@@ -65,6 +65,10 @@ typedef struct {
 void grpcdc_set_tracer(const grpcdc_tracer *tracer);
 bool grpcdc_tracing_enabled(void);
 
+/* Restrict traced methods: ';'-separated paths, a trailing '*'
+   means prefix match ('/echo.Echo/*'). Empty/NULL = trace all. */
+void grpcdc_set_trace_filter(const char *patterns);
+
 typedef struct {
     char trace_id[33];
     char span_id[17];

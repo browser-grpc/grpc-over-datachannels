@@ -97,6 +97,31 @@ pub fn tracingEnabled() bool {
     return tracer != null;
 }
 
+var trace_filter_buf: [512]u8 = undefined;
+var trace_filter_len: usize = 0;
+
+// Restrict traced methods: ';'-separated paths, a trailing
+// '*' means prefix match ('/echo.Echo/*'). Empty = trace all.
+pub fn setTraceFilter(patterns: []const u8) void {
+    const n = @min(patterns.len, trace_filter_buf.len);
+    @memcpy(trace_filter_buf[0..n], patterns[0..n]);
+    trace_filter_len = n;
+}
+
+fn traceAllowed(method: []const u8) bool {
+    if (trace_filter_len == 0) return true;
+    var it = std.mem.splitScalar(u8, trace_filter_buf[0..trace_filter_len], ';');
+    while (it.next()) |p| {
+        if (p.len == 0) continue;
+        if (p[p.len - 1] == '*') {
+            if (std.mem.startsWith(u8, method, p[0 .. p.len - 1])) return true;
+        } else if (std.mem.eql(u8, method, p)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 fn hexDigit(v: u8) u8 {
     return if (v < 10) '0' + v else 'a' + (v - 10);
 }
@@ -159,6 +184,7 @@ pub fn formatTraceparent(buf: *[55]u8, trace_id: []const u8, span_id: []const u8
 
 pub fn traceStart(kind: []const u8, method: []const u8, parent: ?Parent) ?TraceContext {
     const t = tracer orelse return null;
+    if (!traceAllowed(method)) return null;
     var ctx = TraceContext{
         .trace_id = undefined,
         .span_id = randomHex(8),

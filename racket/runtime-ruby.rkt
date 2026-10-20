@@ -71,6 +71,22 @@ module Grpcdc
     @tracer
   end
 
+  @trace_filter = []
+
+  # Restrict traced methods: ';'-separated paths, a trailing
+  # '*' means prefix match ('/echo.Echo/*'). Empty = trace all.
+  def self.set_trace_filter(patterns)
+    @trace_filter = patterns.split(";").reject(&:empty?)
+  end
+
+  def self.trace_allowed?(method)
+    return true if @trace_filter.empty?
+
+    @trace_filter.any? do |p|
+      p.end_with?("*") ? method.start_with?(p[0...-1]) : method == p
+    end
+  end
+
   def self.format_traceparent(trace_id, span_id)
     "00-#{trace_id}-#{span_id}-01"
   end
@@ -90,7 +106,7 @@ module Grpcdc
   end
 
   def self.trace_start(kind, method, parent)
-    return nil if @tracer.nil?
+    return nil if @tracer.nil? || !trace_allowed?(method)
 
     require "securerandom"
     trace_id, parent_span_id = parent || [SecureRandom.hex(16), ""]

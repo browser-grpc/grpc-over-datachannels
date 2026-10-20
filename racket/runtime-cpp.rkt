@@ -62,6 +62,40 @@ struct Tracing {
   static void SetTracer(Tracer* t) { TracerSlot() = t; }
   static bool Enabled() { return TracerSlot() != nullptr; }
 
+  // Restrict traced methods: ';'-separated paths, a trailing
+  // '*' means prefix match ('/echo.Echo/*'). Empty = trace all.
+  static void SetTraceFilter(const std::string& patterns) {
+    auto& filter = FilterSlot();
+    filter.clear();
+    size_t start = 0;
+    while (start <= patterns.size()) {
+      size_t semi = patterns.find(';', start);
+      std::string p = patterns.substr(
+          start, semi == std::string::npos ? std::string::npos : semi - start);
+      if (!p.empty()) filter.push_back(p);
+      if (semi == std::string::npos) break;
+      start = semi + 1;
+    }
+  }
+
+  static bool TraceAllowed(const std::string& method) {
+    const auto& filter = FilterSlot();
+    if (filter.empty()) return true;
+    for (const auto& p : filter) {
+      if (!p.empty() && p.back() == '*') {
+        if (method.compare(0, p.size() - 1, p, 0, p.size() - 1) == 0) return true;
+      } else if (method == p) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static std::vector<std::string>& FilterSlot() {
+    static std::vector<std::string> filter;
+    return filter;
+  }
+
   static std::string FormatTraceparent(const std::string& trace_id,
                                        const std::string& span_id) {
     return "00-" + trace_id + "-" + span_id + "-01";
@@ -98,7 +132,7 @@ struct Tracing {
       const std::string& kind, const std::string& method,
       const std::optional<Parent>& parent) {
     Tracer* t = TracerSlot();
-    if (!t) return std::nullopt;
+    if (!t || !TraceAllowed(method)) return std::nullopt;
     TraceContext ctx;
     ctx.trace_id = parent ? parent->trace_id : RandomHex(16);
     ctx.span_id = RandomHex(8);

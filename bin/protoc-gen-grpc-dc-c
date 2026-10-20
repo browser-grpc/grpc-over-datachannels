@@ -2232,6 +2232,14 @@
   (when (and trace-opt (not (member trace-opt '("off" "hooks"))))
     (error
      (format "unknown trace option ~a (expected off or hooks)" trace-opt)))
+  (define trace-methods (hash-ref params 'trace_methods #f))
+  (when trace-methods
+    (unless (equal? trace-opt "hooks")
+      (error "trace_methods requires trace=hooks"))
+    (for
+     ((p (in-list (string-split trace-methods ";"))))
+     (unless (string-prefix? p "/")
+       (error (format "trace_methods pattern must start with /: ~a" p)))))
   (define (as-file-list out)
     (if (and (pair? out) (string? (car out))) (list out) out))
   (write-bytes

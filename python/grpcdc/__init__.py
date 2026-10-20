@@ -10,6 +10,7 @@ from .codec import (
     decode_frame,
     encode_frame,
     set_tracer,
+    set_trace_filter,
     status_name,
     to_status,
 )
@@ -63,6 +64,7 @@ __all__ = [
     "parse_descriptor_set",
     "register_dynamic_service",
     "set_tracer",
+    "set_trace_filter",
     "status_name",
     "to_status",
 ]

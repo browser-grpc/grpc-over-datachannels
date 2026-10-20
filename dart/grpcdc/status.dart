@@ -27,6 +27,26 @@ void setTracer(Tracer? tracer) {
   _tracer = tracer;
 }
 
+List<String> _traceFilter = [];
+
+/// Restrict traced methods: ';'-separated paths, a trailing
+/// '*' means prefix match ('/echo.Echo/*'). Empty = trace all.
+void setTraceFilter(String patterns) {
+  _traceFilter = patterns.split(';').where((p) => p.isNotEmpty).toList();
+}
+
+bool _traceAllowed(String method) {
+  if (_traceFilter.isEmpty) return true;
+  for (final p in _traceFilter) {
+    if (p.endsWith('*')) {
+      if (method.startsWith(p.substring(0, p.length - 1))) return true;
+    } else if (method == p) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool get tracingEnabled => _tracer != null;
 
 final _rng = Random.secure();
@@ -59,7 +79,7 @@ String formatTraceparent(String traceId, String spanId) =>
 TraceContext? traceStart(
     String kind, String method, ({String traceId, String spanId})? parent) {
   final tracer = _tracer;
-  if (tracer == null) return null;
+  if (tracer == null || !_traceAllowed(method)) return null;
   final ctx = TraceContext(
     parent?.traceId ?? _randomHex(16),
     _randomHex(8),

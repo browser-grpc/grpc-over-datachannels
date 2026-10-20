@@ -10,6 +10,7 @@ import {
   StatusCode,
   StatusError,
   memoryDataChannelPair,
+  setTraceFilter,
   setTracer,
 } from "../index.js";
 import { EchoRequest, EchoResponse } from "../examples/echo_pb.js";
@@ -156,6 +157,25 @@ test("OTLP example exports parented spans", async () => {
   assert.equal(clientSpan.traceId, serverSpan.traceId);
   assert.equal(serverSpan.parentSpanId, clientSpan.spanId);
   assert.deepEqual(clientSpan.status, { code: 1 });
+});
+
+test("filter restricts methods", async () => {
+  const rec = recorder();
+  const client = setup(rec.tracer);
+  try {
+    setTraceFilter("/echo.Echo/ServerStream");
+    await client.unary(new EchoRequest({ message: "hello" }));
+    assert.deepEqual(rec.starts, []);
+    for await (const _ of await client.serverStream(new EchoRequest({ message: "tick", count: 1 }))) {}
+    assert.deepEqual(
+      rec.starts.map((s) => s.method),
+      ["/echo.Echo/ServerStream", "/echo.Echo/ServerStream"],
+    );
+    setTraceFilter("");
+  } finally {
+    setTracer(null);
+    setTraceFilter("");
+  }
 });
 
 test("dormant without a tracer", async () => {

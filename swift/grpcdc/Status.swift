@@ -52,6 +52,21 @@ enum Tracing {
 
     static func SetTracer(_ t: Tracer?) { tracer = t }
 
+    private static var traceFilter: [String] = []
+
+    // Restrict traced methods: ';'-separated paths, a trailing
+    // '*' means prefix match ('/echo.Echo/*'). Empty = trace all.
+    static func SetTraceFilter(_ patterns: String) {
+        traceFilter = patterns.split(separator: ";").map(String.init).filter { !$0.isEmpty }
+    }
+
+    static func TraceAllowed(_ method: String) -> Bool {
+        if traceFilter.isEmpty { return true }
+        return traceFilter.contains { p in
+            p.hasSuffix("*") ? method.hasPrefix(String(p.dropLast())) : method == p
+        }
+    }
+
     static var Enabled: Bool { tracer != nil }
 
     static func FormatTraceparent(_ traceId: String, _ spanId: String) -> String {
@@ -81,7 +96,7 @@ enum Tracing {
     }
 
     static func TraceStart(_ kind: String, _ method: String, _ parent: Parent?) -> TraceContext? {
-        guard let t = tracer else { return nil }
+        guard let t = tracer, TraceAllowed(method) else { return nil }
         let ctx = TraceContext(
             traceId: parent?.traceId ?? RandomHex(16),
             spanId: RandomHex(8),

@@ -157,6 +157,21 @@ export function getTracer() {
   return tracer;
 }
 
+let traceFilter = [];
+
+// Restrict traced methods: ';'-separated paths, a trailing '*'
+// means prefix match ('/echo.Echo/*'). Empty = trace all.
+export function setTraceFilter(patterns) {
+  traceFilter = patterns.split(";").filter(Boolean);
+}
+
+function traceAllowed(method) {
+  if (traceFilter.length === 0) return true;
+  return traceFilter.some((p) =>
+    p.endsWith("*") ? method.startsWith(p.slice(0, -1)) : method === p
+  );
+}
+
 function randomHex(bytes) {
   const buf = new Uint8Array(bytes);
   if (globalThis.crypto?.getRandomValues) {
@@ -181,7 +196,7 @@ export function parseTraceparent(value) {
 }
 
 export function traceStart(kind, method, parent) {
-  if (tracer === null) return null;
+  if (tracer === null || !traceAllowed(method)) return null;
   const ctx = {
     traceId: parent ? parent.traceId : randomHex(16),
     spanId: randomHex(8),

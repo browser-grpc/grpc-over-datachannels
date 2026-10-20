@@ -1302,6 +1302,33 @@ public final class Tracing {
         tracer = t;
     }
 
+    private static volatile String[] traceFilter = new String[0];
+
+    // Restrict traced methods: ';'-separated paths, a trailing
+    // '*' means prefix match ('/echo.Echo/*'). Empty = trace all.
+    public static void setTraceFilter(String patterns) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String p : patterns.split(";")) {
+            if (!p.isEmpty()) {
+                out.add(p);
+            }
+        }
+        traceFilter = out.toArray(new String[0]);
+    }
+
+    static boolean traceAllowed(String method) {
+        for (String p : traceFilter) {
+            if (p.endsWith("*")) {
+                if (method.startsWith(p.substring(0, p.length() - 1))) {
+                    return true;
+                }
+            } else if (method.equals(p)) {
+                return true;
+            }
+        }
+        return traceFilter.length == 0;
+    }
+
     public static boolean enabled() {
         return tracer != null;
     }
@@ -1344,7 +1371,7 @@ public final class Tracing {
 
     public static TraceContext traceStart(String kind, String method, Parent parent) {
         Tracer t = tracer;
-        if (t == null) {
+        if (t == null || !traceAllowed(method)) {
             return null;
         }
         TraceContext ctx = new TraceContext(
