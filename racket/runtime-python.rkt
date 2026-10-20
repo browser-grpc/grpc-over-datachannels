@@ -46,6 +46,91 @@ def status_name(code):
     return STATUS_NAMES.get(code, f"CODE_{code}")
 
 
+# --- Homegrown tracing (W3C traceparent propagation) -----------------
+# Dormant until set_tracer() registers an observer. The observer is
+# any object with on_start(kind, method, trace_id, span_id,
+# parent_span_id) and on_end(kind, method, trace_id, span_id,
+# status_name). Generated code stays dependency-free: sampling,
+# batching and export are the application's problem.
+
+import secrets as _secrets
+
+_tracer = None
+
+
+def set_tracer(tracer):
+    """Register the global span observer (None disables tracing)."""
+    global _tracer
+    _tracer = tracer
+
+
+def get_tracer():
+    return _tracer
+
+
+def _new_trace_id():
+    return _secrets.token_hex(16)
+
+
+def _new_span_id():
+    return _secrets.token_hex(8)
+
+
+def format_traceparent(trace_id, span_id):
+    return f"00-{trace_id}-{span_id}-01"
+
+
+def parse_traceparent(value):
+    """Parse a traceparent header -> (trace_id, span_id) or None."""
+    if not isinstance(value, str):
+        return None
+    parts = value.split("-")
+    if len(parts) != 4:
+        return None
+    _, trace_id, span_id, _flags = parts
+    if len(trace_id) != 32 or len(span_id) != 16:
+        return None
+    try:
+        int(trace_id, 16)
+        int(span_id, 16)
+    except ValueError:
+        return None
+    return (trace_id, span_id)
+
+
+def trace_start(kind, method, parent):
+    """Begin a span; parent is a parsed traceparent or None.
+
+    Returns a context dict (keys: trace_id, span_id,
+    parent_span_id) or None when no tracer is registered.
+    """
+    if _tracer is None:
+        return None
+    if parent is not None:
+        trace_id, parent_span_id = parent
+    else:
+        trace_id, parent_span_id = _new_trace_id(), ""
+    ctx = {
+        "trace_id": trace_id,
+        "span_id": _new_span_id(),
+        "parent_span_id": parent_span_id,
+    }
+    try:
+        _tracer.on_start(kind, method, ctx["trace_id"], ctx["span_id"], parent_span_id)
+    except Exception:
+        pass  # observers must never break the call
+    return ctx
+
+
+def trace_end(kind, method, ctx, status):
+    if ctx is None or _tracer is None:
+        return
+    try:
+        _tracer.on_end(kind, method, ctx["trace_id"], ctx["span_id"], status)
+    except Exception:
+        pass
+
+
 class StatusError(Exception):
     """A gRPC status (code + message) carried as an exception."""
 
@@ -503,7 +588,18 @@ GRPC_RUNTIME_EOF
 
 import asyncio
 
-from .codec import StatusError, encode_frame, encode_timeout, headers_frame
+from .codec import (
+    StatusError,
+    encode_frame,
+    encode_timeout,
+    format_traceparent,
+    get_tracer,
+    headers_frame,
+    parse_traceparent,
+    status_name,
+    trace_end,
+    trace_start,
+)
 from .endpoint import (
     EVENT_DATA,
     EVENT_HEADERS,
@@ -534,19 +630,31 @@ class Channel:
 
     def _open(self, path, metadata, timeout=None):
         deadline = None
-        if timeout is not None:
-            deadline = _monotonic() + timeout
+        trace_ctx = None
+        if timeout is not None or get_tracer() is not None:
             merged = dict(metadata) if metadata else {}
-            merged["grpc-timeout"] = encode_timeout(timeout)
+            if timeout is not None:
+                deadline = _monotonic() + timeout
+                merged["grpc-timeout"] = encode_timeout(timeout)
+            if get_tracer() is not None:
+                parent = parse_traceparent(merged.get("traceparent"))
+                trace_ctx = trace_start("client", path, parent)
+                if trace_ctx is not None:
+                    merged["traceparent"] = format_traceparent(
+                        trace_ctx["trace_id"], trace_ctx["span_id"]
+                    )
             metadata = merged
         stream_id, stream_input = self.endpoint.open_stream()
         try:
             self.endpoint.send_frame(headers_frame(stream_id, path, metadata))
         except Exception:
             self.endpoint.close_stream(stream_id)
+            trace_end("client", path, trace_ctx, "UNAVAILABLE")
             raise
         stream = ClientStream(self.endpoint, stream_id, stream_input)
         stream.deadline = deadline
+        stream.trace_ctx = trace_ctx
+        stream.trace_path = path
         return stream
 
     def _send_message(self, stream, msg):
@@ -645,8 +753,17 @@ class ClientStream:
         self._input = stream_input
         self.headers = None
         self.deadline = None
+        self.trace_ctx = None
+        self.trace_path = None
+        self._trace_ended = False
+
+    def _end_trace(self, status):
+        if not self._trace_ended:
+            self._trace_ended = True
+            trace_end("client", self.trace_path, self.trace_ctx, status)
 
     def _fail_deadline(self):
+        self._end_trace("DEADLINE_EXCEEDED")
         self._endpoint.cancel_stream(self.stream_id)
         raise StatusError(CODE_DEADLINE_EXCEEDED, "deadline exceeded")
 
@@ -674,10 +791,12 @@ class ClientStream:
                 resp.unmarshal_dc(event.payload)
                 return resp
             elif event.kind == EVENT_TRAILERS:
+                self._end_trace(status_name(event.status.code))
                 if event.status.code != 0:
                     raise event.status
                 raise EOFError("call completed")
             elif event.kind == EVENT_RST:
+                self._end_trace(status_name(event.status.code))
                 raise event.status
 
 
@@ -770,7 +889,13 @@ GRPC_RUNTIME_EOF
 #<<GRPC_RUNTIME_EOF
 """Server: dispatches inbound calls to registered methods."""
 
-from .codec import to_status
+from .codec import (
+    parse_traceparent,
+    status_name,
+    to_status,
+    trace_end,
+    trace_start,
+)
 from .endpoint import (
     EVENT_DATA,
     EVENT_HALF_CLOSE,
@@ -854,11 +979,16 @@ class Server:
             return StatusError(
                 CODE_UNIMPLEMENTED, f"unknown method {headers.path}"
             )
+        parent = parse_traceparent((headers.metadata or {}).get("traceparent"))
+        trace_ctx = trace_start("server", headers.path, parent)
+        result = None
         try:
             method.handler(ctx, RequestStream(stream_input), sink)
         except Exception as e:  # StatusError passes through via to_status
-            return to_status(e)
-        return None
+            result = to_status(e)
+        status = status_name(result.code) if result is not None else "OK"
+        trace_end("server", headers.path, trace_ctx, status)
+        return result
 GRPC_RUNTIME_EOF
 )
 
@@ -914,6 +1044,7 @@ from .codec import (
     StatusError,
     decode_frame,
     encode_frame,
+    set_tracer,
     status_name,
     to_status,
 )
@@ -966,6 +1097,7 @@ __all__ = [
     "memory_transport_pair",
     "parse_descriptor_set",
     "register_dynamic_service",
+    "set_tracer",
     "status_name",
     "to_status",
 ]

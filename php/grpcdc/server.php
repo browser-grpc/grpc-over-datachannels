@@ -135,11 +135,14 @@ class Server
         if ($method === null) {
             return new StatusError(Wire::CODE_UNIMPLEMENTED, "unknown method " . $headers->path);
         }
+        $traceCtx = Status::traceStart("server", $headers->path, Status::parseTraceparent($headers->metadata["traceparent"] ?? null));
+        $result = null;
         try {
             ($method->handler)($ctx, new RequestStream($endpoint, $input), $sink);
         } catch (\Throwable $e) {
-            return Status::toStatus($e);
+            $result = Status::toStatus($e);
         }
-        return null;
+        Status::traceEnd("server", $headers->path, $traceCtx, $result === null ? "OK" : Status::name($result->statusCode));
+        return $result;
     }
 }

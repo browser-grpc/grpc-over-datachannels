@@ -140,3 +140,66 @@ export function fromHex(hex) {
   }
   return out;
 }
+
+// --- Homegrown tracing (W3C traceparent propagation) -------------
+// Dormant until setTracer() registers an observer with
+// onStart(kind, method, traceId, spanId, parentSpanId) and
+// onEnd(kind, method, traceId, spanId, statusName). Generated code
+// stays dependency-free: sampling and export are the app's problem.
+
+let tracer = null;
+
+export function setTracer(t) {
+  tracer = t;
+}
+
+export function getTracer() {
+  return tracer;
+}
+
+function randomHex(bytes) {
+  const buf = new Uint8Array(bytes);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(buf);
+  } else {
+    for (let i = 0; i < bytes; i++) buf[i] = Math.floor(Math.random() * 256);
+  }
+  return toHex(buf);
+}
+
+export function formatTraceparent(traceId, spanId) {
+  return `00-${traceId}-${spanId}-01`;
+}
+
+export function parseTraceparent(value) {
+  if (typeof value !== "string") return null;
+  const parts = value.split("-");
+  if (parts.length !== 4) return null;
+  const [, traceId, spanId] = parts;
+  if (!/^[0-9a-f]{32}$/.test(traceId) || !/^[0-9a-f]{16}$/.test(spanId)) return null;
+  return { traceId, spanId };
+}
+
+export function traceStart(kind, method, parent) {
+  if (tracer === null) return null;
+  const ctx = {
+    traceId: parent ? parent.traceId : randomHex(16),
+    spanId: randomHex(8),
+    parentSpanId: parent ? parent.spanId : "",
+  };
+  try {
+    tracer.onStart?.(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId);
+  } catch {
+    // observers must never break the call
+  }
+  return ctx;
+}
+
+export function traceEnd(kind, method, ctx, status) {
+  if (ctx === null || tracer === null) return;
+  try {
+    tracer.onEnd?.(kind, method, ctx.traceId, ctx.spanId, status);
+  } catch {
+    // observers must never break the call
+  }
+}

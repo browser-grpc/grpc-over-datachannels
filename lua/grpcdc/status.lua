@@ -46,9 +46,86 @@ local function raise(status)
   error(status, 0)
 end
 
+-- --- Homegrown tracing (W3C traceparent propagation) -------------
+-- Dormant until setTracer registers an observer table with
+-- onStart(kind, method, traceId, spanId, parentSpanId) and
+-- onEnd(kind, method, traceId, spanId, statusName) fields.
+-- Dependency-free: sampling and export are the app's problem.
+
+local tracer = nil
+
+local function setTracer(t)
+  tracer = t
+end
+
+local function getTracer()
+  return tracer
+end
+
+local randCounter = 0
+local function randomHex(nbytes)
+  randCounter = randCounter + 1
+  math.randomseed(os.time() + randCounter * 7919)
+  local out = {}
+  for i = 1, nbytes do
+    out[i] = string.format("%02x", math.random(0, 255))
+  end
+  return table.concat(out)
+end
+
+local function formatTraceparent(traceId, spanId)
+  return "00-" .. traceId .. "-" .. spanId .. "-01"
+end
+
+local function parseTraceparent(value)
+  if type(value) ~= "string" then return nil end
+  local parts = {}
+  for part in string.gmatch(value, "[^-]+") do
+    parts[#parts + 1] = part
+  end
+  if #parts ~= 4 then return nil end
+  local traceId, spanId = parts[2], parts[3]
+  if #traceId ~= 32 or #spanId ~= 16 then return nil end
+  if traceId:find("[^0-9a-f]") or spanId:find("[^0-9a-f]") then return nil end
+  return { traceId = traceId, spanId = spanId }
+end
+
+local function traceStart(kind, method, parent)
+  if tracer == nil then return nil end
+  local ctx = { spanId = randomHex(8) }
+  if parent ~= nil then
+    ctx.traceId = parent.traceId
+    ctx.parentSpanId = parent.spanId
+  else
+    ctx.traceId = randomHex(16)
+    ctx.parentSpanId = ""
+  end
+  pcall(function()
+    if tracer.onStart then
+      tracer.onStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId)
+    end
+  end)
+  return ctx
+end
+
+local function traceEnd(kind, method, ctx, status)
+  if ctx == nil or tracer == nil then return end
+  pcall(function()
+    if tracer.onEnd then
+      tracer.onEnd(kind, method, ctx.traceId, ctx.spanId, status)
+    end
+  end)
+end
+
 return {
   Status = Status,
   EndOfStream = EndOfStream,
   toStatus = toStatus,
   raise = raise,
+  setTracer = setTracer,
+  tracer = getTracer,
+  formatTraceparent = formatTraceparent,
+  parseTraceparent = parseTraceparent,
+  traceStart = traceStart,
+  traceEnd = traceEnd,
 }

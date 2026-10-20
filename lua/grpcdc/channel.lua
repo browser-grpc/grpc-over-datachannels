@@ -20,7 +20,17 @@ function ClientStream.new(endpoint, streamId, input)
     streamId = streamId,
     input = input,
     headers = nil,
+    traceCtx = nil,
+    tracePath = nil,
+    traceEnded = false,
   }, ClientStream)
+end
+
+function ClientStream:endTrace(status)
+  if not self.traceEnded then
+    self.traceEnded = true
+    statusModule.traceEnd("client", self.tracePath, self.traceCtx, status)
+  end
 end
 
 --- Next raw response event; pumps the endpoint until one arrives.
@@ -70,12 +80,15 @@ function ClientStream:recv(resp)
       return
     elseif event.kind == "trailers" then
       local status = event.status
+      self:endTrace(wire.statusName(status ~= nil and status.code or wire.CODE_OK))
       if status ~= nil and status.code ~= wire.CODE_OK then
         raise(status)
       end
       error(EndOfStream, 0)
     elseif event.kind == "rst" then
-      raise(event.status or Status.new(wire.CODE_UNAVAILABLE, "stream reset"))
+      local status = event.status or Status.new(wire.CODE_UNAVAILABLE, "stream reset")
+      self:endTrace(wire.statusName(status.code))
+      raise(status)
     end
     -- half_close on a client stream: ignore
   end
@@ -98,14 +111,23 @@ end
 
 function Channel:open(path, metadata, timeout)
   local deadline = nil
-  if timeout ~= nil then
-    local now = Endpoint.nowSeconds()
-    if now ~= nil then deadline = now + timeout end
+  local traceCtx = nil
+  if timeout ~= nil or statusModule.tracer() ~= nil then
     local merged = {}
     if metadata ~= nil then
       for k, v in pairs(metadata) do merged[k] = v end
     end
-    merged["grpc-timeout"] = Codec.encodeTimeout(timeout)
+    if timeout ~= nil then
+      local now = Endpoint.nowSeconds()
+      if now ~= nil then deadline = now + timeout end
+      merged["grpc-timeout"] = Codec.encodeTimeout(timeout)
+    end
+    if statusModule.tracer() ~= nil then
+      traceCtx = statusModule.traceStart("client", path, statusModule.parseTraceparent(merged["traceparent"]))
+      if traceCtx ~= nil then
+        merged["traceparent"] = statusModule.formatTraceparent(traceCtx.traceId, traceCtx.spanId)
+      end
+    end
     metadata = merged
   end
   local id, input = self.endpoint:openStream()
@@ -114,10 +136,13 @@ function Channel:open(path, metadata, timeout)
   end)
   if not ok then
     self.endpoint:closeStream(id)
+    statusModule.traceEnd("client", path, traceCtx, "UNAVAILABLE")
     error(err, 0)
   end
   local stream = ClientStream.new(self.endpoint, id, input)
   stream.deadline = deadline
+  stream.traceCtx = traceCtx
+  stream.tracePath = path
   return stream
 end
 

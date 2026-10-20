@@ -25,6 +25,16 @@ final class Channel {
         private let input: Endpoint.StreamInput
         private(set) var headers: Codec.Headers?
         var deadlineMs: Double? = nil
+        var traceCtx: Tracing.TraceContext? = nil
+        var tracePath: String? = nil
+        private var traceEnded = false
+
+        func EndTrace(_ status: String) {
+            if !traceEnded {
+                traceEnded = true
+                Tracing.TraceEnd("client", tracePath ?? "", traceCtx, status)
+            }
+        }
 
         init(_ endpoint: Endpoint, _ streamId: UInt32, _ input: Endpoint.StreamInput) {
             self.endpoint = endpoint
@@ -61,12 +71,15 @@ final class Channel {
                     resp.UnmarshalDc(event.payload)
                     return
                 case .trailers:
+                    EndTrace(Wire.StatusName(event.status?.code ?? Wire.CodeOk))
                     if let status = event.status, status.code != Wire.CodeOk {
                         throw status
                     }
                     throw EndOfStreamError()
                 case .rst:
-                    throw event.status ?? StatusException(Wire.CodeUnavailable, "stream reset")
+                    let status = event.status ?? StatusException(Wire.CodeUnavailable, "stream reset")
+                    EndTrace(Wire.StatusName(status.code))
+                    throw status
                 default:
                     continue
                 }
@@ -77,10 +90,19 @@ final class Channel {
     private func Open(_ path: String, _ metadata: [String: String]?, _ timeout: Double? = nil) throws -> ClientStream {
         var metadata = metadata
         var deadlineMs: Double? = nil
-        if let timeout {
-            deadlineMs = GrpcTime.NowMs() + timeout * 1000.0
+        var traceCtx: Tracing.TraceContext? = nil
+        if timeout != nil || Tracing.Enabled {
             var merged = metadata ?? [:]
-            merged["grpc-timeout"] = Codec.EncodeTimeout(timeout)
+            if let timeout {
+                deadlineMs = GrpcTime.NowMs() + timeout * 1000.0
+                merged["grpc-timeout"] = Codec.EncodeTimeout(timeout)
+            }
+            if Tracing.Enabled {
+                traceCtx = Tracing.TraceStart("client", path, Tracing.ParseTraceparent(merged["traceparent"]))
+                if let traceCtx {
+                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.traceId, traceCtx.spanId)
+                }
+            }
             metadata = merged
         }
         let (id, input) = endpointInstance.OpenStream()
@@ -88,10 +110,13 @@ final class Channel {
             try endpointInstance.SendFrame(Codec.HeadersFrame(id, path, metadata))
         } catch {
             endpointInstance.CloseStream(id)
+            Tracing.TraceEnd("client", path, traceCtx, "UNAVAILABLE")
             throw error
         }
         let stream = ClientStream(endpointInstance, id, input)
         stream.deadlineMs = deadlineMs
+        stream.traceCtx = traceCtx
+        stream.tracePath = path
         return stream
     }
 

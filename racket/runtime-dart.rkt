@@ -18,7 +18,88 @@
 
 (define dart-status-body
 #<<GRPC_RUNTIME_EOF
+import 'dart:math';
+
 import 'wire.dart';
+
+/// Observer for homegrown tracing (W3C traceparent propagation).
+abstract class Tracer {
+  void onStart(
+      String kind, String method, String traceId, String spanId, String parentSpanId);
+  void onEnd(String kind, String method, String traceId, String spanId, String status);
+}
+
+/// One in-flight span's context.
+class TraceContext {
+  final String traceId;
+  final String spanId;
+  final String parentSpanId;
+  const TraceContext(this.traceId, this.spanId, this.parentSpanId);
+}
+
+Tracer? _tracer;
+
+/// Register the global span observer (null disables tracing).
+/// Dormant until set: sampling/export are the app's problem.
+void setTracer(Tracer? tracer) {
+  _tracer = tracer;
+}
+
+bool get tracingEnabled => _tracer != null;
+
+final _rng = Random.secure();
+
+String _randomHex(int bytes) {
+  const digits = '0123456789abcdef';
+  final out = StringBuffer();
+  for (var i = 0; i < bytes; i++) {
+    final b = _rng.nextInt(256);
+    out.write(digits[b >> 4]);
+    out.write(digits[b & 0xf]);
+  }
+  return out.toString();
+}
+
+String formatTraceparent(String traceId, String spanId) =>
+    '00-$traceId-$spanId-01';
+
+({String traceId, String spanId})? parseTraceparent(String? value) {
+  if (value == null) return null;
+  final parts = value.split('-');
+  if (parts.length != 4 || parts[1].length != 32 || parts[2].length != 16) {
+    return null;
+  }
+  final hex = RegExp(r'^[0-9a-f]+$');
+  if (!hex.hasMatch(parts[1]) || !hex.hasMatch(parts[2])) return null;
+  return (traceId: parts[1], spanId: parts[2]);
+}
+
+TraceContext? traceStart(
+    String kind, String method, ({String traceId, String spanId})? parent) {
+  final tracer = _tracer;
+  if (tracer == null) return null;
+  final ctx = TraceContext(
+    parent?.traceId ?? _randomHex(16),
+    _randomHex(8),
+    parent?.spanId ?? '',
+  );
+  try {
+    tracer.onStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId);
+  } catch (_) {
+    // observers must never break the call
+  }
+  return ctx;
+}
+
+void traceEnd(String kind, String method, TraceContext? ctx, String status) {
+  final tracer = _tracer;
+  if (ctx == null || tracer == null) return;
+  try {
+    tracer.onEnd(kind, method, ctx.traceId, ctx.spanId, status);
+  } catch (_) {
+    // observers must never break the call
+  }
+}
 
 /// Thrown at end of a receiving stream (call completed OK).
 class EndOfStreamError implements Exception {
@@ -548,8 +629,18 @@ class ClientStream {
   final StreamInput _input;
   Headers? headers;
   DateTime? deadline;
+  TraceContext? traceCtx;
+  String? tracePath;
+  bool _traceEnded = false;
 
   ClientStream(this.streamId, this._endpoint, this._input);
+
+  void endTrace(String status) {
+    if (!_traceEnded) {
+      _traceEnded = true;
+      traceEnd('client', tracePath ?? '', traceCtx, status);
+    }
+  }
 
   /// Abort this stream (sends RST, wakes a pending recv).
   void cancel() => _endpoint.cancelStream(streamId);
@@ -584,13 +675,16 @@ class ClientStream {
           return;
         case EventKind.trailers:
           final status = event.status;
+          endTrace(Wire.statusName(status?.code ?? Wire.codeOk));
           if (status != null && status.code != Wire.codeOk) {
             throw status;
           }
           throw EndOfStreamError();
         case EventKind.rst:
-          throw event.status ??
-              StatusException(Wire.codeUnavailable, 'stream reset');
+          final status =
+              event.status ?? StatusException(Wire.codeUnavailable, 'stream reset');
+          endTrace(Wire.statusName(status.code));
+          throw status;
         default:
           break;
       }
@@ -615,22 +709,33 @@ class Channel {
   Future<ClientStream> _open(String path, Map<String, String>? metadata,
       {Duration? timeout}) async {
     DateTime? deadline;
-    if (timeout != null) {
-      deadline = DateTime.now().add(timeout);
-      metadata = {
-        if (metadata != null) ...metadata,
-        'grpc-timeout': Codec.encodeTimeout(timeout),
-      };
+    TraceContext? traceCtx;
+    if (timeout != null || tracingEnabled) {
+      metadata = {if (metadata != null) ...metadata};
+      if (timeout != null) {
+        deadline = DateTime.now().add(timeout);
+        metadata['grpc-timeout'] = Codec.encodeTimeout(timeout);
+      }
+      if (tracingEnabled) {
+        traceCtx = traceStart('client', path, parseTraceparent(metadata['traceparent']));
+        if (traceCtx != null) {
+          metadata['traceparent'] =
+              formatTraceparent(traceCtx.traceId, traceCtx.spanId);
+        }
+      }
     }
     final opened = endpoint.openStream();
     try {
       endpoint.sendFrame(Codec.headersFrame(opened.id, path, metadata));
     } catch (_) {
       endpoint.closeStream(opened.id);
+      traceEnd('client', path, traceCtx, 'UNAVAILABLE');
       rethrow;
     }
     final stream = ClientStream(opened.id, endpoint, opened.input);
     stream.deadline = deadline;
+    stream.traceCtx = traceCtx;
+    stream.tracePath = path;
     return stream;
   }
 
@@ -829,12 +934,17 @@ class Server {
       return StatusException(
           Wire.codeUnimplemented, 'unknown method ${headers.path}');
     }
+    final traceCtx = traceStart('server', headers.path ?? '',
+        parseTraceparent(headers.metadata['traceparent']));
+    StatusException? result;
     try {
       await method.handler(ctx, RequestStream(input), sink.send);
     } catch (e) {
-      return StatusException.toStatus(e);
+      result = StatusException.toStatus(e);
     }
-    return null;
+    traceEnd('server', headers.path ?? '', traceCtx,
+        result == null ? 'OK' : Wire.statusName(result.code));
+    return result;
   }
 }
 GRPC_RUNTIME_EOF

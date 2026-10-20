@@ -480,6 +480,117 @@ impl fmt::Display for Status {
 
 impl std::error::Error for Status {}
 
+// ---------------------------------------------------------------------------
+// Homegrown tracing (W3C traceparent propagation)
+// ---------------------------------------------------------------------------
+// Tracing support lives here so every module can reach it.
+// Dormant until a tracer is registered; generated code stays
+// dependency-free (sampling and export are the app's problem).
+
+/// Span observer (kind is "client" or "server").
+pub trait Tracer: Send + Sync {
+    fn on_start(&self, kind: &str, method: &str, trace_id: &str, span_id: &str, parent_span_id: &str);
+    fn on_end(&self, kind: &str, method: &str, trace_id: &str, span_id: &str, status: &str);
+}
+
+/// One in-flight span's context.
+#[derive(Clone, Debug)]
+pub struct TraceContext {
+    pub trace_id: String,
+    pub span_id: String,
+    pub parent_span_id: String,
+}
+
+/// Parsed traceparent parent.
+#[derive(Clone, Debug)]
+pub struct TraceParent {
+    pub trace_id: String,
+    pub span_id: String,
+}
+
+static TRACER: std::sync::OnceLock<std::sync::RwLock<Option<std::sync::Arc<dyn Tracer>>>> =
+    std::sync::OnceLock::new();
+
+fn tracer_slot() -> &'static std::sync::RwLock<Option<std::sync::Arc<dyn Tracer>>> {
+    TRACER.get_or_init(|| std::sync::RwLock::new(None))
+}
+
+/// Register the global span observer (None disables tracing).
+pub fn set_tracer(tracer: Option<std::sync::Arc<dyn Tracer>>) {
+    *tracer_slot().write().unwrap() = tracer;
+}
+
+/// Whether a tracer is registered.
+pub fn tracing_enabled() -> bool {
+    tracer_slot().read().unwrap().is_some()
+}
+
+fn random_hex(bytes_len: usize) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let mut state = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+        ^ COUNTER.fetch_add(0x9e37_79b9_7f4a_7c15, Ordering::Relaxed);
+    const DIGITS: &[u8] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes_len * 2);
+    for _ in 0..bytes_len {
+        // xorshift64
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        let b = (state >> 32) as u8;
+        out.push(DIGITS[(b >> 4) as usize] as char);
+        out.push(DIGITS[(b & 0xf) as usize] as char);
+    }
+    out
+}
+
+pub fn format_traceparent(trace_id: &str, span_id: &str) -> String {
+    format!("00-{trace_id}-{span_id}-01")
+}
+
+pub fn parse_traceparent(value: Option<&String>) -> Option<TraceParent> {
+    let value = value?;
+    let parts: Vec<&str> = value.split('-').collect();
+    if parts.len() != 4 || parts[1].len() != 32 || parts[2].len() != 16 {
+        return None;
+    }
+    if !parts[1].bytes().all(|b| b.is_ascii_hexdigit())
+        || !parts[2].bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    Some(TraceParent {
+        trace_id: parts[1].to_string(),
+        span_id: parts[2].to_string(),
+    })
+}
+
+/// Begin a span; returns None when tracing is dormant.
+pub fn trace_start(kind: &str, method: &str, parent: Option<TraceParent>) -> Option<TraceContext> {
+    let tracer = tracer_slot().read().unwrap().clone()?;
+    let ctx = TraceContext {
+        trace_id: parent
+            .as_ref()
+            .map(|p| p.trace_id.clone())
+            .unwrap_or_else(|| random_hex(16)),
+        span_id: random_hex(8),
+        parent_span_id: parent.map(|p| p.span_id).unwrap_or_default(),
+    };
+    tracer.on_start(kind, method, &ctx.trace_id, &ctx.span_id, &ctx.parent_span_id);
+    Some(ctx)
+}
+
+/// End a span started with trace_start.
+pub fn trace_end(kind: &str, method: &str, ctx: Option<&TraceContext>, status: &str) {
+    let (Some(tracer), Some(ctx)) = (tracer_slot().read().unwrap().clone(), ctx) else {
+        return;
+    };
+    tracer.on_end(kind, method, &ctx.trace_id, &ctx.span_id, status);
+}
+
 impl From<String> for Status {
     fn from(message: String) -> Self {
         Status::unknown(message)
@@ -684,6 +795,7 @@ pub struct Endpoint {
     services: RwLock<HashMap<String, crate::server::MethodDef>>,
     next_id: AtomicU32,
     send_lock: AsyncMutex<()>,
+    traces: Mutex<HashMap<u32, (crate::status::TraceContext, String)>>,
 }
 
 impl Endpoint {
@@ -697,7 +809,20 @@ impl Endpoint {
                 StreamIdParity::Even => 2,
             }),
             send_lock: AsyncMutex::new(()),
+            traces: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Record the client span for a locally-initiated stream.
+    pub fn set_stream_trace(&self, id: u32, ctx: crate::status::TraceContext, path: String) {
+        self.traces.lock().unwrap().insert(id, (ctx, path));
+    }
+
+    /// Fire the client span-end hook for a stream, if traced.
+    pub fn end_stream_trace(&self, id: u32, status_name: &str) {
+        if let Some((ctx, path)) = self.traces.lock().unwrap().remove(&id) {
+            crate::status::trace_end("client", &path, Some(&ctx), status_name);
+        }
     }
 
     pub fn register_service(&self, service: ServiceDef) {
@@ -826,6 +951,11 @@ impl Endpoint {
                 let _ = self
                     .send_frame(Frame::headers(frame.stream_id, &Headers::default()).unwrap())
                     .await;
+                let trace_ctx = crate::status::trace_start(
+                    "server",
+                    &path,
+                    crate::status::parse_traceparent(headers.metadata.get("traceparent")),
+                );
                 let ep = self.clone();
                 let stream_id = frame.stream_id;
                 crate::spawn_task(async move {
@@ -833,6 +963,12 @@ impl Endpoint {
                         Ok(()) => Status::ok(),
                         Err(s) => s,
                     };
+                    crate::status::trace_end(
+                        "server",
+                        &path,
+                        trace_ctx.as_ref(),
+                        status.code.name(),
+                    );
                     let _ = ep.send_frame(Frame::trailers(stream_id, &status).unwrap()).await;
                     ep.close_stream(stream_id);
                 });
@@ -988,12 +1124,30 @@ impl Channel {
                 .insert("grpc-timeout".to_string(), encode_timeout(timeout));
             Instant::now() + timeout
         });
-        let metadata = options.metadata;
+        let mut metadata = options.metadata;
+        let mut trace_ctx = None;
+        if crate::status::tracing_enabled() {
+            trace_ctx = crate::status::trace_start(
+                "client",
+                path,
+                crate::status::parse_traceparent(metadata.get("traceparent")),
+            );
+            if let Some(ctx) = &trace_ctx {
+                metadata.insert(
+                    "traceparent".to_string(),
+                    crate::status::format_traceparent(&ctx.trace_id, &ctx.span_id),
+                );
+            }
+        }
         let (id, rx) = self.ep.open_stream();
+        if let Some(ctx) = trace_ctx {
+            self.ep.set_stream_trace(id, ctx, path.to_string());
+        }
         let headers = Headers { path: Some(path.to_string()), metadata };
         match self.ep.send_frame(Frame::headers(id, &headers)?).await {
             Ok(()) => Ok((id, rx, deadline)),
             Err(e) => {
+                self.ep.end_stream_trace(id, "UNAVAILABLE");
                 self.ep.close_stream(id);
                 Err(e)
             }
@@ -1025,6 +1179,7 @@ impl Channel {
                     Err(e) => break Err(e),
                 },
                 Ok(Some(StreamEvent::Trailers(status))) => {
+                    self.ep.end_stream_trace(id, status.code.name());
                     if status.is_ok() {
                         match response {
                             Some(msg) => break Ok(msg),
@@ -1036,7 +1191,10 @@ impl Channel {
                         break Err(status);
                     }
                 }
-                Ok(Some(StreamEvent::Rst(status))) => break Err(status),
+                Ok(Some(StreamEvent::Rst(status))) => {
+                    self.ep.end_stream_trace(id, status.code.name());
+                    break Err(status)
+                }
                 Ok(Some(StreamEvent::HalfClose)) => continue,
                 Ok(None) => break Err(Status::unavailable("data channel closed")),
             }
@@ -1269,13 +1427,17 @@ where
                     Err(e) => return Some((Err(e), (ep, rx, true))),
                 },
                 Some(StreamEvent::Trailers(status)) => {
+                    ep.end_stream_trace(id, status.code.name());
                     return if status.is_ok() {
                         None
                     } else {
                         Some((Err(status), (ep, rx, true)))
                     };
                 }
-                Some(StreamEvent::Rst(status)) => return Some((Err(status), (ep, rx, true))),
+                Some(StreamEvent::Rst(status)) => {
+                    ep.end_stream_trace(id, status.code.name());
+                    return Some((Err(status), (ep, rx, true)))
+                }
                 None => {
                     return Some((
                         Err(Status::unavailable("data channel closed")),

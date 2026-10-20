@@ -9,6 +9,7 @@ from .codec import (
     StatusError,
     decode_frame,
     encode_frame,
+    set_tracer,
     status_name,
     to_status,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "memory_transport_pair",
     "parse_descriptor_set",
     "register_dynamic_service",
+    "set_tracer",
     "status_name",
     "to_status",
 ]

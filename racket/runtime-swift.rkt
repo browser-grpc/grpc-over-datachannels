@@ -42,6 +42,75 @@ struct StatusException: Error, CustomStringConvertible {
         #endif
     }
 }
+
+/// Homegrown tracing: W3C traceparent propagation with a span
+/// observer. Dormant until Tracing.SetTracer registers one;
+/// generated code stays dependency-free (sampling and export are
+/// the application's problem).
+enum Tracing {
+    protocol Tracer {
+        func OnStart(_ kind: String, _ method: String, _ traceId: String, _ spanId: String, _ parentSpanId: String)
+        func OnEnd(_ kind: String, _ method: String, _ traceId: String, _ spanId: String, _ status: String)
+    }
+
+    struct TraceContext {
+        let traceId: String
+        let spanId: String
+        let parentSpanId: String
+    }
+
+    struct Parent {
+        let traceId: String
+        let spanId: String
+    }
+
+    private static var tracer: Tracer? = nil
+
+    static func SetTracer(_ t: Tracer?) { tracer = t }
+
+    static var Enabled: Bool { tracer != nil }
+
+    static func FormatTraceparent(_ traceId: String, _ spanId: String) -> String {
+        "00-\(traceId)-\(spanId)-01"
+    }
+
+    static func ParseTraceparent(_ value: String?) -> Parent? {
+        guard let value else { return nil }
+        let parts = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 4, parts[1].count == 32, parts[2].count == 16 else { return nil }
+        let isHex: (Unicode.Scalar) -> Bool = { ($0.value >= 48 && $0.value <= 57) || ($0.value >= 97 && $0.value <= 102) }
+        guard parts[1].unicodeScalars.allSatisfy(isHex),
+              parts[2].unicodeScalars.allSatisfy(isHex) else { return nil }
+        return Parent(traceId: String(parts[1]), spanId: String(parts[2]))
+    }
+
+    private static func RandomHex(_ bytes: Int) -> String {
+        let digits = Array("0123456789abcdef")
+        var out = ""
+        out.reserveCapacity(bytes * 2)
+        for _ in 0..<bytes {
+            let b = UInt8.random(in: 0...255)
+            out.append(digits[Int(b >> 4)])
+            out.append(digits[Int(b & 0xf)])
+        }
+        return out
+    }
+
+    static func TraceStart(_ kind: String, _ method: String, _ parent: Parent?) -> TraceContext? {
+        guard let t = tracer else { return nil }
+        let ctx = TraceContext(
+            traceId: parent?.traceId ?? RandomHex(16),
+            spanId: RandomHex(8),
+            parentSpanId: parent?.spanId ?? "")
+        t.OnStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId)
+        return ctx
+    }
+
+    static func TraceEnd(_ kind: String, _ method: String, _ ctx: TraceContext?, _ status: String) {
+        guard let ctx, let t = tracer else { return }
+        t.OnEnd(kind, method, ctx.traceId, ctx.spanId, status)
+    }
+}
 GRPC_RUNTIME_EOF
 )
 
@@ -984,6 +1053,16 @@ final class Channel {
         private let input: Endpoint.StreamInput
         private(set) var headers: Codec.Headers?
         var deadlineMs: Double? = nil
+        var traceCtx: Tracing.TraceContext? = nil
+        var tracePath: String? = nil
+        private var traceEnded = false
+
+        func EndTrace(_ status: String) {
+            if !traceEnded {
+                traceEnded = true
+                Tracing.TraceEnd("client", tracePath ?? "", traceCtx, status)
+            }
+        }
 
         init(_ endpoint: Endpoint, _ streamId: UInt32, _ input: Endpoint.StreamInput) {
             self.endpoint = endpoint
@@ -1020,12 +1099,15 @@ final class Channel {
                     resp.UnmarshalDc(event.payload)
                     return
                 case .trailers:
+                    EndTrace(Wire.StatusName(event.status?.code ?? Wire.CodeOk))
                     if let status = event.status, status.code != Wire.CodeOk {
                         throw status
                     }
                     throw EndOfStreamError()
                 case .rst:
-                    throw event.status ?? StatusException(Wire.CodeUnavailable, "stream reset")
+                    let status = event.status ?? StatusException(Wire.CodeUnavailable, "stream reset")
+                    EndTrace(Wire.StatusName(status.code))
+                    throw status
                 default:
                     continue
                 }
@@ -1036,10 +1118,19 @@ final class Channel {
     private func Open(_ path: String, _ metadata: [String: String]?, _ timeout: Double? = nil) throws -> ClientStream {
         var metadata = metadata
         var deadlineMs: Double? = nil
-        if let timeout {
-            deadlineMs = GrpcTime.NowMs() + timeout * 1000.0
+        var traceCtx: Tracing.TraceContext? = nil
+        if timeout != nil || Tracing.Enabled {
             var merged = metadata ?? [:]
-            merged["grpc-timeout"] = Codec.EncodeTimeout(timeout)
+            if let timeout {
+                deadlineMs = GrpcTime.NowMs() + timeout * 1000.0
+                merged["grpc-timeout"] = Codec.EncodeTimeout(timeout)
+            }
+            if Tracing.Enabled {
+                traceCtx = Tracing.TraceStart("client", path, Tracing.ParseTraceparent(merged["traceparent"]))
+                if let traceCtx {
+                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.traceId, traceCtx.spanId)
+                }
+            }
             metadata = merged
         }
         let (id, input) = endpointInstance.OpenStream()
@@ -1047,10 +1138,13 @@ final class Channel {
             try endpointInstance.SendFrame(Codec.HeadersFrame(id, path, metadata))
         } catch {
             endpointInstance.CloseStream(id)
+            Tracing.TraceEnd("client", path, traceCtx, "UNAVAILABLE")
             throw error
         }
         let stream = ClientStream(endpointInstance, id, input)
         stream.deadlineMs = deadlineMs
+        stream.traceCtx = traceCtx
+        stream.tracePath = path
         return stream
     }
 
@@ -1220,15 +1314,18 @@ final class Server {
         guard let path = headers.path, let method = shared.methods[path] else {
             return StatusException(Wire.CodeUnimplemented, "unknown method \(headers.path ?? "")")
         }
+        let traceCtx = Tracing.TraceStart("server", path, Tracing.ParseTraceparent(headers.metadata["traceparent"]))
+        var result = StatusException(Wire.CodeOk, "")
         do {
             let reqs = RequestStream(input)
             try method.handler(ctx, reqs) { payload in
                 try sink.Send(payload)
             }
         } catch {
-            return StatusException.ToStatus(error)
+            result = StatusException.ToStatus(error)
         }
-        return StatusException(Wire.CodeOk, "")
+        Tracing.TraceEnd("server", path, traceCtx, Wire.StatusName(result.code))
+        return result
     }
 }
 GRPC_RUNTIME_EOF

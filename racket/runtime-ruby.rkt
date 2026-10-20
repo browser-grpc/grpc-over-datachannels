@@ -55,6 +55,68 @@ module Grpcdc
   # The call completed OK (client-side stream end).
   class CallClosed < EOFError; end
 
+  # --- Homegrown tracing (W3C traceparent propagation) ----------
+  # Dormant until Grpcdc.set_tracer registers an observer with
+  # on_start(kind, method, trace_id, span_id, parent_span_id) and
+  # on_end(kind, method, trace_id, span_id, status_name).
+  # Generated code stays dependency-free: sampling and export are
+  # the application's problem.
+  @tracer = nil
+
+  def self.set_tracer(tracer)
+    @tracer = tracer
+  end
+
+  def self.tracer
+    @tracer
+  end
+
+  def self.format_traceparent(trace_id, span_id)
+    "00-#{trace_id}-#{span_id}-01"
+  end
+
+  # Parse a traceparent header -> [trace_id, span_id] or nil.
+  def self.parse_traceparent(value)
+    return nil unless value.is_a?(String)
+
+    parts = value.split("-")
+    return nil unless parts.length == 4
+
+    trace_id, span_id = parts[1], parts[2]
+    return nil unless trace_id.length == 32 && span_id.length == 16
+    return nil unless trace_id.match?(/\A[0-9a-f]+\z/) && span_id.match?(/\A[0-9a-f]+\z/)
+
+    [trace_id, span_id]
+  end
+
+  def self.trace_start(kind, method, parent)
+    return nil if @tracer.nil?
+
+    require "securerandom"
+    trace_id, parent_span_id = parent || [SecureRandom.hex(16), ""]
+    ctx = {
+      "trace_id" => trace_id,
+      "span_id" => SecureRandom.hex(8),
+      "parent_span_id" => parent_span_id
+    }
+    begin
+      @tracer.on_start(kind, method, ctx["trace_id"], ctx["span_id"], parent_span_id)
+    rescue StandardError
+      # observers must never break the call
+    end
+    ctx
+  end
+
+  def self.trace_end(kind, method, ctx, status)
+    return if ctx.nil? || @tracer.nil?
+
+    begin
+      @tracer.on_end(kind, method, ctx["trace_id"], ctx["span_id"], status)
+    rescue StandardError
+      # observers must never break the call
+    end
+  end
+
   # Convert an exception to StatusError (OK for nil).
   def self.to_status(err)
     return StatusError.new(CODE_OK, "") if err.nil?
@@ -614,19 +676,32 @@ module Grpcdc
 
     def open_call(path, metadata, timeout = nil)
       deadline = nil
-      unless timeout.nil?
-        deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
-        metadata = (metadata || {}).merge("grpc-timeout" => Codec.encode_timeout(timeout))
+      trace_ctx = nil
+      unless timeout.nil? && Grpcdc.tracer.nil?
+        metadata = (metadata || {}).dup
+        unless timeout.nil?
+          deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+          metadata["grpc-timeout"] = Codec.encode_timeout(timeout)
+        end
+        unless Grpcdc.tracer.nil?
+          trace_ctx = Grpcdc.trace_start("client", path, Grpcdc.parse_traceparent(metadata["traceparent"]))
+          unless trace_ctx.nil?
+            metadata["traceparent"] = Grpcdc.format_traceparent(trace_ctx["trace_id"], trace_ctx["span_id"])
+          end
+        end
       end
       stream_id, stream_input = @endpoint.open_stream
       begin
         @endpoint.send_frame(Codec.headers_frame(stream_id, path, metadata))
       rescue StandardError
         @endpoint.close_stream(stream_id)
+        Grpcdc.trace_end("client", path, trace_ctx, "UNAVAILABLE")
         raise
       end
       stream = ClientStream.new(@endpoint, stream_id, stream_input)
       stream.deadline = deadline
+      stream.trace_ctx = trace_ctx
+      stream.trace_path = path
       stream
     end
 
@@ -648,7 +723,7 @@ module Grpcdc
   class ClientStream
     attr_reader :stream_id, :headers, :endpoint
 
-    attr_accessor :deadline
+    attr_accessor :deadline, :trace_ctx, :trace_path
 
     def initialize(endpoint, stream_id, stream_input)
       @endpoint = endpoint
@@ -656,6 +731,16 @@ module Grpcdc
       @input = stream_input
       @headers = nil
       @deadline = nil
+      @trace_ctx = nil
+      @trace_path = nil
+      @trace_ended = false
+    end
+
+    def end_trace(status)
+      return if @trace_ended
+
+      @trace_ended = true
+      Grpcdc.trace_end("client", @trace_path, @trace_ctx, status)
     end
 
     # Decode the next response into resp.
@@ -683,10 +768,12 @@ module Grpcdc
         when EVENT_DATA
           return resp.unmarshal_dc(event.payload)
         when EVENT_TRAILERS
+          end_trace(Grpcdc.status_name(event.status.code))
           raise event.status unless event.status.code == CODE_OK
 
           raise EOFError, "call completed"
         when EVENT_RST
+          end_trace(Grpcdc.status_name(event.status.code))
           raise event.status
         end
       end
@@ -860,12 +947,15 @@ module Grpcdc
         return StatusError.new(CODE_UNIMPLEMENTED, "unknown method #{headers.path}")
       end
 
+      trace_ctx = Grpcdc.trace_start("server", headers.path, Grpcdc.parse_traceparent((headers.metadata || {})["traceparent"]))
+      result = nil
       begin
         method.handler.call(ctx, RequestStream.new(stream_input), sink)
       rescue StandardError => e # StatusError passes through via to_status
-        return Grpcdc.to_status(e)
+        result = Grpcdc.to_status(e)
       end
-      nil
+      Grpcdc.trace_end("server", headers.path, trace_ctx, result.nil? ? "OK" : Grpcdc.status_name(result.code))
+      result
     end
   end
 end

@@ -98,14 +98,17 @@ final class Server {
         guard let path = headers.path, let method = shared.methods[path] else {
             return StatusException(Wire.CodeUnimplemented, "unknown method \(headers.path ?? "")")
         }
+        let traceCtx = Tracing.TraceStart("server", path, Tracing.ParseTraceparent(headers.metadata["traceparent"]))
+        var result = StatusException(Wire.CodeOk, "")
         do {
             let reqs = RequestStream(input)
             try method.handler(ctx, reqs) { payload in
                 try sink.Send(payload)
             }
         } catch {
-            return StatusException.ToStatus(error)
+            result = StatusException.ToStatus(error)
         }
-        return StatusException(Wire.CodeOk, "")
+        Tracing.TraceEnd("server", path, traceCtx, Wire.StatusName(result.code))
+        return result
     }
 }

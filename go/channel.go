@@ -41,12 +41,22 @@ func (ch *Channel) Endpoint() *Endpoint { return ch.ep }
 
 // ClientStream receives response messages of one call.
 type ClientStream struct {
-	ep     *Endpoint
-	id     uint32
-	in     *streamInput
-	header Headers
-	gotHdr bool
-	ctx    context.Context
+	ep         *Endpoint
+	id         uint32
+	in         *streamInput
+	header     Headers
+	gotHdr     bool
+	ctx        context.Context
+	traceCtx   *traceContext
+	tracePath  string
+	traceEnded bool
+}
+
+func (s *ClientStream) endTrace(status string) {
+	if !s.traceEnded {
+		s.traceEnded = true
+		traceEnd("client", s.tracePath, s.traceCtx, status)
+	}
 }
 
 // Recv decodes the next response into resp. io.EOF means the call
@@ -77,23 +87,36 @@ func (s *ClientStream) Recv(resp Unmarshaler) error {
 		case eventData:
 			return resp.UnmarshalDC(ev.payload)
 		case eventTrailers:
+			s.endTrace(ev.status.Code.Name())
 			if ev.status.Code != CodeOk {
 				return ev.status
 			}
 			return io.EOF
 		case eventRST:
+			s.endTrace(ev.status.Code.Name())
 			return ev.status
 		}
 	}
 }
 
 func (ch *Channel) open(ctx context.Context, path string, metadata map[string]string) (*ClientStream, error) {
-	if deadline, ok := ctx.Deadline(); ok {
-		merged := make(map[string]string, len(metadata)+1)
+	var traceCtx *traceContext
+	_, hasDeadline := ctx.Deadline()
+	if hasDeadline || getTracer() != nil {
+		merged := make(map[string]string, len(metadata)+2)
 		for k, v := range metadata {
 			merged[k] = v
 		}
-		merged["grpc-timeout"] = EncodeTimeout(time.Until(deadline))
+		if hasDeadline {
+			deadline, _ := ctx.Deadline()
+			merged["grpc-timeout"] = EncodeTimeout(time.Until(deadline))
+		}
+		if getTracer() != nil {
+			traceCtx = traceStart("client", path, ParseTraceparent(metadata["traceparent"]))
+			if traceCtx != nil {
+				merged["traceparent"] = FormatTraceparent(traceCtx.TraceID, traceCtx.SpanID)
+			}
+		}
 		metadata = merged
 	}
 	id, in := ch.ep.openStream()
@@ -103,9 +126,10 @@ func (ch *Channel) open(ctx context.Context, path string, metadata map[string]st
 	}
 	if err != nil {
 		ch.ep.closeStream(id)
+		traceEnd("client", path, traceCtx, "UNAVAILABLE")
 		return nil, err
 	}
-	return &ClientStream{ep: ch.ep, id: id, in: in, ctx: ctx}, nil
+	return &ClientStream{ep: ch.ep, id: id, in: in, ctx: ctx, traceCtx: traceCtx, tracePath: path}, nil
 }
 
 // Cancel aborts the call: RST towards the peer; a pending Recv

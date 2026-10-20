@@ -110,7 +110,13 @@ func (s *Server) dispatch(ctx context.Context, headers Headers, in *streamInput,
 	if !ok {
 		return NewStatus(CodeUnimplemented, "unknown method "+*headers.Path)
 	}
+	traceCtx := traceStart("server", *headers.Path, ParseTraceparent(headers.Metadata["traceparent"]))
 	err := method.Handler(ctx, &RequestStream{in: in}, sinkAdapter{sink: sink})
+	status := "OK"
+	if err != nil {
+		status = Status(err).Code.Name()
+	}
+	traceEnd("server", *headers.Path, traceCtx, status)
 	if err != nil {
 		return Status(err)
 	}

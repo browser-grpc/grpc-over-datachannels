@@ -92,11 +92,16 @@ public class Server {
         if (method == null) {
             return new StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path);
         }
+        Tracing.TraceContext traceCtx = Tracing.traceStart("server", headers.path,
+                Tracing.parseTraceparent(headers.metadata.get("traceparent")));
+        StatusException result = null;
         try {
             method.handler().handle(ctx, new RequestStream(in), sink::send);
         } catch (Exception e) {
-            return StatusException.toStatus(e);
+            result = StatusException.toStatus(e);
         }
-        return null;
+        Tracing.traceEnd("server", headers.path, traceCtx,
+                result == null ? "OK" : Wire.statusName(result.code));
+        return result;
     }
 }

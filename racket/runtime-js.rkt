@@ -154,6 +154,69 @@ export function fromHex(hex) {
   }
   return out;
 }
+
+// --- Homegrown tracing (W3C traceparent propagation) -------------
+// Dormant until setTracer() registers an observer with
+// onStart(kind, method, traceId, spanId, parentSpanId) and
+// onEnd(kind, method, traceId, spanId, statusName). Generated code
+// stays dependency-free: sampling and export are the app's problem.
+
+let tracer = null;
+
+export function setTracer(t) {
+  tracer = t;
+}
+
+export function getTracer() {
+  return tracer;
+}
+
+function randomHex(bytes) {
+  const buf = new Uint8Array(bytes);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(buf);
+  } else {
+    for (let i = 0; i < bytes; i++) buf[i] = Math.floor(Math.random() * 256);
+  }
+  return toHex(buf);
+}
+
+export function formatTraceparent(traceId, spanId) {
+  return `00-${traceId}-${spanId}-01`;
+}
+
+export function parseTraceparent(value) {
+  if (typeof value !== "string") return null;
+  const parts = value.split("-");
+  if (parts.length !== 4) return null;
+  const [, traceId, spanId] = parts;
+  if (!/^[0-9a-f]{32}$/.test(traceId) || !/^[0-9a-f]{16}$/.test(spanId)) return null;
+  return { traceId, spanId };
+}
+
+export function traceStart(kind, method, parent) {
+  if (tracer === null) return null;
+  const ctx = {
+    traceId: parent ? parent.traceId : randomHex(16),
+    spanId: randomHex(8),
+    parentSpanId: parent ? parent.spanId : "",
+  };
+  try {
+    tracer.onStart?.(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId);
+  } catch {
+    // observers must never break the call
+  }
+  return ctx;
+}
+
+export function traceEnd(kind, method, ctx, status) {
+  if (ctx === null || tracer === null) return;
+  try {
+    tracer.onEnd?.(kind, method, ctx.traceId, ctx.spanId, status);
+  } catch {
+    // observers must never break the call
+  }
+}
 GRPC_RUNTIME_EOF
 )
 
@@ -419,15 +482,22 @@ GRPC_RUNTIME_EOF
 import {
   FrameType,
   StatusError,
+  StatusName,
   encodeFrame,
   encodeTimeout,
+  formatTraceparent,
+  getTracer,
   headersFrame,
+  parseTraceparent,
   statusFrame,
+  traceEnd,
+  traceStart,
 } from "./codec.js";
 import { Endpoint } from "./endpoint.js";
 
 export class Channel {
   #endpoint;
+  #traces = new Map();
 
   /** Accepts an Endpoint or a raw RTCDataChannel-like object. */
   constructor(dcOrEndpoint, options) {
@@ -445,14 +515,34 @@ export class Channel {
       deadline = Date.now() + timeout;
       metadata = { ...metadata, "grpc-timeout": encodeTimeout(timeout) };
     }
+    let traceCtx = null;
+    if (getTracer() !== null) {
+      traceCtx = traceStart("client", path, parseTraceparent(metadata?.traceparent));
+      if (traceCtx !== null) {
+        metadata = {
+          ...metadata,
+          traceparent: formatTraceparent(traceCtx.traceId, traceCtx.spanId),
+        };
+      }
+    }
     const [id, input] = this.#endpoint.openStream();
+    if (traceCtx !== null) this.#traces.set(id, { ctx: traceCtx, path });
     try {
       await this.#endpoint.sendFrame(headersFrame(id, path, metadata));
     } catch (e) {
+      this.#endTrace(id, "UNAVAILABLE");
       this.#endpoint.closeStream(id);
       throw e;
     }
     return [id, input, deadline];
+  }
+
+  #endTrace(id, status) {
+    const entry = this.#traces.get(id);
+    if (entry) {
+      this.#traces.delete(id);
+      traceEnd("client", entry.path, entry.ctx, status);
+    }
   }
 
   // Next event from input's iterator, enforcing the call deadline:
@@ -504,15 +594,18 @@ export class Channel {
           }
           response = RespType.decode(event.payload);
         } else if (event.kind === "trailers") {
+          this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
           if (event.status.code !== 0) throw event.status;
           if (response === null) throw StatusError.internal("call closed with no response");
           return response;
         } else if (event.kind === "rst") {
+          this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
           throw event.status;
         }
       }
       throw StatusError.unavailable("data channel closed");
     } finally {
+      this.#endTrace(id, "UNAVAILABLE");
       this.#endpoint.closeStream(id);
     }
   }
@@ -527,14 +620,17 @@ export class Channel {
         if (event.kind === "data") {
           yield RespType.decode(event.payload);
         } else if (event.kind === "trailers") {
+          this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
           if (event.status.code !== 0) throw event.status;
           return;
         } else if (event.kind === "rst") {
+          this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
           throw event.status;
         }
       }
       throw StatusError.unavailable("data channel closed");
     } finally {
+      this.#endTrace(id, "UNAVAILABLE");
       this.#endpoint.closeStream(id);
     }
   }
@@ -614,7 +710,14 @@ GRPC_RUNTIME_EOF
 // Server side: registers generated service definitions (createXService)
 // on an endpoint and dispatches HEADERS by path.
 
-import { StatusError, parseTimeout } from "./codec.js";
+import {
+  StatusError,
+  StatusName,
+  parseTimeout,
+  parseTraceparent,
+  traceEnd,
+  traceStart,
+} from "./codec.js";
 import { Endpoint } from "./endpoint.js";
 
 async function* typedRequests(input, ReqType) {
@@ -678,6 +781,22 @@ export class Server {
       deadline,
       timeRemaining: () => (deadline === null ? null : deadline - Date.now()),
     };
+    const traceCtx = traceStart("server", path, parseTraceparent(metadata.traceparent));
+    let traceStatus = "OK";
+    try {
+      await this.#dispatchTraced(path, method, ctx, input, sink);
+    } catch (e) {
+      traceStatus =
+        e instanceof StatusError
+          ? (StatusName[e.code] ?? `CODE_${e.code}`)
+          : "INTERNAL";
+      throw e;
+    } finally {
+      traceEnd("server", path, traceCtx, traceStatus);
+    }
+  }
+
+  async #dispatchTraced(path, method, ctx, input, sink) {
     const requests = typedRequests(input, method.requestType);
     const encode = (resp) => method.responseType.encode(resp);
     switch (method.kind) {

@@ -94,14 +94,19 @@ public class Server
         {
             return new StatusException(Wire.CodeUnimplemented, $"unknown method {headers.Path}");
         }
+        Tracing.TraceContext traceCtx = Tracing.TraceStart("server", headers.Path,
+            Tracing.ParseTraceparent(headers.Metadata.TryGetValue("traceparent", out string tp) ? tp : null));
+        StatusException result = null;
         try
         {
             method.Handler(ctx, new RequestStream(input), payload => sink.Send(payload));
         }
         catch (Exception e)
         {
-            return StatusException.ToStatus(e);
+            result = StatusException.ToStatus(e);
         }
-        return null;
+        Tracing.TraceEnd("server", headers.Path, traceCtx,
+            result == null ? "OK" : Wire.StatusName(result.Code));
+        return result;
     }
 }

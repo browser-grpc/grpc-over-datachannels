@@ -84,19 +84,32 @@ module Grpcdc
 
     def open_call(path, metadata, timeout = nil)
       deadline = nil
-      unless timeout.nil?
-        deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
-        metadata = (metadata || {}).merge("grpc-timeout" => Codec.encode_timeout(timeout))
+      trace_ctx = nil
+      unless timeout.nil? && Grpcdc.tracer.nil?
+        metadata = (metadata || {}).dup
+        unless timeout.nil?
+          deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+          metadata["grpc-timeout"] = Codec.encode_timeout(timeout)
+        end
+        unless Grpcdc.tracer.nil?
+          trace_ctx = Grpcdc.trace_start("client", path, Grpcdc.parse_traceparent(metadata["traceparent"]))
+          unless trace_ctx.nil?
+            metadata["traceparent"] = Grpcdc.format_traceparent(trace_ctx["trace_id"], trace_ctx["span_id"])
+          end
+        end
       end
       stream_id, stream_input = @endpoint.open_stream
       begin
         @endpoint.send_frame(Codec.headers_frame(stream_id, path, metadata))
       rescue StandardError
         @endpoint.close_stream(stream_id)
+        Grpcdc.trace_end("client", path, trace_ctx, "UNAVAILABLE")
         raise
       end
       stream = ClientStream.new(@endpoint, stream_id, stream_input)
       stream.deadline = deadline
+      stream.trace_ctx = trace_ctx
+      stream.trace_path = path
       stream
     end
 
@@ -118,7 +131,7 @@ module Grpcdc
   class ClientStream
     attr_reader :stream_id, :headers, :endpoint
 
-    attr_accessor :deadline
+    attr_accessor :deadline, :trace_ctx, :trace_path
 
     def initialize(endpoint, stream_id, stream_input)
       @endpoint = endpoint
@@ -126,6 +139,16 @@ module Grpcdc
       @input = stream_input
       @headers = nil
       @deadline = nil
+      @trace_ctx = nil
+      @trace_path = nil
+      @trace_ended = false
+    end
+
+    def end_trace(status)
+      return if @trace_ended
+
+      @trace_ended = true
+      Grpcdc.trace_end("client", @trace_path, @trace_ctx, status)
     end
 
     # Decode the next response into resp.
@@ -153,10 +176,12 @@ module Grpcdc
         when EVENT_DATA
           return resp.unmarshal_dc(event.payload)
         when EVENT_TRAILERS
+          end_trace(Grpcdc.status_name(event.status.code))
           raise event.status unless event.status.code == CODE_OK
 
           raise EOFError, "call completed"
         when EVENT_RST
+          end_trace(Grpcdc.status_name(event.status.code))
           raise event.status
         end
       end

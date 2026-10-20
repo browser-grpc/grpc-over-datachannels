@@ -19,7 +19,10 @@
 #pragma once
 
 #include <exception>
+#include <optional>
+#include <random>
 #include <string>
+#include <vector>
 
 #include "grpcdc/wire.hpp"
 
@@ -28,6 +31,114 @@ namespace grpcdc {
 /// Thrown at end of a receiving stream (call completed OK).
 struct EndOfStream : std::exception {
   const char* what() const noexcept override { return "end of stream"; }
+};
+
+/// Homegrown tracing: W3C traceparent propagation with a span
+/// observer. Dormant until Tracing::SetTracer registers one;
+/// generated code stays dependency-free (sampling and export are
+/// the application's problem).
+struct Tracing {
+  struct Tracer {
+    virtual ~Tracer() = default;
+    virtual void OnStart(const std::string& kind, const std::string& method,
+                         const std::string& trace_id, const std::string& span_id,
+                         const std::string& parent_span_id) = 0;
+    virtual void OnEnd(const std::string& kind, const std::string& method,
+                       const std::string& trace_id, const std::string& span_id,
+                       const std::string& status) = 0;
+  };
+
+  struct TraceContext {
+    std::string trace_id;
+    std::string span_id;
+    std::string parent_span_id;
+  };
+
+  struct Parent {
+    std::string trace_id;
+    std::string span_id;
+  };
+
+  static void SetTracer(Tracer* t) { TracerSlot() = t; }
+  static bool Enabled() { return TracerSlot() != nullptr; }
+
+  static std::string FormatTraceparent(const std::string& trace_id,
+                                       const std::string& span_id) {
+    return "00-" + trace_id + "-" + span_id + "-01";
+  }
+
+  static std::optional<Parent> ParseTraceparent(const char* value) {
+    if (!value) return std::nullopt;
+    std::string v(value);
+    std::vector<std::string> parts;
+    size_t start = 0;
+    while (true) {
+      size_t dash = v.find('-', start);
+      if (dash == std::string::npos) {
+        parts.push_back(v.substr(start));
+        break;
+      }
+      parts.push_back(v.substr(start, dash - start));
+      start = dash + 1;
+    }
+    if (parts.size() != 4 || parts[1].size() != 32 || parts[2].size() != 16) {
+      return std::nullopt;
+    }
+    auto is_hex = [](const std::string& s) {
+      for (char c : s) {
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+      }
+      return true;
+    };
+    if (!is_hex(parts[1]) || !is_hex(parts[2])) return std::nullopt;
+    return Parent{parts[1], parts[2]};
+  }
+
+  static std::optional<TraceContext> TraceStart(
+      const std::string& kind, const std::string& method,
+      const std::optional<Parent>& parent) {
+    Tracer* t = TracerSlot();
+    if (!t) return std::nullopt;
+    TraceContext ctx;
+    ctx.trace_id = parent ? parent->trace_id : RandomHex(16);
+    ctx.span_id = RandomHex(8);
+    ctx.parent_span_id = parent ? parent->span_id : "";
+    try {
+      t->OnStart(kind, method, ctx.trace_id, ctx.span_id, ctx.parent_span_id);
+    } catch (...) {
+    }
+    return ctx;
+  }
+
+  static void TraceEnd(const std::string& kind, const std::string& method,
+                       const std::optional<TraceContext>& ctx,
+                       const std::string& status) {
+    Tracer* t = TracerSlot();
+    if (!ctx || !t) return;
+    try {
+      t->OnEnd(kind, method, ctx->trace_id, ctx->span_id, status);
+    } catch (...) {
+    }
+  }
+
+ private:
+  static Tracer*& TracerSlot() {
+    static Tracer* tracer = nullptr;
+    return tracer;
+  }
+
+  static std::string RandomHex(int bytes) {
+    static std::mt19937_64 rng{std::random_device{}()};
+    static const char* digits = "0123456789abcdef";
+    std::string out;
+    out.reserve(static_cast<size_t>(bytes) * 2);
+    for (int i = 0; i < bytes; i++) {
+      unsigned int b = static_cast<unsigned int>(rng() & 0xff);
+      out += digits[b >> 4];
+      out += digits[b & 0xf];
+    }
+    return out;
+  }
 };
 
 /// A gRPC status (code + message) carried as an exception.
@@ -980,16 +1091,27 @@ class Channel {
             resp.UnmarshalDc(evt.payload);
             return;
           case Endpoint::EventKind::kTrailers:
+            EndTrace(wire::StatusName(evt.status ? evt.status->code() : wire::kCodeOk));
             if (evt.status && evt.status->code() != wire::kCodeOk) {
               throw *evt.status;
             }
             throw EndOfStream();
-          case Endpoint::EventKind::kRst:
-            if (evt.status) throw *evt.status;
-            throw StatusException(wire::kCodeUnavailable, "stream reset");
+          case Endpoint::EventKind::kRst: {
+            StatusException status = evt.status ? *evt.status
+                : StatusException(wire::kCodeUnavailable, "stream reset");
+            EndTrace(wire::StatusName(status.code()));
+            throw status;
+          }
           default:
             break;
         }
+      }
+    }
+
+    void EndTrace(const std::string& status) {
+      if (!trace_ended_) {
+        trace_ended_ = true;
+        Tracing::TraceEnd("client", trace_path_, trace_ctx_, status);
       }
     }
 
@@ -1000,6 +1122,9 @@ class Channel {
     std::uint32_t stream_id_;
     std::shared_ptr<Endpoint::StreamInput> input_;
     Codec::Headers headers_;
+    std::optional<Tracing::TraceContext> trace_ctx_;
+    std::string trace_path_;
+    bool trace_ended_ = false;
   };
 
   /// Abort an open ClientStream (sends RST, wakes pending Recv).
@@ -1097,10 +1222,23 @@ class Channel {
     Metadata merged;
     const Metadata* md = metadata;
     std::optional<std::chrono::steady_clock::time_point> deadline;
-    if (timeout) {
-      deadline = std::chrono::steady_clock::now() + *timeout;
+    std::optional<Tracing::TraceContext> trace_ctx;
+    if (timeout || Tracing::Enabled()) {
       if (metadata) merged = *metadata;
-      merged["grpc-timeout"] = Codec::EncodeTimeout(*timeout);
+      if (timeout) {
+        deadline = std::chrono::steady_clock::now() + *timeout;
+        merged["grpc-timeout"] = Codec::EncodeTimeout(*timeout);
+      }
+      if (Tracing::Enabled()) {
+        auto it = merged.find("traceparent");
+        trace_ctx = Tracing::TraceStart(
+            "client", path,
+            Tracing::ParseTraceparent(it == merged.end() ? nullptr : it->second.c_str()));
+        if (trace_ctx) {
+          merged["traceparent"] =
+              Tracing::FormatTraceparent(trace_ctx->trace_id, trace_ctx->span_id);
+        }
+      }
       md = &merged;
     }
     auto opened = endpoint_->OpenStream();
@@ -1108,11 +1246,14 @@ class Channel {
       endpoint_->SendFrame(Codec::HeadersFrame(opened.first, path.c_str(), md));
     } catch (...) {
       endpoint_->CloseStream(opened.first);
+      Tracing::TraceEnd("client", path, trace_ctx, "UNAVAILABLE");
       throw;
     }
     ClientStream stream(opened.first, opened.second);
     stream.endpoint_ = endpoint_;
     stream.deadline_ = deadline;
+    stream.trace_ctx_ = trace_ctx;
+    stream.trace_path_ = path;
     return stream;
   }
 
@@ -1256,14 +1397,23 @@ class Server {
       return StatusException(wire::kCodeUnimplemented,
                              "unknown method " + headers.path);
     }
+    auto trace_it = headers.metadata.find("traceparent");
+    auto trace_ctx = Tracing::TraceStart(
+        "server", headers.path,
+        Tracing::ParseTraceparent(trace_it == headers.metadata.end()
+                                      ? nullptr
+                                      : trace_it->second.c_str()));
+    StatusException result(wire::kCodeOk, "");
     try {
       RequestStream reqs(input);
       ServerSink sink_fn = [&sink](const Bytes& payload) { sink.Send(payload); };
       it->second.handler(ctx, reqs, sink_fn);
     } catch (...) {
-      return StatusException::ToStatus(std::current_exception());
+      result = StatusException::ToStatus(std::current_exception());
     }
-    return StatusException(wire::kCodeOk, "");
+    Tracing::TraceEnd("server", headers.path, trace_ctx,
+                      wire::StatusName(result.code()));
+    return result;
   }
 
   std::shared_ptr<Shared> shared_ = std::make_shared<Shared>();

@@ -49,6 +49,38 @@ grpcdc_status grpcdc_status_make(int code, const char *message);
 grpcdc_status grpcdc_ok(void);
 bool grpcdc_status_is_ok(grpcdc_status st);
 
+/* ---- homegrown tracing (W3C traceparent propagation) ----
+   Dormant until grpcdc_set_tracer registers an observer.
+   Dependency-free: sampling/export are the app's problem. */
+typedef struct {
+    void *ctx;
+    void (*on_start)(void *ctx, const char *kind, const char *method,
+                     const char *trace_id, const char *span_id,
+                     const char *parent_span_id);
+    void (*on_end)(void *ctx, const char *kind, const char *method,
+                   const char *trace_id, const char *span_id,
+                   const char *status);
+} grpcdc_tracer;
+
+void grpcdc_set_tracer(const grpcdc_tracer *tracer);
+bool grpcdc_tracing_enabled(void);
+
+typedef struct {
+    char trace_id[33];
+    char span_id[17];
+    char parent_span_id[17];
+    int active;
+} grpcdc_trace_context;
+
+/* Begin a span; parent_traceparent may be NULL. The returned
+   context has active=0 when tracing is dormant. */
+grpcdc_trace_context grpcdc_trace_start(const char *kind, const char *method,
+                                        const char *parent_traceparent);
+void grpcdc_trace_end(const char *kind, const char *method,
+                      const grpcdc_trace_context *ctx, const char *status);
+/* Format "00-<trace>-<span>-01" into out[56]; returns out. */
+char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out);
+
 /* Owned byte buffer (malloc'd; free data or use grpcdc_bytes_free). */
 typedef struct {
     uint8_t *data;

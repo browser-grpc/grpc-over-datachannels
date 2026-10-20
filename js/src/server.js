@@ -3,7 +3,14 @@
 // Server side: registers generated service definitions (createXService)
 // on an endpoint and dispatches HEADERS by path.
 
-import { StatusError, parseTimeout } from "./codec.js";
+import {
+  StatusError,
+  StatusName,
+  parseTimeout,
+  parseTraceparent,
+  traceEnd,
+  traceStart,
+} from "./codec.js";
 import { Endpoint } from "./endpoint.js";
 
 async function* typedRequests(input, ReqType) {
@@ -67,6 +74,22 @@ export class Server {
       deadline,
       timeRemaining: () => (deadline === null ? null : deadline - Date.now()),
     };
+    const traceCtx = traceStart("server", path, parseTraceparent(metadata.traceparent));
+    let traceStatus = "OK";
+    try {
+      await this.#dispatchTraced(path, method, ctx, input, sink);
+    } catch (e) {
+      traceStatus =
+        e instanceof StatusError
+          ? (StatusName[e.code] ?? `CODE_${e.code}`)
+          : "INTERNAL";
+      throw e;
+    } finally {
+      traceEnd("server", path, traceCtx, traceStatus);
+    }
+  }
+
+  async #dispatchTraced(path, method, ctx, input, sink) {
     const requests = typedRequests(input, method.requestType);
     const encode = (resp) => method.responseType.encode(resp);
     switch (method.kind) {

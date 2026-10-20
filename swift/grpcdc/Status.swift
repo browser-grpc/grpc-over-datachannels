@@ -26,3 +26,72 @@ struct StatusException: Error, CustomStringConvertible {
         #endif
     }
 }
+
+/// Homegrown tracing: W3C traceparent propagation with a span
+/// observer. Dormant until Tracing.SetTracer registers one;
+/// generated code stays dependency-free (sampling and export are
+/// the application's problem).
+enum Tracing {
+    protocol Tracer {
+        func OnStart(_ kind: String, _ method: String, _ traceId: String, _ spanId: String, _ parentSpanId: String)
+        func OnEnd(_ kind: String, _ method: String, _ traceId: String, _ spanId: String, _ status: String)
+    }
+
+    struct TraceContext {
+        let traceId: String
+        let spanId: String
+        let parentSpanId: String
+    }
+
+    struct Parent {
+        let traceId: String
+        let spanId: String
+    }
+
+    private static var tracer: Tracer? = nil
+
+    static func SetTracer(_ t: Tracer?) { tracer = t }
+
+    static var Enabled: Bool { tracer != nil }
+
+    static func FormatTraceparent(_ traceId: String, _ spanId: String) -> String {
+        "00-\(traceId)-\(spanId)-01"
+    }
+
+    static func ParseTraceparent(_ value: String?) -> Parent? {
+        guard let value else { return nil }
+        let parts = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 4, parts[1].count == 32, parts[2].count == 16 else { return nil }
+        let isHex: (Unicode.Scalar) -> Bool = { ($0.value >= 48 && $0.value <= 57) || ($0.value >= 97 && $0.value <= 102) }
+        guard parts[1].unicodeScalars.allSatisfy(isHex),
+              parts[2].unicodeScalars.allSatisfy(isHex) else { return nil }
+        return Parent(traceId: String(parts[1]), spanId: String(parts[2]))
+    }
+
+    private static func RandomHex(_ bytes: Int) -> String {
+        let digits = Array("0123456789abcdef")
+        var out = ""
+        out.reserveCapacity(bytes * 2)
+        for _ in 0..<bytes {
+            let b = UInt8.random(in: 0...255)
+            out.append(digits[Int(b >> 4)])
+            out.append(digits[Int(b & 0xf)])
+        }
+        return out
+    }
+
+    static func TraceStart(_ kind: String, _ method: String, _ parent: Parent?) -> TraceContext? {
+        guard let t = tracer else { return nil }
+        let ctx = TraceContext(
+            traceId: parent?.traceId ?? RandomHex(16),
+            spanId: RandomHex(8),
+            parentSpanId: parent?.spanId ?? "")
+        t.OnStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId)
+        return ctx
+    }
+
+    static func TraceEnd(_ kind: String, _ method: String, _ ctx: TraceContext?, _ status: String) {
+        guard let ctx, let t = tracer else { return }
+        t.OnEnd(kind, method, ctx.traceId, ctx.spanId, status)
+    }
+}

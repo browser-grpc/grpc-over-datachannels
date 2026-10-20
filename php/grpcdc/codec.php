@@ -43,6 +43,75 @@ final class Status
         return Wire::STATUS_NAMES[$code] ?? ("CODE_" . $code);
     }
 
+    // --- Homegrown tracing (W3C traceparent propagation) --------
+    // Dormant until Status::setTracer registers an observer with
+    // traceStart/traceEnd-style callbacks. Provide an object with
+    // onStart($kind, $method, $traceId, $spanId, $parentSpanId)
+    // and onEnd($kind, $method, $traceId, $spanId, $status).
+    // Dependency-free: sampling/export are the app's problem.
+
+    private static mixed $tracer = null;
+
+    public static function setTracer(mixed $tracer): void
+    {
+        self::$tracer = $tracer;
+    }
+
+    public static function tracer(): mixed
+    {
+        return self::$tracer;
+    }
+
+    public static function formatTraceparent(string $traceId, string $spanId): string
+    {
+        return "00-$traceId-$spanId-01";
+    }
+
+    /** @return array{string,string}|null [traceId, spanId] */
+    public static function parseTraceparent(?string $value): ?array
+    {
+        if ($value === null) {
+            return null;
+        }
+        $parts = explode("-", $value);
+        if (count($parts) !== 4 || strlen($parts[1]) !== 32 || strlen($parts[2]) !== 16) {
+            return null;
+        }
+        if (!ctype_xdigit($parts[1]) || !ctype_xdigit($parts[2])) {
+            return null;
+        }
+        return [$parts[1], $parts[2]];
+    }
+
+    /** @return array{trace_id:string,span_id:string,parent_span_id:string}|null */
+    public static function traceStart(string $kind, string $method, ?array $parent): ?array
+    {
+        if (self::$tracer === null) {
+            return null;
+        }
+        $ctx = [
+            "trace_id" => $parent !== null ? $parent[0] : bin2hex(random_bytes(16)),
+            "span_id" => bin2hex(random_bytes(8)),
+            "parent_span_id" => $parent !== null ? $parent[1] : "",
+        ];
+        try {
+            self::$tracer->onStart($kind, $method, $ctx["trace_id"], $ctx["span_id"], $ctx["parent_span_id"]);
+        } catch (\Throwable) {
+        }
+        return $ctx;
+    }
+
+    public static function traceEnd(string $kind, string $method, ?array $ctx, string $status): void
+    {
+        if ($ctx === null || self::$tracer === null) {
+            return;
+        }
+        try {
+            self::$tracer->onEnd($kind, $method, $ctx["trace_id"], $ctx["span_id"], $status);
+        } catch (\Throwable) {
+        }
+    }
+
     /** Convert any throwable to StatusError (OK for null). */
     public static function toStatus(?\Throwable $err): StatusError
     {

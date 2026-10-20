@@ -116,14 +116,23 @@ class Server {
       return StatusException(wire::kCodeUnimplemented,
                              "unknown method " + headers.path);
     }
+    auto trace_it = headers.metadata.find("traceparent");
+    auto trace_ctx = Tracing::TraceStart(
+        "server", headers.path,
+        Tracing::ParseTraceparent(trace_it == headers.metadata.end()
+                                      ? nullptr
+                                      : trace_it->second.c_str()));
+    StatusException result(wire::kCodeOk, "");
     try {
       RequestStream reqs(input);
       ServerSink sink_fn = [&sink](const Bytes& payload) { sink.Send(payload); };
       it->second.handler(ctx, reqs, sink_fn);
     } catch (...) {
-      return StatusException::ToStatus(std::current_exception());
+      result = StatusException::ToStatus(std::current_exception());
     }
-    return StatusException(wire::kCodeOk, "");
+    Tracing::TraceEnd("server", headers.path, trace_ctx,
+                      wire::StatusName(result.code()));
+    return result;
   }
 
   std::shared_ptr<Shared> shared_ = std::make_shared<Shared>();

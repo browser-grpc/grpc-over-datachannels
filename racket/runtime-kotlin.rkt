@@ -38,6 +38,81 @@ class StatusException(val code: Int, message: String) : Exception(message) {
         }
     }
 }
+
+/**
+ * Homegrown tracing: W3C traceparent propagation with a span
+ * observer. Dormant until [Tracing.setTracer] registers one;
+ * generated code stays dependency-free (sampling and export are
+ * the application's problem).
+ */
+object Tracing {
+    /** Span observer callbacks (kind is "client" or "server"). */
+    interface Tracer {
+        fun onStart(kind: String, method: String, traceId: String, spanId: String, parentSpanId: String)
+        fun onEnd(kind: String, method: String, traceId: String, spanId: String, status: String)
+    }
+
+    /** One in-flight span's context. */
+    data class TraceContext(val traceId: String, val spanId: String, val parentSpanId: String)
+
+    /** Parsed traceparent parent. */
+    data class Parent(val traceId: String, val spanId: String)
+
+    private var tracer: Tracer? = null
+    private val rng = kotlin.random.Random.Default
+
+    fun setTracer(t: Tracer?) {
+        tracer = t
+    }
+
+    fun enabled(): Boolean = tracer != null
+
+    fun formatTraceparent(traceId: String, spanId: String): String =
+        "00-$traceId-$spanId-01"
+
+    fun parseTraceparent(value: String?): Parent? {
+        if (value == null) return null
+        val parts = value.split("-")
+        if (parts.size != 4 || parts[1].length != 32 || parts[2].length != 16) return null
+        if (!parts[1].all { it in '0'..'9' || it in 'a'..'f' }) return null
+        if (!parts[2].all { it in '0'..'9' || it in 'a'..'f' }) return null
+        return Parent(parts[1], parts[2])
+    }
+
+    private fun randomHex(bytes: Int): String {
+        val buf = ByteArray(bytes)
+        rng.nextBytes(buf)
+        val out = StringBuilder(bytes * 2)
+        for (b in buf) {
+            out.append(((b.toInt() shr 4) and 0xf).toString(16))
+            out.append((b.toInt() and 0xf).toString(16))
+        }
+        return out.toString()
+    }
+
+    fun traceStart(kind: String, method: String, parent: Parent?): TraceContext? {
+        val t = tracer ?: return null
+        val ctx = TraceContext(
+            parent?.traceId ?: randomHex(16),
+            randomHex(8),
+            parent?.spanId ?: ""
+        )
+        try {
+            t.onStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId)
+        } catch (ignored: Throwable) {
+        }
+        return ctx
+    }
+
+    fun traceEnd(kind: String, method: String, ctx: TraceContext?, status: String) {
+        val t = tracer
+        if (ctx == null || t == null) return
+        try {
+            t.onEnd(kind, method, ctx.traceId, ctx.spanId, status)
+        } catch (ignored: Throwable) {
+        }
+    }
+}
 GRPC_RUNTIME_EOF
 )
 
@@ -787,6 +862,16 @@ class Channel {
         private val input: Endpoint.StreamInput
     ) {
         internal var deadlineNanos: Long = -1L
+        internal var traceCtx: Tracing.TraceContext? = null
+        internal var tracePath: String? = null
+        private var traceEnded: Boolean = false
+
+        internal fun endTrace(status: String) {
+            if (!traceEnded) {
+                traceEnded = true
+                Tracing.traceEnd("client", tracePath ?: "", traceCtx, status)
+            }
+        }
 
         /** Abort this stream (sends RST, wakes a pending recv). */
         fun cancel() = endpoint.cancelStream(streamId)
@@ -824,13 +909,18 @@ class Channel {
                     }
                     Endpoint.EventKind.TRAILERS -> {
                         val status = event.status
+                        endTrace(Wire.statusName(status?.code ?: Wire.CODE_OK))
                         if (status != null && status.code != Wire.CODE_OK) {
                             throw status
                         }
                         throw EOFException("call completed")
                     }
-                    Endpoint.EventKind.RST -> throw event.status
-                        ?: StatusException(Wire.CODE_UNAVAILABLE, "stream reset")
+                    Endpoint.EventKind.RST -> {
+                        val status = event.status
+                            ?: StatusException(Wire.CODE_UNAVAILABLE, "stream reset")
+                        endTrace(Wire.statusName(status.code))
+                        throw status
+                    }
                     else -> {}
                 }
             }
@@ -841,19 +931,33 @@ class Channel {
                      timeout: java.time.Duration? = null): ClientStream {
         var metadata = metadata
         var deadlineNanos = -1L
-        if (timeout != null) {
-            deadlineNanos = System.nanoTime() + timeout.toNanos()
-            metadata = (metadata ?: emptyMap()) + ("grpc-timeout" to Codec.encodeTimeout(timeout))
+        var traceCtx: Tracing.TraceContext? = null
+        if (timeout != null || Tracing.enabled()) {
+            var merged = metadata ?: emptyMap()
+            if (timeout != null) {
+                deadlineNanos = System.nanoTime() + timeout.toNanos()
+                merged = merged + ("grpc-timeout" to Codec.encodeTimeout(timeout))
+            }
+            if (Tracing.enabled()) {
+                traceCtx = Tracing.traceStart("client", path, Tracing.parseTraceparent(merged["traceparent"]))
+                if (traceCtx != null) {
+                    merged = merged + ("traceparent" to Tracing.formatTraceparent(traceCtx.traceId, traceCtx.spanId))
+                }
+            }
+            metadata = merged
         }
         val (id, input) = endpoint.openStream()
         try {
             endpoint.sendFrame(Codec.headersFrame(id, path, metadata))
         } catch (e: Exception) {
             endpoint.closeStream(id)
+            Tracing.traceEnd("client", path, traceCtx, "UNAVAILABLE")
             throw e
         }
         val stream = ClientStream(id, endpoint, input)
         stream.deadlineNanos = deadlineNanos
+        stream.traceCtx = traceCtx
+        stream.tracePath = path
         return stream
     }
 
@@ -1006,12 +1110,15 @@ class Server {
                          input: Endpoint.StreamInput, sink: Endpoint.ResponseSink): StatusException? {
         val method = methods[headers.path]
             ?: return StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path)
+        val traceCtx = Tracing.traceStart("server", headers.path ?: "", Tracing.parseTraceparent(headers.metadata["traceparent"]))
+        var result: StatusException? = null
         try {
             method.handler.handle(ctx, RequestStream(input), ServerSink { payload -> sink.send(payload) })
         } catch (e: Exception) {
-            return StatusException.toStatus(e)
+            result = StatusException.toStatus(e)
         }
-        return null
+        Tracing.traceEnd("server", headers.path ?: "", traceCtx, if (result == null) "OK" else Wire.statusName(result.code))
+        return result
     }
 
     companion object {

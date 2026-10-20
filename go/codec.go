@@ -7,10 +7,14 @@
 package grpcdc
 
 import (
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -49,6 +53,97 @@ func Status(err error) *StatusError {
 		return se
 	}
 	return NewStatus(CodeInternal, err.Error())
+}
+
+// --- Homegrown tracing (W3C traceparent propagation) -------------
+// Dormant until SetTracer registers an observer. Generated code
+// stays dependency-free: sampling and export are the app's problem.
+
+// Tracer receives span callbacks (kind is "client" or "server").
+type Tracer interface {
+	OnStart(kind, method, traceID, spanID, parentSpanID string)
+	OnEnd(kind, method, traceID, spanID, status string)
+}
+
+var tracerMu sync.RWMutex
+var tracer Tracer
+
+// SetTracer registers the global span observer (nil disables).
+func SetTracer(t Tracer) {
+	tracerMu.Lock()
+	defer tracerMu.Unlock()
+	tracer = t
+}
+
+func getTracer() Tracer {
+	tracerMu.RLock()
+	defer tracerMu.RUnlock()
+	return tracer
+}
+
+type traceContext struct {
+	TraceID      string
+	SpanID       string
+	ParentSpanID string
+}
+
+func randomHex(n int) string {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		for i := range buf {
+			buf[i] = byte(time.Now().UnixNano() >> (8 * (i % 8)))
+		}
+	}
+	return hex.EncodeToString(buf)
+}
+
+// FormatTraceparent renders a W3C traceparent header value.
+func FormatTraceparent(traceID, spanID string) string {
+	return "00-" + traceID + "-" + spanID + "-01"
+}
+
+// ParseTraceparent parses a traceparent header value.
+func ParseTraceparent(value string) *traceContext {
+	parts := strings.Split(value, "-")
+	if len(parts) != 4 || len(parts[1]) != 32 || len(parts[2]) != 16 {
+		return nil
+	}
+	if _, err := hex.DecodeString(parts[1]); err != nil {
+		return nil
+	}
+	if _, err := hex.DecodeString(parts[2]); err != nil {
+		return nil
+	}
+	return &traceContext{TraceID: parts[1], SpanID: parts[2]}
+}
+
+func traceStart(kind, method string, parent *traceContext) *traceContext {
+	t := getTracer()
+	if t == nil {
+		return nil
+	}
+	ctx := &traceContext{SpanID: randomHex(8)}
+	if parent != nil {
+		ctx.TraceID = parent.TraceID
+		ctx.ParentSpanID = parent.SpanID
+	} else {
+		ctx.TraceID = randomHex(16)
+	}
+	defer func() { _ = recover() }() // observers must never break the call
+	t.OnStart(kind, method, ctx.TraceID, ctx.SpanID, ctx.ParentSpanID)
+	return ctx
+}
+
+func traceEnd(kind, method string, ctx *traceContext, status string) {
+	if ctx == nil {
+		return
+	}
+	t := getTracer()
+	if t == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	t.OnEnd(kind, method, ctx.TraceID, ctx.SpanID, status)
 }
 
 // Marshaler is implemented by protobuf message types (see the

@@ -73,12 +73,15 @@ class Server {
                          input: Endpoint.StreamInput, sink: Endpoint.ResponseSink): StatusException? {
         val method = methods[headers.path]
             ?: return StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path)
+        val traceCtx = Tracing.traceStart("server", headers.path ?: "", Tracing.parseTraceparent(headers.metadata["traceparent"]))
+        var result: StatusException? = null
         try {
             method.handler.handle(ctx, RequestStream(input), ServerSink { payload -> sink.send(payload) })
         } catch (e: Exception) {
-            return StatusException.toStatus(e)
+            result = StatusException.toStatus(e)
         }
-        return null
+        Tracing.traceEnd("server", headers.path ?: "", traceCtx, if (result == null) "OK" else Wire.statusName(result.code))
+        return result
     }
 
     companion object {

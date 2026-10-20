@@ -55,6 +55,117 @@ impl fmt::Display for Status {
 
 impl std::error::Error for Status {}
 
+// ---------------------------------------------------------------------------
+// Homegrown tracing (W3C traceparent propagation)
+// ---------------------------------------------------------------------------
+// Tracing support lives here so every module can reach it.
+// Dormant until a tracer is registered; generated code stays
+// dependency-free (sampling and export are the app's problem).
+
+/// Span observer (kind is "client" or "server").
+pub trait Tracer: Send + Sync {
+    fn on_start(&self, kind: &str, method: &str, trace_id: &str, span_id: &str, parent_span_id: &str);
+    fn on_end(&self, kind: &str, method: &str, trace_id: &str, span_id: &str, status: &str);
+}
+
+/// One in-flight span's context.
+#[derive(Clone, Debug)]
+pub struct TraceContext {
+    pub trace_id: String,
+    pub span_id: String,
+    pub parent_span_id: String,
+}
+
+/// Parsed traceparent parent.
+#[derive(Clone, Debug)]
+pub struct TraceParent {
+    pub trace_id: String,
+    pub span_id: String,
+}
+
+static TRACER: std::sync::OnceLock<std::sync::RwLock<Option<std::sync::Arc<dyn Tracer>>>> =
+    std::sync::OnceLock::new();
+
+fn tracer_slot() -> &'static std::sync::RwLock<Option<std::sync::Arc<dyn Tracer>>> {
+    TRACER.get_or_init(|| std::sync::RwLock::new(None))
+}
+
+/// Register the global span observer (None disables tracing).
+pub fn set_tracer(tracer: Option<std::sync::Arc<dyn Tracer>>) {
+    *tracer_slot().write().unwrap() = tracer;
+}
+
+/// Whether a tracer is registered.
+pub fn tracing_enabled() -> bool {
+    tracer_slot().read().unwrap().is_some()
+}
+
+fn random_hex(bytes_len: usize) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let mut state = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+        ^ COUNTER.fetch_add(0x9e37_79b9_7f4a_7c15, Ordering::Relaxed);
+    const DIGITS: &[u8] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes_len * 2);
+    for _ in 0..bytes_len {
+        // xorshift64
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        let b = (state >> 32) as u8;
+        out.push(DIGITS[(b >> 4) as usize] as char);
+        out.push(DIGITS[(b & 0xf) as usize] as char);
+    }
+    out
+}
+
+pub fn format_traceparent(trace_id: &str, span_id: &str) -> String {
+    format!("00-{trace_id}-{span_id}-01")
+}
+
+pub fn parse_traceparent(value: Option<&String>) -> Option<TraceParent> {
+    let value = value?;
+    let parts: Vec<&str> = value.split('-').collect();
+    if parts.len() != 4 || parts[1].len() != 32 || parts[2].len() != 16 {
+        return None;
+    }
+    if !parts[1].bytes().all(|b| b.is_ascii_hexdigit())
+        || !parts[2].bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    Some(TraceParent {
+        trace_id: parts[1].to_string(),
+        span_id: parts[2].to_string(),
+    })
+}
+
+/// Begin a span; returns None when tracing is dormant.
+pub fn trace_start(kind: &str, method: &str, parent: Option<TraceParent>) -> Option<TraceContext> {
+    let tracer = tracer_slot().read().unwrap().clone()?;
+    let ctx = TraceContext {
+        trace_id: parent
+            .as_ref()
+            .map(|p| p.trace_id.clone())
+            .unwrap_or_else(|| random_hex(16)),
+        span_id: random_hex(8),
+        parent_span_id: parent.map(|p| p.span_id).unwrap_or_default(),
+    };
+    tracer.on_start(kind, method, &ctx.trace_id, &ctx.span_id, &ctx.parent_span_id);
+    Some(ctx)
+}
+
+/// End a span started with trace_start.
+pub fn trace_end(kind: &str, method: &str, ctx: Option<&TraceContext>, status: &str) {
+    let (Some(tracer), Some(ctx)) = (tracer_slot().read().unwrap().clone(), ctx) else {
+        return;
+    };
+    tracer.on_end(kind, method, &ctx.trace_id, &ctx.span_id, status);
+}
+
 impl From<String> for Status {
     fn from(message: String) -> Self {
         Status::unknown(message)

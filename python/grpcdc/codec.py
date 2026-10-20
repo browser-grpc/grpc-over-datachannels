@@ -30,6 +30,91 @@ def status_name(code):
     return STATUS_NAMES.get(code, f"CODE_{code}")
 
 
+# --- Homegrown tracing (W3C traceparent propagation) -----------------
+# Dormant until set_tracer() registers an observer. The observer is
+# any object with on_start(kind, method, trace_id, span_id,
+# parent_span_id) and on_end(kind, method, trace_id, span_id,
+# status_name). Generated code stays dependency-free: sampling,
+# batching and export are the application's problem.
+
+import secrets as _secrets
+
+_tracer = None
+
+
+def set_tracer(tracer):
+    """Register the global span observer (None disables tracing)."""
+    global _tracer
+    _tracer = tracer
+
+
+def get_tracer():
+    return _tracer
+
+
+def _new_trace_id():
+    return _secrets.token_hex(16)
+
+
+def _new_span_id():
+    return _secrets.token_hex(8)
+
+
+def format_traceparent(trace_id, span_id):
+    return f"00-{trace_id}-{span_id}-01"
+
+
+def parse_traceparent(value):
+    """Parse a traceparent header -> (trace_id, span_id) or None."""
+    if not isinstance(value, str):
+        return None
+    parts = value.split("-")
+    if len(parts) != 4:
+        return None
+    _, trace_id, span_id, _flags = parts
+    if len(trace_id) != 32 or len(span_id) != 16:
+        return None
+    try:
+        int(trace_id, 16)
+        int(span_id, 16)
+    except ValueError:
+        return None
+    return (trace_id, span_id)
+
+
+def trace_start(kind, method, parent):
+    """Begin a span; parent is a parsed traceparent or None.
+
+    Returns a context dict (keys: trace_id, span_id,
+    parent_span_id) or None when no tracer is registered.
+    """
+    if _tracer is None:
+        return None
+    if parent is not None:
+        trace_id, parent_span_id = parent
+    else:
+        trace_id, parent_span_id = _new_trace_id(), ""
+    ctx = {
+        "trace_id": trace_id,
+        "span_id": _new_span_id(),
+        "parent_span_id": parent_span_id,
+    }
+    try:
+        _tracer.on_start(kind, method, ctx["trace_id"], ctx["span_id"], parent_span_id)
+    except Exception:
+        pass  # observers must never break the call
+    return ctx
+
+
+def trace_end(kind, method, ctx, status):
+    if ctx is None or _tracer is None:
+        return
+    try:
+        _tracer.on_end(kind, method, ctx["trace_id"], ctx["span_id"], status)
+    except Exception:
+        pass
+
+
 class StatusError(Exception):
     """A gRPC status (code + message) carried as an exception."""
 

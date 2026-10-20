@@ -30,6 +30,18 @@ public class Channel
         public uint StreamId { get; }
         public Codec.Headers Headers { get; private set; }
         internal long DeadlineTimestamp = -1;
+        internal Tracing.TraceContext TraceCtx;
+        internal string TracePath;
+        private bool _traceEnded;
+
+        internal void EndTrace(string status)
+        {
+            if (!_traceEnded)
+            {
+                _traceEnded = true;
+                Tracing.TraceEnd("client", TracePath, TraceCtx, status);
+            }
+        }
 
         internal ClientStream(Endpoint endpoint, uint streamId, Endpoint.StreamInput input)
         {
@@ -87,12 +99,14 @@ public class Channel
                         resp.UnmarshalDc(evt.Payload);
                         return;
                     case Endpoint.EventKind.Trailers:
+                        EndTrace(Wire.StatusName(evt.Status.Code));
                         if (evt.Status.Code != Wire.CodeOk)
                         {
                             throw evt.Status;
                         }
                         throw new EndOfStreamException("call completed");
                     case Endpoint.EventKind.Rst:
+                        EndTrace(Wire.StatusName(evt.Status.Code));
                         throw evt.Status;
                     default:
                         break;
@@ -104,14 +118,27 @@ public class Channel
     private ClientStream Open(string path, IDictionary<string, string> metadata, TimeSpan? timeout = null)
     {
         long deadline = -1;
-        if (timeout != null)
+        Tracing.TraceContext traceCtx = null;
+        if (timeout != null || Tracing.Enabled)
         {
-            deadline = System.Diagnostics.Stopwatch.GetTimestamp()
-                + (long)(timeout.Value.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
             var merged = metadata == null
                 ? new Dictionary<string, string>()
                 : new Dictionary<string, string>(metadata);
-            merged["grpc-timeout"] = Codec.EncodeTimeout(timeout.Value);
+            if (timeout != null)
+            {
+                deadline = System.Diagnostics.Stopwatch.GetTimestamp()
+                    + (long)(timeout.Value.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
+                merged["grpc-timeout"] = Codec.EncodeTimeout(timeout.Value);
+            }
+            if (Tracing.Enabled)
+            {
+                traceCtx = Tracing.TraceStart("client", path,
+                    Tracing.ParseTraceparent(merged.TryGetValue("traceparent", out string tp) ? tp : null));
+                if (traceCtx != null)
+                {
+                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.TraceId, traceCtx.SpanId);
+                }
+            }
             metadata = merged;
         }
         (uint id, Endpoint.StreamInput input) = _endpoint.OpenStream();
@@ -122,9 +149,15 @@ public class Channel
         catch
         {
             _endpoint.CloseStream(id);
+            Tracing.TraceEnd("client", path, traceCtx, "UNAVAILABLE");
             throw;
         }
-        return new ClientStream(_endpoint, id, input) { DeadlineTimestamp = deadline };
+        return new ClientStream(_endpoint, id, input)
+        {
+            DeadlineTimestamp = deadline,
+            TraceCtx = traceCtx,
+            TracePath = path,
+        };
     }
 
     private void SendMessage(ClientStream stream, IMarshaler msg)

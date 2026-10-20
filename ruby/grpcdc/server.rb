@@ -92,12 +92,15 @@ module Grpcdc
         return StatusError.new(CODE_UNIMPLEMENTED, "unknown method #{headers.path}")
       end
 
+      trace_ctx = Grpcdc.trace_start("server", headers.path, Grpcdc.parse_traceparent((headers.metadata || {})["traceparent"]))
+      result = nil
       begin
         method.handler.call(ctx, RequestStream.new(stream_input), sink)
       rescue StandardError => e # StatusError passes through via to_status
-        return Grpcdc.to_status(e)
+        result = Grpcdc.to_status(e)
       end
-      nil
+      Grpcdc.trace_end("server", headers.path, trace_ctx, result.nil? ? "OK" : Grpcdc.status_name(result.code))
+      result
     end
   end
 end

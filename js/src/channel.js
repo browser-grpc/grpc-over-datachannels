@@ -6,15 +6,22 @@
 import {
   FrameType,
   StatusError,
+  StatusName,
   encodeFrame,
   encodeTimeout,
+  formatTraceparent,
+  getTracer,
   headersFrame,
+  parseTraceparent,
   statusFrame,
+  traceEnd,
+  traceStart,
 } from "./codec.js";
 import { Endpoint } from "./endpoint.js";
 
 export class Channel {
   #endpoint;
+  #traces = new Map();
 
   /** Accepts an Endpoint or a raw RTCDataChannel-like object. */
   constructor(dcOrEndpoint, options) {
@@ -32,14 +39,34 @@ export class Channel {
       deadline = Date.now() + timeout;
       metadata = { ...metadata, "grpc-timeout": encodeTimeout(timeout) };
     }
+    let traceCtx = null;
+    if (getTracer() !== null) {
+      traceCtx = traceStart("client", path, parseTraceparent(metadata?.traceparent));
+      if (traceCtx !== null) {
+        metadata = {
+          ...metadata,
+          traceparent: formatTraceparent(traceCtx.traceId, traceCtx.spanId),
+        };
+      }
+    }
     const [id, input] = this.#endpoint.openStream();
+    if (traceCtx !== null) this.#traces.set(id, { ctx: traceCtx, path });
     try {
       await this.#endpoint.sendFrame(headersFrame(id, path, metadata));
     } catch (e) {
+      this.#endTrace(id, "UNAVAILABLE");
       this.#endpoint.closeStream(id);
       throw e;
     }
     return [id, input, deadline];
+  }
+
+  #endTrace(id, status) {
+    const entry = this.#traces.get(id);
+    if (entry) {
+      this.#traces.delete(id);
+      traceEnd("client", entry.path, entry.ctx, status);
+    }
   }
 
   // Next event from input's iterator, enforcing the call deadline:
@@ -91,15 +118,18 @@ export class Channel {
           }
           response = RespType.decode(event.payload);
         } else if (event.kind === "trailers") {
+          this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
           if (event.status.code !== 0) throw event.status;
           if (response === null) throw StatusError.internal("call closed with no response");
           return response;
         } else if (event.kind === "rst") {
+          this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
           throw event.status;
         }
       }
       throw StatusError.unavailable("data channel closed");
     } finally {
+      this.#endTrace(id, "UNAVAILABLE");
       this.#endpoint.closeStream(id);
     }
   }
@@ -114,14 +144,17 @@ export class Channel {
         if (event.kind === "data") {
           yield RespType.decode(event.payload);
         } else if (event.kind === "trailers") {
+          this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
           if (event.status.code !== 0) throw event.status;
           return;
         } else if (event.kind === "rst") {
+          this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
           throw event.status;
         }
       }
       throw StatusError.unavailable("data channel closed");
     } finally {
+      this.#endTrace(id, "UNAVAILABLE");
       this.#endpoint.closeStream(id);
     }
   }

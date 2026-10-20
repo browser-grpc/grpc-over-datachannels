@@ -786,6 +786,16 @@ public class Channel {
         private final Endpoint.StreamInput input;
         private Codec.Headers headers;
         private long deadlineNanos = -1L;
+        private Tracing.TraceContext traceCtx;
+        private String tracePath;
+        private boolean traceEnded;
+
+        private void endTrace(String status) {
+            if (!traceEnded) {
+                traceEnded = true;
+                Tracing.traceEnd("client", tracePath, traceCtx, status);
+            }
+        }
 
         ClientStream(Endpoint endpoint, long streamId, Endpoint.StreamInput input) {
             this.endpoint = endpoint;
@@ -838,12 +848,16 @@ public class Channel {
                         return;
                     }
                     case TRAILERS -> {
+                        endTrace(Wire.statusName(event.status.code));
                         if (event.status.code != Wire.CODE_OK) {
                             throw event.status;
                         }
                         throw new EOFException("call completed");
                     }
-                    case RST -> throw event.status;
+                    case RST -> {
+                        endTrace(Wire.statusName(event.status.code));
+                        throw event.status;
+                    }
                     default -> {
                         // HEADERS/DATA handled above; ignore others.
                     }
@@ -859,17 +873,36 @@ public class Channel {
     private ClientStream open(String path, Map<String, String> metadata, java.time.Duration timeout)
             throws Exception {
         long deadlineNanos = -1L;
-        if (timeout != null) {
-            deadlineNanos = System.nanoTime() + timeout.toNanos();
+        Tracing.TraceContext traceCtx = null;
+        if (timeout != null || Tracing.enabled()) {
             Map<String, String> merged = new java.util.HashMap<>();
             if (metadata != null) {
                 merged.putAll(metadata);
             }
-            merged.put("grpc-timeout", Codec.encodeTimeout(timeout));
+            if (timeout != null) {
+                deadlineNanos = System.nanoTime() + timeout.toNanos();
+                merged.put("grpc-timeout", Codec.encodeTimeout(timeout));
+            }
+            if (Tracing.enabled()) {
+                traceCtx = Tracing.traceStart("client", path,
+                        Tracing.parseTraceparent(merged.get("traceparent")));
+                if (traceCtx != null) {
+                    merged.put("traceparent",
+                            Tracing.formatTraceparent(traceCtx.traceId(), traceCtx.spanId()));
+                }
+            }
             metadata = merged;
         }
-        ClientStream stream = openRaw(path, metadata);
+        ClientStream stream;
+        try {
+            stream = openRaw(path, metadata);
+        } catch (Exception e) {
+            Tracing.traceEnd("client", path, traceCtx, "UNAVAILABLE");
+            throw e;
+        }
         stream.deadlineNanos = deadlineNanos;
+        stream.traceCtx = traceCtx;
+        stream.tracePath = path;
         return stream;
     }
 
@@ -1138,12 +1171,17 @@ public class Server {
         if (method == null) {
             return new StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path);
         }
+        Tracing.TraceContext traceCtx = Tracing.traceStart("server", headers.path,
+                Tracing.parseTraceparent(headers.metadata.get("traceparent")));
+        StatusException result = null;
         try {
             method.handler().handle(ctx, new RequestStream(in), sink::send);
         } catch (Exception e) {
-            return StatusException.toStatus(e);
+            result = StatusException.toStatus(e);
         }
-        return null;
+        Tracing.traceEnd("server", headers.path, traceCtx,
+                result == null ? "OK" : Wire.statusName(result.code));
+        return result;
     }
 }
 GRPC_RUNTIME_EOF
@@ -1226,9 +1264,120 @@ GRPC_RUNTIME_EOF
             (format "            case Wire.FRAME_~a -> ~a\n" (screaming-name (first e)) (cdr arm))))
    "            default -> {\n                // Unknown frame type: ignore for forward compatibility.\n            }\n        }"))
 
+(define java-tracing-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc;
+
+import java.security.SecureRandom;
+
+/**
+ * Homegrown tracing: W3C traceparent propagation with a span
+ * observer. Dormant until {@link #setTracer} registers one;
+ * generated code stays dependency-free (sampling and export are
+ * the application's problem).
+ */
+public final class Tracing {
+    /** Span observer callbacks (kind is "client" or "server"). */
+    public interface Tracer {
+        void onStart(String kind, String method, String traceId, String spanId, String parentSpanId);
+
+        void onEnd(String kind, String method, String traceId, String spanId, String status);
+    }
+
+    /** One in-flight span's context. */
+    public record TraceContext(String traceId, String spanId, String parentSpanId) {
+    }
+
+    /** Parsed traceparent parent (trace + parent span). */
+    public record Parent(String traceId, String spanId) {
+    }
+
+    private static volatile Tracer tracer;
+    private static final SecureRandom RNG = new SecureRandom();
+
+    private Tracing() {
+    }
+
+    public static void setTracer(Tracer t) {
+        tracer = t;
+    }
+
+    public static boolean enabled() {
+        return tracer != null;
+    }
+
+    public static String formatTraceparent(String traceId, String spanId) {
+        return "00-" + traceId + "-" + spanId + "-01";
+    }
+
+    public static Parent parseTraceparent(String value) {
+        if (value == null) {
+            return null;
+        }
+        String[] parts = value.split("-");
+        if (parts.length != 4 || parts[1].length() != 32 || parts[2].length() != 16) {
+            return null;
+        }
+        for (int i = 0; i < parts[1].length(); i++) {
+            if (Character.digit(parts[1].charAt(i), 16) < 0) {
+                return null;
+            }
+        }
+        for (int i = 0; i < parts[2].length(); i++) {
+            if (Character.digit(parts[2].charAt(i), 16) < 0) {
+                return null;
+            }
+        }
+        return new Parent(parts[1], parts[2]);
+    }
+
+    private static String randomHex(int bytes) {
+        byte[] buf = new byte[bytes];
+        RNG.nextBytes(buf);
+        StringBuilder out = new StringBuilder(bytes * 2);
+        for (byte b : buf) {
+            out.append(Character.forDigit((b >> 4) & 0xf, 16));
+            out.append(Character.forDigit(b & 0xf, 16));
+        }
+        return out.toString();
+    }
+
+    public static TraceContext traceStart(String kind, String method, Parent parent) {
+        Tracer t = tracer;
+        if (t == null) {
+            return null;
+        }
+        TraceContext ctx = new TraceContext(
+                parent != null ? parent.traceId() : randomHex(16),
+                randomHex(8),
+                parent != null ? parent.spanId() : "");
+        try {
+            t.onStart(kind, method, ctx.traceId(), ctx.spanId(), ctx.parentSpanId());
+        } catch (Throwable ignored) {
+            // observers must never break the call
+        }
+        return ctx;
+    }
+
+    public static void traceEnd(String kind, String method, TraceContext ctx, String status) {
+        Tracer t = tracer;
+        if (ctx == null || t == null) {
+            return;
+        }
+        try {
+            t.onEnd(kind, method, ctx.traceId(), ctx.spanId(), status);
+        } catch (Throwable ignored) {
+            // observers must never break the call
+        }
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-java-runtime-files)
   (list
    (cons "grpcdc/StatusException.java" java-status-body)
+   (cons "grpcdc/Tracing.java" java-tracing-body)
    (cons "grpcdc/Codec.java" java-codec-body)
    (cons "grpcdc/Transport.java" java-transport-body)
    (cons "grpcdc/Marshaler.java" java-marshaler-body)

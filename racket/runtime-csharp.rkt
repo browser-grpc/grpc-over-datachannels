@@ -44,6 +44,105 @@ public class StatusException : Exception
         return new StatusException(Wire.CodeInternal, err.Message);
     }
 }
+
+/// <summary>
+/// Homegrown tracing: W3C traceparent propagation with a span
+/// observer. Dormant until Tracing.SetTracer registers one;
+/// generated code stays dependency-free (sampling and export are
+/// the application's problem).
+/// </summary>
+public static class Tracing
+{
+    /// <summary>Span observer callbacks (kind is "client" or "server").</summary>
+    public interface ITracer
+    {
+        void OnStart(string kind, string method, string traceId, string spanId, string parentSpanId);
+        void OnEnd(string kind, string method, string traceId, string spanId, string status);
+    }
+
+    /// <summary>One in-flight span's context.</summary>
+    public sealed record TraceContext(string TraceId, string SpanId, string ParentSpanId);
+
+    /// <summary>Parsed traceparent parent.</summary>
+    public sealed record Parent(string TraceId, string SpanId);
+
+    private static volatile ITracer _tracer;
+
+    public static void SetTracer(ITracer tracer) => _tracer = tracer;
+
+    public static bool Enabled => _tracer != null;
+
+    public static string FormatTraceparent(string traceId, string spanId) =>
+        $"00-{traceId}-{spanId}-01";
+
+    public static Parent ParseTraceparent(string value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        string[] parts = value.Split('-');
+        if (parts.Length != 4 || parts[1].Length != 32 || parts[2].Length != 16)
+        {
+            return null;
+        }
+        foreach (char c in parts[1] + parts[2])
+        {
+            bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+            if (!hex)
+            {
+                return null;
+            }
+        }
+        return new Parent(parts[1], parts[2]);
+    }
+
+    private static string RandomHex(int bytes)
+    {
+        byte[] buf = new byte[bytes];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(buf);
+        return Convert.ToHexString(buf).ToLowerInvariant();
+    }
+
+    public static TraceContext TraceStart(string kind, string method, Parent parent)
+    {
+        ITracer tracer = _tracer;
+        if (tracer == null)
+        {
+            return null;
+        }
+        var ctx = new TraceContext(
+            parent != null ? parent.TraceId : RandomHex(16),
+            RandomHex(8),
+            parent != null ? parent.SpanId : "");
+        try
+        {
+            tracer.OnStart(kind, method, ctx.TraceId, ctx.SpanId, ctx.ParentSpanId);
+        }
+        catch
+        {
+            // observers must never break the call
+        }
+        return ctx;
+    }
+
+    public static void TraceEnd(string kind, string method, TraceContext ctx, string status)
+    {
+        ITracer tracer = _tracer;
+        if (ctx == null || tracer == null)
+        {
+            return;
+        }
+        try
+        {
+            tracer.OnEnd(kind, method, ctx.TraceId, ctx.SpanId, status);
+        }
+        catch
+        {
+            // observers must never break the call
+        }
+    }
+}
 GRPC_RUNTIME_EOF
 )
 
@@ -675,6 +774,18 @@ public class Channel
         public uint StreamId { get; }
         public Codec.Headers Headers { get; private set; }
         internal long DeadlineTimestamp = -1;
+        internal Tracing.TraceContext TraceCtx;
+        internal string TracePath;
+        private bool _traceEnded;
+
+        internal void EndTrace(string status)
+        {
+            if (!_traceEnded)
+            {
+                _traceEnded = true;
+                Tracing.TraceEnd("client", TracePath, TraceCtx, status);
+            }
+        }
 
         internal ClientStream(Endpoint endpoint, uint streamId, Endpoint.StreamInput input)
         {
@@ -732,12 +843,14 @@ public class Channel
                         resp.UnmarshalDc(evt.Payload);
                         return;
                     case Endpoint.EventKind.Trailers:
+                        EndTrace(Wire.StatusName(evt.Status.Code));
                         if (evt.Status.Code != Wire.CodeOk)
                         {
                             throw evt.Status;
                         }
                         throw new EndOfStreamException("call completed");
                     case Endpoint.EventKind.Rst:
+                        EndTrace(Wire.StatusName(evt.Status.Code));
                         throw evt.Status;
                     default:
                         break;
@@ -749,14 +862,27 @@ public class Channel
     private ClientStream Open(string path, IDictionary<string, string> metadata, TimeSpan? timeout = null)
     {
         long deadline = -1;
-        if (timeout != null)
+        Tracing.TraceContext traceCtx = null;
+        if (timeout != null || Tracing.Enabled)
         {
-            deadline = System.Diagnostics.Stopwatch.GetTimestamp()
-                + (long)(timeout.Value.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
             var merged = metadata == null
                 ? new Dictionary<string, string>()
                 : new Dictionary<string, string>(metadata);
-            merged["grpc-timeout"] = Codec.EncodeTimeout(timeout.Value);
+            if (timeout != null)
+            {
+                deadline = System.Diagnostics.Stopwatch.GetTimestamp()
+                    + (long)(timeout.Value.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
+                merged["grpc-timeout"] = Codec.EncodeTimeout(timeout.Value);
+            }
+            if (Tracing.Enabled)
+            {
+                traceCtx = Tracing.TraceStart("client", path,
+                    Tracing.ParseTraceparent(merged.TryGetValue("traceparent", out string tp) ? tp : null));
+                if (traceCtx != null)
+                {
+                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.TraceId, traceCtx.SpanId);
+                }
+            }
             metadata = merged;
         }
         (uint id, Endpoint.StreamInput input) = _endpoint.OpenStream();
@@ -767,9 +893,15 @@ public class Channel
         catch
         {
             _endpoint.CloseStream(id);
+            Tracing.TraceEnd("client", path, traceCtx, "UNAVAILABLE");
             throw;
         }
-        return new ClientStream(_endpoint, id, input) { DeadlineTimestamp = deadline };
+        return new ClientStream(_endpoint, id, input)
+        {
+            DeadlineTimestamp = deadline,
+            TraceCtx = traceCtx,
+            TracePath = path,
+        };
     }
 
     private void SendMessage(ClientStream stream, IMarshaler msg)
@@ -980,15 +1112,20 @@ public class Server
         {
             return new StatusException(Wire.CodeUnimplemented, $"unknown method {headers.Path}");
         }
+        Tracing.TraceContext traceCtx = Tracing.TraceStart("server", headers.Path,
+            Tracing.ParseTraceparent(headers.Metadata.TryGetValue("traceparent", out string tp) ? tp : null));
+        StatusException result = null;
         try
         {
             method.Handler(ctx, new RequestStream(input), payload => sink.Send(payload));
         }
         catch (Exception e)
         {
-            return StatusException.ToStatus(e);
+            result = StatusException.ToStatus(e);
         }
-        return null;
+        Tracing.TraceEnd("server", headers.Path, traceCtx,
+            result == null ? "OK" : Wire.StatusName(result.Code));
+        return result;
     }
 }
 GRPC_RUNTIME_EOF

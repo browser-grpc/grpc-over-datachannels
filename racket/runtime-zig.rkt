@@ -17,6 +17,7 @@
 
 (define zig-status-body
 #<<GRPC_RUNTIME_EOF
+const std = @import("std");
 const wire = @import("wire.zig");
 
 /// A gRPC status (code + message), carried as a value: Zig has no
@@ -67,6 +68,119 @@ pub fn RecvResult(comptime T: type) type {
         end,
         status: Status,
     };
+}
+
+// --- Homegrown tracing (W3C traceparent propagation) -------------
+// Dormant until setTracer registers an observer. Generated code
+// stays dependency-free: sampling and export are the app's problem.
+
+pub const TraceContext = struct {
+    trace_id: [32]u8,
+    span_id: [16]u8,
+    parent_span_id: [16]u8,
+    has_parent: bool = false,
+};
+
+pub const Tracer = struct {
+    ctx: *anyopaque,
+    on_start: *const fn (ctx: *anyopaque, kind: []const u8, method: []const u8, trace_id: []const u8, span_id: []const u8, parent_span_id: []const u8) void,
+    on_end: *const fn (ctx: *anyopaque, kind: []const u8, method: []const u8, trace_id: []const u8, span_id: []const u8, status: []const u8) void,
+};
+
+var tracer: ?Tracer = null;
+
+pub fn setTracer(t: ?Tracer) void {
+    tracer = t;
+}
+
+pub fn tracingEnabled() bool {
+    return tracer != null;
+}
+
+fn hexDigit(v: u8) u8 {
+    return if (v < 10) '0' + v else 'a' + (v - 10);
+}
+
+var rng_state: u64 = 0;
+
+// Time/counter-seeded xorshift (std.crypto.random needs getrandom,
+// which wasm32-freestanding lacks; never use these ids for security).
+fn randomHex(comptime n: usize) [n * 2]u8 {
+    var state = rng_state;
+    if (state == 0) {
+        // No clock on freestanding targets; seed from our own address.
+        state = 0x9e3779b97f4a7c15 ^ @as(u64, @intCast(@intFromPtr(&rng_state)));
+    }
+    var out: [n * 2]u8 = undefined;
+    for (0..n) |i| {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        const b: u8 = @truncate(state >> 32);
+        out[i * 2] = hexDigit(b >> 4);
+        out[i * 2 + 1] = hexDigit(b & 0xf);
+    }
+    rng_state = state;
+    return out;
+}
+
+fn isHex(s: []const u8) bool {
+    for (s) |c| {
+        if (!((c >= '0' and c <= '9') or (c >= 'a' and c <= 'f'))) return false;
+    }
+    return true;
+}
+
+pub const Parent = struct {
+    trace_id: []const u8,
+    span_id: []const u8,
+};
+
+pub fn parseTraceparent(value: ?[]const u8) ?Parent {
+    const v = value orelse return null;
+    var it = std.mem.splitScalar(u8, v, '-');
+    _ = it.next() orelse return null;
+    const trace_id = it.next() orelse return null;
+    const span_id = it.next() orelse return null;
+    if (it.next() == null) return null;
+    if (trace_id.len != 32 or span_id.len != 16) return null;
+    if (!isHex(trace_id) or !isHex(span_id)) return null;
+    return .{ .trace_id = trace_id, .span_id = span_id };
+}
+
+pub fn formatTraceparent(buf: *[55]u8, trace_id: []const u8, span_id: []const u8) []const u8 {
+    @memcpy(buf[0..3], "00-");
+    @memcpy(buf[3..35], trace_id[0..32]);
+    buf[35] = '-';
+    @memcpy(buf[36..52], span_id[0..16]);
+    @memcpy(buf[52..55], "-01");
+    return buf;
+}
+
+pub fn traceStart(kind: []const u8, method: []const u8, parent: ?Parent) ?TraceContext {
+    const t = tracer orelse return null;
+    var ctx = TraceContext{
+        .trace_id = undefined,
+        .span_id = randomHex(8),
+        .parent_span_id = undefined,
+        .has_parent = parent != null,
+    };
+    if (parent) |p| {
+        @memcpy(&ctx.trace_id, p.trace_id[0..32]);
+        @memcpy(&ctx.parent_span_id, p.span_id[0..16]);
+    } else {
+        ctx.trace_id = randomHex(16);
+        ctx.parent_span_id = [_]u8{' '} ** 16;
+    }
+    const parent_span: []const u8 = if (ctx.has_parent) &ctx.parent_span_id else "";
+    t.on_start(t.ctx, kind, method, &ctx.trace_id, &ctx.span_id, parent_span);
+    return ctx;
+}
+
+pub fn traceEnd(kind: []const u8, method: []const u8, ctx: ?TraceContext, status: []const u8) void {
+    const t = tracer orelse return;
+    const c = ctx orelse return;
+    t.on_end(t.ctx, kind, method, &c.trace_id, &c.span_id, status);
 }
 GRPC_RUNTIME_EOF
 )
@@ -924,6 +1038,16 @@ pub const ClientStream = struct {
     endpoint: *Endpoint,
     headers: ?Headers = null,
     deadline_ms: ?i64 = null,
+    trace_ctx: ?status_mod.TraceContext = null,
+    trace_path: []const u8 = "",
+    trace_ended: bool = false,
+
+    pub fn endTrace(self: *ClientStream, status: []const u8) void {
+        if (!self.trace_ended) {
+            self.trace_ended = true;
+            status_mod.traceEnd("client", self.trace_path, self.trace_ctx, status);
+        }
+    }
 
     /// Abort this stream (sends RST, wakes a pending recv).
     pub fn cancel(self: *ClientStream) void {
@@ -960,6 +1084,10 @@ pub const ClientStream = struct {
                     const st = event.status orelse Status.ok();
                     event.status = null;
                     event.deinit(alloc);
+                    // statusName returns a literal for known codes
+                    // (the CODE_N fallback allocation is leaked by
+                    // design of that helper; traced names are known).
+                    self.endTrace(wire.statusName(alloc, st.code));
                     if (st.isOk()) return .end;
                     return .{ .status = st };
                 },
@@ -967,6 +1095,10 @@ pub const ClientStream = struct {
                     const st = event.status orelse Status.init(wire.codeUnavailable, "stream reset");
                     event.status = null;
                     event.deinit(alloc);
+                    // statusName returns a literal for known codes
+                    // (the CODE_N fallback allocation is leaked by
+                    // design of that helper; traced names are known).
+                    self.endTrace(wire.statusName(alloc, st.code));
                     return .{ .status = st };
                 },
                 .half_close => {
@@ -1034,10 +1166,9 @@ pub const Channel = struct {
         defer if (timeout_text) |t| alloc.free(t);
         defer if (merged) |*m| m.deinit();
         var md = metadata;
-        if (timeout_ms) |ms| {
-            if (endpoint_mod.nowMs()) |now| {
-                deadline_ms = now + @as(i64, @intCast(ms));
-            }
+        var trace_ctx: ?status_mod.TraceContext = null;
+        var tp_buf: [55]u8 = undefined;
+        if (timeout_ms != null or status_mod.tracingEnabled()) {
             merged = Metadata.init(alloc);
             if (metadata) |source| {
                 var it = source.iterator();
@@ -1045,8 +1176,20 @@ pub const Channel = struct {
                     merged.?.put(entry.key_ptr.*, entry.value_ptr.*) catch @panic("out of memory");
                 }
             }
-            timeout_text = Codec.encodeTimeout(alloc, ms);
-            merged.?.put("grpc-timeout", timeout_text.?) catch @panic("out of memory");
+            if (timeout_ms) |ms| {
+                if (endpoint_mod.nowMs()) |now| {
+                    deadline_ms = now + @as(i64, @intCast(ms));
+                }
+                timeout_text = Codec.encodeTimeout(alloc, ms);
+                merged.?.put("grpc-timeout", timeout_text.?) catch @panic("out of memory");
+            }
+            if (status_mod.tracingEnabled()) {
+                const parent = status_mod.parseTraceparent(if (metadata) |m| m.get("traceparent") else null);
+                trace_ctx = status_mod.traceStart("client", path, parent);
+                if (trace_ctx) |tc| {
+                    merged.?.put("traceparent", status_mod.formatTraceparent(&tp_buf, &tc.trace_id, &tc.span_id)) catch @panic("out of memory");
+                }
+            }
             md = &merged.?;
         }
         const opened = self.endpoint.openStream();
@@ -1054,12 +1197,13 @@ pub const Channel = struct {
             .bytes => |b| b,
             .status => |st| {
                 self.endpoint.closeStream(opened.id);
+                status_mod.traceEnd("client", path, trace_ctx, "UNAVAILABLE");
                 return .{ .status = st };
             },
         };
         defer alloc.free(frame);
         self.endpoint.sendFrame(frame);
-        return .{ .ok = .{ .stream_id = opened.id, .input = opened.input, .endpoint = self.endpoint, .deadline_ms = deadline_ms } };
+        return .{ .ok = .{ .stream_id = opened.id, .input = opened.input, .endpoint = self.endpoint, .deadline_ms = deadline_ms, .trace_ctx = trace_ctx, .trace_path = path } };
     }
 
     fn sendMessage(self: *Channel, stream: *ClientStream, payload: []const u8) Status {
@@ -1329,8 +1473,11 @@ pub const Server = struct {
             defer self.alloc.free(msg);
             return Status.init(wire.codeUnimplemented, msg);
         };
+        const trace_ctx = status_mod.traceStart("server", headers.path.?, status_mod.parseTraceparent(headers.metadata.get("traceparent")));
         var reqs = RequestStream{ .input = input, .alloc = self.alloc };
-        return method.handler(method.ctx, &mutable_ctx, &reqs, .{ .sink = sink });
+        const result = method.handler(method.ctx, &mutable_ctx, &reqs, .{ .sink = sink });
+        status_mod.traceEnd("server", headers.path.?, trace_ctx, wire.statusName(self.alloc, result.code));
+        return result;
     }
 };
 GRPC_RUNTIME_EOF

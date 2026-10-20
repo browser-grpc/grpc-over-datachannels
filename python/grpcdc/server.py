@@ -2,7 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Server: dispatches inbound calls to registered methods."""
 
-from .codec import to_status
+from .codec import (
+    parse_traceparent,
+    status_name,
+    to_status,
+    trace_end,
+    trace_start,
+)
 from .endpoint import (
     EVENT_DATA,
     EVENT_HALF_CLOSE,
@@ -86,8 +92,13 @@ class Server:
             return StatusError(
                 CODE_UNIMPLEMENTED, f"unknown method {headers.path}"
             )
+        parent = parse_traceparent((headers.metadata or {}).get("traceparent"))
+        trace_ctx = trace_start("server", headers.path, parent)
+        result = None
         try:
             method.handler(ctx, RequestStream(stream_input), sink)
         except Exception as e:  # StatusError passes through via to_status
-            return to_status(e)
-        return None
+            result = to_status(e)
+        status = status_name(result.code) if result is not None else "OK"
+        trace_end("server", headers.path, trace_ctx, status)
+        return result

@@ -117,12 +117,30 @@ impl Channel {
                 .insert("grpc-timeout".to_string(), encode_timeout(timeout));
             Instant::now() + timeout
         });
-        let metadata = options.metadata;
+        let mut metadata = options.metadata;
+        let mut trace_ctx = None;
+        if crate::status::tracing_enabled() {
+            trace_ctx = crate::status::trace_start(
+                "client",
+                path,
+                crate::status::parse_traceparent(metadata.get("traceparent")),
+            );
+            if let Some(ctx) = &trace_ctx {
+                metadata.insert(
+                    "traceparent".to_string(),
+                    crate::status::format_traceparent(&ctx.trace_id, &ctx.span_id),
+                );
+            }
+        }
         let (id, rx) = self.ep.open_stream();
+        if let Some(ctx) = trace_ctx {
+            self.ep.set_stream_trace(id, ctx, path.to_string());
+        }
         let headers = Headers { path: Some(path.to_string()), metadata };
         match self.ep.send_frame(Frame::headers(id, &headers)?).await {
             Ok(()) => Ok((id, rx, deadline)),
             Err(e) => {
+                self.ep.end_stream_trace(id, "UNAVAILABLE");
                 self.ep.close_stream(id);
                 Err(e)
             }
@@ -154,6 +172,7 @@ impl Channel {
                     Err(e) => break Err(e),
                 },
                 Ok(Some(StreamEvent::Trailers(status))) => {
+                    self.ep.end_stream_trace(id, status.code.name());
                     if status.is_ok() {
                         match response {
                             Some(msg) => break Ok(msg),
@@ -165,7 +184,10 @@ impl Channel {
                         break Err(status);
                     }
                 }
-                Ok(Some(StreamEvent::Rst(status))) => break Err(status),
+                Ok(Some(StreamEvent::Rst(status))) => {
+                    self.ep.end_stream_trace(id, status.code.name());
+                    break Err(status)
+                }
                 Ok(Some(StreamEvent::HalfClose)) => continue,
                 Ok(None) => break Err(Status::unavailable("data channel closed")),
             }
@@ -398,13 +420,17 @@ where
                     Err(e) => return Some((Err(e), (ep, rx, true))),
                 },
                 Some(StreamEvent::Trailers(status)) => {
+                    ep.end_stream_trace(id, status.code.name());
                     return if status.is_ok() {
                         None
                     } else {
                         Some((Err(status), (ep, rx, true)))
                     };
                 }
-                Some(StreamEvent::Rst(status)) => return Some((Err(status), (ep, rx, true))),
+                Some(StreamEvent::Rst(status)) => {
+                    ep.end_stream_trace(id, status.code.name());
+                    return Some((Err(status), (ep, rx, true)))
+                }
                 None => {
                     return Some((
                         Err(Status::unavailable("data channel closed")),

@@ -4,7 +4,18 @@
 
 import asyncio
 
-from .codec import StatusError, encode_frame, encode_timeout, headers_frame
+from .codec import (
+    StatusError,
+    encode_frame,
+    encode_timeout,
+    format_traceparent,
+    get_tracer,
+    headers_frame,
+    parse_traceparent,
+    status_name,
+    trace_end,
+    trace_start,
+)
 from .endpoint import (
     EVENT_DATA,
     EVENT_HEADERS,
@@ -35,19 +46,31 @@ class Channel:
 
     def _open(self, path, metadata, timeout=None):
         deadline = None
-        if timeout is not None:
-            deadline = _monotonic() + timeout
+        trace_ctx = None
+        if timeout is not None or get_tracer() is not None:
             merged = dict(metadata) if metadata else {}
-            merged["grpc-timeout"] = encode_timeout(timeout)
+            if timeout is not None:
+                deadline = _monotonic() + timeout
+                merged["grpc-timeout"] = encode_timeout(timeout)
+            if get_tracer() is not None:
+                parent = parse_traceparent(merged.get("traceparent"))
+                trace_ctx = trace_start("client", path, parent)
+                if trace_ctx is not None:
+                    merged["traceparent"] = format_traceparent(
+                        trace_ctx["trace_id"], trace_ctx["span_id"]
+                    )
             metadata = merged
         stream_id, stream_input = self.endpoint.open_stream()
         try:
             self.endpoint.send_frame(headers_frame(stream_id, path, metadata))
         except Exception:
             self.endpoint.close_stream(stream_id)
+            trace_end("client", path, trace_ctx, "UNAVAILABLE")
             raise
         stream = ClientStream(self.endpoint, stream_id, stream_input)
         stream.deadline = deadline
+        stream.trace_ctx = trace_ctx
+        stream.trace_path = path
         return stream
 
     def _send_message(self, stream, msg):
@@ -146,8 +169,17 @@ class ClientStream:
         self._input = stream_input
         self.headers = None
         self.deadline = None
+        self.trace_ctx = None
+        self.trace_path = None
+        self._trace_ended = False
+
+    def _end_trace(self, status):
+        if not self._trace_ended:
+            self._trace_ended = True
+            trace_end("client", self.trace_path, self.trace_ctx, status)
 
     def _fail_deadline(self):
+        self._end_trace("DEADLINE_EXCEEDED")
         self._endpoint.cancel_stream(self.stream_id)
         raise StatusError(CODE_DEADLINE_EXCEEDED, "deadline exceeded")
 
@@ -175,10 +207,12 @@ class ClientStream:
                 resp.unmarshal_dc(event.payload)
                 return resp
             elif event.kind == EVENT_TRAILERS:
+                self._end_trace(status_name(event.status.code))
                 if event.status.code != 0:
                     raise event.status
                 raise EOFError("call completed")
             elif event.kind == EVENT_RST:
+                self._end_trace(status_name(event.status.code))
                 raise event.status
 
 

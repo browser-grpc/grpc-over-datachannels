@@ -1619,6 +1619,10 @@
   (define request-bytes (port->bytes (current-input-port)))
   (define-values (files parameter) (parse-request request-bytes))
   (define params (parse-parameters parameter))
+  (define trace-opt (hash-ref params 'trace #f))
+  (when (and trace-opt (not (member trace-opt '("off" "hooks"))))
+    (error
+     (format "unknown trace option ~a (expected off or hooks)" trace-opt)))
   (define (as-file-list out)
     (if (and (pair? out) (string? (car out))) (list out) out))
   (write-bytes

@@ -110,11 +110,16 @@ class Server {
       return StatusException(
           Wire.codeUnimplemented, 'unknown method ${headers.path}');
     }
+    final traceCtx = traceStart('server', headers.path ?? '',
+        parseTraceparent(headers.metadata['traceparent']));
+    StatusException? result;
     try {
       await method.handler(ctx, RequestStream(input), sink.send);
     } catch (e) {
-      return StatusException.toStatus(e);
+      result = StatusException.toStatus(e);
     }
-    return null;
+    traceEnd('server', headers.path ?? '', traceCtx,
+        result == null ? 'OK' : Wire.statusName(result.code));
+    return result;
   }
 }

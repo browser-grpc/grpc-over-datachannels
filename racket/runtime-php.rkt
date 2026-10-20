@@ -63,6 +63,75 @@ final class Status
         return Wire::STATUS_NAMES[$code] ?? ("CODE_" . $code);
     }
 
+    // --- Homegrown tracing (W3C traceparent propagation) --------
+    // Dormant until Status::setTracer registers an observer with
+    // traceStart/traceEnd-style callbacks. Provide an object with
+    // onStart($kind, $method, $traceId, $spanId, $parentSpanId)
+    // and onEnd($kind, $method, $traceId, $spanId, $status).
+    // Dependency-free: sampling/export are the app's problem.
+
+    private static mixed $tracer = null;
+
+    public static function setTracer(mixed $tracer): void
+    {
+        self::$tracer = $tracer;
+    }
+
+    public static function tracer(): mixed
+    {
+        return self::$tracer;
+    }
+
+    public static function formatTraceparent(string $traceId, string $spanId): string
+    {
+        return "00-$traceId-$spanId-01";
+    }
+
+    /** @return array{string,string}|null [traceId, spanId] */
+    public static function parseTraceparent(?string $value): ?array
+    {
+        if ($value === null) {
+            return null;
+        }
+        $parts = explode("-", $value);
+        if (count($parts) !== 4 || strlen($parts[1]) !== 32 || strlen($parts[2]) !== 16) {
+            return null;
+        }
+        if (!ctype_xdigit($parts[1]) || !ctype_xdigit($parts[2])) {
+            return null;
+        }
+        return [$parts[1], $parts[2]];
+    }
+
+    /** @return array{trace_id:string,span_id:string,parent_span_id:string}|null */
+    public static function traceStart(string $kind, string $method, ?array $parent): ?array
+    {
+        if (self::$tracer === null) {
+            return null;
+        }
+        $ctx = [
+            "trace_id" => $parent !== null ? $parent[0] : bin2hex(random_bytes(16)),
+            "span_id" => bin2hex(random_bytes(8)),
+            "parent_span_id" => $parent !== null ? $parent[1] : "",
+        ];
+        try {
+            self::$tracer->onStart($kind, $method, $ctx["trace_id"], $ctx["span_id"], $ctx["parent_span_id"]);
+        } catch (\Throwable) {
+        }
+        return $ctx;
+    }
+
+    public static function traceEnd(string $kind, string $method, ?array $ctx, string $status): void
+    {
+        if ($ctx === null || self::$tracer === null) {
+            return;
+        }
+        try {
+            self::$tracer->onEnd($kind, $method, $ctx["trace_id"], $ctx["span_id"], $status);
+        } catch (\Throwable) {
+        }
+    }
+
     /** Convert any throwable to StatusError (OK for null). */
     public static function toStatus(?\Throwable $err): StatusError
     {
@@ -712,19 +781,32 @@ class Channel
     private function openCall(string $path, ?array $metadata, ?float $timeout): ClientStream
     {
         $deadline = null;
-        if ($timeout !== null) {
-            $deadline = Endpoint::nowSeconds() + $timeout;
-            $metadata = array_merge($metadata ?? [], ["grpc-timeout" => Codec::encodeTimeout($timeout)]);
+        $traceCtx = null;
+        if ($timeout !== null || Status::tracer() !== null) {
+            $metadata = $metadata ?? [];
+            if ($timeout !== null) {
+                $deadline = Endpoint::nowSeconds() + $timeout;
+                $metadata["grpc-timeout"] = Codec::encodeTimeout($timeout);
+            }
+            if (Status::tracer() !== null) {
+                $traceCtx = Status::traceStart("client", $path, Status::parseTraceparent($metadata["traceparent"] ?? null));
+                if ($traceCtx !== null) {
+                    $metadata["traceparent"] = Status::formatTraceparent($traceCtx["trace_id"], $traceCtx["span_id"]);
+                }
+            }
         }
         [$streamId, $streamInput] = $this->endpoint->openStream();
         try {
             $this->endpoint->sendFrame(Codec::headersFrame($streamId, $path, $metadata));
         } catch (\Throwable $e) {
             $this->endpoint->closeStream($streamId);
+            Status::traceEnd("client", $path, $traceCtx, "UNAVAILABLE");
             throw $e;
         }
         $stream = new ClientStream($this->endpoint, $streamId, $streamInput);
         $stream->deadline = $deadline;
+        $stream->traceCtx = $traceCtx;
+        $stream->tracePath = $path;
         return $stream;
     }
 
@@ -754,7 +836,18 @@ class ClientStream
     public int $streamId;
     public ?Headers $headers = null;
     public ?float $deadline = null;
+    public ?array $traceCtx = null;
+    public ?string $tracePath = null;
+    private bool $traceEnded = false;
     private StreamInput $input;
+
+    public function endTrace(string $status): void
+    {
+        if (!$this->traceEnded) {
+            $this->traceEnded = true;
+            Status::traceEnd("client", $this->tracePath ?? "", $this->traceCtx, $status);
+        }
+    }
 
     public function __construct(Endpoint $endpoint, int $streamId, StreamInput $streamInput)
     {
@@ -797,11 +890,13 @@ class ClientStream
                 case "data":
                     return $resp->unmarshalDc($event->payload);
                 case "trailers":
+                    $this->endTrace(Status::name($event->status->statusCode));
                     if ($event->status->statusCode === Wire::CODE_OK) {
                         throw new CallClosed("call completed");
                     }
                     throw $event->status;
                 case "rst":
+                    $this->endTrace(Status::name($event->status->statusCode));
                     throw $event->status;
             }
         }
@@ -1042,12 +1137,15 @@ class Server
         if ($method === null) {
             return new StatusError(Wire::CODE_UNIMPLEMENTED, "unknown method " . $headers->path);
         }
+        $traceCtx = Status::traceStart("server", $headers->path, Status::parseTraceparent($headers->metadata["traceparent"] ?? null));
+        $result = null;
         try {
             ($method->handler)($ctx, new RequestStream($endpoint, $input), $sink);
         } catch (\Throwable $e) {
-            return Status::toStatus($e);
+            $result = Status::toStatus($e);
         }
-        return null;
+        Status::traceEnd("server", $headers->path, $traceCtx, $result === null ? "OK" : Status::name($result->statusCode));
+        return $result;
     }
 }
 GRPC_RUNTIME_EOF

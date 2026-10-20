@@ -70,16 +70,27 @@ class Channel {
             resp.UnmarshalDc(evt.payload);
             return;
           case Endpoint::EventKind::kTrailers:
+            EndTrace(wire::StatusName(evt.status ? evt.status->code() : wire::kCodeOk));
             if (evt.status && evt.status->code() != wire::kCodeOk) {
               throw *evt.status;
             }
             throw EndOfStream();
-          case Endpoint::EventKind::kRst:
-            if (evt.status) throw *evt.status;
-            throw StatusException(wire::kCodeUnavailable, "stream reset");
+          case Endpoint::EventKind::kRst: {
+            StatusException status = evt.status ? *evt.status
+                : StatusException(wire::kCodeUnavailable, "stream reset");
+            EndTrace(wire::StatusName(status.code()));
+            throw status;
+          }
           default:
             break;
         }
+      }
+    }
+
+    void EndTrace(const std::string& status) {
+      if (!trace_ended_) {
+        trace_ended_ = true;
+        Tracing::TraceEnd("client", trace_path_, trace_ctx_, status);
       }
     }
 
@@ -90,6 +101,9 @@ class Channel {
     std::uint32_t stream_id_;
     std::shared_ptr<Endpoint::StreamInput> input_;
     Codec::Headers headers_;
+    std::optional<Tracing::TraceContext> trace_ctx_;
+    std::string trace_path_;
+    bool trace_ended_ = false;
   };
 
   /// Abort an open ClientStream (sends RST, wakes pending Recv).
@@ -187,10 +201,23 @@ class Channel {
     Metadata merged;
     const Metadata* md = metadata;
     std::optional<std::chrono::steady_clock::time_point> deadline;
-    if (timeout) {
-      deadline = std::chrono::steady_clock::now() + *timeout;
+    std::optional<Tracing::TraceContext> trace_ctx;
+    if (timeout || Tracing::Enabled()) {
       if (metadata) merged = *metadata;
-      merged["grpc-timeout"] = Codec::EncodeTimeout(*timeout);
+      if (timeout) {
+        deadline = std::chrono::steady_clock::now() + *timeout;
+        merged["grpc-timeout"] = Codec::EncodeTimeout(*timeout);
+      }
+      if (Tracing::Enabled()) {
+        auto it = merged.find("traceparent");
+        trace_ctx = Tracing::TraceStart(
+            "client", path,
+            Tracing::ParseTraceparent(it == merged.end() ? nullptr : it->second.c_str()));
+        if (trace_ctx) {
+          merged["traceparent"] =
+              Tracing::FormatTraceparent(trace_ctx->trace_id, trace_ctx->span_id);
+        }
+      }
       md = &merged;
     }
     auto opened = endpoint_->OpenStream();
@@ -198,11 +225,14 @@ class Channel {
       endpoint_->SendFrame(Codec::HeadersFrame(opened.first, path.c_str(), md));
     } catch (...) {
       endpoint_->CloseStream(opened.first);
+      Tracing::TraceEnd("client", path, trace_ctx, "UNAVAILABLE");
       throw;
     }
     ClientStream stream(opened.first, opened.second);
     stream.endpoint_ = endpoint_;
     stream.deadline_ = deadline;
+    stream.trace_ctx_ = trace_ctx;
+    stream.trace_path_ = path;
     return stream;
   }
 

@@ -44,6 +44,7 @@ pub struct Endpoint {
     services: RwLock<HashMap<String, crate::server::MethodDef>>,
     next_id: AtomicU32,
     send_lock: AsyncMutex<()>,
+    traces: Mutex<HashMap<u32, (crate::status::TraceContext, String)>>,
 }
 
 impl Endpoint {
@@ -57,7 +58,20 @@ impl Endpoint {
                 StreamIdParity::Even => 2,
             }),
             send_lock: AsyncMutex::new(()),
+            traces: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Record the client span for a locally-initiated stream.
+    pub fn set_stream_trace(&self, id: u32, ctx: crate::status::TraceContext, path: String) {
+        self.traces.lock().unwrap().insert(id, (ctx, path));
+    }
+
+    /// Fire the client span-end hook for a stream, if traced.
+    pub fn end_stream_trace(&self, id: u32, status_name: &str) {
+        if let Some((ctx, path)) = self.traces.lock().unwrap().remove(&id) {
+            crate::status::trace_end("client", &path, Some(&ctx), status_name);
+        }
     }
 
     pub fn register_service(&self, service: ServiceDef) {
@@ -193,6 +207,11 @@ impl Endpoint {
                 let _ = self
                     .send_frame(Frame::headers(frame.stream_id, &Headers::default()).unwrap())
                     .await;
+                let trace_ctx = crate::status::trace_start(
+                    "server",
+                    &path,
+                    crate::status::parse_traceparent(headers.metadata.get("traceparent")),
+                );
                 let ep = self.clone();
                 let stream_id = frame.stream_id;
                 crate::spawn_task(async move {
@@ -200,6 +219,12 @@ impl Endpoint {
                         Ok(()) => Status::ok(),
                         Err(s) => s,
                     };
+                    crate::status::trace_end(
+                        "server",
+                        &path,
+                        trace_ctx.as_ref(),
+                        status.code.name(),
+                    );
                     let _ = ep.send_frame(Frame::trailers(stream_id, &status).unwrap()).await;
                     ep.close_stream(stream_id);
                 });

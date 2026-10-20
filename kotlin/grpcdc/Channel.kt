@@ -27,6 +27,16 @@ class Channel {
         private val input: Endpoint.StreamInput
     ) {
         internal var deadlineNanos: Long = -1L
+        internal var traceCtx: Tracing.TraceContext? = null
+        internal var tracePath: String? = null
+        private var traceEnded: Boolean = false
+
+        internal fun endTrace(status: String) {
+            if (!traceEnded) {
+                traceEnded = true
+                Tracing.traceEnd("client", tracePath ?: "", traceCtx, status)
+            }
+        }
 
         /** Abort this stream (sends RST, wakes a pending recv). */
         fun cancel() = endpoint.cancelStream(streamId)
@@ -64,13 +74,18 @@ class Channel {
                     }
                     Endpoint.EventKind.TRAILERS -> {
                         val status = event.status
+                        endTrace(Wire.statusName(status?.code ?: Wire.CODE_OK))
                         if (status != null && status.code != Wire.CODE_OK) {
                             throw status
                         }
                         throw EOFException("call completed")
                     }
-                    Endpoint.EventKind.RST -> throw event.status
-                        ?: StatusException(Wire.CODE_UNAVAILABLE, "stream reset")
+                    Endpoint.EventKind.RST -> {
+                        val status = event.status
+                            ?: StatusException(Wire.CODE_UNAVAILABLE, "stream reset")
+                        endTrace(Wire.statusName(status.code))
+                        throw status
+                    }
                     else -> {}
                 }
             }
@@ -81,19 +96,33 @@ class Channel {
                      timeout: java.time.Duration? = null): ClientStream {
         var metadata = metadata
         var deadlineNanos = -1L
-        if (timeout != null) {
-            deadlineNanos = System.nanoTime() + timeout.toNanos()
-            metadata = (metadata ?: emptyMap()) + ("grpc-timeout" to Codec.encodeTimeout(timeout))
+        var traceCtx: Tracing.TraceContext? = null
+        if (timeout != null || Tracing.enabled()) {
+            var merged = metadata ?: emptyMap()
+            if (timeout != null) {
+                deadlineNanos = System.nanoTime() + timeout.toNanos()
+                merged = merged + ("grpc-timeout" to Codec.encodeTimeout(timeout))
+            }
+            if (Tracing.enabled()) {
+                traceCtx = Tracing.traceStart("client", path, Tracing.parseTraceparent(merged["traceparent"]))
+                if (traceCtx != null) {
+                    merged = merged + ("traceparent" to Tracing.formatTraceparent(traceCtx.traceId, traceCtx.spanId))
+                }
+            }
+            metadata = merged
         }
         val (id, input) = endpoint.openStream()
         try {
             endpoint.sendFrame(Codec.headersFrame(id, path, metadata))
         } catch (e: Exception) {
             endpoint.closeStream(id)
+            Tracing.traceEnd("client", path, traceCtx, "UNAVAILABLE")
             throw e
         }
         val stream = ClientStream(id, endpoint, input)
         stream.deadlineNanos = deadlineNanos
+        stream.traceCtx = traceCtx
+        stream.tracePath = path
         return stream
     }
 

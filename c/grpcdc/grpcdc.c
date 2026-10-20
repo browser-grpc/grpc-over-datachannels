@@ -58,6 +58,88 @@ void grpcdc_bytes_free(grpcdc_bytes *b) {
     }
 }
 
+/* ---- homegrown tracing implementation ---- */
+static grpcdc_tracer g_tracer;
+static int g_tracer_set = 0;
+
+void grpcdc_set_tracer(const grpcdc_tracer *tracer) {
+    if (tracer) {
+        g_tracer = *tracer;
+        g_tracer_set = 1;
+    } else {
+        g_tracer_set = 0;
+    }
+}
+
+bool grpcdc_tracing_enabled(void) { return g_tracer_set != 0; }
+
+static uint64_t trace_rng_state = 0;
+
+static void trace_random_hex(char *out, size_t nbytes) {
+    static const char digits[] = "0123456789abcdef";
+    if (trace_rng_state == 0) {
+        trace_rng_state = (uint64_t)grpcdc_now_ms() * 2685821657736338717ull
+                          ^ 0x9e3779b97f4a7c15ull;
+    }
+    for (size_t i = 0; i < nbytes; i++) {
+        uint64_t x = trace_rng_state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        trace_rng_state = x;
+        unsigned int b = (unsigned int)(x >> 32) & 0xffu;
+        out[i * 2] = digits[b >> 4];
+        out[i * 2 + 1] = digits[b & 0xfu];
+    }
+    out[nbytes * 2] = 0;
+}
+
+static int trace_is_hex(const char *s, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return 0;
+    }
+    return 1;
+}
+
+grpcdc_trace_context grpcdc_trace_start(const char *kind, const char *method,
+                                        const char *parent_traceparent) {
+    grpcdc_trace_context ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    if (!g_tracer_set || !g_tracer.on_start) return ctx;
+    if (parent_traceparent) {
+        /* 00-<32>-<16>-01 */
+        const char *p = parent_traceparent;
+        if (strlen(p) == 55 && p[2] == '-' && p[35] == '-' && p[52] == '-'
+            && trace_is_hex(p + 3, 32) && trace_is_hex(p + 36, 16)) {
+            memcpy(ctx.trace_id, p + 3, 32);
+            memcpy(ctx.parent_span_id, p + 36, 16);
+        }
+    }
+    if (ctx.trace_id[0] == 0) trace_random_hex(ctx.trace_id, 16);
+    trace_random_hex(ctx.span_id, 8);
+    ctx.active = 1;
+    g_tracer.on_start(g_tracer.ctx, kind, method, ctx.trace_id, ctx.span_id,
+                      ctx.parent_span_id);
+    return ctx;
+}
+
+void grpcdc_trace_end(const char *kind, const char *method,
+                      const grpcdc_trace_context *ctx, const char *status) {
+    if (!ctx || !ctx->active || !g_tracer_set || !g_tracer.on_end) return;
+    g_tracer.on_end(g_tracer.ctx, kind, method, ctx->trace_id, ctx->span_id,
+                    status);
+}
+
+char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out) {
+    memcpy(out, "00-", 3);
+    memcpy(out + 3, ctx->trace_id, 32);
+    out[35] = '-';
+    memcpy(out + 36, ctx->span_id, 16);
+    memcpy(out + 52, "-01", 4);
+    return out;
+}
+
 static void put_u32(uint8_t *out, size_t off, uint32_t v) {
     out[off] = (uint8_t)((v >> 24) & 0xff);
     out[off + 1] = (uint8_t)((v >> 16) & 0xff);
@@ -521,7 +603,26 @@ struct grpcdc_stream {
     grpcdc_status terminal;
     bool have_terminal;
     int64_t deadline_abs_ms; /* 0 = none */
+    grpcdc_trace_context trace;
+    const char *trace_path;
+    bool trace_ended;
 };
+
+static void stream_end_trace(grpcdc_stream *s, const char *status) {
+    if (!s->trace_ended) {
+        s->trace_ended = true;
+        grpcdc_trace_end("client", s->trace_path ? s->trace_path : "",
+                         &s->trace, status);
+    }
+}
+
+static const char *md_find(const grpcdc_kv *md, size_t count, const char *key) {
+    if (!md) return NULL;
+    for (size_t i = 0; i < count; i++) {
+        if (md[i].key && strcmp(md[i].key, key) == 0) return md[i].value;
+    }
+    return NULL;
+}
 
 void grpcdc_channel_init(grpcdc_channel *ch, grpcdc_transport *transport) {
     ch->transport = transport;
@@ -561,23 +662,37 @@ grpcdc_status grpcdc_channel_open(grpcdc_channel *ch, const char *path,
     s->channel = ch;
     s->id = ch->next_stream_id;
     ch->next_stream_id += 2;
-    /* Merge caller metadata with the grpc-timeout header. */
+    s->trace = grpcdc_trace_start("client", path,
+                                  md_find(md, md_count, "traceparent"));
+    s->trace_path = path;
+    /* Merge caller metadata with grpc-timeout and traceparent. */
     grpcdc_kv *merged = NULL;
     size_t merged_count = md_count;
     char *timeout = NULL;
-    if (deadline_ms > 0) {
-        timeout = grpcdc_encode_timeout(deadline_ms);
-        merged = (grpcdc_kv *)malloc(sizeof(grpcdc_kv) * (md_count + 1));
+    char tpbuf[56];
+    if (deadline_ms > 0 || s->trace.active) {
+        merged = (grpcdc_kv *)malloc(sizeof(grpcdc_kv) * (md_count + 2));
         if (md_count) memcpy(merged, md, sizeof(grpcdc_kv) * md_count);
-        merged[md_count].key = "grpc-timeout";
-        merged[md_count].value = timeout;
-        merged_count = md_count + 1;
+        merged_count = md_count;
+        if (deadline_ms > 0) {
+            timeout = grpcdc_encode_timeout(deadline_ms);
+            merged[merged_count].key = "grpc-timeout";
+            merged[merged_count].value = timeout;
+            merged_count++;
+        }
+        if (s->trace.active) {
+            grpcdc_format_traceparent(&s->trace, tpbuf);
+            merged[merged_count].key = "traceparent";
+            merged[merged_count].value = tpbuf;
+            merged_count++;
+        }
     }
     grpcdc_bytes headers;
     grpcdc_status st = grpcdc_headers_frame(
         s->id, path, merged ? merged : md, merged_count, &headers);
     free(merged);
     if (!grpcdc_status_is_ok(st)) {
+        stream_end_trace(s, "UNAVAILABLE");
         free(timeout);
         free(s);
         return st;
@@ -585,6 +700,7 @@ grpcdc_status grpcdc_channel_open(grpcdc_channel *ch, const char *path,
     int rc = ch->transport->send(ch->transport->ctx, headers.data, headers.len);
     grpcdc_bytes_free(&headers);
     if (rc != 0) {
+        stream_end_trace(s, "UNAVAILABLE");
         free(timeout);
         free(s);
         return grpcdc_status_make(GRPCDC_UNAVAILABLE, "transport send failed");
@@ -656,6 +772,7 @@ int grpcdc_stream_recv(grpcdc_stream *s, grpcdc_bytes *out,
                     grpcdc_bytes_free(&rst);
                 }
                 s->ended = true;
+                stream_end_trace(s, "DEADLINE_EXCEEDED");
                 *st = grpcdc_status_make(GRPCDC_DEADLINE_EXCEEDED,
                                          "deadline exceeded");
                 return -1;
@@ -666,6 +783,7 @@ int grpcdc_stream_recv(grpcdc_stream *s, grpcdc_bytes *out,
         }
         if (recv_rc != 0) {
             s->ended = true;
+            stream_end_trace(s, "UNAVAILABLE");
             *st = grpcdc_status_make(GRPCDC_UNAVAILABLE, "transport closed");
             return -1;
         }
@@ -699,6 +817,7 @@ int grpcdc_stream_recv(grpcdc_stream *s, grpcdc_bytes *out,
             s->ended = true;
             s->terminal = tst;
             s->have_terminal = true;
+            stream_end_trace(s, grpcdc_status_name(tst.code));
             if (grpcdc_status_is_ok(tst)) return 0;
             *st = tst;
             return -1;
@@ -710,6 +829,7 @@ int grpcdc_stream_recv(grpcdc_stream *s, grpcdc_bytes *out,
             s->ended = true;
             s->terminal = tst;
             s->have_terminal = true;
+            stream_end_trace(s, grpcdc_status_name(tst.code));
             *st = tst;
             return -1;
         }
@@ -782,6 +902,7 @@ typedef struct {
     bool headers_sent;
     grpcdc_kv *metadata;
     size_t metadata_count;
+    char *path;
 } server_stream_state;
 
 struct grpcdc_server_stream {
@@ -913,6 +1034,9 @@ static const server_method_entry *server_find(grpcdc_server *srv,
 
 static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
     (void)srv;
+    grpcdc_trace_context trace = grpcdc_trace_start(
+        "server", ss->path ? ss->path : "",
+        md_find(ss->metadata, ss->metadata_count, "traceparent"));
     grpcdc_status st = grpcdc_ok();
     grpcdc_server_stream raw;
     raw.state = ss;
@@ -974,6 +1098,8 @@ static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
             break;
         }
     }
+    grpcdc_trace_end("server", ss->path ? ss->path : "", &trace,
+                     grpcdc_status_name(st.code));
     server_send_trailers(ss, st);
 }
 
@@ -1040,6 +1166,11 @@ grpcdc_status grpcdc_server_serve(grpcdc_server *srv,
             active->method = method;
             active->impl = method->impl;
             active->transport = transport;
+            if (headers.path) {
+                size_t plen = strlen(headers.path) + 1;
+                active->path = (char *)malloc(plen);
+                memcpy(active->path, headers.path, plen);
+            }
             active->metadata = headers.metadata;
             active->metadata_count = headers.metadata_count;
             headers.metadata = NULL;
@@ -1083,6 +1214,7 @@ grpcdc_status grpcdc_server_serve(grpcdc_server *srv,
                 free((void *)done->metadata[i].value);
             }
             free(done->metadata);
+            free(done->path);
             free(done);
             free(raw);
             continue;

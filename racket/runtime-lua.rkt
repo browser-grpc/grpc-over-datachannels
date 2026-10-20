@@ -64,11 +64,88 @@ local function raise(status)
   error(status, 0)
 end
 
+-- --- Homegrown tracing (W3C traceparent propagation) -------------
+-- Dormant until setTracer registers an observer table with
+-- onStart(kind, method, traceId, spanId, parentSpanId) and
+-- onEnd(kind, method, traceId, spanId, statusName) fields.
+-- Dependency-free: sampling and export are the app's problem.
+
+local tracer = nil
+
+local function setTracer(t)
+  tracer = t
+end
+
+local function getTracer()
+  return tracer
+end
+
+local randCounter = 0
+local function randomHex(nbytes)
+  randCounter = randCounter + 1
+  math.randomseed(os.time() + randCounter * 7919)
+  local out = {}
+  for i = 1, nbytes do
+    out[i] = string.format("%02x", math.random(0, 255))
+  end
+  return table.concat(out)
+end
+
+local function formatTraceparent(traceId, spanId)
+  return "00-" .. traceId .. "-" .. spanId .. "-01"
+end
+
+local function parseTraceparent(value)
+  if type(value) ~= "string" then return nil end
+  local parts = {}
+  for part in string.gmatch(value, "[^-]+") do
+    parts[#parts + 1] = part
+  end
+  if #parts ~= 4 then return nil end
+  local traceId, spanId = parts[2], parts[3]
+  if #traceId ~= 32 or #spanId ~= 16 then return nil end
+  if traceId:find("[^0-9a-f]") or spanId:find("[^0-9a-f]") then return nil end
+  return { traceId = traceId, spanId = spanId }
+end
+
+local function traceStart(kind, method, parent)
+  if tracer == nil then return nil end
+  local ctx = { spanId = randomHex(8) }
+  if parent ~= nil then
+    ctx.traceId = parent.traceId
+    ctx.parentSpanId = parent.spanId
+  else
+    ctx.traceId = randomHex(16)
+    ctx.parentSpanId = ""
+  end
+  pcall(function()
+    if tracer.onStart then
+      tracer.onStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId)
+    end
+  end)
+  return ctx
+end
+
+local function traceEnd(kind, method, ctx, status)
+  if ctx == nil or tracer == nil then return end
+  pcall(function()
+    if tracer.onEnd then
+      tracer.onEnd(kind, method, ctx.traceId, ctx.spanId, status)
+    end
+  end)
+end
+
 return {
   Status = Status,
   EndOfStream = EndOfStream,
   toStatus = toStatus,
   raise = raise,
+  setTracer = setTracer,
+  tracer = getTracer,
+  formatTraceparent = formatTraceparent,
+  parseTraceparent = parseTraceparent,
+  traceStart = traceStart,
+  traceEnd = traceEnd,
 }
 GRPC_RUNTIME_EOF
 )
@@ -651,7 +728,17 @@ function ClientStream.new(endpoint, streamId, input)
     streamId = streamId,
     input = input,
     headers = nil,
+    traceCtx = nil,
+    tracePath = nil,
+    traceEnded = false,
   }, ClientStream)
+end
+
+function ClientStream:endTrace(status)
+  if not self.traceEnded then
+    self.traceEnded = true
+    statusModule.traceEnd("client", self.tracePath, self.traceCtx, status)
+  end
 end
 
 --- Next raw response event; pumps the endpoint until one arrives.
@@ -701,12 +788,15 @@ function ClientStream:recv(resp)
       return
     elseif event.kind == "trailers" then
       local status = event.status
+      self:endTrace(wire.statusName(status ~= nil and status.code or wire.CODE_OK))
       if status ~= nil and status.code ~= wire.CODE_OK then
         raise(status)
       end
       error(EndOfStream, 0)
     elseif event.kind == "rst" then
-      raise(event.status or Status.new(wire.CODE_UNAVAILABLE, "stream reset"))
+      local status = event.status or Status.new(wire.CODE_UNAVAILABLE, "stream reset")
+      self:endTrace(wire.statusName(status.code))
+      raise(status)
     end
     -- half_close on a client stream: ignore
   end
@@ -729,14 +819,23 @@ end
 
 function Channel:open(path, metadata, timeout)
   local deadline = nil
-  if timeout ~= nil then
-    local now = Endpoint.nowSeconds()
-    if now ~= nil then deadline = now + timeout end
+  local traceCtx = nil
+  if timeout ~= nil or statusModule.tracer() ~= nil then
     local merged = {}
     if metadata ~= nil then
       for k, v in pairs(metadata) do merged[k] = v end
     end
-    merged["grpc-timeout"] = Codec.encodeTimeout(timeout)
+    if timeout ~= nil then
+      local now = Endpoint.nowSeconds()
+      if now ~= nil then deadline = now + timeout end
+      merged["grpc-timeout"] = Codec.encodeTimeout(timeout)
+    end
+    if statusModule.tracer() ~= nil then
+      traceCtx = statusModule.traceStart("client", path, statusModule.parseTraceparent(merged["traceparent"]))
+      if traceCtx ~= nil then
+        merged["traceparent"] = statusModule.formatTraceparent(traceCtx.traceId, traceCtx.spanId)
+      end
+    end
     metadata = merged
   end
   local id, input = self.endpoint:openStream()
@@ -745,10 +844,13 @@ function Channel:open(path, metadata, timeout)
   end)
   if not ok then
     self.endpoint:closeStream(id)
+    statusModule.traceEnd("client", path, traceCtx, "UNAVAILABLE")
     error(err, 0)
   end
   local stream = ClientStream.new(self.endpoint, id, input)
   stream.deadline = deadline
+  stream.traceCtx = traceCtx
+  stream.tracePath = path
   return stream
 end
 
@@ -1006,14 +1108,17 @@ function Server:dispatch(endpoint, ctx, headers, input, sink)
   if method == nil then
     return Status.new(wire.CODE_UNIMPLEMENTED, "unknown method " .. tostring(headers.path))
   end
+  local traceCtx = statusModule.traceStart("server", headers.path, statusModule.parseTraceparent((headers.metadata or {})["traceparent"]))
   local reqs = RequestStream.new(endpoint, input)
   local ok, err = pcall(method.handler, ctx, reqs, function(payload)
     sink:send(payload)
   end)
+  local result = nil
   if not ok then
-    return statusModule.toStatus(err)
+    result = statusModule.toStatus(err)
   end
-  return nil
+  statusModule.traceEnd("server", headers.path, traceCtx, result == nil and "OK" or wire.statusName(result.code))
+  return result
 end
 
 return {

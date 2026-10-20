@@ -22,6 +22,16 @@ pub const ClientStream = struct {
     endpoint: *Endpoint,
     headers: ?Headers = null,
     deadline_ms: ?i64 = null,
+    trace_ctx: ?status_mod.TraceContext = null,
+    trace_path: []const u8 = "",
+    trace_ended: bool = false,
+
+    pub fn endTrace(self: *ClientStream, status: []const u8) void {
+        if (!self.trace_ended) {
+            self.trace_ended = true;
+            status_mod.traceEnd("client", self.trace_path, self.trace_ctx, status);
+        }
+    }
 
     /// Abort this stream (sends RST, wakes a pending recv).
     pub fn cancel(self: *ClientStream) void {
@@ -58,6 +68,10 @@ pub const ClientStream = struct {
                     const st = event.status orelse Status.ok();
                     event.status = null;
                     event.deinit(alloc);
+                    // statusName returns a literal for known codes
+                    // (the CODE_N fallback allocation is leaked by
+                    // design of that helper; traced names are known).
+                    self.endTrace(wire.statusName(alloc, st.code));
                     if (st.isOk()) return .end;
                     return .{ .status = st };
                 },
@@ -65,6 +79,10 @@ pub const ClientStream = struct {
                     const st = event.status orelse Status.init(wire.codeUnavailable, "stream reset");
                     event.status = null;
                     event.deinit(alloc);
+                    // statusName returns a literal for known codes
+                    // (the CODE_N fallback allocation is leaked by
+                    // design of that helper; traced names are known).
+                    self.endTrace(wire.statusName(alloc, st.code));
                     return .{ .status = st };
                 },
                 .half_close => {
@@ -132,10 +150,9 @@ pub const Channel = struct {
         defer if (timeout_text) |t| alloc.free(t);
         defer if (merged) |*m| m.deinit();
         var md = metadata;
-        if (timeout_ms) |ms| {
-            if (endpoint_mod.nowMs()) |now| {
-                deadline_ms = now + @as(i64, @intCast(ms));
-            }
+        var trace_ctx: ?status_mod.TraceContext = null;
+        var tp_buf: [55]u8 = undefined;
+        if (timeout_ms != null or status_mod.tracingEnabled()) {
             merged = Metadata.init(alloc);
             if (metadata) |source| {
                 var it = source.iterator();
@@ -143,8 +160,20 @@ pub const Channel = struct {
                     merged.?.put(entry.key_ptr.*, entry.value_ptr.*) catch @panic("out of memory");
                 }
             }
-            timeout_text = Codec.encodeTimeout(alloc, ms);
-            merged.?.put("grpc-timeout", timeout_text.?) catch @panic("out of memory");
+            if (timeout_ms) |ms| {
+                if (endpoint_mod.nowMs()) |now| {
+                    deadline_ms = now + @as(i64, @intCast(ms));
+                }
+                timeout_text = Codec.encodeTimeout(alloc, ms);
+                merged.?.put("grpc-timeout", timeout_text.?) catch @panic("out of memory");
+            }
+            if (status_mod.tracingEnabled()) {
+                const parent = status_mod.parseTraceparent(if (metadata) |m| m.get("traceparent") else null);
+                trace_ctx = status_mod.traceStart("client", path, parent);
+                if (trace_ctx) |tc| {
+                    merged.?.put("traceparent", status_mod.formatTraceparent(&tp_buf, &tc.trace_id, &tc.span_id)) catch @panic("out of memory");
+                }
+            }
             md = &merged.?;
         }
         const opened = self.endpoint.openStream();
@@ -152,12 +181,13 @@ pub const Channel = struct {
             .bytes => |b| b,
             .status => |st| {
                 self.endpoint.closeStream(opened.id);
+                status_mod.traceEnd("client", path, trace_ctx, "UNAVAILABLE");
                 return .{ .status = st };
             },
         };
         defer alloc.free(frame);
         self.endpoint.sendFrame(frame);
-        return .{ .ok = .{ .stream_id = opened.id, .input = opened.input, .endpoint = self.endpoint, .deadline_ms = deadline_ms } };
+        return .{ .ok = .{ .stream_id = opened.id, .input = opened.input, .endpoint = self.endpoint, .deadline_ms = deadline_ms, .trace_ctx = trace_ctx, .trace_path = path } };
     }
 
     fn sendMessage(self: *Channel, stream: *ClientStream, payload: []const u8) Status {

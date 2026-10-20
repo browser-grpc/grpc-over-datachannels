@@ -16,8 +16,18 @@ class ClientStream {
   final StreamInput _input;
   Headers? headers;
   DateTime? deadline;
+  TraceContext? traceCtx;
+  String? tracePath;
+  bool _traceEnded = false;
 
   ClientStream(this.streamId, this._endpoint, this._input);
+
+  void endTrace(String status) {
+    if (!_traceEnded) {
+      _traceEnded = true;
+      traceEnd('client', tracePath ?? '', traceCtx, status);
+    }
+  }
 
   /// Abort this stream (sends RST, wakes a pending recv).
   void cancel() => _endpoint.cancelStream(streamId);
@@ -52,13 +62,16 @@ class ClientStream {
           return;
         case EventKind.trailers:
           final status = event.status;
+          endTrace(Wire.statusName(status?.code ?? Wire.codeOk));
           if (status != null && status.code != Wire.codeOk) {
             throw status;
           }
           throw EndOfStreamError();
         case EventKind.rst:
-          throw event.status ??
-              StatusException(Wire.codeUnavailable, 'stream reset');
+          final status =
+              event.status ?? StatusException(Wire.codeUnavailable, 'stream reset');
+          endTrace(Wire.statusName(status.code));
+          throw status;
         default:
           break;
       }
@@ -83,22 +96,33 @@ class Channel {
   Future<ClientStream> _open(String path, Map<String, String>? metadata,
       {Duration? timeout}) async {
     DateTime? deadline;
-    if (timeout != null) {
-      deadline = DateTime.now().add(timeout);
-      metadata = {
-        if (metadata != null) ...metadata,
-        'grpc-timeout': Codec.encodeTimeout(timeout),
-      };
+    TraceContext? traceCtx;
+    if (timeout != null || tracingEnabled) {
+      metadata = {if (metadata != null) ...metadata};
+      if (timeout != null) {
+        deadline = DateTime.now().add(timeout);
+        metadata['grpc-timeout'] = Codec.encodeTimeout(timeout);
+      }
+      if (tracingEnabled) {
+        traceCtx = traceStart('client', path, parseTraceparent(metadata['traceparent']));
+        if (traceCtx != null) {
+          metadata['traceparent'] =
+              formatTraceparent(traceCtx.traceId, traceCtx.spanId);
+        }
+      }
     }
     final opened = endpoint.openStream();
     try {
       endpoint.sendFrame(Codec.headersFrame(opened.id, path, metadata));
     } catch (_) {
       endpoint.closeStream(opened.id);
+      traceEnd('client', path, traceCtx, 'UNAVAILABLE');
       rethrow;
     }
     final stream = ClientStream(opened.id, endpoint, opened.input);
     stream.deadline = deadline;
+    stream.traceCtx = traceCtx;
+    stream.tracePath = path;
     return stream;
   }
 

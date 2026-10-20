@@ -87,19 +87,32 @@ class Channel
     private function openCall(string $path, ?array $metadata, ?float $timeout): ClientStream
     {
         $deadline = null;
-        if ($timeout !== null) {
-            $deadline = Endpoint::nowSeconds() + $timeout;
-            $metadata = array_merge($metadata ?? [], ["grpc-timeout" => Codec::encodeTimeout($timeout)]);
+        $traceCtx = null;
+        if ($timeout !== null || Status::tracer() !== null) {
+            $metadata = $metadata ?? [];
+            if ($timeout !== null) {
+                $deadline = Endpoint::nowSeconds() + $timeout;
+                $metadata["grpc-timeout"] = Codec::encodeTimeout($timeout);
+            }
+            if (Status::tracer() !== null) {
+                $traceCtx = Status::traceStart("client", $path, Status::parseTraceparent($metadata["traceparent"] ?? null));
+                if ($traceCtx !== null) {
+                    $metadata["traceparent"] = Status::formatTraceparent($traceCtx["trace_id"], $traceCtx["span_id"]);
+                }
+            }
         }
         [$streamId, $streamInput] = $this->endpoint->openStream();
         try {
             $this->endpoint->sendFrame(Codec::headersFrame($streamId, $path, $metadata));
         } catch (\Throwable $e) {
             $this->endpoint->closeStream($streamId);
+            Status::traceEnd("client", $path, $traceCtx, "UNAVAILABLE");
             throw $e;
         }
         $stream = new ClientStream($this->endpoint, $streamId, $streamInput);
         $stream->deadline = $deadline;
+        $stream->traceCtx = $traceCtx;
+        $stream->tracePath = $path;
         return $stream;
     }
 
@@ -129,7 +142,18 @@ class ClientStream
     public int $streamId;
     public ?Headers $headers = null;
     public ?float $deadline = null;
+    public ?array $traceCtx = null;
+    public ?string $tracePath = null;
+    private bool $traceEnded = false;
     private StreamInput $input;
+
+    public function endTrace(string $status): void
+    {
+        if (!$this->traceEnded) {
+            $this->traceEnded = true;
+            Status::traceEnd("client", $this->tracePath ?? "", $this->traceCtx, $status);
+        }
+    }
 
     public function __construct(Endpoint $endpoint, int $streamId, StreamInput $streamInput)
     {
@@ -172,11 +196,13 @@ class ClientStream
                 case "data":
                     return $resp->unmarshalDc($event->payload);
                 case "trailers":
+                    $this->endTrace(Status::name($event->status->statusCode));
                     if ($event->status->statusCode === Wire::CODE_OK) {
                         throw new CallClosed("call completed");
                     }
                     throw $event->status;
                 case "rst":
+                    $this->endTrace(Status::name($event->status->statusCode));
                     throw $event->status;
             }
         }

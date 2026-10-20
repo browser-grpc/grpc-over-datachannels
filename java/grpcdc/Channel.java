@@ -32,6 +32,16 @@ public class Channel {
         private final Endpoint.StreamInput input;
         private Codec.Headers headers;
         private long deadlineNanos = -1L;
+        private Tracing.TraceContext traceCtx;
+        private String tracePath;
+        private boolean traceEnded;
+
+        private void endTrace(String status) {
+            if (!traceEnded) {
+                traceEnded = true;
+                Tracing.traceEnd("client", tracePath, traceCtx, status);
+            }
+        }
 
         ClientStream(Endpoint endpoint, long streamId, Endpoint.StreamInput input) {
             this.endpoint = endpoint;
@@ -84,12 +94,16 @@ public class Channel {
                         return;
                     }
                     case TRAILERS -> {
+                        endTrace(Wire.statusName(event.status.code));
                         if (event.status.code != Wire.CODE_OK) {
                             throw event.status;
                         }
                         throw new EOFException("call completed");
                     }
-                    case RST -> throw event.status;
+                    case RST -> {
+                        endTrace(Wire.statusName(event.status.code));
+                        throw event.status;
+                    }
                     default -> {
                         // HEADERS/DATA handled above; ignore others.
                     }
@@ -105,17 +119,36 @@ public class Channel {
     private ClientStream open(String path, Map<String, String> metadata, java.time.Duration timeout)
             throws Exception {
         long deadlineNanos = -1L;
-        if (timeout != null) {
-            deadlineNanos = System.nanoTime() + timeout.toNanos();
+        Tracing.TraceContext traceCtx = null;
+        if (timeout != null || Tracing.enabled()) {
             Map<String, String> merged = new java.util.HashMap<>();
             if (metadata != null) {
                 merged.putAll(metadata);
             }
-            merged.put("grpc-timeout", Codec.encodeTimeout(timeout));
+            if (timeout != null) {
+                deadlineNanos = System.nanoTime() + timeout.toNanos();
+                merged.put("grpc-timeout", Codec.encodeTimeout(timeout));
+            }
+            if (Tracing.enabled()) {
+                traceCtx = Tracing.traceStart("client", path,
+                        Tracing.parseTraceparent(merged.get("traceparent")));
+                if (traceCtx != null) {
+                    merged.put("traceparent",
+                            Tracing.formatTraceparent(traceCtx.traceId(), traceCtx.spanId()));
+                }
+            }
             metadata = merged;
         }
-        ClientStream stream = openRaw(path, metadata);
+        ClientStream stream;
+        try {
+            stream = openRaw(path, metadata);
+        } catch (Exception e) {
+            Tracing.traceEnd("client", path, traceCtx, "UNAVAILABLE");
+            throw e;
+        }
         stream.deadlineNanos = deadlineNanos;
+        stream.traceCtx = traceCtx;
+        stream.tracePath = path;
         return stream;
     }
 

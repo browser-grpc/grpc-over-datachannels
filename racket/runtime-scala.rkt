@@ -37,6 +37,83 @@ object StatusException {
     StatusException(Wire.CODE_INTERNAL, Option(err.getMessage).getOrElse(err.toString))
   }
 }
+
+/**
+ * Homegrown tracing: W3C traceparent propagation with a span
+ * observer. Dormant until Tracing.setTracer registers one;
+ * generated code stays dependency-free (sampling and export are
+ * the application's problem).
+ */
+object Tracing {
+  /** Span observer callbacks (kind is "client" or "server"). */
+  trait Tracer {
+    def onStart(kind: String, method: String, traceId: String, spanId: String, parentSpanId: String): Unit
+    def onEnd(kind: String, method: String, traceId: String, spanId: String, status: String): Unit
+  }
+
+  /** One in-flight span's context. */
+  case class TraceContext(traceId: String, spanId: String, parentSpanId: String)
+
+  /** Parsed traceparent parent. */
+  case class Parent(traceId: String, spanId: String)
+
+  @volatile private var tracer: Tracer = null
+  private val rng = new java.security.SecureRandom()
+
+  def setTracer(t: Tracer): Unit = {
+    tracer = t
+  }
+
+  def enabled: Boolean = tracer != null
+
+  def formatTraceparent(traceId: String, spanId: String): String =
+    "00-" + traceId + "-" + spanId + "-01"
+
+  def parseTraceparent(value: String): Parent = {
+    if (value == null) return null
+    val parts = value.split("-")
+    if (parts.length != 4 || parts(1).length != 32 || parts(2).length != 16) return null
+    if (!parts(1).forall(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return null
+    if (!parts(2).forall(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return null
+    Parent(parts(1), parts(2))
+  }
+
+  private def randomHex(bytes: Int): String = {
+    val buf = new Array[Byte](bytes)
+    rng.nextBytes(buf)
+    val out = new StringBuilder(bytes * 2)
+    for (b <- buf) {
+      out.append(((b >> 4) & 0xf).toHexString)
+      out.append((b & 0xf).toHexString)
+    }
+    out.toString
+  }
+
+  def traceStart(kind: String, method: String, parent: Parent): TraceContext = {
+    val t = tracer
+    if (t == null) return null
+    val ctx = TraceContext(
+      if (parent != null) parent.traceId else randomHex(16),
+      randomHex(8),
+      if (parent != null) parent.spanId else "")
+    try {
+      t.onStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId)
+    } catch {
+      case _: Throwable => ()
+    }
+    ctx
+  }
+
+  def traceEnd(kind: String, method: String, ctx: TraceContext, status: String): Unit = {
+    val t = tracer
+    if (ctx == null || t == null) return
+    try {
+      t.onEnd(kind, method, ctx.traceId, ctx.spanId, status)
+    } catch {
+      case _: Throwable => ()
+    }
+  }
+}
 GRPC_RUNTIME_EOF
 )
 
@@ -701,6 +778,16 @@ class Channel(val endpoint: Endpoint) {
       private val input: Endpoint#StreamInput) {
     var deadlineNanos: Long = -1L
     var headers: Codec.Headers = null
+    var traceCtx: Tracing.TraceContext = null
+    var tracePath: String = null
+    private var traceEnded: Boolean = false
+
+    def endTrace(status: String): Unit = {
+      if (!traceEnded) {
+        traceEnded = true
+        Tracing.traceEnd("client", tracePath, traceCtx, status)
+      }
+    }
 
     /** Abort this stream (sends RST, wakes a pending recv). */
     def cancel(): Unit = endpoint.cancelStream(streamId)
@@ -742,13 +829,16 @@ class Channel(val endpoint: Endpoint) {
             return
           case Endpoint.EventKind.TRAILERS =>
             val status = event.status
+            endTrace(Wire.statusName(if (status != null) status.code else Wire.CODE_OK))
             if (status != null && status.code != Wire.CODE_OK) {
               throw status
             }
             throw new EOFException("call completed")
           case Endpoint.EventKind.RST =>
-            throw (if (event.status != null) event.status
-                   else StatusException(Wire.CODE_UNAVAILABLE, "stream reset"))
+            val status = if (event.status != null) event.status
+                         else StatusException(Wire.CODE_UNAVAILABLE, "stream reset")
+            endTrace(Wire.statusName(status.code))
+            throw status
           case _ => ()
         }
       }
@@ -759,9 +849,19 @@ class Channel(val endpoint: Endpoint) {
                    timeout: java.time.Duration): ClientStream = {
     var md = metadata
     var deadlineNanos = -1L
-    if (timeout != null) {
-      deadlineNanos = System.nanoTime() + timeout.toNanos
-      md = (if (md == null) Map.empty[String, String] else md) + ("grpc-timeout" -> Codec.encodeTimeout(timeout))
+    var traceCtx: Tracing.TraceContext = null
+    if (timeout != null || Tracing.enabled) {
+      md = if (md == null) Map.empty[String, String] else md
+      if (timeout != null) {
+        deadlineNanos = System.nanoTime() + timeout.toNanos
+        md = md + ("grpc-timeout" -> Codec.encodeTimeout(timeout))
+      }
+      if (Tracing.enabled) {
+        traceCtx = Tracing.traceStart("client", path, Tracing.parseTraceparent(md.getOrElse("traceparent", null)))
+        if (traceCtx != null) {
+          md = md + ("traceparent" -> Tracing.formatTraceparent(traceCtx.traceId, traceCtx.spanId))
+        }
+      }
     }
     val opened = endpoint.openStream()
     try {
@@ -769,10 +869,13 @@ class Channel(val endpoint: Endpoint) {
     } catch {
       case e: Exception =>
         endpoint.closeStream(opened.id)
+        Tracing.traceEnd("client", path, traceCtx, "UNAVAILABLE")
         throw e
     }
     val stream = new ClientStream(opened.id, endpoint, opened.input)
     stream.deadlineNanos = deadlineNanos
+    stream.traceCtx = traceCtx
+    stream.tracePath = path
     stream
   }
 
@@ -916,14 +1019,17 @@ class Server {
     if (method == null) {
       return StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path)
     }
+    val traceCtx = Tracing.traceStart("server", headers.path, Tracing.parseTraceparent(headers.metadata.getOrElse("traceparent", null)))
+    var result: StatusException = null
     try {
       method.handler(ctx, new RequestStream(input), new ServerSink {
         def send(payload: Array[Byte]): Unit = sink.send(payload)
       })
     } catch {
-      case e: Exception => return StatusException.toStatus(e)
+      case e: Exception => result = StatusException.toStatus(e)
     }
-    null
+    Tracing.traceEnd("server", headers.path, traceCtx, if (result == null) "OK" else Wire.statusName(result.code))
+    result
   }
 }
 
