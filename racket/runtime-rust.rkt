@@ -42,6 +42,8 @@ pub mod server;
 pub mod status;
 pub mod transport;
 #[cfg(feature = "webrtc")]
+pub mod webrtc_direct;
+#[cfg(feature = "webrtc")]
 pub mod webrtc_transport;
 pub mod wire_gen;
 
@@ -1844,6 +1846,110 @@ GRPC_RUNTIME_EOF
 ;; Frame dispatch: match arms are expanded from spec.rkt's frame
 ;; table, one arm per table entry (frame_type constants as stamped in
 ;; wire_gen.rs); arm bodies are the per-language handlers.
+(define rust-webrtc-direct-body
+#<<GRPC_RUNTIME_EOF
+//! WebRTC-Direct (libp2p-style) client->server connections for
+//! generated clients and servers: no ICE, no SDP exchange. The
+//! listener is identified by the certhash in its multiaddr
+//! (`/ip4/.../udp/.../webrtc-direct/certhash/f...`); dialers pin
+//! the listener certificate to that hash. `direct_client_turn`
+//! is the symmetric-NAT path: the whole DTLS handshake rides a
+//! TURN allocation. See `dc_webrtc::direct`.
+
+use crate::status::Status;
+use crate::transport::DcTransport;
+use crate::webrtc_transport::WebRtcDc;
+use dc_webrtc::dcep::ChannelParams;
+use dc_webrtc::endpoint::{DcEndpoint, EndpointEvent};
+use dc_webrtc::x509::Certificate;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
+
+pub use dc_webrtc::direct::{
+    certhash_of_cert, direct_multiaddr, parse_certhash, parse_direct_multiaddr, DirectListener,
+};
+pub use dc_webrtc::turn::TurnServerConfig;
+
+fn bad(e: std::io::Error) -> Status {
+    Status::unavailable(format!("webrtc-direct: {e}"))
+}
+
+/// Bind a WebRTC-Direct listener. Its `multiaddr()` (address +
+/// certhash) is everything a dialer needs.
+pub fn direct_listener(addr: SocketAddr) -> Result<DirectListener, Status> {
+    DirectListener::bind(addr, Certificate::generate_self_signed("grpc-dc")).map_err(bad)
+}
+
+/// Accept one direct connection and its "grpc" channel; serve
+/// it with `Server::serve(transport, services)`.
+pub async fn accept_direct_transport(
+    listener: Arc<DirectListener>,
+) -> Result<Arc<dyn DcTransport>, Status> {
+    let endpoint = Arc::new(
+        tokio::task::spawn_blocking(move || listener.accept())
+            .await
+            .map_err(|e| Status::internal(format!("webrtc-direct join: {e}")))?
+            .map_err(bad)?,
+    );
+    let ep = endpoint.clone();
+    let channel = tokio::task::spawn_blocking(move || loop {
+        match ep.recv_event_timeout(Duration::from_secs(30)) {
+            Some(EndpointEvent::ChannelOpened { channel }) => break Ok(channel),
+            Some(_) => continue,
+            None => break Err(Status::unavailable("webrtc-direct: no channel")),
+        }
+    })
+    .await
+    .map_err(|e| Status::internal(format!("webrtc-direct join: {e}")))??;
+    Ok(Arc::new(WebRtcDc::new(endpoint, channel)))
+}
+
+/// Dial a direct listener by multiaddr and open the "grpc"
+/// channel; build a generated `Channel` on the returned
+/// transport.
+pub async fn direct_client(multiaddr: &str) -> Result<Arc<dyn DcTransport>, Status> {
+    let ma = multiaddr.to_string();
+    let endpoint = tokio::task::spawn_blocking(move || {
+        dc_webrtc::direct::direct_dial_multiaddr(&ma, Certificate::generate_self_signed("grpc-dc"))
+    })
+    .await
+    .map_err(|e| Status::internal(format!("webrtc-direct join: {e}")))?
+    .map_err(bad)?;
+    open_grpc_channel(Arc::new(endpoint)).await
+}
+
+/// Dial a direct listener by multiaddr through a TURN
+/// allocation (browser/symmetric-NAT shape, native form): the
+/// dialer only ever talks to its TURN server.
+pub async fn direct_client_turn(
+    multiaddr: &str,
+    turn: &TurnServerConfig,
+) -> Result<Arc<dyn DcTransport>, Status> {
+    let ma = multiaddr.to_string();
+    let turn = turn.clone();
+    let endpoint = tokio::task::spawn_blocking(move || {
+        dc_webrtc::direct::direct_dial_turn_multiaddr(
+            &ma,
+            Certificate::generate_self_signed("grpc-dc"),
+            &turn,
+        )
+    })
+    .await
+    .map_err(|e| Status::internal(format!("webrtc-direct join: {e}")))?
+    .map_err(bad)?;
+    open_grpc_channel(Arc::new(endpoint)).await
+}
+
+async fn open_grpc_channel(endpoint: Arc<DcEndpoint>) -> Result<Arc<dyn DcTransport>, Status> {
+    let channel = endpoint
+        .open_channel(ChannelParams { label: "grpc".into(), ..Default::default() })
+        .map_err(bad)?;
+    Ok(Arc::new(WebRtcDc::new(endpoint, channel)))
+}
+GRPC_RUNTIME_EOF
+)
+
 (define rust-dispatch-arms
   '((HEADERS    . "self.on_headers(frame).await")
     (DATA       . "self.deliver(frame.stream_id, StreamEvent::Data(frame.payload))")
@@ -2832,4 +2938,5 @@ GRPC_RUNTIME_EOF
    (cons "channel.rs" rust-channel-body)
    (cons "server.rs" rust-server-body)
    (cons "dynamic.rs" rust-dynamic-body)
-   (cons "webrtc_transport.rs" rust-webrtc-transport-body)))
+   (cons "webrtc_transport.rs" rust-webrtc-transport-body)
+   (cons "webrtc_direct.rs" rust-webrtc-direct-body)))

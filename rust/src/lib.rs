@@ -28,6 +28,8 @@ pub mod server;
 pub mod status;
 pub mod transport;
 #[cfg(feature = "webrtc")]
+pub mod webrtc_direct;
+#[cfg(feature = "webrtc")]
 pub mod webrtc_transport;
 pub mod wire_gen;
 

@@ -23,6 +23,7 @@ from .dynamic import (
     register_dynamic_service,
 )
 from .loopback import memory_transport_pair
+from .sidecar import SidecarTransport
 from .wire_gen import CODE_INTERNAL
 from .server import (
     KIND_BIDI,
@@ -60,6 +61,7 @@ __all__ = [
     "Transport",
     "decode_frame",
     "encode_frame",
+    "SidecarTransport",
     "memory_transport_pair",
     "parse_descriptor_set",
     "register_dynamic_service",

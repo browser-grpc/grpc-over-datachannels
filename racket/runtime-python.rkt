@@ -1055,6 +1055,76 @@ def memory_transport_pair():
 GRPC_RUNTIME_EOF
 )
 
+(define python-sidecar-body
+#<<GRPC_RUNTIME_EOF
+"""Transport over the Rust WebRTC-Direct sidecar.
+
+Every generated language can reach WebRTC-Direct listeners (and
+dial them, including over TURN for symmetric-NAT paths) through
+the Rust `direct_sidecar`: it owns the DTLS/SCTP/TURN stack and
+bridges one datachannel to a local TCP socket using u32
+big-endian length-prefixed messages (one prefix per
+DataChannel message, boundaries preserved). This module is the
+client half of that bridge -- stdlib only.
+
+    # Rust sidecar already running:
+    #   direct_sidecar dial --multiaddr /ip4/.../webrtc-direct/certhash/f... --tcp 127.0.0.1:50051
+    channel = Channel(SidecarTransport.connect("127.0.0.1", 50051))
+"""
+
+import socket
+import struct
+
+from .endpoint import Transport
+
+
+class SidecarTransport(Transport):
+    """One length-prefixed TCP connection to a direct_sidecar."""
+
+    def __init__(self, sock):
+        self._sock = sock
+        self._buf = bytearray()
+        self._closed = False
+
+    @classmethod
+    def connect(cls, host, port):
+        return cls(socket.create_connection((host, port)))
+
+    @classmethod
+    def from_socket(cls, sock):
+        return cls(sock)
+
+    def send(self, data):
+        if self._closed:
+            raise EOFError("transport closed")
+        payload = bytes(data)
+        self._sock.sendall(struct.pack(">I", len(payload)) + payload)
+
+    def _fill(self, need):
+        while len(self._buf) < need:
+            chunk = self._sock.recv(65536)
+            if not chunk:
+                raise EOFError("transport closed")
+            self._buf.extend(chunk)
+
+    def recv(self):
+        self._fill(4)
+        (length,) = struct.unpack(">I", bytes(self._buf[:4]))
+        del self._buf[:4]
+        self._fill(length)
+        payload = bytes(self._buf[:length])
+        del self._buf[:length]
+        return payload
+
+    def close(self):
+        self._closed = True
+        try:
+            self._sock.close()
+        except OSError:
+            pass
+GRPC_RUNTIME_EOF
+)
+
 (define python-init-body
 #<<GRPC_RUNTIME_EOF
 """grpcdc: gRPC over WebRTC DataChannels (generated runtime)."""
@@ -1080,6 +1150,7 @@ from .dynamic import (
     register_dynamic_service,
 )
 from .loopback import memory_transport_pair
+from .sidecar import SidecarTransport
 from .wire_gen import CODE_INTERNAL
 from .server import (
     KIND_BIDI,
@@ -1117,6 +1188,7 @@ __all__ = [
     "Transport",
     "decode_frame",
     "encode_frame",
+    "SidecarTransport",
     "memory_transport_pair",
     "parse_descriptor_set",
     "register_dynamic_service",
@@ -1163,6 +1235,7 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/channel.py" python-channel-body)
    (cons "grpcdc/server.py" python-server-body)
    (cons "grpcdc/loopback.py" python-loopback-body)
+   (cons "grpcdc/sidecar.py" python-sidecar-body)
    (cons "grpcdc/dynamic.py" python-dynamic-body)))
 
 (define python-dynamic-body
