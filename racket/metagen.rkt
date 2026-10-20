@@ -66,6 +66,12 @@
      (define request-bytes (port->bytes (current-input-port)))
      (define-values (files parameter) (parse-request request-bytes))
      (define params (parse-parameters parameter))
+     ;; trace=off|hooks gates stub-level tracing wiring. The
+     ;; generated runtimes always carry the (dormant) tracer API;
+     ;; any other value is a usage error.
+     (define trace-opt (hash-ref params 'trace #f))
+     (when (and trace-opt (not (member trace-opt '("off" "hooks"))))
+       (error (format "unknown trace option ~a (expected off or hooks)" trace-opt)))
      ;; An emit function returns one (name . content) pair or a
      ;; list of them (stub + generated message classes).
      (define (as-file-list out)
