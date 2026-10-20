@@ -112,6 +112,14 @@ where the generator supports it (currently the Python stub
 re-exports `grpcdc.set_tracer`); any other value is a plugin
 error. The runtime API itself is always present and dormant.
 
+`set_trace_filter(patterns)` restricts which methods produce
+spans: `;`-separated method paths, a trailing `*` meaning
+prefix match (`/echo.Echo/*`); empty traces everything. The
+plugin parameter `trace_methods=<patterns>` (requires
+`trace=hooks`) bakes the filter into generated stubs that
+support it (currently Python); malformed patterns are a
+plugin error.
+
 Examples live outside the runtimes: `tracing_demo` (Python and
 JS) prints one parented trace per call, and `otlp_tracer`
 (Python and JS) is an observer that batches ended spans and

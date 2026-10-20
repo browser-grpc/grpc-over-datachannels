@@ -70,11 +70,25 @@ The Rust crate is layered so the protocol core runs with no OS:
   ICMPv6 echo, UDP/6, EUI-64/SLAAC addresses, Router
   Solicitation/Advertisement (an RA installs the sender as
   default router, lifetime 0 withdraws it, on-link Prefix
-  Information sets the prefix length), opt-in forwarding with
+  Information sets the prefix length; `send_router_advertisement`
+  originates RAs for router mode), opt-in forwarding with
   hop-limit decrement and pending-forward queueing until NDP
   resolves. `EthernetCable::endpoint6` binds the stack to a
   `UdpTransport`, so ICE nomination runs over IPv6/NDP exactly
-  as over IPv4/ARP (`ice_nomination_over_ipv6_ethernet`).
+  as over IPv4/ARP (`ice_nomination_over_ipv6_ethernet`). A
+  DHCPv6 client (RFC 8415 subset: SOLICIT/ADVERTISE/REQUEST/
+  REPLY, IA_NA + DNS) renews at half the valid lifetime from
+  `tick` and drops the lease at expiry.
+- **Stack tracing** (`trace` module): `Peer::connect` emits
+  `ice.nominated`, `dtls.handshake` (`full`/`resumed`), and
+  `endpoint.ready` to a registered synchronous observer — the
+  same dormant, dependency-free hook shape as the gRPC
+  runtimes. Observer panics are caught.
+- **TURN over IPv6**: `TurnServerConfig::request_ipv6_relay`
+  adds REQUESTED-ADDRESS-FAMILY (RFC 8656; the attribute
+  constant is stamped from `webrtc-spec.rkt` into all three
+  stacks) so allocations return IPv6 relayed addresses;
+  XOR-address codecs were already family-agnostic.
 - **DTLS session resumption** (RFC 5077 shape, opt-in, off by
   default): servers with a 32-byte ticket key issue AES-128-GCM
   sealed `NewSessionTicket`s; clients capture them

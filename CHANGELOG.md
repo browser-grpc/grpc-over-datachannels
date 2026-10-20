@@ -3,6 +3,28 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.12.0 — 2026-10-20
+
+- WebRTC stack tracing: new `trace` module in dc-webrtc —
+  `Peer::connect` emits `ice.nominated`, `dtls.handshake`
+  (full/resumed), and `endpoint.ready` to a registered
+  synchronous observer, same dormant dependency-free hook
+  shape as the gRPC runtimes; observer panics are caught.
+- IPv6 completion: DHCPv6 client (SOLICIT/ADVERTISE/REQUEST/
+  REPLY with IA_NA + DNS, renew at half valid lifetime, drop
+  at expiry) and RA origination (`send_router_advertisement`)
+  beside RA consumption, so `IpStack6` covers host and router
+  roles.
+- Per-method tracing filter in every generated runtime:
+  `set_trace_filter` (`;`-separated paths, trailing `*` =
+  prefix) plus the `trace_methods=` protoc plugin parameter
+  (requires `trace=hooks`; validated, baked into Python
+  stubs). Committed tests in Python and JS.
+- TURN over IPv6: `TurnServerConfig::request_ipv6_relay`
+  sends REQUESTED-ADDRESS-FAMILY (constant stamped from
+  `webrtc-spec.rkt` into Rust/JS/Go tables); end-to-end
+  IPv6 relay connect test in the TURN suite.
+
 ## v0.11.1 — 2026-10-20
 
 - Deflake `dtls_openssl` (test harness only, no protocol
