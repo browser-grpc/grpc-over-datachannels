@@ -4,10 +4,13 @@
 //! rest of the crate — this replaces the lwIP/smoltcp assumption
 //! below the platform `UdpTransport` seam.
 //!
-//! Deliberate limits (documented, not silent): IPv4 only, no
-//! header options, no fragmentation (fragments are dropped), one
-//! address per interface, ARP for the local subnet only (no
-//! gateway routing). `IpStack` is a pure state machine — frames
+//! Deliberate limits (documented, not silent): no IP header
+//! options, no fragmentation (fragments are dropped), ARP/NDP
+//! caches expire on `tick`. IPv4 (`IpStack`) has a routing
+//! table with longest-prefix lookup, gateway next hops, and
+//! opt-in forwarding; IPv6 (`IpStack6`) sits beside it with NDP
+//! neighbour discovery, SLAAC-style EUI-64 addresses, and a
+//! default-router next hop (no v6 forwarding). `IpStack` is a pure state machine — frames
 //! in, frames out — driven by the caller's tick, and
 //! `EthernetUdpTransport` bridges it to `platform::UdpTransport`
 //! so the ICE core runs over raw Ethernet frames.
@@ -126,6 +129,16 @@ pub fn internet_checksum(data: &[u8], initial: u32) -> u16 {
 }
 
 fn ipv4_build(src: Ipv4Addr, dst: Ipv4Addr, protocol: u8, payload: &[u8]) -> Vec<u8> {
+    ipv4_build_ttl(src, dst, protocol, payload, 64)
+}
+
+fn ipv4_build_ttl(
+    src: Ipv4Addr,
+    dst: Ipv4Addr,
+    protocol: u8,
+    payload: &[u8],
+    ttl: u8,
+) -> Vec<u8> {
     let total = (20 + payload.len()) as u16;
     let mut pkt = Vec::with_capacity(total as usize);
     pkt.push(0x45); // version 4, IHL 5 (no options)
@@ -133,7 +146,7 @@ fn ipv4_build(src: Ipv4Addr, dst: Ipv4Addr, protocol: u8, payload: &[u8]) -> Vec
     pkt.extend_from_slice(&total.to_be_bytes());
     pkt.extend_from_slice(&0x2au16.to_be_bytes()); // identification
     pkt.extend_from_slice(&0x4000u16.to_be_bytes()); // DF, no fragment offset
-    pkt.push(64); // TTL
+    pkt.push(ttl); // TTL
     pkt.push(protocol);
     pkt.extend_from_slice(&[0, 0]); // checksum placeholder
     pkt.extend_from_slice(&src.octets());
@@ -231,15 +244,42 @@ fn udp_parse<'a>(src: Ipv4Addr, dst: Ipv4Addr, dgram: &'a [u8]) -> Option<(u16, 
 // IP stack state machine
 // ---------------------------------------------------------------------------
 
-/// One-interface IPv4 stack. Frames in via `input`, frames out via
-/// `take_output`; UDP payloads queue per local port.
+/// How long a learned ARP entry stays fresh (static entries
+/// never expire). Drive time via `IpStack::tick`.
+pub const ARP_ENTRY_TTL_MS: u64 = 60_000;
+
+#[derive(Clone, Copy)]
+struct ArpEntry {
+    mac: MacAddr,
+    inserted_ms: u64,
+    permanent: bool,
+}
+
+/// One-interface IPv4 stack with a small routing table. Frames in
+/// via `input`, frames out via `take_output`; UDP payloads queue
+/// per local port. Without routes, everything is on-link (the
+/// original behavior); `set_network` installs the usual
+/// subnet + default-via-gateway pair.
 pub struct IpStack {
     mac: MacAddr,
     ip: Ipv4Addr,
-    arp: HashMap<Ipv4Addr, MacAddr>,
+    extra_addrs: Vec<Ipv4Addr>,
+    arp: HashMap<Ipv4Addr, ArpEntry>,
+    routes: Vec<(u32, u32, Option<Ipv4Addr>)>, // (network, mask, via)
+    forwarding: bool,
+    now_ms: u64,
     pending: Vec<(u16, SocketAddr, Vec<u8>)>,
+    fwd_pending: Vec<(Ipv4Addr, Vec<u8>)>,
     outbox: Vec<Vec<u8>>,
     inbox: HashMap<u16, VecDeque<(Vec<u8>, SocketAddr)>>,
+}
+
+fn prefix_mask(prefix_len: u8) -> u32 {
+    if prefix_len == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix_len.min(32))
+    }
 }
 
 impl IpStack {
@@ -247,16 +287,111 @@ impl IpStack {
         Self {
             mac,
             ip,
+            extra_addrs: Vec::new(),
             arp: HashMap::new(),
+            routes: Vec::new(),
+            forwarding: false,
+            now_ms: 0,
             pending: Vec::new(),
+            fwd_pending: Vec::new(),
             outbox: Vec::new(),
             inbox: HashMap::new(),
         }
     }
 
+    /// Add a secondary local address (gateways serving two
+    /// subnets on one interface).
+    pub fn add_address(&mut self, ip: Ipv4Addr) {
+        if ip != self.ip && !self.extra_addrs.contains(&ip) {
+            self.extra_addrs.push(ip);
+        }
+    }
+
+    fn is_local(&self, ip: Ipv4Addr) -> bool {
+        ip == self.ip || self.extra_addrs.contains(&ip)
+    }
+
+    /// Add a route: `network/prefix_len`, on-link when `via` is
+    /// None, else via that next hop. Longest prefix wins.
+    pub fn add_route(&mut self, network: Ipv4Addr, prefix_len: u8, via: Option<Ipv4Addr>) {
+        let mask = prefix_mask(prefix_len);
+        self.routes
+            .push((u32::from(network) & mask, mask, via));
+    }
+
+    /// The standard pair: our subnet on-link, everything else
+    /// via `gateway` (when given).
+    pub fn set_network(&mut self, subnet_mask: Ipv4Addr, gateway: Option<Ipv4Addr>) {
+        let mask = u32::from(subnet_mask);
+        let prefix = mask.count_ones() as u8;
+        self.routes.clear();
+        self.add_route(Ipv4Addr::from(u32::from(self.ip) & mask), prefix, None);
+        for extra in &self.extra_addrs.clone() {
+            self.add_route(Ipv4Addr::from(u32::from(*extra) & mask), prefix, None);
+        }
+        if let Some(gw) = gateway {
+            self.add_route(Ipv4Addr::UNSPECIFIED, 0, Some(gw));
+        }
+    }
+
+    /// Configure networking from a DHCP lease (subnet + router).
+    pub fn apply_lease(&mut self, lease: &DhcpLease) {
+        if let Some(mask) = lease.subnet_mask {
+            self.set_network(mask, lease.router);
+        }
+    }
+
+    /// Forward packets addressed to other hosts (gateway mode).
+    pub fn set_forwarding(&mut self, on: bool) {
+        self.forwarding = on;
+    }
+
+    /// Advance the stack's sense of time; expires learned ARP
+    /// entries older than `ARP_ENTRY_TTL_MS`.
+    pub fn tick(&mut self, now_ms: u64) {
+        self.now_ms = now_ms;
+        self.arp.retain(|_, e| {
+            e.permanent || now_ms.saturating_sub(e.inserted_ms) < ARP_ENTRY_TTL_MS
+        });
+    }
+
+    /// Next-hop IP for `dst` (longest-prefix route lookup).
+    fn route(&self, dst: Ipv4Addr) -> Ipv4Addr {
+        let dst_u = u32::from(dst);
+        let mut best: Option<(u32, Option<Ipv4Addr>)> = None;
+        for (network, mask, via) in &self.routes {
+            if dst_u & mask == *network {
+                let better = match &best {
+                    Some((best_mask, _)) => mask > best_mask,
+                    None => true,
+                };
+                if better {
+                    best = Some((*mask, *via));
+                }
+            }
+        }
+        match best {
+            Some((_, Some(via))) => via,
+            _ => dst,
+        }
+    }
+
+    fn arp_lookup(&self, ip: Ipv4Addr) -> Option<MacAddr> {
+        self.arp.get(&ip).map(|e| e.mac)
+    }
+
+    fn arp_request(&mut self, target: Ipv4Addr) {
+        let body = arp_body(1, self.mac, self.ip, [0; 6], target);
+        self.outbox
+            .push(ethernet_frame(BROADCAST_MAC, self.mac, ETHERTYPE_ARP, &body));
+    }
+
     /// Static ARP entry (common on embedded point-to-point links).
     pub fn add_static_arp(&mut self, ip: Ipv4Addr, mac: MacAddr) {
-        self.arp.insert(ip, mac);
+        self.arp.insert(
+            ip,
+            ArpEntry { mac, inserted_ms: self.now_ms, permanent: true },
+        );
     }
 
     /// Queue a UDP datagram; emits an ARP request instead when the
@@ -266,17 +401,12 @@ impl IpStack {
             IpAddr::V4(v4) => v4,
             IpAddr::V6(_) => return,
         };
-        match self.arp.get(&dst_ip).copied() {
+        let next = self.route(dst_ip);
+        match self.arp_lookup(next) {
             Some(mac) => self.emit_udp(mac, src_port, dst_ip, dst.port(), payload),
             None => {
                 self.pending.push((src_port, dst, payload.to_vec()));
-                let body = arp_body(1, self.mac, self.ip, [0; 6], dst_ip);
-                self.outbox.push(ethernet_frame(
-                    BROADCAST_MAC,
-                    self.mac,
-                    ETHERTYPE_ARP,
-                    &body,
-                ));
+                self.arp_request(next);
             }
         }
     }
@@ -308,19 +438,37 @@ impl IpStack {
 
     fn input_arp(&mut self, body: &[u8]) {
         let Some(pkt) = arp_parse(body) else { return };
-        self.arp.insert(pkt.spa, pkt.sha);
+        self.arp.insert(
+            pkt.spa,
+            ArpEntry { mac: pkt.sha, inserted_ms: self.now_ms, permanent: false },
+        );
         // Flush anything waiting on this neighbour.
         let mut still_pending = Vec::new();
         for (src_port, dst, payload) in core::mem::take(&mut self.pending) {
-            if dst.ip() == IpAddr::V4(pkt.spa) {
-                self.emit_udp(pkt.sha, src_port, pkt.spa, dst.port(), &payload);
+            let dst_v4 = match dst.ip() {
+                IpAddr::V4(v4) => v4,
+                IpAddr::V6(_) => continue,
+            };
+            if self.route(dst_v4) == pkt.spa {
+                self.emit_udp(pkt.sha, src_port, dst_v4, dst.port(), &payload);
             } else {
                 still_pending.push((src_port, dst, payload));
             }
         }
         self.pending = still_pending;
-        if pkt.oper == 1 && pkt.tpa == self.ip {
-            let reply = arp_body(2, self.mac, self.ip, pkt.sha, pkt.spa);
+        // Flush forwarded packets waiting on this neighbour.
+        let mut still_fwd = Vec::new();
+        for (next, ip) in core::mem::take(&mut self.fwd_pending) {
+            if next == pkt.spa {
+                self.outbox
+                    .push(ethernet_frame(pkt.sha, self.mac, ETHERTYPE_IPV4, &ip));
+            } else {
+                still_fwd.push((next, ip));
+            }
+        }
+        self.fwd_pending = still_fwd;
+        if pkt.oper == 1 && self.is_local(pkt.tpa) {
+            let reply = arp_body(2, self.mac, pkt.tpa, pkt.sha, pkt.spa);
             self.outbox
                 .push(ethernet_frame(pkt.sha, self.mac, ETHERTYPE_ARP, &reply));
         }
@@ -328,8 +476,11 @@ impl IpStack {
 
     fn input_ipv4(&mut self, pkt_bytes: &[u8]) {
         let Some(pkt) = ipv4_parse(pkt_bytes) else { return };
-        if pkt.dst != self.ip {
-            return; // no forwarding
+        if !self.is_local(pkt.dst) {
+            if self.forwarding {
+                self.forward(&pkt, pkt_bytes[8]);
+            }
+            return;
         }
         match pkt.protocol {
             17 => {
@@ -346,10 +497,33 @@ impl IpStack {
         }
     }
 
+    /// Forward one packet toward its destination (TTL
+    /// decremented; queued with an ARP request out when the
+    /// next hop is unresolved, flushed when the reply lands).
+    fn forward(&mut self, pkt: &Ipv4Packet<'_>, ttl: u8) {
+        if ttl <= 1 {
+            return;
+        }
+        let next = self.route(pkt.dst);
+        match self.arp_lookup(next) {
+            Some(mac) => {
+                let ip = ipv4_build_ttl(pkt.src, pkt.dst, pkt.protocol, pkt.payload, ttl - 1);
+                self.outbox
+                    .push(ethernet_frame(mac, self.mac, ETHERTYPE_IPV4, &ip));
+            }
+            None => {
+                let ip = ipv4_build_ttl(pkt.src, pkt.dst, pkt.protocol, pkt.payload, ttl - 1);
+                self.fwd_pending.push((next, ip));
+                self.arp_request(next);
+            }
+        }
+    }
+
     fn input_icmp(&mut self, pkt: &Ipv4Packet<'_>) {
         // Echo request -> echo reply (type 8 -> 0), same id/seq/data.
         if pkt.payload.len() >= 8 && pkt.payload[0] == 8 && pkt.payload[1] == 0 {
-            let Some(dst_mac) = self.arp.get(&pkt.src).copied() else {
+            let next = self.route(pkt.src);
+            let Some(dst_mac) = self.arp_lookup(next) else {
                 return;
             };
             let mut reply = pkt.payload.to_vec();
@@ -358,7 +532,7 @@ impl IpStack {
             reply[3] = 0;
             let cksum = internet_checksum(&reply, 0);
             reply[2..4].copy_from_slice(&cksum.to_be_bytes());
-            let ip = ipv4_build(self.ip, pkt.src, 1, &reply);
+            let ip = ipv4_build(pkt.dst, pkt.src, 1, &reply);
             self.outbox
                 .push(ethernet_frame(dst_mac, self.mac, ETHERTYPE_IPV4, &ip));
         }
@@ -409,6 +583,14 @@ impl DhcpClient {
 
     pub fn lease(&self) -> Option<&DhcpLease> {
         self.lease.as_ref()
+    }
+
+    /// DHCPREQUEST renewing the current lease (ciaddr set).
+    /// Drive it at T1 (half the lease); the ACK refreshes
+    /// `lease()` through `handle_frame` like the initial grant.
+    pub fn renew_frame(&self) -> Option<Vec<u8>> {
+        let lease = self.lease.as_ref()?;
+        Some(self.broadcast_frame(&self.bootp(3, Some(lease.address), Some(lease.server))))
     }
 
     fn bootp(&self, msg_type: u8, requested: Option<Ipv4Addr>, server: Option<Ipv4Addr>) -> Vec<u8> {
@@ -533,6 +715,360 @@ impl DhcpClient {
                 None
             }
             _ => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// IPv6 (RFC 8200) + NDP (RFC 4861) + UDP/ICMPv6 — beside IPv4
+// ---------------------------------------------------------------------------
+
+use core::net::Ipv6Addr;
+
+pub const ETHERTYPE_IPV6: u16 = 0x86DD;
+
+/// Link-local address (fe80::/64) from a MAC via modified EUI-64.
+pub fn link_local_addr(mac: MacAddr) -> Ipv6Addr {
+    Ipv6Addr::from(eui64_host(0xfe80_0000_0000_0000_0000_0000_0000_0000u128, mac))
+}
+
+/// Global address under a /64 prefix from a MAC (SLAAC-style IID).
+pub fn slaac_addr(prefix: Ipv6Addr, mac: MacAddr) -> Ipv6Addr {
+    Ipv6Addr::from(eui64_host(u128::from(prefix) & !0xffff_ffff_ffff_ffffu128, mac))
+}
+
+fn eui64_host(top: u128, mac: MacAddr) -> u128 {
+    let iid: u128 = (((mac[0] ^ 0x02) as u128) << 56)
+        | ((mac[1] as u128) << 48)
+        | ((mac[2] as u128) << 40)
+        | (0xfffeu128 << 24)
+        | ((mac[3] as u128) << 16)
+        | ((mac[4] as u128) << 8)
+        | mac[5] as u128;
+    // 0xfffe encodes the inserted ff:fe bytes
+    top | iid
+}
+
+/// Solicited-node multicast address for `target` (ff02::1:ff00:0/104).
+pub fn solicited_node_addr(target: Ipv6Addr) -> Ipv6Addr {
+    Ipv6Addr::from(0xff02_0000_0000_0000_0000_0001_ff00_0000u128 | (u128::from(target) & 0xff_ffff))
+}
+
+fn multicast_mac(ip: Ipv6Addr) -> MacAddr {
+    let b = ip.octets();
+    [0x33, 0x33, b[12], b[13], b[14], b[15]]
+}
+
+fn ipv6_build(src: Ipv6Addr, dst: Ipv6Addr, next_header: u8, payload: &[u8]) -> Vec<u8> {
+    ipv6_build_hop(src, dst, next_header, payload, 64)
+}
+
+fn ipv6_build_hop(src: Ipv6Addr, dst: Ipv6Addr, next: u8, payload: &[u8], hop: u8) -> Vec<u8> {
+    let mut pkt = Vec::with_capacity(40 + payload.len());
+    pkt.extend_from_slice(&0x6000_0000u32.to_be_bytes());
+    pkt.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    pkt.push(next);
+    pkt.push(hop);
+    pkt.extend_from_slice(&src.octets());
+    pkt.extend_from_slice(&dst.octets());
+    pkt.extend_from_slice(payload);
+    pkt
+}
+
+struct Ipv6Packet<'a> {
+    src: Ipv6Addr,
+    dst: Ipv6Addr,
+    next_header: u8,
+    payload: &'a [u8],
+}
+
+fn ipv6_parse(pkt: &'_ [u8]) -> Option<Ipv6Packet<'_>> {
+    if pkt.len() < 40 || pkt[0] >> 4 != 6 {
+        return None;
+    }
+    let len = u16::from_be_bytes([pkt[4], pkt[5]]) as usize;
+    let end = 40usize.checked_add(len)?;
+    if pkt.len() < end {
+        return None;
+    }
+    Some(Ipv6Packet {
+        src: Ipv6Addr::from(<[u8; 16]>::try_from(&pkt[8..24]).ok()?),
+        dst: Ipv6Addr::from(<[u8; 16]>::try_from(&pkt[24..40]).ok()?),
+        next_header: pkt[6],
+        payload: &pkt[40..end],
+    })
+}
+
+/// Ones-complement checksum over the IPv6 pseudo-header + payload.
+fn ipv6_checksum(src: Ipv6Addr, dst: Ipv6Addr, next: u8, payload: &[u8]) -> u16 {
+    let mut sum: u32 = 0;
+    for chunk in src.octets().chunks(2).chain(dst.octets().chunks(2)) {
+        sum += u16::from_be_bytes([chunk[0], chunk[1]]) as u32;
+    }
+    sum += (payload.len() as u32) >> 16;
+    sum += (payload.len() as u32) & 0xffff;
+    sum += next as u32;
+    internet_checksum(payload, sum)
+}
+
+fn udp6_build(src: Ipv6Addr, dst: Ipv6Addr, src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8> {
+    let mut dgram = Vec::with_capacity(8 + payload.len());
+    dgram.extend_from_slice(&src_port.to_be_bytes());
+    dgram.extend_from_slice(&dst_port.to_be_bytes());
+    dgram.extend_from_slice(&((8 + payload.len()) as u16).to_be_bytes());
+    dgram.extend_from_slice(&[0, 0]);
+    dgram.extend_from_slice(payload);
+    let cksum = ipv6_checksum(src, dst, 17, &dgram);
+    // A computed zero is sent as 0xffff (0 means "none" — illegal in v6).
+    let cksum = if cksum == 0 { 0xffff } else { cksum };
+    dgram[6..8].copy_from_slice(&cksum.to_be_bytes());
+    dgram
+}
+
+fn udp6_parse<'a>(src: Ipv6Addr, dst: Ipv6Addr, dgram: &'a [u8]) -> Option<(u16, u16, &'a [u8])> {
+    if dgram.len() < 8 || ipv6_checksum(src, dst, 17, dgram) != 0 {
+        return None;
+    }
+    Some((
+        u16::from_be_bytes([dgram[0], dgram[1]]),
+        u16::from_be_bytes([dgram[2], dgram[3]]),
+        &dgram[8..],
+    ))
+}
+
+fn on_link(prefix: Ipv6Addr, prefix_len: u8, dst: Ipv6Addr) -> bool {
+    if prefix_len == 0 {
+        return true;
+    }
+    let shift = 128 - prefix_len.min(128);
+    (u128::from(prefix) >> shift) == (u128::from(dst) >> shift)
+}
+
+/// IPv6 stack: NDP neighbour discovery instead of ARP, ICMPv6
+/// echo, UDP with mandatory pseudo-header checksums. Same pure
+/// state-machine shape as `IpStack` (frames in, frames out).
+pub struct IpStack6 {
+    mac: MacAddr,
+    addr: Ipv6Addr,
+    prefix_len: u8,
+    neighbors: HashMap<Ipv6Addr, ArpEntry>,
+    pending: Vec<(u16, SocketAddr, Vec<u8>)>,
+    inbox: HashMap<u16, VecDeque<(Vec<u8>, SocketAddr)>>,
+    outbox: Vec<Vec<u8>>,
+    now_ms: u64,
+    default_router: Option<Ipv6Addr>,
+}
+
+impl IpStack6 {
+    pub fn new(mac: MacAddr, addr: Ipv6Addr) -> Self {
+        Self {
+            mac,
+            addr,
+            prefix_len: 64,
+            neighbors: HashMap::new(),
+            pending: Vec::new(),
+            inbox: HashMap::new(),
+            outbox: Vec::new(),
+            now_ms: 0,
+            default_router: None,
+        }
+    }
+
+    pub fn address(&self) -> Ipv6Addr {
+        self.addr
+    }
+
+    pub fn set_prefix_len(&mut self, prefix_len: u8) {
+        self.prefix_len = prefix_len;
+    }
+
+    pub fn set_default_router(&mut self, router: Ipv6Addr) {
+        self.default_router = Some(router);
+    }
+
+    pub fn add_static_neighbor(&mut self, ip: Ipv6Addr, mac: MacAddr) {
+        self.neighbors.insert(
+            ip,
+            ArpEntry { mac, inserted_ms: self.now_ms, permanent: true },
+        );
+    }
+
+    /// Advance time; expires learned neighbour entries like ARP.
+    pub fn tick(&mut self, now_ms: u64) {
+        self.now_ms = now_ms;
+        self.neighbors.retain(|_, e| {
+            e.permanent || now_ms.saturating_sub(e.inserted_ms) < ARP_ENTRY_TTL_MS
+        });
+    }
+
+    fn next_hop(&self, dst: Ipv6Addr) -> Ipv6Addr {
+        if dst.is_multicast() || on_link(self.addr, self.prefix_len, dst) {
+            dst
+        } else {
+            self.default_router.unwrap_or(dst)
+        }
+    }
+
+    pub fn send_udp(&mut self, src_port: u16, dst: SocketAddr, payload: &[u8]) {
+        let dst_ip = match dst.ip() {
+            IpAddr::V6(v6) => v6,
+            IpAddr::V4(_) => return,
+        };
+        if dst_ip.is_multicast() {
+            self.emit6(multicast_mac(dst_ip), dst_ip, &udp6_build(self.addr, dst_ip, src_port, dst.port(), payload));
+            return;
+        }
+        let next = self.next_hop(dst_ip);
+        match self.neighbors.get(&next).map(|e| e.mac) {
+            Some(mac) => {
+                self.emit6(mac, dst_ip, &udp6_build(self.addr, dst_ip, src_port, dst.port(), payload))
+            }
+            None => {
+                self.pending.push((src_port, dst, payload.to_vec()));
+                self.neighbor_solicitation(next);
+            }
+        }
+    }
+
+    pub fn recv_udp(&mut self, port: u16) -> Option<(Vec<u8>, SocketAddr)> {
+        self.inbox.get_mut(&port)?.pop_front()
+    }
+
+    pub fn take_output(&mut self) -> Vec<Vec<u8>> {
+        core::mem::take(&mut self.outbox)
+    }
+
+    fn emit6(&mut self, dst_mac: MacAddr, dst_ip: Ipv6Addr, udp: &[u8]) {
+        let pkt = ipv6_build(self.addr, dst_ip, 17, udp);
+        self.outbox.push(ethernet_frame(dst_mac, self.mac, ETHERTYPE_IPV6, &pkt));
+    }
+
+    fn neighbor_solicitation(&mut self, target: Ipv6Addr) {
+        let mut icmp = Vec::with_capacity(32);
+        icmp.push(135);
+        icmp.push(0);
+        icmp.extend_from_slice(&[0, 0]); // checksum below
+        icmp.extend_from_slice(&[0, 0, 0, 0]); // reserved
+        icmp.extend_from_slice(&target.octets());
+        icmp.push(1); // source link-layer option
+        icmp.push(1);
+        icmp.extend_from_slice(&self.mac);
+        let mcast = solicited_node_addr(target);
+        let cksum = ipv6_checksum(self.addr, mcast, 58, &icmp);
+        icmp[2..4].copy_from_slice(&cksum.to_be_bytes());
+        let pkt = ipv6_build(self.addr, mcast, 58, &icmp);
+        self.outbox
+            .push(ethernet_frame(multicast_mac(mcast), self.mac, ETHERTYPE_IPV6, &pkt));
+    }
+
+    fn learn_neighbor(&mut self, ip: Ipv6Addr, mac: MacAddr) {
+        self.neighbors.insert(
+            ip,
+            ArpEntry { mac, inserted_ms: self.now_ms, permanent: false },
+        );
+        let mut still = Vec::new();
+        for (src_port, dst, payload) in core::mem::take(&mut self.pending) {
+            let dst6 = match dst.ip() {
+                IpAddr::V6(v6) => v6,
+                IpAddr::V4(_) => continue,
+            };
+            if self.next_hop(dst6) == ip {
+                self.emit6(mac, dst6, &udp6_build(self.addr, dst6, src_port, dst.port(), &payload));
+            } else {
+                still.push((src_port, dst, payload));
+            }
+        }
+        self.pending = still;
+    }
+
+    pub fn input(&mut self, frame: &[u8]) {
+        let Some((dst_mac, src_mac, ethertype, payload)) = ethernet_parse(frame) else {
+            return;
+        };
+        if dst_mac != self.mac && dst_mac != BROADCAST_MAC && dst_mac[..2] != [0x33, 0x33] {
+            return;
+        }
+        if ethertype != ETHERTYPE_IPV6 {
+            return;
+        }
+        let Some(pkt) = ipv6_parse(payload) else { return };
+        if pkt.dst != self.addr && !pkt.dst.is_multicast() {
+            return; // not for us (no v6 forwarding)
+        }
+        match pkt.next_header {
+            17 => {
+                if let Some((src_port, dst_port, data)) = udp6_parse(pkt.src, pkt.dst, pkt.payload) {
+                    self.inbox.entry(dst_port).or_default().push_back((
+                        data.to_vec(),
+                        SocketAddr::new(IpAddr::V6(pkt.src), src_port),
+                    ));
+                }
+            }
+            58 => self.input_icmpv6(&pkt, src_mac),
+            _ => {}
+        }
+    }
+
+    fn input_icmpv6(&mut self, pkt: &Ipv6Packet<'_>, src_mac: MacAddr) {
+        let icmp = pkt.payload;
+        if icmp.len() < 4 || ipv6_checksum(pkt.src, pkt.dst, 58, icmp) != 0 {
+            return;
+        }
+        match icmp[0] {
+            135 if icmp.len() >= 24 => {
+                // Neighbour Solicitation: learn sender, answer if target is us.
+                let mut sender_mac = src_mac;
+                if icmp.len() >= 32 && icmp[24] == 1 && icmp[25] == 1 {
+                    sender_mac.copy_from_slice(&icmp[26..32]);
+                }
+                if !pkt.src.is_unspecified() {
+                    self.learn_neighbor(pkt.src, sender_mac);
+                }
+                let target = Ipv6Addr::from(<[u8; 16]>::try_from(&icmp[8..24]).unwrap_or([0; 16]));
+                if target == self.addr {
+                    let mut na = Vec::with_capacity(32);
+                    na.push(136);
+                    na.push(0);
+                    na.extend_from_slice(&[0, 0]);
+                    na.push(0x60); // solicited + override
+                    na.extend_from_slice(&[0, 0, 0]);
+                    na.extend_from_slice(&target.octets());
+                    na.push(2); // target link-layer option
+                    na.push(1);
+                    na.extend_from_slice(&self.mac);
+                    let dst_ip = if pkt.src.is_unspecified() {
+                        Ipv6Addr::from(0xff02_0000_0000_0000_0000_0000_0000_0001u128)
+                    } else {
+                        pkt.src
+                    };
+                    let cksum = ipv6_checksum(self.addr, dst_ip, 58, &na);
+                    na[2..4].copy_from_slice(&cksum.to_be_bytes());
+                    let out = ipv6_build(self.addr, dst_ip, 58, &na);
+                    self.outbox
+                        .push(ethernet_frame(sender_mac, self.mac, ETHERTYPE_IPV6, &out));
+                }
+            }
+            136 if icmp.len() >= 32 => {
+                // Neighbour Advertisement: target -> sender MAC.
+                let target = Ipv6Addr::from(<[u8; 16]>::try_from(&icmp[8..24]).unwrap_or([0; 16]));
+                let mut mac = src_mac;
+                if icmp[24] == 2 && icmp[25] == 1 {
+                    mac.copy_from_slice(&icmp[26..32]);
+                }
+                self.learn_neighbor(target, mac);
+            }
+            128 if icmp.len() >= 8 => {
+                let mut reply = icmp.to_vec();
+                reply[0] = 129;
+                reply[2] = 0;
+                reply[3] = 0;
+                let cksum = ipv6_checksum(pkt.dst, pkt.src, 58, &reply);
+                reply[2..4].copy_from_slice(&cksum.to_be_bytes());
+                let out = ipv6_build(pkt.dst, pkt.src, 58, &reply);
+                self.outbox
+                    .push(ethernet_frame(src_mac, self.mac, ETHERTYPE_IPV6, &out));
+            }
+            _ => {}
         }
     }
 }
@@ -793,6 +1329,226 @@ mod tests {
         assert_eq!(lease.lease_secs, 7200);
         assert_eq!(lease.subnet_mask, Some(Ipv4Addr::new(255, 255, 255, 0)));
         assert_eq!(lease.router, Some(Ipv4Addr::new(10, 0, 0, 254)));
+    }
+
+    #[test]
+    fn gateway_routing_frames_to_gateway_mac() {
+        let gw_ip = Ipv4Addr::new(10, 0, 0, 1);
+        let remote = Ipv4Addr::new(192, 168, 1, 7);
+        let mut a = IpStack::new(mac(1), Ipv4Addr::new(10, 0, 0, 5));
+        a.set_network(Ipv4Addr::new(255, 255, 255, 0), Some(gw_ip));
+        a.add_static_arp(gw_ip, mac(254));
+        // Even with the remote's MAC statically known, off-subnet
+        // traffic must go to the gateway's MAC, IP dst unchanged.
+        a.add_static_arp(remote, mac(7));
+        a.send_udp(5000, SocketAddr::new(IpAddr::V4(remote), 6000), b"routed");
+        let frames = a.take_output();
+        assert_eq!(frames.len(), 1);
+        let (dst_mac, _, ethertype, ip_bytes) = ethernet_parse(&frames[0]).unwrap();
+        assert_eq!(dst_mac, mac(254), "frame addressed to the gateway");
+        assert_eq!(ethertype, ETHERTYPE_IPV4);
+        let pkt = ipv4_parse(ip_bytes).unwrap();
+        assert_eq!(pkt.dst, remote, "IP destination preserved");
+    }
+
+    #[test]
+    fn forwarding_delivers_across_subnets() {
+        let client_ip = Ipv4Addr::new(10, 0, 0, 5);
+        let server_ip = Ipv4Addr::new(192, 168, 1, 7);
+        let mut client = IpStack::new(mac(1), client_ip);
+        client.set_network(
+            Ipv4Addr::new(255, 255, 255, 0),
+            Some(Ipv4Addr::new(10, 0, 0, 1)),
+        );
+        let mut router = IpStack::new(mac(254), Ipv4Addr::new(10, 0, 0, 1));
+        router.add_address(Ipv4Addr::new(192, 168, 1, 1));
+        router.set_forwarding(true);
+        router.add_route(Ipv4Addr::new(10, 0, 0, 0), 24, None);
+        router.add_route(Ipv4Addr::new(192, 168, 1, 0), 24, None);
+        let mut server = IpStack::new(mac(7), server_ip);
+        server.set_network(
+            Ipv4Addr::new(255, 255, 255, 0),
+            Some(Ipv4Addr::new(192, 168, 1, 1)),
+        );
+
+        fn pump(stacks: &mut [&mut IpStack; 3]) {
+            for _ in 0..60 {
+                let mut frames: Vec<(usize, Vec<u8>)> = Vec::new();
+                for (i, s) in stacks.iter_mut().enumerate() {
+                    for f in s.take_output() {
+                        frames.push((i, f));
+                    }
+                }
+                if frames.is_empty() {
+                    break;
+                }
+
+                for (from, frame) in frames {
+                    for (j, s) in stacks.iter_mut().enumerate() {
+                        if j != from {
+                            s.input(&frame);
+                        }
+                    }
+                }
+            }
+        }
+        let mut stacks: [&mut IpStack; 3] = [&mut client, &mut router, &mut server];
+
+        stacks[0].send_udp(
+            5000,
+            SocketAddr::new(IpAddr::V4(server_ip), 6000),
+            b"across",
+        );
+        pump(&mut stacks);
+        let (payload, src) = stacks[2]
+            .recv_udp(6000)
+            .expect("server received via gateway");
+        assert_eq!(payload, b"across");
+        assert_eq!(src, SocketAddr::new(IpAddr::V4(client_ip), 5000));
+
+        stacks[2].send_udp(
+            6000,
+            SocketAddr::new(IpAddr::V4(client_ip), 5000),
+            b"back",
+        );
+        pump(&mut stacks);
+        let (payload, _) = stacks[0]
+            .recv_udp(5000)
+            .expect("client received the reply");
+        assert_eq!(payload, b"back");
+    }
+
+    #[test]
+    fn arp_entries_expire_with_tick() {
+        let ip_b = Ipv4Addr::new(10, 0, 0, 2);
+        let mut a = IpStack::new(mac(1), Ipv4Addr::new(10, 0, 0, 1));
+        let mut b = IpStack::new(mac(2), ip_b);
+        b.add_static_arp(Ipv4Addr::new(10, 0, 0, 1), mac(1));
+
+        a.tick(1_000);
+        a.send_udp(5000, SocketAddr::new(IpAddr::V4(ip_b), 6000), b"one");
+        let arp_req = a.take_output();
+        assert_eq!(arp_req.len(), 1, "first send ARPs");
+        b.input(&arp_req[0]);
+        let reply = b.take_output();
+        // b's queued payload was never queued (send happened on b's
+        // side only via its own calls); deliver the ARP reply.
+        a.input(&reply[0]);
+        let data_frames = a.take_output();
+        assert_eq!(data_frames.len(), 1, "flush after ARP reply");
+
+        // Still fresh just before the TTL.
+        a.tick(1_000 + ARP_ENTRY_TTL_MS - 1);
+        a.send_udp(5000, SocketAddr::new(IpAddr::V4(ip_b), 6000), b"two");
+        assert_eq!(a.take_output().len(), 1, "fresh entry: direct send");
+
+        // Expired after it: next send ARPs again.
+        a.tick(1_000 + ARP_ENTRY_TTL_MS + 1);
+        a.send_udp(5000, SocketAddr::new(IpAddr::V4(ip_b), 6000), b"three");
+        let frames = a.take_output();
+        assert_eq!(frames.len(), 1);
+        let (_, _, ethertype, _) = ethernet_parse(&frames[0]).unwrap();
+        assert_eq!(ethertype, ETHERTYPE_ARP, "expired entry re-ARPs");
+    }
+
+    #[test]
+    fn dhcp_renewal_refreshes_lease() {
+        let mut client = DhcpClient::new(mac(9), 0xabc);
+        let offer = dhcp_reply(0xabc, mac(9), 2, Ipv4Addr::new(10, 0, 0, 50));
+        client.handle_frame(&offer).unwrap();
+        let ack = dhcp_reply(0xabc, mac(9), 5, Ipv4Addr::new(10, 0, 0, 50));
+        client.handle_frame(&ack);
+        assert_eq!(client.lease().unwrap().lease_secs, 7200);
+
+        let renew = client.renew_frame().expect("renewal frame");
+        let (_, _, ethertype, ip_bytes) = ethernet_parse(&renew).unwrap();
+        assert_eq!(ethertype, ETHERTYPE_IPV4);
+        let pkt = ipv4_parse(ip_bytes).unwrap();
+        let (_, _, bootp) = udp_parse(pkt.src, pkt.dst, pkt.payload).unwrap();
+        assert_eq!(bootp[0], 1);
+        assert_eq!(&bootp[12..16], &[10, 0, 0, 50], "ciaddr is the leased address");
+
+        // ACK the renewal with a longer lease.
+        let mut ack2 = dhcp_reply(0xabc, mac(9), 5, Ipv4Addr::new(10, 0, 0, 50));
+        // bump lease option 7200 -> 14400 (0x3840)
+        let pos = ack2.windows(2).position(|w| w == [51, 4]).unwrap();
+        ack2[pos + 2..pos + 6].copy_from_slice(&14400u32.to_be_bytes());
+        // fix UDP checksum after mutation: rebuild via zero-checksum acceptance
+        // (udp_parse accepts zero checksum only when field is 0; recompute not
+        // needed because we zero it below)
+        let ip_off = 14;
+        let udp_off = ip_off + 20;
+        ack2[udp_off + 6] = 0;
+        ack2[udp_off + 7] = 0;
+        client.handle_frame(&ack2);
+        assert_eq!(client.lease().unwrap().lease_secs, 14400);
+    }
+
+    #[test]
+    fn ipv6_link_local_from_mac() {
+        let addr = link_local_addr(mac(1));
+        assert_eq!(addr.segments()[0], 0xfe80);
+        assert_eq!(addr.octets()[8], 0x00); // U/L bit flipped: mac(1)[0]=2 -> 0
+        assert_eq!(&addr.octets()[11..13], &[0xff, 0xfe]);
+    }
+
+    #[test]
+    fn ipv6_udp_roundtrip_via_ndp() {
+        let ip_a = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 5);
+        let ip_b = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 7);
+        let mut a = IpStack6::new(mac(1), ip_a);
+        let mut b = IpStack6::new(mac(7), ip_b);
+        a.send_udp(5000, SocketAddr::new(IpAddr::V6(ip_b), 6000), b"v6 hello");
+        // First output: NDP solicitation to the solicited-node multicast.
+        let ns = a.take_output();
+        assert_eq!(ns.len(), 1);
+        let (dst_mac, _, ethertype, _) = ethernet_parse(&ns[0]).unwrap();
+        assert_eq!(ethertype, ETHERTYPE_IPV6);
+        assert_eq!(&dst_mac[..2], &[0x33, 0x33]);
+        b.input(&ns[0]);
+        let na = b.take_output();
+        assert_eq!(na.len(), 1, "B answers the solicitation");
+        a.input(&na[0]);
+        let data = a.take_output();
+        assert_eq!(data.len(), 1, "pending datagram flushed after NA");
+        b.input(&data[0]);
+        let (payload, src) = b.recv_udp(6000).expect("B received v6 datagram");
+        assert_eq!(payload, b"v6 hello");
+        assert_eq!(src, SocketAddr::new(IpAddr::V6(ip_a), 5000));
+    }
+
+    #[test]
+    fn ipv6_offlink_solicits_default_router() {
+        let router = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
+        let remote = Ipv6Addr::new(0x2001, 0xdb8, 1, 0, 0, 0, 0, 9);
+        let mut a = IpStack6::new(mac(1), Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 5));
+        a.set_default_router(router);
+        a.send_udp(5000, SocketAddr::new(IpAddr::V6(remote), 6000), b"off");
+        let frames = a.take_output();
+        assert_eq!(frames.len(), 1);
+        let (_, _, _, ip_bytes) = ethernet_parse(&frames[0]).unwrap();
+        let pkt = ipv6_parse(ip_bytes).unwrap();
+        assert_eq!(pkt.dst, solicited_node_addr(router), "solicits the router, not the remote");
+        assert_eq!(pkt.payload[0], 135);
+    }
+
+    #[test]
+    fn ipv6_echo_reply() {
+        let ip_a = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 5);
+        let ip_b = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 7);
+        let mut b = IpStack6::new(mac(7), ip_b);
+        let mut icmp = alloc::vec![128u8, 0, 0, 0, 0, 1, 0, 1];
+        icmp.extend_from_slice(b"ping6");
+        let cksum = ipv6_checksum(ip_a, ip_b, 58, &icmp);
+        icmp[2..4].copy_from_slice(&cksum.to_be_bytes());
+        let frame = ethernet_frame(mac(7), mac(1), ETHERTYPE_IPV6, &ipv6_build(ip_a, ip_b, 58, &icmp));
+        b.input(&frame);
+        let out = b.take_output();
+        assert_eq!(out.len(), 1);
+        let (_, _, _, ip_bytes) = ethernet_parse(&out[0]).unwrap();
+        let pkt = ipv6_parse(ip_bytes).unwrap();
+        assert_eq!(pkt.payload[0], 129, "echo reply");
+        assert_eq!(&pkt.payload[8..], b"ping6");
     }
 
     #[test]
