@@ -83,7 +83,10 @@ The Rust crate is layered so the protocol core runs with no OS:
   `ice.nominated`, `dtls.handshake` (`full`/`resumed`), and
   `endpoint.ready` to a registered synchronous observer — the
   same dormant, dependency-free hook shape as the gRPC
-  runtimes. Observer panics are caught.
+  runtimes. Observer panics are caught. All three stacks emit
+  the same events (`setStackObserver` in JS and Go); the JS
+  and Go DTLS stacks have no session resumption, so their
+  handshake detail is always `full`.
 - **TURN over IPv6**: `TurnServerConfig::request_ipv6_relay`
   adds REQUESTED-ADDRESS-FAMILY (RFC 8656; the attribute
   constant is stamped from `webrtc-spec.rkt` into all three

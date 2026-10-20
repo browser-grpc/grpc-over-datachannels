@@ -86,13 +86,17 @@ Plugin parameters (pass via `--grpc-dc-rust_out=param:outdir`):
 | Parameter (all plugins) | Default | Meaning |
 |---|---|---|
 | `trace=off` | `off` | runtime tracer stays dormant (still registerable from app code) |
-| `trace=hooks` | | also wire the tracer registrar into generated stubs (currently Python) |
+| `trace=hooks` | | also wire the tracer registrar into generated stubs (all languages; JS/wasm stubs use the runtime entry exports instead) |
+| `trace_methods=/a.B/C;/a.B/*` | all methods | with `trace=hooks`: only these method paths produce spans (`;`-separated, trailing `*` = prefix) |
 
 Tracing is homegrown and dependency-free: register an observer
 (`grpcdc.set_tracer` / `setTracer` / `SetTracer` /
 `grpcdc_set_tracer`, per language) and clients propagate a W3C
 `traceparent` through HEADERS while servers parent spans to it.
-See "Tracing" in [SPEC.md](/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/SPEC.md).
+Per-method filtering: `set_trace_filter` in every runtime.
+Runnable examples (Python and JS): `tracing_demo` prints one
+parented trace per call, `otlp_tracer` exports spans as
+OTLP/JSON to a collector. See "Tracing" in [SPEC.md](/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/SPEC.md).
 
 Message contract: Rust types implement `grpc_dc::Message` (one-line
 `grpc_dc::impl_message_via_prost!(T)` under the `prost` feature); JS

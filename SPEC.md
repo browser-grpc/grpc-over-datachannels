@@ -116,9 +116,12 @@ error. The runtime API itself is always present and dormant.
 spans: `;`-separated method paths, a trailing `*` meaning
 prefix match (`/echo.Echo/*`); empty traces everything. The
 plugin parameter `trace_methods=<patterns>` (requires
-`trace=hooks`) bakes the filter into generated stubs that
-support it (currently Python); malformed patterns are a
-plugin error.
+`trace=hooks`) bakes the filter into generated stubs;
+malformed patterns are a plugin error. Two stub exceptions:
+JS stubs never import the runtime (its location is a
+deployment choice), so JS applications import `setTracer` /
+`setTraceFilter` from the runtime entry point; the Wasm
+wrapper stubs likewise use the JS runtime they wrap.
 
 Examples live outside the runtimes: `tracing_demo` (Python and
 JS) prints one parented trace per call, and `otlp_tracer`

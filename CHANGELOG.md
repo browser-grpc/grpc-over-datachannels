@@ -3,6 +3,22 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.13.0 — 2026-10-20
+
+- `trace=hooks` stub baking in every language generator
+  (registrar re-export/delegate plus `trace_methods` filter
+  baked in where the language has a load-time idiom);
+  JS/Wasm stubs remain the documented exception — they use
+  the runtime entry-point exports. Hooks-mode stubs verified
+  by generation plus per-language compile/syntax checks.
+- Stack tracing parity: `ice.nominated`, `dtls.handshake`,
+  `endpoint.ready` now emitted by all three WebRTC stacks
+  (`setStackObserver` in JS and Go beside Rust's `trace`
+  module), each with a committed event-sequence test.
+- Docs: README parameter table covers `trace_methods` and
+  points at the `tracing_demo`/`otlp_tracer` examples (also
+  in the browser-browsable corpus).
+
 ## v0.12.0 — 2026-10-20
 
 - WebRTC stack tracing: new `trace` module in dc-webrtc —
