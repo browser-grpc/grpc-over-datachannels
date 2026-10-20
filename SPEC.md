@@ -90,6 +90,28 @@ Kotlin/Wasm inline mode) a handler already running inline
 cannot be preempted — the deadline is checked between
 messages.
 
+## Tracing (homegrown, opt-in)
+
+Runtimes carry W3C Trace Context propagation without any
+dependency: when the application registers a span observer
+(`set_tracer`/`setTracer`/`SetTracer`/`grpcdc_set_tracer`,
+depending on language), the client writes a `traceparent`
+metadata entry (`00-<trace-id>-<span-id>-01`) into HEADERS —
+continuing an incoming `traceparent` from call metadata when
+present — and the server parents its span to it. Observers
+receive `on_start`/`on_end` callbacks with kind (`client` /
+`server`), method path, trace/span ids, and the terminal status
+name. With no observer registered the wire is unchanged: no
+header is written and no ids are minted. Sampling, batching,
+and export (OTLP or otherwise) are deliberately out of scope —
+this is propagation plus hooks, not an OpenTelemetry SDK.
+
+The protoc plugins accept `trace=off|hooks` (default `off`).
+`hooks` additionally wires the registrar into generated stubs
+where the generator supports it (currently the Python stub
+re-exports `grpcdc.set_tracer`); any other value is a plugin
+error. The runtime API itself is always present and dormant.
+
 ## Backpressure
 
 SCTP applies its own flow control per channel. Senders must still respect

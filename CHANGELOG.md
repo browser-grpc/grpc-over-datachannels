@@ -3,6 +3,20 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.10.0 — 2026-10-19
+
+- Homegrown tracing (all runtimes + browser JS core): W3C
+  `traceparent` propagation through HEADERS with a synchronous
+  span-observer hook (`set_tracer`/`setTracer`/`SetTracer`/
+  `grpcdc_set_tracer`), dormant until registered — no new
+  dependencies, unchanged wire when off. Client spans end at
+  trailers/RST/deadline; server spans wrap dispatch.
+- Protoc plugins accept `trace=off|hooks` (other values are a
+  plugin error); `hooks` re-exports the registrar from Python
+  stubs. Spec and README document the contract; Python and JS
+  tracing suites cover propagation, continuation, error status,
+  and dormancy.
+
 ## v0.9.0 — 2026-10-19
 
 - Net stack: IPv4 gateway routing (longest-prefix route table,

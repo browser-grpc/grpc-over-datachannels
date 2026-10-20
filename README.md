@@ -83,6 +83,17 @@ Plugin parameters (pass via `--grpc-dc-rust_out=param:outdir`):
 |---|---|---|
 | `go_package=echo` | proto package's last segment | Go package of the generated stub + your message types |
 
+| Parameter (all plugins) | Default | Meaning |
+|---|---|---|
+| `trace=off` | `off` | runtime tracer stays dormant (still registerable from app code) |
+| `trace=hooks` | | also wire the tracer registrar into generated stubs (currently Python) |
+
+Tracing is homegrown and dependency-free: register an observer
+(`grpcdc.set_tracer` / `setTracer` / `SetTracer` /
+`grpcdc_set_tracer`, per language) and clients propagate a W3C
+`traceparent` through HEADERS while servers parent spans to it.
+See "Tracing" in [SPEC.md](/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/SPEC.md).
+
 Message contract: Rust types implement `grpc_dc::Message` (one-line
 `grpc_dc::impl_message_via_prost!(T)` under the `prost` feature); JS
 classes expose `static encode(msg)` / `static decode(bytes)`; Go types
