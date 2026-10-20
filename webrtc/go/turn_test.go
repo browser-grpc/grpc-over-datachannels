@@ -20,6 +20,7 @@ import (
 type fakeTurnAlloc struct {
 	client      *net.UDPAddr
 	relayed     *net.UDPAddr
+	relayConn   *net.UDPConn
 	permissions map[string]time.Time // peer addr -> permission expiry
 	expiresAt   time.Time            // allocation expiry
 	channels    map[uint16]string    // channel -> peer addr
@@ -283,6 +284,15 @@ func (f *fakeTurnServer) onChannelData(raw []byte, src *net.UDPAddr) {
 		return
 	}
 	dest := f.byRelay[peerKey]
+	if dest == nil {
+		// Direct (non-TURN) peer: deliver from the relay socket.
+		if liveLocked(sender) && sender.relayConn != nil {
+			if peer, err := net.ResolveUDPAddr("udp", peerKey); err == nil {
+				_, _ = sender.relayConn.WriteToUDP(data, peer)
+			}
+		}
+		return
+	}
 	if !liveLocked(dest) || !permOKLocked(dest, sender.relayed.String()) {
 		return
 	}
@@ -295,6 +305,7 @@ func (f *fakeTurnServer) listenRelay(alloc *fakeTurnAlloc) {
 	if err != nil {
 		return
 	}
+	alloc.relayConn = conn
 	go func() {
 		defer conn.Close()
 		buf := make([]byte, 65536)
@@ -348,6 +359,13 @@ func (f *fakeTurnServer) onSend(msg *StunMessage, src *net.UDPAddr) {
 	defer f.mu.Unlock()
 	sender := f.byClient[src.String()]
 	dest := f.byRelay[peer.String()]
+	if dest == nil {
+		// Direct (non-TURN) peer: deliver from the relay socket.
+		if liveLocked(sender) && sender.relayConn != nil {
+			_, _ = sender.relayConn.WriteToUDP(data, peer)
+		}
+		return
+	}
 	if !liveLocked(sender) || !liveLocked(dest) ||
 		!permOKLocked(dest, sender.relayed.String()) {
 		return
