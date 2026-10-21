@@ -100,17 +100,24 @@ fn main() -> io::Result<()> {
             println!("TCP {}", listener.local_addr()?);
             use std::io::BufRead;
             let _ = io::stdout().flush();
+            // One thread per language connection: each dials its
+            // own Direct session, so several language clients can
+            // be in flight through this one sidecar at once.
             for conn in listener.incoming() {
                 let tcp = conn?;
-                let cert = Certificate::generate_self_signed("grpc-dc-sidecar");
-                let endpoint = match &turn {
-                    Some(cfg) => direct_dial_turn_multiaddr(&multiaddr, cert, cfg)?,
-                    None => direct_dial_multiaddr(&multiaddr, cert)?,
-                };
-                let endpoint = Arc::new(endpoint);
-                let channel = endpoint
-                    .open_channel(ChannelParams { label: "grpc".into(), ..Default::default() })?;
-                bridge(endpoint, channel, tcp)?;
+                let multiaddr = multiaddr.clone();
+                let turn = turn.clone();
+                std::thread::spawn(move || {
+                    let cert = Certificate::generate_self_signed("grpc-dc-sidecar");
+                    let endpoint = match &turn {
+                        Some(cfg) => direct_dial_turn_multiaddr(&multiaddr, cert, cfg)?,
+                        None => direct_dial_multiaddr(&multiaddr, cert)?,
+                    };
+                    let endpoint = Arc::new(endpoint);
+                    let channel = endpoint
+                        .open_channel(ChannelParams { label: "grpc".into(), ..Default::default() })?;
+                    bridge(endpoint, channel, tcp)
+                });
             }
             let _ = io::BufReader::new(io::stdin());
             Ok(())
@@ -127,11 +134,16 @@ fn main() -> io::Result<()> {
             let listener = DirectListener::bind(udp_addr, Certificate::generate_self_signed("grpc-dc"))?;
             println!("MULTIADDR {}", listener.multiaddr());
             io::stdout().flush()?;
+            // One thread per accepted Direct connection: each
+            // gets its own TCP connection to the language server,
+            // so concurrent dialers are served concurrently.
             loop {
                 let endpoint = Arc::new(listener.accept()?);
-                let channel = wait_channel(&endpoint)?;
-                let tcp = TcpStream::connect(lang_addr)?;
-                bridge(endpoint, channel, tcp)?;
+                std::thread::spawn(move || {
+                    let channel = wait_channel(&endpoint)?;
+                    let tcp = TcpStream::connect(lang_addr)?;
+                    bridge(endpoint, channel, tcp)
+                });
             }
         }
         _ => {

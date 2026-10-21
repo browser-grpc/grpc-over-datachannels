@@ -49,7 +49,7 @@ private func freePort() throws -> Int {
     try Check(rc == 0, "bind probe")
     var bound = sockaddr_in()
     var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-    withUnsafeMutablePointer(to: &bound) { ptr in
+    _ = withUnsafeMutablePointer(to: &bound) { ptr in
         ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
             getsockname(fd, sa, &len)
         }
@@ -61,7 +61,7 @@ private func freePort() throws -> Int {
 private func startSidecar(_ bin: String, _ args: [String], _ tag: String) throws -> (Process, URL) {
     let logURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("grpcdc-sidecar-\(tag)-\(ProcessInfo.processInfo.processIdentifier).log")
-    FileManager.default.createFile(atPath: logURL.path, contents: nil)
+    _ = FileManager.default.createFile(atPath: logURL.path, contents: nil)
     let handle = try FileHandle(forWritingTo: logURL)
     let process = Process()
     process.executableURL = URL(fileURLWithPath: bin)
@@ -97,14 +97,13 @@ func TestSidecar() throws {
     addr.sin_family = sa_family_t(AF_INET)
     addr.sin_port = UInt16(langPort).bigEndian
     addr.sin_addr.s_addr = inet_addr("127.0.0.1")
-    var bindRc = withUnsafePointer(to: &addr) { ptr in
+    let bindRc = withUnsafePointer(to: &addr) { ptr in
         ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
             bind(listenFd, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
     }
     try Check(bindRc == 0, "bind lang port")
     try Check(listen(listenFd, 4) == 0, "listen lang port")
-    _ = bindRc
 
     let server = Server()
     EchoGrpcDc.RegisterEchoServer(server, EchoServiceImpl())

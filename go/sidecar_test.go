@@ -112,3 +112,67 @@ func TestSidecarDirectGo(t *testing.T) {
 		t.Fatalf("unary = %q", resp.Message)
 	}
 }
+
+// Three Go clients concurrently through ONE listen sidecar and
+// ONE dial sidecar: the sidecars bridge per connection (one
+// thread each), the Go server accepts a loop of framed TCP
+// connections, and every client's payload must come back its
+// own. Needs the sidecar's per-connection threading.
+func TestSidecarMultiConnGo(t *testing.T) {
+	bin := sidecarBinary(t)
+
+	langPort := sidecarFreePort(t)
+	serverSock, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", langPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serverSock.Close()
+	server := grpcdc.NewServer()
+	echo.RegisterEchoServer(server, echo.EchoService{})
+	go func() {
+		for {
+			conn, err := serverSock.Accept()
+			if err != nil {
+				return
+			}
+			go server.ServeTransport(grpcdc.NewSidecarTransport(conn))
+		}
+	}()
+
+	listenCmd := exec.Command(bin, "listen", "--udp", "127.0.0.1:0", "--tcp", fmt.Sprintf("127.0.0.1:%d", langPort))
+	defer func() { if listenCmd.Process != nil { _ = listenCmd.Process.Kill() } }()
+	multiaddr := strings.SplitN(readSidecarLine(t, listenCmd, "MULTIADDR"), " ", 2)[1]
+
+	clientPort := sidecarFreePort(t)
+	dialCmd := exec.Command(bin, "dial", "--multiaddr", multiaddr, "--tcp", fmt.Sprintf("127.0.0.1:%d", clientPort))
+	defer func() { if dialCmd.Process != nil { _ = dialCmd.Process.Kill() } }()
+	_ = readSidecarLine(t, dialCmd, "TCP")
+
+	errs := make(chan error, 3)
+	for i := 0; i < 3; i++ {
+		go func(i int) {
+			transport, err := grpcdc.DialSidecar(fmt.Sprintf("127.0.0.1:%d", clientPort))
+			if err != nil {
+				errs <- err
+				return
+			}
+			client := echo.NewEchoClient(grpcdc.NewChannel(transport))
+			want := fmt.Sprintf("echo: hello-%d", i)
+			resp, err := client.Unary(context.Background(), &echo.EchoRequest{Message: fmt.Sprintf("hello-%d", i)})
+			if err != nil {
+				errs <- err
+				return
+			}
+			if resp.Message != want {
+				errs <- fmt.Errorf("client %d unary = %q, want %q", i, resp.Message, want)
+				return
+			}
+			errs <- nil
+		}(i)
+	}
+	for i := 0; i < 3; i++ {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
