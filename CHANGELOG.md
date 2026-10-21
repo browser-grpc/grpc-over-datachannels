@@ -3,6 +3,25 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.19.0 — 2026-10-21
+
+- Browser/Wasm BDD coverage: `racket/bdd-gen.rkt` now also
+  stamps the scenario table and a Wasm client manifest into
+  `browser-test/` (`bdd_scenarios.generated.mjs`,
+  `bdd_wasm_manifest.generated.mjs`). The JS browser client
+  runs the full 16-scenario table in Chromium and Firefox over
+  a native RTCDataChannel (`browser-test/bdd.test.mjs`, wired
+  into `make test-browser`); every Wasm client (13 pages:
+  native Rust/Dart/Zig/Lua/C++ runtimes and Go/Zig/C++/Swift/
+  Kotlin/Scala.js facades) is asserted against expectations
+  derived from the same generated table (`bdd_wasm.test.mjs`,
+  wired into `make test-wasm-matrix`).
+- Go generated map encoding is now deterministic: the Go
+  emitter sorts map keys before encoding (matching the Lua,
+  Rust, and Swift fixes in v0.18.0). Caught by a Docker-gate
+  flake in `TestBddSchemas` where Go's randomized map iteration
+  swapped two kitchen-sink entries.
+
 ## v0.18.0 — 2026-10-20
 
 - BDD scenario coverage expanded in every language: the shared

@@ -242,7 +242,15 @@ generated classes, pinning marshal/unmarshal to protoc's wire
 output (this caught real canonical-encoding bugs in Rust,
 Lua, and Scala). Python, Go, and C++ also run the full
 16-scenario table over the real WebRTC `direct_sidecar`
-(`TestBddSidecar`). `make test` also runs
+(`TestBddSidecar`). The same table also runs in a real
+browser: `browser-test/bdd.test.mjs` executes all 16 scenarios
+in Chromium and Firefox over a native `RTCDataChannel`, and
+`browser-test/bdd_wasm.test.mjs` pins every Wasm client's
+summary to the generated table (call shapes, plus the deadline
+code where the summary carries it); both consume scenario data
+and the client manifest stamped by `racket/bdd-gen.rkt`, so
+browser coverage cannot drift from the native suites either.
+`make test` also runs
 `make check-generated`, which regenerates the whole tree and
 fails if any generated file (docs included) differs from its
 Racket source.
