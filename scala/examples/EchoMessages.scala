@@ -148,11 +148,11 @@ class EchoRequest(
     w.stringField(1, message)
     if (count != 0) {
       w.tag(2, 0)
-      w.varint((count & 0xffffffffL))
+      w.varint((count.toLong))
     }
     if (delayMs != 0) {
       w.tag(3, 0)
-      w.varint((delayMs & 0xffffffffL))
+      w.varint((delayMs.toLong))
     }
     w.raw(unknownFields)
     w.toBytes
@@ -190,7 +190,7 @@ class EchoResponse(
     w.stringField(1, message)
     if (index != 0) {
       w.tag(2, 0)
-      w.varint((index & 0xffffffffL))
+      w.varint((index.toLong))
     }
     w.raw(unknownFields)
     w.toBytes

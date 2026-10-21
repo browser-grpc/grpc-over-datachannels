@@ -554,7 +554,7 @@
               (eq? (hash-ref (swift-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
          (define entry (swift-pb-resolve model (hash-ref f 'type-name)))
          (define helper (format "~a.~aEncode" support (swift-pb-map-helper-name model entry)))
-         (format "        for (k, val) in ~a { w.BytesField(~a, ~a(k, val)) }\n" v n helper)]
+         (format "        for (k, val) in ~a.sorted(by: { $0.key < $1.key }) { w.BytesField(~a, ~a(k, val)) }\n" v n helper)]
         [(not (= (hash-ref f 'label) 3)) (swift-pb-encode-singular model f v "        ")]
         [(memv type swift-pb-varint-types)
          (string-append

@@ -331,7 +331,10 @@
               (eq? (hash-ref (rs-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
          (define entry (rs-pb-resolve model (hash-ref f 'type-name)))
          (define helper (format "pb_encode_~a" (rs-pb-entry-ref model entry)))
-         (format "        for (k, val) in &~a { pb_append_bytes_field(&mut out, ~a, &~a(k, val)); }\n" v n helper)]
+         ;; Sorted key order on encode (protobuf canonical
+         ;; form): HashMap iteration order is randomized, so an
+         ;; unsorted loop makes encodings nondeterministic.
+         (format "        { let mut keys: Vec<&_> = ~a.keys().collect(); keys.sort(); for k in keys { let val = &~a[k]; pb_append_bytes_field(&mut out, ~a, &~a(k, val)); } }\n" v v n helper)]
         [(not (= (hash-ref f 'label) 3)) (rs-pb-encode-singular model f v "        ")]
         [(memv type rs-pb-varint-types)
          (string-append
@@ -417,7 +420,7 @@
         [(assv type rs-pb-fixed)
          (string-append head
                         "                    if field.wire == 2 {\n                        let mut i = 0;\n                        while i < field.bytes_value.len() {\n"
-                        (format "                            let chunk = u64::from_le_bytes(field.bytes_value[i..i + ~a].try_into().unwrap());\n" (second (rs-pb-fixed-info f)))
+                        (format "                            let mut padded = [0u8; 8];\n                            padded[..~a].copy_from_slice(&field.bytes_value[i..i + ~a]);\n                            let chunk = u64::from_le_bytes(padded);\n" (second (rs-pb-fixed-info f)) (second (rs-pb-fixed-info f)))
                         (if (= (second (rs-pb-fixed-info f)) 4)
                             (format "                            ~a.push(~a);\n" v (rs-pb-fixed-decode-expr-32 f "chunk"))
                             (format "                            ~a.push(~a);\n" v (rs-pb-fixed-decode-expr f "chunk")))

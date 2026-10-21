@@ -490,7 +490,7 @@
               (eq? (hash-ref (lua-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
          (define entry (lua-pb-resolve model (hash-ref f 'type-name)))
          (define helper (format "~aEncode" (lua-pb-entry-flat model entry)))
-         (format "    for k, val in pairs(~a) do w:bytesField(~a, ~a(k, val)) end\n" v n helper)]
+         (format "    do\n      local keys = {}\n      for k in pairs(~a) do keys[#keys + 1] = k end\n      table.sort(keys)\n      for _, k in ipairs(keys) do w:bytesField(~a, ~a(k, ~a[k])) end\n    end\n" v n helper v)]
         [(not (= (hash-ref f 'label) 3)) (lua-pb-encode-singular model f v "    ")]
         [(memv type lua-pb-varint-types)
          (string-append

@@ -1469,7 +1469,7 @@
     (define helper
       (format "~a.~aEncode" support (swift-pb-map-helper-name model entry)))
     (format
-     "        for (k, val) in ~a { w.BytesField(~a, ~a(k, val)) }\n"
+     "        for (k, val) in ~a.sorted(by: { $0.key < $1.key }) { w.BytesField(~a, ~a(k, val)) }\n"
      v
      n
      helper))

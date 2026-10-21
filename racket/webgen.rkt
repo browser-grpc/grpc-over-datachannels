@@ -3325,7 +3325,7 @@ function rpEncodeField(model, f) {
   const n = f.number;
   if (f.type === FT.MESSAGE && rpResolve(model, f.typeName).kind === 'map') {
     const helper = 'pb_encode_' + rpEntryRef(model, rpResolve(model, f.typeName));
-    return '        for (k, val) in &' + v + ' { pb_append_bytes_field(&mut out, ' + n + ', &' + helper + '(k, val)); }\n';
+    return '        { let mut keys: Vec<&_> = ' + v + '.keys().collect(); keys.sort(); for k in keys { let val = &' + v + '[k]; pb_append_bytes_field(&mut out, ' + n + ', &' + helper + '(k, val)); } }\n';
   }
   if (f.label !== 3) return rpEncodeSingular(model, f, v, '        ');
   if (RP_VARINT.has(f.type)) {
@@ -3406,7 +3406,7 @@ function rpDecodeCase(model, f) {
     const push = (src) => '                            ' + v + '.push(' + (size === 4 ? rpFixedDecodeExpr32(f, src) : rpFixedDecodeExpr(f, src)) + ');\n';
     return head
       + '                    if field.wire == 2 {\n                        let mut i = 0;\n                        while i < field.bytes_value.len() {\n'
-      + '                            let chunk = u64::from_le_bytes(field.bytes_value[i..i + ' + size + '].try_into().unwrap());\n'
+      + '                            let mut padded = [0u8; 8];\n                            padded[..' + size + '].copy_from_slice(&field.bytes_value[i..i + ' + size + ']);\n                            let chunk = u64::from_le_bytes(padded);\n'
       + push('chunk')
       + '                            i += ' + size + ';\n                        }\n                    } else {\n'
       + '                        ' + v + '.push(' + rpFixedDecodeExpr(f, 'field.fixed_value') + ');\n'
@@ -6482,7 +6482,7 @@ function swpEncodeField(model, f, support) {
   if (f.type === FT.MESSAGE && swpResolve(model, f.typeName).kind === 'map') {
     const entry = swpResolve(model, f.typeName);
     const helper = support + '.' + swpMapHelperName(model, entry) + 'Encode';
-    return '        for (k, val) in ' + v + ' { w.BytesField(' + n + ', ' + helper + '(k, val)) }\n';
+    return '        for (k, val) in ' + v + '.sorted(by: { $0.key < $1.key }) { w.BytesField(' + n + ', ' + helper + '(k, val)) }\n';
   }
   if (f.label !== 3) return swpEncodeSingular(model, f, v, '        ');
   if (SWP_VARINT.has(f.type)) {
@@ -9273,7 +9273,7 @@ function lpEncodeField(model, f) {
   if (f.type === FT.MESSAGE && lpResolve(model, f.typeName).kind === 'map') {
     const entry = lpResolve(model, f.typeName);
     const helper = lpEntryFlat(model, entry) + 'Encode';
-    return '    for k, val in pairs(' + v + ') do w:bytesField(' + n + ', ' + helper + '(k, val)) end\n';
+    return '    do\n      local keys = {}\n      for k in pairs(' + v + ') do keys[#keys + 1] = k end\n      table.sort(keys)\n      for _, k in ipairs(keys) do w:bytesField(' + n + ', ' + helper + '(k, ' + v + '[k])) end\n    end\n';
   }
   if (f.label !== 3) return lpEncodeSingular(model, f, v, '    ');
   if (LP_VARINT.has(f.type)) {
@@ -11097,7 +11097,8 @@ function scpVarintExpr(f, v) {
     case 8: return '(if (' + v + ') 1L else 0L)';
     case 17: return '(((' + v + ' << 1) ^ (' + v + ' >> 31)) & 0xffffffffL)';
     case 18: return '((' + v + ' << 1) ^ (' + v + ' >> 63))';
-    case 5: case 13: case 7: case 14: return '(' + v + ' & 0xffffffffL)';
+    case 5: case 14: return '(' + v + '.toLong)';
+    case 13: case 7: return '(' + v + ' & 0xffffffffL)';
     default: return v + '.toLong';
   }
 }
@@ -11186,7 +11187,7 @@ function scpEncodeField(model, f, obj) {
   if (f.type === FT.MESSAGE && scpResolve(model, f.typeName).kind === 'map') {
     const entry = scpResolve(model, f.typeName);
     const helper = obj + '.encode' + scpEntryRef(model, entry);
-    return '    for ((k, v) <- ' + v + ') {\n      w.bytesField(' + n + ', ' + helper + '(k, v))\n    }\n';
+    return '    for (k <- ' + v + '.keys.toArray.sorted) {\n      w.bytesField(' + n + ', ' + helper + '(k, ' + v + '(k)))\n    }\n';
   }
   if (f.label !== 3) return scpEncodeSingular(model, f, v, '    ', obj);
   if (SCP_VARINT.has(f.type)) {

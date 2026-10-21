@@ -458,7 +458,10 @@
     [(8) (format "(if (~a) 1L else 0L)" v)]
     [(17) (format "(((~a << 1) ^ (~a >> 31)) & 0xffffffffL)" v v)]
     [(18) (format "((~a << 1) ^ (~a >> 63))" v v)]
-    [(5 13 7 14) (format "(~a & 0xffffffffL)" v)]
+    ;; int32/enum negatives sign-extend to 64 bits on the wire
+    ;; (protoc's canonical 10-byte varint); uint32/bool mask.
+    [(5 14) (format "(~a.toLong)" v)]
+    [(13 7) (format "(~a & 0xffffffffL)" v)]
     [else (format "~a.toLong" v)]))
 
 (define (sc-pb-varint-decode f v)
@@ -544,7 +547,10 @@
               (eq? (hash-ref (sc-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
          (define entry (sc-pb-resolve model (hash-ref f 'type-name)))
          (define helper (format "~a.encode~a" obj (sc-pb-entry-ref model entry)))
-         (format "    for ((k, v) <- ~a) {\n      w.bytesField(~a, ~a(k, v))\n    }\n" v n helper)]
+         ;; Sorted key order on encode (protobuf canonical
+         ;; form): Map iteration order is unspecified, so an
+         ;; unsorted loop makes encodings nondeterministic.
+         (format "    for (k <- ~a.keys.toArray.sorted) {\n      w.bytesField(~a, ~a(k, ~a(k)))\n    }\n" v n helper v)]
         [(not (= (hash-ref f 'label) 3)) (sc-pb-encode-singular model f v "    ")]
         [(memv type sc-pb-varint-types)
          (string-append
