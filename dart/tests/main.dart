@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'test_bdd.dart';
+import 'test_bdd_schemas.dart';
 import 'test_deadline.dart';
 import 'test_codec.dart';
 import 'test_dynamic.dart';
@@ -20,6 +21,9 @@ Future<void> main(List<String> args) async {
     switch (args[0]) {
       case 'TestBdd':
         await testBdd();
+        break;
+      case 'TestBddSchemas':
+        await testBddSchemas();
         break;
       case 'TestCodec':
         await testCodec();

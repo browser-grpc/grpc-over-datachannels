@@ -1,5 +1,5 @@
 <?php
-// Test runner: php php/tests/main.php <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestPbMessages>
+// Test runner: php php/tests/main.php <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestPbMessages|TestBddSchemas>
 
 require_once __DIR__ . "/test_util.php";
 
@@ -50,6 +50,10 @@ try {
         case "TestPbMessages":
             require_once __DIR__ . "/test_pb_messages.php";
             TestPbMessages::run();
+            break;
+        case "TestBddSchemas":
+            require_once __DIR__ . "/test_bdd_schemas.php";
+            TestBddSchemas::run();
             break;
         default:
             fwrite(STDERR, "unknown test: $name\n");

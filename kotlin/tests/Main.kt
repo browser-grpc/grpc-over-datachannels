@@ -19,6 +19,7 @@ fun main(args: Array<String>) {
             "TestDeadline" -> testDeadline()
             "TestInlinePump" -> testInlinePump()
             "TestPbMessages" -> testPbMessages()
+            "TestBddSchemas" -> testBddSchemas()
             "TestSidecar" -> testSidecar()
             else -> {
                 System.err.println("unknown test: ${args[0]}")

@@ -23,6 +23,7 @@
 #include "../examples/stdio_transport.h"
 #include "grpcdc/dynamic.h"
 #include "bdd_scenarios.h"
+#include "bdd_schemas.h"
 #include "oracle_scenarios.h"
 #include "features_messages.h"
 #include "kitchen_messages.h"
@@ -203,6 +204,59 @@ static void test_echo(void) {
     EchoBidiClient_close(&bidi);
 
     printf("echo tests passed\n");
+}
+
+static int hexval(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return 0;
+}
+
+static size_t unhex(const char *hex, uint8_t *out) {
+    size_t n = strlen(hex) / 2;
+    for (size_t i = 0; i < n; i++)
+        out[i] = (uint8_t)(hexval(hex[2 * i]) * 16 + hexval(hex[2 * i + 1]));
+    return n;
+}
+
+/* BDD schema scenarios: golden protoc bytes decoded by the
+   generated classes must re-encode byte-identically
+   (racket/bdd-schemas.rkt). */
+static void test_bdd_schemas(void) {
+    static uint8_t input[8192];
+    static uint8_t expect[8192];
+    static uint8_t got[8192];
+    for (unsigned i = 0; i < bdd_schema_cases_count; i++) {
+        const bdd_schema_case *c = &bdd_schema_cases[i];
+        size_t in_len = unhex(c->input, input);
+        size_t expect_len = unhex(c->expect, expect);
+        size_t got_len;
+        char what[128];
+        snprintf(what, sizeof(what), "bdd-schema %s", c->name);
+        if (strcmp(c->message, "kitchen") == 0) {
+            Kitchen msg;
+            memset(&msg, 0, sizeof(msg));
+            Kitchen_unmarshal(&msg, input, in_len);
+            KitchenPbBytes bytes = Kitchen_marshal(&msg);
+            got_len = bytes.len;
+            memcpy(got, bytes.data, got_len);
+            free(bytes.data);
+        } else if (strcmp(c->message, "outer") == 0) {
+            Outer msg;
+            memset(&msg, 0, sizeof(msg));
+            Outer_unmarshal(&msg, input, in_len);
+            FeaturesPbBytes bytes = Outer_marshal(&msg);
+            got_len = bytes.len;
+            memcpy(got, bytes.data, got_len);
+            free(bytes.data);
+        } else {
+            check(0, "bdd-schema: unknown message");
+            return;
+        }
+        check(got_len == expect_len && memcmp(got, expect, expect_len) == 0, what);
+    }
+    printf("TestBddSchemas OK (%u scenarios)\n", bdd_schema_cases_count);
 }
 
 static void test_pb_messages(void) {
@@ -423,6 +477,95 @@ static void test_bdd(void) {
             snprintf(what, sizeof(what), "bdd %s: bidi end", c->name);
             check(EchoBidiClient_recv(&bidi, &extra, &rst) == 0, what);
             EchoBidiClient_close(&bidi);
+        } else if (strcmp(c->kind, "server-stream-fail") == 0) {
+            EchoRequest req;
+            EchoRequest_init(&req);
+            req.message = (char *)c->messages[0];
+            req.count = c->count;
+            EchoServerStreamClient stream;
+            grpcdc_status st =
+                EchoClient_server_stream(&client, &req, &stream, NULL, 0, 0);
+            snprintf(what, sizeof(what), "bdd %s: server-stream-fail", c->name);
+            if (grpcdc_status_is_ok(st)) {
+                int failed = 0;
+                while (1) {
+                    EchoResponse one;
+                    grpcdc_status rst;
+                    int r = EchoServerStreamClient_recv(&stream, &one, &rst);
+                    if (r == 0) break;
+                    if (r < 0) {
+                        check(rst.code == c->expect_status, what);
+                        failed = 1;
+                        break;
+                    }
+                }
+                check(failed, what);
+                EchoServerStreamClient_close(&stream);
+            } else {
+                check(st.code == c->expect_status, what);
+            }
+        } else if (strcmp(c->kind, "bidi-fail") == 0) {
+            EchoRequest parts[16];
+            check(c->messages_count <= 16, "bdd: too many messages");
+            for (size_t i = 0; i < c->messages_count; i++) {
+                EchoRequest_init(&parts[i]);
+                parts[i].message = (char *)c->messages[i];
+            }
+            EchoBidiClient bidi;
+            grpcdc_status st =
+                EchoClient_bidi(&client, parts, c->messages_count, &bidi,
+                                NULL, 0, 0);
+            snprintf(what, sizeof(what), "bdd %s: bidi-fail", c->name);
+            if (grpcdc_status_is_ok(st)) {
+                int failed = 0;
+                while (1) {
+                    EchoResponse one;
+                    grpcdc_status rst;
+                    int r = EchoBidiClient_recv(&bidi, &one, &rst);
+                    if (r == 0) break;
+                    if (r < 0) {
+                        check(rst.code == c->expect_status, what);
+                        failed = 1;
+                        break;
+                    }
+                }
+                check(failed, what);
+                EchoBidiClient_close(&bidi);
+            } else {
+                check(st.code == c->expect_status, what);
+            }
+        } else if (strcmp(c->kind, "deadline") == 0) {
+            EchoRequest req;
+            EchoRequest_init(&req);
+            req.message = (char *)c->messages[0];
+            req.delay_ms = c->count;
+            EchoResponse resp;
+            grpcdc_status st =
+                EchoClient_unary(&client, &req, &resp, NULL, 0, 100);
+            snprintf(what, sizeof(what), "bdd %s: deadline", c->name);
+            check(st.code == c->expect_status, what);
+        } else if (strcmp(c->kind, "cancel") == 0) {
+            EchoRequest req;
+            EchoRequest_init(&req);
+            req.message = (char *)c->messages[0];
+            req.count = c->count;
+            EchoPbBytes bytes = EchoRequest_marshal(&req);
+            grpcdc_stream *stream = NULL;
+            grpcdc_status st = grpcdc_channel_open(
+                &channel, "/echo.Echo/ServerStream", bytes.data, bytes.len,
+                1, NULL, 0, 0, &stream);
+            free(bytes.data);
+            snprintf(what, sizeof(what), "bdd %s: cancel open", c->name);
+            check(grpcdc_status_is_ok(st), what);
+            grpcdc_bytes first;
+            grpcdc_status rst;
+            int r = grpcdc_stream_recv(stream, &first, &rst);
+            snprintf(what, sizeof(what), "bdd %s: cancel first", c->name);
+            check(r == 1, what);
+            grpcdc_bytes_free(&first);
+            grpcdc_stream_free(stream);
+            /* Freeing the stream aborts the call; completing the
+               test without a hang is the termination proof. */
         } else if (strcmp(c->kind, "raw-unary") == 0) {
             EchoRequest req;
             EchoRequest_init(&req);
@@ -1230,7 +1373,8 @@ int main(int argc, char **argv) {
                 "TestOracle|TestDynamic>\n");
         return 2;
     }
-    if (strcmp(argv[1], "TestCodec") == 0) test_codec();
+    if (strcmp(argv[1], "TestBddSchemas") == 0) test_bdd_schemas();
+    else if (strcmp(argv[1], "TestCodec") == 0) test_codec();
     else if (strcmp(argv[1], "TestEcho") == 0) test_echo();
     else if (strcmp(argv[1], "TestPbMessages") == 0) test_pb_messages();
     else if (strcmp(argv[1], "TestBdd") == 0) test_bdd();

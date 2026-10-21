@@ -1,4 +1,4 @@
-# Test runner: ruby ruby/tests/main.rb <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestPbMessages>
+# Test runner: ruby ruby/tests/main.rb <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestPbMessages|TestBddSchemas>
 
 root = File.expand_path("..", __dir__)
 $LOAD_PATH.unshift(root)
@@ -42,6 +42,9 @@ begin
   when "TestPbMessages"
     require_relative "test_pb_messages"
     TestPbMessages.run
+  when "TestBddSchemas"
+    require_relative "test_bdd_schemas"
+    TestBddSchemas.run
   when "TestSidecar"
     require_relative "test_sidecar"
     TestSidecar.run

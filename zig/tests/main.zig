@@ -7,6 +7,7 @@ const test_interop = @import("test_interop.zig");
 const test_oracle = @import("test_oracle.zig");
 const test_dynamic = @import("test_dynamic.zig");
 const test_pb_messages = @import("test_pb_messages.zig");
+const test_bdd_schemas = @import("test_bdd_schemas.zig");
 const test_sidecar = @import("test_sidecar.zig");
 
 // Test runner: ./tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic>
@@ -33,6 +34,8 @@ pub fn main() !void {
         test_dynamic.testDynamic(alloc);
     } else if (std.mem.eql(u8, name, "TestDeadline")) {
         test_deadline.testDeadline(alloc);
+    } else if (std.mem.eql(u8, name, "TestBddSchemas")) {
+        test_bdd_schemas.testBddSchemas(alloc);
     } else if (std.mem.eql(u8, name, "TestPbMessages")) {
         test_pb_messages.testPbMessages(alloc);
     } else if (std.mem.eql(u8, name, "TestSidecar")) {
