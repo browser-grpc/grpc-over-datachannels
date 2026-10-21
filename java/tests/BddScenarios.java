@@ -21,5 +21,9 @@ public final class BddScenarios {
         {"bidi-single", "bidi", new String[]{"one"}, 0, "", "", "", 1, -1},
         {"metadata-marker", "unary", new String[]{"hello"}, 0, "", "meta", "echo: hello [meta]", 0, -1},
         {"unknown-method", "raw-unary", new String[]{"hello"}, 0, "/echo.Echo/Nope", "", "", 0, 12},
+        {"server-stream-failure", "server-stream-fail", new String[]{"fail"}, 3, "", "", "", 0, 3},
+        {"bidi-failure", "bidi-fail", new String[]{"fail"}, 0, "", "", "", 0, 3},
+        {"deadline-exceeded", "deadline", new String[]{"slow"}, 600, "", "", "", 0, 4},
+        {"stream-cancel", "cancel", new String[]{"tick"}, 5, "", "", "", 0, -1},
     };
 }

@@ -27,6 +27,10 @@ public sealed class EchoServiceImpl : EchoGrpcDc.EchoServer
 
     public void ServerStream(EchoRequest req, EchoGrpcDc.EchoServerStreamServer stream)
     {
+        if (req.Message == "fail")
+        {
+            throw new StatusException(Wire.CodeInvalidArgument, "asked to fail");
+        }
         for (int i = 0; i < Math.Max(0, req.Count); i++)
         {
             stream.Send(new EchoResponse(req.Message, i));
@@ -65,6 +69,10 @@ public sealed class EchoServiceImpl : EchoGrpcDc.EchoServer
             catch (EndOfStreamException)
             {
                 return;
+            }
+            if (req.Message == "fail")
+            {
+                throw new StatusException(Wire.CodeInvalidArgument, "asked to fail");
             }
             stream.Send(new EchoResponse(req.Message, index++));
         }

@@ -105,6 +105,63 @@ public final class TestBdd {
                     }
                     check(got == expectNum, name + ": got " + got + ", want " + expectNum);
                 }
+                case "server-stream-fail" -> {
+                    EchoGrpcDc.EchoServerStreamStream stream =
+                            client.ServerStream(req(messages[0], count));
+                    try {
+                        while (true) {
+                            stream.recv();
+                        }
+                    } catch (StatusException e) {
+                        check(e.code == expectStatus,
+                                name + ": status " + e + ", want " + expectStatus);
+                    } catch (EOFException eof) {
+                        check(false, name + ": expected failure, stream ended OK");
+                    }
+                }
+                case "bidi-fail" -> {
+                    List<EchoRequest> reqs = new ArrayList<>();
+                    for (String m : messages) reqs.add(req(m, 0));
+                    EchoGrpcDc.EchoBidiStream stream = client.Bidi(reqs);
+                    try {
+                        while (true) {
+                            stream.recv();
+                        }
+                    } catch (StatusException e) {
+                        check(e.code == expectStatus,
+                                name + ": status " + e + ", want " + expectStatus);
+                    } catch (EOFException eof) {
+                        check(false, name + ": expected failure, stream ended OK");
+                    }
+                }
+                case "deadline" -> {
+                    try {
+                        client.Unary(new EchoRequest(messages[0], 0, count), null,
+                                java.time.Duration.ofMillis(100));
+                        check(false, name + ": expected deadline failure");
+                    } catch (StatusException e) {
+                        check(e.code == expectStatus,
+                                name + ": status " + e + ", want " + expectStatus);
+                    }
+                }
+                case "cancel" -> {
+                    Channel.ClientStream stream = channel.serverStream(
+                            "/echo.Echo/ServerStream", req(messages[0], count), null);
+                    EchoResponse firstResp = new EchoResponse();
+                    stream.recv(firstResp);
+                    check(firstResp.message.equals(messages[0]),
+                            name + ": first " + firstResp);
+                    stream.cancel();
+                    boolean terminated = false;
+                    try {
+                        for (int i = 0; i < count + 2 && !terminated; i++) {
+                            stream.recv(new EchoResponse());
+                        }
+                    } catch (Exception e) {
+                        terminated = true;
+                    }
+                    check(terminated, name + ": stream did not terminate after cancel");
+                }
                 case "raw-unary" -> {
                     try {
                         channel.unary(path, req(messages[0], 0), new EchoResponse(), null);

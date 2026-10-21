@@ -75,6 +75,48 @@ local function testBdd()
         got = got + 1
       end
       util.check(got == c.expectNum, c.name .. ": got " .. got)
+    elseif c.kind == "server-stream-fail" then
+      local stream = client:serverStream(EchoRequest.new(c.messages[1], c.count))
+      local ok, err = pcall(function()
+        while true do stream:recv() end
+      end)
+      util.check(not ok and type(err) == "table" and err.code == c.expectStatus,
+        c.name .. ": status " .. tostring(err))
+    elseif c.kind == "bidi-fail" then
+      local reqs = {}
+      for i, m in ipairs(c.messages) do reqs[i] = EchoRequest.new(m, 0) end
+      local stream = client:bidi(reqs)
+      local ok, err = pcall(function()
+        while true do stream:recv() end
+      end)
+      util.check(not ok and type(err) == "table" and err.code == c.expectStatus,
+        c.name .. ": status " .. tostring(err))
+    elseif c.kind == "deadline" then
+      local ok, err = pcall(function()
+        return client:unary(EchoRequest.new(c.messages[1], 0, c.count), nil, 0.1)
+      end)
+      util.check(not ok and type(err) == "table" and err.code == c.expectStatus,
+        c.name .. ": status " .. tostring(err))
+    elseif c.kind == "cancel" then
+      local stream = channel:serverStream("/echo.Echo/ServerStream",
+        EchoRequest.new(c.messages[1], c.count))
+      local first = EchoResponse.new()
+      stream:recv(first)
+      util.check(first.message == c.messages[1], c.name .. ": first")
+      stream.endpoint:cancelStream(stream.streamId)
+      local terminated = false
+      for _ = 1, c.count + 2 do
+        local ok, err = pcall(function()
+          local r = EchoResponse.new()
+          stream:recv(r)
+          return r
+        end)
+        if not ok then
+          terminated = true
+          break
+        end
+      end
+      util.check(terminated, c.name .. ": stream did not terminate after cancel")
     elseif c.kind == "raw-unary" then
       local ok, resp = pcall(function()
         local r = EchoResponse.new()

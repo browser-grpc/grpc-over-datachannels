@@ -33,6 +33,10 @@ static const char *const bdd_msgs_8[] = {"x", "y"};
 static const char *const bdd_msgs_9[] = {"one"};
 static const char *const bdd_msgs_10[] = {"hello"};
 static const char *const bdd_msgs_11[] = {"hello"};
+static const char *const bdd_msgs_12[] = {"fail"};
+static const char *const bdd_msgs_13[] = {"fail"};
+static const char *const bdd_msgs_14[] = {"slow"};
+static const char *const bdd_msgs_15[] = {"tick"};
 
 static const bdd_case bdd_cases[] = {
     {"unary-echo", "unary", bdd_msgs_0, 1, 0, "", "", "echo: hello", 0, -1},
@@ -47,6 +51,10 @@ static const bdd_case bdd_cases[] = {
     {"bidi-single", "bidi", bdd_msgs_9, 1, 0, "", "", "", 1, -1},
     {"metadata-marker", "unary", bdd_msgs_10, 1, 0, "", "meta", "echo: hello [meta]", 0, -1},
     {"unknown-method", "raw-unary", bdd_msgs_11, 1, 0, "/echo.Echo/Nope", "", "", 0, 12},
+    {"server-stream-failure", "server-stream-fail", bdd_msgs_12, 1, 3, "", "", "", 0, 3},
+    {"bidi-failure", "bidi-fail", bdd_msgs_13, 1, 0, "", "", "", 0, 3},
+    {"deadline-exceeded", "deadline", bdd_msgs_14, 1, 600, "", "", "", 0, 4},
+    {"stream-cancel", "cancel", bdd_msgs_15, 1, 5, "", "", "", 0, -1},
 };
 
 static const size_t bdd_cases_count =

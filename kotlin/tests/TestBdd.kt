@@ -73,6 +73,56 @@ fun testBdd() {
                 }
                 check(got == c.expectNum, "${c.name}: got $got, want ${c.expectNum}")
             }
+            "server-stream-fail" -> {
+                val stream = client.ServerStream(req(c.messages[0], c.count))
+                try {
+                    while (true) stream.recv()
+                } catch (e: StatusException) {
+                    check(e.code == c.expectStatus,
+                        "${c.name}: status $e, want ${c.expectStatus}")
+                } catch (e: EOFException) {
+                    check(false, "${c.name}: expected failure, stream ended OK")
+                }
+            }
+            "bidi-fail" -> {
+                val stream = client.Bidi(c.messages.map { req(it, 0) })
+                try {
+                    while (true) stream.recv()
+                } catch (e: StatusException) {
+                    check(e.code == c.expectStatus,
+                        "${c.name}: status $e, want ${c.expectStatus}")
+                } catch (e: EOFException) {
+                    check(false, "${c.name}: expected failure, stream ended OK")
+                }
+            }
+            "deadline" -> {
+                try {
+                    client.Unary(EchoRequest(c.messages[0], 0, c.count), null,
+                        java.time.Duration.ofMillis(100))
+                    check(false, "${c.name}: expected deadline failure")
+                } catch (e: StatusException) {
+                    check(e.code == c.expectStatus,
+                        "${c.name}: status $e, want ${c.expectStatus}")
+                }
+            }
+            "cancel" -> {
+                val stream = channel.serverStream("/echo.Echo/ServerStream",
+                    req(c.messages[0], c.count), null)
+                val first = EchoResponse()
+                stream.recv(first)
+                check(first.message == c.messages[0], "${c.name}: first $first")
+                stream.cancel()
+                var terminated = false
+                try {
+                    for (i in 0 until c.count + 2) {
+                        if (terminated) break
+                        stream.recv(EchoResponse())
+                    }
+                } catch (e: Exception) {
+                    terminated = true
+                }
+                check(terminated, "${c.name}: stream did not terminate after cancel")
+            }
             "raw-unary" -> {
                 try {
                     channel.unary(c.path, req(c.messages[0], 0), EchoResponse())

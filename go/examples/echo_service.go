@@ -30,6 +30,9 @@ func (EchoService) Unary(ctx context.Context, req *EchoRequest) (*EchoResponse, 
 
 // ServerStream implements EchoServer.
 func (EchoService) ServerStream(req *EchoRequest, stream EchoServerStreamServer) error {
+	if req.Message == "fail" {
+		return grpcdc.NewStatus(grpcdc.CodeInvalidArgument, "asked to fail")
+	}
 	for i := int32(0); i < req.Count; i++ {
 		if err := stream.Send(&EchoResponse{Message: req.Message, Index: i}); err != nil {
 			return err
@@ -67,6 +70,9 @@ func (EchoService) Bidi(stream EchoBidiServer) error {
 		}
 		if err != nil {
 			return err
+		}
+		if req.Message == "fail" {
+			return grpcdc.NewStatus(grpcdc.CodeInvalidArgument, "asked to fail")
 		}
 		if err := stream.Send(&EchoResponse{Message: req.Message, Index: index}); err != nil {
 			return err

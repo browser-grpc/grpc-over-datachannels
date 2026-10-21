@@ -110,6 +110,84 @@ pub fn testBdd(alloc: std.mem.Allocator) void {
                 }
             }
             util.check(got == @as(usize, @intCast(c.expect_num)), "bdd bidi: count");
+        } else if (std.mem.eql(u8, c.kind, "server-stream-fail")) {
+            var stream = switch (client.serverStream(&req(c.messages[0], c.count), null, null)) {
+                .ok => |s| s,
+                .status => |st| {
+                    util.check(st.code == c.expect_status, "bdd server-stream-fail: open status");
+                    continue;
+                },
+            };
+            defer stream.deinit();
+            var saw_status = false;
+            while (true) {
+                switch (stream.recv()) {
+                    .message => {},
+                    .end => break,
+                    .status => |st| {
+                        util.check(st.code == c.expect_status, "bdd server-stream-fail: status");
+                        saw_status = true;
+                        break;
+                    },
+                }
+            }
+            util.check(saw_status, "bdd server-stream-fail: no status");
+        } else if (std.mem.eql(u8, c.kind, "bidi-fail")) {
+            var reqs: std.ArrayList(EchoRequest) = .empty;
+            defer reqs.deinit(alloc);
+            for (c.messages) |m| reqs.append(alloc, req(m, 0)) catch {};
+            var stream = switch (client.bidi(reqs.items, null, null)) {
+                .ok => |s| s,
+                .status => |st| {
+                    util.check(st.code == c.expect_status, "bdd bidi-fail: open status");
+                    continue;
+                },
+            };
+            defer stream.deinit();
+            var saw_status = false;
+            while (true) {
+                switch (stream.recv()) {
+                    .message => {},
+                    .end => break,
+                    .status => |st| {
+                        util.check(st.code == c.expect_status, "bdd bidi-fail: status");
+                        saw_status = true;
+                        break;
+                    },
+                }
+            }
+            util.check(saw_status, "bdd bidi-fail: no status");
+        } else if (std.mem.eql(u8, c.kind, "deadline")) {
+            var delayed = req(c.messages[0], 0);
+            delayed.delay_ms = c.count;
+            switch (client.unary(&delayed, null, 100)) {
+                .ok => util.check(false, "bdd deadline: expected failure"),
+                .status => |st| util.check(st.code == c.expect_status, "bdd deadline: status"),
+            }
+        } else if (std.mem.eql(u8, c.kind, "cancel")) {
+            var stream = switch (client.serverStream(&req(c.messages[0], c.count), null, null)) {
+                .ok => |s| s,
+                .status => |st| {
+                    util.checkFmt(false, "bdd cancel open {d}", .{st.code});
+                    unreachable;
+                },
+            };
+            defer stream.deinit();
+            switch (stream.recv()) {
+                .message => |resp| util.check(std.mem.eql(u8, resp.message, c.messages[0]), "bdd cancel: first"),
+                else => util.check(false, "bdd cancel: no first response"),
+            }
+            stream.stream.cancel();
+            var terminated = false;
+            var i: i32 = 0;
+            while (i < c.count + 2 and !terminated) : (i += 1) {
+                switch (stream.recv()) {
+                    .message => {},
+                    .end => terminated = true,
+                    .status => terminated = true,
+                }
+            }
+            util.check(terminated, "bdd cancel: stream did not terminate");
         } else if (std.mem.eql(u8, c.kind, "raw-unary")) {
             var request = req(c.messages[0], 0);
             var resp = EchoResponse{};

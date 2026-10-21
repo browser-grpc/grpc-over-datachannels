@@ -32,6 +32,10 @@ class EchoServiceImpl : public EchoGrpcDc::EchoServer {
 
   void ServerStream(EchoRequest& req,
                     EchoGrpcDc::EchoServerStreamServer& stream) override {
+    if (req.message == "fail") {
+      throw grpcdc::StatusException(grpcdc::wire::kCodeInvalidArgument,
+                                    "asked to fail");
+    }
     for (std::int32_t i = 0; i < std::max(0, req.count); ++i) {
       EchoResponse resp; resp.message = req.message; resp.index = i;
       stream.Send(resp);
@@ -66,6 +70,10 @@ class EchoServiceImpl : public EchoGrpcDc::EchoServer {
         req = stream.Recv();
       } catch (const grpcdc::EndOfStream&) {
         return;
+      }
+      if (req.message == "fail") {
+        throw grpcdc::StatusException(grpcdc::wire::kCodeInvalidArgument,
+                                      "asked to fail");
       }
       EchoResponse resp; resp.message = req.message; resp.index = index++;
       stream.Send(resp);

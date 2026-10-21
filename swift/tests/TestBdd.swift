@@ -61,6 +61,50 @@ func TestBdd() throws {
                 }
             }
             try Check(got == c.expectNum, "\(c.name): got \(got), want \(c.expectNum)")
+        case "server-stream-fail":
+            do {
+                let stream = try client.ServerStream(Req(c.messages[0], Int32(c.count)))
+                while true { _ = try stream.Recv() }
+            } catch let e as StatusException {
+                try Check(e.code == Int32(c.expectStatus),
+                          "\(c.name): status \(e), want \(c.expectStatus)")
+            } catch is EndOfStreamError {
+                try Check(false, "\(c.name): expected failure, stream ended OK")
+            }
+        case "bidi-fail":
+            do {
+                let stream = try client.Bidi(c.messages.map { Req($0, 0) })
+                while true { _ = try stream.Recv() }
+            } catch let e as StatusException {
+                try Check(e.code == Int32(c.expectStatus),
+                          "\(c.name): status \(e), want \(c.expectStatus)")
+            } catch is EndOfStreamError {
+                try Check(false, "\(c.name): expected failure, stream ended OK")
+            }
+        case "deadline":
+            do {
+                _ = try client.Unary(EchoRequest(c.messages[0], 0, Int32(c.count)), nil, 0.1)
+                try Check(false, "\(c.name): expected deadline failure")
+            } catch let e as StatusException {
+                try Check(e.code == Int32(c.expectStatus),
+                          "\(c.name): status \(e), want \(c.expectStatus)")
+            }
+        case "cancel":
+            let stream = try channel.ServerStream("/echo.Echo/ServerStream",
+                                                  Req(c.messages[0], Int32(c.count)))
+            let first = EchoResponse()
+            try stream.Recv(first)
+            try Check(first.message == c.messages[0], "\(c.name): first \(first)")
+            stream.Cancel()
+            var terminated = false
+            do {
+                for _ in 0..<(c.count + 2) {
+                    try stream.Recv(EchoResponse())
+                }
+            } catch {
+                terminated = true
+            }
+            try Check(terminated, "\(c.name): stream did not terminate after cancel")
         case "raw-unary":
             do {
                 let resp = EchoResponse()

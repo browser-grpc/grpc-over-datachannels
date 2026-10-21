@@ -70,6 +70,43 @@ module TestBdd
         TestUtil.assert_eq(resp.message, messages[i], "bidi message")
         TestUtil.assert_eq(resp.index, i, "bidi index")
       end
+    when "server-stream-fail"
+      begin
+        @client.ServerStream(req(messages[0], count)).to_a
+        raise "expected StatusError"
+      rescue Grpcdc::StatusError => e
+        TestUtil.assert_eq(e.code, expect_status, "server-stream-fail status")
+      end
+    when "bidi-fail"
+      begin
+        @client.Bidi(messages.map { |m| req(m) }).to_a
+        raise "expected StatusError"
+      rescue Grpcdc::StatusError => e
+        TestUtil.assert_eq(e.code, expect_status, "bidi-fail status")
+      end
+    when "deadline"
+      begin
+        delayed = EchoPb::EchoRequest.new(message: messages[0], count: 0, delay_ms: count)
+        @client.Unary(delayed, nil, timeout: 0.1)
+        raise "expected StatusError"
+      rescue Grpcdc::StatusError => e
+        TestUtil.assert_eq(e.code, expect_status, "deadline status")
+      end
+    when "cancel"
+      stream = @channel.server_stream("/echo.Echo/ServerStream", req(messages[0], count))
+      first = EchoPb::EchoResponse.new
+      stream.recv(first)
+      TestUtil.assert_eq(first.message, messages[0], "cancel first")
+      stream.cancel
+      terminated = false
+      begin
+        (count + 2).times do
+          stream.recv(EchoPb::EchoResponse.new)
+        end
+      rescue StandardError
+        terminated = true
+      end
+      TestUtil.assert_eq(terminated, true, "cancel terminated")
     when "raw-unary"
       begin
         @channel.unary(path, req(messages[0]), EchoPb::EchoResponse.new)

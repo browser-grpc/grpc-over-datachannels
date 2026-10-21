@@ -16,6 +16,10 @@ local cases = {
   { name = "bidi-single", kind = "bidi", messages = { "one" }, count = 0, path = "", metadata = "", expectMessage = "", expectNum = 1, expectStatus = -1 },
   { name = "metadata-marker", kind = "unary", messages = { "hello" }, count = 0, path = "", metadata = "meta", expectMessage = "echo: hello [meta]", expectNum = 0, expectStatus = -1 },
   { name = "unknown-method", kind = "raw-unary", messages = { "hello" }, count = 0, path = "/echo.Echo/Nope", metadata = "", expectMessage = "", expectNum = 0, expectStatus = 12 },
+  { name = "server-stream-failure", kind = "server-stream-fail", messages = { "fail" }, count = 3, path = "", metadata = "", expectMessage = "", expectNum = 0, expectStatus = 3 },
+  { name = "bidi-failure", kind = "bidi-fail", messages = { "fail" }, count = 0, path = "", metadata = "", expectMessage = "", expectNum = 0, expectStatus = 3 },
+  { name = "deadline-exceeded", kind = "deadline", messages = { "slow" }, count = 600, path = "", metadata = "", expectMessage = "", expectNum = 0, expectStatus = 4 },
+  { name = "stream-cancel", kind = "cancel", messages = { "tick" }, count = 5, path = "", metadata = "", expectMessage = "", expectNum = 0, expectStatus = -1 },
 }
 
 return { cases = cases }

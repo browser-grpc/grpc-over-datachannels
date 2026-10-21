@@ -20,6 +20,9 @@ class EchoServiceImpl extends EchoGrpcDc.EchoServer {
   }
 
   def ServerStream(req: EchoRequest, stream: EchoGrpcDc.EchoServerStreamServer): Unit = {
+    if (req.message == "fail") {
+      throw StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail")
+    }
     for (i <- 0 until max(0, req.count)) {
       stream.send(EchoResponse(req.message, i))
     }
@@ -44,6 +47,9 @@ class EchoServiceImpl extends EchoGrpcDc.EchoServer {
     while (!done) {
       try {
         val req = stream.recv()
+        if (req.message == "fail") {
+          throw StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail")
+        }
         stream.send(EchoResponse(req.message, index))
         index += 1
       } catch {

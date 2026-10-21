@@ -22,6 +22,9 @@ class EchoServiceImpl : EchoGrpcDc.EchoServer {
     }
 
     override fun ServerStream(req: EchoRequest, stream: EchoGrpcDc.EchoServerStreamServer) {
+        if (req.message == "fail") {
+            throw StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail")
+        }
         for (i in 0 until max(0, req.count)) {
             stream.send(EchoResponse(req.message, i))
         }
@@ -47,6 +50,9 @@ class EchoServiceImpl : EchoGrpcDc.EchoServer {
                 req = stream.recv()
             } catch (e: EOFException) {
                 return
+            }
+            if (req.message == "fail") {
+                throw StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail")
             }
             stream.send(EchoResponse(req.message, index))
             index++

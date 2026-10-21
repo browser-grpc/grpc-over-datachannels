@@ -20,6 +20,9 @@ final class EchoServiceImpl: EchoGrpcDc.EchoServer {
     }
 
     func ServerStream(_ req: EchoRequest, _ stream: EchoGrpcDc.EchoServerStreamServer) throws {
+        if req.message == "fail" {
+            throw StatusException(Wire.CodeInvalidArgument, "asked to fail")
+        }
         var i: Int32 = 0
         while i < max(0, req.count) {
             try stream.Send(EchoResponse(req.message, i))
@@ -47,6 +50,9 @@ final class EchoServiceImpl: EchoGrpcDc.EchoServer {
                 req = try stream.Recv()
             } catch is EndOfStreamError {
                 return
+            }
+            if req.message == "fail" {
+                throw StatusException(Wire.CodeInvalidArgument, "asked to fail")
             }
             try stream.Send(EchoResponse(req.message, index))
             index += 1

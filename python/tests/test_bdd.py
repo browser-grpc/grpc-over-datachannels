@@ -70,6 +70,34 @@ class TestBdd(unittest.TestCase):
             for i, resp in enumerate(responses):
                 self.assertEqual(resp.message, messages[i])
                 self.assertEqual(resp.index, i)
+        elif kind == "server-stream-fail":
+            with self.assertRaises(grpcdc.StatusError) as cm:
+                list(self.client.ServerStream(req(messages[0], count)))
+            self.assertEqual(cm.exception.code, expect_status)
+        elif kind == "bidi-fail":
+            with self.assertRaises(grpcdc.StatusError) as cm:
+                list(self.client.Bidi([req(m) for m in messages]))
+            self.assertEqual(cm.exception.code, expect_status)
+        elif kind == "deadline":
+            delayed = EchoRequest(message=messages[0], count=0, delay_ms=count)
+            with self.assertRaises(grpcdc.StatusError) as cm:
+                self.client.Unary(delayed, timeout=0.1)
+            self.assertEqual(cm.exception.code, expect_status)
+        elif kind == "cancel":
+            stream = self.channel.server_stream(
+                "/echo.Echo/ServerStream", req(messages[0], count), None, None)
+            first = EchoResponse()
+            stream.recv(first)
+            self.assertEqual(first.message, expect_message or messages[0])
+            self.channel.cancel(stream)
+            terminated = False
+            for _ in range(count + 2):
+                try:
+                    stream.recv(EchoResponse())
+                except (EOFError, grpcdc.StatusError):
+                    terminated = True
+                    break
+            self.assertTrue(terminated, "stream did not terminate after cancel")
         elif kind == "raw-unary":
             with self.assertRaises(grpcdc.StatusError) as cm:
                 self.channel.unary(path, req(messages[0]), EchoResponse())

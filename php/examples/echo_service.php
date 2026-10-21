@@ -24,6 +24,9 @@ class EchoService
 
     public function ServerStream(\EchoPb\EchoRequest $req, \EchoGrpcDc\SendStream $stream): void
     {
+        if ($req->message === "fail") {
+            throw new \Grpcdc\StatusError(\Grpcdc\Wire::CODE_INVALID_ARGUMENT, "asked to fail");
+        }
         for ($i = 0; $i < max(0, $req->count); $i++) {
             $stream->send(new \EchoPb\EchoResponse($req->message, $i));
         }
@@ -48,6 +51,9 @@ class EchoService
         try {
             while (true) {
                 $req = $stream->recv();
+                if ($req->message === "fail") {
+                    throw new \Grpcdc\StatusError(\Grpcdc\Wire::CODE_INVALID_ARGUMENT, "asked to fail");
+                }
                 $stream->send(new \EchoPb\EchoResponse($req->message, $index));
                 $index++;
             }

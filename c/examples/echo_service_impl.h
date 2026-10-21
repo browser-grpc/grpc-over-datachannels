@@ -62,6 +62,8 @@ static grpcdc_status echo_server_stream_impl(void *ctx, const grpcdc_kv *md,
     (void)ctx;
     (void)md;
     (void)md_count;
+    if (strcmp(req->message, "fail") == 0)
+        return grpcdc_status_make(GRPCDC_INVALID_ARGUMENT, "asked to fail");
     for (int32_t i = 0; i < req->count; i++) {
         EchoResponse resp;
         memset(&resp, 0, sizeof(resp));
@@ -115,6 +117,8 @@ static grpcdc_status echo_bidi_impl(void *ctx, EchoBidiStream *stream) {
         int r = EchoBidiStream_recv(stream, &req, &st);
         if (r == 0) return grpcdc_ok();
         if (r < 0) return st;
+        if (strcmp(req.message, "fail") == 0)
+            return grpcdc_status_make(GRPCDC_INVALID_ARGUMENT, "asked to fail");
         EchoResponse resp;
         memset(&resp, 0, sizeof(resp));
         resp.message = (char *)req.message;

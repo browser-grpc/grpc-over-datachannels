@@ -31,4 +31,8 @@ const bddCases = <BddCase>[
   BddCase("bidi-single", "bidi", ["one"], 0, "", "", "", 1, -1),
   BddCase("metadata-marker", "unary", ["hello"], 0, "", "meta", "echo: hello [meta]", 0, -1),
   BddCase("unknown-method", "raw-unary", ["hello"], 0, "/echo.Echo/Nope", "", "", 0, 12),
+  BddCase("server-stream-failure", "server-stream-fail", ["fail"], 3, "", "", "", 0, 3),
+  BddCase("bidi-failure", "bidi-fail", ["fail"], 0, "", "", "", 0, 3),
+  BddCase("deadline-exceeded", "deadline", ["slow"], 600, "", "", "", 0, 4),
+  BddCase("stream-cancel", "cancel", ["tick"], 5, "", "", "", 0, -1),
 ];

@@ -104,6 +104,80 @@ public static class TestBdd
                     Program.Check(got == expectNum, $"{name}: got {got}, want {expectNum}");
                     break;
                 }
+                case "server-stream-fail":
+                {
+                    var stream = client.ServerStream(Req(messages[0], count));
+                    try
+                    {
+                        while (true) stream.Recv();
+                    }
+                    catch (StatusException e)
+                    {
+                        Program.Check(e.Code == expectStatus,
+                            $"{name}: status {e.Code}, want {expectStatus}");
+                    }
+                    catch (EndOfStreamException)
+                    {
+                        Program.Check(false, $"{name}: expected failure, stream ended OK");
+                    }
+                    break;
+                }
+                case "bidi-fail":
+                {
+                    var stream = client.Bidi(messages.Select(m => Req(m, 0)).ToArray());
+                    try
+                    {
+                        while (true) stream.Recv();
+                    }
+                    catch (StatusException e)
+                    {
+                        Program.Check(e.Code == expectStatus,
+                            $"{name}: status {e.Code}, want {expectStatus}");
+                    }
+                    catch (EndOfStreamException)
+                    {
+                        Program.Check(false, $"{name}: expected failure, stream ended OK");
+                    }
+                    break;
+                }
+                case "deadline":
+                {
+                    try
+                    {
+                        client.Unary(new EchoRequest(messages[0], 0, count), null,
+                            TimeSpan.FromMilliseconds(100));
+                        Program.Check(false, $"{name}: expected deadline failure");
+                    }
+                    catch (StatusException e)
+                    {
+                        Program.Check(e.Code == expectStatus,
+                            $"{name}: status {e.Code}, want {expectStatus}");
+                    }
+                    break;
+                }
+                case "cancel":
+                {
+                    var stream = channel.ServerStream("/echo.Echo/ServerStream",
+                        Req(messages[0], count));
+                    var first = new EchoResponse();
+                    stream.Recv(first);
+                    Program.Check(first.Message == messages[0], $"{name}: first {first}");
+                    stream.Cancel();
+                    bool terminated = false;
+                    try
+                    {
+                        for (int i = 0; i < count + 2 && !terminated; i++)
+                        {
+                            stream.Recv(new EchoResponse());
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        terminated = true;
+                    }
+                    Program.Check(terminated, $"{name}: stream did not terminate after cancel");
+                    break;
+                }
                 case "raw-unary":
                 {
                     try

@@ -29,5 +29,9 @@ enum BddScenarios {
         Case(name: "bidi-single", kind: "bidi", messages: ["one"], count: 0, path: "", metadata: "", expectMessage: "", expectNum: 1, expectStatus: -1),
         Case(name: "metadata-marker", kind: "unary", messages: ["hello"], count: 0, path: "", metadata: "meta", expectMessage: "echo: hello [meta]", expectNum: 0, expectStatus: -1),
         Case(name: "unknown-method", kind: "raw-unary", messages: ["hello"], count: 0, path: "/echo.Echo/Nope", metadata: "", expectMessage: "", expectNum: 0, expectStatus: 12),
+        Case(name: "server-stream-failure", kind: "server-stream-fail", messages: ["fail"], count: 3, path: "", metadata: "", expectMessage: "", expectNum: 0, expectStatus: 3),
+        Case(name: "bidi-failure", kind: "bidi-fail", messages: ["fail"], count: 0, path: "", metadata: "", expectMessage: "", expectNum: 0, expectStatus: 3),
+        Case(name: "deadline-exceeded", kind: "deadline", messages: ["slow"], count: 600, path: "", metadata: "", expectMessage: "", expectNum: 0, expectStatus: 4),
+        Case(name: "stream-cancel", kind: "cancel", messages: ["tick"], count: 5, path: "", metadata: "", expectMessage: "", expectNum: 0, expectStatus: -1),
     ]
 }

@@ -16,10 +16,16 @@ function handlers() {
       if (req.message === "fail") {
         throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
       }
+      if (req.delayMs > 0) {
+        await new Promise((r) => setTimeout(r, req.delayMs));
+      }
       const suffix = ctx.metadata["x-echo"] ? ` [${ctx.metadata["x-echo"]}]` : "";
       return new EchoResponse({ message: `echo: ${req.message}${suffix}`, index: 0 });
     },
     async *serverStream(req) {
+      if (req.message === "fail") {
+        throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+      }
       for (let i = 0; i < Math.max(0, req.count); i++) {
         yield new EchoResponse({ message: req.message, index: i });
       }
@@ -32,6 +38,9 @@ function handlers() {
     async *bidi(requests) {
       let index = 0;
       for await (const req of requests) {
+        if (req.message === "fail") {
+          throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+        }
         yield new EchoResponse({ message: req.message, index: index++ });
       }
     },
@@ -92,6 +101,39 @@ for (const c of BDD_SCENARIOS) {
         assert.equal(resp.message, c.messages[i]);
         assert.equal(resp.index, i);
       });
+    } else if (c.kind === "server-stream-fail") {
+      await assert.rejects(collect(await client.serverStream(req(c.messages[0], c.count))), (e) => {
+        assert.equal(e.code, c.expectStatus);
+        return true;
+      });
+    } else if (c.kind === "bidi-fail") {
+      await assert.rejects(
+        collect(await client.bidi(fromList(c.messages.map((m) => req(m))))),
+        (e) => {
+          assert.equal(e.code, c.expectStatus);
+          return true;
+        },
+      );
+    } else if (c.kind === "deadline") {
+      await assert.rejects(
+        client.unary(new EchoRequest({ message: c.messages[0], delayMs: c.count }), { timeout: 100 }),
+        (e) => {
+          assert.equal(e.code, c.expectStatus);
+          return true;
+        },
+      );
+    } else if (c.kind === "cancel") {
+      const responses = await client.serverStream(req(c.messages[0], c.count));
+      let got = 0;
+      // Breaking the iteration tears the call down (the
+      // responses generator's finally aborts the stream);
+      // reaching this line at all proves it terminated.
+      for await (const resp of responses) {
+        assert.equal(resp.message, c.messages[0]);
+        got++;
+        if (got === 1) break;
+      }
+      assert.equal(got, 1);
     } else if (c.kind === "raw-unary") {
       await assert.rejects(
         channel.unary(c.path, req(c.messages[0]), EchoRequest, EchoResponse),

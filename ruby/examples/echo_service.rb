@@ -21,6 +21,9 @@ class EchoService
   end
 
   def ServerStream(req, stream)
+    if req.message == "fail"
+      raise Grpcdc::StatusError.new(Grpcdc::CODE_INVALID_ARGUMENT, "asked to fail")
+    end
     [0, req.count].max.times do |i|
       stream.send(EchoPb::EchoResponse.new(message: req.message, index: i))
     end
@@ -46,6 +49,9 @@ class EchoService
     begin
       loop do
         req = stream.recv
+        if req.message == "fail"
+          raise Grpcdc::StatusError.new(Grpcdc::CODE_INVALID_ARGUMENT, "asked to fail")
+        end
         stream.send(EchoPb::EchoResponse.new(message: req.message, index: index))
         index += 1
       end

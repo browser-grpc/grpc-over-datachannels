@@ -39,6 +39,9 @@ fn unaryImpl(_: *anyopaque, ctx: *CallContext, req: *const EchoRequest, resp: *E
 }
 
 fn serverStreamImpl(_: *anyopaque, _: *CallContext, req: *const EchoRequest, stream: *stubs.EchoServerStreamServer) Status {
+    if (std.mem.eql(u8, req.message, "fail")) {
+        return Status.init(wire.codeInvalidArgument, "asked to fail");
+    }
     var i: i32 = 0;
     while (i < req.count) : (i += 1) {
         var resp = EchoResponse{ .message = req.message, .index = i };
@@ -71,6 +74,9 @@ fn bidiImpl(_: *anyopaque, _: *CallContext, stream: *stubs.EchoBidiServer) Statu
     while (true) {
         switch (stream.recv()) {
             .message => |req| {
+                if (std.mem.eql(u8, req.message, "fail")) {
+                    return Status.init(wire.codeInvalidArgument, "asked to fail");
+                }
                 var resp = EchoResponse{ .message = req.message, .index = index };
                 const st = stream.send(&resp);
                 if (!st.isOk()) return st;

@@ -82,6 +82,46 @@ final class TestBdd
                     T::assertEq($resp->index, $i, "bidi index");
                 }
                 break;
+            case "server-stream-fail":
+                try {
+                    iterator_to_array(self::$client->ServerStream(self::req($messages[0], $count))->iterate(), false);
+                    throw new \Exception("expected StatusError");
+                } catch (\Grpcdc\StatusError $e) {
+                    T::assertEq($e->statusCode, $expectStatus, "server-stream-fail status");
+                }
+                break;
+            case "bidi-fail":
+                try {
+                    iterator_to_array(self::$client->Bidi(array_map(fn($m) => self::req($m), $messages))->iterate(), false);
+                    throw new \Exception("expected StatusError");
+                } catch (\Grpcdc\StatusError $e) {
+                    T::assertEq($e->statusCode, $expectStatus, "bidi-fail status");
+                }
+                break;
+            case "deadline":
+                try {
+                    self::$client->Unary(new \EchoPb\EchoRequest($messages[0], 0, $count), null, 0.1);
+                    throw new \Exception("expected StatusError");
+                } catch (\Grpcdc\StatusError $e) {
+                    T::assertEq($e->statusCode, $expectStatus, "deadline status");
+                }
+                break;
+            case "cancel":
+                $stream = self::$channel->serverStream("/echo.Echo/ServerStream", self::req($messages[0], $count));
+                $first = new \EchoPb\EchoResponse();
+                $stream->recv($first);
+                T::assertEq($first->message, $messages[0], "cancel first");
+                $stream->cancel();
+                $terminated = false;
+                try {
+                    for ($i = 0; $i < $count + 2; $i++) {
+                        $stream->recv(new \EchoPb\EchoResponse());
+                    }
+                } catch (\Throwable $e) {
+                    $terminated = true;
+                }
+                T::assertEq($terminated, true, "cancel terminated");
+                break;
             case "raw-unary":
                 try {
                     self::$channel->unary($path, self::req($messages[0]), new \EchoPb\EchoResponse());

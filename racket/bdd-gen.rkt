@@ -5,11 +5,12 @@
 ;;; data, never unrolled code; each language keeps one small
 ;;; hand-written TestBdd interpreter (mirroring the oracle drivers).
 
-(require "bdd-spec.rkt")
+(require "bdd-spec.rkt" "bdd-schemas.rkt")
 (provide emit-bdd-docs
          emit-js-bdd emit-go-bdd emit-rust-bdd emit-python-bdd
          emit-java-bdd emit-csharp-bdd emit-cpp-bdd emit-swift-bdd
-         emit-kotlin-bdd emit-dart-bdd emit-zig-bdd emit-lua-bdd emit-ruby-bdd emit-php-bdd emit-scala-bdd emit-c-bdd)
+         emit-kotlin-bdd emit-dart-bdd emit-zig-bdd emit-lua-bdd emit-ruby-bdd emit-php-bdd emit-scala-bdd emit-c-bdd
+         emit-bdd-schemas)
 
 (define (q strs)
   (string-join (for/list ([s (in-list strs)]) (format "~s" s)) ", "))
@@ -38,6 +39,18 @@
              (string-join (map (lambda (m) (format "~s" m)) (rest action)) ", "))]
     [(raw-unary)
      (format "the client calls the unknown method ~s with message ~s"
+             (second action) (third action))]
+    [(server-stream-fail)
+     (format "the client calls ServerStream with message ~s and count ~a"
+             (second action) (third action))]
+    [(bidi-fail)
+     (format "the client calls Bidi with messages ~a"
+             (string-join (map (lambda (m) (format "~s" m)) (rest action)) ", "))]
+    [(deadline)
+     (format "the client calls Unary with message ~s, which the service delays by ~a ms, under a shorter client deadline"
+             (second action) (third action))]
+    [(cancel)
+     (format "the client calls ServerStream with message ~s and count ~a, reads one response, then cancels the call"
              (second action) (third action))]))
 
 (define (expectation-prose expectation)
@@ -53,7 +66,9 @@
                  (third expectation) (second expectation) (sub1 (third expectation))))]
     [(echoes)
      (format "the responses echo ~a in order with increasing indexes"
-             (string-join (map (lambda (m) (format "~s" m)) (rest expectation)) ", "))]))
+             (string-join (map (lambda (m) (format "~s" m)) (rest expectation)) ", "))]
+    [(cancels)
+     "the stream terminates after the cancellation instead of delivering the remaining responses"]))
 
 (define (emit-bdd-docs)
   (cons "BDD.md"
@@ -72,6 +87,18 @@
                           i (second s)
                           (action-prose (third s))
                           (expectation-prose (fourth s)))))
+         "\n## Schema scenarios (protoc examples)\n\n"
+         "The same treatment for message schemas: golden bytes produced by\n"
+         "protoc itself over `webapp/testdata/kitchen.proto` and\n"
+         "`webapp/testdata/features.proto`, stamped from `racket/bdd-schemas.rkt`.\n"
+         "Each language decodes them with its generated message classes and\n"
+         "re-encodes; the result must be byte-identical.\n"
+         (apply string-append
+                (for/list ([s (in-list bdd-schema-scenarios)] [i (in-naturals 1)])
+                  (format "\n### S~a. ~a\n\n- **Given** protoc's encoded `~a` bytes (~a bytes)\n- **When** the generated classes decode and re-encode them\n- **Then** the output is byte-identical to the expected ~a bytes\n"
+                          i (second s) (third s)
+                          (quotient (string-length (fourth s)) 2)
+                          (quotient (string-length (fifth s)) 2))))
          "\nRun them per language with `make test-<lang>` (suite `TestBdd`), or all\n"
          "of them with `make test`.\n")))
 
@@ -490,3 +517,144 @@
                           name kind (q msgs) count path md em en (or es -1))))
          "    )\n"
          "}\n")))
+
+
+;; ---------------------------------------------------------------------------
+;; Schema scenarios -> per-language stamped tables.
+;; One generic emitter: rows of (name message inputHex expectHex)
+;; rendered by a per-language row format function.
+;; ---------------------------------------------------------------------------
+
+(define (schema-rows render)
+  (apply string-append
+         (for/list ([s (in-list bdd-schema-scenarios)])
+           (render (symbol->string (first s)) (third s) (fourth s) (fifth s)))))
+
+(define (emit-bdd-schemas lang)
+  (case lang
+    [(python) (cons "bdd_schemas_generated.py"
+                    (string-append
+                     "# Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                     "# (golden protoc bytes; interpreter is tests/test_bdd_schemas.py).\n"
+                     "SCHEMAS = [\n"
+                     (schema-rows (lambda (n m i e) (format "    (~s, ~s, ~s, ~s),\n" n m i e)))
+                     "]\n"))]
+    [(js) (cons "bdd_schemas.generated.js"
+                (string-append
+                 "// Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                 "// (golden protoc bytes; interpreter is TestBddSchemas).\n"
+                 "export const BDD_SCHEMAS = [\n"
+                 (schema-rows (lambda (n m i e) (format "  { name: ~s, message: ~s, input: ~s, expect: ~s },\n" n m i e)))
+                 "];\n"))]
+    [(go) (cons "bdd_schemas_generated_test.go"
+                (string-append
+                 "package grpcdc_test\n\n"
+                 "// Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                 "// (golden protoc bytes; interpreter is TestBddSchemas).\n"
+                 "type bddSchemaCase struct { name, message, input, expect string }\n\n"
+                 "var bddSchemaCases = []bddSchemaCase{\n"
+                 (schema-rows (lambda (n m i e) (format "\t{name: ~s, message: ~s, input: ~s, expect: ~s},\n" n m i e)))
+                 "}\n"))]
+    [(rust) (cons "bdd_schemas/mod.rs"
+                  (string-append
+                   "//! Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                   "//! (golden protoc bytes; interpreter is the bdd_schemas test).\n\n"
+                   "pub struct BddSchema { pub name: &'static str, pub message: &'static str, pub input: &'static str, pub expect: &'static str }\n\n"
+                   "pub const BDD_SCHEMAS: &[BddSchema] = &[\n"
+                   (schema-rows (lambda (n m i e) (format "    BddSchema { name: ~s, message: ~s, input: ~s, expect: ~s },\n" n m i e)))
+                   "];\n"))]
+    [(java) (cons "BddSchemas.java"
+                  (string-append
+                   "package tests;\n\n"
+                   "// Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                   "// (golden protoc bytes; interpreter is tests.TestBddSchemas).\n"
+                   "public final class BddSchemas {\n"
+                   "    public record Case(String name, String message, String input, String expect) {}\n\n"
+                   "    public static final Case[] CASES = {\n"
+                   (schema-rows (lambda (n m i e) (format "        new Case(~s, ~s, ~s, ~s),\n" n m i e)))
+                   "    };\n}\n"))]
+    [(kotlin) (cons "BddSchemas.kt"
+                    (string-append
+                     "package tests\n\n"
+                     "// Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                     "// (golden protoc bytes; interpreter is tests.TestBddSchemas).\n"
+                     "data class BddSchemaCase(val name: String, val message: String, val input: String, val expect: String)\n\n"
+                     "val BDD_SCHEMAS = arrayOf(\n"
+                     (schema-rows (lambda (n m i e) (format "    BddSchemaCase(~s, ~s, ~s, ~s),\n" n m i e)))
+                     ")\n"))]
+    [(scala) (cons "BddSchemas.scala"
+                   (string-append
+                    "package tests\n\n"
+                    "// Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                    "// (golden protoc bytes; interpreter is tests.TestBddSchemas).\n"
+                    "case class BddSchemaCase(name: String, message: String, input: String, expect: String)\n\n"
+                    "object BddSchemas {\n  val cases: Array[BddSchemaCase] = Array(\n"
+                    (schema-rows (lambda (n m i e) (format "    BddSchemaCase(~s, ~s, ~s, ~s),\n" n m i e)))
+                    "  )\n}\n"))]
+    [(csharp) (cons "BddSchemas.cs"
+                    (string-append
+                     "// Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                     "// (golden protoc bytes; interpreter is TestBddSchemas).\n\n"
+                     "public sealed record BddSchemaCase(string Name, string Message, string Input, string Expect);\n\n"
+                     "public static class BddSchemas\n{\n    public static readonly BddSchemaCase[] Cases =\n    {\n"
+                     (schema-rows (lambda (n m i e) (format "        new(~s, ~s, ~s, ~s),\n" n m i e)))
+                     "    };\n}\n"))]
+    [(swift) (cons "BddSchemas.swift"
+                   (string-append
+                    "// Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                    "// (golden protoc bytes; interpreter is TestBddSchemas).\n\n"
+                    "public struct BddSchemaCase {\n    public let name: String\n    public let message: String\n    public let input: String\n    public let expect: String\n}\n\n"
+                    "public let BDD_SCHEMAS: [BddSchemaCase] = [\n"
+                    (schema-rows (lambda (n m i e) (format "    BddSchemaCase(name: ~s, message: ~s, input: ~s, expect: ~s),\n" n m i e)))
+                    "]\n"))]
+    [(cpp) (cons "bdd_schemas.hpp"
+                 (string-append
+                  "// Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                  "// (golden protoc bytes; interpreter is TestBddSchemas).\n#pragma once\n\n#include <string>\n#include <vector>\n\nstruct BddSchemaCase {\n  const char* name;\n  const char* message;\n  const char* input;\n  const char* expect;\n};\n\n"
+                  "inline const std::vector<BddSchemaCase>& BddSchemaCases() {\n  static const std::vector<BddSchemaCase> cases = {\n"
+                  (schema-rows (lambda (n m i e) (format "      {~s, ~s, ~s, ~s},\n" n m i e)))
+                  "  };\n  return cases;\n}\n"))]
+    [(dart) (cons "bdd_schemas.dart"
+                  (string-append
+                   "// Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                   "// (golden protoc bytes; interpreter is TestBddSchemas).\n\n"
+                   "class BddSchema {\n  final String name;\n  final String message;\n  final String input;\n  final String expect;\n  const BddSchema(this.name, this.message, this.input, this.expect);\n}\n\n"
+                   "const bddSchemas = <BddSchema>[\n"
+                   (schema-rows (lambda (n m i e) (format "  BddSchema(~s, ~s, ~s, ~s),\n" n m i e)))
+                   "];\n"))]
+    [(zig) (cons "bdd_schemas.zig"
+                 (string-append
+                  "// Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                  "// (golden protoc bytes; interpreter is TestBddSchemas).\n\n"
+                  "pub const Case = struct { name: []const u8, message: []const u8, input: []const u8, expect: []const u8 };\n\n"
+                  "pub const cases = [_]Case{\n"
+                  (schema-rows (lambda (n m i e) (format "    .{ .name = ~s, .message = ~s, .input = ~s, .expect = ~s },\n" n m i e)))
+                  "};\n"))]
+    [(lua) (cons "bdd_schemas.lua"
+                 (string-append
+                  "-- Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                  "-- (golden protoc bytes; interpreter is TestBddSchemas).\nreturn {\n"
+                  (schema-rows (lambda (n m i e) (format "  { name = ~s, message = ~s, input = ~s, expect = ~s },\n" n m i e)))
+                  "}\n"))]
+    [(ruby) (cons "bdd_schemas_generated.rb"
+                  (string-append
+                   "# Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                   "# (golden protoc bytes; interpreter is tests/test_bdd_schemas.rb).\nBDD_SCHEMAS = [\n"
+                   (schema-rows (lambda (n m i e) (format "  [~s, ~s, ~s, ~s],\n" n m i e)))
+                   "]\n"))]
+    [(php) (cons "bdd_schemas_generated.php"
+                 (string-append
+                  "// Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                  "// (golden protoc bytes; interpreter is tests/test_bdd_schemas.php).\n\n"
+                  "const BDD_SCHEMAS = [\n"
+                  (schema-rows (lambda (n m i e) (format "    [~s, ~s, ~s, ~s],\n" n m i e)))
+                  "];\n"))]
+    [(c) (cons "bdd_schemas.h"
+               (string-append
+                "/* Schema scenario table stamped from racket/bdd-schemas.rkt\n"
+                "   (golden protoc bytes; interpreter is TestBddSchemas). */\n#pragma once\n\n"
+                "typedef struct { const char *name; const char *message; const char *input; const char *expect; } bdd_schema_case;\n\n"
+                "static const bdd_schema_case bdd_schema_cases[] = {\n"
+                (schema-rows (lambda (n m i e) (format "    {~s, ~s, ~s, ~s},\n" n m i e)))
+                "};\n\nstatic const unsigned bdd_schema_cases_count =\n    sizeof(bdd_schema_cases) / sizeof(bdd_schema_cases[0]);\n"))]
+    [else (error 'emit-bdd-schemas "no emitter for ~a" lang)]))

@@ -1,5 +1,5 @@
 """Reference Echo implementation (mirrors the Rust/JS/Go demos):
-"fail" is rejected, everything else echoes."""
+"fail" is rejected in every method, everything else echoes."""
 
 import time
 
@@ -22,6 +22,8 @@ class EchoService:
         return EchoResponse(message=f"echo: {req.message}{suffix}", index=0)
 
     def ServerStream(self, req, stream):
+        if req.message == "fail":
+            raise StatusError(CODE_INVALID_ARGUMENT, "asked to fail")
         for i in range(max(0, req.count)):
             stream.send(EchoResponse(message=req.message, index=i))
 
@@ -44,5 +46,7 @@ class EchoService:
                 req = stream.recv()
             except EOFError:
                 return
+            if req.message == "fail":
+                raise StatusError(CODE_INVALID_ARGUMENT, "asked to fail")
             stream.send(EchoResponse(message=req.message, index=index))
             index += 1

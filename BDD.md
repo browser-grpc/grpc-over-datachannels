@@ -81,5 +81,67 @@ examples) connected to a client over a loopback DataChannel:
 - **When** the client calls the unknown method "/echo.Echo/Nope" with message "hello"
 - **Then** the call fails with status code 12
 
+## 13. Server streaming rejects the message "fail"
+
+- **Given** the Echo service over a loopback DataChannel
+- **When** the client calls ServerStream with message "fail" and count 3
+- **Then** the call fails with status code 3
+
+## 14. Bidi streaming rejects the message "fail"
+
+- **Given** the Echo service over a loopback DataChannel
+- **When** the client calls Bidi with messages "fail"
+- **Then** the call fails with status code 3
+
+## 15. A unary delayed past the client deadline fails
+
+- **Given** the Echo service over a loopback DataChannel
+- **When** the client calls Unary with message "slow", which the service delays by 600 ms, under a shorter client deadline
+- **Then** the call fails with status code 4
+
+## 16. Cancelling a server stream terminates it
+
+- **Given** the Echo service over a loopback DataChannel
+- **When** the client calls ServerStream with message "tick" and count 5, reads one response, then cancels the call
+- **Then** the stream terminates after the cancellation instead of delivering the remaining responses
+
+## Schema scenarios (protoc examples)
+
+The same treatment for message schemas: golden bytes produced by
+protoc itself over `webapp/testdata/kitchen.proto` and
+`webapp/testdata/features.proto`, stamped from `racket/bdd-schemas.rkt`.
+Each language decodes them with its generated message classes and
+re-encodes; the result must be byte-identical.
+
+### S1. Kitchen sink (every scalar, nested, maps, packed, oneof) round-trips protoc's bytes
+
+- **Given** protoc's encoded `kitchen` bytes (224 bytes)
+- **When** the generated classes decode and re-encode them
+- **Then** the output is byte-identical to the expected 224 bytes
+
+### S2. An empty Kitchen message encodes to zero bytes
+
+- **Given** protoc's encoded `kitchen` bytes (0 bytes)
+- **When** the generated classes decode and re-encode them
+- **Then** the output is byte-identical to the expected 0 bytes
+
+### S3. Three-level nesting with a nested enum and enum map round-trips protoc's bytes
+
+- **Given** protoc's encoded `outer` bytes (37 bytes)
+- **When** the generated classes decode and re-encode them
+- **Then** the output is byte-identical to the expected 37 bytes
+
+### S4. With both oneof variants on the wire, only the later (code) survives re-encoding
+
+- **Given** protoc's encoded `kitchen` bytes (7 bytes)
+- **When** the generated classes decode and re-encode them
+- **Then** the output is byte-identical to the expected 3 bytes
+
+### S5. An unknown field is captured on decode and re-emitted verbatim
+
+- **Given** protoc's encoded `kitchen` bytes (6 bytes)
+- **When** the generated classes decode and re-encode them
+- **Then** the output is byte-identical to the expected 6 bytes
+
 Run them per language with `make test-<lang>` (suite `TestBdd`), or all
 of them with `make test`.

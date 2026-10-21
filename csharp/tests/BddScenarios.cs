@@ -21,5 +21,9 @@ public static class BddScenarios
         new object[] {"bidi-single", "bidi", new string[] {"one"}, 0, "", "", "", 1, -1},
         new object[] {"metadata-marker", "unary", new string[] {"hello"}, 0, "", "meta", "echo: hello [meta]", 0, -1},
         new object[] {"unknown-method", "raw-unary", new string[] {"hello"}, 0, "/echo.Echo/Nope", "", "", 0, 12},
+        new object[] {"server-stream-failure", "server-stream-fail", new string[] {"fail"}, 3, "", "", "", 0, 3},
+        new object[] {"bidi-failure", "bidi-fail", new string[] {"fail"}, 0, "", "", "", 0, 3},
+        new object[] {"deadline-exceeded", "deadline", new string[] {"slow"}, 600, "", "", "", 0, 4},
+        new object[] {"stream-cancel", "cancel", new string[] {"tick"}, 5, "", "", "", 0, -1},
     };
 }

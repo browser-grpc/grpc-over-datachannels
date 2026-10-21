@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../examples/echo_grpc_dc.dart';
 import '../examples/echo_messages.dart';
 import '../examples/echo_service_impl.dart';
@@ -60,6 +62,49 @@ Future<void> testBdd() async {
           got++;
         }
         check(got == c.expectNum, '${c.name}: got $got, want ${c.expectNum}');
+        break;
+      case 'server-stream-fail':
+        try {
+          final stream =
+              await client.serverStream(EchoRequest(c.messages[0], c.count));
+          await for (final _ in stream.responses) {}
+          check(false, '${c.name}: expected failure');
+        } on StatusException catch (e) {
+          check(e.code == c.expectStatus,
+              '${c.name}: status $e, want ${c.expectStatus}');
+        }
+        break;
+      case 'bidi-fail':
+        try {
+          final stream = await client
+              .bidi(c.messages.map((m) => EchoRequest(m, 0)).toList());
+          await for (final _ in stream.responses) {}
+          check(false, '${c.name}: expected failure');
+        } on StatusException catch (e) {
+          check(e.code == c.expectStatus,
+              '${c.name}: status $e, want ${c.expectStatus}');
+        }
+        break;
+      case 'deadline':
+        try {
+          await client.unary(EchoRequest(c.messages[0], 0, c.count),
+              timeout: const Duration(milliseconds: 100));
+          check(false, '${c.name}: expected deadline failure');
+        } on StatusException catch (e) {
+          check(e.code == c.expectStatus,
+              '${c.name}: status $e, want ${c.expectStatus}');
+        }
+        break;
+      case 'cancel':
+        final stream =
+            await client.serverStream(EchoRequest(c.messages[0], c.count));
+        final iter = StreamIterator(stream.responses);
+        check(await iter.moveNext(), '${c.name}: no first response');
+        check(iter.current.message == c.messages[0],
+            '${c.name}: first ${iter.current}');
+        // Cancelling the subscription tears the call down;
+        // completing the cancel proves termination.
+        await iter.cancel().timeout(const Duration(seconds: 5));
         break;
       case 'raw-unary':
         try {

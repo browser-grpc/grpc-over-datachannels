@@ -28,6 +28,9 @@ function EchoServiceImpl:unary(ctx, req)
 end
 
 function EchoServiceImpl:serverStream(ctx, req, stream)
+  if req.message == "fail" then
+    error(Status.new(wire.CODE_INVALID_ARGUMENT, "asked to fail"), 0)
+  end
   for i = 0, math.max(0, req.count) - 1 do
     stream:send(EchoResponse.new(req.message, i))
   end
@@ -53,6 +56,9 @@ function EchoServiceImpl:bidi(ctx, stream)
     if not ok then
       if req == EndOfStream then return end
       error(req, 0)
+    end
+    if req.message == "fail" then
+      error(Status.new(wire.CODE_INVALID_ARGUMENT, "asked to fail"), 0)
     end
     stream:send(EchoResponse.new(req.message, index))
     index = index + 1

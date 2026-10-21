@@ -30,6 +30,9 @@ impl Echo for EchoService {
         if req.message == "fail" {
             return Err(Status::invalid_argument("asked to fail"));
         }
+        if req.delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(req.delay_ms as u64)).await;
+        }
         let suffix = ctx
             .metadata
             .get("x-echo")
@@ -43,6 +46,9 @@ impl Echo for EchoService {
         req: pb::EchoRequest,
         _ctx: CallCtx,
     ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        if req.message == "fail" {
+            return Err(Status::invalid_argument("asked to fail"));
+        }
         let responses =
             (0..req.count.max(0)).map(move |i| Ok(pb::EchoResponse { message: req.message.clone(), index: i , ..Default::default() }));
         Ok(Box::pin(futures_util::stream::iter(responses)))
@@ -64,6 +70,9 @@ impl Echo for EchoService {
     ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
         let stream = futures_util::stream::unfold((reqs, 0i32), |(mut reqs, mut index)| async move {
             match reqs.next().await {
+                Some(Ok(req)) if req.message == "fail" => {
+                    Some((Err(Status::invalid_argument("asked to fail")), (reqs, index)))
+                }
                 Some(Ok(req)) => {
                     let resp = pb::EchoResponse { message: req.message, index , ..Default::default() };
                     index += 1;
@@ -148,6 +157,56 @@ async fn bdd_scenarios() {
                     assert_eq!(resp.message, c.messages[i], "{line}");
                     assert_eq!(resp.index, i as i32, "{line}");
                 }
+            }
+            "server-stream-fail" => {
+                let mut stream = client.server_stream(req(c.messages[0], c.count)).await.unwrap();
+                let mut result = Ok(());
+                while let Some(item) = stream.next().await {
+                    if let Err(e) = item {
+                        result = Err(e);
+                        break;
+                    }
+                }
+                let status = result.expect_err(&line);
+                assert_eq!(c.expect_status, Some(status.code as u32), "{line}: {status}");
+            }
+            "bidi-fail" => {
+                let reqs = futures_util::stream::iter(c.messages.iter().map(|m| req(m, 0)));
+                let mut stream = client.bidi(reqs).await.unwrap();
+                let mut result = Ok(());
+                while let Some(item) = stream.next().await {
+                    if let Err(e) = item {
+                        result = Err(e);
+                        break;
+                    }
+                }
+                let status = result.expect_err(&line);
+                assert_eq!(c.expect_status, Some(status.code as u32), "{line}: {status}");
+            }
+            "deadline" => {
+                let delayed = pb::EchoRequest {
+                    message: c.messages[0].into(),
+                    count: 0,
+                    delay_ms: c.count,
+                    ..Default::default()
+                };
+                let result = client
+                    .unary_with_options(
+                        delayed,
+                        grpc_dc::CallOptions::with_timeout(std::time::Duration::from_millis(100)),
+                    )
+                    .await;
+                let status = result.expect_err(&line);
+                assert_eq!(c.expect_status, Some(status.code as u32), "{line}: {status}");
+            }
+            "cancel" => {
+                let mut stream = client.server_stream(req(c.messages[0], c.count)).await.unwrap();
+                let first = stream.next().await.expect("first response").unwrap();
+                assert_eq!(first.message, c.messages[0], "{line}");
+                drop(stream);
+                // Dropping the stream aborts the call; reaching
+                // here with the runtime still live is the
+                // assertion (a hang would fail by timeout).
             }
             "raw-unary" => {
                 let result: Result<pb::EchoResponse, Status> =

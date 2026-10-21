@@ -25,6 +25,9 @@ class EchoServiceImpl implements EchoServer {
 
   @override
   Future<void> serverStream(EchoRequest req, EchoServerStreamServer stream) async {
+    if (req.message == 'fail') {
+      throw StatusException(Wire.codeInvalidArgument, 'asked to fail');
+    }
     for (var i = 0; i < max(0, req.count); i++) {
       stream.send(EchoResponse(req.message, i));
     }
@@ -52,6 +55,9 @@ class EchoServiceImpl implements EchoServer {
         req = await stream.recv();
       } on EndOfStreamError {
         return;
+      }
+      if (req.message == 'fail') {
+        throw StatusException(Wire.codeInvalidArgument, 'asked to fail');
       }
       stream.send(EchoResponse(req.message, index));
       index++;

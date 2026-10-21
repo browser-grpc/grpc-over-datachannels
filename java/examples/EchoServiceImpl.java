@@ -34,6 +34,9 @@ public final class EchoServiceImpl implements EchoGrpcDc.EchoServer {
 
     @Override
     public void ServerStream(EchoRequest req, EchoGrpcDc.EchoServerStreamServer stream) throws Exception {
+        if ("fail".equals(req.message)) {
+            throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail");
+        }
         for (int i = 0; i < Math.max(0, req.count); i++) {
             stream.send(new EchoResponse(req.message, i));
         }
@@ -63,6 +66,9 @@ public final class EchoServiceImpl implements EchoGrpcDc.EchoServer {
                 req = stream.recv();
             } catch (EOFException eof) {
                 return;
+            }
+            if ("fail".equals(req.message)) {
+                throw new StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail");
             }
             stream.send(new EchoResponse(req.message, index++));
         }
