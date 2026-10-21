@@ -55,6 +55,13 @@ reachable UDP address: no ICE negotiation, no SDP exchange.
 - **Roles are fixed**: dialer is DTLS client (even SCTP streams,
   opens the `grpc` channel), listener is DTLS server. The
   listener learns the dialer address from the first datagram.
+- **Concurrent dialers**: a listener may accept any number of
+  dialers, including simultaneous handshakes. All three native
+  listeners demultiplex the shared UDP socket by peer address:
+  one socket reader routes datagrams to the endpoint that
+  claimed that peer, unclaimed peers queue until an `accept`
+  claims them (one claim per accept, serialized), so endpoints
+  never steal each other's handshake packets.
 - **Over TURN (symmetric NAT)**: `direct_dial_turn` /
   `directDialTurn` allocate on a TURN server, install a
   permission + channel binding for the listener address, and run
@@ -63,7 +70,24 @@ reachable UDP address: no ICE negotiation, no SDP exchange.
   the listener, so NAT mapping behavior (including symmetric
   NAT) cannot break it; a background refresher keeps the
   allocation alive. The listener needs no TURN awareness — it
-  sees ordinary UDP from the relayed address.
+  sees ordinary UDP from the relayed address. Refresh is proven
+  past expiry: Rust, JS, and Go tests use fakes enforcing a
+  3-second allocation and permission lifetime and verify
+  traffic still flows after 5 seconds (the fake drops relayed
+  traffic for expired allocations, so the test cannot pass
+  without Refresh, permission, and channel-bind renewal).
+- **TURNS and IPv6**: the TURN client<->server transport may be
+  TLS (`TurnTransport::Tls` / `transport: "tls"` /
+  `Transport: "tls"`) over a dedicated stream connection, and
+  the whole Direct session may run over IPv6 (an `ip6`
+  multiaddr against a `[::1]` listener and relay). Both shapes
+  are proven against a private coturn in all three native
+  stacks. Servers whose relay is IPv6-only may reject
+  allocations without `REQUESTED-ADDRESS-FAMILY` (error 440);
+  set `request_ipv6_relay` / `requestIpv6Relay` /
+  `RequestIPv6Relay` when dialing one. Note the homegrown Rust
+  TLS stack offers ECDHE-ECDSA only, so a coturn serving TURNS
+  to the Rust stack needs an ECDSA certificate.
 - **Browser shape**: browsers cannot bind UDP or allocate TURN
   in this raw form, so a browser is always the dialer, via a
   native `RTCPeerConnection` with relay-only ICE
@@ -99,18 +123,26 @@ reachable UDP address: no ICE negotiation, no SDP exchange.
   runtimes plug in with a stdlib-only framed-TCP transport
   (reference: `grpcdc.SidecarTransport` in Python, generated
   from `racket/runtime-python.rkt`; the framing is identical in
-  every language).
+  every language). Lua is the one variation: pure Lua has no
+  stdlib sockets, so its generated `SidecarTransport`
+  (`lua/grpcdc/sidecar_transport.lua`) frames over a socket the
+  host application injects (`sendAll` / `recvExact` / `close`);
+  `lua/tests/host_socket.lua` is the test host implementation.
 - **Tests**: `webrtc/rust/tests/webrtc_direct.rs` (echo, wrong
-  certhash rejected, echo over fake TURN, echo over coturn),
-  `webrtc/js/test/direct.test.js` (same set + certhash
-  round-trip) and `direct_coturn.test.js`,
+  certhash rejected, concurrent dialers, echo and refresh-past-
+  lifetime over fake TURN, echo over coturn, TURNS and IPv6
+  coturn legs, IPv6 echo), `webrtc/js/test/direct.test.js`
+  (same set + certhash round-trip) and `direct_coturn.test.js`
+  (coturn UDP, TURNS, and IPv6 legs),
   `webrtc/go/direct_test.go` (same set),
   `browser-test/direct_turn.test.mjs` (Chromium relay-only
   dial, nominated relay<->relay pair),
   `rust/tests/webrtc_direct_grpc.rs` and
   `go/webrtc_direct_test.go` (generated Echo client/server by
   multiaddr), and same-language gRPC through two sidecars in
-  Python, Go, Ruby, PHP, Dart, and Java test suites.
+  every generated language's test suite (Python, Go, Ruby, PHP,
+  Dart, Java, Kotlin, Scala, C#, Swift, C++, Zig, C, and Lua;
+  each prints `TestSidecar OK`).
 
 ## Embedded profile
 

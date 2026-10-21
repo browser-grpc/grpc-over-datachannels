@@ -3,6 +3,48 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.16.0 — 2026-10-20
+
+- Sidecar gRPC tests for the remaining languages: Kotlin,
+  Scala, C#, Swift, C++, Zig, and C suites each run an Echo
+  client and server through two Rust `direct_sidecar`
+  processes (`TestSidecar OK`), joining Python, Go, Ruby, PHP,
+  Dart, and Java from earlier releases. The C runtime gained
+  `grpcdc_sidecar_from_fd` so a server can wrap the accepted
+  socket. Lua joins via a host-provided socket (below), so
+  every supported language can now call -- and serve -- through
+  the Rust WebRTC-Direct stack.
+- Concurrent Direct dialers: the Rust, JS, and Go
+  `DirectListener`s now demultiplex their shared UDP socket by
+  peer address (queued pending peers, one claim per Accept),
+  so simultaneous handshakes against one listener no longer
+  steal each other's packets. Proven by four concurrent dialers
+  with distinct payloads in all three stacks. The Go and JS
+  TURN fakes' ephemeral-relay-port fixes were matched in the
+  Go fake.
+- Direct over TURN past the allocation lifetime: Rust, JS, and
+  Go tests run against fakes enforcing a 3 s allocation and
+  permission lifetime and prove traffic still flows after 5 s.
+  This caught a real bug: Go `DirectDialTurn` bypassed the
+  peer-remembering helper, so its refresher never re-issued
+  permissions; it now uses `turnAddPeer`.
+- TURN/TLS (TURNS) and IPv6 coturn legs: Rust, JS, and Go each
+  dial Direct through a private coturn over a TLS
+  client<->server transport and over IPv6 (`[::1]` listener,
+  relay, and multiaddr). The Rust and JS stacks gained
+  `REQUESTED-ADDRESS-FAMILY` plumbing (error 440 without it),
+  the Rust Direct TURN io now drains the stream inbox, the JS
+  Direct peer writes stream frames like `Peer.turnWrite`, and
+  Go `DirectDialTurn` picks a dual-stack socket for v6. The
+  homegrown Rust TLS stack offers ECDHE-ECDSA only, so its
+  coturn fixture uses an ECDSA cert.
+- Lua host-provided sidecar transport: generated
+  `grpcdc/sidecar_transport.lua` frames over a socket injected
+  by the host application (pure Lua has no stdlib sockets).
+  `lua/tests/host_socket.lua` is the test host (TCP bridged
+  over FIFOs by a small helper), and `TestSidecar` runs Lua
+  client and server through two sidecars.
+
 ## v0.15.0 — 2026-10-20
 
 - Go WebRTC-Direct parity: `dcwebrtc` `direct.go`
