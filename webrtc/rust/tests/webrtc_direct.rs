@@ -122,9 +122,20 @@ struct FakeAlloc {
     permissions: std::collections::HashSet<SocketAddr>,
     peer_chan: HashMap<SocketAddr, u16>,
     channels: HashMap<u16, SocketAddr>,
+    expires_at: std::time::Instant,
 }
 
 fn fake_turn_server() -> String {
+    fake_turn_server_lifetime(600).0
+}
+
+fn fake_turn_server_lifetime(lifetime_secs: u32) -> (String, Arc<std::sync::atomic::AtomicU32>) {
+    let counter = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let addr = fake_turn_server_impl(lifetime_secs, counter.clone());
+    (addr, counter)
+}
+
+fn fake_turn_server_impl(lifetime_secs: u32, refresh_counter: Arc<std::sync::atomic::AtomicU32>) -> String {
     let server = Arc::new(UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap());
     let addr = server.local_addr().unwrap();
     let allocs: Arc<Mutex<HashMap<SocketAddr, FakeAlloc>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -135,7 +146,9 @@ fn fake_turn_server() -> String {
             let raw = buf[..n].to_vec();
             if raw.first().is_some_and(|b| (0x40..=0x7f).contains(b)) {
                 if let Some((chan, data)) = dc_webrtc::turn::unwrap_channel_data(&raw) {
-                    let peer = allocs.lock().unwrap().get(&src).and_then(|a| a.channels.get(&chan).copied());
+                    let peer = allocs.lock().unwrap().get(&src)
+                        .filter(|a| a.expires_at > std::time::Instant::now())
+                        .and_then(|a| a.channels.get(&chan).copied());
                     if let Some(peer) = peer {
                         // Forward via the relay socket so the listener replies to it.
                         if let Some(relay) = relay_socket(&allocs, &src) {
@@ -161,7 +174,7 @@ fn fake_turn_server() -> String {
                     }
                     let relay = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
                     let relayed = relay.local_addr().unwrap();
-                    allocs.lock().unwrap().insert(src, FakeAlloc { relayed, permissions: Default::default(), peer_chan: Default::default(), channels: Default::default() });
+                    allocs.lock().unwrap().insert(src, FakeAlloc { relayed, permissions: Default::default(), peer_chan: Default::default(), channels: Default::default(), expires_at: std::time::Instant::now() + Duration::from_secs(lifetime_secs as u64) });
                     register_relay(relayed, Arc::new(relay));
                     // Relay arrivals -> owner client.
                     let srv2 = srv.clone();
@@ -172,7 +185,7 @@ fn fake_turn_server() -> String {
                         while let Ok((m, from)) = relay.recv_from(&mut b) {
                             let frame = {
                                 let st = allocs2.lock().unwrap();
-                                let alloc = st.values().find(|a| a.relayed == relayed);
+                                let alloc = st.values().find(|a| a.relayed == relayed && a.expires_at > std::time::Instant::now());
                                 match alloc {
                                     Some(a) if a.permissions.contains(&from) => {
                                         Some(match a.peer_chan.get(&from) {
@@ -198,7 +211,7 @@ fn fake_turn_server() -> String {
                     resp.transaction_id = msg.transaction_id;
                     resp.attrs.push((stun_attr::XOR_RELAYED_ADDRESS, dc_webrtc::turn::xor_address_value(&relayed, &msg.transaction_id)));
                     resp.attrs.push((stun_attr::XOR_MAPPED_ADDRESS, dc_webrtc::stun::xor_mapped_address(&src, &msg.transaction_id)));
-                    resp.attrs.push((stun_attr::LIFETIME, 600u32.to_be_bytes().to_vec()));
+                    resp.attrs.push((stun_attr::LIFETIME, lifetime_secs.to_be_bytes().to_vec()));
                     let _ = srv.send_to(&resp.encode(Some(&turn_key())), src);
                 }
                 t if t == stun_msg::CREATE_PERMISSION_REQUEST => {
@@ -245,9 +258,13 @@ fn fake_turn_server() -> String {
                     }
                 }
                 t if t == stun_msg::REFRESH_REQUEST => {
+                    refresh_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if let Some(alloc) = allocs.lock().unwrap().get_mut(&src) {
+                        alloc.expires_at = std::time::Instant::now() + Duration::from_secs(lifetime_secs as u64);
+                    }
                     let mut resp = Message::new(stun_msg::REFRESH_SUCCESS);
                     resp.transaction_id = msg.transaction_id;
-                    resp.attrs.push((stun_attr::LIFETIME, 600u32.to_be_bytes().to_vec()));
+                    resp.attrs.push((stun_attr::LIFETIME, lifetime_secs.to_be_bytes().to_vec()));
                     let _ = srv.send_to(&resp.encode(Some(&turn_key())), src);
                 }
                 _ => {}
@@ -386,6 +403,151 @@ fn direct_over_real_turn_coturn() {
     result.expect("coturn interop");
 }
 
+
+/// Echo one message on the first channel of an accepted endpoint.
+fn echo_one(endpoint: dc_webrtc::endpoint::DcEndpoint) -> Vec<u8> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    let mut channel: Option<ChannelHandle> = None;
+    let mut got = Vec::new();
+    while std::time::Instant::now() < deadline {
+        match endpoint.recv_event_timeout(Duration::from_millis(200)) {
+            Some(EndpointEvent::ChannelOpened { channel: ch }) => channel = Some(ch),
+            Some(EndpointEvent::Message { data, .. }) => { got = data; break; }
+            _ => {}
+        }
+    }
+    let ch = channel.expect("channel opened");
+    ch.send_binary(b"direct-reply").expect("reply");
+    endpoint.shutdown();
+    got
+}
+
+/// Four dialers handshake concurrently against one listener
+/// (one accept thread each): every payload must reach its own
+/// endpoint, proving the listener demultiplexes by peer address
+/// instead of letting endpoints steal each other's packets.
+#[test]
+fn direct_concurrent_dialers() {
+    let listener = Arc::new(
+        DirectListener::bind(loopback(), Certificate::generate_self_signed("srv"))
+            .expect("bind listener"),
+    );
+    let multiaddr = listener.multiaddr();
+    let mut servers = Vec::new();
+    for _ in 0..4 {
+        let l = listener.clone();
+        servers.push(std::thread::spawn(move || {
+            let ep = l.accept().expect("concurrent accept");
+            echo_one(ep)
+        }));
+    }
+    let mut clients = Vec::new();
+    for i in 0..4 {
+        let ma = multiaddr.clone();
+        clients.push(std::thread::spawn(move || {
+            let client = direct_dial_multiaddr(&ma, Certificate::generate_self_signed("cli"))
+                .expect("concurrent dial");
+            let channel = client
+                .open_channel(ChannelParams { label: "echo".into(), ..Default::default() })
+                .expect("open channel");
+            let payload = format!("hello-{i}");
+            channel.send_binary(payload.as_bytes()).expect("send");
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            let mut reply = None;
+            while std::time::Instant::now() < deadline {
+                if let Some(EndpointEvent::Message { data, .. }) =
+                    client.recv_event_timeout(Duration::from_millis(200))
+                {
+                    reply = Some(data);
+                    break;
+                }
+            }
+            assert_eq!(reply.as_deref(), Some(&b"direct-reply"[..]));
+            client.shutdown();
+            payload.into_bytes()
+        }));
+    }
+    let mut want: Vec<Vec<u8>> = clients.into_iter().map(|c| c.join().expect("client")).collect();
+    let mut got: Vec<Vec<u8>> = servers.into_iter().map(|s| s.join().expect("server")).collect();
+    want.sort();
+    got.sort();
+    assert_eq!(got, want);
+}
+
+/// Direct over TURN with a 3 s allocation lifetime enforced by
+/// the fake: traffic must still flow after 5 s, which is only
+/// possible if the dialer's background refresher re-issues
+/// Refresh (and permissions/channel binds) before expiry.
+#[test]
+fn direct_over_turn_refresh_past_lifetime() {
+    let (turn, refreshes) = fake_turn_server_lifetime(3);
+    let listener = DirectListener::bind(loopback(), Certificate::generate_self_signed("srv"))
+        .expect("bind listener");
+    let multiaddr = listener.multiaddr();
+    // Server echoes two messages so traffic can be proven both
+    // before and after the allocation's original lifetime.
+    let server = std::thread::spawn(move || {
+        let endpoint = listener.accept().expect("direct accept");
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        let mut channel: Option<ChannelHandle> = None;
+        let mut got = Vec::new();
+        while std::time::Instant::now() < deadline && got.len() < 2 {
+            match endpoint.recv_event_timeout(Duration::from_millis(200)) {
+                Some(EndpointEvent::ChannelOpened { channel: ch }) => channel = Some(ch),
+                Some(EndpointEvent::Message { data, .. }) => {
+                    got.push(data);
+                    channel.as_ref().expect("channel").send_binary(b"direct-reply").expect("reply");
+                }
+                _ => {}
+            }
+        }
+        endpoint.shutdown();
+        got
+    });
+    let cfg = TurnServerConfig::new(&turn, TURN_USER, TURN_PASS);
+    let client = direct_dial_turn_multiaddr(&multiaddr, Certificate::generate_self_signed("cli"), &cfg)
+        .expect("direct dial over TURN");
+    let channel = client
+        .open_channel(ChannelParams { label: "echo".into(), ..Default::default() })
+        .expect("open channel");
+    channel.send_binary(b"via-turn-direct").expect("send");
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let mut reply = None;
+    while std::time::Instant::now() < deadline {
+        if let Some(EndpointEvent::Message { data, .. }) =
+            client.recv_event_timeout(Duration::from_millis(200))
+        {
+            reply = Some(data);
+            break;
+        }
+    }
+    assert_eq!(reply.as_deref(), Some(&b"direct-reply"[..]));
+
+    // Past the 3 s lifetime: the fake drops relayed traffic for
+    // expired allocations, so a second echo only works if the
+    // dialer's background refresher extended the allocation.
+    std::thread::sleep(Duration::from_secs(5));
+    channel.send_binary(b"after-expiry").expect("send after expiry");
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let mut reply2 = None;
+    while std::time::Instant::now() < deadline {
+        if let Some(EndpointEvent::Message { data, .. }) =
+            client.recv_event_timeout(Duration::from_millis(200))
+        {
+            reply2 = Some(data);
+            break;
+        }
+    }
+    assert_eq!(reply2.as_deref(), Some(&b"direct-reply"[..]));
+    assert!(
+        refreshes.load(std::sync::atomic::Ordering::SeqCst) >= 1,
+        "no TURN Refresh issued past the 3s lifetime"
+    );
+    let got = server.join().expect("server thread");
+    assert_eq!(got, vec![b"via-turn-direct".to_vec(), b"after-expiry".to_vec()]);
+    client.shutdown();
+}
+
 #[test]
 fn direct_dial_rejects_wrong_certhash() {
     let listener = DirectListener::bind(loopback(), Certificate::generate_self_signed("srv"))
@@ -401,4 +563,186 @@ fn direct_dial_rejects_wrong_certhash() {
     let wrong = certhash_of_cert(&other);
     let result = direct_dial(addr, &wrong, Certificate::generate_self_signed("cli"));
     assert!(result.is_err(), "dial with wrong certhash must fail");
+}
+
+// ---------------------------------------------------------------------------
+// Real-coturn legs: TURNS (TLS client<->server transport) and
+// IPv6. Both spawn a private turnserver like
+// direct_over_real_turn_coturn and skip when it (or openssl, or
+// an IPv6 loopback) is unavailable; Dockerfile.ci provides all.
+// ---------------------------------------------------------------------------
+
+fn spawn_coturn(extra: &[String]) -> Option<(std::process::Child, u16)> {
+    let probe = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
+    let port = probe.local_addr().ok()?.port();
+    drop(probe);
+    let mut args: Vec<String> = vec![
+        "-n".into(),
+        format!("--listening-port={port}"),
+        "--realm=dc.test".into(),
+        "--user=dcuser:dcpass".into(),
+        "--lt-cred-mech".into(),
+        "--allow-loopback-peers".into(),
+        "--no-cli".into(),
+    ];
+    args.extend(extra.iter().cloned());
+    let child = std::process::Command::new("turnserver")
+        .args(&args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    std::thread::sleep(Duration::from_millis(800));
+    Some((child, port))
+}
+
+
+fn spawn_coturn_turns(cert: &std::path::Path, key: &std::path::Path) -> Option<(std::process::Child, u16)> {
+    let probe = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
+    let tls_port = probe.local_addr().ok()?.port();
+    drop(probe);
+    let child = std::process::Command::new("turnserver")
+        .args([
+            "-n".to_string(),
+            "--listening-ip=127.0.0.1".to_string(),
+            "--relay-ip=127.0.0.1".to_string(),
+            format!("--tls-listening-port={tls_port}"),
+            format!("--cert={}", cert.display()),
+            format!("--pkey={}", key.display()),
+            "--realm=dc.test".to_string(),
+            "--user=dcuser:dcpass".to_string(),
+            "--lt-cred-mech".to_string(),
+            "--allow-loopback-peers".to_string(),
+            "--no-cli".to_string(),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    std::thread::sleep(Duration::from_millis(800));
+    Some((child, tls_port))
+}
+
+fn echo_round_trip(client: &dc_webrtc::endpoint::DcEndpoint, payload: &[u8]) {
+    let channel = client
+        .open_channel(ChannelParams { label: "echo".into(), ..Default::default() })
+        .expect("open channel");
+    channel.send_binary(payload).expect("send");
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let mut reply = None;
+    while std::time::Instant::now() < deadline {
+        if let Some(EndpointEvent::Message { data, .. }) =
+            client.recv_event_timeout(Duration::from_millis(200))
+        {
+            reply = Some(data);
+            break;
+        }
+    }
+    assert_eq!(reply.as_deref(), Some(&b"direct-reply"[..]));
+}
+
+#[test]
+fn direct_over_turns_coturn() {
+    // Self-signed cert for coturn's TLS listener.
+    let dir = std::env::temp_dir().join(format!("dc-turns-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let cert = dir.join("cert.pem");
+    let key = dir.join("key.pem");
+    let made = std::process::Command::new("openssl")
+        .args([
+            "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+            "-keyout", key.to_str().unwrap(), "-out", cert.to_str().unwrap(),
+            "-days", "1", "-subj", "/CN=localhost",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !made {
+        eprintln!("openssl unavailable; skipping TURNS coturn leg");
+        return;
+    }
+    let Some((mut turn, port)) = spawn_coturn_turns(&cert, &key) else {
+        eprintln!("turnserver not on PATH; skipping TURNS coturn leg");
+        return;
+    };
+    let result = std::panic::catch_unwind(|| {
+        let listener = DirectListener::bind(loopback(), Certificate::generate_self_signed("srv"))
+            .expect("bind listener");
+        let multiaddr = listener.multiaddr();
+        let server = echo_server(listener);
+        let mut cfg = TurnServerConfig::new(&format!("127.0.0.1:{port}"), TURN_USER, TURN_PASS);
+        cfg.transport = dc_webrtc::turn::TurnTransport::Tls;
+        cfg.insecure_skip_verify = true; // self-signed test cert
+        let mut client = None;
+        for _ in 0..10 {
+            match direct_dial_turn_multiaddr(&multiaddr, Certificate::generate_self_signed("cli"), &cfg) {
+                Ok(ep) => { client = Some(ep); break; }
+                Err(e) => { eprintln!("TURNS dial retry: {e}"); std::thread::sleep(Duration::from_millis(500)) },
+            }
+        }
+        let client = client.expect("direct dial over TURNS");
+        echo_round_trip(&client, b"via-turns");
+        assert_eq!(server.join().expect("server thread"), b"via-turns");
+        client.shutdown();
+    });
+    let _ = turn.kill();
+    result.expect("TURNS coturn interop");
+}
+
+#[test]
+fn direct_over_turn_ipv6_coturn() {
+    if UdpSocket::bind((std::net::Ipv6Addr::LOCALHOST, 0)).is_err() {
+        eprintln!("no IPv6 loopback; skipping IPv6 coturn leg");
+        return;
+    }
+    let Some((mut turn, port)) = spawn_coturn(&[
+        "--listening-ip=::1".into(),
+        "--relay-ip=::1".into(),
+    ]) else {
+        eprintln!("turnserver not on PATH; skipping IPv6 coturn leg");
+        return;
+    };
+    let result = std::panic::catch_unwind(|| {
+        let v6_loopback = SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::LOCALHOST), 0);
+        let listener = DirectListener::bind(v6_loopback, Certificate::generate_self_signed("srv"))
+            .expect("bind v6 listener");
+        let multiaddr = listener.multiaddr();
+        assert!(multiaddr.starts_with("/ip6/::1/udp/"), "{multiaddr}");
+        let server = echo_server(listener);
+        let mut cfg = TurnServerConfig::new(&format!("[::1]:{port}"), TURN_USER, TURN_PASS);
+        cfg.request_ipv6_relay = true;
+        let mut client = None;
+        for _ in 0..10 {
+            match direct_dial_turn_multiaddr(&multiaddr, Certificate::generate_self_signed("cli"), &cfg) {
+                Ok(ep) => { client = Some(ep); break; }
+                Err(e) => { eprintln!("IPv6 TURN dial retry: {e}"); std::thread::sleep(Duration::from_millis(500)) },
+            }
+        }
+        let client = client.expect("direct dial over IPv6 TURN");
+        echo_round_trip(&client, b"via-ipv6-turn");
+        assert_eq!(server.join().expect("server thread"), b"via-ipv6-turn");
+        client.shutdown();
+    });
+    let _ = turn.kill();
+    result.expect("IPv6 coturn interop");
+}
+
+#[test]
+fn direct_ipv6_echo() {
+    let v6_loopback = SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::LOCALHOST), 0);
+    let Ok(listener) = DirectListener::bind(v6_loopback, Certificate::generate_self_signed("srv"))
+    else {
+        eprintln!("no IPv6 loopback; skipping direct IPv6 echo");
+        return;
+    };
+    let multiaddr = listener.multiaddr();
+    assert!(multiaddr.starts_with("/ip6/::1/udp/"), "{multiaddr}");
+    let server = echo_server(listener);
+    let client = direct_dial_multiaddr(&multiaddr, Certificate::generate_self_signed("cli"))
+        .expect("direct v6 dial");
+    echo_round_trip(&client, b"direct-v6");
+    assert_eq!(server.join().expect("server thread"), b"direct-v6");
+    client.shutdown();
 }

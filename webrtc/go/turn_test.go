@@ -173,21 +173,25 @@ func (f *fakeTurnServer) onAllocate(msg *StunMessage, raw []byte, src *net.UDPAd
 		_, _ = f.conn.WriteToUDP(resp.Encode(nil), src)
 		return
 	}
-	f.mu.Lock()
-	f.nextPort++
-	relayed := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: f.nextPort}
 	alloc := &fakeTurnAlloc{
 		client:      src,
-		relayed:     relayed,
 		permissions: map[string]time.Time{},
 		expiresAt:   time.Now().Add(time.Duration(f.lifetimeSeconds) * time.Second),
 		channels:    map[uint16]string{},
 		peerChan:    map[string]uint16{},
 	}
+	f.mu.Lock()
 	f.byClient[src.String()] = alloc
+	f.mu.Unlock()
+	// Ephemeral relay port: fixed ports collide when several
+	// fake servers live in one test process.
+	relayed := f.listenRelay(alloc)
+	if relayed == nil {
+		return
+	}
+	f.mu.Lock()
 	f.byRelay[relayed.String()] = alloc
 	f.mu.Unlock()
-	f.listenRelay(alloc)
 
 	resp := &StunMessage{Type: StunTypeAllocateSuccess, TransactionID: msg.TransactionID}
 	resp.addAttr(StunAttrXorRelayedAddress, xorAddressValue(relayed, resp.TransactionID))
@@ -300,11 +304,12 @@ func (f *fakeTurnServer) onChannelData(raw []byte, src *net.UDPAddr) {
 	f.deliver(dest, sender.relayed, data)
 }
 
-func (f *fakeTurnServer) listenRelay(alloc *fakeTurnAlloc) {
-	conn, err := net.ListenUDP("udp4", alloc.relayed)
+func (f *fakeTurnServer) listenRelay(alloc *fakeTurnAlloc) *net.UDPAddr {
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	if err != nil {
-		return
+		return nil
 	}
+	alloc.relayed = conn.LocalAddr().(*net.UDPAddr)
 	alloc.relayConn = conn
 	go func() {
 		defer conn.Close()
@@ -322,6 +327,7 @@ func (f *fakeTurnServer) listenRelay(alloc *fakeTurnAlloc) {
 			f.mu.Unlock()
 		}
 	}()
+	return alloc.relayed
 }
 
 func (f *fakeTurnServer) onCreatePermission(msg *StunMessage, raw []byte, src *net.UDPAddr) {

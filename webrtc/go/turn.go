@@ -43,6 +43,11 @@ type TurnServerConfig struct {
 	Transport          string
 	ServerName         string
 	InsecureSkipVerify bool
+	// RequestIPv6Relay asks the server for an IPv6 relayed
+	// address (REQUESTED-ADDRESS-FAMILY, RFC 8656). Some
+	// servers (coturn with only an IPv6 relay address) reject
+	// allocations that do not request it with error 440.
+	RequestIPv6Relay bool
 }
 
 // turnClient is one live TURN allocation.
@@ -338,6 +343,10 @@ func (p *Peer) AllocateTurn(cfg TurnServerConfig, timeout time.Duration) (err er
 	build := func(auth bool) *StunMessage {
 		msg := newStunMessage(StunTypeAllocateRequest)
 		msg.addAttr(StunAttrRequestedTransport, []byte{17, 0, 0, 0})
+		if cfg.RequestIPv6Relay {
+			// REQUESTED-ADDRESS-FAMILY: family 2 (IPv6).
+			msg.addAttr(StunAttrRequestedAddressFamily, []byte{2, 0, 0, 0})
+		}
 		if auth {
 			msg.addAttr(StunAttrUsername, []byte(cfg.Username))
 			msg.addAttr(StunAttrRealm, []byte(client.realm))

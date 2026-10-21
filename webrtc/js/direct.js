@@ -97,39 +97,44 @@ export function directMultiaddr(address, port, certhash) {
 // packet IO helpers
 // ---------------------------------------------------------------------------
 
-// DTLS packet IO that learns its peer from the first packet.
-function serverIo(socket) {
-  let peer = null;
-  const queue = [];
-  const waiters = [];
-  socket.on("message", (msg, rinfo) => {
-    peer = { address: rinfo.address, port: rinfo.port };
-    const waiter = waiters.shift();
+// DTLS packet IO for one claimed peer of a DirectListener.
+class DirectPeerIo {
+  constructor(socket, peer) {
+    this.socket = socket;
+    this.peer = peer;
+    this.queue = [];
+    this.waiters = [];
+  }
+
+  deliver(msg) {
+    const waiter = this.waiters.shift();
     if (waiter) waiter(msg);
-    else queue.push(msg);
-  });
-  return {
-    send(buf) {
-      return new Promise((resolve, reject) => {
-        socket.send(buf, peer.port, peer.address, (e) => (e ? reject(e) : resolve()));
-      });
-    },
-    recv(timeoutMs) {
-      if (queue.length) return Promise.resolve(queue.shift());
-      return new Promise((resolve) => {
-        const waiter = (msg) => {
-          clearTimeout(timer);
-          resolve(msg);
-        };
-        const timer = setTimeout(() => {
-          const i = waiters.indexOf(waiter);
-          if (i >= 0) waiters.splice(i, 1);
-          resolve(null);
-        }, timeoutMs);
-        waiters.push(waiter);
-      });
-    },
-  };
+    else this.queue.push(msg);
+  }
+
+  send(buf) {
+    return new Promise((resolve, reject) => {
+      this.socket.send(buf, this.peer.port, this.peer.address, (e) =>
+        e ? reject(e) : resolve(),
+      );
+    });
+  }
+
+  recv(timeoutMs) {
+    if (this.queue.length) return Promise.resolve(this.queue.shift());
+    return new Promise((resolve) => {
+      const waiter = (msg) => {
+        clearTimeout(timer);
+        resolve(msg);
+      };
+      const timer = setTimeout(() => {
+        const i = this.waiters.indexOf(waiter);
+        if (i >= 0) this.waiters.splice(i, 1);
+        resolve(null);
+      }, timeoutMs);
+      this.waiters.push(waiter);
+    });
+  }
 }
 
 function clientConfig(certificate, digest) {
@@ -163,6 +168,47 @@ export class DirectListener {
   constructor(socket, certificate) {
     this.socket = socket;
     this.certificate = certificate;
+    // One socket, many peers: a single message handler routes
+    // datagrams by sender to the endpoint that claimed that
+    // peer; unclaimed peers queue until an accept claims them.
+    // Without this, concurrent dialers would steal each
+    // other's handshake packets.
+    this.routes = new Map();
+    this.pending = new Map();
+    this.pendingOrder = [];
+    this.claimWaiters = [];
+    socket.on("message", (msg, rinfo) => this._onPacket(msg, rinfo));
+  }
+
+  _onPacket(msg, rinfo) {
+    const key = `${rinfo.address}:${rinfo.port}`;
+    const route = this.routes.get(key);
+    if (route) {
+      route.deliver(msg);
+      return;
+    }
+    let entry = this.pending.get(key);
+    if (!entry) {
+      entry = { peer: { address: rinfo.address, port: rinfo.port }, queue: [] };
+      this.pending.set(key, entry);
+      this.pendingOrder.push(key);
+      const waiters = this.claimWaiters.splice(0);
+      for (const wake of waiters) wake();
+    }
+    entry.queue.push(msg);
+  }
+
+  async _claim() {
+    while (this.pendingOrder.length === 0) {
+      await new Promise((resolve) => this.claimWaiters.push(resolve));
+    }
+    const key = this.pendingOrder.shift();
+    const entry = this.pending.get(key);
+    this.pending.delete(key);
+    const io = new DirectPeerIo(this.socket, entry.peer);
+    for (const msg of entry.queue) io.deliver(msg);
+    this.routes.set(key, io);
+    return { key, io };
   }
 
   static async bind({ address = "127.0.0.1", port = 0, certificate = Certificate.generate() } = {}) {
@@ -187,8 +233,14 @@ export class DirectListener {
   // Accept one direct connection (DTLS accept) and return its
   // datachannel endpoint. Call again for the next dialer.
   async accept() {
-    const dtls = await DtlsConnection.accept(serverIo(this.socket), serverConfig(this.certificate));
-    return new DcEndpoint(dtls, "server");
+    const { key, io } = await this._claim();
+    try {
+      const dtls = await DtlsConnection.accept(io, serverConfig(this.certificate));
+      return new DcEndpoint(dtls, "server");
+    } catch (err) {
+      this.routes.delete(key);
+      throw err;
+    }
   }
 
   close() {
@@ -250,7 +302,19 @@ class TurnDirectPeer {
     socket.on("message", (msg, rinfo) => this._onPacket(msg, rinfo));
   }
 
-  turnWrite(client, frame) {
+  turnWrite(client, frame, channelData) {
+    // Stream transports (TCP/TLS): write to the dedicated
+    // connection, padding ChannelData to a 4-byte boundary
+    // (RFC 5766 section 4), exactly like Peer.turnWrite.
+    if (client.stream) {
+      let out = frame;
+      if (channelData) {
+        const pad = (4 - (frame.length % 4)) % 4;
+        if (pad > 0) out = Buffer.concat([frame, Buffer.alloc(pad)]);
+      }
+      client.stream.write(out);
+      return;
+    }
     this.socket.send(frame, client.server.port, client.server.address, () => {});
   }
 
@@ -299,7 +363,7 @@ class TurnDirectPeer {
           channel !== undefined
             ? wrapChannelData(channel, buf)
             : wrapSendIndication(peer.turn, buf, remote);
-        peer.turnWrite(peer.turn, frame);
+        peer.turnWrite(peer.turn, frame, channel !== undefined);
         return Promise.resolve();
       },
       recv(timeoutMs) {

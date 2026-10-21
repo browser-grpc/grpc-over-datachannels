@@ -112,36 +112,27 @@ func DirectMultiaddr(addr *net.UDPAddr, certhash string) string {
 // listener + dialer
 // ---------------------------------------------------------------------------
 
-// directServerIO learns its peer from the first packet (the
-// listener accepts whoever handshakes first, like libp2p).
+// directServerIO is the DTLS packet IO for one claimed peer
+// of a DirectListener: sends go straight to the peer, receives
+// come from the listener demux route for that peer.
 type directServerIO struct {
-	conn *net.UDPConn
-	mu   sync.Mutex
-	peer *net.UDPAddr
+	conn  *net.UDPConn
+	peer  *net.UDPAddr
+	inbox chan []byte
 }
 
 func (d *directServerIO) Send(buf []byte) error {
-	d.mu.Lock()
-	peer := d.peer
-	d.mu.Unlock()
-	if peer == nil {
-		return errors.New("direct: peer not learned yet")
-	}
-	_, err := d.conn.WriteToUDP(buf, peer)
+	_, err := d.conn.WriteToUDP(buf, d.peer)
 	return err
 }
 
 func (d *directServerIO) Recv(timeoutMs int) []byte {
-	_ = d.conn.SetReadDeadline(time.Now().Add(time.Duration(timeoutMs) * time.Millisecond))
-	buf := make([]byte, 65536)
-	n, addr, err := d.conn.ReadFromUDP(buf)
-	if err != nil {
+	select {
+	case msg := <-d.inbox:
+		return msg
+	case <-time.After(time.Duration(timeoutMs) * time.Millisecond):
 		return nil
 	}
-	d.mu.Lock()
-	d.peer = addr
-	d.mu.Unlock()
-	return buf[:n]
 }
 
 // DirectListener is a WebRTC-Direct listener: one UDP socket,
@@ -149,6 +140,19 @@ func (d *directServerIO) Recv(timeoutMs int) []byte {
 type DirectListener struct {
 	conn *net.UDPConn
 	cert *Certificate
+
+	// One socket, many peers: a single read goroutine routes
+	// datagrams by sender to the endpoint that claimed that
+	// peer; unclaimed peers queue until an Accept claims them.
+	// Without this, concurrent dialers would steal each
+	// other's handshake packets.
+	mu           sync.Mutex
+	claimMu      sync.Mutex
+	routes       map[string]chan []byte
+	pending      map[string][][]byte
+	pendingPeers map[string]*net.UDPAddr
+	pendingOrder []string
+	pendingReady chan struct{}
 }
 
 // NewDirectListener binds a Direct listener at addr ("host:port";
@@ -169,7 +173,79 @@ func NewDirectListener(addr string, cert *Certificate) (*DirectListener, error) 
 			return nil, err
 		}
 	}
-	return &DirectListener{conn: conn, cert: cert}, nil
+	l := &DirectListener{
+		conn:         conn,
+		cert:         cert,
+		routes:       make(map[string]chan []byte),
+		pending:      make(map[string][][]byte),
+		pendingPeers: make(map[string]*net.UDPAddr),
+		pendingReady: make(chan struct{}, 1),
+	}
+	go l.readLoop()
+	return l, nil
+}
+
+// readLoop routes every inbound datagram by sender address.
+func (l *DirectListener) readLoop() {
+	buf := make([]byte, 65536)
+	for {
+		n, addr, err := l.conn.ReadFromUDP(buf)
+		if err != nil {
+			return
+		}
+		if n == 0 {
+			continue
+		}
+		msg := append([]byte(nil), buf[:n]...)
+		key := addr.String()
+		l.mu.Lock()
+		if route, ok := l.routes[key]; ok {
+			select {
+			case route <- msg:
+				l.mu.Unlock()
+				continue
+			default:
+			}
+		}
+		if _, ok := l.pending[key]; !ok {
+			l.pendingPeers[key] = addr
+			l.pendingOrder = append(l.pendingOrder, key)
+			select {
+			case l.pendingReady <- struct{}{}:
+			default:
+			}
+		}
+		l.pending[key] = append(l.pending[key], msg)
+		l.mu.Unlock()
+	}
+}
+
+// claim registers the next unclaimed peer and returns its IO,
+// seeded with datagrams that arrived before the claim.
+// Serialized so two concurrent Accepts never claim one peer.
+func (l *DirectListener) claim() *directServerIO {
+	l.claimMu.Lock()
+	defer l.claimMu.Unlock()
+	for {
+		l.mu.Lock()
+		if len(l.pendingOrder) > 0 {
+			key := l.pendingOrder[0]
+			l.pendingOrder = l.pendingOrder[1:]
+			queued := l.pending[key]
+			peer := l.pendingPeers[key]
+			delete(l.pending, key)
+			delete(l.pendingPeers, key)
+			inbox := make(chan []byte, 256)
+			for _, msg := range queued {
+				inbox <- msg
+			}
+			l.routes[key] = inbox
+			l.mu.Unlock()
+			return &directServerIO{conn: l.conn, peer: peer, inbox: inbox}
+		}
+		l.mu.Unlock()
+		<-l.pendingReady
+	}
 }
 
 // Addr returns the bound local address.
@@ -187,7 +263,7 @@ func (l *DirectListener) Multiaddr() string { return DirectMultiaddr(l.Addr(), l
 // Accept accepts one direct connection (blocking DTLS accept)
 // and returns its datachannel endpoint.
 func (l *DirectListener) Accept() (*DcEndpoint, error) {
-	io := &directServerIO{conn: l.conn}
+	io := l.claim()
 	dtls, err := DtlsAccept(io, DtlsConfig{Certificate: l.cert})
 	if err != nil {
 		return nil, err
@@ -284,7 +360,12 @@ func DirectDialTurn(remote *net.UDPAddr, certhash string, cert *Certificate, tur
 	if err != nil {
 		return nil, err
 	}
-	peer, err := NewPeer(PeerOptions{LocalIPs: []string{"127.0.0.1"}})
+	localIP := "127.0.0.1"
+	if remote.IP.To4() == nil || isIPv6Text(turnCfg.Address) {
+		// Dual-stack socket so the v6 TURN server is reachable.
+		localIP = "::1"
+	}
+	peer, err := NewPeer(PeerOptions{LocalIPs: []string{localIP}})
 	if err != nil {
 		return nil, err
 	}
@@ -297,8 +378,11 @@ func DirectDialTurn(remote *net.UDPAddr, certhash string, cert *Certificate, tur
 		peer.Close()
 		return nil, errors.New("turn: no relayed address")
 	}
-	peer.turnCreatePermissionsFor([]*net.UDPAddr{remote}, timeout)
-	peer.turnBindChannels([]*net.UDPAddr{remote}, timeout)
+	// turnAddPeer (not the bare For/Bind helpers): it remembers
+	// remote in turn.peers, so the Peer's background refresher
+	// keeps the permission and channel binding alive past the
+	// allocation's first lifetime.
+	peer.turnAddPeer(remote, timeout)
 	peer.relayActive = true
 	dtls, err := DtlsConnect(&peerPacketIO{peer: peer, remote: remote}, directClientConfig(cert, digest))
 	if err != nil {

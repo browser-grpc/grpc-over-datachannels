@@ -249,6 +249,12 @@ export async function allocateTurn(peer, cfg, timeoutMs = 2000) {
   const build = (auth) => {
     const msg = new StunMessage(StunMessageType.ALLOCATE_REQUEST);
     msg.attrs.push([StunAttribute.REQUESTED_TRANSPORT, Buffer.from([17, 0, 0, 0])]);
+    if (cfg.requestIpv6Relay) {
+      // REQUESTED-ADDRESS-FAMILY: family 2 (IPv6). Some servers
+      // (coturn with only an IPv6 relay address) reject
+      // allocations that do not request it with error 440.
+      msg.attrs.push([StunAttribute.REQUESTED_ADDRESS_FAMILY, Buffer.from([2, 0, 0, 0])]);
+    }
     if (auth) {
       msg.attrs.push([StunAttribute.USERNAME, Buffer.from(cfg.username)]);
       msg.attrs.push([StunAttribute.REALM, Buffer.from(client.realm)]);

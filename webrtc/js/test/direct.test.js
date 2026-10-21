@@ -97,6 +97,62 @@ test("direct over TURN echo (symmetric-NAT shape)", { timeout: 30000 }, async ()
   }
 });
 
+
+test("direct concurrent dialers", { timeout: 60000 }, async () => {
+  const listener = await DirectListener.bind({});
+  try {
+    const servers = await Promise.all(
+      Array.from({ length: 4 }, () => echoServer(listener)),
+    );
+    const clients = await Promise.all(
+      Array.from({ length: 4 }, async (_, i) => {
+        const client = await directDialMultiaddr(listener.multiaddr());
+        const channel = client.openChannel({ label: "echo" });
+        const replies = [];
+        channel.onmessage = (e) => replies.push(Buffer.from(e.data).toString());
+        channel.send(Buffer.from(`hello-${i}`));
+        assert.equal(await waitFor(() => replies[0], 20000), "direct-reply");
+        return client;
+      }),
+    );
+    const got = servers.map((s) => s.got).sort();
+    assert.deepEqual(got, ["hello-0", "hello-1", "hello-2", "hello-3"]);
+    for (const client of clients) await client.closeDirect();
+    for (const server of servers) await (await server.done).close();
+  } finally {
+    listener.close();
+  }
+});
+
+test("direct over TURN refresh past lifetime", { timeout: 60000 }, async () => {
+  const turn = await fakeTurnServer({ lifetimeSeconds: 3, permissionSeconds: 3 });
+  try {
+    const listener = await DirectListener.bind({});
+    const server = await echoServer(listener);
+    const client = await directDialTurnMultiaddr(listener.multiaddr(), {
+      turn: { address: turn.server, username: USER, password: PASS },
+    });
+    const channel = client.openChannel({ label: "echo" });
+    const replies = [];
+    channel.onmessage = (e) => replies.push(Buffer.from(e.data).toString());
+    channel.send(Buffer.from("via-turn-direct"));
+    assert.equal(await waitFor(() => replies[0]), "direct-reply");
+    // Past the 3 s allocation lifetime: the fake drops relayed
+    // traffic for expired allocations, so this second echo only
+    // works if the dialer refreshed in the background.
+    await new Promise((r) => setTimeout(r, 5000));
+    channel.send(Buffer.from("after-expiry"));
+    assert.equal(await waitFor(() => replies[1]), "direct-reply");
+    assert.equal(server.got, "after-expiry");
+    assert.ok(turn.stats.refreshCount >= 1, `refreshes=${turn.stats.refreshCount}`);
+    await client.closeDirect();
+    await (await server.done).close();
+    listener.close();
+  } finally {
+    turn.close();
+  }
+});
+
 test("direct dial rejects wrong certhash", { timeout: 30000 }, async () => {
   const listener = await DirectListener.bind({});
   const accepting = listener.accept().catch(() => null);
