@@ -1232,6 +1232,39 @@ export async function directClientEndpoint(multiaddr, options = {}) {
 }
 
 /**
+ * Dial a Direct listener by multiaddr and return the raw stack
+ * endpoint (no channel opened yet), plus the TURN variant. Use
+ * these to open extra application channels next to the "grpc"
+ * one -- including lossy or unordered ones, via
+ * `endpoint.openChannel({ label, ordered: false,
+ * reliability: { kind: "retransmits", count: n } })` (or
+ * `{ kind: "lifetime", ms }`). The "grpc" channel itself must
+ * stay reliable and ordered: grpc-dc framing assumes in-order
+ * reliable delivery, so keep directClientEndpoint's defaults
+ * for gRPC traffic and use lossy channels only for application
+ * data that tolerates drops and reordering. Incoming
+ * application channels surface as `endpoint.onchannel`.
+ */
+export async function directClientStackEndpoint(multiaddr, options = {}) {
+  return directDialMultiaddr(multiaddr, options);
+}
+
+export async function directClientTurnStackEndpoint(multiaddr, turn, options = {}) {
+  return directDialTurnMultiaddr(multiaddr, { ...options, turn });
+}
+
+/**
+ * Open an extra application channel on a stack endpoint from
+ * directClientStackEndpoint / acceptDirectEndpoint's
+ * directEndpoint. `params` is the stack ChannelParams shape:
+ * { label, ordered?, reliability? } -- see
+ * directClientStackEndpoint for lossy/unordered options.
+ */
+export function openDirectChannel(stackEndpoint, params = {}) {
+  return stackEndpoint.openChannel(params);
+}
+
+/**
  * Dial by multiaddr through a TURN allocation (symmetric-NAT
  * path). `turn` is {address, username, password, transport?,
  * insecureSkipVerify?, requestIpv6Relay?}.

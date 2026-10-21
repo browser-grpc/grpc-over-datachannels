@@ -11,8 +11,9 @@
 use crate::status::Status;
 use crate::transport::DcTransport;
 use crate::webrtc_transport::WebRtcDc;
-use dc_webrtc::dcep::ChannelParams;
-use dc_webrtc::endpoint::{DcEndpoint, EndpointEvent};
+pub use dc_webrtc::dcep::ChannelParams;
+pub use dc_webrtc::endpoint::EndpointEvent;
+use dc_webrtc::endpoint::DcEndpoint;
 use dc_webrtc::x509::Certificate;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -21,6 +22,7 @@ use std::time::Duration;
 pub use dc_webrtc::direct::{
     certhash_of_cert, direct_multiaddr, parse_certhash, parse_direct_multiaddr, DirectListener,
 };
+pub use dc_webrtc::dcep::Reliability;
 pub use dc_webrtc::turn::TurnServerConfig;
 
 fn bad(e: std::io::Error) -> Status {
@@ -69,6 +71,44 @@ pub async fn direct_client(multiaddr: &str) -> Result<Arc<dyn DcTransport>, Stat
     .map_err(|e| Status::internal(format!("webrtc-direct join: {e}")))?
     .map_err(bad)?;
     open_grpc_channel(Arc::new(endpoint)).await
+}
+
+/// Dial a direct listener by multiaddr and return the raw
+/// endpoint (no channel opened yet). Use this to open extra
+/// application channels next to the "grpc" one -- including
+/// lossy or unordered ones, via `DcEndpoint::open_channel` with
+/// `ChannelParams { ordered: false,
+/// reliability: Reliability::MaxRetransmits(n)` or
+/// `MaxLifetimeMs(ms), .. }`. The "grpc" channel itself must
+/// stay reliable and ordered: grpc-dc framing assumes in-order
+/// reliable delivery, so keep `direct_client`'s defaults for
+/// gRPC traffic and use lossy channels only for application
+/// data that tolerates drops and reordering.
+pub async fn direct_client_endpoint(multiaddr: &str) -> Result<Arc<DcEndpoint>, Status> {
+    let ma = multiaddr.to_string();
+    let endpoint = tokio::task::spawn_blocking(move || {
+        dc_webrtc::direct::direct_dial_multiaddr(&ma, Certificate::generate_self_signed("grpc-dc"))
+    })
+    .await
+    .map_err(|e| Status::internal(format!("webrtc-direct join: {e}")))?
+    .map_err(bad)?;
+    Ok(Arc::new(endpoint))
+}
+
+/// Accept one direct connection and return the raw endpoint
+/// (its "grpc" channel not yet consumed). Incoming application
+/// channels -- including lossy/unordered ones opened by the
+/// dialer -- surface as `EndpointEvent::ChannelOpened` on this
+/// endpoint; see `direct_client_endpoint` for the reliability
+/// contract.
+pub async fn accept_direct_endpoint(
+    listener: Arc<DirectListener>,
+) -> Result<Arc<DcEndpoint>, Status> {
+    let endpoint = tokio::task::spawn_blocking(move || listener.accept())
+        .await
+        .map_err(|e| Status::internal(format!("webrtc-direct join: {e}")))?
+        .map_err(bad)?;
+    Ok(Arc::new(endpoint))
 }
 
 /// Dial a direct listener by multiaddr through a TURN

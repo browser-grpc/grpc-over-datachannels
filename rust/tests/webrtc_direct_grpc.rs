@@ -102,3 +102,52 @@ async fn grpc_over_webrtc_direct_multiaddr() {
 
     server.abort();
 }
+
+/// A lossy, unordered application channel opened next to the
+/// grpc channel through the generated adapter's endpoint
+/// surface: messages arrive (no loss on loopback, but the
+/// channel is negotiated maxRetransmits=0 + unordered via
+/// ChannelParams).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lossy_unordered_app_channel_next_to_grpc() {
+    use futures_util::StreamExt as _;
+    use grpc_dc::webrtc_direct::{
+        accept_direct_endpoint, direct_client_endpoint, ChannelParams, Reliability,
+    };
+
+    let listener = Arc::new(
+        direct_listener(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).expect("listener"),
+    );
+    let multiaddr = listener.multiaddr();
+
+    let server_listener = listener.clone();
+    let server = tokio::spawn(async move {
+        let endpoint = accept_direct_endpoint(server_listener).await.expect("accept endpoint");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let mut got = None;
+        while std::time::Instant::now() < deadline && got.is_none() {
+            match endpoint.recv_event_timeout(std::time::Duration::from_millis(200)) {
+                Some(grpc_dc::webrtc_direct::EndpointEvent::Message { data, .. }) => {
+                    got = Some(data)
+                }
+                _ => {}
+            }
+        }
+        endpoint.shutdown();
+        got.expect("app channel message")
+    });
+
+    let endpoint = direct_client_endpoint(&multiaddr).await.expect("client endpoint");
+    let channel = endpoint
+        .open_channel(ChannelParams {
+            label: "telemetry".into(),
+            ordered: false,
+            reliability: Reliability::MaxRetransmits(0),
+            ..Default::default()
+        })
+        .expect("open lossy channel");
+    channel.send_binary(b"ping-lossy").expect("send");
+    let got = server.await.expect("server task");
+    assert_eq!(got, b"ping-lossy");
+    endpoint.shutdown();
+}

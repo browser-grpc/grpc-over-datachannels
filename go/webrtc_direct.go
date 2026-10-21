@@ -60,3 +60,34 @@ func DirectClientTurnTransport(multiaddr string, turn dcwebrtc.TurnServerConfig)
 	channel := endpoint.OpenChannel(dcwebrtc.DefaultChannelParams("grpc"))
 	return NewDcTransport(channel), nil
 }
+
+// DirectClientEndpoint dials a Direct listener by multiaddr
+// and returns the raw endpoint (no channel opened yet). Use it
+// to open extra application channels next to the "grpc" one --
+// including lossy or unordered ones, via
+// endpoint.OpenChannel(dcwebrtc.ChannelParams{Label: "...",
+// Ordered: false, MaxRetransmits: &n}) or MaxLifetimeMs. The
+// "grpc" channel itself must stay reliable and ordered:
+// grpc-dc framing assumes in-order reliable delivery, so keep
+// DirectClientTransport's defaults for gRPC traffic and use
+// lossy channels only for application data that tolerates
+// drops and reordering.
+func DirectClientEndpoint(multiaddr string) (*dcwebrtc.DcEndpoint, error) {
+	return dcwebrtc.DirectDialMultiaddr(multiaddr, nil)
+}
+
+// DirectClientTurnEndpoint is DirectClientEndpoint through a
+// TURN allocation (symmetric-NAT path).
+func DirectClientTurnEndpoint(multiaddr string, turn dcwebrtc.TurnServerConfig) (*dcwebrtc.DcEndpoint, error) {
+	return dcwebrtc.DirectDialTurnMultiaddr(multiaddr, nil, turn)
+}
+
+// AcceptDirectEndpoint accepts one direct connection and
+// returns the raw endpoint (its "grpc" channel not yet
+// consumed). Incoming application channels -- including
+// lossy/unordered ones opened by the dialer -- surface through
+// endpoint.SetOnChannel; see DirectClientEndpoint for the
+// reliability contract.
+func AcceptDirectEndpoint(listener *dcwebrtc.DirectListener) (*dcwebrtc.DcEndpoint, error) {
+	return listener.Accept()
+}

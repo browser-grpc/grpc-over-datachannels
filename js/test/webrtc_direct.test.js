@@ -11,7 +11,9 @@ import { Channel, Server, StatusCode, StatusError } from "../index.js";
 import {
   acceptDirectEndpoint,
   directClientEndpoint,
+  directClientStackEndpoint,
   directListener,
+  openDirectChannel,
 } from "../src/webrtc_direct.js";
 import { EchoRequest } from "../examples/echo_pb.js";
 import { EchoClient, createEchoService } from "../examples/echo_grpc_dc.js";
@@ -45,6 +47,39 @@ function handlers() {
 }
 
 const req = (message, count = 0) => new EchoRequest({ message, count });
+
+test("lossy unordered application channel next to grpc", { timeout: 30000 }, async () => {
+  const listener = await directListener();
+  try {
+    const acceptedChannels = [];
+    // Server side: accept the raw stack endpoint via the
+    // listener's own accept (the adapter's
+    // acceptDirectEndpoint would consume the grpc channel;
+    // here the test needs the stack endpoint itself).
+    const stackAccept = listener.accept();
+    const clientStack = await directClientStackEndpoint(listener.multiaddr());
+    const channel = openDirectChannel(clientStack, {
+      label: "telemetry",
+      ordered: false,
+      reliability: { kind: "retransmits", count: 0 },
+    });
+    assert.equal(channel.label, "telemetry");
+    const serverStack = await stackAccept;
+    const got = new Promise((resolve) => {
+      serverStack.onchannel = (ch) => {
+        acceptedChannels.push(ch.label);
+        ch.onmessage = (e) => resolve(Buffer.from(e.data).toString());
+      };
+    });
+    channel.send(Buffer.from("ping-lossy"));
+    assert.equal(await got, "ping-lossy");
+    assert.deepEqual(acceptedChannels, ["telemetry"]);
+    await clientStack.closeDirect();
+    await serverStack.close();
+  } finally {
+    listener.close();
+  }
+});
 
 test("generated Echo over WebRTC-Direct by multiaddr", { timeout: 30000 }, async () => {
   const listener = await directListener();
