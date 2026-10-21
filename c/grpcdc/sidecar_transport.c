@@ -85,6 +85,12 @@ grpcdc_sidecar *grpcdc_sidecar_connect(const char *host, uint16_t port) {
     return s;
 }
 
+grpcdc_sidecar *grpcdc_sidecar_from_fd(int fd) {
+    grpcdc_sidecar *s = (grpcdc_sidecar *)calloc(1, sizeof(*s));
+    s->fd = fd;
+    return s;
+}
+
 void grpcdc_sidecar_transport(grpcdc_sidecar *sidecar, grpcdc_transport *transport) {
     transport->ctx = sidecar;
     transport->send = sidecar_send;

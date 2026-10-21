@@ -1714,6 +1714,8 @@ extern "C" {
 typedef struct grpcdc_sidecar grpcdc_sidecar;
 
 grpcdc_sidecar *grpcdc_sidecar_connect(const char *host, uint16_t port);
+/* Wrap an already-connected socket (server side of the bridge). */
+grpcdc_sidecar *grpcdc_sidecar_from_fd(int fd);
 /* Fills *transport with the sidecar transport. */
 void grpcdc_sidecar_transport(grpcdc_sidecar *sidecar, grpcdc_transport *transport);
 void grpcdc_sidecar_free(grpcdc_sidecar *sidecar);
@@ -1808,6 +1810,12 @@ grpcdc_sidecar *grpcdc_sidecar_connect(const char *host, uint16_t port) {
         close(fd);
         return NULL;
     }
+    grpcdc_sidecar *s = (grpcdc_sidecar *)calloc(1, sizeof(*s));
+    s->fd = fd;
+    return s;
+}
+
+grpcdc_sidecar *grpcdc_sidecar_from_fd(int fd) {
     grpcdc_sidecar *s = (grpcdc_sidecar *)calloc(1, sizeof(*s));
     s->fd = fd;
     return s;

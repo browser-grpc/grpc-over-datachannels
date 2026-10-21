@@ -22,6 +22,7 @@ public static class Program
                 case "TestBdd": TestBdd.Run(); break;
                 case "TestDeadline": TestDeadline.Run(); break;
                 case "TestPbMessages": TestPbMessages.Run(); break;
+                case "TestSidecar": TestSidecar.Run(); break;
                 default:
                     Console.Error.WriteLine($"unknown test: {args[0]}");
                     return 2;

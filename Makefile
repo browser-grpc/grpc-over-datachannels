@@ -173,21 +173,22 @@ test-csharp:
 		&& dotnet run --project tests --no-build -- TestOracle \
 		&& dotnet run --project tests --no-build -- TestDynamic \
 		&& dotnet run --project tests --no-build -- TestBdd && dotnet run --project tests --no-build -- TestDeadline \
-		&& dotnet run --project tests --no-build -- TestPbMessages
+		&& dotnet run --project tests --no-build -- TestPbMessages \
+		&& dotnet run --project tests --no-build -- TestSidecar
 
 CXX ?= g++
 CXXFLAGS ?= -std=c++17 -pthread -O1 -Icpp -I.
 
 test-cpp:
 	mkdir -p cpp/build
-	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp -o cpp/build/tests
+	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_sidecar.cpp -o cpp/build/tests
 	$(CXX) $(CXXFLAGS) cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/dynamic_echo_server_stdio.cpp -o cpp/build/dynamic_echo_server_stdio
 	cd cpp && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
-		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages
+		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestSidecar
 	# C++20 coroutine surface test: built with zig's clang because
 	# GCC 13 hits an ICE (build_special_member_call) on this file.
 	$(ZIG) c++ -std=c++20 -pthread -O1 -Icpp -I. cpp/tests/test_async.cpp -o cpp/build/test_async
@@ -205,7 +206,7 @@ test-swift:
 	cd swift && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
-		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages
+		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestSidecar
 
 KOTLINC ?= kotlinc
 
@@ -218,6 +219,7 @@ test-kotlin:
 	java -jar kotlin/build/tests.jar TestCodec && java -jar kotlin/build/tests.jar TestEcho \
 		&& java -jar kotlin/build/tests.jar TestInterop && java -jar kotlin/build/tests.jar TestOracle \
 		&& java -jar kotlin/build/tests.jar TestDynamic && java -jar kotlin/build/tests.jar TestBdd && java -jar kotlin/build/tests.jar TestDeadline \
+		&& java -jar kotlin/build/tests.jar TestSidecar \
 		&& java -jar kotlin/build/tests.jar TestInlinePump && java -jar kotlin/build/tests.jar TestPbMessages
 
 DART ?= dart
@@ -240,7 +242,7 @@ test-zig:
 	cd zig && ./build/bin/tests TestCodec && ./build/bin/tests TestEcho \
 		&& ./build/bin/tests TestInterop && ./build/bin/tests TestOracle \
 		&& ./build/bin/tests TestDynamic && ./build/bin/tests TestBdd && ./build/bin/tests TestDeadline \
-		&& ./build/bin/tests TestPbMessages
+		&& ./build/bin/tests TestPbMessages && ./build/bin/tests TestSidecar
 
 CC ?= gcc
 CFLAGS_C ?= -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests
@@ -249,10 +251,10 @@ test-c:
 	mkdir -p c/build c/tests
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
 		--grpc-dc-c_out=c/tests -I webapp/testdata webapp/testdata/kitchen.proto webapp/testdata/features.proto webapp/testdata/common.proto
-	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests
+	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -o c/build/echo_server_stdio
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -o c/build/echo_client_stdio
-	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestOracle && ./c/build/tests TestDynamic
+	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestOracle && ./c/build/tests TestDynamic && ./c/build/tests TestSidecar
 
 LUA ?= lua
 
@@ -265,7 +267,8 @@ test-lua:
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestBdd \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestCoro \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDeadline \
-		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestPbMessages
+		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestPbMessages \
+		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestSidecar
 
 LUA_SRC ?= $(HOME)/.local/lua-build/src
 
@@ -358,6 +361,7 @@ test-scala:
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDynamic \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestBdd \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDeadline \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestSidecar \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestPbMessages
 
 test-grpc-webrtc:
@@ -788,8 +792,8 @@ test-c-cross:
 	@if command -v aarch64-linux-gnu-gcc >/dev/null && command -v riscv64-linux-gnu-gcc >/dev/null && command -v qemu-aarch64 >/dev/null; then \
 		set -e; \
 		mkdir -p c/build; \
-		aarch64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests-aarch64; \
-		riscv64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests-riscv64; \
+		aarch64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests-aarch64; \
+		riscv64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests-riscv64; \
 		qemu-aarch64 -L /usr/aarch64-linux-gnu ./c/build/tests-aarch64 TestCodec && qemu-aarch64 -L /usr/aarch64-linux-gnu ./c/build/tests-aarch64 TestPbMessages; \
 		qemu-riscv64 -L /usr/riscv64-linux-gnu ./c/build/tests-riscv64 TestCodec && qemu-riscv64 -L /usr/riscv64-linux-gnu ./c/build/tests-riscv64 TestPbMessages; \
 		aarch64-linux-gnu-g++ -std=c++17 -pthread -O1 -Icpp -I. -fsyntax-only cpp/examples/echo_messages.hpp; \

@@ -27,6 +27,7 @@
 #include "features_messages.h"
 #include "kitchen_messages.h"
 #include "grpcdc/memory_transport.h"
+#include "grpcdc/sidecar_transport.h"
 
 static void check(int cond, const char *what) {
     if (!cond) {
@@ -1104,6 +1105,124 @@ static void test_dynamic(void) {
 }
 #endif /* GRPCDC_POSIX */
 
+#ifdef GRPCDC_POSIX
+typedef struct {
+    grpcdc_sidecar *sidecar;
+    grpcdc_transport transport;
+} sidecar_server_job;
+
+static void *sidecar_server_main(void *arg) {
+    sidecar_server_job *job = (sidecar_server_job *)arg;
+    grpcdc_server *server = grpcdc_server_new();
+    EchoServer_register(server, &echo_server_impl);
+    grpcdc_server_serve(server, &job->transport);
+    grpcdc_server_free(server);
+    return NULL;
+}
+
+/* gRPC over WebRTC-Direct via the Rust sidecar, C to C: two
+   direct_sidecar processes own the WebRTC stack; the C server
+   and client only speak length-prefixed TCP to their local
+   sidecar (grpcdc_sidecar). */
+static void test_sidecar(void) {
+    char root[1024];
+    find_root(root, sizeof(root));
+    char bin[1024];
+    snprintf(bin, sizeof(bin), "%s/webrtc/rust/target/debug/examples/direct_sidecar", root);
+    if (!file_exists(bin)) {
+        char cmd[1200];
+        snprintf(cmd, sizeof(cmd), "cd %s/webrtc/rust && cargo build --example direct_sidecar", root);
+        check(system(cmd) == 0, "cargo build direct_sidecar");
+    }
+
+    int lang_port = free_port();
+    int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons((uint16_t)lang_port);
+    check(bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0, "bind lang port");
+    check(listen(listen_fd, 4) == 0, "listen lang port");
+
+    sidecar_server_job job;
+    char lang_arg[64];
+    snprintf(lang_arg, sizeof(lang_arg), "127.0.0.1:%d", lang_port);
+    char *listen_argv[] = {bin, "listen", "--udp", "127.0.0.1:0", "--tcp", lang_arg, NULL};
+    child_proc listen_proc = {-1, -1, -1, -1};
+    check(spawn_child(listen_argv, &listen_proc) == 0, "spawn listen sidecar");
+    static char ma_sink[8192];
+    check(wait_for_text(listen_proc.stdout_fd, "MULTIADDR", 60000, ma_sink, sizeof(ma_sink)),
+          "listen sidecar multiaddr");
+    char *multiaddr = strstr(ma_sink, "/ip");
+    check(multiaddr != NULL, "multiaddr parse");
+    char *nl = strchr(multiaddr, '\n');
+    if (nl) *nl = 0;
+
+    int client_port = free_port();
+    char client_arg[64];
+    snprintf(client_arg, sizeof(client_arg), "127.0.0.1:%d", client_port);
+    char *dial_argv[] = {bin, "dial", "--multiaddr", multiaddr, "--tcp", client_arg, NULL};
+    child_proc dial_proc = {-1, -1, -1, -1};
+    check(spawn_child(dial_argv, &dial_proc) == 0, "spawn dial sidecar");
+    check(wait_for_text(dial_proc.stdout_fd, "TCP", 60000, NULL, 0), "dial sidecar tcp");
+
+    /* The dial sidecar only dials Direct after a language client
+       connects to its TCP listener, so connect the client first:
+       that triggers the Direct handshake, the listen sidecar then
+       connects to lang_port, and the accept below unblocks. */
+    grpcdc_sidecar *client_sidecar = grpcdc_sidecar_connect("127.0.0.1", (uint16_t)client_port);
+    check(client_sidecar != NULL, "client sidecar connect");
+
+    job.sidecar = NULL;
+    pthread_t server_thread;
+    int conn_fd = accept(listen_fd, NULL, NULL);
+    check(conn_fd >= 0, "accept lang conn");
+    job.sidecar = grpcdc_sidecar_from_fd(conn_fd);
+    grpcdc_sidecar_transport(job.sidecar, &job.transport);
+    check(pthread_create(&server_thread, NULL, sidecar_server_main, &job) == 0,
+          "server thread");
+
+    grpcdc_transport transport;
+    grpcdc_sidecar_transport(client_sidecar, &transport);
+    grpcdc_channel channel;
+    grpcdc_channel_init(&channel, &transport);
+    EchoClient client;
+    client.channel = &channel;
+
+    EchoRequest req;
+    EchoRequest_init(&req);
+    req.message = "hello";
+    EchoResponse resp;
+    grpcdc_status st = EchoClient_unary(&client, &req, &resp, NULL, 0, 0);
+    check(grpcdc_status_is_ok(st), "sidecar unary status");
+    check(strcmp(resp.message, "echo: hello") == 0, "sidecar unary body");
+
+    req.message = "tick";
+    req.count = 3;
+    EchoServerStreamClient stream;
+    st = EchoClient_server_stream(&client, &req, &stream, NULL, 0, 0);
+    check(grpcdc_status_is_ok(st), "sidecar stream open");
+    for (int i = 0; i < 3; i++) {
+        EchoResponse tick;
+        grpcdc_status rst;
+        int r = EchoServerStreamClient_recv(&stream, &tick, &rst);
+        check(r == 1 && tick.index == i, "sidecar stream tick");
+    }
+    {
+        EchoResponse extra;
+        grpcdc_status rst;
+        check(EchoServerStreamClient_recv(&stream, &extra, &rst) == 0, "sidecar stream end");
+    }
+    EchoServerStreamClient_close(&stream);
+
+    kill_child(&dial_proc);
+    kill_child(&listen_proc);
+    close(listen_fd);
+    printf("TestSidecar OK\n");
+}
+#endif /* GRPCDC_POSIX */
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr,
@@ -1120,6 +1239,13 @@ int main(int argc, char **argv) {
         test_dynamic();
 #else
         printf("TestDynamic SKIP (POSIX only)\n");
+#endif
+    }
+    else if (strcmp(argv[1], "TestSidecar") == 0) {
+#ifdef GRPCDC_POSIX
+        test_sidecar();
+#else
+        printf("TestSidecar SKIP (POSIX only)\n");
 #endif
     }
     else if (strcmp(argv[1], "TestOracle") == 0) {

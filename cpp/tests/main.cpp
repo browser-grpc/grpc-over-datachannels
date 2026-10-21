@@ -14,6 +14,7 @@ void TestBdd();
 void TestDeadline();
 void TestInlinePump();
 void TestPbMessages();
+void TestSidecar();
 }  // namespace tests
 
 int main(int argc, char** argv) {
@@ -43,6 +44,8 @@ int main(int argc, char** argv) {
       tests::TestInlinePump();
     } else if (name == "TestPbMessages") {
       tests::TestPbMessages();
+    } else if (name == "TestSidecar") {
+      tests::TestSidecar();
     } else {
       std::fprintf(stderr, "unknown test: %s\n", name.c_str());
       return 2;

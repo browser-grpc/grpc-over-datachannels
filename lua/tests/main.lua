@@ -27,6 +27,8 @@ local ok, err = pcall(function()
     require("test_deadline")()
   elseif name == "TestPbMessages" then
     require("test_pb_messages")()
+  elseif name == "TestSidecar" then
+    require("test_sidecar")()
   else
     io.stderr:write("unknown test: " .. name .. "\n")
     os.exit(2)

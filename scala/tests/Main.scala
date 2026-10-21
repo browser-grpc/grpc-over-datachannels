@@ -17,6 +17,7 @@ object Main {
         case "TestBdd" => testBdd()
         case "TestDeadline" => testDeadline()
         case "TestPbMessages" => testPbMessages()
+        case "TestSidecar" => testSidecar()
         case other =>
           System.err.println(s"unknown test: $other")
           System.exit(2)
