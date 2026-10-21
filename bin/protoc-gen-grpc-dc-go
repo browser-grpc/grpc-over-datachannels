@@ -1302,11 +1302,19 @@
           'map))
     (define entry (go-pb-resolve model (hash-ref f 'type-name)))
     (define helper (format "encode~a" (go-pb-entry-type entry)))
+    (define key-f
+      (findf
+       (lambda (x) (= (hash-ref x 'number) 1))
+       (hash-ref (hash-ref entry 'msg) 'fields)))
+    (define kt (go-pb-field-type model (hash-set key-f 'label 1)))
     (format
-     "\tfor k, val := range ~a {\n\t\tout = appendBytesField(out, ~a, ~a(k, val))\n\t}\n"
+     "\t{\n\t\tkeys := make([]~a, 0, len(~a))\n\t\tfor k := range ~a { keys = append(keys, k) }\n\t\tsort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })\n\t\tfor _, k := range keys {\n\t\t\tout = appendBytesField(out, ~a, ~a(k, ~a[k]))\n\t\t}\n\t}\n"
+     kt
+     v
      v
      n
-     helper))
+     helper
+     v))
    ((not (= (hash-ref f 'label) 3)) (go-pb-encode-singular model f v "\t"))
    ((memv type go-pb-varint-types)
     (string-append
@@ -1676,7 +1684,17 @@
          (fprintf out "package ~a\n\n" (go-package file-model params))
          (fprintf
           out
-          "import (\n\t\"encoding/binary\"\n\t\"errors\"\n\t\"math\"\n)\n\n")
+          "import (\n\t\"encoding/binary\"\n\t\"errors\"\n\t\"math\"~a\n)\n\n"
+          (if (for*/or
+               ((msg (in-list messages)) (f (in-list (hash-ref msg 'fields))))
+               (and (= (hash-ref f 'type) 11)
+                    (eq?
+                     (hash-ref
+                      (go-pb-resolve file-model (hash-ref f 'type-name))
+                      'kind)
+                     'map)))
+            "\n\t\"sort\""
+            ""))
          (fprintf
           out
           "func boolToUint64(b bool) uint64 {\n\tif b {\n\t\treturn 1\n\t}\n\treturn 0\n}\n\n")
