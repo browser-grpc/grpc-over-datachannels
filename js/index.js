@@ -21,6 +21,11 @@ export { Channel } from "./src/channel.js";
 export { Server } from "./src/server.js";
 export { memoryDataChannelPair } from "./src/loopback.js";
 export { createGrpcDcBridge, createGrpcDcServerBridge } from "./src/wasm_bridge.js";
+// Note: the Node WebRTC-Direct adapter (src/webrtc_direct.js)
+// is deliberately NOT re-exported here -- it imports Node-only
+// modules (node:dgram via webrtc/js/direct.js) and this index
+// is also loaded in browsers. Import it directly:
+//   import { directClientEndpoint } from "grpc-dc/webrtc_direct";
 
 import { Channel } from "./src/channel.js";
 import { Endpoint } from "./src/endpoint.js";

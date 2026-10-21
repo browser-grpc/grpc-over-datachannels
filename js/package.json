@@ -6,7 +6,8 @@
   "main": "index.js",
   "exports": {
     ".": "./index.js",
-    "./wire_gen.js": "./wire_gen.js"
+    "./wire_gen.js": "./wire_gen.js",
+    "./webrtc_direct": "./src/webrtc_direct.js"
   },
   "scripts": {
     "test": "node --test test/*.test.js"
