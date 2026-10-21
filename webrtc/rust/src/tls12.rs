@@ -32,6 +32,7 @@ use core::net::IpAddr;
 use std::net::TcpStream;
 
 const SUITE_ECDHE_ECDSA_AES128_GCM_SHA256: u16 = 0xC02B;
+const SUITE_ECDHE_RSA_AES128_GCM_SHA256: u16 = 0xC02F;
 const VERSION: [u8; 2] = [3, 3];
 
 fn bad(msg: &str) -> io::Error {
@@ -192,8 +193,9 @@ fn client_hello(server_name: Option<&str>, random: &[u8; 32]) -> Vec<u8> {
     body.extend_from_slice(&VERSION);
     body.extend_from_slice(random);
     body.push(0); // session id
-    body.extend_from_slice(&2u16.to_be_bytes());
+    body.extend_from_slice(&4u16.to_be_bytes());
     body.extend_from_slice(&SUITE_ECDHE_ECDSA_AES128_GCM_SHA256.to_be_bytes());
+    body.extend_from_slice(&SUITE_ECDHE_RSA_AES128_GCM_SHA256.to_be_bytes());
     body.extend_from_slice(&[1, 0]); // compression: null
     let mut extensions = Vec::new();
     if let Some(name) = server_name {
@@ -209,7 +211,11 @@ fn client_hello(server_name: Option<&str>, random: &[u8; 32]) -> Vec<u8> {
     }
     extensions.extend_from_slice(&ext(10, &[0, 4, 0, 23, 0, 24])); // supported_groups: secp256r1, secp384r1
     extensions.extend_from_slice(&ext(11, &[1, 0])); // ec_point_formats: uncompressed
-    extensions.extend_from_slice(&ext(13, &[0, 4, 4, 3, 5, 3])); // signature_algorithms: ecdsa/sha256, ecdsa/sha384
+    // signature_algorithms: ecdsa/sha256, ecdsa/sha384,
+    // rsa_pkcs1/sha256, rsa_pkcs1/sha384 (the RSA pair lets
+    // servers with RSA certificates -- the common TURNS case --
+    // sign their ServerKeyExchange for us).
+    extensions.extend_from_slice(&ext(13, &[0, 8, 4, 3, 5, 3, 4, 1, 5, 1]));
     body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
     body.extend_from_slice(&extensions);
     body
@@ -1072,8 +1078,9 @@ pub fn connect_with_roots(
     }
     let server_random: [u8; 32] = cursor.take(32)?.try_into().unwrap();
     cursor.skip_len8()?; // session id
-    if cursor.u16()? != SUITE_ECDHE_ECDSA_AES128_GCM_SHA256 {
-        return Err(bad("tls: server selected an unsupported cipher suite"));
+    match cursor.u16()? {
+        SUITE_ECDHE_ECDSA_AES128_GCM_SHA256 | SUITE_ECDHE_RSA_AES128_GCM_SHA256 => {}
+        _ => return Err(bad("tls: server selected an unsupported cipher suite")),
     }
     if cursor.u8()? != 0 {
         return Err(bad("tls: server selected compression"));
@@ -1109,11 +1116,15 @@ pub fn connect_with_roots(
     enum LeafKey {
         P256(PublicKey),
         P384(crate::p384::PublicKey),
+        Rsa { modulus: Vec<u8>, exponent: u64 },
     }
     let leaf_key = match &chain[0].key {
         CertKey::EcdsaP256(key) => LeafKey::P256(*key),
         CertKey::EcdsaP384(key) => LeafKey::P384(*key),
-        _ => return Err(bad("tls: leaf certificate is not ECDSA")),
+        CertKey::Rsa { modulus, exponent } => LeafKey::Rsa {
+            modulus: modulus.clone(),
+            exponent: *exponent,
+        },
     };
 
     let (msg_type, body, _) = hs.next()?;
@@ -1149,10 +1160,11 @@ pub fn connect_with_roots(
     let hash_alg = sig_cursor.u8()?;
     let sig_alg = sig_cursor.u8()?;
     let ske_hash = match (hash_alg, sig_alg) {
-        (4, 3) => HashAlg::Sha256,
-        (5, 3) => HashAlg::Sha384,
+        (4, 3) | (4, 1) => HashAlg::Sha256,
+        (5, 3) | (5, 1) => HashAlg::Sha384,
         _ => return Err(bad("tls: unsupported SKE signature algorithm")),
     };
+    let ske_is_rsa = sig_alg == 1;
     let sig_len = sig_cursor.u16()? as usize;
     let sig_der = sig_cursor.take(sig_len)?;
     if !insecure_skip_verify {
@@ -1161,16 +1173,31 @@ pub fn connect_with_roots(
         signed.extend_from_slice(&server_random);
         signed.extend_from_slice(&body[..params_end]);
         let digest = digest_for(ske_hash, &signed);
-        let sig = parse_ecdsa_signature(sig_der)?;
-        let verified = match &leaf_key {
-            LeafKey::P256(key) => {
-                let truncated: [u8; 32] = digest[..32].try_into().unwrap();
-                ecdsa_verify_p256(key, &truncated, &sig.0, &sig.1)
-            }
-            LeafKey::P384(key) => match (pad::<48>(&sig.0), pad::<48>(&sig.1)) {
-                (Some(r), Some(s)) => key.verify(&digest, &r, &s),
+        let verified = if ske_is_rsa {
+            match &leaf_key {
+                LeafKey::Rsa { modulus, exponent } => {
+                    rsa_pkcs1_verify(ske_hash, &digest, sig_der, modulus, *exponent)
+                }
                 _ => false,
-            },
+            }
+        } else {
+            let sig = match parse_ecdsa_signature(sig_der) {
+                Ok(sig) => sig,
+                Err(_) => {
+                    return Err(bad("tls: ServerKeyExchange signature invalid"));
+                }
+            };
+            match &leaf_key {
+                LeafKey::P256(key) => {
+                    let truncated: [u8; 32] = digest[..32].try_into().unwrap();
+                    ecdsa_verify_p256(key, &truncated, &sig.0, &sig.1)
+                }
+                LeafKey::P384(key) => match (pad::<48>(&sig.0), pad::<48>(&sig.1)) {
+                    (Some(r), Some(s)) => key.verify(&digest, &r, &s),
+                    _ => false,
+                },
+                LeafKey::Rsa { .. } => false,
+            }
         };
         if !verified {
             return Err(bad("tls: ServerKeyExchange signature invalid"));
@@ -1335,6 +1362,19 @@ mod tests {
     fn self_signed_leaf_needs_explicit_trust() {
         assert!(verify_chain(&[cert(SELF_SIGNED)], &RootStore::empty(), "localhost").is_err());
         verify_chain(&[cert(SELF_SIGNED)], &store_with(&[SELF_SIGNED]), "localhost").unwrap();
+    }
+
+    #[test]
+    #[test]
+    fn client_hello_offers_rsa_suite_and_signature_algorithms() {
+        let hello = client_hello(Some("example.com"), &[7u8; 32]);
+        let has_suite = hello
+            .windows(2)
+            .any(|w| w == SUITE_ECDHE_RSA_AES128_GCM_SHA256.to_be_bytes());
+        assert!(has_suite, "ECDHE-RSA suite not offered");
+        let has_rsa_sigalg = hello.windows(2).any(|w| w == [0x04, 0x01])
+            && hello.windows(2).any(|w| w == [0x05, 0x01]);
+        assert!(has_rsa_sigalg, "rsa_pkcs1 signature algorithms not offered");
     }
 
     #[test]

@@ -650,9 +650,15 @@ fn direct_over_turns_coturn() {
     let key = dir.join("key.pem");
     let made = std::process::Command::new("openssl")
         .args([
-            "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+            // RSA cert: the common TURNS case. The homegrown TLS
+        // client must offer ECDHE-RSA + rsa_pkcs1 signature
+        // algorithms and verify the RSA ServerKeyExchange
+        // signature (verified below via root_certs_pem, not
+        // insecure_skip_verify).
+        "req", "-x509", "-newkey", "rsa:2048", "-nodes",
             "-keyout", key.to_str().unwrap(), "-out", cert.to_str().unwrap(),
             "-days", "1", "-subj", "/CN=localhost",
+            "-addext", "subjectAltName=DNS:localhost",
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -674,7 +680,8 @@ fn direct_over_turns_coturn() {
         let server = echo_server(listener);
         let mut cfg = TurnServerConfig::new(&format!("127.0.0.1:{port}"), TURN_USER, TURN_PASS);
         cfg.transport = dc_webrtc::turn::TurnTransport::Tls;
-        cfg.insecure_skip_verify = true; // self-signed test cert
+        cfg.server_name = Some("localhost".to_string());
+        cfg.root_certs_pem = Some(std::fs::read(&cert).expect("read coturn cert"));
         let mut client = None;
         for _ in 0..10 {
             match direct_dial_turn_multiaddr(&multiaddr, Certificate::generate_self_signed("cli"), &cfg) {
