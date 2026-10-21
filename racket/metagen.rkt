@@ -1156,6 +1156,7 @@
   (emit-oracle-scenarios)
   (write-runtime-files "js/test" "oracle-gen.rkt" (list (emit-js-oracle-driver)))
   (write-runtime-files "js/test" "bdd-gen.rkt" (list (emit-js-bdd) (emit-bdd-schemas 'js)))
+  (write-runtime-files "browser-test" "bdd-gen.rkt" (list (emit-browser-bdd-scenarios) (emit-browser-bdd-manifest)))
   (write-runtime-files "go" "oracle-gen.rkt" (list (emit-go-oracle-driver)))
   (write-runtime-files "go" "bdd-gen.rkt" (list (emit-go-bdd) (emit-bdd-schemas 'go)))
   (make-directory* (build-path root "python" "grpcdc"))

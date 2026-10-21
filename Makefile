@@ -681,6 +681,7 @@ test-scalajs-browser: scalajs-gen
 
 test-wasm-matrix: scalajs-gen
 	cd browser-test && node wasm_matrix.test.mjs all
+	cd browser-test && node bdd_wasm.test.mjs
 
 ## Fully client-side generator web app (webapp/): protocompile
 ## compiled to WASM compiles schemas in the page, the generated

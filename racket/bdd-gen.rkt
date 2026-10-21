@@ -10,6 +10,7 @@
          emit-js-bdd emit-go-bdd emit-rust-bdd emit-python-bdd
          emit-java-bdd emit-csharp-bdd emit-cpp-bdd emit-swift-bdd
          emit-kotlin-bdd emit-dart-bdd emit-zig-bdd emit-lua-bdd emit-ruby-bdd emit-php-bdd emit-scala-bdd emit-c-bdd
+         emit-browser-bdd-scenarios emit-browser-bdd-manifest
          emit-bdd-schemas)
 
 (define (q strs)
@@ -100,11 +101,25 @@
                           (quotient (string-length (fourth s)) 2)
                           (quotient (string-length (fifth s)) 2))))
          "\nRun them per language with `make test-<lang>` (suite `TestBdd`), or all\n"
-         "of them with `make test`.\n")))
+         "of them with `make test`. In a real browser, `browser-test/bdd.test.mjs`\n"
+         "runs the same table in Chromium and Firefox against the Node WebRTC\n"
+         "stack, and `browser-test/bdd_wasm.test.mjs` pins every Wasm client's\n"
+         "summary (call shapes, plus the deadline code where the summary carries\n"
+         "it) to the same generated table.\n")))
 
 ;; ---------------------------------------------------------------------------
 ;; JavaScript -> js/test/bdd_scenarios.generated.js
 ;; ---------------------------------------------------------------------------
+
+(define (js-bdd-table)
+  (string-append
+   "export const BDD_SCENARIOS = [\n"
+   (apply string-append
+          (for/list ([s (in-list bdd-scenarios)])
+            (define-values (name kind msgs count path md em en es) (row s))
+            (format "  { name: ~s, kind: ~s, messages: [~a], count: ~a, path: ~s, metadata: ~s, expectMessage: ~s, expectNum: ~a, expectStatus: ~a },\n"
+                    name kind (q msgs) count path md em en (or es -1))))
+   "];\n"))
 
 (define (emit-js-bdd)
   (cons "bdd_scenarios.generated.js"
@@ -112,12 +127,59 @@
          "// Scenario table stamped from racket/bdd-spec.rkt (data only;\n"
          "// the interpreter is TestBdd). Rows: name, kind, messages, count,\n"
          "// path, metadata, expectMessage, expectNum, expectStatus (-1 = none).\n"
-         "export const BDD_SCENARIOS = [\n"
+         (js-bdd-table))))
+
+;; ---------------------------------------------------------------------------
+;; Browser/Wasm -> browser-test/bdd_scenarios.generated.mjs and
+;; browser-test/bdd_wasm_manifest.generated.mjs. The scenario table
+;; is the same JS data the Node TestBdd suite consumes; the manifest
+;; names every generated/native Wasm client page the Playwright BDD
+;; runner drives, with the summary shape that client's fixed Echo
+;; program produces (tick style, client-stream inputs, and whether
+;; its summary carries the deadline check). Expectations themselves
+;; are derived from BDD_SCENARIOS by the runner, not restated here.
+;; ---------------------------------------------------------------------------
+
+(define (emit-browser-bdd-scenarios)
+  (cons "bdd_scenarios.generated.mjs"
+        (string-append
+         "// Browser/Wasm scenario table stamped from\n"
+         "// racket/bdd-spec.rkt (data only; the interpreters are\n"
+         "// browser-test/bdd_runner.mjs and bdd_wasm.test.mjs).\n"
+         (js-bdd-table))))
+
+;; label page run tick-style joined-messages deadline? allow-wasm-error?
+(define wasm-bdd-clients
+  (list
+   (list "Go facade" "wasm_page.html" "__runWasm" "index" '("a" "b") #f #f)
+   (list "Rust native" "wasm_rust_page.html" "__runWasm" "label" '("a" "b" "c") #t #f)
+   (list "Dart WasmGC" "dart_wasm_page.html" "__runDart" "label" '("a" "b" "c") #f #t)
+   (list "Lua native" "wasm_lua_page.html" "__runWasm" "index" '("a" "b") #f #f)
+   (list "Zig facade" "wasm_zig_page.html" "__runWasm" "index" '("a" "b") #f #f)
+   (list "Zig native" "wasm_zig_native_page.html" "__runWasm" "index" '("a" "b") #t #f)
+   (list "C++ facade" "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm" "__runWasm" "index" '("a" "b") #f #f)
+   (list "C++ native" "wasm_cpp_native_page.html" "__runWasm" "index" '("a" "b") #t #f)
+   (list "Swift facade" "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm" "__runWasm" "index" '("a" "b") #f #f)
+   (list "Swift native" "wasm_swift_native_page.html" "__runWasm" "index" '("a" "b") #t #f)
+   (list "Kotlin facade" "wasm_kotlin_page.html" "__runWasm" "index" '("a" "b") #f #f)
+   (list "Kotlin native" "wasm_kotlin_native_page.html" "__runWasm" "index" '("a" "b") #t #f)
+   (list "Scala.js facade" "wasm_scalajs_page.html" "__runWasm" "index" '("a" "b") #f #f)))
+
+(define (emit-browser-bdd-manifest)
+  (cons "bdd_wasm_manifest.generated.mjs"
+        (string-append
+         "// Wasm client manifest stamped from racket/bdd-gen.rkt.\n"
+         "// Expectations are derived from BDD_SCENARIOS in\n"
+         "// bdd_scenarios.generated.mjs by bdd_wasm.test.mjs; this\n"
+         "// file only names the client pages and summary shapes.\n"
+         "export const WASM_BDD_CLIENTS = [\n"
          (apply string-append
-                (for/list ([s (in-list bdd-scenarios)])
-                  (define-values (name kind msgs count path md em en es) (row s))
-                  (format "  { name: ~s, kind: ~s, messages: [~a], count: ~a, path: ~s, metadata: ~s, expectMessage: ~s, expectNum: ~a, expectStatus: ~a },\n"
-                          name kind (q msgs) count path md em en (or es -1))))
+                (for/list ([c (in-list wasm-bdd-clients)])
+                  (format "  { label: ~s, page: ~s, run: ~s, tickStyle: ~s, joinedMessages: [~a], deadline: ~a, allowWasmError: ~a },\n"
+                          (first c) (second c) (third c) (fourth c)
+                          (q (fifth c))
+                          (if (sixth c) "true" "false")
+                          (if (seventh c) "true" "false"))))
          "];\n")))
 
 ;; ---------------------------------------------------------------------------
