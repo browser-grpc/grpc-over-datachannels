@@ -3,6 +3,42 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.18.0 — 2026-10-20
+
+- BDD scenario coverage expanded in every language: the shared
+  16-scenario table (from `racket/bdd-spec.rkt`) now includes
+  server-stream failure, bidi failure, deadline-exceeded, and
+  stream cancellation next to the original call shapes. The
+  reference Echo contract -- `"fail"` is rejected in every
+  method -- is now implemented by every language's Echo service.
+- Protoc schema examples as BDD: `racket/bdd-schemas.rkt`
+  stamps protoc's own --encode golden bytes (kitchen sink,
+  three-level nesting, oneof last-one-wins, unknown-field
+  retention, empty message) into every language; generated
+  classes must decode and re-encode them byte-identically
+  (`TestBddSchemas`). Writing this caught four real bugs:
+  Rust generated code panicked decoding packed fixed32/float
+  fields (4-byte chunks sliced into an 8-byte conversion; the
+  generator now pads chunks, `template-rust.rkt`, `webgen.rkt`);
+  Lua, Rust, and Swift map encoding was nondeterministic
+  (generators now emit sorted map keys); Scala sign-extension
+  for negative int32/enum now produces protoc-canonical
+  10-byte varints.
+- The same 16-scenario BDD table now also runs over the real
+  WebRTC stack via the Rust `direct_sidecar` in three languages
+  (`TestBddSidecar` / `test_bdd_sidecar.py`): Python, Go, and
+  C++ each run every scenario, including failure, deadline, and
+  cancellation, over DTLS/SCTP rather than loopback.
+- Lossy and unordered datachannels are now exposed through the
+  generated runtimes' Direct adapters: Rust
+  (`direct_client_endpoint`, `accept_direct_endpoint`), Go
+  (`DirectClientEndpoint`, `AcceptDirectEndpoint`), and JS
+  (`directClientStackEndpoint`, `openDirectChannel`) return or
+  use the raw endpoint so applications can open
+  max-retransmits/max-lifetime and unordered channels next to
+  the reliable ordered "grpc" channel. Documented in
+  SPEC-WEBRTC.md ("Lossy and unordered channels").
+
 ## v0.17.0 — 2026-10-20
 
 - RSA support in the homegrown TLS 1.2 client (`tls12.rs`):

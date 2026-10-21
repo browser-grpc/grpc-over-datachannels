@@ -38,6 +38,60 @@ WebRTC library underneath it.
 Demultiplexing on the single UDP socket follows RFC 7983: first byte
 0–3 → STUN, 20–63 → DTLS. SCTP rides inside DTLS application data.
 
+
+## Lossy and unordered channels
+
+Data channels are not limited to reliable, ordered delivery.
+All three stacks implement the DCEP channel-type space end to
+end, and PR-SCTP (RFC 3758) abandonment on top of it:
+
+- **Unordered**: channel type `0x80`; messages carry the U flag
+  and are delivered on arrival, with no head-of-line waiting
+  for earlier stream sequence numbers.
+- **Partially reliable (lossy)**: channel types `0x01`
+  (max retransmissions) and `0x02` (max lifetime in ms). The
+  sender abandons a message once its retransmit count or
+  lifetime budget is spent, then sends FORWARD-TSN so the
+  receiver skips the abandoned sequence numbers and the stream
+  keeps flowing. Both negotiating and accepting these types is
+  implemented, including from browsers (native
+  `RTCDataChannelInit: { maxRetransmits, maxPacketLifeTime,
+  ordered: false }`).
+
+Per-stack surface:
+
+- Rust: `ChannelParams { ordered: false,
+  reliability: Reliability::MaxRetransmits(n) |
+  MaxLifetimeMs(ms), .. }` (`webrtc/rust/src/dcep.rs`).
+- JS: `openChannel({ ordered: false,
+  reliability: { kind: "retransmits", count: n } })` (or
+  `{ kind: "lifetime", ms }`).
+- Go: `ChannelParams{Ordered: false, MaxRetransmits: &n}` (or
+  `MaxLifetimeMs: &ms`).
+
+The generated runtimes' Direct adapters expose the raw
+endpoint next to the transport helpers --
+`direct_client_endpoint` / `accept_direct_endpoint` (Rust),
+`DirectClientEndpoint` / `AcceptDirectEndpoint` (Go),
+`directClientStackEndpoint` / `openDirectChannel` (JS) -- so
+applications can open lossy or unordered channels alongside
+the "grpc" one (proven next to live gRPC traffic in the Rust,
+Go, and JS adapter tests).
+
+One deliberate restriction: the "grpc" channel itself always
+runs reliable and ordered. grpc-dc framing (stream ids,
+trailers, resets, half-close) assumes in-order reliable
+delivery; a dropped frame would corrupt call state. Use lossy
+channels for application data that tolerates drops and
+reordering (telemetry, presence, game state), not for gRPC.
+
+Tests: `webrtc/rust/tests/sctp.rs` (`unordered_delivery`,
+`loss_and_rto_retransmit`,
+`partial_reliability_abandons_and_unblocks_stream`) and the
+matching SCTP suites in `webrtc/js/test/sctp.test.js` and
+`webrtc/go`, plus the adapter-level lossy-channel tests named
+above.
+
 ## WebRTC-Direct (libp2p-style)
 
 Signaling-free client→server connections for listeners with a

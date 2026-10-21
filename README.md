@@ -229,10 +229,20 @@ Behavior documentation is generated, not hand-written: the
 scenario table in `racket/bdd-spec.rkt` is the single source of
 truth. `make generate` stamps it into `BDD.md` (Given/When/Then
 prose) and into a `bdd_scenarios` data file per language, and
-each language's `TestBdd` suite interprets that same table
-against a loopback client and server — so the documented
-examples are exactly what all 15 test suites enforce, and the
-two cannot drift apart. `make test` also runs
+each language's `TestBdd` suite interprets that same table —
+all 16 call shapes, including server-stream and bidi failure,
+deadline-exceeded, and stream cancellation — against a
+loopback client and server, so the documented examples are
+exactly what all 16 test suites enforce, and the two cannot
+drift apart. A second table, `racket/bdd-schemas.rkt`, stamps
+protoc's own `--encode` golden bytes (kitchen sink, nesting,
+oneof, unknown fields) into every language; `TestBddSchemas`
+decodes and re-encodes them byte-identically with the
+generated classes, pinning marshal/unmarshal to protoc's wire
+output (this caught real canonical-encoding bugs in Rust,
+Lua, and Scala). Python, Go, and C++ also run the full
+16-scenario table over the real WebRTC `direct_sidecar`
+(`TestBddSidecar`). `make test` also runs
 `make check-generated`, which regenerates the whole tree and
 fails if any generated file (docs included) differs from its
 Racket source.
