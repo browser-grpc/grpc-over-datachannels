@@ -160,7 +160,7 @@ test-java:
 		&& java -cp build tests.TestInterop && java -cp build tests.TestOracle \
 		&& java -cp build tests.TestDynamic && java -cp build tests.TestBdd && java -cp build tests.TestDeadline \
 		&& java -cp build tests.TestSidecar \
-		&& java -cp build tests.TestPbMessages
+		&& java -cp build tests.TestPbMessages && java -cp build tests.TestBddSchemas
 
 test-csharp:
 	cd csharp && dotnet build tests/Tests.csproj --nologo -v q \
@@ -174,6 +174,7 @@ test-csharp:
 		&& dotnet run --project tests --no-build -- TestDynamic \
 		&& dotnet run --project tests --no-build -- TestBdd && dotnet run --project tests --no-build -- TestDeadline \
 		&& dotnet run --project tests --no-build -- TestPbMessages \
+		&& dotnet run --project tests --no-build -- TestBddSchemas \
 		&& dotnet run --project tests --no-build -- TestSidecar
 
 CXX ?= g++
@@ -181,14 +182,14 @@ CXXFLAGS ?= -std=c++17 -pthread -O1 -Icpp -I.
 
 test-cpp:
 	mkdir -p cpp/build
-	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_sidecar.cpp -o cpp/build/tests
+	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp -o cpp/build/tests
 	$(CXX) $(CXXFLAGS) cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/dynamic_echo_server_stdio.cpp -o cpp/build/dynamic_echo_server_stdio
 	cd cpp && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
-		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestSidecar
+		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar && ./build/tests TestBddSidecar
 	# C++20 coroutine surface test: built with zig's clang because
 	# GCC 13 hits an ICE (build_special_member_call) on this file.
 	$(ZIG) c++ -std=c++20 -pthread -O1 -Icpp -I. cpp/tests/test_async.cpp -o cpp/build/test_async
@@ -206,7 +207,7 @@ test-swift:
 	cd swift && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
-		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestSidecar
+		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar
 
 KOTLINC ?= kotlinc
 
@@ -219,7 +220,7 @@ test-kotlin:
 	java -jar kotlin/build/tests.jar TestCodec && java -jar kotlin/build/tests.jar TestEcho \
 		&& java -jar kotlin/build/tests.jar TestInterop && java -jar kotlin/build/tests.jar TestOracle \
 		&& java -jar kotlin/build/tests.jar TestDynamic && java -jar kotlin/build/tests.jar TestBdd && java -jar kotlin/build/tests.jar TestDeadline \
-		&& java -jar kotlin/build/tests.jar TestSidecar \
+		&& java -jar kotlin/build/tests.jar TestSidecar && java -jar kotlin/build/tests.jar TestBddSchemas \
 		&& java -jar kotlin/build/tests.jar TestInlinePump && java -jar kotlin/build/tests.jar TestPbMessages
 
 DART ?= dart
@@ -233,7 +234,7 @@ test-dart:
 	cd dart && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
-		&& ./build/tests TestSidecar && ./build/tests TestPbMessages
+		&& ./build/tests TestSidecar && ./build/tests TestPbMessages && ./build/tests TestBddSchemas
 
 ZIG ?= zig
 
@@ -242,7 +243,7 @@ test-zig:
 	cd zig && ./build/bin/tests TestCodec && ./build/bin/tests TestEcho \
 		&& ./build/bin/tests TestInterop && ./build/bin/tests TestOracle \
 		&& ./build/bin/tests TestDynamic && ./build/bin/tests TestBdd && ./build/bin/tests TestDeadline \
-		&& ./build/bin/tests TestPbMessages && ./build/bin/tests TestSidecar
+		&& ./build/bin/tests TestPbMessages && ./build/bin/tests TestBddSchemas && ./build/bin/tests TestSidecar
 
 CC ?= gcc
 CFLAGS_C ?= -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests
@@ -254,7 +255,7 @@ test-c:
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -o c/build/echo_server_stdio
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -o c/build/echo_client_stdio
-	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestOracle && ./c/build/tests TestDynamic && ./c/build/tests TestSidecar
+	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestBddSchemas && ./c/build/tests TestOracle && ./c/build/tests TestDynamic && ./c/build/tests TestSidecar
 
 LUA ?= lua
 
@@ -268,7 +269,8 @@ test-lua:
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestCoro \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDeadline \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestPbMessages \
-		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestSidecar
+		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestSidecar \
+		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestBddSchemas
 
 LUA_SRC ?= $(HOME)/.local/lua-build/src
 
@@ -328,7 +330,8 @@ test-ruby:
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestFiber \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestDeadline \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestSidecar \
-		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestPbMessages
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestPbMessages \
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestBddSchemas
 
 PHP ?= php
 
@@ -342,7 +345,8 @@ test-php:
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestFiber \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDeadline \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestSidecar \
-		&& PHP=$(PHP) $(PHP) php/tests/main.php TestPbMessages
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestPbMessages \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestBddSchemas
 
 SCALAC ?= scalac
 SCALA3_HOME ?= /usr/local/scala3
@@ -362,7 +366,7 @@ test-scala:
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestBdd \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDeadline \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestSidecar \
-		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestPbMessages
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestPbMessages && java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestBddSchemas
 
 test-grpc-webrtc:
 	cd rust && $(CARGO) test --features webrtc

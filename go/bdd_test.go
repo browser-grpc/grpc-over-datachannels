@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	grpcdc "grpcdc"
 	echo "grpcdc/examples"
@@ -27,6 +28,10 @@ func bddSetup(t *testing.T) (*grpcdc.Channel, *echo.EchoClient) {
 
 func TestBdd(t *testing.T) {
 	channel, client := bddSetup(t)
+	runBddScenarios(t, channel, client)
+}
+
+func runBddScenarios(t *testing.T, channel *grpcdc.Channel, client *echo.EchoClient) {
 	ctx := context.Background()
 	for _, c := range bddCases {
 		t.Run(c.name, func(t *testing.T) {
@@ -114,6 +119,68 @@ func TestBdd(t *testing.T) {
 				}
 				if got != c.expectNum {
 					t.Fatalf("got %d, want %d", got, c.expectNum)
+				}
+			case "server-stream-fail":
+				stream, err := client.ServerStream(ctx, req(c.messages[0], int32(c.count)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for {
+					_, err := stream.Recv()
+					if err != nil {
+						var status *grpcdc.StatusError
+						if !errors.As(err, &status) || int(status.Code) != c.expectStatus {
+							t.Fatalf("err = %v, want status %d", err, c.expectStatus)
+						}
+						break
+					}
+				}
+			case "bidi-fail":
+				reqs := make([]*echo.EchoRequest, len(c.messages))
+				for i, m := range c.messages {
+					reqs[i] = req(m, 0)
+				}
+				stream, err := client.Bidi(ctx, reqs...)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for {
+					_, err := stream.Recv()
+					if err != nil {
+						var status *grpcdc.StatusError
+						if !errors.As(err, &status) || int(status.Code) != c.expectStatus {
+							t.Fatalf("err = %v, want status %d", err, c.expectStatus)
+						}
+						break
+					}
+				}
+			case "deadline":
+				dctx, stop := context.WithTimeout(ctx, 100*time.Millisecond)
+				_, err := client.Unary(dctx, &echo.EchoRequest{Message: c.messages[0], DelayMs: int32(c.count)})
+				stop()
+				var status *grpcdc.StatusError
+				if !errors.As(err, &status) || int(status.Code) != c.expectStatus {
+					t.Fatalf("err = %v, want status %d", err, c.expectStatus)
+				}
+			case "cancel":
+				cctx, cancelCall := context.WithCancel(ctx)
+				stream, err := client.ServerStream(cctx, req(c.messages[0], int32(c.count)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				first, err := stream.Recv()
+				if err != nil || first.Message != c.messages[0] {
+					t.Fatalf("first = %v, err = %v", first, err)
+				}
+				cancelCall()
+				terminated := false
+				for i := 0; i < c.count+2 && !terminated; i++ {
+					if _, err := stream.Recv(); err != nil {
+						terminated = true
+					}
+				}
+				if !terminated {
+					t.Fatal("stream did not terminate after cancel")
 				}
 			case "raw-unary":
 				resp := new(echo.EchoResponse)

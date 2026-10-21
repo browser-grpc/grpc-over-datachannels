@@ -9,6 +9,7 @@
 #include "grpcdc/channel.hpp"
 #include "grpcdc/memory_transport.hpp"
 #include "grpcdc/server.hpp"
+#include "tests/bdd_sidecar.hpp"
 #include "tests/bdd_scenarios.hpp"
 #include "tests/test_util.hpp"
 
@@ -32,7 +33,12 @@ void TestBdd() {
   server->ServeTransport(pair.second);
   auto channel = std::make_shared<grpcdc::Channel>(pair.first);
   echo::EchoGrpcDc::EchoClient client(channel);
+  RunBddScenarios(channel, client);
+  std::printf("TestBdd OK\n");
+}
 
+void RunBddScenarios(std::shared_ptr<grpcdc::Channel> channel,
+                     echo::EchoGrpcDc::EchoClient& client) {
   for (const auto& c : BddCases()) {
     const std::string name = c.name;
     const std::string kind = c.kind;
@@ -92,6 +98,54 @@ void TestBdd() {
         ++got;
       }
       Check(static_cast<int>(got) == c.expectNum, name + ": count");
+    } else if (kind == "server-stream-fail") {
+      auto stream = client.ServerStream(Req(c.messages[0], c.count));
+      try {
+        while (true) { stream.Recv(); }
+      } catch (const grpcdc::StatusException& e) {
+        Check(e.code() == c.expectStatus,
+              name + ": status " + std::string(e.what()));
+      } catch (const grpcdc::EndOfStream&) {
+        Check(false, name + ": expected failure, stream ended OK");
+      }
+    } else if (kind == "bidi-fail") {
+      std::vector<echo::EchoRequest> reqs;
+      for (auto* m : c.messages) reqs.push_back(Req(m, 0));
+      auto stream = client.Bidi(reqs);
+      try {
+        while (true) { stream.Recv(); }
+      } catch (const grpcdc::StatusException& e) {
+        Check(e.code() == c.expectStatus,
+              name + ": status " + std::string(e.what()));
+      } catch (const grpcdc::EndOfStream&) {
+        Check(false, name + ": expected failure, stream ended OK");
+      }
+    } else if (kind == "deadline") {
+      echo::EchoRequest delayed = Req(c.messages[0], 0);
+      delayed.delay_ms = c.count;
+      try {
+        client.Unary(delayed, nullptr, std::chrono::milliseconds(100));
+        Check(false, name + ": expected deadline failure");
+      } catch (const grpcdc::StatusException& e) {
+        Check(e.code() == c.expectStatus,
+              name + ": status " + std::string(e.what()));
+      }
+    } else if (kind == "cancel") {
+      auto stream = channel->ServerStream("/echo.Echo/ServerStream", Req(c.messages[0], c.count));
+      echo::EchoResponse first;
+      stream.Recv(first);
+      Check(first.message == c.messages[0], name + ": first");
+      channel->Cancel(stream);
+      bool terminated = false;
+      try {
+        for (int i = 0; i < c.count + 2 && !terminated; ++i) {
+          echo::EchoResponse resp;
+          stream.Recv(resp);
+        }
+      } catch (...) {
+        terminated = true;
+      }
+      Check(terminated, name + ": stream did not terminate after cancel");
     } else if (kind == "raw-unary") {
       try {
         echo::EchoResponse resp;
@@ -105,7 +159,6 @@ void TestBdd() {
       Check(false, "unknown bdd kind: " + kind);
     }
   }
-  std::printf("TestBdd OK\n");
 }
 
 }  // namespace tests
