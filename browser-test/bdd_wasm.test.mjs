@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, firefox } from "playwright";
 
 import { Peer } from "../webrtc/js/peer.js";
-import { Server } from "../js/index.js";
+import { Server, StatusCode, StatusError } from "../js/index.js";
 import { EchoResponse } from "../js/examples/echo_pb.js";
 import { createEchoService } from "../js/examples/echo_grpc_dc.js";
 import { BDD_SCENARIOS } from "./bdd_scenarios.generated.mjs";
@@ -53,14 +53,24 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const baseUrl = `http://127.0.0.1:${server.address().port}/browser-test`;
 
+// Canonical Echo semantics (racket/bdd-spec.rkt): "fail" is
+// rejected in every method, delayMs delays unary, x-echo
+// metadata is reflected in the unary reply.
 const handlers = {
-  async unary(req) {
+  async unary(req, ctx) {
+    if (req.message === "fail") {
+      throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+    }
     if (req.delayMs > 0) {
       await new Promise((r) => setTimeout(r, req.delayMs));
     }
-    return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+    const suffix = ctx.metadata["x-echo"] ? ` [${ctx.metadata["x-echo"]}]` : "";
+    return new EchoResponse({ message: `echo: ${req.message}${suffix}`, index: 0 });
   },
   async *serverStream(req) {
+    if (req.message === "fail") {
+      throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+    }
     for (let i = 0; i < Math.max(0, req.count); i++) {
       yield new EchoResponse({ message: req.message, index: i });
     }
@@ -73,6 +83,9 @@ const handlers = {
   async *bidi(requests) {
     let index = 0;
     for await (const req of requests) {
+      if (req.message === "fail") {
+        throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+      }
       yield new EchoResponse({ message: req.message, index: index++ });
     }
   },
@@ -138,6 +151,23 @@ async function runClient(name, engine, client) {
     assert.deepEqual(result.echoed, expected.echoed, `${client.label}: echoed`);
     if (client.deadline) {
       assert.equal(result.deadlineCode, expected.deadlineCode, `${client.label}: deadlineCode`);
+    }
+    if (client.deep) {
+      // Scenarios executed inside the Wasm module itself
+      // (failure, metadata, unknown method, cancellation).
+      assert.equal(result.unaryFailureCode, byName["unary-failure"].expectStatus,
+        `${client.label}: unaryFailureCode`);
+      assert.equal(result.metadataMessage, byName["metadata-marker"].expectMessage,
+        `${client.label}: metadataMessage`);
+      assert.equal(result.serverStreamFailureCode, byName["server-stream-failure"].expectStatus,
+        `${client.label}: serverStreamFailureCode`);
+      assert.equal(result.bidiFailureCode, byName["bidi-failure"].expectStatus,
+        `${client.label}: bidiFailureCode`);
+      assert.equal(result.unknownMethodCode, byName["unknown-method"].expectStatus,
+        `${client.label}: unknownMethodCode`);
+      assert.equal(result.cancelTerminated, true, `${client.label}: cancelTerminated`);
+      assert.equal(result.deadlineCode, byName["deadline-exceeded"].expectStatus,
+        `${client.label}: deadlineCode (deep)`);
     }
     console.log(`${name}: ${client.label} BDD summary OK`, result);
   } finally {

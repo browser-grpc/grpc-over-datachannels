@@ -38,8 +38,20 @@ class Bridge {
 
   void Unary(const std::string& path, const Bytes& payload,
              UnaryCallback callback);
+  /// Options-aware unary: opts_json is forwarded by the page
+  /// to the JS bridge ({metadata, timeout}).
+  void UnaryWithOptions(const std::string& path, const Bytes& payload,
+                        const std::string& opts_json,
+                        UnaryCallback callback);
   void ServerStream(const std::string& path, const Bytes& payload,
                     MessageCallback on_message, DoneCallback on_done);
+  /// Server-streaming call torn down after cancel_after
+  /// responses; completes normally.
+  void ServerStreamCancelAfter(const std::string& path,
+                               const Bytes& payload,
+                               std::uint32_t cancel_after,
+                               MessageCallback on_message,
+                               DoneCallback on_done);
   void ClientStream(const std::string& path,
                     const std::vector<Bytes>& payloads,
                     UnaryCallback callback);

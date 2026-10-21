@@ -76,6 +76,17 @@ fun JsUint8Array.toByteArray(): ByteArray = ByteArray(length) { this[it].toByte(
 /** Shape of js/src/wasm_bridge.js createGrpcDcBridge(). */
 external interface GrpcdcJsBridge : JsAny {
     fun unary(path: String, payload: JsUint8Array): Promise<JsUint8Array>
+
+    // Options-aware variants (js/src/wasm_bridge.js forwards
+    // {metadata, timeout, cancelAfter} to the call).
+    fun unary(path: String, payload: JsUint8Array, options: JsAny): Promise<JsUint8Array>
+
+    fun serverStream(
+        path: String,
+        payload: JsUint8Array,
+        onMessage: (JsUint8Array) -> Unit,
+        options: JsAny
+    ): Promise<JsAny?>
     fun serverStream(
         path: String,
         payload: JsUint8Array,

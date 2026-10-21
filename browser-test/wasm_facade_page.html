@@ -59,6 +59,19 @@ window.__runWasm = async () => {
         (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_done(id, 1, p, l)),
         (err) => fail(id, err));
     },
+    js_unary_opts(id, pathPtr, pathLen, payloadPtr, payloadLen, optsPtr, optsLen) {
+      const opts = JSON.parse(readStr(optsPtr, optsLen) || "{}");
+      bridge.unary(readStr(pathPtr, pathLen), readBytes(payloadPtr, payloadLen), opts).then(
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_done(id, 1, p, l)),
+        (err) => fail(id, err));
+    },
+    js_server_stream_cancel(id, pathPtr, pathLen, payloadPtr, payloadLen, cancelAfter) {
+      bridge.serverStream(
+        readStr(pathPtr, pathLen), readBytes(payloadPtr, payloadLen),
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_message(id, p, l)),
+        { cancelAfter },
+      ).then(() => instance.exports.on_bridge_done(id, 0, 0, 0), (err) => fail(id, err));
+    },
     js_server_stream(id, pathPtr, pathLen, payloadPtr, payloadLen) {
       bridge.serverStream(
         readStr(pathPtr, pathLen), readBytes(payloadPtr, payloadLen),

@@ -39,8 +39,20 @@ private func jsonEscape(_ s: String) -> String {
     return out
 }
 
+private func codeOf(_ body: () throws -> Void) -> Int {
+    do {
+        try body()
+        return 0
+    } catch let e as StatusException {
+        return e.code
+    } catch {
+        return -1
+    }
+}
+
 private func run() throws {
-    let client = EchoGrpcDc.EchoClient(Channel(DcTransport()))
+    let channel = Channel(DcTransport())
+    let client = EchoGrpcDc.EchoClient(channel)
 
     let unary = try client.Unary(EchoRequest("hello", 0))
 
@@ -66,6 +78,35 @@ private func run() throws {
         }
     }
 
+    // BDD deepening: failure, metadata, unknown-method, and
+    // cancellation scenarios executed by this module.
+    let unaryFailureCode = codeOf { _ = try client.Unary(EchoRequest("fail", 0)) }
+    let metadataResp = try client.Unary(EchoRequest("hello", 0), ["x-echo": "meta"])
+    let serverStreamFailureCode = codeOf {
+        let s = try client.ServerStream(EchoRequest("fail", 3))
+        while true { _ = try s.Recv() }
+    }
+    let bidiFailureCode = codeOf {
+        let s = try client.Bidi([EchoRequest("fail", 0)])
+        while true { _ = try s.Recv() }
+    }
+    let unknownMethodCode = codeOf {
+        try channel.Unary("/echo.Echo/Nope", EchoRequest("hello", 0), EchoResponse())
+    }
+    var cancelTerminated = false
+    do {
+        let stream = try channel.ServerStream("/echo.Echo/ServerStream", EchoRequest("tick", 5))
+        try stream.Recv(EchoResponse())
+        stream.Cancel()
+        do {
+            for _ in 0..<7 {
+                try stream.Recv(EchoResponse())
+            }
+        } catch {
+            cancelTerminated = true
+        }
+    }
+
     let slow = EchoRequest("slow", 0)
     slow.delayMs = 400
     var deadlineCode = 0
@@ -77,7 +118,7 @@ private func run() throws {
 
     let ticksText = ticks.map { String($0) }.joined(separator: ",")
     let echoedText = echoed.map { "\"" + jsonEscape($0) + "\"" }.joined(separator: ",")
-    report("{\"unary\":\"\(jsonEscape(unary.message))\",\"ticks\":[\(ticksText)],\"joined\":\"\(jsonEscape(joined.message))\",\"echoed\":[\(echoedText)],\"deadlineCode\":\(deadlineCode)}",
+    report("{\"unary\":\"\(jsonEscape(unary.message))\",\"ticks\":[\(ticksText)],\"joined\":\"\(jsonEscape(joined.message))\",\"echoed\":[\(echoedText)],\"deadlineCode\":\(deadlineCode),\"unaryFailureCode\":\(unaryFailureCode),\"metadataMessage\":\"\(jsonEscape(metadataResp.message))\",\"serverStreamFailureCode\":\(serverStreamFailureCode),\"bidiFailureCode\":\(bidiFailureCode),\"unknownMethodCode\":\(unknownMethodCode),\"cancelTerminated\":\(cancelTerminated)}",
            error: false)
 }
 

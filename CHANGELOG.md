@@ -3,6 +3,25 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.20.0 — 2026-10-21
+
+- Wasm BDD deepening: every Wasm client — the native runtimes
+  (Rust, Dart, Zig, Lua, C++, Swift, Kotlin) and all six
+  facades (Go, Zig, C++, Swift, Kotlin, Scala.js) — now
+  executes the failure, metadata, unknown-method,
+  cancellation, and deadline scenarios inside the Wasm module
+  itself, asserted by `browser-test/bdd_wasm.test.mjs` against
+  the generated table (all 13 manifest entries are `deep`).
+  The JS Wasm bridge (`createGrpcDcBridge`, generated) now
+  forwards per-call options: `{metadata, timeout}` on all
+  shapes and `{cancelAfter: n}` to abort a stream after n
+  responses; the Go facade bridge runtime exports
+  options-aware helpers (`CallUnaryWithOptions`,
+  `CallServerStreamCancelAfter`), and the Zig/C++/Swift
+  facade bridges gain `js_unary_opts`/`js_server_stream_cancel`
+  env imports, the Kotlin/Scala.js facade bridges
+  options-aware unary and cancel-after server-stream helpers.
+
 ## v0.19.0 — 2026-10-21
 
 - Browser/Wasm BDD coverage: `racket/bdd-gen.rkt` now also

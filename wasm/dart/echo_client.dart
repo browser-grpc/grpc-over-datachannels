@@ -13,6 +13,7 @@ import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
 import '../../dart/grpcdc/channel.dart';
+import '../../dart/grpcdc/status.dart';
 import '../../dart/grpcdc/transport.dart';
 import '../../dart/examples/echo_grpc_dc.dart';
 import '../../dart/examples/echo_messages.dart';
@@ -48,7 +49,17 @@ class JsTransport implements Transport {
 }
 
 Future<String> runEcho(JsTransportJs jsTransport) async {
-  final client = EchoClient(Channel(JsTransport(jsTransport)));
+  final channel = Channel(JsTransport(jsTransport));
+  final client = EchoClient(channel);
+
+  Future<int> codeOf(Future<void> Function() run) async {
+    try {
+      await run();
+      return 0;
+    } on StatusException catch (e) {
+      return e.code;
+    }
+  }
 
   final unary = await client.unary(EchoRequest('hello', 0));
 
@@ -67,11 +78,45 @@ Future<String> runEcho(JsTransportJs jsTransport) async {
     echoed.add(resp.message);
   }
 
+  // BDD deepening: failure, metadata, unknown-method, cancel,
+  // and deadline scenarios executed by this module.
+  final unaryFailureCode = await codeOf(() async {
+    await client.unary(EchoRequest('fail', 0));
+  });
+  final metadataResp =
+      await client.unary(EchoRequest('hello', 0), metadata: {'x-echo': 'meta'});
+  final serverStreamFailureCode = await codeOf(() async {
+    final s = await client.serverStream(EchoRequest('fail', 3));
+    await for (final _ in s.responses) {}
+  });
+  final bidiFailureCode = await codeOf(() async {
+    final s = await client.bidi([EchoRequest('fail', 0)]);
+    await for (final _ in s.responses) {}
+  });
+  final unknownMethodCode = await codeOf(() async {
+    await channel.unary('/echo.Echo/Nope', EchoRequest('hello', 0), EchoResponse());
+  });
+  final cancelStream = await client.serverStream(EchoRequest('tick', 5));
+  final cancelIter = StreamIterator(cancelStream.responses);
+  final cancelFirst = await cancelIter.moveNext();
+  await cancelIter.cancel().timeout(const Duration(seconds: 5));
+  final deadlineCode = await codeOf(() async {
+    await client.unary(EchoRequest('slow', 0, 600),
+        timeout: const Duration(milliseconds: 100));
+  });
+
   return jsonEncode({
     'unary': unary.message,
     'ticks': ticks,
     'joined': joined.message,
     'echoed': echoed,
+    'unaryFailureCode': unaryFailureCode,
+    'metadataMessage': metadataResp.message,
+    'serverStreamFailureCode': serverStreamFailureCode,
+    'bidiFailureCode': bidiFailureCode,
+    'unknownMethodCode': unknownMethodCode,
+    'cancelTerminated': cancelFirst,
+    'deadlineCode': deadlineCode,
   });
 }
 

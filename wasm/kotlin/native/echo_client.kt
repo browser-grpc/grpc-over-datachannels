@@ -33,9 +33,24 @@ private fun jsonEscape(s: String): String {
     return out.toString()
 }
 
+private fun codeOf(body: () -> Unit): Int {
+    return try {
+        body()
+        0
+    } catch (e: StatusException) {
+        e.code
+    } catch (e: Exception) {
+        // e.g. EOFException when a peer ends a failed call with
+        // OK trailers instead of a status; the BDD runner asserts
+        // real codes against the Node server.
+        -1
+    }
+}
+
 @JsExport
 fun runEchoClientNative(sab: JsAny): JsString {
-    val client = EchoGrpcDc.EchoClient(Channel(DcTransport(sab)))
+    val channel = Channel(DcTransport(sab))
+    val client = EchoGrpcDc.EchoClient(channel)
 
     val unary = client.Unary(EchoRequest("hello", 0))
 
@@ -61,6 +76,37 @@ fun runEchoClientNative(sab: JsAny): JsString {
         }
     }
 
+    // BDD deepening: failure, metadata, unknown-method, and
+    // cancellation scenarios executed by this module.
+    val unaryFailureCode = codeOf { client.Unary(EchoRequest("fail", 0)) }
+    val metadataResp = client.Unary(EchoRequest("hello", 0), mapOf("x-echo" to "meta"))
+    val serverStreamFailureCode = codeOf {
+        val s = client.ServerStream(EchoRequest("fail", 3))
+        while (true) s.recv()
+    }
+    val bidiFailureCode = codeOf {
+        val s = client.Bidi(listOf(EchoRequest("fail", 0)))
+        while (true) s.recv()
+    }
+    val unknownMethodCode = codeOf {
+        channel.unary("/echo.Echo/Nope", EchoRequest("hello", 0), EchoResponse())
+    }
+    var cancelTerminated = false
+    try {
+        val stream = channel.serverStream("/echo.Echo/ServerStream", EchoRequest("tick", 5), null)
+        stream.recv(EchoResponse())
+        stream.cancel()
+        try {
+            for (i in 0 until 7) {
+                stream.recv(EchoResponse())
+            }
+        } catch (e: Exception) {
+            cancelTerminated = true
+        }
+    } catch (e: Exception) {
+        // leave cancelTerminated false
+    }
+
     var deadlineCode = 0
     try {
         client.Unary(EchoRequest("slow", 0, 400), null, 50_000_000L)
@@ -72,5 +118,11 @@ fun runEchoClientNative(sab: JsAny): JsString {
     val echoedText = echoed.joinToString(",") { "\"" + jsonEscape(it) + "\"" }
     return ("{\"unary\":\"" + jsonEscape(unary.message) + "\",\"ticks\":[" + ticksText +
         "],\"joined\":\"" + jsonEscape(joined.message) + "\",\"echoed\":[" + echoedText +
-        "],\"deadlineCode\":" + deadlineCode + "}").toJsString()
+        "],\"deadlineCode\":" + deadlineCode +
+        ",\"unaryFailureCode\":" + unaryFailureCode +
+        ",\"metadataMessage\":\"" + jsonEscape(metadataResp.message) + "\"" +
+        ",\"serverStreamFailureCode\":" + serverStreamFailureCode +
+        ",\"bidiFailureCode\":" + bidiFailureCode +
+        ",\"unknownMethodCode\":" + unknownMethodCode +
+        ",\"cancelTerminated\":" + cancelTerminated + "}").toJsString()
 }

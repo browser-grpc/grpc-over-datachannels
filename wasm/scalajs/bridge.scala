@@ -117,6 +117,41 @@ object ScalaJsBridge {
 
 /** Client bridge: wraps createGrpcDcBridge's return value. */
 class GrpcdcScalaJsBridge(private val jsBridge: js.Dynamic) {
+  // Options-aware unary (js/src/wasm_bridge.js forwards
+  // {metadata, timeout} to the call).
+  def unaryWithOptions(path: String, payload: Array[Byte], metadata: Map[String, String], timeoutMs: Int): Future[Array[Byte]] = {
+    val opts = js.Dynamic.literal()
+    if (metadata.nonEmpty) {
+      val md = js.Dynamic.literal()
+      for ((k, v) <- metadata) md.updateDynamic(k)(v)
+      opts.updateDynamic("metadata")(md)
+    }
+    if (timeoutMs > 0) opts.updateDynamic("timeout")(timeoutMs)
+    ScalaJsBridge.futureOf[Array[Byte]] { (resolve, reject) =>
+      ScalaJsBridge.settle(
+        ScalaJsBridge.call(jsBridge, "unary", path, ScalaJsBridge.bytesToUint8(payload), opts).asInstanceOf[js.Promise[Uint8Array]],
+        (value: Uint8Array) => resolve(ScalaJsBridge.uint8ToBytes(value)),
+        (err: js.Any) => reject(err))
+      ()
+    }
+  }
+
+  // Server-streaming call that aborts after cancelAfter
+  // responses (the bridge breaks the iteration, tearing the
+  // call down); the future completes normally.
+  def serverStreamCancelAfter(path: String, payload: Array[Byte], cancelAfter: Int, onMessage: Array[Byte] => Unit): Future[Unit] = {
+    ScalaJsBridge.futureOf[Unit] { (resolve, reject) =>
+      val onPayload: js.Function1[Uint8Array, Unit] =
+        bytes => onMessage(ScalaJsBridge.uint8ToBytes(bytes))
+      val opts = js.Dynamic.literal(cancelAfter = cancelAfter)
+      ScalaJsBridge.settle(
+        ScalaJsBridge.call(jsBridge, "serverStream", path, ScalaJsBridge.bytesToUint8(payload), onPayload, opts).asInstanceOf[js.Promise[js.Any]],
+        (_: js.Any) => resolve(()),
+        (err: js.Any) => reject(err))
+      ()
+    }
+  }
+
   def unary(path: String, payload: Array[Byte]): Future[Array[Byte]] = {
     ScalaJsBridge.futureOf[Array[Byte]] { (resolve, reject) =>
       ScalaJsBridge.settle(

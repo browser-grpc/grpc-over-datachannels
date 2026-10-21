@@ -29,6 +29,14 @@ std::string g_unary;
 std::vector<std::int32_t> g_ticks;
 std::string g_joined;
 std::vector<std::string> g_echoed;
+// BDD deepening fields, filled by the deep chain below.
+int g_unary_failure_code = -99;
+std::string g_metadata;
+int g_server_stream_failure_code = -99;
+int g_bidi_failure_code = -99;
+int g_unknown_method_code = -99;
+int g_cancel_seen = 0;
+int g_deadline_code = -99;
 
 [[noreturn]] void Fail(const grpcdc_wasm::Status& st) {
   const std::string msg =
@@ -67,12 +75,80 @@ void Finish() {
     if (i) json += ",";
     json += "\"" + JsonEscape(g_echoed[i]) + "\"";
   }
-  json += "]}";
+  json += "],\"unaryFailureCode\":" + std::to_string(g_unary_failure_code) +
+          ",\"metadataMessage\":\"" + JsonEscape(g_metadata) + "\"" +
+          ",\"serverStreamFailureCode\":" +
+          std::to_string(g_server_stream_failure_code) +
+          ",\"bidiFailureCode\":" + std::to_string(g_bidi_failure_code) +
+          ",\"unknownMethodCode\":" + std::to_string(g_unknown_method_code) +
+          ",\"cancelTerminated\":" +
+          std::string(g_cancel_seen == 1 ? "true" : "false") +
+          ",\"deadlineCode\":" + std::to_string(g_deadline_code) + "}";
   on_result(json.data(), json.size());
 }
 
 echo::EchoRequest Req(const char* message, std::int32_t count) {
   return echo::EchoRequest(message, count);
+}
+
+// BDD deepening chain: failure, metadata, unknown-method,
+// cancel, and deadline scenarios run inside this module.
+void StartDeadline() {
+  auto slow = Req("slow", 0);
+  slow.delay_ms = 600;
+  grpcdc_wasm::Bridge::Shared().UnaryWithOptions(
+      "/echo.Echo/Unary", slow.MarshalDc(), "{\"timeout\":100}",
+      [](grpcdc_wasm::Status st, const grpcdc_wasm::Bytes*) {
+        g_deadline_code = st.code;
+        Finish();
+      });
+}
+
+void StartUnknown() {
+  grpcdc_wasm::Bridge::Shared().Unary(
+      "/echo.Echo/Nope", Req("hello", 0).MarshalDc(),
+      [](grpcdc_wasm::Status st, const grpcdc_wasm::Bytes*) {
+        g_unknown_method_code = st.code;
+        grpcdc_wasm::Bridge::Shared().ServerStreamCancelAfter(
+            "/echo.Echo/ServerStream", Req("tick", 5).MarshalDc(), 1,
+            [](const grpcdc_wasm::Bytes&) { g_cancel_seen += 1; },
+            [](grpcdc_wasm::Status) { StartDeadline(); });
+      });
+}
+
+void StartBidiFail() {
+  g_client->Bidi(
+      {Req("fail", 0)}, [](echo::EchoResponse) {},
+      [](grpcdc_wasm::Status st) {
+        g_bidi_failure_code = st.code;
+        StartUnknown();
+      });
+}
+
+void StartDeep() {
+  g_client->Unary(Req("fail", 0),
+                  [](grpcdc_wasm::Status st,
+                     std::optional<echo::EchoResponse>) {
+                    g_unary_failure_code = st.code;
+                    grpcdc_wasm::Bridge::Shared().UnaryWithOptions(
+                        "/echo.Echo/Unary", Req("hello", 0).MarshalDc(),
+                        "{\"metadata\":{\"x-echo\":\"meta\"}}",
+                        [](grpcdc_wasm::Status mst,
+                           const grpcdc_wasm::Bytes* payload) {
+                          if (mst.ok() && payload != nullptr) {
+                            echo::EchoResponse resp;
+                            if (resp.UnmarshalDc(*payload)) {
+                              g_metadata = resp.message;
+                            }
+                          }
+                          g_client->ServerStream(
+                              Req("fail", 3), [](echo::EchoResponse) {},
+                              [](grpcdc_wasm::Status sst) {
+                                g_server_stream_failure_code = sst.code;
+                                StartBidiFail();
+                              });
+                        });
+                  });
 }
 
 void StartBidi() {
@@ -81,7 +157,7 @@ void StartBidi() {
       [](echo::EchoResponse resp) { g_echoed.push_back(resp.message); },
       [](grpcdc_wasm::Status st) {
         Check(st);
-        Finish();
+        StartDeep();
       });
 }
 

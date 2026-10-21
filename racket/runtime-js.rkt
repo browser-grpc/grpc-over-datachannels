@@ -919,13 +919,16 @@ GRPC_RUNTIME_EOF
 // wire; the facade owns the types. Payloads cross the boundary as
 // Uint8Array protobuf bytes, so no object mapping is needed.
 //
-//   unary(path, payload) -> Promise<Uint8Array>
-//   serverStream(path, payload, onMessage) -> Promise<void>
-//   clientStream(path, payloads) -> Promise<Uint8Array>
-//   bidi(path, payloads, onMessage) -> Promise<void>
+//   unary(path, payload, options?) -> Promise<Uint8Array>
+//   serverStream(path, payload, onMessage, options?) -> Promise<void>
+//   clientStream(path, payloads, options?) -> Promise<Uint8Array>
+//   bidi(path, payloads, onMessage, options?) -> Promise<void>
 //
-// onMessage receives one Uint8Array per response; the promise resolves
-// on OK trailers and rejects with StatusError otherwise.
+// options may carry {metadata, timeout} (forwarded to the call)
+// and, for streaming calls, {cancelAfter: n} to abort the stream
+// after n responses. onMessage receives one Uint8Array per
+// response; the promise resolves on OK trailers and rejects
+// with StatusError otherwise.
 
 import { Channel } from "./channel.js";
 import { Server } from "./server.js";
@@ -939,20 +942,37 @@ async function* fromList(items) {
 
 export function createGrpcDcBridge(dcOrChannel) {
   const channel = dcOrChannel instanceof Channel ? dcOrChannel : new Channel(dcOrChannel);
+  const callOptions = (options) => ({
+    metadata: options?.metadata ?? {},
+    timeout: options?.timeout,
+  });
   return {
-    async unary(path, payload) {
-      return channel.unary(path, payload, identity, identity);
+    async unary(path, payload, options) {
+      return channel.unary(path, payload, identity, identity, callOptions(options));
     },
-    async serverStream(path, payload, onMessage) {
-      const responses = await channel.serverStream(path, payload, identity, identity);
-      for await (const resp of responses) onMessage(resp);
+    async serverStream(path, payload, onMessage, options) {
+      const responses = await channel.serverStream(path, payload, identity, identity, callOptions(options));
+      let seen = 0;
+      for await (const resp of responses) {
+        onMessage(resp);
+        seen++;
+        // cancelAfter: the caller aborts the stream after this
+        // many responses (breaking the iteration tears the call
+        // down); the promise then resolves normally.
+        if (options?.cancelAfter && seen >= options.cancelAfter) break;
+      }
     },
-    async clientStream(path, payloads) {
-      return channel.clientStream(path, fromList(payloads), identity, identity);
+    async clientStream(path, payloads, options) {
+      return channel.clientStream(path, fromList(payloads), identity, identity, callOptions(options));
     },
-    async bidi(path, payloads, onMessage) {
-      const responses = await channel.bidi(path, fromList(payloads), identity, identity);
-      for await (const resp of responses) onMessage(resp);
+    async bidi(path, payloads, onMessage, options) {
+      const responses = await channel.bidi(path, fromList(payloads), identity, identity, callOptions(options));
+      let seen = 0;
+      for await (const resp of responses) {
+        onMessage(resp);
+        seen++;
+        if (options?.cancelAfter && seen >= options.cancelAfter) break;
+      }
     },
   };
 }

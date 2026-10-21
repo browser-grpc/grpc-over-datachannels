@@ -76,6 +76,76 @@ export fn run_echo_client() void {
         }
     }
 
+    // BDD deepening: failure, metadata, unknown-method, and
+    // cancellation scenarios executed by this module.
+    const unary_failure_code: i32 = switch (client.unary(&req("fail", 0), null, null)) {
+        .ok => 0,
+        .status => |st| st.code,
+    };
+    var md_map = grpcdc.transport.Metadata.init(alloc);
+    defer md_map.deinit();
+    md_map.put("x-echo", "meta") catch {};
+    const metadata_resp = switch (client.unary(&req("hello", 0), &md_map, null)) {
+        .ok => |r| r,
+        .status => |st| return fail(st),
+    };
+    const metadata_msg = alloc.dupe(u8, metadata_resp.message) catch return fail(stubs.Status.init(13, "out of memory"));
+    const server_stream_failure_code: i32 = blk: {
+        var s = switch (client.serverStream(&req("fail", 3), null, null)) {
+            .ok => |s| s,
+            .status => |st| break :blk st.code,
+        };
+        defer s.deinit();
+        while (true) {
+            switch (s.recv()) {
+                .message => {},
+                .end => break :blk 0,
+                .status => |st| break :blk st.code,
+            }
+        }
+    };
+    const bidi_failure_code: i32 = blk: {
+        var s = switch (client.bidi(&.{req("fail", 0)}, null, null)) {
+            .ok => |s| s,
+            .status => |st| break :blk st.code,
+        };
+        defer s.deinit();
+        while (true) {
+            switch (s.recv()) {
+                .message => {},
+                .end => break :blk 0,
+                .status => |st| break :blk st.code,
+            }
+        }
+    };
+    const unknown_method_code: i32 = blk: {
+        var request = req("hello", 0);
+        var resp = stubs.EchoResponse{};
+        break :blk channel.unary("/echo.Echo/Nope", &request, &resp, null, null).code;
+    };
+    const cancel_terminated: bool = blk: {
+        var s = switch (client.serverStream(&req("tick", 5), null, null)) {
+            .ok => |s| s,
+            .status => break :blk false,
+        };
+        defer s.deinit();
+        switch (s.recv()) {
+            .message => {},
+            else => break :blk false,
+        }
+        s.stream.cancel();
+        var terminated = false;
+        var i: i32 = 0;
+        while (i < 7 and !terminated) : (i += 1) {
+            switch (s.recv()) {
+                .message => {},
+                .end => terminated = true,
+                .status => terminated = true,
+            }
+        }
+        break :blk terminated;
+    };
+
     var slow = req("slow", 0);
     slow.delay_ms = 400;
     const deadline_code: i32 = switch (client.unary(&slow, null, 50)) {
@@ -89,6 +159,12 @@ export fn run_echo_client() void {
         joined: []const u8,
         echoed: []const []const u8,
         deadlineCode: i32,
+        unaryFailureCode: i32,
+        metadataMessage: []const u8,
+        serverStreamFailureCode: i32,
+        bidiFailureCode: i32,
+        unknownMethodCode: i32,
+        cancelTerminated: bool,
     };
     const echoed_view: []const []const u8 = @ptrCast(echoed.items);
     const json = std.json.Stringify.valueAlloc(alloc, Result{
@@ -97,6 +173,12 @@ export fn run_echo_client() void {
         .joined = joined_msg,
         .echoed = echoed_view,
         .deadlineCode = deadline_code,
+        .unaryFailureCode = unary_failure_code,
+        .metadataMessage = metadata_msg,
+        .serverStreamFailureCode = server_stream_failure_code,
+        .bidiFailureCode = bidi_failure_code,
+        .unknownMethodCode = unknown_method_code,
+        .cancelTerminated = cancel_terminated,
     }, .{}) catch return fail(stubs.Status.init(13, "out of memory"));
     on_result(json.ptr, json.len);
 }

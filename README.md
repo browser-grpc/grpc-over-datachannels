@@ -247,7 +247,12 @@ browser: `browser-test/bdd.test.mjs` executes all 16 scenarios
 in Chromium and Firefox over a native `RTCDataChannel`, and
 `browser-test/bdd_wasm.test.mjs` pins every Wasm client's
 summary to the generated table (call shapes, plus the deadline
-code where the summary carries it); both consume scenario data
+code where the summary carries it); the native Wasm runtimes
+(Rust, Dart, Zig, Lua, C++, Swift, Kotlin) and all six
+facades (Go, Zig, C++, Swift, Kotlin, Scala.js) also execute
+the failure, metadata, unknown-method, cancellation, and
+deadline scenarios inside the Wasm module itself. Both
+consume scenario data
 and the client manifest stamped by `racket/bdd-gen.rkt`, so
 browser coverage cannot drift from the native suites either.
 `make test` also runs

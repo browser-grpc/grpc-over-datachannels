@@ -19,7 +19,9 @@ pub const CompleteFn = *const fn (ctx: *anyopaque, status: Status, payload: ?[]c
 pub const MessageFn = *const fn (ctx: *anyopaque, payload: []const u8) void;
 
 extern "env" fn js_unary(call_id: u32, path_ptr: [*]const u8, path_len: usize, payload_ptr: [*]const u8, payload_len: usize) void;
+extern "env" fn js_unary_opts(call_id: u32, path_ptr: [*]const u8, path_len: usize, payload_ptr: [*]const u8, payload_len: usize, opts_ptr: [*]const u8, opts_len: usize) void;
 extern "env" fn js_server_stream(call_id: u32, path_ptr: [*]const u8, path_len: usize, payload_ptr: [*]const u8, payload_len: usize) void;
+extern "env" fn js_server_stream_cancel(call_id: u32, path_ptr: [*]const u8, path_len: usize, payload_ptr: [*]const u8, payload_len: usize, cancel_after: u32) void;
 extern "env" fn js_client_stream(call_id: u32, path_ptr: [*]const u8, path_len: usize, packed_ptr: [*]const u8, packed_len: usize) void;
 extern "env" fn js_bidi(call_id: u32, path_ptr: [*]const u8, path_len: usize, packed_ptr: [*]const u8, packed_len: usize) void;
 
@@ -58,6 +60,20 @@ pub const Bridge = struct {
         g_next_id += 1;
         pending().put(id, entry) catch {};
         return id;
+    }
+
+    // Options-aware unary: optsJson is forwarded by the page
+    // to the JS bridge ({metadata, timeout}).
+    pub fn unaryWithOptions(self: *Bridge, path: []const u8, payload: []const u8, opts_json: []const u8, ctx: *anyopaque, complete: CompleteFn) void {
+        const id = self.register(.{ .ctx = ctx, .on_message = null, .complete = complete });
+        js_unary_opts(id, path.ptr, path.len, payload.ptr, payload.len, opts_json.ptr, opts_json.len);
+    }
+
+    // Server-streaming call torn down after cancelAfter
+    // responses; completes normally.
+    pub fn serverStreamCancelAfter(self: *Bridge, path: []const u8, payload: []const u8, cancel_after: u32, ctx: *anyopaque, on_message: MessageFn, complete: CompleteFn) void {
+        const id = self.register(.{ .ctx = ctx, .on_message = on_message, .complete = complete });
+        js_server_stream_cancel(id, path.ptr, path.len, payload.ptr, payload.len, cancel_after);
     }
 
     pub fn unary(self: *Bridge, path: []const u8, payload: []const u8, ctx: *anyopaque, complete: CompleteFn) void {

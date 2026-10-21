@@ -9,6 +9,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"syscall/js"
 
@@ -76,5 +77,54 @@ func doEcho() (map[string]any, error) {
 		return nil, err
 	}
 	out["echoed"] = echoed
+
+	// BDD deepening: failure, metadata, unknown-method, cancel,
+	// and deadline scenarios executed by this module.
+	codeOf := func(err error) int {
+		var se *echowasm.StatusError
+		if errors.As(err, &se) {
+			return se.Code
+		}
+		if err != nil {
+			return -1
+		}
+		return 0
+	}
+
+	_, failErr := client.Unary(req("fail", 0))
+	out["unaryFailureCode"] = codeOf(failErr)
+
+	metadataRaw, err := echowasm.CallUnaryWithOptions(bridge, "/echo.Echo/Unary",
+		req("hello", 0).MarshalDC(), map[string]string{"x-echo": "meta"}, 0)
+	if err != nil {
+		return nil, err
+	}
+	var metadataResp echo.EchoResponse
+	if err := metadataResp.UnmarshalDC(metadataRaw); err != nil {
+		return nil, err
+	}
+	out["metadataMessage"] = metadataResp.Message
+
+	out["serverStreamFailureCode"] = codeOf(client.ServerStream(req("fail", 3),
+		func(resp *echo.EchoResponse) error { return nil }))
+	out["bidiFailureCode"] = codeOf(client.Bidi([]*echo.EchoRequest{req("fail", 0)},
+		func(resp *echo.EchoResponse) error { return nil }))
+
+	_, rawErr := echowasm.CallUnaryWithOptions(bridge, "/echo.Echo/Nope",
+		req("hello", 0).MarshalDC(), nil, 0)
+	out["unknownMethodCode"] = codeOf(rawErr)
+
+	cancelSeen := 0
+	cancelErr := echowasm.CallServerStreamCancelAfter(bridge, "/echo.Echo/ServerStream",
+		req("tick", 5).MarshalDC(), 1, func(payload []byte) error {
+			cancelSeen++
+			return nil
+		})
+	out["cancelTerminated"] = cancelErr == nil && cancelSeen == 1
+
+	_, deadlineErr := echowasm.CallUnaryWithOptions(bridge, "/echo.Echo/Unary",
+		(&echo.EchoRequest{Message: "slow", DelayMs: 600}).MarshalDC(), nil, 100)
+	out["deadlineCode"] = codeOf(deadlineErr)
+
 	return out, nil
 }

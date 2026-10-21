@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, firefox } from "playwright";
 
 import { Peer } from "../webrtc/js/peer.js";
-import { Server } from "../js/index.js";
+import { Server, StatusError } from "../js/index.js";
 import { EchoResponse } from "../js/examples/echo_pb.js";
 import { createEchoService } from "../js/examples/echo_grpc_dc.js";
 
@@ -38,23 +38,38 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const pageUrl = `http://127.0.0.1:${server.address().port}/browser-test/wasm_zig_page.html`;
 
+// Canonical Echo semantics (racket/bdd-spec.rkt): "fail" is
+// rejected with INVALID_ARGUMENT in every method, delayMs
+// delays unary, x-echo metadata is reflected as " [meta]".
 const handlers = {
-  async unary(req) {
-    return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+  async unary(req, ctx) {
+    if (req.message === "fail") throw new StatusError(3, "fail requested");
+    if (req.delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, req.delayMs));
+    }
+    const md = ctx?.metadata;
+    const echoMd = typeof md?.get === "function" ? md.get("x-echo") : md?.["x-echo"];
+    const suffix = echoMd ? " [meta]" : "";
+    return new EchoResponse({ message: `echo: ${req.message}${suffix}`, index: 0 });
   },
   async *serverStream(req) {
+    if (req.message === "fail") throw new StatusError(3, "fail requested");
     for (let i = 0; i < Math.max(0, req.count); i++) {
       yield new EchoResponse({ message: req.message, index: i });
     }
   },
   async clientStream(requests) {
     const parts = [];
-    for await (const req of requests) parts.push(req.message);
+    for await (const req of requests) {
+      if (req.message === "fail") throw new StatusError(3, "fail requested");
+      parts.push(req.message);
+    }
     return new EchoResponse({ message: parts.join("+"), index: parts.length });
   },
   async *bidi(requests) {
     let index = 0;
     for await (const req of requests) {
+      if (req.message === "fail") throw new StatusError(3, "fail requested");
       yield new EchoResponse({ message: req.message, index: index++ });
     }
   },
@@ -96,6 +111,13 @@ async function runBrowser(name, engine) {
       ticks: [0, 1, 2],
       joined: "a+b",
       echoed: ["x", "y"],
+      unaryFailureCode: 3,
+      metadataMessage: "echo: hello [meta]",
+      serverStreamFailureCode: 3,
+      bidiFailureCode: 3,
+      unknownMethodCode: 12,
+      cancelTerminated: true,
+      deadlineCode: 4,
     });
     console.log(`${name}: Zig/WASM gRPC client over native RTCDataChannel OK`, result);
   } finally {

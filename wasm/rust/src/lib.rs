@@ -75,6 +75,18 @@ struct EchoResults {
     echoed: Vec<String>,
     #[serde(rename = "deadlineCode")]
     deadline_code: i32,
+    #[serde(rename = "unaryFailureCode")]
+    unary_failure_code: i32,
+    #[serde(rename = "metadataMessage")]
+    metadata_message: String,
+    #[serde(rename = "serverStreamFailureCode")]
+    server_stream_failure_code: i32,
+    #[serde(rename = "bidiFailureCode")]
+    bidi_failure_code: i32,
+    #[serde(rename = "unknownMethodCode")]
+    unknown_method_code: i32,
+    #[serde(rename = "cancelTerminated")]
+    cancel_terminated: bool,
 }
 
 fn req(message: &str, count: i32) -> pb::EchoRequest {
@@ -96,7 +108,8 @@ pub async fn echo_client(transport: JsTransport) -> Result<String, JsValue> {
         inbox: Mutex::new(rx),
         _callback: callback,
     });
-    let client = EchoClient::new(Channel::new(wasm_transport));
+    let channel = Channel::new(wasm_transport);
+    let client = EchoClient::new(channel.clone());
 
     let run = async {
         let unary = client.unary(req("hello", 0)).await?;
@@ -114,6 +127,56 @@ pub async fn echo_client(transport: JsTransport) -> Result<String, JsValue> {
         while let Some(resp) = bidi.try_next().await? {
             echoed.push(resp.message);
         }
+        // BDD deepening: failure, metadata, unknown-method, and
+        // cancellation scenarios executed by this module.
+        let unary_failure_code = match client.unary(req("fail", 0)).await {
+            Ok(_) => 0,
+            Err(status) => status.code as i32,
+        };
+        let mut md: std::collections::HashMap<String, String> = Default::default();
+        md.insert("x-echo".to_string(), "meta".to_string());
+        let metadata_resp: pb::EchoResponse = channel
+            .unary_with("/echo.Echo/Unary", req("hello", 0), md)
+            .await?;
+        let metadata_message = metadata_resp.message;
+        let server_stream_failure_code = {
+            let mut stream = client.server_stream(req("fail", 3)).await?;
+            let mut code = 0;
+            while let Some(item) = stream.next().await {
+                if let Err(status) = item {
+                    code = status.code as i32;
+                    break;
+                }
+            }
+            code
+        };
+        let bidi_failure_code = {
+            let reqs = futures_util::stream::iter(vec![req("fail", 0)]);
+            let mut stream = client.bidi(reqs).await?;
+            let mut code = 0;
+            while let Some(item) = stream.next().await {
+                if let Err(status) = item {
+                    code = status.code as i32;
+                    break;
+                }
+            }
+            code
+        };
+        let unknown_method_code = {
+            let result: Result<pb::EchoResponse, Status> =
+                channel.unary("/echo.Echo/Nope", req("hello", 0)).await;
+            match result {
+                Ok(_) => 0,
+                Err(status) => status.code as i32,
+            }
+        };
+        let cancel_terminated = {
+            let mut stream = client.server_stream(req("tick", 5)).await?;
+            let first = stream.next().await;
+            drop(stream);
+            matches!(first, Some(Ok(_)))
+        };
+
         let mut slow = req("slow", 0);
         slow.delay_ms = 400;
         let deadline_code = match client
@@ -132,6 +195,12 @@ pub async fn echo_client(transport: JsTransport) -> Result<String, JsValue> {
             joined: joined.message,
             echoed,
             deadline_code,
+            unary_failure_code,
+            metadata_message,
+            server_stream_failure_code,
+            bidi_failure_code,
+            unknown_method_code,
+            cancel_terminated,
         })
     };
     match run.await {

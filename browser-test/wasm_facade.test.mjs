@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, firefox } from "playwright";
 
 import { Peer } from "../webrtc/js/peer.js";
-import { Server } from "../js/index.js";
+import { Server, StatusCode, StatusError } from "../js/index.js";
 import { EchoResponse } from "../js/examples/echo_pb.js";
 import { createEchoService } from "../js/examples/echo_grpc_dc.js";
 
@@ -50,10 +50,18 @@ await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const pageUrl = `http://127.0.0.1:${server.address().port}/browser-test/${pagePath}`;
 
 const handlers = {
-  async unary(req) {
-    return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+  async unary(req, ctx) {
+    if (req.message === "fail") {
+      throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+    }
+    if (req.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, req.delayMs));
+    const suffix = ctx.metadata["x-echo"] ? ` [${ctx.metadata["x-echo"]}]` : "";
+    return new EchoResponse({ message: `echo: ${req.message}${suffix}`, index: 0 });
   },
   async *serverStream(req) {
+    if (req.message === "fail") {
+      throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+    }
     for (let i = 0; i < Math.max(0, req.count); i++) {
       yield new EchoResponse({ message: req.message, index: i });
     }
@@ -66,6 +74,9 @@ const handlers = {
   async *bidi(requests) {
     let index = 0;
     for await (const req of requests) {
+      if (req.message === "fail") {
+        throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+      }
       yield new EchoResponse({ message: req.message, index: index++ });
     }
   },
@@ -102,12 +113,21 @@ async function runBrowser(name, engine) {
     endpoint.onchannel = (channel) => grpcServer.serve(channel);
 
     const result = await page.evaluate(() => window.__runWasm());
-    assert.deepEqual(result, {
-      unary: "echo: hello",
-      ticks: [0, 1, 2],
-      joined: "a+b",
-      echoed: ["x", "y"],
-    });
+    assert.equal(result.unary, "echo: hello");
+    assert.deepEqual(result.ticks, [0, 1, 2]);
+    assert.equal(result.joined, "a+b");
+    assert.deepEqual(result.echoed, ["x", "y"]);
+    // Facades that execute the deep BDD scenarios in-module
+    // report these fields; assert them when present.
+    if ("unaryFailureCode" in result) {
+      assert.equal(result.unaryFailureCode, 3);
+      assert.equal(result.metadataMessage, "echo: hello [meta]");
+      assert.equal(result.serverStreamFailureCode, 3);
+      assert.equal(result.bidiFailureCode, 3);
+      assert.equal(result.unknownMethodCode, 12);
+      assert.equal(result.cancelTerminated, true);
+      assert.equal(result.deadlineCode, 4);
+    }
     console.log(`${name}: ${label} gRPC client over native RTCDataChannel OK`, result);
   } finally {
     await browser.close();

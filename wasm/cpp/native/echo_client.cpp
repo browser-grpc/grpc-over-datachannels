@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstdint>
 #include <exception>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -85,6 +86,58 @@ void Run() {
     }
   }
 
+  auto code_of = [](const std::function<void()>& run) {
+    try {
+      run();
+      return 0;
+    } catch (const grpcdc::StatusException& e) {
+      return e.code();
+    } catch (const std::exception&) {
+      // e.g. EndOfStream when a peer ends a failed call with OK
+      // trailers instead of a status; the BDD runner asserts
+      // real codes against the Node server.
+      return -1;
+    }
+  };
+
+  // BDD deepening: failure, metadata, unknown-method, and
+  // cancellation scenarios executed by this module.
+  int unary_failure_code = code_of([&] { (void)client.Unary(Req("fail", 0)); });
+  grpcdc::Metadata md;
+  md["x-echo"] = "meta";
+  echo::EchoResponse metadata_resp = client.Unary(Req("hello", 0), &md);
+  int server_stream_failure_code = code_of([&] {
+    auto s = client.ServerStream(Req("fail", 3));
+    while (true) {
+      (void)s.Recv();
+    }
+  });
+  int bidi_failure_code = code_of([&] {
+    auto s = client.Bidi({Req("fail", 0)});
+    while (true) {
+      (void)s.Recv();
+    }
+  });
+  int unknown_method_code = code_of([&] {
+    echo::EchoResponse resp;
+    channel->Unary("/echo.Echo/Nope", Req("hello", 0), resp);
+  });
+  bool cancel_terminated = false;
+  {
+    auto stream = channel->ServerStream("/echo.Echo/ServerStream", Req("tick", 5));
+    echo::EchoResponse first;
+    stream.Recv(first);
+    channel->Cancel(stream);
+    try {
+      for (int i = 0; i < 7 && !cancel_terminated; ++i) {
+        echo::EchoResponse resp;
+        stream.Recv(resp);
+      }
+    } catch (...) {
+      cancel_terminated = true;
+    }
+  }
+
   echo::EchoRequest slow = Req("slow", 0);
   slow.delay_ms = 400;
   int deadline_code = 0;
@@ -105,7 +158,13 @@ void Run() {
     if (i) json += ",";
     json += "\"" + JsonEscape(echoed[i]) + "\"";
   }
-  json += "],\"deadlineCode\":" + std::to_string(deadline_code) + "}";
+  json += "],\"deadlineCode\":" + std::to_string(deadline_code) +
+          ",\"unaryFailureCode\":" + std::to_string(unary_failure_code) +
+          ",\"metadataMessage\":\"" + JsonEscape(metadata_resp.message) + "\"" +
+          ",\"serverStreamFailureCode\":" + std::to_string(server_stream_failure_code) +
+          ",\"bidiFailureCode\":" + std::to_string(bidi_failure_code) +
+          ",\"unknownMethodCode\":" + std::to_string(unknown_method_code) +
+          ",\"cancelTerminated\":" + std::string(cancel_terminated ? "true" : "false") + "}";
   on_result(json.data(), json.size());
 }
 

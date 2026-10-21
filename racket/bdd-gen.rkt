@@ -103,9 +103,12 @@
          "\nRun them per language with `make test-<lang>` (suite `TestBdd`), or all\n"
          "of them with `make test`. In a real browser, `browser-test/bdd.test.mjs`\n"
          "runs the same table in Chromium and Firefox against the Node WebRTC\n"
-         "stack, and `browser-test/bdd_wasm.test.mjs` pins every Wasm client's\n"
-         "summary (call shapes, plus the deadline code where the summary carries\n"
-         "it) to the same generated table.\n")))
+         "stack, and `browser-test/bdd_wasm.test.mjs` pins every Wasm client to\n"
+         "the same generated table: every Wasm client — the native runtimes\n"
+         "(Rust, Dart, Zig, Lua, C++, Swift, Kotlin) and all six facades (Go,\n"
+         "Zig, C++, Swift, Kotlin, Scala.js) — also executes the failure,\n"
+         "metadata, unknown-method, cancellation, and deadline scenarios\n"
+         "inside the Wasm module itself.\n")))
 
 ;; ---------------------------------------------------------------------------
 ;; JavaScript -> js/test/bdd_scenarios.generated.js
@@ -151,19 +154,19 @@
 ;; label page run tick-style joined-messages deadline? allow-wasm-error?
 (define wasm-bdd-clients
   (list
-   (list "Go facade" "wasm_page.html" "__runWasm" "index" '("a" "b") #f #f)
-   (list "Rust native" "wasm_rust_page.html" "__runWasm" "label" '("a" "b" "c") #t #f)
-   (list "Dart WasmGC" "dart_wasm_page.html" "__runDart" "label" '("a" "b" "c") #f #t)
-   (list "Lua native" "wasm_lua_page.html" "__runWasm" "index" '("a" "b") #f #f)
-   (list "Zig facade" "wasm_zig_page.html" "__runWasm" "index" '("a" "b") #f #f)
-   (list "Zig native" "wasm_zig_native_page.html" "__runWasm" "index" '("a" "b") #t #f)
-   (list "C++ facade" "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm" "__runWasm" "index" '("a" "b") #f #f)
-   (list "C++ native" "wasm_cpp_native_page.html" "__runWasm" "index" '("a" "b") #t #f)
-   (list "Swift facade" "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm" "__runWasm" "index" '("a" "b") #f #f)
-   (list "Swift native" "wasm_swift_native_page.html" "__runWasm" "index" '("a" "b") #t #f)
-   (list "Kotlin facade" "wasm_kotlin_page.html" "__runWasm" "index" '("a" "b") #f #f)
-   (list "Kotlin native" "wasm_kotlin_native_page.html" "__runWasm" "index" '("a" "b") #t #f)
-   (list "Scala.js facade" "wasm_scalajs_page.html" "__runWasm" "index" '("a" "b") #f #f)))
+   (list "Go facade" "wasm_page.html" "__runWasm" "index" '("a" "b") #f #f #t)
+   (list "Rust native" "wasm_rust_page.html" "__runWasm" "label" '("a" "b" "c") #t #f #t)
+   (list "Dart WasmGC" "dart_wasm_page.html" "__runDart" "label" '("a" "b" "c") #f #t #t)
+   (list "Lua native" "wasm_lua_page.html" "__runWasm" "index" '("a" "b") #f #f #t)
+   (list "Zig facade" "wasm_zig_page.html" "__runWasm" "index" '("a" "b") #f #f #t)
+   (list "Zig native" "wasm_zig_native_page.html" "__runWasm" "index" '("a" "b") #t #f #t)
+   (list "C++ facade" "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm" "__runWasm" "index" '("a" "b") #f #f #t)
+   (list "C++ native" "wasm_cpp_native_page.html" "__runWasm" "index" '("a" "b") #t #f #t)
+   (list "Swift facade" "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm" "__runWasm" "index" '("a" "b") #f #f #t)
+   (list "Swift native" "wasm_swift_native_page.html" "__runWasm" "index" '("a" "b") #t #f #t)
+   (list "Kotlin facade" "wasm_kotlin_page.html" "__runWasm" "index" '("a" "b") #f #f #t)
+   (list "Kotlin native" "wasm_kotlin_native_page.html" "__runWasm" "index" '("a" "b") #t #f #t)
+   (list "Scala.js facade" "wasm_scalajs_page.html" "__runWasm" "index" '("a" "b") #f #f #t)))
 
 (define (emit-browser-bdd-manifest)
   (cons "bdd_wasm_manifest.generated.mjs"
@@ -175,11 +178,12 @@
          "export const WASM_BDD_CLIENTS = [\n"
          (apply string-append
                 (for/list ([c (in-list wasm-bdd-clients)])
-                  (format "  { label: ~s, page: ~s, run: ~s, tickStyle: ~s, joinedMessages: [~a], deadline: ~a, allowWasmError: ~a },\n"
+                  (format "  { label: ~s, page: ~s, run: ~s, tickStyle: ~s, joinedMessages: [~a], deadline: ~a, allowWasmError: ~a, deep: ~a },\n"
                           (first c) (second c) (third c) (fourth c)
                           (q (fifth c))
                           (if (sixth c) "true" "false")
-                          (if (seventh c) "true" "false"))))
+                          (if (seventh c) "true" "false")
+                          (if (eighth c) "true" "false"))))
          "];\n")))
 
 ;; ---------------------------------------------------------------------------

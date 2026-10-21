@@ -99,6 +99,58 @@ func callUnary(bridge js.Value, path string, payload []byte) ([]byte, error) {
 	return bytesOf(value), nil
 }
 
+// bridgeOptions builds the JS bridge options object
+// ({metadata, timeout, cancelAfter}); zero values are omitted.
+func bridgeOptions(metadata map[string]string, timeoutMs int, cancelAfter int) js.Value {
+	opts := js.Global().Get("Object").New()
+	if len(metadata) > 0 {
+		md := js.Global().Get("Object").New()
+		for k, v := range metadata {
+			md.Set(k, v)
+		}
+		opts.Set("metadata", md)
+	}
+	if timeoutMs > 0 {
+		opts.Set("timeout", timeoutMs)
+	}
+	if cancelAfter > 0 {
+		opts.Set("cancelAfter", cancelAfter)
+	}
+	return opts
+}
+
+// CallUnaryWithOptions is the exported options-aware unary call
+// for facade entry points (metadata, deadline, raw paths): the
+// generated stub covers the typed call shapes; this covers
+// per-call options the stub does not take.
+func CallUnaryWithOptions(bridge js.Value, path string, payload []byte, metadata map[string]string, timeoutMs int) ([]byte, error) {
+	value, err := await(bridge.Call("unary", path, uint8Array(payload), bridgeOptions(metadata, timeoutMs, 0)))
+	if err != nil {
+		return nil, err
+	}
+	return bytesOf(value), nil
+}
+
+// CallServerStreamCancelAfter runs a server-streaming call that
+// aborts after cancelAfter responses (the bridge breaks the
+// iteration, tearing the call down) and reports how many
+// responses were seen.
+func CallServerStreamCancelAfter(bridge js.Value, path string, payload []byte, cancelAfter int, onPayload func([]byte) error) error {
+	var firstErr error
+	onMessage := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		if len(args) > 0 && firstErr == nil {
+			firstErr = onPayload(bytesOf(args[0]))
+		}
+		return nil
+	})
+	defer onMessage.Release()
+	_, err := await(bridge.Call("serverStream", path, uint8Array(payload), onMessage, bridgeOptions(nil, 0, cancelAfter)))
+	if err != nil {
+		return err
+	}
+	return firstErr
+}
+
 // callClientStream: bridge.clientStream(path, payloads) -> Promise<Uint8Array>.
 func callClientStream(bridge js.Value, path string, payloads [][]byte) ([]byte, error) {
 	value, err := await(bridge.Call("clientStream", path, uint8ArrayList(payloads)))

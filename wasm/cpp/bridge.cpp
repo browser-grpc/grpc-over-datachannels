@@ -11,6 +11,17 @@ GRPCDC_WASM_IMPORT("js_unary")
 void js_unary(std::uint32_t call_id, const char* path_ptr,
               std::size_t path_len, const std::uint8_t* payload_ptr,
               std::size_t payload_len);
+GRPCDC_WASM_IMPORT("js_unary_opts")
+void js_unary_opts(std::uint32_t call_id, const char* path_ptr,
+                   std::size_t path_len, const std::uint8_t* payload_ptr,
+                   std::size_t payload_len, const char* opts_ptr,
+                   std::size_t opts_len);
+GRPCDC_WASM_IMPORT("js_server_stream_cancel")
+void js_server_stream_cancel(std::uint32_t call_id, const char* path_ptr,
+                             std::size_t path_len,
+                             const std::uint8_t* payload_ptr,
+                             std::size_t payload_len,
+                             std::uint32_t cancel_after);
 GRPCDC_WASM_IMPORT("js_server_stream")
 void js_server_stream(std::uint32_t call_id, const char* path_ptr,
                       std::size_t path_len,
@@ -92,6 +103,30 @@ void Bridge::Unary(const std::string& path, const Bytes& payload,
   entry.unary = true;
   const auto id = Register(std::move(entry));
   js_unary(id, path.data(), path.size(), payload.data(), payload.size());
+}
+
+void Bridge::UnaryWithOptions(const std::string& path, const Bytes& payload,
+                              const std::string& opts_json,
+                              UnaryCallback callback) {
+  Entry entry;
+  entry.on_unary = std::move(callback);
+  entry.unary = true;
+  const auto id = Register(std::move(entry));
+  js_unary_opts(id, path.data(), path.size(), payload.data(), payload.size(),
+                opts_json.data(), opts_json.size());
+}
+
+void Bridge::ServerStreamCancelAfter(const std::string& path,
+                                     const Bytes& payload,
+                                     std::uint32_t cancel_after,
+                                     MessageCallback on_message,
+                                     DoneCallback on_done) {
+  Entry entry;
+  entry.on_message = std::move(on_message);
+  entry.on_done = std::move(on_done);
+  const auto id = Register(std::move(entry));
+  js_server_stream_cancel(id, path.data(), path.size(), payload.data(),
+                          payload.size(), cancel_after);
 }
 
 void Bridge::ServerStream(const std::string& path, const Bytes& payload,

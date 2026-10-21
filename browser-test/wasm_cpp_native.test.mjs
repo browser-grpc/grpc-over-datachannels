@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, firefox } from "playwright";
 
 import { Peer } from "../webrtc/js/peer.js";
-import { Server } from "../js/index.js";
+import { Server, StatusCode, StatusError } from "../js/index.js";
 import { EchoResponse } from "../js/examples/echo_pb.js";
 import { createEchoService } from "../js/examples/echo_grpc_dc.js";
 
@@ -45,11 +45,18 @@ await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const pageUrl = `http://127.0.0.1:${server.address().port}/browser-test/wasm_cpp_native_page.html`;
 
 const handlers = {
-  async unary(req) {
+  async unary(req, ctx) {
+    if (req.message === "fail") {
+      throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+    }
     if (req.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, req.delayMs));
-    return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+    const suffix = ctx.metadata["x-echo"] ? ` [${ctx.metadata["x-echo"]}]` : "";
+    return new EchoResponse({ message: `echo: ${req.message}${suffix}`, index: 0 });
   },
   async *serverStream(req) {
+    if (req.message === "fail") {
+      throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+    }
     for (let i = 0; i < Math.max(0, req.count); i++) {
       yield new EchoResponse({ message: req.message, index: i });
     }
@@ -62,6 +69,9 @@ const handlers = {
   async *bidi(requests) {
     let index = 0;
     for await (const req of requests) {
+      if (req.message === "fail") {
+        throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+      }
       yield new EchoResponse({ message: req.message, index: index++ });
     }
   },
@@ -104,6 +114,12 @@ async function runBrowser(name, engine) {
       joined: "a+b",
       echoed: ["x", "y"],
       deadlineCode: 4,
+      unaryFailureCode: 3,
+      metadataMessage: "echo: hello [meta]",
+      serverStreamFailureCode: 3,
+      bidiFailureCode: 3,
+      unknownMethodCode: 12,
+      cancelTerminated: true,
     });
     console.log(`${name}: C++/WASM native gRPC client over native RTCDataChannel OK`, result);
   } finally {

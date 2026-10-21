@@ -146,6 +146,9 @@ re-encodes; the result must be byte-identical.
 Run them per language with `make test-<lang>` (suite `TestBdd`), or all
 of them with `make test`. In a real browser, `browser-test/bdd.test.mjs`
 runs the same table in Chromium and Firefox against the Node WebRTC
-stack, and `browser-test/bdd_wasm.test.mjs` pins every Wasm client's
-summary (call shapes, plus the deadline code where the summary carries
-it) to the same generated table.
+stack, and `browser-test/bdd_wasm.test.mjs` pins every Wasm client to
+the same generated table: every Wasm client — the native runtimes
+(Rust, Dart, Zig, Lua, C++, Swift, Kotlin) and all six facades (Go,
+Zig, C++, Swift, Kotlin, Scala.js) — also executes the failure,
+metadata, unknown-method, cancellation, and deadline scenarios
+inside the Wasm module itself.

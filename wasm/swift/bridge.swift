@@ -40,6 +40,16 @@ protocol Unmarshaler {
 func jsUnary(_ callId: UInt32, _ path: UnsafePointer<UInt8>, _ pathLen: Int,
              _ payload: UnsafePointer<UInt8>, _ payloadLen: Int)
 
+@_extern(c, "js_unary_opts")
+func jsUnaryOpts(_ callId: UInt32, _ path: UnsafePointer<UInt8>, _ pathLen: Int,
+                 _ payload: UnsafePointer<UInt8>, _ payloadLen: Int,
+                 _ opts: UnsafePointer<UInt8>, _ optsLen: Int)
+
+@_extern(c, "js_server_stream_cancel")
+func jsServerStreamCancel(_ callId: UInt32, _ path: UnsafePointer<UInt8>, _ pathLen: Int,
+                          _ payload: UnsafePointer<UInt8>, _ payloadLen: Int,
+                          _ cancelAfter: UInt32)
+
 @_extern(c, "js_server_stream")
 func jsServerStream(_ callId: UInt32, _ path: UnsafePointer<UInt8>, _ pathLen: Int,
                     _ payload: UnsafePointer<UInt8>, _ payloadLen: Int)
@@ -103,6 +113,31 @@ final class GrpcDcWasmBridge {
     func unary(_ path: String, _ payload: [UInt8], _ callback: @escaping UnaryCallback) {
         let id = register(Entry(onUnary: callback))
         withPointers(path, payload) { p, plen, b, blen in jsUnary(id, p, plen, b, blen) }
+    }
+
+    /// Options-aware unary: optsJson is forwarded by the page
+    /// to the JS bridge ({metadata, timeout}).
+    func unaryWithOptions(_ path: String, _ payload: [UInt8], _ optsJson: String,
+                          _ callback: @escaping UnaryCallback) {
+        let id = register(Entry(onUnary: callback))
+        let optsBytes = [UInt8](optsJson.utf8)
+        let safeOpts = optsBytes.isEmpty ? [0] : optsBytes
+        withPointers(path, payload) { p, plen, b, blen in
+            safeOpts.withUnsafeBufferPointer { o in
+                jsUnaryOpts(id, p, plen, b, blen, o.baseAddress!, optsBytes.count)
+            }
+        }
+    }
+
+    /// Server-streaming call torn down after cancelAfter
+    /// responses; completes normally.
+    func serverStreamCancelAfter(_ path: String, _ payload: [UInt8], _ cancelAfter: UInt32,
+                                 _ onMessage: @escaping MessageCallback,
+                                 _ onDone: @escaping DoneCallback) {
+        let id = register(Entry(onMessage: onMessage, onDone: onDone))
+        withPointers(path, payload) { p, plen, b, blen in
+            jsServerStreamCancel(id, p, plen, b, blen, cancelAfter)
+        }
     }
 
     func serverStream(_ path: String, _ payload: [UInt8],
