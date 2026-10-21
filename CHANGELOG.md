@@ -3,6 +3,36 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.17.0 — 2026-10-20
+
+- RSA support in the homegrown TLS 1.2 client (`tls12.rs`):
+  ClientHello now offers ECDHE-RSA-AES128-GCM-SHA256 and the
+  `rsa_pkcs1_sha256/384` signature algorithms, RSA leaf
+  certificates are accepted, and RSA ServerKeyExchange
+  signatures verify with the existing PKCS#1 v1.5 code. The
+  Rust TURNS coturn leg now uses an RSA certificate verified
+  against a pinned root (no skip-verify), closing the interop
+  gap where RSA-cert TURN servers -- the common case -- alerted
+  the handshake. DTLS stays ECDSA by design (our certs are
+  generated ECDSA and fingerprint-pinned).
+- Generated JS (Node) WebRTC-Direct adapter:
+  `src/webrtc_direct.js` (from `racket/runtime-js.rkt`) exports
+  `directListener`, `acceptDirectEndpoint`,
+  `directClientEndpoint`, and `directClientTurnEndpoint` over
+  `webrtc/js/direct.js`, matching the Rust and Go generated
+  adapters. `js/test/webrtc_direct.test.js` runs a generated
+  Echo client/server by multiaddr.
+- Sidecar multi-connection: `direct_sidecar` now bridges one
+  thread per connection in both modes, so one listen sidecar
+  and one dial sidecar carry concurrent Direct sessions.
+  Proven by three concurrent Python clients
+  (`python/tests/test_sidecar_multi.py`) and three concurrent
+  Go clients (`TestSidecarMultiConnGo`).
+- Housekeeping: Swift test warnings cleaned (zero warnings in
+  `make test-swift`); DTLS/OpenSSL soak re-run -- 40/40 runs
+  (200 cases) clean, which with the earlier 100 clean runs
+  bounds the historical flake at roughly 2% (95% confidence).
+
 ## v0.16.0 — 2026-10-20
 
 - Sidecar gRPC tests for the remaining languages: Kotlin,

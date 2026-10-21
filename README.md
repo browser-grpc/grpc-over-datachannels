@@ -194,7 +194,10 @@ let client = EchoClient::new(grpc_dc::Channel::new(transport));
 Behind a symmetric NAT, dial through a TURN allocation instead
 with `direct_client_turn(multiaddr, &turn_cfg)` — the listener
 needs no TURN awareness. JS (Node) and Go have the same surface
-in `webrtc/js/direct.js` and `webrtc/go/direct.go`. Every other
+in `webrtc/js/direct.js` and `webrtc/go/direct.go`, and the
+generated JS runtime ships a Node Direct adapter
+(`directClientEndpoint` / `acceptDirectEndpoint`) alongside the
+Rust and Go generated adapters. Every other
 generated language calls the Rust implementation through the
 `direct_sidecar` binary, which bridges one datachannel to a
 local length-prefixed TCP socket; a generated

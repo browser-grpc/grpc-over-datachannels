@@ -85,9 +85,10 @@ reachable UDP address: no ICE negotiation, no SDP exchange.
   stacks. Servers whose relay is IPv6-only may reject
   allocations without `REQUESTED-ADDRESS-FAMILY` (error 440);
   set `request_ipv6_relay` / `requestIpv6Relay` /
-  `RequestIPv6Relay` when dialing one. Note the homegrown Rust
-  TLS stack offers ECDHE-ECDSA only, so a coturn serving TURNS
-  to the Rust stack needs an ECDSA certificate.
+  `RequestIPv6Relay` when dialing one. The homegrown Rust TLS
+  client offers ECDHE-ECDSA and ECDHE-RSA with ECDSA and
+  RSA-PKCS#1 signature algorithms, and its TURNS coturn leg
+  verifies an RSA certificate against a pinned root.
 - **Browser shape**: browsers cannot bind UDP or allocate TURN
   in this raw form, so a browser is always the dialer, via a
   native `RTCPeerConnection` with relay-only ICE
@@ -109,17 +110,24 @@ reachable UDP address: no ICE negotiation, no SDP exchange.
   TURN demux). Generated gRPC support: Rust
   `grpc_dc::webrtc_direct` (`direct_listener`,
   `accept_direct_transport`, `direct_client`,
-  `direct_client_turn`, from `racket/runtime-rust.rkt`) and
-  the Go adapter `go/webrtc_direct.go` (`DirectListener`,
+  `direct_client_turn`, from `racket/runtime-rust.rkt`), the
+  Go adapter `go/webrtc_direct.go` (`DirectListener`,
   `AcceptDirectTransport`, `DirectClientTransport`,
-  `DirectClientTurnTransport`).
+  `DirectClientTurnTransport`), and the JS (Node) adapter
+  `js/src/webrtc_direct.js` (`directListener`,
+  `acceptDirectEndpoint`, `directClientEndpoint`,
+  `directClientTurnEndpoint`, from `racket/runtime-js.rkt`;
+  tested by `js/test/webrtc_direct.test.js`).
 - **All other languages**: the Rust binary
   `webrtc/rust/examples/direct_sidecar.rs` owns the stack and
   bridges one `grpc` datachannel to a local TCP socket with u32
   big-endian length-prefixed messages (one prefix per
   DataChannel message). `dial` mode dials a listener (optionally
   over TURN); `listen` mode is the listener and connects each
-  accepted channel to a language server socket. Generated
+  accepted channel to a language server socket. Both modes
+  bridge one thread per connection, so a single sidecar pair
+  carries concurrent Direct sessions (proven with three
+  concurrent clients in Python and Go). Generated
   runtimes plug in with a stdlib-only framed-TCP transport
   (reference: `grpcdc.SidecarTransport` in Python, generated
   from `racket/runtime-python.rkt`; the framing is identical in
