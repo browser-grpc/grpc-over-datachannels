@@ -206,6 +206,48 @@ RUN mkdir -p rust/src webrtc/rust/src wasm/rust/src \
   && cd rust && cargo fetch --locked \
   && cd ../wasm/rust && cargo fetch --locked
 
+# Toolchain warm-ups that need only a few repo files, placed
+# before `COPY . .` so ordinary source changes do not bust
+# their download caches (these were the multi-hour layers:
+# scala-cli/bloop resolution, Maven oracle deps, Playwright
+# browsers, the Racket/Wasm bootstrap). The post-COPY warm
+# steps below re-run against the real sources and hit these
+# caches.
+
+# scala-cli dependency cache (JS linker warm-up; output to
+# /tmp, the real package step runs post-COPY).
+COPY wasm/scalajs/bridge.scala wasm/scalajs/EchoScalaJsGrpcDc.scala wasm/scalajs/echo_client.scala ./wasm/scalajs/
+COPY scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala ./scala/grpcdc/
+COPY scala/examples/EchoMessages.scala ./scala/examples/
+RUN scala-cli --power package --force --js --js-module-kind esmodule --scala-version 3.3.6 \
+      -o /tmp/echo_scalajs_client.mjs \
+      wasm/scalajs/bridge.scala wasm/scalajs/EchoScalaJsGrpcDc.scala \
+      scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala \
+      scala/examples/EchoMessages.scala wasm/scalajs/echo_client.scala
+
+# grpc-java oracle dependencies (Maven downloads).
+COPY oracle/java ./oracle/java
+RUN cd oracle/java && mvn -q package -DskipTests
+
+# Webapp schema compiler module cache.
+COPY webapp/compiler ./webapp/compiler
+RUN cd webapp/compiler && go mod download \
+  && GOOS=js GOARCH=wasm go build -o /tmp/protocompile.wasm .
+
+# Playwright browsers (npm ci needs only the manifests).
+COPY browser-test/package.json browser-test/package-lock.json ./browser-test/
+RUN cd browser-test && npm ci \
+  && npx playwright install --with-deps chromium firefox
+
+# Racket/Wasm bootstrap: clones and builds the pinned tree
+# (host Chez + host Racket + Emscripten). Output is staged
+# outside the repo copy and merged in post-COPY below.
+COPY scripts/build-racket-wasm.sh ./scripts/
+COPY webapp/racket ./webapp/racket
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends libncurses-dev libx11-dev x11proto-dev \
+  && RACKET_WASM_WORK=/opt/racket-wasm-work ./scripts/build-racket-wasm.sh /opt/racket-wasm-built
+
 # The rest of the repo.
 COPY . .
 
@@ -290,13 +332,10 @@ RUN cd oracle/java && mvn -q package -DskipTests
 RUN cd webapp/compiler && go mod download \
   && GOOS=js GOARCH=wasm go build -o /tmp/protocompile.wasm .
 
-# Build the Racket/Wasm runtime for the webapp's in-browser plugin
-# execution (scripted spike-validated setup: Emscripten 5.0.7,
-# host Chez + host Racket bootstrapped from the pinned tree; ~45
-# min cold, cached in this layer; tests then run it offline).
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends libncurses-dev libx11-dev x11proto-dev \
-  && RACKET_WASM_WORK=/opt/racket-wasm-work ./scripts/build-racket-wasm.sh webapp/assets/racket \
+# Merge the pre-COPY Racket/Wasm bootstrap (staged at
+# /opt/racket-wasm-built above) into the webapp assets and
+# build the in-browser plugins; tests then run them offline.
+RUN cp -a /opt/racket-wasm-built/. webapp/assets/racket/ \
   && make webapp-plugins
 
 # Playwright browsers + OS libraries for the real-browser test

@@ -75,6 +75,15 @@ fun registerEchoFacadeServer(bridge: GrpcdcJsServerBridge) {
 }
 
 private class SlowEchoStream : EchoWasmGrpcDc.EchoStreamServer {
+    // Invokes fail outside the pull-loop lambda: calling the
+    // captured fail callback from inside source.next's lambda
+    // trips a Kotlin/Wasm illegal-cast fault.
+    private fun failIfFail(req: EchoRequest, fail: (StatusException) -> Unit): Boolean {
+        if (req.message != "fail") return false
+        fail(StatusException(3, "asked to fail"))
+        return true
+    }
+
     override fun ClientStream(
         source: EchoWasmGrpcDc.EchoRequestSource,
         metadata: Map<String, String>,
@@ -86,7 +95,7 @@ private class SlowEchoStream : EchoWasmGrpcDc.EchoStreamServer {
             source.next({ req ->
                 if (req == null) {
                     respond(EchoResponse(parts.joinToString("+"), parts.size))
-                } else {
+                } else if (!failIfFail(req, fail)) {
                     parts.add(req.message)
                     step()
                 }
@@ -107,7 +116,7 @@ private class SlowEchoStream : EchoWasmGrpcDc.EchoStreamServer {
             source.next({ req ->
                 if (req == null) {
                     done()
-                } else {
+                } else if (!failIfFail(req, fail)) {
                     sink(EchoResponse(req.message, index))
                     index++
                     step()

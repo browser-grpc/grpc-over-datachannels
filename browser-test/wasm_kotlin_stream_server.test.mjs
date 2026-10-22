@@ -104,6 +104,24 @@ async function runBrowser(name, engine) {
     const end = await responses.next();
     assert.equal(end.done, true);
 
+    // Canonical failure semantics: a "fail" request ends the
+    // incremental calls with INVALID_ARGUMENT (3).
+    async function* failReqs() { yield req("a"); yield req("fail"); }
+    const clientStreamCode = await client.clientStream(failReqs()).then(
+      () => 0,
+      (err) => err.code,
+    );
+    assert.equal(clientStreamCode, 3);
+    const bidiCode = await (async () => {
+      try {
+        for await (const _ of await client.bidi(failReqs())) { /* drain */ }
+        return 0;
+      } catch (err) {
+        return err.code;
+      }
+    })();
+    assert.equal(bidiCode, 3);
+
     console.log(`${name}: Kotlin/WASM incremental facade gRPC server over native RTCDataChannel OK`, {
       joined: joined.message,
       pingPong: [first.value.message, second.value.message],

@@ -3,6 +3,24 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.20.2 — 2026-10-21
+
+- CI image layering: the download-heavy toolchain warm-ups
+  (scala-cli/bloop resolution, Maven oracle deps, Playwright
+  browsers, the Racket/Wasm bootstrap) moved before
+  `COPY . .` in `Dockerfile.ci`, staged on a few copied
+  files, so ordinary source changes no longer bust their
+  caches (previously every release rebuilt them from
+  scratch, ~1h+).
+- Kotlin facade incremental stream server now rejects
+  "fail" in ClientStream/Bidi too, asserted by
+  `browser-test/wasm_kotlin_stream_server.test.mjs` (status
+  3). Calling the captured `fail` callback from inside the
+  pull-loop lambda trips a Kotlin/Wasm illegal-cast fault;
+  routing the invocation through a member helper
+  (`SlowEchoStream.failIfFail`) avoids it. This closes the
+  exception noted in v0.20.1.
+
 ## v0.20.1 — 2026-10-21
 
 - Wasm matrix hardening: the hand-written Echo server impls
