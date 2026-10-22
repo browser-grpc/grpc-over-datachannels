@@ -34,13 +34,39 @@ type streamEvent struct {
 }
 
 // streamInput is the receiving queue of one stream. The channel closes
-// after a terminal (trailers/RST) event has been delivered.
+// after a terminal (trailers/RST) event has been delivered. All sends
+// and the close are serialized on mu: the read loop, cancelStream and
+// failAll may touch one stream concurrently, and a send racing a close
+// would panic.
 type streamInput struct {
 	events chan streamEvent
+	mu     sync.Mutex
+	closed bool
 }
 
 func newStreamInput() *streamInput {
 	return &streamInput{events: make(chan streamEvent, 256)}
+}
+
+// deliver queues ev unless the stream already terminated.
+func (in *streamInput) deliver(ev streamEvent) {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if !in.closed {
+		in.events <- ev
+	}
+}
+
+// terminate delivers the terminal event and closes the queue, once.
+func (in *streamInput) terminate(ev streamEvent) {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if in.closed {
+		return
+	}
+	in.closed = true
+	in.events <- ev
+	close(in.events)
 }
 
 // Dispatcher handles one inbound call (installed by Server). The
@@ -138,9 +164,7 @@ func (ep *Endpoint) closeStream(id uint32) {
 // entered after the abort.
 func (ep *Endpoint) cancelStream(id uint32) {
 	if in, ok := ep.streams.LoadAndDelete(id); ok {
-		input := in.(*streamInput)
-		input.events <- streamEvent{kind: eventRST, status: NewStatus(CodeCancelled, "call cancelled")}
-		close(input.events)
+		in.(*streamInput).terminate(streamEvent{kind: eventRST, status: NewStatus(CodeCancelled, "call cancelled")})
 	}
 	if frame, err := statusFrame(FrameRst, id, NewStatus(CodeCancelled, "call cancelled")); err == nil {
 		_ = ep.SendFrame(frame)
@@ -168,9 +192,7 @@ func (ep *Endpoint) Close() {
 
 func (ep *Endpoint) failAll() {
 	ep.streams.Range(func(key, value any) bool {
-		in := value.(*streamInput)
-		in.events <- streamEvent{kind: eventRST, status: NewStatus(CodeUnavailable, "data channel closed")}
-		close(in.events)
+		value.(*streamInput).terminate(streamEvent{kind: eventRST, status: NewStatus(CodeUnavailable, "data channel closed")})
 		ep.streams.Delete(key)
 		return true
 	})
@@ -215,15 +237,14 @@ func (ep *Endpoint) onBytes(data []byte) {
 
 func (ep *Endpoint) onTerminal(streamID uint32, payload []byte, kind eventKind) {
 	if in := ep.stream(streamID); in != nil {
-		in.events <- streamEvent{kind: kind, status: parseStatus(payload)}
-		close(in.events)
+		in.terminate(streamEvent{kind: kind, status: parseStatus(payload)})
 		ep.streams.Delete(streamID)
 	}
 }
 
 func (ep *Endpoint) pushEvent(streamID uint32, ev streamEvent) {
 	if in := ep.stream(streamID); in != nil {
-		in.events <- ev
+		in.deliver(ev)
 	}
 }
 
@@ -239,7 +260,7 @@ func (ep *Endpoint) onHeaders(streamID uint32, payload []byte) {
 	if headers.Path == nil {
 		// Server response headers for one of our outbound streams.
 		if in := ep.stream(streamID); in != nil {
-			in.events <- streamEvent{kind: eventHeaders, headers: headers}
+			in.deliver(streamEvent{kind: eventHeaders, headers: headers})
 		}
 		return
 	}

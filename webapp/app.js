@@ -249,6 +249,7 @@ function compile() {
   if (!out.ok) {
     lastSetBytes = null;
     $("generate").disabled = true;
+    $("starter-kit").disabled = true;
     setStatus(out.error, "err");
     const m = /^(.+?):(\d+):(\d+):/.exec(out.error);
     errorMark = m ? { file: m[1], line: Number(m[2]) } : null;
@@ -270,6 +271,7 @@ function compile() {
   }
   $("tree").textContent = lines.length ? lines.join("\n") : "(no services in schema)";
   $("generate").disabled = false;
+  $("starter-kit").disabled = false;
   setStatus("compiled " + names.length + " file(s) OK", "ok");
 }
 
@@ -591,11 +593,12 @@ function runnerWriteInput(state, text) {
   Atomics.notify(H, state.inBase + 1);
 }
 
-$("generate").addEventListener("click", async () => {
-  if (!lastSetBytes) return;
+// Corpus schema currently loaded in the editor (deep link or
+// Browse -> Open in Generator), for starter-kit examples.
+let starterSchemaId = null;
+
+async function buildBundle(langs) {
   saveEditor();
-  const langs = selectedLangs();
-  if (!langs.length) return;
   const params = langParams();
   const enc = new TextEncoder();
   const entries = [];
@@ -672,17 +675,72 @@ $("generate").addEventListener("click", async () => {
       missing,
     }, null, 2) + "\n"),
   });
+  return { entries, missing };
+}
+
+function downloadZip(entries, filename, label) {
   const blob = makeZip(entries);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "grpcdc-stubs.zip";
+  a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  setStatus(label + " (" + entries.length + " files)", "ok");
+}
+
+$("generate").addEventListener("click", async () => {
+  if (!lastSetBytes) return;
+  const langs = selectedLangs();
+  if (!langs.length) return;
+  const { entries, missing } = await buildBundle(langs);
+  downloadZip(entries, "grpcdc-stubs.zip", "generated grpcdc-stubs.zip");
   if (missing.length) {
     setStatus("generated grpcdc-stubs.zip (" + entries.length + " files); missing: " + missing.join(", "), "err");
-  } else {
-    setStatus("generated grpcdc-stubs.zip (" + entries.length + " files)", "ok");
   }
+});
+
+// Starter kit: the stub bundle plus, for a bundled corpus
+// schema, that language's example server/client sources and
+// a RUN.md with the per-language Docker quickstart.
+$("starter-kit").addEventListener("click", async () => {
+  if (!lastSetBytes) return;
+  const langs = selectedLangs();
+  if (!langs.length) return;
+  const { entries } = await buildBundle(langs);
+  const enc = new TextEncoder();
+  if (starterSchemaId && browse.manifest) {
+    for (const lang of langs) {
+      const entry = browse.manifest.languages[lang];
+      if (!entry) continue;
+      for (const rel of entry.examples) {
+        if (!/server|client/i.test(rel)) continue;
+        const resp = await fetch("assets/corpus/" + lang + "/examples/" + rel);
+        if (resp.ok) {
+          entries.push({
+            name: "examples/" + lang + "/" + rel,
+            data: new Uint8Array(await resp.arrayBuffer()),
+          });
+        }
+      }
+    }
+  }
+  const runLines = [
+    "# Starter kit",
+    "",
+    "Generated stubs + dependency-free runtimes for: " + langs.join(", ") + ".",
+    "",
+    "Run a language's full test suite in Docker (from the",
+    "grpc-over-datachannels public repo root):",
+    "",
+    ...langs.map((l) => "    docker build -f docker/" + l + ".Dockerfile -t grpc-dc-" + l + " .\n    docker run --rm grpc-dc-" + l),
+    "",
+    starterSchemaId
+      ? "examples/ holds this schema's example server/client sources per language."
+      : "See each language directory in the public repo for examples.",
+    "",
+  ];
+  entries.push({ name: "RUN.md", data: enc.encode(runLines.join("\n")) });
+  downloadZip(entries, "grpcdc-starter-kit.zip", "generated grpcdc-starter-kit.zip");
 });
 
 // --- in-browser preview of the generated JS bundle -----------------
@@ -1171,6 +1229,7 @@ async function ensureBrowse() {
     searchTimer = setTimeout(() => runBrowseSearch(e.target.value), 250);
   });
   browseEl("browse-open-generator").addEventListener("click", async () => {
+    starterSchemaId = browse.schemaId;
     const set = await loadSchemaSet(browse.schemaId);
     files.clear();
     for (const [name, text] of Object.entries(set.texts)) files.set(name, text);
@@ -1230,6 +1289,7 @@ async function boot() {
     const sample = await (await fetch("assets/echo.proto")).text();
     files.set("echo.proto", sample);
     active = "echo.proto";
+    starterSchemaId = "echo";
     editor.value = sample;
   } catch {
     // No sample bundled; start empty.
@@ -1238,6 +1298,33 @@ async function boot() {
   compile();
   window.__webappReady = true;
   applyBrowseHash().catch((e) => browseStatus("browse failed: " + e.message));
+  applyDeepLink().catch((e) => setStatus("deep link failed: " + e.message, "err"));
+}
+
+// Newbie deep link: #schema=<corpus-id>&lang=<lang-id> loads
+// the bundled schema into the editor and selects exactly one
+// language, ready for Generate / starter kit.
+async function applyDeepLink() {
+  const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const schema = hash.get("schema");
+  const lang = hash.get("lang");
+  if (!schema && !lang) return;
+  if (lang) {
+    for (const cb of $("langs").querySelectorAll("input[data-lang]")) {
+      cb.checked = cb.dataset.lang === lang;
+    }
+  }
+  if (schema) {
+    await ensureBrowse();
+    const set = await loadSchemaSet(schema);
+    files.clear();
+    for (const [name, text] of Object.entries(set.texts)) files.set(name, text);
+    active = Object.keys(set.texts)[0];
+    starterSchemaId = schema;
+    editor.value = files.get(active);
+    renderTabs();
+    compile();
+  }
 }
 
 boot();

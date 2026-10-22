@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-webapp test-interop-matrix test-webrtc-matrix test-schema-shapes demos clean-gen
+.PHONY: generate plugins stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-webapp test-interop-matrix test-webrtc-matrix test-schema-shapes demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -136,6 +136,12 @@ test-go:
 
 test-webrtc-rust:
 	cd webrtc/rust && $(CARGO) test
+
+# IoT/embedded proof: bare-metal net-stack tests (ICE/DHCP over
+# raw Ethernet), the two-device cable bring-up example, and the
+# no_std cross-builds (in test-webrtc-nostd).
+test-iot:
+	cd webrtc/rust && $(CARGO) test --test net_stack && $(CARGO) run --example iot_cable
 
 # Bare-metal core proof: the protocol core (ICE/DTLS/SCTP/DCEP/
 # SDP/STUN/net/platform) compiles with no std at all — host
@@ -658,6 +664,19 @@ test-kotlin-wasm-native-browser:
 ## against every stdio Echo server (14 x 14 ordered pairs).
 SCALACLI ?= scala-cli
 
+## Public browser-grpc export: generated tree only (no
+## Racket sources), built by racket/releasegen.rkt with its
+## leak gate. Dry-run artifact for review; publishing is the
+## separate explicit scripts/release-push.sh.
+VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null)
+release-public: webapp-assets transcripts
+	$(RACKET) racket/releasegen.rkt --version $(VERSION) --out release/browser-grpc
+
+## Capture per-language stdio example transcripts for the
+## public gallery (builds the interop harnesses once).
+transcripts:
+	node scripts/capture-transcripts.mjs
+
 ## Package the Scala.js facade bundles the browser tests load
 ## (shared by test-scalajs-browser and test-wasm-matrix).
 scalajs-gen:
@@ -817,7 +836,7 @@ test-interop-matrix:
 test-webrtc-matrix:
 	cd browser-test && node webrtc_matrix.test.mjs
 
-test: check-generated test-racket compat test-schema-shapes test-rust test-rust-nostd test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-c test-c-cross test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-webapp test-interop-matrix test-webrtc-matrix
+test: check-generated test-racket compat test-schema-shapes test-rust test-rust-nostd test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-c test-c-cross test-lua test-ruby test-php test-scala test-webrtc-rust test-iot test-webrtc-js test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-webapp test-interop-matrix test-webrtc-matrix
 
 test-schema-shapes:
 	python3 scripts/test-schema-shapes.py
