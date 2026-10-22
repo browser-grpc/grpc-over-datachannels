@@ -16,6 +16,7 @@ import { Server } from "../js/index.js";
 import { EchoRequest } from "../js/examples/echo_pb.js";
 import { EchoClient } from "../js/examples/echo_grpc_dc.js";
 import { Channel } from "../js/index.js";
+import { assertEchoDeepBehavior } from "./echo_deep_checks.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MIME = {
@@ -76,7 +77,8 @@ async function runBrowser(name, engine) {
     }
     await page.evaluate(() => window.__runServer());
 
-    const client = new EchoClient(new Channel(dc));
+    const channel = new Channel(dc);
+    const client = new EchoClient(channel);
     const req = (message, count = 0, delayMs = 0) => new EchoRequest({ message, count, delayMs });
 
     async function* abc() { yield req("a"); yield req("b"); yield req("c"); }
@@ -103,6 +105,8 @@ async function runBrowser(name, engine) {
     assert.equal(second.value.message, "y");
     const end = await responses.next();
     assert.equal(end.done, true);
+
+    await assertEchoDeepBehavior(client, channel, "stream");
 
     console.log(`${name}: Go/WASM incremental facade gRPC server over native RTCDataChannel OK`, {
       joined: joined.message,

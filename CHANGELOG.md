@@ -3,6 +3,26 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.20.3 — 2026-10-22
+
+- Dedicated Wasm server tests are deep now: a shared
+  `browser-test/echo_deep_checks.mjs` drives failure,
+  metadata, and unknown-method scenarios from the JS client
+  against every Wasm Echo server (18 test files; incremental
+  stream servers assert their two registered shapes). This
+  caught real gaps — ClientStream (and in some impls
+  ServerStream/Bidi) did not reject "fail" in the Go, Zig,
+  C++, Swift, and Scala.js stream servers, the C++ and Zig
+  facade servers, the Rust Wasm server, and the shared
+  Dart/Lua example impls; all now reject canonically in
+  every method.
+- CI image layering, round 2: per-language source copies +
+  warm builds (Rust, Go, C#, C++, Swift, Kotlin, Dart, Zig)
+  now precede the catch-all `COPY . .` in `Dockerfile.ci`,
+  and the rustup/wasm-bindgen toolchain moved pre-COPY, so
+  a one-language change rebuilds only that language's warm
+  layer plus the shared post-COPY steps.
+
 ## v0.20.2 — 2026-10-21
 
 - CI image layering: the download-heavy toolchain warm-ups

@@ -17,6 +17,7 @@ namespace {
 struct CallState {
   std::vector<std::string> parts;
   std::int32_t index = 0;
+  bool failed = false;
 };
 
 class SlowEchoStream final : public echo::EchoWasmGrpcDc::EchoStreamServer {
@@ -28,12 +29,20 @@ class SlowEchoStream final : public echo::EchoWasmGrpcDc::EchoStreamServer {
 
   void ClientStreamRequest(std::uint32_t call_id,
                            const echo::EchoRequest& req) override {
+    if (req.message == "fail") {
+      states_[call_id].failed = true;
+      return;
+    }
     states_[call_id].parts.push_back(req.message);
   }
 
   std::pair<grpcdc_wasm::Status, echo::EchoResponse> ClientStreamEnd(
       std::uint32_t call_id) override {
     auto it = states_.find(call_id);
+    if (it != states_.end() && it->second.failed) {
+      states_.erase(it);
+      return {grpcdc_wasm::Status{3, "asked to fail"}, echo::EchoResponse{}};
+    }
     std::string joined;
     std::int32_t count = 0;
     if (it != states_.end()) {
@@ -55,6 +64,9 @@ class SlowEchoStream final : public echo::EchoWasmGrpcDc::EchoStreamServer {
   grpcdc_wasm::Status BidiRequest(
       std::uint32_t call_id, const echo::EchoRequest& req,
       echo::EchoWasmGrpcDc::EchoServerSink& sink) override {
+    if (req.message == "fail") {
+      return grpcdc_wasm::Status{3, "asked to fail"};
+    }
     auto& state = states_[call_id];
     auto status = sink.Send(echo::EchoResponse{req.message, state.index});
     state.index += 1;

@@ -9,6 +9,7 @@ final class SlowEchoStreamServer: EchoWasmGrpcDc.EchoStreamServer {
     private struct CallState {
         var parts: [String] = []
         var index: Int32 = 0
+        var failed = false
     }
 
     private var states: [UInt32: CallState] = [:]
@@ -18,11 +19,18 @@ final class SlowEchoStreamServer: EchoWasmGrpcDc.EchoStreamServer {
     }
 
     func ClientStreamRequest(_ callId: UInt32, _ req: EchoRequest) {
+        if req.message == "fail" {
+            states[callId, default: CallState()].failed = true
+            return
+        }
         states[callId, default: CallState()].parts.append(req.message)
     }
 
     func ClientStreamEnd(_ callId: UInt32) -> Result<EchoResponse, StatusException> {
         let state = states.removeValue(forKey: callId) ?? CallState()
+        if state.failed {
+            return .failure(StatusException(3, "asked to fail"))
+        }
         let resp = EchoResponse()
         resp.message = state.parts.joined(separator: "+")
         resp.index = Int32(state.parts.count)
@@ -34,6 +42,9 @@ final class SlowEchoStreamServer: EchoWasmGrpcDc.EchoStreamServer {
     }
 
     func BidiRequest(_ callId: UInt32, _ req: EchoRequest, _ sink: EchoWasmGrpcDc.EchoServerSink) -> StatusException? {
+        if req.message == "fail" {
+            return StatusException(3, "asked to fail")
+        }
         var state = states[callId] ?? CallState()
         let resp = EchoResponse()
         resp.message = req.message

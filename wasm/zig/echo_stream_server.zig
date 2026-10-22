@@ -15,6 +15,7 @@ const Status = echo.Status;
 const CallState = struct {
     parts: std.ArrayList([]u8) = .empty,
     index: i32 = 0,
+    failed: bool = false,
 };
 
 var states: std.AutoHashMap(u32, *CallState) = undefined;
@@ -46,12 +47,20 @@ fn clientStreamBegin(_: *anyopaque, call_id: u32, _: []const bridge_mod.MdPair) 
 
 fn clientStreamRequest(_: *anyopaque, call_id: u32, req: *const echo.EchoRequest) void {
     const state = stateFor(call_id);
+    if (std.mem.eql(u8, req.message, "fail")) {
+        state.failed = true;
+        return;
+    }
     const copy = alloc.dupe(u8, req.message) catch return;
     state.parts.append(alloc, copy) catch alloc.free(copy);
 }
 
 fn clientStreamEnd(_: *anyopaque, call_id: u32) echo.CallResult(echo.EchoResponse) {
     const state = stateFor(call_id);
+    if (state.failed) {
+        dropState(call_id);
+        return .{ .status = Status.init(3, "asked to fail") };
+    }
     var joined: std.ArrayList(u8) = .empty;
     for (state.parts.items, 0..) |part, i| {
         if (i > 0) joined.append(alloc, '+') catch return .{ .status = Status.init(13, "out of memory") };
@@ -67,6 +76,9 @@ fn bidiBegin(_: *anyopaque, call_id: u32, _: []const bridge_mod.MdPair) void {
 }
 
 fn bidiRequest(_: *anyopaque, call_id: u32, req: *const echo.EchoRequest, sink: *echo.ServerSink) Status {
+    if (std.mem.eql(u8, req.message, "fail")) {
+        return Status.init(3, "asked to fail");
+    }
     const state = stateFor(call_id);
     var resp = echo.EchoResponse{ .message = req.message, .index = state.index };
     state.index += 1;

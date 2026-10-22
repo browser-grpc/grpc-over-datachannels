@@ -38,7 +38,11 @@ class EchoServiceImpl implements EchoServer {
     final parts = <String>[];
     while (true) {
       try {
-        parts.add((await stream.recv()).message);
+        final req = await stream.recv();
+        if (req.message == 'fail') {
+          throw StatusException(Wire.codeInvalidArgument, 'asked to fail');
+        }
+        parts.add(req.message);
       } on EndOfStreamError {
         break;
       }

@@ -51,6 +51,10 @@ class EchoServiceImpl : public EchoGrpcDc::EchoServer {
       } catch (const grpcdc::EndOfStream&) {
         break;
       }
+      if (req.message == "fail") {
+        throw grpcdc::StatusException(grpcdc::wire::kCodeInvalidArgument,
+                                      "asked to fail");
+      }
       parts.push_back(req.message);
     }
     std::string joined;

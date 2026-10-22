@@ -74,6 +74,8 @@ class EchoStreamServerImpl extends EchoScalaJsGrpcDc.EchoStreamServer {
     def loop(parts: List[String]): Future[EchoResponse] = {
       source.next().flatMap {
         case None => Future.successful(EchoResponse(parts.mkString("+"), parts.size))
+        case Some(req) if req.message == "fail" =>
+          Future.failed(StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail"))
         case Some(req) => loop(parts :+ req.message)
       }
     }
@@ -84,6 +86,8 @@ class EchoStreamServerImpl extends EchoScalaJsGrpcDc.EchoStreamServer {
     def loop(index: Int): Future[Unit] = {
       source.next().flatMap {
         case None => Future.successful(())
+        case Some(req) if req.message == "fail" =>
+          Future.failed(StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail"))
         case Some(req) =>
           sink(EchoResponse(req.message, index))
           loop(index + 1)

@@ -27,6 +27,9 @@ func (slowEchoStream) ClientStream(source *echowasm.EchoRequestSource, metadata 
 		if req == nil {
 			break
 		}
+		if req.Message == "fail" {
+			return nil, &echowasm.StatusError{Code: 3, Message: "asked to fail"}
+		}
 		parts = append(parts, req.Message)
 	}
 	return &echo.EchoResponse{Message: strings.Join(parts, "+"), Index: int32(len(parts))}, nil
@@ -41,6 +44,9 @@ func (slowEchoStream) Bidi(source *echowasm.EchoRequestSource, metadata [][2]str
 		}
 		if req == nil {
 			return nil
+		}
+		if req.Message == "fail" {
+			return &echowasm.StatusError{Code: 3, Message: "asked to fail"}
 		}
 		if err := sink.Send(&echo.EchoResponse{Message: req.Message, Index: index}); err != nil {
 			return err

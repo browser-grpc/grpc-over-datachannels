@@ -44,6 +44,9 @@ function EchoServiceImpl:clientStream(ctx, stream)
       if req == EndOfStream then break end
       error(req, 0)
     end
+    if req.message == "fail" then
+      error(Status.new(wire.CODE_INVALID_ARGUMENT, "asked to fail"), 0)
+    end
     parts[#parts + 1] = req.message
   end
   stream:sendAndClose(EchoResponse.new(table.concat(parts, "+"), #parts))

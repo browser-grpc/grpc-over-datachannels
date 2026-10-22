@@ -240,6 +240,9 @@ impl Echo for EchoService {
         req: pb::EchoRequest,
         _ctx: CallCtx,
     ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        if req.message == "fail" {
+            return Err(Status::invalid_argument("asked to fail"));
+        }
         let responses = (0..req.count.max(0))
             .map(move |i| Ok(pb::EchoResponse { message: req.message.clone(), index: i, ..Default::default() }));
         Ok(Box::pin(futures_util::stream::iter(responses)))
@@ -250,7 +253,15 @@ impl Echo for EchoService {
         reqs: RequestStream<pb::EchoRequest>,
         _ctx: CallCtx,
     ) -> Result<pb::EchoResponse, Status> {
-        let parts: Vec<String> = reqs.map_ok(|r| r.message).try_collect().await?;
+        let mut parts: Vec<String> = Vec::new();
+        let mut reqs = reqs;
+        while let Some(req) = reqs.next().await {
+            let req = req?;
+            if req.message == "fail" {
+                return Err(Status::invalid_argument("asked to fail"));
+            }
+            parts.push(req.message);
+        }
         Ok(pb::EchoResponse { message: parts.join("+"), index: parts.len() as i32, ..Default::default() })
     }
 
@@ -263,6 +274,9 @@ impl Echo for EchoService {
             futures_util::stream::unfold((reqs, 0i32), |(mut reqs, mut index)| async move {
                 match reqs.next().await {
                     Some(Ok(req)) => {
+                        if req.message == "fail" {
+                            return Some((Err(Status::invalid_argument("asked to fail")), (reqs, index)));
+                        }
                         let resp = pb::EchoResponse { message: req.message, index, ..Default::default() };
                         index += 1;
                         Some((Ok(resp), (reqs, index)))

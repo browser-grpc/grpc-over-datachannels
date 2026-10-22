@@ -34,7 +34,11 @@ final class EchoServiceImpl: EchoGrpcDc.EchoServer {
         var parts: [String] = []
         while true {
             do {
-                parts.append(try stream.Recv().message)
+                let req = try stream.Recv()
+                if req.message == "fail" {
+                    throw StatusException(Wire.CodeInvalidArgument, "asked to fail")
+                }
+                parts.append(req.message)
             } catch is EndOfStreamError {
                 break
             }

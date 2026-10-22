@@ -16,6 +16,7 @@ import { Server } from "../js/index.js";
 import { EchoRequest } from "../js/examples/echo_pb.js";
 import { EchoClient } from "../js/examples/echo_grpc_dc.js";
 import { Channel } from "../js/index.js";
+import { assertEchoDeepBehavior } from "./echo_deep_checks.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MIME = {
@@ -76,7 +77,8 @@ async function runBrowser(name, engine) {
     }
     await page.evaluate(() => window.__runServer());
 
-    const client = new EchoClient(new Channel(dc));
+    const channel = new Channel(dc);
+    const client = new EchoClient(channel);
     const req = (message, count = 0, delayMs = 0) => new EchoRequest({ message, count, delayMs });
 
     const unary = await client.unary(req("hello"));
@@ -102,6 +104,8 @@ async function runBrowser(name, engine) {
       deadlineCode = e.code;
     }
     assert.equal(deadlineCode, 4);
+
+    await assertEchoDeepBehavior(client, channel);
 
     const result = { unary: unary.message, ticks, joined: joined.message, echoed, deadlineCode };
     console.log(`${name}: C++/WASM native gRPC server over native RTCDataChannel OK`, result);

@@ -47,6 +47,9 @@ class SlowEcho : public EchoWasmGrpcDc::EchoServer {
   Status ServerStream(const EchoRequest& req,
                       const std::vector<grpcdc_wasm::MdPair>&,
                       EchoWasmGrpcDc::EchoServerSink& sink) override {
+    if (req.message == "fail") {
+      return {3, "asked to fail"};
+    }
     for (int i = 0; i < req.count; i++) {
       EchoResponse resp{req.message, i};
       auto st = sink.Send(resp);
@@ -60,6 +63,9 @@ class SlowEcho : public EchoWasmGrpcDc::EchoServer {
       const std::vector<grpcdc_wasm::MdPair>&) override {
     std::string joined;
     for (std::size_t i = 0; i < reqs.size(); i++) {
+      if (reqs[i].message == "fail") {
+        return {{3, "asked to fail"}, EchoResponse{}};
+      }
       if (i > 0) joined += "+";
       joined += reqs[i].message;
     }
@@ -71,6 +77,9 @@ class SlowEcho : public EchoWasmGrpcDc::EchoServer {
               const std::vector<grpcdc_wasm::MdPair>&,
               EchoWasmGrpcDc::EchoServerSink& sink) override {
     for (std::size_t i = 0; i < reqs.size(); i++) {
+      if (reqs[i].message == "fail") {
+        return {3, "asked to fail"};
+      }
       EchoResponse resp{reqs[i].message, static_cast<int>(i)};
       auto st = sink.Send(resp);
       if (!st.ok()) return st;

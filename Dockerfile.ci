@@ -206,6 +206,19 @@ RUN mkdir -p rust/src webrtc/rust/src wasm/rust/src \
   && cd rust && cargo fetch --locked \
   && cd ../wasm/rust && cargo fetch --locked
 
+# Native WASM Rust client toolchain: wasm32 target + the
+# wasm-bindgen CLI pinned to the crate version (0.2.100).
+# Pure toolchain download, so it lives with the pre-COPY
+# layers (it used to sit after `COPY . .`).
+RUN rustup target add wasm32-unknown-unknown thumbv7em-none-eabihf
+ARG TARGETARCH
+RUN case "$TARGETARCH" in arm64) WBG_ARCH=aarch64 ;; *) WBG_ARCH=x86_64 ;; esac \
+  && curl -fsSL "https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.100/wasm-bindgen-0.2.100-${WBG_ARCH}-unknown-linux-gnu.tar.gz" -o /tmp/wbg.tar.gz \
+  && mkdir -p /usr/local/wasm-bindgen \
+  && tar -xzf /tmp/wbg.tar.gz -C /usr/local/wasm-bindgen --strip-components=1 \
+  && rm /tmp/wbg.tar.gz
+ENV PATH="/usr/local/wasm-bindgen:${PATH}"
+
 # Toolchain warm-ups that need only a few repo files, placed
 # before `COPY . .` so ordinary source changes do not bust
 # their download caches (these were the multi-hour layers:
@@ -248,6 +261,64 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends libncurses-dev libx11-dev x11proto-dev \
   && RACKET_WASM_WORK=/opt/racket-wasm-work ./scripts/build-racket-wasm.sh /opt/racket-wasm-built
 
+# Per-language source copies + warm builds, before the
+# catch-all COPY: a change in one language busts only its
+# own warm layer, not every language's. The catch-all below
+# guarantees nothing is missed; `make generate` still runs
+# on the full tree. (Kept in sync with the language list in
+# the Makefile test targets.)
+
+# fixtures/ is read at compile time by the Rust crate
+# (include_str!-style vectors), so it lands with the Rust copy.
+COPY fixtures ./fixtures
+COPY rust ./rust
+COPY webrtc/rust ./webrtc/rust
+COPY wasm/rust ./wasm/rust
+RUN cd rust && cargo test --locked --no-run \
+  && cargo build --locked --examples \
+  && cd ../webrtc/rust && cargo test --locked --no-run
+
+COPY go ./go
+COPY webrtc/go ./webrtc/go
+RUN cd go && go build ./...
+
+COPY csharp ./csharp
+RUN cd csharp && dotnet build tests/Tests.csproj --nologo -v q \
+  && dotnet build examples/EchoServerStdio/EchoServerStdio.csproj --nologo -v q \
+  && dotnet build examples/EchoClientStdio/EchoClientStdio.csproj --nologo -v q \
+  && dotnet build examples/DynamicEchoServerStdio/DynamicEchoServerStdio.csproj --nologo -v q
+
+COPY cpp ./cpp
+RUN mkdir -p cpp/build \
+  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp -o cpp/build/tests \
+  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio \
+  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio \
+  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/dynamic_echo_server_stdio.cpp -o cpp/build/dynamic_echo_server_stdio
+
+COPY swift ./swift
+RUN mkdir -p swift/build \
+  && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/tests/*.swift -o swift/build/tests \
+  && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoServerStdio/main.swift -o swift/build/echo_server_stdio \
+  && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoClientStdio/main.swift -o swift/build/echo_client_stdio \
+  && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/DynamicEchoServerStdio/main.swift -o swift/build/dynamic_echo_server_stdio
+
+COPY kotlin ./kotlin
+RUN mkdir -p kotlin/build \
+  && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/tests/*.kt -d kotlin/build/tests.jar \
+  && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoServerStdio/Main.kt -d kotlin/build/echo_server_stdio.jar \
+  && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoClientStdio/Main.kt -d kotlin/build/echo_client_stdio.jar \
+  && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/examples/DynamicEchoServerStdio/Main.kt -d kotlin/build/dynamic_echo_server_stdio.jar
+
+COPY dart ./dart
+RUN mkdir -p dart/build \
+  && dart compile exe dart/tests/main.dart -o dart/build/tests \
+  && dart compile exe dart/examples/EchoServerStdio/main.dart -o dart/build/echo_server_stdio \
+  && dart compile exe dart/examples/EchoClientStdio/main.dart -o dart/build/echo_client_stdio \
+  && dart compile exe dart/examples/DynamicEchoServerStdio/main.dart -o dart/build/dynamic_echo_server_stdio
+
+COPY zig ./zig
+RUN cd zig && zig build --prefix build
+
 # The rest of the repo.
 COPY . .
 
@@ -255,55 +326,9 @@ COPY . .
 # fixtures, stubs) — this is also the toolchain smoke test.
 RUN make generate
 
-# Warm the Rust builds so test/demo runs start compiled.
-# Native WASM Rust client toolchain: wasm32 target + the
-# wasm-bindgen CLI pinned to the crate version (0.2.100).
-RUN rustup target add wasm32-unknown-unknown thumbv7em-none-eabihf
-ARG TARGETARCH
-RUN case "$TARGETARCH" in arm64) WBG_ARCH=aarch64 ;; *) WBG_ARCH=x86_64 ;; esac \
-  && curl -fsSL "https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.100/wasm-bindgen-0.2.100-${WBG_ARCH}-unknown-linux-gnu.tar.gz" -o /tmp/wbg.tar.gz \
-  && mkdir -p /usr/local/wasm-bindgen \
-  && tar -xzf /tmp/wbg.tar.gz -C /usr/local/wasm-bindgen --strip-components=1 \
-  && rm /tmp/wbg.tar.gz
-ENV PATH="/usr/local/wasm-bindgen:${PATH}"
-
-RUN cd rust && cargo test --locked --no-run \
-  && cargo build --locked --examples \
-  && cd ../webrtc/rust && cargo test --locked --no-run
-
-# Warm the Go build (stdlib only).
-RUN cd go && go build ./...
-
-# Warm the C# builds (BCL only).
-RUN cd csharp && dotnet build tests/Tests.csproj --nologo -v q \
-  && dotnet build examples/EchoServerStdio/EchoServerStdio.csproj --nologo -v q \
-  && dotnet build examples/EchoClientStdio/EchoClientStdio.csproj --nologo -v q \
-  && dotnet build examples/DynamicEchoServerStdio/DynamicEchoServerStdio.csproj --nologo -v q
-
 # Build the Go/WASM browser client artifacts for the wasm test.
 RUN cd wasm/go && GOOS=js GOARCH=wasm go build -o ../../browser-test/echo.wasm ./cmd/echo_wasm \
   && cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" ../../browser-test/wasm_exec.js
-
-# Warm the C++ builds (stdlib only).
-RUN mkdir -p cpp/build \
-  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp -o cpp/build/tests \
-  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio \
-  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio \
-  && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/dynamic_echo_server_stdio.cpp -o cpp/build/dynamic_echo_server_stdio
-
-# Warm the Swift builds (Foundation only).
-RUN mkdir -p swift/build \
-  && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/tests/*.swift -o swift/build/tests \
-  && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoServerStdio/main.swift -o swift/build/echo_server_stdio \
-  && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoClientStdio/main.swift -o swift/build/echo_client_stdio \
-  && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/DynamicEchoServerStdio/main.swift -o swift/build/dynamic_echo_server_stdio
-
-# Warm the Kotlin builds (JDK + Kotlin stdlib only).
-RUN mkdir -p kotlin/build \
-  && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/tests/*.kt -d kotlin/build/tests.jar \
-  && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoServerStdio/Main.kt -d kotlin/build/echo_server_stdio.jar \
-  && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoClientStdio/Main.kt -d kotlin/build/echo_client_stdio.jar \
-  && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/examples/DynamicEchoServerStdio/Main.kt -d kotlin/build/dynamic_echo_server_stdio.jar
 
 # Warm the Scala.js facade package (scala-cli deps + JS linker).
 RUN mkdir -p browser-test/scalajs_gen \
@@ -312,16 +337,6 @@ RUN mkdir -p browser-test/scalajs_gen \
        wasm/scalajs/bridge.scala wasm/scalajs/EchoScalaJsGrpcDc.scala \
        scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala \
        scala/examples/EchoMessages.scala wasm/scalajs/echo_client.scala
-
-# Warm the Dart builds (SDK only).
-RUN mkdir -p dart/build \
-  && dart compile exe dart/tests/main.dart -o dart/build/tests \
-  && dart compile exe dart/examples/EchoServerStdio/main.dart -o dart/build/echo_server_stdio \
-  && dart compile exe dart/examples/EchoClientStdio/main.dart -o dart/build/echo_client_stdio \
-  && dart compile exe dart/examples/DynamicEchoServerStdio/main.dart -o dart/build/dynamic_echo_server_stdio
-
-# Warm the Zig builds (stdlib only).
-RUN cd zig && zig build --prefix build
 
 # Build the official grpc-java oracle (downloads Maven dependencies
 # at image build time; tests then run offline).
