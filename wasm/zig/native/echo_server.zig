@@ -43,6 +43,9 @@ fn unaryImpl(_: *anyopaque, ctx: *stubs.CallContext, req: *const stubs.EchoReque
 }
 
 fn serverStreamImpl(_: *anyopaque, _: *stubs.CallContext, req: *const stubs.EchoRequest, stream: *stubs.EchoServerStreamServer) Status {
+    if (std.mem.eql(u8, req.message, "fail")) {
+        return Status.init(wire.codeInvalidArgument, "asked to fail");
+    }
     var i: i32 = 0;
     while (i < req.count) : (i += 1) {
         var resp = stubs.EchoResponse{ .message = req.message, .index = i };
@@ -58,6 +61,9 @@ fn clientStreamImpl(_: *anyopaque, _: *stubs.CallContext, stream: *stubs.EchoCli
     while (true) {
         switch (stream.recv()) {
             .message => |req| {
+                if (std.mem.eql(u8, req.message, "fail")) {
+                    return Status.init(wire.codeInvalidArgument, "asked to fail");
+                }
                 if (count > 0) joined.append(stream.alloc, '+') catch return Status.init(wire.codeResourceExhausted, "out of memory");
                 joined.appendSlice(stream.alloc, req.message) catch return Status.init(wire.codeResourceExhausted, "out of memory");
                 count += 1;
@@ -75,6 +81,9 @@ fn bidiImpl(_: *anyopaque, _: *stubs.CallContext, stream: *stubs.EchoBidiServer)
     while (true) {
         switch (stream.recv()) {
             .message => |req| {
+                if (std.mem.eql(u8, req.message, "fail")) {
+                    return Status.init(wire.codeInvalidArgument, "asked to fail");
+                }
                 var resp = stubs.EchoResponse{ .message = req.message, .index = index };
                 const st = stream.send(&resp);
                 if (!st.isOk()) return st;

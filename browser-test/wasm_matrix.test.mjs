@@ -125,6 +125,20 @@ async function runPair(name, engine, [clientLabel, clientPage, serverLabel, serv
     assert.equal(result.joined, "a+b");
     assert.deepEqual(result.echoed, ["x", "y"]);
     if (expectDeadline) assert.equal(result.deadlineCode, 4);
+    // Deep summaries (every Wasm client since the BDD
+    // deepening) also assert the failure/metadata/unknown/
+    // cancel/deadline codes against this pair's server, so a
+    // server that ends failed streams with OK trailers fails
+    // here instead of passing silently.
+    if (result.unaryFailureCode !== undefined) {
+      assert.equal(result.unaryFailureCode, 3);
+      assert.equal(result.metadataMessage, "echo: hello [meta]");
+      assert.equal(result.serverStreamFailureCode, 3);
+      assert.equal(result.bidiFailureCode, 3);
+      assert.equal(result.unknownMethodCode, 12);
+      assert.equal(result.cancelTerminated, true);
+      assert.equal(result.deadlineCode, 4);
+    }
     console.log(`${name}: ${clientLabel} -> ${serverLabel} OK`, result);
   } finally {
     await browser.close();

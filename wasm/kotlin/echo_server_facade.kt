@@ -41,12 +41,18 @@ private class SlowEcho : EchoWasmGrpcDc.EchoServer {
     }
 
     override fun ServerStream(req: EchoRequest, metadata: Map<String, String>, sink: (EchoResponse) -> Unit) {
+        if (req.message == "fail") {
+            throw StatusException(3, "asked to fail")
+        }
         for (i in 0 until max(0, req.count)) {
             sink(EchoResponse(req.message, i))
         }
     }
 
     override fun ClientStream(reqs: List<EchoRequest>, metadata: Map<String, String>): EchoResponse {
+        if (reqs.any { it.message == "fail" }) {
+            throw StatusException(3, "asked to fail")
+        }
         val parts = reqs.map { it.message }
         return EchoResponse(parts.joinToString("+"), parts.size)
     }
@@ -54,6 +60,9 @@ private class SlowEcho : EchoWasmGrpcDc.EchoServer {
     override fun Bidi(reqs: List<EchoRequest>, metadata: Map<String, String>, sink: (EchoResponse) -> Unit) {
         var index = 0
         for (req in reqs) {
+            if (req.message == "fail") {
+                throw StatusException(3, "asked to fail")
+            }
             sink(EchoResponse(req.message, index))
             index++
         }

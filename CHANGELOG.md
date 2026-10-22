@@ -3,6 +3,21 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.20.1 — 2026-10-21
+
+- Wasm matrix hardening: the hand-written Echo server impls
+  for the Zig native, Kotlin native, and Kotlin facade Wasm
+  servers now reject "fail" in every method (canonical
+  semantics; previously only Unary rejected, so failed
+  streaming calls completed with OK trailers and clients
+  reported code 0). `browser-test/wasm_matrix.test.mjs` now
+  asserts the deep failure/metadata/unknown-method/cancel/
+  deadline codes for every client×server pair, not just the
+  call-shape summary. (The Kotlin facade's incremental
+  stream-server impl keeps its previous behavior: invoking
+  its `fail` callback from the pull loop trips a Kotlin/Wasm
+  "illegal cast" fault, so fail-injection is not wired there.)
+
 ## v0.20.0 — 2026-10-21
 
 - Wasm BDD deepening: every Wasm client — the native runtimes

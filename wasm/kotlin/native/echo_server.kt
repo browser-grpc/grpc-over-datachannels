@@ -44,6 +44,9 @@ private class SlowEcho : EchoGrpcDc.EchoServer {
     }
 
     override fun ServerStream(req: EchoRequest, stream: EchoGrpcDc.EchoServerStreamServer) {
+        if (req.message == "fail") {
+            throw StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail")
+        }
         for (i in 0 until max(0, req.count)) {
             stream.send(EchoResponse(req.message, i))
         }
@@ -53,7 +56,11 @@ private class SlowEcho : EchoGrpcDc.EchoServer {
         val parts = ArrayList<String>()
         while (true) {
             try {
-                parts.add(stream.recv().message)
+                val req = stream.recv()
+                if (req.message == "fail") {
+                    throw StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail")
+                }
+                parts.add(req.message)
             } catch (e: EOFException) {
                 break
             }
@@ -69,6 +76,9 @@ private class SlowEcho : EchoGrpcDc.EchoServer {
                 req = stream.recv()
             } catch (e: EOFException) {
                 return
+            }
+            if (req.message == "fail") {
+                throw StatusException(Wire.CODE_INVALID_ARGUMENT, "asked to fail")
             }
             stream.send(EchoResponse(req.message, index))
             index++
