@@ -53,6 +53,11 @@
   (append (map cdr languages)
           '("webrtc" "wasm" "proto" "fixtures")))
 
+;; QUICKSTART step 2 lives in browser-test/, which is otherwise
+;; private test tooling (and carries built wasm/binaries); export
+;; just the sample so the public quickstart command runs as-is.
+(define allow-files-extra '("browser-test/native_step2.mjs"))
+
 (define allow-files
   '("LICENSE" "NOTICE" "GENERATED-CODE-LICENSE.md" "CHANGELOG.md"
     "BDD.md" "SPEC.md"))
@@ -66,6 +71,7 @@
 (define (allowed? rel)
   (and (not (denied? rel))
        (or (member rel allow-files)
+           (member rel allow-files-extra)
            (for/or ([p (in-list allow-prefixes)])
              (string-prefix? rel (string-append p "/"))))))
 
@@ -186,6 +192,17 @@
     (define rendered
       (and (file-exists? "docs/social-preview.png")
            (file->bytes "docs/social-preview.png")))
+    (display (or rendered #"") out)))
+
+;; Guided first-run motion card (Playwright-recorded from the
+;; live app, encoded with Pillow; docs/first-run.gif in the
+;; private repo, copied verbatim like the social card).
+(call-with-output-file (build-path out-dir "docs/first-run.gif")
+  #:exists 'replace
+  (lambda (out)
+    (define rendered
+      (and (file-exists? "docs/first-run.gif")
+           (file->bytes "docs/first-run.gif")))
     (display (or rendered #"") out)))
 
 (for ([proto (in-list (directory-list "webapp/testdata"))])
@@ -387,6 +404,7 @@
    "[![Live generator](https://img.shields.io/badge/live%20generator-browser--grpc.github.io-brightgreen)](https://browser-grpc.github.io/grpc-over-datachannels/app/)\n"
    "[![npm](https://img.shields.io/npm/v/grpc-dc?label=npm%20grpc-dc)](https://www.npmjs.com/package/grpc-dc)\n\n"
    "![gRPC in the browser over WebRTC DataChannels](docs/social-preview.png)\n\n"
+   "![Guided first run: generate a client and call it, entirely in the browser](docs/first-run.gif)\n\n"
    "**New here? Start with [QUICKSTART.md](QUICKSTART.md)** — your\n"
    "first browser RPC in about five lines, a Docker client/server\n"
    "pair, and stubs for your own `.proto`. Or open the\n"
@@ -518,7 +536,17 @@
    "`js/` directory — it has no dependencies either way). The\n"
    "package ships TypeScript declarations (`index.d.ts`), so the\n"
    "runtime is typed in TS projects.\n\n"
-   "## 2. Native client ↔ server with Docker (5 minutes)\n\n"
+   "## 2. Browser client ↔ native server (5 minutes)\n\n"
+   "The runnable step-2 sample pairs a real browser client with\n"
+   "the native stack server (SDP exchanged as plain text — swap\n"
+   "in WebSocket/fetch signaling in your app):\n\n"
+   "    node browser-test/native_step2.mjs chromium\n\n"
+   "Expected: `step2 (chromium): browser gRPC client -> native "
+   "stack server OK { unary: 'echo: hello', ticks: [ 0, 1, 2 ], "
+   "echoed: [ 'x', 'y' ] }`. Chromium, Firefox, and WebKit all\n"
+   "work. For native-to-native and cross-language proofs, each\n"
+   "language image runs its full suite and the interop image\n"
+   "pairs clients and servers across languages:\n\n"
    "No toolchain install; each image runs that language's full\n"
    "test suite, and the interop image pairs clients and servers\n"
    "across languages:\n\n"
@@ -779,6 +807,7 @@
    "\"operatingSystem\":\"Any (browser via WebRTC/Wasm, plus native)\"}\n"
    "</script>\n</head>\n<body>\n"
    "<h1>gRPC over WebRTC DataChannels</h1>\n"
+   "<p><img src=\"first-run.gif\" alt=\"Guided first run: generate a gRPC client and call it in the browser\" width=\"720\"></p>\n"
    "<p>grpc-over-datachannels " version " — gRPC clients and servers "
    "that run <strong>in the browser</strong> over native WebRTC "
    "DataChannels, and natively in 16 languages, from the same "

@@ -40,7 +40,7 @@ execFileSync("go", ["build", "-o", harness, "./cmd/grpc_webrtc_client"], {
   cwd: join(ROOT, "go"),
   stdio: "inherit",
 });
-const signalBase = join(dir, "signal");
+let signalBase = join(dir, "signal");
 
 async function waitForFile(path, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
@@ -105,9 +105,14 @@ async function runBrowser(name, engine) {
 }
 
 const which = process.argv[2] ?? "chromium";
-if (which === "chromium" || which === "all") await runBrowser("chromium", chromium);
-if (which === "firefox" || which === "all") await runBrowser("firefox", firefox);
-if (which === "webkit" || (which === "all" && process.env.GRPC_DC_WEBKIT)) await runBrowser("webkit", webkit);
+// Fresh signal base per engine: the harness watches <base>.offer
+// and a previous engine's .answer would otherwise be consumed
+// as this engine's answer (silent cross-engine hang in "all").
+const enginesToRun = which === "all" ? ["chromium", "firefox", "webkit"] : [which];
+for (const [i, engineName] of enginesToRun.entries()) {
+  signalBase = join(dir, `signal-${i}`);
+  await runBrowser(engineName, { chromium, firefox, webkit }[engineName]);
+}
 
 server.close();
 console.log("browser-as-server test passed");

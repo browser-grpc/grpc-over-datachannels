@@ -3,6 +3,30 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.29.0 — 2026-10-23
+
+- QUICKSTART step 2 is now runnable as published:
+  `node browser-test/native_step2.mjs [chromium|firefox|webkit]`
+  pairs a real browser gRPC client with the native stack
+  Echo server (SDP as plain text; swap in your own signaling).
+  Verified in all three engines. The sample is exported
+  individually from the otherwise-private browser-test tree.
+- WebKit joins `all` mode for the nine core browser
+  DataChannel suites (test, bdd, go_server, browser_server,
+  dtls_server, turn, trickle, close, restart), so the
+  container gate now covers Chromium/Firefox/WebKit.
+  Enabling it exposed a latent cross-engine hang: suites
+  sharing one signaling file base consumed a previous
+  engine's answer file in `all` mode. go_server and
+  browser_server now use a fresh signal base per engine.
+  All nine suites pass in all three engines.
+- A Playwright-recorded GIF of the guided first run
+  (`docs/first-run.gif`, ~120 KB) now sits above the fold in
+  the generated README and the Pages landing page; the npm
+  publish path is live (host authenticated as `unicomp21`;
+  OTP for 2FA is handled as a reported follow-up, never a
+  blocked GitHub release).
+
 ## v0.28.0 — 2026-10-23
 
 - Newcomer onboarding for the public export: generated

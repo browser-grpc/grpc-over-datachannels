@@ -109,7 +109,7 @@ try {
   const which = process.argv[2] ?? "chromium";
   if (which === "chromium" || which === "all") await runBrowser("chromium", chromium);
   if (which === "firefox" || which === "all") await runBrowser("firefox", firefox);
-  if (which === "webkit" || (which === "all" && process.env.GRPC_DC_WEBKIT)) await runBrowser("webkit", webkit);
+  if (which === "webkit" || which === "all") await runBrowser("webkit", webkit);
 } finally {
   server.close();
 }
