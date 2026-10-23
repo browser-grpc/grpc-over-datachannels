@@ -3,6 +3,18 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.24.1 — 2026-10-23
+
+- Browser app completeness fix: `kotlin-native` is now
+  selectable alongside the other 22 generator targets in
+  the published web app. Its Racket plugin is staged for
+  the in-browser Racket/Wasm runner, its Kotlin/Native
+  runtime is bundled into generated archives, and browser
+  parity/browse coverage now exercises all 23 targets.
+  The native published plugin already covered
+  `kotlin-native` in v0.23.0; this release closes the
+  browser-UI gap.
+
 ## v0.24.0 — 2026-10-23
 
 - Cross-stack mux-to-mux interop: the webrtc matrix now

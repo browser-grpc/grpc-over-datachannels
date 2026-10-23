@@ -73,9 +73,9 @@ async function runCase(name, engine) {
     assert.ok(!(await page.locator("#generator-view").isVisible()),
       `${name}: generator view must be hidden in browse mode`);
 
-    // 22 targets on the rail (16 native + 6 WASM facades).
+    // 23 targets on the rail (16 native + 6 WASM facades + Kotlin/Native).
     const railCount = await page.locator("#browse-langs button").count();
-    assert.equal(railCount, 22, `${name}: expected 22 language buttons, got ${railCount}`);
+    assert.equal(railCount, 23, `${name}: expected 23 language buttons, got ${railCount}`);
 
     // Byte-identity + generated completeness for sample languages.
     for (const lang of ["rust", "c", "scala"]) {
@@ -193,7 +193,7 @@ async function runCase(name, engine) {
     const generateDisabled = await page.evaluate(() => document.querySelector("#generate").disabled);
     assert.equal(generateDisabled, false, `${name}: generator compiled the handed-off schema`);
 
-    console.log(`${name}: webapp browse OK (22 langs, byte-identical view, search, compare, deep link, generator handoff)`);
+    console.log(`${name}: webapp browse OK (23 langs, byte-identical view, search, compare, deep link, generator handoff)`);
   } finally {
     await browser.close();
   }

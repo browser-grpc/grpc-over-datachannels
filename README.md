@@ -4,7 +4,7 @@ gRPC over WebRTC DataChannels for many languages: dependency-free
 generated runtimes and Echo stubs, a reimplemented WebRTC stack,
 and native + browser (Wasm) clients and servers.
 
-This repository is a generated public export (version v0.24.0)
+This repository is a generated public export (version v0.24.1)
 of the grpc-over-datachannels project. Generated code may be used
 without restriction (see GENERATED-CODE-LICENSE.md); everything
 else is Apache-2.0 (see LICENSE).
@@ -145,7 +145,7 @@ table runs natively in every language above and in real browsers.
 
 ## Provenance
 
-Exported from source commit `53c512593bb332d769979246c6156372ffc5eb24` by the project's
+Exported from source commit `e711b19506478d28024e30db163f44d587be451d` by the project's
 code generator. This tree contains no build system: each language
 directory carries its runtime, generated stubs, examples, and
 tests in that language's usual layout.

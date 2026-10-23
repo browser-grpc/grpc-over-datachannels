@@ -34,6 +34,7 @@ const ACTIVE_LANGS = [
   ["wasm-swift", "Swift (WASM facade)"],
   ["wasm-kotlin", "Kotlin (WASM facade)"],
   ["wasm-scala", "Scala.js (facade)"],
+  ["kotlin-native", "Kotlin/Native"],
 ];
 // Facade browser generators not yet emitted.
 const PLANNED_LANGS = [];
@@ -49,6 +50,7 @@ const RUNTIME_FILES = {
   cpp: ["async.hpp", "channel.hpp", "codec.hpp", "dynamic.hpp", "endpoint.hpp", "memory_transport.hpp", "server.hpp", "status.hpp", "transport.hpp", "wire.hpp"],
   swift: ["Channel.swift", "Codec.swift", "Dynamic.swift", "Endpoint.swift", "MemoryTransport.swift", "Server.swift", "Status.swift", "Transport.swift", "Wire.swift"],
   kotlin: ["AsyncPump.kt", "Channel.kt", "Codec.kt", "Dynamic.kt", "Endpoint.kt", "MemoryTransport.kt", "Server.kt", "Status.kt", "Transport.kt", "Wire.kt"],
+  "kotlin-native": ["Channel.kt", "Codec.kt", "Endpoint.kt", "MemoryTransport.kt", "Server.kt", "Status.kt", "Transport.kt", "Wire.kt"],
   dart: ["channel.dart", "codec.dart", "dynamic.dart", "endpoint.dart", "memory_transport.dart", "server.dart", "status.dart", "transport.dart", "wire.dart"],
   zig: ["build.zig", "grpcdc/channel.zig", "grpcdc/codec.zig", "grpcdc/dynamic.zig", "grpcdc/endpoint.zig", "grpcdc/grpcdc.zig", "grpcdc/memory_transport.zig", "grpcdc/server.zig", "grpcdc/status.zig", "grpcdc/transport.zig", "grpcdc/wire.zig"],
   c: ["grpcdc/grpcdc.h", "grpcdc/grpcdc.c", "grpcdc/memory_transport.h", "grpcdc/memory_transport.c"],
@@ -87,6 +89,7 @@ const MESSAGE_FILES = {
   cpp: (b) => `${b}_messages.hpp`,
   swift: (b) => `${upperFirst(b)}Messages.swift`,
   kotlin: (b) => `${upperFirst(b)}Messages.kt`,
+  "kotlin-native": (b) => `${upperFirst(b)}Messages.kt`,
   dart: (b) => `${b}_messages.dart`,
   zig: (b) => `${b}_messages.zig`,
   lua: (b) => `${b}_messages.lua`,
@@ -458,7 +461,7 @@ function langParams() {
 // sends one framed job batch. If the runtime cannot start
 // (no SharedArrayBuffer, assets missing), generation falls back
 // to the built-in JS generators; ?gen=js forces that path.
-const RUNNER_LANGS = ["js", "go", "python", "rust", "java", "csharp", "cpp", "swift", "kotlin", "dart", "zig", "c", "lua", "ruby", "php", "scala", "wasm-go", "wasm-zig", "wasm-cpp", "wasm-swift", "wasm-kotlin", "wasm-scala"];
+const RUNNER_LANGS = ["js", "go", "python", "rust", "java", "csharp", "cpp", "swift", "kotlin", "dart", "zig", "c", "lua", "ruby", "php", "scala", "wasm-go", "wasm-zig", "wasm-cpp", "wasm-swift", "wasm-kotlin", "wasm-scala", "kotlin-native"];
 let runnerState = null;
 
 function runnerRingDrain(state) {
