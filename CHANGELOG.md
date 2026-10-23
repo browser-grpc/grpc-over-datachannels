@@ -3,6 +3,21 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.25.0 — 2026-10-23
+
+- Cross-stack TURN × mux interop: the webrtc matrix gains
+  six `turn-mux` cells pairing mux against mux across Rust,
+  Go, and JS with both sides also allocating on one shared
+  fake TURN server (deliberately unreachable host addresses,
+  so only relayed pairs can connect). This proves the
+  v0.24.0 composition — dedicated per-peer TURN sockets plus
+  DTLS connection-id demux — works across stacks, not just
+  within each. The `peer_echo` mux harnesses take an
+  optional TURN server argument, and the fake TURN server
+  is also runnable standalone (`browser-test/fake_turnd.mjs`)
+  so native harness processes and in-process JS peers share
+  one allocation service. Matrix now reports 20/20 cells.
+
 ## v0.24.1 — 2026-10-23
 
 - Browser app completeness fix: `kotlin-native` is now

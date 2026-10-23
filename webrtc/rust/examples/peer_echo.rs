@@ -48,6 +48,20 @@ fn loopback_peer() -> Peer {
     Peer::new(loopback_config()).unwrap()
 }
 
+/// Config for mux-mode peers. With a TURN server address as
+/// the 3rd CLI arg, the advertised host address is deliberately
+/// unreachable, so a successful pair proves the relay carried
+/// it (relay-only, like the in-stack TURN tests).
+fn mux_config() -> PeerConfig {
+    let mut config = loopback_config();
+    if let Some(turn) = std::env::args().nth(3).filter(|a| !a.is_empty()) {
+        config.local_ips = vec![IpAddr::V4(Ipv4Addr::new(10, 11, 12, 13))];
+        config.turn_servers =
+            vec![dc_webrtc::turn::TurnServerConfig::new(&turn, "dcuser", "dcpass")];
+    }
+    config
+}
+
 /// Echo loop for one connected answerer endpoint ("re:" prefix).
 fn echo_loop(endpoint: DcEndpoint) -> io::Result<()> {
     let mut channels = std::collections::HashMap::new();
@@ -98,7 +112,7 @@ fn main() -> io::Result<()> {
             let mut peers = Vec::new();
             for pair in 0..2 {
                 let offer = wait_for_file(&format!("{dir}/offer{pair}"));
-                let mut peer = mux.new_peer(loopback_config())?;
+                let mut peer = mux.new_peer(mux_config())?;
                 let answer = peer.handle_offer(&offer)?;
                 std::fs::write(format!("{dir}/answer{pair}"), answer)?;
                 peers.push(peer);
@@ -121,7 +135,7 @@ fn main() -> io::Result<()> {
             let mux = PeerMux::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))?;
             let mut peers = Vec::new();
             for pair in 0..2 {
-                let mut peer = mux.new_peer(loopback_config())?;
+                let mut peer = mux.new_peer(mux_config())?;
                 let offer = peer.create_offer();
                 std::fs::write(format!("{dir}/offer{pair}"), offer)?;
                 peers.push(peer);
