@@ -51,6 +51,8 @@ fn config(cert: Certificate, server: bool, expected: Option<String>) -> DtlsConf
         require_peer_certificate: false,
         session_resumption: true,
         session_ticket_key: if server { Some(TICKET_KEY) } else { None },
+        connection_id: None,
+        pair_hint: None,
     }
 }
 

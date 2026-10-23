@@ -2934,7 +2934,7 @@ function emitCFile(model, params) {
   return pbFiles.length ? [stub, ...pbFiles] : stub;
 }
 
-const EMITTERS = { js: emitJsFile, c: emitCFile, go: emitGoFile, python: emitPythonFile, rust: emitRustFile, java: emitJavaFile, csharp: emitCsharpFile, cpp: emitCppFile, swift: emitSwiftFile, kotlin: emitKotlinFile, dart: emitDartFile, zig: emitZigFile, lua: emitLuaFile, ruby: emitRubyFile, php: emitPhpFile, scala: emitScalaFile, 'wasm-go': emitWasmGoFile, 'wasm-zig': emitWasmZigFile, 'wasm-cpp': emitWasmCppFile, 'wasm-swift': emitWasmSwiftFile, 'wasm-kotlin': emitWasmKotlinFile, 'wasm-scala': emitWasmScalaFile };
+const EMITTERS = { js: emitJsFile, c: emitCFile, go: emitGoFile, python: emitPythonFile, rust: emitRustFile, java: emitJavaFile, csharp: emitCsharpFile, cpp: emitCppFile, swift: emitSwiftFile, kotlin: emitKotlinFile, dart: emitDartFile, zig: emitZigFile, lua: emitLuaFile, ruby: emitRubyFile, php: emitPhpFile, scala: emitScalaFile, 'wasm-go': emitWasmGoFile, 'wasm-zig': emitWasmZigFile, 'wasm-cpp': emitWasmCppFile, 'wasm-swift': emitWasmSwiftFile, 'wasm-kotlin': emitWasmKotlinFile, 'wasm-scala': emitWasmScalaFile, 'kotlin-native': emitKotlinNativeFile };
 
 export const GENERATOR_LANGUAGES = Object.keys(EMITTERS);
 
@@ -6700,7 +6700,12 @@ function emitSwiftFile(model, params) {
 }
 // ---------------------------------------------------------------------------
 // Kotlin emitter (mirrors racket/template-kotlin.rkt, native mode).
+// kotlinWasmMode mirrors the Racket kotlin-wasm-mode parameter:
+// the kotlin-native emitter generates without the async
+// (coroutine / CompletableFuture) surface.
 // ---------------------------------------------------------------------------
+
+let kotlinWasmMode = false;
 
 function kotlinDeprecated(m, indent) {
   return m.deprecated ? indent + '@Deprecated("deprecated in the proto schema")\n' : '';
@@ -6910,22 +6915,22 @@ function kotlinService(svc) {
     + '    class ' + sname + 'Client(private val channel: Channel) {\n'
     + svc.methods.map((m) => kotlinClientStreamClass(m, sname)).join('')
     + all.map((m) => kotlinDeprecated(m, '        ') + kotlinClientMethodRaw(m, sname)).join('')
-    + '        // -- async (coroutine / CompletableFuture) surface ---------------\n\n'
-    + all.map((m) => kotlinClientAsyncMethod(m, sname)).join('')
+    + (kotlinWasmMode ? '' : '        // -- async (coroutine / CompletableFuture) surface ---------------\n\n'
+      + all.map((m) => kotlinClientAsyncMethod(m, sname)).join(''))
     + '    }\n\n'
     + svc.methods.map((m) => kotlinServerStreamIface(m, sname)).join('')
     + '    /** Service implementation interface for ' + svc.fullName + '. */\n'
     + '    interface ' + sname + 'Server {\n'
     + svc.methods.map((m) => kotlinDeprecated(m, '        ') + kotlinServerIfaceMethodRaw(m, sname)).join('')
     + '    }\n\n'
-    + '    /** Async service implementation interface for ' + svc.fullName + '. */\n'
-    + '    interface ' + sname + 'ServerAsync {\n'
-    + svc.methods.map((m) => kotlinServerAsyncIfaceMethod(m, sname)).join('')
-    + '    }\n\n'
+    + (kotlinWasmMode ? '' : '    /** Async service implementation interface for ' + svc.fullName + '. */\n'
+      + '    interface ' + sname + 'ServerAsync {\n'
+      + svc.methods.map((m) => kotlinServerAsyncIfaceMethod(m, sname)).join('')
+      + '    }\n\n')
     + svc.methods.map((m) => kotlinStreamImpl(m, sname)).join('')
-    + '    private class ' + sname + 'ServerAsyncAdapter(private val impl: ' + sname + 'ServerAsync) : ' + sname + 'Server {\n'
-    + svc.methods.map((m) => kotlinServerAsyncAdapterMethod(m, sname)).join('')
-    + '    }\n\n'
+    + (kotlinWasmMode ? '' : '    private class ' + sname + 'ServerAsyncAdapter(private val impl: ' + sname + 'ServerAsync) : ' + sname + 'Server {\n'
+      + svc.methods.map((m) => kotlinServerAsyncAdapterMethod(m, sname)).join('')
+      + '    }\n\n')
     + '    /** Register an implementation of ' + svc.fullName + ' on a Server. */\n'
     + '    fun register' + sname + 'Server(server: Server, impl: ' + sname + 'Server) {\n'
     + '        server.registerService(\n'
@@ -6934,14 +6939,14 @@ function kotlinService(svc) {
     + '                listOf(\n'
     + regs
     + '                )\n            )\n        )\n    }\n\n'
-    + '    /** Register an async implementation of ' + svc.fullName + ' on a Server. */\n'
+    + (kotlinWasmMode ? '' : '    /** Register an async implementation of ' + svc.fullName + ' on a Server. */\n'
     + '    fun register' + sname + 'ServerAsync(server: Server, impl: ' + sname + 'ServerAsync) {\n'
     + '        // Adapters are retained for the process lifetime: registration is\n'
     + '        // once-per-process and bounded by service count.\n'
     + '        val adapter = ' + sname + 'ServerAsyncAdapter(impl)\n'
     + '        adapters.add(adapter)\n'
     + '        register' + sname + 'Server(server, adapter)\n    }\n\n'
-    + '    private val adapters = ArrayList<' + sname + 'ServerAsyncAdapter>()\n';
+    + '    private val adapters = ArrayList<' + sname + 'ServerAsyncAdapter>()\n');
 }
 
 
@@ -7437,6 +7442,37 @@ function emitKotlinFile(model, params) {
   };
   const pbFile = emitKotlinPbFile(model);
   return pbFile ? [stub, pbFile] : stub;
+}
+
+// Kotlin/Wasm native stubs: the same template in wasm mode
+// (no CompletableFuture/async surface, timeouts as Long
+// nanoseconds, EOF from grpcdc), with the Racket plugin's
+// textual rewrites applied to the first file. Mirrors
+// emit-wasm-kotlin-native-file in racket/template-kotlin.rkt.
+function emitKotlinNativeFile(model, params) {
+  const saved = kotlinWasmMode;
+  kotlinWasmMode = true;
+  let result;
+  try {
+    result = emitKotlinFile(model, params);
+  } finally {
+    kotlinWasmMode = saved;
+  }
+  const files = Array.isArray(result) ? result : [result];
+  const rewrites = [
+    ['import grpcdc.AsyncPump\n', ''],
+    ['import java.util.concurrent.CompletableFuture\n', ''],
+    ['import java.io.EOFException\n', 'import grpcdc.EOFException\n'],
+    ['java.time.Duration?', 'Long?'],
+    ['protoc-gen-grpc-dc-kotlin', 'protoc-gen-grpc-dc-kotlin-native'],
+  ];
+  // Schemas without services legitimately lack the import and
+  // Duration patterns; rewrite what is present.
+  let content = files[0].content;
+  for (const [from, to] of rewrites) {
+    if (content.includes(from)) content = content.split(from).join(to);
+  }
+  return [{ name: files[0].name, content }, ...files.slice(1)];
 }
 // ---------------------------------------------------------------------------
 // Dart emitter (mirrors racket/template-dart.rkt).

@@ -75,6 +75,11 @@
 (define dtls-extension-types
   '((SupportedGroups . 10) (EcPointFormats . 11) (SignatureAlgorithms . 13)
     (UseSrtp . 14) (ExtendedMasterSecret . 23) (SessionTicket . 35)
+    (ConnectionId . 54)
+    ;; DcPairHint (65282, private): a muxed client's ClientHello
+    ;; carries its remote peer's ICE ufrag so a shared-socket
+    ;; mux can route the first DTLS flight deterministically.
+    (DcPairHint . 65282)
     (RenegotiationInfo . 65281)))
 
 (define dtls-named-groups '((Secp256r1 . 23) (X25519 . 29) (Secp384r1 . 24)))

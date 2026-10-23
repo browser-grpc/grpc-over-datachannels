@@ -47,6 +47,8 @@ fn config() -> DtlsConfig {
         require_peer_certificate: false,
         session_resumption: false,
         session_ticket_key: None,
+        connection_id: None,
+        pair_hint: None,
     }
 }
 

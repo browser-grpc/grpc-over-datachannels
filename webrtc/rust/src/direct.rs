@@ -278,6 +278,8 @@ fn server_config(certificate: Certificate) -> DtlsConfig {
         require_peer_certificate: false,
         session_resumption: false,
         session_ticket_key: None,
+        connection_id: None,
+        pair_hint: None,
     }
 }
 
@@ -288,6 +290,8 @@ fn client_config(certificate: Certificate, digest: &[u8; 32]) -> DtlsConfig {
         require_peer_certificate: true,
         session_resumption: false,
         session_ticket_key: None,
+        connection_id: None,
+        pair_hint: None,
     }
 }
 

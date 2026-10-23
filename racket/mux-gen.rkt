@@ -407,6 +407,238 @@ TPL
     (call-with-output-file path #:exists 'replace
       (lambda (out) (display text out) (unless (string-suffix? text "\n") (newline out))))
     (printf "generated ~a\n" (path->string path)))
-  (write (build-path "webrtc" "rust" "tests" "mux.rs") (emit-rust))
-  (write (build-path "webrtc" "go" "mux_test.go") (emit-go))
-  (write (build-path "webrtc" "js" "test" "mux.test.js") (emit-js)))
+  (write (build-path "webrtc" "rust" "tests" "mux.rs") (string-append (emit-rust) (emit-rust2)))
+  (write (build-path "webrtc" "go" "mux_test.go") (string-append (emit-go) (emit-go2)))
+  (write (build-path "webrtc" "js" "test" "mux.test.js") (string-append (emit-js) (emit-js2))))
+
+;; ---------------------------------------------------------------------------
+;; Scenario 2: mux-to-mux (both sides share one socket each).
+;; First flights route by the DcPairHint, epoch-1 records by
+;; connection id; source addresses are identical per pair, so
+;; this only works with RFC 9146 negotiated.
+;; ---------------------------------------------------------------------------
+
+(define (emit-rust2)
+  (format #<<TPL
+
+#[test]
+fn two_pairs_mux_to_mux() {
+    // Both sides are muxes: every pair presents the SAME
+    // source address per direction, so only the pair hint
+    // (first flight) and connection ids (epoch 1) can demux.
+    let mux_a = PeerMux::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+    let mux_b = PeerMux::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+
+    let (result_tx, result_rx) = channel::<(usize, String)>();
+    let mut joins = Vec::new();
+
+    for pair in 0..~ausize {
+        let mut offerer = mux_a.new_peer(loopback_config()).unwrap();
+        let mut answerer = mux_b.new_peer(loopback_config()).unwrap();
+
+        let offer = offerer.create_offer();
+        let answer = answerer.handle_offer(&offer).unwrap();
+        offerer.handle_answer(&answer).unwrap();
+
+        let tx = result_tx.clone();
+        joins.push(std::thread::spawn(move || {
+            let endpoint = answerer.connect().expect("answerer connect");
+            let got = echo_until(&endpoint, true);
+            tx.send((pair, format!("answerer saw: {got}"))).unwrap();
+            endpoint.shutdown();
+        }));
+
+        let tx = result_tx.clone();
+        joins.push(std::thread::spawn(move || {
+            let endpoint = offerer.connect().expect("offerer connect");
+            let channel = endpoint
+                .open_channel(ChannelParams { label: "~a".into(), ..Default::default() })
+                .unwrap();
+            channel.send_text(&format!("~a{pair}")).unwrap();
+            let reply = echo_until(&endpoint, false);
+            tx.send((pair, format!("offerer reply: {reply}"))).unwrap();
+            endpoint.shutdown();
+        }));
+    }
+
+    let mut results: Vec<(usize, String)> = Vec::new();
+    for _ in 0..~a {
+        results.push(result_rx.recv_timeout(Duration::from_secs(30)).expect("pair result"));
+    }
+    for j in joins {
+        j.join().unwrap();
+    }
+    for pair in 0..~ausize {
+        let want_heard = format!("answerer saw: ~a{pair}");
+        let want_reply = format!("offerer reply: ~a~a{pair}");
+        assert!(
+            results.iter().any(|(p, s)| *p == pair && *s == want_heard),
+            "pair {pair}: answerer must hear its own payload; got {results:?}"
+        );
+        assert!(
+            results.iter().any(|(p, s)| *p == pair && *s == want_reply),
+            "pair {pair}: offerer must get its own reply; got {results:?}"
+        );
+    }
+}
+TPL
+          pairs label payload-prefix (* 2 pairs)
+          pairs payload-prefix reply-prefix payload-prefix))
+
+(define (emit-go2)
+  (format #<<TPL
+
+// Both sides are muxes: every pair presents the SAME source
+// address per direction, so only the pair hint (first
+// flight) and connection ids (epoch 1) can demux.
+func TestMuxToMuxTwoPairs(t *testing.T) {
+	muxA, err := NewPeerMux(&net.UDPAddr{IP: net.ParseIP("~a"), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer muxA.Close()
+	muxB, err := NewPeerMux(&net.UDPAddr{IP: net.ParseIP("~a"), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer muxB.Close()
+
+	for pair := 0; pair < ~a; pair++ {
+		offerer, err := muxA.NewPeer(PeerOptions{LocalIPs: []string{"~a"}, RequirePeerCertificate: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer offerer.Close()
+		answerer, err := muxB.NewPeer(PeerOptions{LocalIPs: []string{"~a"}, RequirePeerCertificate: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer answerer.Close()
+
+		offer := offerer.CreateOffer()
+		answer, err := answerer.HandleOffer(offer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := offerer.HandleAnswer(answer); err != nil {
+			t.Fatal(err)
+		}
+
+		results := make(chan *DcEndpoint, 2)
+		errs := make(chan error, 2)
+		go func() {
+			ep, err := offerer.ConnectWithOptions(true)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- ep
+		}()
+		go func() {
+			ep, err := answerer.ConnectWithOptions(true)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- ep
+		}()
+		var endpoints []*DcEndpoint
+		for i := 0; i < 2; i++ {
+			select {
+			case ep := <-results:
+				endpoints = append(endpoints, ep)
+			case err := <-errs:
+				t.Fatalf("pair %d connect: %v", pair, err)
+			case <-time.After(30 * time.Second):
+				t.Fatalf("pair %d connect timed out", pair)
+			}
+		}
+		epOffer, epAnswer := endpoints[0], endpoints[1]
+
+		heard := make(chan string, 1)
+		epAnswer.SetOnChannel(func(channel *DataChannel) {
+			channel.OnMessage(func(data []byte, isText bool) {
+				heard <- string(data)
+				channel.Send([]byte("~a" + string(data)))
+			})
+		})
+		channel := epOffer.OpenChannel(DefaultChannelParams("~a"))
+		reply := make(chan string, 1)
+		channel.OnMessage(func(data []byte, isText bool) {
+			reply <- string(data)
+		})
+		want := fmt.Sprintf("~a%d", pair)
+		channel.Send([]byte(want))
+		select {
+		case got := <-heard:
+			if got != want {
+				t.Fatalf("pair %d: answerer heard %q, want %q (cross-talk?)", pair, got, want)
+			}
+		case <-time.After(15 * time.Second):
+			t.Fatalf("pair %d: answerer heard nothing", pair)
+		}
+		select {
+		case got := <-reply:
+			if want := fmt.Sprintf("~a~a%d", pair); got != want {
+				t.Fatalf("pair %d: offerer reply %q, want %q", pair, got, want)
+			}
+		case <-time.After(15 * time.Second):
+			t.Fatalf("pair %d: offerer got no reply", pair)
+		}
+	}
+}
+TPL
+        bind-ip bind-ip pairs bind-ip bind-ip
+        reply-prefix label payload-prefix reply-prefix payload-prefix))
+
+(define (emit-js2)
+  (format #<<TPL
+
+test("two pairs mux to mux", { timeout: 90000 }, async (t) => {
+  // Both sides are muxes: every pair presents the SAME
+  // source address per direction, so only the pair hint
+  // (first flight) and connection ids (epoch 1) can demux.
+  const muxA = await PeerMux.bind({ address: "~a", port: 0 });
+  t.after(() => muxA.close());
+  const muxB = await PeerMux.bind({ address: "~a", port: 0 });
+  t.after(() => muxB.close());
+
+  const pairs = [];
+  for (let pair = 0; pair < ~a; pair++) {
+    const offerer = await muxA.createPeer({ localIps: ["~a"] });
+    const answerer = await muxB.createPeer({ localIps: ["~a"] });
+    t.after(async () => {
+      await offerer.close();
+      await answerer.close();
+    });
+    pairs.push({ pair, offerer, answerer });
+  }
+
+  const runPair = async ({ pair, offerer, answerer }) => {
+    const offer = offerer.createOffer();
+    const answer = answerer.handleOffer(offer);
+    offerer.handleAnswer(answer);
+    const [offererEp, answererEp] = await Promise.all([offerer.connect(), answerer.connect()]);
+
+    let heard = null;
+    answererEp.onchannel = (ch) => {
+      ch.onmessage = (event) => {
+        heard = Buffer.isBuffer(event.data) ? event.data.toString() : String(event.data);
+        ch.send(Buffer.from(`~a${heard}`));
+      };
+    };
+    const channel = offererEp.openChannel({ label: "~a" });
+    let reply = null;
+    channel.onmessage = (event) => {
+      reply = Buffer.isBuffer(event.data) ? event.data.toString() : String(event.data);
+    };
+    channel.send(Buffer.from(`~a${pair}`));
+    assert.equal(await waitFor(() => heard), `~a${pair}`);
+    assert.equal(await waitFor(() => reply), `~a~a${pair}`);
+  };
+
+  await Promise.all(pairs.map(runPair));
+});
+TPL
+        bind-ip bind-ip pairs bind-ip bind-ip
+        reply-prefix label payload-prefix payload-prefix reply-prefix payload-prefix))

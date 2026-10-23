@@ -662,6 +662,14 @@ func (p *Peer) ConnectWithOptions(requirePeerCert bool) (*DcEndpoint, error) {
 		ExpectedPeerFingerprint: p.remote.Fingerprint,
 		RequirePeerCertificate:  requirePeerCert,
 	}
+	// A muxed socket allocates a connection id per endpoint so
+	// DTLS records route without a learned source address;
+	// direct sockets announce none. The pair hint always rides
+	// the first ClientHello so a remote mux can route it.
+	if lc, ok := p.socket.(interface{ LocalCID() []byte }); ok {
+		config.ConnectionID = lc.LocalCID()
+	}
+	config.PairHint = []byte(p.agent.RemoteUfrag)
 	var dtls *DtlsConnection
 	var err error
 	if p.dtlsRole == "client" {

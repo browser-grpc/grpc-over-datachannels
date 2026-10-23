@@ -124,3 +124,63 @@ fn two_pairs_share_one_server_socket() {
         );
     }
 }
+#[test]
+fn two_pairs_mux_to_mux() {
+    // Both sides are muxes: every pair presents the SAME
+    // source address per direction, so only the pair hint
+    // (first flight) and connection ids (epoch 1) can demux.
+    let mux_a = PeerMux::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+    let mux_b = PeerMux::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+
+    let (result_tx, result_rx) = channel::<(usize, String)>();
+    let mut joins = Vec::new();
+
+    for pair in 0..2usize {
+        let mut offerer = mux_a.new_peer(loopback_config()).unwrap();
+        let mut answerer = mux_b.new_peer(loopback_config()).unwrap();
+
+        let offer = offerer.create_offer();
+        let answer = answerer.handle_offer(&offer).unwrap();
+        offerer.handle_answer(&answer).unwrap();
+
+        let tx = result_tx.clone();
+        joins.push(std::thread::spawn(move || {
+            let endpoint = answerer.connect().expect("answerer connect");
+            let got = echo_until(&endpoint, true);
+            tx.send((pair, format!("answerer saw: {got}"))).unwrap();
+            endpoint.shutdown();
+        }));
+
+        let tx = result_tx.clone();
+        joins.push(std::thread::spawn(move || {
+            let endpoint = offerer.connect().expect("offerer connect");
+            let channel = endpoint
+                .open_channel(ChannelParams { label: "echo".into(), ..Default::default() })
+                .unwrap();
+            channel.send_text(&format!("hello-from-pair-{pair}")).unwrap();
+            let reply = echo_until(&endpoint, false);
+            tx.send((pair, format!("offerer reply: {reply}"))).unwrap();
+            endpoint.shutdown();
+        }));
+    }
+
+    let mut results: Vec<(usize, String)> = Vec::new();
+    for _ in 0..4 {
+        results.push(result_rx.recv_timeout(Duration::from_secs(30)).expect("pair result"));
+    }
+    for j in joins {
+        j.join().unwrap();
+    }
+    for pair in 0..2usize {
+        let want_heard = format!("answerer saw: hello-from-pair-{pair}");
+        let want_reply = format!("offerer reply: re:hello-from-pair-{pair}");
+        assert!(
+            results.iter().any(|(p, s)| *p == pair && *s == want_heard),
+            "pair {pair}: answerer must hear its own payload; got {results:?}"
+        );
+        assert!(
+            results.iter().any(|(p, s)| *p == pair && *s == want_reply),
+            "pair {pair}: offerer must get its own reply; got {results:?}"
+        );
+    }
+}

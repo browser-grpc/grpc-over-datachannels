@@ -142,3 +142,102 @@ func TestMuxTwoPairsShareOneServerSocket(t *testing.T) {
 		}
 	}
 }
+// Both sides are muxes: every pair presents the SAME source
+// address per direction, so only the pair hint (first
+// flight) and connection ids (epoch 1) can demux.
+func TestMuxToMuxTwoPairs(t *testing.T) {
+	muxA, err := NewPeerMux(&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer muxA.Close()
+	muxB, err := NewPeerMux(&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer muxB.Close()
+
+	for pair := 0; pair < 2; pair++ {
+		offerer, err := muxA.NewPeer(PeerOptions{LocalIPs: []string{"127.0.0.1"}, RequirePeerCertificate: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer offerer.Close()
+		answerer, err := muxB.NewPeer(PeerOptions{LocalIPs: []string{"127.0.0.1"}, RequirePeerCertificate: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer answerer.Close()
+
+		offer := offerer.CreateOffer()
+		answer, err := answerer.HandleOffer(offer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := offerer.HandleAnswer(answer); err != nil {
+			t.Fatal(err)
+		}
+
+		results := make(chan *DcEndpoint, 2)
+		errs := make(chan error, 2)
+		go func() {
+			ep, err := offerer.ConnectWithOptions(true)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- ep
+		}()
+		go func() {
+			ep, err := answerer.ConnectWithOptions(true)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- ep
+		}()
+		var endpoints []*DcEndpoint
+		for i := 0; i < 2; i++ {
+			select {
+			case ep := <-results:
+				endpoints = append(endpoints, ep)
+			case err := <-errs:
+				t.Fatalf("pair %d connect: %v", pair, err)
+			case <-time.After(30 * time.Second):
+				t.Fatalf("pair %d connect timed out", pair)
+			}
+		}
+		epOffer, epAnswer := endpoints[0], endpoints[1]
+
+		heard := make(chan string, 1)
+		epAnswer.SetOnChannel(func(channel *DataChannel) {
+			channel.OnMessage(func(data []byte, isText bool) {
+				heard <- string(data)
+				channel.Send([]byte("re:" + string(data)))
+			})
+		})
+		channel := epOffer.OpenChannel(DefaultChannelParams("echo"))
+		reply := make(chan string, 1)
+		channel.OnMessage(func(data []byte, isText bool) {
+			reply <- string(data)
+		})
+		want := fmt.Sprintf("hello-from-pair-%d", pair)
+		channel.Send([]byte(want))
+		select {
+		case got := <-heard:
+			if got != want {
+				t.Fatalf("pair %d: answerer heard %q, want %q (cross-talk?)", pair, got, want)
+			}
+		case <-time.After(15 * time.Second):
+			t.Fatalf("pair %d: answerer heard nothing", pair)
+		}
+		select {
+		case got := <-reply:
+			if want := fmt.Sprintf("re:hello-from-pair-%d", pair); got != want {
+				t.Fatalf("pair %d: offerer reply %q, want %q", pair, got, want)
+			}
+		case <-time.After(15 * time.Second):
+			t.Fatalf("pair %d: offerer got no reply", pair)
+		}
+	}
+}

@@ -33,6 +33,13 @@ pub(crate) trait DatagramIo: Send + Sync {
     fn udp_socket(&self) -> Option<Arc<UdpSocket>> {
         None
     }
+    /// The RFC 9146 connection id this endpoint asks peers
+    /// to send it (mux endpoints allocate one at creation so
+    /// the mux can route epoch-1 records by cid). None on a
+    /// real socket.
+    fn local_cid(&self) -> Option<Vec<u8>> {
+        None
+    }
     /// Mark the start/end of an unauthenticated STUN probe
     /// (srflx gathering): a mux routes otherwise-unattributable
     /// STUN responses to probing endpoints. No-op on a socket.
@@ -673,6 +680,10 @@ impl Peer {
             require_peer_certificate: config.require_peer_certificate,
             session_resumption: config.session_resumption,
             session_ticket_key: config.session_ticket_key,
+        connection_id: socket.local_cid(),
+        pair_hint: socket
+            .local_cid()
+            .map(|_| remote_desc.ufrag.clone().into_bytes()),
         };
         let consent_socket = socket.clone();
         let io = IceDtlsIo {

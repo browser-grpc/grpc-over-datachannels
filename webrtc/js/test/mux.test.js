@@ -69,3 +69,48 @@ test("two pairs share one server socket", { timeout: 90000 }, async (t) => {
 
   await Promise.all(pairs.map(runPair));
 });
+test("two pairs mux to mux", { timeout: 90000 }, async (t) => {
+  // Both sides are muxes: every pair presents the SAME
+  // source address per direction, so only the pair hint
+  // (first flight) and connection ids (epoch 1) can demux.
+  const muxA = await PeerMux.bind({ address: "127.0.0.1", port: 0 });
+  t.after(() => muxA.close());
+  const muxB = await PeerMux.bind({ address: "127.0.0.1", port: 0 });
+  t.after(() => muxB.close());
+
+  const pairs = [];
+  for (let pair = 0; pair < 2; pair++) {
+    const offerer = await muxA.createPeer({ localIps: ["127.0.0.1"] });
+    const answerer = await muxB.createPeer({ localIps: ["127.0.0.1"] });
+    t.after(async () => {
+      await offerer.close();
+      await answerer.close();
+    });
+    pairs.push({ pair, offerer, answerer });
+  }
+
+  const runPair = async ({ pair, offerer, answerer }) => {
+    const offer = offerer.createOffer();
+    const answer = answerer.handleOffer(offer);
+    offerer.handleAnswer(answer);
+    const [offererEp, answererEp] = await Promise.all([offerer.connect(), answerer.connect()]);
+
+    let heard = null;
+    answererEp.onchannel = (ch) => {
+      ch.onmessage = (event) => {
+        heard = Buffer.isBuffer(event.data) ? event.data.toString() : String(event.data);
+        ch.send(Buffer.from(`re:${heard}`));
+      };
+    };
+    const channel = offererEp.openChannel({ label: "echo" });
+    let reply = null;
+    channel.onmessage = (event) => {
+      reply = Buffer.isBuffer(event.data) ? event.data.toString() : String(event.data);
+    };
+    channel.send(Buffer.from(`hello-from-pair-${pair}`));
+    assert.equal(await waitFor(() => heard), `hello-from-pair-${pair}`);
+    assert.equal(await waitFor(() => reply), `re:hello-from-pair-${pair}`);
+  };
+
+  await Promise.all(pairs.map(runPair));
+});

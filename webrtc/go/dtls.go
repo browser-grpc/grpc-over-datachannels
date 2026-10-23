@@ -404,6 +404,14 @@ type DtlsConnection struct {
 	srtpProfile  int // -1 when none
 	readHighest  int64
 	readWindow   uint64
+	// sendCid is the peer's announced connection id, stamped
+	// on records we send once known (nil until the handshake
+	// reveals it; the first ClientHello never carries one).
+	sendCid []byte
+	// recvCid is our announced connection id; armed before
+	// the first pump so CID-carrying records parse from the
+	// peer's first flight onward.
+	recvCid []byte
 }
 
 // DtlsConfig configures a handshake.
@@ -411,6 +419,13 @@ type DtlsConfig struct {
 	Certificate             *Certificate
 	ExpectedPeerFingerprint string
 	RequirePeerCertificate  bool
+	// ConnectionID, when set, is announced in the handshake
+	// (RFC 9146 ext 54): honoring peers stamp it on every
+	// record they send us, and we accept both layouts.
+	ConnectionID []byte
+	// PairHint rides the first ClientHello (private ext) so a
+	// shared-socket mux can route it before any route exists.
+	PairHint []byte
 }
 
 // PeerFingerprint returns the peer certificate's SDP fingerprint.
@@ -450,6 +465,7 @@ func (c *DtlsConnection) sendRecord(contentType byte, epoch int, body []byte) ([
 		packet = append(packet, dtlsVersion...)
 		packet = append(packet, 0, 0)
 		packet = append(packet, seq48(seq)...)
+		packet = append(packet, c.sendCid...)
 		packet = append(packet, byte(len(body)>>8), byte(len(body)))
 		packet = append(packet, body...)
 	} else {
@@ -457,7 +473,8 @@ func (c *DtlsConnection) sendRecord(contentType byte, epoch int, body []byte) ([
 		c.writeSeq++
 		explicit := append([]byte{0, 1}, seq48(seq)...)
 		nonce := append(append([]byte{}, c.writeKeys.salt...), explicit...)
-		aad := append(append([]byte{}, explicit...), contentType)
+		aad := append(append([]byte{}, explicit...), c.sendCid...)
+		aad = append(aad, contentType)
 		aad = append(aad, dtlsVersion...)
 		aad = append(aad, byte(len(body)>>8), byte(len(body)))
 		sealed := c.writeKeys.gcm.Seal(nil, nonce, body, aad)
@@ -465,6 +482,7 @@ func (c *DtlsConnection) sendRecord(contentType byte, epoch int, body []byte) ([
 		packet = append(packet, dtlsVersion...)
 		packet = append(packet, 0, 1)
 		packet = append(packet, seq48(seq)...)
+		packet = append(packet, c.sendCid...)
 		total := 8 + len(sealed)
 		packet = append(packet, byte(total>>8), byte(total))
 		packet = append(packet, explicit...)
@@ -503,6 +521,16 @@ func (c *DtlsConnection) parseRecords(packet []byte) ([]dtlsRecord, error) {
 		for _, b := range seqBytes {
 			sequence = sequence<<8 | uint64(b)
 		}
+		// RFC 9146: when we announced a connection id, honoring
+		// peers carry it between the sequence and the length
+		// (and inside the AAD). Peers that ignore the extension
+		// (browsers) keep the plain layout; accept both.
+		var cid []byte
+		if len(c.recvCid) > 0 && r.pos+len(c.recvCid) <= len(r.buf) &&
+			bytes.Equal(r.buf[r.pos:r.pos+len(c.recvCid)], c.recvCid) {
+			cid = c.recvCid
+			r.pos += len(c.recvCid)
+		}
 		length, err := r.u16()
 		if err != nil {
 			return records, err
@@ -533,7 +561,8 @@ func (c *DtlsConnection) parseRecords(packet []byte) ([]dtlsRecord, error) {
 		nonce := append(append([]byte{}, c.readKeys.salt...), explicit...)
 		// AAD: record header epoch||sequence, not the explicit nonce.
 		headerSeq := append([]byte{byte(epoch >> 8), byte(epoch)}, seq48(sequence)...)
-		aad := append(append([]byte{}, headerSeq...), contentType)
+		aad := append(append([]byte{}, headerSeq...), cid...)
+		aad = append(aad, contentType)
 		aad = append(aad, dtlsVersion...)
 		aad = append(aad, byte((len(sealed)-16)>>8), byte(len(sealed)-16))
 		plaintext, err := c.readKeys.gcm.Open(nil, nonce, sealed, aad)
@@ -699,7 +728,7 @@ func (c *DtlsConnection) RecvAppTimeout(timeoutMs int) ([]byte, error) {
 	}
 }
 
-func clientHelloBody(random []byte, cookie []byte) []byte {
+func clientHelloBody(random []byte, cookie []byte, connectionID []byte, pairHint []byte) []byte {
 	var exts []byte
 	exts = append(exts, 0, 10, 0, 4, 0, 2, 0, groupSecp256r1)
 	exts = append(exts, 0, 11, 0, 2, 1, 0)
@@ -708,6 +737,21 @@ func clientHelloBody(random []byte, cookie []byte) []byte {
 	exts = append(exts, 0, 14, 0, byte(len(srtpData)))
 	exts = append(exts, srtpData...)
 	exts = append(exts, 0, 23, 0, 0)
+	// connection_id (54, RFC 9146): the cid we ask the server
+	// to put on records it sends us (length-prefixed).
+	if connectionID != nil {
+		exts = append(exts, byte(DtlsExtConnectionId>>8), byte(DtlsExtConnectionId))
+		exts = append(exts, byte((len(connectionID)+1)>>8), byte(len(connectionID)+1))
+		exts = append(exts, byte(len(connectionID)))
+		exts = append(exts, connectionID...)
+	}
+	// DcPairHint (private): the remote peer's ICE ufrag, so a
+	// shared-socket mux can route this first flight.
+	if pairHint != nil {
+		exts = append(exts, byte(DtlsExtDcPairHint>>8), byte(DtlsExtDcPairHint&0xff))
+		exts = append(exts, byte(len(pairHint)>>8), byte(len(pairHint)))
+		exts = append(exts, pairHint...)
+	}
 	body := append([]byte{}, dtlsVersion...)
 	body = append(body, random...)
 	body = append(body, 0)
@@ -723,6 +767,8 @@ type serverHelloInfo struct {
 	serverRandom []byte
 	ems          bool
 	srtpProfile  int
+	// peerCid is the server's announced connection id (RFC 9146).
+	peerCid []byte
 }
 
 func parseServerHello(body []byte) (*serverHelloInfo, error) {
@@ -768,6 +814,11 @@ func parseServerHello(body []byte) (*serverHelloInfo, error) {
 			}
 			if ty == 23 {
 				info.ems = true
+			} else if ty == DtlsExtConnectionId {
+				cr := &byteReader{buf: data}
+				if cid, err := cr.vec8(); err == nil {
+					info.peerCid = append([]byte{}, cid...)
+				}
 			} else if ty == 14 {
 				sr := &byteReader{buf: data}
 				profiles, err := sr.vec16()
@@ -809,6 +860,11 @@ func peerPointFromKey(pub *ecdsa.PublicKey) ([]byte, error) {
 // DtlsConnect runs the client handshake.
 func DtlsConnect(io PacketIO, config DtlsConfig) (*DtlsConnection, error) {
 	conn := &DtlsConnection{io: io, role: "client", srtpProfile: -1, readHighest: -1}
+	// Arm the receive cid before the first pump: a server
+	// honoring our announced cid stamps it from its first
+	// flight onward, so the record parser must recognize it
+	// before ServerHello (mirrors DtlsAccept).
+	conn.recvCid = config.ConnectionID
 	hs := newHandshakeState()
 	conn.clientRandom = make([]byte, 32)
 	if _, err := rand.Read(conn.clientRandom); err != nil {
@@ -824,7 +880,7 @@ cookieLoop:
 		hs.transcript = nil
 		hs.sendSeq = 0
 		hs.expectSeq = 0
-		packet, err := conn.sendHs(hs, DtlsHandshakeClientHello, clientHelloBody(conn.clientRandom, cookie), 0)
+		packet, err := conn.sendHs(hs, DtlsHandshakeClientHello, clientHelloBody(conn.clientRandom, cookie, config.ConnectionID, config.PairHint), 0)
 		if err != nil {
 			return nil, err
 		}
@@ -864,6 +920,7 @@ cookieLoop:
 	}
 	conn.serverRandom = serverHello.serverRandom
 	conn.srtpProfile = serverHello.srtpProfile
+	conn.sendCid = serverHello.peerCid
 
 	var peerEphemeralPoint []byte
 	var skeParams []byte
@@ -1016,6 +1073,7 @@ serverFlightDone:
 // DtlsAccept runs the server handshake.
 func DtlsAccept(io PacketIO, config DtlsConfig) (*DtlsConnection, error) {
 	conn := &DtlsConnection{io: io, role: "server", srtpProfile: -1, readHighest: -1}
+	conn.recvCid = config.ConnectionID
 	hs := newHandshakeState()
 	cert := config.Certificate
 
@@ -1081,6 +1139,11 @@ func DtlsAccept(io PacketIO, config DtlsConfig) (*DtlsConnection, error) {
 				}
 				if ty == 23 {
 					clientEms = true
+				} else if ty == DtlsExtConnectionId {
+					cr := &byteReader{buf: data}
+					if cid, err := cr.vec8(); err == nil {
+						conn.sendCid = append([]byte{}, cid...)
+					}
 				} else if ty == 14 {
 					sr := &byteReader{buf: data}
 					list, err := sr.vec16()
@@ -1120,6 +1183,12 @@ func DtlsAccept(io PacketIO, config DtlsConfig) (*DtlsConnection, error) {
 		}
 		if clientEms {
 			exts = append(exts, 0, 23, 0, 0)
+		}
+		if config.ConnectionID != nil {
+			cidData := append([]byte{byte(len(config.ConnectionID))}, config.ConnectionID...)
+			exts = append(exts, byte(DtlsExtConnectionId>>8), byte(DtlsExtConnectionId))
+			exts = append(exts, byte(len(cidData)>>8), byte(len(cidData)))
+			exts = append(exts, cidData...)
 		}
 		exts = append(exts, 0xff, 0x01, 0, 1, 0)
 		sh := append([]byte{}, dtlsVersion...)

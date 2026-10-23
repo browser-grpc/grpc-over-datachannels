@@ -77,6 +77,8 @@ fn config_resume(session_resumption: bool) -> DtlsConfig {
         // Servers need a sealing key to issue/honor RFC 5077
         // tickets. Fixed key: test harness only, never production.
         session_ticket_key: if session_resumption { Some([0x42; 32]) } else { None },
+        connection_id: None,
+        pair_hint: None,
     }
 }
 

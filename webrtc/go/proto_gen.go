@@ -114,6 +114,8 @@ const DtlsExtSignatureAlgorithms = 13
 const DtlsExtUseSrtp = 14
 const DtlsExtExtendedMasterSecret = 23
 const DtlsExtSessionTicket = 35
+const DtlsExtConnectionId = 54
+const DtlsExtDcPairHint = 65282
 const DtlsExtRenegotiationInfo = 65281
 
 const DtlsNamedGroupSecp256r1 = 23
