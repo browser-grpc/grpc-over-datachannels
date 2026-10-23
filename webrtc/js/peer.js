@@ -104,6 +104,32 @@ export class Peer {
     const socket = dgram.createSocket(wantsV6 ? "udp6" : "udp4");
     socket.on("error", () => {}); // async send errors must not crash the process
     await new Promise((resolve) => socket.bind(0, wantsV6 ? "::" : "0.0.0.0", resolve));
+    return Peer.createWithSocket(socket, {
+      localIps,
+      requirePeerCertificate,
+      stunServers,
+      turnServers,
+      consentIntervalMs,
+      consentExpiryMs,
+    });
+  }
+
+  // Build a peer on an already-bound datagram socket (a real
+  // dgram socket from create(), or a PeerMux endpoint — the
+  // single-socket seam in mux.js). Candidates advertise the
+  // socket's port. TURN requires a real socket.
+  static async createWithSocket(
+    socket,
+    {
+      localIps = null,
+      requirePeerCertificate = true,
+      stunServers = [],
+      turnServers = [],
+      consentIntervalMs = 5000,
+      consentExpiryMs = 30000,
+    } = {},
+  ) {
+    const effectiveIps = localIps ?? defaultLocalIps();
     const { port } = socket.address();
     const agent = new IceAgent(true);
     agent.localCandidates = effectiveIps.map((ip, i) =>
@@ -114,6 +140,9 @@ export class Peer {
     peer.#consentExpiryMs = consentExpiryMs;
     for (const server of stunServers) {
       await peer.gatherSrflx(server); // failures ignored: host candidates still apply
+    }
+    if (turnServers.length > 0 && !(socket instanceof dgram.Socket)) {
+      throw new Error("TURN is not available on a muxed peer");
     }
     for (const cfg of turnServers) {
       try {
@@ -297,6 +326,11 @@ export class Peer {
   #turnAddCandidate(cand) {
     if (!this.turn) return;
     addTurnPeer(this, this.turn, { address: cand.address, port: cand.port }).catch(() => {});
+  }
+
+  // This peer's local ICE ufrag (mux registration).
+  get localUfrag() {
+    return this.#agent.localUfrag;
   }
 
   #localDescription(setup) {

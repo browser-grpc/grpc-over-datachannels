@@ -77,9 +77,21 @@ type PeerOptions struct {
 	OnConsentFailure func()
 }
 
+// packetConn is the datagram seam for one peer: a real UDP
+// socket (default) or one endpoint of a PeerMux shared socket.
+// TURN allocation requires a concrete socket and is
+// unavailable on muxed peers.
+type packetConn interface {
+	ReadFromUDP(b []byte) (int, *net.UDPAddr, error)
+	WriteToUDP(b []byte, addr *net.UDPAddr) (int, error)
+	LocalAddr() net.Addr
+	SetReadDeadline(t time.Time) error
+	Close() error
+}
+
 // Peer is one WebRTC peer.
 type Peer struct {
-	socket      *net.UDPConn
+	socket      packetConn
 	agent       *IceAgent
 	certificate *Certificate
 	remote      *SessionDescription
@@ -157,6 +169,13 @@ func NewPeer(options PeerOptions) (*Peer, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newPeer(options, socket, ips)
+}
+
+// newPeer builds a peer on an existing datagram conn (a bound
+// UDP socket, or a PeerMux endpoint) advertising `ips` at the
+// conn's port.
+func newPeer(options PeerOptions, socket packetConn, ips []string) (*Peer, error) {
 	port := socket.LocalAddr().(*net.UDPAddr).Port
 	agent := NewIceAgent(true)
 	for i, ip := range ips {

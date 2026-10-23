@@ -308,6 +308,9 @@ func turnErrorCode(msg *StunMessage) int {
 // appends the relayed candidate. Called automatically from
 // gatherFromOptions for the first reachable TurnServers entry.
 func (p *Peer) AllocateTurn(cfg TurnServerConfig, timeout time.Duration) (err error) {
+	if _, ok := p.socket.(*net.UDPConn); !ok {
+		return errors.New("TURN is not available on a muxed peer")
+	}
 	serverAddr, err := net.ResolveUDPAddr("udp", cfg.Address)
 	if err != nil {
 		return err

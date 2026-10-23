@@ -4,6 +4,7 @@ export { Certificate, fingerprintOfDer } from "./x509.js";
 export { Association } from "./sctp.js";
 export { DcEndpoint, DataChannel } from "./endpoint.js";
 export { Peer } from "./peer.js";
+export { PeerMux } from "./mux.js";
 export {
   DirectListener,
   certhashOfCert,
