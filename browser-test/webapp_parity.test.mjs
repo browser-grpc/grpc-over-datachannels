@@ -92,6 +92,7 @@ const LANG_CONFIG = {
   "wasm-swift": { plugin: "wasm-swift", stub: (b) => `${pascal(b)}WasmGrpcDc.swift`, runtime: "wasm_bridge.js" },
   "wasm-kotlin": { plugin: "wasm-kotlin", stub: (b) => `${pascal(b)}WasmGrpcDc.kt`, runtime: "wasm_bridge.js" },
   "wasm-scala": { plugin: "wasm-scala", stub: (b) => `${camel(b)}ScalaJsGrpcDc.scala`, runtime: "wasm_bridge.js" },
+  "kotlin-native": { plugin: "kotlin-native", stub: (b) => `${pascal(b)}GrpcDc.kt`, runtime: "Channel.kt" },
 };
 const LANGS = (process.env.GRPC_DC_PARITY_LANGS ?? Object.keys(LANG_CONFIG).join(",")).split(",");
 
@@ -207,6 +208,7 @@ async function runCase(name, engine) {
       cpp: (b) => `${b}_messages.hpp`,
       swift: (b) => `${upperFirst(b)}Messages.swift`,
       kotlin: (b) => `${upperFirst(b)}Messages.kt`,
+      "kotlin-native": (b) => `${upperFirst(b)}Messages.kt`,
       dart: (b) => `${b}_messages.dart`,
       zig: (b) => `${b}_messages.zig`,
   c: (b) => `${b}_messages.h`,

@@ -728,6 +728,8 @@ webapp-assets:
 	cp swift/grpcdc/Channel.swift swift/grpcdc/Codec.swift swift/grpcdc/Dynamic.swift swift/grpcdc/Endpoint.swift swift/grpcdc/MemoryTransport.swift swift/grpcdc/Server.swift swift/grpcdc/Status.swift swift/grpcdc/Transport.swift swift/grpcdc/Wire.swift webapp/assets/runtime/swift/
 	mkdir -p webapp/assets/runtime/kotlin
 	cp kotlin/grpcdc/AsyncPump.kt kotlin/grpcdc/Channel.kt kotlin/grpcdc/Codec.kt kotlin/grpcdc/Dynamic.kt kotlin/grpcdc/Endpoint.kt kotlin/grpcdc/MemoryTransport.kt kotlin/grpcdc/Server.kt kotlin/grpcdc/Status.kt kotlin/grpcdc/Transport.kt kotlin/grpcdc/Wire.kt webapp/assets/runtime/kotlin/
+	mkdir -p webapp/assets/runtime/kotlin-native
+	cp wasm/kotlin/grpcdc/Channel.kt wasm/kotlin/grpcdc/Codec.kt wasm/kotlin/grpcdc/Endpoint.kt wasm/kotlin/grpcdc/MemoryTransport.kt wasm/kotlin/grpcdc/Server.kt wasm/kotlin/grpcdc/Status.kt wasm/kotlin/grpcdc/Transport.kt wasm/kotlin/grpcdc/Wire.kt webapp/assets/runtime/kotlin-native/
 	mkdir -p webapp/assets/runtime/dart
 	cp dart/grpcdc/channel.dart dart/grpcdc/codec.dart dart/grpcdc/dynamic.dart dart/grpcdc/endpoint.dart dart/grpcdc/memory_transport.dart dart/grpcdc/server.dart dart/grpcdc/status.dart dart/grpcdc/transport.dart dart/grpcdc/wire.dart webapp/assets/runtime/dart/
 	mkdir -p webapp/assets/runtime/zig/grpcdc
@@ -805,6 +807,7 @@ webapp-plugins: generate
 	cp bin/protoc-gen-grpc-dc-wasm-swift webapp/assets/plugins/wasm-swift.rkt
 	cp bin/protoc-gen-grpc-dc-wasm-kotlin webapp/assets/plugins/wasm-kotlin.rkt
 	cp bin/protoc-gen-grpc-dc-wasm-scala webapp/assets/plugins/wasm-scala.rkt
+	cp bin/protoc-gen-grpc-dc-kotlin-native webapp/assets/plugins/kotlin-native.rkt
 	cp webapp/racket/runner.rkt webapp/assets/racket/runner.rkt
 
 # Cross-compile gate for embedded targets: build the C harness

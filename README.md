@@ -139,7 +139,7 @@ make webapp-serve         # serve it with COOP/COEP (Racket runner)
 
 The same page has a **Browse generated code** mode: pick a schema
 (the bundled `echo.proto` or the `webapp/testdata` set) and any of
-the 22 targets, and navigate every generated file — stubs and
+the 23 targets, and navigate every generated file — stubs and
 message types generated live in the page (byte-identical to the
 plugins), plus each language's runtime, examples, and tests. The
 repo-side index is `webapp/gen/corpus-manifest.json`, stamped by
