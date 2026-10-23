@@ -12,7 +12,7 @@ import { createServer } from "node:http";
 import { access, readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, firefox } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MIME = {
@@ -202,5 +202,6 @@ async function runCase(name, engine) {
 const which = process.argv[2] ?? "all";
 if (which === "all" || which === "chromium") await runCase("chromium", chromium);
 if (which === "all" || which === "firefox") await runCase("firefox", firefox);
+if (which === "webkit" || (which === "all" && process.env.GRPC_DC_WEBKIT)) await runCase("webkit", webkit);
 server.close();
 console.log("webapp browse test passed");

@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { chromium, firefox } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 const run = promisify(execFile);
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -215,5 +215,12 @@ async function runCase(name, engine) {
 const which = process.argv[2] ?? "all";
 if (which === "chromium" || which === "all") await runCase("chromium", chromium);
 if (which === "firefox" || which === "all") await runCase("firefox", firefox);
+// WebKit excluded from "all": the in-browser Racket runtime mounts
+// an OPFS home and WPE WebKit fails that mount (worker posts ready,
+// then an OPFS UnknownError), so Generate never completes there.
+// Explicit "webkit" runs still attempt it and fail until upstream
+// WPE OPFS works; browse/parity of the JS generators is covered
+// by webapp_browse in all three engines.
+if (which === "webkit") await runCase("webkit", webkit);
 console.log("webapp pb test passed");
 server.close();

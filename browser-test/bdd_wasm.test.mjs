@@ -16,7 +16,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, firefox } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 import { Peer } from "../webrtc/js/peer.js";
 import { Server, StatusCode, StatusError } from "../js/index.js";
@@ -120,6 +120,7 @@ async function runClient(name, engine, client) {
       "media.peerconnection.ice.obfuscate_host_addresses": false,
     };
   }
+  if (name === "webkit") delete launchOptions.args; // Chromium-only flags; MiniBrowser rejects them
   const browser = await engine.launch(launchOptions);
   try {
     const grpcServer = new Server();
@@ -180,6 +181,7 @@ const which = process.argv[2] ?? "chromium";
 for (const client of WASM_BDD_CLIENTS) {
   if (which === "chromium" || which === "all") await runClient("chromium", chromium, client);
   if (which === "firefox" || which === "all") await runClient("firefox", firefox, client);
+  if (which === "webkit" || (which === "all" && process.env.GRPC_DC_WEBKIT)) await runClient("webkit", webkit, client);
 }
 
 server.close();

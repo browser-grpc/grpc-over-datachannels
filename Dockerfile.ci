@@ -250,7 +250,7 @@ RUN cd webapp/compiler && go mod download \
 # Playwright browsers (npm ci needs only the manifests).
 COPY browser-test/package.json browser-test/package-lock.json ./browser-test/
 RUN cd browser-test && npm ci \
-  && npx playwright install --with-deps chromium firefox
+  && npx playwright install --with-deps chromium firefox webkit
 
 # Racket/Wasm bootstrap: clones and builds the pinned tree
 # (host Chez + host Racket + Emscripten). Output is staged
@@ -358,9 +358,15 @@ RUN cp -a /opt/racket-wasm-built/. webapp/assets/racket/ \
 # Firefox against the reimplemented stack). Installed at build time;
 # test runs need no network.
 RUN cd browser-test && npm ci \
-  && npx playwright install --with-deps chromium firefox
+  && npx playwright install --with-deps chromium firefox webkit
 
 # Deps are fetched and built above; test/demo runs need no network.
 ENV CARGO_NET_OFFLINE=true
+
+# WebKit is installed above (playwright install ... webkit);
+# enabling this makes every `all`-mode browser test also run
+# its WebKit case in this image. Host runs leave it unset
+# unless WebKit's system libraries are present.
+ENV GRPC_DC_WEBKIT=1
 
 CMD ["make", "test"]

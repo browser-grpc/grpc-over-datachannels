@@ -3,6 +3,32 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.26.0 — 2026-10-23
+
+- Cross-browser Playwright matrix: every browser-test engine
+  dispatch (45 files) now also accepts WebKit. Chromium-only
+  launch flags are stripped for WebKit (MiniBrowser rejects
+  `--no-sandbox`). In `all` mode WebKit runs where
+  `GRPC_DC_WEBKIT` is set — `Dockerfile.ci` installs WebKit
+  and sets it, so the container gate covers Chromium, Firefox,
+  and WebKit; host runs without WebKit libraries are
+  unchanged. Verified in WebKit: native DataChannel gRPC,
+  BDD, TURN/direct/trickle/close/restart, Go/browser/DTLS
+  servers, the Wasm client suites and matrix, and the webapp
+  browse test (23 languages). Known limitation, recorded in
+  the tests: `webapp_parity`/`webapp_pb` stay explicit-only
+  for WebKit because the in-browser Racket runtime's OPFS
+  home mount fails in WPE WebKit (worker posts `ready`, then
+  an OPFS `UnknownError`), so Generate never completes.
+- Release gate: the README release checklist now requires
+  `make test-stress-ports` before tagging.
+- Mux benchmark: `make bench-mux` (`mux_bench` Rust example)
+  reports handshake rate, blast throughput, and ping-pong
+  RTT for pairs on one `PeerMux` socket. Baseline on the
+  dev host: 8.1 pairs/s, 1013 msgs/s (1.0 MiB/s) echo blast
+  at 1 KiB, 19.2 ms mean RTT (polling-bound; a latency
+  baseline, not a target).
+
 ## v0.25.2 — 2026-10-23
 
 - Parallel UDP port-collision stress (`make test-stress-ports`,

@@ -478,6 +478,10 @@ in this checkout). Releases are plain Git tags on `master`
 (`git tag vX.Y.Z`): before tagging, run `make generate` (the
 tree must stay byte-stable), the host `make test`, and the
 two Docker commands above, twice each for the container runs.
+Also run `make test-stress-ports` before tagging: it runs
+the collision-prone WebRTC suites in parallel copies and
+fails on any `EADDRINUSE`, the regression gate for the
+port-0 allocation discipline in tests and harnesses.
 
 ## License
 
