@@ -6,11 +6,15 @@
 // via the existing grpc_webrtc_client/server harnesses); the
 // Rust stack, which has no gRPC-over-WebRTC harness binary,
 // pairs at the DataChannel level via the mirrored peer_echo
-// line-echo harnesses (Go and Rust) and the JS Peer. A final
-// block pairs PeerMux against PeerMux across stacks (two
-// pairs over one socket per side), proving the DTLS
-// connection-id (RFC 9146) demux wire profile agrees across
-// stacks. Run via `make test-webrtc-matrix`.
+// line-echo harnesses (Go and Rust) and the JS Peer. Two
+// closing blocks pair PeerMux against PeerMux across stacks
+// (two pairs over one socket per side) — once direct, proving
+// the DTLS connection-id (RFC 9146) demux wire profile agrees
+// across stacks, and once with both muxes also allocating on
+// one shared fake TURN server (unreachable host addresses, so
+// only relayed pairs connect), proving TURN-on-mux composes
+// with the CID demux cross-stack. Run via
+// `make test-webrtc-matrix`.
 
 import assert from "node:assert/strict";
 import { execSync, spawn } from "node:child_process";
@@ -348,11 +352,12 @@ function assertMuxOut(out) {
   assert.ok(out.includes("pair1: re:hello-from-pair-1"), out);
 }
 
-function muxCellNative(name, offererCmd, answererCmd) {
+function muxCellNative(name, offererCmd, answererCmd, turnAddr = "") {
   return cell(name, async () => {
     const dir = mkdtempSync(join(tmpdir(), "webrtc-matrix-mux-"));
-    const answerer = spawn(answererCmd[0], [...answererCmd.slice(1), "mux-answerer", dir], { cwd: ROOT });
-    const offerer = spawn(offererCmd[0], [...offererCmd.slice(1), "mux-offerer", dir], { cwd: ROOT });
+    const extra = turnAddr === "" ? [] : [turnAddr];
+    const answerer = spawn(answererCmd[0], [...answererCmd.slice(1), "mux-answerer", dir, ...extra], { cwd: ROOT });
+    const offerer = spawn(offererCmd[0], [...offererCmd.slice(1), "mux-offerer", dir, ...extra], { cwd: ROOT });
     answerer.stderr.on("data", () => {});
     offerer.stderr.on("data", () => {});
     try {
@@ -364,11 +369,22 @@ function muxCellNative(name, offererCmd, answererCmd) {
   });
 }
 
-async function jsMuxOfferer(dir) {
+// With a TURN server address, the advertised host address is
+// deliberately unreachable, so a working pair proves the
+// relay carried it (relay-only, like the in-stack TURN tests).
+function muxPeerOptions(turnAddr = "") {
+  if (turnAddr === "") return { localIps: ["127.0.0.1"] };
+  return {
+    localIps: ["10.11.12.13"],
+    turnServers: [{ address: turnAddr, username: "dcuser", password: "dcpass" }],
+  };
+}
+
+async function jsMuxOfferer(dir, turnAddr = "") {
   const mux = await PeerMux.bind({ address: "127.0.0.1", port: 0 });
   const peers = [];
   for (let i = 0; i < 2; i++) {
-    const peer = await mux.createPeer({ localIps: ["127.0.0.1"] });
+    const peer = await mux.createPeer(muxPeerOptions(turnAddr));
     writeFileSync(join(dir, `offer${i}`), peer.createOffer());
     peers.push(peer);
   }
@@ -399,12 +415,12 @@ async function jsMuxOfferer(dir) {
 // Sets up a JS mux answerer (echo with "re:") and resolves
 // to a close function once both peers are connected and
 // serving; echo runs on socket events in the background.
-async function jsMuxAnswerer(dir) {
+async function jsMuxAnswerer(dir, turnAddr = "") {
   const mux = await PeerMux.bind({ address: "127.0.0.1", port: 0 });
   const peers = [];
   const endpoints = await Promise.all(
     [0, 1].map(async (i) => {
-      const peer = await mux.createPeer({ localIps: ["127.0.0.1"] });
+      const peer = await mux.createPeer(muxPeerOptions(turnAddr));
       peers.push(peer);
       const answer = peer.handleOffer(await waitForFile(join(dir, `offer${i}`)));
       writeFileSync(join(dir, `answer${i}`), answer);
@@ -475,6 +491,70 @@ await cell("mux go-offerer -> js-answerer", async () => {
     await closeAnswerer();
   }
 });
+
+// --- TURN x mux cells --------------------------------------------------------
+// Both muxes also allocate on one shared fake TURN server and
+// advertise unreachable host addresses, so only relayed pairs
+// can connect. Proves TURN-on-mux (dedicated per-peer TURN
+// sockets) and the CID demux compose across stacks.
+const turnd = spawn("node", [join(ROOT, "browser-test/fake_turnd.mjs")], { cwd: ROOT });
+const TURN_ADDR = await new Promise((resolve, reject) => {
+  turnd.stdout.once("data", (d) => resolve(d.toString().trim()));
+  turnd.once("exit", () => reject(new Error("fake TURN server exited")));
+});
+
+await muxCellNative("turn-mux rust-offerer -> go-answerer", [RUST_ECHO], [GO_ECHO], TURN_ADDR);
+await muxCellNative("turn-mux go-offerer -> rust-answerer", [GO_ECHO], [RUST_ECHO], TURN_ADDR);
+
+await cell("turn-mux js-offerer -> rust-answerer", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "webrtc-matrix-mux-"));
+  const answerer = spawn(RUST_ECHO, ["mux-answerer", dir, TURN_ADDR], { cwd: ROOT });
+  answerer.stderr.on("data", () => {});
+  try {
+    await jsMuxOfferer(dir, TURN_ADDR);
+  } finally {
+    answerer.kill("SIGKILL");
+  }
+});
+
+await cell("turn-mux js-offerer -> go-answerer", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "webrtc-matrix-mux-"));
+  const answerer = spawn(GO_ECHO, ["mux-answerer", dir, TURN_ADDR], { cwd: ROOT });
+  answerer.stderr.on("data", () => {});
+  try {
+    await jsMuxOfferer(dir, TURN_ADDR);
+  } finally {
+    answerer.kill("SIGKILL");
+  }
+});
+
+await cell("turn-mux rust-offerer -> js-answerer", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "webrtc-matrix-mux-"));
+  const offerer = spawn(RUST_ECHO, ["mux-offerer", dir, TURN_ADDR], { cwd: ROOT });
+  offerer.stderr.on("data", () => {});
+  const closeAnswerer = await jsMuxAnswerer(dir, TURN_ADDR);
+  try {
+    assertMuxOut(await waitForMuxOk(offerer));
+  } finally {
+    offerer.kill("SIGKILL");
+    await closeAnswerer();
+  }
+});
+
+await cell("turn-mux go-offerer -> js-answerer", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "webrtc-matrix-mux-"));
+  const offerer = spawn(GO_ECHO, ["mux-offerer", dir, TURN_ADDR], { cwd: ROOT });
+  offerer.stderr.on("data", () => {});
+  const closeAnswerer = await jsMuxAnswerer(dir, TURN_ADDR);
+  try {
+    assertMuxOut(await waitForMuxOk(offerer));
+  } finally {
+    offerer.kill("SIGKILL");
+    await closeAnswerer();
+  }
+});
+
+turnd.kill("SIGKILL");
 
 console.log(`webrtc matrix: ${cells.length}/${attempted} cells passed`);
 if (process.exitCode) process.exit(1);

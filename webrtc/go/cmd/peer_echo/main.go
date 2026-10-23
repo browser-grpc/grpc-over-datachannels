@@ -2,8 +2,8 @@
 //
 //	peer_echo offerer  <offer-file> <answer-file>
 //	peer_echo answerer <offer-file> <answer-file>
-//	peer_echo mux-offerer  <dir>   (two pairs over one PeerMux)
-//	peer_echo mux-answerer <dir>
+//	peer_echo mux-offerer  <dir> [turn-addr]  (two pairs over one PeerMux)
+//	peer_echo mux-answerer <dir> [turn-addr]
 //
 // Mirrors webrtc/rust/examples/peer_echo.rs.
 package main
@@ -58,11 +58,15 @@ func main() {
 	if len(os.Args) > 3 {
 		answerPath = os.Args[3]
 	}
+	turnAddr := ""
+	if len(os.Args) > 3 {
+		turnAddr = os.Args[3]
+	}
 	switch mode {
 	case "mux-answerer":
-		muxAnswerer(offerPath)
+		muxAnswerer(offerPath, turnAddr)
 	case "mux-offerer":
-		muxOfferer(offerPath)
+		muxOfferer(offerPath, turnAddr)
 	case "answerer":
 		offer := waitForFile(offerPath)
 		peer := loopbackPeer()
@@ -155,11 +159,21 @@ func main() {
 // cross-stack webrtc matrix to prove DTLS connection-id
 // (RFC 9146) demux agrees across stacks.
 
-func muxPeerOptions() dcwebrtc.PeerOptions {
-	return dcwebrtc.PeerOptions{LocalIPs: []string{"127.0.0.1"}, RequirePeerCertificate: true}
+// With a TURN server address, the advertised host address is
+// deliberately unreachable, so a successful pair proves the
+// relay carried it (relay-only, like the in-stack TURN tests).
+func muxPeerOptions(turnAddr string) dcwebrtc.PeerOptions {
+	options := dcwebrtc.PeerOptions{LocalIPs: []string{"127.0.0.1"}, RequirePeerCertificate: true}
+	if turnAddr != "" {
+		options.LocalIPs = []string{"10.11.12.13"}
+		options.TurnServers = []dcwebrtc.TurnServerConfig{
+			{Address: turnAddr, Username: "dcuser", Password: "dcpass"},
+		}
+	}
+	return options
 }
 
-func muxAnswerer(dir string) {
+func muxAnswerer(dir string, turnAddr string) {
 	mux, err := dcwebrtc.NewPeerMux(&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	if err != nil {
 		panic(err)
@@ -168,7 +182,7 @@ func muxAnswerer(dir string) {
 	var peers []*dcwebrtc.Peer
 	for pair := 0; pair < 2; pair++ {
 		offer := waitForFile(filepath.Join(dir, fmt.Sprintf("offer%d", pair)))
-		peer, err := mux.NewPeer(muxPeerOptions())
+		peer, err := mux.NewPeer(muxPeerOptions(turnAddr))
 		if err != nil {
 			panic(err)
 		}
@@ -201,7 +215,7 @@ func muxAnswerer(dir string) {
 	select {}
 }
 
-func muxOfferer(dir string) {
+func muxOfferer(dir string, turnAddr string) {
 	mux, err := dcwebrtc.NewPeerMux(&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	if err != nil {
 		panic(err)
@@ -209,7 +223,7 @@ func muxOfferer(dir string) {
 	defer mux.Close()
 	var peers []*dcwebrtc.Peer
 	for pair := 0; pair < 2; pair++ {
-		peer, err := mux.NewPeer(muxPeerOptions())
+		peer, err := mux.NewPeer(muxPeerOptions(turnAddr))
 		if err != nil {
 			panic(err)
 		}
