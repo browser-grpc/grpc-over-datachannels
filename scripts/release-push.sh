@@ -30,9 +30,21 @@ grep -q "\"version\": \"$VERSION\"" "$EXPORT/RELEASE.json" || {
 if ! gh repo view "$REPO" >/dev/null 2>&1; then
   gh repo create "$REPO" --public \
     --description "gRPC over WebRTC DataChannels — generated multi-language runtimes (public export)"
-  gh repo edit "$REPO" --add-topic grpc --add-topic webrtc \
-    --add-topic datachannel --add-topic wasm --add-topic codegen
 fi
+
+# Discoverability (idempotent; aligned every publish): keyword
+# description for web/browser developers, the live site as
+# homepage, and topics GitHub search indexes. gh --add-topic
+# merges (verified), so naming the keyword set here suffices.
+gh repo edit "$REPO" \
+  --description "gRPC in the browser over WebRTC DataChannels: dependency-free generated gRPC clients & servers for JavaScript, Go, Rust, Python + 12 more languages — no grpc-web proxy" \
+  --homepage "https://browser-grpc.github.io/grpc-over-datachannels/" \
+  --add-topic grpc --add-topic grpc-web --add-topic webrtc \
+  --add-topic datachannel --add-topic rtcdatachannel \
+  --add-topic protobuf --add-topic protoc --add-topic protoc-plugin \
+  --add-topic wasm --add-topic webassembly --add-topic codegen \
+  --add-topic browser --add-topic peer-to-peer --add-topic javascript \
+  --add-topic typescript | grep -v "graphql:" || true
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT

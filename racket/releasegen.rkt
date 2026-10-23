@@ -368,10 +368,23 @@
 
 (define readme
   (string-append
-   "# grpc-over-datachannels\n\n"
-   "gRPC over WebRTC DataChannels for many languages: dependency-free\n"
-   "generated runtimes and Echo stubs, a reimplemented WebRTC stack,\n"
-   "and native + browser (Wasm) clients and servers.\n\n"
+   "# gRPC over WebRTC DataChannels — in the browser and natively\n\n"
+   "**Run gRPC in the browser.** grpc-over-datachannels speaks the\n"
+   "gRPC wire protocol directly over WebRTC DataChannels, so a\n"
+   "browser tab can call native services peer-to-peer — no grpc-web\n"
+   "proxy, no translating gateway, no external gRPC runtime.\n"
+   "Generate dependency-free gRPC clients and servers for\n"
+   "JavaScript (browser + Node), Go, Rust, Python, and 12 more\n"
+   "languages from the same `.proto` schemas. Browser clients use\n"
+   "the native `RTCDataChannel`; other languages also run in the\n"
+   "browser as Wasm. Every runtime is generated and dependency-free,\n"
+   "on a reimplemented WebRTC stack (ICE/DTLS/SCTP) with native and\n"
+   "browser clients and servers.\n\n"
+   "Try the [live in-browser generator](https://browser-grpc.github.io/grpc-over-datachannels/app/):\n"
+   "paste a `.proto`, get protoc stubs for every language. Keywords:\n"
+   "`grpc`, `grpc-web alternative`, `webrtc`, `datachannel`,\n"
+   "`rtcdatachannel`, `protobuf`, `protoc plugin`, `wasm`,\n"
+   "`browser rpc`, `peer-to-peer`.\n\n"
    "This repository is a generated public export (version " version ")\n"
    "of the grpc-over-datachannels project. Generated code may be used\n"
    "without restriction (see GENERATED-CODE-LICENSE.md); everything\n"
@@ -384,9 +397,13 @@
    getting-started
    "\n"
    "## Try it in the browser\n\n"
-   "The [live demo](https://browser-grpc.github.io/grpc-over-datachannels/)\n"
-   "generates stubs for every language in your browser (protoc schema\n"
-   "in, generated code out) and runs the BDD example suite.\n\n"
+   "The [live generator](https://browser-grpc.github.io/grpc-over-datachannels/app/)\n"
+   "runs the real protoc plugins in your browser (schema in,\n"
+   "generated code out, for every language) and the app's Browse tab\n"
+   "shows generated clients — including a JavaScript browser client\n"
+   "on the native `RTCDataChannel` — for every bundled schema. No\n"
+   "server, no install. Deep link to the JavaScript client:\n"
+   "https://browser-grpc.github.io/grpc-over-datachannels/app/#schema=echo&lang=js\n\n"
    "## Generate with protoc (Node)\n\n"
    "The same generators ship as a dependency-free Node protoc\n"
    "plugin, `docs/app/protoc-gen-grpc-dc.mjs`. Link it under one\n"
@@ -504,11 +521,12 @@
     (display
      (string-append
       "# browser-grpc\n\n"
-      "gRPC over WebRTC DataChannels for "
+      "**gRPC in the browser, over WebRTC DataChannels.** "
+      "Dependency-free gRPC clients and servers for "
       (number->string (length languages))
-      " languages: dependency-free generated runtimes, a\n"
-      "reimplemented WebRTC stack, and native + browser (Wasm)\n"
-      "clients and servers.\n\n"
+      " languages that run in browser tabs (native RTCDataChannel, "
+      "plus Wasm clients) and natively — no grpc-web proxy, no "
+      "external gRPC runtime.\n\n"
       "Start in 60 seconds, no toolchain install:\n\n"
       "    git clone https://github.com/browser-grpc/grpc-over-datachannels\n"
       "    cd grpc-over-datachannels\n"
@@ -519,22 +537,97 @@
      out))
   #:exists 'replace)
 
+;; SEO/discoverability: keyword-forward title/description aimed
+;; at web and browser developers, Open Graph cards, canonical
+;; URL, and JSON-LD. All absolute URLs point at the live Pages
+;; site (canonical home of the export).
+(define site-url "https://browser-grpc.github.io/grpc-over-datachannels/")
+(define seo-title
+  "gRPC in the Browser over WebRTC DataChannels | grpc-over-datachannels")
+(define seo-description
+  (string-append
+   "Run gRPC in the browser and natively over WebRTC DataChannels. "
+   "Generate dependency-free gRPC clients and servers for JavaScript, "
+   "TypeScript-ready JS, Go, Rust, Python and 11 more languages from "
+   ".proto schemas — no grpc-web proxy, no external gRPC runtime. "
+   "Live in-browser protoc generator plus native and Wasm clients."))
 (define landing
   (string-append
-   "<!doctype html>\n<meta charset=\"utf-8\">\n"
-   "<title>grpc-over-datachannels " version "</title>\n"
-   "<h1>grpc-over-datachannels</h1>\n"
-   "<p>gRPC over WebRTC DataChannels for many languages — version "
-   version ".</p>\n"
+   "<!doctype html>\n"
+   "<html lang=\"en\">\n<head>\n"
+   "<meta charset=\"utf-8\">\n"
+   "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+   "<title>" seo-title "</title>\n"
+   "<meta name=\"description\" content=\"" seo-description "\">\n"
+   "<link rel=\"canonical\" href=\"" site-url "\">\n"
+   "<meta property=\"og:type\" content=\"website\">\n"
+   "<meta property=\"og:site_name\" content=\"grpc-over-datachannels\">\n"
+   "<meta property=\"og:title\" content=\"" seo-title "\">\n"
+   "<meta property=\"og:description\" content=\"" seo-description "\">\n"
+   "<meta property=\"og:url\" content=\"" site-url "\">\n"
+   "<meta name=\"twitter:card\" content=\"summary\">\n"
+   "<meta name=\"twitter:title\" content=\"" seo-title "\">\n"
+   "<meta name=\"twitter:description\" content=\"" seo-description "\">\n"
+   "<script type=\"application/ld+json\">\n"
+   "{\"@context\":\"https://schema.org\",\"@type\":\"SoftwareSourceCode\","
+   "\"name\":\"grpc-over-datachannels\","
+   "\"description\":\"" seo-description "\","
+   "\"codeRepository\":\"https://github.com/browser-grpc/grpc-over-datachannels\","
+   "\"url\":\"" site-url "\","
+   "\"programmingLanguage\":[\"JavaScript\",\"Go\",\"Rust\",\"Python\",\"Java\",\"C#\",\"C++\",\"Swift\",\"Kotlin\",\"Dart\",\"Zig\",\"Lua\",\"Ruby\",\"PHP\",\"Scala\",\"C\"],"
+   "\"license\":\"https://www.apache.org/licenses/LICENSE-2.0\","
+   "\"applicationCategory\":\"DeveloperApplication\","
+   "\"operatingSystem\":\"Any (browser via WebRTC/Wasm, plus native)\"}\n"
+   "</script>\n</head>\n<body>\n"
+   "<h1>gRPC over WebRTC DataChannels</h1>\n"
+   "<p>grpc-over-datachannels " version " — gRPC clients and servers "
+   "that run <strong>in the browser</strong> over native WebRTC "
+   "DataChannels, and natively in 16 languages, from the same "
+   ".proto schemas. No grpc-web proxy and no external gRPC "
+   "runtime: every runtime is generated and dependency-free.</p>\n"
    "<ul>\n"
-   "<li><a href=\"app/\">In-browser stub generator + BDD demo</a></li>\n"
+   "<li><a href=\"app/\">In-browser protoc generator + live demo</a> — "
+   "paste a .proto, get stubs for every language</li>\n"
+   "<li><a href=\"app/#schema=echo&lang=js\">JavaScript/TypeScript browser client example</a></li>\n"
+   "<li><a href=\"gallery.md\">Echo server in every language</a></li>\n"
    "<li><a href=\"BDD.md\">Behavior specification (BDD)</a></li>\n"
    "<li><a href=\"https://github.com/browser-grpc/grpc-over-datachannels\">"
-   "Source export on GitHub</a></li>\n</ul>\n"))
+   "Source, runtimes and examples on GitHub</a></li>\n</ul>\n"
+   "<h2>Why DataChannels?</h2>\n"
+   "<p>WebRTC DataChannels give browsers an encrypted, ordered or "
+   "lossy/unordered, bidirectional message pipe to any peer — "
+   "including native processes. This project speaks the gRPC wire "
+   "protocol directly over that pipe (HTTP/2 framing replaced by "
+   "DataChannel messages), so a browser tab can call a Rust, Go, "
+   "Python or Node service peer-to-peer, behind NATs via ICE/STUN/TURN, "
+   "without a translating proxy.</p>\n"
+   "</body>\n</html>\n"))
 
 (make-directory* (build-path out-dir "docs"))
 (call-with-output-file (build-path out-dir "docs/index.html")
   (lambda (out) (display landing out)) #:exists 'replace)
+
+;; Crawler files for the Pages site.
+(call-with-output-file (build-path out-dir "docs/robots.txt")
+  (lambda (out)
+    (display
+     (string-append
+      "User-agent: *\nAllow: /\n\nSitemap: " site-url "sitemap.xml\n")
+     out))
+  #:exists 'replace)
+(call-with-output-file (build-path out-dir "docs/sitemap.xml")
+  (lambda (out)
+    (display
+     (string-append
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+      "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
+      "<url><loc>" site-url "</loc></url>\n"
+      "<url><loc>" site-url "app/</loc></url>\n"
+      "<url><loc>" site-url "gallery.md</loc></url>\n"
+      "<url><loc>" site-url "BDD.md</loc></url>\n"
+      "</urlset>\n")
+     out))
+  #:exists 'replace)
 
 (call-with-output-file (build-path out-dir "RELEASE.json")
   (lambda (out)

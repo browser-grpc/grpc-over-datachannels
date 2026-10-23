@@ -3,6 +3,22 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.27.1 — 2026-10-23
+
+- GitHub/Pages discoverability for web and browser developers:
+  the Pages landing page gains a keyword title ("gRPC in the
+  Browser over WebRTC DataChannels"), meta description, Open
+  Graph/Twitter cards, canonical URL, schema.org JSON-LD, a
+  "Why DataChannels?" section, and `robots.txt`/`sitemap.xml`.
+  The web app page gets matching title/description/OG metadata
+  and a browser-first intro. The generated public README and
+  org profile lead with "Run gRPC in the browser … no grpc-web
+  proxy" plus the language/keyword surface, and
+  `scripts/release-push.sh` now aligns the GitHub repo
+  description, homepage, and an expanded topic set
+  (grpc-web, rtcdatachannel, protobuf, protoc-plugin, wasm,
+  browser, peer-to-peer, typescript, …) on every publish.
+
 ## v0.27.0 — 2026-10-23
 
 - SCTP flow-control fix (Rust/Go/JS): `send_data` now queues
