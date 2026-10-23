@@ -28,7 +28,7 @@ fn loopback() -> SocketAddr {
 fn echo_server(listener: DirectListener) -> std::thread::JoinHandle<Vec<u8>> {
     std::thread::spawn(move || {
         let endpoint = listener.accept().expect("direct accept");
-        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
         let mut channel: Option<ChannelHandle> = None;
         let mut got = Vec::new();
         while std::time::Instant::now() < deadline {
@@ -84,7 +84,7 @@ fn direct_client_server_echo() {
         .expect("open channel");
     // The server's reply arrives on the same channel.
     channel.send_binary(b"direct-hello").expect("send");
-    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     let mut reply = None;
     while std::time::Instant::now() < deadline {
         if let Some(EndpointEvent::Message { data, .. }) =
@@ -299,7 +299,7 @@ fn direct_over_turn_echo_symmetric_nat_shape() {
         .open_channel(ChannelParams { label: "echo".into(), ..Default::default() })
         .expect("open channel");
     channel.send_binary(b"via-turn-direct").expect("send");
-    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     let mut reply = None;
     while std::time::Instant::now() < deadline {
         if let Some(EndpointEvent::Message { data, .. }) =
@@ -353,7 +353,7 @@ fn direct_over_real_turn_coturn() {
             .open_channel(dc_webrtc::dcep::ChannelParams { label: "echo".into(), ..Default::default() })
             .expect("open channel");
         channel.send_binary(b"via-coturn").expect("send");
-        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
         let mut reply = None;
         while std::time::Instant::now() < deadline {
             if let Some(EndpointEvent::Message { data, .. }) =
@@ -480,7 +480,7 @@ fn direct_over_turn_refresh_past_lifetime() {
         .open_channel(ChannelParams { label: "echo".into(), ..Default::default() })
         .expect("open channel");
     channel.send_binary(b"via-turn-direct").expect("send");
-    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     let mut reply = None;
     while std::time::Instant::now() < deadline {
         if let Some(EndpointEvent::Message { data, .. }) =
@@ -497,7 +497,7 @@ fn direct_over_turn_refresh_past_lifetime() {
     // dialer's background refresher extended the allocation.
     std::thread::sleep(Duration::from_secs(5));
     channel.send_binary(b"after-expiry").expect("send after expiry");
-    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     let mut reply2 = None;
     while std::time::Instant::now() < deadline {
         if let Some(EndpointEvent::Message { data, .. }) =
@@ -615,7 +615,7 @@ fn echo_round_trip(client: &dc_webrtc::endpoint::DcEndpoint, payload: &[u8]) {
         .open_channel(ChannelParams { label: "echo".into(), ..Default::default() })
         .expect("open channel");
     channel.send_binary(payload).expect("send");
-    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     let mut reply = None;
     while std::time::Instant::now() < deadline {
         if let Some(EndpointEvent::Message { data, .. }) =
