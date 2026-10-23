@@ -285,25 +285,44 @@ func TestDirectOverTurnRefreshPastLifetime(t *testing.T) {
 // Dockerfile.ci installs both, so CI always runs these legs.
 // ---------------------------------------------------------------------------
 
+// coturn takes a numeric port, so the port is probe-close
+// allocated: bind(0), read the allocated port, close, and let
+// coturn rebind it. The race is covered by verifying the
+// child survived startup and retrying on a fresh port when
+// it did not.
 func spawnCoturn(t *testing.T, extra func(port int) []string) (string, func()) {
 	t.Helper()
 	if _, err := exec.LookPath("turnserver"); err != nil {
 		t.Skip("turnserver not on PATH")
 	}
-	probe, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
-	if err != nil {
-		t.Fatal(err)
+	for attempt := 0; attempt < 3; attempt++ {
+		probe, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := probe.LocalAddr().(*net.UDPAddr).Port
+		_ = probe.Close()
+		args := append([]string{"-n", "--realm=dc.test", "--user=dcuser:dcpass",
+			"--lt-cred-mech", "--allow-loopback-peers", "--no-cli"}, extra(port)...)
+		cmd := exec.Command("turnserver", args...)
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		exited := make(chan error, 1)
+		go func() { exited <- cmd.Wait() }()
+		select {
+		case <-exited:
+			continue // did not survive startup; fresh port
+		case <-time.After(800 * time.Millisecond):
+		}
+		stop := func() {
+			_ = cmd.Process.Kill()
+			<-exited
+		}
+		return strconv.Itoa(port), stop
 	}
-	port := probe.LocalAddr().(*net.UDPAddr).Port
-	_ = probe.Close()
-	args := append([]string{"-n", "--realm=dc.test", "--user=dcuser:dcpass",
-		"--lt-cred-mech", "--allow-loopback-peers", "--no-cli"}, extra(port)...)
-	cmd := exec.Command("turnserver", args...)
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(800 * time.Millisecond)
-	return strconv.Itoa(port), func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }
+	t.Fatal("turnserver did not survive startup after 3 attempts")
+	return "", nil
 }
 
 func coturnEcho(t *testing.T, listenerAddr, turnAddr string, cfg TurnServerConfig, payload string) {

@@ -85,7 +85,7 @@ fn config_resume(session_resumption: bool) -> DtlsConfig {
 fn main() -> io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let mode = args.get(1).map(|s| s.as_str()).unwrap_or("");
-    let port: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(4443);
+    let port: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
     match mode {
         "server" => {
             // `server <port> resume`: issue RFC 5077 tickets and
@@ -93,7 +93,10 @@ fn main() -> io::Result<()> {
             // client can resume against the same server process.
             let resume = args.get(3).map(|s| s.as_str()) == Some("resume");
             let socket = UdpSocket::bind(("127.0.0.1", port))?;
-            eprintln!("LISTENING {port}");
+            // Report the bound port (the arg may be 0): callers
+            // bind ephemeral and read the allocated port here
+            // instead of probe-close-rebinding a guessed one.
+            eprintln!("LISTENING {}", socket.local_addr()?.port());
             loop {
                 let io = ServerIo { socket: socket.try_clone()?, peer: Mutex::new(None) };
                 let mut conn = match Dtls::accept(io, &config_resume(resume)) {
