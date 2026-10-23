@@ -2,6 +2,8 @@
 //
 //	peer_echo offerer  <offer-file> <answer-file>
 //	peer_echo answerer <offer-file> <answer-file>
+//	peer_echo mux-offerer  <dir>   (two pairs over one PeerMux)
+//	peer_echo mux-answerer <dir>
 //
 // Mirrors webrtc/rust/examples/peer_echo.rs.
 package main
@@ -9,7 +11,9 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
+	"path/filepath"
 	"time"
 
 	dcwebrtc "dcwebrtc"
@@ -55,6 +59,10 @@ func main() {
 		answerPath = os.Args[3]
 	}
 	switch mode {
+	case "mux-answerer":
+		muxAnswerer(offerPath)
+	case "mux-offerer":
+		muxOfferer(offerPath)
 	case "answerer":
 		offer := waitForFile(offerPath)
 		peer := loopbackPeer()
@@ -135,7 +143,122 @@ func main() {
 			}
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: peer_echo <offerer|answerer> <offer-file> <answer-file>")
+		fmt.Fprintln(os.Stderr, "usage: peer_echo <offerer|answerer|mux-offerer|mux-answerer> <offer-file|dir> <answer-file>")
 		os.Exit(2)
 	}
+}
+
+// --- mux modes: two pairs over one PeerMux socket per side ---
+// SDP goes through <dir>/offer<i> and <dir>/answer<i>. The
+// offerer sends a distinct message per pair and prints each
+// reply as "pair<i>: <reply>", then MUX_OK. Used by the
+// cross-stack webrtc matrix to prove DTLS connection-id
+// (RFC 9146) demux agrees across stacks.
+
+func muxPeerOptions() dcwebrtc.PeerOptions {
+	return dcwebrtc.PeerOptions{LocalIPs: []string{"127.0.0.1"}, RequirePeerCertificate: true}
+}
+
+func muxAnswerer(dir string) {
+	mux, err := dcwebrtc.NewPeerMux(&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		panic(err)
+	}
+	defer mux.Close()
+	var peers []*dcwebrtc.Peer
+	for pair := 0; pair < 2; pair++ {
+		offer := waitForFile(filepath.Join(dir, fmt.Sprintf("offer%d", pair)))
+		peer, err := mux.NewPeer(muxPeerOptions())
+		if err != nil {
+			panic(err)
+		}
+		answer, err := peer.HandleOffer(offer)
+		if err != nil {
+			panic(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("answer%d", pair)), []byte(answer), 0o644); err != nil {
+			panic(err)
+		}
+		peers = append(peers, peer)
+	}
+	for _, peer := range peers {
+		peer := peer
+		go func() {
+			endpoint, err := peer.ConnectWithOptions(true)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "mux answerer connect:", err)
+				os.Exit(1)
+			}
+			endpoint.SetOnChannel(func(channel *dcwebrtc.DataChannel) {
+				channel.OnMessage(func(data []byte, isText bool) {
+					reply := append([]byte("re:"), data...)
+					channel.Send(reply)
+				})
+			})
+		}()
+	}
+	fmt.Fprintln(os.Stderr, "MUX_ANSWERER_READY")
+	select {}
+}
+
+func muxOfferer(dir string) {
+	mux, err := dcwebrtc.NewPeerMux(&net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		panic(err)
+	}
+	defer mux.Close()
+	var peers []*dcwebrtc.Peer
+	for pair := 0; pair < 2; pair++ {
+		peer, err := mux.NewPeer(muxPeerOptions())
+		if err != nil {
+			panic(err)
+		}
+		offer := peer.CreateOffer()
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("offer%d", pair)), []byte(offer), 0o644); err != nil {
+			panic(err)
+		}
+		peers = append(peers, peer)
+	}
+	type result struct {
+		pair int
+		text string
+	}
+	results := make(chan result, 2)
+	for pair, peer := range peers {
+		answer := waitForFile(filepath.Join(dir, fmt.Sprintf("answer%d", pair)))
+		if err := peer.HandleAnswer(answer); err != nil {
+			panic(err)
+		}
+		go func(pair int, peer *dcwebrtc.Peer) {
+			endpoint, err := peer.ConnectWithOptions(true)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "mux offerer connect:", err)
+				os.Exit(1)
+			}
+			channel := endpoint.OpenChannel(dcwebrtc.DefaultChannelParams("echo"))
+			replies := make(chan string, 4)
+			channel.OnMessage(func(data []byte, isText bool) {
+				replies <- string(data)
+			})
+			msg := fmt.Sprintf("hello-from-pair-%d", pair)
+			channel.Send([]byte(msg))
+			select {
+			case reply := <-replies:
+				results <- result{pair, reply}
+			case <-time.After(30 * time.Second):
+				fmt.Fprintln(os.Stderr, "mux offerer: no reply for pair", pair)
+				os.Exit(1)
+			}
+		}(pair, peer)
+	}
+	got := make(map[int]string)
+	for len(got) < 2 {
+		r := <-results
+		got[r.pair] = r.text
+	}
+	for pair := 0; pair < 2; pair++ {
+		fmt.Printf("pair%d: %s\n", pair, got[pair])
+	}
+	fmt.Println("MUX_OK")
+	select {}
 }

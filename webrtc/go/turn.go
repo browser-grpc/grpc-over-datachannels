@@ -189,7 +189,8 @@ func decodeXorAddressAttr(msg *StunMessage, attr uint16) *net.UDPAddr {
 // turnWrite sends one TURN message to the server: over the
 // dedicated stream connection for TCP/TLS allocations
 // (ChannelData frames padded to a 4-byte boundary, RFC 5766
-// section 4), else as a UDP datagram on the peer socket.
+// section 4), else as a UDP datagram on the TURN transport
+// socket (the peer socket, or a muxed peer's dedicated one).
 func (p *Peer) turnWrite(client *turnClient, frame []byte, channelData bool) error {
 	if client.stream() {
 		if channelData {
@@ -204,8 +205,33 @@ func (p *Peer) turnWrite(client *turnClient, frame []byte, channelData bool) err
 		_, err := client.conn.Write(frame)
 		return err
 	}
+	if p.turnSocket != nil {
+		_, err := p.turnSocket.WriteToUDP(frame, client.server)
+		return err
+	}
 	_, err := p.socket.WriteToUDP(frame, client.server)
 	return err
+}
+
+// turnReadLoop drains a muxed peer's dedicated TURN socket:
+// every datagram on it is from the TURN server by
+// construction, so each feeds the same demux as UDP packets
+// on an ordinary peer's socket. Exits when the socket closes
+// (peer teardown or a failed allocation).
+func (p *Peer) turnReadLoop() {
+	buf := make([]byte, 65536)
+	for {
+		n, _, err := p.turnSocket.ReadFromUDP(buf)
+		if err != nil {
+			return
+		}
+		if n == 0 {
+			continue
+		}
+		msg := make([]byte, n)
+		copy(msg, buf[:n])
+		p.onTurnPacket(msg)
+	}
 }
 
 // turnStreamReadLoop frames inbound TCP/TLS stream bytes into
@@ -308,9 +334,6 @@ func turnErrorCode(msg *StunMessage) int {
 // appends the relayed candidate. Called automatically from
 // gatherFromOptions for the first reachable TurnServers entry.
 func (p *Peer) AllocateTurn(cfg TurnServerConfig, timeout time.Duration) (err error) {
-	if _, ok := p.socket.(*net.UDPConn); !ok {
-		return errors.New("TURN is not available on a muxed peer")
-	}
 	serverAddr, err := net.ResolveUDPAddr("udp", cfg.Address)
 	if err != nil {
 		return err
@@ -332,6 +355,23 @@ func (p *Peer) AllocateTurn(cfg TurnServerConfig, timeout time.Duration) (err er
 	if client.stream() {
 		go p.turnStreamReadLoop(client)
 	}
+	// Muxed peer (the socket is a mux endpoint, not a concrete
+	// conn): the TURN leg gets a dedicated socket — an
+	// allocation pins a concrete 5-tuple, which the shared
+	// mux socket cannot provide. TURN-server packets arrive
+	// on it and feed the same demux as stream framing.
+	if _, ok := p.socket.(*net.UDPConn); !ok && !client.stream() {
+		bind := &net.UDPAddr{Port: 0}
+		if serverAddr.IP != nil && serverAddr.IP.To4() == nil {
+			bind.IP = net.IPv6zero
+		}
+		conn, listenErr := net.ListenUDP("udp", bind)
+		if listenErr != nil {
+			return listenErr
+		}
+		p.turnSocket = conn
+		go p.turnReadLoop()
+	}
 	// On failure, unpublish and tear down so a later config (or
 	// plain host candidates) is tried clean.
 	defer func() {
@@ -340,6 +380,10 @@ func (p *Peer) AllocateTurn(cfg TurnServerConfig, timeout time.Duration) (err er
 				p.turn = nil
 			}
 			client.stop()
+			if p.turnSocket != nil {
+				p.turnSocket.Close()
+				p.turnSocket = nil
+			}
 		}
 	}()
 

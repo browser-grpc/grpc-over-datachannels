@@ -31,12 +31,33 @@ WebRTC library underneath it.
 |---|---|---|
 | SDP | 8866/8829 | offer/answer, `m=application UDP/DTLS/SCTP webrtc-datachannel`, `sctp-port:5000`, `max-message-size`, fingerprint/setup/ice lines, candidates inline in SDP and/or trickled (`a=ice-options:trickle` advertised) |
 | ICE | 8445/8489 (+5766 TURN) | full agent, both roles, host + server-reflexive (srflx) + TURN relay candidates, connectivity checks + nomination, tie-breaker role-conflict repair, STUN Binding with short-term credentials; TURN: Allocate with long-term credentials (MD5 key), CreatePermission per remote candidate, pair traffic relayed as ChannelData over channels bound per peer address (Send/Data indications remain the fallback for unbound addresses and are accepted inbound); permissions (300 s), channel bindings, and the allocation (server-granted LIFETIME) are refreshed in the background at 80% of expiry; `raddr`/`rport` emitted before `generation 0` (Firefox's parser stops at unknown extensions); trickle ICE: SDP may carry zero candidates, remote candidates added incrementally (`AddRemoteCandidate`/`addRemoteCandidate`/`add_remote_candidate`, during connect in Go/JS and via a trickle channel in Rust), local candidates emitted via callback (`SetOnLocalCandidate`/`setOnLocalCandidate`) or candidate-line accessors, end-of-candidates accepted as a no-op (TURN permissions cover candidates known at connect; later-trickled candidates connect directly or peer-reflexively); consent freshness (RFC 7675): Binding checks on the nominated pair every 5 s by default (configurable, relay-aware), expiry after 30 s of silence closes the endpoint and fires a failure callback; nominating checks are retransmitted per pair (250 ms pacing) until their Binding success lands; ICE restart: fresh credentials per generation with media continuing on the old pair until renomination (DTLS destination is pinned per generation and switches only at renomination); IPv6 host/srflx/relay candidates throughout; TURN over TCP and TLS (`turns:`) on the client↔server leg (stream framing per RFC 5766 — STUN lengths, ChannelData padded to 4-byte boundaries; the allocation itself still requests UDP peer transport), with Rust verifying `turns:` chains against a real root store (system PEM bundle; ECDSA with SHA-256/384/512 over P-256/P-384 and RSA with SHA-256/384/512, ECDHE on both curves) through the std-only TLS 1.2 client in `tls12.rs` |
-| DTLS | 6347/9147-off | **1.2 only**, `TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`, P-256 only, self-signed certs pinned by SHA-256 fingerprint, extended master secret, `use_srtp` (RFC 5764: `SRTP_AES128_CM_HMAC_SHA1_80`, `SRTP_AEAD_AES_128_GCM`), HelloVerifyRequest handled client-side; **both roles browser-tested** — servers accept real-browser clients, including coalesced flights (epoch-0 key-establishing records sharing a datagram with the encrypted Finished) |
+| DTLS | 6347/9147-off/9146 | **1.2 only**, `TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`, P-256 only, self-signed certs pinned by SHA-256 fingerprint, extended master secret, `use_srtp` (RFC 5764: `SRTP_AES128_CM_HMAC_SHA1_80`, `SRTP_AEAD_AES_128_GCM`), HelloVerifyRequest handled client-side; **both roles browser-tested** — servers accept real-browser clients, including coalesced flights (epoch-0 key-establishing records sharing a datagram with the encrypted Finished); connection IDs (RFC 9146, project profile): a peer may announce a CID via the `connection_id` extension (54, length-prefixed value); honoring peers stamp it on every record after the epoch/sequence (offset 11) and inside the AEAD AAD (after epoch/sequence, before content type), receivers accept both CID and plain layouts (browsers ignore the extension), and the receiver arms its announced CID before the first handshake flight is read |
 | SCTP | 9260/7496/6951/6525 | INIT/COOKIE handshake with state cookie, DATA/SACK with gap reports, retransmission, ordered + unordered streams, fragmentation/reassembly, PR-SCTP FORWARD-TSN, RE-CONFIG stream reset for datachannel close (RFC 8831 §6.4: outgoing reset, peer resets its side in turn, deferred until the sender's last assigned TSN is cumulative), HEARTBEAT, graceful SHUTDOWN |
 | DCEP | 8832/8831 | DATA_CHANNEL_OPEN/ACK, reliable + partially-reliable channel types, PPIDs 50/51/53/56/57, DTLS-client=even streams rule |
 
 Demultiplexing on the single UDP socket follows RFC 7983: first byte
 0–3 → STUN, 20–63 → DTLS. SCTP rides inside DTLS application data.
+
+**Single-socket mux (`PeerMux`, all three native stacks).** Many
+signaled peers share one bound UDP socket. Routing: STUN by the ICE
+username's local ufrag; username-less Binding Successes are offered
+to every endpoint (each agent consumes only its own
+integrity-checked transaction); a first-flight ClientHello — which
+carries no CID on the wire — routes by the private `DcPairHint`
+extension (65282, carrying the remote peer's ICE ufrag); every later
+record routes by the connection id at offset 11 against the
+endpoint's allocated CID (fixed 10 bytes: shared port big-endian
+uint16 + counter big-endian uint64, exact map lookup); the learned
+source address is the fallback for peers that ignore the
+`connection_id` extension. Because records no longer route by
+source, two muxes can peer with each other and NAT rebinding does
+not strand DTLS. TURN works on muxed peers: the allocation's UDP
+leg rides a dedicated per-peer socket (an allocation pins a
+concrete 5-tuple), so TURN traffic never touches the shared
+socket; TCP/TLS TURN rides its own stream as usual. The scenario (two pairs sharing one server
+socket; two pairs mux-to-mux) is generated from `racket/mux-spec.rkt`
+into all three stacks' test trees, and the cross-stack matrix pairs
+mux against mux across Rust/Go/JS.
 
 
 ## Lossy and unordered channels

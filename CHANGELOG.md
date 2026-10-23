@@ -3,6 +3,33 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.24.0 — 2026-10-23
+
+- Cross-stack mux-to-mux interop: the webrtc matrix now
+  pairs `PeerMux` against `PeerMux` across Rust, Go, and JS
+  (six cells; the `peer_echo` harnesses gained mux modes) —
+  the DTLS connection-id wire profile (record layout, AAD,
+  fixed 10-byte mux CIDs, `DcPairHint` first flight) is
+  proven byte-compatible across all three stacks, not just
+  within each. Matrix now reports 14/14 cells.
+- TURN on muxed peers (all three stacks): an allocation
+  pins a concrete 5-tuple, so a muxed peer's TURN leg (UDP
+  transport) rides a dedicated per-peer socket bound at
+  allocate time; TURN traffic never touches the shared
+  socket, and all existing TURN machinery (permissions,
+  channel bindings, refreshers, consent, restarts) is
+  reused unchanged. TCP/TLS TURN rides its own stream as
+  before. New relay-only mux-to-mux tests in Rust, Go, and
+  JS (fake TURN, deliberately unreachable host addresses,
+  two concurrent pairs per mux).
+- Docs: `SPEC-WEBRTC.md` now specifies the mux/CID profile
+  (routing order, CID allocation, `DcPairHint`), and the
+  generated public README's PeerMux section no longer
+  claims source-address routing or missing TURN.
+- `make test` fully green (exit 0, webrtc matrix 14/14,
+  interop matrix 225/225), `make check-generated`
+  byte-stable.
+
 ## v0.23.0 — 2026-10-22
 
 - DTLS connection IDs (RFC 9146) in all three native WebRTC

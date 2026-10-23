@@ -739,3 +739,109 @@ fn relay_with_trickled_relay_candidates() {
     assert!(st.perm_count >= 2, "permissions={}", st.perm_count);
     assert!(st.bind_count >= 2, "binds={}", st.bind_count);
 }
+
+// ---------------------------------------------------------------------------
+// TURN on muxed peers: two PeerMuxes whose peers also allocate.
+// The advertised host addresses are deliberately unreachable,
+// so a working echo proves the relayed pairs carried the
+// traffic while the mux demuxed by connection id. The
+// allocation's UDP leg rides a dedicated per-peer socket;
+// TURN traffic never touches the shared socket.
+// ---------------------------------------------------------------------------
+
+fn mux_turn_config(server: &str) -> PeerConfig {
+    PeerConfig {
+        local_ips: vec![IpAddr::V4(Ipv4Addr::new(10, 11, 12, 13))],
+        require_peer_certificate: true,
+        certificate: None,
+        session_resumption: false,
+        session_ticket_key: None,
+        resume_session: None,
+        stun_servers: Vec::new(),
+        turn_servers: vec![TurnServerConfig::new(server, USER, PASS)],
+    }
+}
+
+/// Drive one endpoint: answerers echo ("re:" prefix on the
+/// opened channel), offerers return the first message seen.
+fn mux_turn_echo(endpoint: &dc_webrtc::endpoint::DcEndpoint, echo: bool) -> String {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut channel = None;
+    while Instant::now() < deadline {
+        match endpoint.recv_event_timeout(Duration::from_millis(250)) {
+            Some(EndpointEvent::ChannelOpened { channel: ch }) => {
+                channel = Some(ch);
+            }
+            Some(EndpointEvent::Message { data, .. }) => {
+                let text = String::from_utf8_lossy(&data).into_owned();
+                if echo {
+                    if let Some(ch) = &channel {
+                        ch.send_text(&format!("re:{text}")).unwrap();
+                    }
+                }
+                return text;
+            }
+            Some(_) | None => {}
+        }
+    }
+    panic!("timed out waiting for channel/message");
+}
+
+#[test]
+fn turn_mux_to_mux_two_pairs() {
+    use dc_webrtc::mux::PeerMux;
+    use std::sync::mpsc::channel;
+    let server = fake_turn_server();
+    let mux_a = PeerMux::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+    let mux_b = PeerMux::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+
+    let (result_tx, result_rx) = channel::<(usize, String)>();
+    let mut joins = Vec::new();
+    for pair in 0..2usize {
+        let mut offerer = mux_a.new_peer(mux_turn_config(&server)).unwrap();
+        let mut answerer = mux_b.new_peer(mux_turn_config(&server)).unwrap();
+        let offer = offerer.create_offer();
+        assert!(offer.contains("typ relay"), "muxed offerer offer:\n{offer}");
+        let answer = answerer.handle_offer(&offer).unwrap();
+        offerer.handle_answer(&answer).unwrap();
+
+        let tx = result_tx.clone();
+        joins.push(std::thread::spawn(move || {
+            let endpoint = answerer.connect().expect("answerer connect");
+            let got = mux_turn_echo(&endpoint, true);
+            tx.send((pair, format!("answerer saw: {got}"))).unwrap();
+            endpoint.shutdown();
+        }));
+        let tx = result_tx.clone();
+        joins.push(std::thread::spawn(move || {
+            let endpoint = offerer.connect().expect("offerer connect");
+            let channel = endpoint
+                .open_channel(ChannelParams { label: "echo".into(), ..Default::default() })
+                .unwrap();
+            channel.send_text(&format!("hello-from-pair-{pair}")).unwrap();
+            let reply = mux_turn_echo(&endpoint, false);
+            tx.send((pair, format!("offerer reply: {reply}"))).unwrap();
+            endpoint.shutdown();
+        }));
+    }
+
+    let mut results: Vec<(usize, String)> = Vec::new();
+    for _ in 0..4 {
+        results.push(result_rx.recv_timeout(Duration::from_secs(30)).expect("pair result"));
+    }
+    for j in joins {
+        j.join().unwrap();
+    }
+    for pair in 0..2usize {
+        let want_heard = format!("answerer saw: hello-from-pair-{pair}");
+        let want_reply = format!("offerer reply: re:hello-from-pair-{pair}");
+        assert!(
+            results.iter().any(|(p, s)| *p == pair && *s == want_heard),
+            "pair {pair}: answerer must hear its own payload; got {results:?}"
+        );
+        assert!(
+            results.iter().any(|(p, s)| *p == pair && *s == want_reply),
+            "pair {pair}: offerer must get its own reply; got {results:?}"
+        );
+    }
+}

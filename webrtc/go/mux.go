@@ -21,7 +21,9 @@
 // DTLS records route by connection id (RFC 9146) once the
 // handshake's first flight (routed by its DcPairHint) lands,
 // so two muxes can peer with each other over one shared
-// source address. TURN is unavailable on muxed peers.
+// source address. TURN traffic never touches the shared
+// socket: a muxed peer's allocation rides a dedicated
+// per-peer socket (see AllocateTurn).
 
 package dcwebrtc
 
