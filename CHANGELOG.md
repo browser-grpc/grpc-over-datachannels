@@ -3,6 +3,20 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.25.2 — 2026-10-23
+
+- Parallel UDP port-collision stress (`make test-stress-ports`,
+  `scripts/stress_ports.py`): N copies (default 3) of each
+  collision-prone suite — Rust mux/CID/TURN/OpenSSL/direct,
+  Go mux/TURN/direct/DTLS under `-race`, JS mux/TURN-mux/
+  DTLS/DC/coturn, and the cross-stack webrtc matrix — run
+  concurrently per suite; any `EADDRINUSE` / "address already
+  in use" in any copy fails the run. Passes at N=3 (repeated)
+  and N=4 with zero collisions. Rust copies run with
+  `--test-threads=2` to bound CPU oversubscription, and the
+  `webrtc_direct` echo deadlines rise 15s→60s so cross-copy
+  contention measures ports, not scheduler noise.
+
 ## v0.25.1 — 2026-10-23
 
 - UDP port-allocation hardening (tests and harnesses): the
