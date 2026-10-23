@@ -1,0 +1,58 @@
+//! dc-webrtc: a WebRTC datachannel stack with zero external crates.
+//!
+//! Layers (SPEC-WEBRTC.md): STUN/ICE (host candidates), DTLS 1.2
+//! (ECDHE-ECDSA AES-128-GCM-SHA256, certificates pinned by SDP
+//! fingerprint), SCTP, and DCEP — enough for a browser-grade
+//! `RTCDataChannel` with no WebRTC library underneath. Protocol number
+//! tables and crypto constants live in `proto_gen`, computed and stamped
+//! by the Racket metaprogram (`racket/webrtc-gen.rkt`).
+//!
+//! Without the default `std` feature the crate is `no_std`
+//! (alloc-only): the protocol core (ICE, DTLS, SCTP, DCEP, SDP,
+//! STUN, the L2-L4 `net` stack, `platform` traits) builds for
+//! bare-metal targets; `Peer`, `endpoint`, `turn`, and `mdns`
+//! (OS sockets/threads) are std-only.
+
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(not(feature = "std"))]
+#[macro_use]
+extern crate alloc;
+#[cfg(feature = "std")]
+extern crate alloc;
+
+pub mod crypto;
+pub mod dcep;
+#[cfg(feature = "std")]
+pub mod direct;
+pub mod dtls;
+#[cfg(feature = "std")]
+pub mod endpoint;
+pub mod io;
+pub mod ice;
+#[cfg(feature = "std")]
+pub mod mdns;
+#[cfg(feature = "std")]
+pub mod mux;
+pub mod p256;
+pub mod p384;
+pub mod net;
+#[cfg(feature = "std")]
+pub mod peer;
+pub mod platform;
+pub mod proto_gen;
+pub mod sctp;
+#[cfg(feature = "std")]
+pub mod signaling;
+pub mod sdp;
+pub mod stun;
+pub mod tls12;
+#[cfg(feature = "std")]
+pub mod trace;
+#[cfg(feature = "std")]
+pub mod turn;
+pub mod x509;
+
+pub fn sha256_hex_label() -> &'static str {
+    "dc-webrtc"
+}

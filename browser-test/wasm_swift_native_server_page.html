@@ -1,0 +1,76 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc WASM native Swift server test</title>
+<script type="module">
+// Native-runtime test: the real generated Zig client +
+// grpcdc runtime run in a Web Worker (WASM), driving the
+// browser's native RTCDataChannel through a SharedArrayBuffer
+// mailbox. Requires cross-origin isolation (the test server
+// sends COOP/COEP headers).
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+dc.binaryType = "arraybuffer";
+window.__dc = dc;
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+const SAB_DATA = 256 * 1024;
+window.__runServer = async () => {
+  if (dc.readyState !== "open") {
+    await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+  }
+  const sab = new SharedArrayBuffer(8 + SAB_DATA);
+  const i32 = new Int32Array(sab);
+  const sabBytes = new Uint8Array(sab);
+  const queue = [];
+  let pumpTimer = null;
+  const pumpQueue = () => {
+    pumpTimer = null;
+    if (queue.length && Atomics.load(i32, 0) === 0) {
+      const bytes = queue.shift();
+      sabBytes.set(bytes.subarray(0, SAB_DATA), 8);
+      i32[1] = Math.min(bytes.length, SAB_DATA);
+      Atomics.store(i32, 0, 1);
+      Atomics.notify(i32, 0);
+    }
+    if (queue.length) pumpTimer = setTimeout(pumpQueue, 1);
+  };
+  dc.addEventListener("message", (event) => {
+    queue.push(new Uint8Array(event.data));
+    if (!pumpTimer) pumpQueue();
+  });
+  dc.addEventListener("close", () => {
+    Atomics.store(i32, 0, 2);
+    Atomics.notify(i32, 0);
+  });
+
+  const worker = new Worker("/browser-test/wasm_swift_native_worker.js", { type: "module" });
+  worker.addEventListener("message", (event) => {
+    if (event.data.t === "send" && dc.readyState === "open") dc.send(event.data.bytes);
+  });
+  const ready = new Promise((resolve, reject) => {
+    worker.addEventListener("message", (event) => {
+      const msg = event.data;
+      if (msg.t === "ready") resolve();
+      else if (msg.t === "error") reject(new Error(msg.message));
+    });
+    worker.onerror = (err) => reject(err);
+  });
+  worker.postMessage({ sab, wasmUrl: "/browser-test/echo_swift_native.wasm", mode: "server" });
+  window.__worker = worker;
+  await ready;
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>

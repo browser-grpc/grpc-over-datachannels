@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package kitchen.v1;
+
+import "common.proto";
+
+// Kitchen-sink messages for the generated JS message classes
+// (webapp <base>_pb.js): every scalar type, repeated fields,
+// nested messages/enums, maps, bytes, and a cross-file reference.
+
+enum Color {
+  COLOR_UNSPECIFIED = 0;
+  RED = 1;
+  GREEN = 2;
+}
+
+message Nested {
+  string note = 1;
+  int32 level = 2;
+}
+
+message Kitchen {
+  double d = 1;
+  float f = 2;
+  int32 i32 = 3;
+  int64 i64 = 4;
+  uint32 u32 = 5;
+  uint64 u64 = 6;
+  sint32 s32 = 7;
+  sint64 s64 = 8;
+  fixed32 f32 = 9;
+  fixed64 f64 = 10;
+  sfixed32 sf32 = 11;
+  sfixed64 sf64 = 12;
+  bool flag = 13;
+  string name = 14;
+  bytes blob = 15;
+  Color color = 16;
+  Nested nested = 17;
+  shop.common.Item item = 18;
+  repeated int32 nums = 19;
+  repeated string words = 20;
+  repeated Nested manys = 21;
+  repeated double vals = 22;
+  map<string, int32> counts = 23;
+  map<int64, Nested> by_id = 24;
+  oneof choice {
+    string text = 25;
+    int32 code = 26;
+  }
+  int64 big_negative = 27;
+  sint32 neg32 = 28;
+}

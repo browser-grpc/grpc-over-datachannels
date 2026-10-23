@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package my.api;
+
+import "common.proto";
+
+// Underscore in the file base stresses every template's
+// file-name -> type-name conversion (PascalCase and friends).
+service MyApi {
+  rpc Fetch(shop.common.GetRequest) returns (shop.common.Item);
+}

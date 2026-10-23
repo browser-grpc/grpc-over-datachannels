@@ -1,0 +1,75 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc generator — gRPC over DataChannels, in your browser</title>
+<link rel="stylesheet" href="style.css">
+<script src="assets/wasm_exec.js"></script>
+<body>
+<header>
+  <h1>grpc-dc stub generator</h1>
+  <p>Upload or edit <code>.proto</code> schemas, pick languages, download a zip of
+     generated gRPC-over-DataChannel stubs plus the dependency-free runtimes.
+     Everything — schema compilation included — runs in this page; no server sees your schemas.</p>
+  <nav class="view-nav">
+    <button id="nav-generator" type="button" class="view-btn active">Generator</button>
+    <button id="nav-browse" type="button" class="view-btn">Browse generated code</button>
+  </nav>
+</header>
+<main id="generator-view">
+  <section class="pane files-pane">
+    <div class="toolbar">
+      <label class="upload">Add .proto files <input id="upload" type="file" accept=".proto" multiple hidden></label>
+      <input id="new-name" placeholder="new file name (e.g. api.proto)">
+      <button id="new-file" type="button">New file</button>
+    </div>
+    <div id="tabs" class="tabs"></div>
+    <div class="editor-wrap">
+      <pre class="highlight" aria-hidden="true"><code id="highlight"></code></pre>
+      <textarea id="editor" spellcheck="false"></textarea>
+    </div>
+    <div id="status" class="status">loading compiler…</div>
+  </section>
+  <section class="pane side-pane">
+    <h2>Services</h2>
+    <div id="tree" class="tree">(compile a schema to see its services)</div>
+    <h2>Languages</h2>
+    <div id="langs" class="langs"></div>
+    <button id="generate" type="button" disabled>Generate zip</button>
+    <button id="starter-kit" type="button" disabled>Download starter kit</button>
+    <div id="results" class="results"></div>
+    <h2>JS bundle preview</h2>
+    <div id="preview" class="preview">(generate with JavaScript selected to preview the generated message bundle here)</div>
+    <p class="hint">Stubs land in <code>gen/&lt;lang&gt;/</code>, the matching runtime in
+       <code>runtime/&lt;lang&gt;/</code>, schemas in <code>proto/</code>.
+       Generated message classes (<code>&lt;base&gt;_pb</code>) are included — see the zip's README.</p>
+  </section>
+</main>
+<main id="browse-view" hidden>
+  <section class="pane browse-controls">
+    <label>Schema
+      <select id="browse-schema"></select>
+    </label>
+    <label>Compare with
+      <select id="browse-compare"><option value="">(none)</option></select>
+    </label>
+    <input id="browse-search" type="search" placeholder="search files and contents…">
+    <button id="browse-open-generator" type="button">Open schema in Generator</button>
+    <span id="browse-status" class="status"></span>
+  </section>
+  <section class="browse-layout">
+    <div class="pane browse-langs" id="browse-langs"></div>
+    <div class="pane browse-files" id="browse-files">(pick a language)</div>
+    <div class="browse-viewers">
+      <div class="pane browse-viewer">
+        <div class="viewer-title" id="browse-title-a"></div>
+        <pre class="code-view" id="browse-code-a"></pre>
+      </div>
+      <div class="pane browse-viewer" id="browse-pane-b" hidden>
+        <div class="viewer-title" id="browse-title-b"></div>
+        <pre class="code-view" id="browse-code-b"></pre>
+      </div>
+    </div>
+  </section>
+  <div class="pane browse-results" id="browse-results" hidden></div>
+</main>
+<script type="module" src="app.js"></script>
+</body>

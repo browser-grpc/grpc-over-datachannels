@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc browser-as-server test</title>
+<script type="module">
+import { Server, StatusCode, StatusError } from "/js/index.js";
+import { EchoResponse } from "/js/examples/echo_pb.js";
+import { createEchoService } from "/js/examples/echo_grpc_dc.js";
+
+// Browser side: native RTCPeerConnection as the ANSWERER, running a
+// grpc-dc Server on the inbound "grpc" RTCDataChannel (the browser
+// is the server; the native Go harness is the client). Signaling is
+// driven by the Node test script: it calls window.__acceptOffer(sdp)
+// and reads window.__answer.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+
+function handlers() {
+  return {
+    async unary(req, ctx) {
+      if (req.message === "fail") {
+        throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+      }
+      const suffix = ctx.metadata["x-echo"] ? ` [${ctx.metadata["x-echo"]}]` : "";
+      return new EchoResponse({ message: `echo: ${req.message}${suffix}`, index: 0 });
+    },
+    async *serverStream(req) {
+      for (let i = 0; i < Math.max(0, req.count); i++) {
+        yield new EchoResponse({ message: req.message, index: i });
+      }
+    },
+    async clientStream(requests) {
+      const parts = [];
+      for await (const req of requests) parts.push(req.message);
+      return new EchoResponse({ message: parts.join("+"), index: parts.length });
+    },
+    async *bidi(requests) {
+      let index = 0;
+      for await (const req of requests) {
+        yield new EchoResponse({ message: req.message, index: index++ });
+      }
+    },
+  };
+}
+
+const server = new Server();
+server.addService(createEchoService(handlers()));
+window.__servedChannels = 0;
+pc.addEventListener("datachannel", (event) => {
+  window.__servedChannels += 1;
+  server.serve(event.channel);
+});
+
+window.__acceptOffer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "offer", sdp });
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === "complete") resolve();
+    else pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.iceGatheringState === "complete") resolve();
+    });
+  });
+  window.__answer = pc.localDescription.sdp;
+};
+</script>

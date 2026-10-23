@@ -1,0 +1,42 @@
+const std = @import("std");
+const grpcdc = @import("grpcdc");
+const examples = @import("examples");
+const fixtures = @import("fixtures.zig");
+const util = @import("test_util.zig");
+
+const Codec = grpcdc.codec.Codec;
+const wire = grpcdc.wire;
+
+/// Golden-vector codec tests (fixtures stamped by the metaprogram).
+pub fn testCodec(alloc: std.mem.Allocator) void {
+    for (fixtures.frames) |v| {
+        const raw = util.fromHex(alloc, v.frame_hex);
+        const frame = switch (Codec.decodeFrame(raw)) {
+            .frame => |f| f,
+            .status => |st| {
+                util.checkFmt(false, "{s}: decode status {d}", .{ v.name, st.code });
+                unreachable;
+            },
+        };
+        util.check(frame.type == v.frame_type, "frame type");
+        util.check(frame.stream_id == v.stream_id, "frame stream");
+        const reencoded = switch (Codec.encodeFrame(alloc, frame.type, frame.stream_id, frame.payload)) {
+            .bytes => |b| b,
+            .status => unreachable,
+        };
+        util.check(std.mem.eql(u8, util.toHex(alloc, reencoded), v.frame_hex), "frame re-encode");
+        util.check(std.mem.eql(u8, util.toHex(alloc, frame.payload), v.payload_hex), "frame payload");
+    }
+
+    var req = examples.echo_messages.EchoRequest{ .message = "hi", .count = 2 };
+    const encoded = req.marshalDc(alloc);
+    util.check(std.mem.eql(u8, util.toHex(alloc, encoded), fixtures.proto_hex), "protobuf encode");
+    var decoded = examples.echo_messages.EchoRequest{};
+    decoded.unmarshalDc(alloc, util.fromHex(alloc, fixtures.proto_hex));
+    util.check(std.mem.eql(u8, decoded.message, "hi") and decoded.count == 2, "protobuf decode");
+
+    util.check(std.mem.eql(u8, wire.statusName(alloc, 0), "OK"), "status 0");
+    util.check(std.mem.eql(u8, wire.statusName(alloc, 3), "INVALID-ARGUMENT"), "status 3");
+    util.check(std.mem.eql(u8, wire.statusName(alloc, 999), "CODE_999"), "status 999");
+    std.debug.print("TestCodec OK\n", .{});
+}

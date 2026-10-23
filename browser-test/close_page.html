@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc browser channel close test</title>
+<script type="module">
+// Browser side: native RTCPeerConnection answering the JS stack.
+// Two channels are opened by the JS side: the first is closed by
+// the JS side (this page must see onclose via SCTP stream reset),
+// the second is closed by this page (the JS side must see it).
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+window.__closed = [];
+window.__channels = {};
+pc.addEventListener("datachannel", (event) => {
+  const channel = event.channel;
+  channel.binaryType = "arraybuffer";
+  window.__channels[channel.label] = channel;
+  channel.addEventListener("close", () => window.__closed.push(channel.label));
+  channel.addEventListener("message", (e) => channel.send(e.data));
+});
+
+window.__acceptOffer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "offer", sdp });
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === "complete") resolve();
+    else pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.iceGatheringState === "complete") resolve();
+    });
+  });
+  return pc.localDescription.sdp;
+};
+
+window.__closeChannel = (label) => window.__channels[label].close();
+window.__channelState = (label) => window.__channels[label]?.readyState ?? "missing";
+</script>

@@ -1,0 +1,67 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc Dart/Wasm browser server test</title>
+<script type="module">
+// The calls originate in the Dart grpc_dc runtime compiled to
+// WasmGC with `dart compile wasm` (frame codec, endpoint
+// multiplexer, generated Echo stub — no JS gRPC code involved).
+// The page instantiates the module (its main() registers
+// window.runDartEchoClient, same contract as dart_page.html) and
+// bridges the RTCDataChannel send/receive pair into the Dart
+// transport. Wasm load failures (e.g. a browser without
+// WasmGC/js-string builtins) land on window.__wasmError so the
+// test can probe-and-skip.
+import { compileStreaming } from "/browser-test/echo_dart_server_wasm.mjs";
+
+try {
+  const app = await compileStreaming(fetch("/browser-test/echo_dart_server_wasm.wasm"));
+  const instance = await app.instantiate();
+  instance.invokeMain();
+  window.__wasmReady = true;
+} catch (err) {
+  window.__wasmError = String(err && err.message ? err.message : err);
+}
+
+if (window.__wasmReady) {
+  const pc = new RTCPeerConnection();
+  window.__pc = pc;
+  const dc = pc.createDataChannel("grpc");
+  window.__dc = dc;
+
+  window.__acceptAnswer = async (sdp) => {
+    await pc.setRemoteDescription({ type: "answer", sdp });
+  };
+
+  window.__runServer = async () => {
+    if (dc.readyState !== "open") {
+      await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+    }
+    dc.binaryType = "arraybuffer";
+    const transport = {
+      _onMessage: null,
+      send(data) {
+        dc.send(data);
+      },
+      setOnMessage(callback) {
+        this._onMessage = callback;
+      },
+    };
+    dc.addEventListener("message", (event) => {
+      if (transport._onMessage) {
+        transport._onMessage(new Uint8Array(event.data));
+      }
+    });
+    window.runDartEchoServer(transport);
+  };
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === "complete") resolve();
+    else pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.iceGatheringState === "complete") resolve();
+    });
+  });
+  window.__offer = pc.localDescription.sdp;
+}
+</script>

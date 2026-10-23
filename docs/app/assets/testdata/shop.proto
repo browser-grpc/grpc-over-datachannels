@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package shop.v1;
+
+import "common.proto";
+
+// Two services, all four method shapes, a deprecated method, and
+// a service name that stresses the Python snake_case conversion.
+service Catalog {
+  rpc Get(shop.common.GetRequest) returns (shop.common.Item);
+  rpc Watch(shop.common.GetRequest) returns (stream shop.common.Item);
+  rpc Upload(stream shop.common.Item) returns (shop.common.Ack);
+  rpc Chat(stream shop.common.Item) returns (stream shop.common.Item);
+  rpc LegacyGet(shop.common.GetRequest) returns (shop.common.Item) {
+    option deprecated = true;
+  }
+}
+
+service BillingAPI {
+  rpc Charge(shop.common.Item) returns (shop.common.Ack);
+}

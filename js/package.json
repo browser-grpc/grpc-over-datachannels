@@ -1,0 +1,16 @@
+{
+  "name": "grpc-dc",
+  "version": "0.1.0",
+  "description": "gRPC over WebRTC DataChannels — JavaScript runtime (protocol generated from a Racket metaprogram)",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./wire_gen.js": "./wire_gen.js",
+    "./webrtc_direct": "./src/webrtc_direct.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "license": "Apache-2.0"
+}

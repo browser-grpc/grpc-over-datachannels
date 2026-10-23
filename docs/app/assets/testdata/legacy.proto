@@ -1,0 +1,28 @@
+syntax = "proto2";
+
+package legacy;
+
+// Proto2 coverage: required/optional presence, explicit default
+// values, and extensions merged into the extendee message.
+
+enum Mood {
+  MOOD_UNKNOWN = 0;
+  HAPPY = 1;
+  SAD = 2;
+}
+
+message Legacy {
+  required string name = 1;
+  optional int32 count = 2 [default = 42];
+  optional string greeting = 3 [default = "hello"];
+  optional bool enabled = 4 [default = true];
+  optional Mood mood = 5 [default = SAD];
+  optional double ratio = 6 [default = 1.5];
+
+  extensions 100 to 199;
+}
+
+extend Legacy {
+  optional string ext_note = 100;
+  optional int32 ext_level = 101;
+}

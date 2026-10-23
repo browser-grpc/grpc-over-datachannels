@@ -1,0 +1,16 @@
+
+’
+
+echo.protoecho"X
+EchoRequest
+message (	Rmessage
+count (Rcount
+delay_ms (RdelayMs">
+EchoResponse
+message (	Rmessage
+index (Rindex2Û
+Echo.
+Unary.echo.EchoRequest.echo.EchoResponse7
+ServerStream.echo.EchoRequest.echo.EchoResponse07
+ClientStream.echo.EchoRequest.echo.EchoResponse(1
+Bidi.echo.EchoRequest.echo.EchoResponse(0bproto3

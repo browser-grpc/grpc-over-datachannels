@@ -1,0 +1,60 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc browser direct-over-TURN test</title>
+<script type="module">
+// Browser side: a WebRTC-Direct-shaped dialer behind a symmetric
+// NAT. iceTransportPolicy "relay" forbids host/srflx candidates
+// outright, so the browser can only be reached via its TURN
+// relay candidate -- the symmetric-NAT shape. The browser is
+// the offerer (client): it opens the datachannel and dials the
+// stack peer, which also allocates from the same TURN server
+// and advertises an unreachable host address, so the nominated
+// pair is relay<->relay.
+const turn = new URLSearchParams(location.search).get("turn");
+const pc = new RTCPeerConnection({
+  iceServers: [{ urls: `turn:${turn}`, username: "dcuser", credential: "dcpass" }],
+  iceTransportPolicy: "relay",
+});
+window.__pc = pc;
+const channel = pc.createDataChannel("grpc");
+window.__channel = channel;
+channel.binaryType = "arraybuffer";
+window.__replies = [];
+channel.addEventListener("message", (e) => {
+  window.__replies.push(new TextDecoder().decode(e.data));
+});
+window.__send = (text) => channel.send(new TextEncoder().encode(text));
+
+window.__start = async () => {
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === "complete") resolve();
+    else pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.iceGatheringState === "complete") resolve();
+    });
+  });
+  window.__offer = pc.localDescription.sdp;
+};
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+// The nominated candidate pair, for the relay assertion.
+window.__selectedPair = async () => {
+  const stats = await pc.getStats();
+  let pair = null;
+  const byId = new Map();
+  for (const report of stats.values()) byId.set(report.id, report);
+  for (const report of stats.values()) {
+    if (report.type === "candidate-pair" && report.nominated && report.state === "succeeded") {
+      pair = {
+        local: byId.get(report.localCandidateId)?.candidateType,
+        remote: byId.get(report.remoteCandidateId)?.candidateType,
+      };
+    }
+  }
+  return pair;
+};
+</script>

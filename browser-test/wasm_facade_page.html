@@ -1,0 +1,160 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc WASM facade client test</title>
+<script type="module">
+import { Channel, createGrpcDcBridge } from "/js/index.js";
+
+// Generic page for callback-shaped WASM facade clients
+// (C++ wasm32-wasi reactor, Embedded Swift, and any future
+// language using the same env contract as wasm/zig): the
+// calls originate in the WASM module named by ?wasm=...;
+// the JS grpc-dc implementation owns the wire. The env
+// imports copy payloads out of WASM memory synchronously
+// and settle bridge promises back through on_bridge_*
+// exports. Signaling mirrors wasm_page.html.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+window.__runWasm = async () => {
+  if (dc.readyState !== "open") {
+    await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+  }
+  const bridge = createGrpcDcBridge(new Channel(dc));
+  let instance;
+  let resolveRun, rejectRun;
+  const done = new Promise((resolve, reject) => { resolveRun = resolve; rejectRun = reject; });
+  const mem = () => new Uint8Array(instance.exports.memory.buffer);
+  const readStr = (ptr, len) => new TextDecoder().decode(mem().subarray(ptr, ptr + len));
+  const readBytes = (ptr, len) => mem().slice(ptr, ptr + len);
+  const writeBack = (u8, cb) => {
+    const ptr = instance.exports.wasm_alloc(u8.length);
+    mem().set(u8, ptr);
+    cb(ptr, u8.length);
+  };
+  const unpack = (packed) => {
+    const out = [];
+    const dv = new DataView(packed.buffer, packed.byteOffset, packed.byteLength);
+    let pos = 0;
+    while (pos < packed.length) {
+      const n = dv.getUint32(pos);
+      pos += 4;
+      out.push(packed.slice(pos, pos + n));
+      pos += n;
+    }
+    return out;
+  };
+  const fail = (id, err) => {
+    const msg = new TextEncoder().encode(err?.message ?? String(err));
+    writeBack(msg, (p, l) => instance.exports.on_bridge_error(id, err?.code ?? 2, p, l));
+  };
+  const env = {
+    js_unary(id, pathPtr, pathLen, payloadPtr, payloadLen) {
+      bridge.unary(readStr(pathPtr, pathLen), readBytes(payloadPtr, payloadLen)).then(
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_done(id, 1, p, l)),
+        (err) => fail(id, err));
+    },
+    js_unary_opts(id, pathPtr, pathLen, payloadPtr, payloadLen, optsPtr, optsLen) {
+      const opts = JSON.parse(readStr(optsPtr, optsLen) || "{}");
+      bridge.unary(readStr(pathPtr, pathLen), readBytes(payloadPtr, payloadLen), opts).then(
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_done(id, 1, p, l)),
+        (err) => fail(id, err));
+    },
+    js_server_stream_cancel(id, pathPtr, pathLen, payloadPtr, payloadLen, cancelAfter) {
+      bridge.serverStream(
+        readStr(pathPtr, pathLen), readBytes(payloadPtr, payloadLen),
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_message(id, p, l)),
+        { cancelAfter },
+      ).then(() => instance.exports.on_bridge_done(id, 0, 0, 0), (err) => fail(id, err));
+    },
+    js_server_stream(id, pathPtr, pathLen, payloadPtr, payloadLen) {
+      bridge.serverStream(
+        readStr(pathPtr, pathLen), readBytes(payloadPtr, payloadLen),
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_message(id, p, l)),
+      ).then(() => instance.exports.on_bridge_done(id, 0, 0, 0), (err) => fail(id, err));
+    },
+    js_client_stream(id, pathPtr, pathLen, packedPtr, packedLen) {
+      bridge.clientStream(readStr(pathPtr, pathLen), unpack(readBytes(packedPtr, packedLen))).then(
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_done(id, 1, p, l)),
+        (err) => fail(id, err));
+    },
+    js_bidi(id, pathPtr, pathLen, packedPtr, packedLen) {
+      bridge.bidi(
+        readStr(pathPtr, pathLen), unpack(readBytes(packedPtr, packedLen)),
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_message(id, p, l)),
+      ).then(() => instance.exports.on_bridge_done(id, 0, 0, 0), (err) => fail(id, err));
+    },
+    on_result(ptr, len) { resolveRun(JSON.parse(readStr(ptr, len))); },
+    on_error(ptr, len) { rejectRun(new Error(readStr(ptr, len))); },
+    arc4random_buf(ptr, len) {
+      crypto.getRandomValues(mem().subarray(ptr, ptr + len));
+    },
+  };
+  // Minimal WASI stubs for wasm32-wasi reactors (C++): the
+  // facade only needs fd_write for libc diagnostics; the
+  // rest answer success/empty so libc startup succeeds.
+  const wasi_snapshot_preview1 = {
+    args_get: () => 0,
+    args_sizes_get: (argcPtr, argvBufSizePtr) => {
+      const dv = new DataView(mem().buffer);
+      dv.setUint32(argcPtr, 0, true);
+      dv.setUint32(argvBufSizePtr, 0, true);
+      return 0;
+    },
+    environ_get: () => 0,
+    environ_sizes_get: (countPtr, sizePtr) => {
+      const dv = new DataView(mem().buffer);
+      dv.setUint32(countPtr, 0, true);
+      dv.setUint32(sizePtr, 0, true);
+      return 0;
+    },
+    fd_close: () => 0,
+    fd_fdstat_get: () => 0,
+    fd_read: () => 0,
+    fd_seek: () => 0,
+    fd_write: (_fd, iovs, iovsLen, nwrittenPtr) => {
+      const m = mem();
+      const dv = new DataView(m.buffer);
+      let total = 0;
+      for (let i = 0; i < iovsLen; i++) {
+        total += dv.getUint32(iovs + i * 8 + 4, true);
+      }
+      dv.setUint32(nwrittenPtr, total, true);
+      return 0;
+    },
+    random_get: (ptr, len) => {
+      crypto.getRandomValues(mem().subarray(ptr, ptr + len));
+      return 0;
+    },
+    clock_time_get: (_id, _precision, resultPtr) => {
+      new DataView(mem().buffer).setBigUint64(
+        resultPtr, BigInt(Math.floor(performance.now() * 1e6)), true);
+      return 0;
+    },
+    sched_yield: () => 0,
+    proc_exit: (code) => { throw new Error(`wasm proc_exit(${code})`); },
+  };
+  const wasmUrl = new URLSearchParams(location.search).get("wasm")
+    ?? "/browser-test/echo_cpp.wasm";
+  const bytes = await (await fetch(wasmUrl)).arrayBuffer();
+  ({ instance } = await WebAssembly.instantiate(bytes, { env, wasi_snapshot_preview1 }));
+  instance.exports._initialize?.();
+  instance.exports.run_echo_client();
+  return done;
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>

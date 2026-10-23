@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc Kotlin/Wasm client test</title>
+<script type="module">
+import { Channel, createGrpcDcBridge } from "/js/index.js";
+import { runEchoClient } from "/browser-test/kotlin_wasm_gen/echo_kotlin.mjs";
+
+// The calls originate in Kotlin/Wasm (generated facade:
+// wasm/kotlin/EchoWasmGrpcDc.kt over wasm/kotlin/bridge.kt);
+// the JS grpc-dc implementation owns the wire. Kotlin/Wasm
+// JS interop passes the bridge object directly, unlike the
+// env-import facades on wasm_facade_page.html.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+window.__runWasm = async () => {
+  if (dc.readyState !== "open") {
+    await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+  }
+  const bridge = createGrpcDcBridge(new Channel(dc));
+  const json = await runEchoClient(bridge);
+  return JSON.parse(json);
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>

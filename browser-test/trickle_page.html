@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc browser trickle ICE test</title>
+<script type="module">
+// Browser side: native RTCPeerConnection as offerer. The test
+// strips every candidate out of both SDPs and trickles them
+// afterwards: browser candidates are collected here from
+// icecandidate events and fed to the JS stack's
+// addRemoteCandidate, while the JS stack's candidates are fed
+// back through addIceCandidate. The echo channel can only open
+// if trickle works in both directions.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+window.__candidates = [];
+pc.addEventListener("icecandidate", (event) => {
+  window.__candidates.push(event.candidate ? event.candidate.candidate : "");
+});
+
+let channel = null;
+window.__echoed = null;
+let resolveOpen;
+window.__channelOpen = new Promise((resolve) => {
+  resolveOpen = resolve;
+});
+
+window.__start = async () => {
+  channel = pc.createDataChannel("trickle-echo");
+  channel.binaryType = "arraybuffer";
+  channel.addEventListener("open", () => resolveOpen());
+  channel.addEventListener("message", (event) => {
+    window.__echoed = new TextDecoder().decode(event.data);
+  });
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  // Return immediately: candidates trickle via __candidates.
+  return pc.localDescription.sdp;
+};
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+window.__addCandidate = async (line) => {
+  if (!line || line.includes("end-of-candidates")) {
+    try {
+      await pc.addIceCandidate({ candidate: "", sdpMid: "0" });
+    } catch {
+      /* end-of-candidates is advisory */
+    }
+    return;
+  }
+  await pc.addIceCandidate({ candidate: line.replace(/^a=/, ""), sdpMid: "0" });
+};
+
+window.__send = (text) => channel.send(new TextEncoder().encode(text));
+</script>

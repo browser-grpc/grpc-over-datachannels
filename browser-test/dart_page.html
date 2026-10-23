@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc Dart browser client test</title>
+<script src="/browser-test/echo_dart.js"></script>
+<script type="module">
+// The calls originate in the Dart grpc_dc runtime compiled to JS
+// (frame codec, endpoint multiplexer, generated Echo stub — no JS
+// gRPC code involved). The page only bridges the RTCDataChannel
+// send/receive pair into the Dart transport. Signaling mirrors
+// wasm_rust_page.html.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+window.__runDart = async () => {
+  if (dc.readyState !== "open") {
+    await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+  }
+  dc.binaryType = "arraybuffer";
+  const transport = {
+    _onMessage: null,
+    send(data) {
+      dc.send(data);
+    },
+    setOnMessage(callback) {
+      this._onMessage = callback;
+    },
+  };
+  dc.addEventListener("message", (event) => {
+    if (transport._onMessage) {
+      transport._onMessage(new Uint8Array(event.data));
+    }
+  });
+  const json = await new Promise((resolve, reject) =>
+    window.runDartEchoClient(transport, resolve, reject));
+  return JSON.parse(json);
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>

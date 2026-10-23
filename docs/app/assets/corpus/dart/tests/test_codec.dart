@@ -1,0 +1,28 @@
+import '../examples/echo_messages.dart';
+import '../grpcdc/codec.dart';
+import '../grpcdc/wire.dart';
+import 'fixtures.dart';
+import 'test_util.dart';
+
+/// Golden-vector codec tests (Fixtures stamped by the metaprogram).
+Future<void> testCodec() async {
+  for (final v in frames) {
+    final raw = fromHex(v.frameHex);
+    final frame = Codec.decodeFrame(raw);
+    check(frame.type == v.type, '${v.name}: type');
+    check(frame.streamId == v.streamId, '${v.name}: stream');
+    check(toHex(Codec.encodeFrame(frame.type, frame.streamId, frame.payload)) == v.frameHex,
+        '${v.name}: re-encode');
+    check(toHex(frame.payload) == v.payloadHex, '${v.name}: payload');
+  }
+
+  final req = EchoRequest('hi', 2);
+  check(toHex(req.marshalDc()) == protoHex, 'protobuf encode');
+  final decoded = EchoRequest()..unmarshalDc(fromHex(protoHex));
+  check(decoded.message == 'hi' && decoded.count == 2, 'protobuf decode');
+
+  check(Wire.statusName(0) == 'OK', 'status 0');
+  check(Wire.statusName(3) == 'INVALID-ARGUMENT', 'status 3');
+  check(Wire.statusName(999) == 'CODE_999', 'status 999');
+  print('TestCodec OK');
+}

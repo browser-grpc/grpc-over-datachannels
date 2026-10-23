@@ -1,0 +1,11 @@
+grpc-over-datachannels
+Copyright 2026 John Davis
+
+This product includes software developed by John Davis
+(jdavis@pcprogramming.com).
+
+Generated output: stubs and other code produced by the protoc
+plugins in this project from your own .proto files may be used
+without restriction, under the additional permission in
+GENERATED-CODE-LICENSE.md. Runtime code copied from this project
+remains under the Apache License, Version 2.0 (see LICENSE).

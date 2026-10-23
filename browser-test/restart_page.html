@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc ICE restart browser test</title>
+<script type="module">
+import { Channel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+
+// Browser-initiated ICE restart: the same grpc-dc client keeps
+// working over the same RTCDataChannel before and after the
+// browser restarts ICE against the Node stack's
+// handleRestartOffer.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+
+const initialUfrag = () => pc.localDescription?.sdp.match(/a=ice-ufrag:(\S+)/)?.[1] ?? "";
+
+let clientPromise = null;
+window.__unary = async (message) => {
+  if (!clientPromise) {
+    clientPromise = (async () => {
+      if (dc.readyState !== "open") {
+        await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+      }
+      return new EchoClient(new Channel(dc));
+    })();
+  }
+  const client = await clientPromise;
+  const resp = await client.unary(new EchoRequest({ message }));
+  return resp.message;
+};
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+// Restart ICE and resolve with the new offer SDP once gathering
+// completes with a rotated ufrag.
+window.__restartOffer = async () => {
+  const before = initialUfrag();
+  const offer = await pc.createOffer({ iceRestart: true });
+  await pc.setLocalDescription(offer);
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const sdp = pc.localDescription?.sdp ?? "";
+    if (pc.iceGatheringState === "complete" && sdp && initialUfrag() !== before) return sdp;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`ICE restart gathering stuck: state=${pc.iceGatheringState}`);
+};
+
+window.__iceState = () => pc.iceConnectionState;
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>

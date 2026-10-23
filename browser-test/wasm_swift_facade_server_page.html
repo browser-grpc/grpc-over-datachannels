@@ -1,0 +1,112 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc WASM Swift facade server test</title>
+<script type="module">
+import { Channel, createGrpcDcServerBridge } from "/js/index.js";
+
+// Server role for the Swift/WASM facade: the generated facade's
+// typed handlers run in WASM (EchoWasmGrpcDc.swift serve_*
+// exports); the JS grpc-dc Server owns the wire through
+// createGrpcDcServerBridge. The glue below hands each call to
+// the matching serve_* export and settles it through the
+// js_server_* imports. Signaling mirrors wasm_facade_page.html.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+window.__runServer = async () => {
+  if (dc.readyState !== "open") {
+    await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+  }
+  const bridge = createGrpcDcServerBridge(new Channel(dc));
+  let instance;
+  const mem = () => new Uint8Array(instance.exports.memory.buffer);
+  const pending = new Map();
+  let nextId = 1;
+  const pack = (list) => {
+    let total = 0;
+    for (const item of list) total += 4 + item.length;
+    const out = new Uint8Array(total);
+    const dv = new DataView(out.buffer);
+    let pos = 0;
+    for (const item of list) {
+      dv.setUint32(pos, item.length);
+      pos += 4;
+      out.set(item, pos);
+      pos += item.length;
+    }
+    return out;
+  };
+  const invoke = (exportName, payload, mdPairs) => {
+    const id = nextId++;
+    const packedMd = pack(mdPairs.map((s) => new TextEncoder().encode(s)));
+    const result = new Promise((resolve, reject) => pending.set(id, { resolve, reject, messages: [] }));
+    // wasm_alloc(0) may return a wild pointer; never write at it.
+    const payloadPtr = payload.length ? instance.exports.wasm_alloc(payload.length) : 0;
+    if (payload.length) mem().set(payload, payloadPtr);
+    const mdPtr = packedMd.length ? instance.exports.wasm_alloc(packedMd.length) : 0;
+    if (packedMd.length) mem().set(packedMd, mdPtr);
+    instance.exports[exportName](id, payloadPtr, payload.length, mdPtr, packedMd.length);
+    instance.exports.wasm_free(payloadPtr, payload.length);
+    instance.exports.wasm_free(mdPtr, packedMd.length);
+    return result;
+  };
+  const env = {
+    js_now_ms: () => performance.now(),
+    js_server_respond(id, ptr, len) {
+      const entry = pending.get(id);
+      pending.delete(id);
+      if (entry) entry.resolve({ response: mem().slice(ptr, ptr + len), messages: entry.messages });
+    },
+    js_server_send(id, ptr, len) {
+      const entry = pending.get(id);
+      if (entry) entry.messages.push(mem().slice(ptr, ptr + len));
+    },
+    js_server_complete(id) {
+      const entry = pending.get(id);
+      pending.delete(id);
+      if (entry) entry.resolve({ response: null, messages: entry.messages });
+    },
+    js_server_fail(id, code, ptr, len) {
+      const entry = pending.get(id);
+      pending.delete(id);
+      if (entry) {
+        const err = new Error(new TextDecoder().decode(mem().subarray(ptr, ptr + len)));
+        err.code = code;
+        entry.reject(err);
+      }
+    },
+  };
+  const bytes = await (await fetch("/browser-test/echo_swift_server.wasm")).arrayBuffer();
+  ({ instance } = await WebAssembly.instantiate(bytes, { env }));
+  instance.exports.run_echo_server();
+  bridge.registerUnary("/echo.Echo/Unary", async (payload, mdPairs) =>
+    (await invoke("serve_unary", payload, mdPairs)).response);
+  bridge.registerServerStream("/echo.Echo/ServerStream", async (payload, mdPairs, onMessage) => {
+    const { messages } = await invoke("serve_serverStream", payload, mdPairs);
+    for (const message of messages) onMessage(message);
+  });
+  bridge.registerClientStream("/echo.Echo/ClientStream", async (payloads, mdPairs) =>
+    (await invoke("serve_clientStream", pack(payloads), mdPairs)).response);
+  bridge.registerBidi("/echo.Echo/Bidi", async (payloads, mdPairs, onMessage) => {
+    const { messages } = await invoke("serve_bidi", pack(payloads), mdPairs);
+    for (const message of messages) onMessage(message);
+  });
+  bridge.start("echo.Echo");
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>

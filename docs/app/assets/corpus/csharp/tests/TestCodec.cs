@@ -1,0 +1,43 @@
+using Echo;
+using Grpcdc;
+
+namespace Tests;
+
+/// <summary>Golden-vector codec tests (Fixtures stamped by the metaprogram).</summary>
+public static class TestCodec
+{
+    public static void Run()
+    {
+        foreach (object[] vector in Fixtures.Frames)
+        {
+            string name = (string)vector[0];
+            int type = (int)vector[1];
+            long stream = (long)vector[2];
+            byte[] raw = Convert.FromHexString((string)vector[3]);
+            Codec.Frame frame = Codec.DecodeFrame(raw);
+            Program.Check(frame.Type == type, $"{name}: type");
+            Program.Check(frame.StreamId == stream, $"{name}: stream");
+            Program.Check(
+                Convert.ToHexString(Codec.EncodeFrame(frame.Type, frame.StreamId, frame.Payload))
+                    .Equals((string)vector[3], StringComparison.OrdinalIgnoreCase),
+                $"{name}: re-encode");
+            Program.Check(
+                Convert.ToHexString(frame.Payload)
+                    .Equals((string)vector[4], StringComparison.OrdinalIgnoreCase),
+                $"{name}: payload");
+        }
+
+        var req = new EchoRequest("hi", 2, 0);
+        Program.Check(
+            Convert.ToHexString(req.MarshalDc()).Equals(Fixtures.ProtoHex, StringComparison.OrdinalIgnoreCase),
+            "protobuf encode");
+        var decoded = new EchoRequest();
+        decoded.UnmarshalDc(Convert.FromHexString(Fixtures.ProtoHex));
+        Program.Check(decoded.Message == "hi" && decoded.Count == 2, "protobuf decode");
+
+        Program.Check(Wire.StatusName(0) == "OK", "status 0");
+        Program.Check(Wire.StatusName(3) == "INVALID-ARGUMENT", "status 3");
+        Program.Check(Wire.StatusName(999) == "CODE_999", "status 999");
+        Console.WriteLine("TestCodec OK");
+    }
+}

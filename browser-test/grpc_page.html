@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc browser test</title>
+<script type="module">
+import { Channel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+
+// Browser side: native RTCPeerConnection, grpc-dc client over the
+// "grpc" RTCDataChannel. Signaling is driven by the Node test script:
+// it reads window.__offer, then calls window.__acceptAnswer(sdp).
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+
+const req = (message, count = 0) => new EchoRequest({ message, count });
+
+window.__runGrpc = async () => {
+  if (dc.readyState !== "open") {
+    await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+  }
+  const client = new EchoClient(new Channel(dc));
+  const out = {};
+  const unary = await client.unary(req("hello"));
+  out.unary = unary.message;
+
+  const ticks = [];
+  for await (const resp of await client.serverStream(req("tick", 3))) {
+    ticks.push(resp.index);
+  }
+  out.ticks = ticks;
+
+  async function* fromList(items) { yield* items; }
+  const echoed = [];
+  for await (const resp of await client.bidi(fromList([req("x"), req("y")]))) {
+    echoed.push(resp.message);
+  }
+  out.echoed = echoed;
+  return out;
+};
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>

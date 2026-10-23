@@ -1,0 +1,115 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc WASM Zig client test</title>
+<script type="module">
+import { Channel, createGrpcDcBridge } from "/js/index.js";
+
+// The calls originate in Zig/WASM (generated facade:
+// wasm/zig/echo_wasm_dc.zig over wasm/zig/bridge.zig); the JS
+// grpc-dc implementation owns the wire. The env imports below
+// copy payloads out of WASM memory synchronously and settle
+// bridge promises back through the on_bridge_* exports.
+// Signaling mirrors wasm_page.html.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+window.__runWasm = async () => {
+  if (dc.readyState !== "open") {
+    await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+  }
+  const bridge = createGrpcDcBridge(new Channel(dc));
+  let instance;
+  let resolveRun, rejectRun;
+  const done = new Promise((resolve, reject) => { resolveRun = resolve; rejectRun = reject; });
+  const mem = () => new Uint8Array(instance.exports.memory.buffer);
+  const readStr = (ptr, len) => new TextDecoder().decode(mem().subarray(ptr, ptr + len));
+  const readBytes = (ptr, len) => mem().slice(ptr, ptr + len);
+  const writeBack = (u8, cb) => {
+    const ptr = instance.exports.wasm_alloc(u8.length);
+    mem().set(u8, ptr);
+    cb(ptr, u8.length);
+  };
+  const unpack = (packed) => {
+    const out = [];
+    const dv = new DataView(packed.buffer, packed.byteOffset, packed.byteLength);
+    let pos = 0;
+    while (pos < packed.length) {
+      const n = dv.getUint32(pos);
+      pos += 4;
+      out.push(packed.slice(pos, pos + n));
+      pos += n;
+    }
+    return out;
+  };
+  const fail = (id, err) => {
+    const msg = new TextEncoder().encode(err?.message ?? String(err));
+    writeBack(msg, (p, l) => instance.exports.on_bridge_error(id, err?.code ?? 2, p, l));
+  };
+  const env = {
+    js_unary(id, pathPtr, pathLen, payloadPtr, payloadLen) {
+      bridge.unary(readStr(pathPtr, pathLen), readBytes(payloadPtr, payloadLen)).then(
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_done(id, 1, p, l)),
+        (err) => fail(id, err));
+    },
+    js_unary_opts(id, pathPtr, pathLen, payloadPtr, payloadLen, optsPtr, optsLen) {
+      const opts = JSON.parse(readStr(optsPtr, optsLen) || "{}");
+      bridge.unary(readStr(pathPtr, pathLen), readBytes(payloadPtr, payloadLen), opts).then(
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_done(id, 1, p, l)),
+        (err) => fail(id, err));
+    },
+    js_server_stream_cancel(id, pathPtr, pathLen, payloadPtr, payloadLen, cancelAfter) {
+      bridge.serverStream(
+        readStr(pathPtr, pathLen), readBytes(payloadPtr, payloadLen),
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_message(id, p, l)),
+        { cancelAfter },
+      ).then(() => instance.exports.on_bridge_done(id, 0, 0, 0), (err) => fail(id, err));
+    },
+    js_server_stream(id, pathPtr, pathLen, payloadPtr, payloadLen) {
+      bridge.serverStream(
+        readStr(pathPtr, pathLen), readBytes(payloadPtr, payloadLen),
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_message(id, p, l)),
+      ).then(() => instance.exports.on_bridge_done(id, 0, 0, 0), (err) => fail(id, err));
+    },
+    js_client_stream(id, pathPtr, pathLen, packedPtr, packedLen) {
+      bridge.clientStream(readStr(pathPtr, pathLen), unpack(readBytes(packedPtr, packedLen))).then(
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_done(id, 1, p, l)),
+        (err) => fail(id, err));
+    },
+    js_bidi(id, pathPtr, pathLen, packedPtr, packedLen) {
+      bridge.bidi(
+        readStr(pathPtr, pathLen), unpack(readBytes(packedPtr, packedLen)),
+        (resp) => writeBack(resp, (p, l) => instance.exports.on_bridge_message(id, p, l)),
+      ).then(() => instance.exports.on_bridge_done(id, 0, 0, 0), (err) => fail(id, err));
+    },
+    // Server-role imports (unused by the client build; the
+    // shared bridge declares them, so satisfy the linker).
+    js_now_ms: () => performance.now(),
+    js_server_respond() {},
+    js_server_send() {},
+    js_server_complete() {},
+    js_server_fail() {},
+    on_result(ptr, len) { resolveRun(JSON.parse(readStr(ptr, len))); },
+    on_error(ptr, len) { rejectRun(new Error(readStr(ptr, len))); },
+  };
+  const bytes = await (await fetch("/browser-test/echo_zig.wasm")).arrayBuffer();
+  ({ instance } = await WebAssembly.instantiate(bytes, { env }));
+  instance.exports.run_echo_client();
+  return done;
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>
