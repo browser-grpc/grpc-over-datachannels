@@ -482,6 +482,7 @@ function runnerRingDrain(state) {
 }
 
 function runnerParse(state) {
+  if (state.bootTimer) { clearTimeout(state.bootTimer); state.bootTimer = 0; }
   for (;;) {
     if (state.expectBytes !== null) {
       if (state.buf.length < state.expectBytes) return;
@@ -528,9 +529,29 @@ async function ensureRunner() {
     }));
     const files = {};
     for (const [dest, text] of texts) files[dest] = text;
-    const readyPromise = new Promise((resolve) => { state.onReady = resolve; });
+    const readyPromise = new Promise((resolve, reject) => {
+      state.onReady = resolve;
+      state.onBootError = reject;
+      // Boot timeout: in WPE WebKit the runtime posts "ready" then
+      // dies mounting its OPFS home (UnknownError), leaving this
+      // promise pending forever and Generate hanging. Bound the
+      // wait so buildBundle's catch falls back to the built-in
+      // generators, which produce byte-identical output (pinned
+      // by webapp_browse in all three engines).
+      state.bootTimer = setTimeout(() => {
+        try { state.worker?.terminate(); } catch {}
+        if (runnerState === state) runnerState = null;
+        reject(new Error("Racket runtime boot timed out (OPFS unavailable in this engine?)"));
+      }, 30000);
+    });
     const worker = new Worker("assets/racket/shell-worker.js");
     state.worker = worker;
+    worker.onerror = (event) => {
+      if (state.heap) return; // post-boot errors surface via frames/exit
+      clearTimeout(state.bootTimer);
+      if (runnerState === state) runnerState = null;
+      state.onBootError?.(new Error(event.message || "Racket worker failed to boot"));
+    };
     worker.onmessage = (event) => {
       const msg = event.data;
       if (msg.type === "ready") {

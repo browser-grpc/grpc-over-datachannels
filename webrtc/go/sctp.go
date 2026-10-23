@@ -558,7 +558,11 @@ func (a *Association) SendData(stream uint16, ppid uint32, payload []byte, opts 
 	if a.outResetDone[stream] {
 		return nil // stream is reset/closing: no new data
 	}
-	if a.state != "established" {
+	if a.state != "established" || a.inflightBytes >= int(a.peerRwnd) {
+		// Not established, or peer receive window full: queue;
+		// handleSack flushes as SACKs free window. Sending past
+		// rwnd bursts into kernel buffers that drop most of it,
+		// throttling the association to RTO retransmits.
 		cp := make([]byte, len(payload))
 		copy(cp, payload)
 		a.queued = append(a.queued, queuedMessage{stream, ppid, cp, opts})

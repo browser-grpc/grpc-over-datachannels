@@ -199,28 +199,45 @@ fn run_loop<I: DtlsIo>(
     let mut sctp_connected = false;
 
     loop {
-        // 1) Inbound SCTP packets from DTLS.
-        match dtls.recv_app_timeout(Duration::from_millis(5)) {
-            Ok(Some(packet)) => {
-                let (out, events) = assoc.handle_packet(&packet, now(start));
-                for p in out {
-                    let _ = dtls.send_app(&p);
+        // 1) Inbound SCTP packets from DTLS. The pump is a single
+        // thread (DTLS send/recv share one state), so application
+        // commands and SCTP timers wait out the current receive
+        // slice; 1 ms bounds that latency to ~1 ms per side while
+        // idle wakeups stay negligible (1k/s per endpoint). This
+        // slice dominated loopback RTT at 5 ms (bench-mux: 19 ms
+        // mean before, ~2 ms after).
+        // Drain every queued inbound packet before moving on, so
+        // bursts do not serialize one packet per pump iteration.
+        let mut first = true;
+        loop {
+            let timeout = if first {
+                Duration::from_millis(1)
+            } else {
+                Duration::ZERO
+            };
+            first = false;
+            match dtls.recv_app_timeout(timeout) {
+                Ok(Some(packet)) => {
+                    let (out, events) = assoc.handle_packet(&packet, now(start));
+                    for p in out {
+                        let _ = dtls.send_app(&p);
+                    }
+                    for event in events {
+                        handle_sctp_event(
+                            event,
+                            &mut assoc,
+                            &mut dtls,
+                            &mut channels,
+                            &cmd_tx,
+                            &event_tx,
+                            &mut sctp_connected,
+                            now(start),
+                        );
+                    }
                 }
-                for event in events {
-                    handle_sctp_event(
-                        event,
-                        &mut assoc,
-                        &mut dtls,
-                        &mut channels,
-                        &cmd_tx,
-                        &event_tx,
-                        &mut sctp_connected,
-                        now(start),
-                    );
-                }
+                Ok(None) => break,
+                Err(_) => return,
             }
-            Ok(None) => {}
-            Err(_) => break,
         }
 
         // 2) SCTP timers.

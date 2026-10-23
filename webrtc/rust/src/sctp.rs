@@ -507,7 +507,16 @@ impl Association {
         if self.out_reset_done.contains(&stream) {
             return Vec::new(); // stream reset/closing
         }
-        if self.state != State::Established {
+        if self.state != State::Established
+            || self.inflight_bytes >= self.peer_rwnd as usize
+        {
+            // Not established, or the peer receive window is full:
+            // hold the payload; handle_sack flushes the queue as
+            // SACKs free window. Sending past rwnd anyway (the old
+            // behavior) bursts megabytes into kernel buffers, which
+            // drop most of it and throttle the association to RTO
+            // retransmits (~1s stalls; bench-mux blast collapsed
+            // from ~3800 to ~1000 msgs/s at 2000x1KiB).
             self.queued.push_back((stream, ppid, payload.to_vec(), opts));
             return Vec::new();
         }

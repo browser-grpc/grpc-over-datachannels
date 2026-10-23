@@ -357,7 +357,11 @@ export class Association {
   sendData(stream, ppid, payload, opts = {}, nowMs = 0) {
     if (this.outResetDone.has(stream)) return []; // stream reset/closing
     const full = { unordered: false, maxRetransmits: null, maxLifetimeMs: null, ...opts };
-    if (this.state !== "established") {
+    if (this.state !== "established" || this.inflightBytes >= this.peerRwnd) {
+      // Not established, or peer receive window full: queue;
+      // handleSack flushes as SACKs free window. Sending past
+      // rwnd bursts into kernel buffers that drop most of it,
+      // throttling the association to RTO retransmits.
       this.queued.push([stream, ppid, Buffer.from(payload), full]);
       return [];
     }
