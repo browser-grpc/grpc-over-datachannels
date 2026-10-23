@@ -152,7 +152,8 @@
 (define plugin-langs
   '("js" "c" "go" "python" "rust" "java" "csharp" "cpp" "swift"
     "kotlin" "dart" "zig" "lua" "ruby" "php" "scala" "wasm-go"
-    "wasm-zig" "wasm-cpp" "wasm-swift" "wasm-kotlin" "wasm-scala"))
+    "wasm-zig" "wasm-cpp" "wasm-swift" "wasm-kotlin" "wasm-scala"
+    "kotlin-native"))
 
 (make-directory* (build-path out-dir "bin"))
 (for ([lang (in-list plugin-langs)])
