@@ -44,7 +44,17 @@ gh repo edit "$REPO" \
   --add-topic protobuf --add-topic protoc --add-topic protoc-plugin \
   --add-topic wasm --add-topic webassembly --add-topic codegen \
   --add-topic browser --add-topic peer-to-peer --add-topic javascript \
-  --add-topic typescript | grep -v "graphql:" || true
+  --add-topic typescript 2>/dev/null | grep -v "graphql:" || true
+
+# Social preview card (Settings > Social preview on the repo):
+# upload the rendered 1280x640 PNG so shared links render with
+# the card. Best-effort — failure never blocks a publish.
+if [ -f "$EXPORT/docs/social-preview.png" ]; then
+  gh api -X POST "repos/$REPO/social-preview" \
+    -H "Accept: application/vnd.github+json" \
+    --input "$EXPORT/docs/social-preview.png" >/dev/null 2>&1 \
+    || echo "note: social preview upload skipped (needs repo admin via web UI)"
+fi
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -101,6 +111,27 @@ if [ -f "$EXPORT/org-profile/README.md" ]; then
     echo "org profile published"
   fi
   cd - >/dev/null
+fi
+
+# ------------------------------------------------------------------
+# 3b. Package registries (npm). Publishing needs NPM_TOKEN in
+#    the environment (or a prior `npm login`); without it this
+#    step is a loud note, never a silent skip and never a failed
+#    publish. The tarball is always dry-run first (file list +
+#    metadata are the newcomer-facing artifact).
+# ------------------------------------------------------------------
+NPM_DIR="$EXPORT/js"
+if [ -d "$NPM_DIR" ] && command -v npm >/dev/null 2>&1; then
+  (cd "$NPM_DIR" && npm publish --dry-run 2>&1 | tail -5) || true
+  if npm whoami >/dev/null 2>&1; then
+    if (cd "$NPM_DIR" && npm publish --access public); then
+      echo "npm: grpc-dc@$VERSION published"
+    else
+      echo "note: npm publish failed (version may already exist); continuing"
+    fi
+  else
+    echo "note: npm publish skipped (not logged in; set NPM_TOKEN or npm login)"
+  fi
 fi
 
 # ------------------------------------------------------------------

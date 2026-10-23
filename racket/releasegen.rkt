@@ -176,6 +176,18 @@
   #:exists 'replace
   (lambda (out) (display "{\"type\": \"module\"}\n" out)))
 
+;; Social preview card (1280x640). Text-rendered PNG from the
+;; same size every release via Pillow in Dockerfile.ci; the
+;; generator is scripts/render-social.py (private tooling,
+;; never crosses the leak gate).
+(call-with-output-file (build-path out-dir "docs/social-preview.png")
+  #:exists 'replace
+  (lambda (out)
+    (define rendered
+      (and (file-exists? "docs/social-preview.png")
+           (file->bytes "docs/social-preview.png")))
+    (display (or rendered #"") out)))
+
 (for ([proto (in-list (directory-list "webapp/testdata"))])
   (when (string-suffix? (path->string proto) ".proto")
     (define dest (build-path out-dir "webapp/testdata" proto))
@@ -364,11 +376,22 @@
 (define language-rows
   (apply string-append
          (for/list ([lang (in-list languages)])
-           (format "| ~a | [`~a/`](~a/) |\n" (car lang) (cdr lang) (cdr lang)))))
+           (format "| ~a | [`~a/`](~a/) · [readme](~a/README.md) · [gallery](docs/gallery.html#~a) |\n"
+                   (car lang) (cdr lang) (cdr lang) (cdr lang) (cdr lang)))))
 
 (define readme
   (string-append
    "# gRPC over WebRTC DataChannels — in the browser and natively\n\n"
+   "[![Release](https://img.shields.io/github/v/release/browser-grpc/grpc-over-datachannels?label=release)](https://github.com/browser-grpc/grpc-over-datachannels/releases)\n"
+   "[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)\n"
+   "[![Live generator](https://img.shields.io/badge/live%20generator-browser--grpc.github.io-brightgreen)](https://browser-grpc.github.io/grpc-over-datachannels/app/)\n"
+   "[![npm](https://img.shields.io/npm/v/grpc-dc?label=npm%20grpc-dc)](https://www.npmjs.com/package/grpc-dc)\n\n"
+   "![gRPC in the browser over WebRTC DataChannels](docs/social-preview.png)\n\n"
+   "**New here? Start with [QUICKSTART.md](QUICKSTART.md)** — your\n"
+   "first browser RPC in about five lines, a Docker client/server\n"
+   "pair, and stubs for your own `.proto`. Or open the\n"
+   "[live generator](https://browser-grpc.github.io/grpc-over-datachannels/app/)\n"
+   "and press **Run your first RPC**.\n\n"
    "**Run gRPC in the browser.** grpc-over-datachannels speaks the\n"
    "gRPC wire protocol directly over WebRTC DataChannels, so a\n"
    "browser tab can call native services peer-to-peer — no grpc-web\n"
@@ -461,6 +484,122 @@
 (call-with-output-file (build-path out-dir "README.md")
   (lambda (out) (display readme out)) #:exists 'replace)
 
+;; Newcomer path: three copy-paste routes (browser first call,
+;; Docker client/server pair, own .proto stubs). Curated deep
+;; links land on code (a generated JS browser client), not prose.
+(define quickstart
+  (string-append
+   "# Quickstart\n\n"
+   "Three paths, shortest first. Everything is dependency-free:\n"
+   "generated runtimes use only each language's standard library.\n\n"
+   "## 1. Your first RPC in the browser (2 minutes, no install)\n\n"
+   "Open the [live generator](https://browser-grpc.github.io/grpc-over-datachannels/app/)\n"
+   "and press **Run your first RPC**. The page generates the Echo\n"
+   "client from the bundled schema, serves it in-page over a\n"
+   "loopback DataChannel pair (the same transport a real\n"
+   "`RTCDataChannel` plugs into), and shows the calls plus the\n"
+   "~10 lines of JavaScript you would write:\n\n"
+   "```js\n"
+   "import { Channel, Server, memoryDataChannelPair } from \"grpc-dc\";\n"
+   "import { EchoClient, createEchoService } from \"./echo_grpc_dc.js\";\n"
+   "import { EchoRequest } from \"./echo_pb.js\";\n\n"
+   "const [a, b] = memoryDataChannelPair();\n"
+   "const server = new Server();\n"
+   "server.addService(createEchoService({ /* your handlers */ }));\n"
+   "server.serve(b);\n\n"
+   "const client = new EchoClient(new Channel(a));\n"
+   "const reply = await client.unary(new EchoRequest({ message: \"hello\" }));\n"
+   "console.log(reply.message); // echo: hello\n"
+   "```\n\n"
+   "In production the loopback pair is replaced by a real\n"
+   "`RTCDataChannel` from two `RTCPeerConnection`s (or a native\n"
+   "peer); `Channel` and the generated client do not change.\n"
+   "Install the runtime with `npm install grpc-dc` (or copy the\n"
+   "`js/` directory — it has no dependencies either way). The\n"
+   "package ships TypeScript declarations (`index.d.ts`), so the\n"
+   "runtime is typed in TS projects.\n\n"
+   "## 2. Native client ↔ server with Docker (5 minutes)\n\n"
+   "No toolchain install; each image runs that language's full\n"
+   "test suite, and the interop image pairs clients and servers\n"
+   "across languages:\n\n"
+   "    git clone https://github.com/browser-grpc/grpc-over-datachannels\n"
+   "    cd grpc-over-datachannels\n"
+   "    docker build -f docker/go.Dockerfile -t grpc-dc-go .\n"
+   "    docker run --rm grpc-dc-go\n"
+   "    docker compose up   # interop proof + browser demo on :8080\n\n"
+   "Then open http://localhost:8080/app/#schema=echo&lang=js for\n"
+   "the generated JavaScript browser client.\n\n"
+   "## 3. Stubs for your own .proto\n\n"
+   "In the browser: paste your schema into the live generator,\n"
+   "tick your language, download the zip (stubs + runtime +\n"
+   "README, runs as-is). On the command line with protoc:\n\n"
+   "    ln -s \"$PWD/docs/app/protoc-gen-grpc-dc.mjs\" ~/bin/protoc-gen-grpc-dc-js\n"
+   "    protoc --plugin=protoc-gen-grpc-dc-js=$HOME/bin/protoc-gen-grpc-dc-js \\\n"
+   "           --grpc-dc-js_out=out -I . your.proto\n\n"
+   "One wrapper per language ships in `bin/`. Per-language\n"
+   "details (first run, regenerate, API tour) are in each\n"
+   "language's `README.md` — e.g. [`js/README.md`](js/README.md).\n"))
+(call-with-output-file (build-path out-dir "QUICKSTART.md")
+  (lambda (out) (display quickstart out)) #:exists 'replace)
+
+;; Per-language newcomer READMEs: where things live, the first
+;; command to run (the same command the Docker image runs), how
+;; to regenerate stubs, and where the typed API surface is.
+(define per-language-readmes
+  (hash
+   "js" (list "JavaScript (browser + Node)"
+              "node js/examples/echo_demo.js   # all four method shapes, in-memory pair\n    node --test js/test/*.test.js   # full suite"
+              "npm install grpc-dc — or copy this directory; there are no dependencies. TypeScript types ship in `index.d.ts`.")
+   "python" (list "Python"
+                  "cd python && python3 -m unittest discover -s tests"
+                  "pip users: `pip install ./python` installs the `grpcdc` package from this tree (pyproject.toml included, no dependencies).")
+   "go" (list "Go"
+              "cd go && go test ./..."
+              "Import path is the module in go/go.mod; copy the directory into your module tree or use a replace directive.")
+   "rust" (list "Rust"
+                "cd rust && cargo test"
+                "Add the crate by path: `grpc-dc = { path = \"rust\" }` in Cargo.toml. No external crates.")
+   ))
+(define (emit-language-readme dir)
+  (define spec (hash-ref per-language-readmes dir #f))
+  (define name
+    (car (or (for/first ([l (in-list languages)] #:when (equal? (cdr l) dir)) l)
+             '("grpc-dc"))))
+  (define body
+    (if spec
+        (string-append
+         "# " (first spec) " — grpc-dc runtime\n\n"
+         "Start here if you are new to the project. The runtime in\n"
+         "this directory is generated, dependency-free, and speaks\n"
+         "the gRPC wire protocol over WebRTC DataChannels.\n\n"
+         "## First run\n\n```sh\n    " (second spec) "\n```\n\n"
+         "## Use it in your project\n\n" (third spec) "\n\n"
+         "## Regenerate stubs for your schema\n\n"
+         "From the repository root (one wrapper per language in `bin/`):\n\n"
+         "    protoc --plugin=protoc-gen-grpc-dc-" dir "=$PWD/bin/protoc-gen-grpc-dc-" dir " \\\n"
+         "           --grpc-dc-" dir "_out=out -I . your.proto\n\n"
+         "Or generate in the browser and download the zip:\n"
+         "https://browser-grpc.github.io/grpc-over-datachannels/app/\n\n"
+         "## Where things live\n\n"
+         "- Runtime: this directory (see its generated sources).\n"
+         "- Worked example: `examples/` (Echo in every method shape).\n"
+         "- Tests: `tests/` — the same BDD scenarios every language runs.\n\n"
+         "Full project quickstart: [`../QUICKSTART.md`](../QUICKSTART.md).\n")
+        (string-append
+         "# " name " — grpc-dc runtime\n\n"
+         "Generated, dependency-free gRPC-over-DataChannels runtime\n"
+         "with Echo stubs, examples, and tests in this directory.\n\n"
+         "## First run (Docker, no toolchain install)\n\n"
+         "    docker build -f docker/" dir ".Dockerfile -t grpc-dc-" dir " .\n"
+         "    docker run --rm grpc-dc-" dir "\n\n"
+         "## Regenerate stubs for your schema\n\n"
+         "    protoc --plugin=protoc-gen-grpc-dc-" dir "=$PWD/bin/protoc-gen-grpc-dc-" dir " \\\n"
+         "           --grpc-dc-" dir "_out=out -I . your.proto\n\n"
+         "Full project quickstart: [`../QUICKSTART.md`](../QUICKSTART.md).\n")))
+  (call-with-output-file (build-path out-dir dir "README.md")
+    (lambda (out) (display body out)) #:exists 'replace))
+(for ([lang (in-list languages)]) (emit-language-readme (cdr lang)))
+
 (call-with-output-file (build-path out-dir "docs/BDD.md")
   (lambda (out) (display (file->string "BDD.md") out)) #:exists 'replace)
 
@@ -509,6 +648,65 @@
       "the exported corpus examples; transcripts are real\n"
       "stdio client->server runs captured at export time.\n\n"
       (apply string-append (map gallery-lang languages)))
+     out))
+  #:exists 'replace)
+
+;; HTML gallery: same generated content, but browsable with
+;; per-language anchors (the README language table and landing
+;; page link here, not at raw Markdown).
+(define (html-escape s)
+  (string-replace
+   (string-replace
+    (string-replace s "&" "&amp;") "<" "&lt;") ">" "&gt;"))
+(define (gallery-lang-html lang)
+  (define name (car lang))
+  (define dir (cdr lang))
+  (define corpus (build-path "webapp/assets/corpus" dir "examples"))
+  (define server-file
+    (and (directory-exists? corpus)
+         (for/first ([f (in-list (directory-list corpus))]
+                     #:when (and (file-exists? (build-path corpus f))
+                                 (regexp-match? #rx"(?i:server)" (path->string f))))
+           f)))
+  (define transcript
+    (build-path "webapp/assets/transcripts" (string-append dir ".txt")))
+  (string-append
+   "<section id=\"" dir "\">\n<h2>" name "</h2>\n"
+   (if server-file
+       (string-append
+        "<pre><code>" (html-escape (file->string (build-path corpus (path->string server-file)))) "</code></pre>\n")
+       "<p><em>No stdio server example in the corpus.</em></p>\n")
+   "<p>Test suite in Docker:</p>\n"
+   "<pre><code>docker build -f docker/" dir ".Dockerfile -t grpc-dc-" dir " .\n"
+   "docker run --rm grpc-dc-" dir "</code></pre>\n"
+   (if (file-exists? transcript)
+       (string-append
+        "<p>Stdio client &#8594; own server transcript, captured at export time:</p>\n"
+        "<pre><code>" (html-escape (file->string transcript)) "</code></pre>\n")
+       "")
+   "</section>\n"))
+(call-with-output-file (build-path out-dir "docs/gallery.html")
+  (lambda (out)
+    (display
+     (string-append
+      "<!doctype html>\n<html lang=\"en\">\n<head>\n"
+      "<meta charset=\"utf-8\">\n"
+      "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+      "<title>Echo in Every Language — gRPC over WebRTC DataChannels</title>\n"
+      "<meta name=\"description\" content=\"The same Echo gRPC service implemented in 16 languages over WebRTC DataChannels: generated dependency-free runtimes, Docker test commands, and real transcripts.\">\n"
+      "<link rel=\"canonical\" href=\"https://browser-grpc.github.io/grpc-over-datachannels/gallery.html\">\n"
+      "</head>\n<body>\n"
+      "<h1>Echo in every language</h1>\n"
+      "<p>The same Echo service — unary, server-streaming, "
+      "client-streaming, and bidi — per language over the "
+      "generated runtime. Anchors: "
+      (string-join
+       (for/list ([lang (in-list languages)])
+         (string-append "<a href=\"#" (cdr lang) "\">" (car lang) "</a>"))
+       " · ")
+      ".</p>\n"
+      (apply string-append (map gallery-lang-html languages))
+      "</body>\n</html>\n")
      out))
   #:exists 'replace)
 
@@ -565,7 +763,8 @@
    "<meta property=\"og:title\" content=\"" seo-title "\">\n"
    "<meta property=\"og:description\" content=\"" seo-description "\">\n"
    "<meta property=\"og:url\" content=\"" site-url "\">\n"
-   "<meta name=\"twitter:card\" content=\"summary\">\n"
+   "<meta property=\"og:image\" content=\"" site-url "social-preview.png\">\n"
+   "<meta name=\"twitter:card\" content=\"summary_large_image\">\n"
    "<meta name=\"twitter:title\" content=\"" seo-title "\">\n"
    "<meta name=\"twitter:description\" content=\"" seo-description "\">\n"
    "<script type=\"application/ld+json\">\n"
@@ -589,7 +788,11 @@
    "<li><a href=\"app/\">In-browser protoc generator + live demo</a> — "
    "paste a .proto, get stubs for every language</li>\n"
    "<li><a href=\"app/#schema=echo&lang=js\">JavaScript/TypeScript browser client example</a></li>\n"
-   "<li><a href=\"gallery.md\">Echo server in every language</a></li>\n"
+   "<li><a href=\"app/#schema=echo&lang=go\">Go generated client</a> · "
+   "<a href=\"app/#schema=echo&lang=python\">Python generated messages</a> · "
+   "<a href=\"app/#schema=shop&lang=js\">A larger schema (shop) in JavaScript</a></li>\n"
+   "<li><a href=\"gallery.html\">Echo server in every language</a> "
+   "(<a href=\"gallery.md\">Markdown</a>)</li>\n"
    "<li><a href=\"BDD.md\">Behavior specification (BDD)</a></li>\n"
    "<li><a href=\"https://github.com/browser-grpc/grpc-over-datachannels\">"
    "Source, runtimes and examples on GitHub</a></li>\n</ul>\n"
@@ -623,6 +826,7 @@
       "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
       "<url><loc>" site-url "</loc></url>\n"
       "<url><loc>" site-url "app/</loc></url>\n"
+      "<url><loc>" site-url "gallery.html</loc></url>\n"
       "<url><loc>" site-url "gallery.md</loc></url>\n"
       "<url><loc>" site-url "BDD.md</loc></url>\n"
       "</urlset>\n")
@@ -634,6 +838,41 @@
     (fprintf out "{\n  \"version\": \"~a\",\n  \"sourceCommit\": \"~a\",\n  \"generated\": true\n}\n"
              version source-commit))
   #:exists 'replace)
+
+;; Package-manager story: align the npm package version with
+;; the release (the js/ package.json is the single source of
+;; truth for contents), and give Python a pip-installable
+;; package so `pip install ./python` works from the export.
+(define npm-version
+  (if (string-prefix? version "v") (substring version 1) version))
+(define js-package-path (build-path out-dir "js/package.json"))
+(when (file-exists? js-package-path)
+  (define text (file->string js-package-path))
+  (define aligned
+    (regexp-replace #rx"\"version\": \"[^\"]+\""
+                    text
+                    (string-append "\"version\": \"" npm-version "\"")))
+  (call-with-output-file js-package-path #:exists 'replace
+    (lambda (out) (display aligned out))))
+(call-with-output-file (build-path out-dir "python/pyproject.toml")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "# pip packaging for the generated Python runtime.\n"
+      "# Install from the export root: pip install ./python\n"
+      "[build-system]\n"
+      "requires = [\"setuptools>=61\"]\n"
+      "build-backend = \"setuptools.build_meta\"\n\n"
+      "[project]\n"
+      "name = \"grpc-dc\"\n"
+      "version = \"" npm-version "\"\n"
+      "description = \"gRPC over WebRTC DataChannels — dependency-free generated Python runtime\"\n"
+      "requires-python = \">=3.9\"\n"
+      "license = {text = \"Apache-2.0\"}\n\n"
+      "[tool.setuptools.packages.find]\n"
+      "include = [\"grpcdc*\"]\n")
+     out)))
 
 ;; ---------------------------------------------------------------------------
 ;; Leak gate: no Racket source may cross. (Generated-file

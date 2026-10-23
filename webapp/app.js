@@ -1325,6 +1325,143 @@ async function boot() {
   applyDeepLink().catch((e) => setStatus("deep link failed: " + e.message, "err"));
 }
 
+// --- first-run guided demo --------------------------------------
+// "Run your first RPC": generates the Echo stubs for the current
+// editor schema with the built-in generators, loads the runtime
+// + generated modules as blob URLs, serves Echo in-page over a
+// loopback DataChannel pair, and runs a unary and a
+// server-streaming call. The code panel shows exactly the calls
+// being made. Nothing leaves the tab.
+const FIRST_RUN_CODE = [
+  "import { Channel, Server, memoryDataChannelPair } from \"grpc-dc\";",
+  "import { EchoClient, createEchoService } from \"./echo_grpc_dc.js\";",
+  "import { EchoRequest } from \"./echo_pb.js\";",
+  "",
+  "const [a, b] = memoryDataChannelPair();",
+  "const server = new Server();",
+  "server.addService(createEchoService(handlers));",
+  "server.serve(b);",
+  "",
+  "const client = new EchoClient(new Channel(a));",
+  "await client.unary(new EchoRequest({ message: \"hello\" }));",
+  "for await (const r of client.serverStream(",
+  "  new EchoRequest({ message: \"tick\", count: 3 }))) { /* ... */ }",
+].join("\n");
+
+async function firstRun() {
+  const btn = $("first-run");
+  const status = $("first-run-status");
+  const outEl = $("first-run-out");
+  btn.disabled = true;
+  $("first-run-code").textContent = FIRST_RUN_CODE;
+  outEl.textContent = "";
+  try {
+    await whenCompilerReady();
+    status.textContent = "Generating the Echo client from the schema…";
+    const texts = Object.fromEntries(files);
+    const names = Object.keys(texts);
+    const out = JSON.parse(window.__grpcdcCompile(
+      JSON.stringify({ files: texts, entries: names })));
+    if (!out.ok) throw new Error("schema does not compile: " + out.error);
+    const setBytes = Uint8Array.from(atob(out.set), (c) => c.charCodeAt(0));
+    const generated = generateFiles("js", setBytes, names, "");
+    const pb = generated.find((f) => f.name.endsWith("_pb.js"));
+    const stub = generated.find((f) => f.name.endsWith("_grpc_dc.js"));
+    if (!pb || !stub) throw new Error("Echo stubs not generated for this schema");
+    const sources = new Map();
+    sources.set(pb.name, pb.content);
+    sources.set(stub.name, stub.content.replaceAll(
+      "./" + pb.name.split("/").pop(), "./" + pb.name));
+    for (const name of RUNTIME_FILES.js) {
+      const text = await (await fetch("assets/runtime/js/" + name)).text();
+      sources.set(name, text);
+    }
+    // Generated message classes import the wire table as ../wire_gen.js.
+    sources.set("wire_gen.js",
+      await (await fetch("assets/runtime/wire_gen.js")).text());
+    sources.set("z-run.mjs", [
+      'import { Channel, Server, memoryDataChannelPair } from "./index.js";',
+      'import { EchoClient, createEchoService } from "./' + stub.name + '";',
+      'import { EchoRequest, EchoResponse } from "./' + pb.name + '";',
+      "",
+      "const handlers = {",
+      "  async unary(req) { return new EchoResponse({ message: \"echo: \" + req.message, index: 0 }); },",
+      "  async *serverStream(req) {",
+      "    for (let i = 0; i < req.count; i++) yield new EchoResponse({ message: req.message, index: i });",
+      "  },",
+      "  async clientStream(reqs) {",
+      "    const parts = []; for await (const r of reqs) parts.push(r.message);",
+      '    return new EchoResponse({ message: parts.join("+"), index: parts.length });',
+      "  },",
+      "  async *bidi(reqs) { let i = 0; for await (const r of reqs) yield new EchoResponse({ message: r.message, index: i++ }); },",
+      "};",
+      "const [a, b] = memoryDataChannelPair();",
+      "const server = new Server();",
+      "server.addService(createEchoService(handlers));",
+      "server.serve(b);",
+      "const client = new EchoClient(new Channel(a));",
+      'const lines = ["grpc-dc preview: real calls, not mocks"];',
+      'lines.push("unary         -> " + JSON.stringify(await client.unary(new EchoRequest({ message: "hello" }))));',
+      'const ticks = [];',
+      'for await (const r of await client.serverStream(new EchoRequest({ message: "tick", count: 3 }))) ticks.push(r.message + "#" + r.index);',
+      'lines.push("server-stream -> " + ticks.join(", "));',
+      "export const firstRunResult = lines.join(\"\\n\");",
+    ].join("\n"));
+    const runtime = [
+      'export { FrameType, StatusCode, StatusName, StatusError, encodeFrame, decodeFrame, encodeTimeout, parseTimeout, setTracer, setTraceFilter, toHex, fromHex } from "./codec.js";',
+      'export { Endpoint, StreamInput } from "./endpoint.js";',
+      'export { Channel } from "./channel.js";',
+      'export { Server } from "./server.js";',
+      'export { memoryDataChannelPair } from "./loopback.js";',
+    ].join("\n");
+    sources.set("index.js", runtime);
+    const enc = new TextEncoder();
+    const urls = new Map();
+    const resolve = (name) => {
+      if (!urls.has(name)) {
+        const blob = new Blob([enc.encode(sources.get(name))], { type: "text/javascript" });
+        urls.set(name, URL.createObjectURL(blob));
+      }
+      return urls.get(name);
+    };
+    // Dependencies first: a Blob module importing ./codec.js
+    // needs codec's Blob URL to exist when its source text is
+    // rewritten. resolve() creates leaf URLs lazily, and the
+    // explicit order below covers the rest.
+    const order = ["wire_gen.js", "codec.js", "endpoint.js",
+      "channel.js", "server.js", "loopback.js", "dynamic.js",
+      "wasm_bridge.js", "index.js", pb.name, stub.name, "z-run.mjs"];
+    const names0 = [...sources.keys()]
+      .sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    for (const name of names0) {
+      let content = sources.get(name);
+      content = content
+        .replace(/(from\s+["'])\.\.\/([^"']+)(["'])/g,
+          (m, a, spec, q) => (spec === "wire_gen.js" && resolve(spec))
+            ? a + resolve(spec) + q : m)
+        .replace(/(from\s+["'])\.\/([^"']+)(["'])/g,
+          (m, a, spec, q) => a + resolve(spec) + q)
+        .replace(/(import\s+["'])\.\/([^"']+)(["'])/g,
+          (m, a, spec, q) => a + resolve(spec) + q);
+      const prev = urls.get(name);
+      const blob = new Blob([enc.encode(content)], { type: "text/javascript" });
+      urls.set(name, URL.createObjectURL(blob));
+      if (prev) URL.revokeObjectURL(prev);
+    }
+    status.textContent = "Serving Echo in-page and calling it…";
+    const mod = await import(urls.get("z-run.mjs"));
+    outEl.textContent = mod.firstRunResult;
+    window.__firstRunOutput = mod.firstRunResult;
+    status.textContent = "It worked — those were real gRPC calls over a DataChannel transport.";
+  } catch (e) {
+    status.textContent = "First run failed: " + e.message;
+    window.__firstRunOutput = "ERROR: " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+$("first-run").addEventListener("click", () => firstRun());
+
 // Newbie deep link: #schema=<corpus-id>&lang=<lang-id> loads
 // the bundled schema into the editor and selects exactly one
 // language, ready for Generate / starter kit.

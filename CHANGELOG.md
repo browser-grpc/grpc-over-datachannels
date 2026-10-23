@@ -3,6 +3,35 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.28.0 — 2026-10-23
+
+- Newcomer onboarding for the public export: generated
+  `QUICKSTART.md` (first browser RPC in ~5 lines, Docker
+  client/server pair, stubs for your own `.proto`), generated
+  per-language `README.md` files (first run, regenerate,
+  project use), an HTML examples gallery with per-language
+  anchors (`docs/gallery.html`, linked from the README table
+  and landing page), and curated deep links (JS browser
+  client, Go client, Python messages, shop schema).
+- Live app guided first run: "Run your first RPC" generates
+  the Echo client in-page, serves it over a loopback
+  DataChannel pair, and runs unary + streaming calls with the
+  equivalent ~10 lines of code shown. Real calls, no mocks.
+- Package-manager story: the npm package `grpc-dc` now carries
+  keyword metadata, homepage/repository, and an aligned
+  version per release; `scripts/release-push.sh` dry-runs and
+  (when logged in) publishes it during the publish window.
+  Python gets a generated `pyproject.toml`, so
+  `pip install ./python` installs `grpcdc`.
+- TypeScript declarations ship for the JS runtime
+  (`js/index.d.ts`, wired through package `types`/exports and
+  verified with `tsc --strict`): Channel/Server/Endpoint,
+  dynamic client, and Wasm bridges are typed.
+- README badges (release, license, live generator, npm) and
+  a 1280x640 social preview card (`docs/social-preview.png`,
+  rendered by `scripts/render-social.py`), referenced from
+  the landing page's Open Graph image.
+
 ## v0.27.1 — 2026-10-23
 
 - GitHub/Pages discoverability for web and browser developers:
