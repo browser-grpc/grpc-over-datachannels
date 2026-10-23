@@ -3,8 +3,8 @@ package tests
 import java.io.File
 
 /// BDD schema scenarios: golden protoc bytes, generated classes.
-/// The case table (BDD_SCHEMAS in BddSchemas.kt, stamped from
-/// racket/bdd-schemas.rkt) carries protoc's own --encode output
+/// The case table (BDD_SCHEMAS in BddSchemas.kt, generated from
+/// the schema scenarios) carries protoc's own --encode output
 /// over webapp/testdata/{kitchen,features}.proto. Each case
 /// decodes with the generated classes and re-encodes
 /// byte-identically. The generated-classes harness mirrors

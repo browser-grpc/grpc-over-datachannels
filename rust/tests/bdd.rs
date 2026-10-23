@@ -1,5 +1,5 @@
 //! BDD: interprets the generated behavior scenarios
-//! (`bdd_scenarios/mod.rs`, stamped from `racket/bdd-spec.rkt`;
+//! (`bdd_scenarios/mod.rs`, generated from `the BDD specification`;
 //! prose in BDD.md) against a loopback client+server — the
 //! executable examples.
 

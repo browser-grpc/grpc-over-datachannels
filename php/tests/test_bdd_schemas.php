@@ -1,7 +1,7 @@
 <?php
 // BDD schema scenarios: golden protoc bytes, generated classes.
-// The case table (bdd_schemas_generated.php, stamped from
-// racket/bdd-schemas.rkt) carries protoc's own --encode output
+// The case table (bdd_schemas_generated.php, generated from
+// the schema scenarios) carries protoc's own --encode output
 // over webapp/testdata/{kitchen,features}.proto. Each case
 // decodes with the generated classes and re-encodes
 // byte-identically. The generated-classes harness mirrors

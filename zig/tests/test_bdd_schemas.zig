@@ -3,8 +3,8 @@ const util = @import("test_util.zig");
 const schemas = @import("bdd_schemas.zig");
 
 /// BDD schema scenarios: golden protoc bytes, generated classes.
-/// The case table (bdd_schemas.zig) is stamped from
-/// racket/bdd-schemas.rkt: protoc's own --encode output over
+/// The case table (bdd_schemas.zig) is generated from
+/// the schema scenarios: protoc's own --encode output over
 /// webapp/testdata/{kitchen,features}.proto. Each case decodes
 /// with the generated classes and re-encodes byte-identically.
 /// The generated-classes harness mirrors test_pb_messages.zig.

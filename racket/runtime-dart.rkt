@@ -165,7 +165,7 @@ typedef Headers = ({String? path, Map<String, String> metadata});
 /// Frame codec for gRPC over WebRTC DataChannels (wire protocol in
 /// ../SPEC.md). Frame, status, channel and server semantics mirror the
 /// other grpcdc runtimes; the tables in wire.dart are stamped by the
-/// Racket metaprogram.
+/// grpc-dc codegen.
 class Codec {
   static const int headerLen = 9;
   static const int maxDataPayload = 16 * 1024 * 1024;

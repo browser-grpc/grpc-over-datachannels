@@ -1,6 +1,6 @@
 # BDD: interprets the generated behavior scenarios.
 #
-# bdd_scenarios_generated.rb is stamped from racket/bdd-spec.rkt;
+# bdd_scenarios_generated.rb is generated from the BDD specification;
 # the prose lives in BDD.md. The scenarios run against a loopback
 # client+server — they are the executable examples, so documentation
 # cannot drift from behavior.

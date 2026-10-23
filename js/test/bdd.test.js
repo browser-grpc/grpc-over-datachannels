@@ -6,8 +6,8 @@ import { EchoRequest, EchoResponse } from "../examples/echo_pb.js";
 import { EchoClient, createEchoService } from "../examples/echo_grpc_dc.js";
 import { BDD_SCENARIOS } from "./bdd_scenarios.generated.js";
 
-// BDD: interprets the generated behavior scenarios stamped from
-// racket/bdd-spec.rkt (prose in BDD.md) against a loopback
+// BDD: interprets the generated behavior scenarios generated from
+// the BDD specification (prose in BDD.md) against a loopback
 // client+server — the executable examples.
 
 function handlers() {

@@ -21,8 +21,8 @@ import java.util.concurrent.TimeUnit;
  * Oracle tests: the official grpc-java implementation, bridged over
  * TCP&lt;-&gt;DataChannel by ../../oracle/bridge.mjs, must agree with
  * this (generated) Java runtime on every case of the generated
- * scenario table (OracleScenarios, stamped from
- * racket/oracle-spec.rkt). Skips when the oracle or bridge are
+ * scenario table (OracleScenarios, generated from
+ * the oracle scenarios). Skips when the oracle or bridge are
  * unavailable (Dockerfile.ci provides both). Mirrors go/oracle_test.go.
  *
  * <p>Note the subject under test here is the NEW runtime in

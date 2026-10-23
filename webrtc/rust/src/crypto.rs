@@ -1,7 +1,7 @@
 //! Hand-rolled cryptography (zero crates): SHA-256, SHA-1, HMAC,
 //! TLS 1.2 PRF, AES-128, AES-GCM, CRC-32. Round constants, the S-box and
-//! the CRC table come from `proto_gen` — computed by the Racket
-//! metaprogram from the defining mathematics, never transcribed.
+//! the CRC table come from `proto_gen` — computed by the code
+//! generator from the defining mathematics, never transcribed.
 //!
 //! Everything here is verified against published vectors in the tests
 //! below, and again end-to-end by the OpenSSL DTLS oracle tests.
@@ -249,7 +249,7 @@ pub fn sha384(data: &[u8]) -> [u8; 48] {
 
 // ---------------------------------------------------------------------------
 // MD5 (RFC 1321; TURN long-term credential key only — the K/S
-// tables are computed by the Racket metaprogram in proto_gen)
+// tables are computed by the code generator in proto_gen)
 // ---------------------------------------------------------------------------
 
 pub fn md5(data: &[u8]) -> [u8; 16] {

@@ -14,7 +14,7 @@ fn req(message: []const u8, count: i32) EchoRequest {
 }
 
 /// BDD: interprets the generated behavior scenarios (bdd_scenarios.zig,
-/// stamped from racket/bdd-spec.rkt; prose in BDD.md) against a
+/// generated from the BDD specification; prose in BDD.md) against a
 /// loopback client+server. These scenarios are the executable
 /// examples, so the documentation cannot drift from the behavior.
 pub fn testBdd(alloc: std.mem.Allocator) void {

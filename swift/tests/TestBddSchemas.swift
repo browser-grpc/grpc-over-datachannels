@@ -1,8 +1,8 @@
 import Foundation
 
 /// BDD schema scenarios: golden protoc bytes, generated classes.
-/// The case table (BDD_SCHEMAS in BddSchemas.swift, stamped from
-/// racket/bdd-schemas.rkt) carries protoc's own --encode output
+/// The case table (BDD_SCHEMAS in BddSchemas.swift, generated from
+/// the schema scenarios) carries protoc's own --encode output
 /// over webapp/testdata/{kitchen,features}.proto. Each case
 /// decodes with the generated classes and re-encodes
 /// byte-identically. The generated-classes harness mirrors

@@ -142,7 +142,7 @@ import java.nio.charset.StandardCharsets
  * Frame codec for gRPC over WebRTC DataChannels (wire protocol in
  * ../SPEC.md). Frame, status, channel and server semantics mirror the
  * other grpcdc runtimes; the tables in WireGen.scala are stamped by
- * the Racket metaprogram.
+ * grpc-dc codegen.
  */
 object Codec {
   val HEADER_LEN: Int = 9

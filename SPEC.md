@@ -29,8 +29,8 @@ reassembly layer are needed:
 | 0x05 | RST        | both            | UTF-8 JSON: `{"code":1,"message":"..."}` — aborts the stream |
 
 Status codes are the standard gRPC codes 0–16 (`OK` … `UNAUTHENTICATED`);
-the canonical table lives in `racket/spec.rkt` and is generated into the
-Rust, JavaScript, and Racket codecs from that one source.
+the canonical table lives in the generator's protocol specification and
+is generated into every language's codec from that one source.
 
 ## Stream lifecycle
 

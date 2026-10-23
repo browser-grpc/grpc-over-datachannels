@@ -23,7 +23,7 @@ echo::EchoRequest Req(const std::string& message, std::int32_t count) {
 }  // namespace
 
 /// BDD: interprets the generated behavior scenarios (bdd_scenarios.hpp,
-/// stamped from racket/bdd-spec.rkt; prose in BDD.md) against a
+/// generated from the BDD specification; prose in BDD.md) against a
 /// loopback client+server — the executable examples.
 void TestBdd() {
   auto pair = grpcdc::MemoryTransportPair();

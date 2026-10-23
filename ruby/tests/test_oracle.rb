@@ -1,7 +1,7 @@
 # Oracle tests: the official grpc-java implementation, bridged over
 # TCP<->DataChannel by ../../oracle/bridge.mjs, must agree with the
 # Ruby runtime on every case of the generated scenario table
-# (oracle_scenarios_generated.rb, stamped from racket/oracle-spec.rkt).
+# (oracle_scenarios_generated.rb, generated from the oracle scenarios).
 # Skips when the Java oracle or Node bridge are unavailable
 # (Dockerfile.ci provides both). Mirrors python/tests/test_oracle.py.
 

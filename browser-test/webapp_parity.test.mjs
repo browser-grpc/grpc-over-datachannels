@@ -169,7 +169,7 @@ async function assertRacketVia(page, name) {
     return;
   }
   assert.ok(
-    typeof via === "string" && via.startsWith("Racket plugins in-browser"),
+    typeof via === "string" && via.startsWith("full plugins in-browser"),
     `${name}: expected generation via the Racket/Wasm plugins, got: ${via}`,
   );
 }

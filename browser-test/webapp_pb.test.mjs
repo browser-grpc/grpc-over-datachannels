@@ -176,7 +176,7 @@ async function runCase(name, engine) {
     if (name === "webkit" && via === "built-in generators") {
       console.log("webkit: Racket runtime unavailable (OPFS); pb via built-in fallback");
     } else {
-      assert.ok(typeof via === "string" && via.startsWith("Racket plugins in-browser"), `${name}: expected Racket/Wasm generation, got: ${via}`);
+      assert.ok(typeof via === "string" && via.startsWith("full plugins in-browser"), `${name}: expected full-plugin generation, got: ${via}`);
     }
     const entries = readZip(await readFile(await download.path()));
     for (const f of ["echo_pb.js", "common_pb.js", "kitchen_pb.js", "echo_grpc_dc.js"]) {

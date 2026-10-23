@@ -38,7 +38,7 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const pageUrl = `http://127.0.0.1:${server.address().port}/browser-test/wasm_zig_page.html`;
 
-// Canonical Echo semantics (racket/bdd-spec.rkt): "fail" is
+// Canonical Echo semantics (the BDD specification): "fail" is
 // rejected with INVALID_ARGUMENT in every method, delayMs
 // delays unary, x-echo metadata is reflected as " [meta]".
 const handlers = {

@@ -11,7 +11,7 @@ import 'bdd_scenarios.dart';
 import 'test_util.dart';
 
 /// BDD: interprets the generated behavior scenarios (bdd_scenarios.dart,
-/// stamped from racket/bdd-spec.rkt; prose in BDD.md) against a
+/// generated from the BDD specification; prose in BDD.md) against a
 /// loopback client+server. These scenarios are the executable
 /// examples, so the documentation cannot drift from the behavior.
 Future<void> testBdd() async {

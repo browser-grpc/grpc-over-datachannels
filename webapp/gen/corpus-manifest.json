@@ -1,5 +1,5 @@
 {
-  "generatedBy": "racket/metagen.rkt (write-corpus-manifest)",
+  "generatedBy": "grpc-dc codegen (write-corpus-manifest)",
   "schemas": [
     {"id": "echo", "label": "Echo (proto/echo.proto)", "dir": "", "files": ["echo.proto"]},
     {"id": "testdata", "label": "Testdata (webapp/testdata)", "dir": "testdata", "files": ["common.proto","features.proto","kitchen.proto","legacy.proto","my_api.proto","shop.proto"]}

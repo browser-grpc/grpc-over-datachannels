@@ -4,7 +4,7 @@
 // failure, metadata, and unknown-method scenarios against
 // the server under test, so each server is pinned standalone
 // (wasm_matrix.test.mjs pins the same codes across client x
-// server pairs). Canonical semantics: racket/bdd-spec.rkt —
+// server pairs). Canonical semantics: the BDD specification —
 // "fail" is rejected with INVALID_ARGUMENT in every method,
 // x-echo metadata is reflected as " [meta]", unknown methods
 // return UNIMPLEMENTED. Deadline behavior stays asserted by

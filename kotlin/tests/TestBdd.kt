@@ -13,7 +13,7 @@ import java.io.EOFException
 private fun req(message: String, count: Int) = EchoRequest(message, count)
 
 /** BDD: interprets the generated behavior scenarios (BddScenarios,
- * stamped from racket/bdd-spec.rkt; prose in BDD.md) against a
+ * generated from the BDD specification; prose in BDD.md) against a
  * loopback client+server — the executable examples. */
 fun testBdd() {
     val (a, b) = MemoryTransport.pair()
