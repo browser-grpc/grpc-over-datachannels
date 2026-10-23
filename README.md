@@ -4,7 +4,7 @@ gRPC over WebRTC DataChannels for many languages: dependency-free
 generated runtimes and Echo stubs, a reimplemented WebRTC stack,
 and native + browser (Wasm) clients and servers.
 
-This repository is a generated public export (version v0.23.0)
+This repository is a generated public export (version v0.24.0)
 of the grpc-over-datachannels project. Generated code may be used
 without restriction (see GENERATED-CODE-LICENSE.md); everything
 else is Apache-2.0 (see LICENSE).
@@ -107,13 +107,17 @@ every generated runtime is dependency-free.
 
 The Rust, Go, and JS (Node) stacks can host many signaled
 peers on one bound UDP socket: `PeerMux` routes STUN by ICE
-ufrag and DTLS by learned source address, so a server needs
-exactly one open port for all its peer connections (the
-single-port topology of Jitsi/Pion). TURN is unavailable
-on muxed peers, and each remote connection must present a
-distinct source address (DTLS has no connection IDs here).
-See `webrtc/rust/src/mux.rs`, `webrtc/go/mux.go`,
-`webrtc/js/mux.js`; one generated scenario tests all three.
+ufrag, the first DTLS flight by a pair-hint extension, and
+every later DTLS record by its RFC 9146 connection id, so
+a server needs exactly one open port for all its peer
+connections (the single-port topology of Jitsi/Pion) —
+and two muxes can peer with each other, since records no
+longer route by source address. TURN also works on muxed
+peers (the allocation's UDP leg rides a dedicated per-peer
+socket). See `webrtc/rust/src/mux.rs`,
+`webrtc/go/mux.go`, `webrtc/js/mux.js`; one generated
+scenario tests all three stacks, and the cross-stack
+matrix pairs mux against mux across stacks.
 
 ## Verify the browser story
 
@@ -141,7 +145,7 @@ table runs natively in every language above and in real browsers.
 
 ## Provenance
 
-Exported from source commit `68ad480e5243eb670ae6a30384f0e608b37fc0cc` by the project's
+Exported from source commit `53c512593bb332d769979246c6156372ffc5eb24` by the project's
 code generator. This tree contains no build system: each language
 directory carries its runtime, generated stubs, examples, and
 tests in that language's usual layout.

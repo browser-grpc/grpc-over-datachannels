@@ -20,6 +20,9 @@
 //     peer's ICE ufrag, already keyed by byUfrag); the learned
 //     source remains the fallback for peers that ignore the
 //     connection_id extension (e.g. browsers).
+//   - TURN traffic never touches the shared socket: a muxed
+//     peer's allocation rides a dedicated per-peer socket
+//     (see Peer), so no TURN demux is needed here.
 //   - A Binding Success carries no username, so it is
 //     offered to every endpoint; each peer consumes only its
 //     own (integrity-checked) transaction — the srflx waiter
@@ -141,12 +144,10 @@ export class PeerMux {
   }
 
   // A peer on the shared socket. Options mirror Peer.create
-  // minus binding; turnServers are rejected (TURN needs a
-  // concrete socket).
+  // minus binding. TURN is supported: the allocation's UDP
+  // leg rides a dedicated per-peer socket (an allocation
+  // pins a concrete 5-tuple); TCP/TLS TURN rides its stream.
   async createPeer(options = {}) {
-    if (options.turnServers?.length) {
-      throw new Error("TURN is not available on a muxed peer");
-    }
     const endpoint = new MuxEndpoint(this);
     const peer = await Peer.createWithSocket(endpoint, options);
     endpoint.ufrag = peer.localUfrag;

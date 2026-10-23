@@ -55,6 +55,11 @@ export class Peer {
   // in Send/Data indications through the allocation.
   turn = null;
   #relayActive = false;
+  // Dedicated TURN transport socket for muxed peers: an
+  // allocation pins a concrete 5-tuple, so the TURN leg (UDP
+  // transport) cannot ride the shared mux socket. Null for
+  // ordinary peers, whose TURN leg rides the peer socket.
+  #turnSocket = null;
   // Trickle callback for local candidates (setOnLocalCandidate).
   onLocalCandidate = null;
   // Invoked exactly once if consent for the nominated pair
@@ -142,7 +147,18 @@ export class Peer {
       await peer.gatherSrflx(server); // failures ignored: host candidates still apply
     }
     if (turnServers.length > 0 && !(socket instanceof dgram.Socket)) {
-      throw new Error("TURN is not available on a muxed peer");
+      // Muxed peer: the TURN leg (UDP transport) gets a
+      // dedicated socket — an allocation pins a concrete
+      // 5-tuple, which the shared mux socket cannot provide.
+      // TURN-server packets arrive on it and feed the same
+      // demux as stream-transport framing. (TCP/TLS TURN
+      // rides its own stream either way.)
+      const wantsV6 = effectiveIps.some((ip) => isIpv6(ip));
+      const turnSocket = dgram.createSocket(wantsV6 ? "udp6" : "udp4");
+      turnSocket.on("error", () => {});
+      await new Promise((resolve) => turnSocket.bind(0, wantsV6 ? "::" : "0.0.0.0", resolve));
+      peer.#turnSocket = turnSocket;
+      turnSocket.on("message", (msg) => peer.onTurnPacket(msg));
     }
     for (const cfg of turnServers) {
       try {
@@ -165,21 +181,27 @@ export class Peer {
   // Raw socket send. On a dual-stack udp6 socket, libuv
   // rejects plain IPv4 destinations (EINVAL); the mapped form
   // ::ffff:a.b.c.d is required.
-  #sendRaw(buf, port, address) {
+  #sendRaw(buf, port, address, socket = this.#socket) {
     let dest = address;
     if (net.isIPv4(address)) {
       try {
-        if (this.#socket.address().family === "IPv6") dest = `::ffff:${address}`;
+        if (socket.address().family === "IPv6") dest = `::ffff:${address}`;
       } catch {
         // socket not bound yet: send will fail harmlessly
       }
     }
-    this.#socket.send(buf, port, dest, () => {});
+    socket.send(buf, port, dest, () => {});
+  }
+
+  // The socket the TURN leg (UDP transport) sends on: the
+  // dedicated TURN socket for muxed peers, else the peer socket.
+  #turnSendSocket() {
+    return this.#turnSocket ?? this.#socket;
   }
 
   // Direct socket send for TURN control traffic (never wrapped).
   sendTurnControl(buf, port, address) {
-    this.#sendRaw(buf, port, address);
+    this.#sendRaw(buf, port, address, this.#turnSendSocket());
   }
 
   // Send one TURN message to the server: over the dedicated
@@ -196,7 +218,7 @@ export class Peer {
       client.stream.write(out);
       return;
     }
-    this.#sendRaw(frame, client.server.port, client.server.address);
+    this.#sendRaw(frame, client.server.port, client.server.address, this.#turnSendSocket());
   }
 
   // Handle one message from the TURN server (a UDP datagram, or
@@ -628,6 +650,11 @@ export class Peer {
     }
     try {
       this.#socket.close();
+    } catch {
+      /* already closed */
+    }
+    try {
+      this.#turnSocket?.close();
     } catch {
       /* already closed */
     }

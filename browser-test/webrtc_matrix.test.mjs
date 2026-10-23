@@ -6,8 +6,11 @@
 // via the existing grpc_webrtc_client/server harnesses); the
 // Rust stack, which has no gRPC-over-WebRTC harness binary,
 // pairs at the DataChannel level via the mirrored peer_echo
-// line-echo harnesses (Go and Rust) and the JS Peer. Run via
-// `make test-webrtc-matrix`.
+// line-echo harnesses (Go and Rust) and the JS Peer. A final
+// block pairs PeerMux against PeerMux across stacks (two
+// pairs over one socket per side), proving the DTLS
+// connection-id (RFC 9146) demux wire profile agrees across
+// stacks. Run via `make test-webrtc-matrix`.
 
 import assert from "node:assert/strict";
 import { execSync, spawn } from "node:child_process";
@@ -17,6 +20,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Peer } from "../webrtc/js/peer.js";
+import { PeerMux } from "../webrtc/js/mux.js";
 import { Channel, Server, StatusError } from "../js/index.js";
 import { EchoRequest, EchoResponse } from "../js/examples/echo_pb.js";
 import { EchoClient, createEchoService } from "../js/examples/echo_grpc_dc.js";
@@ -150,7 +154,9 @@ for (const bin of [GO_CLIENT, GO_SERVER, GO_ECHO, RUST_ECHO]) {
 }
 
 const cells = [];
+let attempted = 0;
 async function cell(name, fn) {
+  attempted++;
   try {
     await fn();
     cells.push(name);
@@ -313,5 +319,162 @@ await cell("dc rust-offerer -> js-answerer", async () => {
   }
 });
 
-console.log(`webrtc matrix: ${cells.length}/8 cells passed`);
+// --- Mux-to-mux cells (PeerMux both sides, DTLS CID demux) ------------------
+// Two pairs share one mux socket per side, so both directions
+// present a single source address: only the DcPairHint (first
+// flight) and connection ids (RFC 9146) can demux. The native
+// stacks run the peer_echo mux modes; JS runs in-process.
+// This is the cross-stack proof that the CID wire profile
+// (record layout + AAD) agrees byte-for-byte across stacks.
+function waitForMuxOk(proc, timeoutMs = 90000) {
+  return new Promise((resolve, reject) => {
+    let out = "";
+    const timer = setTimeout(() => {
+      proc.kill("SIGKILL");
+      reject(new Error(`mux offerer timeout, got: ${out}`));
+    }, timeoutMs);
+    proc.stdout.on("data", (d) => {
+      out += d;
+      if (out.includes("MUX_OK")) {
+        clearTimeout(timer);
+        resolve(out);
+      }
+    });
+  });
+}
+
+function assertMuxOut(out) {
+  assert.ok(out.includes("pair0: re:hello-from-pair-0"), out);
+  assert.ok(out.includes("pair1: re:hello-from-pair-1"), out);
+}
+
+function muxCellNative(name, offererCmd, answererCmd) {
+  return cell(name, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "webrtc-matrix-mux-"));
+    const answerer = spawn(answererCmd[0], [...answererCmd.slice(1), "mux-answerer", dir], { cwd: ROOT });
+    const offerer = spawn(offererCmd[0], [...offererCmd.slice(1), "mux-offerer", dir], { cwd: ROOT });
+    answerer.stderr.on("data", () => {});
+    offerer.stderr.on("data", () => {});
+    try {
+      assertMuxOut(await waitForMuxOk(offerer));
+    } finally {
+      offerer.kill("SIGKILL");
+      answerer.kill("SIGKILL");
+    }
+  });
+}
+
+async function jsMuxOfferer(dir) {
+  const mux = await PeerMux.bind({ address: "127.0.0.1", port: 0 });
+  const peers = [];
+  for (let i = 0; i < 2; i++) {
+    const peer = await mux.createPeer({ localIps: ["127.0.0.1"] });
+    writeFileSync(join(dir, `offer${i}`), peer.createOffer());
+    peers.push(peer);
+  }
+  try {
+    const endpoints = await Promise.all(
+      peers.map(async (peer, i) => {
+        peer.handleAnswer(await waitForFile(join(dir, `answer${i}`)));
+        return peer.connect();
+      }),
+    );
+    await Promise.all(
+      endpoints.map(async (endpoint, i) => {
+        const channel = endpoint.openChannel({ label: "echo" });
+        const reply = new Promise((resolve) => {
+          channel.onmessage = (event) =>
+            resolve(Buffer.isBuffer(event.data) ? event.data.toString() : String(event.data));
+        });
+        channel.send(Buffer.from(`hello-from-pair-${i}`));
+        assert.equal(await reply, `re:hello-from-pair-${i}`);
+      }),
+    );
+  } finally {
+    for (const peer of peers) await peer.close();
+    mux.close();
+  }
+}
+
+// Sets up a JS mux answerer (echo with "re:") and resolves
+// to a close function once both peers are connected and
+// serving; echo runs on socket events in the background.
+async function jsMuxAnswerer(dir) {
+  const mux = await PeerMux.bind({ address: "127.0.0.1", port: 0 });
+  const peers = [];
+  const endpoints = await Promise.all(
+    [0, 1].map(async (i) => {
+      const peer = await mux.createPeer({ localIps: ["127.0.0.1"] });
+      peers.push(peer);
+      const answer = peer.handleOffer(await waitForFile(join(dir, `offer${i}`)));
+      writeFileSync(join(dir, `answer${i}`), answer);
+      return peer.connect();
+    }),
+  );
+  for (const endpoint of endpoints) {
+    endpoint.onchannel = (channel) => {
+      channel.onmessage = (event) => {
+        const text = Buffer.isBuffer(event.data) ? event.data.toString() : String(event.data);
+        channel.send(Buffer.from(`re:${text}`));
+      };
+    };
+  }
+  return async () => {
+    for (const peer of peers) await peer.close();
+    mux.close();
+  };
+}
+
+await muxCellNative("mux rust-offerer -> go-answerer", [RUST_ECHO], [GO_ECHO]);
+await muxCellNative("mux go-offerer -> rust-answerer", [GO_ECHO], [RUST_ECHO]);
+
+await cell("mux js-offerer -> rust-answerer", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "webrtc-matrix-mux-"));
+  const answerer = spawn(RUST_ECHO, ["mux-answerer", dir], { cwd: ROOT });
+  answerer.stderr.on("data", () => {});
+  try {
+    await jsMuxOfferer(dir);
+  } finally {
+    answerer.kill("SIGKILL");
+  }
+});
+
+await cell("mux js-offerer -> go-answerer", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "webrtc-matrix-mux-"));
+  const answerer = spawn(GO_ECHO, ["mux-answerer", dir], { cwd: ROOT });
+  answerer.stderr.on("data", () => {});
+  try {
+    await jsMuxOfferer(dir);
+  } finally {
+    answerer.kill("SIGKILL");
+  }
+});
+
+await cell("mux rust-offerer -> js-answerer", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "webrtc-matrix-mux-"));
+  const offerer = spawn(RUST_ECHO, ["mux-offerer", dir], { cwd: ROOT });
+  offerer.stderr.on("data", () => {});
+  const closeAnswerer = await jsMuxAnswerer(dir);
+  try {
+    assertMuxOut(await waitForMuxOk(offerer));
+  } finally {
+    offerer.kill("SIGKILL");
+    await closeAnswerer();
+  }
+});
+
+await cell("mux go-offerer -> js-answerer", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "webrtc-matrix-mux-"));
+  const offerer = spawn(GO_ECHO, ["mux-offerer", dir], { cwd: ROOT });
+  offerer.stderr.on("data", () => {});
+  const closeAnswerer = await jsMuxAnswerer(dir);
+  try {
+    assertMuxOut(await waitForMuxOk(offerer));
+  } finally {
+    offerer.kill("SIGKILL");
+    await closeAnswerer();
+  }
+});
+
+console.log(`webrtc matrix: ${cells.length}/${attempted} cells passed`);
 if (process.exitCode) process.exit(1);

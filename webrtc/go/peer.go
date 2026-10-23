@@ -103,6 +103,11 @@ type Peer struct {
 	gathered    bool
 	turn        *turnClient
 	relayActive bool
+	// turnSocket is the dedicated TURN transport socket for
+	// muxed peers: an allocation pins a concrete 5-tuple, so
+	// the TURN leg (UDP transport) cannot ride the shared mux
+	// socket. Nil for ordinary peers (TURN rides p.socket).
+	turnSocket *net.UDPConn
 
 	// onLocalCandidate, when set via SetOnLocalCandidate, receives
 	// each local candidate line ("a=candidate:...") for trickle
@@ -759,6 +764,9 @@ func (p *Peer) Close() {
 	})
 	if p.turn != nil {
 		p.turn.stop()
+	}
+	if p.turnSocket != nil {
+		p.turnSocket.Close()
 	}
 	if p.endpoint != nil {
 		p.endpoint.Close()

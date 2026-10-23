@@ -8,28 +8,29 @@
 //!   (registered when the peer is created; after an ICE restart
 //!   changes our ufrag, the learned source-address route below
 //!   keeps inbound checks flowing).
-//! - Everything else (DTLS) routes by source address, learned
-//!   from that peer's STUN traffic. A NAT rebinding can drop a
-//!   datagram until the pair's next consent check re-teaches
-//!   the route; DTLS/SCTP retransmission covers the gap.
-//!
-//! Like every single-port mux (Jitsi, Pion), this assumes each
-//! remote connection presents a distinct source address — the
-//! normal Internet case (one socket/NAT mapping per client).
-//! Two muxes peering with each other would present one shared
-//! source for several pairs, which DTLS cannot demux without
-//! connection IDs (RFC 9146, not implemented); run at most one
-//! mux per server<->client relationship.
+//! - A Binding Success carries no username, so it is offered
+//!   to every endpoint; each agent consumes only its own
+//!   (integrity-checked) transaction.
+//! - DTLS routes by connection id (RFC 9146): an epoch-0
+//!   ClientHello routes by its DcPairHint extension (the
+//!   remote peer's ICE ufrag); every later record routes by
+//!   the connection id after its header (offset 11), looked
+//!   up exactly. The learned source is the fallback for peers
+//!   that ignore the extension (e.g. browsers).
 //! - Unauthenticated STUN probes (srflx gathering has no
 //!   username in the response) route to endpoints currently
 //!   marked probing via begin_probe/end_probe.
 //!
-//! All mux peers advertise the shared socket's port as their
-//! host-candidate port, which reduces the firewall story to a
-//! single opened port. TURN is unavailable on muxed peers (an
-//! allocation owns a concrete socket); the mux covers the
-//! host/srflx path. IPv6 works when the mux socket is bound to
-//! an IPv6 address and peers advertise IPv6 candidates.
+//! Because DTLS records route by connection id, two muxes can
+//! peer with each other over one shared source address, and
+//! NAT rebinding does not strand records. All mux peers
+//! advertise the shared socket's port as their host-candidate
+//! port, which reduces the firewall story to a single opened
+//! port. TURN traffic never touches the shared socket: a
+//! muxed peer's allocation rides a dedicated per-peer socket
+//! (see `Peer::turn_socket`). IPv6 works when the mux socket
+//! is bound to an IPv6 address and peers advertise IPv6
+//! candidates.
 
 use crate::peer::{DatagramIo, Peer, PeerConfig};
 use crate::proto_gen::stun_attr;
