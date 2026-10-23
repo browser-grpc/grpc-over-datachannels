@@ -15,6 +15,11 @@ import { PASS, USER } from "./fake_turn.js";
 
 const hasCoturn = spawnSync("turnserver", ["-h"], { encoding: "utf8" }).error == null;
 
+// Probe-close free port: coturn takes a numeric port
+// argument, so bind(0), read the allocated port, close, and
+// let coturn rebind it. The race is unavoidable there, so
+// startCoturn verifies the child survived startup and
+// retries on a fresh port when it did not.
 async function freePort() {
   const socket = dgram.createSocket("udp4");
   await new Promise((resolve) => socket.bind(0, "127.0.0.1", resolve));
@@ -25,25 +30,31 @@ async function freePort() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-test("direct over real TURN (coturn) echo", { skip: !hasCoturn, timeout: 60000 }, async () => {
-  const port = await freePort();
-  const turn = spawn(
-    "turnserver",
-    [
-      "-n",
-      "--listening-ip=127.0.0.1",
-      `--listening-port=${port}`,
-      "--relay-ip=127.0.0.1",
-      "--realm=dc.test",
-      `--user=${USER}:${PASS}`,
-      "--lt-cred-mech",
-      "--allow-loopback-peers",
-      "--no-cli",
-    ],
-    { stdio: "ignore" },
-  );
-  try {
+// Spawn coturn with args built from a probe-close port;
+// retry up to 3 times if the child dies at startup (the
+// probed port was taken before coturn bound it).
+async function startCoturn(buildArgs) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const port = await freePort();
+    const turn = spawn("turnserver", ["-n", ...buildArgs(port)], { stdio: "ignore" });
     await sleep(800);
+    if (turn.exitCode === null) return { turn, port };
+  }
+  throw new Error("turnserver did not survive startup after 3 attempts");
+}
+
+test("direct over real TURN (coturn) echo", { skip: !hasCoturn, timeout: 60000 }, async () => {
+  const { turn, port } = await startCoturn((p) => [
+    "--listening-ip=127.0.0.1",
+    `--listening-port=${p}`,
+    "--relay-ip=127.0.0.1",
+    "--realm=dc.test",
+    `--user=${USER}:${PASS}`,
+    "--lt-cred-mech",
+    "--allow-loopback-peers",
+    "--no-cli",
+  ]);
+  try {
     const listener = await DirectListener.bind({});
     const accepted = listener.accept();
     let serverChannel = null;
@@ -90,10 +101,8 @@ test("direct over real TURN (coturn) echo", { skip: !hasCoturn, timeout: 60000 }
 });
 
 async function echoViaCoturn({ turnArgs, turnAddress, listenerOpts, turnOpts }) {
-  const port = await freePort();
-  const turn = spawn("turnserver", ["-n", ...turnArgs(port)], { stdio: "ignore" });
+  const { turn, port } = await startCoturn(turnArgs);
   try {
-    await sleep(800);
     const listener = await DirectListener.bind(listenerOpts);
     const accepted = listener.accept();
     let serverGot = null;

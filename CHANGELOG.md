@@ -3,6 +3,25 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.25.1 — 2026-10-23
+
+- UDP port-allocation hardening (tests and harnesses): the
+  echo harnesses (Rust/Go/JS `dtls_echo`, `dc_echo`) now bind
+  ephemeral ports themselves and report the allocated port in
+  their `LISTENING` line, and their fallback default ports
+  (4443/4444) are gone — consumers read the allocated port
+  instead of probe-close-rebinding a guessed one. External
+  daemons that require a numeric port (openssl `s_server`,
+  coturn) keep the unavoidable probe-close step, now always
+  wrapped in startup-liveness verification with retry on a
+  fresh port (Rust `spawn_coturn`/`spawn_coturn_turns`, Go
+  `spawnCoturn`, JS `startCoturn`, JS openssl startup). No
+  unjustified hardcoded UDP ports remain in tests or
+  harnesses; protocol-fixed ports (mDNS 5353) are unchanged.
+  Repeated runs of the collision-prone suites (Rust
+  dtls_openssl + webrtc_direct ×3, JS dtls/dc/coturn ×3,
+  webrtc matrix ×2) pass without EADDRINUSE flakes.
+
 ## v0.25.0 — 2026-10-23
 
 - Cross-stack TURN × mux interop: the webrtc matrix gains

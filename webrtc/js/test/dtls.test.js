@@ -10,12 +10,45 @@ const ROOT = new URL("../../..", import.meta.url).pathname;
 const RUST_BIN = `${ROOT}webrtc/rust/target/debug/examples/dtls_echo`;
 const JS_ECHO = `${ROOT}webrtc/js/examples/dtls_echo.mjs`;
 
+// Probe-close free port, only for external daemons that take
+// a numeric port argument (openssl s_server below): bind(0),
+// read the allocated port, close, and let the daemon rebind
+// it. The race is unavoidable there, so the caller retries
+// startup on failure. In-repo harnesses bind ephemeral
+// themselves and report their allocated port (startEchoServer).
 async function freePort() {
   const socket = dgram.createSocket("udp4");
   await new Promise((resolve) => socket.bind(0, "127.0.0.1", resolve));
   const { port } = socket.address();
   socket.close();
   return port;
+}
+
+// Spawn an in-repo echo server on an ephemeral port and read
+// the allocated port from its LISTENING line.
+function startEchoServer(command, args) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(command, [...args, "server", "0"], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error(`no LISTENING from ${command}; stderr=${stderr}`));
+    }, 30000);
+    proc.stderr.on("data", (d) => {
+      stderr += d;
+      const m = stderr.match(/LISTENING (\d+)/);
+      if (m) {
+        clearTimeout(timer);
+        resolve({ proc, port: Number(m[1]) });
+      }
+    });
+    proc.on("exit", (code) => {
+      clearTimeout(timer);
+      reject(new Error(`${command} exited ${code} before LISTENING; stderr=${stderr}`));
+    });
+  });
 }
 
 function runEcho(command, args, input, timeoutMs = 30000) {
@@ -40,10 +73,8 @@ function runEcho(command, args, input, timeoutMs = 30000) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 test("JS client calls Rust DTLS server", { timeout: 60000 }, async () => {
-  const port = await freePort();
-  const server = spawn(RUST_BIN, ["server", String(port)], { stdio: ["ignore", "ignore", "pipe"] });
+  const { proc: server, port } = await startEchoServer(RUST_BIN, []);
   try {
-    await sleep(300);
     const client = await runEcho("node", [JS_ECHO, "client", String(port)], "hello-js\n");
     assert.equal(client.code, 0, client.stderr);
     assert.match(client.stderr, /HANDSHAKE_OK/);
@@ -54,12 +85,8 @@ test("JS client calls Rust DTLS server", { timeout: 60000 }, async () => {
 });
 
 test("Rust client calls JS DTLS server", { timeout: 60000 }, async () => {
-  const port = await freePort();
-  const server = spawn("node", [JS_ECHO, "server", String(port)], {
-    stdio: ["ignore", "ignore", "pipe"],
-  });
+  const { proc: server, port } = await startEchoServer("node", [JS_ECHO]);
   try {
-    await sleep(500);
     const client = await runEcho(RUST_BIN, ["client", String(port)], "hello-rust\n");
     assert.equal(client.code, 0, client.stderr);
     assert.equal(client.stdout.trim(), "echo:hello-rust");
@@ -79,14 +106,23 @@ test("JS client calls OpenSSL s_server", { timeout: 60000 }, async (t) => {
     "-days", "1", "-nodes", "-subj", "/CN=openssl-dtls",
   ]);
   assert.equal(gen.status, 0);
-  const port = await freePort();
-  const server = spawn(
-    "openssl",
-    ["s_server", "-accept", String(port), "-dtls1_2", "-cert", "/tmp/dc-webrtc-cert.pem", "-key", "/tmp/dc-webrtc-key.pem"],
-    { stdio: ["pipe", "pipe", "ignore"] },
-  );
-  try {
+  // s_server takes a numeric port (probe-close, see freePort):
+  // verify it survived startup, retrying on a fresh port when
+  // it did not (e.g. the probed port was taken before bind).
+  let server = null;
+  let port = 0;
+  for (let attempt = 0; attempt < 3 && !server; attempt++) {
+    port = await freePort();
+    const candidate = spawn(
+      "openssl",
+      ["s_server", "-accept", String(port), "-dtls1_2", "-cert", "/tmp/dc-webrtc-cert.pem", "-key", "/tmp/dc-webrtc-key.pem"],
+      { stdio: ["pipe", "pipe", "ignore"] },
+    );
     await sleep(500);
+    if (candidate.exitCode === null) server = candidate;
+  }
+  assert.ok(server, "openssl s_server did not survive startup after 3 attempts");
+  try {
     const client = spawn("node", [JS_ECHO, "client", String(port)], {
       stdio: ["pipe", "pipe", "pipe"],
     });

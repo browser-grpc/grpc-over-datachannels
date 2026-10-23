@@ -8,7 +8,7 @@ import { DcEndpoint } from "../endpoint.js";
 import { Certificate } from "../x509.js";
 
 const [mode, portArg] = process.argv.slice(2);
-const port = Number(portArg ?? 4444);
+const port = Number(portArg ?? 0);
 
 function serverIo(socket) {
   let peer = null;
@@ -53,7 +53,8 @@ const config = () => ({
 if (mode === "server") {
   const socket = dgram.createSocket("udp4");
   await new Promise((resolve) => socket.bind(port, "127.0.0.1", resolve));
-  console.error(`LISTENING ${port}`);
+  // Report the bound port (the arg may be 0).
+  console.error(`LISTENING ${socket.address().port}`);
   const dtls = await DtlsConnection.accept(serverIo(socket), config());
   console.error("HANDSHAKE_OK");
   const endpoint = new DcEndpoint(dtls, "server");

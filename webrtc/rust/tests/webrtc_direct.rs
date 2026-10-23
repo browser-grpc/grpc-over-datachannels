@@ -320,48 +320,17 @@ fn direct_over_turn_echo_symmetric_nat_shape() {
 #[test]
 fn direct_over_real_turn_coturn() {
     use std::io::Write as _;
-    let Ok(mut turn) = std::process::Command::new("turnserver")
-        .args([
-            "-n",
-            "--listening-ip=127.0.0.1",
-            "--listening-port=0",
-            "--relay-ip=127.0.0.1",
-            "--realm=dc.test",
-            "--user=dcuser:dcpass",
-            "--lt-cred-mech",
-            "--allow-loopback-peers",
-            "--no-cli",
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    else {
-        eprintln!("turnserver not on PATH; skipping coturn interop");
+    // turnserver with --listening-port=0 picks an ephemeral port
+    // we cannot read back, so spawn_coturn probe-close allocates
+    // a port and verifies the child survived startup (retrying
+    // on a fresh port when it did not).
+    let Some((mut turn, port)) = spawn_coturn(&[
+        "--listening-ip=127.0.0.1".to_string(),
+        "--relay-ip=127.0.0.1".to_string(),
+    ]) else {
+        eprintln!("turnserver not on PATH (or failed to start); skipping coturn interop");
         return;
     };
-    // turnserver with --listening-port=0 picks an ephemeral port
-    // we cannot read back, so allocate against the conventional
-    // port after restarting on a probed free port instead.
-    let _ = turn.kill();
-    let probe = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-    let port = probe.local_addr().unwrap().port();
-    drop(probe);
-    let mut turn = std::process::Command::new("turnserver")
-        .args([
-            "-n",
-            "--listening-ip=127.0.0.1",
-            &format!("--listening-port={port}"),
-            "--relay-ip=127.0.0.1",
-            "--realm=dc.test",
-            "--user=dcuser:dcpass",
-            "--lt-cred-mech",
-            "--allow-loopback-peers",
-            "--no-cli",
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("spawn turnserver");
     let result = std::panic::catch_unwind(|| {
         std::thread::sleep(Duration::from_millis(800));
         let listener = DirectListener::bind(loopback(), Certificate::generate_self_signed("srv"))
@@ -572,55 +541,73 @@ fn direct_dial_rejects_wrong_certhash() {
 // an IPv6 loopback) is unavailable; Dockerfile.ci provides all.
 // ---------------------------------------------------------------------------
 
+// coturn takes a numeric port, so the port is probe-close
+// allocated (see free-port note in dtls_openssl.rs): the race
+// is covered by verifying the child survived startup and
+// retrying on a fresh port when it did not (e.g. the probed
+// port was taken before coturn bound it).
 fn spawn_coturn(extra: &[String]) -> Option<(std::process::Child, u16)> {
-    let probe = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
-    let port = probe.local_addr().ok()?.port();
-    drop(probe);
-    let mut args: Vec<String> = vec![
-        "-n".into(),
-        format!("--listening-port={port}"),
-        "--realm=dc.test".into(),
-        "--user=dcuser:dcpass".into(),
-        "--lt-cred-mech".into(),
-        "--allow-loopback-peers".into(),
-        "--no-cli".into(),
-    ];
-    args.extend(extra.iter().cloned());
-    let child = std::process::Command::new("turnserver")
-        .args(&args)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .ok()?;
-    std::thread::sleep(Duration::from_millis(800));
-    Some((child, port))
+    for _ in 0..3 {
+        let probe = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
+        let port = probe.local_addr().ok()?.port();
+        drop(probe);
+        let mut args: Vec<String> = vec![
+            "-n".into(),
+            format!("--listening-port={port}"),
+            "--realm=dc.test".into(),
+            "--user=dcuser:dcpass".into(),
+            "--lt-cred-mech".into(),
+            "--allow-loopback-peers".into(),
+            "--no-cli".into(),
+        ];
+        args.extend(extra.iter().cloned());
+        let mut child = std::process::Command::new("turnserver")
+            .args(&args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()?;
+        std::thread::sleep(Duration::from_millis(800));
+        match child.try_wait() {
+            Ok(None) => return Some((child, port)),
+            _ => continue,
+        }
+    }
+    None
 }
 
 
 fn spawn_coturn_turns(cert: &std::path::Path, key: &std::path::Path) -> Option<(std::process::Child, u16)> {
-    let probe = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
-    let tls_port = probe.local_addr().ok()?.port();
-    drop(probe);
-    let child = std::process::Command::new("turnserver")
-        .args([
-            "-n".to_string(),
-            "--listening-ip=127.0.0.1".to_string(),
-            "--relay-ip=127.0.0.1".to_string(),
-            format!("--tls-listening-port={tls_port}"),
-            format!("--cert={}", cert.display()),
-            format!("--pkey={}", key.display()),
-            "--realm=dc.test".to_string(),
-            "--user=dcuser:dcpass".to_string(),
-            "--lt-cred-mech".to_string(),
-            "--allow-loopback-peers".to_string(),
-            "--no-cli".to_string(),
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .ok()?;
-    std::thread::sleep(Duration::from_millis(800));
-    Some((child, tls_port))
+    // Probe-close port + startup-liveness retry, as spawn_coturn.
+    for _ in 0..3 {
+        let probe = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
+        let tls_port = probe.local_addr().ok()?.port();
+        drop(probe);
+        let mut child = std::process::Command::new("turnserver")
+            .args([
+                "-n".to_string(),
+                "--listening-ip=127.0.0.1".to_string(),
+                "--relay-ip=127.0.0.1".to_string(),
+                format!("--tls-listening-port={tls_port}"),
+                format!("--cert={}", cert.display()),
+                format!("--pkey={}", key.display()),
+                "--realm=dc.test".to_string(),
+                "--user=dcuser:dcpass".to_string(),
+                "--lt-cred-mech".to_string(),
+                "--allow-loopback-peers".to_string(),
+                "--no-cli".to_string(),
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()?;
+        std::thread::sleep(Duration::from_millis(800));
+        match child.try_wait() {
+            Ok(None) => return Some((child, tls_port)),
+            _ => continue,
+        }
+    }
+    None
 }
 
 fn echo_round_trip(client: &dc_webrtc::endpoint::DcEndpoint, payload: &[u8]) {

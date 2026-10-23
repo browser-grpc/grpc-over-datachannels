@@ -55,11 +55,12 @@ fn config() -> DtlsConfig {
 fn main() -> io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let mode = args.get(1).map(|s| s.as_str()).unwrap_or("");
-    let port: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(4444);
+    let port: u16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
     match mode {
         "server" => {
             let socket = UdpSocket::bind(("127.0.0.1", port))?;
-            eprintln!("LISTENING {port}");
+            // Report the bound port (the arg may be 0).
+            eprintln!("LISTENING {}", socket.local_addr()?.port());
             let dtls = Dtls::accept(ServerIo { socket, peer: Mutex::new(None) }, &config())?;
             eprintln!("HANDSHAKE_OK");
             let endpoint = DcEndpoint::spawn(dtls, Role::Server, 5000);

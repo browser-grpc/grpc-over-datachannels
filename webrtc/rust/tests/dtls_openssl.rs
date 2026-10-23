@@ -31,6 +31,13 @@ fn echo_binary() -> std::path::PathBuf {
     path
 }
 
+// Probe-close free port, only for external daemons that take
+// a numeric port argument (openssl s_server below): bind(0),
+// read the allocated port, close, and let the daemon rebind
+// it. The race is unavoidable there, so callers must retry
+// startup on failure (spawn_s_server does, under a lock).
+// In-repo harnesses instead bind ephemeral themselves and
+// report their allocated port (see start_server).
 fn free_port() -> u16 {
     UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
@@ -75,17 +82,22 @@ fn spawn_server(port: u16) -> Child {
         .expect("spawn dtls_echo server")
 }
 
-// Spawn the echo server and wait (generously) for it to listen.
-// Process startup under a full parallel test run can take far
-// longer than 5s, and the probed free port can be taken by a
-// sibling test before the server binds; retry with a fresh port
-// instead of flaking.
+// Spawn the echo server on an ephemeral port and read the
+// allocated port from its LISTENING line: the harness binds
+// port 0 itself and reports the bound port, so no
+// probe-close-rebind race exists. Retry only covers slow
+// process startup under a full parallel test run.
 fn start_server() -> (Child, u16) {
     for _ in 0..3 {
-        let port = free_port();
-        let mut server = spawn_server(port);
-        if wait_for_stderr_opt(&mut server, "LISTENING", Duration::from_secs(30)).is_some() {
-            return (server, port);
+        let mut server = spawn_server(0);
+        if let Some(text) = wait_for_stderr_opt(&mut server, "LISTENING", Duration::from_secs(30)) {
+            let port = text
+                .lines()
+                .find_map(|line| line.strip_prefix("LISTENING "))
+                .and_then(|p| p.trim().parse::<u16>().ok());
+            if let Some(port) = port {
+                return (server, port);
+            }
         }
         server.kill().ok();
     }

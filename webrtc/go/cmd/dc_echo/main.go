@@ -71,7 +71,7 @@ func config() dcwebrtc.DtlsConfig {
 
 func main() {
 	mode := ""
-	port := 4444
+	port := 0
 	if len(os.Args) > 1 {
 		mode = os.Args[1]
 	}
@@ -84,7 +84,10 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Fprintf(os.Stderr, "LISTENING %d\n", port)
+		// Report the bound port (the arg may be 0): callers
+		// bind ephemeral and read the allocated port here
+		// instead of probe-close-rebinding a guessed one.
+		fmt.Fprintf(os.Stderr, "LISTENING %d\n", conn.LocalAddr().(*net.UDPAddr).Port)
 		dtls, err := dcwebrtc.DtlsAccept(newServerIO(conn), config())
 		if err != nil {
 			panic(err)
