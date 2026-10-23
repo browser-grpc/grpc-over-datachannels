@@ -3,6 +3,31 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.27.0 — 2026-10-23
+
+- SCTP flow-control fix (Rust/Go/JS): `send_data` now queues
+  when the peer receive window is full instead of sending past
+  `rwnd`; SACK processing flushes the queue as window frees.
+  Sending past the window burst megabytes into kernel buffers
+  that dropped most of it, throttling associations to ~1s RTO
+  retransmits. `bench-mux` blast (2000×1KiB) improves
+  973→~2700 msgs/s (1.0→2.6 MiB/s) and post-blast ping-pong
+  RTT recovers 11.9→2.6 ms.
+- Endpoint pump (Rust): receive slice 5ms→1ms and all queued
+  inbound packets are drained per iteration. Loopback
+  ping-pong mean RTT improves 19.2→2.7 ms.
+- WebKit OPFS fallback (web app): when the Racket/Wasm worker
+  fails to boot (WPE WebKit fails the runtime's OPFS home
+  mount), `app.js` now times out the boot (30s), terminates
+  the worker, and falls back to the built-in generators
+  instead of hanging Generate forever. `webapp_parity` and
+  `webapp_pb` run in WebKit via that fallback with all stubs
+  still byte-compared against native plugins, and WebKit
+  joins their `all` mode under `GRPC_DC_WEBKIT`. The fallback
+  also exposed a real parity bug, fixed in `racket/webgen.rkt`:
+  the browser Python emitter ignored `trace=hooks` (missing
+  `set_tracer`/`set_trace_filter` re-exports).
+
 ## v0.26.0 — 2026-10-23
 
 - Cross-browser Playwright matrix: every browser-test engine
