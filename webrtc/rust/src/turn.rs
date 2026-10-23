@@ -598,7 +598,7 @@ pub fn send_permission(socket: &UdpSocket, client: &TurnClient, peer: &SocketAdd
 /// One write to the TURN server: via the stream connection for
 /// TCP/TLS allocations, else as a UDP datagram on the socket.
 fn send_to_server(
-    socket: &UdpSocket,
+    socket: &dyn crate::peer::DatagramIo,
     client: &TurnClient,
     frame: &[u8],
     channel_data: bool,
@@ -673,8 +673,9 @@ pub fn spawn_refresher(socket: UdpSocket, client: TurnClient, peers: Vec<SocketA
 /// Send pair traffic (ICE checks/responses, DTLS): wrapped in a
 /// TURN Send indication when a relay is active — ChannelData
 /// framing when a channel is bound for the destination.
+#[allow(private_interfaces)]
 pub fn send_pair(
-    socket: &UdpSocket,
+    socket: &dyn crate::peer::DatagramIo,
     turn: Option<&TurnClient>,
     relay_active: bool,
     data: &[u8],

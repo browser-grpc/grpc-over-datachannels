@@ -21,6 +21,62 @@ fn bad<S: AsRef<str>>(msg: S) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg.as_ref().to_string())
 }
 
+/// Datagram transport seam for one peer: a real UDP socket
+/// (default), or one endpoint of a `crate::mux::PeerMux` shared
+/// socket. TURN allocation requires a concrete socket and is
+/// unavailable on muxed peers.
+pub(crate) trait DatagramIo: Send + Sync {
+    fn send_to(&self, buf: &[u8], dest: SocketAddr) -> io::Result<usize>;
+    fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
+    fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()>;
+    /// The concrete socket, when this is one (TURN path).
+    fn udp_socket(&self) -> Option<Arc<UdpSocket>> {
+        None
+    }
+    /// Mark the start/end of an unauthenticated STUN probe
+    /// (srflx gathering): a mux routes otherwise-unattributable
+    /// STUN responses to probing endpoints. No-op on a socket.
+    fn begin_probe(&self) {}
+    fn end_probe(&self) {}
+}
+
+/// Bare sockets held by TURN/direct internals satisfy the seam
+/// directly (their call paths never use `udp_socket()`).
+impl DatagramIo for UdpSocket {
+    fn send_to(&self, buf: &[u8], dest: SocketAddr) -> io::Result<usize> {
+        self.send_to(buf, dest)
+    }
+
+    fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        self.recv_from(buf)
+    }
+
+    fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
+        self.set_read_timeout(dur)
+    }
+}
+
+/// `DatagramIo` over a real UDP socket.
+pub(crate) struct UdpIo(pub Arc<UdpSocket>);
+
+impl DatagramIo for UdpIo {
+    fn send_to(&self, buf: &[u8], dest: SocketAddr) -> io::Result<usize> {
+        self.0.send_to(buf, dest)
+    }
+
+    fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        self.0.recv_from(buf)
+    }
+
+    fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
+        self.0.set_read_timeout(dur)
+    }
+
+    fn udp_socket(&self) -> Option<Arc<UdpSocket>> {
+        Some(self.0.clone())
+    }
+}
+
 pub struct PeerConfig {
     /// Local IP addresses to advertise as host candidates. Empty means:
     /// 127.0.0.1 plus the default-route address (discovered without
@@ -73,7 +129,7 @@ fn default_route_ip() -> Option<IpAddr> {
 }
 
 pub struct Peer {
-    socket: UdpSocket,
+    socket: Arc<dyn DatagramIo>,
     agent: IceAgent,
     certificate: Certificate,
     remote: Option<SessionDescription>,
@@ -88,7 +144,7 @@ pub struct Peer {
 }
 
 struct IceDtlsIo {
-    socket: UdpSocket,
+    socket: Arc<dyn DatagramIo>,
     peer: SocketAddr,
     agent: Arc<Mutex<IceAgent>>,
     connect_gen: u64,
@@ -113,7 +169,7 @@ impl DtlsIo for IceDtlsIo {
                 }
             }
         }
-        crate::turn::send_pair(&self.socket, self.turn.as_ref(), self.relay_active, packet, self.peer)
+        crate::turn::send_pair(&*self.socket, self.turn.as_ref(), self.relay_active, packet, self.peer)
     }
 
     fn recv_packet(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>> {
@@ -157,6 +213,32 @@ impl Peer {
             UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?
         };
         let port = socket.local_addr()?.port();
+        Self::build(config, platform, Arc::new(UdpIo(Arc::new(socket))), port)
+    }
+
+    /// New peer on an injected datagram transport (a
+    /// `crate::mux::PeerMux` endpoint): host candidates advertise
+    /// `port` (the shared socket's port) on the configured IPs.
+    pub(crate) fn new_with_io(
+        config: PeerConfig,
+        platform: crate::platform::Platform,
+        io: Arc<dyn DatagramIo>,
+        port: u16,
+    ) -> io::Result<Self> {
+        Self::build(config, platform, io, port)
+    }
+
+    /// This peer's local ICE ufrag (mux registration).
+    pub(crate) fn local_ufrag(&self) -> String {
+        self.agent.local_ufrag.clone()
+    }
+
+    fn build(
+        config: PeerConfig,
+        platform: crate::platform::Platform,
+        socket: Arc<dyn DatagramIo>,
+        port: u16,
+    ) -> io::Result<Self> {
         let mut ips: Vec<IpAddr> = if config.local_ips.is_empty() {
             let mut v = vec![IpAddr::V4(Ipv4Addr::LOCALHOST)];
             if let Some(ip) = default_route_ip() {
@@ -211,6 +293,7 @@ impl Peer {
             .ok_or_else(|| bad("stun server does not resolve"))?;
         let request = crate::stun::Message::new(crate::proto_gen::stun_msg::BINDING_REQUEST);
         let tid = request.transaction_id;
+        self.socket.begin_probe();
         self.socket.send_to(&request.encode(None), server_addr)?;
         let deadline = std::time::Instant::now() + timeout;
         self.socket.set_read_timeout(Some(Duration::from_millis(50)))?;
@@ -233,11 +316,13 @@ impl Peer {
                         || e.kind() == io::ErrorKind::TimedOut => {}
                 Err(e) => {
                     let _ = self.socket.set_read_timeout(None);
+                    self.socket.end_probe();
                     return Err(e);
                 }
             }
         }
         let _ = self.socket.set_read_timeout(None);
+        self.socket.end_probe();
         let mapped = match mapped {
             Some(m) => m,
             None => return Ok(false),
@@ -262,7 +347,11 @@ impl Peer {
         cfg: &crate::turn::TurnServerConfig,
         timeout: Duration,
     ) -> io::Result<bool> {
-        let client = crate::turn::allocate_turn(&self.socket, cfg, timeout)?;
+        let udp = self
+            .socket
+            .udp_socket()
+            .ok_or_else(|| bad("TURN is not available on a muxed peer"))?;
+        let client = crate::turn::allocate_turn(&udp, cfg, timeout)?;
         let relayed = client
             .relayed
             .ok_or_else(|| bad("turn: no relayed address"))?;
@@ -460,18 +549,22 @@ impl Peer {
         // for every remote candidate first, then all pair traffic
         // goes through the allocation (wrapped by turn::send_pair).
         let mut relay_active = false;
+        // TURN state implies a concrete socket (allocate_turn
+        // required one); muxed peers never have TURN state.
+        let udp = socket.udp_socket();
         if let Some(client) = &mut turn {
+            let udp = udp.clone().ok_or_else(|| bad("turn without udp socket"))?;
             let addrs: Vec<SocketAddr> = agent
                 .remote_candidates
                 .iter()
                 .map(|c| c.addr)
                 .filter(|a| !a.ip().is_unspecified())
                 .collect();
-            crate::turn::create_permissions(&socket, client, &addrs, Duration::from_secs(2));
-            crate::turn::bind_channels(&socket, client, &addrs, Duration::from_secs(2));
+            crate::turn::create_permissions(&udp, client, &addrs, Duration::from_secs(2));
+            crate::turn::bind_channels(&udp, client, &addrs, Duration::from_secs(2));
             // Keep the allocation, permissions, and bindings
             // alive for sessions outliving their first expiry.
-            if let Ok(refresh_socket) = socket.try_clone() {
+            if let Ok(refresh_socket) = udp.try_clone() {
                 crate::turn::spawn_refresher(refresh_socket, client.clone(), addrs);
             }
             relay_active = true;
@@ -479,7 +572,7 @@ impl Peer {
         let (dtls_tx, dtls_rx) = channel::<Vec<u8>>();
         let agent = Arc::new(Mutex::new(agent));
         let (selected, trickled_addrs) =
-            run_ice(&socket, &agent, &dtls_tx, turn.as_ref(), relay_active, trickle.as_ref())?;
+            run_ice(&*socket, &agent, &dtls_tx, turn.as_ref(), relay_active, trickle.as_ref())?;
         crate::trace::emit("ice.nominated", selected.to_string());
         // Candidates trickled in during ICE got send-only
         // permissions in the loop; now that socket reads are
@@ -487,13 +580,14 @@ impl Peer {
         // channels awaited-style and keep them refreshed.
         if let Some(client) = &mut turn {
             if !trickled_addrs.is_empty() {
+                let udp = udp.clone().ok_or_else(|| bad("turn without udp socket"))?;
                 crate::turn::bind_channels(
-                    &socket,
+                    &udp,
                     client,
                     &trickled_addrs,
                     Duration::from_secs(2),
                 );
-                if let Ok(refresh_socket) = socket.try_clone() {
+                if let Ok(refresh_socket) = udp.try_clone() {
                     crate::turn::spawn_refresher(
                         refresh_socket,
                         client.clone(),
@@ -507,7 +601,7 @@ impl Peer {
         // It stops when the endpoint does (alive flag), so a shut-down
         // peer goes silent instead of answering checks forever.
         let alive = Arc::new(AtomicBool::new(true));
-        let demux_socket = socket.try_clone()?;
+        let demux_socket = socket.clone();
         // The timeout is also the poll cadence for the TURN
         // stream inbox (TCP/TLS allocations), hence 25 ms.
         let _ = demux_socket.set_read_timeout(Some(Duration::from_millis(25)));
@@ -557,7 +651,7 @@ impl Peer {
                     };
                     for (bytes, dest) in responses {
                         let _ = crate::turn::send_pair(
-                            &demux_socket,
+                            &*demux_socket,
                             demux_turn.as_ref(),
                             relay_active,
                             &bytes,
@@ -580,9 +674,9 @@ impl Peer {
             session_resumption: config.session_resumption,
             session_ticket_key: config.session_ticket_key,
         };
-        let consent_socket = socket.try_clone()?;
+        let consent_socket = socket.clone();
         let io = IceDtlsIo {
-            socket: socket.try_clone()?,
+            socket: socket.clone(),
             peer: selected,
             agent: agent.clone(),
             connect_gen: agent.lock().unwrap().generation(),
@@ -616,7 +710,7 @@ impl Peer {
         endpoint.set_dtls_session(captured_session);
         let restart_handle = RestartHandle {
             agent: agent.clone(),
-            socket: socket.try_clone()?,
+            socket: socket.clone(),
             turn: turn.clone(),
             relay_active,
             alive: alive.clone(),
@@ -644,7 +738,7 @@ impl Peer {
                 let had_check = check.is_some();
                 if let Some((bytes, dest)) = check {
                     let _ = crate::turn::send_pair(
-                        &consent_socket,
+                        &*consent_socket,
                         turn.as_ref(),
                         relay_active,
                         &bytes,
@@ -676,7 +770,7 @@ impl Peer {
 /// wait_renominated reports completion.
 pub struct RestartHandle {
     agent: Arc<Mutex<IceAgent>>,
-    socket: UdpSocket,
+    socket: Arc<dyn DatagramIo>,
     turn: Option<crate::turn::TurnClient>,
     relay_active: bool,
     alive: Arc<AtomicBool>,
@@ -800,15 +894,14 @@ impl RestartHandle {
                     .filter(|a| !a.ip().is_unspecified())
                     .collect()
             };
-            for peer in &peers {
-                crate::turn::send_permission(&self.socket, client, peer);
+            if let Some(udp) = self.socket.udp_socket() {
+                for peer in &peers {
+                    crate::turn::send_permission(&udp, client, peer);
+                }
             }
         }
         let agent = self.agent.clone();
-        let socket = match self.socket.try_clone() {
-            Ok(s) => s,
-            Err(_) => return,
-        };
+        let socket = self.socket.clone();
         let turn = self.turn.clone();
         let relay_active = self.relay_active;
         let alive = self.alive.clone();
@@ -831,7 +924,7 @@ impl RestartHandle {
                     agent.due_checks()
                 };
                 for (bytes, dest) in checks {
-                    let _ = crate::turn::send_pair(&socket, turn.as_ref(), relay_active, &bytes, dest);
+                    let _ = crate::turn::send_pair(&*socket, turn.as_ref(), relay_active, &bytes, dest);
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
@@ -910,7 +1003,7 @@ fn parse_trickle_line(line: &str) -> Option<Candidate> {
 /// addresses trickled in mid-connect, so the caller can bind
 /// TURN channels for them and keep their permissions refreshed.
 fn run_ice(
-    socket: &UdpSocket,
+    socket: &dyn DatagramIo,
     agent: &Arc<Mutex<IceAgent>>,
     dtls_stash: &Sender<Vec<u8>>,
     turn: Option<&crate::turn::TurnClient>,
@@ -947,7 +1040,9 @@ fn run_ice(
                         if let Some(client) = turn {
                             if !addr.ip().is_unspecified() && !trickled_addrs.contains(&addr) {
                                 trickled_addrs.push(addr);
-                                crate::turn::send_permission(socket, client, &addr);
+                                if let Some(udp) = socket.udp_socket() {
+                                    crate::turn::send_permission(&udp, client, &addr);
+                                }
                             }
                         }
                     }

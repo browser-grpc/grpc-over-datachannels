@@ -32,6 +32,8 @@ pub mod io;
 pub mod ice;
 #[cfg(feature = "std")]
 pub mod mdns;
+#[cfg(feature = "std")]
+pub mod mux;
 pub mod p256;
 pub mod p384;
 pub mod net;
