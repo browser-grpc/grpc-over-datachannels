@@ -557,6 +557,16 @@ export class Peer {
       expectedPeerFingerprint: this.#remote.fingerprint,
       requirePeerCertificate: this.#requirePeerCertificate,
     };
+    // Single-socket mux endpoints allocate a connection id
+    // (RFC 9146) so the peer's records route back to us by
+    // cid; the DcPairHint routes our first ClientHello to
+    // this peer on a muxed remote socket.
+    if (typeof this.#socket.localCid === "function") {
+      config.connectionId = this.#socket.localCid();
+    }
+    if (config.connectionId && this.#agent.remoteUfrag) {
+      config.pairHint = Buffer.from(this.#agent.remoteUfrag, "utf8");
+    }
     const dtls =
       this.#dtlsRole === "client"
         ? await DtlsConnection.connect(io, config)

@@ -322,6 +322,8 @@ fn openssl_server_ticket_resumption() {
         require_peer_certificate: false,
         session_resumption: true,
         session_ticket_key: None,
+        connection_id: None,
+        pair_hint: None,
     };
     let wire = |port| {
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

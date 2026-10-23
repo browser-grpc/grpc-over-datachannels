@@ -9,24 +9,71 @@
 //     a datagram until the pair's next consent check
 //     re-teaches the route; DTLS/SCTP retransmission covers
 //     the gap.
-//   - A Binding Success with an unknown ufrag (an srflx
-//     gathering response) is offered to every endpoint; each
-//     peer's srflx waiter consumes only its own transaction.
-//
-// Like every single-port mux, this assumes each remote
-// connection presents a distinct source address — the normal
-// Internet case. Two muxes peering with each other would
-// present one shared source for several pairs, which DTLS
-// cannot demux without connection IDs (RFC 9146, not
-// implemented); run at most one mux per server<->client
-// relationship. TURN is unavailable on muxed peers.
+//   - DTLS packets route by connection id (RFC 9146): each
+//     endpoint is allocated a 10-byte cid (shared port +
+//     counter) at createPeer and announces it in the DTLS
+//     handshake, so every record after the first ClientHello
+//     routes by exact map lookup — source-independent, so
+//     mux-to-mux pairs and NAT rebinding keep working. The
+//     first ClientHello itself carries no cid on the wire,
+//     so it routes by its DcPairHint extension (the remote
+//     peer's ICE ufrag, already keyed by byUfrag); the learned
+//     source remains the fallback for peers that ignore the
+//     connection_id extension (e.g. browsers).
+//   - A Binding Success carries no username, so it is
+//     offered to every endpoint; each peer consumes only its
+//     own (integrity-checked) transaction — the srflx waiter
+//     during gathering, the ICE agent otherwise. Offering to
+//     all is what makes a shared source (mux-to-mux) route
+//     deterministically instead of by last-learned source.
+// TURN is unavailable on muxed peers.
 // Node-only (dgram); browsers manage their own sockets.
 
 import dgram from "node:dgram";
 import { EventEmitter } from "node:events";
 import { Peer } from "./peer.js";
+import { Reader } from "./dtls.js";
 import { StunMessage } from "./stun.js";
-import { StunAttribute, StunMessageType } from "./proto_gen.js";
+import {
+  DtlsContentType,
+  DtlsExtension,
+  DtlsHandshakeType,
+  StunAttribute,
+  StunMessageType,
+} from "./proto_gen.js";
+
+// Extract the DcPairHint extension from an epoch-0
+// ClientHello record (unfragmented, as our stacks emit it).
+function pairHintFromClientHello(msg) {
+  try {
+    const r = new Reader(msg);
+    if (r.u8() !== DtlsContentType.HANDSHAKE) return null;
+    r.take(2);
+    r.take(2);
+    r.take(6);
+    r.u16();
+    if (r.u8() !== DtlsHandshakeType.CLIENT_HELLO) return null;
+    r.u24();
+    r.take(2); // message sequence
+    r.take(3); // fragment offset
+    r.u24(); // fragment length
+    r.take(34);
+    r.vec8();
+    r.vec8();
+    r.vec16();
+    r.vec8();
+    const exts = r.vec16();
+    const er = new Reader(exts);
+    while (!er.done()) {
+      const ty = er.u16();
+      const data = er.vec16();
+      if (ty === DtlsExtension.DC_PAIR_HINT) return data.toString("utf8");
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 // One peer's view of the shared socket, with the dgram
 // surface Peer uses: on("message"), send, address, close.
@@ -35,6 +82,12 @@ class MuxEndpoint extends EventEmitter {
     super();
     this.mux = mux;
     this.ufrag = null;
+    this.cid = null;
+  }
+
+  // This endpoint's allocated DTLS connection id (RFC 9146).
+  localCid() {
+    return this.cid;
   }
 
   send(buf, port, address, callback) {
@@ -58,6 +111,8 @@ export class PeerMux {
   #socket;
   #byUfrag = new Map();
   #bySrc = new Map();
+  #byCid = new Map();
+  #cidSeq = 0n;
   #endpoints = new Set();
 
   constructor(socket) {
@@ -96,6 +151,15 @@ export class PeerMux {
     const peer = await Peer.createWithSocket(endpoint, options);
     endpoint.ufrag = peer.localUfrag;
     this.#byUfrag.set(endpoint.ufrag, endpoint);
+    // Allocate this endpoint's DTLS connection id (RFC 9146):
+    // the shared port's bytes plus a counter — unique per
+    // endpoint, fixed length so routing is an exact lookup.
+    this.#cidSeq += 1n;
+    const cid = Buffer.alloc(10);
+    cid.writeUInt16BE(this.#socket.address().port & 0xffff, 0);
+    cid.writeBigUInt64BE(this.#cidSeq, 2);
+    endpoint.cid = cid;
+    this.#byCid.set(cid.toString("hex"), endpoint);
     this.#endpoints.add(endpoint);
     // Peer.close() closes its socket; on an endpoint that is
     // just unregister() above.
@@ -103,6 +167,9 @@ export class PeerMux {
   }
 
   unregister(endpoint) {
+    if (endpoint.cid && this.#byCid.get(endpoint.cid.toString("hex")) === endpoint) {
+      this.#byCid.delete(endpoint.cid.toString("hex"));
+    }
     if (endpoint.ufrag && this.#byUfrag.get(endpoint.ufrag) === endpoint) {
       this.#byUfrag.delete(endpoint.ufrag);
     }
@@ -131,19 +198,53 @@ export class PeerMux {
             return;
           }
         }
+        // A Binding Success carries no username. Offer it to
+        // every endpoint: each agent consumes only its own
+        // transaction (integrity-checked), and a shared source
+        // (mux-to-mux) makes the learned source ambiguous.
+        if (stun.type === StunMessageType.BINDING_SUCCESS) {
+          for (const endpoint of this.#endpoints) endpoint.deliver(msg, rinfo);
+          return;
+        }
         const known = this.#bySrc.get(srcKey);
         if (known) {
           known.deliver(msg, rinfo);
           return;
         }
-        if (stun.type === StunMessageType.BINDING_SUCCESS) {
-          for (const endpoint of this.#endpoints) endpoint.deliver(msg, rinfo);
-        }
         return;
       }
       return;
     }
+    // DTLS: an epoch-0 ClientHello routes by its DcPairHint;
+    // everything else routes by connection id (source-
+    // independent, so mux-to-mux and NAT rebinding keep
+    // working); the learned source is the fallback.
+    const byHint = this.#endpointByHint(msg);
+    if (byHint) {
+      byHint.deliver(msg, rinfo);
+      return;
+    }
+    const byCid = this.#endpointByCid(msg);
+    if (byCid) {
+      byCid.deliver(msg, rinfo);
+      return;
+    }
     const endpoint = this.#bySrc.get(srcKey);
     if (endpoint) endpoint.deliver(msg, rinfo);
+  }
+
+  // Route a first-flight ClientHello by its DcPairHint
+  // extension (the remote peer's ICE ufrag, which the
+  // byUfrag table already keys).
+  #endpointByHint(msg) {
+    const hint = pairHintFromClientHello(msg);
+    return hint ? (this.#byUfrag.get(hint) ?? null) : null;
+  }
+
+  // Route a DTLS record by the connection id after its
+  // header (offset 11: type, version, epoch, seq).
+  #endpointByCid(msg) {
+    if (msg.length < 21) return null;
+    return this.#byCid.get(msg.subarray(11, 21).toString("hex")) ?? null;
   }
 }

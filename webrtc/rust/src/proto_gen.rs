@@ -131,6 +131,8 @@ pub mod dtls_ext {
     pub const USE_SRTP: u16 = 14;
     pub const EXTENDED_MASTER_SECRET: u16 = 23;
     pub const SESSION_TICKET: u16 = 35;
+    pub const CONNECTION_ID: u16 = 54;
+    pub const DC_PAIR_HINT: u16 = 65282;
     pub const RENEGOTIATION_INFO: u16 = 65281;
 }
 

@@ -80,6 +80,15 @@ pub struct DtlsConfig {
     /// server for tickets to be issued or honored; clients ignore
     /// it. Sealing goes through the installed crypto backend.
     pub session_ticket_key: Option<[u8; 32]>,
+    /// RFC 9146 connection id we ask the peer to send us
+    /// (muxed peers set this so a shared socket can route
+    /// epoch-1 records without a source address). None never
+    /// offers the extension.
+    pub connection_id: Option<Vec<u8>>,
+    /// Private DcPairHint extension value (the remote peer's
+    /// ICE ufrag) so a mux can route the first ClientHello
+    /// flight deterministically; set only on muxed clients.
+    pub pair_hint: Option<Vec<u8>>,
 }
 
 /// Resumption state from a server-issued session ticket
@@ -196,6 +205,13 @@ pub struct Dtls<I: DtlsIo> {
     /// This connection was established by an abbreviated
     /// (ticket-resumed) handshake.
     resumed: bool,
+    /// Peer's announced connection id (records we send carry
+    /// it, epoch 1 only); None when not negotiated.
+    send_cid: Option<Vec<u8>>,
+    /// Our announced connection id (records we receive carry
+    /// it once the peer honors the extension; the parser
+    /// falls back to the plain layout for peers that don't).
+    recv_cid: Option<Vec<u8>>,
 }
 
 fn err(msg: &str) -> io::Error {
@@ -289,6 +305,10 @@ impl<I: DtlsIo> Dtls<I> {
             out.extend_from_slice(&DTLS_1_2);
             out.extend_from_slice(&0u16.to_be_bytes());
             out.extend_from_slice(&self.epoch0_seq_next().to_be_bytes()[2..]);
+            // RFC 9146: once the peer's connection id is known
+            // it rides every record (the first ClientHello is
+            // the only exception — send_cid is unset then).
+            out.extend_from_slice(self.send_cid.as_deref().unwrap_or(&[]));
             out.extend_from_slice(&(body.len() as u16).to_be_bytes());
             out.extend_from_slice(body);
             out
@@ -302,8 +322,15 @@ impl<I: DtlsIo> Dtls<I> {
             let mut nonce = [0u8; 12];
             nonce[..4].copy_from_slice(&keys.salt);
             nonce[4..].copy_from_slice(&explicit);
-            let mut aad = Vec::with_capacity(13);
+            // RFC 9146: once the peer's connection id is
+            // known, every record carries it between the
+            // sequence and the length (the first ClientHello
+            // predates the knowledge, so it is the only
+            // exception); the AAD covers it in our profile.
+            let cid: &[u8] = self.send_cid.as_deref().unwrap_or(&[]);
+            let mut aad = Vec::with_capacity(13 + cid.len());
             aad.extend_from_slice(&explicit);
+            aad.extend_from_slice(cid);
             aad.push(content_type);
             aad.extend_from_slice(&DTLS_1_2);
             aad.extend_from_slice(&(body.len() as u16).to_be_bytes());
@@ -312,6 +339,7 @@ impl<I: DtlsIo> Dtls<I> {
             out.extend_from_slice(&DTLS_1_2);
             out.extend_from_slice(&1u16.to_be_bytes());
             out.extend_from_slice(&seq.to_be_bytes()[2..]);
+            out.extend_from_slice(cid);
             out.extend_from_slice(&((8 + ciphertext.len() + 16) as u16).to_be_bytes());
             out.extend_from_slice(&explicit);
             out.extend_from_slice(&ciphertext);
@@ -369,6 +397,23 @@ impl<I: DtlsIo> Dtls<I> {
         let mut seq_bytes = [0u8; 8];
         seq_bytes[2..].copy_from_slice(r.take(6)?);
         let sequence = u64::from_be_bytes(seq_bytes);
+        // RFC 9146: when we announced a connection id, epoch-1
+        // records from honoring peers carry it between the
+        // sequence and the length (and inside the AAD). Peers
+        // that ignore the extension (browsers) keep the plain
+        // layout; accept both.
+        let mut cid: &[u8] = &[];
+        {
+            if let Some(ours) = &self.recv_cid {
+                let at = r.pos;
+                if packet.len() >= at + ours.len()
+                    && &packet[at..at + ours.len()] == ours.as_slice()
+                {
+                    cid = ours;
+                    r.pos += ours.len();
+                }
+            }
+        }
         let len = r.u16()? as usize;
         let body = r.take(len)?.to_vec();
         let consumed = r.pos;
@@ -389,21 +434,15 @@ impl<I: DtlsIo> Dtls<I> {
         let plaintext_len = ciphertext.len();
         // AAD uses the record header's epoch||sequence (RFC 5246), which
         // is independent of the sender-chosen explicit nonce.
-        let mut aad = Vec::with_capacity(13);
+        let mut aad = Vec::with_capacity(13 + cid.len());
         aad.extend_from_slice(&epoch.to_be_bytes());
         aad.extend_from_slice(&sequence.to_be_bytes()[2..]);
+        aad.extend_from_slice(cid);
         aad.push(content_type);
         aad.extend_from_slice(&DTLS_1_2);
         aad.extend_from_slice(&(plaintext_len as u16).to_be_bytes());
         let plaintext = aes128_gcm_decrypt(&keys.key, &nonce, ciphertext, &aad, &tag)
-            .ok_or_else(|| {
-                #[cfg(feature = "std")]
-                if std::env::var("DTLS_DEBUG").is_ok() {
-                    eprintln!("AUTH FAIL type={} seq={} expl={:02x?} salt={:02x?} key={:02x?} ctlen={}",
-                        content_type, sequence, explicit, &keys.salt, &keys.key, ciphertext.len());
-                }
-                err("record authentication failed")
-            })?;
+            .ok_or_else(|| err("record authentication failed"))?;
         // replay window (64 records)
         match self.read_highest_seq {
             None => {
@@ -612,6 +651,8 @@ macro_rules! dtls_new {
             read_replay_window: 0,
             session: None,
             resumed: false,
+            send_cid: None,
+            recv_cid: None,
         }
     };
 }
@@ -817,12 +858,15 @@ impl<I: DtlsIo> Dtls<I> {
 // ClientHello / ServerHello bodies
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn client_hello_body(
     random: &[u8; 32],
     cookie: &[u8],
     ems: bool,
     session_ticket: Option<&[u8]>,
     session_id: &[u8],
+    connection_id: Option<&[u8]>,
+    pair_hint: Option<&[u8]>,
 ) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&DTLS_1_2);
@@ -863,6 +907,21 @@ fn client_hello_body(
         exts.extend_from_slice(&(ticket.len() as u16).to_be_bytes());
         exts.extend_from_slice(ticket);
     }
+    // connection_id (54, RFC 9146): the cid we ask the server
+    // to put on records it sends us (length-prefixed).
+    if let Some(cid) = connection_id {
+        exts.extend_from_slice(&crate::proto_gen::dtls_ext::CONNECTION_ID.to_be_bytes());
+        exts.extend_from_slice(&((cid.len() + 1) as u16).to_be_bytes());
+        exts.push(cid.len() as u8);
+        exts.extend_from_slice(cid);
+    }
+    // DcPairHint (private): the remote peer's ICE ufrag, so a
+    // shared-socket mux can route this first flight.
+    if let Some(hint) = pair_hint {
+        exts.extend_from_slice(&crate::proto_gen::dtls_ext::DC_PAIR_HINT.to_be_bytes());
+        exts.extend_from_slice(&(hint.len() as u16).to_be_bytes());
+        exts.extend_from_slice(hint);
+    }
     out.extend_from_slice(&(exts.len() as u16).to_be_bytes());
     out.extend_from_slice(&exts);
     out
@@ -875,6 +934,8 @@ struct ServerHelloInfo {
     srtp_profile: Option<u16>,
     /// Server accepted our session ticket (abbreviated handshake).
     resumed: bool,
+    /// Server's announced connection id (RFC 9146).
+    peer_cid: Option<Vec<u8>>,
 }
 
 fn parse_server_hello(body: &[u8]) -> io::Result<ServerHelloInfo> {
@@ -893,6 +954,7 @@ fn parse_server_hello(body: &[u8]) -> io::Result<ServerHelloInfo> {
         ems: false,
         srtp_profile: None,
         resumed: false,
+        peer_cid: None,
     };
     if !r.done() {
         let exts = r.vec16()?;
@@ -902,6 +964,10 @@ fn parse_server_hello(body: &[u8]) -> io::Result<ServerHelloInfo> {
             let data = er.vec16()?;
             match ty {
                 23 => info.ems = true,
+                crate::proto_gen::dtls_ext::CONNECTION_ID => {
+                    let mut cr = Reader::new(data);
+                    info.peer_cid = Some(cr.vec8()?.to_vec());
+                }
                 14 => {
                     let mut sr = Reader::new(data);
                     let profiles = sr.vec16()?;
@@ -949,6 +1015,11 @@ impl<I: DtlsIo> Dtls<I> {
         resume: Option<&DtlsSession>,
     ) -> io::Result<Self> {
         let mut conn = dtls_new!(io, Role::Client);
+        // Arm the receive cid before the first pump: a server
+        // honoring our announced cid stamps it from its first
+        // flight onward, so the record parser must recognize it
+        // before ServerHello (mirrors accept()).
+        conn.recv_cid = config.connection_id.clone();
         let mut hs = Hs::default();
         conn.client_random = random_bytes(32).try_into().unwrap();
 
@@ -977,6 +1048,8 @@ impl<I: DtlsIo> Dtls<I> {
                 true,
                 ticket_offer,
                 &offered_session_id,
+                config.connection_id.as_deref(),
+                config.pair_hint.as_deref(),
             );
             let packet = conn.send_hs(&mut hs, dtls_handshake::CLIENT_HELLO, &body, 0)?;
             flight = vec![packet];
@@ -1004,6 +1077,7 @@ impl<I: DtlsIo> Dtls<I> {
         }
         conn.server_random = server_hello.server_random;
         conn.negotiated_srtp_profile = server_hello.srtp_profile;
+        conn.send_cid = server_hello.peer_cid.clone();
 
         // Resumption is signalled by the echoed session id; when
         // that classification is unavailable, an abbreviated
@@ -1291,6 +1365,7 @@ impl<I: DtlsIo> Dtls<I> {
     /// DTLS server handshake (no HelloVerifyRequest cookie demand).
     pub fn accept(io: I, config: &DtlsConfig) -> io::Result<Self> {
         let mut conn = dtls_new!(io, Role::Server);
+        conn.recv_cid = config.connection_id.clone();
         let mut hs = Hs::default();
 
         // ClientHello.
@@ -1310,6 +1385,7 @@ impl<I: DtlsIo> Dtls<I> {
             let mut ems = false;
             let mut profiles = Vec::new();
             let mut ticket: Option<Vec<u8>> = None;
+            let mut client_cid: Option<Vec<u8>> = None;
             if !r.done() {
                 let exts = r.vec16()?;
                 let mut er = Reader::new(exts);
@@ -1318,6 +1394,10 @@ impl<I: DtlsIo> Dtls<I> {
                     let data = er.vec16()?;
                     match ty {
                         23 => ems = true,
+                        crate::proto_gen::dtls_ext::CONNECTION_ID => {
+                            let mut cr = Reader::new(data);
+                            client_cid = Some(cr.vec8()?.to_vec());
+                        }
                         35 => ticket = Some(data.to_vec()),
                         14 => {
                             let mut sr = Reader::new(data);
@@ -1330,6 +1410,7 @@ impl<I: DtlsIo> Dtls<I> {
                     }
                 }
             }
+            conn.send_cid = client_cid;
             (ems, profiles, ticket, session_id)
         };
         let srtp_profile = [0x0007u16, 0x0001, 0x0002, 0x0008]
@@ -1382,6 +1463,14 @@ impl<I: DtlsIo> Dtls<I> {
             if client_ems {
                 exts.extend_from_slice(&23u16.to_be_bytes());
                 exts.extend_from_slice(&[0, 0]);
+            }
+            if let Some(cid) = &config.connection_id {
+                exts.extend_from_slice(
+                    &crate::proto_gen::dtls_ext::CONNECTION_ID.to_be_bytes(),
+                );
+                exts.extend_from_slice(&((cid.len() + 1) as u16).to_be_bytes());
+                exts.push(cid.len() as u8);
+                exts.extend_from_slice(cid);
             }
             if config.session_resumption && client_ticket.is_some() {
                 // session_ticket (35), empty: signals a

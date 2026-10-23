@@ -3,6 +3,40 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.23.0 — 2026-10-22
+
+- DTLS connection IDs (RFC 9146) in all three native WebRTC
+  stacks (Rust, Go, JS/Node): a muxed endpoint announces a
+  connection id in the handshake, subsequent records carry
+  it after the epoch/sequence (and inside the AEAD AAD),
+  and `PeerMux` routes by exact cid lookup — two muxes can
+  now peer with each other (mux-to-mux), and NAT rebinding
+  no longer strands DTLS records. Peers that ignore the
+  extension (browsers) keep the plain record layout. A
+  private `DcPairHint` extension carries the remote ICE
+  ufrag on the first ClientHello so the first flight also
+  routes on a shared socket.
+- Mux routing fixes in all three stacks: username-less STUN
+  Binding Successes are offered to every endpoint (each
+  agent consumes only its own integrity-checked
+  transaction) — learned-source routing made mux-to-mux
+  ICE nomination racy — and the Go/JS mux ClientHello hint
+  parsers had an off-by-one in the handshake header walk
+  (8 bytes after the length field, not 9) that misrouted
+  first flights.
+- The Node protoc plugin now covers all 23 generator
+  languages: a `kotlin-native` emitter joins the
+  generated-JS emitters (wasm-mode Kotlin template: no
+  CompletableFuture/async surface, `Long`-nanosecond
+  timeouts, `grpcdc.EOFException`), byte-parity-tested
+  against the Racket plugin through real protoc.
+- Direct connection-id echo tests in all three stacks
+  (Rust `cid_test.rs`, Go `cid_test.go`, JS `cid.test.js`);
+  the generated two-pairs mux-to-mux scenario passes in
+  Rust, Go, and JS.
+- `make test` fully green (exit 0, webrtc matrix 8/8),
+  `make check-generated` byte-stable, no_std builds pass.
+
 ## v0.22.0 — 2026-10-22
 
 - Publishable protoc plugins with no Racket required:

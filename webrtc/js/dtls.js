@@ -5,7 +5,7 @@
 // flight; cross-tested against it and against OpenSSL.
 
 import crypto from "node:crypto";
-import { DtlsContentType, DtlsHandshakeType } from "./proto_gen.js";
+import { DtlsContentType, DtlsExtension, DtlsHandshakeType } from "./proto_gen.js";
 import { Certificate, fingerprintOfDer, parsePublicKey, pointToPublicKey, publicKeyPoint } from "./x509.js";
 
 const DTLS_1_2 = Buffer.from([0xfe, 0xfd]);
@@ -69,7 +69,7 @@ export function udpPacketIo(socket, peer) {
   };
 }
 
-class Reader {
+export class Reader {
   constructor(buf) {
     this.buf = buf;
     this.pos = 0;
@@ -186,6 +186,14 @@ class Hs {
 export class DtlsConnection {
   #io;
   #role;
+  // sendCid is the peer's announced connection id (RFC 9146),
+  // stamped on every record we emit (and inside its AAD).
+  #sendCid = null;
+  // recvCid is our announced connection id; armed before the
+  // first handshake pump so the parser recognizes cid-stamped
+  // records from the peer's first flight onward. Peers that
+  // ignore the extension keep the plain layout; accepted too.
+  #recvCid = null;
   #writeKeys = null;
   #readKeys = null;
   #writeSeq = 0;
@@ -226,6 +234,7 @@ export class DtlsConnection {
       b.writeUIntBE(seq, 0, 6);
       return b;
     };
+    const cid = this.#sendCid ?? Buffer.alloc(0);
     let packet;
     if (epoch === 0) {
       const seq = this.#epoch0Seq++;
@@ -234,6 +243,7 @@ export class DtlsConnection {
         DTLS_1_2,
         Buffer.from([0, 0]),
         seq48(seq),
+        cid,
         Buffer.from([(body.length >> 8) & 0xff, body.length & 0xff]),
         body,
       ]);
@@ -246,6 +256,7 @@ export class DtlsConnection {
       const nonce = Buffer.concat([keys.salt, explicit]);
       const aad = Buffer.concat([
         explicit,
+        cid,
         Buffer.from([contentType]),
         DTLS_1_2,
         Buffer.from([(body.length >> 8) & 0xff, body.length & 0xff]),
@@ -261,6 +272,7 @@ export class DtlsConnection {
         DTLS_1_2,
         Buffer.from([0, 1]),
         seq48(seq),
+        cid,
         (() => {
           const len = 8 + ciphertext.length + 16;
           return Buffer.from([(len >> 8) & 0xff, len & 0xff]);
@@ -284,6 +296,19 @@ export class DtlsConnection {
       const epoch = r.u16();
       const seqBytes = r.take(6);
       const sequence = seqBytes.readUIntBE(0, 6);
+      // RFC 9146: when we announced a connection id, honoring
+      // peers carry it between the sequence and the length
+      // (and inside the AAD). Peers that ignore the extension
+      // (browsers) keep the plain layout; accept both.
+      let cid = Buffer.alloc(0);
+      if (
+        this.#recvCid?.length &&
+        r.pos + this.#recvCid.length <= packet.length - offset &&
+        packet.subarray(offset + r.pos, offset + r.pos + this.#recvCid.length).equals(this.#recvCid)
+      ) {
+        cid = this.#recvCid;
+        r.take(cid.length);
+      }
       const len = r.u16();
       const body = Buffer.from(r.take(len));
       offset += r.pos;
@@ -312,6 +337,7 @@ export class DtlsConnection {
       headerSeq.writeUIntBE(sequence, 2, 6);
       const aad = Buffer.concat([
         headerSeq,
+        cid,
         Buffer.from([contentType]),
         DTLS_1_2,
         Buffer.from([(ciphertext.length >> 8) & 0xff, ciphertext.length & 0xff]),
@@ -473,6 +499,11 @@ export class DtlsConnection {
 
   static async connect(io, config) {
     const conn = new DtlsConnection(io, "client");
+    // Arm the receive cid before the first pump: a server
+    // honoring our announced cid stamps it from its first
+    // flight onward, so the record parser must recognize it
+    // before ServerHello (mirrors accept()).
+    conn.#recvCid = config.connectionId ? Buffer.from(config.connectionId) : null;
     const hs = new Hs();
     conn.#clientRandom = crypto.randomBytes(32);
     const cert = config.certificate;
@@ -484,7 +515,12 @@ export class DtlsConnection {
       hs.transcript = [];
       hs.sendSeq = 0;
       hs.expectSeq = 0;
-      const body = clientHelloBody(conn.#clientRandom, cookie);
+      const body = clientHelloBody(
+        conn.#clientRandom,
+        cookie,
+        config.connectionId ? Buffer.from(config.connectionId) : null,
+        config.pairHint ? Buffer.from(config.pairHint) : null,
+      );
       const packet = await conn.#sendHs(hs, DtlsHandshakeType.CLIENT_HELLO, body, 0);
       flight = [packet];
       for (;;) {
@@ -506,6 +542,7 @@ export class DtlsConnection {
     }
     conn.#serverRandom = serverHello.serverRandom;
     conn.#srtpProfile = serverHello.srtpProfile;
+    conn.#sendCid = serverHello.peerCid;
 
     let peerEphemeral = null;
     let skeParams = null;
@@ -600,6 +637,7 @@ export class DtlsConnection {
 
   static async accept(io, config) {
     const conn = new DtlsConnection(io, "server");
+    conn.#recvCid = config.connectionId ? Buffer.from(config.connectionId) : null;
     const hs = new Hs();
     const cert = config.certificate;
 
@@ -631,7 +669,14 @@ export class DtlsConnection {
           const ty = er.u16();
           const data = er.vec16();
           if (ty === 23) clientEms = true;
-          else if (ty === 14) {
+          else if (ty === DtlsExtension.CONNECTION_ID) {
+            const cr = new Reader(data);
+            try {
+              conn.#sendCid = Buffer.from(cr.vec8());
+            } catch {
+              /* malformed cid ext: ignore */
+            }
+          } else if (ty === 14) {
             const sr = new Reader(data);
             const list = sr.vec16();
             for (let i = 0; i + 1 < list.length; i += 2) {
@@ -653,6 +698,17 @@ export class DtlsConnection {
         exts.push(Buffer.from([0, 14, 0, data.length]), data);
       }
       if (clientEms) exts.push(Buffer.from([0, 23, 0, 0]));
+      // Announce our connection id (RFC 9146) so the client
+      // stamps it on records it sends us.
+      if (config.connectionId) {
+        const peerCid = Buffer.from(config.connectionId);
+        const ty = Buffer.alloc(2);
+        ty.writeUInt16BE(DtlsExtension.CONNECTION_ID, 0);
+        const data = Buffer.concat([Buffer.from([peerCid.length]), peerCid]);
+        const len = Buffer.alloc(2);
+        len.writeUInt16BE(data.length, 0);
+        exts.push(ty, len, data);
+      }
       exts.push(Buffer.from([0xff, 0x01, 0, 1, 0]));
       const extBytes = Buffer.concat(exts);
       const sh = Buffer.concat([
@@ -751,7 +807,7 @@ export class DtlsConnection {
   }
 }
 
-function clientHelloBody(random, cookie) {
+function clientHelloBody(random, cookie, connectionId, pairHint) {
   const exts = [];
   exts.push(Buffer.from([0, 10, 0, 4, 0, 2, 0, GROUP_SECP256R1]));
   exts.push(Buffer.from([0, 11, 0, 2, 1, 0]));
@@ -759,6 +815,22 @@ function clientHelloBody(random, cookie) {
   const srtpData = Buffer.from([0, 6, 0, 7, 0, 1, 0, 2, 0]);
   exts.push(Buffer.from([0, 14, 0, srtpData.length]), srtpData);
   exts.push(Buffer.from([0, 23, 0, 0]));
+  // connection_id (54, RFC 9146): the cid we ask the server
+  // to put on records it sends us (length-prefixed).
+  if (connectionId) {
+    const ty = Buffer.alloc(2);
+    ty.writeUInt16BE(DtlsExtension.CONNECTION_ID, 0);
+    exts.push(ty, Buffer.from([0, connectionId.length + 1, connectionId.length]), connectionId);
+  }
+  // DcPairHint (private): the remote peer's ICE ufrag, so a
+  // shared-socket mux can route this first flight.
+  if (pairHint) {
+    const ty = Buffer.alloc(2);
+    ty.writeUInt16BE(DtlsExtension.DC_PAIR_HINT, 0);
+    const len = Buffer.alloc(2);
+    len.writeUInt16BE(pairHint.length, 0);
+    exts.push(ty, len, pairHint);
+  }
   const extBytes = Buffer.concat(exts);
   return Buffer.concat([
     DTLS_1_2,
@@ -782,7 +854,7 @@ function parseServerHello(body) {
   const suite = r.u16();
   if (suite !== SUITE) throw new Error("server picked an unsupported cipher suite");
   r.u8();
-  const info = { serverRandom, ems: false, srtpProfile: null };
+  const info = { serverRandom, ems: false, srtpProfile: null, peerCid: null };
   if (!r.done()) {
     const exts = r.vec16();
     const er = new Reader(exts);
@@ -790,7 +862,10 @@ function parseServerHello(body) {
       const ty = er.u16();
       const data = er.vec16();
       if (ty === 23) info.ems = true;
-      else if (ty === 14) {
+      else if (ty === DtlsExtension.CONNECTION_ID) {
+        const cr = new Reader(data);
+        info.peerCid = Buffer.from(cr.vec8());
+      } else if (ty === 14) {
         const sr = new Reader(data);
         const profiles = sr.vec16();
         if (profiles.length >= 2) info.srtpProfile = profiles.readUInt16BE(0);

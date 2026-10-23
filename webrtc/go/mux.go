@@ -11,22 +11,22 @@
 //     a datagram until the pair's next consent check
 //     re-teaches the route; DTLS/SCTP retransmission covers
 //     the gap.
-//   - A Binding Success with an unknown ufrag (an srflx
-//     gathering response: no username to route by) is offered
-//     to every endpoint; each peer's srflx waiter consumes
-//     only its own transaction id.
+//   - A Binding Success carries no username, so it is offered
+//     to every endpoint; each peer consumes only its own
+//     (integrity-checked) transaction — the srflx waiter during
+//     gathering, the ICE agent otherwise. Offering to all is
+//     what makes a shared source (mux-to-mux) route
+//     deterministically instead of by last-learned source.
 //
-// Like every single-port mux, this assumes each remote
-// connection presents a distinct source address — the normal
-// Internet case. Two muxes peering with each other would
-// present one shared source for several pairs, which DTLS
-// cannot demux without connection IDs (RFC 9146, not
-// implemented); run at most one mux per server<->client
-// relationship. TURN is unavailable on muxed peers.
+// DTLS records route by connection id (RFC 9146) once the
+// handshake's first flight (routed by its DcPairHint) lands,
+// so two muxes can peer with each other over one shared
+// source address. TURN is unavailable on muxed peers.
 
 package dcwebrtc
 
 import (
+	"encoding/binary"
 	"errors"
 	"net"
 	"strings"
@@ -42,6 +42,8 @@ type PeerMux struct {
 	mu      sync.Mutex
 	byUfrag map[string]*muxEndpoint
 	bySrc   map[string]*muxEndpoint
+	byCid   map[string]*muxEndpoint
+	cidSeq  uint64
 	done    chan struct{}
 	once    sync.Once
 }
@@ -61,6 +63,7 @@ type muxEndpoint struct {
 	once     sync.Once
 	deadline atomicTime
 	ufrag    string
+	cid      []byte
 }
 
 type atomicTime struct {
@@ -92,6 +95,7 @@ func NewPeerMux(addr *net.UDPAddr) (*PeerMux, error) {
 		addr:    conn.LocalAddr().(*net.UDPAddr),
 		byUfrag: make(map[string]*muxEndpoint),
 		bySrc:   make(map[string]*muxEndpoint),
+		byCid:   make(map[string]*muxEndpoint),
 		done:    make(chan struct{}),
 	}
 	go mux.readLoop()
@@ -127,7 +131,16 @@ func (m *PeerMux) NewPeer(options PeerOptions) (*Peer, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Allocate this endpoint's DTLS connection id (RFC 9146):
+	// the shared port's bytes plus a counter — unique per
+	// endpoint, fixed length so routing is an exact lookup.
 	m.mu.Lock()
+	m.cidSeq++
+	cid := make([]byte, 10)
+	binary.BigEndian.PutUint16(cid[0:2], uint16(m.addr.Port))
+	binary.BigEndian.PutUint64(cid[2:10], m.cidSeq)
+	endpoint.cid = cid
+	m.byCid[string(cid)] = endpoint
 	m.byUfrag[peer.agent.LocalUfrag] = endpoint
 	m.mu.Unlock()
 	endpoint.ufrag = peer.agent.LocalUfrag
@@ -180,13 +193,11 @@ func (m *PeerMux) deliver(msg []byte, src *net.UDPAddr) {
 					return
 				}
 			}
-			m.mu.Lock()
-			ep := m.bySrc[src.String()]
-			m.mu.Unlock()
-			if ep != nil {
-				ep.enqueue(msg, src)
-				return
-			}
+			// A Binding Success carries no username. Offer it
+			// to every endpoint: each agent consumes only its
+			// own (integrity-checked) transaction, and a
+			// shared source (mux-to-mux) makes the learned
+			// source ambiguous.
 			if stun.Type == StunTypeBindingSuccess {
 				m.mu.Lock()
 				endpoints := make([]*muxEndpoint, 0, len(m.byUfrag))
@@ -197,9 +208,29 @@ func (m *PeerMux) deliver(msg []byte, src *net.UDPAddr) {
 				for _, ep := range endpoints {
 					ep.enqueue(msg, src)
 				}
+				return
+			}
+			m.mu.Lock()
+			ep := m.bySrc[src.String()]
+			m.mu.Unlock()
+			if ep != nil {
+				ep.enqueue(msg, src)
+				return
 			}
 			return
 		}
+		return
+	}
+	// DTLS: an epoch-0 ClientHello routes by its DcPairHint;
+	// everything else routes by connection id (source-
+	// independent, so mux-to-mux and NAT rebinding keep
+	// working); the learned source is the fallback.
+	if ep := m.endpointByHint(msg); ep != nil {
+		ep.enqueue(msg, src)
+		return
+	}
+	if ep := m.endpointByCid(msg); ep != nil {
+		ep.enqueue(msg, src)
 		return
 	}
 	m.mu.Lock()
@@ -210,9 +241,108 @@ func (m *PeerMux) deliver(msg []byte, src *net.UDPAddr) {
 	}
 }
 
+// endpointByHint routes a first-flight ClientHello by its
+// DcPairHint extension (the remote peer's ICE ufrag, which
+// the byUfrag table already keys).
+func (m *PeerMux) endpointByHint(msg []byte) *muxEndpoint {
+	hint, ok := pairHintFromClientHello(msg)
+	if !ok {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.byUfrag[hint]
+}
+
+// endpointByCid routes a DTLS record by the connection id
+// after its header (offset 11: type, version, epoch, seq).
+func (m *PeerMux) endpointByCid(msg []byte) *muxEndpoint {
+	if len(msg) < 21 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.byCid[string(msg[11:21])]
+}
+
+// pairHintFromClientHello extracts the DcPairHint extension
+// from an epoch-0 ClientHello record (unfragmented, as our
+// stacks emit it).
+func pairHintFromClientHello(msg []byte) (string, bool) {
+	r := &byteReader{buf: msg}
+	ct, err := r.u8()
+	if err != nil || ct != DtlsContentHandshake {
+		return "", false
+	}
+	for i := 0; i < 4; i++ { // version(2) + epoch(2)
+		if _, err := r.u8(); err != nil {
+			return "", false
+		}
+	}
+	if _, err := r.take(6); err != nil { // sequence
+		return "", false
+	}
+	if _, err := r.u16(); err != nil { // length
+		return "", false
+	}
+	mt, err := r.u8()
+	if err != nil || mt != DtlsHandshakeClientHello {
+		return "", false
+	}
+	if _, err := r.u24(); err != nil { // handshake length
+		return "", false
+	}
+	if _, err := r.take(2); err != nil { // message sequence
+		return "", false
+	}
+	if _, err := r.take(3); err != nil { // fragment offset
+		return "", false
+	}
+	if _, err := r.u24(); err != nil { // fragment length
+		return "", false
+	}
+	if _, err := r.take(34); err != nil { // version + random
+		return "", false
+	}
+	if _, err := r.vec8(); err != nil { // session id
+		return "", false
+	}
+	if _, err := r.vec8(); err != nil { // cookie
+		return "", false
+	}
+	if _, err := r.vec16(); err != nil { // cipher suites
+		return "", false
+	}
+	if _, err := r.vec8(); err != nil { // compression
+		return "", false
+	}
+	exts, err := r.vec16()
+	if err != nil {
+		return "", false
+	}
+	er := &byteReader{buf: exts}
+	for !er.done() {
+		ty, err := er.u16()
+		if err != nil {
+			return "", false
+		}
+		data, err := er.vec16()
+		if err != nil {
+			return "", false
+		}
+		if ty == DtlsExtDcPairHint {
+			return string(data), true
+		}
+	}
+	return "", false
+}
+
 func (m *PeerMux) unregister(ep *muxEndpoint) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if ep.cid != nil && m.byCid[string(ep.cid)] == ep {
+		delete(m.byCid, string(ep.cid))
+	}
 	if ep.ufrag != "" {
 		if m.byUfrag[ep.ufrag] == ep {
 			delete(m.byUfrag, ep.ufrag)
@@ -275,6 +405,11 @@ func (e *muxEndpoint) WriteToUDP(b []byte, addr *net.UDPAddr) (int, error) {
 }
 
 func (e *muxEndpoint) LocalAddr() net.Addr { return e.mux.addr }
+
+// LocalCID is this endpoint's allocated DTLS connection id
+// (RFC 9146); the peer announces it so records it receives
+// carry it and route here without a learned source.
+func (e *muxEndpoint) LocalCID() []byte { return e.cid }
 
 func (e *muxEndpoint) SetReadDeadline(t time.Time) error {
 	e.deadline.store(t)

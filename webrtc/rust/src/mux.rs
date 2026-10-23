@@ -50,7 +50,9 @@ struct MuxInner {
     addr: SocketAddr,
     by_ufrag: Mutex<HashMap<String, Weak<MuxEndpoint>>>,
     by_src: Mutex<HashMap<SocketAddr, Weak<MuxEndpoint>>>,
+    by_cid: Mutex<HashMap<Vec<u8>, Weak<MuxEndpoint>>>,
     probes: Mutex<Vec<Weak<MuxEndpoint>>>,
+    next_cid: std::sync::atomic::AtomicU64,
 }
 
 /// One peer's view of the shared socket: sends go straight to
@@ -62,6 +64,7 @@ pub(crate) struct MuxEndpoint {
     rx: Mutex<Receiver<(Vec<u8>, SocketAddr)>>,
     timeout: Mutex<Option<Duration>>,
     me: Mutex<Option<Weak<MuxEndpoint>>>,
+    cid: Vec<u8>,
 }
 
 impl MuxInner {
@@ -87,17 +90,75 @@ impl MuxInner {
         }
     }
 
+    /// Route an epoch-1 DTLS record by the connection id at
+    /// offset 11 (after type/version/epoch/sequence).
+    fn endpoint_by_cid(&self, data: &[u8]) -> Option<Arc<MuxEndpoint>> {
+        if data.len() < 14 || !(20..64).contains(&data[0]) {
+            return None;
+        }
+        let mut map = self.by_cid.lock().unwrap();
+        let hit = map.iter().find_map(|(cid, ep)| {
+            if data[11..].starts_with(cid) {
+                ep.upgrade().map(|e| (cid.clone(), e))
+            } else {
+                None
+            }
+        });
+        match hit {
+            Some((cid, ep)) => {
+                let _ = cid;
+                Some(ep)
+            }
+            None => {
+                map.retain(|_, ep| ep.upgrade().is_some());
+                None
+            }
+        }
+    }
+
+    /// Route an epoch-0 ClientHello by its DcPairHint
+    /// extension (the remote peer's ICE ufrag, which our
+    /// by_ufrag table already keys).
+    fn endpoint_by_hint(&self, data: &[u8]) -> Option<Arc<MuxEndpoint>> {
+        let hint = pair_hint_from_client_hello(data)?;
+        self.endpoint(&hint)
+    }
+
     fn deliver(&self, data: Vec<u8>, src: SocketAddr) {
         // STUN (first byte 0..4 in the peer stacks' convention):
-        // route by username ufrag, then by learned source, then
-        // to srflx probes. Anything else: by source only.
+        // route by username ufrag, then (Binding Success, which
+        // has no username) offer to every endpoint, then by
+        // learned source, then to srflx probes.
         let target = if !data.is_empty() && data[0] < 4 {
-            let by_name = crate::stun::Message::decode(&data).and_then(|msg| {
+            let decoded = crate::stun::Message::decode(&data);
+            let by_name = decoded.as_ref().and_then(|msg| {
                 let username = msg.attr(stun_attr::USERNAME)?;
                 let text = std::str::from_utf8(username).ok()?;
                 let local = text.split(':').next()?;
                 self.endpoint(local)
             });
+            // A Binding Success carries no username. Offer it
+            // to every endpoint: each agent consumes only its
+            // own (integrity-checked) transaction, and a shared
+            // source (mux-to-mux) makes the learned source
+            // ambiguous.
+            if by_name.is_none()
+                && decoded
+                    .as_ref()
+                    .is_some_and(|m| m.msg_type == crate::proto_gen::stun_msg::BINDING_SUCCESS)
+            {
+                let endpoints: Vec<Arc<MuxEndpoint>> = self
+                    .by_ufrag
+                    .lock()
+                    .unwrap()
+                    .values()
+                    .filter_map(Weak::upgrade)
+                    .collect();
+                for ep in endpoints {
+                    ep.enqueue(data.clone(), src);
+                }
+                return;
+            }
             let target = by_name.or_else(|| self.endpoint_at(src));
             match target {
                 Some(ep) => {
@@ -113,7 +174,14 @@ impl MuxInner {
                 }
             }
         } else {
-            self.endpoint_at(src)
+            // DTLS: an epoch-1 record carrying a registered
+            // connection id routes by cid (source-independent,
+            // so mux-to-mux and NAT rebinding keep working);
+            // an epoch-0 ClientHello routes by its DcPairHint;
+            // anything else falls back to the learned source.
+            let by = self.endpoint_by_hint(&data);
+            by.or_else(|| self.endpoint_by_cid(&data))
+                .or_else(|| self.endpoint_at(src))
         };
         if let Some(ep) = target {
             ep.enqueue(data, src);
@@ -161,6 +229,10 @@ impl DatagramIo for MuxEndpoint {
         Ok(())
     }
 
+    fn local_cid(&self) -> Option<Vec<u8>> {
+        Some(self.cid.clone())
+    }
+
     fn begin_probe(&self) {
         let me = self.me.lock().unwrap().clone();
         if let Some(me) = me {
@@ -184,6 +256,63 @@ impl DatagramIo for MuxEndpoint {
     }
 }
 
+/// Extract the DcPairHint (remote ICE ufrag) from an epoch-0
+/// ClientHello datagram, when present. Layout: record header
+/// (13) | handshake header (12) | version(2) random(32)
+/// session(1+) cookie(1+) suites(2+) compression(1+)
+/// extensions(2+): (type, len, data)*.
+fn pair_hint_from_client_hello(data: &[u8]) -> Option<String> {
+    if data.len() < 13 + 12 || data[0] != 22 || data[3] != 0 || data[4] != 0 {
+        return None; // not an epoch-0 handshake record
+    }
+    let body = &data[13..];
+    if body.len() < 12 || body[0] != 1 {
+        return None; // not a ClientHello
+    }
+    let mut pos = 12 + 2 + 32;
+    let take = |data: &[u8], pos: &mut usize, n: usize| -> Option<()> {
+        if data.len() < *pos + n {
+            None
+        } else {
+            *pos += n;
+            Some(())
+        }
+    };
+    let session_len = *body.get(pos)? as usize;
+    take(body, &mut pos, 1 + session_len)?;
+    let cookie_len = *body.get(pos)? as usize;
+    take(body, &mut pos, 1 + cookie_len)?;
+    if body.len() < pos + 2 {
+        return None;
+    }
+    let suites_len = u16::from_be_bytes([body[pos], body[pos + 1]]) as usize;
+    take(body, &mut pos, 2 + suites_len)?;
+    if body.len() < pos + 1 {
+        return None;
+    }
+    let compression_len = body[pos] as usize;
+    take(body, &mut pos, 1 + compression_len)?;
+    if body.len() < pos + 2 {
+        return None;
+    }
+    let exts_len = u16::from_be_bytes([body[pos], body[pos + 1]]) as usize;
+    pos += 2;
+    let end = (pos + exts_len).min(body.len());
+    while pos + 4 <= end {
+        let ty = u16::from_be_bytes([body[pos], body[pos + 1]]);
+        let len = u16::from_be_bytes([body[pos + 2], body[pos + 3]]) as usize;
+        pos += 4;
+        if pos + len > end {
+            return None;
+        }
+        if ty == crate::proto_gen::dtls_ext::DC_PAIR_HINT {
+            return String::from_utf8(body[pos..pos + len].to_vec()).ok();
+        }
+        pos += len;
+    }
+    None
+}
+
 impl PeerMux {
     /// Bind the shared socket and start its reader thread. The
     /// thread lives as long as the socket (process lifetime in
@@ -196,7 +325,9 @@ impl PeerMux {
             addr: local,
             by_ufrag: Mutex::new(HashMap::new()),
             by_src: Mutex::new(HashMap::new()),
+            by_cid: Mutex::new(HashMap::new()),
             probes: Mutex::new(Vec::new()),
+            next_cid: std::sync::atomic::AtomicU64::new(1),
         });
         let reader_inner = inner.clone();
         socket.set_read_timeout(Some(Duration::from_millis(200)))?;
@@ -239,12 +370,19 @@ impl PeerMux {
         platform: crate::platform::Platform,
     ) -> io::Result<Peer> {
         let (tx, rx) = channel();
+        let n = self
+            .inner
+            .next_cid
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut cid = self.inner.addr.port().to_be_bytes().to_vec();
+        cid.extend_from_slice(&n.to_be_bytes());
         let endpoint = Arc::new(MuxEndpoint {
             inner: self.inner.clone(),
             tx,
             rx: Mutex::new(rx),
             timeout: Mutex::new(None),
             me: Mutex::new(None),
+            cid,
         });
         *endpoint.me.lock().unwrap() = Some(Arc::downgrade(&endpoint));
         let peer = Peer::new_with_io(config, platform, endpoint.clone(), self.inner.addr.port())?;
@@ -253,6 +391,11 @@ impl PeerMux {
             .lock()
             .unwrap()
             .insert(peer.local_ufrag(), Arc::downgrade(&endpoint));
+        self.inner
+            .by_cid
+            .lock()
+            .unwrap()
+            .insert(endpoint.cid.clone(), Arc::downgrade(&endpoint));
         Ok(peer)
     }
 }
