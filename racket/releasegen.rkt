@@ -147,6 +147,38 @@
                       "browser-test/bdd_wasm_manifest.generated.mjs"))])
   (when (file-exists? rel) (copy-in rel)))
 
+;; Prebuilt Wasm client bundles for the browser examples index
+;; (examples/browser/): build outputs in the private tree
+;; (make artifacts), shipped so a public clone runs the
+;; examples with no language toolchains. Missing bundles fail
+;; the export loudly rather than shipping a broken index.
+(define browser-example-bundles
+  '("browser-test/echo.wasm"
+    "browser-test/echo_zig.wasm"
+    "browser-test/echo_cpp.wasm"
+    "browser-test/echo_swift.wasm"
+    "browser-test/echo_lua.wasm"
+    "browser-test/echo_dart_wasm.wasm"
+    "browser-test/echo_dart_wasm.mjs"
+    "browser-test/echo_dart_wasm.support.js"
+    "browser-test/wasm_exec.js"
+    "browser-test/wasm_lua_worker.js"))
+(for ([rel (in-list browser-example-bundles)])
+  (unless (file-exists? rel)
+    (eprintf "releasegen: missing browser-example bundle ~a (run: make artifacts)\n" rel)
+    (exit 1))
+  (copy-in rel))
+(define browser-example-bundle-dirs
+  '("browser-test/kotlin_wasm_gen"
+    "browser-test/scalajs_gen"
+    "browser-test/wasm_rust_gen"))
+(for ([dir (in-list browser-example-bundle-dirs)])
+  (unless (directory-exists? dir)
+    (eprintf "releasegen: missing browser-example bundle dir ~a (run: make artifacts)\n" dir)
+    (exit 1))
+  (for ([p (in-list (find-files file-exists? dir))])
+    (copy-in (path->string (find-relative-path (current-directory) p)))))
+
 ;; ---------------------------------------------------------------------------
 ;; protoc plugin wrappers (bin/): tiny shims that run the
 ;; published Node plugin per language, so the exported
