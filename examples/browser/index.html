@@ -6,7 +6,7 @@
 <ul id="langs"></ul>
 <pre id="out">pick a language…</pre>
 <script type="module">
-const LANGS = [["Go", "wasm_page.html", "__runWasm"], ["Zig", "wasm_zig_page.html", "__runWasm"], ["C++", "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm", "__runWasm"], ["Swift", "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm", "__runWasm"], ["Kotlin", "wasm_kotlin_page.html", "__runWasm"], ["Dart", "dart_wasm_page.html", "__runDart"], ["Rust", "wasm_rust_page.html", "__runWasm"], ["Scala.js", "wasm_scalajs_page.html", "__runWasm"]];
+const LANGS = [["Go", "wasm_page.html", "__runWasm"], ["Zig", "wasm_zig_page.html", "__runWasm"], ["C++", "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm", "__runWasm"], ["Swift", "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm", "__runWasm"], ["Kotlin", "wasm_kotlin_page.html", "__runWasm"], ["Lua", "wasm_lua_page.html", "__runWasm"], ["Dart", "dart_wasm_page.html", "__runDart"], ["Rust", "wasm_rust_page.html", "__runWasm"], ["Scala.js", "wasm_scalajs_page.html", "__runWasm"]];
 const out = document.getElementById("out");
 const list = document.getElementById("langs");
 for (const [name, page, run] of LANGS) {
