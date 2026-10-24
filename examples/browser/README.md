@@ -9,8 +9,11 @@ Run them all with Docker (signaling included):
     docker compose --profile browser-examples up
     # open http://localhost:8080/ and pick a language
 
-Or locally without Docker:
+Or locally without Docker (first build the Wasm client
+bundles once — they are build outputs, not source):
 
+    make artifacts   # private tree; in the public tree the
+                     # bundles ship prebuilt under browser-test/
     node examples/browser/server.mjs
     # open http://localhost:8080/
 
