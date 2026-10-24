@@ -999,6 +999,247 @@
     (lambda (out) (display (cdr docs) out)))
   (printf "generated ~a\n" (car docs)))
 
+;; One-command browser<->Node Echo starter (examples/starter/):
+;; a WebSocket-signaled pair a newcomer runs as-is. The signaling
+;; socket carries only SDP text; the gRPC DataChannel is opened
+;; by the page and answered by the generated server over the
+;; in-repo Node WebRTC stack. Kept dependency-free (Node >= 18).
+(define starter-server-js
+#<<STARTER_SERVER_EOF
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { extname, join, normalize } from "node:path";
+import { fileURLToPath } from "node:url";
+import { WebSocketServer } from "./signal.mjs";
+import { Peer } from "../../webrtc/js/peer.js";
+import { Server } from "../../js/index.js";
+import { EchoResponse } from "../../js/examples/echo_pb.js";
+import { createEchoService } from "../../js/examples/echo_grpc_dc.js";
+
+const ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const HERE = fileURLToPath(new URL(".", import.meta.url));
+const PORT = Number(process.env.PORT || 8080);
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript" };
+
+const handlers = {
+  async unary(req) { return new EchoResponse({ message: `echo: ${req.message}`, index: 0 }); },
+  async *serverStream(req) {
+    for (let i = 0; i < Math.max(0, req.count); i++) yield new EchoResponse({ message: req.message, index: i });
+  },
+  async clientStream(requests) {
+    const parts = [];
+    for await (const req of requests) parts.push(req.message);
+    return new EchoResponse({ message: parts.join("+"), index: parts.length });
+  },
+  async *bidi(requests) {
+    let index = 0;
+    for await (const req of requests) yield new EchoResponse({ message: req.message, index: index++ });
+  },
+};
+
+const http = createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url, "http://x");
+    let rel = url.pathname === "/" ? "client.html" : decodeURIComponent(url.pathname.slice(1));
+    // The page imports the repo runtime by absolute path
+    // (/js/...); map those onto the repo root, everything else
+    // is starter-local.
+    const base = rel.startsWith("js/") || rel.startsWith("webrtc/") ? ROOT : HERE;
+    if (base === ROOT) { /* rel already repo-relative */ } else { /* starter-local */ }
+    const path = normalize(join(base, rel));
+    if (!path.startsWith(base)) throw new Error("outside served dir");
+    const body = await readFile(path);
+    res.writeHead(200, { "content-type": MIME[extname(path)] ?? "application/octet-stream" });
+    res.end(body);
+  } catch { res.writeHead(404); res.end("not found"); }
+});
+
+const peers = new Map();
+const wss = new WebSocketServer({ server: http });
+wss.on("connection", (ws) => {
+  const id = Math.random().toString(36).slice(2, 8);
+  peers.set(id, ws);
+  ws.on("message", async (data) => {
+    const msg = JSON.parse(String(data));
+    if (msg.kind === "offer") {
+      const answerer = await Peer.create();
+      const grpcServer = new Server();
+      grpcServer.addService(createEchoService(handlers));
+      const answer = answerer.handleOffer(msg.sdp);
+      ws.send(JSON.stringify({ kind: "answer", sdp: answer }));
+      const endpoint = await answerer.connect();
+      endpoint.onchannel = (channel) => grpcServer.serve(channel);
+      ws.on("close", () => answerer.close());
+    }
+  });
+  ws.on("close", () => peers.delete(id));
+});
+
+http.listen(PORT, () => {
+  console.log(`starter: open http://localhost:${PORT}/ in your browser`);
+  console.log("starter: signaling is WebSocket on the same port; gRPC runs over the DataChannel");
+});
+STARTER_SERVER_EOF
+)
+
+(define starter-signal-mjs
+#<<STARTER_SIGNAL_EOF
+// Minimal WebSocket framing (RFC 6455 server subset): enough for
+// SDP text exchange, no dependencies. Not a general WebSocket lib.
+import { createHash } from "node:crypto";
+
+export class WebSocketServer {
+  constructor({ server }) {
+    this.clients = new Set();
+    server.on("upgrade", (req, socket) => {
+      const key = req.headers["sec-websocket-key"];
+      if (!key) { socket.destroy(); return; }
+      const accept = createHash("sha1").update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
+      socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + accept + "\r\n\r\n");
+      const client = new Client(socket, this);
+      this.clients.add(client);
+      this.emit("connection", client);
+    });
+    this.handlers = {};
+  }
+  on(event, fn) { this.handlers[event] = fn; }
+  emit(event, client) { this.handlers[event]?.(client); }
+}
+
+class Client {
+  constructor(socket, server) {
+    this.socket = socket; this.server = server; this.buf = Buffer.alloc(0); this.handlers = {};
+    socket.on("data", (chunk) => {
+      this.buf = Buffer.concat([this.buf, chunk]);
+      for (;;) {
+        const frame = this.readFrame();
+        if (!frame) break;
+        if (frame.opcode === 8) { this.socket.end(); this.emit("close"); }
+        else if (frame.opcode === 1) this.emit("message", frame.payload);
+      }
+    });
+    socket.on("close", () => { this.server.clients.delete(this); this.emit("close"); });
+    socket.on("error", () => {});
+  }
+  on(event, fn) { this.handlers[event] = fn; }
+  emit(event, arg) { this.handlers[event]?.(arg); }
+  readFrame() {
+    const b = this.buf;
+    if (b.length < 2) return null;
+    const fin = (b[0] & 0x80) !== 0, opcode = b[0] & 0x0f, masked = (b[1] & 0x80) !== 0;
+    let len = b[1] & 0x7f, off = 2;
+    if (len === 126) { if (b.length < 4) return null; len = b.readUInt16BE(2); off = 4; }
+    else if (len === 127) { if (b.length < 10) return null; len = Number(b.readBigUInt64BE(2)); off = 10; }
+    const maskOff = off; if (masked) off += 4;
+    if (b.length < off + len) return null;
+    let payload = b.subarray(off, off + len);
+    if (masked) { const m = b.subarray(maskOff, maskOff + 4); payload = Buffer.from(payload.map((x, i) => x ^ m[i % 4])); }
+    this.buf = b.subarray(off + len);
+    if (!fin) throw new Error("fragmented frames not supported");
+    return { opcode, payload };
+  }
+  send(text) {
+    const payload = Buffer.from(text);
+    const header = payload.length < 126 ? Buffer.from([0x81, payload.length])
+      : payload.length < 65536 ? Buffer.concat([Buffer.from([0x81, 126]), (() => { const n = Buffer.alloc(2); n.writeUInt16BE(payload.length); return n; })()])
+      : (() => { const n = Buffer.alloc(9); n[0] = 0x81; n[1] = 127; n.writeBigUInt64BE(BigInt(payload.length), 1); return n; })();
+    this.socket.write(Buffer.concat([header, payload]));
+  }
+}
+STARTER_SIGNAL_EOF
+)
+
+(define starter-client-html
+#<<STARTER_CLIENT_EOF
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc starter — browser client</title>
+<h1>grpc-dc starter</h1>
+<p>Browser gRPC client over a real <code>RTCDataChannel</code>. Signaling: WebSocket (SDP text only).</p>
+<button id="run">Run Echo calls</button>
+<pre id="out">press Run…</pre>
+<script type="module">
+import { Channel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+const out = document.getElementById("out");
+const log = (line) => { out.textContent += line + "\n"; };
+document.getElementById("run").onclick = async () => {
+  out.textContent = "";
+  const ws = new WebSocket(`ws://${location.host}/`);
+  const pc = new RTCPeerConnection();
+  const dc = pc.createDataChannel("grpc");
+  const client = new EchoClient(new Channel(dc));
+  const req = (message, count = 0) => new EchoRequest({ message, count });
+  await new Promise((resolve) => { ws.onopen = resolve; });
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === "complete") resolve();
+    else pc.addEventListener("icegatheringstatechange", () => { if (pc.iceGatheringState === "complete") resolve(); });
+  });
+  ws.send(JSON.stringify({ kind: "offer", sdp: pc.localDescription.sdp }));
+  const answer = await new Promise((resolve) => {
+    ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.kind === "answer") resolve(m.sdp); };
+  });
+  await pc.setRemoteDescription({ type: "answer", sdp: answer });
+  if (dc.readyState !== "open") await new Promise((r) => dc.addEventListener("open", r, { once: true }));
+  log(`unary: ${(await client.unary(req("hello"))).message}`);
+  const ticks = [];
+  for await (const resp of await client.serverStream(req("tick", 3))) ticks.push(resp.index);
+  log(`server-stream ticks: ${ticks.join(",")}`);
+  async function* fromList(items) { yield* items; }
+  const echoed = [];
+  for await (const resp of await client.bidi(fromList([req("x"), req("y")]))) echoed.push(resp.message);
+  log(`bidi echoed: ${echoed.join(",")}`);
+  log("done — now edit client.html / server.mjs and reload");
+};
+</script>
+STARTER_CLIENT_EOF
+)
+
+(define starter-readme
+#<<STARTER_README_EOF
+# Starter: browser client <-> Node server in one command
+
+Run it:
+
+    node examples/starter/server.mjs
+    # open http://localhost:8080/ and press "Run Echo calls"
+
+No `npm install`: the runtime, WebRTC stack, and the minimal
+WebSocket signaling shim are all in this repository and use only
+Node builtins (Node >= 18). The page and the server exchange SDP
+as text over WebSocket; the actual gRPC calls run peer-to-peer
+over the `grpc` RTCDataChannel.
+
+Files:
+
+- `server.mjs` — HTTP page server + WebSocket signaling + the
+  generated Echo service on the in-repo Node WebRTC stack.
+- `signal.mjs` — tiny RFC 6455 server subset (SDP text only).
+- `client.html` — browser client; edit, reload, re-run.
+
+Next steps: replace the Echo handlers in `server.mjs` with your
+service (regenerate stubs with `bin/protoc-gen-grpc-dc-js`), or
+swap WebSocket signaling for fetch/QR/manual paste — SDP is
+just text. For a native-to-native pair, see `js/examples/`.
+STARTER_README_EOF
+)
+
+(define (write-starter)
+  (define files
+    (list (cons "examples/starter/server.mjs" starter-server-js)
+          (cons "examples/starter/signal.mjs" starter-signal-mjs)
+          (cons "examples/starter/client.html" starter-client-html)
+          (cons "examples/starter/README.md" starter-readme)))
+  (for ([f (in-list files)])
+    (define path (build-path root (car f)))
+    (make-directory* (path-only path))
+    (call-with-output-file path #:exists 'replace
+      (lambda (out) (display (cdr f) out)))
+    (printf "generated ~a\n" (car f))))
+
 ;; Browser generators for the web app (see webgen.rkt): the same
 ;; stub generation the protoc plugins do, stamped as an ES module
 ;; the page runs client-side over protocompile's descriptor set.
@@ -1115,6 +1356,7 @@
 
 (module+ main
   (write-bdd-docs)
+  (write-starter)
   (write-web-generators)
   (write-corpus-manifest)
   (write-plugin "protoc-gen-grpc-dc-rust" 'emit-rust-file)

@@ -51,7 +51,7 @@
 
 (define allow-prefixes
   (append (map cdr languages)
-          '("webrtc" "wasm" "proto" "fixtures")))
+          '("webrtc" "wasm" "proto" "fixtures" "examples")))
 
 ;; QUICKSTART step 2 lives in browser-test/, which is otherwise
 ;; private test tooling (and carries built wasm/binaries); export
@@ -476,6 +476,8 @@
    "`webrtc/go/mux.go`, `webrtc/js/mux.js`; one generated\n"
    "scenario tests all three stacks, and the cross-stack\n"
    "matrix pairs mux against mux across stacks.\n\n"
+   "Stuck? See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)\n"
+   "(secure context, signaling, TURN/NAT, WebKit fallback, transports).\n\n"
    "## Verify the browser story\n\n"
    "The `browser-test/` directory carries the real-browser\n"
    "harness (Playwright). From a clone:\n\n"
@@ -541,6 +543,9 @@
    "the native stack server (SDP exchanged as plain text — swap\n"
    "in WebSocket/fetch signaling in your app):\n\n"
    "    node browser-test/native_step2.mjs chromium\n\n"
+   "Or run the self-contained starter (WebSocket signaling\n"
+   "included, nothing to install):\n\n"
+   "    node examples/starter/server.mjs   # then open http://localhost:8080/\n\n"
    "Expected: `step2 (chromium): browser gRPC client -> native "
    "stack server OK { unary: 'echo: hello', ticks: [ 0, 1, 2 ], "
    "echoed: [ 'x', 'y' ] }`. Chromium, Firefox, and WebKit all\n"
@@ -664,6 +669,48 @@
           "captured when this export was built):\n\n```\n"
           (file->string t) "```\n\n")
          ""))))
+
+(call-with-output-file (build-path out-dir "docs/TROUBLESHOOTING.md")
+  (lambda (out)
+    (display
+     (string-append
+      "# Troubleshooting\n\n"
+      "## The page cannot create a DataChannel / crypto is unavailable\n\n"
+      "WebRTC requires a secure context: `https://`, `http://localhost`, or a\n"
+      "`trycloudflare.com` tunnel URL all qualify; a plain `http://` LAN address\n"
+      "does not. Use the live site, `make webapp-serve`, or\n"
+      "`docker compose --profile tunnel up`.\n\n"
+      "## Which signaling should I use?\n\n"
+      "Any channel that moves text: WebSocket, fetch POST, a message broker,\n"
+      "or manual copy-paste. Only the SDP offer/answer crosses it (a few KB);\n"
+      "gRPC traffic never does. The starter in `examples/starter/` shows the\n"
+      "smallest WebSocket version. Swap the transport, keep the SDP handling.\n\n"
+      "## Peers connect on localhost but not across machines\n\n"
+      "That is NAT, not gRPC: ICE needs a TURN relay when both sides are\n"
+      "behind symmetric NATs. Point the peer at a TURN server (the repo's\n"
+      "WebRTC stacks accept TURN URLs/credentials), or test through the\n"
+      "Cloudflare tunnel profile. DataChannel traffic stays peer-to-peer;\n"
+      "the tunnel only serves the page and signaling.\n\n"
+      "## WebKit shows the fallback generators\n\n"
+      "Expected in some WebKit builds: the full plugin runtime cannot mount\n"
+      "its filesystem there, so the app uses the built-in generators. Output\n"
+      "is byte-identical either way (the parity suite pins this). For the\n"
+      "full plugin path, use Chromium or Firefox, or generate with the\n"
+      "`bin/protoc-gen-grpc-dc-*` wrappers locally.\n\n"
+      "## What plugs into `Channel` / `Server.serve`?\n\n"
+      "Anything with the DataChannel shape: a browser `RTCDataChannel`, the\n"
+      "in-repo Node/Rust/Go stack channel, an in-memory pair\n"
+      "(`memoryDataChannelPair` in JS), or a sidecar-bridged channel in the\n"
+      "other languages. The generated client and server do not change when\n"
+      "the transport does.\n\n"
+      "## A call hangs with no error\n\n"
+      "Check, in order: (1) both peers agree on the channel label (the gRPC\n"
+      "convention here is `grpc`); (2) the server actually called `serve`\n"
+      "on the accepted channel; (3) odd/even stream-id parity is not shared\n"
+      "by two clients on one channel; (4) deadlines — a streaming call\n"
+      "returns an async iterable, so `await` it before iterating.\n")
+     out))
+  #:exists 'replace)
 
 (call-with-output-file (build-path out-dir "docs/gallery.md")
   (lambda (out)
@@ -925,6 +972,35 @@
   (eprintf "releasegen: LEAK GATE FAILED, Racket source in export:\n")
   (for ([p (in-list leaks)]) (eprintf "  ~a\n" p))
   (exit 1))
+
+;; ---------------------------------------------------------------------------
+;; Clarity gate: user-facing exported text (docs, READMEs, the
+;; browser app, generated code) must not point at generator-
+;; internal source paths, so newcomers never meet a reference
+;; they cannot open. Provenance files keep the full story.
+;; Only relative paths are matched ("../racket/...", "/racket/"
+;; or a leading "racket/" path); prose and asset paths are fine.
+;; ---------------------------------------------------------------------------
+
+(define clarity-allowlist
+  '("CHANGELOG.md" "SPEC.md" "SPEC-WEBRTC.md" "BDD.md"
+    "GENERATED-CODE-LICENSE.md" "RELEASE.json"))
+
+(define (clarity-violation? p)
+  (define rel (path->string (find-relative-path out-dir p)))
+  (and (not (member rel clarity-allowlist))
+       (not (string-prefix? rel "docs/BDD.md"))
+       (let ([text (with-handlers ([exn:fail? (lambda (_) "")])
+                     (file->string p))])
+         (regexp-match? #rx"racket/[a-z0-9_.-]+[.]rkt" text))))
+
+(define clarity-violations (filter clarity-violation? all-exported))
+(unless (null? clarity-violations)
+  (eprintf "releasegen: CLARITY GATE FAILED, generator-internal paths in user-facing export:\n")
+  (for ([p (in-list clarity-violations)])
+    (eprintf "  ~a\n" (path->string (find-relative-path out-dir p))))
+  (exit 1))
+(printf "releasegen: clarity gate OK (no generator-internal paths in user-facing text)\n")
 
 (define total-bytes
   (for/sum ([p (in-list all-exported)]) (file-size p)))
