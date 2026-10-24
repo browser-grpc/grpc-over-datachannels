@@ -2,7 +2,7 @@
 // Echo client calls a generated Echo server addressed only by
 // the listener's certhash multiaddr -- no ICE, no SDP. The
 // adapter under test is src/webrtc_direct.js (generated from
-// racket/runtime-js.rkt) over webrtc/js/direct.js.
+// the generated runtime) over webrtc/js/direct.js.
 
 import assert from "node:assert/strict";
 import test from "node:test";
