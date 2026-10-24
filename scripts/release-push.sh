@@ -135,6 +135,34 @@ if [ -d "$NPM_DIR" ] && command -v npm >/dev/null 2>&1; then
 fi
 
 # ------------------------------------------------------------------
+# 3c. Plugin container image (ghcr.io): protoc + all plugins on
+#     PATH, no host Node needed. Best-effort like npm — a failed
+#     push is a loud note, never a failed publish.
+# ------------------------------------------------------------------
+if [ -f "$EXPORT/docker/protoc-plugins.Dockerfile" ]; then
+  if command -v docker >/dev/null 2>&1; then
+    IMAGE="ghcr.io/browser-grpc/protoc-plugins"
+    gh auth token 2>/dev/null | docker login ghcr.io -u "$ORG" \
+      --password-stdin >/dev/null 2>&1 || true
+    if docker build -f "$EXPORT/docker/protoc-plugins.Dockerfile" \
+         -t "$IMAGE:$VERSION" -t "$IMAGE:latest" "$EXPORT"; then
+      if docker push "$IMAGE:$VERSION" && docker push "$IMAGE:latest"; then
+        echo "container: $IMAGE:$VERSION pushed"
+        gh api -X PATCH "orgs/$ORG/packages/container/protoc-plugins/visibility" \
+          -f visibility=public >/dev/null 2>&1 \
+          || echo "note: set the protoc-plugins GHCR package to Public (org > Packages)"
+      else
+        echo "note: container push failed (ghcr login?); continuing"
+      fi
+    else
+      echo "note: container build failed; continuing"
+    fi
+  else
+    echo "note: container image skipped (docker not available)"
+  fi
+fi
+
+# ------------------------------------------------------------------
 # 4. GitHub Release for the tag (notes from the export's
 #    CHANGELOG section; generated notes as fallback).
 # ------------------------------------------------------------------
@@ -154,6 +182,25 @@ else
   fi
   echo "release $VERSION created"
 fi
+
+# ------------------------------------------------------------------
+# 4b. Release asset: self-contained plugin zip + SHA256SUMS.
+#     The zip mirrors the clone layout (bin/ + docs/app) so the
+#     wrappers run in place after unzip. Idempotent (--clobber).
+# ------------------------------------------------------------------
+STAGE="$WORK/grpc-dc-$VERSION"
+mkdir -p "$STAGE/docs/app"
+cp -r "$EXPORT/bin" "$STAGE/bin"
+cp "$EXPORT/docs/app/protoc-gen-grpc-dc.mjs" "$STAGE/docs/app/"
+cp -r "$EXPORT/docs/app/gen" "$STAGE/docs/app/gen"
+cp -r "$EXPORT/proto" "$STAGE/proto"
+cp "$EXPORT/PLUGINS.md" "$EXPORT/LICENSE" "$STAGE/"
+ZIP="$WORK/grpc-dc-$VERSION.zip"
+(cd "$WORK" && zip -qr "$ZIP" "grpc-dc-$VERSION")
+(cd "$WORK" && sha256sum "grpc-dc-$VERSION.zip" > SHA256SUMS)
+gh release upload "$VERSION" --repo "$REPO" --clobber \
+  "$ZIP" "$WORK/SHA256SUMS"
+echo "release asset: grpc-dc-$VERSION.zip + SHA256SUMS uploaded"
 
 # ------------------------------------------------------------------
 # 5. Verify the live site (Pages builds take a minute or so;

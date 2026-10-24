@@ -3,6 +3,24 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.0 — 2026-10-24
+
+- Plugin distribution: three install channels for the same
+  dependency-free protoc plugins (protoc + Node.js 18+;
+  see PLUGINS.md). (1) Every GitHub Release now carries a
+  self-contained `grpc-dc-<version>.zip` plus `SHA256SUMS`
+  (bin/ wrappers + plugin runtime; runs in place after
+  unzip). (2) The `grpc-dc` npm package ships all 23 plugins
+  as bin entries (`node_modules/.bin/protoc-gen-grpc-dc-*`).
+  (3) A `ghcr.io/browser-grpc/protoc-plugins` container image
+  (per-version tag + `latest`) with protoc and all plugins
+  preinstalled on PATH — no host Node needed. All three
+  channels verified against `proto/echo.proto` before
+  release (zip: Go stubs; npm: Rust stubs; container:
+  Python stubs).
+- Includes everything in v0.31.1 (superseded before its
+  separate public publish).
+
 ## v0.31.1 — 2026-10-24
 
 - Browser examples work from a public clone: the export
