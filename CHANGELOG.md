@@ -3,6 +3,29 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.31.1 — 2026-10-24
+
+- Browser examples work from a public clone: the export
+  now ships the prebuilt Wasm client bundles (~10 MB;
+  `make artifacts` builds them in the private tree, and a
+  missing bundle fails the release loudly). Verified
+  clean-room from the exported tree: compose starter,
+  compose browser-examples (9/9 languages in a real
+  browser), and the tunnel-browser profile (9/9 through a
+  live trycloudflare.com URL).
+- All nine Wasm languages are back in the browser-examples
+  index, Lua included. The v0.31.0 exclusion misdiagnosed
+  the cause: Lua's native client runs the deep BDD
+  scenarios (failure/metadata/cancel/deadline), and the
+  generated starter/browser servers only implemented the
+  happy-path Echo. Both generated servers now implement
+  the canonical Echo semantics; the Lua run settles and
+  the index passes 9/9.
+- Demo profile fixed: `demo-go`, `demo-python`, and
+  `demo-rust` ran stdio interop harnesses with no driver
+  attached (they block on stdin by design). They now run
+  each language's loopback suite and print its transcript.
+
 ## v0.31.0 — 2026-10-24
 
 - Browser examples are now Docker- and tunnel-powered:
