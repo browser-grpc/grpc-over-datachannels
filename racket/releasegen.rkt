@@ -992,7 +992,7 @@
        (not (string-prefix? rel "docs/BDD.md"))
        (let ([text (with-handlers ([exn:fail? (lambda (_) "")])
                      (file->string p))])
-         (regexp-match? #rx"racket/[a-z0-9_.-]+[.]rkt" text))))
+         (regexp-match? #rx"(^|[\"'(/[:space:]])racket/[a-z0-9_.-]+[.]rkt" text))))
 
 (define clarity-violations (filter clarity-violation? all-exported))
 (unless (null? clarity-violations)
