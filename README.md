@@ -33,7 +33,7 @@ paste a `.proto`, get protoc stubs for every language. Keywords:
 `rtcdatachannel`, `protobuf`, `protoc plugin`, `wasm`,
 `browser rpc`, `peer-to-peer`.
 
-This repository is a generated public export (version v0.30.0)
+This repository is a generated public export (version v0.31.0)
 of the grpc-over-datachannels project. Generated code may be used
 without restriction (see GENERATED-CODE-LICENSE.md); everything
 else is Apache-2.0 (see LICENSE).
@@ -112,6 +112,12 @@ on the native `RTCDataChannel` — for every bundled schema. No
 server, no install. Deep link to the JavaScript client:
 https://browser-grpc.github.io/grpc-over-datachannels/app/#schema=echo&lang=js
 
+Browser examples in every Wasm language (Echo client in
+the page, generated server on the Node stack):
+
+    docker compose --profile browser-examples up   # http://localhost:8080/
+    docker compose --profile tunnel-browser up     # same, on a public URL
+
 ## Generate with protoc (Node)
 
 The same generators ship as a dependency-free Node protoc
@@ -181,7 +187,7 @@ table runs natively in every language above and in real browsers.
 
 ## Provenance
 
-Exported from source commit `49ff5d48ac4b83fea048664fe0f6f413678d3f86` by the project's
+Exported from source commit `c686daf0de3c2638c0bd88ea5e69f7a36610a0f9` by the project's
 code generator. This tree contains no build system: each language
 directory carries its runtime, generated stubs, examples, and
 tests in that language's usual layout.
