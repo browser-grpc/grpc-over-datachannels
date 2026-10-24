@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc browser examples</title>
+<h1>Echo in every browser language</h1>
+<p>Each client is generated code running in your browser; the server is the generated Echo service on the Node WebRTC stack. Signaling is WebSocket; gRPC runs over the <code>grpc</code> DataChannel.</p>
+<ul id="langs"></ul>
+<pre id="out">pick a language…</pre>
+<script type="module">
+const LANGS = [["Go", "wasm_page.html", "__runWasm"], ["Zig", "wasm_zig_page.html", "__runWasm"], ["C++", "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm", "__runWasm"], ["Swift", "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm", "__runWasm"], ["Kotlin", "wasm_kotlin_page.html", "__runWasm"], ["Dart", "dart_wasm_page.html", "__runDart"], ["Rust", "wasm_rust_page.html", "__runWasm"], ["Scala.js", "wasm_scalajs_page.html", "__runWasm"]];
+const out = document.getElementById("out");
+const list = document.getElementById("langs");
+for (const [name, page, run] of LANGS) {
+  const li = document.createElement("li");
+  const a = document.createElement("a");
+  a.href = "#"; a.textContent = name;
+  a.onclick = async (ev) => {
+    ev.preventDefault();
+    out.textContent = `running ${name}…`;
+    const frame = document.createElement("iframe");
+    frame.style.display = "none";
+    frame.src = "/browser-test/" + page;
+    document.body.appendChild(frame);
+    const win = frame.contentWindow;
+    await new Promise((r) => { const t = setInterval(() => { if (win.__offer) { clearInterval(t); r(); } }, 100); });
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/`);
+    await new Promise((r) => { ws.onopen = r; });
+    ws.send(JSON.stringify({ kind: "offer", sdp: win.__offer }));
+    const answer = await new Promise((r) => { ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.kind === "answer") r(m.sdp); }; });
+    await win.__acceptAnswer(answer);
+    const result = await win[run]();
+    out.textContent = `${name}: ` + JSON.stringify(result);
+    frame.remove(); ws.close();
+  };
+  li.appendChild(a); list.appendChild(li);
+}
+</script>

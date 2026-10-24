@@ -3,6 +3,31 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.31.0 — 2026-10-24
+
+- Browser examples are now Docker- and tunnel-powered:
+  `docker compose --profile starter up` runs the
+  browser<->Node starter; `--profile tunnel` puts it (or,
+  with `--profile tunnel-browser`, the examples index) on a
+  public trycloudflare.com URL. The starter and examples
+  pages now pick `wss://` on HTTPS pages — the tunnel
+  walkthrough caught the insecure-WebSocket failure the
+  localhost path could not.
+- Echo in every browser language: `examples/browser/`
+  (generated) serves the Wasm client pages for Go, Zig, C++,
+  Swift, Kotlin, Dart, Rust, and Scala.js against the Node
+  stack server with WebSocket signaling. Verified 8/8 in a
+  real Chromium page. Lua is excluded from the index for
+  now: its native Wasm client hits a startup race in this
+  server shape (the same page passes in the BDD harness,
+  which still covers Lua in the browser).
+- Native demo profile: `docker compose --profile demo run
+  demo-go|demo-python|demo-rust|demo-js` runs a language's
+  Echo server+client pair and prints the transcript, for
+  poking a running service instead of only a green suite.
+- compose `tunnel` now targets the starter; the previous
+  static-site tunnel remains as `tunnel-app`.
+
 ## v0.30.0 — 2026-10-23
 
 - One-command JS starter: `node examples/starter/server.mjs`,

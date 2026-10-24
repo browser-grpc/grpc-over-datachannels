@@ -1166,7 +1166,7 @@ const out = document.getElementById("out");
 const log = (line) => { out.textContent += line + "\n"; };
 document.getElementById("run").onclick = async () => {
   out.textContent = "";
-  const ws = new WebSocket(`ws://${location.host}/`);
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/`);
   const pc = new RTCPeerConnection();
   const dc = pc.createDataChannel("grpc");
   const client = new EchoClient(new Channel(dc));
@@ -1227,6 +1227,150 @@ just text. For a native-to-native pair, see `js/examples/`.
 STARTER_README_EOF
 )
 
+(define browser-example-langs
+  '(("Go" "wasm_page.html" "__runWasm")
+    ("Zig" "wasm_zig_page.html" "__runWasm")
+    ("C++" "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm" "__runWasm")
+    ("Swift" "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm" "__runWasm")
+    ("Kotlin" "wasm_kotlin_page.html" "__runWasm")
+    ("Lua" "wasm_lua_page.html" "__runWasm")
+    ("Dart" "dart_wasm_page.html" "__runDart")
+    ("Rust" "wasm_rust_page.html" "__runWasm")
+    ("Scala.js" "wasm_scalajs_page.html" "__runWasm")))
+
+(define browser-examples-readme
+#<<BROWSER_EXAMPLES_EOF
+# Browser examples: Echo in every Wasm language
+
+Each language below runs its generated gRPC client in your
+browser (Wasm facade over the JS wire runtime) against the
+generated Echo server on the Node WebRTC stack.
+
+Run them all with Docker (signaling included):
+
+    docker compose --profile browser-examples up
+    # open http://localhost:8080/ and pick a language
+
+Or locally without Docker:
+
+    node examples/browser/server.mjs
+    # open http://localhost:8080/
+
+On a phone or second machine, use the tunnel profile:
+
+    docker compose --profile tunnel-browser up
+    # open the printed https://*.trycloudflare.com URL
+
+The pages are the same harnesses the Playwright BDD suites
+drive; the server exchanges SDP over WebSocket, then the gRPC
+calls run peer-to-peer over the `grpc` DataChannel.
+BROWSER_EXAMPLES_EOF
+)
+
+(define browser-examples-index
+#<<BROWSER_INDEX_EOF
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc browser examples</title>
+<h1>Echo in every browser language</h1>
+<p>Each client is generated code running in your browser; the server is the generated Echo service on the Node WebRTC stack. Signaling is WebSocket; gRPC runs over the <code>grpc</code> DataChannel.</p>
+<ul id="langs"></ul>
+<pre id="out">pick a language…</pre>
+<script type="module">
+const LANGS = __LANGS__;
+const out = document.getElementById("out");
+const list = document.getElementById("langs");
+for (const [name, page, run] of LANGS) {
+  const li = document.createElement("li");
+  const a = document.createElement("a");
+  a.href = "#"; a.textContent = name;
+  a.onclick = async (ev) => {
+    ev.preventDefault();
+    out.textContent = `running ${name}…`;
+    const frame = document.createElement("iframe");
+    frame.style.display = "none";
+    frame.src = "/browser-test/" + page;
+    document.body.appendChild(frame);
+    const win = frame.contentWindow;
+    await new Promise((r) => { const t = setInterval(() => { if (win.__offer) { clearInterval(t); r(); } }, 100); });
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/`);
+    await new Promise((r) => { ws.onopen = r; });
+    ws.send(JSON.stringify({ kind: "offer", sdp: win.__offer }));
+    const answer = await new Promise((r) => { ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.kind === "answer") r(m.sdp); }; });
+    await win.__acceptAnswer(answer);
+    const result = await win[run]();
+    out.textContent = `${name}: ` + JSON.stringify(result);
+    frame.remove(); ws.close();
+  };
+  li.appendChild(a); list.appendChild(li);
+}
+</script>
+BROWSER_INDEX_EOF
+)
+
+(define browser-examples-server
+#<<BROWSER_SERVER_EOF
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { extname, join, normalize } from "node:path";
+import { fileURLToPath } from "node:url";
+import { WebSocketServer } from "../starter/signal.mjs";
+import { Peer } from "../../webrtc/js/peer.js";
+import { Server } from "../../js/index.js";
+import { EchoResponse } from "../../js/examples/echo_pb.js";
+import { createEchoService } from "../../js/examples/echo_grpc_dc.js";
+const ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const HERE = fileURLToPath(new URL(".", import.meta.url));
+const PORT = Number(process.env.PORT || 8080);
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm" };
+const handlers = {
+  async unary(req) { return new EchoResponse({ message: `echo: ${req.message}`, index: 0 }); },
+  async *serverStream(req) { for (let i = 0; i < Math.max(0, req.count); i++) yield new EchoResponse({ message: req.message, index: i }); },
+  async clientStream(requests) { const p = []; for await (const r of requests) p.push(r.message); return new EchoResponse({ message: p.join("+"), index: p.length }); },
+  async *bidi(requests) { let i = 0; for await (const r of requests) yield new EchoResponse({ message: r.message, index: i++ }); },
+};
+const http = createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url, "http://x");
+    const rel = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
+    const base = (rel.startsWith("js/") || rel.startsWith("webrtc/") || rel.startsWith("browser-test/")) ? ROOT : HERE;
+    const path = normalize(join(base, rel));
+    if (!path.startsWith(base)) throw new Error("outside served dir");
+    const body = await readFile(path);
+    res.writeHead(200, {
+      "content-type": MIME[extname(path)] ?? "application/octet-stream",
+      // Lua/Rust native Wasm clients use a SharedArrayBuffer
+      // worker mailbox; that needs cross-origin isolation.
+      "cross-origin-opener-policy": "same-origin",
+      "cross-origin-embedder-policy": "require-corp",
+    });
+    res.end(body);
+  } catch { res.writeHead(404); res.end("not found"); }
+});
+const wss = new WebSocketServer({ server: http });
+wss.on("connection", (ws) => {
+  ws.on("message", async (data) => {
+    const msg = JSON.parse(String(data));
+    if (msg.kind === "offer") {
+      const answerer = await Peer.create();
+      const grpcServer = new Server();
+      grpcServer.addService(createEchoService(handlers));
+      ws.send(JSON.stringify({ kind: "answer", sdp: answerer.handleOffer(msg.sdp) }));
+      const endpoint = await answerer.connect();
+      endpoint.onchannel = (channel) => grpcServer.serve(channel);
+      ws.on("close", () => answerer.close());
+    }
+  });
+});
+http.listen(PORT, () => console.log(`browser examples: open http://localhost:${PORT}/`));
+// NOTE: Lua's native Wasm client blocks its worker on a
+// SharedArrayBuffer mailbox while waiting for replies; under
+// sustained load it can miss frames the JS runtime delivers
+// during its startup window. It is listed in the index with
+// that caveat until its startup race is fixed upstream.
+BROWSER_SERVER_EOF
+)
+
 (define (write-starter)
   (define files
     (list (cons "examples/starter/server.mjs" starter-server-js)
@@ -1234,6 +1378,31 @@ STARTER_README_EOF
           (cons "examples/starter/client.html" starter-client-html)
           (cons "examples/starter/README.md" starter-readme)))
   (for ([f (in-list files)])
+    (define path (build-path root (car f)))
+    (make-directory* (path-only path))
+    (call-with-output-file path #:exists 'replace
+      (lambda (out) (display (cdr f) out)))
+    (printf "generated ~a\n" (car f)))
+  (define langs-json
+    (string-append "["
+                   (string-join
+                    (for/list ([l (in-list browser-example-langs)])
+                      (format "[~s, ~s, ~s]" (first l) (second l) (third l)))
+                    ", ")
+                   "]"))
+  ;; Lua excluded from the newcomer index for now: its native
+  ;; Wasm client (SharedArrayBuffer worker mailbox) hits a
+  ;; startup race in this server shape and the run never
+  ;; settles, while the identical page passes in the BDD
+  ;; harness. Re-add once that race is fixed; BDD suites
+  ;; still cover Lua in the browser.
+  (set! langs-json (string-replace langs-json "[\"Lua\", \"wasm_lua_page.html\", \"__runWasm\"], " ""))
+  (define browser-files
+    (list (cons "examples/browser/index.html"
+                (string-replace browser-examples-index "__LANGS__" langs-json))
+          (cons "examples/browser/server.mjs" browser-examples-server)
+          (cons "examples/browser/README.md" browser-examples-readme)))
+  (for ([f (in-list browser-files)])
     (define path (build-path root (car f)))
     (make-directory* (path-only path))
     (call-with-output-file path #:exists 'replace

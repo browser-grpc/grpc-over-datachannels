@@ -13,7 +13,7 @@ const out = document.getElementById("out");
 const log = (line) => { out.textContent += line + "\n"; };
 document.getElementById("run").onclick = async () => {
   out.textContent = "";
-  const ws = new WebSocket(`ws://${location.host}/`);
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/`);
   const pc = new RTCPeerConnection();
   const dc = pc.createDataChannel("grpc");
   const client = new EchoClient(new Channel(dc));
