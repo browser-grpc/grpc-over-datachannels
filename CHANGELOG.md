@@ -3,6 +3,26 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.30.0 — 2026-10-23
+
+- One-command JS starter: `node examples/starter/server.mjs`,
+  open http://localhost:8080/, press Run. A browser gRPC client
+  talks to the generated Echo service on the in-repo Node
+  WebRTC stack; WebSocket signaling (SDP text only, tiny
+  dependency-free RFC 6455 shim) is included, so nothing needs
+  installing and no test files need reading. Generated from
+  the same metaprogram; verified in a real Chromium page
+  (unary, server-stream ticks, bidi echo). Linked from
+  QUICKSTART step 2.
+- Clarity regression gate in the exporter: the release now
+  fails if user-facing exported text references generator-
+  internal source paths; provenance files are allowlisted.
+  The v0.29.1 scrub can no longer silently regress.
+- Troubleshooting page (`docs/TROUBLESHOOTING.md`, linked
+  from the README): secure context, signaling choices,
+  TURN/NAT, WebKit fallback generators, which transport plugs
+  into `Channel`, and the silent-hang checklist.
+
 ## v0.29.1 — 2026-10-23
 
 - Newcomer clarity scrub: published output no longer leads

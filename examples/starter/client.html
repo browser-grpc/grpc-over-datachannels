@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc starter — browser client</title>
+<h1>grpc-dc starter</h1>
+<p>Browser gRPC client over a real <code>RTCDataChannel</code>. Signaling: WebSocket (SDP text only).</p>
+<button id="run">Run Echo calls</button>
+<pre id="out">press Run…</pre>
+<script type="module">
+import { Channel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+const out = document.getElementById("out");
+const log = (line) => { out.textContent += line + "\n"; };
+document.getElementById("run").onclick = async () => {
+  out.textContent = "";
+  const ws = new WebSocket(`ws://${location.host}/`);
+  const pc = new RTCPeerConnection();
+  const dc = pc.createDataChannel("grpc");
+  const client = new EchoClient(new Channel(dc));
+  const req = (message, count = 0) => new EchoRequest({ message, count });
+  await new Promise((resolve) => { ws.onopen = resolve; });
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === "complete") resolve();
+    else pc.addEventListener("icegatheringstatechange", () => { if (pc.iceGatheringState === "complete") resolve(); });
+  });
+  ws.send(JSON.stringify({ kind: "offer", sdp: pc.localDescription.sdp }));
+  const answer = await new Promise((resolve) => {
+    ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.kind === "answer") resolve(m.sdp); };
+  });
+  await pc.setRemoteDescription({ type: "answer", sdp: answer });
+  if (dc.readyState !== "open") await new Promise((r) => dc.addEventListener("open", r, { once: true }));
+  log(`unary: ${(await client.unary(req("hello"))).message}`);
+  const ticks = [];
+  for await (const resp of await client.serverStream(req("tick", 3))) ticks.push(resp.index);
+  log(`server-stream ticks: ${ticks.join(",")}`);
+  async function* fromList(items) { yield* items; }
+  const echoed = [];
+  for await (const resp of await client.bidi(fromList([req("x"), req("y")]))) echoed.push(resp.message);
+  log(`bidi echoed: ${echoed.join(",")}`);
+  log("done — now edit client.html / server.mjs and reload");
+};
+</script>

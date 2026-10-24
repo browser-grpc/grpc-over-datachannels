@@ -33,7 +33,7 @@ paste a `.proto`, get protoc stubs for every language. Keywords:
 `rtcdatachannel`, `protobuf`, `protoc plugin`, `wasm`,
 `browser rpc`, `peer-to-peer`.
 
-This repository is a generated public export (version v0.29.1)
+This repository is a generated public export (version v0.30.0)
 of the grpc-over-datachannels project. Generated code may be used
 without restriction (see GENERATED-CODE-LICENSE.md); everything
 else is Apache-2.0 (see LICENSE).
@@ -152,6 +152,9 @@ socket). See `webrtc/rust/src/mux.rs`,
 scenario tests all three stacks, and the cross-stack
 matrix pairs mux against mux across stacks.
 
+Stuck? See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+(secure context, signaling, TURN/NAT, WebKit fallback, transports).
+
 ## Verify the browser story
 
 The `browser-test/` directory carries the real-browser
@@ -178,7 +181,7 @@ table runs natively in every language above and in real browsers.
 
 ## Provenance
 
-Exported from source commit `7c99e7711bb4bc25821fa8b59f8ed69238d6d943` by the project's
+Exported from source commit `49ff5d48ac4b83fea048664fe0f6f413678d3f86` by the project's
 code generator. This tree contains no build system: each language
 directory carries its runtime, generated stubs, examples, and
 tests in that language's usual layout.

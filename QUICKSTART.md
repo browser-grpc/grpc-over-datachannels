@@ -43,6 +43,11 @@ in WebSocket/fetch signaling in your app):
 
     node browser-test/native_step2.mjs chromium
 
+Or run the self-contained starter (WebSocket signaling
+included, nothing to install):
+
+    node examples/starter/server.mjs   # then open http://localhost:8080/
+
 Expected: `step2 (chromium): browser gRPC client -> native stack server OK { unary: 'echo: hello', ticks: [ 0, 1, 2 ], echoed: [ 'x', 'y' ] }`. Chromium, Firefox, and WebKit all
 work. For native-to-native and cross-language proofs, each
 language image runs its full suite and the interop image

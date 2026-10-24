@@ -222,7 +222,7 @@ static size_t unhex(const char *hex, uint8_t *out) {
 
 /* BDD schema scenarios: golden protoc bytes decoded by the
    generated classes must re-encode byte-identically
-   (racket/bdd-schemas.rkt). */
+   (the schema scenarios). */
 static void test_bdd_schemas(void) {
     static uint8_t input[8192];
     static uint8_t expect[8192];
@@ -365,7 +365,7 @@ static void test_pb_messages(void) {
 }
 
 /* BDD: interprets the generated behavior scenarios (bdd_scenarios.h,
-   stamped from racket/bdd-spec.rkt; prose in BDD.md) against a
+   generated from the BDD specification; prose in BDD.md) against a
    loopback client+server. The scenarios are the executable
    examples, so the documentation cannot drift from the behavior. */
 static void test_bdd(void) {
