@@ -3,6 +3,23 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.1 — 2026-10-24
+
+- Browser-examples index is now covered in all three
+  engines: `test-browser-examples` (new in `make test`)
+  drives the newcomer page's own signaling flow for all
+  nine Wasm languages in Chromium, Firefox, and WebKit —
+  9/9 in each. Previously verified in Chromium only.
+- npm publishing future-proofing: the export ships a
+  manually dispatched Trusted Publishing workflow
+  (`.github/workflows/publish-npm.yml`, OIDC + provenance,
+  no stored token) plus maintainer doc NPM-PUBLISHING.md.
+  One-time Trusted Publisher setup on npmjs.com remains;
+  the local token path stays active until npm retires
+  token-based direct publishing in January 2027.
+- Includes everything in v0.32.0 (superseded before its
+  separate public publish).
+
 ## v0.32.0 — 2026-10-24
 
 - Plugin distribution: three install channels for the same

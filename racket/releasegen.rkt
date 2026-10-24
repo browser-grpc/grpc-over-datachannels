@@ -321,6 +321,85 @@
     (copy-file (build-path "webapp/testdata" proto) dest #t)))
 
 ;; ---------------------------------------------------------------------------
+;; npm trusted publishing (future-proofing). npm retires
+;; token-based direct publish bypasses in January 2027, so the
+;; public export ships a manually dispatched GitHub Actions
+;; workflow that publishes js/ via OIDC (no stored token) once
+;; the package's Trusted Publisher is configured on npmjs.com.
+;; Until then the local token publish in release-push.sh stays
+;; the active path. NPM-PUBLISHING.md documents both.
+;; ---------------------------------------------------------------------------
+
+(make-directory* (build-path out-dir ".github/workflows"))
+(call-with-output-file (build-path out-dir ".github/workflows/publish-npm.yml")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "# Publish the grpc-dc npm package via Trusted Publishing\n"
+      "# (OIDC). Manual dispatch only; see NPM-PUBLISHING.md.\n"
+      "# Requires the Trusted Publisher configured for grpc-dc\n"
+      "# on npmjs.com (this repo + this workflow file).\n"
+      "name: publish-npm\n"
+      "on: workflow_dispatch\n"
+      "permissions:\n"
+      "  contents: read\n"
+      "  id-token: write\n"
+      "jobs:\n"
+      "  publish:\n"
+      "    runs-on: ubuntu-latest\n"
+      "    steps:\n"
+      "      - uses: actions/checkout@v4\n"
+      "      - uses: actions/setup-node@v4\n"
+      "        with:\n"
+      "          node-version: 22\n"
+      "          registry-url: https://registry.npmjs.org\n"
+      "      - run: npm install -g npm@latest\n"
+      "      - working-directory: js\n"
+      "        run: npm publish --provenance --access public\n")
+     out)))
+
+(call-with-output-file (build-path out-dir "NPM-PUBLISHING.md")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "# Publishing grpc-dc to npm (maintainers)\n\n"
+      "Two paths exist. Path 1 is active today; path 2 replaces\n"
+      "it before npm retires token-based direct publishing in\n"
+      "January 2027 (the current granular token also expires\n"
+      "2027-01-22).\n\n"
+      "## Path 1: local token (current)\n\n"
+      "`scripts/release-push.sh` in the private source repo\n"
+      "publishes `js/` from the generated export during a\n"
+      "release, using the maintainer's granular access token\n"
+      "(scope: the `grpc-dc` package only). No action is needed\n"
+      "per release beyond being logged in.\n\n"
+      "## Path 2: Trusted Publishing via GitHub Actions\n\n"
+      "This export ships `.github/workflows/publish-npm.yml`\n"
+      "(manual dispatch only). It publishes `js/` with\n"
+      "`npm publish --provenance` using the workflow's OIDC\n"
+      "identity — no token is stored anywhere.\n\n"
+      "One-time setup on npmjs.com (package owner, passkey\n"
+      "required):\n\n"
+      "1. Open the `grpc-dc` package settings, Trusted Publisher.\n"
+      "2. Add GitHub Actions: repository\n"
+      "   `browser-grpc/grpc-over-datachannels`, workflow\n"
+      "   filename `publish-npm.yml`, no environment.\n"
+      "3. Recommended: set the package Publishing access to\n"
+      "   require two-factor authentication and disallow tokens\n"
+      "   once this path is verified.\n\n"
+      "Per release after setup: publish the GitHub release as\n"
+      "usual, then run Actions > publish-npm > Run workflow.\n"
+      "The version comes from `js/package.json` in the export,\n"
+      "already aligned with the release tag. Verify with\n"
+      "`npm view grpc-dc version`.\n\n"
+      "Fallback if OIDC is unavailable: staged publishing\n"
+      "(`npm stage publish` from `js/`, then approve the staged\n"
+      "package on npmjs.com with a passkey).\n")
+     out)))
+
+;; ---------------------------------------------------------------------------
 ;; Per-language Docker images + interop demo + compose,
 ;; generated from this one table (base image, test command).
 ;; ---------------------------------------------------------------------------
