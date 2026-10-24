@@ -1,5 +1,7 @@
 # gRPC over WebRTC DataChannels
 
+<p align="center"><img src="docs/badger/honey-badger-256.png" width="160" alt="Honey badger mascot — small, fearless, goes anywhere the web goes"></p>
+
 gRPC over a single `RTCDataChannel` — no HTTP/2, no servers to reach:
 many concurrent calls (unary, server-, client-, and bidirectional
 streaming) are multiplexed onto one ordered, reliable data channel

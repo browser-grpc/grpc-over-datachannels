@@ -45,6 +45,12 @@ def main():
            font=font(36), fill=FG)
     d.text((96, 528), "browser-grpc.github.io/grpc-over-datachannels",
            font=font(30, bold=False), fill=ACCENT)
+    try:
+        badger = Image.open("docs/badger/honey-badger-1024.png").convert("RGBA")
+        badger = badger.resize((230, 230), Image.LANCZOS)
+        img.paste(badger, (990, 345), badger)
+    except OSError:
+        pass  # text-only card still valid
     img.save(out)
     print(f"render-social: wrote {out} ({W}x{H})")
 

@@ -3,6 +3,20 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.2 — 2026-10-24
+
+- Honey badger mascot across the project: master artwork
+  plus derived resolutions (1024–16 px) and a multi-size
+  favicon.ico under docs/badger/ (generator:
+  scripts/render-badger.py). Wired into the GitHub social
+  card, the Pages landing page (header image + favicons),
+  the in-browser generator app (favicon set, apple-touch
+  icon, og:image), the repo README, and the org profile.
+  GitHub org/repo avatar upload stays a manual step from
+  docs/badger/honey-badger-512.png (no API for avatars).
+- Includes everything in v0.32.1 (superseded before its
+  separate public publish).
+
 ## v0.32.1 — 2026-10-24
 
 - Browser-examples index is now covered in all three
