@@ -410,7 +410,7 @@
       "    profiles: [\"starter\", \"tunnel\"]\n"
       "  demo-go:\n"
       "    build: { context: ., dockerfile: docker/go.Dockerfile }\n"
-      "    command: sh -c \"go run ./examples/echo_server_stdio & sleep 2; go run ./examples/echo_client_stdio; kill %1\"\n"
+      "    command: sh -c \"cd go && go run ./examples/echo_server_stdio & sleep 2; go run ./examples/echo_client_stdio; kill %1\"\n"
       "    profiles: [\"demo\"]\n"
       "  demo-python:\n"
       "    build: { context: ., dockerfile: docker/python.Dockerfile }\n"
