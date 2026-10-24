@@ -25,6 +25,7 @@
 
 (require "spec.rkt" "pb.rkt" json racket/runtime-path "webrtc-gen.rkt"
          "oracle-spec.rkt" "oracle-gen.rkt" "bdd-gen.rkt" "webgen.rkt" "mux-gen.rkt"
+         "proxy-gen.rkt"
          "runtime-go.rkt" "runtime-js.rkt" "runtime-rust.rkt" "runtime-python.rkt" "runtime-java.rkt" "runtime-csharp.rkt" "runtime-cpp.rkt" "runtime-swift.rkt" "runtime-kotlin.rkt" "runtime-dart.rkt" "runtime-zig.rkt" "runtime-c.rkt" "runtime-lua.rkt" "runtime-ruby.rkt" "runtime-php.rkt" "runtime-scala.rkt")
 
 (define-runtime-path here ".")
@@ -1720,4 +1721,5 @@ BROWSER_SERVER_EOF
   (write-runtime-files "rust/tests" "oracle-gen.rkt" (list (emit-rust-oracle-driver)))
   (write-runtime-files "rust/tests" "bdd-gen.rkt" (list (emit-rust-bdd) (emit-bdd-schemas 'rust)))
   (generate-webrtc)
-  (generate-mux-tests))
+  (generate-mux-tests)
+  (generate-proxy))

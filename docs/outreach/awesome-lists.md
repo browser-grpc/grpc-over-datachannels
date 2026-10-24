@@ -2,7 +2,7 @@
 
 One-line entry (awesome-grpc / awesome-webrtc style):
 
-- [grpc-over-datachannels](https://github.com/browser-grpc/grpc-over-datachannels) — gRPC wire protocol over WebRTC DataChannels: browser clients on native RTCDataChannel plus dependency-free generated runtimes for 16 languages, with an in-browser protoc generator.
+- [grpc-over-datachannels](https://github.com/browser-grpc/grpc-over-datachannels) — gRPC wire protocol over WebRTC DataChannels: browser clients on native RTCDataChannel plus dependency-free generated runtimes for 16 languages, an in-browser protoc generator, protoc plugins via release zip / npm / container, and a proxy bridging browsers to stock HTTP/2 gRPC backends.
 
 Longer blurb (resource pages, newsletters):
 
@@ -16,4 +16,8 @@ Longer blurb (resource pages, newsletters):
 
 Targets: awesome-grpc, awesome-webrtc, awesome-protobuf,
 awesome-wasm (Wasm facades), awesome-typescript (typed JS client).
-Submit only after v0.29.1; link the release, not master.
+Submission checklist (in a publish window, after the latest
+release verifies): fork the list, add the one-line entry in
+its alphabetical slot with the list's exact format, open the
+PR from the fork with `gh pr create`, link the latest release
+(not master), and record the PR URL here after submission.

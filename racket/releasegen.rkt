@@ -321,6 +321,25 @@
   (copy-file "docs/badger/favicon.ico"
              (build-path out-dir "docs/favicon.ico") #t))
 
+;; Supported proxy (public): the Node grpc-dc-proxy process
+;; plus its HTTP/2 bridge, with imports rewritten to the
+;; export layout (oracle/bridge.mjs -> proxy/bridge.mjs).
+;; The Rust sidecar spikes stay private (they link external
+;; crates; the export keeps its dependency-free story).
+(make-directory* (build-path out-dir "proxy"))
+(define proxy-process-src (file->string "proxy/grpc-dc-proxy.mjs"))
+(call-with-output-file (build-path out-dir "proxy/grpc-dc-proxy.mjs")
+  #:exists 'replace
+  (lambda (out)
+    (display (regexp-replace* #rx"\\.\\./oracle/bridge\\.mjs"
+                              proxy-process-src "./bridge.mjs")
+             out)))
+(file-or-directory-permissions (build-path out-dir "proxy/grpc-dc-proxy.mjs") #o755)
+(copy-file "oracle/bridge.mjs" (build-path out-dir "proxy/bridge.mjs") #t)
+(copy-file "proxy/README.md" (build-path out-dir "proxy/README.md") #t)
+(copy-file "proxy/proxy_modes.generated.json"
+           (build-path out-dir "proxy/proxy_modes.generated.json") #t)
+
 ;; Guided first-run motion card (Playwright-recorded from the
 ;; live app, encoded with Pillow; docs/first-run.gif in the
 ;; private repo, copied verbatim like the social card).

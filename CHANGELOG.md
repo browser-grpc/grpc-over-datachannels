@@ -3,6 +3,31 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.4 — 2026-10-24
+
+- Proxy surface, mostly generated: racket/proxy-spec.rkt is
+  the single source for proxy modes; proxy-gen stamps it
+  into proxy/proxy_modes.generated.json and proxy/README.md
+  via `make generate`, and proxy.test.mjs pins spec<->code
+  parity in `make test`.
+- smoltcp spike (proxy/tcp-sidecar, Rust): userspace TCP
+  echo between two smoltcp stacks over a virtual Ethernet
+  pair — handshake/data/teardown with zero OS sockets
+  (`cargo test` in the crate), plus a UDP-encapsulated
+  frame binary. Separate crate: dc-webrtc stays zero-dep.
+- HTTP/3 spike (proxy/h3-terminator, Rust/quinn): QUIC
+  endpoint (self-signed) bridging streams to a TCP backend
+  (`cargo test` in the crate). QUIC exists only client<->
+  proxy; the h3 framing layer is the follow-up.
+- The Node grpc-dc-proxy is now in the public export
+  (proxy/ with bridge + generated README + mode table;
+  imports rewritten to the export layout, healthz-verified
+  from the export tree). Rust sidecars stay private.
+- Outreach drafts refreshed for the current feature set;
+  awesome-list submission happens in a publish window.
+- Includes everything in v0.32.3 (superseded before its
+  separate public publish).
+
 ## v0.32.3 — 2026-10-24
 
 - Spike: supported TCP<->DataChannel proxy process

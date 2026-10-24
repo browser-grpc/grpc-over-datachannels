@@ -7,6 +7,7 @@
 
 import assert from "node:assert/strict";
 import http2 from "node:http2";
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import test from "node:test";
 
@@ -69,6 +70,16 @@ function startBackend() {
     );
   });
 }
+
+test("proxy: generated mode table matches implementation", async () => {
+  const spec = JSON.parse(await readFile(new URL("./proxy_modes.generated.json", import.meta.url), "utf8"));
+  const byId = Object.fromEntries(spec.modes.map((m) => [m.id, m]));
+  assert.equal(byId["http2-bridge"]?.status, "shipped");
+  assert.equal(byId["tcp-smoltcp"]?.status, "spike");
+  assert.equal(byId["http3-terminator"]?.status, "spike");
+  const proxySource = await readFile(new URL("./grpc-dc-proxy.mjs", import.meta.url), "utf8");
+  assert.match(proxySource, /serveDcToHttp2/, "shipped http2-bridge mode must use the bridge");
+});
 
 test("proxy: grpc-dc client -> grpc-dc-proxy -> HTTP/2 backend", { timeout: 120000 }, async (t) => {
   const backend = await startBackend();
