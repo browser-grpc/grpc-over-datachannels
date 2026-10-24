@@ -3,6 +3,23 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.3 — 2026-10-24
+
+- Spike: supported TCP<->DataChannel proxy process
+  (proxy/grpc-dc-proxy.mjs), generalizing the oracle test
+  bridge. grpc-dc clients (browser or native) signal over
+  WebSocket and call a stock HTTP/2 gRPC backend with no
+  backend changes; compression stays terminated in the
+  proxy. Proven by proxy/proxy.test.mjs (`make test-proxy`,
+  now in `make test`): generated JS client over a real
+  DataChannel through the proxy — unary, server-streaming,
+  and trailers-only INVALID_ARGUMENT all pass. Follow-ups
+  (not in this spike): smoltcp TCP-listener sidecar mode,
+  HTTP/3 termination, generated per-language proxy
+  examples, public export of the proxy.
+- Includes everything in v0.32.2 (superseded before its
+  separate public publish).
+
 ## v0.32.2 — 2026-10-24
 
 - Honey badger mascot across the project: master artwork
