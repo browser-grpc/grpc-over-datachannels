@@ -39,6 +39,16 @@ browser-test/echo_dart_wasm.support.js
 /.agents/
 browser-test/echo_lua.wasm
 browser-test/echo_lua_server.wasm
+browser-test/echo.wasm
+browser-test/echo_cpp.wasm
+browser-test/echo_swift.wasm
+browser-test/wasm_exec.js
+browser-test/kotlin_wasm_gen/
+browser-test/scalajs_gen/
+browser-test/wasm_rust_gen/
+browser-test/echo_dart_wasm.wasm
+browser-test/echo_dart_wasm.mjs
+browser-test/echo_dart_wasm.support.js
 wasm/lua/modules.h
 browser-test/echo_cpp.wasm
 browser-test/echo_cpp_server.wasm

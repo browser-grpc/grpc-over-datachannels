@@ -381,6 +381,9 @@ test-browser:
 	cd webrtc/rust && cargo build --example peer_echo
 	cd browser-test && npm test
 
+artifacts: test-wasm test-zig-wasm-browser test-cpp-wasm-browser test-lua-wasm-browser test-kotlin-wasm-browser test-dart-wasm-browser test-swift-wasm-browser test-scalajs-browser
+	ls -la browser-test/echo.wasm browser-test/echo_zig.wasm browser-test/echo_cpp.wasm browser-test/echo_swift.wasm browser-test/echo_lua.wasm browser-test/echo_dart_wasm.wasm browser-test/echo_dart_wasm.mjs browser-test/echo_dart_wasm.support.js browser-test/wasm_exec.js
+
 ifneq (,$(wildcard $(HOME)/.local/wasm-bindgen/wasm-bindgen))
 WASM_BINDGEN ?= $(HOME)/.local/wasm-bindgen/wasm-bindgen
 else
