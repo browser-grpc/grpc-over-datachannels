@@ -1,10 +1,37 @@
 <!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
-<title>grpc-over-datachannels v0.25.2</title>
-<h1>grpc-over-datachannels</h1>
-<p>gRPC over WebRTC DataChannels for many languages — version v0.25.2.</p>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gRPC in the Browser over WebRTC DataChannels | grpc-over-datachannels</title>
+<meta name="description" content="Run gRPC in the browser and natively over WebRTC DataChannels. Generate dependency-free gRPC clients and servers for JavaScript, TypeScript-ready JS, Go, Rust, Python and 11 more languages from .proto schemas — no grpc-web proxy, no external gRPC runtime. Live in-browser protoc generator plus native and Wasm clients.">
+<link rel="canonical" href="https://browser-grpc.github.io/grpc-over-datachannels/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="grpc-over-datachannels">
+<meta property="og:title" content="gRPC in the Browser over WebRTC DataChannels | grpc-over-datachannels">
+<meta property="og:description" content="Run gRPC in the browser and natively over WebRTC DataChannels. Generate dependency-free gRPC clients and servers for JavaScript, TypeScript-ready JS, Go, Rust, Python and 11 more languages from .proto schemas — no grpc-web proxy, no external gRPC runtime. Live in-browser protoc generator plus native and Wasm clients.">
+<meta property="og:url" content="https://browser-grpc.github.io/grpc-over-datachannels/">
+<meta property="og:image" content="https://browser-grpc.github.io/grpc-over-datachannels/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="gRPC in the Browser over WebRTC DataChannels | grpc-over-datachannels">
+<meta name="twitter:description" content="Run gRPC in the browser and natively over WebRTC DataChannels. Generate dependency-free gRPC clients and servers for JavaScript, TypeScript-ready JS, Go, Rust, Python and 11 more languages from .proto schemas — no grpc-web proxy, no external gRPC runtime. Live in-browser protoc generator plus native and Wasm clients.">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"grpc-over-datachannels","description":"Run gRPC in the browser and natively over WebRTC DataChannels. Generate dependency-free gRPC clients and servers for JavaScript, TypeScript-ready JS, Go, Rust, Python and 11 more languages from .proto schemas — no grpc-web proxy, no external gRPC runtime. Live in-browser protoc generator plus native and Wasm clients.","codeRepository":"https://github.com/browser-grpc/grpc-over-datachannels","url":"https://browser-grpc.github.io/grpc-over-datachannels/","programmingLanguage":["JavaScript","Go","Rust","Python","Java","C#","C++","Swift","Kotlin","Dart","Zig","Lua","Ruby","PHP","Scala","C"],"license":"https://www.apache.org/licenses/LICENSE-2.0","applicationCategory":"DeveloperApplication","operatingSystem":"Any (browser via WebRTC/Wasm, plus native)"}
+</script>
+</head>
+<body>
+<h1>gRPC over WebRTC DataChannels</h1>
+<p><img src="first-run.gif" alt="Guided first run: generate a gRPC client and call it in the browser" width="720"></p>
+<p>grpc-over-datachannels v0.29.1 — gRPC clients and servers that run <strong>in the browser</strong> over native WebRTC DataChannels, and natively in 16 languages, from the same .proto schemas. No grpc-web proxy and no external gRPC runtime: every runtime is generated and dependency-free.</p>
 <ul>
-<li><a href="app/">In-browser stub generator + BDD demo</a></li>
+<li><a href="app/">In-browser protoc generator + live demo</a> — paste a .proto, get stubs for every language</li>
+<li><a href="app/#schema=echo&lang=js">JavaScript/TypeScript browser client example</a></li>
+<li><a href="app/#schema=echo&lang=go">Go generated client</a> · <a href="app/#schema=echo&lang=python">Python generated messages</a> · <a href="app/#schema=shop&lang=js">A larger schema (shop) in JavaScript</a></li>
+<li><a href="gallery.html">Echo server in every language</a> (<a href="gallery.md">Markdown</a>)</li>
 <li><a href="BDD.md">Behavior specification (BDD)</a></li>
-<li><a href="https://github.com/browser-grpc/grpc-over-datachannels">Source export on GitHub</a></li>
+<li><a href="https://github.com/browser-grpc/grpc-over-datachannels">Source, runtimes and examples on GitHub</a></li>
 </ul>
+<h2>Why DataChannels?</h2>
+<p>WebRTC DataChannels give browsers an encrypted, ordered or lossy/unordered, bidirectional message pipe to any peer — including native processes. This project speaks the gRPC wire protocol directly over that pipe (HTTP/2 framing replaced by DataChannel messages), so a browser tab can call a Rust, Go, Python or Node service peer-to-peer, behind NATs via ICE/STUN/TURN, without a translating proxy.</p>
+</body>
+</html>

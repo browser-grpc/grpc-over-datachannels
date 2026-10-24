@@ -5,8 +5,8 @@ import 'bdd_schemas.dart';
 import 'test_util.dart';
 
 /// BDD schema scenarios: golden protoc bytes, generated classes.
-/// The case table (bdd_schemas.dart) is stamped from
-/// racket/bdd-schemas.rkt: protoc's own --encode output over
+/// The case table (bdd_schemas.dart) is generated from
+/// the schema scenarios: protoc's own --encode output over
 /// webapp/testdata/{kitchen,features}.proto. Each case decodes
 /// with the generated classes and re-encodes byte-identically.
 /// The generated-classes harness mirrors test_pb_messages.dart.

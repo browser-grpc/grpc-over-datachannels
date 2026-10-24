@@ -2,7 +2,7 @@
 // Oracle tests: the official grpc-java implementation, bridged over
 // TCP<->DataChannel by ../../oracle/bridge.mjs, must agree with the
 // PHP runtime on every case of the generated scenario table
-// (oracle_scenarios_generated.php, stamped from racket/oracle-spec.rkt).
+// (oracle_scenarios_generated.php, generated from the oracle scenarios).
 // Skips when the Java oracle or Node bridge are unavailable
 // (Dockerfile.ci provides both). Mirrors ruby/tests/test_oracle.rb.
 

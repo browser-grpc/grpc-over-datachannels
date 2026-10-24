@@ -18,7 +18,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, firefox } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 import { Peer } from "../webrtc/js/peer.js";
 import { fakeTurnServer, USER, PASS } from "../webrtc/js/test/fake_turn.js";
@@ -55,6 +55,7 @@ async function runBrowser(name, engine, turn) {
       "media.peerconnection.ice.obfuscate_host_addresses": false,
     };
   }
+  if (name === "webkit") delete launchOptions.args; // Chromium-only flags; MiniBrowser rejects them
   const browser = await engine.launch(launchOptions);
   try {
     const pageUrl = `http://127.0.0.1:${server.address().port}/browser-test/turn_page.html?turn=${encodeURIComponent(turn.server)}`;
@@ -98,6 +99,7 @@ try {
   const which = process.argv[2] ?? "chromium";
   if (which === "chromium" || which === "all") await runBrowser("chromium", chromium, turn);
   if (which === "firefox" || which === "all") await runBrowser("firefox", firefox, turn);
+  if (which === "webkit" || which === "all") await runBrowser("webkit", webkit, turn);
 } finally {
   turn.close();
   server.close();

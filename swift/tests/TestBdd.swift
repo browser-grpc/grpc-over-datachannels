@@ -5,7 +5,7 @@ private func Req(_ message: String, _ count: Int32) -> EchoRequest {
 }
 
 /// BDD: interprets the generated behavior scenarios (BddScenarios,
-/// stamped from racket/bdd-spec.rkt; prose in BDD.md) against a
+/// generated from the BDD specification; prose in BDD.md) against a
 /// loopback client+server — the executable examples.
 func TestBdd() throws {
     let (a, b) = MemoryTransport.Pair()

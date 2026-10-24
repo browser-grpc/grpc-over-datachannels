@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, firefox } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript" };
@@ -40,7 +40,7 @@ execFileSync("go", ["build", "-o", harness, "./cmd/grpc_webrtc_client"], {
   cwd: join(ROOT, "go"),
   stdio: "inherit",
 });
-const signalBase = join(dir, "signal");
+let signalBase = join(dir, "signal");
 
 async function waitForFile(path, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
@@ -72,6 +72,7 @@ async function runBrowser(name, engine) {
       "media.peerconnection.ice.obfuscate_host_addresses": false,
     };
   }
+  if (name === "webkit") delete launchOptions.args; // Chromium-only flags; MiniBrowser rejects them
   const browser = await engine.launch(launchOptions);
   try {
     const page = await browser.newPage();
@@ -104,8 +105,14 @@ async function runBrowser(name, engine) {
 }
 
 const which = process.argv[2] ?? "chromium";
-if (which === "chromium" || which === "all") await runBrowser("chromium", chromium);
-if (which === "firefox" || which === "all") await runBrowser("firefox", firefox);
+// Fresh signal base per engine: the harness watches <base>.offer
+// and a previous engine's .answer would otherwise be consumed
+// as this engine's answer (silent cross-engine hang in "all").
+const enginesToRun = which === "all" ? ["chromium", "firefox", "webkit"] : [which];
+for (const [i, engineName] of enginesToRun.entries()) {
+  signalBase = join(dir, `signal-${i}`);
+  await runBrowser(engineName, { chromium, firefox, webkit }[engineName]);
+}
 
 server.close();
 console.log("browser-as-server test passed");

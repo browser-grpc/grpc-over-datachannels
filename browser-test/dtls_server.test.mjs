@@ -20,7 +20,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, firefox } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 import { Peer } from "../webrtc/js/peer.js";
 import { Channel } from "../js/index.js";
@@ -189,6 +189,7 @@ async function runBrowser(name, engine) {
       "media.peerconnection.ice.obfuscate_host_addresses": false,
     };
   }
+  if (name === "webkit") delete launchOptions.args; // Chromium-only flags; MiniBrowser rejects them
   const browser = await engine.launch(launchOptions);
   try {
     await runGoLeg(name, browser);
@@ -202,6 +203,7 @@ async function runBrowser(name, engine) {
 const which = process.argv[2] ?? "chromium";
 if (which === "chromium" || which === "all") await runBrowser("chromium", chromium);
 if (which === "firefox" || which === "all") await runBrowser("firefox", firefox);
+if (which === "webkit" || which === "all") await runBrowser("webkit", webkit);
 
 server.close();
 console.log("dtls server test passed");

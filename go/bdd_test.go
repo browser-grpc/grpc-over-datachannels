@@ -12,8 +12,8 @@ import (
 )
 
 // BDD: interprets the generated behavior scenarios
-// (bdd_scenarios_generated_test.go, stamped from
-// racket/bdd-spec.rkt; prose in BDD.md) against a loopback
+// (bdd_scenarios_generated_test.go, generated from
+// the BDD specification; prose in BDD.md) against a loopback
 // client+server — the executable examples.
 
 func bddSetup(t *testing.T) (*grpcdc.Channel, *echo.EchoClient) {

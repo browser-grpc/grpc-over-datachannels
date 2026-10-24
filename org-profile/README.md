@@ -1,8 +1,6 @@
 # browser-grpc
 
-gRPC over WebRTC DataChannels for 16 languages: dependency-free generated runtimes, a
-reimplemented WebRTC stack, and native + browser (Wasm)
-clients and servers.
+**gRPC in the browser, over WebRTC DataChannels.** Dependency-free gRPC clients and servers for 16 languages that run in browser tabs (native RTCDataChannel, plus Wasm clients) and natively — no grpc-web proxy, no external gRPC runtime.
 
 Start in 60 seconds, no toolchain install:
 

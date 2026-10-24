@@ -8,7 +8,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, firefox } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 import { Peer } from "../webrtc/js/peer.js";
 import { Server, StatusError } from "../js/index.js";
@@ -38,7 +38,7 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const pageUrl = `http://127.0.0.1:${server.address().port}/browser-test/wasm_zig_page.html`;
 
-// Canonical Echo semantics (racket/bdd-spec.rkt): "fail" is
+// Canonical Echo semantics (the BDD specification): "fail" is
 // rejected with INVALID_ARGUMENT in every method, delayMs
 // delays unary, x-echo metadata is reflected as " [meta]".
 const handlers = {
@@ -87,6 +87,7 @@ async function runBrowser(name, engine) {
       "media.peerconnection.ice.obfuscate_host_addresses": false,
     };
   }
+  if (name === "webkit") delete launchOptions.args; // Chromium-only flags; MiniBrowser rejects them
   const browser = await engine.launch(launchOptions);
   try {
     const grpcServer = new Server();
@@ -129,6 +130,7 @@ async function runBrowser(name, engine) {
 const which = process.argv[2] ?? "chromium";
 if (which === "chromium" || which === "all") await runBrowser("chromium", chromium);
 if (which === "firefox" || which === "all") await runBrowser("firefox", firefox);
+if (which === "webkit" || (which === "all" && process.env.GRPC_DC_WEBKIT)) await runBrowser("webkit", webkit);
 
 server.close();
 console.log("zig wasm browser test passed");

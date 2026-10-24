@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 /** BDD: interprets the generated behavior scenarios (BddScenarios,
- * stamped from racket/bdd-spec.rkt; prose in BDD.md) against a
+ * generated from the BDD specification; prose in BDD.md) against a
  * loopback client+server — the executable examples. */
 public final class TestBdd {
     private TestBdd() {}

@@ -14,7 +14,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, firefox } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 import { Peer } from "../webrtc/js/peer.js";
 
@@ -90,6 +90,7 @@ async function runPair(name, engine, [clientLabel, clientPage, serverLabel, serv
       "media.peerconnection.ice.obfuscate_host_addresses": false,
     };
   }
+  if (name === "webkit") delete launchOptions.args; // Chromium-only flags; MiniBrowser rejects them
   const browser = await engine.launch(launchOptions);
   let clientPeer;
   let serverPeer;
@@ -151,6 +152,7 @@ const which = process.argv[2] ?? "chromium";
 for (const pair of PAIRS) {
   if (which === "chromium" || which === "all") await runPair("chromium", chromium, pair);
   if (which === "firefox" || which === "all") await runPair("firefox", firefox, pair);
+  if (which === "webkit" || (which === "all" && process.env.GRPC_DC_WEBKIT)) await runPair("webkit", webkit, pair);
 }
 console.log("wasm browser matrix test passed");
 server.close();

@@ -1,7 +1,7 @@
 """BDD schema scenarios: golden protoc bytes, generated classes.
 
 The scenario table (tests/bdd_schemas_generated.py) is stamped
-from racket/bdd-schemas.rkt: protoc's own --encode output over
+from the schema scenarios: protoc's own --encode output over
 webapp/testdata/{kitchen,features}.proto. Each case decodes the
 bytes with the generated classes and re-encodes; the result
 must be byte-identical to the expected bytes.

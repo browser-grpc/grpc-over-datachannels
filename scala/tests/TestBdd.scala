@@ -5,7 +5,7 @@ import grpcdc.{Channel, MemoryTransport, Server, StatusException}
 import java.io.EOFException
 
 /** BDD: interprets the generated behavior scenarios (BddScenarios,
- * stamped from racket/bdd-spec.rkt; prose in BDD.md) against a
+ * generated from the BDD specification; prose in BDD.md) against a
  * loopback client+server — the executable examples. */
 def testBdd(): Unit = {
   val (a, b) = MemoryTransport.pair()

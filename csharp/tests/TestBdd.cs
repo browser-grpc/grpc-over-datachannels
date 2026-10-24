@@ -4,7 +4,7 @@ using Grpcdc;
 namespace Tests;
 
 /// <summary>BDD: interprets the generated behavior scenarios
-/// (BddScenarios, stamped from racket/bdd-spec.rkt; prose in BDD.md)
+/// (BddScenarios, generated from the BDD specification; prose in BDD.md)
 /// against a loopback client+server — the executable examples.</summary>
 public static class TestBdd
 {

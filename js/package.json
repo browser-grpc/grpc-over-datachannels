@@ -1,14 +1,41 @@
 {
   "name": "grpc-dc",
-  "version": "0.1.0",
-  "description": "gRPC over WebRTC DataChannels — JavaScript runtime (protocol generated from a Racket metaprogram)",
+  "version": "0.29.1",
+  "description": "gRPC in the browser over WebRTC DataChannels: dependency-free generated gRPC clients & servers for JavaScript — no grpc-web proxy, no external runtime",
+  "keywords": [
+    "grpc",
+    "grpc-web",
+    "webrtc",
+    "datachannel",
+    "rtcdatachannel",
+    "protobuf",
+    "protoc",
+    "wasm",
+    "browser",
+    "peer-to-peer"
+  ],
+  "homepage": "https://browser-grpc.github.io/grpc-over-datachannels/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/browser-grpc/grpc-over-datachannels.git"
+  },
   "type": "module",
   "main": "index.js",
+  "types": "index.d.ts",
   "exports": {
-    ".": "./index.js",
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
     "./wire_gen.js": "./wire_gen.js",
     "./webrtc_direct": "./src/webrtc_direct.js"
   },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "wire_gen.js",
+    "src"
+  ],
   "scripts": {
     "test": "node --test test/*.test.js"
   },

@@ -13,7 +13,7 @@ local EchoResponse = messages.EchoResponse
 local EndOfStream = statusModule.EndOfStream
 
 --- BDD: interprets the generated behavior scenarios (bdd_scenarios.lua,
---- stamped from racket/bdd-spec.rkt; prose in BDD.md) against a
+--- generated from the BDD specification; prose in BDD.md) against a
 --- loopback client+server. These scenarios are the executable
 --- examples, so the documentation cannot drift from the behavior.
 local function testBdd()

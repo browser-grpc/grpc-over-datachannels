@@ -1,10 +1,39 @@
-# grpc-over-datachannels
+# gRPC over WebRTC DataChannels — in the browser and natively
 
-gRPC over WebRTC DataChannels for many languages: dependency-free
-generated runtimes and Echo stubs, a reimplemented WebRTC stack,
-and native + browser (Wasm) clients and servers.
+[![Release](https://img.shields.io/github/v/release/browser-grpc/grpc-over-datachannels?label=release)](https://github.com/browser-grpc/grpc-over-datachannels/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Live generator](https://img.shields.io/badge/live%20generator-browser--grpc.github.io-brightgreen)](https://browser-grpc.github.io/grpc-over-datachannels/app/)
+[![npm](https://img.shields.io/npm/v/grpc-dc?label=npm%20grpc-dc)](https://www.npmjs.com/package/grpc-dc)
 
-This repository is a generated public export (version v0.25.2)
+![gRPC in the browser over WebRTC DataChannels](docs/social-preview.png)
+
+![Guided first run: generate a client and call it, entirely in the browser](docs/first-run.gif)
+
+**New here? Start with [QUICKSTART.md](QUICKSTART.md)** — your
+first browser RPC in about five lines, a Docker client/server
+pair, and stubs for your own `.proto`. Or open the
+[live generator](https://browser-grpc.github.io/grpc-over-datachannels/app/)
+and press **Run your first RPC**.
+
+**Run gRPC in the browser.** grpc-over-datachannels speaks the
+gRPC wire protocol directly over WebRTC DataChannels, so a
+browser tab can call native services peer-to-peer — no grpc-web
+proxy, no translating gateway, no external gRPC runtime.
+Generate dependency-free gRPC clients and servers for
+JavaScript (browser + Node), Go, Rust, Python, and 12 more
+languages from the same `.proto` schemas. Browser clients use
+the native `RTCDataChannel`; other languages also run in the
+browser as Wasm. Every runtime is generated and dependency-free,
+on a reimplemented WebRTC stack (ICE/DTLS/SCTP) with native and
+browser clients and servers.
+
+Try the [live in-browser generator](https://browser-grpc.github.io/grpc-over-datachannels/app/):
+paste a `.proto`, get protoc stubs for every language. Keywords:
+`grpc`, `grpc-web alternative`, `webrtc`, `datachannel`,
+`rtcdatachannel`, `protobuf`, `protoc plugin`, `wasm`,
+`browser rpc`, `peer-to-peer`.
+
+This repository is a generated public export (version v0.29.1)
 of the grpc-over-datachannels project. Generated code may be used
 without restriction (see GENERATED-CODE-LICENSE.md); everything
 else is Apache-2.0 (see LICENSE).
@@ -13,22 +42,22 @@ else is Apache-2.0 (see LICENSE).
 
 | Language | Runtime + stubs |
 |---|---|
-| C | [`c/`](c/) |
-| C++ | [`cpp/`](cpp/) |
-| C# | [`csharp/`](csharp/) |
-| Dart | [`dart/`](dart/) |
-| Go | [`go/`](go/) |
-| Java | [`java/`](java/) |
-| JavaScript | [`js/`](js/) |
-| Kotlin | [`kotlin/`](kotlin/) |
-| Lua | [`lua/`](lua/) |
-| PHP | [`php/`](php/) |
-| Python | [`python/`](python/) |
-| Ruby | [`ruby/`](ruby/) |
-| Rust | [`rust/`](rust/) |
-| Scala | [`scala/`](scala/) |
-| Swift | [`swift/`](swift/) |
-| Zig | [`zig/`](zig/) |
+| C | [`c/`](c/) · [readme](c/README.md) · [gallery](docs/gallery.html#c) |
+| C++ | [`cpp/`](cpp/) · [readme](cpp/README.md) · [gallery](docs/gallery.html#cpp) |
+| C# | [`csharp/`](csharp/) · [readme](csharp/README.md) · [gallery](docs/gallery.html#csharp) |
+| Dart | [`dart/`](dart/) · [readme](dart/README.md) · [gallery](docs/gallery.html#dart) |
+| Go | [`go/`](go/) · [readme](go/README.md) · [gallery](docs/gallery.html#go) |
+| Java | [`java/`](java/) · [readme](java/README.md) · [gallery](docs/gallery.html#java) |
+| JavaScript | [`js/`](js/) · [readme](js/README.md) · [gallery](docs/gallery.html#js) |
+| Kotlin | [`kotlin/`](kotlin/) · [readme](kotlin/README.md) · [gallery](docs/gallery.html#kotlin) |
+| Lua | [`lua/`](lua/) · [readme](lua/README.md) · [gallery](docs/gallery.html#lua) |
+| PHP | [`php/`](php/) · [readme](php/README.md) · [gallery](docs/gallery.html#php) |
+| Python | [`python/`](python/) · [readme](python/README.md) · [gallery](docs/gallery.html#python) |
+| Ruby | [`ruby/`](ruby/) · [readme](ruby/README.md) · [gallery](docs/gallery.html#ruby) |
+| Rust | [`rust/`](rust/) · [readme](rust/README.md) · [gallery](docs/gallery.html#rust) |
+| Scala | [`scala/`](scala/) · [readme](scala/README.md) · [gallery](docs/gallery.html#scala) |
+| Swift | [`swift/`](swift/) · [readme](swift/README.md) · [gallery](docs/gallery.html#swift) |
+| Zig | [`zig/`](zig/) · [readme](zig/README.md) · [gallery](docs/gallery.html#zig) |
 | WebRTC stack | [`webrtc/`](webrtc/) |
 | Wasm facades + native Wasm | [`wasm/`](wasm/) |
 
@@ -75,9 +104,13 @@ a schema preloaded: http://localhost:8080/app/#schema=echo&lang=go).
 
 ## Try it in the browser
 
-The [live demo](https://browser-grpc.github.io/grpc-over-datachannels/)
-generates stubs for every language in your browser (protoc schema
-in, generated code out) and runs the BDD example suite.
+The [live generator](https://browser-grpc.github.io/grpc-over-datachannels/app/)
+runs the real protoc plugins in your browser (schema in,
+generated code out, for every language) and the app's Browse tab
+shows generated clients — including a JavaScript browser client
+on the native `RTCDataChannel` — for every bundled schema. No
+server, no install. Deep link to the JavaScript client:
+https://browser-grpc.github.io/grpc-over-datachannels/app/#schema=echo&lang=js
 
 ## Generate with protoc (Node)
 
@@ -145,7 +178,7 @@ table runs natively in every language above and in real browsers.
 
 ## Provenance
 
-Exported from source commit `5cef18b24b758e4867456b5ebf4ae2a9ac790d86` by the project's
+Exported from source commit `7c99e7711bb4bc25821fa8b59f8ed69238d6d943` by the project's
 code generator. This tree contains no build system: each language
 directory carries its runtime, generated stubs, examples, and
 tests in that language's usual layout.

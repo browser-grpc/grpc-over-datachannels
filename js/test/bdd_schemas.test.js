@@ -1,6 +1,6 @@
 // BDD schema scenarios: golden protoc bytes, generated classes.
-// The case table (bdd_schemas.generated.js) is stamped from
-// racket/bdd-schemas.rkt: protoc's own --encode output over
+// The case table (bdd_schemas.generated.js) is generated from
+// the schema scenarios: protoc's own --encode output over
 // webapp/testdata/{kitchen,features}.proto. Each case decodes
 // with the generated classes and re-encodes byte-identically.
 

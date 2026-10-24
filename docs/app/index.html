@@ -1,19 +1,48 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>grpc-dc generator — gRPC over DataChannels, in your browser</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gRPC in the Browser — WebRTC DataChannel protoc Generator | grpc-over-datachannels</title>
+<meta name="description" content="Generate gRPC clients and servers that run in the browser over WebRTC DataChannels. Paste a .proto schema and get dependency-free stubs for JavaScript, Go, Rust, Python and 12 more languages — the real protoc plugins, running entirely in this page. No grpc-web proxy, no server.">
+<link rel="canonical" href="https://browser-grpc.github.io/grpc-over-datachannels/app/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="grpc-over-datachannels">
+<meta property="og:title" content="gRPC in the Browser — WebRTC DataChannel protoc Generator">
+<meta property="og:description" content="In-browser protoc generator for gRPC over WebRTC DataChannels: dependency-free browser and native clients/servers in 16 languages from your .proto schemas.">
+<meta property="og:url" content="https://browser-grpc.github.io/grpc-over-datachannels/app/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="gRPC in the Browser — WebRTC DataChannel protoc Generator">
+<meta name="twitter:description" content="Generate browser and native gRPC clients/servers over WebRTC DataChannels, right in this page. 16 languages, zero dependencies.">
 <link rel="stylesheet" href="style.css">
 <script src="assets/wasm_exec.js"></script>
 <body>
 <header>
-  <h1>grpc-dc stub generator</h1>
+  <h1>gRPC over WebRTC DataChannels — stub generator</h1>
   <p>Upload or edit <code>.proto</code> schemas, pick languages, download a zip of
      generated gRPC-over-DataChannel stubs plus the dependency-free runtimes.
-     Everything — schema compilation included — runs in this page; no server sees your schemas.</p>
+     The generated JavaScript client runs <strong>in the browser</strong> on the native
+     <code>RTCDataChannel</code>; other languages run natively or in the browser as Wasm.
+     Everything — schema compilation included — runs in this page; no server sees your schemas,
+     and there is no grpc-web proxy anywhere in the path.</p>
   <nav class="view-nav">
     <button id="nav-generator" type="button" class="view-btn active">Generator</button>
     <button id="nav-browse" type="button" class="view-btn">Browse generated code</button>
   </nav>
 </header>
+<section class="first-run">
+  <h2>New here? Run your first RPC</h2>
+  <p>One click: this page generates the Echo client from the bundled
+     schema, serves it in-page over a loopback DataChannel pair (the
+     same transport a real <code>RTCDataChannel</code> plugs into), and
+     runs unary + streaming calls. No server, nothing leaves the tab.</p>
+  <button id="first-run" type="button">Run your first RPC</button>
+  <span id="first-run-status" class="first-run-status">Takes a few seconds the first time.</span>
+  <pre id="first-run-code" class="first-run-code"></pre>
+  <pre id="first-run-out" class="first-run-out"></pre>
+  <p class="first-run-note">Next step: replace the loopback pair with two
+     <code>RTCPeerConnection</code>s (or a native peer) — <code>Channel</code>
+     and the generated client do not change. See
+     <a href="https://github.com/browser-grpc/grpc-over-datachannels/blob/main/QUICKSTART.md">QUICKSTART</a>.</p>
+</section>
 <main id="generator-view">
   <section class="pane files-pane">
     <div class="toolbar">

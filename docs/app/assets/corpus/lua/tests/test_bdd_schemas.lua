@@ -2,8 +2,8 @@ local schemas = require("bdd_schemas")
 local util = require("test_util")
 
 --- BDD schema scenarios: golden protoc bytes, generated classes.
---- The case table (bdd_schemas.lua) is stamped from
---- racket/bdd-schemas.rkt: protoc's own --encode output over
+--- The case table (bdd_schemas.lua) is generated from
+--- the schema scenarios: protoc's own --encode output over
 --- webapp/testdata/{kitchen,features}.proto. Each case decodes
 --- with the generated classes and re-encodes byte-identically.
 --- The generated-classes harness mirrors test_pb_messages.lua.

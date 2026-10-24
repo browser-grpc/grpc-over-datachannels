@@ -1,6 +1,6 @@
 // grpc-dc: gRPC over WebRTC DataChannels (JavaScript runtime).
 // Wire tables in wire_gen.js and the protoc plugin that generates service
-// stubs both come from the Racket metaprogram in ../racket.
+// stubs are produced by the grpc-dc code generator.
 
 export {
   FrameType,
