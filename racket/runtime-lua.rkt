@@ -27,7 +27,7 @@ local Status = {}
 Status.__index = Status
 
 function Status.new(code, message)
-  return setmetatable({ code = code, message = message or "" }, Status)
+  return setmetatable({ code = code, message = message or "", trailers = {} }, Status)
 end
 
 function Status.ok()
@@ -431,14 +431,24 @@ function Codec.parseTimeout(text)
 end
 
 function Codec.statusFrame(frameType, streamId, status)
-  local body = json.encode({ code = status.code, message = status.message })
+  local fields = { code = status.code, message = status.message }
+  if status.trailers ~= nil and next(status.trailers) ~= nil then
+    fields.metadata = status.trailers
+  end
+  local body = json.encode(fields)
   return Codec.encodeFrame(frameType, streamId, body)
 end
 
 function Codec.parseStatus(payload)
   local ok, root = pcall(json.decode, payload)
   if ok and type(root) == "table" and type(root.code) == "number" then
-    return Status.new(math.tointeger(root.code) or 0, tostring(root.message or ""))
+    local status = Status.new(math.tointeger(root.code) or 0, tostring(root.message or ""))
+    if type(root.metadata) == "table" then
+      for k, v in pairs(root.metadata) do
+        status.trailers[tostring(k)] = tostring(v)
+      end
+    end
+    return status
   end
   return Status.new(wire.CODE_UNKNOWN, "malformed trailers")
 end
@@ -522,7 +532,17 @@ end
 
 --- Per-call context: metadata sent in HEADERS, plus deadline.
 local function newCallContext(metadata)
-  local ctx = { metadata = metadata }
+  local ctx = { metadata = metadata, responseHeaders = {}, responseTrailers = {} }
+  --- Record response initial metadata (sent lazily, before
+  --- the first response message).
+  function ctx:setHeaders(md)
+    for k, v in pairs(md) do self.responseHeaders[k] = v end
+  end
+  --- Record response trailing metadata (rides the terminal
+  --- status frame).
+  function ctx:setTrailers(md)
+    for k, v in pairs(md) do self.responseTrailers[k] = v end
+  end
   local remaining = Codec.parseTimeout(metadata ~= nil and metadata["grpc-timeout"] or nil)
   local now = nowSeconds()
   if remaining ~= nil and now ~= nil then
@@ -545,18 +565,39 @@ local ResponseSink = {}
 ResponseSink.__index = ResponseSink
 
 function ResponseSink.new(endpoint, streamId)
-  return setmetatable({ endpoint = endpoint, streamId = streamId }, ResponseSink)
+  return setmetatable({
+    endpoint = endpoint, streamId = streamId,
+    respHeaders = {}, respTrailers = {}, headersSent = false,
+  }, ResponseSink)
 end
 
 function ResponseSink:send(payload)
+  self:flushHeaders()
   self.endpoint:sendFrame(Codec.encodeFrame(wire.FRAME_DATA, self.streamId, payload))
 end
 
-function ResponseSink:sendHeaders()
-  self.endpoint:sendFrame(Codec.headersFrame(self.streamId, nil, nil))
+function ResponseSink:flushHeaders()
+  if not self.headersSent then
+    self.headersSent = true
+    self:sendHeaders(self.respHeaders)
+  end
+end
+
+function ResponseSink:sendHeaders(metadata)
+  self.headersSent = true
+  self.endpoint:sendFrame(Codec.headersFrame(self.streamId, nil, metadata or self.respHeaders))
 end
 
 function ResponseSink:sendTrailers(status)
+  if next(self.respTrailers) ~= nil then
+    local merged = {}
+    for k, v in pairs(self.respTrailers) do merged[k] = v end
+    if status.trailers ~= nil then
+      for k, v in pairs(status.trailers) do merged[k] = v end
+    end
+    status = Status.new(status.code, status.message)
+    status.trailers = merged
+  end
   self.endpoint:sendFrame(Codec.statusFrame(wire.FRAME_TRAILERS, self.streamId, status))
 end
 
@@ -705,18 +746,22 @@ function Endpoint:onHeaders(streamId, payload)
   local input = StreamInput.new()
   self.streams[streamId] = input
   local sink = ResponseSink.new(self, streamId)
-  local okSend = pcall(function() sink:sendHeaders() end)
-  if not okSend then
-    self:closeStream(streamId)
-    return
-  end
+  -- No eager HEADERS: initial metadata flushes lazily via the
+  -- sink (first DATA, or below on a DATA-less success) so
+  -- handlers can setHeaders first. Errors end trailers-only,
+  -- as gRPC allows.
   local ctx = newCallContext(headers.metadata)
+  sink.respHeaders = ctx.responseHeaders
+  sink.respTrailers = ctx.responseTrailers
   local callOk, result = pcall(self.dispatcher, ctx, headers, input, sink)
   local status
   if callOk then
     status = result or Status.ok()
   else
     status = statusModule.toStatus(result)
+  end
+  if status:isOk() then
+    pcall(function() sink:flushHeaders() end)
   end
   pcall(function() sink:sendTrailers(status) end)
   self:closeStream(streamId)
@@ -752,6 +797,7 @@ function ClientStream.new(endpoint, streamId, input)
     streamId = streamId,
     input = input,
     headers = nil,
+    trailers = nil,
     traceCtx = nil,
     tracePath = nil,
     traceEnded = false,
@@ -812,6 +858,7 @@ function ClientStream:recv(resp)
       return
     elseif event.kind == "trailers" then
       local status = event.status
+      if status ~= nil then self.trailers = status.trailers end
       self:endTrace(wire.statusName(status ~= nil and status.code or wire.CODE_OK))
       if status ~= nil and status.code ~= wire.CODE_OK then
         raise(status)
@@ -819,6 +866,7 @@ function ClientStream:recv(resp)
       error(EndOfStream, 0)
     elseif event.kind == "rst" then
       local status = event.status or Status.new(wire.CODE_UNAVAILABLE, "stream reset")
+      self.trailers = status.trailers
       self:endTrace(wire.statusName(status.code))
       raise(status)
     end

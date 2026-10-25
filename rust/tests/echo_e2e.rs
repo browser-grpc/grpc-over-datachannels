@@ -12,8 +12,8 @@ mod stub;
 
 use futures_util::{StreamExt, TryStreamExt};
 use grpc_dc::{
-    loopback_pair, CallCtx, Channel, Code, DcTransport, Message, RequestStream, ResponseStream,
-    Server, Status,
+    loopback_pair, CallCtx, Channel, Code, DcTransport, Message, Metadata, RequestStream,
+    ResponseStream, Server, Status,
 };
 use std::sync::Arc;
 use stub::{echo_service, Echo, EchoClient};
@@ -27,6 +27,14 @@ impl Echo for EchoService {
             return Err(Status::invalid_argument("asked to fail"));
         }
         let suffix = ctx.metadata.get("x-echo").map(|v| format!(" [{v}]")).unwrap_or_default();
+        if let Some(v) = ctx.metadata.get("x-echo") {
+            let mut h = Metadata::new();
+            h.insert("x-echo-header".into(), v.clone());
+            ctx.set_headers(h);
+            let mut t = Metadata::new();
+            t.insert("x-echo-trailer".into(), v.clone());
+            ctx.set_trailers(t);
+        }
         Ok(pb::EchoResponse { message: format!("echo: {}{}", req.message, suffix), index: 0 , ..Default::default() })
     }
 
@@ -90,6 +98,29 @@ fn protobuf_golden_bytes() {
     assert_eq!(encoded, vec![0x0a, 0x02, b'h', b'i', 0x10, 0x02]);
     let decoded = pb::EchoRequest::decode(&encoded).unwrap();
     assert_eq!(decoded, req("hi", 2));
+}
+
+#[tokio::test]
+async fn unary_trailers_round_trip() {
+    let client = setup().await;
+    let headers = Arc::new(std::sync::Mutex::new(Metadata::new()));
+    let trailers = Arc::new(std::sync::Mutex::new(Metadata::new()));
+    let mut md = Metadata::new();
+    md.insert("x-echo".into(), "meta".into());
+    let options = grpc_dc::CallOptions::new()
+        .metadata(md)
+        .capture_headers(headers.clone())
+        .capture_trailers(trailers.clone());
+    let resp = client.unary_with_options(req("hello", 0), options).await.unwrap();
+    assert_eq!(resp.message, "echo: hello [meta]");
+    assert_eq!(
+        headers.lock().unwrap().get("x-echo-header").map(|v| v.as_str()),
+        Some("meta")
+    );
+    assert_eq!(
+        trailers.lock().unwrap().get("x-echo-trailer").map(|v| v.as_str()),
+        Some("meta")
+    );
 }
 
 #[tokio::test]

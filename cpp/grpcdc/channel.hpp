@@ -41,6 +41,7 @@ class Channel {
 
     std::uint32_t stream_id() const { return stream_id_; }
     const Codec::Headers& headers() const { return headers_; }
+    const Metadata& trailers() const { return trailers_; }
 
     /// Decode the next response into resp. EndOfStream means the call
     /// completed OK; StatusException reports the trailers status.
@@ -70,6 +71,7 @@ class Channel {
             resp.UnmarshalDc(evt.payload);
             return;
           case Endpoint::EventKind::kTrailers:
+            if (evt.status) trailers_ = evt.status->trailers;
             EndTrace(wire::StatusName(evt.status ? evt.status->code() : wire::kCodeOk));
             if (evt.status && evt.status->code() != wire::kCodeOk) {
               throw *evt.status;
@@ -78,6 +80,7 @@ class Channel {
           case Endpoint::EventKind::kRst: {
             StatusException status = evt.status ? *evt.status
                 : StatusException(wire::kCodeUnavailable, "stream reset");
+            trailers_ = status.trailers;
             EndTrace(wire::StatusName(status.code()));
             throw status;
           }
@@ -101,6 +104,7 @@ class Channel {
     std::uint32_t stream_id_;
     std::shared_ptr<Endpoint::StreamInput> input_;
     Codec::Headers headers_;
+    Metadata trailers_;
     std::optional<Tracing::TraceContext> trace_ctx_;
     std::string trace_path_;
     bool trace_ended_ = false;

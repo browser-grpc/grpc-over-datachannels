@@ -4,6 +4,9 @@ package grpcdc
 
 /** A gRPC status (code + message) carried as an exception. */
 class StatusException(val code: Int, message: String) extends Exception(message) {
+  /** Trailing metadata carried by a status frame (never null). */
+  var trailers: Map[String, String] = Map.empty
+
   override def toString: String = s"${Wire.statusName(code)}: $message"
 }
 

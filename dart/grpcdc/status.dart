@@ -114,6 +114,9 @@ class StatusException implements Exception {
   final int code;
   final String message;
 
+  /// Trailing metadata carried by a status frame (never null).
+  Map<String, String> trailers = {};
+
   StatusException(this.code, this.message);
 
   @override

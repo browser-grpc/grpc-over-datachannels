@@ -42,13 +42,15 @@ bridge-only (compression terminates in the proxy/bridge);
 `orca_*` and soak cases are out of scope for this harness.
 
 The grpc-dc frame layer carries response initial and
-trailing metadata (server `setHeaders`/`setTrailers` — JS
-`ctx.setHeaders`, Go `grpcdc.SetHeader`/`SetTrailer`, Python
-`ctx.set_headers`/`set_trailers`; `-bin` values are base64,
-as on the HTTP/2 wire), so `custom_metadata` runs in both
-directions and asserts the full upstream echo (UnaryCall and
-FullDuplexCall). Known gaps: the two cancel cases are
-covered by the Go and Python drivers in Direction A; the JS
-generated client exposes no per-call cancel handle.
-`cacheable_unary` runs only under the Java client (the Go
-client lacks that case upstream).
+trailing metadata in every generated runtime (server-side
+`ctx.setHeaders`/`setTrailers` in JS, `grpcdc.SetHeader`/
+`SetTrailer` in Go, `ctx.set_headers`/`set_trailers` in
+Python, and the equivalent context API in the other 13
+runtimes; `-bin` values are base64, as on the HTTP/2 wire),
+so `custom_metadata` runs in both directions and asserts
+the full upstream echo (UnaryCall and FullDuplexCall). The cancel cases run in Direction A under
+all three drivers (JS via an `AbortSignal` call option).
+`cacheable_unary` runs only in Direction B under the Java
+client: the official servers do not implement
+CacheableUnaryCall at all (upstream the case needs a caching
+proxy), and the Go client lacks the case.

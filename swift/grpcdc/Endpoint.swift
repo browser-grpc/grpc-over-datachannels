@@ -64,11 +64,29 @@ final class Endpoint {
     }
 
     /// Per-call context: metadata sent in HEADERS, plus deadline.
-    struct CallContext {
+    /// A class (not a struct) so handlers can record response
+    /// metadata the endpoint reads after dispatch.
+    final class CallContext {
         var metadata: [String: String] = [:]
+        /// Response initial metadata recorded via SetHeaders.
+        var responseHeaders: [String: String] = [:]
+        /// Response trailing metadata recorded via SetTrailers.
+        var responseTrailers: [String: String] = [:]
+
+        /// Record response initial metadata (sent lazily, before the first response message).
+        func SetHeaders(_ md: [String: String]) {
+            for (k, v) in md { responseHeaders[k] = v }
+        }
+
+        /// Record response trailing metadata (rides the terminal status frame).
+        func SetTrailers(_ md: [String: String]) {
+            for (k, v) in md { responseTrailers[k] = v }
+        }
         /// Monotonic deadline (GrpcTime milliseconds) propagated
         /// via grpc-timeout, when the client set one.
         var deadlineMs: Double? = nil
+
+        init() {}
 
         /// Seconds left before the deadline, or nil when unbounded.
         func TimeRemaining() -> Double? {
@@ -98,16 +116,40 @@ final class Endpoint {
             self.streamId = streamId
         }
 
+        // Wired to the CallContext maps by the endpoint.
+        var respHeaders: [String: String] = [:]
+        var respTrailers: [String: String] = [:]
+        var headersSent = false
+
         func Send(_ payload: [UInt8]) throws {
+            try FlushHeaders()
             try endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, streamId, payload))
         }
 
+        func FlushHeaders() throws {
+            if !headersSent {
+                headersSent = true
+                try SendHeaders(respHeaders)
+            }
+        }
+
         func SendHeaders() throws {
-            try endpoint.SendFrame(Codec.HeadersFrame(streamId, nil, nil))
+            try SendHeaders(respHeaders)
+        }
+
+        func SendHeaders(_ metadata: [String: String]) throws {
+            headersSent = true
+            try endpoint.SendFrame(Codec.HeadersFrame(streamId, nil, metadata))
         }
 
         func SendTrailers(_ status: StatusException) throws {
-            try endpoint.SendFrame(Codec.StatusFrame(Wire.FrameTrailers, streamId, status))
+            var out = status
+            if !respTrailers.isEmpty {
+                var merged = respTrailers
+                for (k, v) in status.trailers { merged[k] = v }
+                out.trailers = merged
+            }
+            try endpoint.SendFrame(Codec.StatusFrame(Wire.FrameTrailers, streamId, out))
         }
     }
 
@@ -358,13 +400,17 @@ final class Endpoint {
     private func DispatchCall(_ streamId: UInt32, _ streamInput: StreamInput,
                               _ headers: Codec.Headers, _ dispatcher: Dispatcher) {
         let sink = ResponseSink(self, streamId)
-        do {
-            try sink.SendHeaders()
-        } catch {
-            CloseStream(streamId)
-            return
+        // No eager HEADERS: initial metadata flushes lazily via
+        // the sink (first DATA, or below on a DATA-less success)
+        // so handlers can SetHeaders first. Errors end
+        // trailers-only, as gRPC allows.
+        let ctx = CallContext.FromMetadata(headers.metadata)
+        sink.respHeaders = ctx.responseHeaders
+        sink.respTrailers = ctx.responseTrailers
+        let status = dispatcher(ctx, headers, streamInput, sink)
+        if status.code == Wire.CodeOk {
+            try? sink.FlushHeaders()
         }
-        let status = dispatcher(CallContext.FromMetadata(headers.metadata), headers, streamInput, sink)
         try? sink.SendTrailers(status)
         CloseStream(streamId)
     }

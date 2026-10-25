@@ -129,7 +129,7 @@ module Grpcdc
 
   # Receives response messages of one call.
   class ClientStream
-    attr_reader :stream_id, :headers, :endpoint
+    attr_reader :stream_id, :headers, :trailers, :endpoint
 
     attr_accessor :deadline, :trace_ctx, :trace_path
 
@@ -138,6 +138,7 @@ module Grpcdc
       @stream_id = stream_id
       @input = stream_input
       @headers = nil
+      @trailers = nil
       @deadline = nil
       @trace_ctx = nil
       @trace_path = nil
@@ -176,11 +177,13 @@ module Grpcdc
         when EVENT_DATA
           return resp.unmarshal_dc(event.payload)
         when EVENT_TRAILERS
+          @trailers = event.status.trailers
           end_trace(Grpcdc.status_name(event.status.code))
           raise event.status unless event.status.code == CODE_OK
 
           raise EOFError, "call completed"
         when EVENT_RST
+          @trailers = event.status.trailers
           end_trace(Grpcdc.status_name(event.status.code))
           raise event.status
         end

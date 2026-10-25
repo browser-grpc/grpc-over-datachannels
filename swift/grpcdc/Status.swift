@@ -7,6 +7,8 @@ struct EndOfStreamError: Error {}
 struct StatusException: Error, CustomStringConvertible {
     let code: Int
     let message: String
+    /// Trailing metadata carried by a status frame (never null).
+    var trailers: [String: String] = [:]
 
     init(_ code: Int, _ message: String) {
         self.code = code

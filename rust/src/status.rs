@@ -12,11 +12,14 @@ pub type Metadata = HashMap<String, String>;
 pub struct Status {
     pub code: Code,
     pub message: String,
+    /// Trailing metadata carried by a status frame (empty when
+    /// the peer sent none).
+    pub trailers: Metadata,
 }
 
 impl Status {
     pub fn new(code: Code, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
+        Self { code, message: message.into(), trailers: Metadata::new() }
     }
     pub fn ok() -> Self {
         Self::new(Code::Ok, "")

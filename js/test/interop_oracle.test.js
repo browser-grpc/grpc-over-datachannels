@@ -6,9 +6,9 @@
 // AbstractInteropTest. Skips when an oracle is not built
 // (Dockerfile.ci builds both).
 //
-// Known gaps: cancel_after_begin / cancel_after_first_response
-// are covered by the Go and Python interop drivers; the JS
-// generated client exposes no per-call cancel handle.
+// Per-call cancellation: the generated client takes an
+// AbortSignal in call options ({signal}); aborting fails the
+// call with CANCELLED, mirroring the upstream cancel cases.
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -255,6 +255,42 @@ async function interopCases(t, client, channel) {
       channel.unary("/grpc.testing.UnimplementedService2/UnimplementedCall", new Empty(), Empty, Empty),
       (e) => e.code === StatusCode.UNIMPLEMENTED,
     );
+  });
+
+  await t.test("cancel_after_begin", async () => {
+    const ac = new AbortController();
+    const responses = await client.streamingOutputCall(
+      new StreamingOutputCallRequest({
+        responseParameters: [new ResponseParameters({ size: 1 })],
+        payload: new Payload({ body: zeros(1) }),
+      }),
+      { signal: ac.signal },
+    );
+    ac.abort();
+    await assert.rejects(
+      async () => {
+        for await (const _resp of responses) {
+          // cancelled before any response is consumed
+        }
+      },
+      (e) => e.code === StatusCode.CANCELLED,
+    );
+  });
+
+  await t.test("cancel_after_first_response", async () => {
+    const ac = new AbortController();
+    async function* reqs() {
+      yield new StreamingOutputCallRequest({
+        responseParameters: [new ResponseParameters({ size: 31415 })],
+        payload: new Payload({ body: zeros(27182) }),
+      });
+    }
+    const responses = await client.fullDuplexCall(reqs(), { signal: ac.signal });
+    const it = responses[Symbol.asyncIterator]();
+    const first = await it.next();
+    assert.equal(first.value.payload.body.length, 31415);
+    ac.abort();
+    await assert.rejects(it.next(), (e) => e.code === StatusCode.CANCELLED);
   });
 
   await t.test("timeout_on_sleeping_server", async () => {

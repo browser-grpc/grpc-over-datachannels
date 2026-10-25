@@ -24,6 +24,8 @@ final class Channel {
         private let endpoint: Endpoint
         private let input: Endpoint.StreamInput
         private(set) var headers: Codec.Headers?
+        /// Trailing metadata of the terminal status (nil until it arrives).
+        private(set) var trailers: [String: String]?
         var deadlineMs: Double? = nil
         var traceCtx: Tracing.TraceContext? = nil
         var tracePath: String? = nil
@@ -71,6 +73,7 @@ final class Channel {
                     resp.UnmarshalDc(event.payload)
                     return
                 case .trailers:
+                    trailers = event.status?.trailers
                     EndTrace(Wire.StatusName(event.status?.code ?? Wire.CodeOk))
                     if let status = event.status, status.code != Wire.CodeOk {
                         throw status
@@ -78,6 +81,7 @@ final class Channel {
                     throw EndOfStreamError()
                 case .rst:
                     let status = event.status ?? StatusException(Wire.CodeUnavailable, "stream reset")
+                    trailers = status.trailers
                     EndTrace(Wire.StatusName(status.code))
                     throw status
                 default:

@@ -20,6 +20,8 @@ class Channel(val endpoint: Endpoint) {
       private val input: Endpoint#StreamInput) {
     var deadlineNanos: Long = -1L
     var headers: Codec.Headers = null
+    /** Trailing metadata of the terminal status (null until it arrives). */
+    var trailers: Map[String, String] = null
     var traceCtx: Tracing.TraceContext = null
     var tracePath: String = null
     private var traceEnded: Boolean = false
@@ -71,6 +73,7 @@ class Channel(val endpoint: Endpoint) {
             return
           case Endpoint.EventKind.TRAILERS =>
             val status = event.status
+            trailers = if (status != null) status.trailers else null
             endTrace(Wire.statusName(if (status != null) status.code else Wire.CODE_OK))
             if (status != null && status.code != Wire.CODE_OK) {
               throw status
@@ -79,6 +82,7 @@ class Channel(val endpoint: Endpoint) {
           case Endpoint.EventKind.RST =>
             val status = if (event.status != null) event.status
                          else StatusException(Wire.CODE_UNAVAILABLE, "stream reset")
+            trailers = status.trailers
             endTrace(Wire.statusName(status.code))
             throw status
           case _ => ()

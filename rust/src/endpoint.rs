@@ -189,6 +189,13 @@ impl Endpoint {
                 };
                 let (tx, rx) = mpsc::unbounded();
                 self.streams.lock().unwrap().insert(frame.stream_id, tx);
+                // No eager HEADERS: initial metadata flushes
+                // lazily via the sink (first DATA, or below on a
+                // DATA-less success) so handlers can set_headers
+                // first. Errors end trailers-only, as gRPC allows.
+                let response_meta: crate::server::SharedMeta = Default::default();
+                let sink = ResponseSink::new(self.clone(), frame.stream_id, response_meta.clone());
+                let flush_sink = sink.clone();
                 let call = ServerCall {
                     ctx: CallCtx {
                         path: path.clone(),
@@ -199,14 +206,11 @@ impl Endpoint {
                             .get("grpc-timeout")
                             .and_then(|t| crate::codec::parse_timeout(t))
                             .map(|d| crate::platform_time::Instant::now() + d),
+                        response_meta: response_meta.clone(),
                     },
                     requests: RequestStream::<Bytes>::from_events(rx),
-                    sink: ResponseSink::new(self.clone(), frame.stream_id),
+                    sink,
                 };
-                // Initial metadata HEADERS precedes any DATA/TRAILERS.
-                let _ = self
-                    .send_frame(Frame::headers(frame.stream_id, &Headers::default()).unwrap())
-                    .await;
                 let trace_ctx = crate::status::trace_start(
                     "server",
                     &path,
@@ -215,7 +219,7 @@ impl Endpoint {
                 let ep = self.clone();
                 let stream_id = frame.stream_id;
                 crate::spawn_task(async move {
-                    let status = match handler(call).await {
+                    let mut status = match handler(call).await {
                         Ok(()) => Status::ok(),
                         Err(s) => s,
                     };
@@ -225,6 +229,15 @@ impl Endpoint {
                         trace_ctx.as_ref(),
                         status.code.name(),
                     );
+                    if status.is_ok() {
+                        let _ = flush_sink.flush_headers().await;
+                    }
+                    {
+                        let meta = response_meta.lock().unwrap();
+                        for (k, v) in &meta.trailers {
+                            status.trailers.entry(k.clone()).or_insert_with(|| v.clone());
+                        }
+                    }
                     let _ = ep.send_frame(Frame::trailers(stream_id, &status).unwrap()).await;
                     ep.close_stream(stream_id);
                 });

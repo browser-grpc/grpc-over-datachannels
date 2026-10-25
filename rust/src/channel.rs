@@ -26,6 +26,25 @@ use crate::platform_time::Instant;
 pub struct CallOptions {
     pub metadata: Metadata,
     pub timeout: Option<Duration>,
+    /// When set, response initial metadata is copied into the
+    /// sink as it arrives.
+    pub response_headers: Option<SharedMetaSink>,
+    /// When set, response trailing metadata is copied into the
+    /// sink with the terminal status.
+    pub response_trailers: Option<SharedMetaSink>,
+}
+
+/// Shared capture slot for response metadata.
+pub type SharedMetaSink = Arc<std::sync::Mutex<Metadata>>;
+
+/// (headers sink, trailers sink) lifted from CallOptions.
+pub type Capture = (Option<SharedMetaSink>, Option<SharedMetaSink>);
+
+/// Copy response metadata into a capture sink, when present.
+pub fn fill_capture(sink: &Option<SharedMetaSink>, metadata: &Metadata) {
+    if let Some(sink) = sink {
+        *sink.lock().unwrap() = metadata.clone();
+    }
 }
 
 impl CallOptions {
@@ -34,7 +53,7 @@ impl CallOptions {
     }
 
     pub fn with_timeout(timeout: Duration) -> Self {
-        Self { metadata: Metadata::new(), timeout: Some(timeout) }
+        Self { metadata: Metadata::new(), timeout: Some(timeout), ..Default::default() }
     }
 
     pub fn timeout(mut self, timeout: Duration) -> Self {
@@ -46,11 +65,23 @@ impl CallOptions {
         self.metadata = metadata;
         self
     }
+
+    /// Capture response initial metadata into `sink`.
+    pub fn capture_headers(mut self, sink: SharedMetaSink) -> Self {
+        self.response_headers = Some(sink);
+        self
+    }
+
+    /// Capture response trailing metadata into `sink`.
+    pub fn capture_trailers(mut self, sink: SharedMetaSink) -> Self {
+        self.response_trailers = Some(sink);
+        self
+    }
 }
 
 impl From<Metadata> for CallOptions {
     fn from(metadata: Metadata) -> Self {
-        Self { metadata, timeout: None }
+        Self { metadata, timeout: None, ..Default::default() }
     }
 }
 
@@ -110,7 +141,8 @@ impl Channel {
         &self,
         path: &str,
         mut options: CallOptions,
-    ) -> Result<(u32, UnboundedReceiver<StreamEvent>, Option<Instant>), Status> {
+    ) -> Result<(u32, UnboundedReceiver<StreamEvent>, Option<Instant>, Capture), Status> {
+        let capture: Capture = (options.response_headers.clone(), options.response_trailers.clone());
         let deadline = options.timeout.map(|timeout| {
             options
                 .metadata
@@ -138,7 +170,7 @@ impl Channel {
         }
         let headers = Headers { path: Some(path.to_string()), metadata };
         match self.ep.send_frame(Frame::headers(id, &headers)?).await {
-            Ok(()) => Ok((id, rx, deadline)),
+            Ok(()) => Ok((id, rx, deadline, capture)),
             Err(e) => {
                 self.ep.end_stream_trace(id, "UNAVAILABLE");
                 self.ep.close_stream(id);
@@ -156,12 +188,16 @@ impl Channel {
         id: u32,
         mut rx: UnboundedReceiver<StreamEvent>,
         deadline: Option<Instant>,
+        capture: Capture,
     ) -> Result<Resp, Status> {
         let mut response: Option<Resp> = None;
         let result = loop {
             match next_with_deadline(&self.ep, id, &mut rx, deadline).await {
                 Err(status) => break Err(status),
-                Ok(Some(StreamEvent::Headers(_))) => continue,
+                Ok(Some(StreamEvent::Headers(headers))) => {
+                    fill_capture(&capture.0, &headers.metadata);
+                    continue;
+                }
                 Ok(Some(StreamEvent::Data(bytes))) => match Resp::decode(&bytes) {
                     Ok(msg) => {
                         if response.is_some() {
@@ -172,6 +208,7 @@ impl Channel {
                     Err(e) => break Err(e),
                 },
                 Ok(Some(StreamEvent::Trailers(status))) => {
+                    fill_capture(&capture.1, &status.trailers);
                     self.ep.end_stream_trace(id, status.code.name());
                     if status.is_ok() {
                         match response {
@@ -185,6 +222,7 @@ impl Channel {
                     }
                 }
                 Ok(Some(StreamEvent::Rst(status))) => {
+                    fill_capture(&capture.1, &status.trailers);
                     self.ep.end_stream_trace(id, status.code.name());
                     break Err(status)
                 }
@@ -215,7 +253,7 @@ impl Channel {
         Req: Message,
         Resp: Message,
     {
-        self.unary_with_options(path, req, CallOptions { metadata, timeout: None })
+        self.unary_with_options(path, req, CallOptions { metadata, timeout: None, ..Default::default() })
             .await
     }
 
@@ -229,10 +267,10 @@ impl Channel {
         Req: Message,
         Resp: Message,
     {
-        let (id, rx, deadline) = self.open_with_options(path, options).await?;
+        let (id, rx, deadline, capture) = self.open_with_options(path, options).await?;
         self.send_data(id, &req).await?;
         self.ep.send_frame(Frame::half_close(id)).await?;
-        self.collect_one_with_deadline(id, rx, deadline).await
+        self.collect_one_with_deadline(id, rx, deadline, capture).await
     }
 
     // -- server-streaming ------------------------------------------------------
@@ -258,7 +296,7 @@ impl Channel {
         Req: Message,
         Resp: Message + 'static,
     {
-        self.server_stream_with_options(path, req, CallOptions { metadata, timeout: None })
+        self.server_stream_with_options(path, req, CallOptions { metadata, timeout: None, ..Default::default() })
             .await
     }
 
@@ -272,10 +310,10 @@ impl Channel {
         Req: Message,
         Resp: Message + 'static,
     {
-        let (id, rx, deadline) = self.open_with_options(path, options).await?;
+        let (id, rx, deadline, capture) = self.open_with_options(path, options).await?;
         self.send_data(id, &req).await?;
         self.ep.send_frame(Frame::half_close(id)).await?;
-        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline))
+        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline, capture))
     }
 
     // -- client-streaming ------------------------------------------------------
@@ -303,7 +341,7 @@ impl Channel {
         Resp: Message,
         S: Stream<Item = Req> + Send + 'static,
     {
-        self.client_stream_with_options(path, reqs, CallOptions { metadata, timeout: None })
+        self.client_stream_with_options(path, reqs, CallOptions { metadata, timeout: None, ..Default::default() })
             .await
     }
 
@@ -318,9 +356,9 @@ impl Channel {
         Resp: Message,
         S: Stream<Item = Req> + Send + 'static,
     {
-        let (id, rx, deadline) = self.open_with_options(path, options).await?;
+        let (id, rx, deadline, capture) = self.open_with_options(path, options).await?;
         self.spawn_pump(id, reqs);
-        self.collect_one_with_deadline(id, rx, deadline).await
+        self.collect_one_with_deadline(id, rx, deadline, capture).await
     }
 
     // -- bidirectional ---------------------------------------------------------
@@ -348,7 +386,7 @@ impl Channel {
         Resp: Message + 'static,
         S: Stream<Item = Req> + Send + 'static,
     {
-        self.bidi_with_options(path, reqs, CallOptions { metadata, timeout: None })
+        self.bidi_with_options(path, reqs, CallOptions { metadata, timeout: None, ..Default::default() })
             .await
     }
 
@@ -363,9 +401,9 @@ impl Channel {
         Resp: Message + 'static,
         S: Stream<Item = Req> + Send + 'static,
     {
-        let (id, rx, deadline) = self.open_with_options(path, options).await?;
+        let (id, rx, deadline, capture) = self.open_with_options(path, options).await?;
         self.spawn_pump(id, reqs);
-        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline))
+        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline, capture))
     }
 
     fn spawn_pump<Req, S>(&self, id: u32, reqs: S)
@@ -400,41 +438,48 @@ fn typed_response_stream<Resp>(
     id: u32,
     rx: UnboundedReceiver<StreamEvent>,
     deadline: Option<Instant>,
+    capture: Capture,
 ) -> ResponseStream<Resp>
 where
     Resp: Message + 'static,
 {
     let stream = futures_util::stream::unfold(
-        (ep, rx, false),
-        move |(ep, mut rx, done)| async move {
+        (ep, rx, false, capture),
+        move |(ep, mut rx, done, capture)| async move {
         if done {
             return None;
         }
         loop {
             match next_with_deadline(&ep, id, &mut rx, deadline).await {
-                Err(status) => return Some((Err(status), (ep, rx, true))),
+                Err(status) => return Some((Err(status), (ep, rx, true, capture))),
                 Ok(event) => match event {
-                Some(StreamEvent::Headers(_)) | Some(StreamEvent::HalfClose) => continue,
+                Some(StreamEvent::Headers(headers)) => {
+                    fill_capture(&capture.0, &headers.metadata);
+                    continue;
+                }
+                Some(StreamEvent::HalfClose) => continue,
                 Some(StreamEvent::Data(bytes)) => match Resp::decode(&bytes) {
-                    Ok(msg) => return Some((Ok(msg), (ep, rx, false))),
-                    Err(e) => return Some((Err(e), (ep, rx, true))),
+                    Ok(msg) => return Some((Ok(msg), (ep, rx, false, capture))),
+                    Err(e) => return Some((Err(e), (ep, rx, true, capture))),
                 },
                 Some(StreamEvent::Trailers(status)) => {
+                    fill_capture(&capture.1, &status.trailers);
                     ep.end_stream_trace(id, status.code.name());
                     return if status.is_ok() {
                         None
                     } else {
-                        Some((Err(status), (ep, rx, true)))
+                        Some((Err(status), (ep, rx, true, capture)))
                     };
                 }
                 Some(StreamEvent::Rst(status)) => {
+                    fill_capture(&capture.1, &status.trailers);
                     ep.end_stream_trace(id, status.code.name());
-                    return Some((Err(status), (ep, rx, true)))
+                    return Some((Err(status), (ep, rx, true, capture)))
                 }
                 None => {
                     return Some((
                         Err(Status::unavailable("data channel closed")),
-                        (ep, rx, true),
+                        (ep, rx, true, capture),
                     ))
                 }
                 },

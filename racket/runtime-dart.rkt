@@ -132,6 +132,9 @@ class StatusException implements Exception {
   final int code;
   final String message;
 
+  /// Trailing metadata carried by a status frame (never null).
+  Map<String, String> trailers = {};
+
   StatusException(this.code, this.message);
 
   @override
@@ -298,7 +301,11 @@ class Codec {
 
   static Uint8List statusFrame(
       int frameType, int streamId, StatusException status) {
-    final body = jsonEncode({'code': status.code, 'message': status.message});
+    final body = jsonEncode({
+      'code': status.code,
+      'message': status.message,
+      if (status.trailers.isNotEmpty) 'metadata': status.trailers,
+    });
     return encodeFrame(frameType, streamId, utf8.encode(body));
   }
 
@@ -306,8 +313,16 @@ class Codec {
     try {
       final root = jsonDecode(utf8.decode(payload));
       if (root is Map && root['code'] is num) {
-        return StatusException(
+        final status = StatusException(
             (root['code'] as num).toInt(), root['message']?.toString() ?? '');
+        final metadata = root['metadata'];
+        if (metadata is Map) {
+          status.trailers = {
+            for (final e in metadata.entries)
+              e.key.toString(): e.value.toString(),
+          };
+        }
+        return status;
       }
     } catch (_) {
       // fall through to malformed
@@ -408,6 +423,22 @@ class StreamInput {
 class CallContext {
   final Map<String, String> metadata;
 
+  /// Response initial metadata recorded via setHeaders.
+  final Map<String, String> responseHeaders = {};
+
+  /// Response trailing metadata recorded via setTrailers.
+  final Map<String, String> responseTrailers = {};
+
+  /// Record response initial metadata (sent lazily, before the first response message).
+  void setHeaders(Map<String, String> md) {
+    responseHeaders.addAll(md);
+  }
+
+  /// Record response trailing metadata (rides the terminal status frame).
+  void setTrailers(Map<String, String> md) {
+    responseTrailers.addAll(md);
+  }
+
   /// Deadline propagated via grpc-timeout, when the client set one.
   final DateTime? deadline;
 
@@ -433,15 +464,34 @@ class ResponseSink {
 
   ResponseSink(this._endpoint, this._streamId);
 
+  // Wired to the CallContext maps by the endpoint.
+  Map<String, String> respHeaders = {};
+  Map<String, String> respTrailers = {};
+  bool headersSent = false;
+
   void send(List<int> payload) {
+    flushHeaders();
     _endpoint.sendFrame(Codec.encodeFrame(Wire.frameData, _streamId, payload));
   }
 
-  void sendHeaders() {
-    _endpoint.sendFrame(Codec.headersFrame(_streamId, null, null));
+  void flushHeaders() {
+    if (!headersSent) {
+      headersSent = true;
+      sendHeaders(respHeaders);
+    }
+  }
+
+  void sendHeaders([Map<String, String>? metadata]) {
+    headersSent = true;
+    _endpoint.sendFrame(Codec.headersFrame(_streamId, null, metadata ?? respHeaders));
   }
 
   void sendTrailers(StatusException status) {
+    if (respTrailers.isNotEmpty) {
+      final merged = {...respTrailers, ...status.trailers};
+      status = StatusException(status.code, status.message)
+        ..trailers = merged;
+    }
     _endpoint.sendFrame(Codec.statusFrame(Wire.frameTrailers, _streamId, status));
   }
 }
@@ -605,18 +655,26 @@ class Endpoint {
     _streams[streamId] = input;
     final sink = ResponseSink(this, streamId);
     try {
-      try {
-        sink.sendHeaders();
-      } catch (_) {
-        return;
-      }
+      // No eager HEADERS: initial metadata flushes lazily via
+      // the sink (first DATA, or below on a DATA-less success)
+      // so handlers can setHeaders first. Errors end
+      // trailers-only, as gRPC allows.
+      final ctx = CallContext(headers.metadata);
+      sink.respHeaders = ctx.responseHeaders;
+      sink.respTrailers = ctx.responseTrailers;
       StatusException status;
       try {
-        status = await currentDispatcher(
-                CallContext(headers.metadata), headers, input, sink) ??
+        status = await currentDispatcher(ctx, headers, input, sink) ??
             StatusException(Wire.codeOk, '');
       } catch (e) {
         status = StatusException.toStatus(e);
+      }
+      if (status.code == Wire.codeOk) {
+        try {
+          sink.flushHeaders();
+        } catch (_) {
+          // best effort
+        }
       }
       try {
         sink.sendTrailers(status);
@@ -648,6 +706,8 @@ class ClientStream {
   final Endpoint _endpoint;
   final StreamInput _input;
   Headers? headers;
+  /// Trailing metadata of the terminal status (null until it arrives).
+  Map<String, String>? trailers;
   DateTime? deadline;
   TraceContext? traceCtx;
   String? tracePath;
@@ -695,6 +755,7 @@ class ClientStream {
           return;
         case EventKind.trailers:
           final status = event.status;
+          trailers = status?.trailers;
           endTrace(Wire.statusName(status?.code ?? Wire.codeOk));
           if (status != null && status.code != Wire.codeOk) {
             throw status;
@@ -703,6 +764,7 @@ class ClientStream {
         case EventKind.rst:
           final status =
               event.status ?? StatusException(Wire.codeUnavailable, 'stream reset');
+          trailers = status.trailers;
           endTrace(Wire.statusName(status.code));
           throw status;
         default:

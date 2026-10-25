@@ -125,6 +125,18 @@ export class Endpoint {
     }
   }
 
+  /** Abort one stream: RST (CANCELLED) to the peer, and any
+   * local reader wakes with that CANCELLED status. */
+  cancelStream(id) {
+    const status = new StatusError(StatusCode.CANCELLED, "call cancelled");
+    const input = this.#streams.get(id);
+    if (input) {
+      input.push({ kind: "rst", status, trailers: {} });
+      this.#streams.delete(id);
+    }
+    this.sendFrame(statusFrame(FrameType.RST, id, status)).catch(() => {});
+  }
+
   async sendFrame(frameBytes) {
     // Serialize sends so HEADERS never overtakes a previous frame on the
     // wire, and pause while the SCTP send buffer is above the threshold.

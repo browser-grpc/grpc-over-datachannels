@@ -16,6 +16,8 @@ class StatusError extends \Exception
 {
     public int $statusCode;
     public string $statusMessage;
+    /** @var array<string,string> Trailing metadata carried by a status frame. */
+    public array $trailers = [];
 
     public function __construct(int $code, string $message = "")
     {
@@ -273,6 +275,9 @@ final class Codec
     public static function statusFrame(int $frameType, int $streamId, StatusError $status): string
     {
         $body = ["code" => $status->statusCode, "message" => $status->statusMessage];
+        if (!empty($status->trailers)) {
+            $body["metadata"] = $status->trailers;
+        }
         return self::encodeFrame($frameType, $streamId, json_encode($body));
     }
 
@@ -283,7 +288,13 @@ final class Codec
             if (!is_array($body) || !isset($body["code"])) {
                 return new StatusError(Wire::CODE_UNKNOWN, "malformed trailers");
             }
-            return new StatusError((int)$body["code"], (string)($body["message"] ?? ""));
+            $status = new StatusError((int)$body["code"], (string)($body["message"] ?? ""));
+            if (isset($body["metadata"]) && is_array($body["metadata"])) {
+                foreach ($body["metadata"] as $k => $v) {
+                    $status->trailers[(string)$k] = (string)$v;
+                }
+            }
+            return $status;
         } catch (\JsonException $e) {
             return new StatusError(Wire::CODE_UNKNOWN, "malformed trailers");
         }

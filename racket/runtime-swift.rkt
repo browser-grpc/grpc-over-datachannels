@@ -23,6 +23,8 @@ struct EndOfStreamError: Error {}
 struct StatusException: Error, CustomStringConvertible {
     let code: Int
     let message: String
+    /// Trailing metadata carried by a status frame (never null).
+    var trailers: [String: String] = [:]
 
     init(_ code: Int, _ message: String) {
         self.code = code
@@ -253,10 +255,14 @@ enum Codec {
     }
 
     static func StatusFrame(_ frameType: Int, _ streamId: UInt32, _ status: StatusException) throws -> [UInt8] {
-        let body = JsonWrite(.object([
+        var fields: [(String, JsonValue)] = [
             ("code", .number(Double(status.code))),
             ("message", .string(status.message)),
-        ]))
+        ]
+        if !status.trailers.isEmpty {
+            fields.append(("metadata", .object(status.trailers.map { ($0.key, JsonValue.string($0.value)) })))
+        }
+        let body = JsonWrite(.object(fields))
         return try EncodeFrame(frameType, streamId, [UInt8](body.utf8))
     }
 
@@ -270,7 +276,15 @@ enum Codec {
         if case .string(let text)? = JsonField(fields, "message") {
             message = text
         }
-        return StatusException(Int(code), message)
+        var status = StatusException(Int(code), message)
+        if case .object(let md)? = JsonField(fields, "metadata") {
+            for (key, value) in md {
+                if case .string(let text) = value {
+                    status.trailers[key] = text
+                }
+            }
+        }
+        return status
     }
 
     // ---- minimal JSON for HEADERS/TRAILERS payloads ----
@@ -740,11 +754,29 @@ final class Endpoint {
     }
 
     /// Per-call context: metadata sent in HEADERS, plus deadline.
-    struct CallContext {
+    /// A class (not a struct) so handlers can record response
+    /// metadata the endpoint reads after dispatch.
+    final class CallContext {
         var metadata: [String: String] = [:]
+        /// Response initial metadata recorded via SetHeaders.
+        var responseHeaders: [String: String] = [:]
+        /// Response trailing metadata recorded via SetTrailers.
+        var responseTrailers: [String: String] = [:]
+
+        /// Record response initial metadata (sent lazily, before the first response message).
+        func SetHeaders(_ md: [String: String]) {
+            for (k, v) in md { responseHeaders[k] = v }
+        }
+
+        /// Record response trailing metadata (rides the terminal status frame).
+        func SetTrailers(_ md: [String: String]) {
+            for (k, v) in md { responseTrailers[k] = v }
+        }
         /// Monotonic deadline (GrpcTime milliseconds) propagated
         /// via grpc-timeout, when the client set one.
         var deadlineMs: Double? = nil
+
+        init() {}
 
         /// Seconds left before the deadline, or nil when unbounded.
         func TimeRemaining() -> Double? {
@@ -774,16 +806,40 @@ final class Endpoint {
             self.streamId = streamId
         }
 
+        // Wired to the CallContext maps by the endpoint.
+        var respHeaders: [String: String] = [:]
+        var respTrailers: [String: String] = [:]
+        var headersSent = false
+
         func Send(_ payload: [UInt8]) throws {
+            try FlushHeaders()
             try endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, streamId, payload))
         }
 
+        func FlushHeaders() throws {
+            if !headersSent {
+                headersSent = true
+                try SendHeaders(respHeaders)
+            }
+        }
+
         func SendHeaders() throws {
-            try endpoint.SendFrame(Codec.HeadersFrame(streamId, nil, nil))
+            try SendHeaders(respHeaders)
+        }
+
+        func SendHeaders(_ metadata: [String: String]) throws {
+            headersSent = true
+            try endpoint.SendFrame(Codec.HeadersFrame(streamId, nil, metadata))
         }
 
         func SendTrailers(_ status: StatusException) throws {
-            try endpoint.SendFrame(Codec.StatusFrame(Wire.FrameTrailers, streamId, status))
+            var out = status
+            if !respTrailers.isEmpty {
+                var merged = respTrailers
+                for (k, v) in status.trailers { merged[k] = v }
+                out.trailers = merged
+            }
+            try endpoint.SendFrame(Codec.StatusFrame(Wire.FrameTrailers, streamId, out))
         }
     }
 
@@ -1027,13 +1083,17 @@ final class Endpoint {
     private func DispatchCall(_ streamId: UInt32, _ streamInput: StreamInput,
                               _ headers: Codec.Headers, _ dispatcher: Dispatcher) {
         let sink = ResponseSink(self, streamId)
-        do {
-            try sink.SendHeaders()
-        } catch {
-            CloseStream(streamId)
-            return
+        // No eager HEADERS: initial metadata flushes lazily via
+        // the sink (first DATA, or below on a DATA-less success)
+        // so handlers can SetHeaders first. Errors end
+        // trailers-only, as gRPC allows.
+        let ctx = CallContext.FromMetadata(headers.metadata)
+        sink.respHeaders = ctx.responseHeaders
+        sink.respTrailers = ctx.responseTrailers
+        let status = dispatcher(ctx, headers, streamInput, sink)
+        if status.code == Wire.CodeOk {
+            try? sink.FlushHeaders()
         }
-        let status = dispatcher(CallContext.FromMetadata(headers.metadata), headers, streamInput, sink)
         try? sink.SendTrailers(status)
         CloseStream(streamId)
     }
@@ -1067,6 +1127,8 @@ final class Channel {
         private let endpoint: Endpoint
         private let input: Endpoint.StreamInput
         private(set) var headers: Codec.Headers?
+        /// Trailing metadata of the terminal status (nil until it arrives).
+        private(set) var trailers: [String: String]?
         var deadlineMs: Double? = nil
         var traceCtx: Tracing.TraceContext? = nil
         var tracePath: String? = nil
@@ -1114,6 +1176,7 @@ final class Channel {
                     resp.UnmarshalDc(event.payload)
                     return
                 case .trailers:
+                    trailers = event.status?.trailers
                     EndTrace(Wire.StatusName(event.status?.code ?? Wire.CodeOk))
                     if let status = event.status, status.code != Wire.CodeOk {
                         throw status
@@ -1121,6 +1184,7 @@ final class Channel {
                     throw EndOfStreamError()
                 case .rst:
                     let status = event.status ?? StatusException(Wire.CodeUnavailable, "stream reset")
+                    trailers = status.trailers
                     EndTrace(Wire.StatusName(status.code))
                     throw status
                 default:

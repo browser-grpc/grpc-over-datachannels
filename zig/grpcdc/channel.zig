@@ -21,6 +21,8 @@ pub const ClientStream = struct {
     input: *endpoint_mod.StreamInput,
     endpoint: *Endpoint,
     headers: ?Headers = null,
+    /// Trailing metadata of the terminal status (valid until deinit).
+    trailers: []const status_mod.TrailerPair = &.{},
     deadline_ms: ?i64 = null,
     trace_ctx: ?status_mod.TraceContext = null,
     trace_path: []const u8 = "",
@@ -66,6 +68,7 @@ pub const ClientStream = struct {
                 },
                 .trailers => {
                     const st = event.status orelse Status.ok();
+                    self.trailers = st.trailers;
                     event.status = null;
                     event.deinit(alloc);
                     // statusName returns a literal for known codes
@@ -77,6 +80,7 @@ pub const ClientStream = struct {
                 },
                 .rst => {
                     const st = event.status orelse Status.init(wire.codeUnavailable, "stream reset");
+                    self.trailers = st.trailers;
                     event.status = null;
                     event.deinit(alloc);
                     // statusName returns a literal for known codes
@@ -108,6 +112,12 @@ pub const ClientStream = struct {
 
     pub fn deinit(self: *ClientStream) void {
         if (self.headers) |*h| Codec.freeHeaders(self.endpoint.alloc, h);
+        const alloc = self.endpoint.alloc;
+        for (self.trailers) |pair| {
+            alloc.free(pair.key);
+            alloc.free(pair.value);
+        }
+        if (self.trailers.len > 0) alloc.free(self.trailers);
         self.endpoint.closeStream(self.stream_id);
     }
 };

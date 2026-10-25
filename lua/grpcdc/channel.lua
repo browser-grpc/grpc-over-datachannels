@@ -20,6 +20,7 @@ function ClientStream.new(endpoint, streamId, input)
     streamId = streamId,
     input = input,
     headers = nil,
+    trailers = nil,
     traceCtx = nil,
     tracePath = nil,
     traceEnded = false,
@@ -80,6 +81,7 @@ function ClientStream:recv(resp)
       return
     elseif event.kind == "trailers" then
       local status = event.status
+      if status ~= nil then self.trailers = status.trailers end
       self:endTrace(wire.statusName(status ~= nil and status.code or wire.CODE_OK))
       if status ~= nil and status.code ~= wire.CODE_OK then
         raise(status)
@@ -87,6 +89,7 @@ function ClientStream:recv(resp)
       error(EndOfStream, 0)
     elseif event.kind == "rst" then
       local status = event.status or Status.new(wire.CODE_UNAVAILABLE, "stream reset")
+      self.trailers = status.trailers
       self:endTrace(wire.statusName(status.code))
       raise(status)
     end

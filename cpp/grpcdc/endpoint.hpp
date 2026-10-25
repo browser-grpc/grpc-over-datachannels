@@ -119,9 +119,34 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     Endpoint* pump_endpoint_ = nullptr;
   };
 
+  /// Response initial/trailing metadata accumulated during one
+  /// call; shared (the call plumbing is const-ref throughout).
+  struct ResponseMeta {
+    Metadata headers;
+    Metadata trailers;
+    bool headers_sent = false;
+  };
+
   /// Per-call context: metadata sent in HEADERS, plus deadline.
   struct CallContext {
     Metadata metadata;
+    std::shared_ptr<ResponseMeta> response = std::make_shared<ResponseMeta>();
+
+    /// Record response initial metadata (sent lazily, before
+    /// the first response message).
+    void SetHeaders(const Metadata& md) const {
+      if (response) {
+        for (auto& kv : md) response->headers[kv.first] = kv.second;
+      }
+    }
+
+    /// Record response trailing metadata (rides the terminal
+    /// status frame).
+    void SetTrailers(const Metadata& md) const {
+      if (response) {
+        for (auto& kv : md) response->trailers[kv.first] = kv.second;
+      }
+    }
     /// Deadline propagated via grpc-timeout, when the client set one.
     std::optional<std::chrono::steady_clock::time_point> deadline;
 
@@ -143,14 +168,30 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
    public:
     ResponseSink(Endpoint* endpoint, std::uint32_t stream_id)
         : endpoint_(endpoint), stream_id_(stream_id) {}
+    // Shared with the CallContext (installed by the endpoint).
+    std::shared_ptr<ResponseMeta> response = std::make_shared<ResponseMeta>();
     void Send(const Bytes& payload) {
+      FlushHeaders();
       endpoint_->SendFrame(Codec::EncodeFrame(wire::kFrameData, stream_id_, payload));
     }
-    void SendHeaders() {
-      endpoint_->SendFrame(Codec::HeadersFrame(stream_id_, nullptr, nullptr));
+    void FlushHeaders() {
+      if (response->headers_sent) return;
+      response->headers_sent = true;
+      SendHeaders(&response->headers);
+    }
+    void SendHeaders() { SendHeaders(nullptr); }
+    void SendHeaders(const Metadata* metadata) {
+      response->headers_sent = true;
+      endpoint_->SendFrame(Codec::HeadersFrame(stream_id_, nullptr, metadata));
     }
     void SendTrailers(const StatusException& status) {
-      endpoint_->SendFrame(Codec::StatusFrame(wire::kFrameTrailers, stream_id_, status));
+      StatusException out = status;
+      if (!response->trailers.empty()) {
+        Metadata merged = response->trailers;
+        for (auto& kv : status.trailers) merged[kv.first] = kv.second;
+        out.trailers = std::move(merged);
+      }
+      endpoint_->SendFrame(Codec::StatusFrame(wire::kFrameTrailers, stream_id_, out));
     }
 
    private:
@@ -427,15 +468,10 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
                     const Dispatcher& dispatcher) {
     ResponseSink sink(this, stream_id);
     try {
-      try {
-        sink.SendHeaders();
-      } catch (...) {
-        CloseStream(stream_id);
-        return;
-      }
       StatusException status(wire::kCodeOk, "");
       try {
         CallContext ctx;
+        sink.response = ctx.response;
         ctx.metadata = headers.metadata;
         if (auto it = headers.metadata.find("grpc-timeout");
             it != headers.metadata.end()) {
@@ -446,6 +482,16 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
         status = dispatcher(ctx, headers, stream_input, sink);
       } catch (...) {
         status = StatusException::ToStatus(std::current_exception());
+      }
+      // No eager HEADERS: initial metadata flushes lazily via
+      // the sink (first DATA, or here on a DATA-less success)
+      // so handlers can SetHeaders first. Errors end
+      // trailers-only, as gRPC allows.
+      if (status.code() == wire::kCodeOk) {
+        try {
+          sink.FlushHeaders();
+        } catch (...) {
+        }
       }
       try {
         sink.SendTrailers(status);

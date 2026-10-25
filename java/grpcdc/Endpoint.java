@@ -62,8 +62,22 @@ public class Endpoint {
     /** Per-call context: metadata sent in HEADERS, plus deadline. */
     public static final class CallContext {
         public final Map<String, String> metadata;
+        /** Response initial metadata recorded via setHeaders. */
+        public final Map<String, String> responseHeaders = new java.util.HashMap<>();
+        /** Response trailing metadata recorded via setTrailers. */
+        public final Map<String, String> responseTrailers = new java.util.HashMap<>();
         /** Monotonic deadline (System.nanoTime), or -1 when unbounded. */
         public final long deadlineNanos;
+
+        /** Record response initial metadata (sent lazily, before the first response message). */
+        public void setHeaders(Map<String, String> md) {
+            responseHeaders.putAll(md);
+        }
+
+        /** Record response trailing metadata (rides the terminal status frame). */
+        public void setTrailers(Map<String, String> md) {
+            responseTrailers.putAll(md);
+        }
 
         public CallContext(Map<String, String> metadata) {
             this.metadata = metadata == null ? Map.of() : metadata;
@@ -100,15 +114,40 @@ public class Endpoint {
             this.streamId = streamId;
         }
 
+        // Wired to the CallContext maps by the endpoint.
+        Map<String, String> respHeaders = Map.of();
+        Map<String, String> respTrailers = Map.of();
+        boolean headersSent;
+
         public void send(byte[] payload) throws Exception {
+            flushHeaders();
             endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, payload));
         }
 
+        void flushHeaders() throws Exception {
+            if (!headersSent) {
+                headersSent = true;
+                sendHeaders(respHeaders);
+            }
+        }
+
         void sendHeaders() throws Exception {
-            endpoint.sendFrame(Codec.headersFrame(streamId, null, null));
+            sendHeaders(respHeaders);
+        }
+
+        void sendHeaders(Map<String, String> metadata) throws Exception {
+            headersSent = true;
+            endpoint.sendFrame(Codec.headersFrame(streamId, null, metadata));
         }
 
         void sendTrailers(StatusException status) throws Exception {
+            if (!respTrailers.isEmpty()) {
+                java.util.Map<String, String> merged = new java.util.HashMap<>(respTrailers);
+                merged.putAll(status.trailers);
+                StatusException withTrailers = new StatusException(status.code, status.getMessage());
+                withTrailers.trailers = merged;
+                status = withTrailers;
+            }
             endpoint.sendFrame(Codec.statusFrame(Wire.FRAME_TRAILERS, streamId, status));
         }
     }
@@ -310,15 +349,21 @@ public class Endpoint {
         ResponseSink sink = new ResponseSink(this, streamId);
         Thread thread = new Thread(() -> {
             try {
-                try {
-                    sink.sendHeaders();
-                } catch (Exception e) {
-                    return;
-                }
-                StatusException status = dispatcher.dispatch(
-                        new CallContext(headers.metadata), headers, input, sink);
+                // No eager HEADERS: initial metadata flushes lazily via
+                // the sink (first DATA, or below on a DATA-less success)
+                // so handlers can setHeaders first. Errors end
+                // trailers-only, as gRPC allows.
+                CallContext ctx = new CallContext(headers.metadata);
+                sink.respHeaders = ctx.responseHeaders;
+                sink.respTrailers = ctx.responseTrailers;
+                StatusException status = dispatcher.dispatch(ctx, headers, input, sink);
                 if (status == null) {
                     status = new StatusException(Wire.CODE_OK, "");
+                    try {
+                        sink.flushHeaders();
+                    } catch (Exception ignored) {
+                        // best effort
+                    }
                 }
                 try {
                     sink.sendTrailers(status);

@@ -15,6 +15,8 @@ class ClientStream {
   final Endpoint _endpoint;
   final StreamInput _input;
   Headers? headers;
+  /// Trailing metadata of the terminal status (null until it arrives).
+  Map<String, String>? trailers;
   DateTime? deadline;
   TraceContext? traceCtx;
   String? tracePath;
@@ -62,6 +64,7 @@ class ClientStream {
           return;
         case EventKind.trailers:
           final status = event.status;
+          trailers = status?.trailers;
           endTrace(Wire.statusName(status?.code ?? Wire.codeOk));
           if (status != null && status.code != Wire.codeOk) {
             throw status;
@@ -70,6 +73,7 @@ class ClientStream {
         case EventKind.rst:
           final status =
               event.status ?? StatusException(Wire.codeUnavailable, 'stream reset');
+          trailers = status.trailers;
           endTrace(Wire.statusName(status.code));
           throw status;
         default:

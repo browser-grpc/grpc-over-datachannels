@@ -167,6 +167,9 @@ class StatusException : public std::exception {
     text_ = wire::StatusName(code_) + ": " + message_;
   }
 
+  /// Trailing metadata carried by a status frame (empty when none).
+  std::map<std::string, std::string> trailers;
+
   int code() const { return code_; }
   const std::string& message() const { return message_; }
   const char* what() const noexcept override { return text_.c_str(); }

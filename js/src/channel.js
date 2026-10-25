@@ -33,7 +33,7 @@ export class Channel {
     return this.#endpoint;
   }
 
-  async #open(path, metadata, timeout) {
+  async #open(path, metadata, timeout, signal = null) {
     let deadline = null;
     if (timeout !== undefined && timeout !== null) {
       deadline = Date.now() + timeout;
@@ -51,6 +51,15 @@ export class Channel {
     }
     const [id, input] = this.#endpoint.openStream();
     if (traceCtx !== null) this.#traces.set(id, { ctx: traceCtx, path });
+    if (signal) {
+      // Per-call cancellation: an aborted AbortSignal aborts
+      // the stream (RST CANCELLED; pending reads fail with
+      // CANCELLED). Stream ids are never reused, so a late
+      // abort after completion is a harmless no-op.
+      const onAbort = () => this.#endpoint.cancelStream(id);
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
     try {
       await this.#endpoint.sendFrame(headersFrame(id, path, metadata));
     } catch (e) {
@@ -184,17 +193,17 @@ export class Channel {
   }
 
   /** Unary: one request, one response. */
-  async unary(path, request, ReqType, RespType, { metadata = {}, timeout, onHeaders, onTrailers } = {}) {
-    const [id, input, deadline] = await this.#open(path, metadata, timeout);
+  async unary(path, request, ReqType, RespType, { metadata = {}, timeout, onHeaders, onTrailers, signal } = {}) {
+    const [id, input, deadline] = await this.#open(path, metadata, timeout, signal);
     await this.#sendMessage(id, ReqType, request);
     await this.#endpoint.sendFrame(encodeFrame(FrameType.HALF_CLOSE, id));
     return this.#collectOne(id, input, RespType, deadline, { onHeaders, onTrailers });
   }
 
   /** Server-streaming: one request, async iterable of responses. */
-  serverStream(path, request, ReqType, RespType, { metadata = {}, timeout, onHeaders, onTrailers } = {}) {
+  serverStream(path, request, ReqType, RespType, { metadata = {}, timeout, onHeaders, onTrailers, signal } = {}) {
     return (async () => {
-      const [id, input, deadline] = await this.#open(path, metadata, timeout);
+      const [id, input, deadline] = await this.#open(path, metadata, timeout, signal);
       await this.#sendMessage(id, ReqType, request);
       await this.#endpoint.sendFrame(encodeFrame(FrameType.HALF_CLOSE, id));
       return this.#responses(id, input, RespType, deadline, { onHeaders, onTrailers });
@@ -202,8 +211,8 @@ export class Channel {
   }
 
   /** Client-streaming: async iterable of requests, one response. */
-  async clientStream(path, requests, ReqType, RespType, { metadata = {}, timeout, onHeaders, onTrailers } = {}) {
-    const [id, input, deadline] = await this.#open(path, metadata, timeout);
+  async clientStream(path, requests, ReqType, RespType, { metadata = {}, timeout, onHeaders, onTrailers, signal } = {}) {
+    const [id, input, deadline] = await this.#open(path, metadata, timeout, signal);
     const pump = this.#pump(id, requests, ReqType);
     try {
       return await this.#collectOne(id, input, RespType, deadline, { onHeaders, onTrailers });
@@ -213,9 +222,9 @@ export class Channel {
   }
 
   /** Bidirectional: async iterable of requests and of responses. */
-  bidi(path, requests, ReqType, RespType, { metadata = {}, timeout, onHeaders, onTrailers } = {}) {
+  bidi(path, requests, ReqType, RespType, { metadata = {}, timeout, onHeaders, onTrailers, signal } = {}) {
     return (async () => {
-      const [id, input, deadline] = await this.#open(path, metadata, timeout);
+      const [id, input, deadline] = await this.#open(path, metadata, timeout, signal);
       const pump = this.#pump(id, requests, ReqType);
       pump.catch(() => {});
       return this.#responses(id, input, RespType, deadline, { onHeaders, onTrailers });
@@ -223,16 +232,8 @@ export class Channel {
   }
 
   /** Abort a call: sends RST CANCELLED. */
+  /** Abort a call: RST CANCELLED to the peer, CANCELLED locally. */
   async cancel(streamId) {
-    await this.#endpoint
-      .sendFrame(
-        statusFrame(
-          FrameType.RST,
-          streamId,
-          new StatusError(1, "cancelled by caller"),
-        ),
-      )
-      .catch(() => {});
-    this.#endpoint.closeStream(streamId);
+    this.#endpoint.cancelStream(streamId);
   }
 }

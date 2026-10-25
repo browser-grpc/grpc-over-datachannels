@@ -36,6 +36,8 @@ class StatusError extends \Exception
 {
     public int $statusCode;
     public string $statusMessage;
+    /** @var array<string,string> Trailing metadata carried by a status frame. */
+    public array $trailers = [];
 
     public function __construct(int $code, string $message = "")
     {
@@ -293,6 +295,9 @@ final class Codec
     public static function statusFrame(int $frameType, int $streamId, StatusError $status): string
     {
         $body = ["code" => $status->statusCode, "message" => $status->statusMessage];
+        if (!empty($status->trailers)) {
+            $body["metadata"] = $status->trailers;
+        }
         return self::encodeFrame($frameType, $streamId, json_encode($body));
     }
 
@@ -303,7 +308,13 @@ final class Codec
             if (!is_array($body) || !isset($body["code"])) {
                 return new StatusError(Wire::CODE_UNKNOWN, "malformed trailers");
             }
-            return new StatusError((int)$body["code"], (string)($body["message"] ?? ""));
+            $status = new StatusError((int)$body["code"], (string)($body["message"] ?? ""));
+            if (isset($body["metadata"]) && is_array($body["metadata"])) {
+                foreach ($body["metadata"] as $k => $v) {
+                    $status->trailers[(string)$k] = (string)$v;
+                }
+            }
+            return $status;
         } catch (\JsonException $e) {
             return new StatusError(Wire::CODE_UNKNOWN, "malformed trailers");
         }
@@ -414,18 +425,39 @@ class ResponseSink
         $this->streamId = $streamId;
     }
 
+    /** @var array<string,string> Wired to the CallContext maps by the endpoint. */
+    public array $respHeaders = [];
+    /** @var array<string,string> */
+    public array $respTrailers = [];
+    public bool $headersSent = false;
+
     public function send(string $payload): void
     {
+        $this->flushHeaders();
         $this->endpoint->sendFrame(Codec::encodeFrame(Wire::FRAME_DATA, $this->streamId, $payload));
     }
 
-    public function sendHeaders(): void
+    public function flushHeaders(): void
     {
-        $this->endpoint->sendFrame(Codec::headersFrame($this->streamId, null, null));
+        if (!$this->headersSent) {
+            $this->headersSent = true;
+            $this->sendHeaders($this->respHeaders);
+        }
+    }
+
+    public function sendHeaders(?array $metadata = null): void
+    {
+        $this->headersSent = true;
+        $this->endpoint->sendFrame(Codec::headersFrame($this->streamId, null, $metadata ?? $this->respHeaders));
     }
 
     public function sendTrailers(StatusError $status): void
     {
+        if (!empty($this->respTrailers)) {
+            $merged = array_merge($this->respTrailers, $status->trailers);
+            $status = new StatusError($status->statusCode, $status->statusMessage);
+            $status->trailers = $merged;
+        }
         $this->endpoint->sendFrame(Codec::statusFrame(Wire::FRAME_TRAILERS, $this->streamId, $status));
     }
 }
@@ -435,7 +467,27 @@ class CallContext
 {
     /** @var array<string,string> */
     public array $metadata;
+    /** @var array<string,string> Response initial metadata recorded via setHeaders. */
+    public array $responseHeaders = [];
+    /** @var array<string,string> Response trailing metadata recorded via setTrailers. */
+    public array $responseTrailers = [];
     public ?float $deadline;
+
+    /** Record response initial metadata (sent lazily, before the first response message). */
+    public function setHeaders(array $md): void
+    {
+        foreach ($md as $k => $v) {
+            $this->responseHeaders[$k] = $v;
+        }
+    }
+
+    /** Record response trailing metadata (rides the terminal status frame). */
+    public function setTrailers(array $md): void
+    {
+        foreach ($md as $k => $v) {
+            $this->responseTrailers[$k] = $v;
+        }
+    }
 
     public function __construct(array $metadata = [])
     {
@@ -694,18 +746,26 @@ class Endpoint
         $input = new StreamInput();
         $this->streams[$streamId] = $input;
         $sink = new ResponseSink($this, $streamId);
-        try {
-            $sink->sendHeaders();
-        } catch (\Throwable $e) {
-            $this->closeStream($streamId);
-            return;
-        }
+        // No eager HEADERS: initial metadata flushes lazily via
+        // the sink (first DATA, or below on a DATA-less success)
+        // so handlers can setHeaders first. Errors end
+        // trailers-only, as gRPC allows.
         $ctx = new CallContext($headers->metadata);
+        $sink->respHeaders = &$ctx->responseHeaders;
+        $sink->respTrailers = &$ctx->responseTrailers;
+        $ok = false;
         try {
             $result = ($this->dispatcher)($ctx, $headers, $input, $sink);
             $status = $result ?? new StatusError(Wire::CODE_OK, "");
+            $ok = $result === null;
         } catch (\Throwable $e) {
             $status = Status::toStatus($e);
+        }
+        if ($ok) {
+            try {
+                $sink->flushHeaders();
+            } catch (\Throwable $ignored) {
+            }
         }
         try {
             $sink->sendTrailers($status);
@@ -859,6 +919,8 @@ class ClientStream
     public Endpoint $endpoint;
     public int $streamId;
     public ?Headers $headers = null;
+    /** @var null|array<string,string> Trailing metadata of the terminal status. */
+    public ?array $trailers = null;
     public ?float $deadline = null;
     public ?array $traceCtx = null;
     public ?string $tracePath = null;
@@ -914,12 +976,14 @@ class ClientStream
                 case "data":
                     return $resp->unmarshalDc($event->payload);
                 case "trailers":
+                    $this->trailers = $event->status->trailers;
                     $this->endTrace(Status::name($event->status->statusCode));
                     if ($event->status->statusCode === Wire::CODE_OK) {
                         throw new CallClosed("call completed");
                     }
                     throw $event->status;
                 case "rst":
+                    $this->trailers = $event->status->trailers;
                     $this->endTrace(Status::name($event->status->statusCode));
                     throw $event->status;
             }

@@ -145,7 +145,11 @@ class Codec {
 
   static Uint8List statusFrame(
       int frameType, int streamId, StatusException status) {
-    final body = jsonEncode({'code': status.code, 'message': status.message});
+    final body = jsonEncode({
+      'code': status.code,
+      'message': status.message,
+      if (status.trailers.isNotEmpty) 'metadata': status.trailers,
+    });
     return encodeFrame(frameType, streamId, utf8.encode(body));
   }
 
@@ -153,8 +157,16 @@ class Codec {
     try {
       final root = jsonDecode(utf8.decode(payload));
       if (root is Map && root['code'] is num) {
-        return StatusException(
+        final status = StatusException(
             (root['code'] as num).toInt(), root['message']?.toString() ?? '');
+        final metadata = root['metadata'];
+        if (metadata is Map) {
+          status.trailers = {
+            for (final e in metadata.entries)
+              e.key.toString(): e.value.toString(),
+          };
+        }
+        return status;
       }
     } catch (_) {
       // fall through to malformed

@@ -163,8 +163,21 @@ public final class Codec {
     }
 
     public static byte[] statusFrame(int frameType, long streamId, StatusException status) {
-        String body = "{\"code\":" + status.code + ",\"message\":" + jsonString(status.getMessage()) + "}";
-        return encodeFrame(frameType, streamId, body.getBytes(StandardCharsets.UTF_8));
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"code\":").append(status.code)
+          .append(",\"message\":").append(jsonString(status.getMessage()));
+        if (status.trailers != null && !status.trailers.isEmpty()) {
+            sb.append(",\"metadata\":{");
+            boolean first = true;
+            for (Map.Entry<String, String> e : status.trailers.entrySet()) {
+                if (!first) sb.append(',');
+                sb.append(jsonString(e.getKey())).append(':').append(jsonString(e.getValue()));
+                first = false;
+            }
+            sb.append('}');
+        }
+        sb.append('}');
+        return encodeFrame(frameType, streamId, sb.toString().getBytes(StandardCharsets.UTF_8));
     }
 
     public static StatusException parseStatus(byte[] payload) {
@@ -172,7 +185,16 @@ public final class Codec {
             Map<String, Object> body = parseJsonObject(new String(payload, StandardCharsets.UTF_8));
             int code = ((Number) body.get("code")).intValue();
             Object message = body.get("message");
-            return new StatusException(code, message == null ? "" : String.valueOf(message));
+            StatusException status = new StatusException(code, message == null ? "" : String.valueOf(message));
+            Object metadata = body.get("metadata");
+            if (metadata instanceof Map<?, ?> mm) {
+                java.util.Map<String, String> trailers = new java.util.HashMap<>();
+                for (Map.Entry<?, ?> e : mm.entrySet()) {
+                    trailers.put(String.valueOf(e.getKey()), String.valueOf(e.getValue()));
+                }
+                status.trailers = trailers;
+            }
+            return status;
         } catch (RuntimeException e) {
             return new StatusException(Wire.CODE_UNKNOWN, "malformed trailers");
         }

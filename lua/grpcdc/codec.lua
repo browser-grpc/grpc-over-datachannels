@@ -255,14 +255,24 @@ function Codec.parseTimeout(text)
 end
 
 function Codec.statusFrame(frameType, streamId, status)
-  local body = json.encode({ code = status.code, message = status.message })
+  local fields = { code = status.code, message = status.message }
+  if status.trailers ~= nil and next(status.trailers) ~= nil then
+    fields.metadata = status.trailers
+  end
+  local body = json.encode(fields)
   return Codec.encodeFrame(frameType, streamId, body)
 end
 
 function Codec.parseStatus(payload)
   local ok, root = pcall(json.decode, payload)
   if ok and type(root) == "table" and type(root.code) == "number" then
-    return Status.new(math.tointeger(root.code) or 0, tostring(root.message or ""))
+    local status = Status.new(math.tointeger(root.code) or 0, tostring(root.message or ""))
+    if type(root.metadata) == "table" then
+      for k, v in pairs(root.metadata) do
+        status.trailers[tostring(k)] = tostring(v)
+      end
+    end
+    return status
   end
   return Status.new(wire.CODE_UNKNOWN, "malformed trailers")
 end

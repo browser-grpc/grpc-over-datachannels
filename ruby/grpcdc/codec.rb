@@ -25,10 +25,14 @@ module Grpcdc
   class StatusError < StandardError
     attr_reader :code, :message
 
+    # Trailing metadata carried by a status frame (never nil).
+    attr_accessor :trailers
+
     def initialize(code, message = "")
       super(message)
       @code = code
       @message = message
+      @trailers = {}
     end
 
     def to_s
@@ -228,12 +232,20 @@ module Grpcdc
 
 def status_frame(frame_type, stream_id, status)
       body = { "code" => status.code, "message" => status.message }
+      body["metadata"] = status.trailers if status.trailers && !status.trailers.empty?
       encode_frame(frame_type, stream_id, JSON.generate(body).b)
     end
 
     def parse_status(payload)
       body = JSON.parse(payload.dup.force_encoding(Encoding::UTF_8))
-      StatusError.new(Integer(body.fetch("code")), String(body["message"] || ""))
+      status = StatusError.new(Integer(body.fetch("code")), String(body["message"] || ""))
+      md = body["metadata"]
+      if md.is_a?(Hash)
+        status.trailers = md.each_with_object({}) do |(k, v), out|
+          out[k.to_s] = v.to_s
+        end
+      end
+      status
     rescue JSON::ParserError, EncodingError, KeyError, TypeError, ArgumentError
       StatusError.new(CODE_UNKNOWN, "malformed trailers")
     end

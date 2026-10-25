@@ -41,10 +41,14 @@ module Grpcdc
   class StatusError < StandardError
     attr_reader :code, :message
 
+    # Trailing metadata carried by a status frame (never nil).
+    attr_accessor :trailers
+
     def initialize(code, message = "")
       super(message)
       @code = code
       @message = message
+      @trailers = {}
     end
 
     def to_s
@@ -244,12 +248,20 @@ module Grpcdc
 
 def status_frame(frame_type, stream_id, status)
       body = { "code" => status.code, "message" => status.message }
+      body["metadata"] = status.trailers if status.trailers && !status.trailers.empty?
       encode_frame(frame_type, stream_id, JSON.generate(body).b)
     end
 
     def parse_status(payload)
       body = JSON.parse(payload.dup.force_encoding(Encoding::UTF_8))
-      StatusError.new(Integer(body.fetch("code")), String(body["message"] || ""))
+      status = StatusError.new(Integer(body.fetch("code")), String(body["message"] || ""))
+      md = body["metadata"]
+      if md.is_a?(Hash)
+        status.trailers = md.each_with_object({}) do |(k, v), out|
+          out[k.to_s] = v.to_s
+        end
+      end
+      status
     rescue JSON::ParserError, EncodingError, KeyError, TypeError, ArgumentError
       StatusError.new(CODE_UNKNOWN, "malformed trailers")
     end
@@ -355,20 +367,40 @@ module Grpcdc
   end
 
   class ResponseSink
+    # Wired to the CallContext maps by the endpoint.
+    attr_accessor :resp_headers, :resp_trailers
+
     def initialize(endpoint, stream_id)
       @endpoint = endpoint
       @id = stream_id
+      @resp_headers = {}
+      @resp_trailers = {}
+      @headers_sent = false
     end
 
     def send_data(payload)
+      flush_headers
       @endpoint.send_frame(Codec.encode_frame(FRAME_DATA, @id, payload))
     end
 
-    def send_headers
-      @endpoint.send_frame(Codec.headers_frame(@id, nil, nil))
+    def flush_headers
+      return if @headers_sent
+
+      @headers_sent = true
+      send_headers(@resp_headers)
+    end
+
+    def send_headers(metadata = nil)
+      @headers_sent = true
+      @endpoint.send_frame(Codec.headers_frame(@id, nil, metadata || @resp_headers))
     end
 
     def send_trailers(status)
+      if @resp_trailers && !@resp_trailers.empty?
+        merged = @resp_trailers.merge(status.trailers || {})
+        status = StatusError.new(status.code, status.message)
+        status.trailers = merged
+      end
       @endpoint.send_frame(Codec.status_frame(FRAME_TRAILERS, @id, status))
     end
 
@@ -380,10 +412,24 @@ module Grpcdc
 
   # Per-call context: metadata sent in HEADERS, plus deadline.
   class CallContext
-    attr_reader :metadata, :deadline
+    attr_reader :metadata, :deadline, :response_headers, :response_trailers
+
+    # Record response initial metadata (sent lazily, before
+    # the first response message).
+    def set_headers(md)
+      @response_headers.merge!(md)
+    end
+
+    # Record response trailing metadata (rides the terminal
+    # status frame).
+    def set_trailers(md)
+      @response_trailers.merge!(md)
+    end
 
     def initialize(metadata = nil, timeout: nil)
       @metadata = metadata || {}
+      @response_headers = {}
+      @response_trailers = {}
       remaining = Codec.parse_timeout(@metadata["grpc-timeout"])
       @deadline = remaining.nil? ? nil : Process.clock_gettime(Process::CLOCK_MONOTONIC) + remaining
     end
@@ -584,13 +630,22 @@ module Grpcdc
       dispatcher = @dispatcher
       Thread.new do
         begin
-          begin
-            sink.send_headers
-          rescue StandardError
-            next
+          # No eager HEADERS: initial metadata flushes lazily
+          # via the sink (first DATA, or below on a DATA-less
+          # success) so handlers can set_headers first. Errors
+          # end trailers-only, as gRPC allows.
+          ctx = CallContext.new(headers.metadata)
+          sink.resp_headers = ctx.response_headers
+          sink.resp_trailers = ctx.response_trailers
+          status = dispatcher.call(ctx, headers, stream_input, sink)
+          if status.nil?
+            status = StatusError.new(CODE_OK, "")
+            begin
+              sink.flush_headers
+            rescue StandardError
+              nil
+            end
           end
-          status = dispatcher.call(CallContext.new(headers.metadata), headers, stream_input, sink)
-          status = StatusError.new(CODE_OK, "") if status.nil?
           begin
             sink.send_trailers(status)
           rescue StandardError
@@ -737,7 +792,7 @@ module Grpcdc
 
   # Receives response messages of one call.
   class ClientStream
-    attr_reader :stream_id, :headers, :endpoint
+    attr_reader :stream_id, :headers, :trailers, :endpoint
 
     attr_accessor :deadline, :trace_ctx, :trace_path
 
@@ -746,6 +801,7 @@ module Grpcdc
       @stream_id = stream_id
       @input = stream_input
       @headers = nil
+      @trailers = nil
       @deadline = nil
       @trace_ctx = nil
       @trace_path = nil
@@ -784,11 +840,13 @@ module Grpcdc
         when EVENT_DATA
           return resp.unmarshal_dc(event.payload)
         when EVENT_TRAILERS
+          @trailers = event.status.trailers
           end_trace(Grpcdc.status_name(event.status.code))
           raise event.status unless event.status.code == CODE_OK
 
           raise EOFError, "call completed"
         when EVENT_RST
+          @trailers = event.status.trailers
           end_trace(Grpcdc.status_name(event.status.code))
           raise event.status
         end

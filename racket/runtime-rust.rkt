@@ -62,7 +62,7 @@ pub use dynamic::{
     DynamicHandler, DynamicSink, FieldModel, FileModel, GenericMessage, GenericValue, MessageModel,
     MethodModel, ServiceModel,
 };
-pub use status::{Code, Status};
+pub use status::{Code, Metadata, Status};
 
 /// Monotonic clock seam for deadlines. Native builds use
 /// [`std::time::Instant`]. On wasm32, `std::time::Instant::now()`
@@ -262,12 +262,20 @@ impl Frame {
     }
 
     pub fn trailers(stream_id: u32, status: &Status) -> Result<Self, Status> {
-        let payload = Trailers { code: status.code as u32, message: status.message.clone() };
+        let payload = Trailers {
+            code: status.code as u32,
+            message: status.message.clone(),
+            metadata: status.trailers.clone(),
+        };
         Ok(Self::new(frame_type::TRAILERS, stream_id, serde_json::to_vec(&payload)?))
     }
 
     pub fn rst(stream_id: u32, status: &Status) -> Result<Self, Status> {
-        let payload = Trailers { code: status.code as u32, message: status.message.clone() };
+        let payload = Trailers {
+            code: status.code as u32,
+            message: status.message.clone(),
+            metadata: status.trailers.clone(),
+        };
         Ok(Self::new(frame_type::RST, stream_id, serde_json::to_vec(&payload)?))
     }
 
@@ -321,7 +329,9 @@ impl Frame {
 
     pub fn parse_status(&self) -> Result<Status, Status> {
         let t: Trailers = serde_json::from_slice(&self.payload)?;
-        Ok(Status::from_code_u32(t.code, t.message))
+        let mut status = Status::from_code_u32(t.code, t.message);
+        status.trailers = t.metadata;
+        Ok(status)
     }
 }
 
@@ -374,6 +384,8 @@ pub struct Headers {
 struct Trailers {
     code: u32,
     message: String,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    metadata: Metadata,
 }
 
 impl From<serde_json::Error> for Status {
@@ -439,11 +451,14 @@ pub type Metadata = HashMap<String, String>;
 pub struct Status {
     pub code: Code,
     pub message: String,
+    /// Trailing metadata carried by a status frame (empty when
+    /// the peer sent none).
+    pub trailers: Metadata,
 }
 
 impl Status {
     pub fn new(code: Code, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
+        Self { code, message: message.into(), trailers: Metadata::new() }
     }
     pub fn ok() -> Self {
         Self::new(Code::Ok, "")
@@ -966,6 +981,13 @@ impl Endpoint {
                 };
                 let (tx, rx) = mpsc::unbounded();
                 self.streams.lock().unwrap().insert(frame.stream_id, tx);
+                // No eager HEADERS: initial metadata flushes
+                // lazily via the sink (first DATA, or below on a
+                // DATA-less success) so handlers can set_headers
+                // first. Errors end trailers-only, as gRPC allows.
+                let response_meta: crate::server::SharedMeta = Default::default();
+                let sink = ResponseSink::new(self.clone(), frame.stream_id, response_meta.clone());
+                let flush_sink = sink.clone();
                 let call = ServerCall {
                     ctx: CallCtx {
                         path: path.clone(),
@@ -976,14 +998,11 @@ impl Endpoint {
                             .get("grpc-timeout")
                             .and_then(|t| crate::codec::parse_timeout(t))
                             .map(|d| crate::platform_time::Instant::now() + d),
+                        response_meta: response_meta.clone(),
                     },
                     requests: RequestStream::<Bytes>::from_events(rx),
-                    sink: ResponseSink::new(self.clone(), frame.stream_id),
+                    sink,
                 };
-                // Initial metadata HEADERS precedes any DATA/TRAILERS.
-                let _ = self
-                    .send_frame(Frame::headers(frame.stream_id, &Headers::default()).unwrap())
-                    .await;
                 let trace_ctx = crate::status::trace_start(
                     "server",
                     &path,
@@ -992,7 +1011,7 @@ impl Endpoint {
                 let ep = self.clone();
                 let stream_id = frame.stream_id;
                 crate::spawn_task(async move {
-                    let status = match handler(call).await {
+                    let mut status = match handler(call).await {
                         Ok(()) => Status::ok(),
                         Err(s) => s,
                     };
@@ -1002,6 +1021,15 @@ impl Endpoint {
                         trace_ctx.as_ref(),
                         status.code.name(),
                     );
+                    if status.is_ok() {
+                        let _ = flush_sink.flush_headers().await;
+                    }
+                    {
+                        let meta = response_meta.lock().unwrap();
+                        for (k, v) in &meta.trailers {
+                            status.trailers.entry(k.clone()).or_insert_with(|| v.clone());
+                        }
+                    }
                     let _ = ep.send_frame(Frame::trailers(stream_id, &status).unwrap()).await;
                     ep.close_stream(stream_id);
                 });
@@ -1066,6 +1094,25 @@ use crate::platform_time::Instant;
 pub struct CallOptions {
     pub metadata: Metadata,
     pub timeout: Option<Duration>,
+    /// When set, response initial metadata is copied into the
+    /// sink as it arrives.
+    pub response_headers: Option<SharedMetaSink>,
+    /// When set, response trailing metadata is copied into the
+    /// sink with the terminal status.
+    pub response_trailers: Option<SharedMetaSink>,
+}
+
+/// Shared capture slot for response metadata.
+pub type SharedMetaSink = Arc<std::sync::Mutex<Metadata>>;
+
+/// (headers sink, trailers sink) lifted from CallOptions.
+pub type Capture = (Option<SharedMetaSink>, Option<SharedMetaSink>);
+
+/// Copy response metadata into a capture sink, when present.
+pub fn fill_capture(sink: &Option<SharedMetaSink>, metadata: &Metadata) {
+    if let Some(sink) = sink {
+        *sink.lock().unwrap() = metadata.clone();
+    }
 }
 
 impl CallOptions {
@@ -1074,7 +1121,7 @@ impl CallOptions {
     }
 
     pub fn with_timeout(timeout: Duration) -> Self {
-        Self { metadata: Metadata::new(), timeout: Some(timeout) }
+        Self { metadata: Metadata::new(), timeout: Some(timeout), ..Default::default() }
     }
 
     pub fn timeout(mut self, timeout: Duration) -> Self {
@@ -1086,11 +1133,23 @@ impl CallOptions {
         self.metadata = metadata;
         self
     }
+
+    /// Capture response initial metadata into `sink`.
+    pub fn capture_headers(mut self, sink: SharedMetaSink) -> Self {
+        self.response_headers = Some(sink);
+        self
+    }
+
+    /// Capture response trailing metadata into `sink`.
+    pub fn capture_trailers(mut self, sink: SharedMetaSink) -> Self {
+        self.response_trailers = Some(sink);
+        self
+    }
 }
 
 impl From<Metadata> for CallOptions {
     fn from(metadata: Metadata) -> Self {
-        Self { metadata, timeout: None }
+        Self { metadata, timeout: None, ..Default::default() }
     }
 }
 
@@ -1150,7 +1209,8 @@ impl Channel {
         &self,
         path: &str,
         mut options: CallOptions,
-    ) -> Result<(u32, UnboundedReceiver<StreamEvent>, Option<Instant>), Status> {
+    ) -> Result<(u32, UnboundedReceiver<StreamEvent>, Option<Instant>, Capture), Status> {
+        let capture: Capture = (options.response_headers.clone(), options.response_trailers.clone());
         let deadline = options.timeout.map(|timeout| {
             options
                 .metadata
@@ -1178,7 +1238,7 @@ impl Channel {
         }
         let headers = Headers { path: Some(path.to_string()), metadata };
         match self.ep.send_frame(Frame::headers(id, &headers)?).await {
-            Ok(()) => Ok((id, rx, deadline)),
+            Ok(()) => Ok((id, rx, deadline, capture)),
             Err(e) => {
                 self.ep.end_stream_trace(id, "UNAVAILABLE");
                 self.ep.close_stream(id);
@@ -1196,12 +1256,16 @@ impl Channel {
         id: u32,
         mut rx: UnboundedReceiver<StreamEvent>,
         deadline: Option<Instant>,
+        capture: Capture,
     ) -> Result<Resp, Status> {
         let mut response: Option<Resp> = None;
         let result = loop {
             match next_with_deadline(&self.ep, id, &mut rx, deadline).await {
                 Err(status) => break Err(status),
-                Ok(Some(StreamEvent::Headers(_))) => continue,
+                Ok(Some(StreamEvent::Headers(headers))) => {
+                    fill_capture(&capture.0, &headers.metadata);
+                    continue;
+                }
                 Ok(Some(StreamEvent::Data(bytes))) => match Resp::decode(&bytes) {
                     Ok(msg) => {
                         if response.is_some() {
@@ -1212,6 +1276,7 @@ impl Channel {
                     Err(e) => break Err(e),
                 },
                 Ok(Some(StreamEvent::Trailers(status))) => {
+                    fill_capture(&capture.1, &status.trailers);
                     self.ep.end_stream_trace(id, status.code.name());
                     if status.is_ok() {
                         match response {
@@ -1225,6 +1290,7 @@ impl Channel {
                     }
                 }
                 Ok(Some(StreamEvent::Rst(status))) => {
+                    fill_capture(&capture.1, &status.trailers);
                     self.ep.end_stream_trace(id, status.code.name());
                     break Err(status)
                 }
@@ -1255,7 +1321,7 @@ impl Channel {
         Req: Message,
         Resp: Message,
     {
-        self.unary_with_options(path, req, CallOptions { metadata, timeout: None })
+        self.unary_with_options(path, req, CallOptions { metadata, timeout: None, ..Default::default() })
             .await
     }
 
@@ -1269,10 +1335,10 @@ impl Channel {
         Req: Message,
         Resp: Message,
     {
-        let (id, rx, deadline) = self.open_with_options(path, options).await?;
+        let (id, rx, deadline, capture) = self.open_with_options(path, options).await?;
         self.send_data(id, &req).await?;
         self.ep.send_frame(Frame::half_close(id)).await?;
-        self.collect_one_with_deadline(id, rx, deadline).await
+        self.collect_one_with_deadline(id, rx, deadline, capture).await
     }
 
     // -- server-streaming ------------------------------------------------------
@@ -1298,7 +1364,7 @@ impl Channel {
         Req: Message,
         Resp: Message + 'static,
     {
-        self.server_stream_with_options(path, req, CallOptions { metadata, timeout: None })
+        self.server_stream_with_options(path, req, CallOptions { metadata, timeout: None, ..Default::default() })
             .await
     }
 
@@ -1312,10 +1378,10 @@ impl Channel {
         Req: Message,
         Resp: Message + 'static,
     {
-        let (id, rx, deadline) = self.open_with_options(path, options).await?;
+        let (id, rx, deadline, capture) = self.open_with_options(path, options).await?;
         self.send_data(id, &req).await?;
         self.ep.send_frame(Frame::half_close(id)).await?;
-        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline))
+        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline, capture))
     }
 
     // -- client-streaming ------------------------------------------------------
@@ -1343,7 +1409,7 @@ impl Channel {
         Resp: Message,
         S: Stream<Item = Req> + Send + 'static,
     {
-        self.client_stream_with_options(path, reqs, CallOptions { metadata, timeout: None })
+        self.client_stream_with_options(path, reqs, CallOptions { metadata, timeout: None, ..Default::default() })
             .await
     }
 
@@ -1358,9 +1424,9 @@ impl Channel {
         Resp: Message,
         S: Stream<Item = Req> + Send + 'static,
     {
-        let (id, rx, deadline) = self.open_with_options(path, options).await?;
+        let (id, rx, deadline, capture) = self.open_with_options(path, options).await?;
         self.spawn_pump(id, reqs);
-        self.collect_one_with_deadline(id, rx, deadline).await
+        self.collect_one_with_deadline(id, rx, deadline, capture).await
     }
 
     // -- bidirectional ---------------------------------------------------------
@@ -1388,7 +1454,7 @@ impl Channel {
         Resp: Message + 'static,
         S: Stream<Item = Req> + Send + 'static,
     {
-        self.bidi_with_options(path, reqs, CallOptions { metadata, timeout: None })
+        self.bidi_with_options(path, reqs, CallOptions { metadata, timeout: None, ..Default::default() })
             .await
     }
 
@@ -1403,9 +1469,9 @@ impl Channel {
         Resp: Message + 'static,
         S: Stream<Item = Req> + Send + 'static,
     {
-        let (id, rx, deadline) = self.open_with_options(path, options).await?;
+        let (id, rx, deadline, capture) = self.open_with_options(path, options).await?;
         self.spawn_pump(id, reqs);
-        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline))
+        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline, capture))
     }
 
     fn spawn_pump<Req, S>(&self, id: u32, reqs: S)
@@ -1440,41 +1506,48 @@ fn typed_response_stream<Resp>(
     id: u32,
     rx: UnboundedReceiver<StreamEvent>,
     deadline: Option<Instant>,
+    capture: Capture,
 ) -> ResponseStream<Resp>
 where
     Resp: Message + 'static,
 {
     let stream = futures_util::stream::unfold(
-        (ep, rx, false),
-        move |(ep, mut rx, done)| async move {
+        (ep, rx, false, capture),
+        move |(ep, mut rx, done, capture)| async move {
         if done {
             return None;
         }
         loop {
             match next_with_deadline(&ep, id, &mut rx, deadline).await {
-                Err(status) => return Some((Err(status), (ep, rx, true))),
+                Err(status) => return Some((Err(status), (ep, rx, true, capture))),
                 Ok(event) => match event {
-                Some(StreamEvent::Headers(_)) | Some(StreamEvent::HalfClose) => continue,
+                Some(StreamEvent::Headers(headers)) => {
+                    fill_capture(&capture.0, &headers.metadata);
+                    continue;
+                }
+                Some(StreamEvent::HalfClose) => continue,
                 Some(StreamEvent::Data(bytes)) => match Resp::decode(&bytes) {
-                    Ok(msg) => return Some((Ok(msg), (ep, rx, false))),
-                    Err(e) => return Some((Err(e), (ep, rx, true))),
+                    Ok(msg) => return Some((Ok(msg), (ep, rx, false, capture))),
+                    Err(e) => return Some((Err(e), (ep, rx, true, capture))),
                 },
                 Some(StreamEvent::Trailers(status)) => {
+                    fill_capture(&capture.1, &status.trailers);
                     ep.end_stream_trace(id, status.code.name());
                     return if status.is_ok() {
                         None
                     } else {
-                        Some((Err(status), (ep, rx, true)))
+                        Some((Err(status), (ep, rx, true, capture)))
                     };
                 }
                 Some(StreamEvent::Rst(status)) => {
+                    fill_capture(&capture.1, &status.trailers);
                     ep.end_stream_trace(id, status.code.name());
-                    return Some((Err(status), (ep, rx, true)))
+                    return Some((Err(status), (ep, rx, true, capture)))
                 }
                 None => {
                     return Some((
                         Err(Status::unavailable("data channel closed")),
-                        (ep, rx, true),
+                        (ep, rx, true, capture),
                     ))
                 }
                 },
@@ -1511,6 +1584,18 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+/// Response initial/trailing metadata accumulated during one
+/// call (handler -> CallCtx, flush -> ResponseSink/endpoint).
+#[derive(Debug, Default)]
+pub struct ResponseMeta {
+    pub headers: Metadata,
+    pub trailers: Metadata,
+    pub headers_sent: bool,
+}
+
+/// Shared per-call response metadata.
+pub type SharedMeta = Arc<std::sync::Mutex<ResponseMeta>>;
+
 /// Per-call context handed to handlers.
 #[derive(Clone, Debug)]
 pub struct CallCtx {
@@ -1519,6 +1604,7 @@ pub struct CallCtx {
     pub stream_id: u32,
     /// Deadline propagated via grpc-timeout, when the client set one.
     pub deadline: Option<crate::platform_time::Instant>,
+    pub(crate) response_meta: SharedMeta,
 }
 
 impl CallCtx {
@@ -1530,6 +1616,24 @@ impl CallCtx {
 
     pub fn deadline_exceeded(&self) -> bool {
         self.time_remaining() == Some(std::time::Duration::ZERO)
+    }
+
+    /// Record response initial metadata (sent lazily, before
+    /// the first response message).
+    pub fn set_headers(&self, metadata: Metadata) {
+        let mut meta = self.response_meta.lock().unwrap();
+        for (k, v) in metadata {
+            meta.headers.insert(k, v);
+        }
+    }
+
+    /// Record response trailing metadata (rides the terminal
+    /// status frame).
+    pub fn set_trailers(&self, metadata: Metadata) {
+        let mut meta = self.response_meta.lock().unwrap();
+        for (k, v) in metadata {
+            meta.trailers.insert(k, v);
+        }
     }
 }
 
@@ -1586,14 +1690,30 @@ impl<T: Message> Stream for RequestStream<T> {
 pub struct ResponseSink {
     ep: Arc<Endpoint>,
     stream_id: u32,
+    meta: SharedMeta,
 }
 
 impl ResponseSink {
-    pub(crate) fn new(ep: Arc<Endpoint>, stream_id: u32) -> Self {
-        Self { ep, stream_id }
+    pub(crate) fn new(ep: Arc<Endpoint>, stream_id: u32, meta: SharedMeta) -> Self {
+        Self { ep, stream_id, meta }
+    }
+
+    /// Send the initial-metadata HEADERS once (with whatever
+    /// the handler recorded via CallCtx::set_headers).
+    pub async fn flush_headers(&self) -> Result<(), Status> {
+        let headers = {
+            let mut meta = self.meta.lock().unwrap();
+            if meta.headers_sent {
+                return Ok(());
+            }
+            meta.headers_sent = true;
+            crate::codec::Headers { path: None, metadata: meta.headers.clone() }
+        };
+        self.ep.send_frame(crate::codec::Frame::headers(self.stream_id, &headers)?).await
     }
 
     pub async fn send(&self, payload: Vec<u8>) -> Result<(), Status> {
+        self.flush_headers().await?;
         self.ep.send_frame(crate::codec::Frame::data(self.stream_id, payload)).await
     }
 }

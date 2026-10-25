@@ -7,8 +7,15 @@ const wire = @import("wire.zig");
 /// exceptions, so fallible runtime calls return Status (codeOk means
 /// success) or a result union embedding one. Mirrors StatusException
 /// in the other grpcdc runtimes.
+/// One trailing-metadata key/value pair.
+pub const TrailerPair = struct { key: []const u8, value: []const u8 };
+
 pub const Status = struct {
     code: i32 = wire.codeOk,
+    /// Trailing metadata carried by a status frame. Owned like
+    /// the message (freed by the owning event's deinit); empty
+    /// when the peer sent none.
+    trailers: []const TrailerPair = &.{},
     /// Borrowed or allocator-owned depending on the producer; statuses
     /// parsed from the wire own their message via the stream queue and
     /// stay valid until the owning event is consumed and freed.

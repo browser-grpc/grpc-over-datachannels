@@ -3,6 +3,26 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.8 — 2026-10-25
+
+- Response initial + trailing metadata across all 16
+  generated runtimes: TRAILERS status frames carry an
+  optional metadata member and response HEADERS carries
+  initial metadata; servers set them via the call context
+  (JS `ctx.setHeaders/setTrailers`, Go
+  `grpcdc.SetHeader/SetTrailer`, Python
+  `ctx.set_headers/set_trailers`, equivalents elsewhere),
+  clients surface them (JS `onHeaders`/`onTrailers` options,
+  Go `Header()`/`Trailer()`, Python `.headers`/`.trailers`,
+  equivalents elsewhere). `-bin` values are base64 on the
+  wire, matching the gRPC HTTP/2 convention. The grpc-java /
+  grpc-go `custom_metadata` interop case now runs in both
+  directions with the full upstream echo asserted.
+- JS generated client takes an `AbortSignal` in call
+  options for per-call cancellation; the interop
+  `cancel_after_begin` / `cancel_after_first_response`
+  cases now run under the JS driver too.
+
 ## v0.32.7 — 2026-10-25
 
 - Public-export hygiene: the clarity gate in the release

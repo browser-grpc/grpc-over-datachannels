@@ -23,6 +23,9 @@ public class StatusException : Exception
 {
     public int Code { get; }
 
+    /// <summary>Trailing metadata carried by a status frame (never null).</summary>
+    public Dictionary<string, string> Trailers { get; set; } = new();
+
     public StatusException(int code, string message) : base(message)
     {
         Code = code;
@@ -364,6 +367,10 @@ public static class Codec
             ["code"] = status.Code,
             ["message"] = status.Message,
         };
+        if (status.Trailers != null && status.Trailers.Count > 0)
+        {
+            body["metadata"] = status.Trailers;
+        }
         return EncodeFrame(frameType, streamId,
             Encoding.UTF8.GetBytes(JsonSerializer.Serialize(body)));
     }
@@ -377,7 +384,17 @@ public static class Codec
             int code = root.GetProperty("code").GetInt32();
             string message = root.TryGetProperty("message", out JsonElement msgEl)
                 && msgEl.ValueKind == JsonValueKind.String ? msgEl.GetString() : "";
-            return new StatusException(code, message ?? "");
+            var status = new StatusException(code, message ?? "");
+            if (root.TryGetProperty("metadata", out JsonElement mdEl)
+                && mdEl.ValueKind == JsonValueKind.Object)
+            {
+                foreach (JsonProperty prop in mdEl.EnumerateObject())
+                {
+                    status.Trailers[prop.Name] = prop.Value.ValueKind == JsonValueKind.String
+                        ? prop.Value.GetString() : prop.Value.ToString();
+                }
+            }
+            return status;
         }
         catch (Exception)
         {
@@ -484,6 +501,24 @@ public class Endpoint
     {
         public Dictionary<string, string> Metadata { get; }
 
+        /// <summary>Response initial metadata recorded via SetHeaders.</summary>
+        public Dictionary<string, string> ResponseHeaders { get; } = new();
+
+        /// <summary>Response trailing metadata recorded via SetTrailers.</summary>
+        public Dictionary<string, string> ResponseTrailers { get; } = new();
+
+        /// <summary>Record response initial metadata (sent lazily, before the first response message).</summary>
+        public void SetHeaders(IDictionary<string, string> md)
+        {
+            foreach (var kv in md) ResponseHeaders[kv.Key] = kv.Value;
+        }
+
+        /// <summary>Record response trailing metadata (rides the terminal status frame).</summary>
+        public void SetTrailers(IDictionary<string, string> md)
+        {
+            foreach (var kv in md) ResponseTrailers[kv.Key] = kv.Value;
+        }
+
         /// <summary>Deadline propagated via grpc-timeout, when set.</summary>
         public DateTimeOffset? Deadline { get; }
 
@@ -526,18 +561,45 @@ public class Endpoint
             _streamId = streamId;
         }
 
+        // Wired to the CallContext maps by the endpoint.
+        internal Dictionary<string, string> RespHeaders = new();
+        internal Dictionary<string, string> RespTrailers = new();
+        internal bool HeadersSent;
+
         public void Send(byte[] payload)
         {
+            FlushHeaders();
             _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, _streamId, payload));
+        }
+
+        internal void FlushHeaders()
+        {
+            if (!HeadersSent)
+            {
+                HeadersSent = true;
+                SendHeaders(RespHeaders);
+            }
         }
 
         internal void SendHeaders()
         {
-            _endpoint.SendFrame(Codec.HeadersFrame(_streamId, null, null));
+            SendHeaders(RespHeaders);
+        }
+
+        internal void SendHeaders(Dictionary<string, string> metadata)
+        {
+            HeadersSent = true;
+            _endpoint.SendFrame(Codec.HeadersFrame(_streamId, null, metadata));
         }
 
         internal void SendTrailers(StatusException status)
         {
+            if (RespTrailers.Count > 0)
+            {
+                var merged = new Dictionary<string, string>(RespTrailers);
+                foreach (var kv in status.Trailers) merged[kv.Key] = kv.Value;
+                status = new StatusException(status.Code, status.Message) { Trailers = merged };
+            }
             _endpoint.SendFrame(Codec.StatusFrame(Wire.FrameTrailers, _streamId, status));
         }
     }
@@ -750,11 +812,20 @@ public class Endpoint
         {
             try
             {
-                try { sink.SendHeaders(); }
-                catch (Exception) { return; }
-                StatusException status = _dispatcher(
-                    new CallContext(headers.Metadata), headers, streamInput, sink);
-                status ??= new StatusException(Wire.CodeOk, "");
+                // No eager HEADERS: initial metadata flushes lazily via
+                // the sink (first DATA, or below on a DATA-less success)
+                // so handlers can SetHeaders first. Errors end
+                // trailers-only, as gRPC allows.
+                var ctx = new CallContext(headers.Metadata);
+                sink.RespHeaders = ctx.ResponseHeaders;
+                sink.RespTrailers = ctx.ResponseTrailers;
+                StatusException status = _dispatcher(ctx, headers, streamInput, sink);
+                if (status == null)
+                {
+                    status = new StatusException(Wire.CodeOk, "");
+                    try { sink.FlushHeaders(); }
+                    catch (Exception) { /* best effort */ }
+                }
                 try { sink.SendTrailers(status); }
                 catch (Exception) { /* best effort */ }
             }
@@ -801,6 +872,9 @@ public class Channel
 
         public uint StreamId { get; }
         public Codec.Headers Headers { get; private set; }
+
+        /// <summary>Trailing metadata of the terminal status (null until it arrives).</summary>
+        public Dictionary<string, string> Trailers { get; private set; }
         internal long DeadlineTimestamp = -1;
         internal Tracing.TraceContext TraceCtx;
         internal string TracePath;
@@ -871,6 +945,7 @@ public class Channel
                         resp.UnmarshalDc(evt.Payload);
                         return;
                     case Endpoint.EventKind.Trailers:
+                        Trailers = evt.Status.Trailers;
                         EndTrace(Wire.StatusName(evt.Status.Code));
                         if (evt.Status.Code != Wire.CodeOk)
                         {
@@ -878,6 +953,7 @@ public class Channel
                         }
                         throw new EndOfStreamException("call completed");
                     case Endpoint.EventKind.Rst:
+                        Trailers = evt.Status.Trailers;
                         EndTrace(Wire.StatusName(evt.Status.Code));
                         throw evt.Status;
                     default:

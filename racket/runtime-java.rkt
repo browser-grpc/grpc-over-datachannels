@@ -23,6 +23,8 @@ package grpcdc;
 /** A gRPC status (code + message) carried as an exception. */
 public class StatusException extends RuntimeException {
     public final int code;
+    /** Trailing metadata carried by a status frame (never null). */
+    public java.util.Map<String, String> trailers = java.util.Map.of();
 
     public StatusException(int code, String message) {
         super(message);
@@ -213,8 +215,21 @@ public final class Codec {
     }
 
     public static byte[] statusFrame(int frameType, long streamId, StatusException status) {
-        String body = "{\"code\":" + status.code + ",\"message\":" + jsonString(status.getMessage()) + "}";
-        return encodeFrame(frameType, streamId, body.getBytes(StandardCharsets.UTF_8));
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"code\":").append(status.code)
+          .append(",\"message\":").append(jsonString(status.getMessage()));
+        if (status.trailers != null && !status.trailers.isEmpty()) {
+            sb.append(",\"metadata\":{");
+            boolean first = true;
+            for (Map.Entry<String, String> e : status.trailers.entrySet()) {
+                if (!first) sb.append(',');
+                sb.append(jsonString(e.getKey())).append(':').append(jsonString(e.getValue()));
+                first = false;
+            }
+            sb.append('}');
+        }
+        sb.append('}');
+        return encodeFrame(frameType, streamId, sb.toString().getBytes(StandardCharsets.UTF_8));
     }
 
     public static StatusException parseStatus(byte[] payload) {
@@ -222,7 +237,16 @@ public final class Codec {
             Map<String, Object> body = parseJsonObject(new String(payload, StandardCharsets.UTF_8));
             int code = ((Number) body.get("code")).intValue();
             Object message = body.get("message");
-            return new StatusException(code, message == null ? "" : String.valueOf(message));
+            StatusException status = new StatusException(code, message == null ? "" : String.valueOf(message));
+            Object metadata = body.get("metadata");
+            if (metadata instanceof Map<?, ?> mm) {
+                java.util.Map<String, String> trailers = new java.util.HashMap<>();
+                for (Map.Entry<?, ?> e : mm.entrySet()) {
+                    trailers.put(String.valueOf(e.getKey()), String.valueOf(e.getValue()));
+                }
+                status.trailers = trailers;
+            }
+            return status;
         } catch (RuntimeException e) {
             return new StatusException(Wire.CODE_UNKNOWN, "malformed trailers");
         }
@@ -487,8 +511,22 @@ public class Endpoint {
     /** Per-call context: metadata sent in HEADERS, plus deadline. */
     public static final class CallContext {
         public final Map<String, String> metadata;
+        /** Response initial metadata recorded via setHeaders. */
+        public final Map<String, String> responseHeaders = new java.util.HashMap<>();
+        /** Response trailing metadata recorded via setTrailers. */
+        public final Map<String, String> responseTrailers = new java.util.HashMap<>();
         /** Monotonic deadline (System.nanoTime), or -1 when unbounded. */
         public final long deadlineNanos;
+
+        /** Record response initial metadata (sent lazily, before the first response message). */
+        public void setHeaders(Map<String, String> md) {
+            responseHeaders.putAll(md);
+        }
+
+        /** Record response trailing metadata (rides the terminal status frame). */
+        public void setTrailers(Map<String, String> md) {
+            responseTrailers.putAll(md);
+        }
 
         public CallContext(Map<String, String> metadata) {
             this.metadata = metadata == null ? Map.of() : metadata;
@@ -525,15 +563,40 @@ public class Endpoint {
             this.streamId = streamId;
         }
 
+        // Wired to the CallContext maps by the endpoint.
+        Map<String, String> respHeaders = Map.of();
+        Map<String, String> respTrailers = Map.of();
+        boolean headersSent;
+
         public void send(byte[] payload) throws Exception {
+            flushHeaders();
             endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, payload));
         }
 
+        void flushHeaders() throws Exception {
+            if (!headersSent) {
+                headersSent = true;
+                sendHeaders(respHeaders);
+            }
+        }
+
         void sendHeaders() throws Exception {
-            endpoint.sendFrame(Codec.headersFrame(streamId, null, null));
+            sendHeaders(respHeaders);
+        }
+
+        void sendHeaders(Map<String, String> metadata) throws Exception {
+            headersSent = true;
+            endpoint.sendFrame(Codec.headersFrame(streamId, null, metadata));
         }
 
         void sendTrailers(StatusException status) throws Exception {
+            if (!respTrailers.isEmpty()) {
+                java.util.Map<String, String> merged = new java.util.HashMap<>(respTrailers);
+                merged.putAll(status.trailers);
+                StatusException withTrailers = new StatusException(status.code, status.getMessage());
+                withTrailers.trailers = merged;
+                status = withTrailers;
+            }
             endpoint.sendFrame(Codec.statusFrame(Wire.FRAME_TRAILERS, streamId, status));
         }
     }
@@ -726,15 +789,21 @@ public class Endpoint {
         ResponseSink sink = new ResponseSink(this, streamId);
         Thread thread = new Thread(() -> {
             try {
-                try {
-                    sink.sendHeaders();
-                } catch (Exception e) {
-                    return;
-                }
-                StatusException status = dispatcher.dispatch(
-                        new CallContext(headers.metadata), headers, input, sink);
+                // No eager HEADERS: initial metadata flushes lazily via
+                // the sink (first DATA, or below on a DATA-less success)
+                // so handlers can setHeaders first. Errors end
+                // trailers-only, as gRPC allows.
+                CallContext ctx = new CallContext(headers.metadata);
+                sink.respHeaders = ctx.responseHeaders;
+                sink.respTrailers = ctx.responseTrailers;
+                StatusException status = dispatcher.dispatch(ctx, headers, input, sink);
                 if (status == null) {
                     status = new StatusException(Wire.CODE_OK, "");
+                    try {
+                        sink.flushHeaders();
+                    } catch (Exception ignored) {
+                        // best effort
+                    }
                 }
                 try {
                     sink.sendTrailers(status);
@@ -785,6 +854,7 @@ public class Channel {
         private final long streamId;
         private final Endpoint.StreamInput input;
         private Codec.Headers headers;
+        private Map<String, String> trailers;
         private long deadlineNanos = -1L;
         private Tracing.TraceContext traceCtx;
         private String tracePath;
@@ -814,6 +884,11 @@ public class Channel {
 
         public Codec.Headers headers() {
             return headers;
+        }
+
+        /** Trailing metadata of the terminal status (null until it arrives). */
+        public Map<String, String> trailers() {
+            return trailers;
         }
 
         /**
@@ -848,6 +923,7 @@ public class Channel {
                         return;
                     }
                     case TRAILERS -> {
+                        trailers = event.status.trailers;
                         endTrace(Wire.statusName(event.status.code));
                         if (event.status.code != Wire.CODE_OK) {
                             throw event.status;
@@ -855,6 +931,7 @@ public class Channel {
                         throw new EOFException("call completed");
                     }
                     case RST -> {
+                        trailers = event.status.trailers;
                         endTrace(Wire.statusName(event.status.code));
                         throw event.status;
                     }

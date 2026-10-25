@@ -183,6 +183,9 @@ class StatusException : public std::exception {
     text_ = wire::StatusName(code_) + ": " + message_;
   }
 
+  /// Trailing metadata carried by a status frame (empty when none).
+  std::map<std::string, std::string> trailers;
+
   int code() const { return code_; }
   const std::string& message() const { return message_; }
   const char* what() const noexcept override { return text_.c_str(); }
@@ -512,7 +515,19 @@ struct Codec {
                            const StatusException& status) {
     std::string body = "{\"code\":" + std::to_string(status.code()) +
                        ",\"message\":\"" +
-                       json_detail::Escape(status.message()) + "\"}";
+                       json_detail::Escape(status.message()) + "\"";
+    if (!status.trailers.empty()) {
+      body += ",\"metadata\":{";
+      bool mfirst = true;
+      for (auto& kv : status.trailers) {
+        if (!mfirst) body += ",";
+        mfirst = false;
+        body += "\"" + json_detail::Escape(kv.first) + "\":\"" +
+                json_detail::Escape(kv.second) + "\"";
+      }
+      body += "}";
+    }
+    body += "}";
     return EncodeFrame(frame_type, stream_id, ToBytes(body));
   }
 
@@ -523,7 +538,14 @@ struct Codec {
       auto obj = parser.ParseObject();
       int code = std::stoi(obj.at("code"));
       std::string message = obj.count("message") ? obj["message"] : "";
-      return StatusException(code, message);
+      StatusException status(code, message);
+      auto mit = obj.find("metadata");
+      if (mit != obj.end()) {
+        json_detail::Parser mp{mit->second.data(),
+                               mit->second.data() + mit->second.size()};
+        status.trailers = mp.ParseObject();
+      }
+      return status;
     } catch (...) {
       return StatusException(wire::kCodeUnknown, "malformed trailers");
     }
@@ -707,9 +729,34 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     Endpoint* pump_endpoint_ = nullptr;
   };
 
+  /// Response initial/trailing metadata accumulated during one
+  /// call; shared (the call plumbing is const-ref throughout).
+  struct ResponseMeta {
+    Metadata headers;
+    Metadata trailers;
+    bool headers_sent = false;
+  };
+
   /// Per-call context: metadata sent in HEADERS, plus deadline.
   struct CallContext {
     Metadata metadata;
+    std::shared_ptr<ResponseMeta> response = std::make_shared<ResponseMeta>();
+
+    /// Record response initial metadata (sent lazily, before
+    /// the first response message).
+    void SetHeaders(const Metadata& md) const {
+      if (response) {
+        for (auto& kv : md) response->headers[kv.first] = kv.second;
+      }
+    }
+
+    /// Record response trailing metadata (rides the terminal
+    /// status frame).
+    void SetTrailers(const Metadata& md) const {
+      if (response) {
+        for (auto& kv : md) response->trailers[kv.first] = kv.second;
+      }
+    }
     /// Deadline propagated via grpc-timeout, when the client set one.
     std::optional<std::chrono::steady_clock::time_point> deadline;
 
@@ -731,14 +778,30 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
    public:
     ResponseSink(Endpoint* endpoint, std::uint32_t stream_id)
         : endpoint_(endpoint), stream_id_(stream_id) {}
+    // Shared with the CallContext (installed by the endpoint).
+    std::shared_ptr<ResponseMeta> response = std::make_shared<ResponseMeta>();
     void Send(const Bytes& payload) {
+      FlushHeaders();
       endpoint_->SendFrame(Codec::EncodeFrame(wire::kFrameData, stream_id_, payload));
     }
-    void SendHeaders() {
-      endpoint_->SendFrame(Codec::HeadersFrame(stream_id_, nullptr, nullptr));
+    void FlushHeaders() {
+      if (response->headers_sent) return;
+      response->headers_sent = true;
+      SendHeaders(&response->headers);
+    }
+    void SendHeaders() { SendHeaders(nullptr); }
+    void SendHeaders(const Metadata* metadata) {
+      response->headers_sent = true;
+      endpoint_->SendFrame(Codec::HeadersFrame(stream_id_, nullptr, metadata));
     }
     void SendTrailers(const StatusException& status) {
-      endpoint_->SendFrame(Codec::StatusFrame(wire::kFrameTrailers, stream_id_, status));
+      StatusException out = status;
+      if (!response->trailers.empty()) {
+        Metadata merged = response->trailers;
+        for (auto& kv : status.trailers) merged[kv.first] = kv.second;
+        out.trailers = std::move(merged);
+      }
+      endpoint_->SendFrame(Codec::StatusFrame(wire::kFrameTrailers, stream_id_, out));
     }
 
    private:
@@ -1008,15 +1071,10 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
                     const Dispatcher& dispatcher) {
     ResponseSink sink(this, stream_id);
     try {
-      try {
-        sink.SendHeaders();
-      } catch (...) {
-        CloseStream(stream_id);
-        return;
-      }
       StatusException status(wire::kCodeOk, "");
       try {
         CallContext ctx;
+        sink.response = ctx.response;
         ctx.metadata = headers.metadata;
         if (auto it = headers.metadata.find("grpc-timeout");
             it != headers.metadata.end()) {
@@ -1027,6 +1085,16 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
         status = dispatcher(ctx, headers, stream_input, sink);
       } catch (...) {
         status = StatusException::ToStatus(std::current_exception());
+      }
+      // No eager HEADERS: initial metadata flushes lazily via
+      // the sink (first DATA, or here on a DATA-less success)
+      // so handlers can SetHeaders first. Errors end
+      // trailers-only, as gRPC allows.
+      if (status.code() == wire::kCodeOk) {
+        try {
+          sink.FlushHeaders();
+        } catch (...) {
+        }
       }
       try {
         sink.SendTrailers(status);
@@ -1096,6 +1164,7 @@ class Channel {
 
     std::uint32_t stream_id() const { return stream_id_; }
     const Codec::Headers& headers() const { return headers_; }
+    const Metadata& trailers() const { return trailers_; }
 
     /// Decode the next response into resp. EndOfStream means the call
     /// completed OK; StatusException reports the trailers status.
@@ -1125,6 +1194,7 @@ class Channel {
             resp.UnmarshalDc(evt.payload);
             return;
           case Endpoint::EventKind::kTrailers:
+            if (evt.status) trailers_ = evt.status->trailers;
             EndTrace(wire::StatusName(evt.status ? evt.status->code() : wire::kCodeOk));
             if (evt.status && evt.status->code() != wire::kCodeOk) {
               throw *evt.status;
@@ -1133,6 +1203,7 @@ class Channel {
           case Endpoint::EventKind::kRst: {
             StatusException status = evt.status ? *evt.status
                 : StatusException(wire::kCodeUnavailable, "stream reset");
+            trailers_ = status.trailers;
             EndTrace(wire::StatusName(status.code()));
             throw status;
           }
@@ -1156,6 +1227,7 @@ class Channel {
     std::uint32_t stream_id_;
     std::shared_ptr<Endpoint::StreamInput> input_;
     Codec::Headers headers_;
+    Metadata trailers_;
     std::optional<Tracing::TraceContext> trace_ctx_;
     std::string trace_path_;
     bool trace_ended_ = false;

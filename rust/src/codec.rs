@@ -33,12 +33,20 @@ impl Frame {
     }
 
     pub fn trailers(stream_id: u32, status: &Status) -> Result<Self, Status> {
-        let payload = Trailers { code: status.code as u32, message: status.message.clone() };
+        let payload = Trailers {
+            code: status.code as u32,
+            message: status.message.clone(),
+            metadata: status.trailers.clone(),
+        };
         Ok(Self::new(frame_type::TRAILERS, stream_id, serde_json::to_vec(&payload)?))
     }
 
     pub fn rst(stream_id: u32, status: &Status) -> Result<Self, Status> {
-        let payload = Trailers { code: status.code as u32, message: status.message.clone() };
+        let payload = Trailers {
+            code: status.code as u32,
+            message: status.message.clone(),
+            metadata: status.trailers.clone(),
+        };
         Ok(Self::new(frame_type::RST, stream_id, serde_json::to_vec(&payload)?))
     }
 
@@ -92,7 +100,9 @@ impl Frame {
 
     pub fn parse_status(&self) -> Result<Status, Status> {
         let t: Trailers = serde_json::from_slice(&self.payload)?;
-        Ok(Status::from_code_u32(t.code, t.message))
+        let mut status = Status::from_code_u32(t.code, t.message);
+        status.trailers = t.metadata;
+        Ok(status)
     }
 }
 
@@ -145,6 +155,8 @@ pub struct Headers {
 struct Trailers {
     code: u32,
     message: String,
+    #[serde(default, skip_serializing_if = "Metadata::is_empty")]
+    metadata: Metadata,
 }
 
 impl From<serde_json::Error> for Status {

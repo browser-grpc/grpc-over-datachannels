@@ -78,6 +78,21 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
 
     /** Per-call context: metadata sent in HEADERS. */
     class CallContext(val metadata: Map<String, String>) {
+        /** Response initial metadata recorded via setHeaders. */
+        val responseHeaders = HashMap<String, String>()
+        /** Response trailing metadata recorded via setTrailers. */
+        val responseTrailers = HashMap<String, String>()
+
+        /** Record response initial metadata (sent lazily, before the first response message). */
+        fun setHeaders(md: Map<String, String>) {
+            responseHeaders.putAll(md)
+        }
+
+        /** Record response trailing metadata (rides the terminal status frame). */
+        fun setTrailers(md: Map<String, String>) {
+            responseTrailers.putAll(md)
+        }
+
         /** Monotonic deadline (System.nanoTime), or -1 when unbounded. */
         val deadlineNanos: Long = Codec.parseTimeout(metadata["grpc-timeout"])
             ?.let { grpcdcNowNanos() + it } ?: -1L
@@ -99,16 +114,41 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
 
     /** Sends response payloads of one inbound call. */
     class ResponseSink(private val endpoint: Endpoint, private val streamId: Long) {
+        // Wired to the CallContext maps by the endpoint.
+        var respHeaders: Map<String, String> = emptyMap()
+        var respTrailers: Map<String, String> = emptyMap()
+        var headersSent = false
+
         fun send(payload: ByteArray) {
+            flushHeaders()
             endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, payload))
         }
 
+        internal fun flushHeaders() {
+            if (!headersSent) {
+                headersSent = true
+                sendHeaders(respHeaders)
+            }
+        }
+
         internal fun sendHeaders() {
-            endpoint.sendFrame(Codec.headersFrame(streamId, null, null))
+            sendHeaders(respHeaders)
+        }
+
+        internal fun sendHeaders(metadata: Map<String, String>) {
+            headersSent = true
+            endpoint.sendFrame(Codec.headersFrame(streamId, null, metadata))
         }
 
         internal fun sendTrailers(status: StatusException) {
-            endpoint.sendFrame(Codec.statusFrame(Wire.FRAME_TRAILERS, streamId, status))
+            var out = status
+            if (respTrailers.isNotEmpty()) {
+                val merged = HashMap(respTrailers)
+                merged.putAll(status.trailers)
+                out = StatusException(status.code, status.message ?: "")
+                out.trailers = merged
+            }
+            endpoint.sendFrame(Codec.statusFrame(Wire.FRAME_TRAILERS, streamId, out))
         }
     }
 
@@ -334,23 +374,26 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
                              headers: Codec.Headers, dispatcher: Dispatcher) {
         val sink = ResponseSink(this, streamId)
         try {
-            var proceed = true
-            try {
-                sink.sendHeaders()
-            } catch (e: Exception) {
-                proceed = false
-            }
-            if (proceed) {
-                var status = dispatcher.dispatch(
-                    CallContext(headers.metadata), headers, input, sink)
-                if (status == null) {
-                    status = StatusException(Wire.CODE_OK, "")
-                }
+            // No eager HEADERS: initial metadata flushes lazily via
+            // the sink (first DATA, or below on a DATA-less success)
+            // so handlers can setHeaders first. Errors end
+            // trailers-only, as gRPC allows.
+            val ctx = CallContext(headers.metadata)
+            sink.respHeaders = ctx.responseHeaders
+            sink.respTrailers = ctx.responseTrailers
+            var status = dispatcher.dispatch(ctx, headers, input, sink)
+            if (status == null) {
+                status = StatusException(Wire.CODE_OK, "")
                 try {
-                    sink.sendTrailers(status)
+                    sink.flushHeaders()
                 } catch (ignored: Exception) {
                     // best effort
                 }
+            }
+            try {
+                sink.sendTrailers(status)
+            } catch (ignored: Exception) {
+                // best effort
             }
         } finally {
             closeStream(streamId)

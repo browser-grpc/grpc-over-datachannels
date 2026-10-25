@@ -38,6 +38,7 @@ const char *grpcdc_status_name(int code) {
 grpcdc_status grpcdc_status_make(int code, const char *message) {
     grpcdc_status st;
     st.code = code;
+    st.trailers_count = 0;
     if (message) {
         strncpy(st.message, message, sizeof(st.message) - 1);
         st.message[sizeof(st.message) - 1] = 0;
@@ -364,6 +365,16 @@ grpcdc_status grpcdc_status_frame(uint8_t type, uint32_t stream_id,
     snprintf(tmp, sizeof(tmp), "{\"code\":%d,\"message\":", status.code);
     json_puts(&b, tmp);
     json_write_string(&b, status.message);
+    if (status.trailers_count > 0) {
+        json_puts(&b, ",\"metadata\":{");
+        for (size_t i = 0; i < status.trailers_count; i++) {
+            if (i) json_puts(&b, ",");
+            json_write_string(&b, status.trailers[i].key);
+            json_puts(&b, ":");
+            json_write_string(&b, status.trailers[i].value);
+        }
+        json_puts(&b, "}");
+    }
     json_puts(&b, "}");
     grpcdc_status st =
         grpcdc_encode_frame(type, stream_id, (const uint8_t *)b.buf, b.len, out);
@@ -580,7 +591,11 @@ const char *grpcdc_headers_get(const grpcdc_headers *h, const char *key) {
     return NULL;
 }
 
-grpcdc_status grpcdc_parse_status_payload(const uint8_t *payload, size_t len) {
+static grpcdc_status parse_status_impl(const uint8_t *payload, size_t len,
+                                       grpcdc_kv **md_out,
+                                       size_t *md_count_out) {
+    if (md_out) *md_out = NULL;
+    if (md_count_out) *md_count_out = 0;
     char *text = dup_range(payload, len);
     const char *p = json_skip_ws(text);
     int code = GRPCDC_UNKNOWN;
@@ -608,6 +623,40 @@ grpcdc_status grpcdc_parse_status_payload(const uint8_t *payload, size_t len) {
                     free(key);
                     break;
                 }
+            } else if (strcmp(key, "metadata") == 0 && *p == '{' &&
+                       md_out != NULL) {
+                p++;
+                p = json_skip_ws(p);
+                while (*p && *p != '}') {
+                    char *mk = NULL;
+                    p = json_parse_string(p, &mk);
+                    if (!p) break;
+                    p = json_skip_ws(p);
+                    if (*p == ':') p++;
+                    p = json_skip_ws(p);
+                    char *mv = NULL;
+                    if (*p == '"') {
+                        p = json_parse_string(p, &mv);
+                    } else {
+                        mv = (char *)malloc(1);
+                        if (mv) mv[0] = 0;
+                        p = json_skip(p);
+                    }
+                    if (!p) {
+                        free(mk);
+                        free(mv);
+                        break;
+                    }
+                    *md_out = (grpcdc_kv *)realloc(
+                        *md_out, sizeof(grpcdc_kv) * (*md_count_out + 1));
+                    (*md_out)[*md_count_out].key = mk;
+                    (*md_out)[*md_count_out].value = mv;
+                    (*md_count_out)++;
+                    p = json_skip_ws(p);
+                    if (*p == ',') p++;
+                    p = json_skip_ws(p);
+                }
+                if (p && *p == '}') p++;
             } else {
                 p = json_skip(p);
                 if (!p) {
@@ -625,9 +674,15 @@ grpcdc_status grpcdc_parse_status_payload(const uint8_t *payload, size_t len) {
     return grpcdc_status_make(code, msgbuf);
 }
 /* ---- client streams ---- */
+grpcdc_status grpcdc_parse_status_payload(const uint8_t *payload, size_t len) {
+    return parse_status_impl(payload, len, NULL, NULL);
+}
+
 struct grpcdc_stream {
     grpcdc_channel *channel;
     uint32_t id;
+    grpcdc_kv *trailers;
+    size_t trailers_count;
     bool sent_half_close;
     bool ended;
     grpcdc_status terminal;
@@ -841,8 +896,9 @@ int grpcdc_stream_recv(grpcdc_stream *s, grpcdc_bytes *out,
             return 1;
         }
         if (frame.type == GRPCDC_FRAME_TRAILERS) {
-            grpcdc_status tst =
-                grpcdc_parse_status_payload(frame.payload, frame.payload_len);
+            grpcdc_status tst = parse_status_impl(
+                frame.payload, frame.payload_len, &s->trailers,
+                &s->trailers_count);
             free(raw);
             s->ended = true;
             s->terminal = tst;
@@ -853,8 +909,9 @@ int grpcdc_stream_recv(grpcdc_stream *s, grpcdc_bytes *out,
             return -1;
         }
         if (frame.type == GRPCDC_FRAME_RST) {
-            grpcdc_status tst =
-                grpcdc_parse_status_payload(frame.payload, frame.payload_len);
+            grpcdc_status tst = parse_status_impl(
+                frame.payload, frame.payload_len, &s->trailers,
+                &s->trailers_count);
             free(raw);
             s->ended = true;
             s->terminal = tst;
@@ -867,7 +924,20 @@ int grpcdc_stream_recv(grpcdc_stream *s, grpcdc_bytes *out,
     }
 }
 
-void grpcdc_stream_free(grpcdc_stream *s) { free(s); }
+const grpcdc_kv *grpcdc_stream_trailers(grpcdc_stream *s, size_t *count) {
+    if (count) *count = s ? s->trailers_count : 0;
+    return s ? s->trailers : NULL;
+}
+
+void grpcdc_stream_free(grpcdc_stream *s) {
+    if (!s) return;
+    for (size_t i = 0; i < s->trailers_count; i++) {
+        free((void *)s->trailers[i].key);
+        free((void *)s->trailers[i].value);
+    }
+    free(s->trailers);
+    free(s);
+}
 
 grpcdc_status grpcdc_channel_unary(grpcdc_channel *ch, const char *path,
                                    const uint8_t *req, size_t req_len,
@@ -930,6 +1000,10 @@ typedef struct {
     size_t request_pos;
     grpcdc_transport *transport;
     bool headers_sent;
+    grpcdc_kv *resp_headers;
+    size_t resp_headers_count;
+    grpcdc_kv *resp_trailers;
+    size_t resp_trailers_count;
     grpcdc_kv *metadata;
     size_t metadata_count;
     char *path;
@@ -955,7 +1029,8 @@ static grpcdc_status server_send_headers(server_stream_state *ss) {
     if (ss->headers_sent) return grpcdc_ok();
     ss->headers_sent = true;
     grpcdc_bytes frame;
-    grpcdc_status st = grpcdc_headers_frame(ss->id, NULL, NULL, 0, &frame);
+    grpcdc_status st = grpcdc_headers_frame(ss->id, NULL, ss->resp_headers,
+                                            ss->resp_headers_count, &frame);
     if (!grpcdc_status_is_ok(st)) return st;
     int rc = ss->transport->send(ss->transport->ctx, frame.data, frame.len);
     grpcdc_bytes_free(&frame);
@@ -964,8 +1039,37 @@ static grpcdc_status server_send_headers(server_stream_state *ss) {
     return grpcdc_ok();
 }
 
+static void resp_add(grpcdc_kv **arr, size_t *count, const char *key,
+                     const char *value) {
+    *arr = (grpcdc_kv *)realloc(*arr, sizeof(grpcdc_kv) * (*count + 1));
+    (*arr)[*count].key = dup_range((const uint8_t *)key, strlen(key));
+    (*arr)[*count].value = dup_range((const uint8_t *)value, strlen(value));
+    (*count)++;
+}
+
+void grpcdc_server_stream_set_header(grpcdc_server_stream *s,
+                                     const char *key, const char *value) {
+    resp_add(&s->state->resp_headers, &s->state->resp_headers_count, key,
+             value);
+}
+
+void grpcdc_server_stream_set_trailer(grpcdc_server_stream *s,
+                                      const char *key, const char *value) {
+    resp_add(&s->state->resp_trailers, &s->state->resp_trailers_count, key,
+             value);
+}
+
 static grpcdc_status server_send_trailers(server_stream_state *ss,
                                           grpcdc_status status) {
+    if (ss->resp_trailers_count > 0 && status.trailers_count == 0) {
+        size_t n = ss->resp_trailers_count;
+        if (n > 8) n = 8;
+        for (size_t i = 0; i < n; i++) {
+            status.trailers[i].key = ss->resp_trailers[i].key;
+            status.trailers[i].value = ss->resp_trailers[i].value;
+        }
+        status.trailers_count = n;
+    }
     grpcdc_bytes frame;
     grpcdc_status st =
         grpcdc_status_frame(GRPCDC_FRAME_TRAILERS, ss->id, status, &frame);
@@ -1244,6 +1348,16 @@ grpcdc_status grpcdc_server_serve(grpcdc_server *srv,
                 free((void *)done->metadata[i].value);
             }
             free(done->metadata);
+            for (size_t i = 0; i < done->resp_headers_count; i++) {
+                free((void *)done->resp_headers[i].key);
+                free((void *)done->resp_headers[i].value);
+            }
+            free(done->resp_headers);
+            for (size_t i = 0; i < done->resp_trailers_count; i++) {
+                free((void *)done->resp_trailers[i].key);
+                free((void *)done->resp_trailers[i].value);
+            }
+            free(done->resp_trailers);
             free(done->path);
             free(done);
             free(raw);
