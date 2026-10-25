@@ -351,7 +351,10 @@ export class DtlsConnection {
       try {
         plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
       } catch {
-        throw new Error("record authentication failed");
+        // Datagram transport: unauthenticated records are
+        // silently discarded (RFC 9147), never fatal — one bad
+        // or stale record must not kill the receive pump.
+        continue;
       }
       // replay window (64)
       if (this.#readHighest < 0) {
@@ -364,7 +367,7 @@ export class DtlsConnection {
       } else {
         const diff = this.#readHighest - sequence;
         if (diff >= 64 || ((this.#readWindow >> BigInt(diff)) & 1n) === 1n) {
-          throw new Error("replayed record");
+          continue; // replayed or too old: discard silently
         }
         this.#readWindow |= 1n << BigInt(diff);
       }

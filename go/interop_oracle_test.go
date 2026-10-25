@@ -2,10 +2,11 @@ package grpcdc_test
 
 // Interop oracle: the generated Go client runs the canonical
 // grpc interop cases (grpc.testing.TestService, vendored in
-// ../oracle/interop) against the OFFICIAL grpc-java
-// TestServiceServer — no bridge, direct HTTP/2 (DialHttp2).
-// Case semantics mirror grpc's AbstractInteropTest. Skips when
-// the Java oracle is not built (Dockerfile.ci builds it).
+// ../oracle/interop) against the OFFICIAL TestServiceServers —
+// grpc-java and grpc-go — no bridge, direct HTTP/2
+// (DialHttp2). Case semantics mirror grpc's
+// AbstractInteropTest. Skips when an oracle is not built
+// (Dockerfile.ci builds both).
 //
 // custom_metadata asserts the unary path succeeds; initial
 // response metadata is asserted in the Python driver (trailing
@@ -18,7 +19,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +30,32 @@ import (
 	grpcdc "grpcdc"
 	testingpb "grpcdc/interop"
 )
+
+func startGoTestServiceServer(t *testing.T, port int) {
+	t.Helper()
+	binary := filepath.Join("..", "oracle", "go-interop", "interop-server")
+	if _, err := os.Stat(binary); err != nil {
+		t.Skip("go interop server not built (cd oracle/go-interop && go build -o interop-server google.golang.org/grpc/interop/server)")
+	}
+	cmd := exec.Command(binary, "-port", fmt.Sprint(port))
+	if err := cmd.Start(); err != nil {
+		t.Skipf("cannot start go TestServiceServer: %v", err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	// The Go server prints no readiness line; poll the TCP port.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("go TestServiceServer did not start")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
 
 func startTestServiceServer(t *testing.T, port int) {
 	t.Helper()
@@ -68,10 +98,14 @@ func startTestServiceServer(t *testing.T, port int) {
 	}
 }
 
-func interopClient(t *testing.T) (*testingpb.TestServiceClient, *grpcdc.Channel, func()) {
+func interopClient(t *testing.T, kind string) (*testingpb.TestServiceClient, *grpcdc.Channel, func()) {
 	t.Helper()
 	port := freePort(t)
-	startTestServiceServer(t, port)
+	if kind == "go" {
+		startGoTestServiceServer(t, port)
+	} else {
+		startTestServiceServer(t, port)
+	}
 	transport, err := grpcdc.DialHttp2(fmt.Sprintf("127.0.0.1:%d", port), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -90,9 +124,19 @@ func statusCode(err error) (grpcdc.Code, bool) {
 	return 0, false
 }
 
-func TestInteropGoClientCallsTestService(t *testing.T) {
-	client, channel, closeFn := interopClient(t)
+func TestInteropGoClientCallsJavaTestService(t *testing.T) {
+	client, channel, closeFn := interopClient(t, "java")
 	defer closeFn()
+	runInteropCases(t, client, channel)
+}
+
+func TestInteropGoClientCallsGoTestService(t *testing.T) {
+	client, channel, closeFn := interopClient(t, "go")
+	defer closeFn()
+	runInteropCases(t, client, channel)
+}
+
+func runInteropCases(t *testing.T, client *testingpb.TestServiceClient, channel *grpcdc.Channel) {
 	ctx := context.Background()
 
 	t.Run("empty_unary", func(t *testing.T) {

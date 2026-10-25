@@ -342,6 +342,12 @@ RUN mkdir -p browser-test/scalajs_gen \
 # at image build time; tests then run offline).
 RUN cd oracle/java && mvn -q package -DskipTests
 
+# Build the official grpc-go interop oracle binaries (second
+# interop oracle; downloads Go modules at image build time).
+COPY oracle/go-interop/go.mod oracle/go-interop/go.sum ./oracle/go-interop/
+RUN cd oracle/go-interop && go build -o interop-server google.golang.org/grpc/interop/server \
+  && go build -o interop-client google.golang.org/grpc/interop/client
+
 # Warm the webapp schema compiler (protocompile -> WASM; module
 # downloads happen at image build time, test-webapp runs offline).
 RUN cd webapp/compiler && go mod download \

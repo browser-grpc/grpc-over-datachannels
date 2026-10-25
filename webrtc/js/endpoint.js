@@ -188,10 +188,20 @@ export class DcEndpoint {
       } catch {
         break;
       }
-      if (packet !== null) {
+      // Drain any backlog without waiting: a paced sender can
+      // have many records queued in the socket, and processing
+      // one per 10ms wakeup lets the kernel buffer overflow
+      // (tail drops then cost a full RTO to recover).
+      while (packet !== null) {
         const { packets, events } = this.assoc.handlePacket(packet, this._now());
         this._sendPackets(packets);
         for (const event of events) this._onSctpEvent(event);
+        if (this._closed) return;
+        try {
+          packet = await this.dtls.recvAppTimeout(0);
+        } catch {
+          return;
+        }
       }
       const tick = this.assoc.tick(this._now());
       this._sendPackets(tick.packets);

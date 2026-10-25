@@ -51,10 +51,10 @@ export const echoHandlers = {
   },
 };
 
-export async function startAgent({ address = "127.0.0.1", port = 0, handlers = echoHandlers } = {}) {
+export async function startAgent({ address = "127.0.0.1", port = 0, handlers = echoHandlers, createService = createEchoService } = {}) {
   const listener = await directListener({ address, port });
   const server = new Server();
-  server.addService(createEchoService(handlers));
+  server.addService(createService(handlers));
   const served = [];
   let closed = false;
   const acceptLoop = (async () => {

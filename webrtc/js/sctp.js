@@ -12,6 +12,9 @@ export const SCTP_PORT = 5000;
 const MAX_DATA_PAYLOAD = 1000;
 const INITIAL_RWND = 262144;
 const INITIAL_RTO_MS = 1000;
+// RFC 9260 §6.1: initial cwnd is 4 MTU here (fragment payload
+// is 1000B, so ~4 fragments in flight before SACK clocking).
+const INITIAL_CWND = 4 * MAX_DATA_PAYLOAD;
 
 export function crc32c(buf) {
   let crc = 0xffffffff;
@@ -109,8 +112,15 @@ export class Association {
     this.outSsn = new Map();
     this.unacked = new Map();
     this.queued = [];
+    this.outQueue = []; // chunk records awaiting cwnd/rwnd room
     this.inflightBytes = 0;
     this.peerRwnd = INITIAL_RWND;
+    // Congestion window (RFC 9260 §6): without it a large
+    // message bursts its fragments into kernel UDP buffers
+    // faster than the peer drains them; the dropped tail then
+    // recovers only at RTO granularity (1s per round).
+    this.cwnd = INITIAL_CWND;
+    this.ssthresh = Infinity;
     this.streamsIn = new Map();
     this.cookieSecret = crypto.randomBytes(32);
     this.pendingCookie = Buffer.alloc(0);
@@ -357,18 +367,18 @@ export class Association {
   sendData(stream, ppid, payload, opts = {}, nowMs = 0) {
     if (this.outResetDone.has(stream)) return []; // stream reset/closing
     const full = { unordered: false, maxRetransmits: null, maxLifetimeMs: null, ...opts };
-    if (this.state !== "established" || this.inflightBytes >= this.peerRwnd) {
-      // Not established, or peer receive window full: queue;
-      // handleSack flushes as SACKs free window. Sending past
-      // rwnd bursts into kernel buffers that drop most of it,
-      // throttling the association to RTO retransmits.
+    if (this.state !== "established") {
+      // Not established yet: queue whole payloads; the packet
+      // flush after COOKIE-ACK moves them into the chunk queue.
       this.queued.push([stream, ppid, Buffer.from(payload), full]);
       return [];
     }
-    return this.#enqueueAndFlush(stream, ppid, Buffer.from(payload), full, nowMs);
+    this.#enqueueChunks(stream, ppid, Buffer.from(payload), full, nowMs);
+    return this.#flushOut(nowMs);
   }
 
-  #enqueueAndFlush(stream, ppid, payload, opts, nowMs) {
+  // Split a payload into TSN-ordered chunk records on outQueue.
+  #enqueueChunks(stream, ppid, payload, opts, nowMs) {
     let ssn = 0;
     if (!opts.unordered) {
       ssn = this.outSsn.get(stream) ?? 0;
@@ -379,7 +389,6 @@ export class Association {
     for (let off = 0; off < payload.length; off += MAX_DATA_PAYLOAD) {
       fragments.push(payload.subarray(off, off + MAX_DATA_PAYLOAD));
     }
-    const packets = [];
     fragments.forEach((frag, i) => {
       let flags = 0;
       if (opts.unordered) flags |= 0x04;
@@ -398,21 +407,31 @@ export class Association {
         lastSentMs: nowMs,
       };
       this.nextTsn = add32(this.nextTsn, 1);
-      this.inflightBytes += c.payload.length;
-      packets.push(this.#packet(this.peerTag, dataChunkBytes(c)));
-      this.unacked.set(c.tsn, c);
+      this.outQueue.push(c);
     });
-    this.lastPacketOutMs = nowMs;
+  }
+
+  // Emit queued chunks while cwnd and the peer rwnd allow.
+  #flushOut(nowMs) {
+    const packets = [];
+    const limit = Math.min(this.cwnd, this.peerRwnd);
+    while (this.outQueue.length && this.inflightBytes < limit) {
+      const c = this.outQueue.shift();
+      this.inflightBytes += c.payload.length;
+      c.lastSentMs = nowMs;
+      this.unacked.set(c.tsn, c);
+      packets.push(this.#packet(this.peerTag, dataChunkBytes(c)));
+    }
+    if (packets.length) this.lastPacketOutMs = nowMs;
     return packets;
   }
 
   #flushQueue(nowMs) {
-    const packets = [];
-    while (this.inflightBytes < this.peerRwnd && this.queued.length) {
+    while (this.queued.length) {
       const [stream, ppid, payload, opts] = this.queued.shift();
-      packets.push(...this.#enqueueAndFlush(stream, ppid, payload, opts, nowMs));
+      this.#enqueueChunks(stream, ppid, payload, opts, nowMs);
     }
-    return packets;
+    return this.#flushOut(nowMs);
   }
 
   #sackPacket() {
@@ -590,6 +609,34 @@ export class Association {
     if (isEnd) partial.lastTsn = tsn;
     partial.parts.set(tsn, payload);
 
+    // Fragments can arrive out of order (reordering on the
+    // wire, or SACK-clocked sends interleaving with a burst):
+    // a fragment that lands before its predecessor starts a
+    // dangling partial. Merge any partials that have become
+    // TSN-contiguous, or such messages can never complete.
+    let merged = true;
+    while (merged) {
+      merged = false;
+      for (const [k2, p2] of [...entry.partials]) {
+        if (p2 === partial) continue;
+        const maxOf = (p) => Math.max(...p.parts.keys());
+        const minOf = (p) => Math.min(...p.parts.keys());
+        if (add32(maxOf(partial), 1) === minOf(p2)) {
+          for (const [t, b] of p2.parts) partial.parts.set(t, b);
+          if (p2.lastTsn !== null) partial.lastTsn = p2.lastTsn;
+          entry.partials.delete(k2);
+          merged = true;
+        } else if (add32(maxOf(p2), 1) === minOf(partial)) {
+          for (const [t, b] of partial.parts) p2.parts.set(t, b);
+          if (partial.lastTsn !== null) p2.lastTsn = partial.lastTsn;
+          entry.partials.delete(key);
+          partial = p2;
+          key = k2;
+          merged = true;
+        }
+      }
+    }
+
     if (partial.firstTsn === null || partial.lastTsn === null) return;
     const count = diff32(partial.lastTsn, partial.firstTsn) + 1;
     if (partial.parts.size !== count) return;
@@ -666,6 +713,15 @@ export class Association {
       }
     }
     this.inflightBytes = Math.max(0, this.inflightBytes - freed);
+    if (freed > 0) {
+      // RFC 9260 §6.2: slow start grows cwnd by up to one MTU
+      // per SACK; congestion avoidance by ~MTU per RTT.
+      if (this.cwnd < this.ssthresh) {
+        this.cwnd += Math.min(freed, MAX_DATA_PAYLOAD);
+      } else {
+        this.cwnd += Math.max(1, Math.floor((MAX_DATA_PAYLOAD * MAX_DATA_PAYLOAD) / this.cwnd));
+      }
+    }
     this.#advanceOutCum();
     if (gapRanges.length) {
       const firstStart = gapRanges[0][0];
@@ -736,11 +792,17 @@ export class Association {
         }
         packets.push(this.#packet(this.peerTag, chunk(SctpChunk.FORWARD_TSN, 0, Buffer.concat(parts))));
       }
+      if (toRetransmit.length) {
+        // RFC 9260 §6.2: a retransmit timeout collapses cwnd.
+        this.ssthresh = Math.max(this.cwnd / 2, 4 * MAX_DATA_PAYLOAD);
+        this.cwnd = MAX_DATA_PAYLOAD;
+      }
       for (const c of toRetransmit) {
         packets.push(this.#packet(this.peerTag, dataChunkBytes(c)));
         c.retransmits += 1;
         c.lastSentMs = nowMs;
       }
+      packets.push(...this.#flushOut(nowMs));
       if (nowMs - this.lastPacketOutMs >= 30000) {
         this.lastPacketOutMs = nowMs;
         const info = Buffer.alloc(8);

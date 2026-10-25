@@ -157,7 +157,17 @@ const bindSocket = (family, port, address) =>
   new Promise((resolve, reject) => {
     const socket = dgram.createSocket(family);
     socket.once("error", reject);
-    socket.bind(port, address, () => resolve(socket));
+    socket.bind(port, address, () => {
+      // Large SCTP bursts (multi-hundred-KB messages) overflow
+      // default kernel buffers; drops then cost an RTO round.
+      try {
+        socket.setRecvBufferSize(4 * 1024 * 1024);
+        socket.setSendBufferSize(4 * 1024 * 1024);
+      } catch {
+        /* buffer sizes are a hint, not a requirement */
+      }
+      resolve(socket);
+    });
   });
 
 // ---------------------------------------------------------------------------

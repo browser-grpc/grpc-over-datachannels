@@ -1,10 +1,10 @@
 """Interop oracle: the generated Python client runs the
 canonical grpc interop cases (grpc.testing.TestService,
-vendored in oracle/interop) against the OFFICIAL grpc-java
-TestServiceServer — no bridge, direct HTTP/2
-(grpcdc.http2.Http2Transport). Case semantics mirror grpc's
-AbstractInteropTest. Skips when the Java oracle is not built
-(Dockerfile.ci builds it).
+vendored in oracle/interop) against the OFFICIAL
+TestServiceServers — grpc-java and grpc-go — no bridge,
+direct HTTP/2 (grpcdc.http2.Http2Transport). Case semantics
+mirror grpc's AbstractInteropTest. Skips when an oracle is
+not built (Dockerfile.ci builds both).
 
 custom_metadata asserts the initial response metadata echo;
 trailing metadata is not surfaced by the grpc-dc frame layer
@@ -77,35 +77,69 @@ def zeros(n):
     return b"\x00" * n
 
 
-class TestInteropOracle(unittest.TestCase):
+def wait_for_port(port, proc, timeout=30.0):
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            return False
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                return True
+        except OSError:
+            time.sleep(0.1)
+    return False
+
+
+class InteropOracleBase:
+    SERVER_KIND = "java"
+
     @classmethod
     def setUpClass(cls):
-        target = os.path.join(ROOT, "oracle", "java", "target")
-        cp_file = os.path.join(target, "cp.txt")
-        if not os.path.exists(cp_file):
-            raise unittest.SkipTest(
-                "java oracle not built (cd oracle/java && mvn package)"
-            )
-        with open(cp_file) as f:
-            cp = os.path.join(target, "classes") + ":" + f.read().strip()
         cls.port = free_port()
-        cls.server = subprocess.Popen(
-            [
-                "java", "-cp", cp,
-                "io.grpc.testing.integration.TestServiceServer",
-                f"--port={cls.port}", "--use_tls=false",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        ready = False
-        for line in cls.server.stdout:
-            if "Server started" in line:
-                ready = True
-                break
-        if not ready:
-            raise unittest.SkipTest("TestServiceServer did not start")
+        if cls.SERVER_KIND == "java":
+            target = os.path.join(ROOT, "oracle", "java", "target")
+            cp_file = os.path.join(target, "cp.txt")
+            if not os.path.exists(cp_file):
+                raise unittest.SkipTest(
+                    "java oracle not built (cd oracle/java && mvn package)"
+                )
+            with open(cp_file) as f:
+                cp = os.path.join(target, "classes") + ":" + f.read().strip()
+            cls.server = subprocess.Popen(
+                [
+                    "java", "-cp", cp,
+                    "io.grpc.testing.integration.TestServiceServer",
+                    f"--port={cls.port}", "--use_tls=false",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            ready = False
+            for line in cls.server.stdout:
+                if "Server started" in line:
+                    ready = True
+                    break
+            if not ready:
+                raise unittest.SkipTest("TestServiceServer did not start")
+        else:
+            binary = os.path.join(ROOT, "oracle", "go-interop", "interop-server")
+            if not os.path.exists(binary):
+                raise unittest.SkipTest(
+                    "go interop server not built (cd oracle/go-interop && "
+                    "go build -o interop-server google.golang.org/grpc/interop/server)"
+                )
+            cls.server = subprocess.Popen(
+                [binary, "-port", str(cls.port)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            # The Go server prints no readiness line; poll the port.
+            if not wait_for_port(cls.port, cls.server):
+                raise unittest.SkipTest("go TestServiceServer did not start")
         cls.transport = Http2Transport(f"127.0.0.1:{cls.port}")
         cls.channel = grpcdc.Channel(cls.transport)
         cls.client = test_grpc_dc.TestServiceClient(cls.channel)
@@ -160,11 +194,15 @@ class TestInteropOracle(unittest.TestCase):
         self.assertEqual(responses, [])
 
     def test_custom_metadata(self):
+        # FullDuplexCall: both reference servers echo initial
+        # metadata there (grpc-go does not echo it on
+        # StreamingOutputCall).
         req = StreamingOutputCallRequest(
-            response_parameters=[ResponseParameters(size=1)]
+            response_parameters=[ResponseParameters(size=1)],
+            payload=Payload(body=zeros(1)),
         )
-        stream = self.client.StreamingOutputCall(
-            req, {"x-grpc-test-echo-initial": INITIAL_METADATA_VALUE}
+        stream = self.client.FullDuplexCall(
+            [req], {"x-grpc-test-echo-initial": INITIAL_METADATA_VALUE}
         )
         responses = list(stream)
         self.assertEqual(len(responses), 1)
@@ -249,6 +287,14 @@ class TestInteropOracle(unittest.TestCase):
         with self.assertRaises(grpcdc.StatusError) as ctx:
             stream.recv(StreamingOutputCallResponse())
         self.assertEqual(ctx.exception.code, 4)
+
+
+class TestInteropOracleJava(InteropOracleBase, unittest.TestCase):
+    SERVER_KIND = "java"
+
+
+class TestInteropOracleGo(InteropOracleBase, unittest.TestCase):
+    SERVER_KIND = "go"
 
 
 if __name__ == "__main__":

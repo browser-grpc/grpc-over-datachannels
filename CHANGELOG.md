@@ -5,6 +5,24 @@ curated release tags on `master`; dates are the tag dates.
 
 ## Unreleased
 
+- Interop oracle completed: grpc-go added as second
+  Direction-A oracle (`oracle/go-interop` builds the official
+  interop server/client; Dockerfile.ci builds both), and
+  Direction B runs the official grpc-java/grpc-go interop
+  clients against generated TestService servers for JS, Go,
+  and Python through the ingress proxy -> WebRTC-Direct
+  path (14 Java / 13 Go cases each; `custom_metadata`
+  excluded — trailing metadata is not surfaced by the frame
+  layer). Fixes that fell out: JS SCTP gained a congestion
+  window (RFC 9260) plus out-of-order reassembly merging and
+  the receive pump now drains socket backlog — large
+  messages over WebRTC-Direct went from RTO-bound seconds
+  (or hangs) to ~20ms; DTLS silently discards replayed/bad
+  records instead of killing the pump; JS status frames no
+  longer leak the `NAME: ` display prefix onto the wire
+  (`StatusError.statusMessage`); larger UDP socket buffers
+  on the direct path. The Rust/Go SCTP mirrors have not yet
+  received the cwnd/reassembly changes (wire-compatible).
 - Interop oracle (Direction A): the canonical grpc interop
   suite now grades our generated clients. `grpc.testing`
   protos vendored in `oracle/interop` (grpc-java v1.62.2,

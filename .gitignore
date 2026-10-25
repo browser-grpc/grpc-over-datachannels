@@ -87,3 +87,5 @@ release/
 # image-generation tool output (master lives in docs/badger/)
 generated_images/
 
+/oracle/go-interop/interop-server
+/oracle/go-interop/interop-client

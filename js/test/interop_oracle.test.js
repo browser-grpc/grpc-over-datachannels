@@ -1,9 +1,10 @@
 // Interop oracle: our generated JS client runs the canonical
 // grpc interop cases (grpc.testing.TestService, vendored in
-// oracle/interop) against the OFFICIAL grpc-java
-// TestServiceServer — no bridge, direct HTTP/2 (src/http2.js).
-// Case semantics mirror grpc's AbstractInteropTest. Skips when
-// the Java oracle is not built (Dockerfile.ci builds it).
+// oracle/interop) against the OFFICIAL TestServiceServers —
+// grpc-java and grpc-go — no bridge, direct HTTP/2
+// (src/http2.js). Case semantics mirror grpc's
+// AbstractInteropTest. Skips when an oracle is not built
+// (Dockerfile.ci builds both).
 //
 // Known gaps: cancel_after_begin / cancel_after_first_response
 // are covered by the Go and Python interop drivers; the JS
@@ -16,7 +17,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { createServer } from "node:net";
+import { createServer, connect } from "node:net";
 import test from "node:test";
 
 import { StatusCode } from "../index.js";
@@ -52,7 +53,7 @@ async function freePort() {
   return port;
 }
 
-async function startTestServiceServer(t, port) {
+async function startJavaTestServiceServer(t, port) {
   const cp = javaClasspath(t);
   if (!cp) return false;
   const proc = spawn(
@@ -76,15 +77,50 @@ async function startTestServiceServer(t, port) {
   return true;
 }
 
+async function startGoTestServiceServer(t, port) {
+  const binary = `${ROOT}oracle/go-interop/interop-server`;
+  if (!existsSync(binary)) {
+    t.skip("go interop server not built (cd oracle/go-interop && go build -o interop-server google.golang.org/grpc/interop/server)");
+    return false;
+  }
+  const proc = spawn(binary, ["-port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
+  t.after(() => proc.kill());
+  proc.on("exit", (code) => {
+    if (code !== null && code !== 0) throw new Error(`go TestServiceServer exited ${code}`);
+  });
+  // The Go server prints no readiness line; poll the TCP port.
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const open = await new Promise((resolve) => {
+      const sock = connect(port, "127.0.0.1");
+      sock.once("connect", () => { sock.end(); resolve(true); });
+      sock.once("error", () => resolve(false));
+    });
+    if (open) return true;
+    if (Date.now() > deadline) throw new Error("go TestServiceServer did not start");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 const zeros = (n) => new Uint8Array(n);
 
 test("interop: JS client -> grpc-java TestServiceServer (HTTP/2)", { timeout: 180000 }, async (t) => {
   const port = await freePort();
-  if (!(await startTestServiceServer(t, port))) return;
+  if (!(await startJavaTestServiceServer(t, port))) return;
   const channel = http2Channel(`127.0.0.1:${port}`);
   t.after(() => channel.endpoint.dataChannel.close());
-  const client = new TestServiceClient(channel);
+  await interopCases(t, new TestServiceClient(channel), channel);
+});
 
+test("interop: JS client -> grpc-go TestServiceServer (HTTP/2)", { timeout: 180000 }, async (t) => {
+  const port = await freePort();
+  if (!(await startGoTestServiceServer(t, port))) return;
+  const channel = http2Channel(`127.0.0.1:${port}`);
+  t.after(() => channel.endpoint.dataChannel.close());
+  await interopCases(t, new TestServiceClient(channel), channel);
+});
+
+async function interopCases(t, client, channel) {
   await t.test("empty_unary", async () => {
     const resp = await client.emptyCall(new Empty());
     assert.ok(resp instanceof Empty);
@@ -208,4 +244,4 @@ test("interop: JS client -> grpc-java TestServiceServer (HTTP/2)", { timeout: 18
       (e) => e.code === StatusCode.DEADLINE_EXCEEDED,
     );
   });
-});
+}

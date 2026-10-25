@@ -17,7 +17,9 @@ class Link {
     for (const p of packets) {
       const r = this.server.handlePacket(p, this.now);
       events.push(...r.events);
-      this.toClient(r.packets);
+      // SACK-clocked sends (cwnd) deliver via this nested call;
+      // its events are part of the same exchange.
+      events.push(...this.toClient(r.packets));
     }
     return events;
   }

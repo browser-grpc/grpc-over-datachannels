@@ -18,6 +18,10 @@ export class StatusError extends Error {
     super(`${StatusName[code] ?? `CODE_${code}`}: ${message}`);
     this.name = "StatusError";
     this.code = code;
+    // The raw status message for the wire: Error.message carries
+    // a "NAME: " display prefix that must not leak into status
+    // frames (peers would see it doubled).
+    this.statusMessage = message;
   }
   static ok() {
     return new StatusError(StatusCode.OK, "");
@@ -106,7 +110,7 @@ export function parseTimeout(text) {
 }
 
 export function statusFrame(frameType, streamId, status) {
-  const body = JSON.stringify({ code: status.code, message: status.message ?? "" });
+  const body = JSON.stringify({ code: status.code, message: status.statusMessage ?? status.message ?? "" });
   return encodeFrame(frameType, streamId, textEncoder.encode(body));
 }
 
