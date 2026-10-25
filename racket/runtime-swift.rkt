@@ -806,9 +806,12 @@ final class Endpoint {
             self.streamId = streamId
         }
 
-        // Wired to the CallContext maps by the endpoint.
-        var respHeaders: [String: String] = [:]
-        var respTrailers: [String: String] = [:]
+        // Wired to the CallContext by the endpoint (held by
+        // reference so handler SetHeaders/SetTrailers mutations
+        // are visible when the endpoint flushes).
+        var ctx: CallContext? = nil
+        var respHeaders: [String: String] { ctx?.responseHeaders ?? [:] }
+        var respTrailers: [String: String] { ctx?.responseTrailers ?? [:] }
         var headersSent = false
 
         func Send(_ payload: [UInt8]) throws {
@@ -1088,8 +1091,7 @@ final class Endpoint {
         // so handlers can SetHeaders first. Errors end
         // trailers-only, as gRPC allows.
         let ctx = CallContext.FromMetadata(headers.metadata)
-        sink.respHeaders = ctx.responseHeaders
-        sink.respTrailers = ctx.responseTrailers
+        sink.ctx = ctx
         let status = dispatcher(ctx, headers, streamInput, sink)
         if status.code == Wire.CodeOk {
             try? sink.FlushHeaders()

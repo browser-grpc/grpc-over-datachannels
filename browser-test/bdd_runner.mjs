@@ -38,7 +38,17 @@ export async function runBddScenarios({ client, channel, EchoRequest, EchoRespon
 
   for (const c of scenarios) {
     try {
-      if (c.kind === "unary") {
+      if (c.kind === "unary-trailer") {
+        let trailers = null;
+        const resp = await client.unary(req(c.messages[0]), {
+          metadata: { "x-echo-trailer": c.metadata },
+          onTrailers: (md) => (trailers = md),
+        });
+        check(resp.message === c.expectMessage, `${c.name}: message ${resp.message}`);
+        check(resp.index === c.expectNum, `${c.name}: index ${resp.index}`);
+        check(trailers?.["x-echo-trailer"] === c.metadata,
+          `${c.name}: trailer ${JSON.stringify(trailers)}`);
+      } else if (c.kind === "unary") {
         const options = c.metadata ? { metadata: { "x-echo": c.metadata } } : undefined;
         if (c.expectStatus >= 0) {
           await expectStatus(() => client.unary(req(c.messages[0]), options), c.expectStatus, c.name);

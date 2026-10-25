@@ -17,6 +17,22 @@ func TestBdd() throws {
 
     for c in BddScenarios.Cases {
         switch c.kind {
+        case "unary-trailer":
+            let stream = try channel.ServerStream("/echo.Echo/Unary", Req(c.messages[0], 0),
+                                                  ["x-echo-trailer": c.metadata])
+            let resp = EchoResponse()
+            try stream.Recv(resp)
+            try Check(resp.message == c.expectMessage && resp.index == Int32(c.expectNum),
+                      "\(c.name): \(resp)")
+            var eof = false
+            do {
+                try stream.Recv(EchoResponse())
+            } catch is EndOfStreamError {
+                eof = true
+            }
+            try Check(eof, "\(c.name): expected EOF")
+            try Check(stream.trailers?["x-echo-trailer"] == c.metadata,
+                      "\(c.name): trailer \(String(describing: stream.trailers))")
         case "unary":
             let md: [String: String]? = c.metadata.isEmpty ? nil : ["x-echo": c.metadata]
             do {

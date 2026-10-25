@@ -7,7 +7,7 @@
 // binary is not built (Dockerfile.ci builds both).
 //
 // Excluded (oracle/interop/README.md): auth, compression,
-// orca, soak. cacheable_unary runs only under the Java client
+// soak. cacheable_unary runs only under the Java client
 // (the Go client does not implement that case upstream).
 
 import { execFile } from "node:child_process";
@@ -42,6 +42,11 @@ const CASES = [
   "cancel_after_first_response",
   "timeout_on_sleeping_server",
 ];
+
+// ORCA cases run only under the Go client: grpc-java's
+// TestServiceClient fails them even against the upstream Go
+// interop server (its per-RPC report capture comes back null).
+const GO_ONLY_CASES = ["orca_per_rpc", "orca_oob"];
 
 async function freePort() {
   const server = createServer();
@@ -101,13 +106,16 @@ test("interop B: grpc-go client -> ingress proxy -> JS TestService server", { ti
     return;
   }
   const port = await startServerSide(t);
-  for (const testCase of CASES) {
+  for (const testCase of [...CASES, ...GO_ONLY_CASES]) {
     await t.test(testCase, async () => {
-      await run(
-        GO_CLIENT,
-        ["-server_host", "127.0.0.1", "-server_port", String(port), "-test_case", testCase],
-        { timeout: 120000 },
-      );
+      const args = ["-server_host", "127.0.0.1", "-server_port", String(port), "-test_case", testCase];
+      if (testCase.startsWith("orca")) {
+        // Upstream runs the ORCA cases through the test LB policy
+        // that surfaces per-RPC load reports (interop_test.sh).
+        args.push("-service_config_json",
+          '{ "loadBalancingConfig": [{ "test_backend_metrics_load_balancer": {} }]}');
+      }
+      await run(GO_CLIENT, args, { timeout: 120000 });
     });
   }
 });

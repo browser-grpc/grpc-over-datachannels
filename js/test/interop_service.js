@@ -15,6 +15,7 @@ import {
   StreamingInputCallResponse,
   StreamingOutputCallResponse,
 } from "../examples/interop/messages_pb.js";
+import { OrcaLoadReport } from "../examples/interop/orca_load_report_pb.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const zeros = (n) => new Uint8Array(n);
@@ -32,6 +33,23 @@ function echoMetadata(ctx) {
   if (trailing !== undefined) {
     ctx.setTrailers({ "x-grpc-test-echo-trailing-bin": trailing });
   }
+}
+
+// ORCA load reporting (orca_per_rpc / orca_oob): a per-request
+// TestOrcaReport rides back as the serialized OrcaLoadReport in
+// the `endpoint-load-metrics-bin` trailer; OOB reports carried
+// by FullDuplexCall requests update shared state that later
+// UnaryCalls report. The value is base64, exactly as -bin
+// metadata values travel on both the grpc-dc wire and the
+// HTTP/2 hops to stock clients.
+let oobReport = null;
+
+function setOrcaTrailer(ctx, fields) {
+  if (!ctx || !fields) return;
+  const bytes = OrcaLoadReport.encode(new OrcaLoadReport(fields));
+  ctx.setTrailers({
+    "endpoint-load-metrics-bin": Buffer.from(bytes).toString("base64"),
+  });
 }
 
 function maybeFail(req) {
@@ -68,6 +86,16 @@ export const testServiceHandlers = {
 
   async unaryCall(req, ctx) {
     echoMetadata(ctx);
+    if (req.orcaPerQueryReport) {
+      setOrcaTrailer(ctx, {
+        cpuUtilization: req.orcaPerQueryReport.cpuUtilization,
+        memUtilization: req.orcaPerQueryReport.memoryUtilization,
+        requestCost: req.orcaPerQueryReport.requestCost,
+        utilization: req.orcaPerQueryReport.utilization,
+      });
+    } else if (oobReport) {
+      setOrcaTrailer(ctx, oobReport);
+    }
     return unaryResponse(req);
   },
 
@@ -95,6 +123,13 @@ export const testServiceHandlers = {
   async *fullDuplexCall(requests, ctx) {
     echoMetadata(ctx);
     for await (const req of requests) {
+      if (req.orcaOobReport) {
+        oobReport = {
+          cpuUtilization: req.orcaOobReport.cpuUtilization,
+          memUtilization: req.orcaOobReport.memoryUtilization,
+          utilization: req.orcaOobReport.utilization,
+        };
+      }
       yield* streamingResponses(req);
     }
   },

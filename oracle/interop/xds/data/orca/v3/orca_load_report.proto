@@ -1,0 +1,15 @@
+// Vendored from github.com/cncf/xds (xds/data/orca/v3/orca_load_report.proto),
+// trimmed to the fields the gRPC interop ORCA cases exercise: the
+// server serializes this into the `endpoint-load-metrics-bin`
+// trailing metadata (per-RPC reporting) and the client parses it.
+syntax = "proto3";
+
+package xds.data.orca.v3;
+
+message OrcaLoadReport {
+  double cpu_utilization = 1;
+  double mem_utilization = 2;
+  double rps_fractional = 3;
+  map<string, double> request_cost = 4;
+  map<string, double> utilization = 5;
+}

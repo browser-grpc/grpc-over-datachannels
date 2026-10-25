@@ -32,8 +32,11 @@ static grpcdc_status echo_unary_impl(void *ctx, const grpcdc_kv *md,
         nanosleep(&ts, NULL);
     }
     const char *marker = "";
-    for (size_t i = 0; i < md_count; i++)
+    const char *trailer_marker = "";
+    for (size_t i = 0; i < md_count; i++) {
         if (strcmp(md[i].key, "x-echo") == 0) marker = md[i].value;
+        if (strcmp(md[i].key, "x-echo-trailer") == 0) trailer_marker = md[i].value;
+    }
     size_t n = strlen(req->message);
     size_t m = strlen(marker);
     char *out = (char *)malloc(n + m + 10);
@@ -52,7 +55,13 @@ static grpcdc_status echo_unary_impl(void *ctx, const grpcdc_kv *md,
     out[len] = 0;
     resp->message = out;
     resp->index = 0;
-    return grpcdc_ok();
+    grpcdc_status st = grpcdc_ok();
+    if (trailer_marker[0]) {
+        st.trailers[0].key = "x-echo-trailer";
+        st.trailers[0].value = trailer_marker;
+        st.trailers_count = 1;
+    }
+    return st;
 }
 
 static grpcdc_status echo_server_stream_impl(void *ctx, const grpcdc_kv *md,

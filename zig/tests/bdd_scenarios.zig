@@ -27,6 +27,7 @@ pub const bdd_cases = [_]BddCase{
     .{ .name = "bidi-order", .kind = "bidi", .messages = &.{ "x", "y" }, .count = 0, .path = "", .metadata = "", .expect_message = "", .expect_num = 2, .expect_status = -1 },
     .{ .name = "bidi-single", .kind = "bidi", .messages = &.{ "one" }, .count = 0, .path = "", .metadata = "", .expect_message = "", .expect_num = 1, .expect_status = -1 },
     .{ .name = "metadata-marker", .kind = "unary", .messages = &.{ "hello" }, .count = 0, .path = "", .metadata = "meta", .expect_message = "echo: hello [meta]", .expect_num = 0, .expect_status = -1 },
+    .{ .name = "trailer-marker", .kind = "unary-trailer", .messages = &.{ "hello" }, .count = 0, .path = "", .metadata = "meta", .expect_message = "echo: hello", .expect_num = 0, .expect_status = -1 },
     .{ .name = "unknown-method", .kind = "raw-unary", .messages = &.{ "hello" }, .count = 0, .path = "/echo.Echo/Nope", .metadata = "", .expect_message = "", .expect_num = 0, .expect_status = 12 },
     .{ .name = "server-stream-failure", .kind = "server-stream-fail", .messages = &.{ "fail" }, .count = 3, .path = "", .metadata = "", .expect_message = "", .expect_num = 0, .expect_status = 3 },
     .{ .name = "bidi-failure", .kind = "bidi-fail", .messages = &.{ "fail" }, .count = 0, .path = "", .metadata = "", .expect_message = "", .expect_num = 0, .expect_status = 3 },

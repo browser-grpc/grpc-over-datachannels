@@ -29,6 +29,9 @@
     [(unary-metadata)
      (format "the client calls Unary with message ~s and metadata x-echo: ~s"
              (second action) (third action))]
+    [(unary-trailer)
+     (format "the client calls Unary with message ~s and metadata x-echo-trailer: ~s; the service returns that marker in the x-echo-trailer response trailer"
+             (second action) (third action))]
     [(server-stream)
      (format "the client calls ServerStream with message ~s and count ~a"
              (second action) (third action))]

@@ -48,6 +48,9 @@ const handlers = {
       await new Promise((r) => setTimeout(r, req.delayMs));
     }
     const suffix = ctx.metadata["x-echo"] ? ` [${ctx.metadata["x-echo"]}]` : "";
+    if (ctx.metadata["x-echo-trailer"]) {
+      ctx.setTrailers({ "x-echo-trailer": ctx.metadata["x-echo-trailer"] });
+    }
     return new EchoResponse({ message: `echo: ${req.message}${suffix}`, index: 0 });
   },
   async *serverStream(req) {

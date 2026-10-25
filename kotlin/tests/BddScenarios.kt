@@ -20,6 +20,7 @@ object BddScenarios {
         Case("bidi-order", "bidi", listOf("x", "y"), 0, "", "", "", 2, -1),
         Case("bidi-single", "bidi", listOf("one"), 0, "", "", "", 1, -1),
         Case("metadata-marker", "unary", listOf("hello"), 0, "", "meta", "echo: hello [meta]", 0, -1),
+        Case("trailer-marker", "unary-trailer", listOf("hello"), 0, "", "meta", "echo: hello", 0, -1),
         Case("unknown-method", "raw-unary", listOf("hello"), 0, "/echo.Echo/Nope", "", "", 0, 12),
         Case("server-stream-failure", "server-stream-fail", listOf("fail"), 3, "", "", "", 0, 3),
         Case("bidi-failure", "bidi-fail", listOf("fail"), 0, "", "", "", 0, 3),

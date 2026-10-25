@@ -8,7 +8,7 @@ without a native stack). Skips when an oracle binary, Node,
 or the sidecar is unavailable (Dockerfile.ci builds them).
 
 Excluded (oracle/interop/README.md): auth, compression,
-orca, soak. cacheable_unary runs only under the Java client
+soak. cacheable_unary runs only under the Java client
 (unsupported by the Go client).
 """
 
@@ -50,6 +50,11 @@ CASES = [
     "cancel_after_first_response",
     "timeout_on_sleeping_server",
 ]
+
+# ORCA cases run only under the Go client: grpc-java's
+# TestServiceClient fails them even against the upstream Go
+# interop server (its per-RPC report capture comes back null).
+GO_ONLY_CASES = ["orca_per_rpc", "orca_oob"]
 
 
 def free_port():
@@ -176,13 +181,22 @@ class TestInteropServerOracle(unittest.TestCase):
         binary = os.path.join(ROOT, "oracle", "go-interop", "interop-client")
         if not os.path.exists(binary):
             self.skipTest("go interop client not built")
+        args = [
+            binary,
+            "-server_host", "127.0.0.1",
+            "-server_port", str(self.http2_port),
+            "-test_case", test_case,
+        ]
+        if test_case.startswith("orca"):
+            # ORCA cases run through the upstream test LB policy
+            # that surfaces per-RPC load reports (interop_test.sh).
+            args += [
+                "-service_config_json",
+                '{ "loadBalancingConfig": '
+                '[{ "test_backend_metrics_load_balancer": {} }]}',
+            ]
         proc = subprocess.run(
-            [
-                binary,
-                "-server_host", "127.0.0.1",
-                "-server_port", str(self.http2_port),
-                "-test_case", test_case,
-            ],
+            args,
             capture_output=True,
             text=True,
             timeout=120,
@@ -195,7 +209,7 @@ class TestInteropServerOracle(unittest.TestCase):
                 self.run_java_client(test_case)
 
     def test_go_client_cases(self):
-        for test_case in CASES:
+        for test_case in CASES + GO_ONLY_CASES:
             with self.subTest(client="go", case=test_case):
                 self.run_go_client(test_case)
 

@@ -7,6 +7,8 @@ response_status fails the call, streaming input aggregated
 by byte count. Used by test_interop_server_oracle.py.
 """
 
+import base64
+import threading
 import time
 
 import grpcdc
@@ -17,6 +19,7 @@ from messages_pb import (
     StreamingInputCallResponse,
     StreamingOutputCallResponse,
 )
+from orca_load_report_pb import OrcaLoadReport
 from test_pb import Empty
 
 
@@ -42,6 +45,24 @@ def _echo_metadata(ctx):
     trailing = ctx.metadata.get("x-grpc-test-echo-trailing-bin")
     if trailing is not None:
         ctx.set_trailers({"x-grpc-test-echo-trailing-bin": trailing})
+
+
+# ORCA load reporting (orca_per_rpc / orca_oob): a per-request
+# TestOrcaReport rides back as the serialized OrcaLoadReport in
+# the endpoint-load-metrics-bin trailer (base64, as -bin values
+# travel); OOB reports carried by FullDuplexCall requests update
+# shared state that later UnaryCalls report.
+_orca_lock = threading.Lock()
+_orca_oob_report = None
+
+
+def _set_orca_trailer(ctx, report):
+    if ctx is None or report is None:
+        return
+    ctx.set_trailers({
+        "endpoint-load-metrics-bin":
+            base64.b64encode(report.marshal_dc()).decode("ascii"),
+    })
 
 
 def _unary_response(req):
@@ -70,6 +91,19 @@ class TestServiceImpl:
 
     def UnaryCall(self, ctx, req):
         _echo_metadata(ctx)
+        if req.orca_per_query_report is not None:
+            r = req.orca_per_query_report
+            _set_orca_trailer(ctx, OrcaLoadReport(
+                cpu_utilization=r.cpu_utilization,
+                mem_utilization=r.memory_utilization,
+                request_cost=dict(r.request_cost),
+                utilization=dict(r.utilization),
+            ))
+        else:
+            global _orca_oob_report
+            with _orca_lock:
+                oob = _orca_oob_report
+            _set_orca_trailer(ctx, oob)
         return _unary_response(req)
 
     def CacheableUnaryCall(self, ctx, req):
@@ -103,6 +137,15 @@ class TestServiceImpl:
                 req = stream.recv()
             except EOFError:
                 return
+            if req.orca_oob_report is not None:
+                global _orca_oob_report
+                r = req.orca_oob_report
+                with _orca_lock:
+                    _orca_oob_report = OrcaLoadReport(
+                        cpu_utilization=r.cpu_utilization,
+                        mem_utilization=r.memory_utilization,
+                        utilization=dict(r.utilization),
+                    )
             _send_responses(req, stream.send)
 
     def HalfDuplexCall(self, stream):

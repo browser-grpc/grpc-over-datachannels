@@ -25,7 +25,20 @@ local function testBdd()
   local client = stubs.EchoClient.new(channel)
 
   for _, c in ipairs(bdd.cases) do
-    if c.kind == "unary" then
+    if c.kind == "unary-trailer" then
+      local stream = channel:serverStream("/echo.Echo/Unary",
+        EchoRequest.new(c.messages[1], 0), { ["x-echo-trailer"] = c.metadata })
+      local resp = EchoResponse.new("", 0)
+      stream:recv(resp)
+      util.check(resp.message == c.expectMessage and resp.index == c.expectNum,
+        c.name .. ": response")
+      local ok2, err2 = pcall(function()
+        stream:recv(EchoResponse.new("", 0))
+      end)
+      util.check(not ok2, c.name .. ": expected EOF, got " .. tostring(err2))
+      util.check(stream.trailers ~= nil and stream.trailers["x-echo-trailer"] == c.metadata,
+        c.name .. ": trailer")
+    elseif c.kind == "unary" then
       local metadata = nil
       if c.metadata ~= "" then metadata = { ["x-echo"] = c.metadata } end
       local ok, resp = pcall(function()

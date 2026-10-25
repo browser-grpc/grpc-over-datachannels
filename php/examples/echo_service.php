@@ -19,6 +19,9 @@ class EchoService
         if (isset($ctx->metadata["x-echo"])) {
             $suffix = " [" . $ctx->metadata["x-echo"] . "]";
         }
+        if (isset($ctx->metadata["x-echo-trailer"])) {
+            $ctx->setTrailers(["x-echo-trailer" => $ctx->metadata["x-echo-trailer"]]);
+        }
         return new \EchoPb\EchoResponse("echo: " . $req->message . $suffix, 0);
     }
 

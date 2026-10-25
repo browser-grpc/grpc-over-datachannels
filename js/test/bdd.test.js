@@ -20,6 +20,9 @@ function handlers() {
         await new Promise((r) => setTimeout(r, req.delayMs));
       }
       const suffix = ctx.metadata["x-echo"] ? ` [${ctx.metadata["x-echo"]}]` : "";
+      if (ctx.metadata["x-echo-trailer"]) {
+        ctx.setTrailers({ "x-echo-trailer": ctx.metadata["x-echo-trailer"] });
+      }
       return new EchoResponse({ message: `echo: ${req.message}${suffix}`, index: 0 });
     },
     async *serverStream(req) {
@@ -71,7 +74,16 @@ async function collect(iterable) {
 for (const c of BDD_SCENARIOS) {
   test(`bdd: ${c.name}`, async () => {
     const { channel, client } = setup();
-    if (c.kind === "unary") {
+    if (c.kind === "unary-trailer") {
+      let trailers = null;
+      const resp = await client.unary(req(c.messages[0]), {
+        metadata: { "x-echo-trailer": c.metadata },
+        onTrailers: (md) => (trailers = md),
+      });
+      assert.equal(resp.message, c.expectMessage);
+      assert.equal(resp.index, c.expectNum);
+      assert.equal(trailers?.["x-echo-trailer"], c.metadata);
+    } else if (c.kind === "unary") {
       const options = c.metadata ? { metadata: { "x-echo": c.metadata } } : undefined;
       if (c.expectStatus >= 0) {
         await assert.rejects(client.unary(req(c.messages[0]), options), (e) => {

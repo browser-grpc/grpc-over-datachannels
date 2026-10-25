@@ -19,6 +19,9 @@ class EchoService:
         suffix = ""
         if ctx.metadata.get("x-echo"):
             suffix = " [" + ctx.metadata["x-echo"] + "]"
+        if ctx.metadata.get("x-echo-trailer"):
+            ctx.set_trailers(
+                {"x-echo-trailer": ctx.metadata["x-echo-trailer"]})
         return EchoResponse(message=f"echo: {req.message}{suffix}", index=0)
 
     def ServerStream(self, req, stream):

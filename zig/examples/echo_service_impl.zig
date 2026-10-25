@@ -30,6 +30,14 @@ fn unaryImpl(_: *anyopaque, ctx: *CallContext, req: *const EchoRequest, resp: *E
         std.Thread.sleep(@as(u64, @intCast(req.delay_ms)) * std.time.ns_per_ms);
     }
     const marker = ctx.metadata.get("x-echo") orelse "";
+    if (ctx.metadata.get("x-echo-trailer")) |trailer_marker| {
+        if (trailer_marker.len > 0) {
+            var tmd = grpcdc.transport.Metadata.init(alloc);
+            defer tmd.deinit();
+            tmd.put("x-echo-trailer", trailer_marker) catch {};
+            ctx.setTrailers(&tmd);
+        }
+    }
     resp.message = if (marker.len > 0)
         std.fmt.allocPrint(alloc, "echo: {s} [{s}]", .{ req.message, marker }) catch return Status.init(wire.codeResourceExhausted, "out of memory")
     else

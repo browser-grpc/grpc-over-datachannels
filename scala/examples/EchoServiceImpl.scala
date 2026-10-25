@@ -16,6 +16,10 @@ class EchoServiceImpl extends EchoGrpcDc.EchoServer {
     }
     val marker = ctx.metadata.getOrElse("x-echo", null)
     val suffix = if (marker == null || marker.isEmpty) "" else s" [$marker]"
+    val trailerMarker = ctx.metadata.getOrElse("x-echo-trailer", null)
+    if (trailerMarker != null && !trailerMarker.isEmpty) {
+      ctx.setTrailers(Map("x-echo-trailer" -> trailerMarker))
+    }
     EchoResponse(s"echo: ${req.message}$suffix", 0)
   }
 

@@ -37,9 +37,30 @@ over HTTP/2 through the ingress proxy -> WebRTC-Direct:
   `python/tests/interop_service.py`)
 
 Excluded cases: auth (`*_creds`, `oauth2_auth_token`,
-`per_rpc_creds`) needs GCP credentials; compression cases run
-bridge-only (compression terminates in the proxy/bridge);
-`orca_*` and soak cases are out of scope for this harness.
+`per_rpc_creds`) needs GCP credentials; the soak cases have
+their own long-running script.
+
+Compression runs in the client direction: the generated
+HTTP/2 client transports (JS/Go/Python) gzip requests keyed on
+`grpc-encoding: gzip` call metadata, advertise
+`grpc-accept-encoding`, and decompress responses, so
+`client_compressed_*` and `server_compressed_*` pass against
+both reference servers. In the server direction the compressed
+cases stay excluded: verifying them requires the *server* to
+observe whether each request arrived compressed
+(`expect_compressed`), and the DataChannel wire is
+compression-free by design — the proxy/bridge terminates gzip
+at the HTTP/2 hop (see proxy tests) without surfacing it.
+
+ORCA (`orca_per_rpc`, `orca_oob`) runs in both directions:
+our servers report per-request and out-of-band load in the
+`endpoint-load-metrics-bin` trailer (base64 `OrcaLoadReport`),
+and our clients assert it against both reference servers. The
+real-client runs drive the cases with the upstream Go interop
+client through its `test_backend_metrics_load_balancer`
+service config; grpc-java's `TestServiceClient` is not used
+for them (it fails `orca_per_rpc` even against the upstream
+Go interop server — its report capture comes back null).
 
 The grpc-dc frame layer carries response initial and
 trailing metadata in every generated runtime (server-side

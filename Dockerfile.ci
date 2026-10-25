@@ -344,9 +344,14 @@ RUN cd oracle/java && mvn -q package -DskipTests
 
 # Build the official grpc-go interop oracle binaries (second
 # interop oracle; downloads Go modules at image build time).
+# The server is our local main (./oracle-server: upstream's
+# interop server plus the gzip encoding import upstream's main
+# omits, which the compressed interop cases need); the client
+# is the stock upstream main.
 COPY oracle/go-interop/go.mod oracle/go-interop/go.sum ./oracle/go-interop/
-RUN cd oracle/go-interop && go build -o interop-server google.golang.org/grpc/interop/server \
-  && go build -o interop-client google.golang.org/grpc/interop/client
+COPY oracle/go-interop/oracle-server ./oracle/go-interop/oracle-server
+RUN cd oracle/go-interop && GOFLAGS=-mod=mod go build -o interop-server ./oracle-server \
+  && GOFLAGS=-mod=mod go build -o interop-client google.golang.org/grpc/interop/client
 
 # Warm the webapp schema compiler (protocompile -> WASM; module
 # downloads happen at image build time, test-webapp runs offline).

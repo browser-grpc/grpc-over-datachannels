@@ -20,6 +20,10 @@ class EchoServiceImpl implements EchoServer {
     }
     final marker = ctx.metadata['x-echo'];
     final suffix = (marker != null && marker.isNotEmpty) ? ' [$marker]' : '';
+    final trailerMarker = ctx.metadata['x-echo-trailer'];
+    if (trailerMarker != null && trailerMarker.isNotEmpty) {
+      ctx.setTrailers({'x-echo-trailer': trailerMarker});
+    }
     return EchoResponse('echo: ${req.message}$suffix', 0);
   }
 

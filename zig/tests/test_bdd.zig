@@ -31,7 +31,28 @@ pub fn testBdd(alloc: std.mem.Allocator) void {
     var client = examples.echo_grpc_dc.EchoClient.init(&channel);
 
     for (bdd.bdd_cases) |c| {
-        if (std.mem.eql(u8, c.kind, "unary")) {
+        if (std.mem.eql(u8, c.kind, "unary-trailer")) {
+            var md_map = grpcdc.transport.Metadata.init(alloc);
+            defer md_map.deinit();
+            md_map.put("x-echo-trailer", c.metadata) catch {};
+            var stream = switch (channel.serverStream("/echo.Echo/Unary", &req(c.messages[0], 0), &md_map, null)) {
+                .ok => |s| s,
+                .status => |st| {
+                    util.checkFmt(false, "bdd trailer open {d}", .{st.code});
+                    unreachable;
+                },
+            };
+            defer stream.deinit();
+            var resp = examples.echo_messages.EchoResponse{};
+            util.check(stream.recvInto(&resp) == .message, "bdd trailer: recv");
+            util.check(std.mem.eql(u8, resp.message, c.expect_message) and resp.index == c.expect_num, "bdd trailer: response");
+            util.check(stream.recvInto(&resp) == .end, "bdd trailer: EOF");
+            var found: ?[]const u8 = null;
+            for (stream.trailers) |tp| {
+                if (std.mem.eql(u8, tp.key, "x-echo-trailer")) found = tp.value;
+            }
+            util.check(found != null and std.mem.eql(u8, found.?, c.metadata), "bdd trailer: value");
+        } else if (std.mem.eql(u8, c.kind, "unary")) {
             var md: ?grpcdc.transport.Metadata = null;
             var md_map: grpcdc.transport.Metadata = undefined;
             if (c.metadata.len > 0) {

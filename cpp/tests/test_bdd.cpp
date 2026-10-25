@@ -42,7 +42,26 @@ void RunBddScenarios(std::shared_ptr<grpcdc::Channel> channel,
   for (const auto& c : BddCases()) {
     const std::string name = c.name;
     const std::string kind = c.kind;
-    if (kind == "unary") {
+    if (kind == "unary-trailer") {
+      grpcdc::Metadata md;
+      md["x-echo-trailer"] = c.metadata;
+      auto stream = channel->ServerStream("/echo.Echo/Unary", Req(c.messages[0], 0), &md);
+      echo::EchoResponse resp;
+      stream.Recv(resp);
+      Check(resp.message == c.expectMessage && resp.index == c.expectNum,
+            name + ": " + resp.message);
+      bool eof = false;
+      try {
+        echo::EchoResponse extra;
+        stream.Recv(extra);
+      } catch (const grpcdc::EndOfStream&) {
+        eof = true;
+      }
+      Check(eof, name + ": expected EOF");
+      auto tit = stream.trailers().find("x-echo-trailer");
+      Check(tit != stream.trailers().end() && tit->second == c.metadata,
+            name + ": trailer");
+    } else if (kind == "unary") {
       grpcdc::Metadata md;
       const grpcdc::Metadata* md_ptr = nullptr;
       if (c.metadata[0] != '\0') {

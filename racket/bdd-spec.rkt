@@ -75,6 +75,10 @@
          "Call metadata reaches the service implementation"
          '(unary-metadata "hello" "meta")
          '(responds "echo: hello [meta]" 0))
+   (list 'trailer-marker
+         "Response trailing metadata reaches the client"
+         '(unary-trailer "hello" "meta")
+         '(responds "echo: hello" 0))
    (list 'unknown-method
          "Unknown methods are rejected as UNIMPLEMENTED"
          '(raw-unary "/echo.Echo/Nope" "hello")
@@ -108,6 +112,7 @@
     (case (first action)
       [(unary) (values "unary" (list (second action)) 0 "" "")]
       [(unary-metadata) (values "unary" (list (second action)) 0 "" (third action))]
+      [(unary-trailer) (values "unary-trailer" (list (second action)) 0 "" (third action))]
       [(server-stream) (values "server-stream" (list (second action)) (third action) "" "")]
       [(client-stream) (values "client-stream" (rest action) 0 "" "")]
       [(bidi) (values "bidi" (rest action) 0 "" "")]
