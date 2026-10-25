@@ -28,6 +28,7 @@ var bddCases = []bddCase{
 	{name: "bidi-order", kind: "bidi", messages: []string{"x", "y"}, count: 0, path: "", metadata: "", expectMessage: "", expectNum: 2, expectStatus: -1},
 	{name: "bidi-single", kind: "bidi", messages: []string{"one"}, count: 0, path: "", metadata: "", expectMessage: "", expectNum: 1, expectStatus: -1},
 	{name: "metadata-marker", kind: "unary", messages: []string{"hello"}, count: 0, path: "", metadata: "meta", expectMessage: "echo: hello [meta]", expectNum: 0, expectStatus: -1},
+	{name: "trailer-marker", kind: "unary-trailer", messages: []string{"hello"}, count: 0, path: "", metadata: "meta", expectMessage: "echo: hello", expectNum: 0, expectStatus: -1},
 	{name: "unknown-method", kind: "raw-unary", messages: []string{"hello"}, count: 0, path: "/echo.Echo/Nope", metadata: "", expectMessage: "", expectNum: 0, expectStatus: 12},
 	{name: "server-stream-failure", kind: "server-stream-fail", messages: []string{"fail"}, count: 3, path: "", metadata: "", expectMessage: "", expectNum: 0, expectStatus: 3},
 	{name: "bidi-failure", kind: "bidi-fail", messages: []string{"fail"}, count: 0, path: "", metadata: "", expectMessage: "", expectNum: 0, expectStatus: 3},

@@ -50,6 +50,23 @@ public final class TestBdd {
             int expectStatus = (Integer) row[8];
 
             switch (kind) {
+                case "unary-trailer" -> {
+                    Channel.ClientStream stream = channel.serverStream(
+                            "/echo.Echo/Unary", req(messages[0], 0),
+                            Map.of("x-echo-trailer", metadata));
+                    EchoResponse resp = new EchoResponse();
+                    stream.recv(resp);
+                    check(resp.message.equals(expectMessage) && resp.index == expectNum,
+                            name + ": " + resp);
+                    try {
+                        stream.recv(new EchoResponse());
+                        check(false, name + ": expected EOF");
+                    } catch (java.io.EOFException e) {
+                        // expected: trailers end the stream
+                    }
+                    check(metadata.equals(stream.trailers().get("x-echo-trailer")),
+                            name + ": trailer " + stream.trailers());
+                }
                 case "unary" -> {
                     Map<String, String> md = metadata.isEmpty() ? null : Map.of("x-echo", metadata);
                     try {

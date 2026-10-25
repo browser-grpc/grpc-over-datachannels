@@ -27,6 +27,10 @@ class EchoServiceImpl : public EchoGrpcDc::EchoServer {
     if (it != ctx.metadata.end() && !it->second.empty()) {
       suffix = " [" + it->second + "]";
     }
+    auto tit = ctx.metadata.find("x-echo-trailer");
+    if (tit != ctx.metadata.end() && !tit->second.empty()) {
+      ctx.SetTrailers(grpcdc::Metadata{{"x-echo-trailer", tit->second}});
+    }
     { EchoResponse resp; resp.message = "echo: " + req.message + suffix; resp.index = 0; return resp; }
   }
 

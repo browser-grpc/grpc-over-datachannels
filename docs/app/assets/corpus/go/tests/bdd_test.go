@@ -36,6 +36,25 @@ func runBddScenarios(t *testing.T, channel *grpcdc.Channel, client *echo.EchoCli
 	for _, c := range bddCases {
 		t.Run(c.name, func(t *testing.T) {
 			switch c.kind {
+			case "unary-trailer":
+				stream, err := channel.UnaryStream(ctx, "/echo.Echo/Unary", req(c.messages[0], 0),
+					map[string]string{"x-echo-trailer": c.metadata})
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp := new(echo.EchoResponse)
+				if err := stream.Recv(resp); err != nil {
+					t.Fatal(err)
+				}
+				if err := stream.Recv(new(echo.EchoResponse)); err != io.EOF {
+					t.Fatalf("final recv = %v, want EOF", err)
+				}
+				if resp.Message != c.expectMessage || int(resp.Index) != c.expectNum {
+					t.Fatalf("resp = %v, want %q/%d", resp, c.expectMessage, c.expectNum)
+				}
+				if got := stream.Trailer()["x-echo-trailer"]; got != c.metadata {
+					t.Fatalf("trailer x-echo-trailer = %q, want %q", got, c.metadata)
+				}
 			case "unary":
 				var resp *echo.EchoResponse
 				var err error

@@ -33,6 +33,28 @@ public static class TestBdd
 
             switch (kind)
             {
+                case "unary-trailer":
+                {
+                    var stream = channel.ServerStream("/echo.Echo/Unary", Req(messages[0], 0),
+                        new Dictionary<string, string> { ["x-echo-trailer"] = metadata });
+                    var resp = new EchoResponse();
+                    stream.Recv(resp);
+                    Program.Check(resp.Message == expectMessage && resp.Index == expectNum,
+                        $"{name}: {resp}");
+                    try
+                    {
+                        stream.Recv(new EchoResponse());
+                        Program.Check(false, $"{name}: expected EOF");
+                    }
+                    catch (System.IO.EndOfStreamException)
+                    {
+                        // expected: trailers end the stream
+                    }
+                    Program.Check(stream.Trailers != null
+                            && stream.Trailers.GetValueOrDefault("x-echo-trailer") == metadata,
+                        $"{name}: trailer {(stream.Trailers == null ? "null" : "mismatch")}");
+                    break;
+                }
                 case "unary":
                 {
                     var md = metadata.Length == 0

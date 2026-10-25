@@ -75,31 +75,37 @@ examples) connected to a client over a loopback DataChannel:
 - **When** the client calls Unary with message "hello" and metadata x-echo: "meta"
 - **Then** the response is "echo: hello [meta]" with index 0
 
-## 12. Unknown methods are rejected as UNIMPLEMENTED
+## 12. Response trailing metadata reaches the client
+
+- **Given** the Echo service over a loopback DataChannel
+- **When** the client calls Unary with message "hello" and metadata x-echo-trailer: "meta"; the service returns that marker in the x-echo-trailer response trailer
+- **Then** the response is "echo: hello" with index 0
+
+## 13. Unknown methods are rejected as UNIMPLEMENTED
 
 - **Given** the Echo service over a loopback DataChannel
 - **When** the client calls the unknown method "/echo.Echo/Nope" with message "hello"
 - **Then** the call fails with status code 12
 
-## 13. Server streaming rejects the message "fail"
+## 14. Server streaming rejects the message "fail"
 
 - **Given** the Echo service over a loopback DataChannel
 - **When** the client calls ServerStream with message "fail" and count 3
 - **Then** the call fails with status code 3
 
-## 14. Bidi streaming rejects the message "fail"
+## 15. Bidi streaming rejects the message "fail"
 
 - **Given** the Echo service over a loopback DataChannel
 - **When** the client calls Bidi with messages "fail"
 - **Then** the call fails with status code 3
 
-## 15. A unary delayed past the client deadline fails
+## 16. A unary delayed past the client deadline fails
 
 - **Given** the Echo service over a loopback DataChannel
 - **When** the client calls Unary with message "slow", which the service delays by 600 ms, under a shorter client deadline
 - **Then** the call fails with status code 4
 
-## 16. Cancelling a server stream terminates it
+## 17. Cancelling a server stream terminates it
 
 - **Given** the Echo service over a loopback DataChannel
 - **When** the client calls ServerStream with message "tick" and count 5, reads one response, then cancels the call

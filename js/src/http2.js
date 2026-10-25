@@ -11,6 +11,7 @@
 // using WebRTC DataChannels.
 
 import http2 from "node:http2";
+import zlib from "node:zlib";
 import { decodeFrame, encodeFrame, FrameType } from "./codec.js";
 import { parseHeaders } from "./codec.js";
 import { Channel } from "./channel.js";
@@ -19,6 +20,13 @@ export class Http2DataChannel {
   #listeners = new Map();
   #streams = new Map();
   #buffers = new Map();
+  // Per-stream gzip state: requests compress when the call
+  // metadata carries grpc-encoding: gzip; responses decompress
+  // when the response headers do. Every stream advertises
+  // gzip in grpc-accept-encoding, and per-message compression
+  // still follows the LPM compressed flag.
+  #compressOut = new Map();
+  #decompressIn = new Map();
 
   constructor(authority, { secure = false, ...connectOptions } = {}) {
     this.readyState = "open";
@@ -66,11 +74,14 @@ export class Http2DataChannel {
         ":method": "POST",
         "content-type": "application/grpc",
         te: "trailers",
+        "grpc-accept-encoding": "gzip,identity",
         ...metadata,
       });
       this.#streams.set(id, stream);
       this.#buffers.set(id, Buffer.alloc(0));
+      this.#compressOut.set(id, metadata["grpc-encoding"] === "gzip");
       stream.on("response", (headers, flags) => {
+        this.#decompressIn.set(id, headers["grpc-encoding"] === "gzip");
         const trailersOnly =
           (flags & http2.constants.NGHTTP2_FLAG_END_STREAM) !== 0 && headers["grpc-status"] !== undefined;
         if (trailersOnly) {
@@ -95,7 +106,17 @@ export class Http2DataChannel {
         while (buf.length >= 5) {
           const len = buf.readUInt32BE(1);
           if (buf.length < 5 + len) break;
-          this.#emit(encodeFrame(FrameType.DATA, id, new Uint8Array(buf.subarray(5, 5 + len))));
+          let payload = buf.subarray(5, 5 + len);
+          if (buf[0] === 1 && this.#decompressIn.get(id)) {
+            try {
+              payload = zlib.gunzipSync(payload);
+            } catch {
+              stream.close(http2.constants.NGHTTP2_CANCEL);
+              this.#emitFrame(FrameType.RST, id, JSON.stringify({ code: 3, message: "gzip decompression failed" }));
+              return;
+            }
+          }
+          this.#emit(encodeFrame(FrameType.DATA, id, new Uint8Array(payload)));
           buf = buf.subarray(5 + len);
         }
         this.#buffers.set(id, buf);
@@ -106,9 +127,16 @@ export class Http2DataChannel {
     } else if (frame.type === FrameType.DATA) {
       const stream = this.#streams.get(id);
       if (stream) {
-        const lpm = Buffer.alloc(5 + frame.payload.length);
-        lpm.writeUInt32BE(frame.payload.length, 1);
-        Buffer.from(frame.payload).copy(lpm, 5);
+        let payload = frame.payload;
+        let flag = 0;
+        if (this.#compressOut.get(id)) {
+          payload = zlib.gzipSync(payload);
+          flag = 1;
+        }
+        const lpm = Buffer.alloc(5 + payload.length);
+        lpm[0] = flag;
+        lpm.writeUInt32BE(payload.length, 1);
+        Buffer.from(payload).copy(lpm, 5);
         stream.write(lpm);
       }
     } else if (frame.type === FrameType.HALF_CLOSE) {

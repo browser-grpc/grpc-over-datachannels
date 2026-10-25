@@ -16,8 +16,8 @@ mod bdd_scenarios;
 
 use futures_util::{StreamExt, TryStreamExt};
 use grpc_dc::{
-    loopback_pair, CallCtx, Channel, DcTransport, RequestStream, ResponseStream, Server,
-    Status,
+    loopback_pair, CallCtx, Channel, DcTransport, Metadata, RequestStream, ResponseStream,
+    Server, Status,
 };
 use std::sync::Arc;
 use stub::{echo_service, Echo, EchoClient};
@@ -38,6 +38,11 @@ impl Echo for EchoService {
             .get("x-echo")
             .map(|v| format!(" [{v}]"))
             .unwrap_or_default();
+        if let Some(v) = ctx.metadata.get("x-echo-trailer") {
+            let mut t = Metadata::new();
+            t.insert("x-echo-trailer".to_string(), v.clone());
+            ctx.set_trailers(t);
+        }
         Ok(pb::EchoResponse { message: format!("echo: {}{}", req.message, suffix), index: 0 , ..Default::default() })
     }
 
@@ -106,6 +111,25 @@ async fn bdd_scenarios() {
     for c in bdd_scenarios::BDD_SCENARIOS {
         let line = format!("bdd {} ({})", c.name, c.kind);
         match c.kind {
+            "unary-trailer" => {
+                let trailers = Arc::new(std::sync::Mutex::new(Metadata::new()));
+                let mut md = Metadata::new();
+                md.insert("x-echo-trailer".to_string(), c.metadata.to_string());
+                let options = grpc_dc::CallOptions::new()
+                    .metadata(md)
+                    .capture_trailers(trailers.clone());
+                let resp = client
+                    .unary_with_options(req(c.messages[0], 0), options)
+                    .await
+                    .unwrap();
+                assert_eq!(resp.message, c.expect_message, "{line}");
+                assert_eq!(resp.index, c.expect_num, "{line}");
+                assert_eq!(
+                    trailers.lock().unwrap().get("x-echo-trailer").map(|v| v.as_str()),
+                    Some(c.metadata),
+                    "{line}"
+                );
+            }
             "unary" => {
                 let result = if c.metadata.is_empty() {
                     client.unary(req(c.messages[0], 0)).await

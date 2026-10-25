@@ -21,13 +21,16 @@ import { http2Channel } from "../src/http2.js";
 import { TestServiceClient, UnimplementedServiceClient } from "../examples/interop/test_grpc_dc.js";
 import { Empty } from "../examples/interop/empty_pb.js";
 import {
+  BoolValue,
   EchoStatus,
   Payload,
   ResponseParameters,
   SimpleRequest,
   StreamingInputCallRequest,
   StreamingOutputCallRequest,
+  TestOrcaReport,
 } from "../examples/interop/messages_pb.js";
+import { OrcaLoadReport } from "../examples/interop/orca_load_report_pb.js";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const JAVA_DIR = `${ROOT}oracle/java`;
@@ -179,6 +182,85 @@ async function interopCases(t, client, channel) {
     let n = 0;
     for await (const _resp of await client.fullDuplexCall(reqs())) n++;
     assert.equal(n, 0);
+  });
+
+  await t.test("orca_per_rpc", async () => {
+    // Upstream orca_per_rpc: the per-request TestOrcaReport
+    // comes back as the serialized OrcaLoadReport in the
+    // endpoint-load-metrics-bin trailer (base64 -bin value).
+    let trailers = null;
+    const req = new SimpleRequest({
+      orcaPerQueryReport: new TestOrcaReport({
+        cpuUtilization: 0.8210,
+        memoryUtilization: 0.5847,
+        requestCost: new Map([["cost", 3456.32]]),
+        utilization: new Map([["util", 0.30499]]),
+      }),
+    });
+    await client.unaryCall(req, { onTrailers: (md) => (trailers = md) });
+    const encoded = trailers?.["endpoint-load-metrics-bin"];
+    assert.ok(encoded, `missing ORCA trailer in ${JSON.stringify(trailers)}`);
+    const report = OrcaLoadReport.decode(Buffer.from(encoded, "base64"));
+    assert.equal(report.cpuUtilization, 0.8210);
+    assert.equal(report.memUtilization, 0.5847);
+    assert.equal(report.requestCost.get("cost"), 3456.32);
+    assert.equal(report.utilization.get("util"), 0.30499);
+  });
+
+  await t.test("client_compressed_unary", async () => {
+    // Gzip-compressed request (grpc-encoding call metadata);
+    // the reference server only accepts when the request
+    // really arrives compressed (expect_compressed).
+    const resp = await client.unaryCall(new SimpleRequest({
+      expectCompressed: new BoolValue({ value: true }),
+      responseSize: 31415,
+      payload: new Payload({ body: zeros(271828) }),
+    }), { metadata: { "grpc-encoding": "gzip" } });
+    assert.equal(resp.payload.body.length, 31415);
+    assert.ok(resp.payload.body.every((b) => b === 0));
+  });
+
+  await t.test("server_compressed_unary", async () => {
+    // The server gzip-compresses the response
+    // (response_compressed); the transport decompresses, so
+    // the payload arrives intact and decodable.
+    const resp = await client.unaryCall(new SimpleRequest({
+      responseCompressed: new BoolValue({ value: true }),
+      responseSize: 31415,
+      payload: new Payload({ body: zeros(271828) }),
+    }));
+    assert.equal(resp.payload.body.length, 31415);
+    assert.ok(resp.payload.body.every((b) => b === 0));
+  });
+
+  await t.test("client_compressed_streaming", async () => {
+    const sizes = [27182, 8, 1828, 45904];
+    async function* reqs() {
+      for (const size of sizes) {
+        yield new StreamingInputCallRequest({ payload: new Payload({ body: zeros(size) }) });
+      }
+    }
+    const resp = await client.streamingInputCall(reqs(), {
+      metadata: { "grpc-encoding": "gzip" },
+    });
+    assert.equal(resp.aggregatedPayloadSize, sizes.reduce((a, b) => a + b, 0));
+  });
+
+  await t.test("server_compressed_streaming", async () => {
+    // Upstream drives response compression for streams via
+    // the call-level compression the client requests; here the
+    // transport advertises gzip and decompresses any flagged
+    // response messages (reference servers decide per call).
+    const sizes = [31415, 9, 2653, 58979];
+    const req = new StreamingOutputCallRequest({
+      responseParameters: sizes.map((size) => new ResponseParameters({ size })),
+    });
+    let i = 0;
+    for await (const resp of await client.streamingOutputCall(req)) {
+      assert.equal(resp.payload.body.length, sizes[i]);
+      i++;
+    }
+    assert.equal(i, sizes.length);
   });
 
   await t.test("custom_metadata", async () => {

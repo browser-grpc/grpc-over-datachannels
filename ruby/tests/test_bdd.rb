@@ -38,6 +38,20 @@ module TestBdd
 
   def self.run_scenario(kind, messages, count, path, metadata, expect_message, expect_num, expect_status)
     case kind
+    when "unary-trailer"
+      stream = @channel.server_stream("/echo.Echo/Unary", req(messages[0]),
+                                      { "x-echo-trailer" => metadata })
+      resp = EchoPb::EchoResponse.new
+      stream.recv(resp)
+      TestUtil.assert_eq(resp.message, expect_message, "trailer message")
+      TestUtil.assert_eq(resp.index, expect_num, "trailer index")
+      begin
+        stream.recv(EchoPb::EchoResponse.new)
+        raise "expected EOFError"
+      rescue EOFError
+        # expected: trailers end the stream
+      end
+      TestUtil.assert_eq(stream.trailers["x-echo-trailer"], metadata, "trailer")
     when "unary"
       md = metadata && !metadata.empty? ? { "x-echo" => metadata } : nil
       if expect_status >= 0

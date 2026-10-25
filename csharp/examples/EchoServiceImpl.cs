@@ -22,6 +22,11 @@ public sealed class EchoServiceImpl : EchoGrpcDc.EchoServer
         {
             suffix = $" [{marker}]";
         }
+        if (ctx.Metadata.TryGetValue("x-echo-trailer", out string trailerMarker)
+            && !string.IsNullOrEmpty(trailerMarker))
+        {
+            ctx.SetTrailers(new Dictionary<string, string> { ["x-echo-trailer"] = trailerMarker });
+        }
         return new EchoResponse($"echo: {req.Message}{suffix}", 0);
     }
 

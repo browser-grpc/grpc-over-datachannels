@@ -133,8 +133,21 @@ object Codec {
     }
 
     fun statusFrame(frameType: Int, streamId: Long, status: StatusException): ByteArray {
-        val body = "{\"code\":${status.code},\"message\":${jsonString(status.message ?: "")}}"
-        return encodeFrame(frameType, streamId, body.toByteArray(StandardCharsets.UTF_8))
+        val sb = StringBuilder()
+        sb.append("{\"code\":").append(status.code)
+            .append(",\"message\":").append(jsonString(status.message ?: ""))
+        if (status.trailers.isNotEmpty()) {
+            sb.append(",\"metadata\":{")
+            var first = true
+            for ((k, v) in status.trailers) {
+                if (!first) sb.append(',')
+                sb.append(jsonString(k)).append(':').append(jsonString(v))
+                first = false
+            }
+            sb.append('}')
+        }
+        sb.append('}')
+        return encodeFrame(frameType, streamId, sb.toString().toByteArray(StandardCharsets.UTF_8))
     }
 
     fun parseStatus(payload: ByteArray): StatusException {
@@ -142,7 +155,16 @@ object Codec {
             val body = parseJsonObject(String(payload, StandardCharsets.UTF_8))
             val code = (body["code"] as Number).toInt()
             val message = body["message"]
-            StatusException(code, message?.toString() ?: "")
+            val status = StatusException(code, message?.toString() ?: "")
+            val metadata = body["metadata"]
+            if (metadata is Map<*, *>) {
+                val trailers = HashMap<String, String>()
+                for ((k, v) in metadata) {
+                    trailers[k.toString()] = v.toString()
+                }
+                status.trailers = trailers
+            }
+            status
         } catch (e: RuntimeException) {
             StatusException(Wire.CODE_UNKNOWN, "malformed trailers")
         }

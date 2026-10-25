@@ -17,6 +17,21 @@ def testBdd(): Unit = {
 
   for (c <- BddScenarios.Cases) {
     c.kind match {
+      case "unary-trailer" =>
+        val stream = channel.serverStream(
+          "/echo.Echo/Unary", EchoRequest(c.messages(0), 0),
+          Map("x-echo-trailer" -> c.metadata))
+        val resp = new EchoResponse()
+        stream.recv(resp)
+        check(resp.message == c.expectMessage && resp.index == c.expectNum, s"${c.name}: $resp")
+        try {
+          stream.recv(new EchoResponse())
+          check(false, s"${c.name}: expected EOF")
+        } catch {
+          case _: java.io.EOFException => () // expected: trailers end the stream
+        }
+        check(stream.trailers != null && stream.trailers.getOrElse("x-echo-trailer", null) == c.metadata,
+          s"${c.name}: trailer ${stream.trailers}")
       case "unary" =>
         val md = if (c.metadata.isEmpty) null else Map("x-echo" -> c.metadata)
         try {

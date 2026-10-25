@@ -3,6 +3,43 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.9 — 2026-10-25
+
+- BDD grows a shared `unary-trailer` scenario across all 16
+  language runners: echo implementations surface a request
+  metadata marker as the `x-echo-trailer` response trailer,
+  and every runner asserts it end-to-end. Writing it caught
+  two real runtime bugs, now fixed in the generators:
+  Kotlin/Scala status frames dropped the trailing-metadata
+  member, and Swift copied the (empty) response-metadata maps
+  into its response sink before dispatch, so
+  `SetHeaders`/`SetTrailers` never reached the wire.
+- ORCA load reporting in the interop harness:
+  `orca_per_rpc` and `orca_oob` run against our JS/Go/Python
+  servers under the official grpc-go interop client (via its
+  test LB service config), and `orca_per_rpc` runs from our
+  JS/Go/Python clients against both reference servers. The
+  `endpoint-load-metrics-bin` trailer carries the base64
+  `OrcaLoadReport` (vendored proto, generated stubs);
+  grpc-java's client is excluded by upstream behavior (it
+  fails the case even against grpc-go's own server).
+- Compression in the generated HTTP/2 client transports
+  (JS/Go/Python): requests gzip when call metadata carries
+  `grpc-encoding: gzip`, every stream advertises
+  `grpc-accept-encoding`, and flagged responses decompress.
+  The four `*_compressed_*` interop cases pass against both
+  reference servers (the oracle Go server now builds with the
+  gzip encoding import, which upstream's server main omits).
+  Server-direction compressed cases stay excluded: the
+  DataChannel wire is compression-free by design and the
+  proxy terminates gzip at the HTTP/2 hop.
+- Soak: `scripts/soak.mjs` (`make soak`) sustains
+  large-unary RPCs against the Java oracle (our JS client
+  direct; the official Go client against the oracle and
+  against our server through the ingress proxy/WebRTC-Direct
+  path), with per-iteration latency budgets. Default 1000
+  iterations per phase passes with zero failures.
+
 ## v0.32.8 — 2026-10-25
 
 - Response initial + trailing metadata across all 16

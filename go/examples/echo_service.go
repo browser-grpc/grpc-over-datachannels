@@ -15,6 +15,9 @@ type EchoService struct{}
 
 // Unary implements EchoServer.
 func (EchoService) Unary(ctx context.Context, req *EchoRequest) (*EchoResponse, error) {
+	if md := grpcdc.MetadataFromContext(ctx); md["x-echo-trailer"] != "" {
+		grpcdc.SetTrailer(ctx, map[string]string{"x-echo-trailer": md["x-echo-trailer"]})
+	}
 	if req.Message == "fail" {
 		return nil, grpcdc.NewStatus(grpcdc.CodeInvalidArgument, "asked to fail")
 	}

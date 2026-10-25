@@ -24,6 +24,10 @@ function EchoServiceImpl:unary(ctx, req)
   end
   local marker = ctx.metadata["x-echo"]
   local suffix = (marker ~= nil and marker ~= "") and (" [" .. marker .. "]") or ""
+  local trailerMarker = ctx.metadata["x-echo-trailer"]
+  if trailerMarker ~= nil and trailerMarker ~= "" then
+    ctx:setTrailers({ ["x-echo-trailer"] = trailerMarker })
+  end
   return EchoResponse.new("echo: " .. req.message .. suffix, 0)
 end
 

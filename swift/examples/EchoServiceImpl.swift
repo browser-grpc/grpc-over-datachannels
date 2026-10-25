@@ -16,6 +16,9 @@ final class EchoServiceImpl: EchoGrpcDc.EchoServer {
         if let marker = ctx.metadata["x-echo"], !marker.isEmpty {
             suffix = " [\(marker)]"
         }
+        if let trailerMarker = ctx.metadata["x-echo-trailer"], !trailerMarker.isEmpty {
+            ctx.SetTrailers(["x-echo-trailer": trailerMarker])
+        }
         return EchoResponse("echo: \(req.message)\(suffix)", 0)
     }
 

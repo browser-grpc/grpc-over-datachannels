@@ -44,7 +44,18 @@ class TestBdd(unittest.TestCase):
 
     def run_scenario(self, kind, messages, count, path, metadata,
                      expect_message, expect_num, expect_status):
-        if kind == "unary":
+        if kind == "unary-trailer":
+            stream = self.channel.unary_stream(
+                "/echo.Echo/Unary", req(messages[0]),
+                {"x-echo-trailer": metadata})
+            resp = stream.recv(EchoResponse())
+            self.assertEqual(resp.message, expect_message)
+            self.assertEqual(resp.index, expect_num)
+            with self.assertRaises(EOFError):
+                stream.recv(EchoResponse())
+            self.assertEqual(
+                stream.trailers.get("x-echo-trailer"), metadata)
+        elif kind == "unary":
             md = {"x-echo": metadata} if metadata else None
             if expect_status >= 0:
                 with self.assertRaises(grpcdc.StatusError) as cm:

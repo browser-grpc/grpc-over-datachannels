@@ -17,6 +17,7 @@ return [
     ["bidi-order", "bidi", ["x", "y"], 0, "", "", "", 2, -1],
     ["bidi-single", "bidi", ["one"], 0, "", "", "", 1, -1],
     ["metadata-marker", "unary", ["hello"], 0, "", "meta", "echo: hello [meta]", 0, -1],
+    ["trailer-marker", "unary-trailer", ["hello"], 0, "", "meta", "echo: hello", 0, -1],
     ["unknown-method", "raw-unary", ["hello"], 0, "/echo.Echo/Nope", "", "", 0, 12],
     ["server-stream-failure", "server-stream-fail", ["fail"], 3, "", "", "", 0, 3],
     ["bidi-failure", "bidi-fail", ["fail"], 0, "", "", "", 0, 3],

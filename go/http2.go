@@ -3,6 +3,8 @@
 package grpcdc
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
@@ -260,6 +262,29 @@ type Http2Transport struct {
 	buffers   map[uint32][]byte
 	blocks    map[uint32][]byte
 	headersSeen map[uint32]bool
+	// Per-stream gzip state: requests compress when the call
+	// metadata carries grpc-encoding: gzip; responses decompress
+	// when the response headers do. Streams advertise gzip via
+	// grpc-accept-encoding.
+	compressOut  map[uint32]bool
+	decompressIn map[uint32]bool
+}
+
+func gzipCompress(payload []byte) []byte {
+	var buf bytes.Buffer
+	w := gzip.NewWriter(&buf)
+	_, _ = w.Write(payload)
+	_ = w.Close()
+	return buf.Bytes()
+}
+
+func gzipDecompress(payload []byte) ([]byte, error) {
+	r, err := gzip.NewReader(bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return io.ReadAll(r)
 }
 
 // DialHttp2 opens an HTTP/2 connection to authority (host or
@@ -286,6 +311,8 @@ func DialHttp2(authority string, tlsConfig *tls.Config) (*Http2Transport, error)
 		buffers:   map[uint32][]byte{},
 		blocks:    map[uint32][]byte{},
 		headersSeen: map[uint32]bool{},
+		compressOut:  map[uint32]bool{},
+		decompressIn: map[uint32]bool{},
 	}
 	t.cond = sync.NewCond(&t.winMu)
 	var conn net.Conn
@@ -420,7 +447,17 @@ func (t *Http2Transport) onFrame(ftype byte, flags byte, streamID uint32, payloa
 			if len(buf) < 5+msgLen {
 				break
 			}
-			t.emit(FrameData, streamID, buf[5:5+msgLen])
+			message := buf[5 : 5+msgLen]
+			if buf[0] == 1 && t.decompressIn[streamID] {
+				plain, err := gzipDecompress(message)
+				if err != nil {
+					body, _ := json.Marshal(map[string]any{"code": 3, "message": "gzip decompression failed"})
+					t.emit(FrameRst, streamID, body)
+					return
+				}
+				message = plain
+			}
+			t.emit(FrameData, streamID, message)
 			buf = buf[5+msgLen:]
 		}
 		t.buffers[streamID] = buf
@@ -442,6 +479,9 @@ func (t *Http2Transport) onHeaders(streamID uint32, endStream bool, block []byte
 	headers := map[string]string{}
 	for _, kv := range fields {
 		headers[kv[0]] = kv[1]
+	}
+	if headers["grpc-encoding"] == "gzip" {
+		t.decompressIn[streamID] = true
 	}
 	// Response metadata: transport keys drop out; -bin values
 	// are base64 in both the HPACK and JSON domains.
@@ -518,6 +558,12 @@ func (t *Http2Transport) Send(data []byte) error {
 		block = append(block, hpackLiteralNewName(":authority", t.authority)...)
 		block = append(block, hpackLiteralNewName("content-type", "application/grpc")...)
 		block = append(block, hpackLiteralNewName("te", "trailers")...)
+		block = append(block, hpackLiteralNewName("grpc-accept-encoding", "gzip,identity")...)
+		for k, v := range head.Metadata {
+			if strings.ToLower(k) == "grpc-encoding" && v == "gzip" {
+				t.compressOut[streamID] = true
+			}
+		}
 		keys := make([]string, 0, len(head.Metadata))
 		for k := range head.Metadata {
 			keys = append(keys, k)
@@ -533,7 +579,13 @@ func (t *Http2Transport) Send(data []byte) error {
 		t.winMu.Unlock()
 		return t.sendFrame(h2Headers, streamID, 0x4, block)
 	case FrameData:
+		if t.compressOut[streamID] {
+			payload = gzipCompress(payload)
+		}
 		lpm := make([]byte, 5+len(payload))
+		if t.compressOut[streamID] {
+			lpm[0] = 1
+		}
 		binary.BigEndian.PutUint32(lpm[1:5], uint32(len(payload)))
 		copy(lpm[5:], payload)
 		offset := 0

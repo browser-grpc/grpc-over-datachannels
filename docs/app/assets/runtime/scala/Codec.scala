@@ -132,8 +132,21 @@ object Codec {
   }
 
   def statusFrame(frameType: Int, streamId: Long, status: StatusException): Array[Byte] = {
-    val body = s"{\"code\":${status.code},\"message\":${jsonString(Option(status.getMessage).getOrElse(""))}}"
-    encodeFrame(frameType, streamId, body.getBytes(StandardCharsets.UTF_8))
+    val sb = new StringBuilder
+    sb.append("{\"code\":").append(status.code)
+      .append(",\"message\":").append(jsonString(Option(status.getMessage).getOrElse("")))
+    if (status.trailers != null && status.trailers.nonEmpty) {
+      sb.append(",\"metadata\":{")
+      var first = true
+      for ((k, v) <- status.trailers) {
+        if (!first) sb.append(',')
+        sb.append(jsonString(k)).append(':').append(jsonString(v))
+        first = false
+      }
+      sb.append('}')
+    }
+    sb.append('}')
+    encodeFrame(frameType, streamId, sb.toString.getBytes(StandardCharsets.UTF_8))
   }
 
   def parseStatus(payload: Array[Byte]): StatusException = {
@@ -141,7 +154,13 @@ object Codec {
       val body = parseJsonObject(new String(payload, StandardCharsets.UTF_8))
       val code = body("code").asInstanceOf[Number].intValue
       val message = body.getOrElse("message", null)
-      StatusException(code, if (message == null) "" else message.toString)
+      val status = StatusException(code, if (message == null) "" else message.toString)
+      body.get("metadata") match {
+        case Some(mm: Map[_, _]) =>
+          status.trailers = mm.map { case (k, v) => k.toString -> v.toString }
+        case _ => ()
+      }
+      status
     } catch {
       case e: RuntimeException => StatusException(Wire.CODE_UNKNOWN, "malformed trailers")
     }

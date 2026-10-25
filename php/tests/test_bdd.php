@@ -46,6 +46,20 @@ final class TestBdd
     private static function runScenario(string $kind, array $messages, int $count, string $path, string $metadata, string $expectMessage, int $expectNum, int $expectStatus): void
     {
         switch ($kind) {
+            case "unary-trailer":
+                $stream = self::$channel->serverStream("/echo.Echo/Unary", self::req($messages[0]),
+                                                       ["x-echo-trailer" => $metadata]);
+                $resp = $stream->recv(new \EchoPb\EchoResponse());
+                T::assertEq($resp->message, $expectMessage, "trailer message");
+                T::assertEq($resp->index, $expectNum, "trailer index");
+                try {
+                    $stream->recv(new \EchoPb\EchoResponse());
+                    throw new \Exception("expected CallClosed");
+                } catch (\Grpcdc\CallClosed $e) {
+                    // expected: trailers end the stream
+                }
+                T::assertEq($stream->trailers["x-echo-trailer"] ?? null, $metadata, "trailer");
+                break;
             case "unary":
                 $md = ($metadata !== "" ) ? ["x-echo" => $metadata] : null;
                 if ($expectStatus >= 0) {

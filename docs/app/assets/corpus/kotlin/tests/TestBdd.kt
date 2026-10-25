@@ -25,6 +25,23 @@ fun testBdd() {
 
     for (c in BddScenarios.Cases) {
         when (c.kind) {
+            "unary-trailer" -> {
+                val stream = channel.serverStream(
+                    "/echo.Echo/Unary", req(c.messages[0], 0),
+                    mapOf("x-echo-trailer" to c.metadata))
+                val resp = EchoResponse()
+                stream.recv(resp)
+                check(resp.message == c.expectMessage && resp.index == c.expectNum,
+                    "${c.name}: $resp")
+                try {
+                    stream.recv(EchoResponse())
+                    check(false, "${c.name}: expected EOF")
+                } catch (e: EOFException) {
+                    // expected: trailers end the stream
+                }
+                check(stream.trailers?.get("x-echo-trailer") == c.metadata,
+                    "${c.name}: trailer ${stream.trailers}")
+            }
             "unary" -> {
                 val md = if (c.metadata.isEmpty()) null else mapOf("x-echo" to c.metadata)
                 try {

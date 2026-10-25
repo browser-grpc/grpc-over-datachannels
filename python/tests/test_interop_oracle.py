@@ -24,6 +24,7 @@ import grpcdc
 import test_grpc_dc
 from grpcdc.http2 import Http2Transport
 from messages_pb import (
+    BoolValue,
     EchoStatus,
     Payload,
     ResponseParameters,
@@ -32,7 +33,9 @@ from messages_pb import (
     StreamingInputCallRequest,
     StreamingOutputCallRequest,
     StreamingOutputCallResponse,
+    TestOrcaReport,
 )
+from orca_load_report_pb import OrcaLoadReport
 from test_pb import Empty
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -193,6 +196,90 @@ class InteropOracleBase:
     def test_empty_stream(self):
         responses = list(self.client.FullDuplexCall([]))
         self.assertEqual(responses, [])
+
+    def test_client_compressed_unary(self):
+        # Gzip-compressed request (grpc-encoding call metadata);
+        # the reference server only accepts when the request
+        # really arrives compressed (expect_compressed).
+        resp = self.client.UnaryCall(
+            SimpleRequest(
+                expect_compressed=BoolValue(value=True),
+                response_size=31415,
+                payload=Payload(body=zeros(271828)),
+            ),
+            metadata={"grpc-encoding": "gzip"},
+        )
+        self.assertEqual(len(resp.payload.body), 31415)
+        self.assertEqual(resp.payload.body, zeros(31415))
+
+    def test_server_compressed_unary(self):
+        # The server gzip-compresses the response
+        # (response_compressed); the transport decompresses, so
+        # the payload arrives intact and decodable.
+        resp = self.client.UnaryCall(
+            SimpleRequest(
+                response_compressed=BoolValue(value=True),
+                response_size=31415,
+                payload=Payload(body=zeros(271828)),
+            )
+        )
+        self.assertEqual(len(resp.payload.body), 31415)
+        self.assertEqual(resp.payload.body, zeros(31415))
+
+    def test_client_compressed_streaming(self):
+        sizes = [27182, 8, 1828, 45904]
+        reqs = [
+            StreamingInputCallRequest(payload=Payload(body=zeros(size)))
+            for size in sizes
+        ]
+        resp = self.client.StreamingInputCall(
+            reqs, metadata={"grpc-encoding": "gzip"}
+        )
+        self.assertEqual(resp.aggregated_payload_size, sum(sizes))
+
+    def test_server_compressed_streaming(self):
+        sizes = [31415, 9, 2653, 58979]
+        req = StreamingOutputCallRequest(
+            response_parameters=[
+                ResponseParameters(size=size) for size in sizes
+            ]
+        )
+        responses = list(self.client.StreamingOutputCall(req))
+        self.assertEqual(
+            [len(r.payload.body) for r in responses], sizes
+        )
+
+    def test_orca_per_rpc(self):
+        # Upstream orca_per_rpc: the per-request TestOrcaReport
+        # comes back as the serialized OrcaLoadReport in the
+        # endpoint-load-metrics-bin trailer (base64 -bin value;
+        # servers may send it unpadded, as grpc-go does).
+        import base64
+
+        stream = self.channel.unary_stream(
+            "/grpc.testing.TestService/UnaryCall",
+            SimpleRequest(
+                orca_per_query_report=TestOrcaReport(
+                    cpu_utilization=0.8210,
+                    memory_utilization=0.5847,
+                    request_cost={"cost": 3456.32},
+                    utilization={"util": 0.30499},
+                )
+            ),
+            None,
+        )
+        stream.recv(SimpleResponse())
+        with self.assertRaises(EOFError):
+            stream.recv(SimpleResponse())
+        encoded = stream.trailers.get("endpoint-load-metrics-bin")
+        self.assertIsNotNone(encoded, stream.trailers)
+        padded = encoded + "=" * (-len(encoded) % 4)
+        report = OrcaLoadReport()
+        report.unmarshal_dc(base64.b64decode(padded))
+        self.assertEqual(report.cpu_utilization, 0.8210)
+        self.assertEqual(report.mem_utilization, 0.5847)
+        self.assertEqual(report.request_cost.get("cost"), 3456.32)
+        self.assertEqual(report.utilization.get("util"), 0.30499)
 
     def test_custom_metadata(self):
         # Upstream custom_metadata: echo-initial returns as

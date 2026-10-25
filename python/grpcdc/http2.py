@@ -9,6 +9,7 @@ TLS, when requested, is Python ssl with ALPN h2 — the TLS
 protocol itself is stdlib, only the dial glue is generated.
 """
 
+import gzip
 import json
 import queue
 import socket
@@ -282,6 +283,12 @@ class Http2Transport:
         self.data_buffers = {}
         self.header_blocks = {}
         self.headers_seen = set()
+        # Per-stream gzip state: requests compress when the
+        # call metadata carries grpc-encoding: gzip; responses
+        # decompress when the response headers do. Streams
+        # advertise gzip via grpc-accept-encoding.
+        self.compress_out = {}
+        self.decompress_in = set()
         self.closed = False
         raw.sendall(b'PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n')
         self._send_frame(H2_SETTINGS, 0, 0, b'')
@@ -366,7 +373,10 @@ class Http2Transport:
                 msg_len = int.from_bytes(buf[1:5], 'big')
                 if len(buf) < 5 + msg_len:
                     break
-                self._emit(FRAME_DATA, stream_id, buf[5:5 + msg_len])
+                message = buf[5:5 + msg_len]
+                if buf[0] == 1 and stream_id in self.decompress_in:
+                    message = gzip.decompress(message)
+                self._emit(FRAME_DATA, stream_id, message)
                 buf = buf[5 + msg_len:]
             self.data_buffers[stream_id] = buf
             if flags & 0x1:
@@ -375,6 +385,8 @@ class Http2Transport:
 
     def _on_headers(self, stream_id, end_stream, block):
         headers = dict(self.decoder.decode(block))
+        if headers.get('grpc-encoding') == 'gzip':
+            self.decompress_in.add(stream_id)
         status = headers.get('grpc-status')
         # Response metadata: transport keys drop out; -bin values
         # are base64 in both the HPACK and JSON domains.
@@ -408,8 +420,11 @@ class Http2Transport:
                 (':method', 'POST'), (':scheme', 'http'),
                 (':path', head['path']), (':authority', self.authority),
                 ('content-type', 'application/grpc'), ('te', 'trailers'),
+                ('grpc-accept-encoding', 'gzip,identity'),
             ]
-            for key, value in (head.get('metadata') or {}).items():
+            metadata = head.get('metadata') or {}
+            self.compress_out[stream_id] = metadata.get('grpc-encoding') == 'gzip'
+            for key, value in metadata.items():
                 fields.append((key.lower(), str(value)))
             block = b''
             for name, value in fields:
@@ -425,7 +440,11 @@ class Http2Transport:
                 self.stream_windows.setdefault(stream_id, self.peer_initial_window)
             self._send_frame(H2_HEADERS, stream_id, 0x4, block)
         elif frame_type == FRAME_DATA:
-            lpm = b'\x00' + struct.pack('>I', len(payload)) + payload
+            if self.compress_out.get(stream_id):
+                payload = gzip.compress(payload)
+                lpm = b'\x01' + struct.pack('>I', len(payload)) + payload
+            else:
+                lpm = b'\x00' + struct.pack('>I', len(payload)) + payload
             offset = 0
             while offset < len(lpm):
                 with self.cond:

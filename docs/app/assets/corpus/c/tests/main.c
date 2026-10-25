@@ -385,7 +385,46 @@ static void test_bdd(void) {
     for (size_t ci = 0; ci < bdd_cases_count; ci++) {
         const bdd_case *c = &bdd_cases[ci];
         char what[128];
-        if (strcmp(c->kind, "unary") == 0) {
+        if (strcmp(c->kind, "unary-trailer") == 0) {
+            EchoRequest req;
+            EchoRequest_init(&req);
+            req.message = (char *)c->messages[0];
+            grpcdc_kv md[1] = {{"x-echo-trailer", (char *)c->metadata}};
+            EchoPbBytes rb = EchoRequest_marshal(&req);
+            grpcdc_stream *raw = NULL;
+            grpcdc_status ost = grpcdc_channel_open(&channel, "/echo.Echo/Unary",
+                                                    rb.data, rb.len, 1, md, 1, 0,
+                                                    &raw);
+            free(rb.data);
+            snprintf(what, sizeof(what), "bdd %s: trailer open", c->name);
+            check(grpcdc_status_is_ok(ost), what);
+            EchoResponse resp;
+            memset(&resp, 0, sizeof(resp));
+            grpcdc_bytes out;
+            grpcdc_status rst;
+            int r = grpcdc_stream_recv(raw, &out, &rst);
+            if (r == 1) {
+                EchoResponse_unmarshal(&resp, out.data, out.len);
+                grpcdc_bytes_free(&out);
+            }
+            snprintf(what, sizeof(what), "bdd %s: trailer response", c->name);
+            check(r == 1 && strcmp(resp.message, c->expect_message) == 0 &&
+                      resp.index == c->expect_num,
+                  what);
+            grpcdc_status est;
+            int e = grpcdc_stream_recv(raw, &out, &est);
+            if (e == 1) grpcdc_bytes_free(&out);
+            snprintf(what, sizeof(what), "bdd %s: trailer EOF", c->name);
+            check(e == 0 && grpcdc_status_is_ok(est), what);
+            size_t tcount = 0;
+            const grpcdc_kv *trs = grpcdc_stream_trailers(raw, &tcount);
+            const char *tval = NULL;
+            for (size_t i = 0; i < tcount; i++)
+                if (strcmp(trs[i].key, "x-echo-trailer") == 0) tval = trs[i].value;
+            snprintf(what, sizeof(what), "bdd %s: trailer value", c->name);
+            check(tval && strcmp(tval, c->metadata) == 0, what);
+            grpcdc_stream_free(raw);
+        } else if (strcmp(c->kind, "unary") == 0) {
             EchoRequest req;
             EchoRequest_init(&req);
             req.message = (char *)c->messages[0];

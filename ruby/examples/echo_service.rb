@@ -17,6 +17,9 @@ class EchoService
     if ctx.metadata["x-echo"]
       suffix = " [" + ctx.metadata["x-echo"] + "]"
     end
+    if ctx.metadata["x-echo-trailer"]
+      ctx.set_trailers({ "x-echo-trailer" => ctx.metadata["x-echo-trailer"] })
+    end
     EchoPb::EchoResponse.new(message: "echo: #{req.message}#{suffix}", index: 0)
   end
 

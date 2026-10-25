@@ -20,6 +20,7 @@ public static class BddScenarios
         new object[] {"bidi-order", "bidi", new string[] {"x", "y"}, 0, "", "", "", 2, -1},
         new object[] {"bidi-single", "bidi", new string[] {"one"}, 0, "", "", "", 1, -1},
         new object[] {"metadata-marker", "unary", new string[] {"hello"}, 0, "", "meta", "echo: hello [meta]", 0, -1},
+        new object[] {"trailer-marker", "unary-trailer", new string[] {"hello"}, 0, "", "meta", "echo: hello", 0, -1},
         new object[] {"unknown-method", "raw-unary", new string[] {"hello"}, 0, "/echo.Echo/Nope", "", "", 0, 12},
         new object[] {"server-stream-failure", "server-stream-fail", new string[] {"fail"}, 3, "", "", "", 0, 3},
         new object[] {"bidi-failure", "bidi-fail", new string[] {"fail"}, 0, "", "", "", 0, 3},

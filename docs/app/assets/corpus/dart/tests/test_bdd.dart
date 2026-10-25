@@ -24,6 +24,23 @@ Future<void> testBdd() async {
 
   for (final c in bddCases) {
     switch (c.kind) {
+      case 'unary-trailer':
+        final stream = await channel.serverStream(
+            '/echo.Echo/Unary', EchoRequest(c.messages[0], 0),
+            metadata: {'x-echo-trailer': c.metadata});
+        final resp = EchoResponse();
+        await stream.recv(resp);
+        check(resp.message == c.expectMessage && resp.index == c.expectNum,
+            '${c.name}: $resp');
+        var eof = false;
+        try {
+          await stream.recv(EchoResponse());
+        } catch (e) {
+          eof = e is EndOfStreamError;
+        }
+        check(eof, '${c.name}: expected EOF');
+        check(stream.trailers?['x-echo-trailer'] == c.metadata,
+            '${c.name}: trailer ${stream.trailers}');
       case 'unary':
         try {
           final resp = await client.unary(EchoRequest(c.messages[0], 0),

@@ -9,11 +9,12 @@ package grpcdc_test
 // them).
 //
 // Excluded (../oracle/interop/README.md): auth, compression,
-// orca, soak. cacheable_unary runs only under the Java client
+// soak. cacheable_unary runs only under the Java client
 // (unsupported by the Go client).
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -66,8 +68,37 @@ func (testServiceImpl) EmptyCall(ctx context.Context, req *testingpb.Empty) (*te
 	return &testingpb.Empty{}, nil
 }
 
+// ORCA load reporting (orca_per_rpc / orca_oob): a per-request
+// TestOrcaReport rides back as the serialized OrcaLoadReport in
+// the endpoint-load-metrics-bin trailer (base64, as -bin values
+// travel); OOB reports carried by FullDuplexCall requests update
+// shared state that later UnaryCalls report.
+var orcaOobMu sync.Mutex
+var orcaOobReport *testingpb.OrcaLoadReport
+
+func setOrcaTrailer(ctx context.Context, report *testingpb.OrcaLoadReport) {
+	grpcdc.SetTrailer(ctx, map[string]string{
+		"endpoint-load-metrics-bin": base64.StdEncoding.EncodeToString(report.MarshalDC()),
+	})
+}
+
 func (testServiceImpl) UnaryCall(ctx context.Context, req *testingpb.SimpleRequest) (*testingpb.SimpleResponse, error) {
 	echoMetadata(ctx)
+	if r := req.OrcaPerQueryReport; r != nil {
+		setOrcaTrailer(ctx, &testingpb.OrcaLoadReport{
+			CpuUtilization: r.CpuUtilization,
+			MemUtilization: r.MemoryUtilization,
+			RequestCost:    r.RequestCost,
+			Utilization:    r.Utilization,
+		})
+	} else {
+		orcaOobMu.Lock()
+		oob := orcaOobReport
+		orcaOobMu.Unlock()
+		if oob != nil {
+			setOrcaTrailer(ctx, oob)
+		}
+	}
 	return unaryResponse(req)
 }
 
@@ -132,6 +163,15 @@ func (testServiceImpl) FullDuplexCall(stream testingpb.TestServiceFullDuplexCall
 		if err != nil {
 			return err
 		}
+		if r := req.OrcaOobReport; r != nil {
+			orcaOobMu.Lock()
+			orcaOobReport = &testingpb.OrcaLoadReport{
+				CpuUtilization: r.CpuUtilization,
+				MemUtilization: r.MemoryUtilization,
+				Utilization:    r.Utilization,
+			}
+			orcaOobMu.Unlock()
+		}
 		if err := sendResponses(req, stream.Send); err != nil {
 			return err
 		}
@@ -179,6 +219,11 @@ var interopCasesB = []string{
 	"cancel_after_first_response",
 	"timeout_on_sleeping_server",
 }
+
+// ORCA cases run only under the Go client (with the upstream
+// test LB service config): grpc-java's TestServiceClient fails
+// them even against the upstream Go interop server.
+var orcaCasesB = []string{"orca_per_rpc", "orca_oob"}
 
 // startGoServerBehindProxy serves the Go TestService over
 // WebRTC-Direct and starts the Node ingress proxy in front of
@@ -231,11 +276,15 @@ func TestInteropOfficialClientsCallGoServer(t *testing.T) {
 		if _, err := os.Stat(binary); err != nil {
 			t.Skip("go interop client not built")
 		}
-		for _, testCase := range interopCasesB {
+		for _, testCase := range append(append([]string{}, interopCasesB...), orcaCasesB...) {
 			t.Run(testCase, func(t *testing.T) {
-				out, err := exec.Command(binary,
-					"-server_host", "127.0.0.1", "-server_port", fmt.Sprint(port),
-					"-test_case", testCase).CombinedOutput()
+				args := []string{"-server_host", "127.0.0.1", "-server_port", fmt.Sprint(port),
+					"-test_case", testCase}
+				if strings.HasPrefix(testCase, "orca") {
+					args = append(args, "-service_config_json",
+						`{ "loadBalancingConfig": [{ "test_backend_metrics_load_balancer": {} }]}`)
+				}
+				out, err := exec.Command(binary, args...).CombinedOutput()
 				if err != nil {
 					t.Fatalf("case %s: %v\n%s", testCase, err, out)
 				}
