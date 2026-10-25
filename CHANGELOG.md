@@ -3,6 +3,17 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.7 — 2026-10-25
+
+- Public-export hygiene: the clarity gate in the release
+  exporter silently never matched (a POSIX class Racket's
+  regexp engine does not honor), so generator-internal
+  source paths had leaked into three HTTP/2 oracle test
+  headers and one generated plugin bundle header. Gate
+  regex fixed (and the runtime asset-URL exemption made
+  real); offending comments scrubbed at the source and
+  regenerated.
+
 ## v0.32.6 — 2026-10-25
 
 - Interop oracle completed: grpc-go added as second

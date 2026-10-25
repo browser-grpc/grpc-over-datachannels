@@ -11460,7 +11460,7 @@ JS
 
 (define js-part-17 #<<JS
 // ---------------------------------------------------------------------------
-// WASM facade emitters (mirror racket/template-wasm-*.rkt). These
+// WASM facade emitters for the supported wasm languages. These
 // generate typed facades over the JS implementation's bridge
 // (js/src/wasm_bridge.js); message types keep the templates'
 // literal package prefixes.

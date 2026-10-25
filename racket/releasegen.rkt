@@ -1317,7 +1317,10 @@
        (not (string-prefix? rel "docs/BDD.md"))
        (let ([text (with-handlers ([exn:fail? (lambda (_) "")])
                      (file->string p))])
-         (regexp-match? #rx"(^|[\"'(/[:space:]])racket/[a-z0-9_.-]+[.]rkt" text))))
+         ;; Runtime fetch URLs ("assets/racket/runner.rkt") are
+         ;; asset references, not source-path references: exempt.
+         (regexp-match? #rx"(^|[\"'(/ \t])racket/[a-z0-9_.*-]+[.]rkt"
+                        (regexp-replace* #rx"assets/racket/" text "assets/")))))
 
 (define clarity-violations (filter clarity-violation? all-exported))
 (unless (null? clarity-violations)
