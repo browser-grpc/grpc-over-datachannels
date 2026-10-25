@@ -443,11 +443,23 @@ func (t *Http2Transport) onHeaders(streamID uint32, endStream bool, block []byte
 	for _, kv := range fields {
 		headers[kv[0]] = kv[1]
 	}
+	// Response metadata: transport keys drop out; -bin values
+	// are base64 in both the HPACK and JSON domains.
+	responseMeta := func() map[string]string {
+		metadata := map[string]string{}
+		for k, v := range headers {
+			if strings.HasPrefix(k, ":") || k == "content-type" || k == "grpc-status" || k == "grpc-message" || k == "grpc-encoding" || k == "grpc-accept-encoding" {
+				continue
+			}
+			metadata[k] = v
+		}
+		return metadata
+	}
 	status, hasStatus := headers["grpc-status"]
 	if endStream && hasStatus {
 		code, _ := strconv.Atoi(status)
 		message, _ := url.PathUnescape(headers["grpc-message"])
-		body, _ := json.Marshal(map[string]any{"code": code, "message": message})
+		body, _ := json.Marshal(map[string]any{"code": code, "message": message, "metadata": responseMeta()})
 		t.emit(FrameTrailers, streamID, body)
 		return
 	}
@@ -473,7 +485,7 @@ func (t *Http2Transport) onHeaders(streamID uint32, endStream bool, block []byte
 		code, _ = strconv.Atoi(status)
 	}
 	message, _ := url.PathUnescape(headers["grpc-message"])
-	body, _ := json.Marshal(map[string]any{"code": code, "message": message})
+	body, _ := json.Marshal(map[string]any{"code": code, "message": message, "metadata": responseMeta()})
 	t.emit(FrameTrailers, streamID, body)
 }
 

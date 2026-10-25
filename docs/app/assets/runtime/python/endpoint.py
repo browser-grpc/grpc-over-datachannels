@@ -92,18 +92,38 @@ class ResponseSink:
     def __init__(self, endpoint, stream_id):
         self._endpoint = endpoint
         self._id = stream_id
+        # Initial/trailing metadata accumulated via the call
+        # context (wired to CallContext by the endpoint). Initial
+        # metadata flushes lazily before the first DATA frame;
+        # trailers merge into the terminal status frame.
+        self.resp_headers = {}
+        self.resp_trailers = {}
+        self.headers_sent = False
 
     def send_data(self, payload):
         from .codec import encode_frame
         from .wire_gen import FRAME_DATA
 
+        self.flush_headers()
         self._endpoint.send_frame(encode_frame(FRAME_DATA, self._id, payload))
 
-    def send_headers(self):
-        self._endpoint.send_frame(headers_frame(self._id, None, None))
+    def flush_headers(self):
+        if not self.headers_sent:
+            self.headers_sent = True
+            self.send_headers()
+
+    def send_headers(self, metadata=None):
+        if metadata is None:
+            metadata = self.resp_headers
+        self.headers_sent = True
+        self._endpoint.send_frame(headers_frame(self._id, None, metadata))
 
     def send_trailers(self, status):
-        self._endpoint.send_frame(status_frame(FRAME_TRAILERS, self._id, status))
+        merged = dict(self.resp_trailers)
+        merged.update(getattr(status, "trailers", None) or {})
+        self._endpoint.send_frame(
+            status_frame(FRAME_TRAILERS, self._id, status, merged)
+        )
 
     # ServerSink interface used by Server.
     def send(self, payload):
@@ -116,10 +136,20 @@ class CallContext:
 
     def __init__(self, metadata=None):
         self.metadata = metadata or {}
+        self.response_headers = {}
+        self.response_trailers = {}
         self.deadline = None
         remaining = parse_timeout(self.metadata.get("grpc-timeout"))
         if remaining is not None:
             self.deadline = _monotonic() + remaining
+
+    def set_headers(self, md):
+        """Record response initial metadata (dict update)."""
+        self.response_headers.update(md)
+
+    def set_trailers(self, md):
+        """Record response trailing metadata (dict update)."""
+        self.response_trailers.update(md)
 
     def time_remaining(self):
         """Seconds until the deadline (may be negative), or None
@@ -314,15 +344,20 @@ class Endpoint:
 
         def run_call():
             try:
-                try:
-                    sink.send_headers()
-                except Exception:
-                    return
-                status = self.dispatcher(
-                    CallContext(headers.metadata), headers, stream_input, sink
-                )
+                # No eager HEADERS: initial metadata flushes
+                # lazily via the sink (first DATA, or below on a
+                # DATA-less success) so handlers can set_headers
+                # first. Errors end trailers-only, as gRPC allows.
+                ctx = CallContext(headers.metadata)
+                sink.resp_headers = ctx.response_headers
+                sink.resp_trailers = ctx.response_trailers
+                status = self.dispatcher(ctx, headers, stream_input, sink)
                 if status is None:
                     status = StatusError(0, "")
+                    try:
+                        sink.flush_headers()
+                    except Exception:
+                        pass
                 try:
                     sink.send_trailers(status)
                 except Exception:

@@ -144,6 +144,9 @@ class StatusError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+        # Trailing metadata carried by a status frame ({} when
+        # the peer sent none); parse_status fills it in.
+        self.trailers = {}
 
     def __str__(self):
         return f"{status_name(self.code)}: {self.message}"
@@ -248,14 +251,23 @@ def parse_timeout(text):
     return int(digits) * unit
 
 
-def status_frame(frame_type, stream_id, status):
+# Status frames (TRAILERS/RST) carry {code, message} and, when
+# the call produced trailing metadata, a metadata member with
+# the same JSON shape as HEADERS metadata (SPEC.md). Peers that
+# predate trailing metadata ignore the member.
+def status_frame(frame_type, stream_id, status, trailers=None):
     body = {"code": status.code, "message": status.message}
+    md = trailers if trailers is not None else getattr(status, "trailers", None)
+    if md:
+        body["metadata"] = dict(md)
     return encode_frame(frame_type, stream_id, json.dumps(body).encode("utf-8"))
 
 
 def parse_status(payload):
     try:
         body = json.loads(payload.decode("utf-8"))
-        return StatusError(int(body["code"]), str(body.get("message", "")))
+        status = StatusError(int(body["code"]), str(body.get("message", "")))
+        status.trailers = body.get("metadata") or {}
+        return status
     except (ValueError, KeyError, TypeError, UnicodeDecodeError):
         return StatusError(CODE_UNKNOWN, "malformed trailers")

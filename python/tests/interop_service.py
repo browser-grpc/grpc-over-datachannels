@@ -30,6 +30,20 @@ def _maybe_fail(req):
         raise grpcdc.StatusError(status.code, status.message)
 
 
+def _echo_metadata(ctx):
+    """Reference echo (custom_metadata case): the echo-initial
+    request value returns as initial metadata, the
+    echo-trailing-bin value (base64 on our wire) as trailers."""
+    if ctx is None:
+        return
+    initial = ctx.metadata.get("x-grpc-test-echo-initial")
+    if initial is not None:
+        ctx.set_headers({"x-grpc-test-echo-initial": initial})
+    trailing = ctx.metadata.get("x-grpc-test-echo-trailing-bin")
+    if trailing is not None:
+        ctx.set_trailers({"x-grpc-test-echo-trailing-bin": trailing})
+
+
 def _unary_response(req):
     _maybe_fail(req)
     return SimpleResponse(
@@ -51,20 +65,25 @@ def _send_responses(req, send):
 
 class TestServiceImpl:
     def EmptyCall(self, ctx, req):
+        _echo_metadata(ctx)
         return Empty()
 
     def UnaryCall(self, ctx, req):
+        _echo_metadata(ctx)
         return _unary_response(req)
 
     def CacheableUnaryCall(self, ctx, req):
+        _echo_metadata(ctx)
         # Reference semantics: echo the request payload.
         _maybe_fail(req)
         return SimpleResponse(payload=req.payload)
 
     def StreamingOutputCall(self, req, stream):
+        _echo_metadata(stream.context)
         _send_responses(req, stream.send)
 
     def StreamingInputCall(self, stream):
+        _echo_metadata(stream.context)
         total = 0
         while True:
             try:
@@ -78,6 +97,7 @@ class TestServiceImpl:
         )
 
     def FullDuplexCall(self, stream):
+        _echo_metadata(stream.context)
         while True:
             try:
                 req = stream.recv()
@@ -86,6 +106,7 @@ class TestServiceImpl:
             _send_responses(req, stream.send)
 
     def HalfDuplexCall(self, stream):
+        _echo_metadata(stream.context)
         reqs = []
         while True:
             try:

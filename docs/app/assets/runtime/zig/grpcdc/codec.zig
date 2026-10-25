@@ -197,6 +197,16 @@ pub const Codec = struct {
         defer aw.deinit();
         aw.writer.print("{{\"code\":{d},\"message\":", .{st.code}) catch return oom();
         writeJsonString(&aw.writer, st.message) catch return oom();
+        if (st.trailers.len > 0) {
+            aw.writer.writeAll(",\"metadata\":{") catch return oom();
+            for (st.trailers, 0..) |pair, i| {
+                if (i > 0) aw.writer.writeAll(",") catch return oom();
+                writeJsonString(&aw.writer, pair.key) catch return oom();
+                aw.writer.writeAll(":") catch return oom();
+                writeJsonString(&aw.writer, pair.value) catch return oom();
+            }
+            aw.writer.writeAll("}") catch return oom();
+        }
         aw.writer.writeAll("}") catch return oom();
         return encodeFrame(alloc, frame_type, stream_id, aw.written());
     }
@@ -216,7 +226,21 @@ pub const Codec = struct {
             if (m == .string) message = m.string;
         }
         const owned = alloc.dupe(u8, message) catch "";
-        return Status.init(@intCast(code_val.integer), owned);
+        var status = Status.init(@intCast(code_val.integer), owned);
+        if (parsed.value.object.get("metadata")) |md| {
+            if (md == .object) {
+                var pairs: std.ArrayList(status_mod.TrailerPair) = .empty;
+                var it = md.object.iterator();
+                while (it.next()) |entry| {
+                    if (entry.value_ptr.* != .string) continue;
+                    const k = alloc.dupe(u8, entry.key_ptr.*) catch continue;
+                    const v = alloc.dupe(u8, entry.value_ptr.*.string) catch continue;
+                    pairs.append(alloc, .{ .key = k, .value = v }) catch continue;
+                }
+                status.trailers = pairs.toOwnedSlice(alloc) catch &.{};
+            }
+        }
+        return status;
     }
 
     fn oom() EncodeResult {

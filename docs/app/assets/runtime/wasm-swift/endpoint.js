@@ -125,6 +125,18 @@ export class Endpoint {
     }
   }
 
+  /** Abort one stream: RST (CANCELLED) to the peer, and any
+   * local reader wakes with that CANCELLED status. */
+  cancelStream(id) {
+    const status = new StatusError(StatusCode.CANCELLED, "call cancelled");
+    const input = this.#streams.get(id);
+    if (input) {
+      input.push({ kind: "rst", status, trailers: {} });
+      this.#streams.delete(id);
+    }
+    this.sendFrame(statusFrame(FrameType.RST, id, status)).catch(() => {});
+  }
+
   async sendFrame(frameBytes) {
     // Serialize sends so HEADERS never overtakes a previous frame on the
     // wire, and pause while the SCTP send buffer is above the threshold.
@@ -199,7 +211,7 @@ export class Endpoint {
 
   #terminal(streamId, payload, kind) {
     const status = parseStatus(payload);
-    this.#streams.get(streamId)?.push({ kind, status });
+    this.#streams.get(streamId)?.push({ kind, status, trailers: status.trailers ?? {} });
     this.#streams.delete(streamId);
   }
 
@@ -240,14 +252,17 @@ export class Endpoint {
     this.#streams.set(streamId, input);
     const sink = {
       sendData: (payload) => this.sendFrame(encodeFrame(FrameType.DATA, streamId, payload)),
-      sendHeaders: () => this.sendFrame(headersFrame(streamId, null)),
-      sendTrailers: (status) =>
-        this.sendFrame(statusFrame(FrameType.TRAILERS, streamId, status)),
+      sendHeaders: (metadata = {}) => this.sendFrame(headersFrame(streamId, null, metadata)),
+      sendTrailers: (status, trailers) =>
+        this.sendFrame(statusFrame(FrameType.TRAILERS, streamId, status, trailers)),
     };
     try {
-      await sink.sendHeaders();
-      await this.dispatcher(headers.path, headers, input, sink);
-      await sink.sendTrailers(StatusError.ok());
+      // No eager HEADERS: the dispatcher sends initial metadata
+      // via sink.sendHeaders (Server does it lazily before the
+      // first DATA). A dispatcher may return {trailers} to have
+      // them ride the OK status frame.
+      const extra = await this.dispatcher(headers.path, headers, input, sink);
+      await sink.sendTrailers(StatusError.ok(), extra?.trailers);
     } catch (e) {
       const status =
         e instanceof StatusError ? e : StatusError.internal(e?.message ?? String(e));

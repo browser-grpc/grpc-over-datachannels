@@ -61,6 +61,22 @@ class StreamInput {
 class CallContext {
   final Map<String, String> metadata;
 
+  /// Response initial metadata recorded via setHeaders.
+  final Map<String, String> responseHeaders = {};
+
+  /// Response trailing metadata recorded via setTrailers.
+  final Map<String, String> responseTrailers = {};
+
+  /// Record response initial metadata (sent lazily, before the first response message).
+  void setHeaders(Map<String, String> md) {
+    responseHeaders.addAll(md);
+  }
+
+  /// Record response trailing metadata (rides the terminal status frame).
+  void setTrailers(Map<String, String> md) {
+    responseTrailers.addAll(md);
+  }
+
   /// Deadline propagated via grpc-timeout, when the client set one.
   final DateTime? deadline;
 
@@ -86,15 +102,34 @@ class ResponseSink {
 
   ResponseSink(this._endpoint, this._streamId);
 
+  // Wired to the CallContext maps by the endpoint.
+  Map<String, String> respHeaders = {};
+  Map<String, String> respTrailers = {};
+  bool headersSent = false;
+
   void send(List<int> payload) {
+    flushHeaders();
     _endpoint.sendFrame(Codec.encodeFrame(Wire.frameData, _streamId, payload));
   }
 
-  void sendHeaders() {
-    _endpoint.sendFrame(Codec.headersFrame(_streamId, null, null));
+  void flushHeaders() {
+    if (!headersSent) {
+      headersSent = true;
+      sendHeaders(respHeaders);
+    }
+  }
+
+  void sendHeaders([Map<String, String>? metadata]) {
+    headersSent = true;
+    _endpoint.sendFrame(Codec.headersFrame(_streamId, null, metadata ?? respHeaders));
   }
 
   void sendTrailers(StatusException status) {
+    if (respTrailers.isNotEmpty) {
+      final merged = {...respTrailers, ...status.trailers};
+      status = StatusException(status.code, status.message)
+        ..trailers = merged;
+    }
     _endpoint.sendFrame(Codec.statusFrame(Wire.frameTrailers, _streamId, status));
   }
 }
@@ -276,18 +311,26 @@ class Endpoint {
     _streams[streamId] = input;
     final sink = ResponseSink(this, streamId);
     try {
-      try {
-        sink.sendHeaders();
-      } catch (_) {
-        return;
-      }
+      // No eager HEADERS: initial metadata flushes lazily via
+      // the sink (first DATA, or below on a DATA-less success)
+      // so handlers can setHeaders first. Errors end
+      // trailers-only, as gRPC allows.
+      final ctx = CallContext(headers.metadata);
+      sink.respHeaders = ctx.responseHeaders;
+      sink.respTrailers = ctx.responseTrailers;
       StatusException status;
       try {
-        status = await currentDispatcher(
-                CallContext(headers.metadata), headers, input, sink) ??
+        status = await currentDispatcher(ctx, headers, input, sink) ??
             StatusException(Wire.codeOk, '');
       } catch (e) {
         status = StatusException.toStatus(e);
+      }
+      if (status.code == Wire.codeOk) {
+        try {
+          sink.flushHeaders();
+        } catch (_) {
+          // best effort
+        }
       }
       try {
         sink.sendTrailers(status);

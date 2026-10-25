@@ -20,6 +20,18 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+/// Response initial/trailing metadata accumulated during one
+/// call (handler -> CallCtx, flush -> ResponseSink/endpoint).
+#[derive(Debug, Default)]
+pub struct ResponseMeta {
+    pub headers: Metadata,
+    pub trailers: Metadata,
+    pub headers_sent: bool,
+}
+
+/// Shared per-call response metadata.
+pub type SharedMeta = Arc<std::sync::Mutex<ResponseMeta>>;
+
 /// Per-call context handed to handlers.
 #[derive(Clone, Debug)]
 pub struct CallCtx {
@@ -28,6 +40,7 @@ pub struct CallCtx {
     pub stream_id: u32,
     /// Deadline propagated via grpc-timeout, when the client set one.
     pub deadline: Option<crate::platform_time::Instant>,
+    pub(crate) response_meta: SharedMeta,
 }
 
 impl CallCtx {
@@ -39,6 +52,24 @@ impl CallCtx {
 
     pub fn deadline_exceeded(&self) -> bool {
         self.time_remaining() == Some(std::time::Duration::ZERO)
+    }
+
+    /// Record response initial metadata (sent lazily, before
+    /// the first response message).
+    pub fn set_headers(&self, metadata: Metadata) {
+        let mut meta = self.response_meta.lock().unwrap();
+        for (k, v) in metadata {
+            meta.headers.insert(k, v);
+        }
+    }
+
+    /// Record response trailing metadata (rides the terminal
+    /// status frame).
+    pub fn set_trailers(&self, metadata: Metadata) {
+        let mut meta = self.response_meta.lock().unwrap();
+        for (k, v) in metadata {
+            meta.trailers.insert(k, v);
+        }
     }
 }
 
@@ -95,14 +126,30 @@ impl<T: Message> Stream for RequestStream<T> {
 pub struct ResponseSink {
     ep: Arc<Endpoint>,
     stream_id: u32,
+    meta: SharedMeta,
 }
 
 impl ResponseSink {
-    pub(crate) fn new(ep: Arc<Endpoint>, stream_id: u32) -> Self {
-        Self { ep, stream_id }
+    pub(crate) fn new(ep: Arc<Endpoint>, stream_id: u32, meta: SharedMeta) -> Self {
+        Self { ep, stream_id, meta }
+    }
+
+    /// Send the initial-metadata HEADERS once (with whatever
+    /// the handler recorded via CallCtx::set_headers).
+    pub async fn flush_headers(&self) -> Result<(), Status> {
+        let headers = {
+            let mut meta = self.meta.lock().unwrap();
+            if meta.headers_sent {
+                return Ok(());
+            }
+            meta.headers_sent = true;
+            crate::codec::Headers { path: None, metadata: meta.headers.clone() }
+        };
+        self.ep.send_frame(crate::codec::Frame::headers(self.stream_id, &headers)?).await
     }
 
     pub async fn send(&self, payload: Vec<u8>) -> Result<(), Status> {
+        self.flush_headers().await?;
         self.ep.send_frame(crate::codec::Frame::data(self.stream_id, payload)).await
     }
 }

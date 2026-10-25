@@ -6,13 +6,9 @@
 // AbstractInteropTest. Skips when an oracle is not built
 // (Dockerfile.ci builds both).
 //
-// Known gaps: cancel_after_begin / cancel_after_first_response
-// are covered by the Go and Python interop drivers; the JS
-// generated client exposes no per-call cancel handle.
-// custom_metadata asserts the unary path succeeds; initial
-// response metadata is asserted in Python (trailing metadata
-// is not surfaced by the grpc-dc frame layer — see
-// oracle/interop/README.md).
+// Per-call cancellation: the generated client takes an
+// AbortSignal in call options ({signal}); aborting fails the
+// call with CANCELLED, mirroring the upstream cancel cases.
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -186,11 +182,43 @@ async function interopCases(t, client, channel) {
   });
 
   await t.test("custom_metadata", async () => {
+    // Upstream custom_metadata: echo-initial returns as
+    // response initial metadata, echo-trailing-bin (binary
+    // 0x0a 0x0b ...; base64 on our wire) as trailers. Asserted
+    // on UnaryCall and FullDuplexCall, mirroring
+    // AbstractInteropTest.
+    const trailingBin = Buffer.from([0x0a, 0x0b, 0x0a, 0x0b, 0x0a, 0x0b]).toString("base64");
+    const metadata = {
+      "x-grpc-test-echo-initial": "test_initial_metadata_value",
+      "x-grpc-test-echo-trailing-bin": trailingBin,
+    };
+    let headers = null;
+    let trailers = null;
+    const hooks = {
+      onHeaders: (md) => (headers = md),
+      onTrailers: (md) => (trailers = md),
+    };
     const resp = await client.unaryCall(
       new SimpleRequest({ responseSize: 1, payload: new Payload({ body: zeros(1) }) }),
-      { metadata: { "x-grpc-test-echo-initial": "test_initial_metadata_value" } },
+      { metadata, ...hooks },
     );
     assert.equal(resp.payload.body.length, 1);
+    assert.equal(headers?.["x-grpc-test-echo-initial"], "test_initial_metadata_value");
+    assert.equal(trailers?.["x-grpc-test-echo-trailing-bin"], trailingBin);
+
+    headers = null;
+    trailers = null;
+    async function* reqs() {
+      yield new StreamingOutputCallRequest({
+        responseParameters: [new ResponseParameters({ size: 1 })],
+        payload: new Payload({ body: zeros(1) }),
+      });
+    }
+    let n = 0;
+    for await (const _resp of await client.fullDuplexCall(reqs(), { metadata, ...hooks })) n++;
+    assert.equal(n, 1);
+    assert.equal(headers?.["x-grpc-test-echo-initial"], "test_initial_metadata_value");
+    assert.equal(trailers?.["x-grpc-test-echo-trailing-bin"], trailingBin);
   });
 
   await t.test("status_code_and_message", async () => {
@@ -227,6 +255,42 @@ async function interopCases(t, client, channel) {
       channel.unary("/grpc.testing.UnimplementedService2/UnimplementedCall", new Empty(), Empty, Empty),
       (e) => e.code === StatusCode.UNIMPLEMENTED,
     );
+  });
+
+  await t.test("cancel_after_begin", async () => {
+    const ac = new AbortController();
+    const responses = await client.streamingOutputCall(
+      new StreamingOutputCallRequest({
+        responseParameters: [new ResponseParameters({ size: 1 })],
+        payload: new Payload({ body: zeros(1) }),
+      }),
+      { signal: ac.signal },
+    );
+    ac.abort();
+    await assert.rejects(
+      async () => {
+        for await (const _resp of responses) {
+          // cancelled before any response is consumed
+        }
+      },
+      (e) => e.code === StatusCode.CANCELLED,
+    );
+  });
+
+  await t.test("cancel_after_first_response", async () => {
+    const ac = new AbortController();
+    async function* reqs() {
+      yield new StreamingOutputCallRequest({
+        responseParameters: [new ResponseParameters({ size: 31415 })],
+        payload: new Payload({ body: zeros(27182) }),
+      });
+    }
+    const responses = await client.fullDuplexCall(reqs(), { signal: ac.signal });
+    const it = responses[Symbol.asyncIterator]();
+    const first = await it.next();
+    assert.equal(first.value.payload.body.length, 31415);
+    ac.abort();
+    await assert.rejects(it.next(), (e) => e.code === StatusCode.CANCELLED);
   });
 
   await t.test("timeout_on_sleeping_server", async () => {

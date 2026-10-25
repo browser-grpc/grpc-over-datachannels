@@ -28,6 +28,9 @@ const MaxDataPayload = 16 * 1024 * 1024
 type StatusError struct {
 	Code    Code
 	Message string
+	// Trailers is the trailing metadata carried by a status
+	// frame (nil when the peer sent none).
+	Trailers map[string]string
 }
 
 func (e *StatusError) Error() string {
@@ -276,12 +279,9 @@ func ParseTimeout(text string) (time.Duration, bool) {
 }
 
 func headersFrame(streamID uint32, path *string, metadata map[string]string) ([]byte, error) {
-	body := headersBody{Path: path}
-	if path != nil {
-		body.Metadata = metadata
-		if body.Metadata == nil {
-			body.Metadata = map[string]string{}
-		}
+	body := headersBody{Path: path, Metadata: metadata}
+	if body.Metadata == nil {
+		body.Metadata = map[string]string{}
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -290,11 +290,16 @@ func headersFrame(streamID uint32, path *string, metadata map[string]string) ([]
 	return EncodeFrame(FrameHeaders, streamID, payload)
 }
 
+// Status frames (TRAILERS/RST) carry {code, message} and, when
+// the call produced trailing metadata, a metadata member with
+// the same JSON shape as HEADERS metadata (SPEC.md). Peers that
+// predate trailing metadata ignore the member.
 func statusFrame(frameType FrameType, streamID uint32, status *StatusError) ([]byte, error) {
 	payload, err := json.Marshal(struct {
-		Code    Code   `json:"code"`
-		Message string `json:"message"`
-	}{status.Code, status.Message})
+		Code     Code              `json:"code"`
+		Message  string            `json:"message"`
+		Metadata map[string]string `json:"metadata,omitempty"`
+	}{status.Code, status.Message, status.Trailers})
 	if err != nil {
 		return nil, err
 	}
@@ -314,8 +319,9 @@ func parseHeaders(payload []byte) (Headers, error) {
 
 func parseStatus(payload []byte) *StatusError {
 	var body struct {
-		Code    *Code  `json:"code"`
-		Message string `json:"message"`
+		Code     *Code             `json:"code"`
+		Message  string            `json:"message"`
+		Metadata map[string]string `json:"metadata"`
 	}
 	if err := json.Unmarshal(payload, &body); err != nil {
 		return NewStatus(CodeInternal, "malformed status payload")
@@ -324,5 +330,7 @@ func parseStatus(payload []byte) *StatusError {
 	if body.Code != nil {
 		code = *body.Code
 	}
-	return NewStatus(code, body.Message)
+	status := NewStatus(code, body.Message)
+	status.Trailers = body.Metadata
+	return status
 }

@@ -5,6 +5,8 @@ package grpcdc;
 /** A gRPC status (code + message) carried as an exception. */
 public class StatusException extends RuntimeException {
     public final int code;
+    /** Trailing metadata carried by a status frame (never null). */
+    public java.util.Map<String, String> trailers = java.util.Map.of();
 
     public StatusException(int code, String message) {
         super(message);

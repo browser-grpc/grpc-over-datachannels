@@ -8,9 +8,8 @@ without a native stack). Skips when an oracle binary, Node,
 or the sidecar is unavailable (Dockerfile.ci builds them).
 
 Excluded (oracle/interop/README.md): auth, compression,
-orca, soak — and custom_metadata, whose trailing-bin echo
-the grpc-dc frame layer cannot carry. cacheable_unary runs
-only under the Java client (unsupported by the Go client).
+orca, soak. cacheable_unary runs only under the Java client
+(unsupported by the Go client).
 """
 
 import os
@@ -42,6 +41,7 @@ CASES = [
     "server_streaming",
     "ping_pong",
     "empty_stream",
+    "custom_metadata",
     "status_code_and_message",
     "special_status_message",
     "unimplemented_method",

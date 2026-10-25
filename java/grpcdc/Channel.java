@@ -31,6 +31,7 @@ public class Channel {
         private final long streamId;
         private final Endpoint.StreamInput input;
         private Codec.Headers headers;
+        private Map<String, String> trailers;
         private long deadlineNanos = -1L;
         private Tracing.TraceContext traceCtx;
         private String tracePath;
@@ -60,6 +61,11 @@ public class Channel {
 
         public Codec.Headers headers() {
             return headers;
+        }
+
+        /** Trailing metadata of the terminal status (null until it arrives). */
+        public Map<String, String> trailers() {
+            return trailers;
         }
 
         /**
@@ -94,6 +100,7 @@ public class Channel {
                         return;
                     }
                     case TRAILERS -> {
+                        trailers = event.status.trailers;
                         endTrace(Wire.statusName(event.status.code));
                         if (event.status.code != Wire.CODE_OK) {
                             throw event.status;
@@ -101,6 +108,7 @@ public class Channel {
                         throw new EOFException("call completed");
                     }
                     case RST -> {
+                        trailers = event.status.trailers;
                         endTrace(Wire.statusName(event.status.code));
                         throw event.status;
                     }

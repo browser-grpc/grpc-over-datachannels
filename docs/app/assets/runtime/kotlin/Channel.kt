@@ -59,6 +59,10 @@ class Channel {
         var headers: Codec.Headers? = null
             private set
 
+        /** Trailing metadata of the terminal status (null until it arrives). */
+        var trailers: Map<String, String>? = null
+            private set
+
         /**
          * Decode the next response into resp. EOFException means the
          * call completed OK; StatusException reports the trailers.
@@ -74,6 +78,7 @@ class Channel {
                     }
                     Endpoint.EventKind.TRAILERS -> {
                         val status = event.status
+                        trailers = status?.trailers
                         endTrace(Wire.statusName(status?.code ?: Wire.CODE_OK))
                         if (status != null && status.code != Wire.CODE_OK) {
                             throw status
@@ -83,6 +88,7 @@ class Channel {
                     Endpoint.EventKind.RST -> {
                         val status = event.status
                             ?: StatusException(Wire.CODE_UNAVAILABLE, "stream reset")
+                        trailers = status.trailers
                         endTrace(Wire.statusName(status.code))
                         throw status
                     }

@@ -45,6 +45,18 @@ export class Http2DataChannel {
   send(frameBytes) {
     const frame = decodeFrame(frameBytes);
     const id = frame.streamId;
+    // HTTP/2 header block -> grpc-dc metadata: transport keys
+    // drop out. -bin values are base64 in both domains (the
+    // gRPC HTTP/2 spec base64s them; so does the JSON wire).
+    const toDcMetadata = (headers) => {
+      const meta = {};
+      for (const [k, v] of Object.entries(headers)) {
+        if (k.startsWith(":") || typeof v !== "string") continue;
+        if (["content-type", "grpc-status", "grpc-message", "grpc-encoding", "grpc-accept-encoding"].includes(k)) continue;
+        meta[k] = v;
+      }
+      return meta;
+    };
     if (frame.type === FrameType.HEADERS) {
       const head = parseHeaders(frame.payload);
       const metadata = {};
@@ -59,25 +71,23 @@ export class Http2DataChannel {
       this.#streams.set(id, stream);
       this.#buffers.set(id, Buffer.alloc(0));
       stream.on("response", (headers, flags) => {
-        const meta = {};
-        for (const [k, v] of Object.entries(headers)) {
-          if (!k.startsWith(":") && k !== "content-type") meta[k] = v;
-        }
         const trailersOnly =
           (flags & http2.constants.NGHTTP2_FLAG_END_STREAM) !== 0 && headers["grpc-status"] !== undefined;
         if (trailersOnly) {
           this.#emitFrame(FrameType.TRAILERS, id, JSON.stringify({
             code: Number(headers["grpc-status"]),
             message: decodeURIComponent(headers["grpc-message"] ?? ""),
+            metadata: toDcMetadata(headers),
           }));
         } else {
-          this.#emitFrame(FrameType.HEADERS, id, JSON.stringify({ metadata: meta }));
+          this.#emitFrame(FrameType.HEADERS, id, JSON.stringify({ metadata: toDcMetadata(headers) }));
         }
       });
       stream.on("trailers", (headers) => {
         this.#emitFrame(FrameType.TRAILERS, id, JSON.stringify({
           code: Number(headers["grpc-status"] ?? 2),
           message: decodeURIComponent(headers["grpc-message"] ?? ""),
+          metadata: toDcMetadata(headers),
         }));
       });
       stream.on("data", (chunk) => {

@@ -7,6 +7,9 @@ public class StatusException : Exception
 {
     public int Code { get; }
 
+    /// <summary>Trailing metadata carried by a status frame (never null).</summary>
+    public Dictionary<string, string> Trailers { get; set; } = new();
+
     public StatusException(int code, string message) : base(message)
     {
         Code = code;

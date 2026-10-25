@@ -299,7 +299,19 @@ struct Codec {
                            const StatusException& status) {
     std::string body = "{\"code\":" + std::to_string(status.code()) +
                        ",\"message\":\"" +
-                       json_detail::Escape(status.message()) + "\"}";
+                       json_detail::Escape(status.message()) + "\"";
+    if (!status.trailers.empty()) {
+      body += ",\"metadata\":{";
+      bool mfirst = true;
+      for (auto& kv : status.trailers) {
+        if (!mfirst) body += ",";
+        mfirst = false;
+        body += "\"" + json_detail::Escape(kv.first) + "\":\"" +
+                json_detail::Escape(kv.second) + "\"";
+      }
+      body += "}";
+    }
+    body += "}";
     return EncodeFrame(frame_type, stream_id, ToBytes(body));
   }
 
@@ -310,7 +322,14 @@ struct Codec {
       auto obj = parser.ParseObject();
       int code = std::stoi(obj.at("code"));
       std::string message = obj.count("message") ? obj["message"] : "";
-      return StatusException(code, message);
+      StatusException status(code, message);
+      auto mit = obj.find("metadata");
+      if (mit != obj.end()) {
+        json_detail::Parser mp{mit->second.data(),
+                               mit->second.data() + mit->second.size()};
+        status.trailers = mp.ParseObject();
+      }
+      return status;
     } catch (...) {
       return StatusException(wire::kCodeUnknown, "malformed trailers");
     }

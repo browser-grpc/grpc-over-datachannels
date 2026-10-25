@@ -42,6 +42,13 @@ extern "C" {
 typedef struct {
     int code;
     char message[256];
+    /* Trailing metadata attached when this status is sent as
+       TRAILERS (borrowed key/value pointers, at most 8). */
+    struct {
+        const char *key;
+        const char *value;
+    } trailers[8];
+    size_t trailers_count;
 } grpcdc_status;
 
 const char *grpcdc_status_name(int code);
@@ -215,6 +222,19 @@ typedef grpcdc_status (*grpcdc_bidi_fn)(void *impl, grpcdc_server_stream *s);
 /* Request metadata of the stream being served. */
 void grpcdc_server_stream_metadata(grpcdc_server_stream *s,
                                    const grpcdc_kv **md, size_t *md_count);
+
+/* Response initial metadata for the stream being served (sent
+   with the HEADERS frame, before the first response message). */
+void grpcdc_server_stream_set_header(grpcdc_server_stream *s,
+                                     const char *key, const char *value);
+/* Response trailing metadata for the stream being served
+   (rides the terminal status frame). */
+void grpcdc_server_stream_set_trailer(grpcdc_server_stream *s,
+                                      const char *key, const char *value);
+
+/* Trailing metadata received with the terminal status of a
+   client stream (owned by the stream; valid until free). */
+const grpcdc_kv *grpcdc_stream_trailers(grpcdc_stream *s, size_t *count);
 
 /* kind: 0 unary, 1 server-streaming, 2 client-streaming, 3 bidi. */
 typedef struct {

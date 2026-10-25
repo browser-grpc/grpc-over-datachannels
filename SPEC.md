@@ -22,15 +22,23 @@ reassembly layer are needed:
 
 | Type | Name       | Direction       | Payload |
 |------|------------|-----------------|---------|
-| 0x01 | HEADERS    | both, first     | UTF-8 JSON: `{"path":"/pkg.Service/Method","metadata":{"k":"v"}}` (client→server); `{}` for server initial metadata |
+| 0x01 | HEADERS    | both, first     | UTF-8 JSON: `{"path":"/pkg.Service/Method","metadata":{"k":"v"}}` (client→server); `{"metadata":{...}}` for server initial metadata |
 | 0x02 | DATA       | both            | exactly one serialized protobuf message, raw bytes |
-| 0x03 | TRAILERS   | server→client   | UTF-8 JSON: `{"code":0,"message":""}` — terminal, carries the gRPC status |
+| 0x03 | TRAILERS   | server→client   | UTF-8 JSON: `{"code":0,"message":""}` — terminal, carries the gRPC status; with trailing metadata: `{"code":0,"message":"","metadata":{...}}` |
 | 0x04 | HALF_CLOSE | client→server   | empty — client will send no more DATA |
 | 0x05 | RST        | both            | UTF-8 JSON: `{"code":1,"message":"..."}` — aborts the stream |
 
 Status codes are the standard gRPC codes 0–16 (`OK` … `UNAUTHENTICATED`);
 the canonical table lives in the generator's protocol specification and
 is generated into every language's codec from that one source.
+
+Metadata values are strings. Keys ending in `-bin` carry binary
+values base64-encoded (standard alphabet, with padding) — the
+same convention the gRPC HTTP/2 transport uses, so bridges and
+HTTP/2 transports forward `-bin` values unchanged. Status
+frames that predate trailing metadata simply omit the
+`metadata` member, and parsers ignore it when present, so old
+and new peers inter-operate.
 
 ## Stream lifecycle
 

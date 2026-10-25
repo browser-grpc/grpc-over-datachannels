@@ -9,7 +9,7 @@ local Status = {}
 Status.__index = Status
 
 function Status.new(code, message)
-  return setmetatable({ code = code, message = message or "" }, Status)
+  return setmetatable({ code = code, message = message or "", trailers = {} }, Status)
 end
 
 function Status.ok()

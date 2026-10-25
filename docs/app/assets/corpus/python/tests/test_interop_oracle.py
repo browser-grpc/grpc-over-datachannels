@@ -28,6 +28,7 @@ from messages_pb import (
     Payload,
     ResponseParameters,
     SimpleRequest,
+    SimpleResponse,
     StreamingInputCallRequest,
     StreamingOutputCallRequest,
     StreamingOutputCallResponse,
@@ -194,16 +195,46 @@ class InteropOracleBase:
         self.assertEqual(responses, [])
 
     def test_custom_metadata(self):
-        # FullDuplexCall: both reference servers echo initial
-        # metadata there (grpc-go does not echo it on
+        # Upstream custom_metadata: echo-initial returns as
+        # response initial metadata, echo-trailing-bin (binary
+        # 0x0a 0x0b ...; base64 on our wire) as trailers.
+        # Asserted on UnaryCall and FullDuplexCall, mirroring
+        # AbstractInteropTest (both reference servers echo on
+        # FullDuplexCall; grpc-go does not echo on
         # StreamingOutputCall).
+        import base64
+
+        trailing_bin = base64.b64encode(b"\x0a\x0b\x0a\x0b\x0a\x0b").decode()
+        md = {
+            "x-grpc-test-echo-initial": INITIAL_METADATA_VALUE,
+            "x-grpc-test-echo-trailing-bin": trailing_bin,
+        }
+
+        stream = self.channel.unary_stream(
+            "/grpc.testing.TestService/UnaryCall",
+            SimpleRequest(
+                response_size=1, payload=Payload(body=zeros(1))
+            ),
+            md,
+        )
+        resp = stream.recv(SimpleResponse())
+        self.assertEqual(len(resp.payload.body), 1)
+        with self.assertRaises(EOFError):
+            stream.recv(SimpleResponse())
+        self.assertEqual(
+            stream.headers.metadata.get("x-grpc-test-echo-initial"),
+            INITIAL_METADATA_VALUE,
+        )
+        self.assertEqual(
+            stream.trailers.get("x-grpc-test-echo-trailing-bin"),
+            trailing_bin,
+        )
+
         req = StreamingOutputCallRequest(
             response_parameters=[ResponseParameters(size=1)],
             payload=Payload(body=zeros(1)),
         )
-        stream = self.client.FullDuplexCall(
-            [req], {"x-grpc-test-echo-initial": INITIAL_METADATA_VALUE}
-        )
+        stream = self.client.FullDuplexCall([req], md)
         responses = list(stream)
         self.assertEqual(len(responses), 1)
         headers = stream._stream.headers
@@ -211,6 +242,10 @@ class InteropOracleBase:
         self.assertEqual(
             headers.metadata.get("x-grpc-test-echo-initial"),
             INITIAL_METADATA_VALUE,
+        )
+        self.assertEqual(
+            stream._stream.trailers.get("x-grpc-test-echo-trailing-bin"),
+            trailing_bin,
         )
 
     def test_status_code_and_message(self):

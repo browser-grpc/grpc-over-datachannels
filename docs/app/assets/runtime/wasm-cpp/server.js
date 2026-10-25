@@ -66,6 +66,28 @@ export class Server {
     const metadata = headers.metadata ?? {};
     const timeoutMs = parseTimeout(metadata["grpc-timeout"]);
     const deadline = timeoutMs === null ? null : Date.now() + timeoutMs;
+    // Initial/trailing metadata the handler accumulates via
+    // ctx.setHeaders/ctx.setTrailers. Initial metadata flushes
+    // lazily, right before the first response DATA (or at the
+    // end of a call that produced none); trailers ride the
+    // terminal status frame.
+    const responseHeaders = {};
+    const responseTrailers = {};
+    let headersSent = false;
+    const flushHeaders = async () => {
+      if (!headersSent) {
+        headersSent = true;
+        await sink.sendHeaders(responseHeaders);
+      }
+    };
+    const callSink = {
+      sendHeaders: flushHeaders,
+      sendData: async (payload) => {
+        await flushHeaders();
+        await sink.sendData(payload);
+      },
+      sendTrailers: sink.sendTrailers,
+    };
     const ctx = {
       path,
       metadata,
@@ -73,16 +95,23 @@ export class Server {
       method: method.method,
       deadline,
       timeRemaining: () => (deadline === null ? null : deadline - Date.now()),
+      setHeaders: (md) => Object.assign(responseHeaders, md),
+      setTrailers: (md) => Object.assign(responseTrailers, md),
     };
     const traceCtx = traceStart("server", path, parseTraceparent(metadata.traceparent));
     let traceStatus = "OK";
     try {
-      await this.#dispatchTraced(path, method, ctx, input, sink);
+      await this.#dispatchTraced(path, method, ctx, input, callSink);
+      await flushHeaders();
+      return { trailers: responseTrailers };
     } catch (e) {
       traceStatus =
         e instanceof StatusError
           ? (StatusName[e.code] ?? `CODE_${e.code}`)
           : "INTERNAL";
+      // Trailers set before the failure still ride the status
+      // frame (statusFrame reads status.trailers).
+      if (e instanceof StatusError) e.trailers = { ...responseTrailers, ...(e.trailers ?? {}) };
       throw e;
     } finally {
       traceEnd("server", path, traceCtx, traceStatus);

@@ -105,11 +105,42 @@ func (s *Server) ServeEndpoint(ep *Endpoint) {
 	ep.Start()
 }
 
+type callStateKey struct{}
+
+// SetHeader records response initial metadata for the call in
+// ctx (sent lazily, before the first response message). Safe
+// to call from a handler; a no-op outside a served call.
+func SetHeader(ctx context.Context, md map[string]string) {
+	if sink, ok := ctx.Value(callStateKey{}).(*responseSink); ok && sink != nil {
+		if sink.respHeaders == nil {
+			sink.respHeaders = map[string]string{}
+		}
+		for k, v := range md {
+			sink.respHeaders[k] = v
+		}
+	}
+}
+
+// SetTrailer records response trailing metadata for the call
+// in ctx (rides the terminal status frame). Safe to call from
+// a handler; a no-op outside a served call.
+func SetTrailer(ctx context.Context, md map[string]string) {
+	if sink, ok := ctx.Value(callStateKey{}).(*responseSink); ok && sink != nil {
+		if sink.respTrailers == nil {
+			sink.respTrailers = map[string]string{}
+		}
+		for k, v := range md {
+			sink.respTrailers[k] = v
+		}
+	}
+}
+
 func (s *Server) dispatch(ctx context.Context, headers Headers, in *streamInput, sink *responseSink) *StatusError {
 	method, ok := s.methods[*headers.Path]
 	if !ok {
 		return NewStatus(CodeUnimplemented, "unknown method "+*headers.Path)
 	}
+	ctx = context.WithValue(ctx, callStateKey{}, sink)
 	traceCtx := traceStart("server", *headers.Path, ParseTraceparent(headers.Metadata["traceparent"]))
 	err := method.Handler(ctx, &RequestStream{in: in}, sinkAdapter{sink: sink})
 	status := "OK"

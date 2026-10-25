@@ -122,10 +122,14 @@ enum Codec {
     }
 
     static func StatusFrame(_ frameType: Int, _ streamId: UInt32, _ status: StatusException) throws -> [UInt8] {
-        let body = JsonWrite(.object([
+        var fields: [(String, JsonValue)] = [
             ("code", .number(Double(status.code))),
             ("message", .string(status.message)),
-        ]))
+        ]
+        if !status.trailers.isEmpty {
+            fields.append(("metadata", .object(status.trailers.map { ($0.key, JsonValue.string($0.value)) })))
+        }
+        let body = JsonWrite(.object(fields))
         return try EncodeFrame(frameType, streamId, [UInt8](body.utf8))
     }
 
@@ -139,7 +143,15 @@ enum Codec {
         if case .string(let text)? = JsonField(fields, "message") {
             message = text
         }
-        return StatusException(Int(code), message)
+        var status = StatusException(Int(code), message)
+        if case .object(let md)? = JsonField(fields, "metadata") {
+            for (key, value) in md {
+                if case .string(let text) = value {
+                    status.trailers[key] = text
+                }
+            }
+        }
+        return status
     }
 
     // ---- minimal JSON for HEADERS/TRAILERS payloads ----

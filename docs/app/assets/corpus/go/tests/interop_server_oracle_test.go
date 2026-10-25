@@ -9,9 +9,8 @@ package grpcdc_test
 // them).
 //
 // Excluded (../oracle/interop/README.md): auth, compression,
-// orca, soak — and custom_metadata, whose trailing-bin echo
-// the grpc-dc frame layer cannot carry. cacheable_unary runs
-// only under the Java client (unsupported by the Go client).
+// orca, soak. cacheable_unary runs only under the Java client
+// (unsupported by the Go client).
 
 import (
 	"context"
@@ -40,6 +39,19 @@ func maybeFail(req *testingpb.SimpleRequest) error {
 	return nil
 }
 
+// Reference echo (custom_metadata case): the echo-initial
+// request value returns as initial metadata, the
+// echo-trailing-bin value (base64 on our wire) as trailers.
+func echoMetadata(ctx context.Context) {
+	md := grpcdc.MetadataFromContext(ctx)
+	if v, ok := md["x-grpc-test-echo-initial"]; ok {
+		grpcdc.SetHeader(ctx, map[string]string{"x-grpc-test-echo-initial": v})
+	}
+	if v, ok := md["x-grpc-test-echo-trailing-bin"]; ok {
+		grpcdc.SetTrailer(ctx, map[string]string{"x-grpc-test-echo-trailing-bin": v})
+	}
+}
+
 func unaryResponse(req *testingpb.SimpleRequest) (*testingpb.SimpleResponse, error) {
 	if err := maybeFail(req); err != nil {
 		return nil, err
@@ -50,14 +62,17 @@ func unaryResponse(req *testingpb.SimpleRequest) (*testingpb.SimpleResponse, err
 }
 
 func (testServiceImpl) EmptyCall(ctx context.Context, req *testingpb.Empty) (*testingpb.Empty, error) {
+	echoMetadata(ctx)
 	return &testingpb.Empty{}, nil
 }
 
 func (testServiceImpl) UnaryCall(ctx context.Context, req *testingpb.SimpleRequest) (*testingpb.SimpleResponse, error) {
+	echoMetadata(ctx)
 	return unaryResponse(req)
 }
 
 func (testServiceImpl) CacheableUnaryCall(ctx context.Context, req *testingpb.SimpleRequest) (*testingpb.SimpleResponse, error) {
+	echoMetadata(ctx)
 	// Reference semantics: echo the request payload.
 	if err := maybeFail(req); err != nil {
 		return nil, err
@@ -84,10 +99,12 @@ func sendResponses(req *testingpb.StreamingOutputCallRequest, send func(*testing
 }
 
 func (testServiceImpl) StreamingOutputCall(req *testingpb.StreamingOutputCallRequest, stream testingpb.TestServiceStreamingOutputCallServer) error {
+	echoMetadata(stream.Context())
 	return sendResponses(req, stream.Send)
 }
 
 func (testServiceImpl) StreamingInputCall(stream testingpb.TestServiceStreamingInputCallServer) error {
+	echoMetadata(stream.Context())
 	total := 0
 	for {
 		req, err := stream.Recv()
@@ -106,6 +123,7 @@ func (testServiceImpl) StreamingInputCall(stream testingpb.TestServiceStreamingI
 }
 
 func (testServiceImpl) FullDuplexCall(stream testingpb.TestServiceFullDuplexCallServer) error {
+	echoMetadata(stream.Context())
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
@@ -121,6 +139,7 @@ func (testServiceImpl) FullDuplexCall(stream testingpb.TestServiceFullDuplexCall
 }
 
 func (testServiceImpl) HalfDuplexCall(stream testingpb.TestServiceHalfDuplexCallServer) error {
+	echoMetadata(stream.Context())
 	var reqs []*testingpb.StreamingOutputCallRequest
 	for {
 		req, err := stream.Recv()
@@ -151,6 +170,7 @@ var interopCasesB = []string{
 	"server_streaming",
 	"ping_pong",
 	"empty_stream",
+	"custom_metadata",
 	"status_code_and_message",
 	"special_status_message",
 	"unimplemented_method",

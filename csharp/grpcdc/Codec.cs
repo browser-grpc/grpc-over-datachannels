@@ -188,6 +188,10 @@ public static class Codec
             ["code"] = status.Code,
             ["message"] = status.Message,
         };
+        if (status.Trailers != null && status.Trailers.Count > 0)
+        {
+            body["metadata"] = status.Trailers;
+        }
         return EncodeFrame(frameType, streamId,
             Encoding.UTF8.GetBytes(JsonSerializer.Serialize(body)));
     }
@@ -201,7 +205,17 @@ public static class Codec
             int code = root.GetProperty("code").GetInt32();
             string message = root.TryGetProperty("message", out JsonElement msgEl)
                 && msgEl.ValueKind == JsonValueKind.String ? msgEl.GetString() : "";
-            return new StatusException(code, message ?? "");
+            var status = new StatusException(code, message ?? "");
+            if (root.TryGetProperty("metadata", out JsonElement mdEl)
+                && mdEl.ValueKind == JsonValueKind.Object)
+            {
+                foreach (JsonProperty prop in mdEl.EnumerateObject())
+                {
+                    status.Trailers[prop.Name] = prop.Value.ValueKind == JsonValueKind.String
+                        ? prop.Value.GetString() : prop.Value.ToString();
+                }
+            }
+            return status;
         }
         catch (Exception)
         {

@@ -141,6 +141,8 @@ class ClientStream
     public Endpoint $endpoint;
     public int $streamId;
     public ?Headers $headers = null;
+    /** @var null|array<string,string> Trailing metadata of the terminal status. */
+    public ?array $trailers = null;
     public ?float $deadline = null;
     public ?array $traceCtx = null;
     public ?string $tracePath = null;
@@ -196,12 +198,14 @@ class ClientStream
                 case "data":
                     return $resp->unmarshalDc($event->payload);
                 case "trailers":
+                    $this->trailers = $event->status->trailers;
                     $this->endTrace(Status::name($event->status->statusCode));
                     if ($event->status->statusCode === Wire::CODE_OK) {
                         throw new CallClosed("call completed");
                     }
                     throw $event->status;
                 case "rst":
+                    $this->trailers = $event->status->trailers;
                     $this->endTrace(Status::name($event->status->statusCode));
                     throw $event->status;
             }

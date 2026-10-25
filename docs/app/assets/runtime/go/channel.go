@@ -46,10 +46,26 @@ type ClientStream struct {
 	in         *streamInput
 	header     Headers
 	gotHdr     bool
+	trailer    map[string]string
 	ctx        context.Context
 	traceCtx   *traceContext
 	tracePath  string
 	traceEnded bool
+}
+
+// Header returns the response initial metadata (nil until the
+// response HEADERS arrive).
+func (s *ClientStream) Header() map[string]string {
+	if !s.gotHdr {
+		return nil
+	}
+	return s.header.Metadata
+}
+
+// Trailer returns the response trailing metadata (nil until
+// the call's terminal status arrives).
+func (s *ClientStream) Trailer() map[string]string {
+	return s.trailer
 }
 
 func (s *ClientStream) endTrace(status string) {
@@ -87,12 +103,14 @@ func (s *ClientStream) Recv(resp Unmarshaler) error {
 		case eventData:
 			return resp.UnmarshalDC(ev.payload)
 		case eventTrailers:
+			s.trailer = ev.status.Trailers
 			s.endTrace(ev.status.Code.Name())
 			if ev.status.Code != CodeOk {
 				return ev.status
 			}
 			return io.EOF
 		case eventRST:
+			s.trailer = ev.status.Trailers
 			s.endTrace(ev.status.Code.Name())
 			return ev.status
 		}
@@ -158,6 +176,26 @@ func (ch *Channel) halfClose(stream *ClientStream) error {
 // Unary runs a unary call, decoding the single response into resp.
 func (ch *Channel) Unary(ctx context.Context, path string, req Marshaler, resp Unmarshaler) error {
 	return ch.UnaryWithMetadata(ctx, path, req, resp, nil)
+}
+
+// UnaryStream starts a unary call and returns its stream, for
+// callers that need the response headers/trailers (Header and
+// Trailer on the returned stream). The request is sent and the
+// stream half-closed before returning; read with Recv.
+func (ch *Channel) UnaryStream(ctx context.Context, path string, req Marshaler, metadata map[string]string) (*ClientStream, error) {
+	stream, err := ch.open(ctx, path, metadata)
+	if err != nil {
+		return nil, err
+	}
+	if err := ch.sendMessage(stream, req); err != nil {
+		ch.ep.closeStream(stream.id)
+		return nil, err
+	}
+	if err := ch.halfClose(stream); err != nil {
+		ch.ep.closeStream(stream.id)
+		return nil, err
+	}
+	return stream, nil
 }
 
 // UnaryWithMetadata is Unary with call metadata.

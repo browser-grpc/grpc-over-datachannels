@@ -54,6 +54,23 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
 
   /** Per-call context: metadata sent in HEADERS. */
   class CallContext(val metadata: Map[String, String]) {
+    /** Response initial metadata recorded via setHeaders. */
+    val responseHeaders: scala.collection.mutable.Map[String, String] =
+      scala.collection.mutable.HashMap.empty
+    /** Response trailing metadata recorded via setTrailers. */
+    val responseTrailers: scala.collection.mutable.Map[String, String] =
+      scala.collection.mutable.HashMap.empty
+
+    /** Record response initial metadata (sent lazily, before the first response message). */
+    def setHeaders(md: Map[String, String]): Unit = {
+      responseHeaders ++= md
+    }
+
+    /** Record response trailing metadata (rides the terminal status frame). */
+    def setTrailers(md: Map[String, String]): Unit = {
+      responseTrailers ++= md
+    }
+
     /** Monotonic deadline (System.nanoTime), or -1 when unbounded. */
     val deadlineNanos: Long = {
       val parsed = Codec.parseTimeout(metadata.getOrElse("grpc-timeout", null))
@@ -73,16 +90,39 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
 
   /** Sends response payloads of one inbound call. */
   class ResponseSink(private val endpoint: Endpoint, private val streamId: Long) {
+    // Wired to the CallContext maps by the endpoint.
+    var respHeaders: scala.collection.Map[String, String] = Map.empty
+    var respTrailers: scala.collection.Map[String, String] = Map.empty
+    var headersSent: Boolean = false
+
     def send(payload: Array[Byte]): Unit = {
+      flushHeaders()
       endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, payload))
     }
 
+    def flushHeaders(): Unit = {
+      if (!headersSent) {
+        headersSent = true
+        sendHeaders(respHeaders.toMap)
+      }
+    }
+
     def sendHeaders(): Unit = {
-      endpoint.sendFrame(Codec.headersFrame(streamId, null, null))
+      sendHeaders(respHeaders.toMap)
+    }
+
+    def sendHeaders(metadata: Map[String, String]): Unit = {
+      headersSent = true
+      endpoint.sendFrame(Codec.headersFrame(streamId, null, metadata))
     }
 
     def sendTrailers(status: StatusException): Unit = {
-      endpoint.sendFrame(Codec.statusFrame(Wire.FRAME_TRAILERS, streamId, status))
+      var out = status
+      if (respTrailers.nonEmpty) {
+        out = StatusException(status.code, Option(status.getMessage).getOrElse(""))
+        out.trailers = (respTrailers ++ status.trailers).toMap
+      }
+      endpoint.sendFrame(Codec.statusFrame(Wire.FRAME_TRAILERS, streamId, out))
     }
   }
 
@@ -288,22 +328,26 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
                            headers: Codec.Headers, dispatcher: Dispatcher): Unit = {
     val sink = new ResponseSink(this, streamId)
     try {
-      var proceed = true
-      try {
-        sink.sendHeaders()
-      } catch {
-        case e: Exception => proceed = false
-      }
-      if (proceed) {
-        var status = dispatcher(CallContext(headers.metadata), headers, input, sink)
-        if (status == null) {
-          status = StatusException(Wire.CODE_OK, "")
-        }
+      // No eager HEADERS: initial metadata flushes lazily via
+      // the sink (first DATA, or below on a DATA-less success)
+      // so handlers can setHeaders first. Errors end
+      // trailers-only, as gRPC allows.
+      val ctx = CallContext(headers.metadata)
+      sink.respHeaders = ctx.responseHeaders
+      sink.respTrailers = ctx.responseTrailers
+      var status = dispatcher(ctx, headers, input, sink)
+      if (status == null) {
+        status = StatusException(Wire.CODE_OK, "")
         try {
-          sink.sendTrailers(status)
+          sink.flushHeaders()
         } catch {
           case ignored: Exception => ()
         }
+      }
+      try {
+        sink.sendTrailers(status)
+      } catch {
+        case ignored: Exception => ()
       }
     } finally {
       closeStream(streamId)

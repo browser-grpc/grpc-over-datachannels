@@ -76,9 +76,19 @@ type Dispatcher func(ctx context.Context, headers Headers, in *streamInput, sink
 type responseSink struct {
 	ep *Endpoint
 	id uint32
+	// Initial/trailing metadata the handler accumulates via
+	// SetHeader/SetTrailer. Initial metadata flushes lazily,
+	// right before the first response DATA; trailers merge
+	// into the terminal status frame.
+	respHeaders  map[string]string
+	respTrailers map[string]string
+	headersSent  bool
 }
 
 func (s *responseSink) SendData(payload []byte) error {
+	if err := s.FlushHeaders(); err != nil {
+		return err
+	}
 	frame, err := EncodeFrame(FrameData, s.id, payload)
 	if err != nil {
 		return err
@@ -86,8 +96,18 @@ func (s *responseSink) SendData(payload []byte) error {
 	return s.ep.SendFrame(frame)
 }
 
-func (s *responseSink) sendHeaders() error {
-	frame, err := headersFrame(s.id, nil, nil)
+// FlushHeaders sends the HEADERS frame (with accumulated
+// initial metadata) if it has not gone out yet.
+func (s *responseSink) FlushHeaders() error {
+	if s.headersSent {
+		return nil
+	}
+	s.headersSent = true
+	return s.sendHeaders(s.respHeaders)
+}
+
+func (s *responseSink) sendHeaders(metadata map[string]string) error {
+	frame, err := headersFrame(s.id, nil, metadata)
 	if err != nil {
 		return err
 	}
@@ -95,6 +115,18 @@ func (s *responseSink) sendHeaders() error {
 }
 
 func (s *responseSink) sendTrailers(status *StatusError) error {
+	if len(s.respTrailers) > 0 {
+		merged := make(map[string]string, len(s.respTrailers)+len(status.Trailers))
+		for k, v := range s.respTrailers {
+			merged[k] = v
+		}
+		for k, v := range status.Trailers {
+			merged[k] = v
+		}
+		clone := *status
+		clone.Trailers = merged
+		status = &clone
+	}
 	frame, err := statusFrame(FrameTrailers, s.id, status)
 	if err != nil {
 		return err
@@ -281,9 +313,10 @@ func (ep *Endpoint) onHeaders(streamID uint32, payload []byte) {
 	sink := &responseSink{ep: ep, id: streamID}
 	go func() {
 		defer ep.streams.Delete(streamID)
-		if err := sink.sendHeaders(); err != nil {
-			return
-		}
+		// No eager HEADERS: initial metadata flushes lazily via
+		// the sink (first DATA, or here on a DATA-less success)
+		// so handlers can SetHeader first. Errors end
+		// trailers-only, as gRPC allows.
 		ctx := context.WithValue(context.Background(), metadataKey{}, headers.Metadata)
 		if d, ok := ParseTimeout(headers.Metadata["grpc-timeout"]); ok {
 			var cancel context.CancelFunc
@@ -293,6 +326,7 @@ func (ep *Endpoint) onHeaders(streamID uint32, payload []byte) {
 		status := ep.dispatcher(ctx, headers, in, sink)
 		if status == nil {
 			status = NewStatus(CodeOk, "")
+			_ = sink.FlushHeaders()
 		}
 		_ = sink.sendTrailers(status)
 	}()

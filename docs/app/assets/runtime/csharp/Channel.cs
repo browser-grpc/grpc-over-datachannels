@@ -29,6 +29,9 @@ public class Channel
 
         public uint StreamId { get; }
         public Codec.Headers Headers { get; private set; }
+
+        /// <summary>Trailing metadata of the terminal status (null until it arrives).</summary>
+        public Dictionary<string, string> Trailers { get; private set; }
         internal long DeadlineTimestamp = -1;
         internal Tracing.TraceContext TraceCtx;
         internal string TracePath;
@@ -99,6 +102,7 @@ public class Channel
                         resp.UnmarshalDc(evt.Payload);
                         return;
                     case Endpoint.EventKind.Trailers:
+                        Trailers = evt.Status.Trailers;
                         EndTrace(Wire.StatusName(evt.Status.Code));
                         if (evt.Status.Code != Wire.CodeOk)
                         {
@@ -106,6 +110,7 @@ public class Channel
                         }
                         throw new EndOfStreamException("call completed");
                     case Endpoint.EventKind.Rst:
+                        Trailers = evt.Status.Trailers;
                         EndTrace(Wire.StatusName(evt.Status.Code));
                         throw evt.Status;
                     default:

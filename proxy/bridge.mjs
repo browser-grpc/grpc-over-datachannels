@@ -111,9 +111,26 @@ function metadataFromHttp2(headers) {
     if (["content-type", "te", "user-agent", "grpc-encoding", "grpc-accept-encoding"].includes(key)) {
       continue;
     }
+    // -bin values are base64 on the HTTP/2 wire (gRPC spec)
+    // and base64 on the grpc-dc wire too, so they pass through.
     if (typeof value === "string") metadata[key] = value;
   }
   return metadata;
+}
+
+// grpc-dc metadata -> HTTP/2 header entries (response side):
+// transport-owned keys stay out; -bin values are base64 in
+// both domains and pass through unchanged.
+function metadataToHttp2(metadata) {
+  const headers = {};
+  for (const [key, value] of Object.entries(metadata ?? {})) {
+    if (key.startsWith(":") || typeof value !== "string") continue;
+    if (["content-type", "grpc-status", "grpc-message", "grpc-encoding", "grpc-accept-encoding"].includes(key)) {
+      continue;
+    }
+    headers[key] = value;
+  }
+  return headers;
 }
 
 export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null }) {
@@ -132,7 +149,7 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
     stream.on("wantTrailers", () => {
       if (trailersToSend) stream.sendTrailers(trailersToSend);
     });
-    const respond = () => {
+    const respond = (serverMetadata = {}) => {
       if (!responded) {
         responded = true;
         stream.respond(
@@ -142,6 +159,8 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
             // We decode gzip (and identity) inbound; the DataChannel side
             // of this stream is always uncompressed.
             "grpc-accept-encoding": "gzip,identity",
+            // The grpc-dc server's initial metadata rides along.
+            ...metadataToHttp2(serverMetadata),
           },
           { waitForTrailers: true },
         );
@@ -154,6 +173,8 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
       if (wireMessage) {
         trailersToSend["grpc-message"] = grpcMessageEncode(wireMessage);
       }
+      // Trailing metadata from the grpc-dc status frame.
+      Object.assign(trailersToSend, metadataToHttp2(status.trailers ?? {}));
       try {
         stream.end();
       } catch {
@@ -188,7 +209,7 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
       try {
         for await (const event of input) {
           if (event.kind === "headers") {
-            respond();
+            respond(event.headers?.metadata ?? {});
           } else if (event.kind === "data") {
             respond();
             stream.write(lpm(event.payload));
@@ -235,19 +256,38 @@ export function serveDcToHttp2({ grpcAuthority, endpoint }) {
 
     let grpcStatus = null;
     let grpcMessage = "";
+    let initialMeta = {};
+    let trailerMeta = {};
+    let headersSent = false;
+    const sendHeadersOnce = async () => {
+      if (!headersSent) {
+        headersSent = true;
+        await sink.sendHeaders(initialMeta);
+      }
+    };
     const parser = new LpmParser();
     const noteTrailers = (t) => {
       if (t["grpc-status"] !== undefined) {
         grpcStatus = Number(t["grpc-status"]);
         grpcMessage = grpcMessageDecode(t["grpc-message"] ?? "");
       }
+      trailerMeta = metadataFromHttp2(t);
+      delete trailerMeta["grpc-status"];
+      delete trailerMeta["grpc-message"];
     };
     stream.on("response", (h) => {
       // Response messages may be compressed with this encoding.
       parser.encoding = h["grpc-encoding"] ?? "identity";
+      initialMeta = metadataFromHttp2(h);
+      delete initialMeta["grpc-status"];
+      delete initialMeta["grpc-message"];
       noteTrailers(h);
     });
     stream.on("trailers", noteTrailers);
+    // Response payloads forward in order (headers flush first);
+    // outDone waits for the chain so no DATA lands after the
+    // terminal trailers the endpoint sends on our return.
+    let chain = Promise.resolve();
     const outDone = new Promise((resolve, reject) => {
       stream.on("data", (chunk) => {
         let payloads;
@@ -258,10 +298,13 @@ export function serveDcToHttp2({ grpcAuthority, endpoint }) {
           return;
         }
         for (const payload of payloads) {
-          sink.sendData(payload).catch(() => {});
+          chain = chain.then(async () => {
+            await sendHeadersOnce();
+            await sink.sendData(payload);
+          });
         }
       });
-      stream.on("end", resolve);
+      stream.on("end", () => chain.then(resolve, reject));
       stream.on("error", reject);
     });
 
@@ -284,8 +327,13 @@ export function serveDcToHttp2({ grpcAuthority, endpoint }) {
       throw StatusError.internal("official server sent no grpc-status");
     }
     if (grpcStatus !== 0) {
-      throw new StatusError(grpcStatus, grpcMessage);
+      const status = new StatusError(grpcStatus, grpcMessage);
+      status.trailers = trailerMeta;
+      throw status;
     }
+    await sendHeadersOnce();
+    // The endpoint merges returned trailers into the OK status.
+    return { trailers: trailerMeta };
   };
   return session;
 }

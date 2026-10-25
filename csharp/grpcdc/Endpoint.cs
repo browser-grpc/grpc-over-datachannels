@@ -61,6 +61,24 @@ public class Endpoint
     {
         public Dictionary<string, string> Metadata { get; }
 
+        /// <summary>Response initial metadata recorded via SetHeaders.</summary>
+        public Dictionary<string, string> ResponseHeaders { get; } = new();
+
+        /// <summary>Response trailing metadata recorded via SetTrailers.</summary>
+        public Dictionary<string, string> ResponseTrailers { get; } = new();
+
+        /// <summary>Record response initial metadata (sent lazily, before the first response message).</summary>
+        public void SetHeaders(IDictionary<string, string> md)
+        {
+            foreach (var kv in md) ResponseHeaders[kv.Key] = kv.Value;
+        }
+
+        /// <summary>Record response trailing metadata (rides the terminal status frame).</summary>
+        public void SetTrailers(IDictionary<string, string> md)
+        {
+            foreach (var kv in md) ResponseTrailers[kv.Key] = kv.Value;
+        }
+
         /// <summary>Deadline propagated via grpc-timeout, when set.</summary>
         public DateTimeOffset? Deadline { get; }
 
@@ -103,18 +121,45 @@ public class Endpoint
             _streamId = streamId;
         }
 
+        // Wired to the CallContext maps by the endpoint.
+        internal Dictionary<string, string> RespHeaders = new();
+        internal Dictionary<string, string> RespTrailers = new();
+        internal bool HeadersSent;
+
         public void Send(byte[] payload)
         {
+            FlushHeaders();
             _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, _streamId, payload));
+        }
+
+        internal void FlushHeaders()
+        {
+            if (!HeadersSent)
+            {
+                HeadersSent = true;
+                SendHeaders(RespHeaders);
+            }
         }
 
         internal void SendHeaders()
         {
-            _endpoint.SendFrame(Codec.HeadersFrame(_streamId, null, null));
+            SendHeaders(RespHeaders);
+        }
+
+        internal void SendHeaders(Dictionary<string, string> metadata)
+        {
+            HeadersSent = true;
+            _endpoint.SendFrame(Codec.HeadersFrame(_streamId, null, metadata));
         }
 
         internal void SendTrailers(StatusException status)
         {
+            if (RespTrailers.Count > 0)
+            {
+                var merged = new Dictionary<string, string>(RespTrailers);
+                foreach (var kv in status.Trailers) merged[kv.Key] = kv.Value;
+                status = new StatusException(status.Code, status.Message) { Trailers = merged };
+            }
             _endpoint.SendFrame(Codec.StatusFrame(Wire.FrameTrailers, _streamId, status));
         }
     }
@@ -335,11 +380,20 @@ public class Endpoint
         {
             try
             {
-                try { sink.SendHeaders(); }
-                catch (Exception) { return; }
-                StatusException status = _dispatcher(
-                    new CallContext(headers.Metadata), headers, streamInput, sink);
-                status ??= new StatusException(Wire.CodeOk, "");
+                // No eager HEADERS: initial metadata flushes lazily via
+                // the sink (first DATA, or below on a DATA-less success)
+                // so handlers can SetHeaders first. Errors end
+                // trailers-only, as gRPC allows.
+                var ctx = new CallContext(headers.Metadata);
+                sink.RespHeaders = ctx.ResponseHeaders;
+                sink.RespTrailers = ctx.ResponseTrailers;
+                StatusException status = _dispatcher(ctx, headers, streamInput, sink);
+                if (status == null)
+                {
+                    status = new StatusException(Wire.CodeOk, "");
+                    try { sink.FlushHeaders(); }
+                    catch (Exception) { /* best effort */ }
+                }
                 try { sink.SendTrailers(status); }
                 catch (Exception) { /* best effort */ }
             }

@@ -43,6 +43,11 @@ pub const StreamEvent = struct {
         if (self.payload) |p| alloc.free(p);
         if (self.status) |s| {
             if (s.message.len > 0) alloc.free(s.message);
+            for (s.trailers) |pair| {
+                alloc.free(pair.key);
+                alloc.free(pair.value);
+            }
+            if (s.trailers.len > 0) alloc.free(s.trailers);
         }
         self.* = undefined;
     }
@@ -158,11 +163,41 @@ pub const StreamInput = struct {
     }
 };
 
+/// Response initial/trailing metadata accumulated during one
+/// call; shared between CallContext and ResponseSink.
+pub const ResponseState = struct {
+    headers: Metadata,
+    trailers: Metadata,
+    headers_sent: bool = false,
+};
+
 /// Per-call context: metadata sent in HEADERS.
 pub const CallContext = struct {
     metadata: Metadata,
     /// Deadline (nowMs clock) propagated via grpc-timeout, if any.
     deadline_ms: ?i64 = null,
+    /// Shared response-metadata state (endpoint-installed).
+    response: ?*ResponseState = null,
+
+    /// Record response initial metadata (sent lazily, before
+    /// the first response message).
+    pub fn setHeaders(self: *CallContext, md: *const Metadata) void {
+        const state = self.response orelse return;
+        var it = md.iterator();
+        while (it.next()) |entry| {
+            state.headers.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+        }
+    }
+
+    /// Record response trailing metadata (rides the terminal
+    /// status frame).
+    pub fn setTrailers(self: *CallContext, md: *const Metadata) void {
+        const state = self.response orelse return;
+        var it = md.iterator();
+        while (it.next()) |entry| {
+            state.trailers.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+        }
+    }
 
     /// Milliseconds left before the deadline, or null when unbounded.
     pub fn timeRemainingMs(self: *const CallContext) ?i64 {
@@ -181,8 +216,11 @@ pub const CallContext = struct {
 pub const ResponseSink = struct {
     endpoint: *Endpoint,
     stream_id: u32,
+    /// Shared response-metadata state (endpoint-installed).
+    state: ?*ResponseState = null,
 
     pub fn send(self: ResponseSink, payload: []const u8) void {
+        self.flushHeaders();
         const frame = switch (Codec.encodeFrame(self.endpoint.alloc, wire.frameData, self.stream_id, payload)) {
             .bytes => |b| b,
             .status => return,
@@ -191,8 +229,21 @@ pub const ResponseSink = struct {
         self.endpoint.sendFrame(frame);
     }
 
+    /// Send the initial-metadata HEADERS once (with whatever
+    /// the handler recorded via CallContext.setHeaders).
+    pub fn flushHeaders(self: ResponseSink) void {
+        const state = self.state orelse return;
+        if (state.headers_sent) return;
+        state.headers_sent = true;
+        self.sendHeadersMd(&state.headers);
+    }
+
     pub fn sendHeaders(self: ResponseSink) void {
-        const frame = switch (Codec.headersFrame(self.endpoint.alloc, self.stream_id, null, null)) {
+        self.flushHeaders();
+    }
+
+    fn sendHeadersMd(self: ResponseSink, md: *const Metadata) void {
+        const frame = switch (Codec.headersFrame(self.endpoint.alloc, self.stream_id, null, md)) {
             .bytes => |b| b,
             .status => return,
         };
@@ -201,7 +252,22 @@ pub const ResponseSink = struct {
     }
 
     pub fn sendTrailers(self: ResponseSink, st: Status) void {
-        const frame = switch (Codec.statusFrame(self.endpoint.alloc, wire.frameTrailers, self.stream_id, st)) {
+        var merged = st;
+        var pairs: std.ArrayList(status_mod.TrailerPair) = .empty;
+        defer pairs.deinit(self.endpoint.alloc);
+        if (st.trailers.len == 0) {
+            if (self.state) |state| {
+                var it = state.trailers.iterator();
+                while (it.next()) |entry| {
+                    pairs.append(self.endpoint.alloc, .{
+                        .key = entry.key_ptr.*,
+                        .value = entry.value_ptr.*,
+                    }) catch {};
+                }
+                merged.trailers = pairs.items;
+            }
+        }
+        const frame = switch (Codec.statusFrame(self.endpoint.alloc, wire.frameTrailers, self.stream_id, merged)) {
             .bytes => |b| b,
             .status => return,
         };
@@ -534,9 +600,18 @@ pub const Endpoint = struct {
         }
         var headers = args.headers;
         defer Codec.freeHeaders(self.alloc, &headers);
-        const sink = ResponseSink{ .endpoint = self, .stream_id = args.stream_id };
-        sink.sendHeaders();
-        var call_ctx = CallContext{ .metadata = headers.metadata };
+        // No eager HEADERS: initial metadata flushes lazily via
+        // the sink (first DATA, or below on a DATA-less success)
+        // so handlers can setHeaders first. Errors end
+        // trailers-only, as gRPC allows.
+        var response_state = ResponseState{
+            .headers = Metadata.init(self.alloc),
+            .trailers = Metadata.init(self.alloc),
+        };
+        defer response_state.headers.deinit();
+        defer response_state.trailers.deinit();
+        const sink = ResponseSink{ .endpoint = self, .stream_id = args.stream_id, .state = &response_state };
+        var call_ctx = CallContext{ .metadata = headers.metadata, .response = &response_state };
         if (headers.metadata.get("grpc-timeout")) |text| {
             if (Codec.parseTimeout(text)) |ms| {
                 if (nowMs()) |now| {
@@ -545,6 +620,7 @@ pub const Endpoint = struct {
             }
         }
         const st = args.dispatcher(args.ctx, call_ctx, headers, args.input, sink);
+        if (st.isOk()) sink.flushHeaders();
         sink.sendTrailers(st);
     }
 

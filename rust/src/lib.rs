@@ -48,7 +48,7 @@ pub use dynamic::{
     DynamicHandler, DynamicSink, FieldModel, FileModel, GenericMessage, GenericValue, MessageModel,
     MethodModel, ServiceModel,
 };
-pub use status::{Code, Status};
+pub use status::{Code, Metadata, Status};
 
 /// Monotonic clock seam for deadlines. Native builds use
 /// [`std::time::Instant`]. On wasm32, `std::time::Instant::now()`

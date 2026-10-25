@@ -101,18 +101,39 @@ class ResponseSink
         $this->streamId = $streamId;
     }
 
+    /** @var array<string,string> Wired to the CallContext maps by the endpoint. */
+    public array $respHeaders = [];
+    /** @var array<string,string> */
+    public array $respTrailers = [];
+    public bool $headersSent = false;
+
     public function send(string $payload): void
     {
+        $this->flushHeaders();
         $this->endpoint->sendFrame(Codec::encodeFrame(Wire::FRAME_DATA, $this->streamId, $payload));
     }
 
-    public function sendHeaders(): void
+    public function flushHeaders(): void
     {
-        $this->endpoint->sendFrame(Codec::headersFrame($this->streamId, null, null));
+        if (!$this->headersSent) {
+            $this->headersSent = true;
+            $this->sendHeaders($this->respHeaders);
+        }
+    }
+
+    public function sendHeaders(?array $metadata = null): void
+    {
+        $this->headersSent = true;
+        $this->endpoint->sendFrame(Codec::headersFrame($this->streamId, null, $metadata ?? $this->respHeaders));
     }
 
     public function sendTrailers(StatusError $status): void
     {
+        if (!empty($this->respTrailers)) {
+            $merged = array_merge($this->respTrailers, $status->trailers);
+            $status = new StatusError($status->statusCode, $status->statusMessage);
+            $status->trailers = $merged;
+        }
         $this->endpoint->sendFrame(Codec::statusFrame(Wire::FRAME_TRAILERS, $this->streamId, $status));
     }
 }
@@ -122,7 +143,27 @@ class CallContext
 {
     /** @var array<string,string> */
     public array $metadata;
+    /** @var array<string,string> Response initial metadata recorded via setHeaders. */
+    public array $responseHeaders = [];
+    /** @var array<string,string> Response trailing metadata recorded via setTrailers. */
+    public array $responseTrailers = [];
     public ?float $deadline;
+
+    /** Record response initial metadata (sent lazily, before the first response message). */
+    public function setHeaders(array $md): void
+    {
+        foreach ($md as $k => $v) {
+            $this->responseHeaders[$k] = $v;
+        }
+    }
+
+    /** Record response trailing metadata (rides the terminal status frame). */
+    public function setTrailers(array $md): void
+    {
+        foreach ($md as $k => $v) {
+            $this->responseTrailers[$k] = $v;
+        }
+    }
 
     public function __construct(array $metadata = [])
     {
@@ -381,18 +422,26 @@ class Endpoint
         $input = new StreamInput();
         $this->streams[$streamId] = $input;
         $sink = new ResponseSink($this, $streamId);
-        try {
-            $sink->sendHeaders();
-        } catch (\Throwable $e) {
-            $this->closeStream($streamId);
-            return;
-        }
+        // No eager HEADERS: initial metadata flushes lazily via
+        // the sink (first DATA, or below on a DATA-less success)
+        // so handlers can setHeaders first. Errors end
+        // trailers-only, as gRPC allows.
         $ctx = new CallContext($headers->metadata);
+        $sink->respHeaders = &$ctx->responseHeaders;
+        $sink->respTrailers = &$ctx->responseTrailers;
+        $ok = false;
         try {
             $result = ($this->dispatcher)($ctx, $headers, $input, $sink);
             $status = $result ?? new StatusError(Wire::CODE_OK, "");
+            $ok = $result === null;
         } catch (\Throwable $e) {
             $status = Status::toStatus($e);
+        }
+        if ($ok) {
+            try {
+                $sink->flushHeaders();
+            } catch (\Throwable $ignored) {
+            }
         }
         try {
             $sink->sendTrailers($status);
