@@ -1,0 +1,20 @@
+// Vendored from github.com/cncf/xds (xds/service/orca/v3/orca.proto).
+// OrcaLoadReportRequest is trimmed to the empty message: the one
+// upstream field (report_interval, a Duration) stays unset, which
+// servers treat as "use the default reporting interval" -- the
+// wire image of an unset message field is empty either way.
+syntax = "proto3";
+
+package xds.service.orca.v3;
+
+import "xds/data/orca/v3/orca_load_report.proto";
+
+// Out-of-band ORCA load reporting: subscribers receive the
+// server's current OrcaLoadReport on an interval.
+service OpenRcaService {
+  rpc StreamCoreMetrics(OrcaLoadReportRequest)
+      returns (stream xds.data.orca.v3.OrcaLoadReport);
+}
+
+message OrcaLoadReportRequest {
+}

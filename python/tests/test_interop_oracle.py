@@ -15,14 +15,20 @@ import os
 import socket
 import subprocess
 import sys
+import threading
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
+sys.path.insert(0, os.path.dirname(__file__))
 
 import grpcdc
+import interop_service
+import orca_grpc_dc
 import test_grpc_dc
 from grpcdc.http2 import Http2Transport
+from orca_pb import OrcaLoadReportRequest
 from messages_pb import (
     BoolValue,
     EchoStatus,
@@ -411,12 +417,64 @@ class InteropOracleBase:
         self.assertEqual(ctx.exception.code, 4)
 
 
+def feed_and_read_oob(test, client, orca):
+    """Feed the shared OOB state via FullDuplexCall, then read
+    it back on StreamCoreMetrics until it shows up."""
+    duplex = client.FullDuplexCall([
+        StreamingOutputCallRequest(
+            orca_oob_report=TestOrcaReport(
+                cpu_utilization=0.9,
+                memory_utilization=0.85,
+                utilization={"util": 0.5},
+            )
+        )
+    ])
+    while True:
+        try:
+            duplex.recv()
+        except EOFError:
+            break
+    stream = orca.StreamCoreMetrics(OrcaLoadReportRequest())
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        report = stream.recv()
+        if (report.cpu_utilization == 0.9
+                and report.mem_utilization == 0.85
+                and report.utilization.get("util") == 0.5):
+            return
+    test.fail("no matching OOB report within 30s")
+
+
 class TestInteropOracleJava(InteropOracleBase, unittest.TestCase):
     SERVER_KIND = "java"
 
 
 class TestInteropOracleGo(InteropOracleBase, unittest.TestCase):
     SERVER_KIND = "go"
+
+    def test_orca_oob_stream(self):
+        # OpenRcaService against the reference Go server (its
+        # ORCA service streams the recorder fed above).
+        feed_and_read_oob(
+            self, self.client,
+            orca_grpc_dc.OpenRcaServiceClient(self.channel))
+
+
+class TestOrcaOobStreamLoopback(unittest.TestCase):
+    def test_our_python_server(self):
+        a, b = grpcdc.memory_transport_pair()
+        server = grpcdc.Server()
+        test_grpc_dc.register_test_service_server(
+            server, interop_service.TestServiceImpl())
+        orca_grpc_dc.register_open_rca_service_server(
+            server, interop_service.OpenRcaServiceImpl())
+        thread = threading.Thread(
+            target=server.serve_transport, args=(b,), daemon=True)
+        thread.start()
+        channel = grpcdc.Channel(a)
+        feed_and_read_oob(
+            self, test_grpc_dc.TestServiceClient(channel),
+            orca_grpc_dc.OpenRcaServiceClient(channel))
 
 
 if __name__ == "__main__":

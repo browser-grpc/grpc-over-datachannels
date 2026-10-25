@@ -152,6 +152,7 @@ export class Channel {
 
   async *#responses(id, input, RespType, deadline = null, hooks = {}) {
     const iterator = input[Symbol.asyncIterator]();
+    let completed = false;
     try {
       for (;;) {
         const step = await this.#next(id, iterator, deadline);
@@ -162,11 +163,13 @@ export class Channel {
         } else if (event.kind === "data") {
           yield RespType.decode(event.payload);
         } else if (event.kind === "trailers") {
+          completed = true;
           hooks.onTrailers?.(event.trailers ?? {});
           this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
           if (event.status.code !== 0) throw event.status;
           return;
         } else if (event.kind === "rst") {
+          completed = true;
           this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
           throw event.status;
         }
@@ -174,7 +177,11 @@ export class Channel {
       throw StatusError.unavailable("data channel closed");
     } finally {
       this.#endTrace(id, "UNAVAILABLE");
-      this.#endpoint.closeStream(id);
+      // Consumer stopped early (broke out of iteration): cancel
+      // so the server stops producing instead of streaming into
+      // the void. A completed call just closes locally.
+      if (completed) this.#endpoint.closeStream(id);
+      else this.#endpoint.cancelStream(id);
     }
   }
 

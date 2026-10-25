@@ -7,7 +7,7 @@ sidecar -> Python (the product proxy shape for languages
 without a native stack). Skips when an oracle binary, Node,
 or the sidecar is unavailable (Dockerfile.ci builds them).
 
-Excluded (oracle/interop/README.md): auth, compression,
+Excluded (oracle/interop/README.md): auth,
 soak. cacheable_unary runs only under the Java client
 (unsupported by the Go client).
 """
@@ -26,8 +26,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
 sys.path.insert(0, os.path.dirname(__file__))
 
 import grpcdc
+import orca_grpc_dc
 import test_grpc_dc
-from interop_service import TestServiceImpl
+from interop_service import OpenRcaServiceImpl, TestServiceImpl
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 SIDECAR = os.path.join(
@@ -122,6 +123,8 @@ class TestInteropServerOracle(unittest.TestCase):
         cls.listen_sock.listen(1)
         server = grpcdc.Server()
         test_grpc_dc.register_test_service_server(server, TestServiceImpl())
+        orca_grpc_dc.register_open_rca_service_server(
+            server, OpenRcaServiceImpl())
 
         def serve():
             conn, _ = cls.listen_sock.accept()
@@ -204,7 +207,11 @@ class TestInteropServerOracle(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
     def test_java_client_cases(self):
-        for test_case in CASES + ["cacheable_unary"]:
+        for test_case in CASES + ["cacheable_unary",
+                                  "client_compressed_unary",
+                                  "client_compressed_streaming",
+                                  "server_compressed_unary",
+                                  "server_compressed_streaming"]:
             with self.subTest(client="java", case=test_case):
                 self.run_java_client(test_case)
 

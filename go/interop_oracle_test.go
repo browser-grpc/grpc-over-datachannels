@@ -137,6 +137,69 @@ func TestInteropGoClientCallsGoTestService(t *testing.T) {
 	runInteropCases(t, client, channel)
 }
 
+// ORCA out-of-band streaming (OpenRcaService): feed the shared
+// OOB state via FullDuplexCall, then read it back on
+// StreamCoreMetrics — against the reference Go server (whose
+// ORCA service streams its recorder) and our own server.
+func TestOrcaOobStream(t *testing.T) {
+	feedAndRead := func(t *testing.T, client *testingpb.TestServiceClient, orca *testingpb.OpenRcaServiceClient) {
+		t.Helper()
+		ctx := context.Background()
+		duplex, err := client.FullDuplexCall(ctx, &testingpb.StreamingOutputCallRequest{
+			OrcaOobReport: &testingpb.TestOrcaReport{
+				CpuUtilization:    0.9,
+				MemoryUtilization: 0.85,
+				Utilization:       map[string]float64{"util": 0.5},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for {
+			_, err := duplex.Recv()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		stream, err := orca.StreamCoreMetrics(ctx, &testingpb.OrcaLoadReportRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			report, err := stream.Recv()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.CpuUtilization == 0.9 && report.MemUtilization == 0.85 &&
+				report.Utilization["util"] == 0.5 {
+				return
+			}
+		}
+		t.Fatal("no matching OOB report within 30s")
+	}
+
+	t.Run("grpc-go TestServiceServer", func(t *testing.T) {
+		client, channel, closeFn := interopClient(t, "go")
+		defer closeFn()
+		feedAndRead(t, client, testingpb.NewOpenRcaServiceClient(channel))
+	})
+
+	t.Run("our Go server (loopback)", func(t *testing.T) {
+		a, b := grpcdc.MemoryTransportPair()
+		server := grpcdc.NewServer()
+		testingpb.RegisterTestServiceServer(server, testServiceImpl{})
+		testingpb.RegisterOpenRcaServiceServer(server, openRcaServiceImpl{})
+		server.ServeTransport(b)
+		channel := grpcdc.NewChannel(a)
+		feedAndRead(t, testingpb.NewTestServiceClient(channel),
+			testingpb.NewOpenRcaServiceClient(channel))
+	})
+}
+
 func runInteropCases(t *testing.T, client *testingpb.TestServiceClient, channel *grpcdc.Channel) {
 	ctx := context.Background()
 

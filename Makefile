@@ -98,15 +98,15 @@ interop-stubs:
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-js=bin/protoc-gen-grpc-dc-js \
 		--grpc-dc-js_out=js/examples/interop -I oracle/interop \
 		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
-		xds/data/orca/v3/orca_load_report.proto
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-python=bin/protoc-gen-grpc-dc-python \
 		--grpc-dc-python_out=python/examples -I oracle/interop \
 		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
-		xds/data/orca/v3/orca_load_report.proto
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-go=bin/protoc-gen-grpc-dc-go \
 		--grpc-dc-go_out=go/interop --grpc-dc-go_opt=go_package=testing -I oracle/interop \
 		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
-		xds/data/orca/v3/orca_load_report.proto
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
 	gofmt -w go/interop/*.go
 
 generate: plugins stubs

@@ -40,22 +40,32 @@ Excluded cases: auth (`*_creds`, `oauth2_auth_token`,
 `per_rpc_creds`) needs GCP credentials; the soak cases have
 their own long-running script.
 
-Compression runs in the client direction: the generated
-HTTP/2 client transports (JS/Go/Python) gzip requests keyed on
-`grpc-encoding: gzip` call metadata, advertise
-`grpc-accept-encoding`, and decompress responses, so
-`client_compressed_*` and `server_compressed_*` pass against
-both reference servers. In the server direction the compressed
-cases stay excluded: verifying them requires the *server* to
-observe whether each request arrived compressed
-(`expect_compressed`), and the DataChannel wire is
-compression-free by design — the proxy/bridge terminates gzip
-at the HTTP/2 hop (see proxy tests) without surfacing it.
+Compression runs in both directions. Client direction: the
+generated HTTP/2 client transports (JS/Go/Python) gzip
+requests keyed on `grpc-encoding: gzip` call metadata,
+advertise `grpc-accept-encoding`, and decompress responses,
+so `client_compressed_*` and `server_compressed_*` pass
+against both reference servers. Server direction: the
+DataChannel wire stays compression-free by design, and the
+proxy terminates gzip at the HTTP/2 hop — but it surfaces the
+declared encoding as ordinary metadata (`grpc-encoding`,
+injected from the first request message's compressed flag
+when per-message compression declares no header), so our
+servers run the `expect_compressed` check, and a server
+declaring `grpc-encoding: gzip` in its initial metadata gets
+its response messages gzipped by the proxy. All four
+compressed cases pass under the grpc-java client against
+our JS/Go/Python servers.
 
 ORCA (`orca_per_rpc`, `orca_oob`) runs in both directions:
 our servers report per-request and out-of-band load in the
 `endpoint-load-metrics-bin` trailer (base64 `OrcaLoadReport`),
-and our clients assert it against both reference servers. The
+and our clients assert it against both reference servers.
+The out-of-band stream itself (`OpenRcaService.StreamCoreMetrics`,
+vendored proto with generated stubs) is also graded: our
+JS/Go/Python clients feed the shared state via `FullDuplexCall`
+and read it back on the stream, against the reference Go
+server's ORCA service and against our own servers. The
 real-client runs drive the cases with the upstream Go interop
 client through its `test_backend_metrics_load_balancer`
 service config; grpc-java's `TestServiceClient` is not used
