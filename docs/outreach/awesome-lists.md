@@ -16,6 +16,9 @@ Longer blurb (resource pages, newsletters):
 
 Targets: awesome-grpc, awesome-webrtc, awesome-protobuf,
 awesome-wasm (Wasm facades), awesome-typescript (typed JS client).
+
+Submitted:
+- awesome-grpc: https://github.com/grpc-ecosystem/awesome-grpc/pull/273 (v0.32.5, 2026-10-24)
 Submission checklist (in a publish window, after the latest
 release verifies): fork the list, add the one-line entry in
 its alphabetical slot with the list's exact format, open the
