@@ -1,97 +1,79 @@
 #!/usr/bin/env node
-// grpc-dc-proxy: a supported TCP <-> DataChannel proxy process.
+// grpc-dc-proxy: HTTP/2 ingress -> grpc-dc server.
 //
-// Generalizes the oracle test bridge (oracle/bridge.mjs) into a
-// runnable service: grpc-dc clients (browser tabs or native
-// peers) connect over WebRTC DataChannels; every call is
-// translated to a real HTTP/2 gRPC stream against a stock
-// backend (--backend host:port), so unmodified grpc-go /
-// grpc-java / grpc-node servers become reachable from a
-// browser with no grpc-web proxy in the page path and no
-// changes to the backend.
+// Scope is exactly the official gRPC transport set (grpc-java
+// and peers): HTTP/2, carried over TCP — plaintext h2c by
+// default, TLS (ALPN h2) with --tls-cert/--tls-key. There is
+// deliberately no HTTP/3 and no custom framed-TCP ingress:
+// grpc-java supports neither.
 //
-//   node proxy/grpc-dc-proxy.mjs --backend 127.0.0.1:50051 [--port 8090]
+// Ingress: stock HTTP/2 gRPC clients connect to --http2;
+// each call is translated onto the grpc-dc wire and served
+// by a real grpc-dc Server (oracle/bridge.mjs
+// serveHttp2ToDc). Compression is terminated here; the
+// DataChannel wire is always uncompressed.
 //
-// Signaling is the starter WebSocket offer/answer exchange
-// ({kind:"offer",sdp} -> {kind:"answer",sdp}); serve this
-// process behind any HTTPS tunnel (e.g. cloudflared) for
-// remote browsers, exactly like the starter demo. gRPC
-// compression is terminated here (see oracle/bridge.mjs):
-// the DataChannel wire is always uncompressed.
+// DC side: --dc-dial <multiaddr> — the proxy dials the
+// grpc-dc server over WebRTC-Direct (no ICE, no SDP, no
+// signaling server; the listener is its certhash multiaddr,
+// js/src/webrtc_direct.js). The server side runs any grpc-dc
+// Server (see proxy/grpc-dc-agent.mjs for the Echo demo
+// agent; real deployments serve their own generated service
+// the same way).
 //
-// The smoltcp TCP-listener mode and HTTP/3 (QUIC) termination
-// discussed for this proxy are follow-ups; the HTTP/2 bridge
-// below is the shipped core. Most surrounding surface
-// (per-language examples, tests, docs) is generated; this
-// process and oracle/bridge.mjs are the hand-written kernel.
+//   node proxy/grpc-dc-proxy.mjs --dc-dial /ip4/127.0.0.1/udp/4001/webrtc-direct/certhash/<hash> --http2 50051
 
-import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-import { WebSocketServer } from "../examples/starter/signal.mjs";
-import { Peer } from "../webrtc/js/peer.js";
 import { Endpoint } from "../js/index.js";
-import { serveDcToHttp2 } from "../oracle/bridge.mjs";
+import { directClientStackEndpoint } from "../js/src/webrtc_direct.js";
+import { serveHttp2ToDc } from "../oracle/bridge.mjs";
 
-export function startProxy({ port = 8090, backend, host = "0.0.0.0" } = {}) {
-  if (!backend) throw new Error("grpc-dc-proxy: --backend host:port is required");
-  const http = createServer((req, res) => {
-    if (req.url === "/healthz") {
-      res.writeHead(200, { "content-type": "text/plain" });
-      res.end("ok\n");
-    } else {
-      res.writeHead(404);
-      res.end("not found\n");
-    }
-  });
-  const wss = new WebSocketServer({ server: http });
-  let peers = 0;
-  wss.on("connection", (ws) => {
-    ws.on("message", async (data) => {
-      let msg;
-      try {
-        msg = JSON.parse(String(data));
-      } catch {
-        return;
-      }
-      if (msg.kind !== "offer") return;
-      const answerer = await Peer.create();
-      peers += 1;
-      const id = peers;
-      try {
-        ws.send(JSON.stringify({ kind: "answer", sdp: answerer.handleOffer(msg.sdp) }));
-        const endpoint = await answerer.connect();
-        endpoint.onchannel = (channel) => {
-          console.log(`grpc-dc-proxy: peer ${id} channel -> http2 ${backend}`);
-          const session = serveDcToHttp2({
-            grpcAuthority: backend,
-            endpoint: new Endpoint(channel, { parity: "even" }),
-          });
-          channel.onclose = () => session.close();
-        };
-        ws.on("close", () => answerer.close());
-      } catch (err) {
-        console.error(`grpc-dc-proxy: peer ${id} failed: ${err.message}`);
-        await answerer.close();
-      }
-    });
-  });
-  return new Promise((resolve) => {
-    http.listen(port, host, () => {
-      console.log(`grpc-dc-proxy: signaling on http://${host}:${port} (ws), backend http2 ${backend}`);
-      resolve({
-        http,
-        port: http.address().port,
-        close: () =>
-          new Promise((done) => {
-            // Upgraded signaling sockets are not tracked by
-            // http.Server.close(); destroy them first.
-            for (const client of wss.clients) client.socket.destroy();
-            http.close(done);
-          }),
-      });
-    });
-  });
+// ---------------------------------------------------------------------------
+// DC dial: WebRTC-Direct to the grpc-dc server's listener.
+// Returns the raw stack endpoint; the ingress proxy opens
+// its "grpc" channel on it.
+// ---------------------------------------------------------------------------
+
+export async function dialDc(multiaddr) {
+  const endpoint = await directClientStackEndpoint(multiaddr);
+  return {
+    endpoint,
+    close: async () => {
+      await endpoint.close().catch(() => {});
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Ingress proxy: HTTP/2 (over TCP) listener -> grpc-dc server.
+// dcStackEndpoint is the WebRTC-Direct stack endpoint to the
+// server (tests inject it; the CLI obtains it via dialDc).
+// ---------------------------------------------------------------------------
+
+export async function startIngressProxy({ dcStackEndpoint, http2Port = 0, host = "127.0.0.1", dc = null, tls = null }) {
+  const closers = [];
+  let http2 = null;
+
+  if (http2Port) {
+    const channel = dcStackEndpoint.openChannel({ label: "grpc" });
+    http2 = await serveHttp2ToDc({ port: http2Port, endpoint: new Endpoint(channel), host, tls });
+    closers.push(() => new Promise((done) => http2.close(done)));
+  }
+
+  console.log(
+    `grpc-dc-proxy: ingress http2=${http2Port}${tls ? " (tls)" : ""} -> grpc-dc server`,
+  );
+  return {
+    http2,
+    http2Port: http2?.address?.().port ?? http2Port,
+    dc,
+    close: async () => {
+      for (const close of closers) await close();
+      if (dc) await dc.close();
+    },
+  };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -100,10 +82,25 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     const i = args.indexOf(name);
     return i >= 0 ? args[i + 1] : fallback;
   };
-  const backend = value("--backend");
-  if (!backend) {
-    console.error("usage: node proxy/grpc-dc-proxy.mjs --backend host:port [--port 8090]");
+  const dcDial = value("--dc-dial");
+  if (dcDial) {
+    const tlsCert = value("--tls-cert");
+    const tls = tlsCert
+      ? { cert: readFileSync(tlsCert), key: readFileSync(value("--tls-key")) }
+      : null;
+    const dc = await dialDc(dcDial);
+    await startIngressProxy({
+      dcStackEndpoint: dc.endpoint,
+      dc,
+      http2Port: Number(value("--http2", "0")),
+      host: value("--host", "0.0.0.0"),
+      tls,
+    });
+  } else {
+    console.error(
+      "usage: node proxy/grpc-dc-proxy.mjs --dc-dial <multiaddr> [--http2 50051] [--tls-cert c.pem --tls-key k.pem]",
+    );
     process.exit(2);
   }
-  await startProxy({ port: Number(value("--port", "8090")), backend });
 }
+

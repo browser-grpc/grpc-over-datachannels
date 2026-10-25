@@ -3,6 +3,32 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.5 — 2026-10-24
+
+- Proxy redone, ingress-only, scoped to exactly the
+  official gRPC transport set (grpc-java and peers):
+  HTTP/2 over TCP (h2c, or TLS with --tls-cert/--tls-key)
+  in front of a grpc-dc server dialed over WebRTC-Direct
+  (certhash multiaddr, no signaling server) and mapped
+  onto the existing Server.serve interface. Removed: the
+  egress direction (DataChannel clients -> HTTP/2
+  backend), the custom framed-TCP ingress, the HTTP/3
+  front-end, and the smoltcp sidecar crate. The
+  Racket proxy spec now generates a single http2-ingress
+  mode; parity tests assert the removed surface is absent.
+- Oracle coverage vs grpc-java filled in: the Java oracle
+  now implements canonical Echo semantics (x-echo metadata
+  reflection, delayMs, per-shape fail) and client modes
+  for metadata, deadlines (new DEADLINE case), and TLS.
+  New e2e tests: metadata both directions, deadline both
+  directions (DEADLINE_EXCEEDED), unknown method
+  (UNIMPLEMENTED), 1000-message server stream, Java client
+  over TLS through the bridge, and the official Java
+  client through the redone ingress proxy to a grpc-dc
+  server over WebRTC-Direct. All passing.
+- Includes everything in v0.32.4 (superseded before its
+  separate public publish).
+
 ## v0.32.4 — 2026-10-24
 
 - Proxy surface, mostly generated: racket/proxy-spec.rkt is

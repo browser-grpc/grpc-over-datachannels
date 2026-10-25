@@ -336,6 +336,7 @@
              out)))
 (file-or-directory-permissions (build-path out-dir "proxy/grpc-dc-proxy.mjs") #o755)
 (copy-file "oracle/bridge.mjs" (build-path out-dir "proxy/bridge.mjs") #t)
+(copy-file "proxy/grpc-dc-agent.mjs" (build-path out-dir "proxy/grpc-dc-agent.mjs") #t)
 (copy-file "proxy/README.md" (build-path out-dir "proxy/README.md") #t)
 (copy-file "proxy/proxy_modes.generated.json"
            (build-path out-dir "proxy/proxy_modes.generated.json") #t)

@@ -5,7 +5,10 @@ import echo.EchoOuterClass.EchoRequest;
 import echo.EchoOuterClass.EchoResponse;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.Metadata;
+import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import io.grpc.stub.MetadataUtils;
 import io.grpc.stub.StreamObserver;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -36,6 +39,15 @@ public final class OracleClient {
     if ("gzip".equals(System.getProperty("oracle.compress"))) {
       blockingStub = blockingStub.withCompression("gzip");
       asyncStub = asyncStub.withCompression("gzip");
+    }
+    // -Doracle.metadata=<v>: attach x-echo metadata to every
+    // call; canonical servers reflect it in the unary reply.
+    String meta = System.getProperty("oracle.metadata");
+    if (meta != null) {
+      Metadata md = new Metadata();
+      md.put(Metadata.Key.of("x-echo", Metadata.ASCII_STRING_MARSHALLER), meta);
+      blockingStub = blockingStub.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(md));
+      asyncStub = asyncStub.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(md));
     }
     this.blocking = blockingStub;
     this.async = asyncStub;
@@ -69,10 +81,28 @@ public final class OracleClient {
         }
         try {
           EchoResponse resp = blocking.unary(req(message, 0));
-          check(line, expectStatus == null && resp.getMessage().equals("echo: " + message)
+          String meta = System.getProperty("oracle.metadata");
+          String expected = "echo: " + message + (meta == null ? "" : " [" + meta + "]");
+          check(line, expectStatus == null && resp.getMessage().equals(expected)
               && resp.getIndex() == 0, "resp=" + resp);
         } catch (StatusRuntimeException e) {
           check(line, expectStatus != null && e.getStatus().getCode().value() == expectStatus,
+              "status=" + e.getStatus());
+        }
+        break;
+      }
+      case "DEADLINE": {
+        // DEADLINE <delayMs> <timeoutMs>: unary with a delayed
+        // server must surface DEADLINE_EXCEEDED (code 4).
+        int delayMs = Integer.parseInt(tok[1]);
+        int timeoutMs = Integer.parseInt(tok[2]);
+        EchoRequest slow = EchoRequest.newBuilder()
+            .setMessage("").setCount(0).setDelayMs(delayMs).build();
+        try {
+          blocking.withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS).unary(slow);
+          check(line, false, "call completed, expected DEADLINE_EXCEEDED");
+        } catch (StatusRuntimeException e) {
+          check(line, e.getStatus().getCode() == Status.Code.DEADLINE_EXCEEDED,
               "status=" + e.getStatus());
         }
         break;
@@ -147,8 +177,19 @@ public final class OracleClient {
   public static void main(String[] args) throws Exception {
     int port = Integer.parseInt(args[0]);
     List<String> lines = Files.readAllLines(Paths.get(args[1]), StandardCharsets.UTF_8);
-    ManagedChannel channel = ManagedChannelBuilder.forAddress("127.0.0.1", port)
-        .usePlaintext().build();
+    ManagedChannel channel;
+    String tlsCert = System.getProperty("oracle.tlsCert");
+    if (tlsCert != null) {
+      // -Doracle.tlsCert=<pem>: TLS (ALPN h2) trusting that cert.
+      io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder tlsBuilder =
+          io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder.forAddress("127.0.0.1", port);
+      tlsBuilder.sslContext(io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts.forClient()
+          .trustManager(new java.io.File(tlsCert)).build());
+      channel = tlsBuilder.build();
+    } else {
+      channel = ManagedChannelBuilder.forAddress("127.0.0.1", port)
+          .usePlaintext().build();
+    }
     OracleClient client = new OracleClient(channel);
     for (String line : lines) {
       line = line.trim();

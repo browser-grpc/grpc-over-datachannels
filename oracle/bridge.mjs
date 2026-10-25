@@ -116,8 +116,12 @@ function metadataFromHttp2(headers) {
   return metadata;
 }
 
-export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1" }) {
-  const server = http2.createServer();
+export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null }) {
+  // HTTP/2 over TCP: plaintext h2c, or TLS (ALPN h2) when
+  // tls {cert, key} is given — the full official transport set.
+  const server = tls
+    ? http2.createSecureServer({ ...tls, allowHTTP1: false })
+    : http2.createServer();
   server.on("stream", (stream, headers) => {
     const path = headers[HTTP2_HEADER_PATH];
     const [id, input] = endpoint.openStream();

@@ -87,6 +87,3 @@ release/
 # image-generation tool output (master lives in docs/badger/)
 generated_images/
 
-# Rust proxy sidecar build output
-proxy/tcp-sidecar/target/
-proxy/h3-terminator/target/
