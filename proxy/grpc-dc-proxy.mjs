@@ -41,7 +41,13 @@ export async function dialDc(multiaddr) {
   return {
     endpoint,
     close: async () => {
-      await endpoint.close().catch(() => {});
+      // closeDirect also closes the UDP socket; the SCTP-only
+      // endpoint.close() would leak it and hang the process.
+      if (typeof endpoint.closeDirect === "function") {
+        await endpoint.closeDirect().catch(() => {});
+      } else {
+        await endpoint.close().catch(() => {});
+      }
     },
   };
 }
