@@ -752,9 +752,10 @@
    "  take(n) {\n    const value = this.bytes.slice(this.pos, this.pos + n);\n    if (value.length !== n) throw new Error(\"truncated field\");\n    this.pos += n;\n    return value;\n  }\n"
    "  field() {\n    if (this.done) return null;\n    const start = this.pos;\n    const tag = this.varint();\n    const field = Number(tag >> 3n);\n    const wire = Number(tag & 7n);\n    switch (wire) {\n      case 0:\n        return [field, wire, this.varint(), this.bytes.slice(start, this.pos)];\n      case 2: {\n        const len = Number(this.varint());\n        const v = this.take(len);\n        return [field, wire, v, this.bytes.slice(start, this.pos)];\n      }\n      case 1: {\n        const v = this.take(8);\n        return [field, wire, v, this.bytes.slice(start, this.pos)];\n      }\n      case 5: {\n        const v = this.take(4);\n        return [field, wire, v, this.bytes.slice(start, this.pos)];\n      }\n      default:\n        throw new Error(\"bad wire type \" + wire);\n    }\n  }\n}\n\n"
    "function concatBytes(a, b) {\n  const out = new Uint8Array(a.length + b.length);\n  out.set(a);\n  out.set(b, a.length);\n  return out;\n}\n\n"
+   "function putRaw(out, bytes) {\n  for (let i = 0; i < bytes.length; i++) out.push(bytes[i]);\n}\n\n"
    "function putTag(out, num, wire) {\n  out.push(...varintBytes((BigInt(num) << 3n) | BigInt(wire)));\n}\n\n"
    "function putVarintField(out, num, value) {\n  if (value === 0n) return;\n  putTag(out, num, 0);\n  out.push(...varintBytes(value));\n}\n\n"
-   "function putBytesField(out, num, payload) {\n  putTag(out, num, 2);\n  out.push(...varintBytes(payload.length), ...payload);\n}\n\n"
+   "function putBytesField(out, num, payload) {\n  putTag(out, num, 2);\n  putRaw(out, varintBytes(payload.length));\n  putRaw(out, payload);\n}\n\n"
    "function putStringField(out, num, value) {\n  if (!value) return;\n  putBytesField(out, num, new TextEncoder().encode(value));\n}\n\n"
    "function putFixedField(out, num, payload) {\n  putTag(out, num, payload.length === 8 ? 1 : 5);\n  out.push(...payload);\n}\n\n"
    "function fixedBytes(value, size, write) {\n  const bytes = new Uint8Array(size);\n  write(new DataView(bytes.buffer), value);\n  return bytes;\n}\n\n"
@@ -1169,7 +1170,7 @@
     (map
      (lambda (f) (js-pb-encode-guard model f (js-pb-encode-field model f)))
      (hash-ref msg 'fields)))
-   "    out.push(...msg.unknownFields);\n"
+   "    putRaw(out, msg.unknownFields);\n"
    "    return new Uint8Array(out);\n  }\n"
    (format "  static decode(bytes) {\n    const msg = new ~a();\n" name)
    "    const reader = new Reader(bytes);\n    let f;\n    while ((f = reader.field()) !== null) {\n      const [num, wire, value, raw] = f;\n      switch (num) {\n"

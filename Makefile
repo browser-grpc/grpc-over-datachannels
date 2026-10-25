@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen
+.PHONY: generate plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -88,6 +88,23 @@ stubs:
 	mkdir -p wasm/kotlin/native
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-kotlin-native=bin/protoc-gen-grpc-dc-kotlin-native \
 		--grpc-dc-kotlin-native_out=wasm/kotlin/native -I proto proto/echo.proto
+	$(MAKE) interop-stubs
+
+## Interop stubs: Google's grpc.testing.TestService (vendored in
+## oracle/interop) generated with our plugins for the languages
+## that run interop oracle tests against grpc-java.
+interop-stubs:
+	mkdir -p js/examples/interop go/interop python/examples
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-js=bin/protoc-gen-grpc-dc-js \
+		--grpc-dc-js_out=js/examples/interop -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-python=bin/protoc-gen-grpc-dc-python \
+		--grpc-dc-python_out=python/examples -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-go=bin/protoc-gen-grpc-dc-go \
+		--grpc-dc-go_out=go/interop -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto
+	gofmt -w go/interop/*.go
 
 generate: plugins stubs
 

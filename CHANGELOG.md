@@ -5,6 +5,22 @@ curated release tags on `master`; dates are the tag dates.
 
 ## Unreleased
 
+- Interop oracle (Direction A): the canonical grpc interop
+  suite now grades our generated clients. `grpc.testing`
+  protos vendored in `oracle/interop` (grpc-java v1.62.2,
+  Apache 2.0); our plugins generate `TestService` stubs for
+  JS, Python, and Go (`make interop-stubs`), and per-language
+  drivers run the interop cases against the official
+  grpc-java `TestServiceServer` directly over HTTP/2:
+  empty/large unary, streaming shapes, ping-pong, custom
+  metadata (initial echo), status + special-status messages,
+  unimplemented method/service, cancels, sleeping-server
+  deadline. Two generator fixes fell out: JS protobuf `bytes`
+  encoding no longer spreads large payloads onto the call
+  stack (271 KiB payloads work), and Go codegen handles
+  field-less messages and service-less protos. Still open:
+  official clients vs our servers (Direction B), grpc-go as
+  second oracle, trailing-metadata surfacing.
 - Generated HTTP/2 client transports (wave 1): generated
   stubs can now call official gRPC servers (grpc-java and
   peers) directly over HTTP/2 — no DataChannel, no bridge.

@@ -41,6 +41,14 @@
       <artifactId>grpc-stub</artifactId>
       <version>${grpc.version}</version>
     </dependency>
+    <!-- Official interop suite (grpc.testing.TestService): the
+         canonical cross-implementation test service. Used by the
+         interop oracle tests; oracle-only, never a runtime dep. -->
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-interop-testing</artifactId>
+      <version>${grpc.version}</version>
+    </dependency>
   </dependencies>
 
   <build>

@@ -83,6 +83,10 @@ function concatBytes(a, b) {
   return out;
 }
 
+function putRaw(out, bytes) {
+  for (let i = 0; i < bytes.length; i++) out.push(bytes[i]);
+}
+
 function putTag(out, num, wire) {
   out.push(...varintBytes((BigInt(num) << 3n) | BigInt(wire)));
 }
@@ -95,7 +99,8 @@ function putVarintField(out, num, value) {
 
 function putBytesField(out, num, payload) {
   putTag(out, num, 2);
-  out.push(...varintBytes(payload.length), ...payload);
+  putRaw(out, varintBytes(payload.length));
+  putRaw(out, payload);
 }
 
 function putStringField(out, num, value) {
@@ -130,7 +135,7 @@ export class EchoRequest {
     putStringField(out, 1, msg.message);
     putVarintField(out, 2, BigInt(msg.count));
     putVarintField(out, 3, BigInt(msg.delayMs));
-    out.push(...msg.unknownFields);
+    putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
   static decode(bytes) {
@@ -160,7 +165,7 @@ export class EchoResponse {
     const out = [];
     putStringField(out, 1, msg.message);
     putVarintField(out, 2, BigInt(msg.index));
-    out.push(...msg.unknownFields);
+    putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
   static decode(bytes) {
