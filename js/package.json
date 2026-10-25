@@ -1,6 +1,6 @@
 {
   "name": "grpc-dc",
-  "version": "0.31.0",
+  "version": "0.32.5",
   "description": "gRPC in the browser over WebRTC DataChannels: dependency-free generated gRPC clients & servers for JavaScript — no grpc-web proxy, no external runtime",
   "keywords": [
     "grpc",
@@ -30,11 +30,37 @@
     "./wire_gen.js": "./wire_gen.js",
     "./webrtc_direct": "./src/webrtc_direct.js"
   },
+  "bin": {
+    "protoc-gen-grpc-dc-js": "plugin/protoc-gen-grpc-dc-js.mjs",
+    "protoc-gen-grpc-dc-c": "plugin/protoc-gen-grpc-dc-c.mjs",
+    "protoc-gen-grpc-dc-go": "plugin/protoc-gen-grpc-dc-go.mjs",
+    "protoc-gen-grpc-dc-python": "plugin/protoc-gen-grpc-dc-python.mjs",
+    "protoc-gen-grpc-dc-rust": "plugin/protoc-gen-grpc-dc-rust.mjs",
+    "protoc-gen-grpc-dc-java": "plugin/protoc-gen-grpc-dc-java.mjs",
+    "protoc-gen-grpc-dc-csharp": "plugin/protoc-gen-grpc-dc-csharp.mjs",
+    "protoc-gen-grpc-dc-cpp": "plugin/protoc-gen-grpc-dc-cpp.mjs",
+    "protoc-gen-grpc-dc-swift": "plugin/protoc-gen-grpc-dc-swift.mjs",
+    "protoc-gen-grpc-dc-kotlin": "plugin/protoc-gen-grpc-dc-kotlin.mjs",
+    "protoc-gen-grpc-dc-dart": "plugin/protoc-gen-grpc-dc-dart.mjs",
+    "protoc-gen-grpc-dc-zig": "plugin/protoc-gen-grpc-dc-zig.mjs",
+    "protoc-gen-grpc-dc-lua": "plugin/protoc-gen-grpc-dc-lua.mjs",
+    "protoc-gen-grpc-dc-ruby": "plugin/protoc-gen-grpc-dc-ruby.mjs",
+    "protoc-gen-grpc-dc-php": "plugin/protoc-gen-grpc-dc-php.mjs",
+    "protoc-gen-grpc-dc-scala": "plugin/protoc-gen-grpc-dc-scala.mjs",
+    "protoc-gen-grpc-dc-wasm-go": "plugin/protoc-gen-grpc-dc-wasm-go.mjs",
+    "protoc-gen-grpc-dc-wasm-zig": "plugin/protoc-gen-grpc-dc-wasm-zig.mjs",
+    "protoc-gen-grpc-dc-wasm-cpp": "plugin/protoc-gen-grpc-dc-wasm-cpp.mjs",
+    "protoc-gen-grpc-dc-wasm-swift": "plugin/protoc-gen-grpc-dc-wasm-swift.mjs",
+    "protoc-gen-grpc-dc-wasm-kotlin": "plugin/protoc-gen-grpc-dc-wasm-kotlin.mjs",
+    "protoc-gen-grpc-dc-wasm-scala": "plugin/protoc-gen-grpc-dc-wasm-scala.mjs",
+    "protoc-gen-grpc-dc-kotlin-native": "plugin/protoc-gen-grpc-dc-kotlin-native.mjs"
+  },
   "files": [
     "index.js",
     "index.d.ts",
     "wire_gen.js",
-    "src"
+    "src",
+    "plugin"
   ],
   "scripts": {
     "test": "node --test test/*.test.js"

@@ -24,15 +24,15 @@ services:
     profiles: ["starter", "tunnel"]
   demo-go:
     build: { context: ., dockerfile: docker/go.Dockerfile }
-    command: sh -c "go run ./examples/echo_server_stdio & sleep 2; go run ./examples/echo_client_stdio; kill %1"
+    command: sh -c "cd go && go test -run TestEchoAllShapesLoopback -v ."
     profiles: ["demo"]
   demo-python:
     build: { context: ., dockerfile: docker/python.Dockerfile }
-    command: sh -c "python3 python/examples/echo_server_stdio.py & sleep 2; python3 python/examples/echo_client_stdio.py; kill %1"
+    command: sh -c "cd python && python3 -m unittest tests.test_echo -v"
     profiles: ["demo"]
   demo-rust:
     build: { context: ., dockerfile: docker/rust.Dockerfile }
-    command: sh -c "cargo run --manifest-path rust/Cargo.toml --example echo_server_stdio & sleep 3; cargo run --manifest-path rust/Cargo.toml --example echo_client_stdio; kill %1"
+    command: sh -c "cd rust && cargo test --test echo_e2e"
     profiles: ["demo"]
   demo-js:
     image: node:24-bookworm-slim

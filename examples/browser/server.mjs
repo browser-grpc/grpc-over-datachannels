@@ -4,7 +4,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "../starter/signal.mjs";
 import { Peer } from "../../webrtc/js/peer.js";
-import { Server } from "../../js/index.js";
+import { Server, StatusCode, StatusError } from "../../js/index.js";
 import { EchoResponse } from "../../js/examples/echo_pb.js";
 import { createEchoService } from "../../js/examples/echo_grpc_dc.js";
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -12,10 +12,19 @@ const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm" };
 const handlers = {
-  async unary(req) { return new EchoResponse({ message: `echo: ${req.message}`, index: 0 }); },
-  async *serverStream(req) { for (let i = 0; i < Math.max(0, req.count); i++) yield new EchoResponse({ message: req.message, index: i }); },
+  async unary(req, ctx) {
+    if (req.message === "fail") throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+    if (req.delayMs > 0) await new Promise((r) => setTimeout(r, req.delayMs));
+    const md = ctx?.metadata;
+    const mv = typeof md?.get === "function" ? md.get("x-echo") : md?.["x-echo"];
+    return new EchoResponse({ message: `echo: ${req.message}${mv ? ` [${mv}]` : ""}`, index: 0 });
+  },
+  async *serverStream(req) {
+    if (req.message === "fail") throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+    for (let i = 0; i < Math.max(0, req.count); i++) yield new EchoResponse({ message: req.message, index: i });
+  },
   async clientStream(requests) { const p = []; for await (const r of requests) p.push(r.message); return new EchoResponse({ message: p.join("+"), index: p.length }); },
-  async *bidi(requests) { let i = 0; for await (const r of requests) yield new EchoResponse({ message: r.message, index: i++ }); },
+  async *bidi(requests) { let i = 0; for await (const r of requests) { if (r.message === "fail") throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail"); yield new EchoResponse({ message: r.message, index: i++ }); } },
 };
 const http = createServer(async (req, res) => {
   try {

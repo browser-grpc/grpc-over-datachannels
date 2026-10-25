@@ -3,6 +3,146 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.5 — 2026-10-24
+
+- Proxy redone, ingress-only, scoped to exactly the
+  official gRPC transport set (grpc-java and peers):
+  HTTP/2 over TCP (h2c, or TLS with --tls-cert/--tls-key)
+  in front of a grpc-dc server dialed over WebRTC-Direct
+  (certhash multiaddr, no signaling server) and mapped
+  onto the existing Server.serve interface. Removed: the
+  egress direction (DataChannel clients -> HTTP/2
+  backend), the custom framed-TCP ingress, the HTTP/3
+  front-end, and the smoltcp sidecar crate. The
+  Racket proxy spec now generates a single http2-ingress
+  mode; parity tests assert the removed surface is absent.
+- Oracle coverage vs grpc-java filled in: the Java oracle
+  now implements canonical Echo semantics (x-echo metadata
+  reflection, delayMs, per-shape fail) and client modes
+  for metadata, deadlines (new DEADLINE case), and TLS.
+  New e2e tests: metadata both directions, deadline both
+  directions (DEADLINE_EXCEEDED), unknown method
+  (UNIMPLEMENTED), 1000-message server stream, Java client
+  over TLS through the bridge, and the official Java
+  client through the redone ingress proxy to a grpc-dc
+  server over WebRTC-Direct. All passing.
+- Includes everything in v0.32.4 (superseded before its
+  separate public publish).
+
+## v0.32.4 — 2026-10-24
+
+- Proxy surface, mostly generated: racket/proxy-spec.rkt is
+  the single source for proxy modes; proxy-gen stamps it
+  into proxy/proxy_modes.generated.json and proxy/README.md
+  via `make generate`, and proxy.test.mjs pins spec<->code
+  parity in `make test`.
+- smoltcp spike (proxy/tcp-sidecar, Rust): userspace TCP
+  echo between two smoltcp stacks over a virtual Ethernet
+  pair — handshake/data/teardown with zero OS sockets
+  (`cargo test` in the crate), plus a UDP-encapsulated
+  frame binary. Separate crate: dc-webrtc stays zero-dep.
+- HTTP/3 spike (proxy/h3-terminator, Rust/quinn): QUIC
+  endpoint (self-signed) bridging streams to a TCP backend
+  (`cargo test` in the crate). QUIC exists only client<->
+  proxy; the h3 framing layer is the follow-up.
+- The Node grpc-dc-proxy is now in the public export
+  (proxy/ with bridge + generated README + mode table;
+  imports rewritten to the export layout, healthz-verified
+  from the export tree). Rust sidecars stay private.
+- Outreach drafts refreshed for the current feature set;
+  awesome-list submission happens in a publish window.
+- Includes everything in v0.32.3 (superseded before its
+  separate public publish).
+
+## v0.32.3 — 2026-10-24
+
+- Spike: supported TCP<->DataChannel proxy process
+  (proxy/grpc-dc-proxy.mjs), generalizing the oracle test
+  bridge. grpc-dc clients (browser or native) signal over
+  WebSocket and call a stock HTTP/2 gRPC backend with no
+  backend changes; compression stays terminated in the
+  proxy. Proven by proxy/proxy.test.mjs (`make test-proxy`,
+  now in `make test`): generated JS client over a real
+  DataChannel through the proxy — unary, server-streaming,
+  and trailers-only INVALID_ARGUMENT all pass. Follow-ups
+  (not in this spike): smoltcp TCP-listener sidecar mode,
+  HTTP/3 termination, generated per-language proxy
+  examples, public export of the proxy.
+- Includes everything in v0.32.2 (superseded before its
+  separate public publish).
+
+## v0.32.2 — 2026-10-24
+
+- Honey badger mascot across the project: master artwork
+  plus derived resolutions (1024–16 px) and a multi-size
+  favicon.ico under docs/badger/ (generator:
+  scripts/render-badger.py). Wired into the GitHub social
+  card, the Pages landing page (header image + favicons),
+  the in-browser generator app (favicon set, apple-touch
+  icon, og:image), the repo README, and the org profile.
+  GitHub org/repo avatar upload stays a manual step from
+  docs/badger/honey-badger-512.png (no API for avatars).
+- Includes everything in v0.32.1 (superseded before its
+  separate public publish).
+
+## v0.32.1 — 2026-10-24
+
+- Browser-examples index is now covered in all three
+  engines: `test-browser-examples` (new in `make test`)
+  drives the newcomer page's own signaling flow for all
+  nine Wasm languages in Chromium, Firefox, and WebKit —
+  9/9 in each. Previously verified in Chromium only.
+- npm publishing future-proofing: the export ships a
+  manually dispatched Trusted Publishing workflow
+  (`.github/workflows/publish-npm.yml`, OIDC + provenance,
+  no stored token) plus maintainer doc NPM-PUBLISHING.md.
+  One-time Trusted Publisher setup on npmjs.com remains;
+  the local token path stays active until npm retires
+  token-based direct publishing in January 2027.
+- Includes everything in v0.32.0 (superseded before its
+  separate public publish).
+
+## v0.32.0 — 2026-10-24
+
+- Plugin distribution: three install channels for the same
+  dependency-free protoc plugins (protoc + Node.js 18+;
+  see PLUGINS.md). (1) Every GitHub Release now carries a
+  self-contained `grpc-dc-<version>.zip` plus `SHA256SUMS`
+  (bin/ wrappers + plugin runtime; runs in place after
+  unzip). (2) The `grpc-dc` npm package ships all 23 plugins
+  as bin entries (`node_modules/.bin/protoc-gen-grpc-dc-*`).
+  (3) A `ghcr.io/browser-grpc/protoc-plugins` container image
+  (per-version tag + `latest`) with protoc and all plugins
+  preinstalled on PATH — no host Node needed. All three
+  channels verified against `proto/echo.proto` before
+  release (zip: Go stubs; npm: Rust stubs; container:
+  Python stubs).
+- Includes everything in v0.31.1 (superseded before its
+  separate public publish).
+
+## v0.31.1 — 2026-10-24
+
+- Browser examples work from a public clone: the export
+  now ships the prebuilt Wasm client bundles (~10 MB;
+  `make artifacts` builds them in the private tree, and a
+  missing bundle fails the release loudly). Verified
+  clean-room from the exported tree: compose starter,
+  compose browser-examples (9/9 languages in a real
+  browser), and the tunnel-browser profile (9/9 through a
+  live trycloudflare.com URL).
+- All nine Wasm languages are back in the browser-examples
+  index, Lua included. The v0.31.0 exclusion misdiagnosed
+  the cause: Lua's native client runs the deep BDD
+  scenarios (failure/metadata/cancel/deadline), and the
+  generated starter/browser servers only implemented the
+  happy-path Echo. Both generated servers now implement
+  the canonical Echo semantics; the Lua run settles and
+  the index passes 9/9.
+- Demo profile fixed: `demo-go`, `demo-python`, and
+  `demo-rust` ran stdio interop harnesses with no driver
+  attached (they block on stdin by design). They now run
+  each language's loopback suite and print its transcript.
+
 ## v0.31.0 — 2026-10-24
 
 - Browser examples are now Docker- and tunnel-powered:

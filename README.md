@@ -1,5 +1,7 @@
 # gRPC over WebRTC DataChannels — in the browser and natively
 
+<p align="center"><img src="docs/badger/honey-badger-256.png" width="160" alt="Honey badger mascot — grpc-over-datachannels: small, fearless, goes anywhere the web goes"></p>
+
 [![Release](https://img.shields.io/github/v/release/browser-grpc/grpc-over-datachannels?label=release)](https://github.com/browser-grpc/grpc-over-datachannels/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Live generator](https://img.shields.io/badge/live%20generator-browser--grpc.github.io-brightgreen)](https://browser-grpc.github.io/grpc-over-datachannels/app/)
@@ -33,7 +35,7 @@ paste a `.proto`, get protoc stubs for every language. Keywords:
 `rtcdatachannel`, `protobuf`, `protoc plugin`, `wasm`,
 `browser rpc`, `peer-to-peer`.
 
-This repository is a generated public export (version v0.31.0)
+This repository is a generated public export (version v0.32.5)
 of the grpc-over-datachannels project. Generated code may be used
 without restriction (see GENERATED-CODE-LICENSE.md); everything
 else is Apache-2.0 (see LICENSE).
@@ -187,7 +189,7 @@ table runs natively in every language above and in real browsers.
 
 ## Provenance
 
-Exported from source commit `c686daf0de3c2638c0bd88ea5e69f7a36610a0f9` by the project's
+Exported from source commit `d727b87e0203b527e87de45d4a877ce5fcb4afac` by the project's
 code generator. This tree contains no build system: each language
 directory carries its runtime, generated stubs, examples, and
 tests in that language's usual layout.
