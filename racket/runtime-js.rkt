@@ -99,7 +99,7 @@ export function asUint8Array(data) {
 }
 
 export function headersFrame(streamId, path, metadata = {}) {
-  const body = path === null ? {} : { path, metadata };
+  const body = path === null ? { metadata } : { path, metadata };
   return encodeFrame(FrameType.HEADERS, streamId, textEncoder.encode(JSON.stringify(body)));
 }
 
@@ -123,9 +123,15 @@ export function parseTimeout(text) {
   return Number(digits) * unit;
 }
 
-export function statusFrame(frameType, streamId, status) {
-  const body = JSON.stringify({ code: status.code, message: status.statusMessage ?? status.message ?? "" });
-  return encodeFrame(frameType, streamId, textEncoder.encode(body));
+// Status frames (TRAILERS/RST) carry {code, message} and, when
+// the call produced trailing metadata, a metadata member with
+// the same JSON shape as HEADERS metadata (SPEC.md). Peers that
+// predate trailing metadata ignore the member.
+export function statusFrame(frameType, streamId, status, trailers = undefined) {
+  const md = trailers ?? status.trailers;
+  const body = { code: status.code, message: status.statusMessage ?? status.message ?? "" };
+  if (md && Object.keys(md).length > 0) body.metadata = md;
+  return encodeFrame(frameType, streamId, textEncoder.encode(JSON.stringify(body)));
 }
 
 export function parseHeaders(payload) {
@@ -140,7 +146,9 @@ export function parseHeaders(payload) {
 export function parseStatus(payload) {
   try {
     const parsed = JSON.parse(textDecoder.decode(payload));
-    return new StatusError(parsed.code ?? 2, parsed.message ?? "");
+    const status = new StatusError(parsed.code ?? 2, parsed.message ?? "");
+    status.trailers = parsed.metadata ?? {};
+    return status;
   } catch {
     return StatusError.internal("malformed status payload");
   }
@@ -422,7 +430,7 @@ export class Endpoint {
 
   #terminal(streamId, payload, kind) {
     const status = parseStatus(payload);
-    this.#streams.get(streamId)?.push({ kind, status });
+    this.#streams.get(streamId)?.push({ kind, status, trailers: status.trailers ?? {} });
     this.#streams.delete(streamId);
   }
 
@@ -463,14 +471,17 @@ export class Endpoint {
     this.#streams.set(streamId, input);
     const sink = {
       sendData: (payload) => this.sendFrame(encodeFrame(FrameType.DATA, streamId, payload)),
-      sendHeaders: () => this.sendFrame(headersFrame(streamId, null)),
-      sendTrailers: (status) =>
-        this.sendFrame(statusFrame(FrameType.TRAILERS, streamId, status)),
+      sendHeaders: (metadata = {}) => this.sendFrame(headersFrame(streamId, null, metadata)),
+      sendTrailers: (status, trailers) =>
+        this.sendFrame(statusFrame(FrameType.TRAILERS, streamId, status, trailers)),
     };
     try {
-      await sink.sendHeaders();
-      await this.dispatcher(headers.path, headers, input, sink);
-      await sink.sendTrailers(StatusError.ok());
+      // No eager HEADERS: the dispatcher sends initial metadata
+      // via sink.sendHeaders (Server does it lazily before the
+      // first DATA). A dispatcher may return {trailers} to have
+      // them ride the OK status frame.
+      const extra = await this.dispatcher(headers.path, headers, input, sink);
+      await sink.sendTrailers(StatusError.ok(), extra?.trailers);
     } catch (e) {
       const status =
         e instanceof StatusError ? e : StatusError.internal(e?.message ?? String(e));
@@ -599,7 +610,11 @@ export class Channel {
     await this.#endpoint.sendFrame(encodeFrame(FrameType.DATA, id, ReqType.encode(request)));
   }
 
-  async #collectOne(id, input, RespType, deadline = null) {
+  // hooks: optional {onHeaders, onTrailers} from call options,
+  // invoked with the response initial/trailing metadata ({} when
+  // the peer sent none). Trailers also ride the terminal
+  // StatusError as .trailers, success or failure.
+  async #collectOne(id, input, RespType, deadline = null, hooks = {}) {
     const iterator = input[Symbol.asyncIterator]();
     try {
       let response = null;
@@ -607,12 +622,15 @@ export class Channel {
         const step = await this.#next(id, iterator, deadline);
         if (step.done) break;
         const event = step.value;
-        if (event.kind === "data") {
+        if (event.kind === "headers") {
+          hooks.onHeaders?.(event.headers?.metadata ?? {});
+        } else if (event.kind === "data") {
           if (response !== null) {
             throw StatusError.internal("unary call received more than one response");
           }
           response = RespType.decode(event.payload);
         } else if (event.kind === "trailers") {
+          hooks.onTrailers?.(event.trailers ?? {});
           this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
           if (event.status.code !== 0) throw event.status;
           if (response === null) throw StatusError.internal("call closed with no response");
@@ -629,16 +647,19 @@ export class Channel {
     }
   }
 
-  async *#responses(id, input, RespType, deadline = null) {
+  async *#responses(id, input, RespType, deadline = null, hooks = {}) {
     const iterator = input[Symbol.asyncIterator]();
     try {
       for (;;) {
         const step = await this.#next(id, iterator, deadline);
         if (step.done) break;
         const event = step.value;
-        if (event.kind === "data") {
+        if (event.kind === "headers") {
+          hooks.onHeaders?.(event.headers?.metadata ?? {});
+        } else if (event.kind === "data") {
           yield RespType.decode(event.payload);
         } else if (event.kind === "trailers") {
+          hooks.onTrailers?.(event.trailers ?? {});
           this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
           if (event.status.code !== 0) throw event.status;
           return;
@@ -669,41 +690,41 @@ export class Channel {
   }
 
   /** Unary: one request, one response. */
-  async unary(path, request, ReqType, RespType, { metadata = {}, timeout } = {}) {
+  async unary(path, request, ReqType, RespType, { metadata = {}, timeout, onHeaders, onTrailers } = {}) {
     const [id, input, deadline] = await this.#open(path, metadata, timeout);
     await this.#sendMessage(id, ReqType, request);
     await this.#endpoint.sendFrame(encodeFrame(FrameType.HALF_CLOSE, id));
-    return this.#collectOne(id, input, RespType, deadline);
+    return this.#collectOne(id, input, RespType, deadline, { onHeaders, onTrailers });
   }
 
   /** Server-streaming: one request, async iterable of responses. */
-  serverStream(path, request, ReqType, RespType, { metadata = {}, timeout } = {}) {
+  serverStream(path, request, ReqType, RespType, { metadata = {}, timeout, onHeaders, onTrailers } = {}) {
     return (async () => {
       const [id, input, deadline] = await this.#open(path, metadata, timeout);
       await this.#sendMessage(id, ReqType, request);
       await this.#endpoint.sendFrame(encodeFrame(FrameType.HALF_CLOSE, id));
-      return this.#responses(id, input, RespType, deadline);
+      return this.#responses(id, input, RespType, deadline, { onHeaders, onTrailers });
     })();
   }
 
   /** Client-streaming: async iterable of requests, one response. */
-  async clientStream(path, requests, ReqType, RespType, { metadata = {}, timeout } = {}) {
+  async clientStream(path, requests, ReqType, RespType, { metadata = {}, timeout, onHeaders, onTrailers } = {}) {
     const [id, input, deadline] = await this.#open(path, metadata, timeout);
     const pump = this.#pump(id, requests, ReqType);
     try {
-      return await this.#collectOne(id, input, RespType, deadline);
+      return await this.#collectOne(id, input, RespType, deadline, { onHeaders, onTrailers });
     } finally {
       pump.catch(() => {});
     }
   }
 
   /** Bidirectional: async iterable of requests and of responses. */
-  bidi(path, requests, ReqType, RespType, { metadata = {}, timeout } = {}) {
+  bidi(path, requests, ReqType, RespType, { metadata = {}, timeout, onHeaders, onTrailers } = {}) {
     return (async () => {
       const [id, input, deadline] = await this.#open(path, metadata, timeout);
       const pump = this.#pump(id, requests, ReqType);
       pump.catch(() => {});
-      return this.#responses(id, input, RespType, deadline);
+      return this.#responses(id, input, RespType, deadline, { onHeaders, onTrailers });
     })();
   }
 
@@ -792,6 +813,28 @@ export class Server {
     const metadata = headers.metadata ?? {};
     const timeoutMs = parseTimeout(metadata["grpc-timeout"]);
     const deadline = timeoutMs === null ? null : Date.now() + timeoutMs;
+    // Initial/trailing metadata the handler accumulates via
+    // ctx.setHeaders/ctx.setTrailers. Initial metadata flushes
+    // lazily, right before the first response DATA (or at the
+    // end of a call that produced none); trailers ride the
+    // terminal status frame.
+    const responseHeaders = {};
+    const responseTrailers = {};
+    let headersSent = false;
+    const flushHeaders = async () => {
+      if (!headersSent) {
+        headersSent = true;
+        await sink.sendHeaders(responseHeaders);
+      }
+    };
+    const callSink = {
+      sendHeaders: flushHeaders,
+      sendData: async (payload) => {
+        await flushHeaders();
+        await sink.sendData(payload);
+      },
+      sendTrailers: sink.sendTrailers,
+    };
     const ctx = {
       path,
       metadata,
@@ -799,16 +842,23 @@ export class Server {
       method: method.method,
       deadline,
       timeRemaining: () => (deadline === null ? null : deadline - Date.now()),
+      setHeaders: (md) => Object.assign(responseHeaders, md),
+      setTrailers: (md) => Object.assign(responseTrailers, md),
     };
     const traceCtx = traceStart("server", path, parseTraceparent(metadata.traceparent));
     let traceStatus = "OK";
     try {
-      await this.#dispatchTraced(path, method, ctx, input, sink);
+      await this.#dispatchTraced(path, method, ctx, input, callSink);
+      await flushHeaders();
+      return { trailers: responseTrailers };
     } catch (e) {
       traceStatus =
         e instanceof StatusError
           ? (StatusName[e.code] ?? `CODE_${e.code}`)
           : "INTERNAL";
+      // Trailers set before the failure still ride the status
+      // frame (statusFrame reads status.trailers).
+      if (e instanceof StatusError) e.trailers = { ...responseTrailers, ...(e.trailers ?? {}) };
       throw e;
     } finally {
       traceEnd("server", path, traceCtx, traceStatus);

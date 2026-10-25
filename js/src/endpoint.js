@@ -199,7 +199,7 @@ export class Endpoint {
 
   #terminal(streamId, payload, kind) {
     const status = parseStatus(payload);
-    this.#streams.get(streamId)?.push({ kind, status });
+    this.#streams.get(streamId)?.push({ kind, status, trailers: status.trailers ?? {} });
     this.#streams.delete(streamId);
   }
 
@@ -240,14 +240,17 @@ export class Endpoint {
     this.#streams.set(streamId, input);
     const sink = {
       sendData: (payload) => this.sendFrame(encodeFrame(FrameType.DATA, streamId, payload)),
-      sendHeaders: () => this.sendFrame(headersFrame(streamId, null)),
-      sendTrailers: (status) =>
-        this.sendFrame(statusFrame(FrameType.TRAILERS, streamId, status)),
+      sendHeaders: (metadata = {}) => this.sendFrame(headersFrame(streamId, null, metadata)),
+      sendTrailers: (status, trailers) =>
+        this.sendFrame(statusFrame(FrameType.TRAILERS, streamId, status, trailers)),
     };
     try {
-      await sink.sendHeaders();
-      await this.dispatcher(headers.path, headers, input, sink);
-      await sink.sendTrailers(StatusError.ok());
+      // No eager HEADERS: the dispatcher sends initial metadata
+      // via sink.sendHeaders (Server does it lazily before the
+      // first DATA). A dispatcher may return {trailers} to have
+      // them ride the OK status frame.
+      const extra = await this.dispatcher(headers.path, headers, input, sink);
+      await sink.sendTrailers(StatusError.ok(), extra?.trailers);
     } catch (e) {
       const status =
         e instanceof StatusError ? e : StatusError.internal(e?.message ?? String(e));

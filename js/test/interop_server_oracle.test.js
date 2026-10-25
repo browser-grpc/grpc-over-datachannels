@@ -7,10 +7,8 @@
 // binary is not built (Dockerfile.ci builds both).
 //
 // Excluded (oracle/interop/README.md): auth, compression,
-// orca, soak — and custom_metadata, whose trailing-bin echo
-// the grpc-dc frame layer cannot carry. cacheable_unary runs
-// only under the Java client (the Go client does not
-// implement that case upstream).
+// orca, soak. cacheable_unary runs only under the Java client
+// (the Go client does not implement that case upstream).
 
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -35,6 +33,7 @@ const CASES = [
   "server_streaming",
   "ping_pong",
   "empty_stream",
+  "custom_metadata",
   "status_code_and_message",
   "special_status_message",
   "unimplemented_method",

@@ -16,6 +16,7 @@ package grpcdc_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -235,20 +236,62 @@ func runInteropCases(t *testing.T, client *testingpb.TestServiceClient, channel 
 	})
 
 	t.Run("custom_metadata", func(t *testing.T) {
-		resp := &testingpb.SimpleResponse{}
-		err := channel.UnaryWithMetadata(ctx, "/grpc.testing.TestService/UnaryCall",
+		// Upstream custom_metadata: echo-initial returns as
+		// response initial metadata, echo-trailing-bin (binary
+		// 0x0a 0x0b ...; base64 on our wire) as trailers.
+		// Asserted on UnaryCall and FullDuplexCall, mirroring
+		// AbstractInteropTest.
+		trailingBin := base64.StdEncoding.EncodeToString(
+			[]byte{0x0a, 0x0b, 0x0a, 0x0b, 0x0a, 0x0b})
+		md := map[string]string{
+			"x-grpc-test-echo-initial":       "test_initial_metadata_value",
+			"x-grpc-test-echo-trailing-bin": trailingBin,
+		}
+		assertEcho := func(header, trailer map[string]string) {
+			t.Helper()
+			if got := header["x-grpc-test-echo-initial"]; got != "test_initial_metadata_value" {
+				t.Fatalf("initial echo = %q", got)
+			}
+			if got := trailer["x-grpc-test-echo-trailing-bin"]; got != trailingBin {
+				t.Fatalf("trailing echo = %q, want %q", got, trailingBin)
+			}
+		}
+
+		stream, err := channel.UnaryStream(ctx, "/grpc.testing.TestService/UnaryCall",
 			&testingpb.SimpleRequest{
 				ResponseSize: 1,
 				Payload:      &testingpb.Payload{Body: zeros(1)},
-			}, resp, map[string]string{
-				"x-grpc-test-echo-initial": "test_initial_metadata_value",
-			})
+			}, md)
 		if err != nil {
+			t.Fatal(err)
+		}
+		resp := &testingpb.SimpleResponse{}
+		if err := stream.Recv(resp); err != nil {
 			t.Fatal(err)
 		}
 		if len(resp.Payload.Body) != 1 {
 			t.Fatalf("payload len = %d", len(resp.Payload.Body))
 		}
+		if err := stream.Recv(&testingpb.SimpleResponse{}); err != io.EOF {
+			t.Fatalf("final recv = %v, want EOF", err)
+		}
+		assertEcho(stream.Header(), stream.Trailer())
+
+		duplex, err := channel.BidiWithMetadata(ctx, "/grpc.testing.TestService/FullDuplexCall",
+			[]grpcdc.Marshaler{&testingpb.StreamingOutputCallRequest{
+				ResponseParameters: []*testingpb.ResponseParameters{{Size: 1}},
+				Payload:            &testingpb.Payload{Body: zeros(1)},
+			}}, md)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := duplex.Recv(&testingpb.StreamingOutputCallResponse{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := duplex.Recv(&testingpb.StreamingOutputCallResponse{}); err != io.EOF {
+			t.Fatalf("duplex final recv = %v, want EOF", err)
+		}
+		assertEcho(duplex.Header(), duplex.Trailer())
 	})
 
 	t.Run("status_code_and_message", func(t *testing.T) {

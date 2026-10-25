@@ -85,7 +85,7 @@ export function asUint8Array(data) {
 }
 
 export function headersFrame(streamId, path, metadata = {}) {
-  const body = path === null ? {} : { path, metadata };
+  const body = path === null ? { metadata } : { path, metadata };
   return encodeFrame(FrameType.HEADERS, streamId, textEncoder.encode(JSON.stringify(body)));
 }
 
@@ -109,9 +109,15 @@ export function parseTimeout(text) {
   return Number(digits) * unit;
 }
 
-export function statusFrame(frameType, streamId, status) {
-  const body = JSON.stringify({ code: status.code, message: status.statusMessage ?? status.message ?? "" });
-  return encodeFrame(frameType, streamId, textEncoder.encode(body));
+// Status frames (TRAILERS/RST) carry {code, message} and, when
+// the call produced trailing metadata, a metadata member with
+// the same JSON shape as HEADERS metadata (SPEC.md). Peers that
+// predate trailing metadata ignore the member.
+export function statusFrame(frameType, streamId, status, trailers = undefined) {
+  const md = trailers ?? status.trailers;
+  const body = { code: status.code, message: status.statusMessage ?? status.message ?? "" };
+  if (md && Object.keys(md).length > 0) body.metadata = md;
+  return encodeFrame(frameType, streamId, textEncoder.encode(JSON.stringify(body)));
 }
 
 export function parseHeaders(payload) {
@@ -126,7 +132,9 @@ export function parseHeaders(payload) {
 export function parseStatus(payload) {
   try {
     const parsed = JSON.parse(textDecoder.decode(payload));
-    return new StatusError(parsed.code ?? 2, parsed.message ?? "");
+    const status = new StatusError(parsed.code ?? 2, parsed.message ?? "");
+    status.trailers = parsed.metadata ?? {};
+    return status;
   } catch {
     return StatusError.internal("malformed status payload");
   }

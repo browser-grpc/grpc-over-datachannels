@@ -42,6 +42,9 @@ const MaxDataPayload = 16 * 1024 * 1024
 type StatusError struct {
 	Code    Code
 	Message string
+	// Trailers is the trailing metadata carried by a status
+	// frame (nil when the peer sent none).
+	Trailers map[string]string
 }
 
 func (e *StatusError) Error() string {
@@ -290,12 +293,9 @@ func ParseTimeout(text string) (time.Duration, bool) {
 }
 
 func headersFrame(streamID uint32, path *string, metadata map[string]string) ([]byte, error) {
-	body := headersBody{Path: path}
-	if path != nil {
-		body.Metadata = metadata
-		if body.Metadata == nil {
-			body.Metadata = map[string]string{}
-		}
+	body := headersBody{Path: path, Metadata: metadata}
+	if body.Metadata == nil {
+		body.Metadata = map[string]string{}
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -304,11 +304,16 @@ func headersFrame(streamID uint32, path *string, metadata map[string]string) ([]
 	return EncodeFrame(FrameHeaders, streamID, payload)
 }
 
+// Status frames (TRAILERS/RST) carry {code, message} and, when
+// the call produced trailing metadata, a metadata member with
+// the same JSON shape as HEADERS metadata (SPEC.md). Peers that
+// predate trailing metadata ignore the member.
 func statusFrame(frameType FrameType, streamID uint32, status *StatusError) ([]byte, error) {
 	payload, err := json.Marshal(struct {
-		Code    Code   `json:"code"`
-		Message string `json:"message"`
-	}{status.Code, status.Message})
+		Code     Code              `json:"code"`
+		Message  string            `json:"message"`
+		Metadata map[string]string `json:"metadata,omitempty"`
+	}{status.Code, status.Message, status.Trailers})
 	if err != nil {
 		return nil, err
 	}
@@ -328,8 +333,9 @@ func parseHeaders(payload []byte) (Headers, error) {
 
 func parseStatus(payload []byte) *StatusError {
 	var body struct {
-		Code    *Code  `json:"code"`
-		Message string `json:"message"`
+		Code     *Code             `json:"code"`
+		Message  string            `json:"message"`
+		Metadata map[string]string `json:"metadata"`
 	}
 	if err := json.Unmarshal(payload, &body); err != nil {
 		return NewStatus(CodeInternal, "malformed status payload")
@@ -338,7 +344,9 @@ func parseStatus(payload []byte) *StatusError {
 	if body.Code != nil {
 		code = *body.Code
 	}
-	return NewStatus(code, body.Message)
+	status := NewStatus(code, body.Message)
+	status.Trailers = body.Metadata
+	return status
 }
 GRPC_RUNTIME_EOF
 )
@@ -421,9 +429,19 @@ type Dispatcher func(ctx context.Context, headers Headers, in *streamInput, sink
 type responseSink struct {
 	ep *Endpoint
 	id uint32
+	// Initial/trailing metadata the handler accumulates via
+	// SetHeader/SetTrailer. Initial metadata flushes lazily,
+	// right before the first response DATA; trailers merge
+	// into the terminal status frame.
+	respHeaders  map[string]string
+	respTrailers map[string]string
+	headersSent  bool
 }
 
 func (s *responseSink) SendData(payload []byte) error {
+	if err := s.FlushHeaders(); err != nil {
+		return err
+	}
 	frame, err := EncodeFrame(FrameData, s.id, payload)
 	if err != nil {
 		return err
@@ -431,8 +449,18 @@ func (s *responseSink) SendData(payload []byte) error {
 	return s.ep.SendFrame(frame)
 }
 
-func (s *responseSink) sendHeaders() error {
-	frame, err := headersFrame(s.id, nil, nil)
+// FlushHeaders sends the HEADERS frame (with accumulated
+// initial metadata) if it has not gone out yet.
+func (s *responseSink) FlushHeaders() error {
+	if s.headersSent {
+		return nil
+	}
+	s.headersSent = true
+	return s.sendHeaders(s.respHeaders)
+}
+
+func (s *responseSink) sendHeaders(metadata map[string]string) error {
+	frame, err := headersFrame(s.id, nil, metadata)
 	if err != nil {
 		return err
 	}
@@ -440,6 +468,18 @@ func (s *responseSink) sendHeaders() error {
 }
 
 func (s *responseSink) sendTrailers(status *StatusError) error {
+	if len(s.respTrailers) > 0 {
+		merged := make(map[string]string, len(s.respTrailers)+len(status.Trailers))
+		for k, v := range s.respTrailers {
+			merged[k] = v
+		}
+		for k, v := range status.Trailers {
+			merged[k] = v
+		}
+		clone := *status
+		clone.Trailers = merged
+		status = &clone
+	}
 	frame, err := statusFrame(FrameTrailers, s.id, status)
 	if err != nil {
 		return err
@@ -613,9 +653,10 @@ func (ep *Endpoint) onHeaders(streamID uint32, payload []byte) {
 	sink := &responseSink{ep: ep, id: streamID}
 	go func() {
 		defer ep.streams.Delete(streamID)
-		if err := sink.sendHeaders(); err != nil {
-			return
-		}
+		// No eager HEADERS: initial metadata flushes lazily via
+		// the sink (first DATA, or here on a DATA-less success)
+		// so handlers can SetHeader first. Errors end
+		// trailers-only, as gRPC allows.
 		ctx := context.WithValue(context.Background(), metadataKey{}, headers.Metadata)
 		if d, ok := ParseTimeout(headers.Metadata["grpc-timeout"]); ok {
 			var cancel context.CancelFunc
@@ -625,6 +666,7 @@ func (ep *Endpoint) onHeaders(streamID uint32, payload []byte) {
 		status := ep.dispatcher(ctx, headers, in, sink)
 		if status == nil {
 			status = NewStatus(CodeOk, "")
+			_ = sink.FlushHeaders()
 		}
 		_ = sink.sendTrailers(status)
 	}()
@@ -686,10 +728,26 @@ type ClientStream struct {
 	in         *streamInput
 	header     Headers
 	gotHdr     bool
+	trailer    map[string]string
 	ctx        context.Context
 	traceCtx   *traceContext
 	tracePath  string
 	traceEnded bool
+}
+
+// Header returns the response initial metadata (nil until the
+// response HEADERS arrive).
+func (s *ClientStream) Header() map[string]string {
+	if !s.gotHdr {
+		return nil
+	}
+	return s.header.Metadata
+}
+
+// Trailer returns the response trailing metadata (nil until
+// the call's terminal status arrives).
+func (s *ClientStream) Trailer() map[string]string {
+	return s.trailer
 }
 
 func (s *ClientStream) endTrace(status string) {
@@ -727,12 +785,14 @@ func (s *ClientStream) Recv(resp Unmarshaler) error {
 		case eventData:
 			return resp.UnmarshalDC(ev.payload)
 		case eventTrailers:
+			s.trailer = ev.status.Trailers
 			s.endTrace(ev.status.Code.Name())
 			if ev.status.Code != CodeOk {
 				return ev.status
 			}
 			return io.EOF
 		case eventRST:
+			s.trailer = ev.status.Trailers
 			s.endTrace(ev.status.Code.Name())
 			return ev.status
 		}
@@ -798,6 +858,26 @@ func (ch *Channel) halfClose(stream *ClientStream) error {
 // Unary runs a unary call, decoding the single response into resp.
 func (ch *Channel) Unary(ctx context.Context, path string, req Marshaler, resp Unmarshaler) error {
 	return ch.UnaryWithMetadata(ctx, path, req, resp, nil)
+}
+
+// UnaryStream starts a unary call and returns its stream, for
+// callers that need the response headers/trailers (Header and
+// Trailer on the returned stream). The request is sent and the
+// stream half-closed before returning; read with Recv.
+func (ch *Channel) UnaryStream(ctx context.Context, path string, req Marshaler, metadata map[string]string) (*ClientStream, error) {
+	stream, err := ch.open(ctx, path, metadata)
+	if err != nil {
+		return nil, err
+	}
+	if err := ch.sendMessage(stream, req); err != nil {
+		ch.ep.closeStream(stream.id)
+		return nil, err
+	}
+	if err := ch.halfClose(stream); err != nil {
+		ch.ep.closeStream(stream.id)
+		return nil, err
+	}
+	return stream, nil
 }
 
 // UnaryWithMetadata is Unary with call metadata.
@@ -1021,11 +1101,42 @@ func (s *Server) ServeEndpoint(ep *Endpoint) {
 	ep.Start()
 }
 
+type callStateKey struct{}
+
+// SetHeader records response initial metadata for the call in
+// ctx (sent lazily, before the first response message). Safe
+// to call from a handler; a no-op outside a served call.
+func SetHeader(ctx context.Context, md map[string]string) {
+	if sink, ok := ctx.Value(callStateKey{}).(*responseSink); ok && sink != nil {
+		if sink.respHeaders == nil {
+			sink.respHeaders = map[string]string{}
+		}
+		for k, v := range md {
+			sink.respHeaders[k] = v
+		}
+	}
+}
+
+// SetTrailer records response trailing metadata for the call
+// in ctx (rides the terminal status frame). Safe to call from
+// a handler; a no-op outside a served call.
+func SetTrailer(ctx context.Context, md map[string]string) {
+	if sink, ok := ctx.Value(callStateKey{}).(*responseSink); ok && sink != nil {
+		if sink.respTrailers == nil {
+			sink.respTrailers = map[string]string{}
+		}
+		for k, v := range md {
+			sink.respTrailers[k] = v
+		}
+	}
+}
+
 func (s *Server) dispatch(ctx context.Context, headers Headers, in *streamInput, sink *responseSink) *StatusError {
 	method, ok := s.methods[*headers.Path]
 	if !ok {
 		return NewStatus(CodeUnimplemented, "unknown method "+*headers.Path)
 	}
+	ctx = context.WithValue(ctx, callStateKey{}, sink)
 	traceCtx := traceStart("server", *headers.Path, ParseTraceparent(headers.Metadata["traceparent"]))
 	err := method.Handler(ctx, &RequestStream{in: in}, sinkAdapter{sink: sink})
 	status := "OK"

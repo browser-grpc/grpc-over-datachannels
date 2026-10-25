@@ -376,15 +376,17 @@ class Http2Transport:
     def _on_headers(self, stream_id, end_stream, block):
         headers = dict(self.decoder.decode(block))
         status = headers.get('grpc-status')
+        # Response metadata: transport keys drop out; -bin values
+        # are base64 in both the HPACK and JSON domains.
+        metadata = {k: v for k, v in headers.items()
+                    if not k.startswith(':')
+                    and k not in ('content-type', 'grpc-status', 'grpc-message', 'grpc-encoding', 'grpc-accept-encoding')}
         if end_stream and status is not None:
             message = urllib.parse.unquote(headers.get('grpc-message', ''))
-            body = json.dumps({'code': int(status), 'message': message}).encode()
+            body = json.dumps({'code': int(status), 'message': message, 'metadata': metadata}).encode()
             self._emit(FRAME_TRAILERS, stream_id, body)
         elif stream_id not in self.headers_seen:
             self.headers_seen.add(stream_id)
-            metadata = {k: v for k, v in headers.items()
-                        if not k.startswith(':')
-                        and k not in ('content-type', 'grpc-status', 'grpc-message')}
             body = json.dumps({'metadata': metadata}).encode()
             self._emit(FRAME_HEADERS, stream_id, body)
             if end_stream:
@@ -393,7 +395,7 @@ class Http2Transport:
         else:
             message = urllib.parse.unquote(headers.get('grpc-message', ''))
             code = int(status) if status is not None else 2
-            body = json.dumps({'code': code, 'message': message}).encode()
+            body = json.dumps({'code': code, 'message': message, 'metadata': metadata}).encode()
             self._emit(FRAME_TRAILERS, stream_id, body)
 
     def send(self, data):

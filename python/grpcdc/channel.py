@@ -129,6 +129,14 @@ class Channel:
         self._half_close(stream)
         return stream
 
+    def unary_stream(self, path, req, metadata=None, timeout=None):
+        """Start a unary call; returns the ClientStream so
+        callers can inspect .headers/.trailers around recv."""
+        stream = self._open(path, metadata, timeout)
+        self._send_message(stream, req)
+        self._half_close(stream)
+        return stream
+
     def client_stream(self, path, reqs, resp, metadata=None, timeout=None):
         """Send all requests, then decode the one response into resp."""
         stream = self._open(path, metadata, timeout)
@@ -168,6 +176,7 @@ class ClientStream:
         self.stream_id = stream_id
         self._input = stream_input
         self.headers = None
+        self.trailers = None
         self.deadline = None
         self.trace_ctx = None
         self.trace_path = None
@@ -207,11 +216,13 @@ class ClientStream:
                 resp.unmarshal_dc(event.payload)
                 return resp
             elif event.kind == EVENT_TRAILERS:
+                self.trailers = event.status.trailers
                 self._end_trace(status_name(event.status.code))
                 if event.status.code != 0:
                     raise event.status
                 raise EOFError("call completed")
             elif event.kind == EVENT_RST:
+                self.trailers = event.status.trailers
                 self._end_trace(status_name(event.status.code))
                 raise event.status
 

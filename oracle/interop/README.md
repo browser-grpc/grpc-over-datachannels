@@ -41,11 +41,14 @@ Excluded cases: auth (`*_creds`, `oauth2_auth_token`,
 bridge-only (compression terminates in the proxy/bridge);
 `orca_*` and soak cases are out of scope for this harness.
 
-Known gaps: `custom_metadata` asserts the initial-metadata
-echo (Python, Direction A) and is excluded in Direction B —
-response trailing metadata is not surfaced by the grpc-dc
-frame layer (TRAILERS carries status only). The two cancel
-cases are covered by the Go and Python drivers in
-Direction A; the JS generated client exposes no per-call
-cancel handle. `cacheable_unary` runs only under the Java
-client (the Go client lacks that case upstream).
+The grpc-dc frame layer carries response initial and
+trailing metadata (server `setHeaders`/`setTrailers` — JS
+`ctx.setHeaders`, Go `grpcdc.SetHeader`/`SetTrailer`, Python
+`ctx.set_headers`/`set_trailers`; `-bin` values are base64,
+as on the HTTP/2 wire), so `custom_metadata` runs in both
+directions and asserts the full upstream echo (UnaryCall and
+FullDuplexCall). Known gaps: the two cancel cases are
+covered by the Go and Python drivers in Direction A; the JS
+generated client exposes no per-call cancel handle.
+`cacheable_unary` runs only under the Java client (the Go
+client lacks that case upstream).
