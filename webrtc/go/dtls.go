@@ -565,9 +565,13 @@ func (c *DtlsConnection) parseRecords(packet []byte) ([]dtlsRecord, error) {
 		aad = append(aad, contentType)
 		aad = append(aad, dtlsVersion...)
 		aad = append(aad, byte((len(sealed)-16)>>8), byte(len(sealed)-16))
+		// Datagram transport: unauthenticated or replayed
+		// records are silently discarded (RFC 9147), never
+		// fatal — one bad or stale record must not kill the
+		// receive pump.
 		plaintext, err := c.readKeys.gcm.Open(nil, nonce, sealed, aad)
 		if err != nil {
-			return records, errors.New("record authentication failed")
+			continue
 		}
 		seqI := int64(sequence)
 		if c.readHighest < 0 {
@@ -584,7 +588,7 @@ func (c *DtlsConnection) parseRecords(packet []byte) ([]dtlsRecord, error) {
 		} else {
 			diff := c.readHighest - seqI
 			if diff >= 64 || (c.readWindow>>uint(diff))&1 == 1 {
-				return records, errors.New("replayed record")
+				continue // replayed or too old: discard silently
 			}
 			c.readWindow |= 1 << uint(diff)
 		}

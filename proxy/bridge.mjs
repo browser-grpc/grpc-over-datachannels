@@ -150,8 +150,9 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
     const finish = (status) => {
       respond();
       trailersToSend = { "grpc-status": String(status.code) };
-      if (status.message) {
-        trailersToSend["grpc-message"] = grpcMessageEncode(status.message);
+      const wireMessage = status.statusMessage ?? status.message;
+      if (wireMessage) {
+        trailersToSend["grpc-message"] = grpcMessageEncode(wireMessage);
       }
       try {
         stream.end();

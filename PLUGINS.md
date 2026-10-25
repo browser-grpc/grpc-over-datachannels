@@ -6,19 +6,19 @@ Node.js 18+. Pick whichever channel fits your workflow:
 
 ## 1. Release zip (any platform)
 
-Download `grpc-dc-v0.32.5.zip` and `SHA256SUMS` from
-the [v0.32.5 release](https://github.com/browser-grpc/grpc-over-datachannels/releases/tag/v0.32.5), verify, and unzip:
+Download `grpc-dc-v0.32.6.zip` and `SHA256SUMS` from
+the [v0.32.6 release](https://github.com/browser-grpc/grpc-over-datachannels/releases/tag/v0.32.6), verify, and unzip:
 
     sha256sum -c SHA256SUMS
-    unzip grpc-dc-v0.32.5.zip
-    export PATH="$PWD/grpc-dc-v0.32.5/bin:$PATH"
+    unzip grpc-dc-v0.32.6.zip
+    export PATH="$PWD/grpc-dc-v0.32.6/bin:$PATH"
     protoc -I. --grpc-dc-rust_out=gen echo.proto
 
 With `bin/` on your `PATH`, `protoc` finds each plugin by
 name (`protoc-gen-grpc-dc-rust`, `-go`, `-python`, ...).
 Or name a wrapper explicitly:
 
-    protoc -I. --plugin=protoc-gen-grpc-dc-rust=$PWD/grpc-dc-v0.32.5/bin/protoc-gen-grpc-dc-rust \
+    protoc -I. --plugin=protoc-gen-grpc-dc-rust=$PWD/grpc-dc-v0.32.6/bin/protoc-gen-grpc-dc-rust \
       --grpc-dc-rust_out=gen echo.proto
 
 ## 2. npm (JS/web tooling)
@@ -34,7 +34,7 @@ entries:
 
 `protoc` and all plugins, preinstalled on `PATH`:
 
-    docker run --rm -v "$PWD":/work ghcr.io/browser-grpc/protoc-plugins:v0.32.5 \
+    docker run --rm -v "$PWD":/work ghcr.io/browser-grpc/protoc-plugins:v0.32.6 \
       -I. --grpc-dc-rust_out=gen echo.proto
 
 ## From a clone of this repo

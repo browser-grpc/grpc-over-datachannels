@@ -23,7 +23,9 @@ impl Link {
         for p in packets {
             let (replies, ev) = self.server.handle_packet(&p, self.now);
             events.extend(ev);
-            let _ = self.deliver_to_client(replies);
+            // SACK-clocked sends (cwnd) deliver via this nested
+            // call; its events are part of the same exchange.
+            events.extend(self.deliver_to_client(replies));
         }
         events
     }
@@ -43,7 +45,12 @@ impl Link {
     fn handshake(&mut self) {
         let init = self.client.connect(self.now);
         let server_events = self.deliver_to_server(vec![init]);
-        assert!(server_events.is_empty());
+        // Nested delivery (SACK-clocked sends) can surface the
+        // client's Connected event here; no Data may flow yet.
+        assert!(
+            !server_events.iter().any(|e| matches!(e, Event::Data { .. })),
+            "no data events during handshake: {server_events:?}"
+        );
         assert!(self.client.is_established(), "client should be established");
         assert!(self.server.is_established(), "server should be established");
     }

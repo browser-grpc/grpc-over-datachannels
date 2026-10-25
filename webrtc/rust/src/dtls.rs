@@ -441,8 +441,16 @@ impl<I: DtlsIo> Dtls<I> {
         aad.push(content_type);
         aad.extend_from_slice(&DTLS_1_2);
         aad.extend_from_slice(&(plaintext_len as u16).to_be_bytes());
-        let plaintext = aes128_gcm_decrypt(&keys.key, &nonce, ciphertext, &aad, &tag)
-            .ok_or_else(|| err("record authentication failed"))?;
+        // Datagram transport: unauthenticated or replayed records
+        // are silently discarded (RFC 9147), never fatal — one
+        // bad or stale record must not kill the receive pump.
+        // A discarded record surfaces as content_type 0, which
+        // every consumer ignores.
+        let dropped = Record { content_type: 0, body: Vec::new() };
+        let plaintext = match aes128_gcm_decrypt(&keys.key, &nonce, ciphertext, &aad, &tag) {
+            Some(p) => p,
+            None => return Ok((dropped, consumed)),
+        };
         // replay window (64 records)
         match self.read_highest_seq {
             None => {
@@ -461,7 +469,7 @@ impl<I: DtlsIo> Dtls<I> {
                 } else {
                     let diff = highest - sequence;
                     if diff >= 64 || (self.read_replay_window >> diff) & 1 == 1 {
-                        return Err(err("replayed record"));
+                        return Ok((dropped, consumed));
                     }
                     self.read_replay_window |= 1 << diff;
                 }

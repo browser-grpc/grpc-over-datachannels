@@ -131,6 +131,14 @@ export class PeerMux {
       socket.once("error", reject);
       socket.bind(port, address, resolve);
     });
+    // Large SCTP bursts overflow default kernel buffers;
+    // drops then cost an RTO round. Best-effort hint.
+    try {
+      socket.setRecvBufferSize(4 * 1024 * 1024);
+      socket.setSendBufferSize(4 * 1024 * 1024);
+    } catch {
+      /* buffer sizes are a hint, not a requirement */
+    }
     return new PeerMux(socket);
   }
 
