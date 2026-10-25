@@ -31,6 +31,14 @@ import {
   TestOrcaReport,
 } from "../examples/interop/messages_pb.js";
 import { OrcaLoadReport } from "../examples/interop/orca_load_report_pb.js";
+import { OrcaLoadReportRequest } from "../examples/interop/orca_pb.js";
+import {
+  createOpenRcaServiceService,
+  OpenRcaServiceClient,
+} from "../examples/interop/orca_grpc_dc.js";
+import { createTestServiceService } from "../examples/interop/test_grpc_dc.js";
+import { Channel, Server, memoryDataChannelPair } from "../index.js";
+import { openRcaHandlers, testServiceHandlers } from "./interop_service.js";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const JAVA_DIR = `${ROOT}oracle/java`;
@@ -117,6 +125,52 @@ test("interop: JS client -> grpc-go TestServiceServer (HTTP/2)", { timeout: 1800
   const channel = http2Channel(`127.0.0.1:${port}`);
   t.after(() => channel.endpoint.dataChannel.close());
   await interopCases(t, new TestServiceClient(channel), channel);
+});
+
+test("interop: ORCA OOB stream (OpenRcaService)", { timeout: 180000 }, async (t) => {
+  // Feed the shared OOB state via FullDuplexCall, then read it
+  // back on StreamCoreMetrics until it shows up.
+  const feedAndRead = async (client, orca) => {
+    async function* one() {
+      yield new StreamingOutputCallRequest({
+        orcaOobReport: new TestOrcaReport({
+          cpuUtilization: 0.9,
+          memoryUtilization: 0.85,
+          utilization: new Map([["util", 0.5]]),
+        }),
+      });
+    }
+    for await (const _resp of await client.fullDuplexCall(one())) {
+      // No response parameters: the call just ends.
+    }
+    const deadline = Date.now() + 30000;
+    for await (const report of await orca.streamCoreMetrics(new OrcaLoadReportRequest())) {
+      if (report.cpuUtilization === 0.9 && report.memUtilization === 0.85
+          && report.utilization.get("util") === 0.5) {
+        return;
+      }
+      if (Date.now() > deadline) break;
+    }
+    assert.fail("no matching OOB report within 30s");
+  };
+
+  await t.test("grpc-go TestServiceServer", async (t) => {
+    const port = await freePort();
+    if (!(await startGoTestServiceServer(t, port))) return;
+    const channel = http2Channel(`127.0.0.1:${port}`);
+    t.after(() => channel.endpoint.dataChannel.close());
+    await feedAndRead(new TestServiceClient(channel), new OpenRcaServiceClient(channel));
+  });
+
+  await t.test("our JS server (loopback)", async () => {
+    const [a, b] = memoryDataChannelPair();
+    const server = new Server();
+    server.addService(createTestServiceService(testServiceHandlers));
+    server.addService(createOpenRcaServiceService(openRcaHandlers));
+    server.serve(b);
+    const channel = new Channel(a);
+    await feedAndRead(new TestServiceClient(channel), new OpenRcaServiceClient(channel));
+  });
 });
 
 async function interopCases(t, client, channel) {

@@ -12,7 +12,7 @@ import threading
 import time
 
 import grpcdc
-from grpcdc.wire_gen import CODE_UNIMPLEMENTED
+from grpcdc.wire_gen import CODE_INVALID_ARGUMENT, CODE_UNIMPLEMENTED
 from messages_pb import (
     Payload,
     SimpleResponse,
@@ -65,6 +65,26 @@ def _set_orca_trailer(ctx, report):
     })
 
 
+def _compression_checks(ctx, req):
+    # Compression interop (server direction): the proxy
+    # terminates gzip at the HTTP/2 hop and surfaces the
+    # declared encoding as ordinary metadata, so the reference
+    # checks map onto it -- expect_compressed fails when the
+    # request did not arrive compressed; response_compressed
+    # declares grpc-encoding: gzip in the initial metadata and
+    # the proxy gzips the response messages.
+    if ctx is None:
+        return
+    if (req.expect_compressed is not None and req.expect_compressed.value
+            and ctx.metadata.get("grpc-encoding") != "gzip"):
+        raise grpcdc.StatusError(
+            CODE_INVALID_ARGUMENT,
+            "expected compressed request, got uncompressed")
+    if (req.response_compressed is not None
+            and req.response_compressed.value):
+        ctx.set_headers({"grpc-encoding": "gzip"})
+
+
 def _unary_response(req):
     _maybe_fail(req)
     return SimpleResponse(
@@ -84,6 +104,18 @@ def _send_responses(req, send):
         )
 
 
+class OpenRcaServiceImpl:
+    """ORCA out-of-band: stream the current OOB report on an
+    interval until the client goes away."""
+
+    def StreamCoreMetrics(self, req, stream):
+        while True:
+            with _orca_lock:
+                report = _orca_oob_report
+            stream.send(report if report is not None else OrcaLoadReport())
+            time.sleep(0.2)
+
+
 class TestServiceImpl:
     def EmptyCall(self, ctx, req):
         _echo_metadata(ctx)
@@ -91,6 +123,7 @@ class TestServiceImpl:
 
     def UnaryCall(self, ctx, req):
         _echo_metadata(ctx)
+        _compression_checks(ctx, req)
         if req.orca_per_query_report is not None:
             r = req.orca_per_query_report
             _set_orca_trailer(ctx, OrcaLoadReport(
@@ -124,6 +157,15 @@ class TestServiceImpl:
                 req = stream.recv()
             except EOFError:
                 break
+            # Per-message expect_compressed, graded against
+            # the stream's declared encoding (surfaced by the
+            # proxy from the first message's compressed flag).
+            if (req.expect_compressed is not None
+                    and req.expect_compressed.value
+                    and stream.context.metadata.get("grpc-encoding") != "gzip"):
+                raise grpcdc.StatusError(
+                    CODE_INVALID_ARGUMENT,
+                    "expected compressed request, got uncompressed")
             if req.payload is not None:
                 total += len(req.payload.body)
         stream.send_and_close(

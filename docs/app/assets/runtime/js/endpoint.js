@@ -251,8 +251,21 @@ export class Endpoint {
     const input = new StreamInput();
     this.#streams.set(streamId, input);
     const sink = {
-      sendData: (payload) => this.sendFrame(encodeFrame(FrameType.DATA, streamId, payload)),
-      sendHeaders: (metadata = {}) => this.sendFrame(headersFrame(streamId, null, metadata)),
+      // A stream dropped from the map was RST by the peer (or
+      // the channel went away): fail the send so a producing
+      // handler stops instead of streaming into the void.
+      sendData: (payload) => {
+        if (!this.#streams.has(streamId)) {
+          throw new StatusError(StatusCode.CANCELLED, "call cancelled");
+        }
+        return this.sendFrame(encodeFrame(FrameType.DATA, streamId, payload));
+      },
+      sendHeaders: (metadata = {}) => {
+        if (!this.#streams.has(streamId)) {
+          throw new StatusError(StatusCode.CANCELLED, "call cancelled");
+        }
+        return this.sendFrame(headersFrame(streamId, null, metadata));
+      },
       sendTrailers: (status, trailers) =>
         this.sendFrame(statusFrame(FrameType.TRAILERS, streamId, status, trailers)),
     };

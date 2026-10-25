@@ -8,7 +8,7 @@ package grpcdc_test
 // oracle binary or Node is unavailable (Dockerfile.ci builds
 // them).
 //
-// Excluded (../oracle/interop/README.md): auth, compression,
+// Excluded (../oracle/interop/README.md): auth,
 // soak. cacheable_unary runs only under the Java client
 // (unsupported by the Go client).
 
@@ -82,8 +82,30 @@ func setOrcaTrailer(ctx context.Context, report *testingpb.OrcaLoadReport) {
 	})
 }
 
+// Compression interop (server direction): the proxy
+// terminates gzip at the HTTP/2 hop and surfaces the declared
+// encoding as ordinary metadata, so the reference checks map
+// onto it — expect_compressed fails when the request did not
+// arrive compressed; response_compressed declares
+// grpc-encoding: gzip in the initial metadata and the proxy
+// gzips the response messages.
+func compressionChecks(ctx context.Context, req *testingpb.SimpleRequest) error {
+	if req.ExpectCompressed != nil && req.ExpectCompressed.Value &&
+		grpcdc.MetadataFromContext(ctx)["grpc-encoding"] != "gzip" {
+		return grpcdc.NewStatus(grpcdc.CodeInvalidArgument,
+			"expected compressed request, got uncompressed")
+	}
+	if req.ResponseCompressed != nil && req.ResponseCompressed.Value {
+		grpcdc.SetHeader(ctx, map[string]string{"grpc-encoding": "gzip"})
+	}
+	return nil
+}
+
 func (testServiceImpl) UnaryCall(ctx context.Context, req *testingpb.SimpleRequest) (*testingpb.SimpleResponse, error) {
 	echoMetadata(ctx)
+	if err := compressionChecks(ctx, req); err != nil {
+		return nil, err
+	}
 	if r := req.OrcaPerQueryReport; r != nil {
 		setOrcaTrailer(ctx, &testingpb.OrcaLoadReport{
 			CpuUtilization: r.CpuUtilization,
@@ -147,6 +169,14 @@ func (testServiceImpl) StreamingInputCall(stream testingpb.TestServiceStreamingI
 		if err != nil {
 			return err
 		}
+		// Per-message expect_compressed, graded against the
+		// stream's declared encoding (surfaced by the proxy
+		// from the first message's compressed flag).
+		if req.ExpectCompressed != nil && req.ExpectCompressed.Value &&
+			grpcdc.MetadataFromContext(stream.Context())["grpc-encoding"] != "gzip" {
+			return grpcdc.NewStatus(grpcdc.CodeInvalidArgument,
+				"expected compressed request, got uncompressed")
+		}
 		if req.Payload != nil {
 			total += len(req.Payload.Body)
 		}
@@ -199,6 +229,31 @@ func (testServiceImpl) HalfDuplexCall(stream testingpb.TestServiceHalfDuplexCall
 	return nil
 }
 
+// OpenRcaService (ORCA out-of-band): stream the current OOB
+// report on an interval until the client goes away.
+type openRcaServiceImpl struct{}
+
+func (openRcaServiceImpl) StreamCoreMetrics(req *testingpb.OrcaLoadReportRequest, stream testingpb.OpenRcaServiceStreamCoreMetricsServer) error {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		orcaOobMu.Lock()
+		report := orcaOobReport
+		orcaOobMu.Unlock()
+		if report == nil {
+			report = &testingpb.OrcaLoadReport{}
+		}
+		if err := stream.Send(report); err != nil {
+			return err
+		}
+		select {
+		case <-stream.Context().Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
 func (testServiceImpl) UnimplementedCall(ctx context.Context, req *testingpb.Empty) (*testingpb.Empty, error) {
 	return nil, grpcdc.NewStatus(grpcdc.CodeUnimplemented, "not implemented")
 }
@@ -237,6 +292,7 @@ func startGoServerBehindProxy(t *testing.T) int {
 	t.Cleanup(func() { _ = listener.Close() })
 	server := grpcdc.NewServer()
 	testingpb.RegisterTestServiceServer(server, testServiceImpl{})
+	testingpb.RegisterOpenRcaServiceServer(server, openRcaServiceImpl{})
 	go func() {
 		transport, err := grpcdc.AcceptDirectTransport(listener)
 		if err != nil {
@@ -284,7 +340,9 @@ func TestInteropOfficialClientsCallGoServer(t *testing.T) {
 					args = append(args, "-service_config_json",
 						`{ "loadBalancingConfig": [{ "test_backend_metrics_load_balancer": {} }]}`)
 				}
-				out, err := exec.Command(binary, args...).CombinedOutput()
+				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+				defer cancel()
+				out, err := exec.CommandContext(ctx, binary, args...).CombinedOutput()
 				if err != nil {
 					t.Fatalf("case %s: %v\n%s", testCase, err, out)
 				}
@@ -294,9 +352,16 @@ func TestInteropOfficialClientsCallGoServer(t *testing.T) {
 
 	t.Run("grpc-java client", func(t *testing.T) {
 		cp := javaClasspath(t)
-		for _, testCase := range append(append([]string{}, interopCasesB...), "cacheable_unary") {
+		for _, testCase := range append(append([]string{}, interopCasesB...), "cacheable_unary",
+			"client_compressed_unary", "client_compressed_streaming",
+			"server_compressed_unary", "server_compressed_streaming") {
 			t.Run(testCase, func(t *testing.T) {
-				out, err := exec.Command("java", "-cp", cp,
+				// Bounded like the JS/Python drivers: a hung
+				// case fails here with output instead of
+				// eating the package test timeout.
+				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+				defer cancel()
+				out, err := exec.CommandContext(ctx, "java", "-cp", cp,
 					"io.grpc.testing.integration.TestServiceClient",
 					"--server_host=127.0.0.1", fmt.Sprintf("--server_port=%d", port),
 					"--test_case="+testCase, "--use_tls=false").CombinedOutput()

@@ -52,6 +52,25 @@ function setOrcaTrailer(ctx, fields) {
   });
 }
 
+// Compression interop (server direction): the proxy
+// terminates gzip at the HTTP/2 hop and surfaces the declared
+// encoding as ordinary metadata, so the reference checks map
+// onto it -- expect_compressed fails when the request did not
+// arrive compressed; response_compressed declares
+// grpc-encoding: gzip in the initial metadata and the proxy
+// gzips the response messages.
+function compressionChecks(ctx, req) {
+  if (req.expectCompressed?.value
+      && ctx?.metadata?.["grpc-encoding"] !== "gzip") {
+    throw new StatusError(
+      StatusCode.INVALID_ARGUMENT,
+      "expected compressed request, got uncompressed");
+  }
+  if (req.responseCompressed?.value) {
+    ctx?.setHeaders?.({ "grpc-encoding": "gzip" });
+  }
+}
+
 function maybeFail(req) {
   const status = req.responseStatus;
   if (status && (status.code !== 0 || status.message !== "")) {
@@ -78,6 +97,17 @@ async function* streamingResponses(req) {
   }
 }
 
+// OpenRcaService (ORCA out-of-band): stream the current OOB
+// report on an interval until the client goes away.
+export const openRcaHandlers = {
+  async *streamCoreMetrics() {
+    for (;;) {
+      yield new OrcaLoadReport(oobReport ?? {});
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  },
+};
+
 export const testServiceHandlers = {
   async emptyCall(req, ctx) {
     echoMetadata(ctx);
@@ -86,6 +116,7 @@ export const testServiceHandlers = {
 
   async unaryCall(req, ctx) {
     echoMetadata(ctx);
+    compressionChecks(ctx, req);
     if (req.orcaPerQueryReport) {
       setOrcaTrailer(ctx, {
         cpuUtilization: req.orcaPerQueryReport.cpuUtilization,
@@ -116,7 +147,18 @@ export const testServiceHandlers = {
   async streamingInputCall(requests, ctx) {
     echoMetadata(ctx);
     let total = 0;
-    for await (const req of requests) total += req.payload?.body.length ?? 0;
+    for await (const req of requests) {
+      // Per-message expect_compressed, graded against the
+      // stream's declared encoding (surfaced by the proxy
+      // from the first message's compressed flag).
+      if (req.expectCompressed?.value
+          && ctx?.metadata?.["grpc-encoding"] !== "gzip") {
+        throw new StatusError(
+          StatusCode.INVALID_ARGUMENT,
+          "expected compressed request, got uncompressed");
+      }
+      total += req.payload?.body.length ?? 0;
+    }
     return new StreamingInputCallResponse({ aggregatedPayloadSize: total });
   },
 

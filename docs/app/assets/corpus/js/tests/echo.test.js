@@ -100,6 +100,36 @@ test("server streaming", async () => {
   assert.ok(got.every((r) => r.message === "tick"));
 });
 
+test("breaking a server stream cancels it server-side", async () => {
+  let produced = 0;
+  const [a, b] = memoryDataChannelPair();
+  const server = new Server();
+  server.addService(createEchoService({
+    ...handlers(),
+    async *serverStream(req) {
+      for (let i = 0; i < req.count; i++) {
+        produced++;
+        yield new EchoResponse({ message: "tick", index: i });
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    },
+  }));
+  server.serve(b);
+  const client = new EchoClient(new Channel(a));
+  let seen = 0;
+  for await (const _resp of await client.serverStream(req("tick", 1000))) {
+    if (++seen === 2) break;
+  }
+  assert.equal(seen, 2);
+  // The break must RST the call: production stops instead of
+  // the handler streaming into the void.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const settled = produced;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(produced, settled);
+  assert.ok(settled < 100, `server kept producing (${settled})`);
+});
+
 test("client streaming", async () => {
   const client = setup();
   async function* reqs() {

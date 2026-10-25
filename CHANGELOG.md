@@ -3,6 +3,41 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.10 — 2026-10-25
+
+- Server-direction compression interop: the proxy now
+  surfaces the declared `grpc-encoding` as ordinary metadata
+  (injected from the first request message's compressed flag
+  when per-message compression declares no header) and gzips
+  response messages for servers that declare `grpc-encoding:
+  gzip` in their initial metadata, so the reference
+  `expect_compressed` checks map onto the compression-free
+  DataChannel wire. `client_compressed_unary`,
+  `client_compressed_streaming`, `server_compressed_unary`,
+  and `server_compressed_streaming` pass under the grpc-java
+  client against our JS/Go/Python servers; the bridge
+  decompresses flagged messages as gzip even without a
+  declared header, matching stock server behavior.
+- ORCA out-of-band streaming graded end-to-end:
+  `OpenRcaService.StreamCoreMetrics` (vendored proto,
+  generated stubs) is implemented by our JS/Go/Python
+  servers, and our clients feed the shared state via
+  `FullDuplexCall` and read it back on the stream — against
+  the reference Go server's ORCA service and our own.
+- Go server-oracle case runners are time-bounded (120 s per
+  case, like the JS/Python drivers) after a one-off
+  full-suite hang in a Java `custom_metadata` call; the case
+  passes repeatedly under `-race` stress (targeted, full
+  function, and full package), so the hang is hardened
+  against rather than left to eat the package timeout.
+- JS runtime: breaking out of a server-streaming iteration
+  now cancels the call (RST) instead of only closing it
+  locally, and the server endpoint fails sends on
+  RST-terminated streams so a producing handler stops
+  instead of streaming into the void. Found via the ORCA
+  OOB stream (infinite by design) hanging the JS oracle
+  suite at exit; covered by a new echo regression test.
+
 ## v0.32.9 — 2026-10-25
 
 - BDD grows a shared `unary-trailer` scenario across all 16

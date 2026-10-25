@@ -6,7 +6,7 @@
 // (the product proxy shape, in-process). Skips when an oracle
 // binary is not built (Dockerfile.ci builds both).
 //
-// Excluded (oracle/interop/README.md): auth, compression,
+// Excluded (oracle/interop/README.md): auth,
 // soak. cacheable_unary runs only under the Java client
 // (the Go client does not implement that case upstream).
 
@@ -82,7 +82,9 @@ test("interop B: grpc-java client -> ingress proxy -> JS TestService server", { 
   const cp = javaClasspath(t);
   if (!cp) return;
   const port = await startServerSide(t);
-  for (const testCase of [...CASES, "cacheable_unary"]) {
+  for (const testCase of [...CASES, "cacheable_unary",
+      "client_compressed_unary", "client_compressed_streaming",
+      "server_compressed_unary", "server_compressed_streaming"]) {
     await t.test(testCase, async () => {
       const { stdout } = await run(
         "java",
