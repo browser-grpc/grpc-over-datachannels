@@ -3,6 +3,23 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## Unreleased
+
+- Generated HTTP/2 client transports (wave 1): generated
+  stubs can now call official gRPC servers (grpc-java and
+  peers) directly over HTTP/2 — no DataChannel, no bridge.
+  `racket/http2-spec.rkt` holds the RFC 9113/7541 tables once;
+  `racket/http2-gen.rkt` emits a frame-Transport for JS
+  (`js/src/http2.js`, adapter over `node:http2`, exported as
+  `grpc-dc/http2`), Python (`grpcdc.http2.Http2Transport`),
+  and Go (`grpcdc.DialHttp2`) — Python/Go carry a generated
+  manual HPACK + session layer with flow control. TLS is not
+  generated: stdlib TLS (ALPN `h2`) wraps the byte stream and
+  only the dial glue is emitted. Proven by direct oracle
+  tests against grpc-java (scenarios, metadata, deadlines,
+  unknown methods, 1000-message streams, 300 KiB messages)
+  plus TLS dials to a TLS HTTP/2 front-end.
+
 ## v0.32.5 — 2026-10-24
 
 - Proxy redone, ingress-only, scoped to exactly the

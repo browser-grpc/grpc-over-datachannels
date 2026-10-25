@@ -177,6 +177,40 @@ const server = new Server().addService(createEchoService(handlers));
 server.serve(rtcDataChannel);
 ```
 
+### Calling official gRPC servers over HTTP/2
+
+Generated clients can also call stock gRPC servers (grpc-java
+and peers) directly over HTTP/2 — no DataChannel and no bridge
+process. Wave 1 covers JavaScript (Node), Python, and Go; the
+transports are generated from RFC 9113/7541 tables and implement
+the same frame Transport contract as the DataChannel path, so
+generated stubs work unchanged:
+
+```js
+import { http2Channel } from "grpc-dc/http2";        // Node only
+const client = new EchoClient(http2Channel("localhost:50051"));
+```
+
+```python
+import grpcdc
+from grpcdc.http2 import Http2Transport
+client = EchoClient(grpcdc.Channel(Http2Transport("localhost:50051")))
+```
+
+```go
+transport, _ := grpcdc.DialHttp2("localhost:50051", nil) // nil = h2c
+client := echo.NewEchoClient(grpcdc.NewChannel(transport))
+```
+
+JS rides `node:http2`; Python and Go carry a generated manual
+HPACK + HTTP/2 session (flow control included). TLS is not
+generated — the byte stream is wrapped with the stdlib TLS of
+each language (ALPN `h2`): JS via connect options, Python via
+`use_tls=True`, Go via a `*tls.Config`. Direct-vs-grpc-java
+oracle tests live in `js/test/http2_oracle.test.js`,
+`python/tests/test_http2_oracle.py`, and
+`go/http2_oracle_test.go`.
+
 ### WebRTC-Direct (libp2p-style, no signaling)
 
 For client→server shapes, the generated Rust runtime can skip

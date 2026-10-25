@@ -1150,6 +1150,7 @@ from .dynamic import (
     register_dynamic_service,
 )
 from .loopback import memory_transport_pair
+from .http2 import Http2Transport
 from .sidecar import SidecarTransport
 from .wire_gen import CODE_INTERNAL
 from .server import (
@@ -1189,6 +1190,7 @@ __all__ = [
     "decode_frame",
     "encode_frame",
     "SidecarTransport",
+    "Http2Transport",
     "memory_transport_pair",
     "parse_descriptor_set",
     "register_dynamic_service",

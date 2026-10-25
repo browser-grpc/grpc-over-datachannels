@@ -28,7 +28,8 @@
       "default": "./index.js"
     },
     "./wire_gen.js": "./wire_gen.js",
-    "./webrtc_direct": "./src/webrtc_direct.js"
+    "./webrtc_direct": "./src/webrtc_direct.js",
+    "./http2": "./src/http2.js"
   },
   "files": [
     "index.js",

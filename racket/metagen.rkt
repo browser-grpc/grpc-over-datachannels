@@ -25,7 +25,7 @@
 
 (require "spec.rkt" "pb.rkt" json racket/runtime-path "webrtc-gen.rkt"
          "oracle-spec.rkt" "oracle-gen.rkt" "bdd-gen.rkt" "webgen.rkt" "mux-gen.rkt"
-         "proxy-gen.rkt"
+         "proxy-gen.rkt" "http2-gen.rkt"
          "runtime-go.rkt" "runtime-js.rkt" "runtime-rust.rkt" "runtime-python.rkt" "runtime-java.rkt" "runtime-csharp.rkt" "runtime-cpp.rkt" "runtime-swift.rkt" "runtime-kotlin.rkt" "runtime-dart.rkt" "runtime-zig.rkt" "runtime-c.rkt" "runtime-lua.rkt" "runtime-ruby.rkt" "runtime-php.rkt" "runtime-scala.rkt")
 
 (define-runtime-path here ".")
@@ -1582,6 +1582,9 @@ BROWSER_SERVER_EOF
   (printf "generated go/wire_gen.go\n")
   (write-runtime-files "go" "runtime-go.rkt" (emit-go-runtime-files))
   (write-runtime-files "js/src" "runtime-js.rkt" (emit-js-runtime-files))
+  (write-runtime-files "js/src" "http2-gen.rkt" (list (emit-js-http2)))
+  (write-runtime-files "python/grpcdc" "http2-gen.rkt" (list (emit-python-http2)))
+  (write-runtime-files "go" "http2-gen.rkt" (list (emit-go-http2)))
   (write-runtime-files "rust/src" "runtime-rust.rkt" (emit-rust-runtime-files))
   (emit-fixtures)
   (emit-oracle-scenarios)

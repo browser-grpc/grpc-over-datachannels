@@ -26,6 +26,10 @@ export { createGrpcDcBridge, createGrpcDcServerBridge } from "./src/wasm_bridge.
 // modules (node:dgram via webrtc/js/direct.js) and this index
 // is also loaded in browsers. Import it directly:
 //   import { directClientEndpoint } from "grpc-dc/webrtc_direct";
+// The generated HTTP/2 client transport (src/http2.js, calls
+// official gRPC servers directly) is Node-only for the same
+// reason (node:http2). Import it directly:
+//   import { http2Channel } from "grpc-dc/http2";
 
 import { Channel } from "./src/channel.js";
 import { Endpoint } from "./src/endpoint.js";
