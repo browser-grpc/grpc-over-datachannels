@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## Unreleased
+## v0.32.6 — 2026-10-25
 
 - Interop oracle completed: grpc-go added as second
   Direction-A oracle (`oracle/go-interop` builds the official
@@ -21,8 +21,8 @@ curated release tags on `master`; dates are the tag dates.
   records instead of killing the pump; JS status frames no
   longer leak the `NAME: ` display prefix onto the wire
   (`StatusError.statusMessage`); larger UDP socket buffers
-  on the direct path. The Rust/Go SCTP mirrors have not yet
-  received the cwnd/reassembly changes (wire-compatible).
+  on the direct path. The same cwnd/reassembly/pump fixes
+  are mirrored in the Rust and Go SCTP stacks.
 - Interop oracle (Direction A): the canonical grpc interop
   suite now grades our generated clients. `grpc.testing`
   protos vendored in `oracle/interop` (grpc-java v1.62.2,
