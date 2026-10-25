@@ -24,6 +24,9 @@ pub const SCTP_PORT: u16 = 5000;
 const MAX_DATA_PAYLOAD: usize = 1000;
 const INITIAL_RWND: u32 = 262_144;
 const INITIAL_RTO_MS: u64 = 1000;
+// RFC 9260 §6.1: initial cwnd is 4 MTU here (fragment payload
+// is 1000B, so ~4 fragments in flight before SACK clocking).
+const INITIAL_CWND: usize = 4 * MAX_DATA_PAYLOAD;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
@@ -96,8 +99,15 @@ pub struct Association {
     out_ssn: HashMap<u16, u16>,
     unacked: BTreeMap<u32, OutChunk>,
     queued: VecDeque<(u16, u32, Vec<u8>, SendOptions)>,
+    out_queue: VecDeque<OutChunk>, // chunks awaiting cwnd/rwnd room
     inflight_bytes: usize,
     peer_rwnd: u32,
+    // Congestion window (RFC 9260 §6): without it a large
+    // message bursts its fragments into kernel UDP buffers
+    // faster than the peer drains them; the dropped tail then
+    // recovers only at RTO granularity (1s per round).
+    cwnd: usize,
+    ssthresh: usize,
     streams_in: HashMap<u16, StreamIn>,
     cookie_secret: [u8; 32],
     pending_cookie: Vec<u8>,
@@ -215,8 +225,11 @@ impl Association {
             out_ssn: HashMap::new(),
             unacked: BTreeMap::new(),
             queued: VecDeque::new(),
+            out_queue: VecDeque::new(),
             inflight_bytes: 0,
             peer_rwnd: INITIAL_RWND,
+            cwnd: INITIAL_CWND,
+            ssthresh: usize::MAX,
             streams_in: HashMap::new(),
             cookie_secret: random_bytes(32).try_into().unwrap(),
             pending_cookie: Vec::new(),
@@ -507,30 +520,27 @@ impl Association {
         if self.out_reset_done.contains(&stream) {
             return Vec::new(); // stream reset/closing
         }
-        if self.state != State::Established
-            || self.inflight_bytes >= self.peer_rwnd as usize
-        {
-            // Not established, or the peer receive window is full:
-            // hold the payload; handle_sack flushes the queue as
-            // SACKs free window. Sending past rwnd anyway (the old
-            // behavior) bursts megabytes into kernel buffers, which
-            // drop most of it and throttle the association to RTO
-            // retransmits (~1s stalls; bench-mux blast collapsed
-            // from ~3800 to ~1000 msgs/s at 2000x1KiB).
+        if self.state != State::Established {
+            // Not established yet: queue whole payloads; the
+            // flush after COOKIE-ACK moves them into the chunk
+            // queue. (Chunk-level cwnd/rwnd gating lives in
+            // flush_out; bursting past either window drops into
+            // kernel buffers and throttles to RTO retransmits.)
             self.queued.push_back((stream, ppid, payload.to_vec(), opts));
             return Vec::new();
         }
-        self.enqueue_and_flush(stream, ppid, payload, opts, now_ms)
+        self.enqueue_chunks(stream, ppid, payload, opts, now_ms);
+        self.flush_out(now_ms)
     }
 
-    fn enqueue_and_flush(
+    fn enqueue_chunks(
         &mut self,
         stream: u16,
         ppid: u32,
         payload: &[u8],
         opts: SendOptions,
         now_ms: u64,
-    ) -> Vec<Vec<u8>> {
+    ) {
         let ssn = if opts.unordered {
             0
         } else {
@@ -578,25 +588,35 @@ impl Association {
                 last_sent_ms: now_ms,
             });
         }
-        let mut packets = Vec::new();
         for c in chunks {
+            self.out_queue.push_back(c);
+        }
+    }
+
+    // Emit queued chunks while cwnd and the peer rwnd allow.
+    fn flush_out(&mut self, now_ms: u64) -> Vec<Vec<u8>> {
+        let mut packets = Vec::new();
+        let limit = self.cwnd.min(self.peer_rwnd as usize);
+        while self.inflight_bytes < limit {
+            let Some(mut c) = self.out_queue.pop_front() else {
+                break;
+            };
             self.inflight_bytes += c.payload.len();
+            c.last_sent_ms = now_ms;
             packets.push(self.packet(self.peer_tag, &data_chunk_bytes(&c)));
             self.unacked.insert(c.tsn, c);
         }
-        self.last_packet_out_ms = now_ms;
+        if !packets.is_empty() {
+            self.last_packet_out_ms = now_ms;
+        }
         packets
     }
 
     fn flush_queue(&mut self, now_ms: u64) -> Vec<Vec<u8>> {
-        let mut packets = Vec::new();
-        while self.inflight_bytes < self.peer_rwnd as usize {
-            let Some((stream, ppid, payload, opts)) = self.queued.pop_front() else {
-                break;
-            };
-            packets.extend(self.enqueue_and_flush(stream, ppid, &payload, opts, now_ms));
+        while let Some((stream, ppid, payload, opts)) = self.queued.pop_front() {
+            self.enqueue_chunks(stream, ppid, &payload, opts, now_ms);
         }
-        packets
+        self.flush_out(now_ms)
     }
 
     fn sack_packet(&self) -> Vec<u8> {
@@ -821,27 +841,82 @@ impl Association {
         }
         partial.parts.insert(tsn, payload);
 
-        let complete = match (partial.first_tsn, partial.last_tsn) {
-            (Some(first), Some(last)) => {
-                let count = last.wrapping_sub(first) as usize + 1;
-                partial.parts.len() == count
-                    && (0..count).all(|i| partial.parts.contains_key(&first.wrapping_add(i as u32)))
+        // Merge TSN-contiguous partials: a fragment that arrives
+        // out of order starts a dangling partial that could
+        // otherwise never complete.
+        loop {
+            let mut merged_any = false;
+            let keys: Vec<u32> = entry.partials.keys().copied().collect();
+            'scan: for i in 0..keys.len() {
+                for j in 0..keys.len() {
+                    if i == j {
+                        continue;
+                    }
+                    let (a, b) = (keys[i], keys[j]);
+                    let contiguous = match (entry.partials.get(&a), entry.partials.get(&b)) {
+                        (Some(pa), Some(pb)) => {
+                            let a_max = *pa.parts.keys().max().unwrap();
+                            let b_min = *pb.parts.keys().min().unwrap();
+                            a_max.wrapping_add(1) == b_min
+                        }
+                        _ => false,
+                    };
+                    if contiguous {
+                        let pb = entry.partials.remove(&b).unwrap();
+                        let pa = entry.partials.get_mut(&a).unwrap();
+                        for (t, bytes) in pb.parts {
+                            pa.parts.insert(t, bytes);
+                        }
+                        if pb.last_tsn.is_some() {
+                            pa.last_tsn = pb.last_tsn;
+                        }
+                        merged_any = true;
+                        break 'scan;
+                    }
+                }
             }
-            _ => false,
-        };
-        if complete {
-            let partial = entry.partials.remove(&key).unwrap();
-            let mut payload = Vec::new();
+            if !merged_any {
+                break;
+            }
+        }
+
+        // Extract any completed messages (a merge can complete
+        // more than the message this fragment belonged to).
+        let mut deliveries: Vec<(u32, Vec<u8>)> = Vec::new(); // unordered: (ppid, payload)
+        let mut completed_any = false;
+        loop {
+            let complete_key = entry.partials.iter().find_map(|(&k, p)| match (p.first_tsn, p.last_tsn) {
+                (Some(first), Some(last)) => {
+                    let count = last.wrapping_sub(first) as usize + 1;
+                    if p.parts.len() == count
+                        && (0..count).all(|i| p.parts.contains_key(&first.wrapping_add(i as u32)))
+                    {
+                        Some(k)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            });
+            let Some(k) = complete_key else { break };
+            let partial = entry.partials.remove(&k).unwrap();
             let first = partial.first_tsn.unwrap();
+            let mut payload = Vec::new();
             for i in 0..partial.parts.len() {
                 payload.extend_from_slice(&partial.parts[&first.wrapping_add(i as u32)]);
             }
             if partial.unordered {
-                events.push(Event::Data { stream, ppid: partial.ppid, payload });
-                return;
+                deliveries.push((partial.ppid, payload));
+            } else {
+                entry.completed.insert(partial.ssn, (partial.ppid, payload));
+                completed_any = true;
             }
-            entry.completed.insert(partial.ssn, (partial.ppid, payload));
-            // `entry` borrow ends here; drain in SSN order below.
+        }
+        for (ppid, payload) in deliveries {
+            events.push(Event::Data { stream, ppid, payload });
+        }
+        if completed_any {
+            // `entry` borrow ends here; drain in SSN order.
             self.drain_stream(stream, events);
         }
     }
@@ -916,6 +991,15 @@ impl Association {
             }
         }
         self.inflight_bytes = self.inflight_bytes.saturating_sub(freed);
+        if freed > 0 {
+            // RFC 9260 §6.2: slow start grows cwnd by up to one
+            // MTU per SACK; congestion avoidance by ~MTU per RTT.
+            if self.cwnd < self.ssthresh {
+                self.cwnd += freed.min(MAX_DATA_PAYLOAD);
+            } else {
+                self.cwnd += (MAX_DATA_PAYLOAD * MAX_DATA_PAYLOAD / self.cwnd).max(1);
+            }
+        }
         self.advance_out_cum();
         // Fast retransmit: TSNs below the first gap start counted as missed.
         if let Some(&(first_start, _)) = gap_ranges.first() {
@@ -1002,6 +1086,11 @@ impl Association {
                 }
                 packets.push(self.packet(self.peer_tag, &chunk(sctp_chunk::FORWARD_TSN, 0, &body)));
             }
+            if !to_retransmit.is_empty() {
+                // RFC 9260 §6.2: a retransmit timeout collapses cwnd.
+                self.ssthresh = (self.cwnd / 2).max(4 * MAX_DATA_PAYLOAD);
+                self.cwnd = MAX_DATA_PAYLOAD;
+            }
             for c in &to_retransmit {
                 packets.push(self.packet(self.peer_tag, &data_chunk_bytes(c)));
             }
@@ -1011,6 +1100,7 @@ impl Association {
                     stored.last_sent_ms = now_ms;
                 }
             }
+            packets.extend(self.flush_out(now_ms));
             // Heartbeat if the association has been quiet.
             if now_ms - self.last_packet_out_ms >= 30_000 {
                 self.last_packet_out_ms = now_ms;

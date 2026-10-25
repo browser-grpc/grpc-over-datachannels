@@ -250,11 +250,22 @@ func (e *DcEndpoint) pump() {
 		if err != nil {
 			return
 		}
-		if packet != nil {
+		// Drain any backlog without waiting: a paced sender can
+		// have many records queued in the socket, and processing
+		// one per 10ms wakeup lets the kernel buffer overflow
+		// (tail drops then cost a full RTO to recover).
+		for packet != nil {
 			packets, events := e.assocHandlePacket(packet)
 			e.sendPackets(packets)
 			for _, event := range events {
 				e.onSctpEvent(event)
+			}
+			if e.closed.Load() {
+				return
+			}
+			packet, err = e.dtls.RecvAppTimeout(0)
+			if err != nil {
+				return
 			}
 		}
 		packets, events := e.assocTick()

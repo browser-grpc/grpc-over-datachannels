@@ -68,15 +68,22 @@ func TestSctpLoopback(t *testing.T) {
 	client := NewClientAssociation(SctpPort, SctpPort)
 	server := NewServerAssociation(SctpPort, SctpPort)
 	exchange := func(from, to *Association, packets [][]byte, now int64) ([][]byte, []SctpEvent) {
-		var out [][]byte
+		// Pump until quiescent: with SACK-clocked (cwnd) sends,
+		// later fragments only leave when earlier ones are acked,
+		// so a single pass no longer delivers a whole message.
 		var events []SctpEvent
-		for _, p := range packets {
-			packets2, events2 := to.HandlePacket(p, now)
-			out = append(out, packets2...)
-			events = append(events, events2...)
+		pending := packets
+		for len(pending) > 0 {
+			var out [][]byte
+			for _, p := range pending {
+				packets2, events2 := to.HandlePacket(p, now)
+				out = append(out, packets2...)
+				events = append(events, events2...)
+			}
+			from, to = to, from
+			pending = out
 		}
-		_ = from
-		return out, events
+		return nil, events
 	}
 	var now int64
 	init := client.Connect(now)

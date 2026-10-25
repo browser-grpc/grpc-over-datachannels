@@ -5,7 +5,8 @@
 // Its identity is the certificate hash ("certhash": multibase
 // base64url of the sha2-256 multihash of the cert DER), as in
 // libp2p multiaddrs:
-//   /ip4/203.0.113.7/udp/4001/webrtc-direct/certhash/f...
+//
+//	/ip4/203.0.113.7/udp/4001/webrtc-direct/certhash/f...
 //
 // The dialer needs only the address and certhash: it starts a
 // DTLS handshake directly over UDP (no ICE, no SDP exchange --
@@ -166,6 +167,10 @@ func NewDirectListener(addr string, cert *Certificate) (*DirectListener, error) 
 	if err != nil {
 		return nil, err
 	}
+	// Large SCTP bursts overflow default kernel buffers;
+	// drops then cost an RTO round. Best-effort hint.
+	_ = conn.SetReadBuffer(4 * 1024 * 1024)
+	_ = conn.SetWriteBuffer(4 * 1024 * 1024)
 	if cert == nil {
 		cert, err = GenerateCertificate()
 		if err != nil {
@@ -304,6 +309,8 @@ func DirectDial(remote *net.UDPAddr, certhash string, cert *Certificate) (*DcEnd
 	if err != nil {
 		return nil, err
 	}
+	_ = conn.SetReadBuffer(4 * 1024 * 1024)
+	_ = conn.SetWriteBuffer(4 * 1024 * 1024)
 	dtls, err := DtlsConnect(UDPPacketIO(conn), directClientConfig(cert, digest))
 	if err != nil {
 		_ = conn.Close()

@@ -20,6 +20,10 @@ const SctpPort = 5000
 
 const maxDataPayload = 1000
 const initialRwnd = 262144
+
+// RFC 9260 section 6.1: initial cwnd is 4 MTU here (fragment
+// payload is 1000B, so ~4 fragments in flight before SACK clocking).
+const initialCwnd = 4 * maxDataPayload
 const initialRtoMs = 1000
 
 // Crc32c computes the SCTP checksum (Castagnoli, reflected).
@@ -180,12 +184,19 @@ type Association struct {
 	outCumDone uint32
 	peerCumTsn uint32
 
-	peerReceived     map[uint32]bool
-	outSsn           map[uint16]uint16
-	unacked          map[uint32]*outChunk
-	queued           []queuedMessage
-	inflightBytes    int
-	peerRwnd         uint32
+	peerReceived  map[uint32]bool
+	outSsn        map[uint16]uint16
+	unacked       map[uint32]*outChunk
+	queued        []queuedMessage
+	outQueue      []*outChunk // chunks awaiting cwnd/rwnd room
+	inflightBytes int
+	peerRwnd      uint32
+	// Congestion window (RFC 9260 section 6): without it a
+	// large message bursts its fragments into kernel UDP
+	// buffers faster than the peer drains them; the dropped
+	// tail then recovers only at RTO granularity (1s a round).
+	cwnd             int
+	ssthresh         int
 	streamsIn        map[uint16]*inStream
 	cookieSecret     []byte
 	pendingCookie    []byte
@@ -243,6 +254,8 @@ func newAssociation(isClient bool, localPort, peerPort uint16) *Association {
 		outSsn:         map[uint16]uint16{},
 		unacked:        map[uint32]*outChunk{},
 		peerRwnd:       initialRwnd,
+		cwnd:           initialCwnd,
+		ssthresh:       int(^uint(0) >> 1),
 		streamsIn:      map[uint16]*inStream{},
 		cookieSecret:   secret,
 		rtoMs:          initialRtoMs,
@@ -558,20 +571,19 @@ func (a *Association) SendData(stream uint16, ppid uint32, payload []byte, opts 
 	if a.outResetDone[stream] {
 		return nil // stream is reset/closing: no new data
 	}
-	if a.state != "established" || a.inflightBytes >= int(a.peerRwnd) {
-		// Not established, or peer receive window full: queue;
-		// handleSack flushes as SACKs free window. Sending past
-		// rwnd bursts into kernel buffers that drop most of it,
-		// throttling the association to RTO retransmits.
+	if a.state != "established" {
+		// Not established yet: queue whole payloads; the flush
+		// after COOKIE-ACK moves them into the chunk queue.
 		cp := make([]byte, len(payload))
 		copy(cp, payload)
 		a.queued = append(a.queued, queuedMessage{stream, ppid, cp, opts})
 		return nil
 	}
-	return a.enqueueAndFlush(stream, ppid, payload, opts, nowMs)
+	a.enqueueChunks(stream, ppid, payload, opts, nowMs)
+	return a.flushOut(nowMs)
 }
 
-func (a *Association) enqueueAndFlush(stream uint16, ppid uint32, payload []byte, opts SendOptions, nowMs int64) [][]byte {
+func (a *Association) enqueueChunks(stream uint16, ppid uint32, payload []byte, opts SendOptions, nowMs int64) {
 	var ssn uint16
 	if !opts.Unordered {
 		ssn = a.outSsn[stream]
@@ -588,7 +600,6 @@ func (a *Association) enqueueAndFlush(stream uint16, ppid uint32, payload []byte
 		}
 		fragments = append(fragments, payload[off:end])
 	}
-	var packets [][]byte
 	for i, frag := range fragments {
 		var flags byte
 		if opts.Unordered {
@@ -607,22 +618,38 @@ func (a *Association) enqueueAndFlush(stream uint16, ppid uint32, payload []byte
 			payload: cp, opts: opts, bornMs: nowMs, lastSentMs: nowMs,
 		}
 		a.nextTsn++
-		a.inflightBytes += len(cp)
+		a.outQueue = append(a.outQueue, c)
+	}
+}
+
+// flushOut emits queued chunks while cwnd and the peer rwnd allow.
+func (a *Association) flushOut(nowMs int64) [][]byte {
+	var packets [][]byte
+	limit := a.cwnd
+	if int(a.peerRwnd) < limit {
+		limit = int(a.peerRwnd)
+	}
+	for len(a.outQueue) > 0 && a.inflightBytes < limit {
+		c := a.outQueue[0]
+		a.outQueue = a.outQueue[1:]
+		a.inflightBytes += len(c.payload)
+		c.lastSentMs = nowMs
 		packets = append(packets, a.packet(a.peerTag, dataChunkBytes(c)))
 		a.unacked[c.tsn] = c
 	}
-	a.lastPacketOutMs = nowMs
+	if len(packets) > 0 {
+		a.lastPacketOutMs = nowMs
+	}
 	return packets
 }
 
 func (a *Association) flushQueue(nowMs int64) [][]byte {
-	var packets [][]byte
-	for a.inflightBytes < int(a.peerRwnd) && len(a.queued) > 0 {
+	for len(a.queued) > 0 {
 		m := a.queued[0]
 		a.queued = a.queued[1:]
-		packets = append(packets, a.enqueueAndFlush(m.stream, m.ppid, m.payload, m.opts, nowMs)...)
+		a.enqueueChunks(m.stream, m.ppid, m.payload, m.opts, nowMs)
 	}
-	return packets
+	return a.flushOut(nowMs)
 }
 
 func (a *Association) sackPacket() []byte {
@@ -820,27 +847,110 @@ func (a *Association) handleData(flags byte, body []byte) []SctpEvent {
 	copy(cp, payload)
 	partial.parts[tsn] = cp
 
-	if !partial.hasFirst || !partial.hasLast {
-		return nil
-	}
-	count := int(diff32(partial.lastTsn, partial.firstTsn)) + 1
-	if len(partial.parts) != count {
-		return nil
-	}
-	var full []byte
-	for i := 0; i < count; i++ {
-		part, ok := partial.parts[partial.firstTsn+uint32(i)]
-		if !ok {
-			return nil
+	// Merge TSN-contiguous partials: a fragment that arrives
+	// out of order starts a dangling partial that could
+	// otherwise never complete.
+	partMax := func(p *partialMessage) uint32 {
+		var m uint32
+		first := true
+		for t := range p.parts {
+			if first || t > m {
+				m, first = t, false
+			}
 		}
-		full = append(full, part...)
+		return m
 	}
-	delete(entry.partials, key)
-	if partial.unordered {
-		return []SctpEvent{{Type: "data", Stream: stream, Ppid: partial.ppid, Payload: full}}
+	partMin := func(p *partialMessage) uint32 {
+		var m uint32
+		first := true
+		for t := range p.parts {
+			if first || t < m {
+				m, first = t, false
+			}
+		}
+		return m
 	}
-	entry.completed[partial.ssn] = completedMessage{partial.ppid, full}
-	return a.drainStream(stream)
+	for {
+		merged := false
+		keys := make([]uint32, 0, len(entry.partials))
+		for k := range entry.partials {
+			keys = append(keys, k)
+		}
+	scan:
+		for _, ka := range keys {
+			for _, kb := range keys {
+				if ka == kb {
+					continue
+				}
+				pa, pb := entry.partials[ka], entry.partials[kb]
+				if pa == nil || pb == nil {
+					continue
+				}
+				if partMax(pa)+1 == partMin(pb) {
+					for t, b := range pb.parts {
+						pa.parts[t] = b
+					}
+					if pb.hasLast {
+						pa.lastTsn, pa.hasLast = pb.lastTsn, true
+					}
+					delete(entry.partials, kb)
+					merged = true
+					break scan
+				}
+			}
+		}
+		if !merged {
+			break
+		}
+	}
+
+	// Extract any completed messages (a merge can complete
+	// more than the message this fragment belonged to).
+	var events []SctpEvent
+	completedAny := false
+	for {
+		completeKey, found := uint32(0), false
+		for k, p := range entry.partials {
+			if !p.hasFirst || !p.hasLast {
+				continue
+			}
+			count := int(diff32(p.lastTsn, p.firstTsn)) + 1
+			if len(p.parts) != count {
+				continue
+			}
+			okAll := true
+			for i := 0; i < count; i++ {
+				if _, ok := p.parts[p.firstTsn+uint32(i)]; !ok {
+					okAll = false
+					break
+				}
+			}
+			if okAll {
+				completeKey, found = k, true
+				break
+			}
+		}
+		if !found {
+			break
+		}
+		p := entry.partials[completeKey]
+		delete(entry.partials, completeKey)
+		count := int(diff32(p.lastTsn, p.firstTsn)) + 1
+		var full []byte
+		for i := 0; i < count; i++ {
+			full = append(full, p.parts[p.firstTsn+uint32(i)]...)
+		}
+		if p.unordered {
+			events = append(events, SctpEvent{Type: "data", Stream: stream, Ppid: p.ppid, Payload: full})
+		} else {
+			entry.completed[p.ssn] = completedMessage{p.ppid, full}
+			completedAny = true
+		}
+	}
+	if completedAny {
+		events = append(events, a.drainStream(stream)...)
+	}
+	return events
 }
 
 func (a *Association) drainStream(stream uint16) []SctpEvent {
@@ -936,6 +1046,23 @@ func (a *Association) handleSack(body []byte, nowMs int64) [][]byte {
 	if a.inflightBytes < 0 {
 		a.inflightBytes = 0
 	}
+	if freed > 0 {
+		// RFC 9260 section 6.2: slow start grows cwnd by up to
+		// one MTU per SACK; congestion avoidance ~MTU per RTT.
+		if a.cwnd < a.ssthresh {
+			grow := freed
+			if grow > maxDataPayload {
+				grow = maxDataPayload
+			}
+			a.cwnd += grow
+		} else {
+			grow := maxDataPayload * maxDataPayload / a.cwnd
+			if grow < 1 {
+				grow = 1
+			}
+			a.cwnd += grow
+		}
+	}
 	a.advanceOutCum()
 	var packets [][]byte
 	if len(gaps) > 0 {
@@ -1022,11 +1149,20 @@ func (a *Association) Tick(nowMs int64) ([][]byte, []SctpEvent) {
 			a.abandonedOrdered = nil
 			packets = append(packets, a.packet(a.peerTag, sctpChunk(SctpChunkForwardTsn, 0, body)))
 		}
+		if len(toRetransmit) > 0 {
+			// RFC 9260 section 6.2: a retransmit timeout collapses cwnd.
+			a.ssthresh = a.cwnd / 2
+			if a.ssthresh < 4*maxDataPayload {
+				a.ssthresh = 4 * maxDataPayload
+			}
+			a.cwnd = maxDataPayload
+		}
 		for _, c := range toRetransmit {
 			packets = append(packets, a.packet(a.peerTag, dataChunkBytes(c)))
 			c.retransmits++
 			c.lastSentMs = nowMs
 		}
+		packets = append(packets, a.flushOut(nowMs)...)
 		if nowMs-a.lastPacketOutMs >= 30000 {
 			a.lastPacketOutMs = nowMs
 			info := make([]byte, 8)
