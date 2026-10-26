@@ -3959,6 +3959,12 @@ function jpExplicitLiteral(model, f) {
   }
 }
 
+function jpBoxedDefault(model, f) {
+  if (f.type === 1) return '0.0';
+  if (f.type === 2) return '0.0f';
+  return jpDefault(model, f);
+}
+
 function jpDefault(model, f) {
   const lit = jpExplicitLiteral(model, f);
   if (lit !== null) return lit;
@@ -4194,8 +4200,8 @@ function jpMapHelpers(model, entry, support) {
     + jpEncodeSingular(model, { ...valF, label: 1 }, 'value', '        ', support)
     + '        return w.toBytes();\n    }\n\n'
     + '    static Object[] ' + base + 'Decode(byte[] bytes) {\n'
-    + '        ' + kt + ' key = ' + jpDefault(model, { ...keyF, label: 1 }) + ';\n'
-    + '        ' + vt + ' value = ' + jpDefault(model, { ...valF, label: 1 }) + ';\n'
+    + '        ' + kt + ' key = ' + jpBoxedDefault(model, { ...keyF, label: 1 }) + ';\n'
+    + '        ' + vt + ' value = ' + jpBoxedDefault(model, { ...valF, label: 1 }) + ';\n'
     + '        Reader r = new Reader(bytes);\n        Field field;\n        while ((field = r.next()) != null) {\n            switch (field.number) {\n'
     + '                case ' + keyF.number + ': ' + jpDecodeSingularStmt(model, { ...keyF, label: 1 }, 'key') + ' break;\n'
     + '                case ' + valF.number + ': ' + jpDecodeSingularStmt(model, { ...valF, label: 1 }, 'value') + ' break;\n'
@@ -4377,6 +4383,22 @@ function emitJavaPbFiles(model) {
   return files;
 }
 
+function javaQualifyType(pkg, simple, full) {
+  if (!full || !pkg || full.startsWith(pkg + '.')) return simple;
+  return full.split('.').slice(0, -1).join('.') + '.' + simple;
+}
+
+function javaQualifyServices(pkg, services) {
+  return services.map((svc) => ({
+    ...svc,
+    methods: svc.methods.map((m) => ({
+      ...m,
+      input: javaQualifyType(pkg, m.input, m.inputFull),
+      output: javaQualifyType(pkg, m.output, m.outputFull),
+    })),
+  }));
+}
+
 function emitJavaFile(model, params) {
   const base = baseName(model.name);
   const className = pascalName(base) + 'GrpcDc';
@@ -4391,7 +4413,7 @@ function emitJavaFile(model, params) {
       + 'import java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.CompletionException;\n\n'
       + '/** Generated gRPC-over-DataChannels stubs for ' + model.name + '. */\n'
       + 'public final class ' + className + ' {\n    private ' + className + '() {}\n\n'
-      + model.services.map(javaService).join('')
+      + javaQualifyServices(pkg, model.services).map(javaService).join('')
       + '}\n',
   };
   const pbFiles = emitJavaPbFiles(model);

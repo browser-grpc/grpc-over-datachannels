@@ -33,4 +33,5 @@ pub const bdd_cases = [_]BddCase{
     .{ .name = "bidi-failure", .kind = "bidi-fail", .messages = &.{ "fail" }, .count = 0, .path = "", .metadata = "", .expect_message = "", .expect_num = 0, .expect_status = 3 },
     .{ .name = "deadline-exceeded", .kind = "deadline", .messages = &.{ "slow" }, .count = 600, .path = "", .metadata = "", .expect_message = "", .expect_num = 0, .expect_status = 4 },
     .{ .name = "stream-cancel", .kind = "cancel", .messages = &.{ "tick" }, .count = 5, .path = "", .metadata = "", .expect_message = "", .expect_num = 0, .expect_status = -1 },
+    .{ .name = "stream-break", .kind = "stream-break", .messages = &.{ "tick" }, .count = 100, .path = "", .metadata = "", .expect_message = "", .expect_num = 0, .expect_status = -1 },
 };

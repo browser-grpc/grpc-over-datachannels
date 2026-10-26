@@ -38,6 +38,7 @@ static const char *const bdd_msgs_13[] = {"fail"};
 static const char *const bdd_msgs_14[] = {"fail"};
 static const char *const bdd_msgs_15[] = {"slow"};
 static const char *const bdd_msgs_16[] = {"tick"};
+static const char *const bdd_msgs_17[] = {"tick"};
 
 static const bdd_case bdd_cases[] = {
     {"unary-echo", "unary", bdd_msgs_0, 1, 0, "", "", "echo: hello", 0, -1},
@@ -57,6 +58,7 @@ static const bdd_case bdd_cases[] = {
     {"bidi-failure", "bidi-fail", bdd_msgs_14, 1, 0, "", "", "", 0, 3},
     {"deadline-exceeded", "deadline", bdd_msgs_15, 1, 600, "", "", "", 0, 4},
     {"stream-cancel", "cancel", bdd_msgs_16, 1, 5, "", "", "", 0, -1},
+    {"stream-break", "stream-break", bdd_msgs_17, 1, 100, "", "", "", 0, -1},
 };
 
 static const size_t bdd_cases_count =

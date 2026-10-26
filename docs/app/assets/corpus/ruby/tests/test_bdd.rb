@@ -121,6 +121,38 @@ module TestBdd
         terminated = true
       end
       TestUtil.assert_eq(terminated, true, "cancel terminated")
+    when "stream-break"
+      # Dedicated counting server (mirrors test_echo.rb): breaking
+      # out of `each` RSTs the call via RecvStream ensure/close
+      # (no explicit cancel); the handler's next send then fails.
+      produced = [0]
+      counting = Class.new(EchoService) do
+        define_method(:ServerStream) do |request, stream|
+          request.count.times do |i|
+            produced[0] += 1
+            stream.send(EchoPb::EchoResponse.new(message: request.message, index: i))
+            sleep(0.01)
+          end
+        end
+      end
+      a2, b2 = Grpcdc.memory_transport_pair
+      server2 = Grpcdc::Server.new
+      EchoGrpcDc.register_echo_server(server2, counting.new)
+      server2.serve_transport(b2)
+      client2 = EchoGrpcDc::EchoClient.new(Grpcdc::Channel.new(a2))
+      seen = 0
+      client2.ServerStream(req(messages[0], count)).each do |resp|
+        TestUtil.assert_eq(resp.message, messages[0], "stream-break first")
+        TestUtil.assert_eq(resp.index, 0, "stream-break first index")
+        seen += 1
+        break if seen == 1
+      end
+      TestUtil.assert_eq(seen, 1, "stream-break seen")
+      sleep(0.15)
+      settled = produced[0]
+      sleep(0.15)
+      TestUtil.assert_eq(produced[0], settled, "stream-break settled")
+      TestUtil.check(settled < 50, "server kept producing (#{settled})")
     when "raw-unary"
       begin
         @channel.unary(path, req(messages[0]), EchoPb::EchoResponse.new)

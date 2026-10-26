@@ -19,6 +19,7 @@ use grpc_dc::{
     loopback_pair, CallCtx, Channel, DcTransport, Metadata, RequestStream, ResponseStream,
     Server, Status,
 };
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use stub::{echo_service, Echo, EchoClient};
 
@@ -88,6 +89,59 @@ impl Echo for EchoService {
             }
         });
         Ok(Box::pin(stream))
+    }
+}
+
+/// Slow counting service for the stream-break scenario:
+/// counts each produced response with ~10ms pacing so the
+/// client break can be observed stopping production.
+struct CountingService {
+    produced: Arc<AtomicU32>,
+}
+
+#[grpc_dc::async_trait]
+impl Echo for CountingService {
+    async fn unary(&self, req: pb::EchoRequest, _ctx: CallCtx) -> Result<pb::EchoResponse, Status> {
+        Ok(pb::EchoResponse { message: req.message, index: 0, ..Default::default() })
+    }
+
+    async fn server_stream(
+        &self,
+        req: pb::EchoRequest,
+        _ctx: CallCtx,
+    ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        let produced = self.produced.clone();
+        let count = req.count.max(0);
+        let message = req.message.clone();
+        let stream = futures_util::stream::unfold(0i32, move |i| {
+            let produced = produced.clone();
+            let message = message.clone();
+            async move {
+                if i >= count {
+                    return None;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                produced.fetch_add(1, Ordering::SeqCst);
+                Some((Ok(pb::EchoResponse { message, index: i, ..Default::default() }), i + 1))
+            }
+        });
+        Ok(Box::pin(stream))
+    }
+
+    async fn client_stream(
+        &self,
+        _reqs: RequestStream<pb::EchoRequest>,
+        _ctx: CallCtx,
+    ) -> Result<pb::EchoResponse, Status> {
+        Err(Status::unimplemented("unused"))
+    }
+
+    async fn bidi(
+        &self,
+        _reqs: RequestStream<pb::EchoRequest>,
+        _ctx: CallCtx,
+    ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        Err(Status::unimplemented("unused"))
     }
 }
 
@@ -231,6 +285,39 @@ async fn bdd_scenarios() {
                 // Dropping the stream aborts the call; reaching
                 // here with the runtime still live is the
                 // assertion (a hang would fail by timeout).
+            }
+            "stream-break" => {
+                // Dedicated counting server: dropping the
+                // stream (no explicit cancel) must RST the call
+                // so production stops.
+                let produced = Arc::new(AtomicU32::new(0));
+                let (a2, b2) = loopback_pair();
+                let break_transport: Arc<dyn DcTransport> = Arc::new(b2);
+                tokio::spawn(Server::serve(
+                    break_transport,
+                    vec![echo_service(Arc::new(CountingService {
+                        produced: produced.clone(),
+                    }))],
+                ));
+                let break_client_transport: Arc<dyn DcTransport> = Arc::new(a2);
+                let break_client = EchoClient::new(Channel::new(break_client_transport));
+                let mut stream = break_client
+                    .server_stream(req(c.messages[0], c.count))
+                    .await
+                    .unwrap();
+                let first = stream.next().await.expect("first response").unwrap();
+                assert_eq!(first.message, c.messages[0], "{line}");
+                // Natural abandonment: drop the stream.
+                drop(stream);
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                let settled = produced.load(Ordering::SeqCst);
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                assert_eq!(
+                    produced.load(Ordering::SeqCst),
+                    settled,
+                    "{line}: production did not settle"
+                );
+                assert!(settled < 50, "{line}: server kept producing ({settled})");
             }
             "raw-unary" => {
                 let result: Result<pb::EchoResponse, Status> =

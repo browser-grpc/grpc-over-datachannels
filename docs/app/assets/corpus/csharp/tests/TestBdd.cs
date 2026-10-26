@@ -10,6 +10,60 @@ public static class TestBdd
 {
     private static EchoRequest Req(string message, int count) => new(message, count, 0);
 
+    /// <summary>Counting service for the stream-break scenario.</summary>
+    private sealed class CountingEchoService : EchoGrpcDc.EchoServer
+    {
+        public int Produced;
+
+        public EchoResponse Unary(Endpoint.CallContext ctx, EchoRequest req)
+            => new($"echo: {req.Message}", 0);
+
+        public void ServerStream(EchoRequest req, EchoGrpcDc.EchoServerStreamServer stream)
+        {
+            for (int i = 0; i < Math.Max(0, req.Count); i++)
+            {
+                System.Threading.Interlocked.Increment(ref Produced);
+                stream.Send(new EchoResponse(req.Message, i));
+                System.Threading.Thread.Sleep(10);
+            }
+        }
+
+        public void ClientStream(EchoGrpcDc.EchoClientStreamServer stream)
+        {
+            var parts = new List<string>();
+            while (true)
+            {
+                try
+                {
+                    parts.Add(stream.Recv().Message);
+                }
+                catch (EndOfStreamException)
+                {
+                    break;
+                }
+            }
+            stream.SendAndClose(new EchoResponse(string.Join("+", parts), parts.Count));
+        }
+
+        public void Bidi(EchoGrpcDc.EchoBidiServer stream)
+        {
+            int index = 0;
+            while (true)
+            {
+                EchoRequest req;
+                try
+                {
+                    req = stream.Recv();
+                }
+                catch (EndOfStreamException)
+                {
+                    return;
+                }
+                stream.Send(new EchoResponse(req.Message, index++));
+            }
+        }
+    }
+
     public static void Run()
     {
         (ITransport a, ITransport b) = MemoryTransport.Pair();
@@ -198,6 +252,31 @@ public static class TestBdd
                         terminated = true;
                     }
                     Program.Check(terminated, $"{name}: stream did not terminate after cancel");
+                    break;
+                }
+                case "stream-break":
+                {
+                    // Dedicated counting server (like the Go BDD
+                    // runner): reading one response and then
+                    // abandoning the stream by disposing it (no
+                    // explicit cancel) must RST the call so the
+                    // server stops producing.
+                    var service = new CountingEchoService();
+                    (ITransport ba, ITransport bb) = MemoryTransport.Pair();
+                    var bserver = new Server();
+                    EchoGrpcDc.RegisterEchoServer(bserver, service);
+                    bserver.ServeTransport(bb);
+                    var bclient = new EchoGrpcDc.EchoClient(new Channel(ba));
+                    var breakStream = bclient.ServerStream(Req(messages[0], count));
+                    EchoResponse first = breakStream.Recv();
+                    Program.Check(first.Message == messages[0], $"{name}: first {first}");
+                    breakStream.Dispose();
+                    System.Threading.Thread.Sleep(150);
+                    int settled = System.Threading.Volatile.Read(ref service.Produced);
+                    System.Threading.Thread.Sleep(150);
+                    Program.Check(System.Threading.Volatile.Read(ref service.Produced) == settled,
+                        $"{name}: server kept producing {settled} -> {service.Produced}");
+                    Program.Check(settled < 50, $"{name}: server produced too many: {settled}");
                     break;
                 }
                 case "raw-unary":

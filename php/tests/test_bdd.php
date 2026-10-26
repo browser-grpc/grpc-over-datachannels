@@ -12,6 +12,27 @@ require_once __DIR__ . "/../examples/echo_pb.php";
 require_once __DIR__ . "/../examples/echo_service.php";
 require_once __DIR__ . "/test_util.php";
 
+/**
+ * Counting slow producer for the stream-break scenario: one
+ * message per Fiber suspend, pumping the endpoint between sends
+ * (what "slow" means cooperatively). Mirrors test_echo.php.
+ */
+final class TestBddCountingStreamService extends EchoService
+{
+    public int $produced = 0;
+    public ?\Grpcdc\Endpoint $serverEp = null;
+
+    public function ServerStream(\EchoPb\EchoRequest $req, \EchoGrpcDc\SendStream $stream): void
+    {
+        for ($i = 0; $i < $req->count; $i++) {
+            $this->produced++;
+            $stream->send(new \EchoPb\EchoResponse($req->message, $i));
+            \Fiber::suspend();
+            $this->serverEp->pump();
+        }
+    }
+}
+
 final class TestBdd
 {
     private static \EchoGrpcDc\EchoClient $client;
@@ -135,6 +156,66 @@ final class TestBdd
                     $terminated = true;
                 }
                 T::assertEq($terminated, true, "cancel terminated");
+                break;
+            case "stream-break":
+                // Dedicated counting server (mirrors test_echo.php):
+                // breaking the foreach abandons the iterate()
+                // generator; dropping it and the stream (generator
+                // finally / RecvStream __destruct) RSTs the call —
+                // no explicit cancel. "Waiting" drives the server
+                // Fiber, as the cooperative runtime does elsewhere.
+                [$a2, $b2] = \Grpcdc\memoryTransportPair();
+                $counting = new TestBddCountingStreamService();
+                $server2 = new \Grpcdc\Server();
+                \EchoGrpcDc\registerEchoServer($server2, $counting);
+                $serverEp2 = $server2->serveTransport($b2);
+                $counting->serverEp = $serverEp2;
+                $channel2 = new \Grpcdc\Channel($a2);
+                $serverFiber = new \Fiber(function () use ($serverEp2) {
+                    while (true) {
+                        $serverEp2->pump();
+                        \Fiber::suspend();
+                    }
+                });
+                $drive = function () use ($serverFiber) {
+                    if ($serverFiber->isTerminated()) {
+                        return false;
+                    }
+                    if (!$serverFiber->isStarted()) {
+                        $serverFiber->start();
+                    } else {
+                        $serverFiber->resume();
+                    }
+                    return true;
+                };
+                $a2->peerPump = $drive;
+                $b2->peerPump = function () use ($channel2) {
+                    return $channel2->endpoint->pump();
+                };
+                $client2 = new \EchoGrpcDc\EchoClient($channel2);
+                $stream = $client2->ServerStream(self::req($messages[0], $count));
+                $gen = $stream->iterate();
+                $seen = 0;
+                foreach ($gen as $resp) {
+                    T::assertEq($resp->message, $messages[0], "stream-break first");
+                    T::assertEq($resp->index, 0, "stream-break first index");
+                    $seen++;
+                    if ($seen === 1) {
+                        break;
+                    }
+                }
+                T::assertEq($seen, 1, "stream-break seen");
+                unset($gen, $stream);
+                gc_collect_cycles();
+                for ($i = 0; $i < 4; $i++) {
+                    $drive();
+                }
+                $settled = $counting->produced;
+                for ($i = 0; $i < 4; $i++) {
+                    $drive();
+                }
+                T::assertEq($counting->produced, $settled, "stream-break settled");
+                T::check($settled < 50, "server kept producing ($settled)");
                 break;
             case "raw-unary":
                 try {

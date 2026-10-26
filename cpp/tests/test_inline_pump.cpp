@@ -6,6 +6,7 @@
 // the server-inline half is driven by explicit PollOnce calls
 // while a threaded client call runs in the background.
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -124,6 +125,24 @@ class SlowEcho : public echo::EchoServiceImpl {
   }
 };
 
+/// Slow counting handler for the inline stream-break test.
+class BreakEcho : public echo::EchoServiceImpl {
+ public:
+  std::atomic<int> produced{0};
+
+  void ServerStream(echo::EchoRequest& req,
+                    echo::EchoGrpcDc::EchoServerStreamServer& stream) override {
+    for (std::int32_t i = 0; i < req.count; ++i) {
+      ++produced;
+      echo::EchoResponse resp;
+      resp.message = req.message;
+      resp.index = i;
+      stream.Send(resp);
+      std::this_thread::sleep_for(milliseconds(2));
+    }
+  }
+};
+
 void RunClientInline() {
   auto pair = QueuePair(true, false);
   auto server = std::make_shared<grpcdc::Server>();
@@ -176,6 +195,47 @@ void RunClientInline() {
         "inline deadline fires fast");
 }
 
+/// Breaking a server stream must stop an inline server's handler:
+/// the handler runs on the PollOnce stack, so its sends have to
+/// pump the endpoint or the client's RST is never seen.
+void RunServerInlineBreak() {
+  auto pair = QueuePair(false, true);
+  auto server = std::make_shared<grpcdc::Server>();
+  static BreakEcho impl;
+  impl.produced.store(0);
+  EchoGrpcDc::RegisterEchoServer(*server, impl);
+  auto server_endpoint = server->ServeTransport(pair.second);
+  Check(server_endpoint->inline_pump(), "server endpoint is inline");
+  auto channel = std::make_shared<grpcdc::Channel>(pair.first);
+  EchoGrpcDc::EchoClient client(channel);
+
+  auto broken = std::async(std::launch::async, [&] {
+    auto stream = client.ServerStream(Req("tick", 200));
+    EchoResponse first = stream.Recv();
+    Check(first.index == 0, "inline stream-break first response");
+    return 0;
+  });  // stream destroyed at scope exit: RST CANCELLED
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (broken.wait_for(milliseconds(0)) != std::future_status::ready &&
+         std::chrono::steady_clock::now() < deadline) {
+    server_endpoint->PollOnce();
+  }
+  Check(broken.wait_for(milliseconds(0)) == std::future_status::ready,
+        "inline stream-break client settled");
+  broken.get();
+  // Give the handler a last pump so it observes the RST.
+  for (int i = 0; i < 50 && impl.produced.load() == 0; ++i) {
+    server_endpoint->PollOnce();
+  }
+  std::this_thread::sleep_for(milliseconds(150));
+  int settled = impl.produced.load();
+  std::this_thread::sleep_for(milliseconds(150));
+  Check(impl.produced.load() == settled,
+        "inline stream-break production did not settle");
+  Check(settled < 100,
+        "inline stream-break server kept producing: " + std::to_string(settled));
+}
+
 void RunServerInline() {
   auto pair = QueuePair(false, true);
   auto server = std::make_shared<grpcdc::Server>();
@@ -211,6 +271,7 @@ void RunServerInline() {
 void TestInlinePump() {
   RunClientInline();
   RunServerInline();
+  RunServerInlineBreak();
   std::fprintf(stderr, "TestInlinePump OK\n");
 }
 

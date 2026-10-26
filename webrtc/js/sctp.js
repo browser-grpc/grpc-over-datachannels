@@ -8,6 +8,13 @@
 import crypto from "node:crypto";
 import { CRC32C_TABLE, SctpChunk, SctpParam, SctpReconfig } from "./proto_gen.js";
 
+// Env-gated packet tracing for wedge hunts (node only).
+const SCTP_TRACE =
+  typeof process !== "undefined" && process.env && process.env.GRPC_DC_SCTP_TRACE;
+function strace(...args) {
+  if (SCTP_TRACE) console.error("[sctp-trace]", ...args);
+}
+
 export const SCTP_PORT = 5000;
 const MAX_DATA_PAYLOAD = 1000;
 const INITIAL_RWND = 262144;
@@ -415,11 +422,17 @@ export class Association {
   #flushOut(nowMs) {
     const packets = [];
     const limit = Math.min(this.cwnd, this.peerRwnd);
+    if (SCTP_TRACE && this.outQueue.length && this.inflightBytes >= limit) {
+      strace(
+        `flush blocked queue=${this.outQueue.length} inflight=${this.inflightBytes} limit=${limit}`,
+      );
+    }
     while (this.outQueue.length && this.inflightBytes < limit) {
       const c = this.outQueue.shift();
       this.inflightBytes += c.payload.length;
       c.lastSentMs = nowMs;
       this.unacked.set(c.tsn, c);
+      strace(`data out tsn=${c.tsn} stream=${c.stream} len=${c.payload.length}`);
       packets.push(this.#packet(this.peerTag, dataChunkBytes(c)));
     }
     if (packets.length) this.lastPacketOutMs = nowMs;
@@ -588,6 +601,7 @@ export class Association {
     let key = tsn;
     if (!isBegin) {
       for (const [k, p] of entry.partials) {
+        if (p.lastTsn !== null) continue; // already ended: new partial
         const maxTsn = Math.max(...p.parts.keys());
         if (add32(maxTsn, 1) === tsn) {
           key = k;
@@ -621,12 +635,17 @@ export class Association {
         if (p2 === partial) continue;
         const maxOf = (p) => Math.max(...p.parts.keys());
         const minOf = (p) => Math.min(...p.parts.keys());
+        // Never merge across a message boundary: a partial holding a
+        // BEGIN fragment starts a new message, and one holding an END
+        // fragment is already a whole message.
         if (add32(maxOf(partial), 1) === minOf(p2)) {
+          if (p2.firstTsn !== null || partial.lastTsn !== null) continue;
           for (const [t, b] of p2.parts) partial.parts.set(t, b);
           if (p2.lastTsn !== null) partial.lastTsn = p2.lastTsn;
           entry.partials.delete(k2);
           merged = true;
         } else if (add32(maxOf(p2), 1) === minOf(partial)) {
+          if (partial.firstTsn !== null || p2.lastTsn !== null) continue;
           for (const [t, b] of partial.parts) p2.parts.set(t, b);
           if (partial.lastTsn !== null) p2.lastTsn = partial.lastTsn;
           entry.partials.delete(key);
@@ -703,6 +722,9 @@ export class Association {
       const e = body.readUInt16BE(pos + 2);
       gapRanges.push([add32(cum, s), add32(cum, e)]);
     }
+    strace(
+      `sack cum=${cum} gaps=${JSON.stringify(gapRanges)} unacked=${this.unacked.size} queue=${this.outQueue.length}`,
+    );
     let freed = 0;
     for (const tsn of [...this.unacked.keys()]) {
       const inGap = gapRanges.some(([s, e]) => diff32(tsn, s) >= 0 && diff32(tsn, e) <= 0);
@@ -798,6 +820,7 @@ export class Association {
         this.cwnd = MAX_DATA_PAYLOAD;
       }
       for (const c of toRetransmit) {
+        strace(`rexmit tsn=${c.tsn} stream=${c.stream} len=${c.payload.length}`);
         packets.push(this.#packet(this.peerTag, dataChunkBytes(c)));
         c.retransmits += 1;
         c.lastSentMs = nowMs;

@@ -26,5 +26,6 @@ object BddScenarios {
         Case("bidi-failure", "bidi-fail", List("fail"), 0, "", "", "", 0, 3),
         Case("deadline-exceeded", "deadline", List("slow"), 600, "", "", "", 0, 4),
         Case("stream-cancel", "cancel", List("tick"), 5, "", "", "", 0, -1),
+        Case("stream-break", "stream-break", List("tick"), 100, "", "", "", 0, -1),
     )
 }

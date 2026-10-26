@@ -13,12 +13,63 @@ import java.io.EOFException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** BDD: interprets the generated behavior scenarios (BddScenarios,
  * generated from the BDD specification; prose in BDD.md) against a
  * loopback client+server — the executable examples. */
 public final class TestBdd {
     private TestBdd() {}
+
+    /** Counting service for the stream-break scenario. */
+    static final class CountingEchoService implements EchoGrpcDc.EchoServer {
+        private final AtomicInteger produced;
+
+        CountingEchoService(AtomicInteger produced) {
+            this.produced = produced;
+        }
+
+        @Override
+        public EchoResponse Unary(grpcdc.Endpoint.CallContext ctx, EchoRequest req) {
+            return new EchoResponse("echo: " + req.message, 0);
+        }
+
+        @Override
+        public void ServerStream(EchoRequest req, EchoGrpcDc.EchoServerStreamServer stream) throws Exception {
+            for (int i = 0; i < Math.max(0, req.count); i++) {
+                produced.incrementAndGet();
+                stream.send(new EchoResponse(req.message, i));
+                Thread.sleep(10);
+            }
+        }
+
+        @Override
+        public void ClientStream(EchoGrpcDc.EchoClientStreamServer stream) throws Exception {
+            List<String> parts = new ArrayList<>();
+            while (true) {
+                try {
+                    parts.add(stream.recv().message);
+                } catch (EOFException eof) {
+                    break;
+                }
+            }
+            stream.sendAndClose(new EchoResponse(String.join("+", parts), parts.size()));
+        }
+
+        @Override
+        public void Bidi(EchoGrpcDc.EchoBidiServer stream) throws Exception {
+            int index = 0;
+            while (true) {
+                EchoRequest req;
+                try {
+                    req = stream.recv();
+                } catch (EOFException eof) {
+                    return;
+                }
+                stream.send(new EchoResponse(req.message, index++));
+            }
+        }
+    }
 
     private static EchoRequest req(String message, int count) {
         return new EchoRequest(message, count, 0);
@@ -178,6 +229,34 @@ public final class TestBdd {
                         terminated = true;
                     }
                     check(terminated, name + ": stream did not terminate after cancel");
+                }
+                case "stream-break" -> {
+                    // Dedicated counting server (like the Go BDD
+                    // runner): reading one response and then
+                    // abandoning the stream by closing it
+                    // (try-with-resources, no explicit cancel) must
+                    // RST the call so the server stops producing.
+                    AtomicInteger produced = new AtomicInteger();
+                    Transport[] bpair = MemoryTransport.pair();
+                    Server bserver = new Server();
+                    EchoGrpcDc.registerEchoServer(bserver, new CountingEchoService(produced));
+                    bserver.serveTransport(bpair[1]);
+                    EchoGrpcDc.EchoClient bclient = new EchoGrpcDc.EchoClient(new Channel(bpair[0]));
+                    int seen = 0;
+                    try (EchoGrpcDc.EchoServerStreamStream s =
+                            bclient.ServerStream(req(messages[0], count))) {
+                        EchoResponse first = s.recv();
+                        check(first.message.equals(messages[0]),
+                                name + ": first " + first);
+                        seen = 1;
+                    }
+                    check(seen == 1, name + ": seen " + seen);
+                    Thread.sleep(150);
+                    int settled = produced.get();
+                    Thread.sleep(150);
+                    check(produced.get() == settled,
+                            name + ": server kept producing " + settled + " -> " + produced.get());
+                    check(settled < 50, name + ": server produced too many: " + settled);
                 }
                 case "raw-unary" -> {
                     try {

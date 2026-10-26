@@ -8,6 +8,7 @@ cannot drift from behavior.
 
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -109,6 +110,37 @@ class TestBdd(unittest.TestCase):
                     terminated = True
                     break
             self.assertTrue(terminated, "stream did not terminate after cancel")
+        elif kind == "stream-break":
+            # Dedicated counting server: abandoning the stream
+            # (iterator close + drop, no explicit cancel) must
+            # RST the call so the server stops producing.
+            produced = []
+
+            class CountingService(EchoService):
+                def ServerStream(self, req_, stream):
+                    for i in range(req_.count):
+                        produced.append(i)
+                        stream.send(
+                            EchoResponse(message=req_.message, index=i))
+                        time.sleep(0.01)
+
+            a, b = grpcdc.memory_transport_pair()
+            break_server = grpcdc.Server()
+            echo_grpc_dc.register_echo_server(break_server, CountingService())
+            break_server.serve_transport(b)
+            break_client = echo_grpc_dc.EchoClient(grpcdc.Channel(a))
+            stream = break_client.ServerStream(req(messages[0], count))
+            first = next(stream)
+            self.assertEqual(first.message, messages[0])
+            # Natural abandonment: close the iterator and drop
+            # it (no channel.cancel) so the call is RST.
+            stream.close()
+            del stream
+            time.sleep(0.15)
+            settled = len(produced)
+            time.sleep(0.15)
+            self.assertEqual(len(produced), settled)
+            self.assertLess(settled, 50)
         elif kind == "raw-unary":
             with self.assertRaises(grpcdc.StatusError) as cm:
                 self.channel.unary(path, req(messages[0]), EchoResponse())

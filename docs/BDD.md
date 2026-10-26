@@ -111,6 +111,12 @@ examples) connected to a client over a loopback DataChannel:
 - **When** the client calls ServerStream with message "tick" and count 5, reads one response, then cancels the call
 - **Then** the stream terminates after the cancellation instead of delivering the remaining responses
 
+## 18. Breaking a server stream stops the server
+
+- **Given** the Echo service over a loopback DataChannel
+- **When** the client calls ServerStream with message "tick" and count 100, reads one response, then abandons the stream without cancelling
+- **Then** the server stops producing responses after the break instead of streaming all of them into the void
+
 ## Schema scenarios (protoc examples)
 
 The same treatment for message schemas: golden bytes produced by

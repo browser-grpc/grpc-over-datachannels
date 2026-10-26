@@ -236,6 +236,12 @@ class ClientStream
     {
         $this->cancel();
     }
+
+    /** Dropping an unterminated stream RSTs it (same as close()). */
+    public function __destruct()
+    {
+        $this->close();
+    }
 }
 
 /**
@@ -280,6 +286,12 @@ class FiberClientStream
     public function close(): void
     {
         $this->stream->cancel();
+    }
+
+    /** Dropping an unterminated stream RSTs it (same as close()). */
+    public function __destruct()
+    {
+        $this->close();
     }
 }
 

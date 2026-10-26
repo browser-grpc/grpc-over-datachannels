@@ -29,6 +29,11 @@ window.__runBdd = async () => {
     EchoRequest,
     EchoResponse,
     scenarios: BDD_SCENARIOS,
+    // Stream-break reads the Node server's production count
+    // through the harness-exposed bridge (undefined standalone).
+    getProduced: window.__bddProduced
+      ? () => window.__bddProduced()
+      : undefined,
   });
 };
 

@@ -5,12 +5,55 @@ import echo.EchoRequest
 import echo.EchoResponse
 import echo.EchoServiceImpl
 import grpcdc.Channel
+import grpcdc.Endpoint
 import grpcdc.MemoryTransport
 import grpcdc.Server
 import grpcdc.StatusException
 import java.io.EOFException
+import java.util.concurrent.atomic.AtomicInteger
 
 private fun req(message: String, count: Int) = EchoRequest(message, count)
+
+/** Counting service for the stream-break scenario. */
+private class BddCountingEchoService(private val produced: AtomicInteger) : EchoGrpcDc.EchoServer {
+    override fun Unary(ctx: Endpoint.CallContext, req: EchoRequest): EchoResponse {
+        return EchoResponse("echo: ${req.message}", 0)
+    }
+
+    override fun ServerStream(req: EchoRequest, stream: EchoGrpcDc.EchoServerStreamServer) {
+        for (i in 0 until maxOf(0, req.count)) {
+            produced.incrementAndGet()
+            stream.send(EchoResponse(req.message, i))
+            Thread.sleep(10)
+        }
+    }
+
+    override fun ClientStream(stream: EchoGrpcDc.EchoClientStreamServer) {
+        val parts = ArrayList<String>()
+        while (true) {
+            try {
+                parts.add(stream.recv().message)
+            } catch (e: EOFException) {
+                break
+            }
+        }
+        stream.sendAndClose(EchoResponse(parts.joinToString("+"), parts.size))
+    }
+
+    override fun Bidi(stream: EchoGrpcDc.EchoBidiServer) {
+        var index = 0
+        while (true) {
+            val req: EchoRequest
+            try {
+                req = stream.recv()
+            } catch (e: EOFException) {
+                return
+            }
+            stream.send(EchoResponse(req.message, index))
+            index++
+        }
+    }
+}
 
 /** BDD: interprets the generated behavior scenarios (BddScenarios,
  * generated from the BDD specification; prose in BDD.md) against a
@@ -139,6 +182,28 @@ fun testBdd() {
                     terminated = true
                 }
                 check(terminated, "${c.name}: stream did not terminate after cancel")
+            }
+            "stream-break" -> {
+                // Dedicated counting server (like the Go BDD
+                // runner): reading one response and then abandoning
+                // the stream by closing it (no explicit cancel) must
+                // RST the call so the server stops producing.
+                val produced = AtomicInteger(0)
+                val (ba, bb) = MemoryTransport.pair()
+                val bserver = Server()
+                EchoGrpcDc.registerEchoServer(bserver, BddCountingEchoService(produced))
+                bserver.serveTransport(bb)
+                val bclient = EchoGrpcDc.EchoClient(Channel(ba))
+                val stream = bclient.ServerStream(req(c.messages[0], c.count))
+                val first = stream.recv()
+                check(first.message == c.messages[0], "${c.name}: first $first")
+                stream.close()
+                Thread.sleep(150)
+                val settled = produced.get()
+                Thread.sleep(150)
+                check(produced.get() == settled,
+                    "${c.name}: server kept producing: $settled -> ${produced.get()}")
+                check(settled < 50, "${c.name}: server produced too many: $settled")
             }
             "raw-unary" -> {
                 try {

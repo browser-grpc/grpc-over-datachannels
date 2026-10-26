@@ -3,6 +3,47 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.12 — 2026-10-26
+
+- Root-caused the intermittent proxy/WebRTC-Direct interop
+  hang: the SCTP reassembly in all three WebRTC stacks
+  (JS/Go/Rust) merged TSN-contiguous partials across message
+  boundaries. When a large request's END fragment landed
+  after the next message's BEGIN fragment, the two messages
+  were concatenated into one corrupt delivery (dropped by
+  the gRPC frame parser) and the second message's SSN never
+  completed, wedging ordered delivery on the stream while
+  SACKs kept advancing — servers sat idle with a handler
+  blocked in Recv. Reassembly now never merges across a
+  BEGIN/END boundary and never attaches fragments to an
+  already-ended partial; each stack has a regression test
+  delivering interleaved fragments of two messages.
+- BDD: shared `stream-break` scenario kind ("Breaking a
+  server stream stops the server") generated from
+  bdd-spec for every runner — JS, Go, Python loopback +
+  sidecar, Rust, browser (Chromium/Firefox), Java, C#,
+  Kotlin, Scala, Dart, Swift, C, C++, Zig, Lua, Ruby, PHP.
+  Follow-on abandonment fixes from the audit: C++ and Zig
+  inline-pump servers now pump once per send so a handler
+  on the pump stack observes the peer RST; the C sidecar
+  transport gained a timed recv so sidecar handlers can
+  poll for RST; Ruby streams RST via a finalizer when the
+  stream object is dropped without break/close; Lua
+  (`__gc`/`<close>`) and PHP (`__destruct`) streams cancel
+  on abandonment.
+- Java interop client grading: generated Java stubs for
+  grpc.testing + ORCA (`make interop-stubs`), a generated
+  interop case table (`InteropCases`, from
+  racket/interop-spec.rkt), and `TestInteropOracle` running
+  the Java client against the official Go TestServiceServer
+  through the bridge (empty, large unary, client/server
+  streaming, ping-pong, empty stream, status code/message
+  unary + duplex, unimplemented method/service). Building
+  the ORCA stubs exposed and fixed two Java codegen bugs:
+  cross-package message references in stubs are now fully
+  qualified, and boxed map key/value defaults for
+  float/double are emitted as `0.0f`/`0.0`.
+
 ## v0.32.11 — 2026-10-25
 
 - Stream-break cancellation audited and fixed across all 16

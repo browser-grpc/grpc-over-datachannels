@@ -1,6 +1,9 @@
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "examples/echo_grpc_dc.hpp"
@@ -19,6 +22,24 @@ namespace {
 echo::EchoRequest Req(const std::string& message, std::int32_t count) {
   echo::EchoRequest r; r.message = message; r.count = count; return r;
 }
+
+/// Slow counting handler for the stream-break scenario.
+class CountingEcho final : public echo::EchoServiceImpl {
+ public:
+  std::atomic<int> produced{0};
+
+  void ServerStream(echo::EchoRequest& req,
+                    echo::EchoGrpcDc::EchoServerStreamServer& stream) override {
+    for (std::int32_t i = 0; i < req.count; ++i) {
+      ++produced;
+      echo::EchoResponse resp;
+      resp.message = req.message;
+      resp.index = i;
+      stream.Send(resp);
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  }
+};
 
 }  // namespace
 
@@ -165,6 +186,29 @@ void RunBddScenarios(std::shared_ptr<grpcdc::Channel> channel,
         terminated = true;
       }
       Check(terminated, name + ": stream did not terminate after cancel");
+    } else if (kind == "stream-break") {
+      // Dedicated counting server: destroying the client stream
+      // (scope exit, no explicit cancel) must RST the call so
+      // the server stops producing.
+      CountingEcho counting;
+      grpcdc::Server break_server;
+      auto break_pair = grpcdc::MemoryTransportPair();
+      echo::EchoGrpcDc::RegisterEchoServer(break_server, counting);
+      break_server.ServeTransport(break_pair.second);
+      echo::EchoGrpcDc::EchoClient break_client(
+          std::make_shared<grpcdc::Channel>(break_pair.first));
+      {
+        auto break_stream = break_client.ServerStream(Req(c.messages[0], c.count));
+        echo::EchoResponse first = break_stream.Recv();
+        Check(first.message == c.messages[0], name + ": first");
+      }  // ~break_stream cancels the call (RST)
+      std::this_thread::sleep_for(std::chrono::milliseconds(150));
+      int settled = counting.produced.load();
+      std::this_thread::sleep_for(std::chrono::milliseconds(150));
+      Check(counting.produced.load() == settled,
+            name + ": production did not settle");
+      Check(settled < 50,
+            name + ": server kept producing: " + std::to_string(settled));
     } else if (kind == "raw-unary") {
       try {
         echo::EchoResponse resp;

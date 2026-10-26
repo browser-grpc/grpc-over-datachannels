@@ -36,4 +36,5 @@ const bddCases = <BddCase>[
   BddCase("bidi-failure", "bidi-fail", ["fail"], 0, "", "", "", 0, 3),
   BddCase("deadline-exceeded", "deadline", ["slow"], 600, "", "", "", 0, 4),
   BddCase("stream-cancel", "cancel", ["tick"], 5, "", "", "", 0, -1),
+  BddCase("stream-break", "stream-break", ["tick"], 100, "", "", "", 0, -1),
 ];

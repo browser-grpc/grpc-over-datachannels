@@ -3,9 +3,11 @@
 #include "sidecar_transport.h"
 
 #include <arpa/inet.h>
+#include <poll.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 struct grpcdc_sidecar {
@@ -65,6 +67,50 @@ static int sidecar_recv(void *ctx, uint8_t **out, size_t *len) {
     return 0;
 }
 
+static int64_t sidecar_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+/* One whole length-prefixed message is buffered and ready. */
+static int sidecar_message_ready(grpcdc_sidecar *s) {
+    if (s->len < 4) return 0;
+    size_t payload_len = ((size_t)s->buf[0] << 24) | ((size_t)s->buf[1] << 16) |
+                         ((size_t)s->buf[2] << 8) | (size_t)s->buf[3];
+    return s->len >= 4 + payload_len;
+}
+
+/* Timed recv: -2 when no whole message arrives by the deadline
+   (same clock as grpcdc_now_ms). Without this, a handler's sends
+   cannot poll for a peer RST while it produces, so a client that
+   abandoned the call over the sidecar would never stop it. */
+static int sidecar_recv_until(void *ctx, uint8_t **out, size_t *len,
+                              int64_t abs_deadline_ms) {
+    grpcdc_sidecar *s = (grpcdc_sidecar *)ctx;
+    for (;;) {
+        if (sidecar_message_ready(s)) return sidecar_recv(ctx, out, len);
+        int64_t remaining = abs_deadline_ms - sidecar_now_ms();
+        if (remaining < 0) remaining = 0;
+        struct pollfd pfd;
+        pfd.fd = s->fd;
+        pfd.events = POLLIN;
+        int rc = poll(&pfd, 1, (int)remaining);
+        if (rc == 0) return -2;
+        if (rc < 0) return -1;
+        uint8_t tmp[65536];
+        ssize_t n = recv(s->fd, tmp, sizeof(tmp), 0);
+        if (n <= 0) return -1;
+        if (s->len + (size_t)n > s->cap) {
+            size_t cap = (s->len + (size_t)n) * 2;
+            s->buf = (uint8_t *)realloc(s->buf, cap);
+            s->cap = cap;
+        }
+        memcpy(s->buf + s->len, tmp, (size_t)n);
+        s->len += (size_t)n;
+    }
+}
+
 grpcdc_sidecar *grpcdc_sidecar_connect(const char *host, uint16_t port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return NULL;
@@ -95,7 +141,7 @@ void grpcdc_sidecar_transport(grpcdc_sidecar *sidecar, grpcdc_transport *transpo
     transport->ctx = sidecar;
     transport->send = sidecar_send;
     transport->recv = sidecar_recv;
-    transport->recv_until = NULL;
+    transport->recv_until = sidecar_recv_until;
 }
 
 void grpcdc_sidecar_free(grpcdc_sidecar *sidecar) {

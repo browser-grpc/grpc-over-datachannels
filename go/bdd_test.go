@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -180,6 +181,35 @@ func runBddScenarios(t *testing.T, channel *grpcdc.Channel, client *echo.EchoCli
 				var status *grpcdc.StatusError
 				if !errors.As(err, &status) || int(status.Code) != c.expectStatus {
 					t.Fatalf("err = %v, want status %d", err, c.expectStatus)
+				}
+			case "stream-break":
+				// Dedicated counting server: abandoning the
+				// stream (ctx cancel, no further Recv) must RST
+				// it so production stops.
+				produced := &atomic.Int32{}
+				ta, tb := grpcdc.MemoryTransportPair()
+				breakServer := grpcdc.NewServer()
+				echo.RegisterEchoServer(breakServer, countingStreamService{produced: produced})
+				breakServer.ServeTransport(tb)
+				breakClient := echo.NewEchoClient(grpcdc.NewChannel(ta))
+				cctx, cancelCall := context.WithCancel(ctx)
+				stream, err := breakClient.ServerStream(cctx, req(c.messages[0], int32(c.count)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				first, err := stream.Recv()
+				if err != nil || first.Message != c.messages[0] {
+					t.Fatalf("first = %v, err = %v", first, err)
+				}
+				cancelCall()
+				time.Sleep(150 * time.Millisecond)
+				settled := produced.Load()
+				time.Sleep(150 * time.Millisecond)
+				if got := produced.Load(); got != settled {
+					t.Fatalf("server kept producing after break: %d -> %d", settled, got)
+				}
+				if settled >= 50 {
+					t.Fatalf("server produced %d, want stopped early", settled)
 				}
 			case "cancel":
 				cctx, cancelCall := context.WithCancel(ctx)

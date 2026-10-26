@@ -4,6 +4,39 @@ private func Req(_ message: String, _ count: Int32) -> EchoRequest {
     EchoRequest(message, count)
 }
 
+/// Thread-safe production counter for the stream-break scenario.
+private final class BddProducedCounter {
+    private let lock = NSLock()
+    private var value = 0
+    func inc() { lock.lock(); value += 1; lock.unlock() }
+    func get() -> Int { lock.lock(); defer { lock.unlock() }; return value }
+}
+
+/// Slow counting handler for the stream-break scenario.
+private final class BddCountingEchoService: EchoGrpcDc.EchoServer {
+    private let counter: BddProducedCounter
+    private let inner = EchoServiceImpl()
+    init(_ counter: BddProducedCounter) { self.counter = counter }
+    func Unary(_ ctx: Endpoint.CallContext, _ req: EchoRequest) throws -> EchoResponse {
+        try inner.Unary(ctx, req)
+    }
+    func ServerStream(_ req: EchoRequest, _ stream: EchoGrpcDc.EchoServerStreamServer) throws {
+        var i: Int32 = 0
+        while i < req.count {
+            counter.inc()
+            try stream.Send(EchoResponse(req.message, i))
+            i += 1
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+    }
+    func ClientStream(_ stream: EchoGrpcDc.EchoClientStreamServer) throws {
+        try inner.ClientStream(stream)
+    }
+    func Bidi(_ stream: EchoGrpcDc.EchoBidiServer) throws {
+        try inner.Bidi(stream)
+    }
+}
+
 /// BDD: interprets the generated behavior scenarios (BddScenarios,
 /// generated from the BDD specification; prose in BDD.md) against a
 /// loopback client+server — the executable examples.
@@ -121,6 +154,31 @@ func TestBdd() throws {
                 terminated = true
             }
             try Check(terminated, "\(c.name): stream did not terminate after cancel")
+        case "stream-break":
+            // Dedicated counting server: breaking the async
+            // iteration (no explicit cancel) must RST the call so
+            // the server stops producing.
+            let counter = BddProducedCounter()
+            let (a2, b2) = MemoryTransport.Pair()
+            let breakServer = Server()
+            EchoGrpcDc.RegisterEchoServer(breakServer, BddCountingEchoService(counter))
+            breakServer.ServeTransport(b2)
+            let breakClient = EchoGrpcDc.EchoClient(Channel(a2))
+            try RunBlocking {
+                var seen = 0
+                for try await resp in breakClient.ServerStreamAsync(Req(c.messages[0], Int32(c.count))) {
+                    try Check(resp.message == c.messages[0], "\(c.name): first \(resp)")
+                    seen += 1
+                    break
+                }
+                try Check(seen == 1, "\(c.name): seen \(seen)")
+            }
+            Thread.sleep(forTimeInterval: 0.15)
+            let settled = counter.get()
+            Thread.sleep(forTimeInterval: 0.15)
+            try Check(counter.get() == settled,
+                      "\(c.name): kept producing: \(settled) -> \(counter.get())")
+            try Check(settled < 50, "\(c.name): produced too many: \(settled)")
         case "raw-unary":
             do {
                 let resp = EchoResponse()
