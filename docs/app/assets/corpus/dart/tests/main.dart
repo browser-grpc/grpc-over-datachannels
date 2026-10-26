@@ -7,6 +7,7 @@ import 'test_codec.dart';
 import 'test_dynamic.dart';
 import 'test_echo.dart';
 import 'test_interop.dart';
+import 'test_interop_oracle.dart';
 import 'test_oracle.dart';
 import 'test_pb_messages.dart';
 import 'test_sidecar.dart';
@@ -36,6 +37,9 @@ Future<void> main(List<String> args) async {
         break;
       case 'TestOracle':
         await testOracle();
+        break;
+      case 'TestInteropOracle':
+        await testInteropOracle();
         break;
       case 'TestDynamic':
         await testDynamic();

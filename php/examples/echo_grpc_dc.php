@@ -26,6 +26,18 @@ class RecvStream
         return $this->stream->recv(new $cls());
     }
 
+    /** Response initial metadata (after the first recv). */
+    public function headers(): ?array
+    {
+        return $this->stream->headers?->metadata;
+    }
+
+    /** Response trailing metadata (after the call ends). */
+    public function trailers(): ?array
+    {
+        return $this->stream->trailers;
+    }
+
     /** Abandon the call early: RST so the server stops producing. */
     public function cancel(): void
     {
@@ -197,6 +209,18 @@ class FiberRecvStream
                 $this->close();
             }
         }
+    }
+
+    /** Response initial metadata (after the first recv). */
+    public function headers(): ?array
+    {
+        return $this->stream->headers?->metadata;
+    }
+
+    /** Response trailing metadata (after the call ends). */
+    public function trailers(): ?array
+    {
+        return $this->stream->trailers;
     }
 
     public function cancel(): void

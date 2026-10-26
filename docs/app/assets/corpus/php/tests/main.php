@@ -23,6 +23,10 @@ try {
             require_once __DIR__ . "/test_interop.php";
             TestInterop::run();
             break;
+        case "TestInteropOracle":
+            require_once __DIR__ . "/test_interop_oracle.php";
+            TestInteropOracle::run();
+            break;
         case "TestOracle":
             require_once __DIR__ . "/test_oracle.php";
             TestOracle::run();

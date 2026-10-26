@@ -9,6 +9,7 @@ import grpc.testing.SimpleRequest
 import grpc.testing.StreamingInputCallRequest
 import grpc.testing.StreamingOutputCallRequest
 import grpc.testing.TestGrpcDc
+import grpc.testing.TestOrcaReport
 import grpcdc.Channel
 import grpcdc.StatusException
 import java.io.BufferedReader
@@ -48,6 +49,74 @@ private fun expectStatus(code: Int, message: String, what: String, call: () -> U
         return
     }
     throw AssertionError("$what: expected status $code, call succeeded")
+}
+
+// ORCA rows (upstream orca_per_rpc / orca_oob): per-RPC the
+// report returns as the serialized OrcaLoadReport in the
+// endpoint-load-metrics-bin trailer (base64 -bin value); OOB the
+// value fed through FullDuplexCall comes back on the
+// OpenRcaService StreamCoreMetrics stream.
+private fun runOrcaCases(channel: Channel, client: TestGrpcDc.TestServiceClient) {
+    val req = grpc.testing.SimpleRequest(
+        orcaPerQueryReport = TestOrcaReport(
+            cpuUtilization = 0.8210,
+            memoryUtilization = 0.5847,
+            requestCost = mutableMapOf("cost" to 3456.32),
+            utilization = mutableMapOf("util" to 0.30499),
+        ),
+    )
+    channel.serverStream("/grpc.testing.TestService/UnaryCall", req, null).use { stream ->
+        val resp = grpc.testing.SimpleResponse()
+        stream.recv(resp)
+        try {
+            stream.recv(grpc.testing.SimpleResponse())
+            throw AssertionError("orca_per_rpc: expected EOF")
+        } catch (e: EOFException) {
+            // end of stream: trailers now readable
+        }
+        val encoded = stream.trailers?.get("endpoint-load-metrics-bin")
+        check(encoded != null, "orca_per_rpc: no endpoint-load-metrics-bin trailer")
+        val enc = encoded!!
+        val raw = Base64.getDecoder().decode(
+            enc + "=".repeat((4 - enc.length % 4) % 4))
+        val loadReport = xds.data.orca.v3.OrcaLoadReport()
+        loadReport.unmarshalDc(raw)
+        check(loadReport.cpuUtilization == 0.8210
+            && loadReport.memUtilization == 0.5847
+            && loadReport.requestCost["cost"] == 3456.32
+            && loadReport.utilization["util"] == 0.30499,
+            "orca_per_rpc: report ${loadReport.cpuUtilization}/${loadReport.memUtilization}")
+    }
+    println("interop case ok: orca_per_rpc")
+
+    val feed = StreamingOutputCallRequest(
+        orcaOobReport = TestOrcaReport(
+            cpuUtilization = 0.9,
+            memoryUtilization = 0.85,
+            utilization = mutableMapOf("util" to 0.5),
+        ),
+    )
+    client.FullDuplexCall(listOf(feed)).use { duplex ->
+        try {
+            while (true) {
+                duplex.recv()
+            }
+        } catch (e: EOFException) {
+            // feed call completed
+        }
+    }
+    val orca = xds.service.orca.v3.OrcaGrpcDc.OpenRcaServiceClient(channel)
+    val deadline = System.currentTimeMillis() + 30000
+    var matched = false
+    orca.StreamCoreMetrics(xds.service.orca.v3.OrcaLoadReportRequest()).use { stream ->
+        while (!matched && System.currentTimeMillis() < deadline) {
+            val got = stream.recv()
+            matched = got.cpuUtilization == 0.9 && got.memUtilization == 0.85
+                && got.utilization["util"] == 0.5
+        }
+    }
+    check(matched, "orca_oob: no matching OOB report within 30s")
+    println("interop case ok: orca_oob")
 }
 
 private fun runInteropCases(
@@ -189,7 +258,9 @@ fun testInteropOracle() {
             }.apply { isDaemon = true }.start()
             val transport = StdioTransport(bridge.outputStream, bridge.inputStream)
             val channel = Channel(transport)
-            runInteropCases(TestGrpcDc.TestServiceClient(channel), TestGrpcDc.UnimplementedServiceClient(channel))
+            val client = TestGrpcDc.TestServiceClient(channel)
+            runInteropCases(client, TestGrpcDc.UnimplementedServiceClient(channel))
+            runOrcaCases(channel, client)
         } finally {
             bridge.destroyForcibly()
         }

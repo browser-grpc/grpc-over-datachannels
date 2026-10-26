@@ -29,6 +29,8 @@
 #include "kitchen_messages.h"
 #include "grpcdc/memory_transport.h"
 #include "grpcdc/sidecar_transport.h"
+#include "../examples/interop/test_grpc_dc.h"
+#include "interop_cases.h"
 
 static void check(int cond, const char *what) {
     if (!cond) {
@@ -1216,6 +1218,291 @@ static void test_oracle(void) {
     printf("oracle tests passed (%zu scenarios, both directions)\n",
            oracle_cases_count);
 }
+/* ---- TestInteropOracle: the generated interop case table
+   (interop_cases.h) against the official grpc-java
+   TestServiceServer, driven from main() only by name. ---- */
+static Payload *ic_payload(int size) {
+    Payload *p = (Payload *)calloc(1, sizeof(Payload));
+    Payload_init(p);
+    p->type = PayloadType_COMPRESSABLE;
+    if (size > 0) {
+        p->body.data = (uint8_t *)calloc((size_t)size, 1);
+        p->body.len = (size_t)size;
+    }
+    return p;
+}
+
+static StreamingOutputCallRequest *ic_out_reqs(const InteropCase *c) {
+    StreamingOutputCallRequest *reqs =
+        (StreamingOutputCallRequest *)calloc(4, sizeof(StreamingOutputCallRequest));
+    for (int i = 0; i < c->resp_count; i++) {
+        StreamingOutputCallRequest_init(&reqs[i]);
+        reqs[i].response_parameters =
+            (ResponseParameters *)calloc(4, sizeof(ResponseParameters));
+        reqs[i].response_parameters_count = (size_t)c->resp_count;
+        for (int j = 0; j < c->resp_count; j++) {
+            ResponseParameters_init(&reqs[i].response_parameters[j]);
+            reqs[i].response_parameters[j].size = c->resp_sizes[j];
+        }
+    }
+    return reqs;
+}
+
+static const char *ic_kv_get(const grpcdc_kv *kvs, size_t count, const char *key) {
+    for (size_t i = 0; i < count; i++)
+        if (strcmp(kvs[i].key, key) == 0) return kvs[i].value;
+    return NULL;
+}
+
+static void run_interop_cases(TestServiceClient *client,
+                              UnimplementedServiceClient *unimpl) {
+    static const char *INITIAL_KEY = "x-grpc-test-echo-initial";
+    static const char *INITIAL_VAL = "test_initial_metadata_value";
+    static const char *TRAILER_KEY = "x-grpc-test-echo-trailing-bin";
+    /* -bin values are base64 on the grpc-dc wire: "q83v" is
+       base64 for the bytes AB CD EF the official case sends. */
+    static const char *TRAILER_VAL = "q83v";
+    char what[128];
+    size_t n = sizeof(interop_cases) / sizeof(interop_cases[0]);
+    for (size_t ci = 0; ci < n; ci++) {
+        const InteropCase *c = &interop_cases[ci];
+        snprintf(what, sizeof(what), "interop %s", c->name);
+        if (strcmp(c->kind, "EMPTY") == 0) {
+            Empty req, resp;
+            Empty_init(&req);
+            grpcdc_status st =
+                TestServiceClient_empty_call(client, &req, &resp, NULL, 0, 0);
+            check(grpcdc_status_is_ok(st), what);
+        } else if (strcmp(c->kind, "LARGE_UNARY") == 0) {
+            SimpleRequest req;
+            SimpleRequest_init(&req);
+            req.response_type = PayloadType_COMPRESSABLE;
+            req.response_size = c->resp_sizes[0];
+            req.payload = ic_payload(c->req_sizes[0]);
+            SimpleResponse resp;
+            grpcdc_status st =
+                TestServiceClient_unary_call(client, &req, &resp, NULL, 0, 0);
+            check(grpcdc_status_is_ok(st), what);
+            check(resp.payload && (int)resp.payload->body.len == c->resp_sizes[0],
+                  what);
+        } else if (strcmp(c->kind, "CLIENT_STREAMING") == 0) {
+            StreamingInputCallRequest reqs[4];
+            int want = 0;
+            for (int i = 0; i < c->req_count; i++) {
+                StreamingInputCallRequest_init(&reqs[i]);
+                reqs[i].payload = ic_payload(c->req_sizes[i]);
+                want += c->req_sizes[i];
+            }
+            StreamingInputCallResponse resp;
+            grpcdc_status st = TestServiceClient_streaming_input_call(
+                client, reqs, (size_t)c->req_count, &resp, NULL, 0, 0);
+            check(grpcdc_status_is_ok(st), what);
+            check(resp.aggregated_payload_size == want, what);
+        } else if (strcmp(c->kind, "SERVER_STREAMING") == 0) {
+            StreamingOutputCallRequest *reqs = ic_out_reqs(c);
+            TestServiceStreamingOutputCallClient stream;
+            grpcdc_status st = TestServiceClient_streaming_output_call(
+                client, &reqs[0], &stream, NULL, 0, 0);
+            check(grpcdc_status_is_ok(st), what);
+            for (int i = 0; i < c->resp_count; i++) {
+                StreamingOutputCallResponse one;
+                grpcdc_status rst;
+                int r = TestServiceStreamingOutputCallClient_recv(&stream, &one, &rst);
+                check(r == 1 && one.payload &&
+                          (int)one.payload->body.len == c->resp_sizes[i],
+                      what);
+            }
+            StreamingOutputCallResponse extra;
+            grpcdc_status rst;
+            check(TestServiceStreamingOutputCallClient_recv(&stream, &extra, &rst) == 0,
+                  what);
+            TestServiceStreamingOutputCallClient_close(&stream);
+            free(reqs);
+        } else if (strcmp(c->kind, "PING_PONG") == 0) {
+            StreamingOutputCallRequest *reqs =
+                (StreamingOutputCallRequest *)calloc(4, sizeof(StreamingOutputCallRequest));
+            for (int i = 0; i < c->req_count; i++) {
+                StreamingOutputCallRequest_init(&reqs[i]);
+                reqs[i].response_parameters =
+                    (ResponseParameters *)calloc(1, sizeof(ResponseParameters));
+                reqs[i].response_parameters_count = 1;
+                ResponseParameters_init(&reqs[i].response_parameters[0]);
+                reqs[i].response_parameters[0].size = c->resp_sizes[i];
+                reqs[i].payload = ic_payload(c->req_sizes[i]);
+            }
+            TestServiceFullDuplexCallClient stream;
+            grpcdc_status st = TestServiceClient_full_duplex_call(
+                client, reqs, (size_t)c->req_count, &stream, NULL, 0, 0);
+            check(grpcdc_status_is_ok(st), what);
+            for (int i = 0; i < c->req_count; i++) {
+                StreamingOutputCallResponse one;
+                grpcdc_status rst;
+                int r = TestServiceFullDuplexCallClient_recv(&stream, &one, &rst);
+                check(r == 1 && one.payload &&
+                          (int)one.payload->body.len == c->resp_sizes[i],
+                      what);
+            }
+            StreamingOutputCallResponse extra;
+            grpcdc_status rst;
+            check(TestServiceFullDuplexCallClient_recv(&stream, &extra, &rst) == 0, what);
+            TestServiceFullDuplexCallClient_close(&stream);
+            free(reqs);
+        } else if (strcmp(c->kind, "EMPTY_STREAM") == 0) {
+            StreamingOutputCallRequest *reqs =
+                (StreamingOutputCallRequest *)calloc(1, sizeof(StreamingOutputCallRequest));
+            StreamingOutputCallRequest_init(&reqs[0]);
+            TestServiceFullDuplexCallClient stream;
+            grpcdc_status st = TestServiceClient_full_duplex_call(
+                client, reqs, 0, &stream, NULL, 0, 0);
+            check(grpcdc_status_is_ok(st), what);
+            StreamingOutputCallResponse one;
+            grpcdc_status rst;
+            check(TestServiceFullDuplexCallClient_recv(&stream, &one, &rst) == 0, what);
+            TestServiceFullDuplexCallClient_close(&stream);
+            free(reqs);
+        } else if (strcmp(c->kind, "CUSTOM_METADATA") == 0) {
+            grpcdc_kv md[2] = {{INITIAL_KEY, INITIAL_VAL},
+                               {TRAILER_KEY, TRAILER_VAL}};
+            StreamingOutputCallRequest *reqs =
+                (StreamingOutputCallRequest *)calloc(1, sizeof(StreamingOutputCallRequest));
+            StreamingOutputCallRequest_init(&reqs[0]);
+            reqs[0].response_parameters =
+                (ResponseParameters *)calloc(1, sizeof(ResponseParameters));
+            reqs[0].response_parameters_count = 1;
+            ResponseParameters_init(&reqs[0].response_parameters[0]);
+            reqs[0].response_parameters[0].size = 314159;
+            TestServiceFullDuplexCallClient stream;
+            grpcdc_status st = TestServiceClient_full_duplex_call(
+                client, reqs, 1, &stream, md, 2, 0);
+            check(grpcdc_status_is_ok(st), what);
+            StreamingOutputCallResponse one;
+            grpcdc_status rst;
+            int r = TestServiceFullDuplexCallClient_recv(&stream, &one, &rst);
+            check(r == 1 && one.payload && (int)one.payload->body.len == 314159, what);
+            size_t hc = 0, tc = 0;
+            const grpcdc_kv *headers = grpcdc_stream_headers(stream.raw, &hc);
+
+            const char *iv = headers ? ic_kv_get(headers, hc, INITIAL_KEY) : NULL;
+            check(iv && strcmp(iv, INITIAL_VAL) == 0, what);
+            StreamingOutputCallResponse extra;
+            check(TestServiceFullDuplexCallClient_recv(&stream, &extra, &rst) == 0, what);
+            const grpcdc_kv *trailers = grpcdc_stream_trailers(stream.raw, &tc);
+            const char *tv = trailers ? ic_kv_get(trailers, tc, TRAILER_KEY) : NULL;
+            check(tv && strcmp(tv, TRAILER_VAL) == 0, what);
+            TestServiceFullDuplexCallClient_close(&stream);
+            free(reqs);
+        } else if (strcmp(c->kind, "STATUS_UNARY") == 0) {
+            SimpleRequest req;
+            SimpleRequest_init(&req);
+            req.response_status = (EchoStatus *)calloc(1, sizeof(EchoStatus));
+            req.response_status->code = c->status_code;
+            req.response_status->message = (char *)c->status_message;
+            SimpleResponse resp;
+            grpcdc_status st =
+                TestServiceClient_unary_call(client, &req, &resp, NULL, 0, 0);
+            check(st.code == c->status_code &&
+                      strcmp(st.message, c->status_message) == 0,
+                  what);
+        } else if (strcmp(c->kind, "STATUS_DUPLEX") == 0) {
+            StreamingOutputCallRequest req;
+            StreamingOutputCallRequest_init(&req);
+            req.response_status = (EchoStatus *)calloc(1, sizeof(EchoStatus));
+            req.response_status->code = c->status_code;
+            req.response_status->message = (char *)c->status_message;
+            TestServiceFullDuplexCallClient stream;
+            grpcdc_status st = TestServiceClient_full_duplex_call(
+                client, &req, 1, &stream, NULL, 0, 0);
+            check(grpcdc_status_is_ok(st), what);
+            StreamingOutputCallResponse one;
+            grpcdc_status rst;
+            int r = TestServiceFullDuplexCallClient_recv(&stream, &one, &rst);
+            check(r == -1 && rst.code == c->status_code &&
+                      strcmp(rst.message, c->status_message) == 0,
+                  what);
+            TestServiceFullDuplexCallClient_close(&stream);
+        } else if (strcmp(c->kind, "UNIMPLEMENTED_METHOD") == 0) {
+            Empty req, resp;
+            Empty_init(&req);
+            grpcdc_status st =
+                TestServiceClient_unimplemented_call(client, &req, &resp, NULL, 0, 0);
+            check(st.code == c->status_code, what);
+        } else if (strcmp(c->kind, "UNIMPLEMENTED_SERVICE") == 0) {
+            Empty req, resp;
+            Empty_init(&req);
+            grpcdc_status st = UnimplementedServiceClient_unimplemented_call(
+                unimpl, &req, &resp, NULL, 0, 0);
+            check(st.code == c->status_code, what);
+        } else {
+            check(0, what);
+        }
+        printf("interop case ok: %s\n", c->name);
+    }
+}
+
+static void test_interop_oracle(void) {
+    char root[1024];
+    find_root(root, sizeof(root));
+    char bridge[1024];
+    snprintf(bridge, sizeof(bridge), "%s/oracle/bridge.mjs", root);
+    char server_bin[1024];
+    snprintf(server_bin, sizeof(server_bin), "%s/oracle/go-interop/interop-server",
+             root);
+    if (!file_exists(server_bin)) {
+        printf("TestInteropOracle SKIP (go interop server not built)\n");
+        return;
+    }
+    int port = free_port();
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", port);
+    char *server_argv[] = {server_bin, "-port", port_str, NULL};
+    child_proc server = {-1, -1, -1, -1};
+    child_proc br = {-1, -1, -1, -1};
+    if (spawn_child(server_argv, &server) != 0) {
+        kill_child(&server);
+        printf("TestInteropOracle SKIP (interop server did not start)\n");
+        return;
+    }
+    int ready = 0;
+    for (int i = 0; i < 300 && !ready; i++) {
+        int s = socket(AF_INET, SOCK_STREAM, 0);
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons((uint16_t)port);
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (connect(s, (struct sockaddr *)&addr, sizeof(addr)) == 0) ready = 1;
+        close(s);
+        if (!ready) usleep(100 * 1000);
+    }
+    if (!ready) {
+        kill_child(&server);
+        printf("TestInteropOracle SKIP (interop server did not start)\n");
+        return;
+    }
+    char grpc_addr[64];
+    snprintf(grpc_addr, sizeof(grpc_addr), "127.0.0.1:%d", port);
+    char *bridge_argv[] = {"node", bridge, "dc-to-http2", "--grpc",
+                           grpc_addr, NULL};
+    if (spawn_child(bridge_argv, &br) != 0) {
+        kill_child(&server);
+        printf("TestInteropOracle SKIP (bridge did not start)\n");
+        return;
+    }
+    stdio_transport transport;
+    stdio_transport_init(&transport, br.stdout_fd, br.stdin_fd);
+    grpcdc_transport iface = stdio_transport_iface(&transport);
+    grpcdc_channel channel;
+    grpcdc_channel_init(&channel, &iface);
+    TestServiceClient client;
+    client.channel = &channel;
+    UnimplementedServiceClient unimpl;
+    unimpl.channel = &channel;
+    run_interop_cases(&client, &unimpl);
+    kill_child(&br);
+    kill_child(&server);
+    printf("TestInteropOracle OK\n");
+}
+
 /* Field value or the proto3 default (zero fields are omitted on
    the wire, so absence reads as 0). */
 static uint64_t dyn_varint_or(const grpcdc_dyn_msg *msg,
@@ -1611,6 +1898,13 @@ int main(int argc, char **argv) {
         test_sidecar();
 #else
         printf("TestSidecar SKIP (POSIX only)\n");
+#endif
+    }
+    else if (strcmp(argv[1], "TestInteropOracle") == 0) {
+#ifdef GRPCDC_POSIX
+        test_interop_oracle();
+#else
+        printf("TestInteropOracle SKIP (POSIX only)\n");
 #endif
     }
     else if (strcmp(argv[1], "TestOracle") == 0) {

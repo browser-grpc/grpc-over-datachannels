@@ -9,7 +9,7 @@ const endpoint_mod = grpcdc.endpoint;
 const server_mod = grpcdc.server;
 const status_mod = grpcdc.status;
 const wire = grpcdc.wire;
-const messages = @import("echo_messages.zig");
+const echo_messages = @import("echo_messages.zig");
 
 pub const Channel = channel_mod.Channel;
 pub const ClientStream = channel_mod.ClientStream;
@@ -17,8 +17,8 @@ pub const CallContext = endpoint_mod.CallContext;
 pub const Server = server_mod.Server;
 pub const Status = status_mod.Status;
 pub const Metadata = channel_mod.Metadata;
-pub const EchoRequest = messages.EchoRequest;
-pub const EchoResponse = messages.EchoResponse;
+pub const EchoRequest = echo_messages.EchoRequest;
+pub const EchoResponse = echo_messages.EchoResponse;
 
 /// Client for echo.Echo.
 pub const EchoClient = struct {
@@ -71,6 +71,16 @@ pub const EchoServerStreamClient = struct {
         }
     }
 
+    /// Initial metadata (response headers); null until they arrive.
+    pub fn headers(self: *EchoServerStreamClient) ?grpcdc.codec.Headers {
+        return self.stream.headers;
+    }
+
+    /// Trailing metadata of the terminal status.
+    pub fn trailers(self: *EchoServerStreamClient) []const status_mod.TrailerPair {
+        return self.stream.trailers;
+    }
+
     pub fn deinit(self: *EchoServerStreamClient) void {
         self.stream.deinit();
     }
@@ -87,6 +97,16 @@ pub const EchoBidiClient = struct {
             .end => return .end,
             .status => |st| return .{ .status = st },
         }
+    }
+
+    /// Initial metadata (response headers); null until they arrive.
+    pub fn headers(self: *EchoBidiClient) ?grpcdc.codec.Headers {
+        return self.stream.headers;
+    }
+
+    /// Trailing metadata of the terminal status.
+    pub fn trailers(self: *EchoBidiClient) []const status_mod.TrailerPair {
+        return self.stream.trailers;
     }
 
     pub fn deinit(self: *EchoBidiClient) void {
@@ -158,7 +178,7 @@ pub const EchoServer = struct {
     bidi_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, stream: *EchoBidiServer) Status,
 };
 
-fn unaryAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+fn echoUnaryAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
     const impl: *EchoServer = @ptrCast(@alignCast(ctx));
     var req = EchoRequest{};
     switch (reqs.recvInto(&req)) {
@@ -176,7 +196,7 @@ fn unaryAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.Reque
     return sink.send(payload);
 }
 
-fn serverStreamAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+fn echoServerStreamAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
     const impl: *EchoServer = @ptrCast(@alignCast(ctx));
     var req = EchoRequest{};
     switch (reqs.recvInto(&req)) {
@@ -188,7 +208,7 @@ fn serverStreamAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mo
     return impl.server_stream_fn(impl.ctx, call_ctx, &req, &stream);
 }
 
-fn clientStreamAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+fn echoClientStreamAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
     const impl: *EchoServer = @ptrCast(@alignCast(ctx));
     var arena = std.heap.ArenaAllocator.init(reqs.alloc);
     defer arena.deinit();
@@ -202,7 +222,7 @@ fn clientStreamAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mo
     return sink.send(payload);
 }
 
-fn bidiAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+fn echoBidiAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
     const impl: *EchoServer = @ptrCast(@alignCast(ctx));
     var stream = EchoBidiServer{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc };
     return impl.bidi_fn(impl.ctx, call_ctx, &stream);
@@ -215,10 +235,10 @@ pub const EchoGrpcDc = struct {
         server.registerService(.{
             .name = "echo.Echo",
             .methods = &.{
-                .{ .name = "Unary", .path = "/echo.Echo/Unary", .kind = .unary, .ctx = impl, .handler = unaryAdapter },
-                .{ .name = "ServerStream", .path = "/echo.Echo/ServerStream", .kind = .server_streaming, .ctx = impl, .handler = serverStreamAdapter },
-                .{ .name = "ClientStream", .path = "/echo.Echo/ClientStream", .kind = .client_streaming, .ctx = impl, .handler = clientStreamAdapter },
-                .{ .name = "Bidi", .path = "/echo.Echo/Bidi", .kind = .bidi, .ctx = impl, .handler = bidiAdapter },
+                .{ .name = "Unary", .path = "/echo.Echo/Unary", .kind = .unary, .ctx = impl, .handler = echoUnaryAdapter },
+                .{ .name = "ServerStream", .path = "/echo.Echo/ServerStream", .kind = .server_streaming, .ctx = impl, .handler = echoServerStreamAdapter },
+                .{ .name = "ClientStream", .path = "/echo.Echo/ClientStream", .kind = .client_streaming, .ctx = impl, .handler = echoClientStreamAdapter },
+                .{ .name = "Bidi", .path = "/echo.Echo/Bidi", .kind = .bidi, .ctx = impl, .handler = echoBidiAdapter },
             },
         });
     }

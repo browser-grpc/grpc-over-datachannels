@@ -24,6 +24,10 @@ enum EchoGrpcDc {
                 try stream.Recv(resp)
                 return resp
             }
+            /// Initial metadata (response headers); nil until they arrive.
+            var Headers: [String: String]? { stream.headers?.metadata }
+            /// Trailing metadata of the terminal status; nil until it arrives.
+            var Trailers: [String: String]? { stream.trailers }
             func Cancel() { stream.Cancel() }
             func Close() { stream.Close() }
         }
@@ -36,6 +40,10 @@ enum EchoGrpcDc {
                 try stream.Recv(resp)
                 return resp
             }
+            /// Initial metadata (response headers); nil until they arrive.
+            var Headers: [String: String]? { stream.headers?.metadata }
+            /// Trailing metadata of the terminal status; nil until it arrives.
+            var Trailers: [String: String]? { stream.trailers }
             func Cancel() { stream.Cancel() }
             func Close() { stream.Close() }
         }
@@ -268,28 +276,10 @@ enum EchoGrpcDc {
     static func RegisterEchoServerAsync(_ server: Server, _ impl: EchoServerAsync) {
         // Adapters are retained for the process lifetime: registration is
         // once-per-process and bounded by service count.
-        adapters.append(EchoServerAsyncAdapter(impl))
-        RegisterEchoServer(server, adapters.last!)
+        EchoAdapters.append(EchoServerAsyncAdapter(impl))
+        RegisterEchoServer(server, EchoAdapters.last!)
     }
 
-    private static var adapters: [EchoServerAsyncAdapter] = []
+    private static var EchoAdapters: [EchoServerAsyncAdapter] = []
     #endif
 }
-
-#if canImport(Foundation)
-/// Run an async operation to completion on a blocking thread.
-func RunBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {
-    let semaphore = DispatchSemaphore(value: 0)
-    var result: Result<T, Error>!
-    Task.detached {
-        do {
-            result = .success(try await body())
-        } catch {
-            result = .failure(error)
-        }
-        semaphore.signal()
-    }
-    semaphore.wait()
-    return try result.get()
-}
-#endif

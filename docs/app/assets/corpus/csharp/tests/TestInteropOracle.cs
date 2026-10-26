@@ -181,6 +181,91 @@ public static class TestInteropOracle
         }
     }
 
+    // ORCA rows (upstream orca_per_rpc / orca_oob): per-RPC the
+    // report returns as the serialized OrcaLoadReport in the
+    // endpoint-load-metrics-bin trailer (base64 -bin value); OOB
+    // the value fed through FullDuplexCall comes back on the
+    // OpenRcaService StreamCoreMetrics stream.
+    private static void RunOrcaCases(Channel channel, TestGrpcDc.TestServiceClient client)
+    {
+        var req = new SimpleRequest
+        {
+            OrcaPerQueryReport = new TestOrcaReport
+            {
+                CpuUtilization = 0.8210,
+                MemoryUtilization = 0.5847,
+                RequestCost = new() { ["cost"] = 3456.32 },
+                Utilization = new() { ["util"] = 0.30499 },
+            },
+        };
+        using (Channel.ClientStream stream = channel.ServerStream("/grpc.testing.TestService/UnaryCall", req, null))
+        {
+            var resp = new SimpleResponse();
+            stream.Recv(resp);
+            try
+            {
+                stream.Recv(new SimpleResponse());
+                throw new InvalidOperationException("orca_per_rpc: expected EOF");
+            }
+            catch (EndOfStreamException)
+            {
+                // end of stream: trailers now readable
+            }
+            string encoded = null;
+            Program.Check(stream.Trailers != null
+                && stream.Trailers.TryGetValue("endpoint-load-metrics-bin", out encoded),
+                "orca_per_rpc: no endpoint-load-metrics-bin trailer");
+            byte[] raw = Convert.FromBase64String(encoded.PadRight(
+                encoded.Length + (4 - encoded.Length % 4) % 4, '='));
+            var loadReport = new Xds.data.orca.v3.OrcaLoadReport();
+            loadReport.UnmarshalDc(raw);
+            Program.Check(loadReport.CpuUtilization == 0.8210
+                && loadReport.MemUtilization == 0.5847
+                && loadReport.RequestCost.TryGetValue("cost", out double cost) && cost == 3456.32
+                && loadReport.Utilization.TryGetValue("util", out double util) && util == 0.30499,
+                $"orca_per_rpc: report {loadReport.CpuUtilization}/{loadReport.MemUtilization}");
+        }
+        Console.WriteLine("interop case ok: orca_per_rpc");
+
+        var feed = new StreamingOutputCallRequest
+        {
+            OrcaOobReport = new TestOrcaReport
+            {
+                CpuUtilization = 0.9,
+                MemoryUtilization = 0.85,
+                Utilization = new() { ["util"] = 0.5 },
+            },
+        };
+        using (var duplex = client.FullDuplexCall(new[] { feed }))
+        {
+            try
+            {
+                while (true)
+                {
+                    duplex.Recv();
+                }
+            }
+            catch (EndOfStreamException)
+            {
+                // feed call completed
+            }
+        }
+        var orca = new Xds.service.orca.v3.OrcaGrpcDc.OpenRcaServiceClient(channel);
+        long deadline = Environment.TickCount64 + 30000;
+        bool matched = false;
+        using (var stream = orca.StreamCoreMetrics(new Xds.service.orca.v3.OrcaLoadReportRequest()))
+        {
+            while (!matched && Environment.TickCount64 < deadline)
+            {
+                Xds.data.orca.v3.OrcaLoadReport got = stream.Recv();
+                matched = got.CpuUtilization == 0.9 && got.MemUtilization == 0.85
+                    && got.Utilization.TryGetValue("util", out double u) && u == 0.5;
+            }
+        }
+        Program.Check(matched, "orca_oob: no matching OOB report within 30s");
+        Console.WriteLine("interop case ok: orca_oob");
+    }
+
     public static void Run()
     {
         string serverBin = Path.Combine(Root, "oracle", "go-interop", "interop-server");
@@ -238,7 +323,9 @@ public static class TestInteropOracle
             {
                 var transport = new StdioTransport(bridge.StandardInput.BaseStream, bridge.StandardOutput.BaseStream);
                 var channel = new Channel(transport);
-                RunCases(new TestGrpcDc.TestServiceClient(channel), new TestGrpcDc.UnimplementedServiceClient(channel));
+                var client = new TestGrpcDc.TestServiceClient(channel);
+                RunCases(client, new TestGrpcDc.UnimplementedServiceClient(channel));
+                RunOrcaCases(channel, client);
             }
             finally
             {

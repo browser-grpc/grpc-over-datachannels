@@ -74,15 +74,28 @@ class EchoRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   std::int32_t delay_ms = 0;
   grpcdc::Bytes unknown_fields;
   EchoRequest() = default;
-  grpcdc::Bytes MarshalDc() const override {
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class EchoResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::string message = "";
+  std::int32_t index = 0;
+  grpcdc::Bytes unknown_fields;
+  EchoResponse() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+inline grpcdc::Bytes EchoRequest::MarshalDc() const {
     pb_echo::Writer w;
     w.StringField(1, message);
     if (count != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(count)); }
     if (delay_ms != 0) { w.Tag(3, 0); w.Varint(static_cast<std::int64_t>(delay_ms)); }
     w.Raw(unknown_fields);
     return w.ToBytes();
-  }
-  void UnmarshalDc(const grpcdc::Bytes& data) override {
+}
+
+inline void EchoRequest::UnmarshalDc(const grpcdc::Bytes& data) {
     unknown_fields.clear();
     message = "";
     count = 0;
@@ -106,22 +119,17 @@ class EchoRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
         default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
       }
     }
-  }
-};
-class EchoResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
- public:
-  std::string message = "";
-  std::int32_t index = 0;
-  grpcdc::Bytes unknown_fields;
-  EchoResponse() = default;
-  grpcdc::Bytes MarshalDc() const override {
+}
+
+inline grpcdc::Bytes EchoResponse::MarshalDc() const {
     pb_echo::Writer w;
     w.StringField(1, message);
     if (index != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(index)); }
     w.Raw(unknown_fields);
     return w.ToBytes();
-  }
-  void UnmarshalDc(const grpcdc::Bytes& data) override {
+}
+
+inline void EchoResponse::UnmarshalDc(const grpcdc::Bytes& data) {
     unknown_fields.clear();
     message = "";
     index = 0;
@@ -140,6 +148,6 @@ class EchoResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
         default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
       }
     }
-  }
-};
+}
+
 }  // namespace echo

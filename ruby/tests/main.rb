@@ -24,6 +24,9 @@ begin
   when "TestInterop"
     require_relative "test_interop"
     TestInterop.run
+  when "TestInteropOracle"
+    require_relative "test_interop_oracle"
+    TestInteropOracle.run
   when "TestOracle"
     require_relative "test_oracle"
     TestOracle.run

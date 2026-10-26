@@ -150,28 +150,6 @@ type queuedMessage struct {
 	opts    SendOptions
 }
 
-type completedMessage struct {
-	ppid    uint32
-	payload []byte
-}
-
-type partialMessage struct {
-	ssn       uint16
-	ppid      uint32
-	unordered bool
-	parts     map[uint32][]byte
-	firstTsn  uint32
-	lastTsn   uint32
-	hasFirst  bool
-	hasLast   bool
-}
-
-type inStream struct {
-	nextSsn   uint16
-	partials  map[uint32]*partialMessage
-	completed map[uint16]completedMessage
-}
-
 // Association is the SCTP state machine.
 type Association struct {
 	isClient   bool
@@ -197,7 +175,7 @@ type Association struct {
 	// tail then recovers only at RTO granularity (1s a round).
 	cwnd             int
 	ssthresh         int
-	streamsIn        map[uint16]*inStream
+	reasm            *sctpReassembler
 	cookieSecret     []byte
 	pendingCookie    []byte
 	lastInitMs       int64
@@ -256,7 +234,7 @@ func newAssociation(isClient bool, localPort, peerPort uint16) *Association {
 		peerRwnd:       initialRwnd,
 		cwnd:           initialCwnd,
 		ssthresh:       int(^uint(0) >> 1),
-		streamsIn:      map[uint16]*inStream{},
+		reasm:          newSctpReassembler(),
 		cookieSecret:   secret,
 		rtoMs:          initialRtoMs,
 		missCounts:     map[uint32]int{},
@@ -406,11 +384,7 @@ func (a *Association) maybeReportReset(stream uint16, events *[]SctpEvent) {
 // inbound SSN state. Per RFC 8831 §6.4 it also resets our
 // corresponding outgoing side (packet appended to packets).
 func (a *Association) resetIncomingSide(stream uint16, packets *[][]byte, events *[]SctpEvent) {
-	*events = append(*events, a.drainStream(stream)...)
-	entry := a.streamIn(stream)
-	entry.partials = map[uint32]*partialMessage{}
-	entry.completed = map[uint16]completedMessage{}
-	entry.nextSsn = 0
+	*events = append(*events, sctpDataEvents(a.reasm.reset(stream))...)
 	a.resetStateOf(stream).inDone = true
 	a.maybeReportReset(stream, events)
 	if packets != nil {
@@ -505,9 +479,7 @@ func (a *Association) handleReconfig(body []byte) ([][]byte, []SctpEvent) {
 				streams = append(streams, binary.BigEndian.Uint16(p.value[pos:pos+2]))
 			}
 			if len(streams) == 0 {
-				for s := range a.streamsIn {
-					streams = append(streams, s)
-				}
+				streams = a.reasm.streamIds()
 			}
 			if diff32(a.peerCumTsn, lastTsn) < 0 {
 				// Wait until everything the sender had sent
@@ -784,13 +756,12 @@ func (a *Association) HandlePacket(packet []byte, nowMs int64) ([][]byte, []Sctp
 	return packets, events
 }
 
-func (a *Association) streamIn(stream uint16) *inStream {
-	entry, ok := a.streamsIn[stream]
-	if !ok {
-		entry = &inStream{partials: map[uint32]*partialMessage{}, completed: map[uint16]completedMessage{}}
-		a.streamsIn[stream] = entry
+func sctpDataEvents(deliveries []sctpDelivery) []SctpEvent {
+	var events []SctpEvent
+	for _, d := range deliveries {
+		events = append(events, SctpEvent{Type: "data", Stream: d.Stream, Ppid: d.Ppid, Payload: d.Payload})
 	}
-	return entry
+	return events
 }
 
 func (a *Association) handleData(flags byte, body []byte) []SctpEvent {
@@ -814,168 +785,7 @@ func (a *Association) handleData(flags byte, body []byte) []SctpEvent {
 		}
 	}
 
-	entry := a.streamIn(stream)
-	key := tsn
-	if !isBegin {
-		for k, p := range entry.partials {
-			if p.hasLast {
-				continue // already ended: a later fragment starts a new partial
-			}
-			var maxTsn uint32
-			first := true
-			for t := range p.parts {
-				if first || diff32(t, maxTsn) > 0 {
-					maxTsn, first = t, false
-				}
-			}
-			if !first && maxTsn+1 == tsn {
-				key = k
-				break
-			}
-		}
-	}
-	partial, ok := entry.partials[key]
-	if !ok {
-		partial = &partialMessage{parts: map[uint32][]byte{}}
-		entry.partials[key] = partial
-	}
-	if isBegin {
-		partial.ssn, partial.ppid, partial.unordered = ssn, ppid, unordered
-		partial.firstTsn, partial.hasFirst = tsn, true
-	}
-	if isEnd {
-		partial.lastTsn, partial.hasLast = tsn, true
-	}
-	cp := make([]byte, len(payload))
-	copy(cp, payload)
-	partial.parts[tsn] = cp
-
-	// Merge TSN-contiguous partials: a fragment that arrives
-	// out of order starts a dangling partial that could
-	// otherwise never complete.
-	partMax := func(p *partialMessage) uint32 {
-		var m uint32
-		first := true
-		for t := range p.parts {
-			if first || t > m {
-				m, first = t, false
-			}
-		}
-		return m
-	}
-	partMin := func(p *partialMessage) uint32 {
-		var m uint32
-		first := true
-		for t := range p.parts {
-			if first || t < m {
-				m, first = t, false
-			}
-		}
-		return m
-	}
-	for {
-		merged := false
-		keys := make([]uint32, 0, len(entry.partials))
-		for k := range entry.partials {
-			keys = append(keys, k)
-		}
-	scan:
-		for _, ka := range keys {
-			for _, kb := range keys {
-				if ka == kb {
-					continue
-				}
-				pa, pb := entry.partials[ka], entry.partials[kb]
-				if pa == nil || pb == nil {
-					continue
-				}
-				// Never merge across a message boundary: pb holding a
-				// BEGIN fragment starts a new message, and pa holding an
-				// END fragment is already a whole message. Merging either
-				// way concatenates two messages into one corrupt delivery
-				// and strands the second message's SSN forever.
-				if pb.hasFirst || pa.hasLast {
-					continue
-				}
-				if partMax(pa)+1 == partMin(pb) {
-					for t, b := range pb.parts {
-						pa.parts[t] = b
-					}
-					if pb.hasLast {
-						pa.lastTsn, pa.hasLast = pb.lastTsn, true
-					}
-					delete(entry.partials, kb)
-					merged = true
-					break scan
-				}
-			}
-		}
-		if !merged {
-			break
-		}
-	}
-
-	// Extract any completed messages (a merge can complete
-	// more than the message this fragment belonged to).
-	var events []SctpEvent
-	completedAny := false
-	for {
-		completeKey, found := uint32(0), false
-		for k, p := range entry.partials {
-			if !p.hasFirst || !p.hasLast {
-				continue
-			}
-			count := int(diff32(p.lastTsn, p.firstTsn)) + 1
-			if len(p.parts) != count {
-				continue
-			}
-			okAll := true
-			for i := 0; i < count; i++ {
-				if _, ok := p.parts[p.firstTsn+uint32(i)]; !ok {
-					okAll = false
-					break
-				}
-			}
-			if okAll {
-				completeKey, found = k, true
-				break
-			}
-		}
-		if !found {
-			break
-		}
-		p := entry.partials[completeKey]
-		delete(entry.partials, completeKey)
-		count := int(diff32(p.lastTsn, p.firstTsn)) + 1
-		var full []byte
-		for i := 0; i < count; i++ {
-			full = append(full, p.parts[p.firstTsn+uint32(i)]...)
-		}
-		if p.unordered {
-			events = append(events, SctpEvent{Type: "data", Stream: stream, Ppid: p.ppid, Payload: full})
-		} else {
-			entry.completed[p.ssn] = completedMessage{p.ppid, full}
-			completedAny = true
-		}
-	}
-	if completedAny {
-		events = append(events, a.drainStream(stream)...)
-	}
-	return events
-}
-
-func (a *Association) drainStream(stream uint16) []SctpEvent {
-	entry := a.streamIn(stream)
-	var events []SctpEvent
-	for {
-		completed, ok := entry.completed[entry.nextSsn]
-		if !ok {
-			return events
-		}
-		delete(entry.completed, entry.nextSsn)
-		entry.nextSsn++
-		events = append(events, SctpEvent{Type: "data", Stream: stream, Ppid: completed.ppid, Payload: completed.payload})
-	}
+	return sctpDataEvents(a.reasm.feed(tsn, stream, ssn, ppid, unordered, isBegin, isEnd, payload))
 }
 
 func (a *Association) handleForwardTsn(body []byte) []SctpEvent {
@@ -995,21 +805,7 @@ func (a *Association) handleForwardTsn(body []byte) []SctpEvent {
 	for pos := 4; pos+4 <= len(body); pos += 4 {
 		stream := binary.BigEndian.Uint16(body[pos : pos+2])
 		ssn := binary.BigEndian.Uint16(body[pos+2 : pos+4])
-		entry := a.streamIn(stream)
-		for s := range entry.completed {
-			if s <= ssn {
-				delete(entry.completed, s)
-			}
-		}
-		if entry.nextSsn <= ssn {
-			entry.nextSsn = ssn + 1
-		}
-		for k, p := range entry.partials {
-			if !p.unordered && p.ssn == ssn {
-				delete(entry.partials, k)
-			}
-		}
-		events = append(events, a.drainStream(stream)...)
+		events = append(events, sctpDataEvents(a.reasm.skip(stream, ssn))...)
 	}
 	return events
 }

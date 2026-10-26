@@ -681,6 +681,8 @@ grpcdc_status grpcdc_parse_status_payload(const uint8_t *payload, size_t len) {
 struct grpcdc_stream {
     grpcdc_channel *channel;
     uint32_t id;
+    grpcdc_kv *headers;
+    size_t headers_count;
     grpcdc_kv *trailers;
     size_t trailers_count;
     bool sent_half_close;
@@ -920,8 +922,29 @@ int grpcdc_stream_recv(grpcdc_stream *s, grpcdc_bytes *out,
             *st = tst;
             return -1;
         }
-        free(raw); /* response HEADERS and others: keep reading */
+        if (frame.type == GRPCDC_FRAME_HEADERS) {
+            grpcdc_headers hdrs;
+            if (grpcdc_status_is_ok(grpcdc_parse_headers(
+                    frame.payload, frame.payload_len, &hdrs))) {
+                for (size_t i = 0; i < s->headers_count; i++) {
+                    free((void *)s->headers[i].key);
+                    free((void *)s->headers[i].value);
+                }
+                free(s->headers);
+                s->headers = hdrs.metadata;
+                s->headers_count = hdrs.metadata_count;
+                free(hdrs.path);
+            }
+            free(raw);
+            continue;
+        }
+        free(raw); /* other frame types: keep reading */
     }
+}
+
+const grpcdc_kv *grpcdc_stream_headers(grpcdc_stream *s, size_t *count) {
+    if (count) *count = s ? s->headers_count : 0;
+    return s ? s->headers : NULL;
 }
 
 const grpcdc_kv *grpcdc_stream_trailers(grpcdc_stream *s, size_t *count) {
@@ -947,6 +970,11 @@ void grpcdc_stream_free(grpcdc_stream *s) {
         s->ended = true;
         stream_end_trace(s, "CANCELLED");
     }
+    for (size_t i = 0; i < s->headers_count; i++) {
+        free((void *)s->headers[i].key);
+        free((void *)s->headers[i].value);
+    }
+    free(s->headers);
     for (size_t i = 0; i < s->trailers_count; i++) {
         free((void *)s->trailers[i].key);
         free((void *)s->trailers[i].value);

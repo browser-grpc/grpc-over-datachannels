@@ -19,6 +19,16 @@ module EchoGrpcDc
       @stream.recv(@resp_cls.new)
     end
 
+    # Response initial metadata (after the first recv).
+    def headers
+      @stream.headers&.metadata
+    end
+
+    # Response trailing metadata (after the call ends).
+    def trailers
+      @stream.trailers
+    end
+
     # Abandon the call early: RST so the server stops producing.
     def cancel
       @stream.cancel
@@ -127,6 +137,16 @@ module EchoGrpcDc
       raise StopIteration if value.equal?(DONE)
 
       value
+    end
+
+    # Response initial metadata (after the first recv).
+    def headers
+      @stream.headers&.metadata
+    end
+
+    # Response trailing metadata (after the call ends).
+    def trailers
+      @stream.trailers
     end
 
     def cancel

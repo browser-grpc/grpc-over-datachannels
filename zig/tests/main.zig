@@ -4,6 +4,7 @@ const test_deadline = @import("test_deadline.zig");
 const test_codec = @import("test_codec.zig");
 const test_echo = @import("test_echo.zig");
 const test_interop = @import("test_interop.zig");
+const test_interop_oracle = @import("test_interop_oracle.zig");
 const test_oracle = @import("test_oracle.zig");
 const test_dynamic = @import("test_dynamic.zig");
 const test_pb_messages = @import("test_pb_messages.zig");
@@ -28,6 +29,8 @@ pub fn main() !void {
         test_echo.testEcho(alloc);
     } else if (std.mem.eql(u8, name, "TestInterop")) {
         test_interop.testInterop(alloc);
+    } else if (std.mem.eql(u8, name, "TestInteropOracle")) {
+        test_interop_oracle.testInteropOracle(alloc);
     } else if (std.mem.eql(u8, name, "TestOracle")) {
         test_oracle.testOracle(alloc);
     } else if (std.mem.eql(u8, name, "TestDynamic")) {

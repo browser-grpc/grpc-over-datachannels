@@ -6,15 +6,15 @@ local channelModule = require("grpcdc.channel")
 local serverModule = require("grpcdc.server")
 local statusModule = require("grpcdc.status")
 local wire = require("grpcdc.wire")
-local messages = require("examples.echo_messages")
+local echoMessages = require("examples.echo_messages")
+
+local EchoRequest = echoMessages.EchoRequest
+local EchoResponse = echoMessages.EchoResponse
 
 local Channel = channelModule.Channel
 local Server = serverModule.Server
 local Status = statusModule.Status
 local EndOfStream = statusModule.EndOfStream
-
-local EchoRequest = messages.EchoRequest
-local EchoResponse = messages.EchoResponse
 
 --- Receiving stream for ServerStream responses.
 local EchoServerStreamStream = {}
@@ -29,6 +29,16 @@ function EchoServerStreamStream:recv()
   local resp = EchoResponse.new()
   self.stream:recv(resp)
   return resp
+end
+
+--- Response initial metadata (after the first recv).
+function EchoServerStreamStream:headers()
+  return self.stream.headers and self.stream.headers.metadata
+end
+
+--- Response trailing metadata (after the call ends).
+function EchoServerStreamStream:trailers()
+  return self.stream.trailers
 end
 
 --- Abandon the call early: RST so the server stops producing.
@@ -62,6 +72,16 @@ function EchoBidiStream:recv()
   local resp = EchoResponse.new()
   self.stream:recv(resp)
   return resp
+end
+
+--- Response initial metadata (after the first recv).
+function EchoBidiStream:headers()
+  return self.stream.headers and self.stream.headers.metadata
+end
+
+--- Response trailing metadata (after the call ends).
+function EchoBidiStream:trailers()
+  return self.stream.trailers
 end
 
 --- Abandon the call early: RST so the server stops producing.

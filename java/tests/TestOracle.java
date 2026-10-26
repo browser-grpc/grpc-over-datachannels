@@ -58,7 +58,7 @@ public final class TestOracle {
         return "-".equals(token) ? "" : token;
     }
 
-    private static void runScenarios(EchoGrpcDc.EchoClient client) throws Exception {
+    static void runScenarios(EchoGrpcDc.EchoClient client) throws Exception {
         for (Object[] row : OracleScenarios.CASES) {
             String kind = (String) row[0];
             String[] rawMessages = (String[]) row[1];

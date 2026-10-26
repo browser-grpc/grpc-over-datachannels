@@ -11,6 +11,7 @@ do {
     case "TestCodec": try TestCodec()
     case "TestEcho": try TestEcho()
     case "TestInterop": try TestInterop()
+    case "TestInteropOracle": try TestInteropOracle()
     case "TestOracle": try TestOracle()
     case "TestDynamic": try TestDynamic()
     case "TestBdd": try TestBdd()

@@ -3,6 +3,50 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.14 — 2026-10-26
+
+- Interop client grading now covers every generated client:
+  Dart, Swift, Zig, C, C++, Lua, Ruby, and PHP suites join
+  Java/C#/Kotlin/Scala running the same generated 11-case
+  table against the official Go TestServiceServer through the
+  bridge (`make interop-stubs` grows stubs for all of them;
+  `racket/interop-gen.rkt` emits the per-language tables).
+  Java/C#/Kotlin/Scala additionally grade the ORCA per-RPC
+  and out-of-band rows (`orca_per_rpc`, `orca_oob`).
+  Building these suites exposed and fixed generator bugs,
+  each mirrored in the browser plugin shim (webgen.rkt):
+  C++ message classes emit out-of-line method definitions in
+  dependency order (incomplete-type by-value members), dotted
+  package namespaces, and per-origin stub includes; Lua/Ruby/
+  PHP stubs require and qualify per-origin message modules;
+  Ruby empty-message decoding no longer emits an empty
+  `case`; PHP class names that collide with reserved words
+  (`Empty`) get a trailing underscore; generated stream
+  wrappers in Lua/Ruby/PHP expose `headers`/`trailers`, and
+  the generated C runtime records client response HEADERS
+  (`grpcdc_stream_headers`).
+- SCTP reassembly is generated, not mirrored: the machine is
+  described once in `racket/sctp-dsl.rkt` and emitted as
+  `webrtc/go/sctp_reassembly_gen.go`,
+  `webrtc/js/sctp_reassembly_gen.js`, and
+  `webrtc/rust/src/sctp_reassembly_gen.rs` (feed/drain/skip/
+  reset over per-stream partials). The three hand-mirrored
+  implementations and their drift class (v0.32.12) are gone;
+  association code keeps TSN-window/SACK bookkeeping and
+  consumes reassembler deliveries. JS adopts the Go/Rust
+  merge semantics (pairwise merge, extract-any completion).
+- Generated HTTP/2 client transports for Java and C#:
+  `emit-java-http2`/`emit-csharp-http2` in
+  `racket/http2-gen.rkt` stamp `java/grpcdc/Http2Transport.java`
+  and `csharp/grpcdc/Http2Transport.cs` from the same RFC 9113
+  spec/HPACK tables as JS/Go/Python — cleartext h2c plus TLS
+  (ALPN h2) dial, generated HPACK codec, stream/connection
+  flow control, gzip keyed on `grpc-encoding`. New
+  `TestHttp2Oracle` suites in both languages dial the
+  official grpc-java OracleServer directly (scenarios,
+  metadata echo, 200x1500-byte flow-control stream) plus a
+  TLS leg against the Node fixture.
+
 ## v0.32.13 — 2026-10-26
 
 - Interop client grading extended from Java to C#, Kotlin,
