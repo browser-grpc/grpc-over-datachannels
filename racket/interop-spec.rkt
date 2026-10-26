@@ -22,6 +22,7 @@
     (server-streaming SERVER_STREAMING () (31415 9 2653 58979) -1 "")
     (ping-pong PING_PONG (27182 8 1828 45904) (31415 9 2653 58979) -1 "")
     (empty-stream EMPTY_STREAM () () -1 "")
+    (custom-metadata CUSTOM_METADATA () () -1 "")
     (status-code-and-message STATUS_UNARY () () 2 "test status message")
     (status-code-and-message-duplex STATUS_DUPLEX () () 2 "test status message")
     (unimplemented-method UNIMPLEMENTED_METHOD () () 12 "")

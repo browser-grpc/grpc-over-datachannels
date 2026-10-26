@@ -90,6 +90,10 @@
               "            _stream.Recv(resp);\n"
               "            return resp;\n"
               "        }\n\n"
+              "        /// <summary>Initial metadata (response headers); null until they arrive.</summary>\n"
+              "        public Dictionary<string, string> Headers => _stream.Headers?.Metadata;\n\n"
+              "        /// <summary>Trailing metadata of the terminal status; null until it arrives.</summary>\n"
+              "        public Dictionary<string, string> Trailers => _stream.Trailers;\n\n"
               "        /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>\n"
               "        public void Cancel() => _stream.Cancel();\n\n"
               "        /// <summary>Abandon the call if still live (RST); no-op once terminated.</summary>\n"
@@ -428,10 +432,33 @@
   (define n (cs-pb-pascal (hash-ref f 'name)))
   (define owner (field-owner model f))
   (if (and owner
-           (or (member n (map (lambda (m) (hash-ref m 'name)) (hash-ref owner 'nested)))
+           (or (equal? n (hash-ref owner 'name))
+               (member n (map (lambda (m) (hash-ref m 'name)) (hash-ref owner 'nested)))
                (member n (map (lambda (e) (hash-ref e 'name)) (hash-ref owner 'enums)))))
       (string-append n "_")
       n))
+
+;; Stub type reference for a method input/output: the simple class
+;; name when the message lives in the stub file's own package,
+;; namespace-qualified otherwise (C# cannot resolve a simple name
+;; across namespaces). Generated message classes keep the proto
+;; nesting under their file's namespace.
+(define (cs-qualify-type pkg simple full)
+  (cond [(or (not full) (string=? pkg "")
+             (string-prefix? full (string-append pkg ".")))
+         simple]
+        [else (string-append (string (char-upcase (string-ref full 0)))
+                             (substring full 1))]))
+
+(define (cs-qualify-services pkg services)
+  (for/list ([svc (in-list services)])
+    (hash-set svc 'methods
+              (for/list ([m (in-list (hash-ref svc 'methods))])
+                (hash-set* m
+                           'input (cs-qualify-type pkg (hash-ref m 'input)
+                                                   (hash-ref m 'input-full #f))
+                           'output (cs-qualify-type pkg (hash-ref m 'output)
+                                                    (hash-ref m 'output-full #f)))))))
 
 (define cs-pb-varint-types '(5 3 13 4 17 18 8 14))
 (define cs-pb-fixed '((2 4 "Float") (1 8 "Double") (7 4 "Int") (15 4 "Int") (6 8 "Long") (16 8 "Long")))
@@ -951,7 +978,8 @@
               "\n")
              "")
          (apply string-append
-                (map csharp-service (hash-ref file-model 'services)))
+                (map csharp-service
+                     (cs-qualify-services pkg (hash-ref file-model 'services))))
          "}\n")))
   (define pb-files (emit-csharp-pb-files file-model))
   (if pb-files (cons stub pb-files) stub))

@@ -23,6 +23,12 @@ object EchoGrpcDc {
                 return resp
             }
 
+            /** Initial metadata (response headers); null until they arrive. */
+            fun headers(): Map<String, String>? = stream.headers?.metadata
+
+            /** Trailing metadata of the terminal status; null until it arrives. */
+            fun trailers(): Map<String, String>? = stream.trailers
+
             /** Abort this stream (sends RST, wakes a pending recv). */
             fun cancel() = stream.cancel()
 
@@ -36,6 +42,12 @@ object EchoGrpcDc {
                 stream.recv(resp)
                 return resp
             }
+
+            /** Initial metadata (response headers); null until they arrive. */
+            fun headers(): Map<String, String>? = stream.headers?.metadata
+
+            /** Trailing metadata of the terminal status; null until it arrives. */
+            fun trailers(): Map<String, String>? = stream.trailers
 
             /** Abort this stream (sends RST, wakes a pending recv). */
             fun cancel() = stream.cancel()
@@ -259,9 +271,9 @@ object EchoGrpcDc {
         // Adapters are retained for the process lifetime: registration is
         // once-per-process and bounded by service count.
         val adapter = EchoServerAsyncAdapter(impl)
-        adapters.add(adapter)
+        echoAdapters.add(adapter)
         registerEchoServer(server, adapter)
     }
 
-    private val adapters = ArrayList<EchoServerAsyncAdapter>()
+    private val echoAdapters = ArrayList<EchoServerAsyncAdapter>()
 }

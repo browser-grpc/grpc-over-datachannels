@@ -306,6 +306,10 @@
                "            }\n"
                "            def cancel(): Unit = stream.cancel()\n"
                "            def close(): Unit = stream.close()\n"
+               "            /** Initial metadata (response headers); null until they arrive. */\n"
+               "            def headers: Map[String, String] = if (stream.headers == null) null else stream.headers.metadata\n"
+               "            /** Trailing metadata of the terminal status; null until it arrives. */\n"
+               "            def trailers: Map[String, String] = stream.trailers\n"
                "        }\n\n")))
      (apply string-append
             (for/list ([out (in-list (class-outputs 'bidi))])
@@ -336,6 +340,10 @@
                "            }\n"
                "            def cancel(): Unit = stream.cancel()\n"
                "            def close(): Unit = stream.close()\n"
+               "            /** Initial metadata (response headers); null until they arrive. */\n"
+               "            def headers: Map[String, String] = if (stream.headers == null) null else stream.headers.metadata\n"
+               "            /** Trailing metadata of the terminal status; null until it arrives. */\n"
+               "            def trailers: Map[String, String] = stream.trailers\n"
                "        }\n\n")))
      (apply string-append (map scala-client-method (append methods (alias-client-methods svc))))
      "        // -- async (scala.concurrent.Future) surface ---------------\n\n"
@@ -406,9 +414,20 @@
              (map (lambda (p) (if (string=? p "") "" (string-append (string (char-upcase (string-ref p 0))) (substring p 1))))
                   (cdr parts)))))
 
+;; Scala hard keywords: a field named e.g. `type` must be
+;; backtick-quoted everywhere it is referenced.
+(define sc-pb-keywords
+  '("abstract" "case" "catch" "class" "def" "do" "else" "extends"
+    "false" "final" "finally" "for" "forSome" "if" "implicit"
+    "import" "lazy" "match" "new" "null" "object" "override"
+    "package" "private" "protected" "return" "sealed" "super"
+    "this" "throw" "trait" "try" "true" "type" "val" "var"
+    "while" "with" "yield"))
+
 (define (sc-pb-field-name f)
   (define jn (hash-ref f 'json-name ""))
-  (if (and jn (not (string=? jn ""))) jn (sc-pb-camel (hash-ref f 'name))))
+  (define n (if (and jn (not (string=? jn ""))) jn (sc-pb-camel (hash-ref f 'name))))
+  (if (member n sc-pb-keywords) (string-append "`" n "`") n))
 
 (define (sc-pb-flat pkg full)
   (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
@@ -813,6 +832,26 @@
                           (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))))
            (cons (string-append (pascal (string->symbol base)) "Messages.scala") content)))))
 
+;; Stub type reference for a method input/output: the simple class
+;; name when the message lives in the stub file's own package,
+;; fully qualified otherwise (Scala cannot resolve a simple name
+;; across packages).
+(define (scala-qualify-type pkg simple full)
+  (cond [(or (not full) (string=? pkg "")
+             (string-prefix? full (string-append pkg ".")))
+         simple]
+        [else full]))
+
+(define (scala-qualify-services pkg services)
+  (for/list ([svc (in-list services)])
+    (hash-set svc 'methods
+              (for/list ([m (in-list (hash-ref svc 'methods))])
+                (hash-set* m
+                           'input (scala-qualify-type pkg (hash-ref m 'input)
+                                                      (hash-ref m 'input-full #f))
+                           'output (scala-qualify-type pkg (hash-ref m 'output)
+                                                       (hash-ref m 'output-full #f)))))))
+
 (define (emit-scala-file file-model params)
   (define base (path->string (path-replace-extension
                               (file-name-from-path (hash-ref file-model 'name)) "")))
@@ -839,7 +878,8 @@
               "\n")
              "")
          (apply string-append
-                (map scala-service (hash-ref file-model 'services)))
+                (map scala-service
+                     (scala-qualify-services pkg (hash-ref file-model 'services))))
          "}\n")))
   (define pb-file (emit-scala-pb-file file-model))
   (if pb-file (list stub pb-file) stub))

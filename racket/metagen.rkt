@@ -25,7 +25,7 @@
 
 (require "spec.rkt" "pb.rkt" json racket/runtime-path "webrtc-gen.rkt"
          "oracle-spec.rkt" "oracle-gen.rkt" "bdd-gen.rkt" "webgen.rkt" "mux-gen.rkt"
-         "interop-gen.rkt"
+         "interop-gen.rkt" "sctp-gen.rkt"
          "proxy-gen.rkt" "http2-gen.rkt"
          "runtime-go.rkt" "runtime-js.rkt" "runtime-rust.rkt" "runtime-python.rkt" "runtime-java.rkt" "runtime-csharp.rkt" "runtime-cpp.rkt" "runtime-swift.rkt" "runtime-kotlin.rkt" "runtime-dart.rkt" "runtime-zig.rkt" "runtime-c.rkt" "runtime-lua.rkt" "runtime-ruby.rkt" "runtime-php.rkt" "runtime-scala.rkt")
 
@@ -995,6 +995,11 @@
     (lambda (out) (display text out)))
   (printf "generated fixtures/oracle_scenarios.txt\n"))
 
+(define (emit-sctp-vectors)
+  (call-with-output-file (build-path root "fixtures" "sctp_vectors.json") #:exists 'replace
+    (lambda (out) (display (emit-sctp-vectors-json) out) (newline out)))
+  (printf "generated fixtures/sctp_vectors.json\n"))
+
 (define (write-bdd-docs)
   (define docs (emit-bdd-docs))
   (call-with-output-file (build-path root (car docs)) #:exists 'replace
@@ -1589,6 +1594,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "rust/src" "runtime-rust.rkt" (emit-rust-runtime-files))
   (emit-fixtures)
   (emit-oracle-scenarios)
+  (emit-sctp-vectors)
   (write-runtime-files "js/test" "oracle-gen.rkt" (list (emit-js-oracle-driver)))
   (write-runtime-files "js/test" "bdd-gen.rkt" (list (emit-js-bdd) (emit-bdd-schemas 'js)))
   (write-runtime-files "browser-test" "bdd-gen.rkt" (list (emit-browser-bdd-scenarios) (emit-browser-bdd-manifest)))
@@ -1612,6 +1618,9 @@ BROWSER_SERVER_EOF
   (printf "generated java/tests/Fixtures.java\n")
   (write-runtime-files "java/tests" "oracle-gen.rkt" (list (emit-java-oracle-driver)))
   (write-runtime-files "java/tests" "interop-gen.rkt" (list (emit-java-interop-cases)))
+  (write-runtime-files "csharp/tests" "interop-gen.rkt" (list (emit-csharp-interop-cases)))
+  (write-runtime-files "kotlin/tests" "interop-gen.rkt" (list (emit-kotlin-interop-cases)))
+  (write-runtime-files "scala/tests" "interop-gen.rkt" (list (emit-scala-interop-cases)))
   (write-runtime-files "java/tests" "bdd-gen.rkt" (list (emit-java-bdd) (emit-bdd-schemas 'java)))
   (make-directory* (build-path root "csharp" "grpcdc"))
   (call-with-output-file (build-path root "csharp" "grpcdc" "Wire.cs") #:exists 'replace

@@ -13,6 +13,29 @@
 
 (define kotlin-wasm-mode (make-parameter #f))
 
+(define (kotlin-lower-first s)
+  (string-append (string (char-downcase (string-ref s 0))) (substring s 1)))
+
+;; Stub type reference for a method input/output: the simple class
+;; name when the message lives in the stub file's own package,
+;; fully qualified otherwise (Kotlin cannot resolve a simple name
+;; across packages).
+(define (kotlin-qualify-type pkg simple full)
+  (cond [(or (not full) (string=? pkg "")
+             (string-prefix? full (string-append pkg ".")))
+         simple]
+        [else full]))
+
+(define (kotlin-qualify-services pkg services)
+  (for/list ([svc (in-list services)])
+    (hash-set svc 'methods
+              (for/list ([m (in-list (hash-ref svc 'methods))])
+                (hash-set* m
+                           'input (kotlin-qualify-type pkg (hash-ref m 'input)
+                                                       (hash-ref m 'input-full #f))
+                           'output (kotlin-qualify-type pkg (hash-ref m 'output)
+                                                        (hash-ref m 'output-full #f)))))))
+
 (define current-service (make-parameter ""))
 
 (define (pascal sym) ; echo_service -> EchoService ; echo -> Echo
@@ -80,6 +103,10 @@
               "                stream.recv(resp)\n"
               "                return resp\n"
               "            }\n\n"
+              "            /** Initial metadata (response headers); null until they arrive. */\n"
+              "            fun headers(): Map<String, String>? = stream.headers?.metadata\n\n"
+              "            /** Trailing metadata of the terminal status; null until it arrives. */\n"
+              "            fun trailers(): Map<String, String>? = stream.trailers\n\n"
               "            /** Abort this stream (sends RST, wakes a pending recv). */\n"
               "            fun cancel() = stream.cancel()\n\n"
               "            /** Abandon the call if still live (RST); no-op once terminated. */\n"
@@ -396,9 +423,9 @@
      (if (kotlin-wasm-mode) "" "        // Adapters are retained for the process lifetime: registration is\n")
      (if (kotlin-wasm-mode) "" "        // once-per-process and bounded by service count.\n")
      (if (kotlin-wasm-mode) "" (format "        val adapter = ~aServerAsyncAdapter(impl)\n" sname))
-     (if (kotlin-wasm-mode) "" "        adapters.add(adapter)\n")
+     (if (kotlin-wasm-mode) "" (format "        ~aAdapters.add(adapter)\n" (kotlin-lower-first sname)))
      (if (kotlin-wasm-mode) "" (format "        register~aServer(server, adapter)\n    }\n\n" sname))
-     (if (kotlin-wasm-mode) "" (format "    private val adapters = ArrayList<~aServerAsyncAdapter>()\n" sname)))))
+     (if (kotlin-wasm-mode) "" (format "    private val ~aAdapters = ArrayList<~aServerAsyncAdapter>()\n" (kotlin-lower-first sname) sname)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Kotlin message types (<Base>Messages.kt): classes implementing
@@ -917,7 +944,8 @@
          (format "/** Generated gRPC-over-DataChannels stubs for ~a. */\n" (hash-ref file-model 'name))
          (format "object ~a {\n" object-name)
          (apply string-append
-                (map kotlin-service (hash-ref file-model 'services)))
+                (map kotlin-service
+                     (kotlin-qualify-services pkg (hash-ref file-model 'services))))
          "}\n")))
   (define pb-file (emit-kotlin-pb-file file-model))
   (if pb-file (list stub pb-file) stub))

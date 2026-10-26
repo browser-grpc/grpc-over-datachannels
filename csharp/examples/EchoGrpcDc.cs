@@ -99,6 +99,12 @@ public static class EchoGrpcDc
             return resp;
         }
 
+        /// <summary>Initial metadata (response headers); null until they arrive.</summary>
+        public Dictionary<string, string> Headers => _stream.Headers?.Metadata;
+
+        /// <summary>Trailing metadata of the terminal status; null until it arrives.</summary>
+        public Dictionary<string, string> Trailers => _stream.Trailers;
+
         /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>
         public void Cancel() => _stream.Cancel();
 
@@ -122,6 +128,12 @@ public static class EchoGrpcDc
             _stream.Recv(resp);
             return resp;
         }
+
+        /// <summary>Initial metadata (response headers); null until they arrive.</summary>
+        public Dictionary<string, string> Headers => _stream.Headers?.Metadata;
+
+        /// <summary>Trailing metadata of the terminal status; null until it arrives.</summary>
+        public Dictionary<string, string> Trailers => _stream.Trailers;
 
         /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>
         public void Cancel() => _stream.Cancel();

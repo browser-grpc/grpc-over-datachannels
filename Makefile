@@ -116,6 +116,20 @@ interop-stubs:
 		--grpc-dc-java_out=java/examples/interop -I oracle/interop \
 		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
 		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	mkdir -p csharp/examples/interop
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-csharp=bin/protoc-gen-grpc-dc-csharp \
+		--grpc-dc-csharp_out=csharp/examples/interop -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	mkdir -p kotlin/examples/interop scala/examples/interop
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-kotlin=bin/protoc-gen-grpc-dc-kotlin \
+		--grpc-dc-kotlin_out=kotlin/examples/interop -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-scala=bin/protoc-gen-grpc-dc-scala \
+		--grpc-dc-scala_out=scala/examples/interop -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
 	gofmt -w go/interop/*.go
 
 generate: plugins stubs
@@ -210,6 +224,7 @@ test-csharp:
 		&& dotnet run --project tests --no-build -- TestCodec \
 		&& dotnet run --project tests --no-build -- TestEcho \
 		&& dotnet run --project tests --no-build -- TestInterop \
+		&& dotnet run --project tests --no-build -- TestInteropOracle \
 		&& dotnet build examples/DynamicEchoServerStdio/DynamicEchoServerStdio.csproj --nologo -v q \
 		&& dotnet run --project tests --no-build -- TestOracle \
 		&& dotnet run --project tests --no-build -- TestDynamic \
@@ -254,12 +269,12 @@ KOTLINC ?= kotlinc
 
 test-kotlin:
 	mkdir -p kotlin/build
-	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/tests/*.kt -d kotlin/build/tests.jar
+	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/examples/interop/*.kt kotlin/tests/*.kt -d kotlin/build/tests.jar
 	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoServerStdio/Main.kt -d kotlin/build/echo_server_stdio.jar
 	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoClientStdio/Main.kt -d kotlin/build/echo_client_stdio.jar
 	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/examples/DynamicEchoServerStdio/Main.kt -d kotlin/build/dynamic_echo_server_stdio.jar
 	java -jar kotlin/build/tests.jar TestCodec && java -jar kotlin/build/tests.jar TestEcho \
-		&& java -jar kotlin/build/tests.jar TestInterop && java -jar kotlin/build/tests.jar TestOracle \
+		&& java -jar kotlin/build/tests.jar TestInterop && java -jar kotlin/build/tests.jar TestInteropOracle && java -jar kotlin/build/tests.jar TestOracle \
 		&& java -jar kotlin/build/tests.jar TestDynamic && java -jar kotlin/build/tests.jar TestBdd && java -jar kotlin/build/tests.jar TestDeadline \
 		&& java -jar kotlin/build/tests.jar TestSidecar && java -jar kotlin/build/tests.jar TestBddSchemas \
 		&& java -jar kotlin/build/tests.jar TestInlinePump && java -jar kotlin/build/tests.jar TestPbMessages
@@ -395,13 +410,14 @@ SCALA_LIBS = $(SCALA3_HOME)/lib/scala3-library_3-3.3.6.jar:$(SCALA3_HOME)/lib/sc
 
 test-scala:
 	mkdir -p scala/build
-	$(SCALAC) -d scala/build/tests.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/tests/*.scala
+	$(SCALAC) -d scala/build/tests.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/examples/interop/*.scala scala/tests/*.scala
 	$(SCALAC) -d scala/build/echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/EchoServerStdio/Main.scala
 	$(SCALAC) -d scala/build/echo_client_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/EchoClientStdio/Main.scala
 	$(SCALAC) -d scala/build/dynamic_echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/examples/DynamicEchoServerStdio/Main.scala
 	java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestCodec \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestEcho \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestInterop \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestInteropOracle \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestOracle \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDynamic \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestBdd \
@@ -893,6 +909,7 @@ soak:
 stress-interop:
 	cd go && go test -race -count=10 -run 'TestInteropOfficialClientsCallGoServer/.*/custom_metadata' .
 	cd js && for i in 1 2; do node --test test/interop_oracle.test.js test/interop_server_oracle.test.js || exit 1; done
+	cd go && for i in 1 2 3 4 5; do go test -race -count=1 -timeout 280s -run 'TestInteropOfficialClientsCallGoServer' . || exit 1; done
 
 ## WebRTC-stack interop matrix: Go/JS/Rust stacks paired
 ## over real ICE/DTLS/DataChannels (gRPC cells for Go/JS,

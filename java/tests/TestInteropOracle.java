@@ -149,6 +149,35 @@ public final class TestInteropOracle {
                         }
                     }
                 }
+                case "CUSTOM_METADATA" -> {
+                    // Upstream custom_metadata, duplex leg (the
+                    // generated unary path does not surface
+                    // trailers): echo-initial must return as
+                    // initial metadata, echo-trailing-bin (base64
+                    // on our wire) as trailers.
+                    String trailingBin = java.util.Base64.getEncoder().encodeToString(
+                            new byte[]{0x0a, 0x0b, 0x0a, 0x0b, 0x0a, 0x0b});
+                    java.util.Map<String, String> md = java.util.Map.of(
+                            "x-grpc-test-echo-initial", "test_initial_metadata_value",
+                            "x-grpc-test-echo-trailing-bin", trailingBin);
+                    try (var stream = client.FullDuplexCall(
+                            List.of(streamRequest(new int[]{1}, 1)), md)) {
+                        StreamingOutputCallResponse resp = stream.recv();
+                        check(resp.payload.body.length == 1, name + ": body");
+                        try {
+                            stream.recv();
+                            throw new AssertionError(name + ": expected EOF");
+                        } catch (EOFException expected) {
+                            // end of stream: trailers now readable
+                        }
+                        check("test_initial_metadata_value".equals(
+                                stream.headers().get("x-grpc-test-echo-initial")),
+                                name + ": initial " + stream.headers());
+                        check(trailingBin.equals(
+                                stream.trailers().get("x-grpc-test-echo-trailing-bin")),
+                                name + ": trailing " + stream.trailers());
+                    }
+                }
                 case "STATUS_UNARY" -> {
                     SimpleRequest req = new SimpleRequest();
                     req.responseStatus = new grpc.testing.EchoStatus();

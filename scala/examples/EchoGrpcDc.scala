@@ -33,6 +33,10 @@ object EchoGrpcDc {
             }
             def cancel(): Unit = stream.cancel()
             def close(): Unit = stream.close()
+            /** Initial metadata (response headers); null until they arrive. */
+            def headers: Map[String, String] = if (stream.headers == null) null else stream.headers.metadata
+            /** Trailing metadata of the terminal status; null until it arrives. */
+            def trailers: Map[String, String] = stream.trailers
         }
 
         class EchoBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[EchoResponse] with AutoCloseable {
@@ -61,6 +65,10 @@ object EchoGrpcDc {
             }
             def cancel(): Unit = stream.cancel()
             def close(): Unit = stream.close()
+            /** Initial metadata (response headers); null until they arrive. */
+            def headers: Map[String, String] = if (stream.headers == null) null else stream.headers.metadata
+            /** Trailing metadata of the terminal status; null until it arrives. */
+            def trailers: Map[String, String] = stream.trailers
         }
 
         def Unary(req: EchoRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): EchoResponse = {

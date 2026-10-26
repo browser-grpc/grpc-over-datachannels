@@ -17,6 +17,7 @@ public static class Program
                 case "TestCodec": TestCodec.Run(); break;
                 case "TestEcho": TestEcho.Run(); break;
                 case "TestInterop": TestInterop.Run(); break;
+                case "TestInteropOracle": TestInteropOracle.Run(); break;
                 case "TestOracle": TestOracle.Run(); break;
                 case "TestDynamic": TestDynamic.Run(); break;
                 case "TestBdd": TestBdd.Run(); break;
