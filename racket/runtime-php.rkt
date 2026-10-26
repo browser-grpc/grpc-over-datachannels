@@ -530,6 +530,11 @@ class Endpoint
     /** @var array<int, StreamInput> */
     private array $streams = [];
     public bool $closed = false;
+    /** @var array<int, array{fiber: \Fiber, input: StreamInput}> server-dispatch fibers by stream id */
+    private array $dispatchFibers = [];
+    /** @var array<int, bool> dispatch fibers suspended waiting for input, by fiber object id */
+    private array $waitingFibers = [];
+    private bool $scheduling = false;
 
     /** The side that created the channel allocates odd ids, the answerer even. */
     public function __construct(Transport $transport, bool $creator)
@@ -614,6 +619,8 @@ class Endpoint
             $input->put(new StreamEvent("rst", null, null, new StatusError(Wire::CODE_UNAVAILABLE, "data channel closed")));
             $input->close();
         }
+        // Wake dispatch fibers so they observe the failure.
+        $this->resumeDispatchFibers();
     }
 
     /**
@@ -634,10 +641,60 @@ class Endpoint
             return false;
         }
         if ($data === null) {
+            // Idle: still give dispatch fibers a turn (a fiber
+            // may be runnable without new inbound data).
+            $this->resumeDispatchFibers();
             return false;
         }
         $this->onBytes($data);
+        $this->resumeDispatchFibers();
         return true;
+    }
+
+    /**
+     * Give each suspended server-dispatch fiber one turn: each
+     * inbound call runs in its own Fiber so concurrent streams
+     * interleave regardless of HEADERS order. Fibers waiting
+     * for input (suspended from pumpWhile) resume only when
+     * their input has data or is closed; other fibers (handlers
+     * suspending cooperatively) get one turn per pass, which
+     * keeps producer pacing under the caller's control.
+     * Guarded against reentry from fibers that pump.
+     */
+    private function resumeDispatchFibers(): void
+    {
+        if ($this->scheduling) {
+            return;
+        }
+        $this->scheduling = true;
+        try {
+            foreach (array_keys($this->dispatchFibers) as $streamId) {
+                $entry = $this->dispatchFibers[$streamId] ?? null;
+                if ($entry === null) {
+                    continue;
+                }
+                $fiber = $entry["fiber"];
+                if ($fiber->isTerminated()) {
+                    unset($this->dispatchFibers[$streamId]);
+                    continue;
+                }
+                if (!$fiber->isSuspended()) {
+                    continue;
+                }
+                if (isset($this->waitingFibers[spl_object_id($fiber)])) {
+                    $input = $entry["input"];
+                    if (!$input->hasData() && !$input->closedFlag) {
+                        continue;
+                    }
+                }
+                $fiber->resume();
+                if ($fiber->isTerminated()) {
+                    unset($this->dispatchFibers[$streamId]);
+                }
+            }
+        } finally {
+            $this->scheduling = false;
+        }
     }
 
     /**
@@ -649,6 +706,25 @@ class Endpoint
     public function pumpWhile(\Closure $fn): void
     {
         while (!$fn()) {
+            $fiber = \Fiber::getCurrent();
+            if ($fiber !== null) {
+                // Inside a server-dispatch fiber: yield to the
+                // endpoint scheduler instead of pumping
+                // reentrantly; it resumes us once our input has
+                // data (or is closed).
+                foreach ($this->dispatchFibers as $entry) {
+                    if ($entry["fiber"] === $fiber) {
+                        $oid = spl_object_id($fiber);
+                        $this->waitingFibers[$oid] = true;
+                        try {
+                            \Fiber::suspend();
+                        } finally {
+                            unset($this->waitingFibers[$oid]);
+                        }
+                        continue 2;
+                    }
+                }
+            }
             if ($this->pump()) {
                 continue;
             }
@@ -762,25 +838,36 @@ class Endpoint
         $ctx = new CallContext($headers->metadata);
         $sink->respHeaders = &$ctx->responseHeaders;
         $sink->respTrailers = &$ctx->responseTrailers;
-        $ok = false;
-        try {
-            $result = ($this->dispatcher)($ctx, $headers, $input, $sink);
-            $status = $result ?? new StatusError(Wire::CODE_OK, "");
-            $ok = $result === null;
-        } catch (\Throwable $e) {
-            $status = Status::toStatus($e);
-        }
-        if ($ok) {
+        // Dispatch in a dedicated Fiber: a handler that waits
+        // for its request stream suspends (see pumpWhile) and
+        // the scheduler resumes it when data lands, so
+        // concurrent streams interleave.
+        $fiber = new \Fiber(function () use ($ctx, $headers, $input, $sink, $streamId) {
+            $ok = false;
             try {
-                $sink->flushHeaders();
+                $result = ($this->dispatcher)($ctx, $headers, $input, $sink);
+                $status = $result ?? new StatusError(Wire::CODE_OK, "");
+                $ok = $result === null;
+            } catch (\Throwable $e) {
+                $status = Status::toStatus($e);
+            }
+            if ($ok) {
+                try {
+                    $sink->flushHeaders();
+                } catch (\Throwable $ignored) {
+                }
+            }
+            try {
+                $sink->sendTrailers($status);
             } catch (\Throwable $ignored) {
             }
+            $this->closeStream($streamId);
+        });
+        $this->dispatchFibers[$streamId] = ["fiber" => $fiber, "input" => $input];
+        $fiber->start();
+        if ($fiber->isTerminated()) {
+            unset($this->dispatchFibers[$streamId]);
         }
-        try {
-            $sink->sendTrailers($status);
-        } catch (\Throwable $ignored) {
-        }
-        $this->closeStream($streamId);
     }
 }
 GRPC_RUNTIME_EOF
@@ -871,6 +958,13 @@ class Channel
         return $stream;
     }
 
+    /** Open a stream without sending anything: drive it with
+     *  sendMessage / halfClose / recv / cancel. */
+    public function openStream(string $path, ?array $metadata = null, ?float $timeout = null): ClientStream
+    {
+        return $this->openCall($path, $metadata, $timeout);
+    }
+
     private function openCall(string $path, ?array $metadata, ?float $timeout): ClientStream
     {
         $deadline = null;
@@ -903,12 +997,12 @@ class Channel
         return $stream;
     }
 
-    private function sendMessage(ClientStream $stream, object $msg): void
+    public function sendMessage(ClientStream $stream, object $msg): void
     {
         $this->endpoint->sendFrame(Codec::encodeFrame(Wire::FRAME_DATA, $stream->streamId, $msg->marshalDc()));
     }
 
-    private function halfClose(ClientStream $stream): void
+    public function halfClose(ClientStream $stream): void
     {
         $this->endpoint->sendFrame(Codec::encodeFrame(Wire::FRAME_HALF_CLOSE, $stream->streamId, ""));
     }
@@ -1254,13 +1348,19 @@ class Server
         });
     }
 
-    /** Serve until the transport closes (blocking transports drive pump). */
+    /** Serve until the transport closes. Idle pumps (a
+     *  non-blocking transport with no complete frame yet) tick
+     *  the dispatch scheduler instead of ending the loop. */
     public function serveForever(Endpoint $endpoint): void
     {
         while (!$endpoint->closed) {
-            if (!$endpoint->pump()) {
+            if ($endpoint->pump()) {
+                continue;
+            }
+            if ($endpoint->closed || $endpoint->transport->gone) {
                 break;
             }
+            usleep(200);
         }
     }
 

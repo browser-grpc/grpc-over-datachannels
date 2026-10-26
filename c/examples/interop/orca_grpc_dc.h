@@ -29,6 +29,8 @@ static inline int OpenRcaServiceStreamCoreMetricsClient_recv(OpenRcaServiceStrea
 
 static inline void OpenRcaServiceStreamCoreMetricsClient_close(OpenRcaServiceStreamCoreMetricsClient *s) { grpcdc_stream_free(s->raw); }
 
+static inline void OpenRcaServiceStreamCoreMetricsClient_cancel(OpenRcaServiceStreamCoreMetricsClient *s) { grpcdc_stream_cancel(s->raw); }
+
 typedef struct { grpcdc_server_stream *raw; } OpenRcaServiceStreamCoreMetricsStream;
 static inline grpcdc_status OpenRcaServiceStreamCoreMetricsStream_send(OpenRcaServiceStreamCoreMetricsStream *s, const OrcaLoadReport *resp) { Orca_load_reportPbBytes rb = OrcaLoadReport_marshal(resp); grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }
 

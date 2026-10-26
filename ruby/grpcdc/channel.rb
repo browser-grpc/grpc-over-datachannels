@@ -80,6 +80,12 @@ module Grpcdc
       stream
     end
 
+    # Open a stream without sending anything: drive it with
+    # send_message / half_close / recv / cancel.
+    def open_stream(path, metadata = nil, timeout: nil)
+      open_call(path, metadata, timeout)
+    end
+
     private
 
     def open_call(path, metadata, timeout = nil)
@@ -116,10 +122,12 @@ module Grpcdc
     def send_message(stream, msg)
       @endpoint.send_frame(Codec.encode_frame(FRAME_DATA, stream.stream_id, msg.marshal_dc))
     end
+    public :send_message
 
     def half_close(stream)
       @endpoint.send_frame(Codec.encode_frame(FRAME_HALF_CLOSE, stream.stream_id, "".b))
     end
+    public :half_close
 
     def send_all(stream, reqs)
       reqs.each { |req| send_message(stream, req) }

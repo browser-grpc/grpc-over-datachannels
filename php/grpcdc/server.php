@@ -119,13 +119,19 @@ class Server
         });
     }
 
-    /** Serve until the transport closes (blocking transports drive pump). */
+    /** Serve until the transport closes. Idle pumps (a
+     *  non-blocking transport with no complete frame yet) tick
+     *  the dispatch scheduler instead of ending the loop. */
     public function serveForever(Endpoint $endpoint): void
     {
         while (!$endpoint->closed) {
-            if (!$endpoint->pump()) {
+            if ($endpoint->pump()) {
+                continue;
+            }
+            if ($endpoint->closed || $endpoint->transport->gone) {
                 break;
             }
+            usleep(200);
         }
     }
 

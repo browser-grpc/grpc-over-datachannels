@@ -31,11 +31,13 @@ local function testBddSchemas()
   end
 
   run("rm -rf " .. tmp)
-  run("mkdir -p " .. gen)
+  -- Generated Lua requires siblings as examples.<base>_messages,
+  -- so the plugin output goes into a gen/examples directory.
+  run("mkdir -p " .. gen .. "/examples")
   run(string.format(
-    "protoc --plugin=protoc-gen-grpc-dc-lua=%s/bin/protoc-gen-grpc-dc-lua --grpc-dc-lua_out=%s -I %s/webapp/testdata common.proto kitchen.proto features.proto",
+    "protoc --plugin=protoc-gen-grpc-dc-lua=%s/bin/protoc-gen-grpc-dc-lua --grpc-dc-lua_out=%s/examples -I %s/webapp/testdata common.proto kitchen.proto features.proto",
     root, gen, root))
-  run("rm -f " .. gen .. "/common_grpc_dc.lua " .. gen .. "/kitchen_grpc_dc.lua " .. gen .. "/features_grpc_dc.lua")
+  run("rm -f " .. gen .. "/examples/common_grpc_dc.lua " .. gen .. "/examples/kitchen_grpc_dc.lua " .. gen .. "/examples/features_grpc_dc.lua")
 
   local rows = {}
   for i, c in ipairs(schemas) do
@@ -46,8 +48,8 @@ local function testBddSchemas()
   writeFile(gen .. "/harness.lua", [=[
 local dir = arg[0]:match("^(.*)/[^/]+$") or "."
 package.path = dir .. "/?.lua;" .. package.path
-local kitchen = require("kitchen_messages")
-local features = require("features_messages")
+local kitchen = require("examples.kitchen_messages")
+local features = require("examples.features_messages")
 
 local cases = {
 ]=] .. table.concat(rows, "\n") .. [=[

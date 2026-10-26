@@ -176,4 +176,15 @@
   (printf "generated webrtc/js/sctp_reassembly_gen.js\n")
   (call-with-output-file (build-path root "webrtc" "rust" "src" "sctp_reassembly_gen.rs") #:exists 'replace
     (lambda (out) (display (emit-rust-sctp-reassembly) out)))
-  (printf "generated webrtc/rust/src/sctp_reassembly_gen.rs\n"))
+  (printf "generated webrtc/rust/src/sctp_reassembly_gen.rs\n")
+  ;; SCTP SACK/gap/retransmit, generated from the same DSL
+  ;; (phase 3) so all three stacks run the same machine.
+  (call-with-output-file (build-path go-dir "sctp_sack_gen.go") #:exists 'replace
+    (lambda (out) (display (emit-go-sctp-sack) out)))
+  (printf "generated webrtc/go/sctp_sack_gen.go\n")
+  (call-with-output-file (build-path root "webrtc" "js" "sctp_sack_gen.js") #:exists 'replace
+    (lambda (out) (display (emit-js-sctp-sack) out)))
+  (printf "generated webrtc/js/sctp_sack_gen.js\n")
+  (call-with-output-file (build-path root "webrtc" "rust" "src" "sctp_sack_gen.rs") #:exists 'replace
+    (lambda (out) (display (emit-rust-sctp-sack) out)))
+  (printf "generated webrtc/rust/src/sctp_sack_gen.rs\n"))

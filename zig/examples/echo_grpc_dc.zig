@@ -81,6 +81,11 @@ pub const EchoServerStreamClient = struct {
         return self.stream.trailers;
     }
 
+    /// Abandon the call: RST so the server stops producing.
+    pub fn cancel(self: *EchoServerStreamClient) void {
+        self.stream.cancel();
+    }
+
     pub fn deinit(self: *EchoServerStreamClient) void {
         self.stream.deinit();
     }
@@ -107,6 +112,11 @@ pub const EchoBidiClient = struct {
     /// Trailing metadata of the terminal status.
     pub fn trailers(self: *EchoBidiClient) []const status_mod.TrailerPair {
         return self.stream.trailers;
+    }
+
+    /// Abandon the call: RST so the server stops producing.
+    pub fn cancel(self: *EchoBidiClient) void {
+        self.stream.cancel();
     }
 
     pub fn deinit(self: *EchoBidiClient) void {

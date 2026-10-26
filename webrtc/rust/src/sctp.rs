@@ -15,7 +15,8 @@ use alloc::vec::Vec;
 use crate::crypto::{crc32c, hmac_sha256, random_bytes};
 use crate::proto_gen::{sctp_chunk, sctp_param, sctp_reconfig};
 use crate::sctp_reassembly_gen::SctpReassembler;
-use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
+use crate::sctp_sack_gen::SctpSackTracker;
+use alloc::collections::{BTreeMap, VecDeque};
 #[cfg(feature = "std")]
 use std::collections::{HashMap, HashSet};
 #[cfg(not(feature = "std"))]
@@ -77,8 +78,7 @@ pub struct Association {
     state: State,
     next_tsn: u32,
     out_cum_done: u32, // highest TSN acked or abandoned, in order
-    peer_cum_tsn: u32,
-    peer_received: BTreeSet<u32>,
+    sack: SctpSackTracker,
     peer_next_tsn_init: bool,
     out_ssn: HashMap<u16, u16>,
     unacked: BTreeMap<u32, OutChunk>,
@@ -98,7 +98,6 @@ pub struct Association {
     last_init_ms: u64,
     last_packet_out_ms: u64,
     rto_ms: u64,
-    miss_counts: HashMap<u32, u32>,
     abandoned_ordered: Vec<(u16, u16)>, // (stream, ssn) for FORWARD-TSN
     // Stream reset (RFC 6525) bookkeeping.
     reconf_seq: u32,
@@ -203,8 +202,7 @@ impl Association {
             state: State::Closed,
             next_tsn: tsn,
             out_cum_done: tsn.wrapping_sub(1),
-            peer_cum_tsn: 0,
-            peer_received: BTreeSet::new(),
+            sack: SctpSackTracker::new(0),
             peer_next_tsn_init: false,
             out_ssn: HashMap::new(),
             unacked: BTreeMap::new(),
@@ -220,7 +218,6 @@ impl Association {
             last_init_ms: 0,
             last_packet_out_ms: 0,
             rto_ms: INITIAL_RTO_MS,
-            miss_counts: HashMap::new(),
             abandoned_ordered: Vec::new(),
             reconf_seq: tsn,
             resets: HashMap::new(),
@@ -396,7 +393,7 @@ impl Association {
     fn process_pending_resets(&mut self, packets: &mut Vec<Vec<u8>>, events: &mut Vec<Event>) {
         let mut remaining = Vec::new();
         for pending in core::mem::take(&mut self.pending_reconf) {
-            if (pending.last_tsn.wrapping_sub(self.peer_cum_tsn) as i32) > 0 {
+            if (pending.last_tsn.wrapping_sub(self.sack.cum_tsn()) as i32) > 0 {
                 remaining.push(pending);
                 continue;
             }
@@ -439,7 +436,7 @@ impl Association {
                     if streams.is_empty() {
                         streams = self.reasm.stream_ids();
                     }
-                    if (last_tsn.wrapping_sub(self.peer_cum_tsn) as i32) > 0 {
+                    if (last_tsn.wrapping_sub(self.sack.cum_tsn()) as i32) > 0 {
                         self.pending_reconf.push(PendingOutgoingReset { seq, last_tsn, streams });
                         continue;
                     }
@@ -601,33 +598,13 @@ impl Association {
 
     fn sack_packet(&self) -> Vec<u8> {
         let mut body = Vec::new();
-        body.extend_from_slice(&self.peer_cum_tsn.to_be_bytes());
+        body.extend_from_slice(&self.sack.cum_tsn().to_be_bytes());
         body.extend_from_slice(&INITIAL_RWND.to_be_bytes());
-        // Gap blocks from peer_received above the cumulative TSN.
-        let mut gaps: Vec<(u16, u16)> = Vec::new();
-        let mut iter = self.peer_received.iter().peekable();
-        while let Some(&start) = iter.next() {
-            if start <= self.peer_cum_tsn {
-                continue;
-            }
-            let mut end = start;
-            while let Some(&&next) = iter.peek() {
-                if next == end.wrapping_add(1) {
-                    end = next;
-                    iter.next();
-                } else {
-                    break;
-                }
-            }
-            gaps.push((
-                start.wrapping_sub(self.peer_cum_tsn) as u16,
-                end.wrapping_sub(self.peer_cum_tsn) as u16,
-            ));
-        }
+        let gaps = self.sack.gap_blocks();
         body.extend_from_slice(&(gaps.len() as u16).to_be_bytes());
         body.extend_from_slice(&0u16.to_be_bytes()); // no duplicate TSNs reported
-        for (s, e) in gaps {
-            body.extend_from_slice(&s.to_be_bytes());
+        for (s2, e) in gaps {
+            body.extend_from_slice(&s2.to_be_bytes());
             body.extend_from_slice(&e.to_be_bytes());
         }
         self.packet(self.peer_tag, &chunk(sctp_chunk::SACK, 0, &body))
@@ -682,7 +659,7 @@ impl Association {
                     self.peer_tag = u32::from_be_bytes(view.body[0..4].try_into().unwrap());
                     self.peer_initial_tsn =
                         u32::from_be_bytes(view.body[12..16].try_into().unwrap());
-                    self.peer_cum_tsn = self.peer_initial_tsn.wrapping_sub(1);
+                    self.sack.reset(self.peer_initial_tsn.wrapping_sub(1));
                     self.peer_next_tsn_init = true;
                     for (ty, value) in parse_params(&view.body[16..]) {
                         if ty == 7 {
@@ -707,7 +684,7 @@ impl Association {
                     self.peer_tag = peer_tag;
                     self.my_tag = my_tag;
                     self.peer_initial_tsn = peer_tsn;
-                    self.peer_cum_tsn = peer_tsn.wrapping_sub(1);
+                    self.sack.reset(peer_tsn.wrapping_sub(1));
                     self.peer_next_tsn_init = true;
                     self.next_tsn = my_tsn;
                     self.out_cum_done = my_tsn.wrapping_sub(1);
@@ -789,13 +766,7 @@ impl Association {
         let is_end = flags & 0x01 != 0;
 
         // TSN bookkeeping for SACK generation.
-        if (tsn.wrapping_sub(self.peer_cum_tsn) as i32) > 0 {
-            self.peer_received.insert(tsn);
-            while self.peer_received.contains(&self.peer_cum_tsn.wrapping_add(1)) {
-                self.peer_cum_tsn = self.peer_cum_tsn.wrapping_add(1);
-                self.peer_received.remove(&self.peer_cum_tsn);
-            }
-        }
+        self.sack.note_received(tsn);
 
         for d in self.reasm.feed(tsn, stream, ssn, ppid, unordered, is_begin, is_end, &payload) {
             events.push(Event::Data { stream: d.stream, ppid: d.ppid, payload: d.payload });
@@ -807,10 +778,7 @@ impl Association {
             return;
         }
         let new_cum = u32::from_be_bytes(body[0..4].try_into().unwrap());
-        if (new_cum.wrapping_sub(self.peer_cum_tsn) as i32) > 0 {
-            self.peer_received.retain(|&t| (t.wrapping_sub(new_cum) as i32) > 0);
-            self.peer_cum_tsn = new_cum;
-        }
+        self.sack.forward_tsn(new_cum);
         let mut pos = 4;
         while pos + 4 <= body.len() {
             let stream = u16::from_be_bytes(body[pos..pos + 2].try_into().unwrap());
@@ -830,33 +798,26 @@ impl Association {
         let cum = u32::from_be_bytes(body[0..4].try_into().unwrap());
         self.peer_rwnd = u32::from_be_bytes(body[4..8].try_into().unwrap());
         let num_gaps = u16::from_be_bytes(body[8..10].try_into().unwrap()) as usize;
-        let mut acked: Vec<u32> = Vec::new();
-        let mut gap_ranges: Vec<(u32, u32)> = Vec::new();
+        let mut blocks: Vec<(u16, u16)> = Vec::new();
         let mut pos = 12;
         for _ in 0..num_gaps {
             if pos + 4 > body.len() {
                 break;
             }
-            let s = u16::from_be_bytes(body[pos..pos + 2].try_into().unwrap()) as u32;
-            let e = u16::from_be_bytes(body[pos + 2..pos + 4].try_into().unwrap()) as u32;
+            let s2 = u16::from_be_bytes(body[pos..pos + 2].try_into().unwrap());
+            let e = u16::from_be_bytes(body[pos + 2..pos + 4].try_into().unwrap());
             pos += 4;
-            gap_ranges.push((cum.wrapping_add(s), cum.wrapping_add(e)));
-            for t in s..=e {
-                acked.push(cum.wrapping_add(t));
-            }
+            blocks.push((s2, e));
         }
+        // Serial order (BTreeMap key order is numeric, wrong at wrap).
+        let mut unacked_tsns: Vec<u32> = self.unacked.keys().copied().collect();
+        unacked_tsns.sort_by_key(|&t| t.wrapping_sub(cum));
+        let (acked, retransmit) = self.sack.note_sack(cum, &blocks, &unacked_tsns);
         // Cumulative + gap acked TSNs leave the retransmission queue.
         let mut freed = 0usize;
-        let keys: Vec<u32> = self.unacked.keys().copied().collect();
-        for tsn in keys {
-            let in_gap = gap_ranges.iter().any(|&(s, e)| {
-                (tsn.wrapping_sub(s) as i32) >= 0 && (tsn.wrapping_sub(e) as i32) <= 0
-            });
-            if (tsn.wrapping_sub(cum) as i32) <= 0 || in_gap {
-                if let Some(c) = self.unacked.remove(&tsn) {
-                    freed += c.payload.len();
-                }
-                self.miss_counts.remove(&tsn);
+        for tsn in acked {
+            if let Some(c) = self.unacked.remove(&tsn) {
+                freed += c.payload.len();
             }
         }
         self.inflight_bytes = self.inflight_bytes.saturating_sub(freed);
@@ -871,28 +832,12 @@ impl Association {
         }
         self.advance_out_cum();
         // Fast retransmit: TSNs below the first gap start counted as missed.
-        if let Some(&(first_start, _)) = gap_ranges.first() {
-            let missing: Vec<u32> = self
-                .unacked
-                .keys()
-                .copied()
-                .filter(|&t| (t.wrapping_sub(cum) as i32) > 0 && (t.wrapping_sub(first_start) as i32) < 0)
-                .collect();
-            for tsn in missing {
-                let count = {
-                    let e = self.miss_counts.entry(tsn).or_insert(0);
-                    *e += 1;
-                    *e
-                };
-                if count >= 3 {
-                    if let Some(c) = self.unacked.get(&tsn).cloned() {
-                        self.miss_counts.remove(&tsn);
-                        packets.push(self.packet(self.peer_tag, &data_chunk_bytes(&c)));
-                        if let Some(stored) = self.unacked.get_mut(&tsn) {
-                            stored.retransmits += 1;
-                            stored.last_sent_ms = now_ms;
-                        }
-                    }
+        for tsn in retransmit {
+            if let Some(c) = self.unacked.get(&tsn).cloned() {
+                packets.push(self.packet(self.peer_tag, &data_chunk_bytes(&c)));
+                if let Some(stored) = self.unacked.get_mut(&tsn) {
+                    stored.retransmits += 1;
+                    stored.last_sent_ms = now_ms;
                 }
             }
         }
@@ -995,7 +940,7 @@ impl Association {
         if self.state == State::Established {
             self.state = State::ShutdownSent;
             let mut body = Vec::new();
-            body.extend_from_slice(&self.peer_cum_tsn.to_be_bytes());
+            body.extend_from_slice(&self.sack.cum_tsn().to_be_bytes());
             vec![self.packet(self.peer_tag, &chunk(sctp_chunk::SHUTDOWN, 0, &body))]
         } else {
             Vec::new()

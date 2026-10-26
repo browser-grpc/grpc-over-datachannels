@@ -43,6 +43,7 @@ pub mod platform;
 pub mod proto_gen;
 pub mod sctp;
 pub mod sctp_reassembly_gen;
+pub mod sctp_sack_gen;
 #[cfg(feature = "std")]
 pub mod signaling;
 pub mod sdp;

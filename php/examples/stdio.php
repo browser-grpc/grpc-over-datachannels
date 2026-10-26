@@ -4,6 +4,11 @@
 // frame messages on stdio; each framed unit is exactly one DataChannel
 // message). Used by the cross-language interop harnesses.
 // Mirrors ruby/examples/stdio.rb.
+//
+// Reads are buffered and non-blocking: recvMessage returns null
+// when no complete frame has arrived yet, so the endpoint pump
+// can interleave concurrent stream fibers (a handler waiting on
+// one stream must not starve producers on another).
 
 require_once __DIR__ . "/../grpcdc.php";
 
@@ -13,11 +18,16 @@ class StdioTransport extends \Grpcdc\Transport
     public $onEof = null;
     private $writer;
     private $reader;
+    private string $buffer = "";
+    private bool $eofSeen = false;
 
     public function __construct($writer, $reader)
     {
         $this->writer = $writer;
         $this->reader = $reader;
+        if (is_resource($this->reader)) {
+            stream_set_blocking($this->reader, false);
+        }
     }
 
     public function send(string $data): void
@@ -29,31 +39,29 @@ class StdioTransport extends \Grpcdc\Transport
 
     public function recvMessage(): ?string
     {
-        $header = $this->readExact(4);
-        if (strlen($header) < 4) {
-            $this->eof();
-            return null;
-        }
-        $length = unpack("N", $header)[1];
-        $payload = $this->readExact($length);
-        if (strlen($payload) < $length) {
-            $this->eof();
-            return null;
-        }
-        return $payload;
-    }
-
-    private function readExact(int $n): string
-    {
-        $out = "";
-        while (strlen($out) < $n) {
-            $chunk = fread($this->reader, $n - strlen($out));
-            if ($chunk === false || $chunk === "") {
-                break;
+        while (true) {
+            if (strlen($this->buffer) >= 4) {
+                $length = unpack("N", substr($this->buffer, 0, 4))[1];
+                if (strlen($this->buffer) >= 4 + $length) {
+                    $payload = substr($this->buffer, 4, $length);
+                    $this->buffer = substr($this->buffer, 4 + $length);
+                    return $payload;
+                }
             }
-            $out .= $chunk;
+            if ($this->eofSeen) {
+                $this->eof();
+                return null;
+            }
+            $chunk = fread($this->reader, 8192);
+            if ($chunk === false || $chunk === "") {
+                if (is_resource($this->reader) && feof($this->reader)) {
+                    $this->eofSeen = true;
+                    continue;
+                }
+                return null; // would block: no complete frame yet
+            }
+            $this->buffer .= $chunk;
         }
-        return $out;
     }
 
     private function eof(): void

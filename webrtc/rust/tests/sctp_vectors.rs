@@ -71,8 +71,10 @@ impl<'a> Scanner<'a> {
 }
 
 fn parse_scenarios(text: &str) -> Vec<Scenario> {
-    let mut sc = Scanner { chars: text.chars().peekable() };
-    sc.expect('{');
+    // The file also carries phase 3 sack_scenarios; skip to the
+    // "scenarios" key wherever it sits at top level.
+    let start = text.find("\"scenarios\"").expect("scenarios key");
+    let mut sc = Scanner { chars: text[start..].chars().peekable() };
     sc.key("scenarios");
     sc.expect('[');
     let mut scenarios = Vec::new();

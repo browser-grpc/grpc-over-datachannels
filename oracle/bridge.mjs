@@ -90,6 +90,16 @@ export function lpm(payload) {
   return out;
 }
 
+/** LPM-framed gzip-compressed message (compressed flag set). */
+export function lpmCompressed(payload) {
+  const packed = gzipSync(Buffer.from(payload));
+  const out = Buffer.alloc(5 + packed.length);
+  out[0] = 1;
+  out.writeUInt32BE(packed.length, 1);
+  packed.copy(out, 5);
+  return out;
+}
+
 // grpc-message percent-encoding (gRPC HTTP/2 spec): printable ASCII
 // except '%' passes through; everything else becomes %XX.
 export function grpcMessageEncode(message) {
@@ -316,10 +326,18 @@ export function serveDcToHttp2({ grpcAuthority, endpoint }) {
       "grpc-accept-encoding": "gzip,identity",
       te: "trailers",
     };
+    // A grpc-encoding: gzip declaration on the DataChannel side
+    // makes the bridge gzip every request message on this hop
+    // (compression terminates at the proxy, mirroring the
+    // response direction): the official server then sees
+    // per-message compressed flags plus the encoding header,
+    // which is what its expect_compressed check grades.
+    const compressRequests = headers.metadata?.["grpc-encoding"] === "gzip";
     for (const [key, value] of Object.entries(headers.metadata ?? {})) {
       if (key === "grpc-encoding" || key === "grpc-accept-encoding") continue;
       if (!(key in requestHeaders)) requestHeaders[key] = value;
     }
+    if (compressRequests) requestHeaders["grpc-encoding"] = "gzip";
     const stream = session.request(requestHeaders);
 
     let grpcStatus = null;
@@ -366,10 +384,15 @@ export function serveDcToHttp2({ grpcAuthority, endpoint }) {
           return;
         }
         for (const payload of payloads) {
-          chain = chain.then(async () => {
-            await sendHeadersOnce();
-            await sink.sendData(payload);
-          });
+          chain = chain
+            .then(async () => {
+              await sendHeadersOnce();
+              await sink.sendData(payload);
+            })
+            .catch(() => {
+              // Sink gone (client cancelled): drop late payloads
+              // instead of crashing on an unhandled rejection.
+            });
         }
       });
       stream.on("end", () => chain.then(resolve, reject));
@@ -379,11 +402,14 @@ export function serveDcToHttp2({ grpcAuthority, endpoint }) {
     const inDone = (async () => {
       for await (const event of input) {
         if (event.kind === "data") {
-          stream.write(lpm(event.payload));
+          stream.write(compressRequests ? lpmCompressed(event.payload) : lpm(event.payload));
         } else if (event.kind === "half-close") {
           stream.end();
           return;
         } else if (event.kind === "trailers" || event.kind === "rst") {
+          // Client went away mid-call: tear the HTTP/2 stream
+          // down so the official server stops producing.
+          stream.destroy();
           throw event.status;
         }
       }

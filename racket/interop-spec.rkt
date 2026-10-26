@@ -6,7 +6,16 @@
 ;;; stamp this table per language; runners interpret it. Case
 ;;; kinds: EMPTY, LARGE_UNARY, CLIENT_STREAMING, SERVER_STREAMING,
 ;;; PING_PONG, EMPTY_STREAM, STATUS_UNARY, STATUS_DUPLEX,
-;;; UNIMPLEMENTED_METHOD, UNIMPLEMENTED_SERVICE.
+;;; UNIMPLEMENTED_METHOD, UNIMPLEMENTED_SERVICE,
+;;; SPECIAL_STATUS (status unary whose message carries leading /
+;;; trailing whitespace and non-BMP unicode), CANCEL_AFTER_BEGIN
+;;; (client-streaming call cancelled before any request),
+;;; CANCEL_AFTER_FIRST (duplex call cancelled after the first
+;;; response; resp-sizes holds the first response size — duplex
+;;; keeps the call open because the server waits for more input,
+;;; so the cancel cannot race call completion), TIMEOUT_SLEEPING
+;;; (server-streaming call against 1 s response intervals with a
+;;; 100 ms deadline; resp-sizes are the requested sizes).
 ;;;
 ;;; Row: (name kind req-sizes resp-sizes status-code status-message)
 ;;; req-sizes: request payload sizes (client-streaming / ping-pong
@@ -26,4 +35,8 @@
     (status-code-and-message STATUS_UNARY () () 2 "test status message")
     (status-code-and-message-duplex STATUS_DUPLEX () () 2 "test status message")
     (unimplemented-method UNIMPLEMENTED_METHOD () () 12 "")
-    (unimplemented-service UNIMPLEMENTED_SERVICE () () 12 "")))
+    (unimplemented-service UNIMPLEMENTED_SERVICE () () 12 "")
+    (special-status-message SPECIAL_STATUS () () 2 "\t\ntest with whitespace\r\nand Unicode BMP ☺ and non-BMP 😈\t\n")
+    (cancel-after-begin CANCEL_AFTER_BEGIN () () 1 "")
+    (cancel-after-first-response CANCEL_AFTER_FIRST () (31415) 1 "")
+    (timeout-on-sleeping-server TIMEOUT_SLEEPING () (1 1 1) 4 "")))

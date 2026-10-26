@@ -797,7 +797,7 @@
          (define dep-requires
            (apply string-append
                   (map (lambda (d)
-                         (format "local ~aMessages = require(\"~a_messages\")\n"
+                         (format "local ~aMessages = require(\"examples.~a_messages\")\n"
                                  (lua-pb-flat "" (format "~a_messages" d)) d))
                        dep-modules)))
          (define content

@@ -638,6 +638,8 @@
       (format "    if (r == 1) { memset(resp, 0, sizeof(*resp)); ~a_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }\n" resp)
       "    return r;\n}\n\n"
       (format "static inline void ~a~aClient_close(~a~aClient *s) { grpcdc_stream_free(s->raw); }\n\n"
+              svc (hash-ref m 'name) svc (hash-ref m 'name))
+      (format "static inline void ~a~aClient_cancel(~a~aClient *s) { grpcdc_stream_cancel(s->raw); }\n\n"
               svc (hash-ref m 'name) svc (hash-ref m 'name)))]
     [(client-streaming)
      (string-append
@@ -678,6 +680,8 @@
       (format "    if (r == 1) { memset(resp, 0, sizeof(*resp)); ~a_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }\n" resp)
       "    return r;\n}\n\n"
       (format "static inline void ~a~aClient_close(~a~aClient *s) { grpcdc_stream_free(s->raw); }\n\n"
+              svc (hash-ref m 'name) svc (hash-ref m 'name))
+      (format "static inline void ~a~aClient_cancel(~a~aClient *s) { grpcdc_stream_cancel(s->raw); }\n\n"
               svc (hash-ref m 'name) svc (hash-ref m 'name)))]))
 
 (define (c-server-types model m support)

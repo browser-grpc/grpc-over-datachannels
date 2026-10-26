@@ -783,6 +783,10 @@
        "    pub fn trailers(self: *~a~aClient) []const status_mod.TrailerPair {\n"
        "        return self.stream.trailers;\n"
        "    }\n\n"
+       "    /// Abandon the call: RST so the server stops producing.\n"
+       "    pub fn cancel(self: *~a~aClient) void {\n"
+       "        self.stream.cancel();\n"
+       "    }\n\n"
        "    pub fn deinit(self: *~a~aClient) void {\n"
        "        self.stream.deinit();\n"
        "    }\n"
@@ -794,6 +798,8 @@
       orig-name
       resp
       resp
+      svc
+      orig-name
       svc
       orig-name
       svc
@@ -822,6 +828,10 @@
        "    pub fn trailers(self: *~a~aClient) []const status_mod.TrailerPair {\n"
        "        return self.stream.trailers;\n"
        "    }\n\n"
+       "    /// Abandon the call: RST so the server stops producing.\n"
+       "    pub fn cancel(self: *~a~aClient) void {\n"
+       "        self.stream.cancel();\n"
+       "    }\n\n"
        "    pub fn deinit(self: *~a~aClient) void {\n"
        "        self.stream.deinit();\n"
        "    }\n"
@@ -833,6 +843,8 @@
       orig-name
       resp
       resp
+      svc
+      orig-name
       svc
       orig-name
       svc

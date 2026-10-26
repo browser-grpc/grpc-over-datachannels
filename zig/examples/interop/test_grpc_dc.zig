@@ -123,6 +123,11 @@ pub const TestServiceStreamingOutputCallClient = struct {
         return self.stream.trailers;
     }
 
+    /// Abandon the call: RST so the server stops producing.
+    pub fn cancel(self: *TestServiceStreamingOutputCallClient) void {
+        self.stream.cancel();
+    }
+
     pub fn deinit(self: *TestServiceStreamingOutputCallClient) void {
         self.stream.deinit();
     }
@@ -151,6 +156,11 @@ pub const TestServiceFullDuplexCallClient = struct {
         return self.stream.trailers;
     }
 
+    /// Abandon the call: RST so the server stops producing.
+    pub fn cancel(self: *TestServiceFullDuplexCallClient) void {
+        self.stream.cancel();
+    }
+
     pub fn deinit(self: *TestServiceFullDuplexCallClient) void {
         self.stream.deinit();
     }
@@ -177,6 +187,11 @@ pub const TestServiceHalfDuplexCallClient = struct {
     /// Trailing metadata of the terminal status.
     pub fn trailers(self: *TestServiceHalfDuplexCallClient) []const status_mod.TrailerPair {
         return self.stream.trailers;
+    }
+
+    /// Abandon the call: RST so the server stops producing.
+    pub fn cancel(self: *TestServiceHalfDuplexCallClient) void {
+        self.stream.cancel();
     }
 
     pub fn deinit(self: *TestServiceHalfDuplexCallClient) void {

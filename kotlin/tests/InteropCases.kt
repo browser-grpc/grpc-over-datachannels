@@ -20,5 +20,9 @@ object InteropCases {
         arrayOf<Any>("status-code-and-message-duplex", "STATUS_DUPLEX", intArrayOf(), intArrayOf(), 2, "test status message"),
         arrayOf<Any>("unimplemented-method", "UNIMPLEMENTED_METHOD", intArrayOf(), intArrayOf(), 12, ""),
         arrayOf<Any>("unimplemented-service", "UNIMPLEMENTED_SERVICE", intArrayOf(), intArrayOf(), 12, ""),
+        arrayOf<Any>("special-status-message", "SPECIAL_STATUS", intArrayOf(), intArrayOf(), 2, "\t\ntest with whitespace\r\nand Unicode BMP ☺ and non-BMP 😈\t\n"),
+        arrayOf<Any>("cancel-after-begin", "CANCEL_AFTER_BEGIN", intArrayOf(), intArrayOf(), 1, ""),
+        arrayOf<Any>("cancel-after-first-response", "CANCEL_AFTER_FIRST", intArrayOf(), intArrayOf(31415), 1, ""),
+        arrayOf<Any>("timeout-on-sleeping-server", "TIMEOUT_SLEEPING", intArrayOf(), intArrayOf(1, 1, 1), 4, ""),
     )
 }

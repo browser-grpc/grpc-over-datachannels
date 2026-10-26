@@ -8,6 +8,8 @@
 
 #include "examples/empty_messages.hpp"
 #include "examples/messages_messages.hpp"
+#include "examples/orca_grpc_dc.hpp"
+#include "examples/orca_load_report_messages.hpp"
 #include "examples/test_grpc_dc.hpp"
 #include "examples/stdio_transport.hpp"
 #include "grpcdc/channel.hpp"
@@ -24,8 +26,11 @@ using grpc::testing::Empty;
 using grpc::testing::Payload;
 using grpc::testing::ResponseParameters;
 using grpc::testing::SimpleRequest;
+using grpc::testing::SimpleResponse;
 using grpc::testing::StreamingInputCallRequest;
+using grpc::testing::StreamingInputCallResponse;
 using grpc::testing::StreamingOutputCallRequest;
+using grpc::testing::StreamingOutputCallResponse;
 using grpc::testing::TestGrpcDc;
 
 Payload MakePayload(int size) {
@@ -63,7 +68,7 @@ std::vector<int> Sizes(const int* data, int count) {
   return std::vector<int>(data, data + count);
 }
 
-void RunCases(TestGrpcDc::TestServiceClient& client, TestGrpcDc::UnimplementedServiceClient& unimpl) {
+void RunCases(grpcdc::Channel& channel, TestGrpcDc::TestServiceClient& client, TestGrpcDc::UnimplementedServiceClient& unimpl) {
   for (const auto& row : kInteropCases) {
     const std::string name = row.name;
     const std::string kind = row.kind;
@@ -158,6 +163,52 @@ void RunCases(TestGrpcDc::TestServiceClient& client, TestGrpcDc::UnimplementedSe
         auto stream = client.FullDuplexCall({req});
         stream.Recv();
       });
+    } else if (kind == "SPECIAL_STATUS") {
+      SimpleRequest req;
+      EchoStatus status;
+      status.code = row.statusCode;
+      status.message = row.statusMessage;
+      req.response_status = status;
+      ExpectStatus(row.statusCode, row.statusMessage, name, [&] { client.UnaryCall(req); });
+    } else if (kind == "CANCEL_AFTER_BEGIN") {
+      // Begin a client-streaming call and cancel it before
+      // sending any request: the pending Recv must report
+      // CANCELLED.
+      auto stream = channel.OpenStream("/grpc.testing.TestService/StreamingInputCall", nullptr);
+      stream.Cancel();
+      ExpectStatus(row.statusCode, "", name, [&] {
+        StreamingInputCallResponse resp;
+        stream.Recv(resp);
+      });
+    } else if (kind == "CANCEL_AFTER_FIRST") {
+      // Duplex call (no half-close): the server answers the one
+      // request, then waits for more input, so the cancel
+      // deterministically lands mid-call (same shape as the
+      // Python/JS suites).
+      auto stream = channel.OpenStream("/grpc.testing.TestService/FullDuplexCall", nullptr);
+      stream.Send(StreamRequest({resp_sizes[0]}, 1));
+      StreamingOutputCallResponse resp;
+      stream.Recv(resp);
+      Check(resp.payload.has_value() && resp.payload->body.size() == static_cast<size_t>(resp_sizes[0]),
+            name + ": body size");
+      stream.Cancel();
+      ExpectStatus(row.statusCode, "", name, [&] {
+        StreamingOutputCallResponse resp2;
+        stream.Recv(resp2);
+      });
+    } else if (kind == "TIMEOUT_SLEEPING") {
+      StreamingOutputCallRequest req;
+      req.payload = MakePayload(0);
+      for (int size : resp_sizes) {
+        ResponseParameters p;
+        p.size = size;
+        p.interval_us = 1000000;
+        req.response_parameters.push_back(p);
+      }
+      ExpectStatus(row.statusCode, "", name, [&] {
+        auto stream = client.StreamingOutputCall(req, nullptr, std::chrono::milliseconds(100));
+        stream.Recv();
+      });
     } else if (kind == "UNIMPLEMENTED_METHOD") {
       ExpectStatus(row.statusCode, "", name, [&] { client.UnimplementedCall(Empty{}); });
     } else if (kind == "UNIMPLEMENTED_SERVICE") {
@@ -167,6 +218,167 @@ void RunCases(TestGrpcDc::TestServiceClient& client, TestGrpcDc::UnimplementedSe
     }
     std::fprintf(stdout, "interop case ok: %s\n", name.c_str());
   }
+}
+
+// Compression rows (upstream client_compressed_unary,
+// client_compressed_streaming, server_compressed_unary,
+// server_compressed_streaming): the DataChannel wire is
+// compression-free; the client declares grpc-encoding: gzip
+// and the bridge gzips request messages on the HTTP/2 hop,
+// decompressing responses the same way.
+void RunCompressionCases(TestGrpcDc::TestServiceClient& client) {
+  const grpcdc::Metadata gzip = {{"grpc-encoding", "gzip"}};
+  {
+    SimpleRequest req;
+    req.response_size = 31415;
+    req.payload = MakePayload(271828);
+    grpc::testing::BoolValue expect;
+    expect.value = true;
+    req.expect_compressed = expect;
+    auto resp = client.UnaryCall(req, &gzip);
+    Check(resp.payload.has_value() && resp.payload->body.size() == 31415u,
+          "client_compressed_unary: body size");
+    std::fprintf(stdout, "interop case ok: client_compressed_unary\n");
+  }
+  {
+    const std::vector<int> sizes = {27182, 8, 1828, 45904};
+    std::vector<StreamingInputCallRequest> reqs;
+    int total = 0;
+    for (int size : sizes) {
+      StreamingInputCallRequest r;
+      r.payload = MakePayload(size);
+      grpc::testing::BoolValue expect;
+      expect.value = true;
+      r.expect_compressed = expect;
+      reqs.push_back(r);
+      total += size;
+    }
+    auto resp = client.StreamingInputCall(reqs, &gzip);
+    Check(resp.aggregated_payload_size == total,
+          "client_compressed_streaming: aggregated");
+    std::fprintf(stdout, "interop case ok: client_compressed_streaming\n");
+  }
+  {
+    SimpleRequest req;
+    req.response_size = 31415;
+    req.payload = MakePayload(271828);
+    grpc::testing::BoolValue compressed;
+    compressed.value = true;
+    req.response_compressed = compressed;
+    auto resp = client.UnaryCall(req);
+    Check(resp.payload.has_value() && resp.payload->body.size() == 31415u,
+          "server_compressed_unary: body size");
+    std::fprintf(stdout, "interop case ok: server_compressed_unary\n");
+  }
+  {
+    const std::vector<int> sizes = {31415, 9, 2653, 58979};
+    StreamingOutputCallRequest req;
+    req.payload = MakePayload(0);
+    for (int size : sizes) {
+      ResponseParameters p;
+      p.size = size;
+      grpc::testing::BoolValue compressed;
+      compressed.value = true;
+      p.compressed = compressed;
+      req.response_parameters.push_back(p);
+    }
+    auto stream = client.StreamingOutputCall(req);
+    for (int size : sizes) {
+      auto resp = stream.Recv();
+      Check(resp.payload.has_value() && resp.payload->body.size() == static_cast<size_t>(size),
+            "server_compressed_streaming: body size");
+    }
+    std::fprintf(stdout, "interop case ok: server_compressed_streaming\n");
+  }
+}
+
+// ORCA rows (upstream orca_per_rpc / orca_oob): per-RPC the
+// report returns as the serialized OrcaLoadReport in the
+// endpoint-load-metrics-bin trailer (base64 -bin value); OOB the
+// value fed through FullDuplexCall comes back on the
+// OpenRcaService StreamCoreMetrics stream.
+grpcdc::Bytes Base64Decode(const std::string& in) {
+  static const std::string kAlphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  grpcdc::Bytes out;
+  int acc = 0, bits = 0;
+  for (char ch : in) {
+    if (ch == '=') break;
+    size_t v = kAlphabet.find(ch);
+    if (v == std::string::npos) continue;
+    acc = (acc << 6) | static_cast<int>(v);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push_back(static_cast<std::uint8_t>((acc >> bits) & 0xff));
+    }
+  }
+  return out;
+}
+
+void RunOrcaCases(const std::shared_ptr<grpcdc::Channel>& channel, TestGrpcDc::TestServiceClient& client) {
+  SimpleRequest req;
+  grpc::testing::TestOrcaReport report;
+  report.cpu_utilization = 0.8210;
+  report.memory_utilization = 0.5847;
+  report.request_cost["cost"] = 3456.32;
+  report.utilization["util"] = 0.30499;
+  req.orca_per_query_report = report;
+  {
+    auto stream = channel->ServerStream("/grpc.testing.TestService/UnaryCall", req, nullptr);
+    SimpleResponse resp;
+    stream.Recv(resp);
+    bool eof = false;
+    try {
+      SimpleResponse extra;
+      stream.Recv(extra);
+    } catch (const grpcdc::EndOfStream&) {
+      eof = true;
+    }
+    Check(eof, "orca_per_rpc: expected EOF");
+    auto it = stream.trailers().find("endpoint-load-metrics-bin");
+    Check(it != stream.trailers().end(), "orca_per_rpc: no endpoint-load-metrics-bin trailer");
+    xds::data::orca::v3::OrcaLoadReport load_report;
+    load_report.UnmarshalDc(Base64Decode(it->second));
+    Check(load_report.cpu_utilization == 0.8210 && load_report.mem_utilization == 0.5847 &&
+              load_report.request_cost.count("cost") && load_report.request_cost.at("cost") == 3456.32 &&
+              load_report.utilization.count("util") && load_report.utilization.at("util") == 0.30499,
+          "orca_per_rpc: report mismatch");
+  }
+  std::fprintf(stdout, "interop case ok: orca_per_rpc\n");
+
+  StreamingOutputCallRequest feed_req;
+  grpc::testing::TestOrcaReport oob;
+  oob.cpu_utilization = 0.9;
+  oob.memory_utilization = 0.85;
+  oob.utilization["util"] = 0.5;
+  feed_req.orca_oob_report = oob;
+  {
+    auto feed = client.FullDuplexCall({feed_req});
+    bool eof = false;
+    try {
+      feed.Recv();
+    } catch (const grpcdc::EndOfStream&) {
+      eof = true;
+    }
+    Check(eof, "orca_oob: feed did not complete");
+  }
+  xds::service::orca::v3::OrcaGrpcDc::OpenRcaServiceClient orca(channel);
+  auto metrics = orca.StreamCoreMetrics(xds::service::orca::v3::OrcaLoadReportRequest{},
+                                        nullptr, std::chrono::seconds(30));
+  bool matched = false;
+  for (int i = 0; i < 30 && !matched; ++i) {
+    xds::data::orca::v3::OrcaLoadReport got;
+    try {
+      got = metrics.Recv();
+    } catch (const grpcdc::EndOfStream&) {
+      break;
+    }
+    matched = got.cpu_utilization == 0.9 && got.mem_utilization == 0.85 &&
+              got.utilization.count("util") && got.utilization.at("util") == 0.5;
+  }
+  Check(matched, "orca_oob: no matching OOB report");
+  std::fprintf(stdout, "interop case ok: orca_oob\n");
 }
 
 bool TcpConnectable(int port) {
@@ -230,7 +442,9 @@ void TestInteropOracle() {
     auto channel = std::make_shared<grpcdc::Channel>(transport);
     TestGrpcDc::TestServiceClient client(channel);
     TestGrpcDc::UnimplementedServiceClient unimpl(channel);
-    RunCases(client, unimpl);
+    RunCases(*channel, client, unimpl);
+    RunCompressionCases(client);
+    RunOrcaCases(channel, client);
   }
   bridge.Kill();
   server.Kill();

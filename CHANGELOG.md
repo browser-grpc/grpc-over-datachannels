@@ -3,6 +3,55 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.15 — 2026-10-26
+
+- Interop case table extended everywhere: the generated
+  tables now include `special_status_message`,
+  `cancel_after_begin`, `cancel_after_first_response`, and
+  `timeout_on_sleeping_server` in every client suite, plus
+  compression rows (`client_compressed_unary/streaming`,
+  `server_compressed_unary/streaming`) in all client suites
+  (gzip stays on the bridge HTTP/2 hop; the DataChannel wire
+  is compression-free) and ORCA rows (`orca_per_rpc`,
+  `orca_oob`) for the Dart/Swift/Zig/C/C++/Lua/Ruby/PHP
+  clients.
+- Direction-B server grading for every native language: the
+  official grpc-java TestServiceClient (19 cases incl.
+  compression/cacheable) and grpc-go interop-client (16 cases
+  incl. ORCA) now run against each generated language's
+  TestService server through the bridge — Java, Kotlin,
+  Scala, C#, Dart, Swift, Zig, C, C++, Lua, Ruby, and PHP
+  join the existing servers. The C server's metrics stream
+  answers one-shot (single-stream runtime; `orca_oob` stays
+  skipped there, as documented in the test), and the PHP
+  endpoint now dispatches each inbound call in its own Fiber
+  with an input-driven scheduler, so concurrent streams
+  interleave regardless of HEADERS order (its stdio transport
+  is buffered/non-blocking to match).
+- Generated HTTP/2 client transports for Kotlin, Scala,
+  Dart, Swift, and Zig, stamped by `racket/http2-gen.rkt`
+  from the shared RFC 9113 spec/HPACK tables like the other
+  seven: cleartext h2c everywhere plus TLS (ALPN h2) where
+  the stdlib has it (Kotlin/Scala via the JDK, Dart via
+  SecureSocket); Swift and Zig print a clear SKIP on the TLS
+  leg (no stdlib TLS) instead of falling back to cleartext.
+  Each has a `TestHttp2Oracle` suite against the official
+  grpc-java OracleServer plus the Node TLS fixture.
+- SCTP DSL phase 3: the SACK/gap/retransmit machine is
+  generated from `racket/sctp-dsl.rkt` alongside reassembly
+  (`sctp_sack_gen` for Go/JS/Rust) — cumulative-TSN tracking,
+  gap-block computation, and miss-count fast retransmit with
+  serial arithmetic throughout (the hand-written Rust gap
+  walk compared TSNs non-serially at wrap). New generated
+  conformance scenarios (`sack_scenarios` in
+  fixtures/sctp_vectors.json) run the same steps in all
+  three stacks, including a TSN-wrap scenario.
+- Browser matrix: WebKit legs are on in the CI image for
+  every `all`-mode browser test, and
+  browser-test/direct_turn.test.mjs gains Firefox/WebKit
+  legs (WebKit passes relay<->relay; Firefox skips with the
+  documented environment limitation).
+
 ## v0.32.14 — 2026-10-26
 
 - Interop client grading now covers every generated client:

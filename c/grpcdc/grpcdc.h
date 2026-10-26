@@ -49,6 +49,15 @@ typedef struct {
         const char *value;
     } trailers[8];
     size_t trailers_count;
+    /* Response initial metadata for unary / client-streaming
+       handlers, whose HEADERS frame is deferred until the
+       handler returns (borrowed pointers, at most 8). Streaming
+       handlers use grpcdc_server_stream_set_header instead. */
+    struct {
+        const char *key;
+        const char *value;
+    } headers[8];
+    size_t headers_count;
 } grpcdc_status;
 
 const char *grpcdc_status_name(int code);
@@ -198,6 +207,7 @@ grpcdc_status grpcdc_stream_close_send(grpcdc_stream *s);
 int grpcdc_stream_recv(grpcdc_stream *s, grpcdc_bytes *out,
                        grpcdc_status *st);
 void grpcdc_stream_free(grpcdc_stream *s);
+void grpcdc_stream_cancel(grpcdc_stream *s);
 
 /* ---- server ---- */
 typedef struct grpcdc_server_stream grpcdc_server_stream;
@@ -231,6 +241,13 @@ void grpcdc_server_stream_set_header(grpcdc_server_stream *s,
    (rides the terminal status frame). */
 void grpcdc_server_stream_set_trailer(grpcdc_server_stream *s,
                                       const char *key, const char *value);
+
+/* Poll (non-blocking) for a peer RST on the stream being
+   served: 1 once the client has cancelled. Handlers that wait
+   (e.g. interop response intervals) should slice their waits
+   on this so a cancelled call stops promptly instead of
+   wedging the single-stream serve loop. */
+int grpcdc_server_stream_cancelled(grpcdc_server_stream *s);
 
 /* Trailing metadata received with the terminal status of a
    client stream (owned by the stream; valid until free). */

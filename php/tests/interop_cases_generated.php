@@ -15,4 +15,8 @@ return [
     ["name" => "status-code-and-message-duplex", "kind" => "STATUS_DUPLEX", "req_sizes" => [], "resp_sizes" => [], "status_code" => 2, "status_message" => "test status message"],
     ["name" => "unimplemented-method", "kind" => "UNIMPLEMENTED_METHOD", "req_sizes" => [], "resp_sizes" => [], "status_code" => 12, "status_message" => ""],
     ["name" => "unimplemented-service", "kind" => "UNIMPLEMENTED_SERVICE", "req_sizes" => [], "resp_sizes" => [], "status_code" => 12, "status_message" => ""],
+    ["name" => "special-status-message", "kind" => "SPECIAL_STATUS", "req_sizes" => [], "resp_sizes" => [], "status_code" => 2, "status_message" => "\t\ntest with whitespace\r\nand Unicode BMP ☺ and non-BMP 😈\t\n"],
+    ["name" => "cancel-after-begin", "kind" => "CANCEL_AFTER_BEGIN", "req_sizes" => [], "resp_sizes" => [], "status_code" => 1, "status_message" => ""],
+    ["name" => "cancel-after-first-response", "kind" => "CANCEL_AFTER_FIRST", "req_sizes" => [], "resp_sizes" => [31415], "status_code" => 1, "status_message" => ""],
+    ["name" => "timeout-on-sleeping-server", "kind" => "TIMEOUT_SLEEPING", "req_sizes" => [], "resp_sizes" => [1, 1, 1], "status_code" => 4, "status_message" => ""],
 ];

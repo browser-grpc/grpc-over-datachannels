@@ -30,6 +30,7 @@
 #include "grpcdc/memory_transport.h"
 #include "grpcdc/sidecar_transport.h"
 #include "../examples/interop/test_grpc_dc.h"
+#include "../examples/interop/orca_grpc_dc.h"
 #include "interop_cases.h"
 
 static void check(int cond, const char *what) {
@@ -1391,7 +1392,8 @@ static void run_interop_cases(TestServiceClient *client,
             check(tv && strcmp(tv, TRAILER_VAL) == 0, what);
             TestServiceFullDuplexCallClient_close(&stream);
             free(reqs);
-        } else if (strcmp(c->kind, "STATUS_UNARY") == 0) {
+        } else if (strcmp(c->kind, "STATUS_UNARY") == 0 ||
+                   strcmp(c->kind, "SPECIAL_STATUS") == 0) {
             SimpleRequest req;
             SimpleRequest_init(&req);
             req.response_status = (EchoStatus *)calloc(1, sizeof(EchoStatus));
@@ -1420,6 +1422,79 @@ static void run_interop_cases(TestServiceClient *client,
                       strcmp(rst.message, c->status_message) == 0,
                   what);
             TestServiceFullDuplexCallClient_close(&stream);
+        } else if (strcmp(c->kind, "CANCEL_AFTER_BEGIN") == 0) {
+            /* Begin a client-streaming call and cancel it before
+               sending any request: the pending recv must report
+               CANCELLED. */
+            grpcdc_stream *raw = NULL;
+            grpcdc_status st = grpcdc_channel_open(
+                client->channel, "/grpc.testing.TestService/StreamingInputCall",
+                NULL, 0, 0, NULL, 0, 0, &raw);
+            check(grpcdc_status_is_ok(st), what);
+            grpcdc_stream_cancel(raw);
+            grpcdc_bytes out;
+            grpcdc_status rst;
+            int r = grpcdc_stream_recv(raw, &out, &rst);
+            check(r == -1 && rst.code == c->status_code, what);
+            grpcdc_stream_free(raw);
+        } else if (strcmp(c->kind, "CANCEL_AFTER_FIRST") == 0) {
+            /* Duplex call (no half-close): the server answers the
+               one request, then waits for more input, so the cancel
+               deterministically lands mid-call (same shape as the
+               Python/JS suites). */
+            StreamingOutputCallRequest req;
+            StreamingOutputCallRequest_init(&req);
+            req.response_parameters =
+                (ResponseParameters *)calloc(1, sizeof(ResponseParameters));
+            req.response_parameters_count = 1;
+            ResponseParameters_init(&req.response_parameters[0]);
+            req.response_parameters[0].size = c->resp_sizes[0];
+            req.payload = ic_payload(1);
+            grpcdc_stream *raw = NULL;
+            grpcdc_status st = grpcdc_channel_open(
+                client->channel, "/grpc.testing.TestService/FullDuplexCall",
+                NULL, 0, 0, NULL, 0, 0, &raw);
+            check(grpcdc_status_is_ok(st), what);
+            MessagesPbBytes rb = StreamingOutputCallRequest_marshal(&req);
+            st = grpcdc_stream_send(raw, rb.data, rb.len);
+            free(rb.data);
+            check(grpcdc_status_is_ok(st), what);
+            grpcdc_bytes out;
+            grpcdc_status rst;
+            int r = grpcdc_stream_recv(raw, &out, &rst);
+            check(r == 1, what);
+            StreamingOutputCallResponse resp;
+            StreamingOutputCallResponse_init(&resp);
+            StreamingOutputCallResponse_unmarshal(&resp, out.data, out.len);
+            grpcdc_bytes_free(&out);
+            check(resp.payload &&
+                      (int)resp.payload->body.len == c->resp_sizes[0],
+                  what);
+            grpcdc_stream_cancel(raw);
+            r = grpcdc_stream_recv(raw, &out, &rst);
+            check(r == -1 && rst.code == c->status_code, what);
+            grpcdc_stream_free(raw);
+        } else if (strcmp(c->kind, "TIMEOUT_SLEEPING") == 0) {
+            StreamingOutputCallRequest req;
+            StreamingOutputCallRequest_init(&req);
+            req.response_parameters = (ResponseParameters *)calloc(
+                4, sizeof(ResponseParameters));
+            req.response_parameters_count = (size_t)c->resp_count;
+            for (int j = 0; j < c->resp_count; j++) {
+                ResponseParameters_init(&req.response_parameters[j]);
+                req.response_parameters[j].size = c->resp_sizes[j];
+                req.response_parameters[j].interval_us = 1000000;
+            }
+            req.payload = ic_payload(0);
+            TestServiceStreamingOutputCallClient stream;
+            grpcdc_status st = TestServiceClient_streaming_output_call(
+                client, &req, &stream, NULL, 0, 100);
+            check(grpcdc_status_is_ok(st), what);
+            StreamingOutputCallResponse one;
+            grpcdc_status rst;
+            int r = TestServiceStreamingOutputCallClient_recv(&stream, &one, &rst);
+            check(r == -1 && rst.code == c->status_code, what);
+            TestServiceStreamingOutputCallClient_close(&stream);
         } else if (strcmp(c->kind, "UNIMPLEMENTED_METHOD") == 0) {
             Empty req, resp;
             Empty_init(&req);
@@ -1437,6 +1512,238 @@ static void run_interop_cases(TestServiceClient *client,
         }
         printf("interop case ok: %s\n", c->name);
     }
+}
+
+/* Compression rows (upstream client_compressed_unary,
+   client_compressed_streaming, server_compressed_unary,
+   server_compressed_streaming): the DataChannel wire is
+   compression-free; the client declares grpc-encoding: gzip
+   and the bridge gzips request messages on the HTTP/2 hop,
+   decompressing responses the same way. */
+static BoolValue *ic_true(void) {
+    BoolValue *b = (BoolValue *)calloc(1, sizeof(BoolValue));
+    BoolValue_init(b);
+    b->value = true;
+    return b;
+}
+
+static void run_compression_cases(TestServiceClient *client) {
+    static const grpcdc_kv gzip_md[] = {{"grpc-encoding", "gzip"}};
+    {
+        SimpleRequest req;
+        SimpleRequest_init(&req);
+        req.response_size = 31415;
+        req.payload = ic_payload(271828);
+        req.expect_compressed = ic_true();
+        SimpleResponse resp;
+        grpcdc_status st = TestServiceClient_unary_call(
+            client, &req, &resp, gzip_md, 1, 0);
+        check(grpcdc_status_is_ok(st), "client_compressed_unary: status");
+        check(resp.payload && (int)resp.payload->body.len == 31415,
+              "client_compressed_unary: body");
+        printf("interop case ok: client_compressed_unary\n");
+    }
+    {
+        static const int sizes[] = {27182, 8, 1828, 45904};
+        StreamingInputCallRequest reqs[4];
+        int total = 0;
+        for (int i = 0; i < 4; i++) {
+            StreamingInputCallRequest_init(&reqs[i]);
+            reqs[i].payload = ic_payload(sizes[i]);
+            reqs[i].expect_compressed = ic_true();
+            total += sizes[i];
+        }
+        StreamingInputCallResponse resp;
+        grpcdc_status st = TestServiceClient_streaming_input_call(
+            client, reqs, 4, &resp, gzip_md, 1, 0);
+        check(grpcdc_status_is_ok(st), "client_compressed_streaming: status");
+        check(resp.aggregated_payload_size == total,
+              "client_compressed_streaming: aggregated");
+        printf("interop case ok: client_compressed_streaming\n");
+    }
+    {
+        SimpleRequest req;
+        SimpleRequest_init(&req);
+        req.response_size = 31415;
+        req.payload = ic_payload(271828);
+        req.response_compressed = ic_true();
+        SimpleResponse resp;
+        grpcdc_status st = TestServiceClient_unary_call(
+            client, &req, &resp, NULL, 0, 0);
+        check(grpcdc_status_is_ok(st), "server_compressed_unary: status");
+        check(resp.payload && (int)resp.payload->body.len == 31415,
+              "server_compressed_unary: body");
+        printf("interop case ok: server_compressed_unary\n");
+    }
+    {
+        static const int sizes[] = {31415, 9, 2653, 58979};
+        StreamingOutputCallRequest req;
+        StreamingOutputCallRequest_init(&req);
+        req.response_parameters = (ResponseParameters *)calloc(
+            4, sizeof(ResponseParameters));
+        req.response_parameters_count = 4;
+        for (int i = 0; i < 4; i++) {
+            ResponseParameters_init(&req.response_parameters[i]);
+            req.response_parameters[i].size = sizes[i];
+            req.response_parameters[i].compressed = ic_true();
+        }
+        req.payload = ic_payload(0);
+        TestServiceStreamingOutputCallClient stream;
+        grpcdc_status st = TestServiceClient_streaming_output_call(
+            client, &req, &stream, NULL, 0, 0);
+        check(grpcdc_status_is_ok(st), "server_compressed_streaming: status");
+        for (int i = 0; i < 4; i++) {
+            StreamingOutputCallResponse one;
+            grpcdc_status rst;
+            int r = TestServiceStreamingOutputCallClient_recv(&stream, &one, &rst);
+            check(r == 1 && one.payload &&
+                      (int)one.payload->body.len == sizes[i],
+                  "server_compressed_streaming: body");
+        }
+        TestServiceStreamingOutputCallClient_close(&stream);
+        printf("interop case ok: server_compressed_streaming\n");
+    }
+}
+
+/* ORCA rows (upstream orca_per_rpc / orca_oob): per-RPC the
+   report returns as the serialized OrcaLoadReport in the
+   endpoint-load-metrics-bin trailer (base64 -bin value); OOB the
+   value fed through FullDuplexCall comes back on the
+   OpenRcaService StreamCoreMetrics stream. */
+static int ic_b64_val(int ch) {
+    if (ch >= 'A' && ch <= 'Z') return ch - 'A';
+    if (ch >= 'a' && ch <= 'z') return ch - 'a' + 26;
+    if (ch >= '0' && ch <= '9') return ch - '0' + 52;
+    if (ch == '+') return 62;
+    if (ch == '/') return 63;
+    return -1;
+}
+
+static size_t ic_b64_decode(const char *in, uint8_t *out) {
+    size_t n = 0;
+    int acc = 0, bits = 0;
+    for (const char *p = in; *p; p++) {
+        if (*p == '=') break;
+        int v = ic_b64_val((uint8_t)*p);
+        if (v < 0) continue;
+        acc = (acc << 6) | v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out[n++] = (uint8_t)((acc >> bits) & 0xff);
+        }
+    }
+    return n;
+}
+
+static void run_orca_cases(TestServiceClient *client,
+                           grpcdc_channel *channel) {
+    /* orca_per_rpc */
+    SimpleRequest req;
+    SimpleRequest_init(&req);
+    req.orca_per_query_report =
+        (TestOrcaReport *)calloc(1, sizeof(TestOrcaReport));
+    TestOrcaReport_init(req.orca_per_query_report);
+    req.orca_per_query_report->cpu_utilization = 0.8210;
+    req.orca_per_query_report->memory_utilization = 0.5847;
+    req.orca_per_query_report->request_cost =
+        (TestOrcaReport_RequestCostEntry *)calloc(
+            1, sizeof(TestOrcaReport_RequestCostEntry));
+    req.orca_per_query_report->request_cost_count = 1;
+    req.orca_per_query_report->request_cost[0].key = (char *)"cost";
+    req.orca_per_query_report->request_cost[0].value = 3456.32;
+    req.orca_per_query_report->utilization =
+        (TestOrcaReport_UtilizationEntry *)calloc(
+            1, sizeof(TestOrcaReport_UtilizationEntry));
+    req.orca_per_query_report->utilization_count = 1;
+    req.orca_per_query_report->utilization[0].key = (char *)"util";
+    req.orca_per_query_report->utilization[0].value = 0.30499;
+    MessagesPbBytes rb = SimpleRequest_marshal(&req);
+    grpcdc_stream *raw = NULL;
+    grpcdc_status st = grpcdc_channel_open(
+        channel, "/grpc.testing.TestService/UnaryCall", rb.data, rb.len, 1,
+        NULL, 0, 0, &raw);
+    free(rb.data);
+    check(grpcdc_status_is_ok(st), "orca_per_rpc: open");
+    grpcdc_bytes out;
+    grpcdc_status rst;
+    int r = grpcdc_stream_recv(raw, &out, &rst);
+    check(r == 1, "orca_per_rpc: response");
+    grpcdc_bytes_free(&out);
+    r = grpcdc_stream_recv(raw, &out, &rst);
+    check(r == 0, "orca_per_rpc: end");
+    size_t tc = 0;
+    const grpcdc_kv *trailers = grpcdc_stream_trailers(raw, &tc);
+    const char *encoded = trailers ? ic_kv_get(trailers, tc, "endpoint-load-metrics-bin") : NULL;
+    check(encoded != NULL, "orca_per_rpc: no endpoint-load-metrics-bin trailer");
+    uint8_t raw_report[4096];
+    size_t raw_len = ic_b64_decode(encoded, raw_report);
+    OrcaLoadReport report;
+    OrcaLoadReport_init(&report);
+    OrcaLoadReport_unmarshal(&report, raw_report, raw_len);
+    int cost_ok = 0, util_ok = 0;
+    for (size_t i = 0; i < report.request_cost_count; i++) {
+        if (strcmp(report.request_cost[i].key, "cost") == 0 &&
+            report.request_cost[i].value == 3456.32) cost_ok = 1;
+    }
+    for (size_t i = 0; i < report.utilization_count; i++) {
+        if (strcmp(report.utilization[i].key, "util") == 0 &&
+            report.utilization[i].value == 0.30499) util_ok = 1;
+    }
+    check(report.cpu_utilization == 0.8210 &&
+              report.mem_utilization == 0.5847 && cost_ok && util_ok,
+          "orca_per_rpc: report mismatch");
+    grpcdc_stream_free(raw);
+    printf("interop case ok: orca_per_rpc\n");
+
+    /* orca_oob */
+    StreamingOutputCallRequest feed_req;
+    StreamingOutputCallRequest_init(&feed_req);
+    feed_req.orca_oob_report =
+        (TestOrcaReport *)calloc(1, sizeof(TestOrcaReport));
+    TestOrcaReport_init(feed_req.orca_oob_report);
+    feed_req.orca_oob_report->cpu_utilization = 0.9;
+    feed_req.orca_oob_report->memory_utilization = 0.85;
+    feed_req.orca_oob_report->utilization =
+        (TestOrcaReport_UtilizationEntry *)calloc(
+            1, sizeof(TestOrcaReport_UtilizationEntry));
+    feed_req.orca_oob_report->utilization_count = 1;
+    feed_req.orca_oob_report->utilization[0].key = (char *)"util";
+    feed_req.orca_oob_report->utilization[0].value = 0.5;
+    TestServiceFullDuplexCallClient feed;
+    st = TestServiceClient_full_duplex_call(client, &feed_req, 1, &feed,
+                                            NULL, 0, 0);
+    check(grpcdc_status_is_ok(st), "orca_oob: feed open");
+    StreamingOutputCallResponse one;
+    grpcdc_status fst;
+    r = TestServiceFullDuplexCallClient_recv(&feed, &one, &fst);
+    check(r == 0, "orca_oob: feed end");
+    TestServiceFullDuplexCallClient_close(&feed);
+    OpenRcaServiceClient orca;
+    orca.channel = channel;
+    OrcaLoadReportRequest metrics_req;
+    OrcaLoadReportRequest_init(&metrics_req);
+    OpenRcaServiceStreamCoreMetricsClient metrics;
+    st = OpenRcaServiceClient_stream_core_metrics(&orca, &metrics_req,
+                                                  &metrics, NULL, 0, 30000);
+    check(grpcdc_status_is_ok(st), "orca_oob: metrics open");
+    int matched = 0;
+    for (int i = 0; i < 30 && !matched; i++) {
+        OrcaLoadReport got;
+        grpcdc_status mst;
+        int mr = OpenRcaServiceStreamCoreMetricsClient_recv(&metrics, &got, &mst);
+        if (mr != 1) break;
+        int uok = 0;
+        for (size_t j = 0; j < got.utilization_count; j++) {
+            if (strcmp(got.utilization[j].key, "util") == 0 &&
+                got.utilization[j].value == 0.5) uok = 1;
+        }
+        matched = got.cpu_utilization == 0.9 &&
+                  got.mem_utilization == 0.85 && uok;
+    }
+    check(matched, "orca_oob: no matching OOB report");
+    OpenRcaServiceStreamCoreMetricsClient_close(&metrics);
+    printf("interop case ok: orca_oob\n");
 }
 
 static void test_interop_oracle(void) {
@@ -1498,6 +1805,8 @@ static void test_interop_oracle(void) {
     UnimplementedServiceClient unimpl;
     unimpl.channel = &channel;
     run_interop_cases(&client, &unimpl);
+    run_compression_cases(&client);
+    run_orca_cases(&client, &channel);
     kill_child(&br);
     kill_child(&server);
     printf("TestInteropOracle OK\n");
@@ -1681,6 +1990,123 @@ static void run_oracle_cases_dynamic(grpcdc_channel *channel,
             grpcdc_stream_free(stream);
         }
     }
+}
+
+/* Run one official interop client process; fails the suite on
+   nonzero exit or missing success marker. */
+static void run_interop_client(char *const argv[], const char *marker) {
+    child_proc ch = {-1, -1, -1, -1};
+    check(spawn_child(argv, &ch) == 0, "client spawn");
+    close(ch.stdin_fd);
+    ch.stdin_fd = -1;
+    char out_buf[65536];
+    /* Client output is small; drain stdout and stderr in turn. */
+    drain_fd(ch.stdout_fd, out_buf, sizeof(out_buf));
+    char err_buf[65536];
+    drain_fd(ch.stderr_fd, err_buf, sizeof(err_buf));
+    int code = wait_exit(&ch, 120000);
+    check(code == 0, "interop client exit");
+    if (marker) check(strstr(out_buf, marker) || strstr(err_buf, marker),
+                      "interop client marker");
+    kill_child(&ch);
+}
+
+/* Interop oracle, Direction B: the OFFICIAL interop clients
+   (grpc-java TestServiceClient, grpc-go interop-client) run the
+   canonical cases against the generated C TestService server
+   (examples/interop_server_stdio), reached over HTTP/2 through
+   oracle/bridge.mjs http2-to-dc. Skips when an oracle binary or
+   Node is unavailable. Mirrors
+   java/tests/TestInteropServerOracle.java. */
+static void test_interop_server_oracle(void) {
+    static const char *cases[] = {
+        "empty_unary", "large_unary", "client_streaming",
+        "server_streaming", "ping_pong", "empty_stream",
+        "custom_metadata", "status_code_and_message",
+        "special_status_message", "unimplemented_method",
+        "unimplemented_service", "cancel_after_begin",
+        "cancel_after_first_response", "timeout_on_sleeping_server",
+    };
+    static const char *java_only[] = {
+        "cacheable_unary", "client_compressed_unary",
+        "client_compressed_streaming", "server_compressed_unary",
+        "server_compressed_streaming",
+    };
+    static const char *go_only[] = {"orca_per_rpc"};
+    char root[1024];
+    find_root(root, sizeof(root));
+    char cp[8192];
+    if (!java_classpath(root, cp, sizeof(cp))) {
+        printf("TestInteropServerOracle SKIP (java oracle not built)\n");
+        return;
+    }
+    char server_bin[1024];
+    snprintf(server_bin, sizeof(server_bin), "%s/c/build/interop_server_stdio", root);
+    if (!file_exists(server_bin)) {
+        printf("TestInteropServerOracle SKIP (c server not built)\n");
+        return;
+    }
+    int port = free_port();
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", port);
+    char bridge_path[1024];
+    snprintf(bridge_path, sizeof(bridge_path), "%s/oracle/bridge.mjs", root);
+    char *bridge_argv[] = {"node", bridge_path, "http2-to-dc", "--port",
+                           port_str, "--target-cmd", server_bin, NULL};
+    child_proc bridge = {-1, -1, -1, -1};
+    if (spawn_child(bridge_argv, &bridge) != 0 ||
+        !wait_for_text(bridge.stderr_fd, "listening", 60000, NULL, 0)) {
+        kill_child(&bridge);
+        printf("TestInteropServerOracle SKIP (bridge did not start)\n");
+        return;
+    }
+    char host_arg[64], port_arg[64], case_arg[96], tls_arg[32];
+    snprintf(host_arg, sizeof(host_arg), "--server_host=127.0.0.1");
+    snprintf(port_arg, sizeof(port_arg), "--server_port=%d", port);
+    snprintf(tls_arg, sizeof(tls_arg), "--use_tls=false");
+    for (size_t ci = 0; ci < sizeof(cases) / sizeof(cases[0]) + sizeof(java_only) / sizeof(java_only[0]); ci++) {
+        const char *test_case = ci < sizeof(cases) / sizeof(cases[0])
+                                    ? cases[ci]
+                                    : java_only[ci - sizeof(cases) / sizeof(cases[0])];
+        snprintf(case_arg, sizeof(case_arg), "--test_case=%s", test_case);
+        char *argv[] = {"java", "-cp", cp,
+                        "io.grpc.testing.integration.TestServiceClient",
+                        host_arg, port_arg, case_arg, tls_arg, NULL};
+        run_interop_client(argv, "Test completed.");
+        printf("interop B case ok: %s (java client)\n", test_case);
+    }
+    char go_client[1024];
+    snprintf(go_client, sizeof(go_client), "%s/oracle/go-interop/interop-client", root);
+    if (!file_exists(go_client)) {
+        printf("TestInteropServerOracle GO SKIP (go client not built)\n");
+    } else {
+        for (size_t ci = 0; ci < sizeof(cases) / sizeof(cases[0]) + sizeof(go_only) / sizeof(go_only[0]); ci++) {
+            const char *test_case = ci < sizeof(cases) / sizeof(cases[0])
+                                        ? cases[ci]
+                                        : go_only[ci - sizeof(cases) / sizeof(cases[0])];
+            if (strncmp(test_case, "orca", 4) == 0) {
+                char *argv[] = {go_client, "-server_host", "127.0.0.1",
+                                "-server_port", port_str, "-test_case",
+                                (char *)test_case, "-service_config_json",
+                                "{ \"loadBalancingConfig\": [{ \"test_backend_metrics_load_balancer\": {} }]}",
+                                NULL};
+                run_interop_client(argv, NULL);
+            } else {
+                char *argv[] = {go_client, "-server_host", "127.0.0.1",
+                                "-server_port", port_str, "-test_case",
+                                (char *)test_case, NULL};
+                run_interop_client(argv, NULL);
+            }
+            printf("interop B case ok: %s (go client)\n", test_case);
+        }
+        /* orca_oob holds a FullDuplexCall open while issuing a
+           UnaryCall and an OOB stream on the same connection;
+           the generated C server serves one stream at a time,
+           so that case is out of model for this runtime. */
+        printf("interop B case SKIP: orca_oob (go client; generated C server is single-stream, ORCA OOB needs concurrent streams)\n");
+    }
+    kill_child(&bridge);
+    printf("TestInteropServerOracle OK\n");
 }
 
 /* Dynamic (descriptor-driven) runtime: schemas consumed as data at
@@ -1912,6 +2338,13 @@ int main(int argc, char **argv) {
         test_oracle();
 #else
         printf("TestOracle SKIP (POSIX only)\n");
+#endif
+    }
+    else if (strcmp(argv[1], "TestInteropServerOracle") == 0) {
+#ifdef GRPCDC_POSIX
+        test_interop_server_oracle();
+#else
+        printf("TestInteropServerOracle SKIP (POSIX only)\n");
 #endif
     }
     else {

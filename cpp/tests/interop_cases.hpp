@@ -30,4 +30,8 @@ inline const std::vector<InteropCase> kInteropCases = {
     { "status-code-and-message-duplex", "STATUS_DUPLEX", {  }, {  }, 2, "test status message" },
     { "unimplemented-method", "UNIMPLEMENTED_METHOD", {  }, {  }, 12, "" },
     { "unimplemented-service", "UNIMPLEMENTED_SERVICE", {  }, {  }, 12, "" },
+    { "special-status-message", "SPECIAL_STATUS", {  }, {  }, 2, "\t\ntest with whitespace\r\nand Unicode BMP ☺ and non-BMP 😈\t\n" },
+    { "cancel-after-begin", "CANCEL_AFTER_BEGIN", {  }, {  }, 1, "" },
+    { "cancel-after-first-response", "CANCEL_AFTER_FIRST", {  }, { 31415 }, 1, "" },
+    { "timeout-on-sleeping-server", "TIMEOUT_SLEEPING", {  }, { 1, 1, 1 }, 4, "" },
 };

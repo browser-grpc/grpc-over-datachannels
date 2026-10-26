@@ -13,6 +13,22 @@
 
 (define current-service (make-parameter ""))
 
+;; Package of the proto file whose stubs are being emitted.
+(define current-cpp-pkg (make-parameter ""))
+
+;; Display name of a method input/output type in stub code: the
+;; plain name when the type shares the stub file's package, else
+;; fully qualified (::pkg::...::Type) so cross-file message types
+;; resolve inside the stub namespace.
+(define (cpp-stub-type-name m full-key)
+  (define full (hash-ref m full-key))
+  (define pkg (current-cpp-pkg))
+  (if (or (string=? pkg "")
+          (not (string-contains? full "."))
+          (string-prefix? full (string-append pkg ".")))
+      (hash-ref m (if (eq? full-key 'input-full) 'input 'output))
+      (string-append "::" (string-join (string-split full ".") "::"))))
+
 (define (pascal sym) ; echo_service -> EchoService ; echo -> Echo
   (apply string-append
          (for/list ([part (in-list (string-split (symbol->string sym) "[_.-]"))])
@@ -28,8 +44,8 @@
 
 (define (cpp-client-method/raw m)
   (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
+  (define req (cpp-stub-type-name m 'input-full))
+  (define resp (cpp-stub-type-name m 'output-full))
   (define path (hash-ref m 'path))
   (define svc (current-service))
   (case (hash-ref m 'kind)
@@ -76,7 +92,7 @@
 
 (define (cpp-client-stream-class m)
   (define name (hash-ref m 'name))
-  (define resp (hash-ref m 'output))
+  (define resp (cpp-stub-type-name m 'output-full))
   (define svc (current-service))
   (case (hash-ref m 'kind)
     [(server-streaming bidi)
@@ -94,6 +110,8 @@
               "      const grpcdc::Metadata& Headers() const { return stream_.headers().metadata; }\n\n"
               "      /// Trailing metadata of the terminal status.\n"
               "      const grpcdc::Metadata& Trailers() const { return stream_.trailers(); }\n\n"
+              "      /// Abort this stream (sends RST, wakes a pending Recv).\n"
+              "      void Cancel() { stream_.Cancel(); }\n\n"
               "     private:\n"
               "      grpcdc::Channel::ClientStream stream_;\n"
               "    };\n\n")
@@ -102,8 +120,8 @@
 
 (define (cpp-client-async-method m)
   (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
+  (define req (cpp-stub-type-name m 'input-full))
+  (define resp (cpp-stub-type-name m 'output-full))
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
@@ -163,7 +181,7 @@
 
 (define (cpp-client-coro-stream-class m)
   (define name (hash-ref m 'name))
-  (define resp (hash-ref m 'output))
+  (define resp (cpp-stub-type-name m 'output-full))
   (define svc (current-service))
   (case (hash-ref m 'kind)
     [(server-streaming bidi)
@@ -192,8 +210,8 @@
 
 (define (cpp-client-coro-method m)
   (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
+  (define req (cpp-stub-type-name m 'input-full))
+  (define resp (cpp-stub-type-name m 'output-full))
   (define path (hash-ref m 'path))
   (define svc (current-service))
   (case (hash-ref m 'kind)
@@ -238,8 +256,8 @@
 
 (define (cpp-server-stream-iface m)
   (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
+  (define req (cpp-stub-type-name m 'input-full))
+  (define resp (cpp-stub-type-name m 'output-full))
   (define svc (current-service))
   (case (hash-ref m 'kind)
     [(unary) ""]
@@ -275,8 +293,8 @@
 
 (define (cpp-server-iface-method/raw m)
   (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
+  (define req (cpp-stub-type-name m 'input-full))
+  (define resp (cpp-stub-type-name m 'output-full))
   (define svc (current-service))
   (case (hash-ref m 'kind)
     [(unary)
@@ -293,8 +311,8 @@
 
 (define (cpp-server-async-iface-method m)
   (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
+  (define req (cpp-stub-type-name m 'input-full))
+  (define resp (cpp-stub-type-name m 'output-full))
   (define svc (current-service))
   (case (hash-ref m 'kind)
     [(unary)
@@ -308,8 +326,8 @@
 
 (define (cpp-server-async-adapter-method m)
   (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
+  (define req (cpp-stub-type-name m 'input-full))
+  (define resp (cpp-stub-type-name m 'output-full))
   (define svc (current-service))
   (case (hash-ref m 'kind)
     [(unary)
@@ -339,8 +357,8 @@
 
 (define (cpp-stream-impl m)
   (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
+  (define req (cpp-stub-type-name m 'input-full))
+  (define resp (cpp-stub-type-name m 'output-full))
   (define svc (current-service))
   (case (hash-ref m 'kind)
     [(unary) ""]
@@ -409,8 +427,8 @@
 (define (cpp-register-method m)
   (define name (hash-ref m 'name))
   (define impl-name (method-impl-name m))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
+  (define req (cpp-stub-type-name m 'input-full))
+  (define resp (cpp-stub-type-name m 'output-full))
   (define svc (current-service))
   (define kind-const
     (case (hash-ref m 'kind)
@@ -1134,7 +1152,8 @@
   (define ns (cpp-pb-ns pkg))
   (define stub
     (cons (string-append base "_grpc_dc.hpp")
-          (string-append
+          (parameterize ([current-cpp-pkg pkg])
+           (string-append
            "// @generated by protoc-gen-grpc-dc-cpp. DO NOT EDIT.\n"
          (format "// source: ~a\n" (hash-ref file-model 'name))
          "#pragma once\n\n"
@@ -1162,6 +1181,6 @@
          (apply string-append
                 (map cpp-service (hash-ref file-model 'services)))
          "};\n\n"
-         (format "}  // namespace ~a\n" ns))))
+         (format "}  // namespace ~a\n" ns)))))
   (define pb-file (emit-cpp-pb-file file-model))
   (if pb-file (list stub pb-file) stub))

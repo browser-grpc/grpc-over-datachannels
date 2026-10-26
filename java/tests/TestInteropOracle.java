@@ -80,7 +80,7 @@ public final class TestInteropOracle {
         void run() throws Exception;
     }
 
-    private static void runCases(TestGrpcDc.TestServiceClient client,
+    private static void runCases(Channel channel, TestGrpcDc.TestServiceClient client,
                                  TestGrpcDc.UnimplementedServiceClient unimpl) throws Exception {
         for (Object[] row : InteropCases.CASES) {
             String name = (String) row[0];
@@ -197,6 +197,56 @@ public final class TestInteropOracle {
                         }
                     });
                 }
+                case "SPECIAL_STATUS" -> {
+                    SimpleRequest req = new SimpleRequest();
+                    req.responseStatus = new grpc.testing.EchoStatus();
+                    req.responseStatus.code = statusCode;
+                    req.responseStatus.message = statusMessage;
+                    expectStatus(statusCode, statusMessage, name, () -> client.UnaryCall(req));
+                }
+                case "CANCEL_AFTER_BEGIN" -> {
+                    // Begin a client-streaming call and cancel it
+                    // before sending any request: the pending recv
+                    // must report CANCELLED.
+                    Channel.ClientStream stream = channel.bidi(
+                            "/grpc.testing.TestService/StreamingInputCall", List.of(), null);
+                    stream.cancel();
+                    expectStatus(statusCode, "", name,
+                            () -> stream.recv(new StreamingInputCallResponse()));
+                }
+                case "CANCEL_AFTER_FIRST" -> {
+                    // Duplex call (no half-close): the server
+                    // answers the one request, then waits for more
+                    // input, so the cancel deterministically lands
+                    // mid-call (same shape as the Python/JS suites).
+                    StreamingOutputCallRequest req =
+                            streamRequest(new int[]{respSizes[0]}, 1);
+                    Channel.ClientStream stream = channel.openStream(
+                            "/grpc.testing.TestService/FullDuplexCall", null);
+                    stream.send(req);
+                    StreamingOutputCallResponse resp = new StreamingOutputCallResponse();
+                    stream.recv(resp);
+                    check(resp.payload.body.length == respSizes[0],
+                            name + ": body " + resp.payload.body.length);
+                    stream.cancel();
+                    expectStatus(statusCode, "", name,
+                            () -> stream.recv(new StreamingOutputCallResponse()));
+                }
+                case "TIMEOUT_SLEEPING" -> {
+                    StreamingOutputCallRequest req = new StreamingOutputCallRequest();
+                    for (int size : respSizes) {
+                        ResponseParameters p = new ResponseParameters();
+                        p.size = size;
+                        p.intervalUs = 1000000;
+                        req.responseParameters.add(p);
+                    }
+                    expectStatus(statusCode, "", name, () -> {
+                        try (var stream = client.StreamingOutputCall(
+                                req, null, java.time.Duration.ofMillis(100))) {
+                            stream.recv();
+                        }
+                    });
+                }
                 case "UNIMPLEMENTED_METHOD" -> expectStatus(statusCode, "", name,
                         () -> client.UnimplementedCall(new Empty()));
                 case "UNIMPLEMENTED_SERVICE" -> expectStatus(statusCode, "", name,
@@ -204,6 +254,68 @@ public final class TestInteropOracle {
                 default -> throw new AssertionError("unknown interop kind " + kind);
             }
             System.out.println("interop case ok: " + name);
+        }
+    }
+
+    // Compression rows (upstream client_compressed_unary,
+    // client_compressed_streaming, server_compressed_unary,
+    // server_compressed_streaming): the DataChannel wire is
+    // compression-free; the client declares grpc-encoding: gzip
+    // and the bridge gzips request messages on the HTTP/2 hop,
+    // decompressing responses the same way.
+    private static void runCompressionCases(TestGrpcDc.TestServiceClient client) throws Exception {
+        java.util.Map<String, String> gzip = java.util.Map.of("grpc-encoding", "gzip");
+        {
+            SimpleRequest req = new SimpleRequest();
+            req.responseSize = 31415;
+            req.payload = payload(271828);
+            req.expectCompressed = new grpc.testing.BoolValue(true);
+            SimpleResponse resp = client.UnaryCall(req, gzip);
+            check(resp.payload.body.length == 31415, "client_compressed_unary: body");
+            System.out.println("interop case ok: client_compressed_unary");
+        }
+        {
+            int[] sizes = {27182, 8, 1828, 45904};
+            List<StreamingInputCallRequest> reqs = new ArrayList<>();
+            int total = 0;
+            for (int size : sizes) {
+                StreamingInputCallRequest r = new StreamingInputCallRequest();
+                r.payload = payload(size);
+                r.expectCompressed = new grpc.testing.BoolValue(true);
+                reqs.add(r);
+                total += size;
+            }
+            StreamingInputCallResponse resp = client.StreamingInputCall(reqs, gzip);
+            check(resp.aggregatedPayloadSize == total,
+                    "client_compressed_streaming: aggregated " + resp.aggregatedPayloadSize);
+            System.out.println("interop case ok: client_compressed_streaming");
+        }
+        {
+            SimpleRequest req = new SimpleRequest();
+            req.responseSize = 31415;
+            req.payload = payload(271828);
+            req.responseCompressed = new grpc.testing.BoolValue(true);
+            SimpleResponse resp = client.UnaryCall(req);
+            check(resp.payload.body.length == 31415, "server_compressed_unary: body");
+            System.out.println("interop case ok: server_compressed_unary");
+        }
+        {
+            int[] sizes = {31415, 9, 2653, 58979};
+            StreamingOutputCallRequest req = new StreamingOutputCallRequest();
+            for (int size : sizes) {
+                ResponseParameters p = new ResponseParameters();
+                p.size = size;
+                p.compressed = new grpc.testing.BoolValue(true);
+                req.responseParameters.add(p);
+            }
+            try (var stream = client.StreamingOutputCall(req)) {
+                for (int size : sizes) {
+                    StreamingOutputCallResponse resp = stream.recv();
+                    check(resp.payload.body.length == size,
+                            "server_compressed_streaming: body " + resp.payload.body.length);
+                }
+            }
+            System.out.println("interop case ok: server_compressed_streaming");
         }
     }
 
@@ -325,7 +437,8 @@ public final class TestInteropOracle {
                         new echo.StdioTransport(bridge.getOutputStream(), bridge.getInputStream());
                 Channel channel = new Channel(transport);
                 TestGrpcDc.TestServiceClient client = new TestGrpcDc.TestServiceClient(channel);
-                runCases(client, new TestGrpcDc.UnimplementedServiceClient(channel));
+                runCases(channel, client, new TestGrpcDc.UnimplementedServiceClient(channel));
+                runCompressionCases(client);
                 runOrcaCases(channel, client);
             } finally {
                 bridge.destroyForcibly();

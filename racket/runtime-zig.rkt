@@ -1207,6 +1207,31 @@ pub const ClientStream = struct {
         }
     }
 
+    /// Send one request message on an open stream (no half-close).
+    pub fn send(self: *ClientStream, msg: anytype) Status {
+        const alloc = self.endpoint.alloc;
+        const payload = msg.marshalDc(alloc);
+        defer alloc.free(payload);
+        const frame = switch (Codec.encodeFrame(alloc, wire.frameData, self.stream_id, payload)) {
+            .bytes => |b| b,
+            .status => |st| return st,
+        };
+        defer alloc.free(frame);
+        self.endpoint.sendFrame(frame);
+        return Status.ok();
+    }
+
+    /// Half-close an open stream (no more requests).
+    pub fn halfClose(self: *ClientStream) void {
+        const alloc = self.endpoint.alloc;
+        const frame = switch (Codec.encodeFrame(alloc, wire.frameHalfClose, self.stream_id, "")) {
+            .bytes => |b| b,
+            .status => return,
+        };
+        defer alloc.free(frame);
+        self.endpoint.sendFrame(frame);
+    }
+
     /// Abort this stream (sends RST, wakes a pending recv).
     pub fn cancel(self: *ClientStream) void {
         self.endpoint.cancelStream(self.stream_id);
@@ -1479,6 +1504,12 @@ pub const Channel = struct {
         const st = self.sendAll(&stream, reqs);
         if (!st.isOk()) return st;
         return self.collectOne(&stream, resp, "client-streaming");
+    }
+
+    /// Open a stream without sending anything: drive it with
+    /// ClientStream.send / halfClose / recvInto / cancel.
+    pub fn openStream(self: *Channel, path: []const u8, metadata: ?*const Metadata, timeout_ms: ?u64) StreamResult {
+        return self.open(path, metadata, timeout_ms);
     }
 
     /// Start a bidi call with all requests sent up front.
@@ -2703,6 +2734,7 @@ pub const channel = @import("channel.zig");
 pub const server = @import("server.zig");
 pub const memory_transport = @import("memory_transport.zig");
 pub const sidecar_transport = @import("sidecar_transport.zig");
+pub const http2_transport = @import("http2_transport.zig");
 pub const dynamic = @import("dynamic.zig");
 GRPC_RUNTIME_EOF
 )

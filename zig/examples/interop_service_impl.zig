@@ -1,0 +1,287 @@
+const std = @import("std");
+const grpcdc = @import("grpcdc");
+const wire = grpcdc.wire;
+const status_mod = grpcdc.status;
+const test_stubs = @import("interop/test_grpc_dc.zig");
+const orca_stubs = @import("interop/orca_grpc_dc.zig");
+const messages = @import("interop/messages_messages.zig");
+const orca_messages = @import("interop/orca_load_report_messages.zig");
+const orca_req_messages = @import("interop/orca_messages.zig");
+
+const Status = status_mod.Status;
+const CallContext = test_stubs.CallContext;
+const Metadata = grpcdc.transport.Metadata;
+const Empty = test_stubs.Empty;
+const SimpleRequest = messages.SimpleRequest;
+const SimpleResponse = messages.SimpleResponse;
+const Payload = messages.Payload;
+const BoolValue = messages.BoolValue;
+const EchoStatus = messages.EchoStatus;
+const StreamingOutputCallRequest = messages.StreamingOutputCallRequest;
+const StreamingOutputCallResponse = messages.StreamingOutputCallResponse;
+const StreamingInputCallRequest = messages.StreamingInputCallRequest;
+const StreamingInputCallResponse = messages.StreamingInputCallResponse;
+const OrcaLoadReport = orca_messages.OrcaLoadReport;
+const OrcaLoadReportRequest = orca_req_messages.OrcaLoadReportRequest;
+
+/// TestService implementation (grpc.testing) over the generated
+/// Server, mirroring the reference TestServiceImpl semantics the
+/// interop cases grade. Used by the Direction-B interop tests
+/// (official clients vs generated servers). Mirrors
+/// js/test/interop_service.js.
+var oob_report: ?OrcaLoadReport = null;
+
+pub var test_service_impl = test_stubs.TestServiceServer{
+    .ctx = undefined,
+    .empty_call_fn = emptyCallImpl,
+    .unary_call_fn = unaryCallImpl,
+    .cacheable_unary_call_fn = cacheableUnaryCallImpl,
+    .streaming_output_call_fn = streamingOutputCallImpl,
+    .streaming_input_call_fn = streamingInputCallImpl,
+    .full_duplex_call_fn = fullDuplexCallImpl,
+    .half_duplex_call_fn = halfDuplexCallImpl,
+    .unimplemented_call_fn = unimplementedCallImpl,
+};
+
+pub var open_rca_impl = orca_stubs.OpenRcaServiceServer{
+    .ctx = undefined,
+    .stream_core_metrics_fn = streamCoreMetricsImpl,
+};
+
+fn echoMetadata(call_ctx: *CallContext, alloc: std.mem.Allocator) void {
+    if (call_ctx.metadata.get("x-grpc-test-echo-initial")) |v| {
+        var md = Metadata.init(alloc);
+        defer md.deinit();
+        md.put("x-grpc-test-echo-initial", v) catch {};
+        call_ctx.setHeaders(&md);
+    }
+    if (call_ctx.metadata.get("x-grpc-test-echo-trailing-bin")) |v| {
+        var md = Metadata.init(alloc);
+        defer md.deinit();
+        md.put("x-grpc-test-echo-trailing-bin", v) catch {};
+        call_ctx.setTrailers(&md);
+    }
+}
+
+fn setOrcaTrailer(call_ctx: *CallContext, alloc: std.mem.Allocator, report: *const OrcaLoadReport) void {
+    const bytes = report.marshalDc(alloc);
+    defer alloc.free(bytes);
+    // setTrailers borrows the value slice, and the unary
+    // adapter's per-call arena is freed before the endpoint
+    // writes the status frame — so the encoded value lives in
+    // the process-lifetime allocator (one small buffer per
+    // ORCA-graded unary call, never reclaimed).
+    const encoded = std.heap.page_allocator.alloc(u8, std.base64.standard.Encoder.calcSize(bytes.len)) catch return;
+    _ = std.base64.standard.Encoder.encode(encoded, bytes);
+    var md = Metadata.init(alloc);
+    defer md.deinit();
+    md.put("endpoint-load-metrics-bin", encoded) catch {};
+    call_ctx.setTrailers(&md);
+}
+
+// Compression interop (server direction): the bridge
+// terminates gzip at the HTTP/2 hop and surfaces the declared
+// encoding as ordinary metadata.
+fn compressionChecks(call_ctx: *CallContext, alloc: std.mem.Allocator,
+                     expect_compressed: ?*BoolValue, response_compressed: ?*BoolValue) Status {
+    if (expect_compressed) |ec| {
+        if (ec.value) {
+            const enc = call_ctx.metadata.get("grpc-encoding") orelse "";
+            if (!std.mem.eql(u8, enc, "gzip")) {
+                return Status.init(wire.codeInvalidArgument,
+                    "expected compressed request, got uncompressed");
+            }
+        }
+    }
+    if (response_compressed) |rc| {
+        if (rc.value) {
+            var md = Metadata.init(alloc);
+            defer md.deinit();
+            md.put("grpc-encoding", "gzip") catch {};
+            call_ctx.setHeaders(&md);
+        }
+    }
+    return Status.ok();
+}
+
+fn maybeFail(status: ?*EchoStatus) Status {
+    if (status) |st| {
+        if (st.code != 0 or st.message.len > 0) {
+            return Status.init(st.code, st.message);
+        }
+    }
+    return Status.ok();
+}
+
+fn makePayload(alloc: std.mem.Allocator, payload_type: messages.PayloadType, size: i32) *Payload {
+    const payload = alloc.create(Payload) catch unreachable;
+    const body = alloc.alloc(u8, @intCast(@max(0, size))) catch alloc.alloc(u8, 0) catch unreachable;
+    @memset(body, 0);
+    payload.* = .{
+        .type = payload_type,
+        .body = body,
+    };
+    return payload;
+}
+
+fn unaryResponse(req: *const SimpleRequest, resp: *SimpleResponse, alloc: std.mem.Allocator) Status {
+    const st = maybeFail(req.response_status);
+    if (!st.isOk()) return st;
+    resp.payload = makePayload(alloc, req.response_type, req.response_size);
+    return Status.ok();
+}
+
+fn sendResponses(req: *const StreamingOutputCallRequest, alloc: std.mem.Allocator,
+                 send_ctx: *anyopaque,
+                 send_fn: *const fn (ctx: *anyopaque, resp: *const StreamingOutputCallResponse) Status) Status {
+    const st = maybeFail(req.response_status);
+    if (!st.isOk()) return st;
+    var first = true;
+    for (req.response_parameters) |param| {
+        if (!first and param.interval_us > 0) {
+            std.Thread.sleep(@as(u64, @intCast(param.interval_us)) * std.time.ns_per_us);
+        }
+        first = false;
+        var resp = StreamingOutputCallResponse{
+            .payload = makePayload(alloc, req.response_type, param.size),
+        };
+        const send_st = send_fn(send_ctx, &resp);
+        if (!send_st.isOk()) return send_st;
+    }
+    return Status.ok();
+}
+
+fn emptyCallImpl(_: *anyopaque, call_ctx: *CallContext, _: *const Empty, _: *Empty, alloc: std.mem.Allocator) Status {
+    echoMetadata(call_ctx, alloc);
+    return Status.ok();
+}
+
+fn unaryCallImpl(_: *anyopaque, call_ctx: *CallContext, req: *const SimpleRequest, resp: *SimpleResponse, alloc: std.mem.Allocator) Status {
+    echoMetadata(call_ctx, alloc);
+    const cst = compressionChecks(call_ctx, alloc, req.expect_compressed, req.response_compressed);
+    if (!cst.isOk()) return cst;
+    if (req.orca_per_query_report) |report| {
+        var entries_cost: std.ArrayList(orca_messages.OrcaLoadReport_RequestCostEntry) = .empty;
+        for (report.request_cost) |e| entries_cost.append(alloc, .{ .key = e.key, .value = e.value }) catch {};
+        var entries_util: std.ArrayList(orca_messages.OrcaLoadReport_UtilizationEntry) = .empty;
+        for (report.utilization) |e| entries_util.append(alloc, .{ .key = e.key, .value = e.value }) catch {};
+        const orca = OrcaLoadReport{
+            .cpu_utilization = report.cpu_utilization,
+            .mem_utilization = report.memory_utilization,
+            .request_cost = entries_cost.items,
+            .utilization = entries_util.items,
+        };
+        setOrcaTrailer(call_ctx, alloc, &orca);
+    } else if (oob_report) |report| {
+        setOrcaTrailer(call_ctx, alloc, &report);
+    }
+    return unaryResponse(req, resp, alloc);
+}
+
+fn cacheableUnaryCallImpl(_: *anyopaque, call_ctx: *CallContext, req: *const SimpleRequest, resp: *SimpleResponse, alloc: std.mem.Allocator) Status {
+    echoMetadata(call_ctx, alloc);
+    const st = maybeFail(req.response_status);
+    if (!st.isOk()) return st;
+    resp.payload = req.payload orelse makePayload(alloc, req.response_type, 0);
+    return Status.ok();
+}
+
+fn sendViaOutputStream(ctx: *anyopaque, resp: *const StreamingOutputCallResponse) Status {
+    const stream: *test_stubs.TestServiceStreamingOutputCallServer = @ptrCast(@alignCast(ctx));
+    return stream.send(resp);
+}
+
+fn streamingOutputCallImpl(_: *anyopaque, call_ctx: *CallContext, req: *const StreamingOutputCallRequest, stream: *test_stubs.TestServiceStreamingOutputCallServer) Status {
+    echoMetadata(call_ctx, stream.alloc);
+    return sendResponses(req, stream.alloc, stream, sendViaOutputStream);
+}
+
+fn streamingInputCallImpl(_: *anyopaque, call_ctx: *CallContext, stream: *test_stubs.TestServiceStreamingInputCallServer) Status {
+    echoMetadata(call_ctx, stream.alloc);
+    var total: i32 = 0;
+    while (true) {
+        switch (stream.recv()) {
+            .message => |req| {
+                if (req.expect_compressed) |ec| {
+                    if (ec.value) {
+                        const enc = call_ctx.metadata.get("grpc-encoding") orelse "";
+                        if (!std.mem.eql(u8, enc, "gzip")) {
+                            return Status.init(wire.codeInvalidArgument,
+                                "expected compressed request, got uncompressed");
+                        }
+                    }
+                }
+                if (req.payload) |p| total += @intCast(p.body.len);
+            },
+            .end => break,
+            .status => |st| return st,
+        }
+    }
+    stream.sendAndClose(.{ .aggregated_payload_size = total });
+    return Status.ok();
+}
+
+fn sendViaFullDuplex(ctx: *anyopaque, resp: *const StreamingOutputCallResponse) Status {
+    const stream: *test_stubs.TestServiceFullDuplexCallServer = @ptrCast(@alignCast(ctx));
+    return stream.send(resp);
+}
+
+fn fullDuplexCallImpl(_: *anyopaque, call_ctx: *CallContext, stream: *test_stubs.TestServiceFullDuplexCallServer) Status {
+    echoMetadata(call_ctx, stream.alloc);
+    while (true) {
+        switch (stream.recv()) {
+            .message => |req| {
+                var req_mut = req;
+                if (req.orca_oob_report) |report| {
+                    var entries_util: std.ArrayList(orca_messages.OrcaLoadReport_UtilizationEntry) = .empty;
+                    for (report.utilization) |e| entries_util.append(stream.alloc, .{ .key = e.key, .value = e.value }) catch {};
+                    oob_report = .{
+                        .cpu_utilization = report.cpu_utilization,
+                        .mem_utilization = report.memory_utilization,
+                        .utilization = entries_util.items,
+                    };
+                }
+                const st = sendResponses(&req_mut, stream.alloc, stream, sendViaFullDuplex);
+                if (!st.isOk()) return st;
+            },
+            .end => return Status.ok(),
+            .status => |st| return st,
+        }
+    }
+}
+
+fn sendViaHalfDuplex(ctx: *anyopaque, resp: *const StreamingOutputCallResponse) Status {
+    const stream: *test_stubs.TestServiceHalfDuplexCallServer = @ptrCast(@alignCast(ctx));
+    return stream.send(resp);
+}
+
+fn halfDuplexCallImpl(_: *anyopaque, call_ctx: *CallContext, stream: *test_stubs.TestServiceHalfDuplexCallServer) Status {
+    echoMetadata(call_ctx, stream.alloc);
+    var collected: std.ArrayList(StreamingOutputCallRequest) = .empty;
+    defer collected.deinit(stream.alloc);
+    while (true) {
+        switch (stream.recv()) {
+            .message => |req| collected.append(stream.alloc, req) catch return Status.init(wire.codeResourceExhausted, "out of memory"),
+            .end => break,
+            .status => |st| return st,
+        }
+    }
+    for (collected.items) |*req| {
+        const st = sendResponses(req, stream.alloc, stream, sendViaHalfDuplex);
+        if (!st.isOk()) return st;
+    }
+    return Status.ok();
+}
+
+fn unimplementedCallImpl(_: *anyopaque, _: *CallContext, _: *const Empty, _: *Empty, _: std.mem.Allocator) Status {
+    return Status.init(wire.codeUnimplemented, "not implemented");
+}
+
+fn streamCoreMetricsImpl(_: *anyopaque, _: *CallContext, _: *const OrcaLoadReportRequest, stream: *orca_stubs.OpenRcaServiceStreamCoreMetricsServer) Status {
+    while (true) {
+        const report = oob_report orelse OrcaLoadReport{};
+        const st = stream.send(&report);
+        if (!st.isOk()) return st;
+        std.Thread.sleep(200 * std.time.ns_per_ms);
+    }
+}

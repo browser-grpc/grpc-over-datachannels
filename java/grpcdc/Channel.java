@@ -80,6 +80,16 @@ public class Channel {
          * Decode the next response into resp. EOFException means the
          * call completed OK; StatusException reports trailers status.
          */
+        /** Send one request message on an open stream (no half-close). */
+        public void send(Marshaler msg) throws Exception {
+            endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, msg.marshalDc()));
+        }
+
+        /** Half-close an open stream (no more requests). */
+        public void halfClose() throws Exception {
+            endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_HALF_CLOSE, streamId, new byte[0]));
+        }
+
         /** Abort this stream (sends RST, wakes a pending recv). */
         public void cancel() {
             if (terminated) {
@@ -276,6 +286,13 @@ public class Channel {
         } finally {
             endpoint.closeStream(stream.streamId());
         }
+    }
+
+    /** Open a stream without sending anything: drive it with
+     *  ClientStream.send / halfClose / recv / cancel. */
+    public ClientStream openStream(String path, Map<String, String> metadata)
+            throws Exception {
+        return open(path, metadata);
     }
 
     /** Start a bidi call with all requests sent up front. */

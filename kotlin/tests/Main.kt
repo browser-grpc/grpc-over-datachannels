@@ -22,6 +22,8 @@ fun main(args: Array<String>) {
             "TestBddSchemas" -> testBddSchemas()
             "TestSidecar" -> testSidecar()
             "TestInteropOracle" -> testInteropOracle()
+            "TestInteropServerOracle" -> testInteropServerOracle()
+            "TestHttp2Oracle" -> testHttp2Oracle()
             else -> {
                 System.err.println("unknown test: ${args[0]}")
                 exitProcess(2)

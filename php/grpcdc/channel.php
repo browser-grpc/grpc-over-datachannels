@@ -84,6 +84,13 @@ class Channel
         return $stream;
     }
 
+    /** Open a stream without sending anything: drive it with
+     *  sendMessage / halfClose / recv / cancel. */
+    public function openStream(string $path, ?array $metadata = null, ?float $timeout = null): ClientStream
+    {
+        return $this->openCall($path, $metadata, $timeout);
+    }
+
     private function openCall(string $path, ?array $metadata, ?float $timeout): ClientStream
     {
         $deadline = null;
@@ -116,12 +123,12 @@ class Channel
         return $stream;
     }
 
-    private function sendMessage(ClientStream $stream, object $msg): void
+    public function sendMessage(ClientStream $stream, object $msg): void
     {
         $this->endpoint->sendFrame(Codec::encodeFrame(Wire::FRAME_DATA, $stream->streamId, $msg->marshalDc()));
     }
 
-    private function halfClose(ClientStream $stream): void
+    public function halfClose(ClientStream $stream): void
     {
         $this->endpoint->sendFrame(Codec::encodeFrame(Wire::FRAME_HALF_CLOSE, $stream->streamId, ""));
     }

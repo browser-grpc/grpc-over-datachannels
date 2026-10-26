@@ -1880,6 +1880,12 @@
        svc
        (hash-ref m 'name)
        svc
+       (hash-ref m 'name))
+      (format
+       "static inline void ~a~aClient_cancel(~a~aClient *s) { grpcdc_stream_cancel(s->raw); }\n\n"
+       svc
+       (hash-ref m 'name)
+       svc
        (hash-ref m 'name))))
     ((client-streaming)
      (string-append
@@ -1948,6 +1954,12 @@
       "    return r;\n}\n\n"
       (format
        "static inline void ~a~aClient_close(~a~aClient *s) { grpcdc_stream_free(s->raw); }\n\n"
+       svc
+       (hash-ref m 'name)
+       svc
+       (hash-ref m 'name))
+      (format
+       "static inline void ~a~aClient_cancel(~a~aClient *s) { grpcdc_stream_cancel(s->raw); }\n\n"
        svc
        (hash-ref m 'name)
        svc

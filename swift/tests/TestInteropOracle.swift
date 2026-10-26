@@ -41,7 +41,7 @@ private func expectStatus(_ code: Int, _ message: String, _ what: String, _ call
     throw TestFailure(message: "\(what): expected status \(code), call succeeded")
 }
 
-private func runInteropCases(_ client: TestGrpcDc.TestServiceClient, _ unimpl: TestGrpcDc.UnimplementedServiceClient) throws {
+private func runInteropCases(_ channel: Channel, _ client: TestGrpcDc.TestServiceClient, _ unimpl: TestGrpcDc.UnimplementedServiceClient) throws {
     for row in InteropCases.Cases {
         let name = row.name
         let kind = row.kind
@@ -131,6 +131,42 @@ private func runInteropCases(_ client: TestGrpcDc.TestServiceClient, _ unimpl: T
                 let stream = try client.FullDuplexCall([req])
                 _ = try stream.Recv()
             }
+        case "SPECIAL_STATUS":
+            let req = SimpleRequest()
+            req.responseStatus = EchoStatus(Int32(row.statusCode), row.statusMessage)
+            try expectStatus(row.statusCode, row.statusMessage, name) { _ = try client.UnaryCall(req) }
+        case "CANCEL_AFTER_BEGIN":
+            // Begin a client-streaming call and cancel it before
+            // sending any request: the pending Recv must report
+            // CANCELLED.
+            let stream = try channel.OpenStream("/grpc.testing.TestService/StreamingInputCall")
+            stream.Cancel()
+            try expectStatus(row.statusCode, "", name) { try stream.Recv(StreamingInputCallResponse()) }
+        case "CANCEL_AFTER_FIRST":
+            // Duplex call (no half-close): the server answers the
+            // one request, then waits for more input, so the cancel
+            // deterministically lands mid-call (same shape as the
+            // Python/JS suites).
+            let stream = try channel.OpenStream("/grpc.testing.TestService/FullDuplexCall")
+            try stream.Send(interopStreamRequest([row.respSizes[0]], 1))
+            let resp = StreamingOutputCallResponse()
+            try stream.Recv(resp)
+            try Check(resp.payload!.body.count == row.respSizes[0], "\(name): body \(resp.payload!.body.count)")
+            stream.Cancel()
+            try expectStatus(row.statusCode, "", name) { try stream.Recv(StreamingOutputCallResponse()) }
+        case "TIMEOUT_SLEEPING":
+            let req = StreamingOutputCallRequest()
+            req.payload = interopPayload(0)
+            req.responseParameters = row.respSizes.map { size in
+                let p = ResponseParameters()
+                p.size = Int32(size)
+                p.intervalUs = 1000000
+                return p
+            }
+            try expectStatus(row.statusCode, "", name) {
+                let stream = try client.StreamingOutputCall(req, nil, 0.1)
+                _ = try stream.Recv()
+            }
         case "UNIMPLEMENTED_METHOD":
             try expectStatus(row.statusCode, "", name) { _ = try client.UnimplementedCall(Empty()) }
         case "UNIMPLEMENTED_SERVICE":
@@ -140,6 +176,119 @@ private func runInteropCases(_ client: TestGrpcDc.TestServiceClient, _ unimpl: T
         }
         print("interop case ok: \(name)")
     }
+}
+
+// Compression rows (upstream client_compressed_unary,
+// client_compressed_streaming, server_compressed_unary,
+// server_compressed_streaming): the DataChannel wire is
+// compression-free; the client declares grpc-encoding: gzip
+// and the bridge gzips request messages on the HTTP/2 hop,
+// decompressing responses the same way.
+private func runCompressionCases(_ client: TestGrpcDc.TestServiceClient) throws {
+    let gzip = ["grpc-encoding": "gzip"]
+    do {
+        let req = SimpleRequest()
+        req.responseSize = 31415
+        req.payload = interopPayload(271828)
+        req.expectCompressed = BoolValue(true)
+        let resp = try client.UnaryCall(req, gzip)
+        try Check(resp.payload!.body.count == 31415, "client_compressed_unary: body")
+        print("interop case ok: client_compressed_unary")
+    }
+    do {
+        let sizes = [27182, 8, 1828, 45904]
+        let reqs = sizes.map { size -> StreamingInputCallRequest in
+            let r = StreamingInputCallRequest()
+            r.payload = interopPayload(size)
+            r.expectCompressed = BoolValue(true)
+            return r
+        }
+        let resp = try client.StreamingInputCall(reqs, gzip)
+        try Check(resp.aggregatedPayloadSize == Int32(sizes.reduce(0, +)),
+                  "client_compressed_streaming: aggregated \(resp.aggregatedPayloadSize)")
+        print("interop case ok: client_compressed_streaming")
+    }
+    do {
+        let req = SimpleRequest()
+        req.responseSize = 31415
+        req.payload = interopPayload(271828)
+        req.responseCompressed = BoolValue(true)
+        let resp = try client.UnaryCall(req)
+        try Check(resp.payload!.body.count == 31415, "server_compressed_unary: body")
+        print("interop case ok: server_compressed_unary")
+    }
+    do {
+        let sizes = [31415, 9, 2653, 58979]
+        let req = StreamingOutputCallRequest()
+        req.payload = interopPayload(0)
+        req.responseParameters = sizes.map { size in
+            let p = ResponseParameters()
+            p.size = Int32(size)
+            p.compressed = BoolValue(true)
+            return p
+        }
+        let stream = try client.StreamingOutputCall(req)
+        for size in sizes {
+            let resp = try stream.Recv()
+            try Check(resp.payload!.body.count == size,
+                      "server_compressed_streaming: body \(resp.payload!.body.count)")
+        }
+        stream.Close()
+        print("interop case ok: server_compressed_streaming")
+    }
+}
+
+// ORCA rows (upstream orca_per_rpc / orca_oob): per-RPC the
+// report returns as the serialized OrcaLoadReport in the
+// endpoint-load-metrics-bin trailer (base64 -bin value); OOB the
+// value fed through FullDuplexCall comes back on the
+// OpenRcaService StreamCoreMetrics stream.
+private func runOrcaCases(_ channel: Channel, _ client: TestGrpcDc.TestServiceClient) throws {
+    let req = SimpleRequest()
+    req.orcaPerQueryReport = TestOrcaReport(0.8210, 0.5847, ["cost": 3456.32], ["util": 0.30499])
+    let stream = try channel.ServerStream("/grpc.testing.TestService/UnaryCall", req)
+    let resp = SimpleResponse()
+    try stream.Recv(resp)
+    do {
+        try stream.Recv(SimpleResponse())
+        throw TestFailure(message: "orca_per_rpc: expected EOF")
+    } catch is EndOfStreamError {
+        // end of stream: trailers now readable
+    }
+    let encoded = stream.trailers?["endpoint-load-metrics-bin"]
+    try Check(encoded != nil, "orca_per_rpc: no endpoint-load-metrics-bin trailer")
+    var b64 = encoded!
+    while b64.count % 4 != 0 { b64 += "=" }
+    let data = Data(base64Encoded: b64)!
+    let report = OrcaLoadReport()
+    report.UnmarshalDc([UInt8](data))
+    try Check(report.cpuUtilization == 0.8210 && report.memUtilization == 0.5847
+        && report.requestCost["cost"] == 3456.32 && report.utilization["util"] == 0.30499,
+        "orca_per_rpc: report \(report.cpuUtilization)/\(report.memUtilization)")
+    stream.Close()
+    print("interop case ok: orca_per_rpc")
+
+    let feedReq = StreamingOutputCallRequest()
+    feedReq.orcaOobReport = TestOrcaReport(0.9, 0.85, [:], ["util": 0.5])
+    let feed = try client.FullDuplexCall([feedReq])
+    do {
+        while true { _ = try feed.Recv() }
+    } catch is EndOfStreamError {
+        // feed call completed
+    }
+    feed.Close()
+    let orca = OrcaGrpcDc.OpenRcaServiceClient(channel)
+    let metrics = try orca.StreamCoreMetrics(OrcaLoadReportRequest())
+    var matched = false
+    let deadline = Date().addingTimeInterval(30)
+    while !matched && Date() < deadline {
+        let got = try metrics.Recv()
+        matched = got.cpuUtilization == 0.9 && got.memUtilization == 0.85
+            && got.utilization["util"] == 0.5
+    }
+    metrics.Close()
+    try Check(matched, "orca_oob: no matching OOB report within 30s")
+    print("interop case ok: orca_oob")
 }
 
 func TestInteropOracle() throws {
@@ -185,7 +334,10 @@ func TestInteropOracle() throws {
         writerFd: bridgeIn.fileHandleForWriting.fileDescriptor,
         readerFd: bridgeOut.fileHandleForReading.fileDescriptor)
     let channel = Channel(transport)
-    try runInteropCases(TestGrpcDc.TestServiceClient(channel), TestGrpcDc.UnimplementedServiceClient(channel))
+    let client = TestGrpcDc.TestServiceClient(channel)
+    try runInteropCases(channel, client, TestGrpcDc.UnimplementedServiceClient(channel))
+    try runCompressionCases(client)
+    try runOrcaCases(channel, client)
     print("TestInteropOracle OK")
 }
 

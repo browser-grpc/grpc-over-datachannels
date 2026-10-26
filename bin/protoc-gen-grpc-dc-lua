@@ -1812,7 +1812,7 @@
             (map
              (lambda (d)
                (format
-                "local ~aMessages = require(\"~a_messages\")\n"
+                "local ~aMessages = require(\"examples.~a_messages\")\n"
                 (lua-pb-flat "" (format "~a_messages" d))
                 d))
              dep-modules)))

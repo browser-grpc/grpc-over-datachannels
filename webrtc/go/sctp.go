@@ -160,9 +160,8 @@ type Association struct {
 	state      string
 	nextTsn    uint32
 	outCumDone uint32
-	peerCumTsn uint32
 
-	peerReceived  map[uint32]bool
+	sack          *sackTracker
 	outSsn        map[uint16]uint16
 	unacked       map[uint32]*outChunk
 	queued        []queuedMessage
@@ -181,7 +180,6 @@ type Association struct {
 	lastInitMs       int64
 	lastPacketOutMs  int64
 	rtoMs            int64
-	missCounts       map[uint32]int
 	abandonedOrdered [][2]uint16
 
 	// Stream reset (RFC 6525) bookkeeping.
@@ -228,7 +226,7 @@ func newAssociation(isClient bool, localPort, peerPort uint16) *Association {
 		state:          "closed",
 		nextTsn:        nextTsn,
 		outCumDone:     nextTsn - 1,
-		peerReceived:   map[uint32]bool{},
+		sack:           newSackTracker(0),
 		outSsn:         map[uint16]uint16{},
 		unacked:        map[uint32]*outChunk{},
 		peerRwnd:       initialRwnd,
@@ -237,7 +235,6 @@ func newAssociation(isClient bool, localPort, peerPort uint16) *Association {
 		reasm:          newSctpReassembler(),
 		cookieSecret:   secret,
 		rtoMs:          initialRtoMs,
-		missCounts:     map[uint32]int{},
 		reconfSeq:      nextTsn,
 		resets:         map[uint16]*streamResetState{},
 		localResetSeqs: map[uint32]resetDirection{},
@@ -436,7 +433,7 @@ func (a *Association) processPendingResets() ([][]byte, []SctpEvent) {
 	var events []SctpEvent
 	var remaining []pendingOutgoingReset
 	for _, pending := range a.pendingReconf {
-		if diff32(a.peerCumTsn, pending.lastTsn) < 0 {
+		if diff32(a.sack.cum(), pending.lastTsn) < 0 {
 			remaining = append(remaining, pending)
 			continue
 		}
@@ -481,7 +478,7 @@ func (a *Association) handleReconfig(body []byte) ([][]byte, []SctpEvent) {
 			if len(streams) == 0 {
 				streams = a.reasm.streamIds()
 			}
-			if diff32(a.peerCumTsn, lastTsn) < 0 {
+			if diff32(a.sack.cum(), lastTsn) < 0 {
 				// Wait until everything the sender had sent
 				// has arrived before resetting (RFC 6525 §5.2).
 				a.pendingReconf = append(a.pendingReconf,
@@ -625,32 +622,14 @@ func (a *Association) flushQueue(nowMs int64) [][]byte {
 }
 
 func (a *Association) sackPacket() []byte {
-	var sorted []uint32
-	for tsn := range a.peerReceived {
-		if diff32(tsn, a.peerCumTsn) > 0 {
-			sorted = append(sorted, tsn)
-		}
-	}
-	sort.Slice(sorted, func(i, j int) bool { return diff32(sorted[i], sorted[j]) < 0 })
-	type gap struct{ start, end uint16 }
-	var gaps []gap
-	for i := 0; i < len(sorted); {
-		start := sorted[i]
-		end := start
-		for i+1 < len(sorted) && sorted[i+1] == end+1 {
-			end = sorted[i+1]
-			i++
-		}
-		gaps = append(gaps, gap{uint16(diff32(start, a.peerCumTsn)), uint16(diff32(end, a.peerCumTsn))})
-		i++
-	}
+	gaps := a.sack.gapBlocks()
 	body := make([]byte, 12+len(gaps)*4)
-	binary.BigEndian.PutUint32(body[0:4], a.peerCumTsn)
+	binary.BigEndian.PutUint32(body[0:4], a.sack.cum())
 	binary.BigEndian.PutUint32(body[4:8], initialRwnd)
 	binary.BigEndian.PutUint16(body[8:10], uint16(len(gaps)))
 	for idx, g := range gaps {
-		binary.BigEndian.PutUint16(body[12+idx*4:14+idx*4], g.start)
-		binary.BigEndian.PutUint16(body[14+idx*4:16+idx*4], g.end)
+		binary.BigEndian.PutUint16(body[12+idx*4:14+idx*4], g[0])
+		binary.BigEndian.PutUint16(body[14+idx*4:16+idx*4], g[1])
 	}
 	return a.packet(a.peerTag, sctpChunk(SctpChunkSack, 0, body))
 }
@@ -687,7 +666,7 @@ func (a *Association) HandlePacket(packet []byte, nowMs int64) ([][]byte, []Sctp
 			}
 			a.peerTag = binary.BigEndian.Uint32(view.body[0:4])
 			a.peerInitialTsn = binary.BigEndian.Uint32(view.body[12:16])
-			a.peerCumTsn = a.peerInitialTsn - 1
+			a.sack.reset(a.peerInitialTsn - 1)
 			for _, p := range parseSctpParams(view.body[16:]) {
 				if p.typ == 7 {
 					a.pendingCookie = p.value
@@ -706,7 +685,7 @@ func (a *Association) HandlePacket(packet []byte, nowMs int64) ([][]byte, []Sctp
 			}
 			a.peerTag, a.myTag = peerTag, myTag
 			a.peerInitialTsn = peerTsn
-			a.peerCumTsn = peerTsn - 1
+			a.sack.reset(peerTsn - 1)
 			a.nextTsn = myTsn
 			a.outCumDone = myTsn - 1
 			a.state = "established"
@@ -777,13 +756,7 @@ func (a *Association) handleData(flags byte, body []byte) []SctpEvent {
 	isBegin := flags&0x02 != 0
 	isEnd := flags&0x01 != 0
 
-	if diff32(tsn, a.peerCumTsn) > 0 {
-		a.peerReceived[tsn] = true
-		for a.peerReceived[a.peerCumTsn+1] {
-			a.peerCumTsn++
-			delete(a.peerReceived, a.peerCumTsn)
-		}
-	}
+	a.sack.noteReceived(tsn)
 
 	return sctpDataEvents(a.reasm.feed(tsn, stream, ssn, ppid, unordered, isBegin, isEnd, payload))
 }
@@ -793,14 +766,7 @@ func (a *Association) handleForwardTsn(body []byte) []SctpEvent {
 		return nil
 	}
 	newCum := binary.BigEndian.Uint32(body[0:4])
-	if diff32(newCum, a.peerCumTsn) > 0 {
-		for tsn := range a.peerReceived {
-			if diff32(tsn, newCum) <= 0 {
-				delete(a.peerReceived, tsn)
-			}
-		}
-		a.peerCumTsn = newCum
-	}
+	a.sack.forwardTsn(newCum)
 	var events []SctpEvent
 	for pos := 4; pos+4 <= len(body); pos += 4 {
 		stream := binary.BigEndian.Uint16(body[pos : pos+2])
@@ -826,28 +792,18 @@ func (a *Association) handleSack(body []byte, nowMs int64) [][]byte {
 	cum := binary.BigEndian.Uint32(body[0:4])
 	a.peerRwnd = binary.BigEndian.Uint32(body[4:8])
 	numGaps := int(binary.BigEndian.Uint16(body[8:10]))
-	type gapRange struct{ start, end uint32 }
-	var gaps []gapRange
+	var blocks [][2]uint16
 	for i, pos := 0, 12; i < numGaps && pos+4 <= len(body); i, pos = i+1, pos+4 {
 		s := binary.BigEndian.Uint16(body[pos : pos+2])
 		e := binary.BigEndian.Uint16(body[pos+2 : pos+4])
-		gaps = append(gaps, gapRange{cum + uint32(s), cum + uint32(e)})
+		blocks = append(blocks, [2]uint16{s, e})
 	}
+	acked, retransmit := a.sack.noteSack(cum, blocks, sortedUnackedTsns(a))
 	freed := 0
-	for _, tsn := range sortedUnackedTsns(a) {
+	for _, tsn := range acked {
 		c := a.unacked[tsn]
-		inGap := false
-		for _, g := range gaps {
-			if diff32(tsn, g.start) >= 0 && diff32(tsn, g.end) <= 0 {
-				inGap = true
-				break
-			}
-		}
-		if diff32(tsn, cum) <= 0 || inGap {
-			freed += len(c.payload)
-			delete(a.unacked, tsn)
-			delete(a.missCounts, tsn)
-		}
+		freed += len(c.payload)
+		delete(a.unacked, tsn)
 	}
 	a.inflightBytes -= freed
 	if a.inflightBytes < 0 {
@@ -872,23 +828,14 @@ func (a *Association) handleSack(body []byte, nowMs int64) [][]byte {
 	}
 	a.advanceOutCum()
 	var packets [][]byte
-	if len(gaps) > 0 {
-		firstStart := gaps[0].start
-		for _, tsn := range sortedUnackedTsns(a) {
-			c := a.unacked[tsn]
-			if c == nil {
-				continue
-			}
-			if diff32(tsn, cum) > 0 && diff32(tsn, firstStart) < 0 {
-				a.missCounts[tsn]++
-				if a.missCounts[tsn] >= 3 {
-					delete(a.missCounts, tsn)
-					packets = append(packets, a.packet(a.peerTag, dataChunkBytes(c)))
-					c.retransmits++
-					c.lastSentMs = nowMs
-				}
-			}
+	for _, tsn := range retransmit {
+		c := a.unacked[tsn]
+		if c == nil {
+			continue
 		}
+		packets = append(packets, a.packet(a.peerTag, dataChunkBytes(c)))
+		c.retransmits++
+		c.lastSentMs = nowMs
 	}
 	packets = append(packets, a.flushQueue(nowMs)...)
 	return packets
@@ -988,6 +935,6 @@ func (a *Association) Close(nowMs int64) [][]byte {
 	}
 	a.state = "shutdown-sent"
 	body := make([]byte, 4)
-	binary.BigEndian.PutUint32(body, a.peerCumTsn)
+	binary.BigEndian.PutUint32(body, a.sack.cum())
 	return [][]byte{a.packet(a.peerTag, sctpChunk(SctpChunkShutdown, 0, body))}
 }

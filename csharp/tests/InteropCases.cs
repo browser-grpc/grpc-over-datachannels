@@ -22,5 +22,9 @@ public static class InteropCases
         new object[] { "status-code-and-message-duplex", "STATUS_DUPLEX", new int[] {  }, new int[] {  }, 2, "test status message" },
         new object[] { "unimplemented-method", "UNIMPLEMENTED_METHOD", new int[] {  }, new int[] {  }, 12, "" },
         new object[] { "unimplemented-service", "UNIMPLEMENTED_SERVICE", new int[] {  }, new int[] {  }, 12, "" },
+        new object[] { "special-status-message", "SPECIAL_STATUS", new int[] {  }, new int[] {  }, 2, "\t\ntest with whitespace\r\nand Unicode BMP ☺ and non-BMP 😈\t\n" },
+        new object[] { "cancel-after-begin", "CANCEL_AFTER_BEGIN", new int[] {  }, new int[] {  }, 1, "" },
+        new object[] { "cancel-after-first-response", "CANCEL_AFTER_FIRST", new int[] {  }, new int[] { 31415 }, 1, "" },
+        new object[] { "timeout-on-sleeping-server", "TIMEOUT_SLEEPING", new int[] {  }, new int[] { 1, 1, 1 }, 4, "" },
     };
 }

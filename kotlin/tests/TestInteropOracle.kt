@@ -7,7 +7,9 @@ import grpc.testing.Payload
 import grpc.testing.ResponseParameters
 import grpc.testing.SimpleRequest
 import grpc.testing.StreamingInputCallRequest
+import grpc.testing.StreamingInputCallResponse
 import grpc.testing.StreamingOutputCallRequest
+import grpc.testing.StreamingOutputCallResponse
 import grpc.testing.TestGrpcDc
 import grpc.testing.TestOrcaReport
 import grpcdc.Channel
@@ -49,6 +51,55 @@ private fun expectStatus(code: Int, message: String, what: String, call: () -> U
         return
     }
     throw AssertionError("$what: expected status $code, call succeeded")
+}
+
+// Compression rows (upstream client_compressed_unary,
+// client_compressed_streaming, server_compressed_unary,
+// server_compressed_streaming): the DataChannel wire is
+// compression-free; the client declares grpc-encoding: gzip
+// and the bridge gzips request messages on the HTTP/2 hop,
+// decompressing responses the same way.
+private fun runCompressionCases(client: TestGrpcDc.TestServiceClient) {
+    val gzip = mapOf("grpc-encoding" to "gzip")
+    run {
+        val req = SimpleRequest(
+            responseSize = 31415, payload = interopPayload(271828),
+            expectCompressed = grpc.testing.BoolValue(true))
+        val resp = client.UnaryCall(req, gzip)
+        check(resp.payload!!.body.size == 31415, "client_compressed_unary: body")
+        println("interop case ok: client_compressed_unary")
+    }
+    run {
+        val sizes = intArrayOf(27182, 8, 1828, 45904)
+        val reqs = sizes.map { StreamingInputCallRequest(payload = interopPayload(it), expectCompressed = grpc.testing.BoolValue(true)) }
+        val resp = client.StreamingInputCall(reqs, gzip)
+        check(resp.aggregatedPayloadSize == sizes.sum(),
+            "client_compressed_streaming: aggregated ${resp.aggregatedPayloadSize}")
+        println("interop case ok: client_compressed_streaming")
+    }
+    run {
+        val req = SimpleRequest(
+            responseSize = 31415, payload = interopPayload(271828),
+            responseCompressed = grpc.testing.BoolValue(true))
+        val resp = client.UnaryCall(req)
+        check(resp.payload!!.body.size == 31415, "server_compressed_unary: body")
+        println("interop case ok: server_compressed_unary")
+    }
+    run {
+        val sizes = intArrayOf(31415, 9, 2653, 58979)
+        val req = StreamingOutputCallRequest()
+        for (size in sizes) {
+            req.responseParameters.add(ResponseParameters(size, 0, grpc.testing.BoolValue(true)))
+        }
+        client.StreamingOutputCall(req).use { stream ->
+            for (size in sizes) {
+                val resp = stream.recv()
+                check(resp.payload!!.body.size == size,
+                    "server_compressed_streaming: body ${resp.payload!!.body.size}")
+            }
+        }
+        println("interop case ok: server_compressed_streaming")
+    }
 }
 
 // ORCA rows (upstream orca_per_rpc / orca_oob): per-RPC the
@@ -120,6 +171,7 @@ private fun runOrcaCases(channel: Channel, client: TestGrpcDc.TestServiceClient)
 }
 
 private fun runInteropCases(
+    channel: Channel,
     client: TestGrpcDc.TestServiceClient,
     unimpl: TestGrpcDc.UnimplementedServiceClient,
 ) {
@@ -208,6 +260,42 @@ private fun runInteropCases(
                     client.FullDuplexCall(listOf(req)).use { stream -> stream.recv() }
                 }
             }
+            "SPECIAL_STATUS" -> {
+                val req = SimpleRequest(responseStatus = EchoStatus(statusCode, statusMessage))
+                expectStatus(statusCode, statusMessage, name) { client.UnaryCall(req) }
+            }
+            "CANCEL_AFTER_BEGIN" -> {
+                // Begin a client-streaming call and cancel it
+                // before sending any request: the pending recv
+                // must report CANCELLED.
+                val stream = channel.openStream("/grpc.testing.TestService/StreamingInputCall")
+                stream.cancel()
+                expectStatus(statusCode, "", name) { stream.recv(StreamingInputCallResponse()) }
+            }
+            "CANCEL_AFTER_FIRST" -> {
+                // Duplex call (no half-close): the server answers
+                // the one request, then waits for more input, so
+                // the cancel deterministically lands mid-call
+                // (same shape as the Python/JS suites).
+                val stream = channel.openStream("/grpc.testing.TestService/FullDuplexCall")
+                stream.send(interopStreamRequest(intArrayOf(respSizes[0]), 1))
+                val resp = StreamingOutputCallResponse()
+                stream.recv(resp)
+                check(resp.payload!!.body.size == respSizes[0], "$name: body ${resp.payload!!.body.size}")
+                stream.cancel()
+                expectStatus(statusCode, "", name) { stream.recv(StreamingOutputCallResponse()) }
+            }
+            "TIMEOUT_SLEEPING" -> {
+                val req = StreamingOutputCallRequest()
+                for (size in respSizes) {
+                    req.responseParameters.add(ResponseParameters(size, 1000000, null))
+                }
+                expectStatus(statusCode, "", name) {
+                    client.StreamingOutputCall(req, null, java.time.Duration.ofMillis(100)).use { stream ->
+                        stream.recv()
+                    }
+                }
+            }
             "UNIMPLEMENTED_METHOD" -> expectStatus(statusCode, "", name) { client.UnimplementedCall(Empty()) }
             "UNIMPLEMENTED_SERVICE" -> expectStatus(statusCode, "", name) { unimpl.UnimplementedCall(Empty()) }
             else -> throw AssertionError("unknown interop kind $kind")
@@ -259,7 +347,8 @@ fun testInteropOracle() {
             val transport = StdioTransport(bridge.outputStream, bridge.inputStream)
             val channel = Channel(transport)
             val client = TestGrpcDc.TestServiceClient(channel)
-            runInteropCases(client, TestGrpcDc.UnimplementedServiceClient(channel))
+            runInteropCases(channel, client, TestGrpcDc.UnimplementedServiceClient(channel))
+            runCompressionCases(client)
             runOrcaCases(channel, client)
         } finally {
             bridge.destroyForcibly()

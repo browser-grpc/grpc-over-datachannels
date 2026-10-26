@@ -115,11 +115,15 @@
               "    pub fn trailers(self: *~a~aClient) []const status_mod.TrailerPair {\n"
               "        return self.stream.trailers;\n"
               "    }\n\n"
+              "    /// Abandon the call: RST so the server stops producing.\n"
+              "    pub fn cancel(self: *~a~aClient) void {\n"
+              "        self.stream.cancel();\n"
+              "    }\n\n"
               "    pub fn deinit(self: *~a~aClient) void {\n"
               "        self.stream.deinit();\n"
               "    }\n"
               "};\n\n")
-             orig-name svc orig-name svc orig-name resp resp svc orig-name svc orig-name svc orig-name)]
+             orig-name svc orig-name svc orig-name resp resp svc orig-name svc orig-name svc orig-name svc orig-name)]
     [(bidi)
      (format (string-append
               "/// Response stream of a ~a call.\n"
@@ -141,11 +145,15 @@
               "    pub fn trailers(self: *~a~aClient) []const status_mod.TrailerPair {\n"
               "        return self.stream.trailers;\n"
               "    }\n\n"
+              "    /// Abandon the call: RST so the server stops producing.\n"
+              "    pub fn cancel(self: *~a~aClient) void {\n"
+              "        self.stream.cancel();\n"
+              "    }\n\n"
               "    pub fn deinit(self: *~a~aClient) void {\n"
               "        self.stream.deinit();\n"
               "    }\n"
               "};\n\n")
-             orig-name svc orig-name svc orig-name resp resp svc orig-name svc orig-name svc orig-name)]
+             orig-name svc orig-name svc orig-name resp resp svc orig-name svc orig-name svc orig-name svc orig-name)]
     [else ""]))
 
 (define (zig-server-stream-struct m)

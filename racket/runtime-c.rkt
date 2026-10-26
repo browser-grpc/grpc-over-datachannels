@@ -73,6 +73,15 @@ typedef struct {
         const char *value;
     } trailers[8];
     size_t trailers_count;
+    /* Response initial metadata for unary / client-streaming
+       handlers, whose HEADERS frame is deferred until the
+       handler returns (borrowed pointers, at most 8). Streaming
+       handlers use grpcdc_server_stream_set_header instead. */
+    struct {
+        const char *key;
+        const char *value;
+    } headers[8];
+    size_t headers_count;
 } grpcdc_status;
 
 const char *grpcdc_status_name(int code);
@@ -222,6 +231,7 @@ grpcdc_status grpcdc_stream_close_send(grpcdc_stream *s);
 int grpcdc_stream_recv(grpcdc_stream *s, grpcdc_bytes *out,
                        grpcdc_status *st);
 void grpcdc_stream_free(grpcdc_stream *s);
+void grpcdc_stream_cancel(grpcdc_stream *s);
 
 /* ---- server ---- */
 typedef struct grpcdc_server_stream grpcdc_server_stream;
@@ -255,6 +265,13 @@ void grpcdc_server_stream_set_header(grpcdc_server_stream *s,
    (rides the terminal status frame). */
 void grpcdc_server_stream_set_trailer(grpcdc_server_stream *s,
                                       const char *key, const char *value);
+
+/* Poll (non-blocking) for a peer RST on the stream being
+   served: 1 once the client has cancelled. Handlers that wait
+   (e.g. interop response intervals) should slice their waits
+   on this so a cancelled call stops promptly instead of
+   wedging the single-stream serve loop. */
+int grpcdc_server_stream_cancelled(grpcdc_server_stream *s);
 
 /* Trailing metadata received with the terminal status of a
    client stream (owned by the stream; valid until free). */
@@ -310,6 +327,7 @@ grpcdc_status grpcdc_status_make(int code, const char *message) {
     grpcdc_status st;
     st.code = code;
     st.trailers_count = 0;
+    st.headers_count = 0;
     if (message) {
         strncpy(st.message, message, sizeof(st.message) - 1);
         st.message[sizeof(st.message) - 1] = 0;
@@ -1228,6 +1246,25 @@ const grpcdc_kv *grpcdc_stream_trailers(grpcdc_stream *s, size_t *count) {
     return s ? s->trailers : NULL;
 }
 
+/* Abandoning a call: RST CANCELLED and latch the terminal status
+   so subsequent recv reports CANCELLED instead of blocking. */
+void grpcdc_stream_cancel(grpcdc_stream *s) {
+    if (!s || s->ended) return;
+    grpcdc_bytes rst;
+    if (grpcdc_status_is_ok(grpcdc_status_frame(
+            GRPCDC_FRAME_RST, s->id,
+            grpcdc_status_make(GRPCDC_CANCELLED, "call cancelled"),
+            &rst))) {
+        s->channel->transport->send(s->channel->transport->ctx,
+                                    rst.data, rst.len);
+        grpcdc_bytes_free(&rst);
+    }
+    s->terminal = grpcdc_status_make(GRPCDC_CANCELLED, "call cancelled");
+    s->have_terminal = true;
+    s->ended = true;
+    stream_end_trace(s, "CANCELLED");
+}
+
 void grpcdc_stream_free(grpcdc_stream *s) {
     if (!s) return;
     if (!s->ended) {
@@ -1333,6 +1370,7 @@ typedef struct {
     size_t metadata_count;
     char *path;
     bool cancelled;
+    bool half_closed;
 } server_stream_state;
 
 struct grpcdc_server_stream {
@@ -1370,6 +1408,10 @@ static void server_poll_cancelled(server_stream_state *ss) {
             ss->cancelled = true;
             return;
         }
+        if (frame.stream_id == ss->id &&
+            frame.type == GRPCDC_FRAME_HALF_CLOSE) {
+            ss->half_closed = true;
+        }
         if (frame.stream_id == ss->id && frame.type == GRPCDC_FRAME_DATA) {
             size_t offset = 0;
             grpcdc_bytes msg;
@@ -1383,6 +1425,11 @@ static void server_poll_cancelled(server_stream_state *ss) {
         }
         free(raw);
     }
+}
+
+int grpcdc_server_stream_cancelled(grpcdc_server_stream *s) {
+    server_poll_cancelled(s->state);
+    return s->state->cancelled ? 1 : 0;
 }
 
 static grpcdc_status server_send_frame(server_stream_state *ss, uint8_t type,
@@ -1478,18 +1525,63 @@ void grpcdc_server_stream_metadata(grpcdc_server_stream *s,
     *md_count = s->state->metadata_count;
 }
 
+/* Read one transport message for a bidi handler running live
+   (see server_dispatch bidi early dispatch): buffer DATA for
+   the active stream, note HALF_CLOSE / RST, drop the rest (the
+   serve loop is single-stream). Returns 0 when the transport
+   closed. */
+static int server_poll_live(server_stream_state *ss) {
+    uint8_t *raw = NULL;
+    size_t raw_len = 0;
+    if (ss->transport->recv(ss->transport->ctx, &raw, &raw_len) != 0)
+        return 0;
+    grpcdc_frame frame;
+    grpcdc_status dst = grpcdc_decode_frame(raw, raw_len, &frame);
+    if (!grpcdc_status_is_ok(dst)) {
+        free(raw);
+        return 1;
+    }
+    if (frame.stream_id == ss->id) {
+        if (frame.type == GRPCDC_FRAME_DATA) {
+            size_t offset = 0;
+            grpcdc_bytes msg;
+            if (grpcdc_status_is_ok(grpcdc_decode_data_message(
+                    frame.payload, frame.payload_len, &offset, &msg))) {
+                ss->requests = (grpcdc_bytes *)realloc(
+                    ss->requests,
+                    sizeof(grpcdc_bytes) * (ss->request_count + 1));
+                ss->requests[ss->request_count++] = msg;
+            }
+        } else if (frame.type == GRPCDC_FRAME_HALF_CLOSE) {
+            ss->half_closed = true;
+        } else if (frame.type == GRPCDC_FRAME_RST) {
+            ss->cancelled = true;
+        }
+    }
+    free(raw);
+    return 1;
+}
+
 int grpcdc_server_stream_recv(grpcdc_server_stream *s, grpcdc_bytes *out,
                               grpcdc_status *st) {
     server_stream_state *ss = s->state;
-    if (ss->request_pos < ss->request_count) {
-        *out = ss->requests[ss->request_pos];
-        ss->requests[ss->request_pos].data = NULL; /* ownership moved */
-        ss->requests[ss->request_pos].len = 0;
-        ss->request_pos++;
-        *st = grpcdc_ok();
-        return 1;
+    while (ss->request_pos >= ss->request_count) {
+        if (ss->cancelled) {
+            *st = grpcdc_status_make(GRPCDC_CANCELLED, "call cancelled");
+            return -1;
+        }
+        if (ss->half_closed) return 0;
+        if (!server_poll_live(ss)) {
+            ss->half_closed = true;
+            return 0;
+        }
     }
-    return 0;
+    *out = ss->requests[ss->request_pos];
+    ss->requests[ss->request_pos].data = NULL; /* ownership moved */
+    ss->requests[ss->request_pos].len = 0;
+    ss->request_pos++;
+    *st = grpcdc_ok();
+    return 1;
 }
 
 grpcdc_server *grpcdc_server_new(void) {
@@ -1564,6 +1656,9 @@ static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
                                          ss->metadata_count, ss->requests[0],
                                          &resp);
             if (grpcdc_status_is_ok(st)) {
+                for (size_t hi = 0; hi < st.headers_count; hi++)
+                    resp_add(&ss->resp_headers, &ss->resp_headers_count,
+                             st.headers[hi].key, st.headers[hi].value);
                 server_send_headers(ss);
                 grpcdc_bytes payload;
                 grpcdc_status est =
@@ -1592,6 +1687,9 @@ static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
             grpcdc_bytes resp = {0};
             st = ss->method->desc->client_stream(ss->method->impl, &raw, &resp);
             if (grpcdc_status_is_ok(st)) {
+                for (size_t hi = 0; hi < st.headers_count; hi++)
+                    resp_add(&ss->resp_headers, &ss->resp_headers_count,
+                             st.headers[hi].key, st.headers[hi].value);
                 server_send_headers(ss);
                 grpcdc_bytes payload;
                 grpcdc_status est =
@@ -1613,6 +1711,29 @@ static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
     grpcdc_trace_end("server", ss->path ? ss->path : "", &trace,
                      grpcdc_status_name(st.code));
     server_send_trailers(ss, st);
+}
+
+static void server_free_stream_state(server_stream_state *done) {
+    for (size_t i = 0; i < done->request_count; i++)
+        grpcdc_bytes_free(&done->requests[i]);
+    free(done->requests);
+    for (size_t i = 0; i < done->metadata_count; i++) {
+        free((void *)done->metadata[i].key);
+        free((void *)done->metadata[i].value);
+    }
+    free(done->metadata);
+    for (size_t i = 0; i < done->resp_headers_count; i++) {
+        free((void *)done->resp_headers[i].key);
+        free((void *)done->resp_headers[i].value);
+    }
+    free(done->resp_headers);
+    for (size_t i = 0; i < done->resp_trailers_count; i++) {
+        free((void *)done->resp_trailers[i].key);
+        free((void *)done->resp_trailers[i].value);
+    }
+    free(done->resp_trailers);
+    free(done->path);
+    free(done);
 }
 
 grpcdc_status grpcdc_server_serve(grpcdc_server *srv,
@@ -1688,6 +1809,18 @@ grpcdc_status grpcdc_server_serve(grpcdc_server *srv,
             headers.metadata = NULL;
             headers.metadata_count = 0;
             grpcdc_headers_free(&headers);
+            if (method->desc->kind == 3 || method->desc->kind == 2) {
+                /* Interactive bidi and client-streaming cannot
+                   wait for HALF_CLOSE (a handler may reject a
+                   message mid-stream): run the handler now; its
+                   stream recv polls the transport live
+                   (server_poll_live). HEADERS are deferred to
+                   the first response send. */
+                server_stream_state *done = active;
+                active = NULL;
+                server_dispatch(srv, done);
+                server_free_stream_state(done);
+            }
             free(raw);
             continue;
         }
@@ -1712,32 +1845,18 @@ grpcdc_status grpcdc_server_serve(grpcdc_server *srv,
             continue;
         }
         if (frame.type == GRPCDC_FRAME_HALF_CLOSE) {
-            /* Send response HEADERS first (others send headers up
-               front), then run the handler to completion. */
+            /* Send response HEADERS first for streaming kinds
+               (others send headers up front), then run the
+               handler to completion. Unary / client-streaming
+               HEADERS are deferred to dispatch so handlers can
+               answer with status-carried initial metadata. */
             server_stream_state *done = active;
             active = NULL;
-            server_send_headers(done);
+            done->half_closed = true;
+            /* HEADERS are sent lazily by the first response send
+               so streaming handlers can set initial metadata. */
             server_dispatch(srv, done);
-            for (size_t i = 0; i < done->request_count; i++)
-                grpcdc_bytes_free(&done->requests[i]);
-            free(done->requests);
-            for (size_t i = 0; i < done->metadata_count; i++) {
-                free((void *)done->metadata[i].key);
-                free((void *)done->metadata[i].value);
-            }
-            free(done->metadata);
-            for (size_t i = 0; i < done->resp_headers_count; i++) {
-                free((void *)done->resp_headers[i].key);
-                free((void *)done->resp_headers[i].value);
-            }
-            free(done->resp_headers);
-            for (size_t i = 0; i < done->resp_trailers_count; i++) {
-                free((void *)done->resp_trailers[i].key);
-                free((void *)done->resp_trailers[i].value);
-            }
-            free(done->resp_trailers);
-            free(done->path);
-            free(done);
+            server_free_stream_state(done);
             free(raw);
             continue;
         }

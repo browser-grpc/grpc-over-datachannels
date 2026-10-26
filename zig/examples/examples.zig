@@ -9,3 +9,5 @@ pub const stdio_transport = @import("stdio_transport.zig");
 pub const interop_messages = @import("interop/messages_messages.zig");
 pub const interop_empty = @import("interop/empty_messages.zig");
 pub const interop_test_grpc_dc = @import("interop/test_grpc_dc.zig");
+pub const interop_orca_grpc_dc = @import("interop/orca_grpc_dc.zig");
+pub const interop_orca_load_report_messages = @import("interop/orca_load_report_messages.zig");
