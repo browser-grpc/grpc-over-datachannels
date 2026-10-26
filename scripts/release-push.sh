@@ -134,6 +134,30 @@ if [ -d "$NPM_DIR" ] && command -v npm >/dev/null 2>&1; then
   fi
 fi
 
+# 3b2. Package registries (PyPI). Publishing needs a persistent
+#     API token: TWINE_PASSWORD in the environment, or a
+#     ~/.pypirc with a [pypi] __token__ entry (the one-time
+#     setup printed below); without one this step is a loud
+#     note, never a silent skip and never a failed publish.
+#     The sdist + wheel are always built and checked first
+#     (artifact contents + metadata are newcomer-facing).
+PYPI_DIR="$EXPORT/python"
+if [ -d "$PYPI_DIR" ] && command -v twine >/dev/null 2>&1; then
+  (cd "$PYPI_DIR" && rm -rf dist && python3 -m build --outdir dist 2>&1 | tail -3 && twine check dist/*) || true
+  if [ -n "${TWINE_PASSWORD:-}" ] || [ -f "$HOME/.pypirc" ]; then
+    if (cd "$PYPI_DIR" && twine upload dist/*); then
+      echo "pypi: grpc-dc $VERSION published"
+    else
+      echo "note: pypi upload failed (version may already exist); continuing"
+    fi
+  else
+    echo "note: pypi upload skipped (no TWINE_PASSWORD env and no ~/.pypirc)."
+    echo "note: one-time setup: create an API token at https://pypi.org/manage/account/#api-tokens"
+    echo "note: then store it persistently:"
+    echo "note:   printf '[pypi]\\nusername = __token__\\npassword = <token>\\n' > ~/.pypirc && chmod 600 ~/.pypirc"
+  fi
+fi
+
 # ------------------------------------------------------------------
 # 3c. Plugin container image (ghcr.io): protoc + all plugins on
 #     PATH, no host Node needed. Best-effort like npm — a failed

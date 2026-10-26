@@ -84,6 +84,9 @@ browser-test/scalajs_gen/
 # Public release export (make release-public); published via scripts/release-push.sh
 release/
 
+# Local tooling venv (PyPI build/upload tools for release verification)
+.venv-tools/
+
 # image-generation tool output (master lives in docs/badger/)
 generated_images/
 
