@@ -1591,6 +1591,8 @@ BROWSER_SERVER_EOF
   (write-runtime-files "js/src" "http2-gen.rkt" (list (emit-js-http2)))
   (write-runtime-files "python/grpcdc" "http2-gen.rkt" (list (emit-python-http2)))
   (write-runtime-files "go" "http2-gen.rkt" (list (emit-go-http2)))
+  (write-runtime-files "java/grpcdc" "http2-gen.rkt" (list (emit-java-http2)))
+  (write-runtime-files "csharp/grpcdc" "http2-gen.rkt" (list (emit-csharp-http2)))
   (write-runtime-files "rust/src" "runtime-rust.rkt" (emit-rust-runtime-files))
   (emit-fixtures)
   (emit-oracle-scenarios)
@@ -1644,6 +1646,7 @@ BROWSER_SERVER_EOF
   (printf "generated cpp/tests/fixtures.hpp\n")
   (write-runtime-files "cpp/tests" "oracle-gen.rkt" (list (emit-cpp-oracle-driver)))
   (write-runtime-files "cpp/tests" "bdd-gen.rkt" (list (emit-cpp-bdd) (emit-bdd-schemas 'cpp)))
+  (write-runtime-files "cpp/tests" "interop-gen.rkt" (list (emit-cpp-interop-cases)))
   (make-directory* (build-path root "swift" "grpcdc"))
   (call-with-output-file (build-path root "swift" "grpcdc" "Wire.swift") #:exists 'replace
     (lambda (out) (display (emit-swift-wire) out)))
@@ -1655,6 +1658,7 @@ BROWSER_SERVER_EOF
   (printf "generated swift/tests/Fixtures.swift\n")
   (write-runtime-files "swift/tests" "oracle-gen.rkt" (list (emit-swift-oracle-driver)))
   (write-runtime-files "swift/tests" "bdd-gen.rkt" (list (emit-swift-bdd) (emit-bdd-schemas 'swift)))
+  (write-runtime-files "swift/tests" "interop-gen.rkt" (list (emit-swift-interop-cases)))
   (make-directory* (build-path root "kotlin" "grpcdc"))
   (call-with-output-file (build-path root "kotlin" "grpcdc" "Wire.kt") #:exists 'replace
     (lambda (out) (display (emit-kotlin-wire) out)))
@@ -1688,6 +1692,7 @@ BROWSER_SERVER_EOF
   (printf "generated dart/tests/fixtures.dart\n")
   (write-runtime-files "dart/tests" "oracle-gen.rkt" (list (emit-dart-oracle-driver)))
   (write-runtime-files "dart/tests" "bdd-gen.rkt" (list (emit-dart-bdd) (emit-bdd-schemas 'dart)))
+  (write-runtime-files "dart/tests" "interop-gen.rkt" (list (emit-dart-interop-cases)))
   (make-directory* (build-path root "zig" "grpcdc"))
   (call-with-output-file (build-path root "zig" "grpcdc" "wire.zig") #:exists 'replace
     (lambda (out) (display (emit-zig-wire) out)))
@@ -1695,6 +1700,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "zig" "runtime-zig.rkt" (emit-zig-runtime-files))
   (write-runtime-files "c" "runtime-c.rkt" (emit-c-runtime-files))
   (write-runtime-files "c/tests" "bdd-gen.rkt" (list (emit-c-bdd) (emit-bdd-schemas 'c)))
+  (write-runtime-files "c/tests" "interop-gen.rkt" (list (emit-c-interop-cases)))
   (write-runtime-files "c/tests" "oracle-gen.rkt" (list (emit-c-oracle-driver)))
   (make-directory* (build-path root "zig" "tests"))
   (call-with-output-file (build-path root "zig" "tests" "fixtures.zig") #:exists 'replace
@@ -1702,6 +1708,7 @@ BROWSER_SERVER_EOF
   (printf "generated zig/tests/fixtures.zig\n")
   (write-runtime-files "zig/tests" "oracle-gen.rkt" (list (emit-zig-oracle-driver)))
   (write-runtime-files "zig/tests" "bdd-gen.rkt" (list (emit-zig-bdd) (emit-bdd-schemas 'zig)))
+  (write-runtime-files "zig/tests" "interop-gen.rkt" (list (emit-zig-interop-cases)))
   (make-directory* (build-path root "lua" "grpcdc"))
   (call-with-output-file (build-path root "lua" "grpcdc" "wire.lua") #:exists 'replace
     (lambda (out) (display (emit-lua-wire) out)))
@@ -1713,6 +1720,7 @@ BROWSER_SERVER_EOF
   (printf "generated lua/tests/fixtures.lua\n")
   (write-runtime-files "lua/tests" "oracle-gen.rkt" (list (emit-lua-oracle-driver)))
   (write-runtime-files "lua/tests" "bdd-gen.rkt" (list (emit-lua-bdd) (emit-bdd-schemas 'lua)))
+  (write-runtime-files "lua/tests" "interop-gen.rkt" (list (emit-lua-interop-cases)))
   (make-directory* (build-path root "ruby" "grpcdc"))
   (call-with-output-file (build-path root "ruby" "grpcdc" "wire_gen.rb") #:exists 'replace
     (lambda (out) (display (emit-ruby-wire) out)))
@@ -1720,6 +1728,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "ruby" "runtime-ruby.rkt" (emit-ruby-runtime-files))
   (write-runtime-files "ruby/tests" "oracle-gen.rkt" (list (emit-ruby-oracle-driver)))
   (write-runtime-files "ruby/tests" "bdd-gen.rkt" (list (emit-ruby-bdd) (emit-bdd-schemas 'ruby)))
+  (write-runtime-files "ruby/tests" "interop-gen.rkt" (list (emit-ruby-interop-cases)))
   (make-directory* (build-path root "php" "grpcdc"))
   (call-with-output-file (build-path root "php" "grpcdc" "wire_gen.php") #:exists 'replace
     (lambda (out) (display (emit-php-wire) out)))
@@ -1727,6 +1736,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "php" "runtime-php.rkt" (emit-php-runtime-files))
   (write-runtime-files "php/tests" "oracle-gen.rkt" (list (emit-php-oracle-driver)))
   (write-runtime-files "php/tests" "bdd-gen.rkt" (list (emit-php-bdd) (emit-bdd-schemas 'php)))
+  (write-runtime-files "php/tests" "interop-gen.rkt" (list (emit-php-interop-cases)))
   (make-directory* (build-path root "scala" "grpcdc"))
   (call-with-output-file (build-path root "scala" "grpcdc" "WireGen.scala") #:exists 'replace
     (lambda (out) (display (emit-scala-wire) out)))

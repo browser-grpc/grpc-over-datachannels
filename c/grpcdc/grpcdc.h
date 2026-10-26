@@ -235,6 +235,9 @@ void grpcdc_server_stream_set_trailer(grpcdc_server_stream *s,
 /* Trailing metadata received with the terminal status of a
    client stream (owned by the stream; valid until free). */
 const grpcdc_kv *grpcdc_stream_trailers(grpcdc_stream *s, size_t *count);
+/* Initial metadata received with the response HEADERS of a
+   client stream (owned by the stream; valid until free). */
+const grpcdc_kv *grpcdc_stream_headers(grpcdc_stream *s, size_t *count);
 
 /* kind: 0 unary, 1 server-streaming, 2 client-streaming, 3 bidi. */
 typedef struct {

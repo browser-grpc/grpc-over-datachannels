@@ -107,11 +107,19 @@
               "            .status => |st| return .{ .status = st },\n"
               "        }\n"
               "    }\n\n"
+              "    /// Initial metadata (response headers); null until they arrive.\n"
+              "    pub fn headers(self: *~a~aClient) ?grpcdc.codec.Headers {\n"
+              "        return self.stream.headers;\n"
+              "    }\n\n"
+              "    /// Trailing metadata of the terminal status.\n"
+              "    pub fn trailers(self: *~a~aClient) []const status_mod.TrailerPair {\n"
+              "        return self.stream.trailers;\n"
+              "    }\n\n"
               "    pub fn deinit(self: *~a~aClient) void {\n"
               "        self.stream.deinit();\n"
               "    }\n"
               "};\n\n")
-             orig-name svc orig-name svc orig-name resp resp svc orig-name)]
+             orig-name svc orig-name svc orig-name resp resp svc orig-name svc orig-name svc orig-name)]
     [(bidi)
      (format (string-append
               "/// Response stream of a ~a call.\n"
@@ -125,11 +133,19 @@
               "            .status => |st| return .{ .status = st },\n"
               "        }\n"
               "    }\n\n"
+              "    /// Initial metadata (response headers); null until they arrive.\n"
+              "    pub fn headers(self: *~a~aClient) ?grpcdc.codec.Headers {\n"
+              "        return self.stream.headers;\n"
+              "    }\n\n"
+              "    /// Trailing metadata of the terminal status.\n"
+              "    pub fn trailers(self: *~a~aClient) []const status_mod.TrailerPair {\n"
+              "        return self.stream.trailers;\n"
+              "    }\n\n"
               "    pub fn deinit(self: *~a~aClient) void {\n"
               "        self.stream.deinit();\n"
               "    }\n"
               "};\n\n")
-             orig-name svc orig-name svc orig-name resp resp svc orig-name)]
+             orig-name svc orig-name svc orig-name resp resp svc orig-name svc orig-name svc orig-name)]
     [else ""]))
 
 (define (zig-server-stream-struct m)
@@ -224,7 +240,7 @@
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "fn ~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n"
+              "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n"
               "    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n"
               "    var req = ~a{};\n"
               "    switch (reqs.recvInto(&req)) {\n"
@@ -241,10 +257,10 @@
               "    defer reqs.alloc.free(payload);\n"
               "    return sink.send(payload);\n"
               "}\n\n")
-             name svc req (hash-ref m 'output) impl-name)]
+             (lower-first svc) orig-name svc req (hash-ref m 'output) impl-name)]
     [(server-streaming)
      (format (string-append
-              "fn ~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n"
+              "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n"
               "    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n"
               "    var req = ~a{};\n"
               "    switch (reqs.recvInto(&req)) {\n"
@@ -255,10 +271,10 @@
               "    var stream = ~a~aServer{ .sink = sink, .alloc = reqs.alloc };\n"
               "    return impl.~a_fn(impl.ctx, call_ctx, &req, &stream);\n"
               "}\n\n")
-             name svc req svc orig-name impl-name)]
+             (lower-first svc) orig-name svc req svc orig-name impl-name)]
     [(client-streaming)
      (format (string-append
-              "fn ~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n"
+              "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n"
               "    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n"
               "    var arena = std.heap.ArenaAllocator.init(reqs.alloc);\n"
               "    defer arena.deinit();\n"
@@ -271,15 +287,15 @@
               "    defer reqs.alloc.free(payload);\n"
               "    return sink.send(payload);\n"
               "}\n\n")
-             name svc svc orig-name impl-name)]
+             (lower-first svc) orig-name svc svc orig-name impl-name)]
     [(bidi)
      (format (string-append
-              "fn ~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n"
+              "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n"
               "    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n"
               "    var stream = ~a~aServer{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc };\n"
               "    return impl.~a_fn(impl.ctx, call_ctx, &stream);\n"
               "}\n\n")
-             name svc svc orig-name impl-name)]))
+             (lower-first svc) orig-name svc svc orig-name impl-name)]))
 
 (define (zig-register-method m)
   (define name (hash-ref m 'name))
@@ -290,8 +306,8 @@
       [(server-streaming) "server_streaming"]
       [(client-streaming) "client_streaming"]
       [(bidi) "bidi"]))
-  (format "                .{ .name = ~s, .path = ~s, .kind = .~a, .ctx = impl, .handler = ~aAdapter },\n"
-          name (hash-ref m 'path) kind-const lower))
+  (format "                .{ .name = ~s, .path = ~s, .kind = .~a, .ctx = impl, .handler = ~a~aAdapter },\n"
+          name (hash-ref m 'path) kind-const (lower-first (current-service)) name))
 
 (define (zig-service svc)
   (define sname (hash-ref svc 'name))
@@ -315,6 +331,33 @@
      (apply string-append (map zig-server-vtable-field methods))
      "};\n\n"
      (apply string-append (map zig-adapter (append methods (alias-server-methods svc)))))))
+
+;; (simple-name . origin-base) pairs for method input/output
+;; types in first-use order: a stub's message types may live in
+;; imported protos, so imports and re-exports are per origin file.
+(define (zig-type-origins file-model)
+  (define seen '())
+  (for ([svc (in-list (hash-ref file-model 'services))])
+    (for ([m (in-list (hash-ref svc 'methods))])
+      (for ([pair (in-list (list (cons (hash-ref m 'input) (hash-ref m 'input-full))
+                                 (cons (hash-ref m 'output) (hash-ref m 'output-full))))])
+        (unless (assoc (car pair) seen)
+          (define entry (zig-pb-resolve file-model (cdr pair)))
+          (set! seen (append seen (list (cons (car pair)
+                                              (path->string (path-replace-extension (file-name-from-path (hash-ref entry 'file)) ""))))))))))
+  seen)
+
+(define (zig-stub-imports file-model)
+  (cond [(not (hash-has-key? file-model 'types))
+         (format "const messages = @import(\"~a_messages.zig\");\n\n"
+                 (path->string (path-replace-extension (file-name-from-path (hash-ref file-model 'name)) "")))]
+        [else
+         (define bases (remove-duplicates (map cdr (zig-type-origins file-model))))
+         (string-append
+          (apply string-append
+                 (map (lambda (b) (format "const ~a_messages = @import(\"~a_messages.zig\");\n" b b))
+                      bases))
+          "\n")]))
 
 ;; Message type names in first-use order (for the re-export block).
 (define (zig-message-names file-model)
@@ -635,6 +678,7 @@
        (zig-pb-encode-singular model (hash-set val-f 'label 1) "value" "    "))
    "    return w.toBytes();\n}\n\n"
    (format "pub fn decode~a(alloc: std.mem.Allocator, data: []const u8) ~a {\n" sname sname)
+   (if (or (memv (hash-ref key-f 'type) '(9 12 11)) (memv (hash-ref val-f 'type) '(9 12 11))) "" "    _ = alloc;\n")
    (format "    var result: ~a = .{ .key = ~a, .value = ~a };\n" sname
            (zig-pb-default model (hash-set key-f 'label 1))
            (if (= (hash-ref val-f 'type) 11) ".{}" (zig-pb-default model (hash-set val-f 'label 1))))
@@ -756,7 +800,7 @@
                      ""))
                fields))
    (format "~a    }\n" indent)
-   (apply string-append (map (lambda (n) (zig-pb-message-struct model n (string-append indent "    "))) (hash-ref msg 'nested)))
+   (apply string-append (map (lambda (n) (zig-pb-message-struct model n (string-append indent "    "))) (filter (lambda (n) (not (hash-ref n 'map-entry))) (hash-ref msg 'nested))))
    (apply string-append (map (lambda (e) (zig-pb-nested-enum e (string-append indent "    "))) (hash-ref msg 'enums)))
    (format "~a};\n" indent)))
 
@@ -845,7 +889,7 @@
          "const server_mod = grpcdc.server;\n"
          "const status_mod = grpcdc.status;\n"
          "const wire = grpcdc.wire;\n"
-         (format "const messages = @import(\"~a_messages.zig\");\n\n" base)
+         (zig-stub-imports file-model)
          "pub const Channel = channel_mod.Channel;\n"
          "pub const ClientStream = channel_mod.ClientStream;\n"
          "pub const CallContext = endpoint_mod.CallContext;\n"
@@ -863,10 +907,15 @@
                     (format "\n/// Apply the baked-in trace filter (trace_methods) once.\npub fn applyTraceFilter() void {\n    status_mod.setTraceFilter(~s);\n}\n" methods)
                     "")))
              "")
-         (apply string-append
-                (map (lambda (msg)
-                       (format "pub const ~a = messages.~a;\n" msg msg))
-                     (zig-message-names file-model)))
+         (if (hash-has-key? file-model 'types)
+             (apply string-append
+                    (map (lambda (pair)
+                           (format "pub const ~a = ~a_messages.~a;\n" (car pair) (cdr pair) (car pair)))
+                         (zig-type-origins file-model)))
+             (apply string-append
+                    (map (lambda (msg)
+                           (format "pub const ~a = messages.~a;\n" msg msg))
+                         (zig-message-names file-model))))
          "\n"
          (apply string-append (map zig-service (hash-ref file-model 'services)))
          (format "/// Generated gRPC-over-DataChannels stubs for ~a.\n" (hash-ref file-model 'name))

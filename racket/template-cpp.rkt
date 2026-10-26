@@ -90,6 +90,10 @@
               "        stream_.Recv(resp);\n"
               "        return resp;\n"
               "      }\n\n"
+              "      /// Initial metadata (response headers).\n"
+              "      const grpcdc::Metadata& Headers() const { return stream_.headers().metadata; }\n\n"
+              "      /// Trailing metadata of the terminal status.\n"
+              "      const grpcdc::Metadata& Trailers() const { return stream_.trailers(); }\n\n"
               "     private:\n"
               "      grpcdc::Channel::ClientStream stream_;\n"
               "    };\n\n")
@@ -945,21 +949,39 @@
                fields))
    (format "~a  grpcdc::Bytes unknown_fields;\n" pad)
    (format "~a  ~a() = default;\n" pad name)
-   (format "~a  grpcdc::Bytes MarshalDc() const override {\n" pad)
-   (format "~a    ~a::Writer w;\n" pad support)
-   (apply string-append (map (lambda (f) (cpp-pb-encode-guard model f (cpp-pb-encode-field model f support))) fields))
-   (format "~a    w.Raw(unknown_fields);\n" pad)
-   (format "~a    return w.ToBytes();\n~a  }\n" pad pad)
-   (format "~a  void UnmarshalDc(const grpcdc::Bytes& data) override {\n" pad)
-   (format "~a    unknown_fields.clear();\n" pad)
-   (apply string-append
-          (map (lambda (f) (format "~a    ~a = ~a;\n" pad (hash-ref f 'name) (cpp-pb-default model f))) fields))
-   (format "~a    ~a::Reader r(data);\n" pad support)
-   (format "~a    ~a::Field field;\n" pad support)
-   (format "~a    while (r.Next(field)) {\n~a      switch (field.number) {\n" pad pad)
-   (apply string-append (map (lambda (f) (cpp-pb-decode-case model f support)) fields))
-   (format "~a        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;\n~a      }\n~a    }\n~a  }\n" pad pad pad pad)
+   ;; Bodies are defined out of line after all classes (see
+   ;; cpp-pb-message-impls): the map helpers they call name
+   ;; nested types, so the helpers can only be declared once
+   ;; every class has been declared.
+   (format "~a  grpcdc::Bytes MarshalDc() const override;\n" pad)
+   (format "~a  void UnmarshalDc(const grpcdc::Bytes& data) override;\n" pad)
    (format "~a};\n" pad)))
+
+;; Out-of-line MarshalDc/UnmarshalDc definitions for a message
+;; class and its nested classes, emitted after all class
+;; declarations and the map helper declarations.
+(define (cpp-pb-message-impls model msg support qual)
+  (define name (hash-ref msg 'name))
+  (define fields (hash-ref msg 'fields))
+  (define q (if (string=? qual "") name (string-append qual "::" name)))
+  (string-append
+   (format "inline grpcdc::Bytes ~a::MarshalDc() const {\n" q)
+   (format "    ~a::Writer w;\n" support)
+   (apply string-append (map (lambda (f) (cpp-pb-encode-guard model f (cpp-pb-encode-field model f support))) fields))
+   "    w.Raw(unknown_fields);\n"
+   "    return w.ToBytes();\n}\n\n"
+   (format "inline void ~a::UnmarshalDc(const grpcdc::Bytes& data) {\n" q)
+   "    unknown_fields.clear();\n"
+   (apply string-append
+          (map (lambda (f) (format "    ~a = ~a;\n" (hash-ref f 'name) (cpp-pb-default model f))) fields))
+   (format "    ~a::Reader r(data);\n" support)
+   (format "    ~a::Field field;\n" support)
+   "    while (r.Next(field)) {\n      switch (field.number) {\n"
+   (apply string-append (map (lambda (f) (cpp-pb-decode-case model f support)) fields))
+   "        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;\n      }\n    }\n}\n\n"
+   (apply string-append
+          (map (lambda (n) (cpp-pb-message-impls model n support q))
+               (filter (lambda (n) (not (hash-ref n 'map-entry))) (hash-ref msg 'nested))))))
 
 (define (cpp-pb-nested-enum e indent)
   (string-append
@@ -972,6 +994,49 @@
   (and (hash-has-key? file-model 'messages)
        (hash-has-key? file-model 'types)
        (emit-cpp-pb-file/inner file-model)))
+
+;; Top-level messages ordered so same-file by-value dependencies
+;; (singular message fields held as std::optional, map values)
+;; are defined before their users — C++ requires complete types
+;; for those members regardless of proto declaration order.
+(define (cpp-pb-ordered-messages file-model messages)
+  (define tops (filter (lambda (m) (not (hash-ref m 'map-entry))) messages))
+  (define (top-of e)
+    (and (equal? (hash-ref e 'file) (hash-ref file-model 'name))
+         (car (string-split (cpp-pb-rel (hash-ref file-model 'package) (hash-ref e 'full)) "::"))))
+  (define (deps m)
+    (define out '())
+    (define (note f)
+      (when (= (hash-ref f 'type) 11)
+        (define e (cpp-pb-resolve file-model (hash-ref f 'type-name)))
+        (cond [(eq? (hash-ref e 'kind) 'map)
+               (define val-f (findf (lambda (x) (= (hash-ref x 'number) 2))
+                                    (hash-ref (hash-ref e 'msg) 'fields)))
+               (when (= (hash-ref val-f 'type) 11)
+                 (define ve (cpp-pb-resolve file-model (hash-ref val-f 'type-name)))
+                 (when (eq? (hash-ref ve 'kind) 'message)
+                   (define t (top-of ve))
+                   (when t (set! out (cons t out)))))]
+              [(and (eq? (hash-ref e 'kind) 'message) (not (= (hash-ref f 'label) 3)))
+               (define t (top-of e))
+               (when t (set! out (cons t out)))])))
+    (define (walk msg)
+      (for ([f (in-list (hash-ref msg 'fields))]) (note f))
+      (for ([n (in-list (hash-ref msg 'nested))]) (walk n)))
+    (walk m)
+    (remove-duplicates (reverse out)))
+  (define dep-map (map (lambda (m) (cons (hash-ref m 'name) (deps m))) tops))
+  (define remaining (list->mutable-set (map (lambda (m) (hash-ref m 'name)) tops)))
+  (define (ready? m)
+    (andmap (lambda (d) (or (equal? d (hash-ref m 'name)) (not (set-member? remaining d))))
+            (cdr (assoc (hash-ref m 'name) dep-map))))
+  (let loop ([ms tops] [out '()])
+    (cond [(null? ms) (reverse out)]
+          [else
+           (define next (findf ready? ms))
+           (unless next (error 'emit-cpp-pb-file "message dependency cycle"))
+           (set-remove! remaining (hash-ref next 'name))
+           (loop (remq next ms) (cons next out))])))
 
 (define (emit-cpp-pb-file/inner file-model)
   (define messages (hash-ref file-model 'messages))
@@ -994,6 +1059,7 @@
                  (set! helpers (cons (cpp-pb-map-helpers file-model e support) helpers)))))
            (for ([n (in-list (hash-ref msg 'nested))]) (collect n)))
          (for ([m (in-list messages)]) (collect m))
+         (define ordered (cpp-pb-ordered-messages file-model messages))
          (define content
            (string-append
             (cpp-pb-support-open base pkg (hash-ref file-model 'dependencies))
@@ -1011,10 +1077,23 @@
                                              (hash-ref e 'values)) ",\n")
                            "\n};\n\n"))
                         enums))
-            (cpp-pb-support base pkg (apply string-append (map car (reverse helpers))))
+            (cpp-pb-support base pkg "")
             (apply string-append
                    (map (lambda (m) (cpp-pb-message-class file-model m support ""))
-                        (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))
+                        ordered))
+            ;; Map helper declarations come after the classes:
+            ;; they name nested message types, which must be
+            ;; declared first. Implementations follow, then the
+            ;; out-of-line MarshalDc/UnmarshalDc definitions.
+            (if (null? helpers)
+                ""
+                (string-append
+                 (format "namespace pb_~a {\n\n" base)
+                 (apply string-append (map car (reverse helpers)))
+                 (format "}  // namespace pb_~a\n\n" base)))
+            (apply string-append
+                   (map (lambda (m) (cpp-pb-message-impls file-model m support ""))
+                        ordered))
             (if (null? helpers)
                 ""
                 (string-append
@@ -1024,12 +1103,35 @@
             (format "}  // namespace ~a\n" (cpp-pb-ns pkg))))
          (cons (string-append base "_messages.hpp") content))))
 
+;; Message includes for a stub: one examples/<base>_messages.hpp
+;; per file that defines a method input/output type (which may
+;; live in an imported proto, not the service's own file).
+(define (cpp-stub-includes file-model)
+  (define self-base
+    (path->string (path-replace-extension
+                   (file-name-from-path (hash-ref file-model 'name)) "")))
+  (cond [(not (hash-has-key? file-model 'types))
+         (format "#include \"examples/~a_messages.hpp\"\n" self-base)]
+        [else
+         (define files
+           (remove-duplicates
+            (for*/list ([svc (in-list (hash-ref file-model 'services))]
+                        [m (in-list (hash-ref svc 'methods))]
+                        [k (in-list '(input-full output-full))])
+              (hash-ref (cpp-pb-resolve file-model (hash-ref m k)) 'file))))
+         (apply string-append
+                (map (lambda (fn)
+                       (format "#include \"examples/~a_messages.hpp\"\n"
+                               (path->string (path-replace-extension
+                                              (file-name-from-path fn) ""))))
+                     files))]))
+
 (define (emit-cpp-file file-model params)
   (define base (path->string (path-replace-extension
                               (file-name-from-path (hash-ref file-model 'name)) "")))
   (define struct-name (string-append (pascal (string->symbol base)) "GrpcDc"))
   (define pkg (hash-ref file-model 'package))
-  (define ns (if (string=? pkg "") "proto" pkg))
+  (define ns (cpp-pb-ns pkg))
   (define stub
     (cons (string-append base "_grpc_dc.hpp")
           (string-append
@@ -1039,7 +1141,7 @@
          "#include <future>\n#include <optional>\n\n#if __cplusplus >= 202002L\n#include \"grpcdc/async.hpp\"\n#endif\n"
          "#include <memory>\n"
          "#include <vector>\n\n"
-         (format "#include \"examples/~a_messages.hpp\"\n" base)
+         (cpp-stub-includes file-model)
          "#include \"grpcdc/channel.hpp\"\n"
          "#include \"grpcdc/server.hpp\"\n\n"
          (format "namespace ~a {\n\n" ns)

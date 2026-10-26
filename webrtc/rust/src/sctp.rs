@@ -14,6 +14,7 @@
 use alloc::vec::Vec;
 use crate::crypto::{crc32c, hmac_sha256, random_bytes};
 use crate::proto_gen::{sctp_chunk, sctp_param, sctp_reconfig};
+use crate::sctp_reassembly_gen::SctpReassembler;
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 #[cfg(feature = "std")]
 use std::collections::{HashMap, HashSet};
@@ -67,23 +68,6 @@ struct OutChunk {
     last_sent_ms: u64,
 }
 
-#[derive(Default)]
-struct PartialMsg {
-    ssn: u16,
-    ppid: u32,
-    unordered: bool,
-    parts: BTreeMap<u32, Vec<u8>>,
-    first_tsn: Option<u32>,
-    last_tsn: Option<u32>,
-}
-
-#[derive(Default)]
-struct StreamIn {
-    next_ssn: u16,
-    partials: HashMap<u32, PartialMsg>, // key: first TSN
-    completed: BTreeMap<u16, (u32, Vec<u8>)>, // ordered, by SSN
-}
-
 pub struct Association {
     is_client: bool,
     local_port: u16,
@@ -108,7 +92,7 @@ pub struct Association {
     // recovers only at RTO granularity (1s per round).
     cwnd: usize,
     ssthresh: usize,
-    streams_in: HashMap<u16, StreamIn>,
+    reasm: SctpReassembler,
     cookie_secret: [u8; 32],
     pending_cookie: Vec<u8>,
     last_init_ms: u64,
@@ -230,7 +214,7 @@ impl Association {
             peer_rwnd: INITIAL_RWND,
             cwnd: INITIAL_CWND,
             ssthresh: usize::MAX,
-            streams_in: HashMap::new(),
+            reasm: SctpReassembler::new(),
             cookie_secret: random_bytes(32).try_into().unwrap(),
             pending_cookie: Vec::new(),
             last_init_ms: 0,
@@ -376,12 +360,8 @@ impl Association {
         packets: Option<&mut Vec<Vec<u8>>>,
         events: &mut Vec<Event>,
     ) {
-        if self.streams_in.contains_key(&stream) {
-            self.drain_stream(stream, events);
-            let entry = self.streams_in.get_mut(&stream).unwrap();
-            entry.partials.clear();
-            entry.completed.clear();
-            entry.next_ssn = 0;
+        for d in self.reasm.reset(stream) {
+            events.push(Event::Data { stream: d.stream, ppid: d.ppid, payload: d.payload });
         }
         self.resets.entry(stream).or_default().in_done = true;
         self.maybe_report_reset(stream, events);
@@ -457,7 +437,7 @@ impl Association {
                         .map(|c| u16::from_be_bytes([c[0], c[1]]))
                         .collect();
                     if streams.is_empty() {
-                        streams = self.streams_in.keys().copied().collect();
+                        streams = self.reasm.stream_ids();
                     }
                     if (last_tsn.wrapping_sub(self.peer_cum_tsn) as i32) > 0 {
                         self.pending_reconf.push(PendingOutgoingReset { seq, last_tsn, streams });
@@ -817,116 +797,8 @@ impl Association {
             }
         }
 
-        let entry = self.streams_in.entry(stream).or_default();
-        // Find or create the partial message this fragment belongs to.
-        let key = if is_begin { tsn } else {
-            // Fragment continuation: attach to the open partial whose
-            // fragments end just before this TSN (never one that
-            // already ended: that fragment starts a new partial).
-            entry
-                .partials
-                .iter()
-                .find(|(_, p)| {
-                    p.last_tsn.is_none()
-                        && p.parts.keys().max().map_or(false, |&m| m.wrapping_add(1) == tsn)
-                })
-                .map(|(&k, _)| k)
-                .unwrap_or(tsn)
-        };
-        let partial = entry.partials.entry(key).or_default();
-        if is_begin {
-            partial.ssn = ssn;
-            partial.ppid = ppid;
-            partial.unordered = unordered;
-            partial.first_tsn = Some(tsn);
-        }
-        if is_end {
-            partial.last_tsn = Some(tsn);
-        }
-        partial.parts.insert(tsn, payload);
-
-        // Merge TSN-contiguous partials: a fragment that arrives
-        // out of order starts a dangling partial that could
-        // otherwise never complete.
-        loop {
-            let mut merged_any = false;
-            let keys: Vec<u32> = entry.partials.keys().copied().collect();
-            'scan: for i in 0..keys.len() {
-                for j in 0..keys.len() {
-                    if i == j {
-                        continue;
-                    }
-                    let (a, b) = (keys[i], keys[j]);
-                    // Never merge across a message boundary: b holding a
-                    // BEGIN fragment starts a new message, and a holding
-                    // an END fragment is already a whole message.
-                    let contiguous = match (entry.partials.get(&a), entry.partials.get(&b)) {
-                        (Some(pa), Some(pb)) => {
-                            let a_max = *pa.parts.keys().max().unwrap();
-                            let b_min = *pb.parts.keys().min().unwrap();
-                            pb.first_tsn.is_none()
-                                && pa.last_tsn.is_none()
-                                && a_max.wrapping_add(1) == b_min
-                        }
-                        _ => false,
-                    };
-                    if contiguous {
-                        let pb = entry.partials.remove(&b).unwrap();
-                        let pa = entry.partials.get_mut(&a).unwrap();
-                        for (t, bytes) in pb.parts {
-                            pa.parts.insert(t, bytes);
-                        }
-                        if pb.last_tsn.is_some() {
-                            pa.last_tsn = pb.last_tsn;
-                        }
-                        merged_any = true;
-                        break 'scan;
-                    }
-                }
-            }
-            if !merged_any {
-                break;
-            }
-        }
-
-        // Extract any completed messages (a merge can complete
-        // more than the message this fragment belonged to).
-        let mut deliveries: Vec<(u32, Vec<u8>)> = Vec::new(); // unordered: (ppid, payload)
-        let mut completed_any = false;
-        loop {
-            let complete_key = entry.partials.iter().find_map(|(&k, p)| match (p.first_tsn, p.last_tsn) {
-                (Some(first), Some(last)) => {
-                    let count = last.wrapping_sub(first) as usize + 1;
-                    if p.parts.len() == count
-                        && (0..count).all(|i| p.parts.contains_key(&first.wrapping_add(i as u32)))
-                    {
-                        Some(k)
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            });
-            let Some(k) = complete_key else { break };
-            let partial = entry.partials.remove(&k).unwrap();
-            let first = partial.first_tsn.unwrap();
-            let mut payload = Vec::new();
-            for i in 0..partial.parts.len() {
-                payload.extend_from_slice(&partial.parts[&first.wrapping_add(i as u32)]);
-            }
-            if partial.unordered {
-                deliveries.push((partial.ppid, payload));
-            } else {
-                entry.completed.insert(partial.ssn, (partial.ppid, payload));
-                completed_any = true;
-            }
-        }
-        for (ppid, payload) in deliveries {
-            events.push(Event::Data { stream, ppid, payload });
-        }
-        if completed_any {
-            // `entry` borrow ends here; drain in SSN order.
-            self.drain_stream(stream, events);
+        for d in self.reasm.feed(tsn, stream, ssn, ppid, unordered, is_begin, is_end, &payload) {
+            events.push(Event::Data { stream: d.stream, ppid: d.ppid, payload: d.payload });
         }
     }
 
@@ -944,21 +816,9 @@ impl Association {
             let stream = u16::from_be_bytes(body[pos..pos + 2].try_into().unwrap());
             let ssn = u16::from_be_bytes(body[pos + 2..pos + 4].try_into().unwrap());
             pos += 4;
-            let entry = self.streams_in.entry(stream).or_default();
-            entry.completed.retain(|&s, _| s > ssn);
-            if entry.next_ssn <= ssn {
-                entry.next_ssn = ssn.wrapping_add(1);
+            for d in self.reasm.skip(stream, ssn) {
+                events.push(Event::Data { stream: d.stream, ppid: d.ppid, payload: d.payload });
             }
-            entry.partials.retain(|_, p| p.unordered || p.ssn != ssn);
-            self.drain_stream(stream, events);
-        }
-    }
-
-    fn drain_stream(&mut self, stream: u16, events: &mut Vec<Event>) {
-        let entry = self.streams_in.entry(stream).or_default();
-        while let Some((ppid, payload)) = entry.completed.remove(&entry.next_ssn) {
-            entry.next_ssn = entry.next_ssn.wrapping_add(1);
-            events.push(Event::Data { stream, ppid, payload });
         }
     }
 

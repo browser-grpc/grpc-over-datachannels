@@ -1117,6 +1117,33 @@ GRPC_RUNTIME_EOF
 
 (define swift-channel-body
 #<<GRPC_RUNTIME_EOF
+#if canImport(Foundation)
+import Foundation
+#endif
+#if canImport(Dispatch)
+import Dispatch
+#endif
+#if canImport(Foundation)
+/// Run an async operation to completion on a blocking thread.
+/// Shared by generated stubs and tests; defined once here (it was
+/// previously emitted per stub file, which collided when several
+/// generated stubs share one module).
+func RunBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {
+    let semaphore = DispatchSemaphore(value: 0)
+    var result: Result<T, Error>!
+    Task.detached {
+        do {
+            result = .success(try await body())
+        } catch {
+            result = .failure(error)
+        }
+        semaphore.signal()
+    }
+    semaphore.wait()
+    return try result.get()
+}
+#endif
+
 /// Channel: the client side of one Endpoint.
 final class Channel {
     private let endpointInstance: Endpoint

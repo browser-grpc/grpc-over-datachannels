@@ -16,9 +16,9 @@ namespace Tests;
 /// </summary>
 public static class TestOracle
 {
-    private static readonly string Root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+    public static readonly string Root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
 
-    private static string JavaClasspath()
+    public static string JavaClasspath()
     {
         string target = Path.Combine(Root, "oracle", "java", "target");
         string cpFile = Path.Combine(target, "cp.txt");
@@ -29,7 +29,7 @@ public static class TestOracle
         return Path.Combine(target, "classes") + ":" + File.ReadAllText(cpFile).Trim();
     }
 
-    private static int FreePort()
+    public static int FreePort()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -40,7 +40,7 @@ public static class TestOracle
 
     private static string Unmsg(string token) => token == "-" ? "" : token;
 
-    private static void RunScenarios(EchoGrpcDc.EchoClient client)
+    public static void RunScenarios(EchoGrpcDc.EchoClient client)
     {
         foreach (object[] row in OracleScenarios.Cases)
         {

@@ -96,6 +96,14 @@
               "    await _stream.recv(resp);\n"
               "    return resp;\n"
               "  }\n\n"
+              "  /// Initial metadata (response headers); null until they arrive.\n"
+              "  Map<String, String>? get headers => _stream.headers?.metadata;\n\n"
+              "  /// Trailing metadata of the terminal status; null until it arrives.\n"
+              "  Map<String, String>? get trailers => _stream.trailers;\n\n"
+              "  /// Abort this stream (sends RST, wakes a pending recv).\n"
+              "  void cancel() => _stream.cancel();\n\n"
+              "  /// Abandon the call if still live (RST); no-op once terminated.\n"
+              "  void close() => _stream.close();\n\n"
               "  /// Responses as a Dart Stream (native async surface).\n"
               "  /// Cancelling the subscription abandons the call:\n"
               "  /// RST CANCELLED is sent so the server stops.\n"
@@ -814,6 +822,29 @@
                         (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))))
          (cons (string-append base "_messages.dart") content))))
 
+;; Message imports for a stub: one <base>_messages.dart per file
+;; that defines a method input/output type (which may live in an
+;; imported proto, not the service's own file).
+(define (dart-stub-imports file-model)
+  (cond [(not (hash-has-key? file-model 'types))
+         (format "import '~a_messages.dart';\n"
+                 (path->string (path-replace-extension
+                                (file-name-from-path (hash-ref file-model 'name)) "")))]
+        [else
+         (define files
+           (remove-duplicates
+            (for*/list ([svc (in-list (hash-ref file-model 'services))]
+                        [m (in-list (hash-ref svc 'methods))]
+                        [k (in-list '(input-full output-full))])
+              (hash-ref (dart-pb-resolve file-model (hash-ref m k))
+                        'file))))
+         (apply string-append
+                (map (lambda (fn)
+                       (format "import '~a_messages.dart';\n"
+                               (path->string (path-replace-extension
+                                              (file-name-from-path fn) ""))))
+                     files))]))
+
 (define (emit-dart-file file-model params)
   (define base (path->string (path-replace-extension
                               (file-name-from-path (hash-ref file-model 'name)) "")))
@@ -829,7 +860,7 @@
          "import '../grpcdc/server.dart';\n"
          "import '../grpcdc/status.dart';\n"
          "import '../grpcdc/wire.dart';\n"
-         (format "import '~a_messages.dart';\n" base)
+         (dart-stub-imports file-model)
          ;; trace=hooks: re-export the tracer registrar; bake filter.
          (if (equal? (hash-ref params 'trace #f) "hooks")
              (string-append

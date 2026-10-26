@@ -10,6 +10,7 @@ import grpc.testing.StreamingInputCallResponse;
 import grpc.testing.StreamingOutputCallRequest;
 import grpc.testing.StreamingOutputCallResponse;
 import grpc.testing.TestGrpcDc;
+import grpc.testing.TestOrcaReport;
 import grpcdc.Channel;
 import grpcdc.StatusException;
 import java.io.BufferedReader;
@@ -206,6 +207,80 @@ public final class TestInteropOracle {
         }
     }
 
+    // ORCA rows (upstream orca_per_rpc / orca_oob): per-RPC the
+    // report returns as the serialized OrcaLoadReport in the
+    // endpoint-load-metrics-bin trailer (base64 -bin value); OOB
+    // the value fed through FullDuplexCall comes back on the
+    // OpenRcaService StreamCoreMetrics stream.
+    private static void runOrcaCases(Channel channel,
+                                     TestGrpcDc.TestServiceClient client) throws Exception {
+        SimpleRequest req = new SimpleRequest();
+        TestOrcaReport report = new TestOrcaReport();
+        report.cpuUtilization = 0.8210;
+        report.memoryUtilization = 0.5847;
+        report.requestCost.put("cost", 3456.32);
+        report.utilization.put("util", 0.30499);
+        req.orcaPerQueryReport = report;
+        try (Channel.ClientStream stream = channel.serverStream(
+                "/grpc.testing.TestService/UnaryCall", req, null)) {
+            SimpleResponse resp = new SimpleResponse();
+            stream.recv(resp);
+            try {
+                stream.recv(new SimpleResponse());
+                throw new AssertionError("orca_per_rpc: expected EOF");
+            } catch (EOFException expected) {
+                // end of stream: trailers now readable
+            }
+            String encoded = stream.trailers().get("endpoint-load-metrics-bin");
+            check(encoded != null, "orca_per_rpc: no endpoint-load-metrics-bin trailer");
+            byte[] raw;
+            try {
+                raw = java.util.Base64.getDecoder().decode(encoded);
+            } catch (IllegalArgumentException e) {
+                raw = java.util.Base64.getDecoder().decode(encoded + "=".repeat(
+                        (4 - encoded.length() % 4) % 4));
+            }
+            xds.data.orca.v3.OrcaLoadReport loadReport = new xds.data.orca.v3.OrcaLoadReport();
+            loadReport.unmarshalDc(raw);
+            check(loadReport.cpuUtilization == 0.8210
+                    && loadReport.memUtilization == 0.5847
+                    && loadReport.requestCost.getOrDefault("cost", 0.0) == 3456.32
+                    && loadReport.utilization.getOrDefault("util", 0.0) == 0.30499,
+                    "orca_per_rpc: report " + loadReport.cpuUtilization + "/"
+                            + loadReport.memUtilization);
+        }
+        System.out.println("interop case ok: orca_per_rpc");
+
+        StreamingOutputCallRequest feed = new StreamingOutputCallRequest();
+        TestOrcaReport oob = new TestOrcaReport();
+        oob.cpuUtilization = 0.9;
+        oob.memoryUtilization = 0.85;
+        oob.utilization.put("util", 0.5);
+        feed.orcaOobReport = oob;
+        try (var duplex = client.FullDuplexCall(List.of(feed))) {
+            try {
+                while (true) {
+                    duplex.recv();
+                }
+            } catch (EOFException expected) {
+                // feed call completed
+            }
+        }
+        xds.service.orca.v3.OrcaGrpcDc.OpenRcaServiceClient orca =
+                new xds.service.orca.v3.OrcaGrpcDc.OpenRcaServiceClient(channel);
+        long deadline = System.currentTimeMillis() + 30000;
+        boolean matched = false;
+        try (var stream = orca.StreamCoreMetrics(new xds.service.orca.v3.OrcaLoadReportRequest())) {
+            while (!matched && System.currentTimeMillis() < deadline) {
+                xds.data.orca.v3.OrcaLoadReport got = stream.recv();
+                matched = got.cpuUtilization == 0.9 && got.memUtilization == 0.85
+                        && got.utilization.getOrDefault("util", 0.0) == 0.5;
+            }
+        }
+        check(matched, "orca_oob: no matching OOB report within 30s");
+        System.out.println("interop case ok: orca_oob");
+    }
+
     public static void main(String[] args) throws Exception {
         Path serverBin = ROOT.resolve("oracle/go-interop/interop-server");
         if (!Files.isExecutable(serverBin)) {
@@ -249,8 +324,9 @@ public final class TestInteropOracle {
                 echo.StdioTransport transport =
                         new echo.StdioTransport(bridge.getOutputStream(), bridge.getInputStream());
                 Channel channel = new Channel(transport);
-                runCases(new TestGrpcDc.TestServiceClient(channel),
-                        new TestGrpcDc.UnimplementedServiceClient(channel));
+                TestGrpcDc.TestServiceClient client = new TestGrpcDc.TestServiceClient(channel);
+                runCases(client, new TestGrpcDc.UnimplementedServiceClient(channel));
+                runOrcaCases(channel, client);
             } finally {
                 bridge.destroyForcibly();
             }

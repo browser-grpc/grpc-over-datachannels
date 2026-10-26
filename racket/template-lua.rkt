@@ -185,6 +185,14 @@
               "  self.stream:recv(resp)\n"
               "  return resp\n"
               "end\n\n"
+              "--- Response initial metadata (after the first recv).\n"
+              "function ~a~aStream:headers()\n"
+              "  return self.stream.headers and self.stream.headers.metadata\n"
+              "end\n\n"
+              "--- Response trailing metadata (after the call ends).\n"
+              "function ~a~aStream:trailers()\n"
+              "  return self.stream.trailers\n"
+              "end\n\n"
               "--- Abandon the call early: RST so the server stops producing.\n"
               "function ~a~aStream:close()\n"
               "  self.stream:close()\n"
@@ -201,6 +209,7 @@
               "end\n\n")
              orig-name svc orig-name svc orig-name svc orig-name
              svc orig-name svc orig-name svc orig-name resp
+             svc orig-name svc orig-name
              svc orig-name svc orig-name svc orig-name svc orig-name)]
     [else ""]))
 
@@ -353,6 +362,56 @@
      (format "~aClientCoro)\n" sname)
      "end\n\n"
      (apply string-append (map (lambda (m) (string-append (lua-deprecated m) (lua-coro-client-method m))) (append methods (alias-client-methods svc)))))))
+
+;; (display-name . origin-file) for every method input/output
+;; type, first-use order: the stub requires each origin file's
+;; messages module and aliases the type from it.
+(define (lua-stub-type-origins file-model)
+  (define seen '())
+  (for ([svc (in-list (hash-ref file-model 'services))])
+    (for ([m (in-list (hash-ref svc 'methods))])
+      (for ([pair (in-list (list (cons (hash-ref m 'input) (hash-ref m 'input-full))
+                                 (cons (hash-ref m 'output) (hash-ref m 'output-full))))])
+        (unless (assoc (car pair) seen)
+          (set! seen
+                (append seen
+                        (list (cons (car pair)
+                                    (hash-ref (lua-pb-resolve file-model (cdr pair))
+                                              'file)))))))))
+  seen)
+
+(define (lua-stub-requires file-model)
+  (if (hash-ref file-model 'types #f)
+      (let ([origins (lua-stub-type-origins file-model)])
+        (define files
+          (remove-duplicates (map cdr origins)))
+        (string-append
+         (apply string-append
+                (map (lambda (fn)
+                       (define b (path->string
+                                  (path-replace-extension (file-name-from-path fn) "")))
+                       (format "local ~aMessages = require(\"examples.~a_messages\")\n"
+                               (lua-pb-flat "" b) b))
+                     files))
+         "\n"
+         (apply string-append
+                (map (lambda (o)
+                       (define b (path->string
+                                  (path-replace-extension
+                                   (file-name-from-path (cdr o)) "")))
+                       (format "local ~a = ~aMessages.~a\n"
+                               (car o) (lua-pb-flat "" b) (car o)))
+                     origins))
+         "\n"))
+      (string-append
+       (format "local messages = require(\"examples.~a_messages\")\n\n"
+               (path->string (path-replace-extension
+                              (file-name-from-path (hash-ref file-model 'name)) "")))
+       (apply string-append
+              (map (lambda (msg)
+                     (format "local ~a = messages.~a\n" msg msg))
+                   (lua-message-names file-model)))
+       "\n")))
 
 ;; Message type names in first-use order (for the alias block).
 (define (lua-message-names file-model)
@@ -783,7 +842,7 @@
          "local serverModule = require(\"grpcdc.server\")\n"
          "local statusModule = require(\"grpcdc.status\")\n"
          "local wire = require(\"grpcdc.wire\")\n"
-         (format "local messages = require(\"examples.~a_messages\")\n\n" base)
+         (lua-stub-requires file-model)
          "local Channel = channelModule.Channel\n"
          "local Server = serverModule.Server\n"
          "local Status = statusModule.Status\n"
@@ -800,11 +859,6 @@
                     ""))
               "\n")
              "")
-         (apply string-append
-                (map (lambda (msg)
-                       (format "local ~a = messages.~a\n" msg msg))
-                     (lua-message-names file-model)))
-         "\n"
          (apply string-append (map lua-service (hash-ref file-model 'services)))
          (apply string-append
                 (map (lambda (svc)

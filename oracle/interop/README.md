@@ -23,6 +23,24 @@ Direction A — our clients vs official servers (grpc-java
 - `js/test/interop_oracle.test.js`
 - `python/tests/test_interop_oracle.py`
 - `go/interop_oracle_test.go`
+- `rust/tests/interop_oracle.rs`
+- `java/tests/TestInteropOracle.java`
+- `csharp/tests/TestInteropOracle.cs`
+- `kotlin/tests/TestInteropOracle.kt`
+- `scala/tests/TestInteropOracle.scala`
+- `dart/tests/test_interop_oracle.dart`
+- `swift/tests/TestInteropOracle.swift`
+- `zig/tests/test_interop_oracle.zig`
+- `cpp/tests/test_interop_oracle.cpp`
+- `c/tests/main.c` (TestInteropOracle)
+- `lua/tests/test_interop_oracle.lua`
+- `ruby/tests/test_interop_oracle.rb`
+- `php/tests/test_interop_oracle.php`
+
+Every suite runs the same generated 11-case table
+(`racket/interop-spec.rkt` via `racket/interop-gen.rkt`);
+Java/C#/Kotlin/Scala additionally grade the ORCA per-RPC and
+out-of-band rows (`orca_per_rpc`, `orca_oob`).
 
 Direction B — official clients (grpc-java `TestServiceClient`,
 grpc-go `interop-client`) vs our generated servers, reached
@@ -41,7 +59,7 @@ Excluded cases: auth (`*_creds`, `oauth2_auth_token`,
 their own long-running script.
 
 Compression runs in both directions. Client direction: the
-generated HTTP/2 client transports (JS/Go/Python) gzip
+generated HTTP/2 client transports (JS/Go/Python/Java/C#) gzip
 requests keyed on `grpc-encoding: gzip` call metadata,
 advertise `grpc-accept-encoding`, and decompress responses,
 so `client_compressed_*` and `server_compressed_*` pass

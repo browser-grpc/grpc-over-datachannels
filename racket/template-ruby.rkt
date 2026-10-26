@@ -35,112 +35,111 @@
       "      warn \"deprecated\"\n"
       ""))
 
-(define (rb-client-method/raw pb m)
+(define (rb-client-method/raw model m)
   (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
+  (define resp (rb-stub-ref model (hash-ref m 'output-full)))
   (define path (hash-ref m 'path))
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
               "    def ~a(req, metadata = nil, timeout: nil)\n"
-              "~a      @channel.unary(~s, req, ~a::~a.new, metadata, timeout: timeout)\n"
+              "~a      @channel.unary(~s, req, ~a.new, metadata, timeout: timeout)\n"
               "    end\n\n")
-             name (rb-deprecated m) path pb resp)]
+             name (rb-deprecated m) path resp)]
     [(server-streaming)
      (format (string-append
               "    def ~a(req, metadata = nil, timeout: nil)\n"
               "~a      stream = @channel.server_stream(~s, req, metadata, timeout: timeout)\n"
-              "      RecvStream.new(stream, ~a::~a)\n"
+              "      RecvStream.new(stream, ~a)\n"
               "    end\n\n")
-             name (rb-deprecated m) path pb resp)]
+             name (rb-deprecated m) path resp)]
     [(client-streaming)
      (format (string-append
               "    def ~a(reqs, metadata = nil, timeout: nil)\n"
-              "~a      @channel.client_stream(~s, reqs, ~a::~a.new, metadata, timeout: timeout)\n"
+              "~a      @channel.client_stream(~s, reqs, ~a.new, metadata, timeout: timeout)\n"
               "    end\n\n")
-             name (rb-deprecated m) path pb resp)]
+             name (rb-deprecated m) path resp)]
     [(bidi)
      (format (string-append
               "    def ~a(reqs, metadata = nil, timeout: nil)\n"
               "~a      stream = @channel.bidi(~s, reqs, metadata, timeout: timeout)\n"
-              "      RecvStream.new(stream, ~a::~a)\n"
+              "      RecvStream.new(stream, ~a)\n"
               "    end\n\n")
-             name (rb-deprecated m) path pb resp)]))
+             name (rb-deprecated m) path resp)]))
 
-(define (rb-client-method pb m)
-  (rb-client-method/raw pb m))
+(define (rb-client-method model m)
+  (rb-client-method/raw model m))
 
-(define (rb-fiber-client-method pb m)
+(define (rb-fiber-client-method model m)
   (define name (hash-ref m 'name))
-  (define resp (hash-ref m 'output))
+  (define resp (rb-stub-ref model (hash-ref m 'output-full)))
   (define path (hash-ref m 'path))
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
               "    def ~a(req, metadata = nil, timeout: nil)\n"
-              "~a      @channel.unary(~s, req, ~a::~a.new, metadata, timeout: timeout)\n"
+              "~a      @channel.unary(~s, req, ~a.new, metadata, timeout: timeout)\n"
               "    end\n\n")
-             name (rb-deprecated m) path pb resp)]
+             name (rb-deprecated m) path resp)]
     [(server-streaming)
      (format (string-append
               "    def ~a(req, metadata = nil, timeout: nil)\n"
               "~a      stream = @channel.server_stream(~s, req, metadata, timeout: timeout)\n"
-              "      FiberRecvStream.new(stream, ~a::~a)\n"
+              "      FiberRecvStream.new(stream, ~a)\n"
               "    end\n\n")
-             name (rb-deprecated m) path pb resp)]
+             name (rb-deprecated m) path resp)]
     [(client-streaming)
      (format (string-append
               "    def ~a(reqs, metadata = nil, timeout: nil)\n"
-              "~a      @channel.client_stream(~s, reqs, ~a::~a.new, metadata, timeout: timeout)\n"
+              "~a      @channel.client_stream(~s, reqs, ~a.new, metadata, timeout: timeout)\n"
               "    end\n\n")
-             name (rb-deprecated m) path pb resp)]
+             name (rb-deprecated m) path resp)]
     [(bidi)
      (format (string-append
               "    def ~a(reqs, metadata = nil, timeout: nil)\n"
               "~a      stream = @channel.bidi(~s, reqs, metadata, timeout: timeout)\n"
-              "      FiberRecvStream.new(stream, ~a::~a)\n"
+              "      FiberRecvStream.new(stream, ~a)\n"
               "    end\n\n")
-             name (rb-deprecated m) path pb resp)]))
+             name (rb-deprecated m) path resp)]))
 
-(define (rb-server-handler pb m)
+(define (rb-server-handler model m)
   (define name (hash-ref m 'name))
   (define impl-name (method-impl-name m))
-  (define req (hash-ref m 'input))
+  (define req (rb-stub-ref model (hash-ref m 'input-full)))
   (define handler-var (string-append (snake (string->symbol name)) "_handler"))
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
               "    ~a = lambda do |ctx, reqs, sink|\n"
-              "      req = reqs.recv_into(~a::~a.new)\n"
+              "      req = reqs.recv_into(~a.new)\n"
               "      resp = impl.~a(ctx, req)\n"
               "      sink.send(resp.marshal_dc)\n"
               "    end\n\n")
-             handler-var pb req impl-name)]
+             handler-var req impl-name)]
     [(server-streaming)
      (format (string-append
               "    ~a = lambda do |ctx, reqs, sink|\n"
-              "      req = reqs.recv_into(~a::~a.new)\n"
+              "      req = reqs.recv_into(~a.new)\n"
               "      impl.~a(req, SendStream.new(ctx, sink))\n"
               "    end\n\n")
-             handler-var pb req impl-name)]
+             handler-var req impl-name)]
     [(client-streaming)
      (format (string-append
               "    ~a = lambda do |ctx, reqs, sink|\n"
-              "      stream = ClientStreamImpl.new(ctx, reqs, ~a::~a)\n"
+              "      stream = ClientStreamImpl.new(ctx, reqs, ~a)\n"
               "      impl.~a(stream)\n"
               "      if stream.resp.nil?\n"
               "        raise Grpcdc::StatusError.new(Grpcdc::CODE_INTERNAL, \"client-streaming handler never called SendAndClose\")\n"
               "      end\n"
               "      sink.send(stream.resp.marshal_dc)\n"
               "    end\n\n")
-             handler-var pb req impl-name)]
+             handler-var req impl-name)]
     [(bidi)
      (format (string-append
               "    ~a = lambda do |ctx, reqs, sink|\n"
-              "      impl.~a(BidiStream.new(ctx, reqs, sink, ~a::~a))\n"
+              "      impl.~a(BidiStream.new(ctx, reqs, sink, ~a))\n"
               "    end\n\n")
-             handler-var impl-name pb req)]))
+             handler-var impl-name req)]))
 
 (define (rb-method-entry m)
   (define kind-name
@@ -164,6 +163,14 @@
    "    end\n\n"
    "    def recv\n"
    "      @stream.recv(@resp_cls.new)\n"
+   "    end\n\n"
+   "    # Response initial metadata (after the first recv).\n"
+   "    def headers\n"
+   "      @stream.headers&.metadata\n"
+   "    end\n\n"
+   "    # Response trailing metadata (after the call ends).\n"
+   "    def trailers\n"
+   "      @stream.trailers\n"
    "    end\n\n"
    "    # Abandon the call early: RST so the server stops producing.\n"
    "    def cancel\n"
@@ -255,6 +262,14 @@
    "      raise StopIteration if value.equal?(DONE)\n\n"
    "      value\n"
    "    end\n\n"
+   "    # Response initial metadata (after the first recv).\n"
+   "    def headers\n"
+   "      @stream.headers&.metadata\n"
+   "    end\n\n"
+   "    # Response trailing metadata (after the call ends).\n"
+   "    def trailers\n"
+   "      @stream.trailers\n"
+   "    end\n\n"
    "    def cancel\n"
    "      @stream.cancel\n"
    "    end\n\n"
@@ -279,19 +294,19 @@
    "    end\n"
    "  end\n\n"))
 
-(define (rb-service pb svc)
+(define (rb-service model svc)
   (define sname (hash-ref svc 'name))
   (define methods (hash-ref svc 'methods))
   (parameterize ([current-service sname])
     (string-append
      (format "  class ~aClient\n    def initialize(channel)\n      @channel = channel\n    end\n\n" sname)
-     (apply string-append (map (lambda (m) (rb-client-method pb m)) (append methods (alias-client-methods svc))))
+     (apply string-append (map (lambda (m) (rb-client-method model m)) (append methods (alias-client-methods svc))))
      "  end\n\n"
      (format "  # Fiber client: wraps a Grpcdc::FiberChannel (a sync Channel is wrapped).\n  class ~aClientFiber\n    def initialize(channel)\n      @channel = channel.is_a?(Grpcdc::FiberChannel) ? channel : Grpcdc::FiberChannel.new(channel)\n    end\n\n" sname)
-     (apply string-append (map (lambda (m) (rb-fiber-client-method pb m)) (append methods (alias-client-methods svc))))
+     (apply string-append (map (lambda (m) (rb-fiber-client-method model m)) (append methods (alias-client-methods svc))))
      "  end\n\n"
      (format "  def self.register_~a_server(server, impl)\n" (snake (string->symbol sname)))
-     (apply string-append (map (lambda (m) (rb-server-handler pb m)) (append methods (alias-server-methods svc))))
+     (apply string-append (map (lambda (m) (rb-server-handler model m)) (append methods (alias-server-methods svc))))
      (format "    server.register_service(Grpcdc::ServiceDesc.new(\n      ~s,\n      [\n"
              (hash-ref svc 'full-name))
      (apply string-append (map rb-method-entry (append methods (alias-server-methods svc))))
@@ -317,6 +332,37 @@
 (define (rb-pb-resolve model type-name)
   (hash-ref (hash-ref model 'types) type-name
             (lambda () (error 'emit-ruby-pb-file "unresolved type ~a" type-name))))
+
+;; Stub-side reference to a message type: always qualified with
+;; the pb module of the file that defines it (method types often
+;; live in an imported file, not the service's own file).
+(define (rb-stub-ref file-model full)
+  (define e (rb-pb-resolve file-model full))
+  (format "~a::~a" (rb-pb-module-name e)
+          (rb-pb-flat (hash-ref e 'pkg)
+                      (hash-ref (hash-ref e 'msg) 'full-name))))
+
+;; require_relative lines for the pb module of every file that
+;; defines a method input/output type.
+(define (rb-stub-requires file-model)
+  (if (hash-ref file-model 'types #f)
+      (apply string-append
+             (map (lambda (fn)
+                    (format "require_relative \"~a_pb\"\n"
+                            (path->string
+                             (path-replace-extension (file-name-from-path fn) ""))))
+                  (remove-duplicates
+                   (append-map
+                    (lambda (svc)
+                      (append-map
+                       (lambda (m)
+                         (list (hash-ref (rb-pb-resolve file-model (hash-ref m 'input-full)) 'file)
+                               (hash-ref (rb-pb-resolve file-model (hash-ref m 'output-full)) 'file)))
+                       (hash-ref svc 'methods)))
+                    (hash-ref file-model 'services)))))
+      (format "require_relative \"~a_pb\"\n"
+              (path->string (path-replace-extension
+                             (file-name-from-path (hash-ref file-model 'name)) "")))))
 
 (define (rb-pb-module-name entry)
   (define base (path->string (path-replace-extension
@@ -604,9 +650,14 @@
    "    def unmarshal_dc(data)\n"
    "      @unknown_fields = \"\".b\n"
    (apply string-append (map (lambda (f) (format "      @~a = ~a\n" (rb-pb-field-name f) (rb-pb-default model f))) fields))
-   "      r = Reader.new(data)\n      loop do\n        item = r.field\n        break if item.nil?\n\n        num, wire, varint_value, bytes_value, fixed_value, raw_value = item\n        case num\n"
-   (apply string-append (map (lambda (f) (rb-pb-decode-case model f)) fields))
-   "        else\n          @unknown_fields = @unknown_fields + raw_value\n        end\n      end\n      self\n    end\n\n"
+   "      r = Reader.new(data)\n      loop do\n        item = r.field\n        break if item.nil?\n\n        num, wire, varint_value, bytes_value, fixed_value, raw_value = item\n"
+   (if (null? fields)
+       "        @unknown_fields = @unknown_fields + raw_value\n"
+       (string-append
+        "        case num\n"
+        (apply string-append (map (lambda (f) (rb-pb-decode-case model f)) fields))
+        "        else\n          @unknown_fields = @unknown_fields + raw_value\n        end\n"))
+   "      end\n      self\n    end\n\n"
    (format "    def ==(other)\n      other.is_a?(~a) && ~a\n    end\n" name
            (if (null? fields)
                "true"
@@ -675,14 +726,14 @@
 (define (emit-ruby-file file-model params)
   (define base (path->string (path-replace-extension
                               (file-name-from-path (hash-ref file-model 'name)) "")))
-  (define pb (string-append (camel base) "Pb"))
   (define mod (string-append (camel base) "GrpcDc"))
   (define stub
     (cons (string-append base "_grpc_dc.rb")
         (string-append
          "# @generated by protoc-gen-grpc-dc-ruby. DO NOT EDIT.\n"
          (format "# source: ~a\n\n" (hash-ref file-model 'name))
-         (format "require_relative \"~a_pb\"\nrequire \"grpcdc\"\n\n" base)
+         (rb-stub-requires file-model)
+         "require \"grpcdc\"\n\n"
          (format "module ~a\n" mod)
          ;; trace=hooks: delegate the tracer registrar to the runtime.
          (if (equal? (hash-ref params 'trace #f) "hooks")
@@ -697,7 +748,7 @@
              "")
          rb-stream-helpers
          (apply string-append
-                (map (lambda (svc) (rb-service pb svc))
+                (map (lambda (svc) (rb-service file-model svc))
                      (hash-ref file-model 'services)))
          "end\n")))
   (define pb-file (emit-ruby-pb-file file-model))

@@ -38,102 +38,102 @@
       "        trigger_error(\"deprecated\", E_USER_DEPRECATED);\n"
       ""))
 
-(define (php-client-method pb m)
+(define (php-client-method model m)
   (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
+  (define req (php-stub-ref model (hash-ref m 'input-full)))
+  (define resp (php-stub-ref model (hash-ref m 'output-full)))
   (define path (hash-ref m 'path))
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "    public function ~a(\\~a\\~a $req, ?array $metadata = null, ?float $timeout = null): \\~a\\~a\n"
-              "    {\n~a        return $this->channel->unary(~s, $req, new \\~a\\~a(), $metadata, $timeout);\n    }\n\n")
-             name pb req pb resp (php-deprecated m) path pb resp)]
+              "    public function ~a(~a $req, ?array $metadata = null, ?float $timeout = null): ~a\n"
+              "    {\n~a        return $this->channel->unary(~s, $req, new ~a(), $metadata, $timeout);\n    }\n\n")
+             name req resp (php-deprecated m) path resp)]
     [(server-streaming)
      (format (string-append
-              "    public function ~a(\\~a\\~a $req, ?array $metadata = null, ?float $timeout = null): RecvStream\n"
+              "    public function ~a(~a $req, ?array $metadata = null, ?float $timeout = null): RecvStream\n"
               "    {\n~a        $stream = $this->channel->serverStream(~s, $req, $metadata, $timeout);\n"
-              "        return new RecvStream($stream, \\~a\\~a::class);\n    }\n\n")
-             name pb req (php-deprecated m) path pb resp)]
+              "        return new RecvStream($stream, ~a::class);\n    }\n\n")
+             name req (php-deprecated m) path resp)]
     [(client-streaming)
      (format (string-append
-              "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): \\~a\\~a\n"
-              "    {\n~a        return $this->channel->clientStream(~s, $reqs, new \\~a\\~a(), $metadata, $timeout);\n    }\n\n")
-             name pb resp (php-deprecated m) path pb resp)]
+              "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): ~a\n"
+              "    {\n~a        return $this->channel->clientStream(~s, $reqs, new ~a(), $metadata, $timeout);\n    }\n\n")
+             name resp (php-deprecated m) path resp)]
     [(bidi)
      (format (string-append
               "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): RecvStream\n"
               "    {\n~a        $stream = $this->channel->bidi(~s, $reqs, $metadata, $timeout);\n"
-              "        return new RecvStream($stream, \\~a\\~a::class);\n    }\n\n")
-             name (php-deprecated m) path pb resp)]))
+              "        return new RecvStream($stream, ~a::class);\n    }\n\n")
+             name (php-deprecated m) path resp)]))
 
-(define (php-fiber-client-method pb m)
+(define (php-fiber-client-method model m)
   (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
+  (define req (php-stub-ref model (hash-ref m 'input-full)))
+  (define resp (php-stub-ref model (hash-ref m 'output-full)))
   (define path (hash-ref m 'path))
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
-              "    public function ~a(\\~a\\~a $req, ?array $metadata = null, ?float $timeout = null): \\~a\\~a\n"
-              "    {\n~a        return $this->channel->unary(~s, $req, new \\~a\\~a(), $metadata, $timeout);\n    }\n\n")
-             name pb req pb resp (php-deprecated m) path pb resp)]
+              "    public function ~a(~a $req, ?array $metadata = null, ?float $timeout = null): ~a\n"
+              "    {\n~a        return $this->channel->unary(~s, $req, new ~a(), $metadata, $timeout);\n    }\n\n")
+             name req resp (php-deprecated m) path resp)]
     [(server-streaming)
      (format (string-append
-              "    public function ~a(\\~a\\~a $req, ?array $metadata = null, ?float $timeout = null): FiberRecvStream\n"
+              "    public function ~a(~a $req, ?array $metadata = null, ?float $timeout = null): FiberRecvStream\n"
               "    {\n~a        $stream = $this->channel->serverStream(~s, $req, $metadata, $timeout);\n"
-              "        return new FiberRecvStream($stream, \\~a\\~a::class);\n    }\n\n")
-             name pb req (php-deprecated m) path pb resp)]
+              "        return new FiberRecvStream($stream, ~a::class);\n    }\n\n")
+             name req (php-deprecated m) path resp)]
     [(client-streaming)
      (format (string-append
-              "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): \\~a\\~a\n"
-              "    {\n~a        return $this->channel->clientStream(~s, $reqs, new \\~a\\~a(), $metadata, $timeout);\n    }\n\n")
-             name pb resp (php-deprecated m) path pb resp)]
+              "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): ~a\n"
+              "    {\n~a        return $this->channel->clientStream(~s, $reqs, new ~a(), $metadata, $timeout);\n    }\n\n")
+             name resp (php-deprecated m) path resp)]
     [(bidi)
      (format (string-append
               "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): FiberRecvStream\n"
               "    {\n~a        $stream = $this->channel->bidi(~s, $reqs, $metadata, $timeout);\n"
-              "        return new FiberRecvStream($stream, \\~a\\~a::class);\n    }\n\n")
-             name (php-deprecated m) path pb resp)]))
+              "        return new FiberRecvStream($stream, ~a::class);\n    }\n\n")
+             name (php-deprecated m) path resp)]))
 
-(define (php-server-handler pb m)
+(define (php-server-handler model m)
   (define name (hash-ref m 'name))
   (define impl-name (method-impl-name m))
-  (define req (hash-ref m 'input))
+  (define req (php-stub-ref model (hash-ref m 'input-full)))
   (define handler-var (string-append "$" (snake (string->symbol name)) "Handler"))
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
               "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n"
-              "        $req = $reqs->recvInto(new \\~a\\~a());\n"
+              "        $req = $reqs->recvInto(new ~a());\n"
               "        $resp = $impl->~a($ctx, $req);\n"
               "        $sink->send($resp->marshalDc());\n"
               "    };\n\n")
-             handler-var pb req impl-name)]
+             handler-var req impl-name)]
     [(server-streaming)
      (format (string-append
               "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n"
-              "        $req = $reqs->recvInto(new \\~a\\~a());\n"
+              "        $req = $reqs->recvInto(new ~a());\n"
               "        $impl->~a($req, new SendStream($ctx, $sink));\n"
               "    };\n\n")
-             handler-var pb req impl-name)]
+             handler-var req impl-name)]
     [(client-streaming)
      (format (string-append
               "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n"
-              "        $stream = new ClientStreamImpl($ctx, $reqs, \\~a\\~a::class);\n"
+              "        $stream = new ClientStreamImpl($ctx, $reqs, ~a::class);\n"
               "        $impl->~a($stream);\n"
               "        if ($stream->resp === null) {\n"
               "            throw new \\Grpcdc\\StatusError(\\Grpcdc\\Wire::CODE_INTERNAL, \"client-streaming handler never called sendAndClose\");\n"
               "        }\n"
               "        $sink->send($stream->resp->marshalDc());\n"
               "    };\n\n")
-             handler-var pb req impl-name)]
+             handler-var req impl-name)]
     [(bidi)
      (format (string-append
               "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n"
-              "        $impl->~a(new BidiStream($ctx, $reqs, $sink, \\~a\\~a::class));\n"
+              "        $impl->~a(new BidiStream($ctx, $reqs, $sink, ~a::class));\n"
               "    };\n\n")
-             handler-var impl-name pb req)]))
+             handler-var impl-name req)]))
 
 (define (php-method-entry m)
   (define kind-name
@@ -157,6 +157,12 @@
    "    {\n        $this->stream = $stream;\n        $this->respClass = $respClass;\n    }\n\n"
    "    public function recv(): object\n"
    "    {\n        $cls = $this->respClass;\n        return $this->stream->recv(new $cls());\n    }\n\n"
+   "    /** Response initial metadata (after the first recv). */\n"
+   "    public function headers(): ?array\n"
+   "    {\n        return $this->stream->headers?->metadata;\n    }\n\n"
+   "    /** Response trailing metadata (after the call ends). */\n"
+   "    public function trailers(): ?array\n"
+   "    {\n        return $this->stream->trailers;\n    }\n\n"
    "    /** Abandon the call early: RST so the server stops producing. */\n"
    "    public function cancel(): void\n"
    "    {\n        $this->stream->cancel();\n    }\n\n"
@@ -248,6 +254,12 @@
    "    /** @return \\Generator<int, object> */\n"
    "    public function iterate(): \\Generator\n"
    "    {\n        $completed = false;\n        try {\n            while (true) {\n                yield $this->next();\n            }\n        } catch (\\Grpcdc\\CallClosed $e) {\n            $completed = true;\n            return;\n        } finally {\n            if (!$completed) {\n                $this->close();\n            }\n        }\n    }\n\n"
+   "    /** Response initial metadata (after the first recv). */\n"
+   "    public function headers(): ?array\n"
+   "    {\n        return $this->stream->headers?->metadata;\n    }\n\n"
+   "    /** Response trailing metadata (after the call ends). */\n"
+   "    public function trailers(): ?array\n"
+   "    {\n        return $this->stream->trailers;\n    }\n\n"
    "    public function cancel(): void\n"
    "    {\n        $this->stream->cancel();\n    }\n\n"
    "    public function close(): void\n"
@@ -256,19 +268,19 @@
    "    {\n        $this->close();\n    }\n"
    "}\n\n"))
 
-(define (php-service pb svc)
+(define (php-service model svc)
   (define sname (hash-ref svc 'name))
   (define methods (hash-ref svc 'methods))
   (parameterize ([current-service sname])
     (string-append
      (format "class ~aClient\n{\n    private \\Grpcdc\\Channel $channel;\n\n    public function __construct(\\Grpcdc\\Channel $channel)\n    {\n        $this->channel = $channel;\n    }\n\n" sname)
-     (apply string-append (map (lambda (m) (php-client-method pb m)) (append methods (alias-client-methods svc))))
+     (apply string-append (map (lambda (m) (php-client-method model m)) (append methods (alias-client-methods svc))))
      "}\n\n"
      (format "// Fiber client: wraps a Grpcdc\\FiberChannel (a sync Channel is wrapped).\nclass ~aClientFiber\n{\n    private \\Grpcdc\\FiberChannel $channel;\n\n    public function __construct($channel)\n    {\n        $this->channel = $channel instanceof \\Grpcdc\\FiberChannel ? $channel : new \\Grpcdc\\FiberChannel($channel);\n    }\n\n" sname)
-     (apply string-append (map (lambda (m) (php-fiber-client-method pb m)) (append methods (alias-client-methods svc))))
+     (apply string-append (map (lambda (m) (php-fiber-client-method model m)) (append methods (alias-client-methods svc))))
      "}\n\n"
      (format "function register~aServer(\\Grpcdc\\Server $server, object $impl): void\n{\n" sname)
-     (apply string-append (map (lambda (m) (php-server-handler pb m)) (append methods (alias-server-methods svc))))
+     (apply string-append (map (lambda (m) (php-server-handler model m)) (append methods (alias-server-methods svc))))
      (format "    $server->registerService(new \\Grpcdc\\ServiceDesc(\n        ~s,\n        [\n"
              (hash-ref svc 'full-name))
      (apply string-append (map php-method-entry (append methods (alias-server-methods svc))))
@@ -297,15 +309,67 @@
   (define jn (hash-ref f 'json-name ""))
   (if (and jn (not (string=? jn ""))) jn (php-pb-camel (hash-ref f 'name))))
 
+;; PHP reserved words cannot be class names (e.g. the interop
+;; Empty message): escape by appending an underscore.
+(define php-pb-reserved
+  (list->set
+   (map string-downcase
+        '("abstract" "and" "array" "as" "break" "callable" "case" "catch"
+          "class" "clone" "const" "continue" "declare" "default" "do" "echo"
+          "else" "elseif" "empty" "enddeclare" "endfor" "endforeach" "endif"
+          "endswitch" "endwhile" "enum" "eval" "exit" "extends" "final"
+          "finally" "fn" "for" "foreach" "function" "global" "goto" "if"
+          "implements" "include" "include_once" "instanceof" "insteadof"
+          "interface" "isset" "list" "match" "namespace" "new" "or" "parent"
+          "print" "private" "protected" "public" "readonly" "require"
+          "require_once" "return" "self" "static" "switch" "throw" "trait"
+          "try" "unset" "use" "var" "while" "xor" "yield" "int" "float"
+          "bool" "string" "true" "false" "null" "void" "iterable" "object"
+          "mixed" "never" "resource" "numeric"))))
+
 (define (php-pb-flat pkg full)
   (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
                   (substring full (add1 (string-length pkg)))
                   full))
-  (string-join (string-split rel ".") "_"))
+  (define flat (string-join (string-split rel ".") "_"))
+  (if (set-member? php-pb-reserved (string-downcase flat))
+      (string-append flat "_")
+      flat))
 
 (define (php-pb-resolve model type-name)
   (hash-ref (hash-ref model 'types) type-name
             (lambda () (error 'emit-php-pb-file "unresolved type ~a" type-name))))
+
+;; Stub-side reference to a message type: always qualified with
+;; the pb namespace of the file that defines it (method types
+;; often live in an imported file, not the service's own file).
+(define (php-stub-ref file-model full)
+  (define e (php-pb-resolve file-model full))
+  (format "\\~a\\~a" (php-pb-namespace e)
+          (php-pb-flat (hash-ref e 'pkg)
+                       (hash-ref (hash-ref e 'msg) 'full-name))))
+
+;; require_once lines for the pb file of every file that defines
+;; a method input/output type.
+(define (php-stub-requires file-model)
+  (if (hash-ref file-model 'types #f)
+      (apply string-append
+             (map (lambda (fn)
+                    (format "require_once __DIR__ . \"/~a_pb.php\";\n"
+                            (path->string
+                             (path-replace-extension (file-name-from-path fn) ""))))
+                  (remove-duplicates
+                   (append-map
+                    (lambda (svc)
+                      (append-map
+                       (lambda (m)
+                         (list (hash-ref (php-pb-resolve file-model (hash-ref m 'input-full)) 'file)
+                               (hash-ref (php-pb-resolve file-model (hash-ref m 'output-full)) 'file)))
+                       (hash-ref svc 'methods)))
+                    (hash-ref file-model 'services)))))
+      (format "require_once __DIR__ . \"/~a_pb.php\";\n"
+              (path->string (path-replace-extension
+                             (file-name-from-path (hash-ref file-model 'name)) "")))))
 
 (define (php-pb-namespace entry)
   (define base (path->string (path-replace-extension
@@ -681,7 +745,6 @@
 (define (emit-php-file file-model params)
   (define base (path->string (path-replace-extension
                               (file-name-from-path (hash-ref file-model 'name)) "")))
-  (define pb (string-append (camel base) "Pb"))
   (define ns (string-append (camel base) "GrpcDc"))
   (define stub
     (cons (string-append base "_grpc_dc.php")
@@ -689,7 +752,7 @@
          "<?php\n// @generated by protoc-gen-grpc-dc-php. DO NOT EDIT.\n"
          (format "// source: ~a\n\n" (hash-ref file-model 'name))
          (format "namespace ~a;\n\n" ns)
-         (format "require_once __DIR__ . \"/~a_pb.php\";\n" base)
+         (php-stub-requires file-model)
          "require_once __DIR__ . \"/../grpcdc.php\";\n\n"
          ;; trace=hooks: baking + namespaced delegates to \Status.
          (if (equal? (hash-ref params 'trace #f) "hooks")
@@ -704,7 +767,7 @@
              "")
          php-stream-helpers
          (apply string-append
-                (map (lambda (svc) (php-service pb svc))
+                (map (lambda (svc) (php-service file-model svc))
                      (hash-ref file-model 'services))))))
   (define pb-file (emit-php-pb-file file-model))
   (if pb-file (list stub pb-file) stub))

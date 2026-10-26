@@ -7,6 +7,7 @@
 
 import crypto from "node:crypto";
 import { CRC32C_TABLE, SctpChunk, SctpParam, SctpReconfig } from "./proto_gen.js";
+import { SctpReassembler } from "./sctp_reassembly_gen.js";
 
 // Env-gated packet tracing for wedge hunts (node only).
 const SCTP_TRACE =
@@ -128,7 +129,7 @@ export class Association {
     // recovers only at RTO granularity (1s per round).
     this.cwnd = INITIAL_CWND;
     this.ssthresh = Infinity;
-    this.streamsIn = new Map();
+    this.reasm = new SctpReassembler();
     this.cookieSecret = crypto.randomBytes(32);
     this.pendingCookie = Buffer.alloc(0);
     this.lastInitMs = 0;
@@ -262,12 +263,8 @@ export class Association {
   }
 
   #resetIncomingSide(stream, packets, events) {
-    const entry = this.streamsIn.get(stream);
-    if (entry) {
-      this.#drainStream(stream, events);
-      entry.partials.clear();
-      entry.completed.clear();
-      entry.nextSsn = 0;
+    for (const d of this.reasm.reset(stream)) {
+      events.push({ type: "data", stream: d.stream, ppid: d.ppid, payload: d.payload });
     }
     this.#resetStateOf(stream).inDone = true;
     this.#maybeReportReset(stream, events);
@@ -332,7 +329,7 @@ export class Association {
         for (let pos = 12; pos + 2 <= value.length; pos += 2) streams.push(value.readUInt16BE(pos));
         // No stream list means all streams; datachannels always
         // list one, but handle the general case for known ones.
-        const targets = streams.length ? streams : [...this.streamsIn.keys()];
+        const targets = streams.length ? streams : this.reasm.streamIds();
         if (diff32(this.peerCumTsn, lastTsn) < 0) {
           // Wait until everything sent has arrived (RFC 6525 §5.2).
           this.pendingReconf.push({ seq, lastTsn, streams: targets });
@@ -593,94 +590,8 @@ export class Association {
       }
     }
 
-    let entry = this.streamsIn.get(stream);
-    if (!entry) {
-      entry = { nextSsn: 0, partials: new Map(), completed: new Map() };
-      this.streamsIn.set(stream, entry);
-    }
-    let key = tsn;
-    if (!isBegin) {
-      for (const [k, p] of entry.partials) {
-        if (p.lastTsn !== null) continue; // already ended: new partial
-        const maxTsn = Math.max(...p.parts.keys());
-        if (add32(maxTsn, 1) === tsn) {
-          key = k;
-          break;
-        }
-      }
-    }
-    let partial = entry.partials.get(key);
-    if (!partial) {
-      partial = { ssn: 0, ppid: 0, unordered: false, parts: new Map(), firstTsn: null, lastTsn: null };
-      entry.partials.set(key, partial);
-    }
-    if (isBegin) {
-      partial.ssn = ssn;
-      partial.ppid = ppid;
-      partial.unordered = unordered;
-      partial.firstTsn = tsn;
-    }
-    if (isEnd) partial.lastTsn = tsn;
-    partial.parts.set(tsn, payload);
-
-    // Fragments can arrive out of order (reordering on the
-    // wire, or SACK-clocked sends interleaving with a burst):
-    // a fragment that lands before its predecessor starts a
-    // dangling partial. Merge any partials that have become
-    // TSN-contiguous, or such messages can never complete.
-    let merged = true;
-    while (merged) {
-      merged = false;
-      for (const [k2, p2] of [...entry.partials]) {
-        if (p2 === partial) continue;
-        const maxOf = (p) => Math.max(...p.parts.keys());
-        const minOf = (p) => Math.min(...p.parts.keys());
-        // Never merge across a message boundary: a partial holding a
-        // BEGIN fragment starts a new message, and one holding an END
-        // fragment is already a whole message.
-        if (add32(maxOf(partial), 1) === minOf(p2)) {
-          if (p2.firstTsn !== null || partial.lastTsn !== null) continue;
-          for (const [t, b] of p2.parts) partial.parts.set(t, b);
-          if (p2.lastTsn !== null) partial.lastTsn = p2.lastTsn;
-          entry.partials.delete(k2);
-          merged = true;
-        } else if (add32(maxOf(p2), 1) === minOf(partial)) {
-          if (partial.firstTsn !== null || p2.lastTsn !== null) continue;
-          for (const [t, b] of partial.parts) p2.parts.set(t, b);
-          if (partial.lastTsn !== null) p2.lastTsn = partial.lastTsn;
-          entry.partials.delete(key);
-          partial = p2;
-          key = k2;
-          merged = true;
-        }
-      }
-    }
-
-    if (partial.firstTsn === null || partial.lastTsn === null) return;
-    const count = diff32(partial.lastTsn, partial.firstTsn) + 1;
-    if (partial.parts.size !== count) return;
-    for (let i2 = 0; i2 < count; i2++) {
-      if (!partial.parts.has(add32(partial.firstTsn, i2))) return;
-    }
-    entry.partials.delete(key);
-    const parts = [];
-    for (let i2 = 0; i2 < count; i2++) parts.push(partial.parts.get(add32(partial.firstTsn, i2)));
-    const full = Buffer.concat(parts);
-    if (partial.unordered) {
-      events.push({ type: "data", stream, ppid: partial.ppid, payload: full });
-    } else {
-      entry.completed.set(partial.ssn, [partial.ppid, full]);
-      this.#drainStream(stream, events);
-    }
-  }
-
-  #drainStream(stream, events) {
-    const entry = this.streamsIn.get(stream);
-    while (entry.completed.has(entry.nextSsn)) {
-      const [ppid, payload] = entry.completed.get(entry.nextSsn);
-      entry.completed.delete(entry.nextSsn);
-      entry.nextSsn = (entry.nextSsn + 1) & 0xffff;
-      events.push({ type: "data", stream, ppid, payload });
+    for (const d of this.reasm.feed(tsn, stream, ssn, ppid, unordered, isBegin, isEnd, payload)) {
+      events.push({ type: "data", stream: d.stream, ppid: d.ppid, payload: d.payload });
     }
   }
 
@@ -694,19 +605,9 @@ export class Association {
     for (let pos = 4; pos + 4 <= body.length; pos += 4) {
       const stream = body.readUInt16BE(pos);
       const ssn = body.readUInt16BE(pos + 2);
-      let entry = this.streamsIn.get(stream);
-      if (!entry) {
-        entry = { nextSsn: 0, partials: new Map(), completed: new Map() };
-        this.streamsIn.set(stream, entry);
+      for (const d of this.reasm.skip(stream, ssn)) {
+        events.push({ type: "data", stream: d.stream, ppid: d.ppid, payload: d.payload });
       }
-      for (const s of [...entry.completed.keys()]) {
-        if (s <= ssn) entry.completed.delete(s);
-      }
-      if (entry.nextSsn <= ssn) entry.nextSsn = (ssn + 1) & 0xffff;
-      for (const [k, p] of [...entry.partials]) {
-        if (!p.unordered && p.ssn === ssn) entry.partials.delete(k);
-      }
-      this.#drainStream(stream, events);
     }
   }
 

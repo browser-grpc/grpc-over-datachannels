@@ -1,7 +1,7 @@
 package tests
 
 import echo.StdioTransport
-import grpc.testing.{EchoStatus, Empty, Payload, ResponseParameters, SimpleRequest, StreamingInputCallRequest, StreamingOutputCallRequest, TestGrpcDc}
+import grpc.testing.{EchoStatus, Empty, Payload, ResponseParameters, SimpleRequest, StreamingInputCallRequest, StreamingOutputCallRequest, TestGrpcDc, TestOrcaReport}
 import grpcdc.{Channel, StatusException}
 import java.io.{BufferedReader, File, InputStreamReader}
 import java.net.ServerSocket
@@ -38,6 +38,74 @@ private def expectStatus(code: Int, message: String, what: String)(call: => Unit
       return
   }
   throw new AssertionError(s"$what: expected status $code, call succeeded")
+}
+
+// ORCA rows (upstream orca_per_rpc / orca_oob): per-RPC the
+// report returns as the serialized OrcaLoadReport in the
+// endpoint-load-metrics-bin trailer (base64 -bin value); OOB the
+// value fed through FullDuplexCall comes back on the
+// OpenRcaService StreamCoreMetrics stream.
+private def runOrcaCases(channel: Channel, client: TestGrpcDc.TestServiceClient): Unit = {
+  val req = new SimpleRequest()
+  req.orcaPerQueryReport = new TestOrcaReport(
+    cpuUtilization = 0.8210,
+    memoryUtilization = 0.5847,
+    requestCost = Map("cost" -> 3456.32),
+    utilization = Map("util" -> 0.30499))
+  val stream = channel.serverStream("/grpc.testing.TestService/UnaryCall", req, null)
+  try {
+    val resp = new grpc.testing.SimpleResponse()
+    stream.recv(resp)
+    try {
+      stream.recv(new grpc.testing.SimpleResponse())
+      throw new AssertionError("orca_per_rpc: expected EOF")
+    } catch {
+      case _: java.io.EOFException => // end of stream: trailers now readable
+    }
+    val encodedOpt = stream.trailers.get("endpoint-load-metrics-bin")
+    check(encodedOpt.isDefined, "orca_per_rpc: no endpoint-load-metrics-bin trailer")
+    val encoded = encodedOpt.get
+    val raw = Base64.getDecoder.decode(
+      encoded + "=" * ((4 - encoded.length % 4) % 4))
+    val loadReport = new xds.data.orca.v3.OrcaLoadReport()
+    loadReport.unmarshalDc(raw)
+    check(loadReport.cpuUtilization == 0.8210
+      && loadReport.memUtilization == 0.5847
+      && loadReport.requestCost.getOrElse("cost", 0.0) == 3456.32
+      && loadReport.utilization.getOrElse("util", 0.0) == 0.30499,
+      s"orca_per_rpc: report ${loadReport.cpuUtilization}/${loadReport.memUtilization}")
+  } finally {
+    stream.close()
+  }
+  println("interop case ok: orca_per_rpc")
+
+  val feed = new StreamingOutputCallRequest()
+  feed.orcaOobReport = new TestOrcaReport(
+    cpuUtilization = 0.9,
+    memoryUtilization = 0.85,
+    utilization = Map("util" -> 0.5))
+  Using.resource(client.FullDuplexCall(List(feed))) { duplex =>
+    var done = false
+    while (!done) {
+      try {
+        duplex.recv()
+      } catch {
+        case _: java.io.EOFException => done = true
+      }
+    }
+  }
+  val orca = new xds.service.orca.v3.OrcaGrpcDc.OpenRcaServiceClient(channel)
+  val deadline = System.currentTimeMillis() + 30000
+  var matched = false
+  Using.resource(orca.StreamCoreMetrics(new xds.service.orca.v3.OrcaLoadReportRequest())) { stream =>
+    while (!matched && System.currentTimeMillis() < deadline) {
+      val got = stream.recv()
+      matched = got.cpuUtilization == 0.9 && got.memUtilization == 0.85
+        && got.utilization.getOrElse("util", 0.0) == 0.5
+    }
+  }
+  check(matched, "orca_oob: no matching OOB report within 30s")
+  println("interop case ok: orca_oob")
 }
 
 private def runInteropCases(
@@ -177,7 +245,9 @@ def testInteropOracle(): Unit = {
       errDrain.start()
       val transport = new StdioTransport(bridge.getOutputStream, bridge.getInputStream)
       val channel = new Channel(transport)
-      runInteropCases(new TestGrpcDc.TestServiceClient(channel), new TestGrpcDc.UnimplementedServiceClient(channel))
+      val client = new TestGrpcDc.TestServiceClient(channel)
+      runInteropCases(client, new TestGrpcDc.UnimplementedServiceClient(channel))
+      runOrcaCases(channel, client)
     } finally {
       bridge.destroyForcibly()
     }

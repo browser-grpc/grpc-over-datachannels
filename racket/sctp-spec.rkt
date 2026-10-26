@@ -2,9 +2,10 @@
 
 ;;; sctp-spec.rkt — cross-stack SCTP conformance scenarios as
 ;;; data. Emitters (sctp-gen.rkt) stamp these as JSON consumed by
-;;; the Go/JS/Rust SCTP test suites, so all three mirrored state
-;;; machines prove the same wire behaviours on the same inputs —
-;;; the drift class behind the v0.32.12 reassembly wedge.
+;;; the Go/JS/Rust SCTP test suites, so all three stacks prove
+;;; the same wire behaviours on the same inputs — the drift class
+;;; behind the v0.32.12 reassembly wedge. The reassembly machine
+;;; itself is generated from sctp-dsl.rkt.
 ;;;
 ;;; Scenario: (name stream messages deliver expect)
 ;;;   messages: ((fill-char size) ...) sent in order on `stream`

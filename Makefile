@@ -130,6 +130,39 @@ interop-stubs:
 		--grpc-dc-scala_out=scala/examples/interop -I oracle/interop \
 		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
 		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	mkdir -p swift/examples/interop zig/examples/interop c/examples/interop cpp/examples/interop lua/examples/interop ruby/examples/interop php/examples/interop
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-dart=bin/protoc-gen-grpc-dc-dart \
+		--grpc-dc-dart_out=dart/examples -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-swift=bin/protoc-gen-grpc-dc-swift \
+		--grpc-dc-swift_out=swift/examples/interop -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-zig=bin/protoc-gen-grpc-dc-zig \
+		--grpc-dc-zig_out=zig/examples/interop -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
+		--grpc-dc-c_out=c/examples/interop -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-cpp=bin/protoc-gen-grpc-dc-cpp \
+		--grpc-dc-cpp_out=cpp/examples -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-lua=bin/protoc-gen-grpc-dc-lua \
+		--grpc-dc-lua_out=lua/examples -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-ruby=bin/protoc-gen-grpc-dc-ruby \
+		--grpc-dc-ruby_out=ruby/examples/interop -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-php=bin/protoc-gen-grpc-dc-php \
+		--grpc-dc-php_out=php/examples -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
 	gofmt -w go/interop/*.go
 
 generate: plugins stubs
@@ -212,7 +245,7 @@ test-python:
 test-java:
 	cd java && mkdir -p build && javac -encoding UTF-8 -d build $$(find grpcdc examples tests -name '*.java') \
 		&& java -cp build tests.TestCodec && java -cp build tests.TestEcho \
-		&& java -cp build tests.TestInterop && java -cp build tests.TestInteropOracle && java -cp build tests.TestOracle \
+		&& java -cp build tests.TestInterop && java -cp build tests.TestInteropOracle && java -cp build tests.TestOracle && java -cp build tests.TestHttp2Oracle \
 		&& java -cp build tests.TestDynamic && java -cp build tests.TestBdd && java -cp build tests.TestDeadline \
 		&& java -cp build tests.TestSidecar \
 		&& java -cp build tests.TestPbMessages && java -cp build tests.TestBddSchemas
@@ -225,6 +258,7 @@ test-csharp:
 		&& dotnet run --project tests --no-build -- TestEcho \
 		&& dotnet run --project tests --no-build -- TestInterop \
 		&& dotnet run --project tests --no-build -- TestInteropOracle \
+		&& dotnet run --project tests --no-build -- TestHttp2Oracle \
 		&& dotnet build examples/DynamicEchoServerStdio/DynamicEchoServerStdio.csproj --nologo -v q \
 		&& dotnet run --project tests --no-build -- TestOracle \
 		&& dotnet run --project tests --no-build -- TestDynamic \
@@ -238,12 +272,12 @@ CXXFLAGS ?= -std=c++17 -pthread -O1 -Icpp -I.
 
 test-cpp:
 	mkdir -p cpp/build
-	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp -o cpp/build/tests
+	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_interop_oracle.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp -o cpp/build/tests
 	$(CXX) $(CXXFLAGS) cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/dynamic_echo_server_stdio.cpp -o cpp/build/dynamic_echo_server_stdio
 	cd cpp && ./build/tests TestCodec && ./build/tests TestEcho \
-		&& ./build/tests TestInterop && ./build/tests TestOracle \
+		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
 		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar && ./build/tests TestBddSidecar
 	# C++20 coroutine surface test: built with zig's clang because
@@ -256,12 +290,12 @@ SWIFTFLAGS ?= -swift-version 5 -O -o
 
 test-swift:
 	mkdir -p swift/build
-	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/tests/*.swift -o swift/build/tests
+	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/interop/*.swift swift/tests/*.swift -o swift/build/tests
 	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoServerStdio/main.swift -o swift/build/echo_server_stdio
 	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoClientStdio/main.swift -o swift/build/echo_client_stdio
 	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/DynamicEchoServerStdio/main.swift -o swift/build/dynamic_echo_server_stdio
 	cd swift && ./build/tests TestCodec && ./build/tests TestEcho \
-		&& ./build/tests TestInterop && ./build/tests TestOracle \
+		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
 		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar
 
@@ -288,7 +322,7 @@ test-dart:
 	$(DART) compile exe dart/examples/EchoClientStdio/main.dart -o dart/build/echo_client_stdio
 	$(DART) compile exe dart/examples/DynamicEchoServerStdio/main.dart -o dart/build/dynamic_echo_server_stdio
 	cd dart && ./build/tests TestCodec && ./build/tests TestEcho \
-		&& ./build/tests TestInterop && ./build/tests TestOracle \
+		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
 		&& ./build/tests TestSidecar && ./build/tests TestPbMessages && ./build/tests TestBddSchemas
 
@@ -297,7 +331,7 @@ ZIG ?= zig
 test-zig:
 	cd zig && rm -rf build .zig-cache && $(ZIG) build --prefix build
 	cd zig && ./build/bin/tests TestCodec && ./build/bin/tests TestEcho \
-		&& ./build/bin/tests TestInterop && ./build/bin/tests TestOracle \
+		&& ./build/bin/tests TestInterop && ./build/bin/tests TestInteropOracle && ./build/bin/tests TestOracle \
 		&& ./build/bin/tests TestDynamic && ./build/bin/tests TestBdd && ./build/bin/tests TestDeadline \
 		&& ./build/bin/tests TestPbMessages && ./build/bin/tests TestBddSchemas && ./build/bin/tests TestSidecar
 
@@ -311,7 +345,7 @@ test-c:
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -o c/build/echo_server_stdio
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -o c/build/echo_client_stdio
-	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestBddSchemas && ./c/build/tests TestOracle && ./c/build/tests TestDynamic && ./c/build/tests TestSidecar
+	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestBddSchemas && ./c/build/tests TestOracle && ./c/build/tests TestInteropOracle && ./c/build/tests TestDynamic && ./c/build/tests TestSidecar
 
 LUA ?= lua
 
@@ -319,6 +353,7 @@ test-lua:
 	LUA=$(LUA) $(LUA) lua/tests/main.lua TestCodec \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestEcho \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestInterop \
+		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestInteropOracle \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestOracle \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDynamic \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestBdd \
@@ -380,6 +415,7 @@ test-ruby:
 	RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestCodec \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestEcho \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestInterop \
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestInteropOracle \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestOracle \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestDynamic \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestBdd \
@@ -395,6 +431,7 @@ test-php:
 	PHP=$(PHP) $(PHP) php/tests/main.php TestCodec \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestEcho \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestInterop \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestInteropOracle \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestOracle \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDynamic \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestBdd \

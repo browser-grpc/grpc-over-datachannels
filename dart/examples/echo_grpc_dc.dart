@@ -59,6 +59,18 @@ class EchoServerStreamStream {
     return resp;
   }
 
+  /// Initial metadata (response headers); null until they arrive.
+  Map<String, String>? get headers => _stream.headers?.metadata;
+
+  /// Trailing metadata of the terminal status; null until it arrives.
+  Map<String, String>? get trailers => _stream.trailers;
+
+  /// Abort this stream (sends RST, wakes a pending recv).
+  void cancel() => _stream.cancel();
+
+  /// Abandon the call if still live (RST); no-op once terminated.
+  void close() => _stream.close();
+
   /// Responses as a Dart Stream (native async surface).
   /// Cancelling the subscription abandons the call:
   /// RST CANCELLED is sent so the server stops.
@@ -102,6 +114,18 @@ class EchoBidiStream {
     await _stream.recv(resp);
     return resp;
   }
+
+  /// Initial metadata (response headers); null until they arrive.
+  Map<String, String>? get headers => _stream.headers?.metadata;
+
+  /// Trailing metadata of the terminal status; null until it arrives.
+  Map<String, String>? get trailers => _stream.trailers;
+
+  /// Abort this stream (sends RST, wakes a pending recv).
+  void cancel() => _stream.cancel();
+
+  /// Abandon the call if still live (RST); no-op once terminated.
+  void close() => _stream.close();
 
   /// Responses as a Dart Stream (native async surface).
   /// Cancelling the subscription abandons the call:

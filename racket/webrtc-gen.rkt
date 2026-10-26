@@ -5,7 +5,7 @@
 ;;; Invoked from metagen.rkt so `make generate` regenerates everything
 ;;; from the two spec files in one pass.
 
-(require "webrtc-spec.rkt" racket/runtime-path)
+(require "webrtc-spec.rkt" "sctp-dsl.rkt" racket/runtime-path)
 (provide generate-webrtc)
 
 (define-runtime-path here ".")
@@ -165,4 +165,15 @@
   (make-directory* go-dir)
   (call-with-output-file (build-path go-dir "proto_gen.go") #:exists 'replace
     (lambda (out) (display (emit-go) out)))
-  (printf "generated webrtc/go/proto_gen.go\n"))
+  (printf "generated webrtc/go/proto_gen.go\n")
+  ;; SCTP reassembly, generated from the shared DSL
+  ;; (sctp-dsl.rkt) so all three stacks run the same machine.
+  (call-with-output-file (build-path go-dir "sctp_reassembly_gen.go") #:exists 'replace
+    (lambda (out) (display (emit-go-sctp-reassembly) out)))
+  (printf "generated webrtc/go/sctp_reassembly_gen.go\n")
+  (call-with-output-file (build-path root "webrtc" "js" "sctp_reassembly_gen.js") #:exists 'replace
+    (lambda (out) (display (emit-js-sctp-reassembly) out)))
+  (printf "generated webrtc/js/sctp_reassembly_gen.js\n")
+  (call-with-output-file (build-path root "webrtc" "rust" "src" "sctp_reassembly_gen.rs") #:exists 'replace
+    (lambda (out) (display (emit-rust-sctp-reassembly) out)))
+  (printf "generated webrtc/rust/src/sctp_reassembly_gen.rs\n"))

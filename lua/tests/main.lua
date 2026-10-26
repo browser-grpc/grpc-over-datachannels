@@ -17,6 +17,8 @@ local ok, err = pcall(function()
     require("test_bdd")()
   elseif name == "TestInterop" then
     require("test_interop")()
+  elseif name == "TestInteropOracle" then
+    require("test_interop_oracle")()
   elseif name == "TestOracle" then
     require("test_oracle")()
   elseif name == "TestDynamic" then

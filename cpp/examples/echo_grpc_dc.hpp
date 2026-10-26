@@ -36,6 +36,12 @@ struct EchoGrpcDc {
         return resp;
       }
 
+      /// Initial metadata (response headers).
+      const grpcdc::Metadata& Headers() const { return stream_.headers().metadata; }
+
+      /// Trailing metadata of the terminal status.
+      const grpcdc::Metadata& Trailers() const { return stream_.trailers(); }
+
      private:
       grpcdc::Channel::ClientStream stream_;
     };
@@ -49,6 +55,12 @@ struct EchoGrpcDc {
         stream_.Recv(resp);
         return resp;
       }
+
+      /// Initial metadata (response headers).
+      const grpcdc::Metadata& Headers() const { return stream_.headers().metadata; }
+
+      /// Trailing metadata of the terminal status.
+      const grpcdc::Metadata& Trailers() const { return stream_.trailers(); }
 
      private:
       grpcdc::Channel::ClientStream stream_;

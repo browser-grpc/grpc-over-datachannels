@@ -80,6 +80,10 @@
               "                try stream.Recv(resp)\n"
               "                return resp\n"
               "            }\n"
+              "            /// Initial metadata (response headers); nil until they arrive.\n"
+              "            var Headers: [String: String]? { stream.headers?.metadata }\n"
+              "            /// Trailing metadata of the terminal status; nil until it arrives.\n"
+              "            var Trailers: [String: String]? { stream.trailers }\n"
               "            func Cancel() { stream.Cancel() }\n"
               "            func Close() { stream.Close() }\n"
               "        }\n\n")
@@ -387,9 +391,9 @@
      (format "    static func Register~aServerAsync(_ server: Server, _ impl: ~aServerAsync) {\n" sname sname)
      "        // Adapters are retained for the process lifetime: registration is\n"
      "        // once-per-process and bounded by service count.\n"
-     (format "        adapters.append(~aServerAsyncAdapter(impl))\n" sname)
-     (format "        Register~aServer(server, adapters.last!)\n    }\n\n" sname)
-     (format "    private static var adapters: [~aServerAsyncAdapter] = []\n" sname)
+     (format "        ~aAdapters.append(~aServerAsyncAdapter(impl))\n" sname sname)
+     (format "        Register~aServer(server, ~aAdapters.last!)\n    }\n\n" sname sname)
+     (format "    private static var ~aAdapters: [~aServerAsyncAdapter] = []\n" sname sname)
      "    #endif\n")))
 
 ;; ---------------------------------------------------------------------------
@@ -649,13 +653,13 @@
                         (format "                        ~a.append(~a)\n" v
                                 (let ([conv (swift-pb-varint-decode f "sub.Varint()")])
                                   (if (= type 14)
-                                      (format "~a(rawValue: ~a) ?? ~a" (swift-pb-entry-ref model (swift-pb-resolve model (hash-ref f 'type-name))) (swift-pb-varint-decode (hash-set f 'type 5) "sub.Varint()") (swift-pb-default model f))
+                                      (format "~a(rawValue: ~a) ?? ~a" (swift-pb-entry-ref model (swift-pb-resolve model (hash-ref f 'type-name))) (swift-pb-varint-decode (hash-set f 'type 5) "sub.Varint()") (swift-pb-default model (hash-set f 'label 1)))
                                       conv)))
                         "                    }\n                } else {\n"
                         (format "                    ~a.append(~a)\n" v
                                 (let ([conv (swift-pb-varint-decode f "field.varintValue")])
                                   (if (= type 14)
-                                      (format "~a(rawValue: ~a) ?? ~a" (swift-pb-entry-ref model (swift-pb-resolve model (hash-ref f 'type-name))) (swift-pb-varint-decode (hash-set f 'type 5) "field.varintValue") (swift-pb-default model f))
+                                      (format "~a(rawValue: ~a) ?? ~a" (swift-pb-entry-ref model (swift-pb-resolve model (hash-ref f 'type-name))) (swift-pb-varint-decode (hash-set f 'type 5) "field.varintValue") (swift-pb-default model (hash-set f 'label 1)))
                                       conv)))
                         "                }\n")]
         [(assv type swift-pb-fixed)
@@ -899,23 +903,6 @@
              "")
          (apply string-append
                 (map swift-service (hash-ref file-model 'services)))
-         "}\n\n"
-         "#if canImport(Foundation)\n"
-         "/// Run an async operation to completion on a blocking thread.\n"
-         "func RunBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {\n"
-         "    let semaphore = DispatchSemaphore(value: 0)\n"
-         "    var result: Result<T, Error>!\n"
-         "    Task.detached {\n"
-         "        do {\n"
-         "            result = .success(try await body())\n"
-         "        } catch {\n"
-         "            result = .failure(error)\n"
-         "        }\n"
-         "        semaphore.signal()\n"
-         "    }\n"
-         "    semaphore.wait()\n"
-         "    return try result.get()\n"
-         "}\n"
-         "#endif\n")))
+         "}\n")))
   (define pb-file (emit-swift-pb-file file-model))
   (if pb-file (list stub pb-file) stub))
