@@ -65,8 +65,8 @@ pub const RequestStream = struct {
 pub const Sink = struct {
     sink: ResponseSink,
 
-    pub fn send(self: Sink, payload: []const u8) void {
-        self.sink.send(payload);
+    pub fn send(self: Sink, payload: []const u8) Status {
+        return self.sink.send(payload);
     }
 };
 

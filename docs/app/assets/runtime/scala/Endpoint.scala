@@ -95,7 +95,17 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
     var respTrailers: scala.collection.Map[String, String] = Map.empty
     var headersSent: Boolean = false
 
+    // A stream the endpoint has forgotten was RST by the peer
+    // (or the channel went away): fail the send so a producing
+    // handler stops instead of streaming into the void.
+    private def checkOpen(): Unit = {
+      if (endpoint.stream(streamId) == null) {
+        throw StatusException(Wire.CODE_CANCELLED, "call cancelled")
+      }
+    }
+
     def send(payload: Array[Byte]): Unit = {
+      checkOpen()
       flushHeaders()
       endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, payload))
     }
@@ -112,6 +122,7 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
     }
 
     def sendHeaders(metadata: Map[String, String]): Unit = {
+      checkOpen()
       headersSent = true
       endpoint.sendFrame(Codec.headersFrame(streamId, null, metadata))
     }

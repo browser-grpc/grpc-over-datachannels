@@ -168,5 +168,90 @@ public static class TestEcho
         var syncClient = new EchoGrpcDc.EchoClient(new Channel(a));
         EchoResponse viaAsync = syncClient.Unary(Req("hello", 0));
         Program.Check(viaAsync.Message == "echo: hello", $"async server unary: {viaAsync}");
+
+        await RunBreakStreamCancelsServer();
+    }
+
+    /// <summary>Counting service for the stream-break regression test.</summary>
+    private sealed class CountingEchoService : EchoGrpcDc.EchoServer
+    {
+        public int Produced;
+
+        public EchoResponse Unary(Endpoint.CallContext ctx, EchoRequest req)
+            => new($"echo: {req.Message}", 0);
+
+        public void ServerStream(EchoRequest req, EchoGrpcDc.EchoServerStreamServer stream)
+        {
+            for (int i = 0; i < Math.Max(0, req.Count); i++)
+            {
+                Interlocked.Increment(ref Produced);
+                stream.Send(new EchoResponse(req.Message, i));
+                Thread.Sleep(10);
+            }
+        }
+
+        public void ClientStream(EchoGrpcDc.EchoClientStreamServer stream)
+        {
+            var parts = new List<string>();
+            while (true)
+            {
+                try
+                {
+                    parts.Add(stream.Recv().Message);
+                }
+                catch (EndOfStreamException)
+                {
+                    break;
+                }
+            }
+            stream.SendAndClose(new EchoResponse(string.Join("+", parts), parts.Count));
+        }
+
+        public void Bidi(EchoGrpcDc.EchoBidiServer stream)
+        {
+            int index = 0;
+            while (true)
+            {
+                EchoRequest req;
+                try
+                {
+                    req = stream.Recv();
+                }
+                catch (EndOfStreamException)
+                {
+                    return;
+                }
+                stream.Send(new EchoResponse(req.Message, index++));
+            }
+        }
+    }
+
+    // Breaking out of await foreach after one response must RST
+    // the call: the producing handler's next send fails with
+    // CANCELLED and production settles well below the total.
+    private static async Task RunBreakStreamCancelsServer()
+    {
+        var service = new CountingEchoService();
+        (ITransport a, ITransport b) = MemoryTransport.Pair();
+        var server = new Server();
+        EchoGrpcDc.RegisterEchoServer(server, service);
+        server.ServeTransport(b);
+        var client = new EchoGrpcDc.EchoClient(new Channel(a));
+
+        int seen = 0;
+        await foreach (EchoResponse resp in client.ServerStreamAsync(Req("tick", 1000)))
+        {
+            Program.Check(resp.Index == 0, $"break stream first response: {resp}");
+            seen++;
+            break;
+        }
+        Program.Check(seen == 1, $"break stream seen: {seen}");
+
+        await Task.Delay(100);
+        int settled = Volatile.Read(ref service.Produced);
+        await Task.Delay(100);
+        Program.Check(Volatile.Read(ref service.Produced) == settled,
+            $"server kept producing after break: {settled} -> {service.Produced}");
+        Program.Check(settled < 100, $"server produced too many responses: {settled}");
     }
 }

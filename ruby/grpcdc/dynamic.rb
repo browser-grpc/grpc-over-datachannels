@@ -601,15 +601,30 @@ module Grpcdc
       @stream.recv(BoundMessage.new(@model, nil, @file_model)).generic
     end
 
+    # Abandon the call early: RST unless it already terminated.
+    def cancel
+      @stream.cancel
+    end
+
+    def close
+      @stream.cancel
+    end
+
     def each
       return enum_for(:each) unless block_given?
 
-      loop do
-        begin
-          yield recv
-        rescue EOFError
-          return
+      begin
+        loop do
+          begin
+            yield recv
+          rescue EOFError
+            return
+          end
         end
+      ensure
+        # Breaking out of the block abandons the call: RST so
+        # the server stops producing (no-op once terminated).
+        close
       end
     end
   end

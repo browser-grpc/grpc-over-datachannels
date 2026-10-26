@@ -5,10 +5,28 @@ const util = @import("test_util.zig");
 
 const Channel = grpcdc.channel.Channel;
 const Server = grpcdc.server.Server;
+const stubs = examples.echo_grpc_dc;
+const CallContext = stubs.CallContext;
 const EchoRequest = examples.echo_messages.EchoRequest;
+const EchoResponse = examples.echo_messages.EchoResponse;
+const Status = grpcdc.status.Status;
 
 fn req(message: []const u8, count: i32) EchoRequest {
     return .{ .message = message, .count = count };
+}
+
+var break_produced = std.atomic.Value(i32).init(0);
+
+fn breakServerStream(_: *anyopaque, _: *CallContext, request: *const EchoRequest, stream: *stubs.EchoServerStreamServer) Status {
+    var i: i32 = 0;
+    while (i < request.count) : (i += 1) {
+        _ = break_produced.fetchAdd(1, .monotonic);
+        var resp = EchoResponse{ .message = request.message, .index = i };
+        const st = stream.send(&resp);
+        if (!st.isOk()) return st;
+        std.Thread.sleep(5 * std.time.ns_per_ms);
+    }
+    return Status.ok();
 }
 
 /// Loopback end-to-end: all four shapes, error status, metadata.
@@ -110,6 +128,47 @@ pub fn testEcho(alloc: std.mem.Allocator) void {
         },
     };
     util.check(std.mem.eql(u8, with_md.message, "echo: hello [meta]"), "metadata");
+
+    // Breaking a server stream cancels it server-side: deinit of
+    // the client stream before trailers sends RST CANCELLED, and
+    // the handler's next send fails instead of producing forever.
+    break_produced.store(0, .monotonic);
+    {
+        var break_pair = grpcdc.memory_transport.memoryTransportPair(alloc);
+        defer break_pair.deinit(alloc);
+        var break_impl = stubs.EchoServer{
+            .ctx = undefined,
+            .unary_fn = examples.echo_service_impl.echo_server_impl.unary_fn,
+            .server_stream_fn = breakServerStream,
+            .client_stream_fn = examples.echo_service_impl.echo_server_impl.client_stream_fn,
+            .bidi_fn = examples.echo_service_impl.echo_server_impl.bidi_fn,
+        };
+        var break_server = Server.init(alloc);
+        defer break_server.deinit();
+        stubs.EchoGrpcDc.registerEchoServer(&break_server, &break_impl);
+        _ = break_server.serveTransport(grpcdc.memory_transport.transportOf(break_pair.end_b));
+        var break_channel = Channel.init(alloc, grpcdc.memory_transport.transportOf(break_pair.end_a));
+        defer break_channel.deinit();
+        var break_client = stubs.EchoClient.init(&break_channel);
+        var break_stream = switch (break_client.serverStream(&req("tick", 200), null, null)) {
+            .ok => |s| s,
+            .status => |st| {
+                util.checkFmt(false, "stream-break open status {d}", .{st.code});
+                unreachable;
+            },
+        };
+        switch (break_stream.recv()) {
+            .message => |r| util.check(r.index == 0, "stream-break first response"),
+            .end => util.check(false, "stream-break ended early"),
+            .status => |st| util.checkFmt(false, "stream-break recv status {d}", .{st.code}),
+        }
+        break_stream.deinit(); // abandon the call: sends RST
+        std.Thread.sleep(100 * std.time.ns_per_ms);
+        const settled = break_produced.load(.monotonic);
+        std.Thread.sleep(100 * std.time.ns_per_ms);
+        util.check(break_produced.load(.monotonic) == settled, "stream-break production did not settle");
+        util.check(settled < 100, "stream-break server kept producing");
+    }
 
     std.debug.print("TestEcho OK\n", .{});
 }

@@ -124,7 +124,18 @@ final class Endpoint {
         var respTrailers: [String: String] { ctx?.responseTrailers ?? [:] }
         var headersSent = false
 
+        // A stream the endpoint has forgotten was RST by the
+        // peer (or the channel went away): fail the send so a
+        // producing handler stops instead of streaming into
+        // the void.
+        private func CheckOpen() throws {
+            if endpoint.Stream(streamId) == nil {
+                throw StatusException(Wire.CodeCancelled, "call cancelled")
+            }
+        }
+
         func Send(_ payload: [UInt8]) throws {
+            try CheckOpen()
             try FlushHeaders()
             try endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, streamId, payload))
         }
@@ -141,6 +152,7 @@ final class Endpoint {
         }
 
         func SendHeaders(_ metadata: [String: String]) throws {
+            try CheckOpen()
             headersSent = true
             try endpoint.SendFrame(Codec.HeadersFrame(streamId, nil, metadata))
         }

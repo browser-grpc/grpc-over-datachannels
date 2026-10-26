@@ -482,7 +482,7 @@ error_case=INVALID-ARGUMENT: asked to fail
 Fatal Python error: _enter_buffered_busy: could not acquire lock for <_io.BufferedReader name='<stdin>'> at interpreter shutdown, possibly due to daemon threads
 Python runtime state: finalizing (tstate=0x0000000000b8a848)
 
-Current thread 0x0000e3e2ce74f720 (most recent call first):
+Current thread 0x0000eb95e2f05720 (most recent call first):
   <no Python frame>
 ```
 

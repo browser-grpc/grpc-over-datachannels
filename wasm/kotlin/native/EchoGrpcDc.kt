@@ -14,20 +14,32 @@ import grpcdc.EOFException
 object EchoGrpcDc {
     /** Client for echo.Echo. */
     class EchoClient(private val channel: Channel) {
-        class EchoServerStreamStream(private val stream: Channel.ClientStream) {
+        class EchoServerStreamStream(private val stream: Channel.ClientStream) : AutoCloseable {
             fun recv(): EchoResponse {
                 val resp = EchoResponse()
                 stream.recv(resp)
                 return resp
             }
+
+            /** Abort this stream (sends RST, wakes a pending recv). */
+            fun cancel() = stream.cancel()
+
+            /** Abandon the call if still live (RST); no-op once terminated. */
+            override fun close() = stream.close()
         }
 
-        class EchoBidiStream(private val stream: Channel.ClientStream) {
+        class EchoBidiStream(private val stream: Channel.ClientStream) : AutoCloseable {
             fun recv(): EchoResponse {
                 val resp = EchoResponse()
                 stream.recv(resp)
                 return resp
             }
+
+            /** Abort this stream (sends RST, wakes a pending recv). */
+            fun cancel() = stream.cancel()
+
+            /** Abandon the call if still live (RST); no-op once terminated. */
+            override fun close() = stream.close()
         }
 
         fun Unary(req: EchoRequest, metadata: Map<String, String>? = null, timeout: Long? = null): EchoResponse {

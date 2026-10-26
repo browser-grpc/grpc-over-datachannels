@@ -113,5 +113,63 @@ func TestEcho() throws {
     try Check(withMd.message == "echo: hello [meta]", "metadata: \(withMd)")
 
     try RunAsync()
+
+    // Breaking a server stream cancels it server-side: breaking
+    // the async sequence must RST the call so the slow handler
+    // stops producing instead of streaming into the void.
+    let counter = ProducedCounter()
+    let (a2, b2) = MemoryTransport.Pair()
+    let server2 = Server()
+    EchoGrpcDc.RegisterEchoServer(server2, SlowEchoService(counter))
+    server2.ServeTransport(b2)
+    let client2 = EchoGrpcDc.EchoClient(Channel(a2))
+    try RunBlocking {
+        var seen = 0
+        for try await resp in client2.ServerStreamAsync(Req("tick", 1000)) {
+            try Check(resp.index == 0, "stream-break first: \(resp)")
+            seen += 1
+            break
+        }
+        try Check(seen == 1, "stream-break seen: \(seen)")
+    }
+    Thread.sleep(forTimeInterval: 0.15)
+    let settled = counter.get()
+    Thread.sleep(forTimeInterval: 0.15)
+    try Check(counter.get() == settled, "stream-break kept producing: \(settled) -> \(counter.get())")
+    try Check(settled < 100, "stream-break produced too many: \(settled)")
+
     print("TestEcho OK")
+}
+
+/// Thread-safe production counter for the stream-break test.
+private final class ProducedCounter {
+    private let lock = NSLock()
+    private var value = 0
+    func inc() { lock.lock(); value += 1; lock.unlock() }
+    func get() -> Int { lock.lock(); defer { lock.unlock() }; return value }
+}
+
+/// Slow counting handler for the stream-break test.
+private final class SlowEchoService: EchoGrpcDc.EchoServer {
+    private let counter: ProducedCounter
+    private let inner = EchoServiceImpl()
+    init(_ counter: ProducedCounter) { self.counter = counter }
+    func Unary(_ ctx: Endpoint.CallContext, _ req: EchoRequest) throws -> EchoResponse {
+        try inner.Unary(ctx, req)
+    }
+    func ServerStream(_ req: EchoRequest, _ stream: EchoGrpcDc.EchoServerStreamServer) throws {
+        var i: Int32 = 0
+        while i < req.count {
+            counter.inc()
+            try stream.Send(EchoResponse(req.message, i))
+            i += 1
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+    }
+    func ClientStream(_ stream: EchoGrpcDc.EchoClientStreamServer) throws {
+        try inner.ClientStream(stream)
+    }
+    func Bidi(_ stream: EchoGrpcDc.EchoBidiServer) throws {
+        try inner.Bidi(stream)
+    }
 }

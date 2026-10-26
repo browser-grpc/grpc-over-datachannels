@@ -125,6 +125,13 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
         var headersSent = false
 
         fun send(payload: ByteArray) {
+            // A stream the endpoint has forgotten was RST by the
+            // peer (or the channel went away): fail the send so a
+            // producing handler stops instead of streaming into
+            // the void.
+            if (endpoint.stream(streamId) == null) {
+                throw StatusException(Wire.CODE_CANCELLED, "call cancelled")
+            }
             flushHeaders()
             endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, payload))
         }
@@ -141,6 +148,9 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
         }
 
         internal fun sendHeaders(metadata: Map<String, String>) {
+            if (endpoint.stream(streamId) == null) {
+                throw StatusException(Wire.CODE_CANCELLED, "call cancelled")
+            }
             headersSent = true
             endpoint.sendFrame(Codec.headersFrame(streamId, null, metadata))
         }

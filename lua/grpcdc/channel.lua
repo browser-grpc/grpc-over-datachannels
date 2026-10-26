@@ -24,6 +24,7 @@ function ClientStream.new(endpoint, streamId, input)
     traceCtx = nil,
     tracePath = nil,
     traceEnded = false,
+    terminated = false,
   }, ClientStream)
 end
 
@@ -40,6 +41,7 @@ function ClientStream:nextEvent()
     local event = self.input:get()
     if event ~= nil then return event end
     if self.input.closedFlag then
+      self.terminated = true
       raise(Status.new(wire.CODE_UNAVAILABLE, "data channel closed"))
     end
     if self.deadline ~= nil then
@@ -48,6 +50,7 @@ function ClientStream:nextEvent()
       -- documented cooperative-runtime caveat).
       local now = Endpoint.nowSeconds()
       if now ~= nil and now >= self.deadline then
+        self.terminated = true
         self.endpoint:cancelStream(self.streamId)
         raise(Status.new(wire.CODE_DEADLINE_EXCEEDED, "deadline exceeded"))
       end
@@ -80,6 +83,7 @@ function ClientStream:recv(resp)
       resp:unmarshalDc(event.payload)
       return
     elseif event.kind == "trailers" then
+      self.terminated = true
       local status = event.status
       if status ~= nil then self.trailers = status.trailers end
       self:endTrace(wire.statusName(status ~= nil and status.code or wire.CODE_OK))
@@ -88,6 +92,7 @@ function ClientStream:recv(resp)
       end
       error(EndOfStream, 0)
     elseif event.kind == "rst" then
+      self.terminated = true
       local status = event.status or Status.new(wire.CODE_UNAVAILABLE, "stream reset")
       self.trailers = status.trailers
       self:endTrace(wire.statusName(status.code))
@@ -223,8 +228,18 @@ function Channel:bidi(path, reqs, metadata, timeout)
 end
 
 --- Abort an open ClientStream (sends RST, wakes a pending recv).
+--- No-op once the call terminated (trailers/RST already seen), so
+--- abandoning a completed stream never sends a spurious RST.
 function ClientStream:cancel()
+  if self.terminated then return end
+  self.terminated = true
   self.endpoint:cancelStream(self.streamId)
+end
+
+--- Abandon the call early: RST CANCELLED unless it already
+--- terminated. Safe to call repeatedly and from __gc/__close.
+function ClientStream:close()
+  self:cancel()
 end
 
 function Channel:cancel(stream)
@@ -251,6 +266,10 @@ end
 
 function CoroutineStream:cancel()
   self.stream:cancel()
+end
+
+function CoroutineStream:close()
+  self.stream:close()
 end
 
 --- Coroutine client facade over Channel: unary and

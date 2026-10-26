@@ -35,6 +35,43 @@ class Channel {
                  std::shared_ptr<Endpoint::StreamInput> input)
         : stream_id_(stream_id), input_(std::move(input)) {}
 
+    ClientStream(ClientStream&& other) noexcept
+        : endpoint_(std::move(other.endpoint_)),
+          deadline_(other.deadline_),
+          stream_id_(other.stream_id_),
+          input_(std::move(other.input_)),
+          headers_(std::move(other.headers_)),
+          trailers_(std::move(other.trailers_)),
+          trace_ctx_(other.trace_ctx_),
+          trace_path_(std::move(other.trace_path_)),
+          trace_ended_(other.trace_ended_),
+          terminated_(other.terminated_) {
+      other.terminated_ = true;
+    }
+    ClientStream& operator=(ClientStream&& other) noexcept {
+      if (this != &other) {
+        CancelIfLive();
+        endpoint_ = std::move(other.endpoint_);
+        deadline_ = other.deadline_;
+        stream_id_ = other.stream_id_;
+        input_ = std::move(other.input_);
+        headers_ = std::move(other.headers_);
+        trailers_ = std::move(other.trailers_);
+        trace_ctx_ = other.trace_ctx_;
+        trace_path_ = std::move(other.trace_path_);
+        trace_ended_ = other.trace_ended_;
+        terminated_ = other.terminated_;
+        other.terminated_ = true;
+      }
+      return *this;
+    }
+    ClientStream(const ClientStream&) = delete;
+    ClientStream& operator=(const ClientStream&) = delete;
+
+    /// Destroying a stream whose call never terminated cancels it
+    /// (RST CANCELLED) so the peer stops producing.
+    ~ClientStream() { CancelIfLive(); }
+
     void SetDeadline(std::chrono::steady_clock::time_point deadline) {
       deadline_ = deadline;
     }
@@ -55,6 +92,7 @@ class Channel {
               evt, remaining.count() < 0 ? std::chrono::milliseconds(0) : remaining);
           if (result == Endpoint::StreamInput::GetResult::kTimeout) {
             if (endpoint_) endpoint_->CancelStream(stream_id_);
+            terminated_ = true;
             throw StatusException(wire::kCodeDeadlineExceeded, "deadline exceeded");
           }
           if (result == Endpoint::StreamInput::GetResult::kClosed) {
@@ -71,6 +109,7 @@ class Channel {
             resp.UnmarshalDc(evt.payload);
             return;
           case Endpoint::EventKind::kTrailers:
+            terminated_ = true;
             if (evt.status) trailers_ = evt.status->trailers;
             EndTrace(wire::StatusName(evt.status ? evt.status->code() : wire::kCodeOk));
             if (evt.status && evt.status->code() != wire::kCodeOk) {
@@ -78,6 +117,7 @@ class Channel {
             }
             throw EndOfStream();
           case Endpoint::EventKind::kRst: {
+            terminated_ = true;
             StatusException status = evt.status ? *evt.status
                 : StatusException(wire::kCodeUnavailable, "stream reset");
             trailers_ = status.trailers;
@@ -98,6 +138,16 @@ class Channel {
     }
 
    private:
+    void CancelIfLive() noexcept {
+      if (!terminated_ && endpoint_) {
+        terminated_ = true;
+        try {
+          endpoint_->CancelStream(stream_id_);
+        } catch (...) {
+        }
+      }
+    }
+
     friend class Channel;
     std::shared_ptr<Endpoint> endpoint_;
     std::optional<std::chrono::steady_clock::time_point> deadline_;
@@ -108,11 +158,13 @@ class Channel {
     std::optional<Tracing::TraceContext> trace_ctx_;
     std::string trace_path_;
     bool trace_ended_ = false;
+    bool terminated_ = false;
   };
 
   /// Abort an open ClientStream (sends RST, wakes pending Recv).
   void Cancel(ClientStream& stream) {
     endpoint_->CancelStream(stream.stream_id());
+    stream.terminated_ = true;
   }
 
   /// Run a unary call, decoding the single response into resp.

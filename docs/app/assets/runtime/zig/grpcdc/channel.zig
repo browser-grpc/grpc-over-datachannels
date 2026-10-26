@@ -27,6 +27,7 @@ pub const ClientStream = struct {
     trace_ctx: ?status_mod.TraceContext = null,
     trace_path: []const u8 = "",
     trace_ended: bool = false,
+    terminated: bool = false,
 
     pub fn endTrace(self: *ClientStream, status: []const u8) void {
         if (!self.trace_ended) {
@@ -38,6 +39,7 @@ pub const ClientStream = struct {
     /// Abort this stream (sends RST, wakes a pending recv).
     pub fn cancel(self: *ClientStream) void {
         self.endpoint.cancelStream(self.stream_id);
+        self.terminated = true;
     }
 
     /// Receive the next response payload. End means the call
@@ -48,6 +50,7 @@ pub const ClientStream = struct {
             var event = switch (self.input.getUntil(self.deadline_ms)) {
                 .timeout => {
                     self.endpoint.cancelStream(self.stream_id);
+                    self.terminated = true;
                     return .{ .status = Status.init(wire.codeDeadlineExceeded, "deadline exceeded") };
                 },
                 .event => |ev| ev orelse
@@ -67,6 +70,7 @@ pub const ClientStream = struct {
                     return .{ .message = payload };
                 },
                 .trailers => {
+                    self.terminated = true;
                     const st = event.status orelse Status.ok();
                     self.trailers = st.trailers;
                     event.status = null;
@@ -79,6 +83,7 @@ pub const ClientStream = struct {
                     return .{ .status = st };
                 },
                 .rst => {
+                    self.terminated = true;
                     const st = event.status orelse Status.init(wire.codeUnavailable, "stream reset");
                     self.trailers = st.trailers;
                     event.status = null;
@@ -111,6 +116,12 @@ pub const ClientStream = struct {
     }
 
     pub fn deinit(self: *ClientStream) void {
+        if (!self.terminated) {
+            // Abandoning a call that never terminated: RST
+            // CANCELLED so the peer stops producing.
+            self.endpoint.cancelStream(self.stream_id);
+            self.terminated = true;
+        }
         if (self.headers) |*h| Codec.freeHeaders(self.endpoint.alloc, h);
         const alloc = self.endpoint.alloc;
         for (self.trailers) |pair| {

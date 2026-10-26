@@ -7,20 +7,60 @@ package echo
 object EchoGrpcDc {
     /** Client for echo.Echo. */
     class EchoClient(private val channel: grpcdc.Channel) {
-        class EchoServerStreamStream(private val stream: grpcdc.Channel#ClientStream) {
+        class EchoServerStreamStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[EchoResponse] with AutoCloseable {
             def recv(): EchoResponse = {
                 val resp = new EchoResponse()
                 stream.recv(resp)
                 resp
             }
+            private var pending: EchoResponse = null
+            private var finished: Boolean = false
+            def hasNext: Boolean = {
+                if (pending == null && !finished) {
+                    try {
+                        pending = recv()
+                    } catch {
+                        case e: java.io.EOFException => finished = true
+                    }
+                }
+                pending != null
+            }
+            def next(): EchoResponse = {
+                if (!hasNext) throw new NoSuchElementException("next on empty stream")
+                val out = pending
+                pending = null
+                out
+            }
+            def cancel(): Unit = stream.cancel()
+            def close(): Unit = stream.close()
         }
 
-        class EchoBidiStream(private val stream: grpcdc.Channel#ClientStream) {
+        class EchoBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[EchoResponse] with AutoCloseable {
             def recv(): EchoResponse = {
                 val resp = new EchoResponse()
                 stream.recv(resp)
                 resp
             }
+            private var pending: EchoResponse = null
+            private var finished: Boolean = false
+            def hasNext: Boolean = {
+                if (pending == null && !finished) {
+                    try {
+                        pending = recv()
+                    } catch {
+                        case e: java.io.EOFException => finished = true
+                    }
+                }
+                pending != null
+            }
+            def next(): EchoResponse = {
+                if (!hasNext) throw new NoSuchElementException("next on empty stream")
+                val out = pending
+                pending = null
+                out
+            }
+            def cancel(): Unit = stream.cancel()
+            def close(): Unit = stream.close()
         }
 
         def Unary(req: EchoRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): EchoResponse = {
@@ -52,6 +92,7 @@ object EchoGrpcDc {
         def ServerStreamFuture(req: EchoRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[List[EchoResponse]] = {
             grpcdc.Futures {
                 val stream = ServerStream(req, metadata, timeout)
+                try {
                 val out = scala.collection.mutable.ListBuffer[EchoResponse]()
                 var done = false
                 while (!done) {
@@ -62,6 +103,9 @@ object EchoGrpcDc {
                     }
                 }
                 out.toList
+                } finally {
+                    stream.close()
+                }
             }
         }
 
@@ -72,6 +116,7 @@ object EchoGrpcDc {
         def BidiFuture(reqs: List[EchoRequest], metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[List[EchoResponse]] = {
             grpcdc.Futures {
                 val stream = Bidi(reqs, metadata, timeout)
+                try {
                 val out = scala.collection.mutable.ListBuffer[EchoResponse]()
                 var done = false
                 while (!done) {
@@ -82,6 +127,9 @@ object EchoGrpcDc {
                     }
                 }
                 out.toList
+                } finally {
+                    stream.close()
+                }
             }
         }
 

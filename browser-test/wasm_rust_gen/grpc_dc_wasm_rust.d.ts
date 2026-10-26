@@ -26,8 +26,8 @@ export interface InitOutput {
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly _dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h82cba992109ee99b: (a: number, b: number, c: number, d: number) => void;
   readonly _dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h06c81ebfc41e5c73: (a: number, b: number) => void;
-  readonly closure149_externref_shim: (a: number, b: number, c: any) => void;
-  readonly closure171_externref_shim: (a: number, b: number, c: any, d: any) => void;
+  readonly closure151_externref_shim: (a: number, b: number, c: any) => void;
+  readonly closure173_externref_shim: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_start: () => void;
 }
 

@@ -120,6 +120,13 @@ public class Endpoint {
         boolean headersSent;
 
         public void send(byte[] payload) throws Exception {
+            // A stream the endpoint has forgotten was RST by the
+            // peer (or the channel went away): fail the send so a
+            // producing handler stops instead of streaming into
+            // the void.
+            if (endpoint.stream(streamId) == null) {
+                throw new StatusException(Wire.CODE_CANCELLED, "call cancelled");
+            }
             flushHeaders();
             endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, payload));
         }
@@ -136,6 +143,9 @@ public class Endpoint {
         }
 
         void sendHeaders(Map<String, String> metadata) throws Exception {
+            if (endpoint.stream(streamId) == null) {
+                throw new StatusException(Wire.CODE_CANCELLED, "call cancelled");
+            }
             headersSent = true;
             endpoint.sendFrame(Codec.headersFrame(streamId, null, metadata));
         }

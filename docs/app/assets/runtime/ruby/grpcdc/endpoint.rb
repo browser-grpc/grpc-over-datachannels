@@ -98,6 +98,13 @@ module Grpcdc
     end
 
     def send_data(payload)
+      # A stream the endpoint has forgotten was RST by the peer
+      # (or the channel went away): fail the send so a producing
+      # handler stops instead of streaming into the void.
+      if @endpoint.stream(@id).nil?
+        raise StatusError.new(CODE_CANCELLED, "call cancelled")
+      end
+
       flush_headers
       @endpoint.send_frame(Codec.encode_frame(FRAME_DATA, @id, payload))
     end
@@ -110,6 +117,10 @@ module Grpcdc
     end
 
     def send_headers(metadata = nil)
+      if @endpoint.stream(@id).nil?
+        raise StatusError.new(CODE_CANCELLED, "call cancelled")
+      end
+
       @headers_sent = true
       @endpoint.send_frame(Codec.headers_frame(@id, nil, metadata || @resp_headers))
     end

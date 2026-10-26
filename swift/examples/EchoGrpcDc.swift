@@ -24,6 +24,8 @@ enum EchoGrpcDc {
                 try stream.Recv(resp)
                 return resp
             }
+            func Cancel() { stream.Cancel() }
+            func Close() { stream.Close() }
         }
 
         final class EchoBidiStream {
@@ -34,6 +36,8 @@ enum EchoGrpcDc {
                 try stream.Recv(resp)
                 return resp
             }
+            func Cancel() { stream.Cancel() }
+            func Close() { stream.Close() }
         }
 
         func Unary(_ req: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EchoResponse {
@@ -64,10 +68,17 @@ enum EchoGrpcDc {
         }
 
         func ServerStreamAsync(_ reqs: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<EchoResponse, Error> {
-            AsyncThrowingStream { continuation in
+            let stream: EchoServerStreamStream
+            do {
+                stream = try ServerStream(reqs, metadata, timeout)
+            } catch {
+                return AsyncThrowingStream { continuation in
+                    continuation.finish(throwing: error)
+                }
+            }
+            return AsyncThrowingStream { continuation in
                 let task = Task.detached {
                     do {
-                        let stream = try self.ServerStream(reqs, metadata, timeout)
                         while true {
                             continuation.yield(try stream.Recv())
                         }
@@ -77,7 +88,10 @@ enum EchoGrpcDc {
                         continuation.finish(throwing: error)
                     }
                 }
-                continuation.onTermination = { _ in task.cancel() }
+                continuation.onTermination = { _ in
+                    stream.Cancel()
+                    task.cancel()
+                }
             }
         }
 
@@ -86,10 +100,17 @@ enum EchoGrpcDc {
         }
 
         func BidiAsync(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<EchoResponse, Error> {
-            AsyncThrowingStream { continuation in
+            let stream: EchoBidiStream
+            do {
+                stream = try Bidi(reqs, metadata, timeout)
+            } catch {
+                return AsyncThrowingStream { continuation in
+                    continuation.finish(throwing: error)
+                }
+            }
+            return AsyncThrowingStream { continuation in
                 let task = Task.detached {
                     do {
-                        let stream = try self.Bidi(reqs, metadata, timeout)
                         while true {
                             continuation.yield(try stream.Recv())
                         }
@@ -99,7 +120,10 @@ enum EchoGrpcDc {
                         continuation.finish(throwing: error)
                     }
                 }
-                continuation.onTermination = { _ in task.cancel() }
+                continuation.onTermination = { _ in
+                    stream.Cancel()
+                    task.cancel()
+                }
             }
         }
 

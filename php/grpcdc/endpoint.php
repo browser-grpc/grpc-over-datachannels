@@ -109,6 +109,12 @@ class ResponseSink
 
     public function send(string $payload): void
     {
+        // A stream the endpoint has forgotten was RST by the peer
+        // (or the channel went away): fail the send so a producing
+        // handler stops instead of streaming into the void.
+        if ($this->endpoint->streamInput($this->streamId) === null) {
+            throw new StatusError(Wire::CODE_CANCELLED, "call cancelled");
+        }
         $this->flushHeaders();
         $this->endpoint->sendFrame(Codec::encodeFrame(Wire::FRAME_DATA, $this->streamId, $payload));
     }
@@ -123,6 +129,9 @@ class ResponseSink
 
     public function sendHeaders(?array $metadata = null): void
     {
+        if ($this->endpoint->streamInput($this->streamId) === null) {
+            throw new StatusError(Wire::CODE_CANCELLED, "call cancelled");
+        }
         $this->headersSent = true;
         $this->endpoint->sendFrame(Codec::headersFrame($this->streamId, null, $metadata ?? $this->respHeaders));
     }

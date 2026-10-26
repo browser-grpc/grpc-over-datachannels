@@ -147,6 +147,7 @@ class ClientStream
     public ?array $traceCtx = null;
     public ?string $tracePath = null;
     private bool $traceEnded = false;
+    private bool $terminated = false;
     private StreamInput $input;
 
     public function endTrace(string $status): void
@@ -177,10 +178,12 @@ class ClientStream
             $event = $this->input->get();
             if ($event === null) {
                 if ($this->deadline !== null && Endpoint::nowSeconds() >= $this->deadline) {
+                    $this->terminated = true;
                     $this->endpoint->cancelStream($this->streamId);
                     throw new StatusError(Wire::CODE_DEADLINE_EXCEEDED, "deadline exceeded");
                 }
                 if ($this->input->closedFlag) {
+                    $this->terminated = true;
                     throw new StatusError(Wire::CODE_UNAVAILABLE, "data channel closed");
                 }
                 $input = $this->input;
@@ -198,6 +201,7 @@ class ClientStream
                 case "data":
                     return $resp->unmarshalDc($event->payload);
                 case "trailers":
+                    $this->terminated = true;
                     $this->trailers = $event->status->trailers;
                     $this->endTrace(Status::name($event->status->statusCode));
                     if ($event->status->statusCode === Wire::CODE_OK) {
@@ -205,6 +209,7 @@ class ClientStream
                     }
                     throw $event->status;
                 case "rst":
+                    $this->terminated = true;
                     $this->trailers = $event->status->trailers;
                     $this->endTrace(Status::name($event->status->statusCode));
                     throw $event->status;
@@ -212,10 +217,24 @@ class ClientStream
         }
     }
 
-    /** Abort this stream (sends RST, wakes a pending recv). */
+    /**
+     * Abort this stream (sends RST, wakes a pending recv).
+     * No-op once the call terminated (trailers/RST already seen),
+     * so abandoning a completed stream never sends a spurious RST.
+     */
     public function cancel(): void
     {
+        if ($this->terminated) {
+            return;
+        }
+        $this->terminated = true;
         $this->endpoint->cancelStream($this->streamId);
+    }
+
+    /** Abandon the call early: RST unless it already terminated. */
+    public function close(): void
+    {
+        $this->cancel();
     }
 }
 
@@ -254,6 +273,11 @@ class FiberClientStream
     }
 
     public function cancel(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function close(): void
     {
         $this->stream->cancel();
     }

@@ -58,7 +58,7 @@ public static class EchoGrpcDc
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             var stream = ServerStream(req, metadata, timeout);
-            await foreach (var item in AsyncPump.Stream(stream.Recv, cancellationToken))
+            await foreach (var item in AsyncPump.Stream(stream.Recv, stream.Cancel, cancellationToken))
             {
                 yield return item;
             }
@@ -74,7 +74,7 @@ public static class EchoGrpcDc
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             var stream = Bidi(reqs, metadata, timeout);
-            await foreach (var item in AsyncPump.Stream(stream.Recv, cancellationToken))
+            await foreach (var item in AsyncPump.Stream(stream.Recv, stream.Cancel, cancellationToken))
             {
                 yield return item;
             }
@@ -82,8 +82,8 @@ public static class EchoGrpcDc
 
     }
 
-    /// <summary>Receiving stream for Echo.ServerStream: Recv() throws EndOfStreamException at end.</summary>
-    public sealed class EchoServerStreamStream
+    /// <summary>Receiving stream for Echo.ServerStream: Recv() throws EndOfStreamException at end. Dispose to abandon early (RST).</summary>
+    public sealed class EchoServerStreamStream : IDisposable
     {
         private readonly Channel.ClientStream _stream;
 
@@ -98,10 +98,16 @@ public static class EchoGrpcDc
             _stream.Recv(resp);
             return resp;
         }
+
+        /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>
+        public void Cancel() => _stream.Cancel();
+
+        /// <summary>Abandon the call if still live (RST); no-op once terminated.</summary>
+        public void Dispose() => _stream.Dispose();
     }
 
-    /// <summary>Receiving stream for Echo.Bidi: Recv() throws EndOfStreamException at end.</summary>
-    public sealed class EchoBidiStream
+    /// <summary>Receiving stream for Echo.Bidi: Recv() throws EndOfStreamException at end. Dispose to abandon early (RST).</summary>
+    public sealed class EchoBidiStream : IDisposable
     {
         private readonly Channel.ClientStream _stream;
 
@@ -116,6 +122,12 @@ public static class EchoGrpcDc
             _stream.Recv(resp);
             return resp;
         }
+
+        /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>
+        public void Cancel() => _stream.Cancel();
+
+        /// <summary>Abandon the call if still live (RST); no-op once terminated.</summary>
+        public void Dispose() => _stream.Dispose();
     }
 
     /// <summary>Service implementation interface for echo.Echo.</summary>

@@ -86,6 +86,12 @@ type responseSink struct {
 }
 
 func (s *responseSink) SendData(payload []byte) error {
+	// A stream the endpoint has forgotten was RST by the peer
+	// (or the channel went away): fail the send so a producing
+	// handler stops instead of streaming into the void.
+	if s.ep.stream(s.id) == nil {
+		return NewStatus(CodeCancelled, "call cancelled")
+	}
 	if err := s.FlushHeaders(); err != nil {
 		return err
 	}
@@ -107,6 +113,9 @@ func (s *responseSink) FlushHeaders() error {
 }
 
 func (s *responseSink) sendHeaders(metadata map[string]string) error {
+	if s.ep.stream(s.id) == nil {
+		return NewStatus(CodeCancelled, "call cancelled")
+	}
 	frame, err := headersFrame(s.id, nil, metadata)
 	if err != nil {
 		return err

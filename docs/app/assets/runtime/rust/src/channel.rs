@@ -433,6 +433,44 @@ impl Channel {
     }
 }
 
+/// Cancels the call when the response stream is dropped while
+/// still live: dropping a stream mid-call RSTs it so the server
+/// stops producing instead of streaming into the void.
+struct CancelOnDrop {
+    ep: Arc<Endpoint>,
+    id: u32,
+    armed: bool,
+}
+
+impl CancelOnDrop {
+    fn disarm(&mut self) {
+        self.armed = false;
+        self.ep.close_stream(self.id);
+    }
+}
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let ep = self.ep.clone();
+        let id = self.id;
+        // Best effort: dropped outside the async runtime, the
+        // call is simply forgotten locally.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            crate::spawn_task(async move {
+                let _ = ep
+                    .send_frame(
+                        Frame::rst(id, &Status::cancelled("cancelled by caller")).unwrap(),
+                    )
+                    .await;
+                ep.close_stream(id);
+            });
+        }));
+    }
+}
+
 fn typed_response_stream<Resp>(
     ep: Arc<Endpoint>,
     id: u32,
@@ -443,15 +481,19 @@ fn typed_response_stream<Resp>(
 where
     Resp: Message + 'static,
 {
+    let guard = CancelOnDrop { ep, id, armed: true };
     let stream = futures_util::stream::unfold(
-        (ep, rx, false, capture),
-        move |(ep, mut rx, done, capture)| async move {
+        (guard, rx, false, capture),
+        move |(mut guard, mut rx, done, capture)| async move {
         if done {
             return None;
         }
         loop {
-            match next_with_deadline(&ep, id, &mut rx, deadline).await {
-                Err(status) => return Some((Err(status), (ep, rx, true, capture))),
+            match next_with_deadline(&guard.ep, id, &mut rx, deadline).await {
+                Err(status) => {
+                    guard.disarm();
+                    return Some((Err(status), (guard, rx, true, capture)));
+                }
                 Ok(event) => match event {
                 Some(StreamEvent::Headers(headers)) => {
                     fill_capture(&capture.0, &headers.metadata);
@@ -459,27 +501,33 @@ where
                 }
                 Some(StreamEvent::HalfClose) => continue,
                 Some(StreamEvent::Data(bytes)) => match Resp::decode(&bytes) {
-                    Ok(msg) => return Some((Ok(msg), (ep, rx, false, capture))),
-                    Err(e) => return Some((Err(e), (ep, rx, true, capture))),
+                    Ok(msg) => return Some((Ok(msg), (guard, rx, false, capture))),
+                    Err(e) => {
+                        guard.disarm();
+                        return Some((Err(e), (guard, rx, true, capture)));
+                    }
                 },
                 Some(StreamEvent::Trailers(status)) => {
                     fill_capture(&capture.1, &status.trailers);
-                    ep.end_stream_trace(id, status.code.name());
+                    guard.ep.end_stream_trace(id, status.code.name());
+                    guard.disarm();
                     return if status.is_ok() {
                         None
                     } else {
-                        Some((Err(status), (ep, rx, true, capture)))
+                        Some((Err(status), (guard, rx, true, capture)))
                     };
                 }
                 Some(StreamEvent::Rst(status)) => {
                     fill_capture(&capture.1, &status.trailers);
-                    ep.end_stream_trace(id, status.code.name());
-                    return Some((Err(status), (ep, rx, true, capture)))
+                    guard.ep.end_stream_trace(id, status.code.name());
+                    guard.disarm();
+                    return Some((Err(status), (guard, rx, true, capture)))
                 }
                 None => {
+                    guard.disarm();
                     return Some((
                         Err(Status::unavailable("data channel closed")),
-                        (ep, rx, true, capture),
+                        (guard, rx, true, capture),
                     ))
                 }
                 },
@@ -487,7 +535,5 @@ where
         }
         },
     );
-    // Stream entries in the endpoint are cleaned up lazily by
-    // Endpoint::deliver once this receiver is gone.
     Box::pin(stream)
 }

@@ -16,20 +16,32 @@ import java.util.concurrent.CompletableFuture
 object EchoGrpcDc {
     /** Client for echo.Echo. */
     class EchoClient(private val channel: Channel) {
-        class EchoServerStreamStream(private val stream: Channel.ClientStream) {
+        class EchoServerStreamStream(private val stream: Channel.ClientStream) : AutoCloseable {
             fun recv(): EchoResponse {
                 val resp = EchoResponse()
                 stream.recv(resp)
                 return resp
             }
+
+            /** Abort this stream (sends RST, wakes a pending recv). */
+            fun cancel() = stream.cancel()
+
+            /** Abandon the call if still live (RST); no-op once terminated. */
+            override fun close() = stream.close()
         }
 
-        class EchoBidiStream(private val stream: Channel.ClientStream) {
+        class EchoBidiStream(private val stream: Channel.ClientStream) : AutoCloseable {
             fun recv(): EchoResponse {
                 val resp = EchoResponse()
                 stream.recv(resp)
                 return resp
             }
+
+            /** Abort this stream (sends RST, wakes a pending recv). */
+            fun cancel() = stream.cancel()
+
+            /** Abandon the call if still live (RST); no-op once terminated. */
+            override fun close() = stream.close()
         }
 
         fun Unary(req: EchoRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): EchoResponse {
@@ -67,8 +79,8 @@ object EchoGrpcDc {
         }
 
         fun ServerStreamFuture(req: EchoRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<List<EchoResponse>> {
-            return AsyncPump.future {
-                val stream = ServerStream(req, metadata, timeout)
+            val stream = ServerStream(req, metadata, timeout)
+            return AsyncPump.future(onCancel = { stream.cancel() }) {
                 val out = ArrayList<EchoResponse>()
                 while (true) {
                     try {
@@ -94,8 +106,8 @@ object EchoGrpcDc {
         }
 
         fun BidiFuture(reqs: List<EchoRequest>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<List<EchoResponse>> {
-            return AsyncPump.future {
-                val stream = Bidi(reqs, metadata, timeout)
+            val stream = Bidi(reqs, metadata, timeout)
+            return AsyncPump.future(onCancel = { stream.cancel() }) {
                 val out = ArrayList<EchoResponse>()
                 while (true) {
                     try {

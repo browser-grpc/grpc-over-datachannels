@@ -1637,7 +1637,25 @@ const PY_STREAM_HELPERS = `class _RecvStream:
         self._resp_cls = resp_cls
 
     def recv(self):
+        if self._stream is None:
+            raise EOFError("stream closed")
         return self._stream.recv(self._resp_cls())
+
+    def close(self):
+        """Abandon the call early: RST so the server stops."""
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            stream.cancel()
+
+    def __del__(self):
+        self.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
 
     def __iter__(self):
         return self
@@ -1704,6 +1722,9 @@ class _AsyncRecvStream:
 
     def cancel(self):
         self._stream.cancel()
+
+    async def aclose(self):
+        self.cancel()
 
     def __aiter__(self):
         return self
@@ -3102,8 +3123,11 @@ function rpCamel(s) {
   return s.split('_').map((p) => (p ? p[0].toUpperCase() + p.slice(1).toLowerCase() : '')).join('');
 }
 
+const RP_RUST_KEYWORDS = new Set(['type', 'ref', 'box', 'self', 'Self', 'crate', 'super', 'move', 'static', 'mut', 'fn', 'struct', 'enum', 'impl', 'trait', 'loop', 'match', 'mod', 'pub', 'use', 'where', 'async', 'await', 'dyn', 'abstract', 'become', 'do', 'final', 'macro', 'override', 'priv', 'typeof', 'unsized', 'virtual', 'yield', 'try', 'gen']);
+
 function rpFieldName(f) {
-  return rpSnake(f.name);
+  const name = rpSnake(f.name);
+  return RP_RUST_KEYWORDS.has(name) ? 'r#' + name : name;
 }
 
 function rpFlat(pkg, full) {
@@ -3596,14 +3620,21 @@ function javaClientTimeoutMethod(m, svc) {
 
 function javaClientStreamClass(m, svc) {
   if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
-  return '    /** Receiving stream for ' + svc + '.' + m.name + ': recv() throws EOFException at end. */\n'
-    + '    public static final class ' + svc + m.name + 'Stream {\n'
+  return '    /** Receiving stream for ' + svc + '.' + m.name + ': recv() throws EOFException at end. Close to abandon early (RST). */\n'
+    + '    public static final class ' + svc + m.name + 'Stream implements AutoCloseable {\n'
     + '        private final Channel.ClientStream stream;\n\n'
     + '        ' + svc + m.name + 'Stream(Channel.ClientStream stream) {\n'
     + '            this.stream = stream;\n        }\n\n'
     + '        public ' + m.output + ' recv() throws Exception {\n'
     + '            ' + m.output + ' resp = new ' + m.output + '();\n'
-    + '            stream.recv(resp);\n            return resp;\n        }\n    }\n\n';
+    + '            stream.recv(resp);\n            return resp;\n        }\n\n'
+    + '        /** Abort this stream (sends RST, wakes a pending recv). */\n'
+    + '        public void cancel() {\n'
+    + '            stream.cancel();\n        }\n\n'
+    + '        /** Abandon the call if still live (RST); no-op once terminated. */\n'
+    + '        @Override\n'
+    + '        public void close() {\n'
+    + '            stream.close();\n        }\n    }\n\n';
 }
 
 function javaServerIfaceMethodRaw(m, svc) {
@@ -4403,13 +4434,17 @@ function csClientMethodRaw(m, svc) {
 
 function csClientStreamClass(m, svc) {
   if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
-  return '    /// <summary>Receiving stream for ' + svc + '.' + m.name + ': Recv() throws EndOfStreamException at end.</summary>\n'
-    + '    public sealed class ' + svc + m.name + 'Stream\n    {\n'
+  return '    /// <summary>Receiving stream for ' + svc + '.' + m.name + ': Recv() throws EndOfStreamException at end. Dispose to abandon early (RST).</summary>\n'
+    + '    public sealed class ' + svc + m.name + 'Stream : IDisposable\n    {\n'
     + '        private readonly Channel.ClientStream _stream;\n\n'
     + '        internal ' + svc + m.name + 'Stream(Channel.ClientStream stream)\n        {\n            _stream = stream;\n        }\n\n'
     + '        public ' + m.output + ' Recv()\n        {\n'
     + '            var resp = new ' + m.output + '();\n'
-    + '            _stream.Recv(resp);\n            return resp;\n        }\n    }\n\n';
+    + '            _stream.Recv(resp);\n            return resp;\n        }\n\n'
+    + '        /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>\n'
+    + '        public void Cancel() => _stream.Cancel();\n\n'
+    + '        /// <summary>Abandon the call if still live (RST); no-op once terminated.</summary>\n'
+    + '        public void Dispose() => _stream.Dispose();\n    }\n\n';
 }
 
 function csServerIfaceMethodRaw(m, svc) {
@@ -4530,7 +4565,7 @@ function csClientAsyncMethod(m, svc) {
       return '        public async IAsyncEnumerable<' + m.output + '> ' + m.name + 'Async(' + m.input + ' req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n'
         + '            [EnumeratorCancellation] CancellationToken cancellationToken = default)\n'
         + '        {\n            var stream = ' + m.name + '(req, metadata, timeout);\n'
-        + '            await foreach (var item in AsyncPump.Stream(stream.Recv, cancellationToken))\n'
+        + '            await foreach (var item in AsyncPump.Stream(stream.Recv, stream.Cancel, cancellationToken))\n'
         + '            {\n                yield return item;\n            }\n        }\n\n';
     case 'client-streaming':
       return '        public Task<' + m.output + '> ' + m.name + 'Async(IEnumerable<' + m.input + '> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n'
@@ -4540,7 +4575,7 @@ function csClientAsyncMethod(m, svc) {
       return '        public async IAsyncEnumerable<' + m.output + '> ' + m.name + 'Async(IEnumerable<' + m.input + '> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n'
         + '            [EnumeratorCancellation] CancellationToken cancellationToken = default)\n'
         + '        {\n            var stream = ' + m.name + '(reqs, metadata, timeout);\n'
-        + '            await foreach (var item in AsyncPump.Stream(stream.Recv, cancellationToken))\n'
+        + '            await foreach (var item in AsyncPump.Stream(stream.Recv, stream.Cancel, cancellationToken))\n'
         + '            {\n                yield return item;\n            }\n        }\n\n';
   }
 }
@@ -6012,7 +6047,7 @@ function swiftClientStreamClass(m, svc) {
     + '            init(_ stream: Channel.ClientStream) { self.stream = stream }\n'
     + '            func Recv() throws -> ' + m.output + ' {\n'
     + '                let resp = ' + m.output + '()\n'
-    + '                try stream.Recv(resp)\n                return resp\n            }\n        }\n\n';
+    + '                try stream.Recv(resp)\n                return resp\n            }\n            func Cancel() { stream.Cancel() }\n            func Close() { stream.Close() }\n        }\n\n';
 }
 
 function swiftClientAsyncMethod(m, svc) {
@@ -6024,10 +6059,17 @@ function swiftClientAsyncMethod(m, svc) {
     case 'bidi': {
       const reqsType = m.kind === 'bidi' ? '[' + m.input + ']' : m.input;
       return '        func ' + m.name + 'Async(_ reqs: ' + reqsType + ', _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<' + m.output + ', Error> {\n'
-        + '            AsyncThrowingStream { continuation in\n'
+        + '            let stream: ' + svc + m.name + 'Stream\n'
+        + '            do {\n'
+        + '                stream = try ' + m.name + '(reqs, metadata, timeout)\n'
+        + '            } catch {\n'
+        + '                return AsyncThrowingStream { continuation in\n'
+        + '                    continuation.finish(throwing: error)\n'
+        + '                }\n'
+        + '            }\n'
+        + '            return AsyncThrowingStream { continuation in\n'
         + '                let task = Task.detached {\n'
         + '                    do {\n'
-        + '                        let stream = try self.' + m.name + '(reqs, metadata, timeout)\n'
         + '                        while true {\n'
         + '                            continuation.yield(try stream.Recv())\n                        }\n'
         + '                    } catch is EndOfStreamError {\n'
@@ -6035,7 +6077,10 @@ function swiftClientAsyncMethod(m, svc) {
         + '                    } catch {\n'
         + '                        continuation.finish(throwing: error)\n                    }\n'
         + '                }\n'
-        + '                continuation.onTermination = { _ in task.cancel() }\n            }\n        }\n\n';
+        + '                continuation.onTermination = { _ in\n'
+        + '                    stream.Cancel()\n'
+        + '                    task.cancel()\n'
+        + '                }\n            }\n        }\n\n';
     }
     default:
       return '        func ' + m.name + 'Async(_ reqs: [' + m.input + '], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ' + m.output + ' {\n'
@@ -6750,10 +6795,14 @@ function kotlinClientMethodRaw(m, svc) {
 
 function kotlinClientStreamClass(m, svc) {
   if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
-  return '        class ' + svc + m.name + 'Stream(private val stream: Channel.ClientStream) {\n'
+  return '        class ' + svc + m.name + 'Stream(private val stream: Channel.ClientStream) : AutoCloseable {\n'
     + '            fun recv(): ' + m.output + ' {\n'
     + '                val resp = ' + m.output + '()\n'
-    + '                stream.recv(resp)\n                return resp\n            }\n        }\n\n';
+    + '                stream.recv(resp)\n                return resp\n            }\n\n'
+    + '            /** Abort this stream (sends RST, wakes a pending recv). */\n'
+    + '            fun cancel() = stream.cancel()\n\n'
+    + '            /** Abandon the call if still live (RST); no-op once terminated. */\n'
+    + '            override fun close() = stream.close()\n        }\n\n';
 }
 
 function kotlinClientAsyncMethod(m, svc) {
@@ -6770,8 +6819,8 @@ function kotlinClientAsyncMethod(m, svc) {
       return '        suspend fun ' + m.name + 'Async(' + reqsSig + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): List<' + m.output + '> {\n'
         + '            return AsyncPump.await(' + m.name + 'Future(' + callArgs + ', metadata, timeout))\n        }\n\n'
         + '        fun ' + m.name + 'Future(' + reqsSig + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<List<' + m.output + '>> {\n'
-        + '            return AsyncPump.future {\n'
-        + '                val stream = ' + m.name + '(' + callArgs + ', metadata, timeout)\n'
+        + '            val stream = ' + m.name + '(' + callArgs + ', metadata, timeout)\n'
+        + '            return AsyncPump.future(onCancel = { stream.cancel() }) {\n'
         + '                val out = ArrayList<' + m.output + '>()\n'
         + '                while (true) {\n'
         + '                    try {\n                        out.add(stream.recv())\n'
@@ -7538,10 +7587,34 @@ function dartClientStreamClass(m, svc) {
     + '    final resp = ' + m.output + '();\n'
     + '    await _stream.recv(resp);\n    return resp;\n  }\n\n'
     + '  /// Responses as a Dart Stream (native async surface).\n'
-    + '  Stream<' + m.output + '> get responses async* {\n'
-    + '    while (true) {\n'
-    + '      try {\n        yield await recv();\n'
-    + '      } on EndOfStreamError {\n        return;\n      }\n    }\n  }\n}\n\n';
+    + '  /// Cancelling the subscription abandons the call:\n'
+    + '  /// RST CANCELLED is sent so the server stops.\n'
+    + '  Stream<' + m.output + '> get responses {\n'
+    + '    var cancelled = false;\n'
+    + '    late StreamController<' + m.output + '> controller;\n'
+    + '    controller = StreamController<' + m.output + '>(\n'
+    + '      onListen: () {\n'
+    + '        () async {\n'
+    + '          try {\n'
+    + '            while (!cancelled) {\n'
+    + '              controller.add(await recv());\n'
+    + '            }\n'
+    + '          } on EndOfStreamError {\n'
+    + '            if (!cancelled) await controller.close();\n'
+    + '          } catch (e, st) {\n'
+    + '            if (!cancelled) {\n'
+    + '              controller.addError(e, st);\n'
+    + '              await controller.close();\n'
+    + '            }\n'
+    + '          }\n'
+    + '        }();\n'
+    + '      },\n'
+    + '      onCancel: () {\n'
+    + '        cancelled = true;\n'
+    + '        _stream.cancel();\n'
+    + '      },\n'
+    + '    );\n'
+    + '    return controller.stream;\n  }\n}\n\n';
 }
 
 function dartServerStreamIface(m, svc) {
@@ -8235,8 +8308,7 @@ function zigServerStreamStruct(m, svc) {
         + '    pub fn send(self: *' + svc + m.name + 'Server, resp: *const ' + m.output + ') Status {\n'
         + '        const payload = resp.marshalDc(self.alloc);\n'
         + '        defer self.alloc.free(payload);\n'
-        + '        self.sink.send(payload);\n'
-        + '        return Status.ok();\n    }\n};\n\n';
+        + '        return self.sink.send(payload);\n    }\n};\n\n';
     case 'client-streaming':
       return '/// Receives requests of a ' + m.name + ' call.\n'
         + 'pub const ' + svc + m.name + 'Server = struct {\n'
@@ -8263,8 +8335,7 @@ function zigServerStreamStruct(m, svc) {
         + '    pub fn send(self: *' + svc + m.name + 'Server, resp: *const ' + m.output + ') Status {\n'
         + '        const payload = resp.marshalDc(self.alloc);\n'
         + '        defer self.alloc.free(payload);\n'
-        + '        self.sink.send(payload);\n'
-        + '        return Status.ok();\n    }\n};\n\n';
+        + '        return self.sink.send(payload);\n    }\n};\n\n';
   }
 }
 
@@ -8300,8 +8371,7 @@ function zigAdapter(m, svc) {
         + '    if (!st.isOk()) return st;\n'
         + '    const payload = resp.marshalDc(reqs.alloc);\n'
         + '    defer reqs.alloc.free(payload);\n'
-        + '    sink.send(payload);\n'
-        + '    return Status.ok();\n}\n\n';
+        + '    return sink.send(payload);\n}\n\n';
     case 'server-streaming':
       return head
         + '    var req = ' + m.input + '{};\n'
@@ -8322,8 +8392,7 @@ function zigAdapter(m, svc) {
         + '        return Status.init(wire.codeInternal, "client-streaming handler never called sendAndClose");\n'
         + '    const payload = resp.marshalDc(reqs.alloc);\n'
         + '    defer reqs.alloc.free(payload);\n'
-        + '    sink.send(payload);\n'
-        + '    return Status.ok();\n}\n\n';
+        + '    return sink.send(payload);\n}\n\n';
     default:
       return head
         + '    var stream = ' + svc + m.name + 'Server{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc };\n'
@@ -8934,8 +9003,15 @@ function luaCoroClientStreamClass(m, svc) {
     + '    error(value, 0)\n  end\n'
     + '  return value\nend\n\n'
     + 'function ' + t + ':cancel()\n  self.stream:cancel()\nend\n\n'
+    + '--- Abandon the call early: RST so the server stops producing.\n'
+    + 'function ' + t + ':close()\n  self.stream:close()\nend\n\n'
+    + '--- To-be-closed (<close>) and GC abandon the call the same way.\n'
+    + 'function ' + t + ':__close()\n  self:close()\nend\n\n'
+    + 'function ' + t + ':__gc()\n  self:close()\nend\n\n'
     + '--- Generic-for iterator: for resp in stream:iter() do ... end\n'
-    + 'function ' + t + ':iter()\n  return function() return self:next() end\nend\n\n';
+    + '--- Breaking the loop closes the closable stream, RST-ing\n'
+    + '--- the call unless it already terminated.\n'
+    + 'function ' + t + ':iter()\n  return function() return self:next() end, nil, nil, self\nend\n\n';
 }
 
 function luaCoroClientMethod(m, svc) {
@@ -8973,7 +9049,13 @@ function luaClientStreamClass(m, svc) {
     + '--- Next response; raises EndOfStream at the end of the call.\n'
     + 'function ' + t + ':recv()\n'
     + '  local resp = ' + m.output + '.new()\n'
-    + '  self.stream:recv(resp)\n  return resp\nend\n\n';
+    + '  self.stream:recv(resp)\n  return resp\nend\n\n'
+    + '--- Abandon the call early: RST so the server stops producing.\n'
+    + 'function ' + t + ':close()\n  self.stream:close()\nend\n\n'
+    + 'function ' + t + ':cancel()\n  self.stream:cancel()\nend\n\n'
+    + '--- To-be-closed (<close>) and GC abandon the call the same way.\n'
+    + 'function ' + t + ':__close()\n  self:close()\nend\n\n'
+    + 'function ' + t + ':__gc()\n  self:close()\nend\n\n';
 }
 
 function luaServerStreamClass(m, svc) {
@@ -9548,15 +9630,30 @@ const RB_STREAM_HELPERS = `  # Client receiving stream: recv raises EOFError at 
       @stream.recv(@resp_cls.new)
     end
 
+    # Abandon the call early: RST so the server stops producing.
+    def cancel
+      @stream.cancel
+    end
+
+    def close
+      @stream.cancel
+    end
+
     def each
       return enum_for(:each) unless block_given?
 
-      loop do
-        begin
-          yield recv
-        rescue EOFError
-          return
+      begin
+        loop do
+          begin
+            yield recv
+          rescue EOFError
+            return
+          end
         end
+      ensure
+        # Breaking out of the block abandons the call: RST so
+        # the server stops producing (no-op once terminated).
+        close
       end
     end
   end
@@ -9647,15 +9744,25 @@ const RB_STREAM_HELPERS = `  # Client receiving stream: recv raises EOFError at 
       @stream.cancel
     end
 
+    def close
+      @stream.cancel
+    end
+
     def each
       return enum_for(:each) unless block_given?
 
-      loop do
-        begin
-          yield next_msg
-        rescue StopIteration
-          return
+      begin
+        loop do
+          begin
+            yield next_msg
+          rescue StopIteration
+            return
+          end
         end
+      ensure
+        # Breaking out of the block abandons the call: RST so
+        # the server stops producing (no-op once terminated).
+        close
       end
     end
   end
@@ -10132,15 +10239,37 @@ class RecvStream
         return $this->stream->recv(new $cls());
     }
 
+    /** Abandon the call early: RST so the server stops producing. */
+    public function cancel(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function close(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function __destruct()
+    {
+        $this->close();
+    }
+
     /** @return \\Generator<int, object> */
     public function iterate(): \\Generator
     {
+        $completed = false;
         try {
             while (true) {
                 yield $this->recv();
             }
         } catch (\\Grpcdc\\CallClosed $e) {
+            $completed = true;
             return;
+        } finally {
+            if (!$completed) {
+                $this->close();
+            }
         }
     }
 }
@@ -10268,18 +10397,34 @@ class FiberRecvStream
     /** @return \\Generator<int, object> */
     public function iterate(): \\Generator
     {
+        $completed = false;
         try {
             while (true) {
                 yield $this->next();
             }
         } catch (\\Grpcdc\\CallClosed $e) {
+            $completed = true;
             return;
+        } finally {
+            if (!$completed) {
+                $this->close();
+            }
         }
     }
 
     public function cancel(): void
     {
         $this->stream->cancel();
+    }
+
+    public function close(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function __destruct()
+    {
+        $this->close();
     }
 }
 
@@ -10761,6 +10906,7 @@ function scalaFutureMethod(m) {
       return '        def ' + m.name + 'Future(req' + sig + ', metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[List[' + m.output + ']] = {\n'
         + '            grpcdc.Futures {\n'
         + '                val stream = ' + m.name + '(req' + arg + ', metadata, timeout)\n'
+        + '                try {\n'
         + '                val out = scala.collection.mutable.ListBuffer[' + m.output + ']()\n'
         + '                var done = false\n'
         + '                while (!done) {\n'
@@ -10769,7 +10915,7 @@ function scalaFutureMethod(m) {
         + '                    } catch {\n'
         + '                        case e: java.io.EOFException => done = true\n'
         + '                    }\n                }\n'
-        + '                out.toList\n            }\n        }\n\n';
+        + '                out.toList\n                } finally {\n                    stream.close()\n                }\n            }\n        }\n\n';
     }
   }
 }
@@ -10885,10 +11031,30 @@ function scalaService(svc) {
     return ps.length ? ps : [[req0, resp0]];
   };
   const streamClass = (kind, out) =>
-    '        class ' + scalaClientStreamName(svc, kind, out) + '(private val stream: grpcdc.Channel#ClientStream) {\n'
+    '        class ' + scalaClientStreamName(svc, kind, out) + '(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[' + out + '] with AutoCloseable {\n'
     + '            def recv(): ' + out + ' = {\n'
     + '                val resp = new ' + out + '()\n'
-    + '                stream.recv(resp)\n                resp\n            }\n        }\n\n';
+    + '                stream.recv(resp)\n                resp\n            }\n'
+    + '            private var pending: ' + out + ' = null\n'
+    + '            private var finished: Boolean = false\n'
+    + '            def hasNext: Boolean = {\n'
+    + '                if (pending == null && !finished) {\n'
+    + '                    try {\n'
+    + '                        pending = recv()\n'
+    + '                    } catch {\n'
+    + '                        case e: java.io.EOFException => finished = true\n'
+    + '                    }\n'
+    + '                }\n'
+    + '                pending != null\n'
+    + '            }\n'
+    + '            def next(): ' + out + ' = {\n'
+    + '                if (!hasNext) throw new NoSuchElementException("next on empty stream")\n'
+    + '                val out = pending\n'
+    + '                pending = null\n'
+    + '                out\n'
+    + '            }\n'
+    + '            def cancel(): Unit = stream.cancel()\n'
+    + '            def close(): Unit = stream.close()\n        }\n\n';
   return '    /** Client for ' + svc.fullName + '. */\n'
     + '    class ' + sname + 'Client(private val channel: grpcdc.Channel) {\n'
     + classOutputs('server-streaming').map((out) => streamClass('server-streaming', out)).join('')

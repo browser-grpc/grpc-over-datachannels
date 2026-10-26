@@ -627,6 +627,12 @@ class DynamicStream {
     return resp.generic;
   }
 
+  /// Abandon this stream (RST CANCELLED unless completed).
+  void cancel() => _stream.cancel();
+
+  /// Abandon this stream (RST CANCELLED unless completed).
+  void close() => _stream.close();
+
   /// Collect all responses (simplifies scenario drivers).
   Future<List<GenericMessage>> collect() async {
     final out = <GenericMessage>[];

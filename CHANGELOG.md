@@ -3,6 +3,39 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.11 — 2026-10-25
+
+- Stream-break cancellation audited and fixed across all 16
+  runtimes: abandoning a server-streaming call via the
+  natural idiom (iterator break/close, Drop/destructor,
+  subscription/task cancellation, context cancel without a
+  pending Recv, enumerator/generator close) now sends RST
+  CANCELLED, and every server endpoint fails sends on
+  RST-terminated streams with CANCELLED so producing
+  handlers stop instead of streaming into the void. JS was
+  fixed in v0.32.10; this wave covers Go, Rust, Python,
+  Java, C#, Kotlin, Scala, Dart, Swift, C, C++, Zig, Lua,
+  Ruby, and PHP, each with a loopback regression test
+  asserting the server stops producing.
+- Rust interop grading: generated Rust stubs for
+  grpc.testing + ORCA (`make interop-stubs`), a Rust
+  TestService server (`interop_server_stdio` example), and
+  `rust/tests/interop_oracle.rs` grading the Rust client
+  against the reference Go server (empty/large unary,
+  orca_per_rpc, orca_oob) and the Rust server against the
+  official Java client (all four compressed cases) and the
+  Go client (ORCA). Found and fixed a Rust pb codegen bug:
+  proto fields named like Rust keywords (`Payload.type`)
+  are now emitted as raw identifiers (`r#type`).
+- Proxy: mid-stream compression start (first message
+  identity, later messages gzipped) is covered by a proxy
+  test — payloads are always transcoded correctly; the one
+  documented limitation is that `grpc-encoding` metadata
+  cannot be surfaced once the request HEADERS frame has
+  gone out.
+- `make stress-interop`: flake-hunting lane repeating the
+  Go/Java `custom_metadata` oracle under `-race`.
+
 ## v0.32.10 — 2026-10-25
 
 - Server-direction compression interop: the proxy now

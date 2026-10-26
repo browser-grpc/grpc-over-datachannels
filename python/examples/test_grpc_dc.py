@@ -17,7 +17,25 @@ class _RecvStream:
         self._resp_cls = resp_cls
 
     def recv(self):
+        if self._stream is None:
+            raise EOFError("stream closed")
         return self._stream.recv(self._resp_cls())
+
+    def close(self):
+        """Abandon the call early: RST so the server stops."""
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            stream.cancel()
+
+    def __del__(self):
+        self.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
 
     def __iter__(self):
         return self
@@ -84,6 +102,9 @@ class _AsyncRecvStream:
 
     def cancel(self):
         self._stream.cancel()
+
+    async def aclose(self):
+        self.cancel()
 
     def __aiter__(self):
         return self

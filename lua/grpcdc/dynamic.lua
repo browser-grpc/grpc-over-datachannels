@@ -520,6 +520,15 @@ function DynamicStream.new(stream, output, file)
   return setmetatable({ stream = stream, output = output, file = file }, DynamicStream)
 end
 
+--- Abandon the call early: RST unless it already terminated.
+function DynamicStream:cancel()
+  self.stream:cancel()
+end
+
+function DynamicStream:close()
+  self.stream:close()
+end
+
 --- Next response; raises EndOfStream at end.
 function DynamicStream:recv()
   local resp = BoundMessage.new(self.output, GenericMessage.new(self.output), self.file)

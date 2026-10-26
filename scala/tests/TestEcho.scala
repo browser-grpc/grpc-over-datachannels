@@ -97,5 +97,34 @@ def testEcho(): Unit = {
   val asyncJoined = client2.ClientStream(List(echoReq("a", 0), echoReq("b", 0)))
   check(asyncJoined.message == "a+b", s"async server joined: $asyncJoined")
 
+  // Breaking a server stream cancels it server-side: abandoning
+  // the response iterator (closing it) must RST the call so the
+  // slow handler stops producing instead of streaming on.
+  val produced = new java.util.concurrent.atomic.AtomicInteger(0)
+  val (a3, b3) = MemoryTransport.pair()
+  val server3 = new Server()
+  EchoGrpcDc.registerEchoServer(server3, new EchoServiceImpl {
+    override def ServerStream(req: EchoRequest, stream: EchoGrpcDc.EchoServerStreamServer): Unit = {
+      var i = 0
+      while (i < req.count) {
+        produced.incrementAndGet()
+        stream.send(EchoResponse(req.message, i))
+        i += 1
+        Thread.sleep(5)
+      }
+    }
+  })
+  server3.serveTransport(b3)
+  val client3 = new EchoGrpcDc.EchoClient(new Channel(a3))
+  val first = scala.util.Using.resource(client3.ServerStream(echoReq("tick", 1000))) { stream =>
+    stream.next()
+  }
+  check(first.index == 0, s"stream-break first: $first")
+  Thread.sleep(150)
+  val settled = produced.get()
+  Thread.sleep(150)
+  check(produced.get() == settled, s"stream-break kept producing: $settled -> ${produced.get()}")
+  check(settled < 100, s"stream-break produced too many: $settled")
+
   println("TestEcho OK")
 }

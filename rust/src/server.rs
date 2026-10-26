@@ -149,6 +149,13 @@ impl ResponseSink {
     }
 
     pub async fn send(&self, payload: Vec<u8>) -> Result<(), Status> {
+        // A stream the endpoint has forgotten was RST by the
+        // peer (or the channel went away): fail the send so a
+        // producing handler stops instead of streaming into
+        // the void.
+        if !self.ep.has_stream(self.stream_id) {
+            return Err(Status::cancelled("call cancelled"));
+        }
         self.flush_headers().await?;
         self.ep.send_frame(crate::codec::Frame::data(self.stream_id, payload)).await
     }

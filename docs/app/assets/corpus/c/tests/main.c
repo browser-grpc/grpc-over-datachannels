@@ -118,6 +118,46 @@ static void *server_main(void *arg) {
     return NULL;
 }
 
+/* Slow counting handler + server for the stream-break test. */
+static volatile int stream_break_produced;
+
+static grpcdc_status stream_break_server_stream(void *ctx,
+                                                const grpcdc_kv *md,
+                                                size_t md_count,
+                                                const EchoRequest *req,
+                                                EchoServerStreamStream *stream) {
+    (void)ctx;
+    (void)md;
+    (void)md_count;
+    for (int32_t i = 0; i < req->count; i++) {
+        EchoResponse resp;
+        memset(&resp, 0, sizeof(resp));
+        resp.message = (char *)req->message;
+        resp.index = i;
+        stream_break_produced++;
+        grpcdc_status st = EchoServerStreamStream_send(stream, &resp);
+        if (!grpcdc_status_is_ok(st)) return st;
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = 5 * 1000000L;
+        nanosleep(&ts, NULL);
+    }
+    return grpcdc_ok();
+}
+
+static EchoServerImpl stream_break_impl = {
+    NULL, echo_unary_impl, stream_break_server_stream,
+    echo_client_stream_impl, echo_bidi_impl};
+
+static void *stream_break_server_main(void *arg) {
+    server_job *job = (server_job *)arg;
+    grpcdc_server *server = grpcdc_server_new();
+    EchoServer_register(server, &stream_break_impl);
+    grpcdc_server_serve(server, job->transport);
+    grpcdc_server_free(server);
+    return NULL;
+}
+
 static void test_echo(void) {
     grpcdc_memory_pair *pair = grpcdc_memory_pair_new();
     grpcdc_transport a, b;
@@ -202,6 +242,47 @@ static void test_echo(void) {
         check(EchoBidiClient_recv(&bidi, &extra, &rst) == 0, "bidi end");
     }
     EchoBidiClient_close(&bidi);
+
+    /* Breaking a server stream cancels it server-side: closing
+       the client stream before trailers sends RST CANCELLED, and
+       the handler's next send fails instead of producing forever. */
+    {
+        stream_break_produced = 0;
+        grpcdc_memory_pair *break_pair = grpcdc_memory_pair_new();
+        grpcdc_transport ba, bb;
+        grpcdc_memory_pair_transports(break_pair, &ba, &bb);
+        server_job break_job = {&bb};
+        pthread_t break_thread;
+        check(pthread_create(&break_thread, NULL, stream_break_server_main,
+                             &break_job) == 0,
+              "stream-break server thread");
+        grpcdc_channel break_channel;
+        grpcdc_channel_init(&break_channel, &ba);
+        EchoClient break_client;
+        break_client.channel = &break_channel;
+        EchoRequest break_req;
+        EchoRequest_init(&break_req);
+        break_req.message = "tick";
+        break_req.count = 200;
+        EchoServerStreamClient break_stream;
+        grpcdc_status bst = EchoClient_server_stream(
+            &break_client, &break_req, &break_stream, NULL, 0, 0);
+        check(grpcdc_status_is_ok(bst), "stream-break open");
+        EchoResponse first;
+        grpcdc_status rst;
+        int r = EchoServerStreamClient_recv(&break_stream, &first, &rst);
+        check(r == 1 && first.index == 0, "stream-break first response");
+        EchoServerStreamClient_close(&break_stream); /* abandon: RST */
+        struct timespec wait_ts;
+        wait_ts.tv_sec = 0;
+        wait_ts.tv_nsec = 100 * 1000000L;
+        nanosleep(&wait_ts, NULL);
+        int settled = stream_break_produced;
+        nanosleep(&wait_ts, NULL);
+        check(stream_break_produced == settled,
+              "stream-break production did not settle");
+        check(settled < 100, "stream-break server kept producing");
+    }
 
     printf("echo tests passed\n");
 }

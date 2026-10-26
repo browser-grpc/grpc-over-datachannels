@@ -193,6 +193,75 @@ async fn unknown_method_is_unimplemented() {
     assert_eq!(err.code, Code::Unimplemented);
 }
 
+struct CountingService {
+    produced: Arc<std::sync::atomic::AtomicU32>,
+}
+
+#[grpc_dc::async_trait]
+impl Echo for CountingService {
+    async fn unary(&self, req: pb::EchoRequest, _ctx: CallCtx) -> Result<pb::EchoResponse, Status> {
+        Ok(pb::EchoResponse { message: req.message, index: 0, ..Default::default() })
+    }
+
+    async fn server_stream(
+        &self,
+        req: pb::EchoRequest,
+        _ctx: CallCtx,
+    ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        let produced = self.produced.clone();
+        let stream = futures_util::stream::unfold(0i32, move |i| {
+            let produced = produced.clone();
+            async move {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                produced.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Some((Ok(pb::EchoResponse { message: "tick".into(), index: i, ..Default::default() }), i + 1))
+            }
+        });
+        Ok(Box::pin(stream))
+    }
+
+    async fn client_stream(
+        &self,
+        _reqs: RequestStream<pb::EchoRequest>,
+        _ctx: CallCtx,
+    ) -> Result<pb::EchoResponse, Status> {
+        Err(Status::unimplemented("unused"))
+    }
+
+    async fn bidi(
+        &self,
+        _reqs: RequestStream<pb::EchoRequest>,
+        _ctx: CallCtx,
+    ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        Err(Status::unimplemented("unused"))
+    }
+}
+
+#[tokio::test]
+async fn dropping_response_stream_cancels_server_production() {
+    let produced = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let (a, b) = loopback_pair();
+    let server_transport: Arc<dyn DcTransport> = Arc::new(b);
+    tokio::spawn(Server::serve(
+        server_transport,
+        vec![echo_service(Arc::new(CountingService { produced: produced.clone() }))],
+    ));
+    let client_transport: Arc<dyn DcTransport> = Arc::new(a);
+    let client = EchoClient::new(Channel::new(client_transport));
+
+    let mut stream = client.server_stream(req("tick", 1000)).await.unwrap();
+    let first = stream.next().await.unwrap().unwrap();
+    assert_eq!(first.index, 0);
+    // Dropping the stream mid-call must RST it: the server
+    // stops producing instead of streaming into the void.
+    drop(stream);
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let settled = produced.load(std::sync::atomic::Ordering::SeqCst);
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert_eq!(produced.load(std::sync::atomic::Ordering::SeqCst), settled);
+    assert!(settled < 100, "server kept producing ({settled})");
+}
+
 #[tokio::test]
 async fn concurrent_unary_calls() {
     let client = Arc::new(setup().await);

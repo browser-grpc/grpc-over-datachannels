@@ -181,14 +181,22 @@ class ClientStream:
         self.trace_ctx = None
         self.trace_path = None
         self._trace_ended = False
+        self._terminated = False
 
     def _end_trace(self, status):
         if not self._trace_ended:
             self._trace_ended = True
             trace_end("client", self.trace_path, self.trace_ctx, status)
 
+    def cancel(self):
+        """Abort the call (RST) unless it already terminated."""
+        if not self._terminated:
+            self._terminated = True
+            self._endpoint.cancel_stream(self.stream_id)
+
     def _fail_deadline(self):
         self._end_trace("DEADLINE_EXCEEDED")
+        self._terminated = True
         self._endpoint.cancel_stream(self.stream_id)
         raise StatusError(CODE_DEADLINE_EXCEEDED, "deadline exceeded")
 
@@ -209,6 +217,7 @@ class ClientStream:
             if event is TIMEOUT:
                 self._fail_deadline()
             if event is None:
+                self._terminated = True
                 raise StatusError(CODE_UNAVAILABLE, "data channel closed")
             if event.kind == EVENT_HEADERS:
                 self.headers = event.headers
@@ -216,12 +225,14 @@ class ClientStream:
                 resp.unmarshal_dc(event.payload)
                 return resp
             elif event.kind == EVENT_TRAILERS:
+                self._terminated = True
                 self.trailers = event.status.trailers
                 self._end_trace(status_name(event.status.code))
                 if event.status.code != 0:
                     raise event.status
                 raise EOFError("call completed")
             elif event.kind == EVENT_RST:
+                self._terminated = True
                 self.trailers = event.status.trailers
                 self._end_trace(status_name(event.status.code))
                 raise event.status
@@ -259,7 +270,7 @@ class AsyncClientStream:
             raise
 
     def cancel(self):
-        self._stream._endpoint.cancel_stream(self._stream.stream_id)
+        self._stream.cancel()
 
 
 class AsyncChannel:
