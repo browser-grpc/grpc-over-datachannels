@@ -242,6 +242,17 @@ function ClientStream:close()
   self:cancel()
 end
 
+--- To-be-closed (<close>) and GC abandon the call the same way:
+--- dropping a stream that never saw its trailers RSTs it (no-op
+--- once terminated) instead of leaving the peer producing.
+function ClientStream:__close()
+  self:close()
+end
+
+function ClientStream:__gc()
+  self:close()
+end
+
 function Channel:cancel(stream)
   stream:cancel()
 end
@@ -270,6 +281,15 @@ end
 
 function CoroutineStream:close()
   self.stream:close()
+end
+
+--- To-be-closed (<close>) and GC abandon the call the same way.
+function CoroutineStream:__close()
+  self:close()
+end
+
+function CoroutineStream:__gc()
+  self:close()
 end
 
 --- Coroutine client facade over Channel: unary and

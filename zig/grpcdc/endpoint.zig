@@ -219,10 +219,19 @@ pub const ResponseSink = struct {
     /// Shared response-metadata state (endpoint-installed).
     state: ?*ResponseState = null,
 
+    // Inline mode has no read thread: while a handler runs on
+    // the pump stack, nothing else receives, so a peer RST sits
+    // unread and the forgotten-stream check below never trips.
+    // Pump one frame first so onTerminal can forget the stream.
+    fn pumpIfInline(self: ResponseSink) void {
+        if (self.endpoint.inline_pump) self.endpoint.pollOnce();
+    }
+
     pub fn send(self: ResponseSink, payload: []const u8) Status {
         // A stream the endpoint has forgotten was RST by the peer
         // (or the channel went away): fail the send so a producing
         // handler stops instead of streaming into the void.
+        self.pumpIfInline();
         if (self.endpoint.stream(self.stream_id) == null) {
             return Status.init(wire.codeCancelled, "call cancelled");
         }
@@ -251,6 +260,7 @@ pub const ResponseSink = struct {
     }
 
     fn sendHeadersMd(self: ResponseSink, md: *const Metadata) Status {
+        self.pumpIfInline();
         if (self.endpoint.stream(self.stream_id) == null) {
             return Status.init(wire.codeCancelled, "call cancelled");
         }

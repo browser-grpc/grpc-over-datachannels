@@ -55,6 +55,9 @@
              (second action) (third action))]
     [(cancel)
      (format "the client calls ServerStream with message ~s and count ~a, reads one response, then cancels the call"
+             (second action) (third action))]
+    [(breaks)
+     (format "the client calls ServerStream with message ~s and count ~a, reads one response, then abandons the stream without cancelling"
              (second action) (third action))]))
 
 (define (expectation-prose expectation)
@@ -72,7 +75,9 @@
      (format "the responses echo ~a in order with increasing indexes"
              (string-join (map (lambda (m) (format "~s" m)) (rest expectation)) ", "))]
     [(cancels)
-     "the stream terminates after the cancellation instead of delivering the remaining responses"]))
+     "the stream terminates after the cancellation instead of delivering the remaining responses"]
+    [(stops)
+     "the server stops producing responses after the break instead of streaming all of them into the void"]))
 
 (define (emit-bdd-docs)
   (cons "BDD.md"

@@ -98,7 +98,11 @@
    (list 'stream-cancel
          "Cancelling a server stream terminates it"
          '(cancel "tick" 5)
-         '(cancels))))
+         '(cancels))
+   (list 'stream-break
+         "Breaking a server stream stops the server"
+         '(breaks "tick" 100)
+         '(stops))))
 
 (define bdd-scenario-count (length bdd-scenarios))
 
@@ -120,13 +124,15 @@
       [(server-stream-fail) (values "server-stream-fail" (list (second action)) (third action) "" "")]
       [(bidi-fail) (values "bidi-fail" (rest action) 0 "" "")]
       [(deadline) (values "deadline" (list (second action)) (third action) "" "")]
-      [(cancel) (values "cancel" (list (second action)) (third action) "" "")]))
+      [(cancel) (values "cancel" (list (second action)) (third action) "" "")]
+      [(breaks) (values "stream-break" (list (second action)) (third action) "" "")]))
   (define-values (expect-message expect-num expect-status)
     (case (first expectation)
       [(responds) (values (second expectation) (third expectation) #f)]
       [(fails) (values "" 0 (second expectation))]
       [(streams) (values (second expectation) (third expectation) #f)]
       [(echoes) (values "" (length (rest expectation)) #f)]
-      [(cancels) (values "" 0 #f)]))
+      [(cancels) (values "" 0 #f)]
+      [(stops) (values "" 0 #f)]))
   (list (symbol->string (first s)) kind messages count path metadata
         expect-message expect-num expect-status))

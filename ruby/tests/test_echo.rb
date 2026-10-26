@@ -77,5 +77,38 @@ module TestEcho
     sleep(0.15)
     TestUtil.assert_eq(produced[0], settled, "stream break settled")
     TestUtil.check(settled < 100, "server kept producing (#{settled})")
+
+    # Abandoning a server stream cancels it server-side: reading
+    # one response from the Enumerator and then dropping it (no
+    # break, no explicit cancel) RSTs the call via the stream
+    # finalizer once the enumerator is collected, and the
+    # handler's next send fails CANCELLED instead of streaming
+    # into the void. Mirrors the stream-break BDD scenario.
+    produced_abandon = [0]
+    counting_abandon = Class.new(EchoService) do
+      define_method(:ServerStream) do |request, stream|
+        request.count.times do |i|
+          produced_abandon[0] += 1
+          stream.send(EchoPb::EchoResponse.new(message: request.message, index: i))
+          sleep(0.01)
+        end
+      end
+    end
+    a3, b3 = Grpcdc.memory_transport_pair
+    server3 = Grpcdc::Server.new
+    EchoGrpcDc.register_echo_server(server3, counting_abandon.new)
+    server3.serve_transport(b3)
+    client3 = EchoGrpcDc::EchoClient.new(Grpcdc::Channel.new(a3))
+
+    enum = client3.ServerStream(req("tick", 1000)).each
+    first = enum.next
+    TestUtil.assert_eq(first.index, 0, "stream abandon first index")
+    enum = nil
+    GC.start
+    sleep(0.15)
+    settled_abandon = produced_abandon[0]
+    sleep(0.15)
+    TestUtil.assert_eq(produced_abandon[0], settled_abandon, "stream abandon settled")
+    TestUtil.check(settled_abandon < 50, "server kept producing (#{settled_abandon})")
   end
 end

@@ -10,7 +10,7 @@ import { BDD_SCENARIOS } from "./bdd_scenarios.generated.js";
 // the BDD specification (prose in BDD.md) against a loopback
 // client+server — the executable examples.
 
-function handlers() {
+function handlers(state) {
   return {
     async unary(req, ctx) {
       if (req.message === "fail") {
@@ -30,7 +30,11 @@ function handlers() {
         throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
       }
       for (let i = 0; i < Math.max(0, req.count); i++) {
+        state.produced++;
         yield new EchoResponse({ message: req.message, index: i });
+        // Pace production so the stream-break scenario can
+        // observe the server stopping after a break.
+        await new Promise((r) => setTimeout(r, 10));
       }
     },
     async clientStream(requests) {
@@ -53,10 +57,11 @@ function handlers() {
 function setup() {
   const [a, b] = memoryDataChannelPair();
   const server = new Server();
-  server.addService(createEchoService(handlers()));
+  const state = { produced: 0 };
+  server.addService(createEchoService(handlers(state)));
   server.serve(b);
   const channel = new Channel(a);
-  return { channel, client: new EchoClient(channel) };
+  return { channel, client: new EchoClient(channel), state };
 }
 
 const req = (message, count = 0) => new EchoRequest({ message, count });
@@ -73,7 +78,7 @@ async function collect(iterable) {
 
 for (const c of BDD_SCENARIOS) {
   test(`bdd: ${c.name}`, async () => {
-    const { channel, client } = setup();
+    const { channel, client, state } = setup();
     if (c.kind === "unary-trailer") {
       let trailers = null;
       const resp = await client.unary(req(c.messages[0]), {
@@ -146,6 +151,23 @@ for (const c of BDD_SCENARIOS) {
         if (got === 1) break;
       }
       assert.equal(got, 1);
+    } else if (c.kind === "stream-break") {
+      const responses = await client.serverStream(req(c.messages[0], c.count));
+      let got = 0;
+      // Natural abandonment: break out of the iteration (no
+      // explicit cancel). The break must RST the call so the
+      // server stops producing.
+      for await (const resp of responses) {
+        assert.equal(resp.message, c.messages[0]);
+        got++;
+        if (got === 1) break;
+      }
+      assert.equal(got, 1);
+      await new Promise((r) => setTimeout(r, 150));
+      const settled = state.produced;
+      await new Promise((r) => setTimeout(r, 150));
+      assert.equal(state.produced, settled);
+      assert.ok(settled < 50, `server kept producing (${settled})`);
     } else if (c.kind === "raw-unary") {
       await assert.rejects(
         channel.unary(c.path, req(c.messages[0]), EchoRequest, EchoResponse),

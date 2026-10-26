@@ -123,6 +123,32 @@ Future<void> testBdd() async {
         // completing the cancel proves termination.
         await iter.cancel().timeout(const Duration(seconds: 5));
         break;
+      case 'stream-break':
+        // Dedicated counting server: breaking the iteration
+        // (no explicit cancel) must RST the call so the slow
+        // handler stops producing.
+        final counting = _CountingEchoService();
+        final (a2, b2) = memoryTransportPair();
+        final breakServer = Server();
+        EchoGrpcDc.registerEchoServer(breakServer, counting);
+        breakServer.serveTransport(b2);
+        final breakClient = EchoClient(Channel(a2));
+        final breakCall =
+            await breakClient.serverStream(EchoRequest(c.messages[0], c.count));
+        var got = 0;
+        await for (final resp in breakCall.responses) {
+          check(resp.message == c.messages[0], '${c.name}: first $resp');
+          got++;
+          break;
+        }
+        check(got == 1, '${c.name}: got $got, want 1');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        final settled = counting.produced;
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        check(counting.produced == settled,
+            '${c.name}: kept producing: $settled -> ${counting.produced}');
+        check(settled < 50, '${c.name}: produced too many: $settled');
+        break;
       case 'raw-unary':
         try {
           final resp = EchoResponse();
@@ -138,4 +164,20 @@ Future<void> testBdd() async {
     }
   }
   print('TestBdd OK');
+}
+
+/// Slow counting handler for the stream-break scenario: sends are
+/// paced so an abandoned stream can be observed stopping.
+class _CountingEchoService extends EchoServiceImpl {
+  int produced = 0;
+
+  @override
+  Future<void> serverStream(
+      EchoRequest req, EchoServerStreamServer stream) async {
+    for (var i = 0; i < req.count; i++) {
+      produced++;
+      stream.send(EchoResponse(req.message, i));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+  }
 }

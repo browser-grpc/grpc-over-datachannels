@@ -24,6 +24,29 @@
 (define (lower-first s)
   (string-append (string (char-downcase (string-ref s 0))) (substring s 1)))
 
+;; Stub type reference for a method input/output: the simple class
+;; name when the message lives in the stub file's own package,
+;; fully qualified otherwise (Java cannot resolve a simple name
+;; across packages). Generated message classes are top-level, one
+;; per message, in their proto package.
+(define (java-qualify-type pkg simple full)
+  (cond [(or (not full) (string=? pkg "")
+             (string-prefix? full (string-append pkg ".")))
+         simple]
+        [else
+         (define parts (string-split full "."))
+         (string-append (string-join (drop-right parts 1) ".") "." simple)]))
+
+(define (java-qualify-services pkg services)
+  (for/list ([svc (in-list services)])
+    (hash-set svc 'methods
+              (for/list ([m (in-list (hash-ref svc 'methods))])
+                (hash-set* m
+                           'input (java-qualify-type pkg (hash-ref m 'input)
+                                                     (hash-ref m 'input-full #f))
+                           'output (java-qualify-type pkg (hash-ref m 'output)
+                                                      (hash-ref m 'output-full #f)))))))
+
 (define (java-deprecated m indent)
   (if (hash-ref m 'deprecated #f)
       (format "~a@Deprecated\n" indent)
@@ -621,6 +644,14 @@
          (format "~a.~a" (java-pb-entry-ref model entry) (hash-ref (car vals) 'name))]
         [else (third (java-pb-scalar f))]))
 
+;; Default for a boxed local (map key/value): float/double cannot
+;; take the primitive "0" literal.
+(define (java-pb-boxed-default model f)
+  (case (hash-ref f 'type)
+    [(1) "0.0"]
+    [(2) "0.0f"]
+    [else (java-pb-default model f)]))
+
 (define (java-pb-varint-expr f v)
   (case (hash-ref f 'type)
     [(8) (format "(~a ? 1 : 0)" v)]
@@ -850,8 +881,8 @@
    (java-pb-encode-singular model (hash-set val-f 'label 1) "value" "        " support)
    "        return w.toBytes();\n    }\n\n"
    (format "    static Object[] ~aDecode(byte[] bytes) {\n" base)
-   (format "        ~a key = ~a;\n" kt (java-pb-default model (hash-set key-f 'label 1)))
-   (format "        ~a value = ~a;\n" vt (java-pb-default model (hash-set val-f 'label 1)))
+   (format "        ~a key = ~a;\n" kt (java-pb-boxed-default model (hash-set key-f 'label 1)))
+   (format "        ~a value = ~a;\n" vt (java-pb-boxed-default model (hash-set val-f 'label 1)))
    "        Reader r = new Reader(bytes);\n        Field field;\n        while ((field = r.next()) != null) {\n            switch (field.number) {\n"
    (format "                case ~a: ~a break;\n" (hash-ref key-f 'number)
            (java-pb-decode-singular-stmt model (hash-set key-f 'label 1) "key"))
@@ -1107,7 +1138,8 @@
               "\n")
              "")
          (apply string-append
-                (map java-service (hash-ref file-model 'services)))
+                (map java-service
+                     (java-qualify-services pkg (hash-ref file-model 'services))))
          "}\n")))
   (define pb-files (emit-java-pb-files file-model))
   (if pb-files (cons stub pb-files) stub))

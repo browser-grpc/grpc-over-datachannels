@@ -174,6 +174,7 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
       // A stream the endpoint has forgotten was RST by the peer
       // (or the channel went away): fail the send so a producing
       // handler stops instead of streaming into the void.
+      PumpIfInline();
       if (!endpoint_->Stream(stream_id_)) {
         throw StatusException(wire::kCodeCancelled, "call cancelled");
       }
@@ -187,6 +188,7 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     }
     void SendHeaders() { SendHeaders(nullptr); }
     void SendHeaders(const Metadata* metadata) {
+      PumpIfInline();
       if (!endpoint_->Stream(stream_id_)) {
         throw StatusException(wire::kCodeCancelled, "call cancelled");
       }
@@ -204,6 +206,14 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     }
 
    private:
+    // Inline mode has no read thread: while a handler runs on
+    // the pump stack, nothing else receives, so a peer RST sits
+    // unread and the forgotten-stream check above never trips.
+    // Pump one frame first so OnTerminal can forget the stream.
+    void PumpIfInline() {
+      if (endpoint_->inline_pump()) endpoint_->PollOnce();
+    }
+
     Endpoint* endpoint_;
     std::uint32_t stream_id_;
   };

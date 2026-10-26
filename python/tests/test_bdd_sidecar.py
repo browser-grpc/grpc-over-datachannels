@@ -13,6 +13,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -30,6 +31,23 @@ from test_sidecar_direct import SIDECAR, free_port, read_line
 
 def req(message, count=0):
     return EchoRequest(message=message, count=count)
+
+
+class _CountingEchoService(EchoService):
+    """EchoService that counts ServerStream production and
+    paces it (~10ms/response) so the stream-break scenario can
+    observe the server stopping after the client abandons."""
+
+    def __init__(self):
+        self.produced = []
+
+    def ServerStream(self, req, stream):
+        if req.message == "fail":
+            return super().ServerStream(req, stream)
+        for i in range(max(0, req.count)):
+            self.produced.append(i)
+            stream.send(EchoResponse(message=req.message, index=i))
+            time.sleep(0.01)
 
 
 class TestBddSidecar(unittest.TestCase):
@@ -53,7 +71,8 @@ class TestBddSidecar(unittest.TestCase):
         listen_sock.listen(1)
 
         server = grpcdc.Server()
-        echo_grpc_dc.register_echo_server(server, EchoService())
+        self.service = _CountingEchoService()
+        echo_grpc_dc.register_echo_server(server, self.service)
 
         def serve():
             conn, _ = listen_sock.accept()
@@ -163,6 +182,25 @@ class TestBddSidecar(unittest.TestCase):
                     terminated = True
                     break
             self.assertTrue(terminated, "stream did not terminate after cancel")
+        elif kind == "stream-break":
+            # Counting server (setUp service): abandoning the
+            # stream (iterator close + drop, no explicit cancel)
+            # must RST the call so production stops. Counts are
+            # deltas: earlier scenarios share the counter.
+            baseline = len(self.service.produced)
+            stream = self.client.ServerStream(req(messages[0], count))
+            first = next(stream)
+            self.assertEqual(first.message, messages[0])
+            # Natural abandonment: close the iterator and drop
+            # it (no channel.cancel) so the call is RST.
+            stream.close()
+            del stream
+            time.sleep(0.15)
+            settled = len(self.service.produced) - baseline
+            time.sleep(0.15)
+            self.assertEqual(
+                len(self.service.produced) - baseline, settled)
+            self.assertLess(settled, 50)
         elif kind == "raw-unary":
             with self.assertRaises(grpcdc.StatusError) as cm:
                 self.channel.unary(path, req(messages[0]), EchoResponse())

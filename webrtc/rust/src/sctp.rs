@@ -821,11 +821,15 @@ impl Association {
         // Find or create the partial message this fragment belongs to.
         let key = if is_begin { tsn } else {
             // Fragment continuation: attach to the open partial whose
-            // fragments end just before this TSN.
+            // fragments end just before this TSN (never one that
+            // already ended: that fragment starts a new partial).
             entry
                 .partials
                 .iter()
-                .find(|(_, p)| p.parts.keys().max().map_or(false, |&m| m.wrapping_add(1) == tsn))
+                .find(|(_, p)| {
+                    p.last_tsn.is_none()
+                        && p.parts.keys().max().map_or(false, |&m| m.wrapping_add(1) == tsn)
+                })
                 .map(|(&k, _)| k)
                 .unwrap_or(tsn)
         };
@@ -853,11 +857,16 @@ impl Association {
                         continue;
                     }
                     let (a, b) = (keys[i], keys[j]);
+                    // Never merge across a message boundary: b holding a
+                    // BEGIN fragment starts a new message, and a holding
+                    // an END fragment is already a whole message.
                     let contiguous = match (entry.partials.get(&a), entry.partials.get(&b)) {
                         (Some(pa), Some(pb)) => {
                             let a_max = *pa.parts.keys().max().unwrap();
                             let b_min = *pb.parts.keys().min().unwrap();
-                            a_max.wrapping_add(1) == b_min
+                            pb.first_tsn.is_none()
+                                && pa.last_tsn.is_none()
+                                && a_max.wrapping_add(1) == b_min
                         }
                         _ => false,
                     };

@@ -26,6 +26,14 @@ import { headersFrame, statusFrame } from "../js/src/codec.js";
 
 const { HTTP2_HEADER_PATH, HTTP2_HEADER_STATUS, HTTP2_HEADER_CONTENT_TYPE } = http2.constants;
 
+// Frame-level tracing for hunting wedged streams (off unless
+// GRPC_DC_BRIDGE_TRACE is set): one line per hop so the last
+// frame a stuck call produced is visible in the proxy log.
+const TRACE = process.env.GRPC_DC_BRIDGE_TRACE ? 1 : 0;
+function trace(msg) {
+  if (TRACE) console.error(`[bridge-trace] ${msg}`);
+}
+
 // ---------------------------------------------------------------------------
 // gRPC length-prefixed message framing
 // ---------------------------------------------------------------------------
@@ -201,6 +209,7 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
       endpoint.closeStream(id);
     };
 
+    trace(`http2 stream open dc-id=${id} path=${path}`);
     const parser = new LpmParser(headers["grpc-encoding"] ?? "identity");
     // The DataChannel HEADERS frame is held until the first
     // request message (or end of stream): per-message
@@ -218,15 +227,18 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
       if (parser.sawCompressed && !("grpc-encoding" in requestMetadata)) {
         requestMetadata["grpc-encoding"] = "gzip";
       }
+      trace(`dc send HEADERS id=${id}`);
       endpoint
         .sendFrame(headersFrame(id, path, requestMetadata))
         .catch(() => {});
       for (const payload of pendingData) {
+        trace(`dc send DATA id=${id} bytes=${payload.length}`);
         endpoint.sendFrame(encodeFrame(FrameType.DATA, id, payload)).catch(() => {});
       }
       pendingData.length = 0;
     };
     stream.on("data", (chunk) => {
+      trace(`http2 data dc-id=${id} chunk=${chunk.length}`);
       let payloads;
       try {
         payloads = parser.push(chunk);
@@ -236,6 +248,7 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
       }
       for (const payload of payloads) {
         if (headersSent) {
+          trace(`dc send DATA id=${id} bytes=${payload.length}`);
           endpoint.sendFrame(encodeFrame(FrameType.DATA, id, payload)).catch(() => {});
         } else {
           pendingData.push(payload);
@@ -244,6 +257,7 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
       }
     });
     stream.on("end", () => {
+      trace(`http2 end dc-id=${id}`);
       sendHeaders();
       endpoint.sendFrame(encodeFrame(FrameType.HALF_CLOSE, id)).catch(() => {});
     });
@@ -252,6 +266,7 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
     (async () => {
       try {
         for await (const event of input) {
+          trace(`dc event ${event.kind} id=${id}`);
           if (event.kind === "headers") {
             respond(event.headers?.metadata ?? {});
           } else if (event.kind === "data") {

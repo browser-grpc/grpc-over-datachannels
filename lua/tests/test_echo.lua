@@ -15,6 +15,7 @@ local function req(message, count)
 end
 
 local testStreamBreak
+local testStreamBreakOne
 
 --- Loopback end-to-end: all four shapes, error status, metadata.
 --- The single-threaded runtime pumps the peer endpoint from inside
@@ -67,6 +68,7 @@ local function testEcho()
   util.check(withMd.message == "echo: hello [meta]", "metadata: " .. withMd.message)
 
   testStreamBreak()
+  testStreamBreakOne()
 
   print("TestEcho OK")
 end
@@ -121,6 +123,57 @@ testStreamBreak = function()
   for _ = 1, 4 do driveServer() end
   util.check(produced == settled, "stream break settled")
   util.check(settled < 100, "server kept producing (" .. settled .. ")")
+end
+
+--- Reading one response from a server stream and breaking the
+--- generic-for abandons the call: the closable iterator RSTs it
+--- (no explicit cancel), and the counting handler's next send
+--- fails CANCELLED instead of streaming into the void. Mirrors
+--- the stream-break BDD scenario. The handler is "slow"
+--- cooperatively: it yields and pumps the endpoint between
+--- sends (the single-threaded runtime has no sleep).
+testStreamBreakOne = function()
+  local produced = 0
+  local serverEp = nil
+  local slowImpl = {}
+  for k, v in pairs(impl) do slowImpl[k] = v end
+  slowImpl.serverStream = function(self, ctx, request, stream)
+    for i = 0, request.count - 1 do
+      produced = produced + 1
+      stream:send(messages.EchoResponse.new(request.message, i))
+      coroutine.yield()
+      serverEp:pump()
+    end
+  end
+
+  local a, b = memoryModule.memoryTransportPair()
+  local server = serverModule.Server.new()
+  stubs.registerEchoServer(server, slowImpl)
+  serverEp = server:serveTransport(b)
+  local driveServer = coroutine.wrap(function()
+    while true do
+      serverEp:pump()
+      coroutine.yield()
+    end
+  end)
+  a.peerPump = function(self)
+    driveServer()
+    return true
+  end
+
+  local coro = stubs.EchoClientCoro.new(channelModule.Channel.new(a))
+  local seen = 0
+  for resp in coro:serverStream(req("tick", 1000)):iter() do
+    util.check(resp.message == "tick" and resp.index == 0, "stream abandon first")
+    seen = seen + 1
+    if seen == 1 then break end
+  end
+  util.check(seen == 1, "stream abandon seen")
+  for _ = 1, 4 do driveServer() end
+  local settled = produced
+  for _ = 1, 4 do driveServer() end
+  util.check(produced == settled, "stream abandon settled")
+  util.check(settled < 50, "server kept producing (" .. settled .. ")")
 end
 
 return testEcho

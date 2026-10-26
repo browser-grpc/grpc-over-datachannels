@@ -22,4 +22,5 @@ SCENARIOS = [
     ("bidi-failure", "bidi-fail", ["fail"], 0, "", "", "", 0, 3),
     ("deadline-exceeded", "deadline", ["slow"], 600, "", "", "", 0, 4),
     ("stream-cancel", "cancel", ["tick"], 5, "", "", "", 0, -1),
+    ("stream-break", "stream-break", ["tick"], 100, "", "", "", 0, -1),
 ]

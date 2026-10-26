@@ -818,6 +818,9 @@ func (a *Association) handleData(flags byte, body []byte) []SctpEvent {
 	key := tsn
 	if !isBegin {
 		for k, p := range entry.partials {
+			if p.hasLast {
+				continue // already ended: a later fragment starts a new partial
+			}
 			var maxTsn uint32
 			first := true
 			for t := range p.parts {
@@ -884,6 +887,14 @@ func (a *Association) handleData(flags byte, body []byte) []SctpEvent {
 				}
 				pa, pb := entry.partials[ka], entry.partials[kb]
 				if pa == nil || pb == nil {
+					continue
+				}
+				// Never merge across a message boundary: pb holding a
+				// BEGIN fragment starts a new message, and pa holding an
+				// END fragment is already a whole message. Merging either
+				// way concatenates two messages into one corrupt delivery
+				// and strands the second message's SSN forever.
+				if pb.hasFirst || pa.hasLast {
 					continue
 				}
 				if partMax(pa)+1 == partMin(pb) {

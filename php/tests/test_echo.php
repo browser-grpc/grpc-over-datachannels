@@ -130,5 +130,67 @@ final class TestEcho
         }
         T::assertEq($counting->produced, $settled, "stream break settled");
         T::check($settled < 100, "server kept producing ($settled)");
+
+        // Reading one response and abandoning the iterate()
+        // generator cancels the call server-side: dropping the
+        // generator and the stream (generator finally /
+        // RecvStream __destruct) RSTs it — no explicit cancel —
+        // and the handler's next send fails CANCELLED instead of
+        // streaming into the void. Mirrors the stream-break BDD
+        // scenario. The handler is "slow" cooperatively: one
+        // message per Fiber suspend, pumping between sends.
+        [$a3, $b3] = \Grpcdc\memoryTransportPair();
+        $counting3 = new CountingStreamService();
+        $server3 = new \Grpcdc\Server();
+        \EchoGrpcDc\registerEchoServer($server3, $counting3);
+        $serverEp3 = $server3->serveTransport($b3);
+        $counting3->serverEp = $serverEp3;
+        $channel3 = new \Grpcdc\Channel($a3);
+        $serverFiber3 = new \Fiber(function () use ($serverEp3) {
+            while (true) {
+                $serverEp3->pump();
+                \Fiber::suspend();
+            }
+        });
+        $drive3 = function () use ($serverFiber3) {
+            if ($serverFiber3->isTerminated()) {
+                return false;
+            }
+            if (!$serverFiber3->isStarted()) {
+                $serverFiber3->start();
+            } else {
+                $serverFiber3->resume();
+            }
+            return true;
+        };
+        $a3->peerPump = $drive3;
+        $b3->peerPump = function () use ($channel3) {
+            return $channel3->endpoint->pump();
+        };
+        $client3 = new \EchoGrpcDc\EchoClient($channel3);
+
+        $stream3 = $client3->ServerStream(self::req("tick", 1000));
+        $gen3 = $stream3->iterate();
+        $seen3 = 0;
+        foreach ($gen3 as $resp) {
+            T::assertEq($resp->message, "tick", "stream abandon first");
+            T::assertEq($resp->index, 0, "stream abandon first index");
+            $seen3++;
+            if ($seen3 === 1) {
+                break;
+            }
+        }
+        T::assertEq($seen3, 1, "stream abandon seen");
+        unset($gen3, $stream3);
+        gc_collect_cycles();
+        for ($i = 0; $i < 4; $i++) {
+            $drive3();
+        }
+        $settled3 = $counting3->produced;
+        for ($i = 0; $i < 4; $i++) {
+            $drive3();
+        }
+        T::assertEq($counting3->produced, $settled3, "stream abandon settled");
+        T::check($settled3 < 50, "server kept producing ($settled3)");
     }
 }

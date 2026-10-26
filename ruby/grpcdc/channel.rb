@@ -144,6 +144,41 @@ module Grpcdc
       @trace_path = nil
       @trace_ended = false
       @terminated = false
+      # Abandoning the stream object without break/close (a dropped
+      # Enumerator or receiving-stream wrapper) must still RST the
+      # call so the peer stops producing: a finalizer cancels unless
+      # the call already terminated (see register_cancel_finalizer).
+      @final_state = [false]
+      self.class.register_cancel_finalizer(self, endpoint, stream_id, @final_state)
+    end
+
+    # Register the abandon finalizer for a stream. The proc is
+    # built by build_cancel_proc, whose frame never holds the
+    # stream: a proc that captures the stream itself (directly, or
+    # via a local in its creation frame) would keep it alive
+    # forever and the finalizer would never run.
+    def self.register_cancel_finalizer(stream, endpoint, stream_id, state)
+      ObjectSpace.define_finalizer(stream, build_cancel_proc(endpoint, stream_id, state))
+    end
+
+    def self.build_cancel_proc(endpoint, stream_id, state)
+      proc {
+        begin
+          # Finalizers run in trap context, where Mutex#synchronize
+          # raises ThreadError: hand the cancel to a fresh thread
+          # (which re-checks the terminated flag when it runs).
+          Thread.new { endpoint.cancel_stream(stream_id) unless state[0] }
+        rescue StandardError
+          nil
+        end
+      }
+    end
+
+    # Mark the call terminated (trailers/RST/deadline/close seen):
+    # a later abandon (finalizer or close) then sends no RST.
+    def mark_terminated
+      @terminated = true
+      @final_state[0] = true
     end
 
     def end_trace(status)
@@ -167,12 +202,12 @@ module Grpcdc
             remaining <= 0 ? StreamInput::TIMEOUT : @input.get(remaining)
           end
         if event.equal?(StreamInput::TIMEOUT)
-          @terminated = true
+          mark_terminated
           @endpoint.cancel_stream(@stream_id)
           raise StatusError.new(CODE_DEADLINE_EXCEEDED, "deadline exceeded")
         end
         if event.nil?
-          @terminated = true
+          mark_terminated
           raise StatusError.new(CODE_UNAVAILABLE, "data channel closed")
         end
 
@@ -182,14 +217,14 @@ module Grpcdc
         when EVENT_DATA
           return resp.unmarshal_dc(event.payload)
         when EVENT_TRAILERS
-          @terminated = true
+          mark_terminated
           @trailers = event.status.trailers
           end_trace(Grpcdc.status_name(event.status.code))
           raise event.status unless event.status.code == CODE_OK
 
           raise EOFError, "call completed"
         when EVENT_RST
-          @terminated = true
+          mark_terminated
           @trailers = event.status.trailers
           end_trace(Grpcdc.status_name(event.status.code))
           raise event.status
@@ -203,7 +238,7 @@ module Grpcdc
     def cancel
       return if @terminated
 
-      @terminated = true
+      mark_terminated
       @endpoint.cancel_stream(@stream_id)
     end
 

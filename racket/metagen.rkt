@@ -25,6 +25,7 @@
 
 (require "spec.rkt" "pb.rkt" json racket/runtime-path "webrtc-gen.rkt"
          "oracle-spec.rkt" "oracle-gen.rkt" "bdd-gen.rkt" "webgen.rkt" "mux-gen.rkt"
+         "interop-gen.rkt"
          "proxy-gen.rkt" "http2-gen.rkt"
          "runtime-go.rkt" "runtime-js.rkt" "runtime-rust.rkt" "runtime-python.rkt" "runtime-java.rkt" "runtime-csharp.rkt" "runtime-cpp.rkt" "runtime-swift.rkt" "runtime-kotlin.rkt" "runtime-dart.rkt" "runtime-zig.rkt" "runtime-c.rkt" "runtime-lua.rkt" "runtime-ruby.rkt" "runtime-php.rkt" "runtime-scala.rkt")
 
@@ -1610,6 +1611,7 @@ BROWSER_SERVER_EOF
     (lambda (out) (display (emit-java-fixtures) out)))
   (printf "generated java/tests/Fixtures.java\n")
   (write-runtime-files "java/tests" "oracle-gen.rkt" (list (emit-java-oracle-driver)))
+  (write-runtime-files "java/tests" "interop-gen.rkt" (list (emit-java-interop-cases)))
   (write-runtime-files "java/tests" "bdd-gen.rkt" (list (emit-java-bdd) (emit-bdd-schemas 'java)))
   (make-directory* (build-path root "csharp" "grpcdc"))
   (call-with-output-file (build-path root "csharp" "grpcdc" "Wire.cs") #:exists 'replace

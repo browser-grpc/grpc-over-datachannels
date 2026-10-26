@@ -111,6 +111,11 @@ interop-stubs:
 		--grpc-dc-rust_out=rust/gen -I oracle/interop \
 		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
 		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	mkdir -p java/examples/interop
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-java=bin/protoc-gen-grpc-dc-java \
+		--grpc-dc-java_out=java/examples/interop -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
 	gofmt -w go/interop/*.go
 
 generate: plugins stubs
@@ -193,7 +198,7 @@ test-python:
 test-java:
 	cd java && mkdir -p build && javac -encoding UTF-8 -d build $$(find grpcdc examples tests -name '*.java') \
 		&& java -cp build tests.TestCodec && java -cp build tests.TestEcho \
-		&& java -cp build tests.TestInterop && java -cp build tests.TestOracle \
+		&& java -cp build tests.TestInterop && java -cp build tests.TestInteropOracle && java -cp build tests.TestOracle \
 		&& java -cp build tests.TestDynamic && java -cp build tests.TestBdd && java -cp build tests.TestDeadline \
 		&& java -cp build tests.TestSidecar \
 		&& java -cp build tests.TestPbMessages && java -cp build tests.TestBddSchemas

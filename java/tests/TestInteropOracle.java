@@ -1,0 +1,233 @@
+package tests;
+
+import grpc.testing.Empty;
+import grpc.testing.Payload;
+import grpc.testing.ResponseParameters;
+import grpc.testing.SimpleRequest;
+import grpc.testing.SimpleResponse;
+import grpc.testing.StreamingInputCallRequest;
+import grpc.testing.StreamingInputCallResponse;
+import grpc.testing.StreamingOutputCallRequest;
+import grpc.testing.StreamingOutputCallResponse;
+import grpc.testing.TestGrpcDc;
+import grpcdc.Channel;
+import grpcdc.StatusException;
+import java.io.BufferedReader;
+import java.io.EOFException;
+import java.io.InputStreamReader;
+import java.net.ServerSocket;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Interop client grading: the generated Java TestService client
+ * runs the canonical grpc interop cases (generated table:
+ * InteropCases) against the official grpc-go TestServiceServer,
+ * through the bridge (dc-to-http2, stdio = DataChannel). Mirrors
+ * the JS/Python/Go/Rust interop oracle suites. Skips when the
+ * oracle server binary is not built (Dockerfile.ci builds it).
+ */
+public final class TestInteropOracle {
+    private TestInteropOracle() {}
+
+    private static final Path ROOT = Path.of("..").toAbsolutePath().normalize();
+
+    static void check(boolean condition, String what) {
+        if (!condition) {
+            throw new AssertionError(what);
+        }
+    }
+
+    private static int freePort() throws Exception {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        }
+    }
+
+    private static Payload payload(int size) {
+        return new Payload(null, new byte[size]);
+    }
+
+    private static StreamingOutputCallRequest streamRequest(int[] respSizes, int payloadSize) {
+        StreamingOutputCallRequest req = new StreamingOutputCallRequest();
+        for (int size : respSizes) {
+            ResponseParameters p = new ResponseParameters();
+            p.size = size;
+            req.responseParameters.add(p);
+        }
+        req.payload = payload(payloadSize);
+        return req;
+    }
+
+    private static void expectStatus(int code, String message, String what, ThrowingCall call) throws Exception {
+        try {
+            call.run();
+        } catch (StatusException e) {
+            check(e.code == code, what + ": code " + e.code + " != " + code);
+            if (!message.isEmpty()) {
+                check(message.equals(e.getMessage()),
+                        what + ": message '" + e.getMessage() + "' != '" + message + "'");
+            }
+            return;
+        }
+        throw new AssertionError(what + ": expected status " + code + ", call succeeded");
+    }
+
+    private interface ThrowingCall {
+        void run() throws Exception;
+    }
+
+    private static void runCases(TestGrpcDc.TestServiceClient client,
+                                 TestGrpcDc.UnimplementedServiceClient unimpl) throws Exception {
+        for (Object[] row : InteropCases.CASES) {
+            String name = (String) row[0];
+            String kind = (String) row[1];
+            int[] reqSizes = (int[]) row[2];
+            int[] respSizes = (int[]) row[3];
+            int statusCode = (Integer) row[4];
+            String statusMessage = (String) row[5];
+            switch (kind) {
+                case "EMPTY" -> client.EmptyCall(new Empty());
+                case "LARGE_UNARY" -> {
+                    SimpleRequest req = new SimpleRequest();
+                    req.responseSize = respSizes[0];
+                    req.payload = payload(reqSizes[0]);
+                    SimpleResponse resp = client.UnaryCall(req);
+                    check(resp.payload.body.length == respSizes[0],
+                            name + ": body " + resp.payload.body.length);
+                }
+                case "CLIENT_STREAMING" -> {
+                    List<StreamingInputCallRequest> reqs = new ArrayList<>();
+                    int total = 0;
+                    for (int size : reqSizes) {
+                        StreamingInputCallRequest r = new StreamingInputCallRequest();
+                        r.payload = payload(size);
+                        reqs.add(r);
+                        total += size;
+                    }
+                    StreamingInputCallResponse resp = client.StreamingInputCall(reqs);
+                    check(resp.aggregatedPayloadSize == total,
+                            name + ": aggregated " + resp.aggregatedPayloadSize + " != " + total);
+                }
+                case "SERVER_STREAMING" -> {
+                    try (var stream = client.StreamingOutputCall(streamRequest(respSizes, 0))) {
+                        for (int size : respSizes) {
+                            StreamingOutputCallResponse resp = stream.recv();
+                            check(resp.payload.body.length == size,
+                                    name + ": body " + resp.payload.body.length + " != " + size);
+                        }
+                        try {
+                            stream.recv();
+                            throw new AssertionError(name + ": expected EOF");
+                        } catch (EOFException expected) {
+                            // end of stream
+                        }
+                    }
+                }
+                case "PING_PONG" -> {
+                    List<StreamingOutputCallRequest> reqs = new ArrayList<>();
+                    for (int i = 0; i < respSizes.length; i++) {
+                        reqs.add(streamRequest(new int[]{respSizes[i]}, reqSizes[i]));
+                    }
+                    try (var stream = client.FullDuplexCall(reqs)) {
+                        for (int size : respSizes) {
+                            StreamingOutputCallResponse resp = stream.recv();
+                            check(resp.payload.body.length == size,
+                                    name + ": body " + resp.payload.body.length + " != " + size);
+                        }
+                    }
+                }
+                case "EMPTY_STREAM" -> {
+                    try (var stream = client.FullDuplexCall(List.of())) {
+                        try {
+                            stream.recv();
+                            throw new AssertionError(name + ": expected EOF");
+                        } catch (EOFException expected) {
+                            // end of stream
+                        }
+                    }
+                }
+                case "STATUS_UNARY" -> {
+                    SimpleRequest req = new SimpleRequest();
+                    req.responseStatus = new grpc.testing.EchoStatus();
+                    req.responseStatus.code = statusCode;
+                    req.responseStatus.message = statusMessage;
+                    expectStatus(statusCode, statusMessage, name, () -> client.UnaryCall(req));
+                }
+                case "STATUS_DUPLEX" -> {
+                    StreamingOutputCallRequest req = streamRequest(new int[]{0}, 0);
+                    req.responseStatus = new grpc.testing.EchoStatus();
+                    req.responseStatus.code = statusCode;
+                    req.responseStatus.message = statusMessage;
+                    expectStatus(statusCode, statusMessage, name, () -> {
+                        try (var stream = client.FullDuplexCall(List.of(req))) {
+                            stream.recv();
+                        }
+                    });
+                }
+                case "UNIMPLEMENTED_METHOD" -> expectStatus(statusCode, "", name,
+                        () -> client.UnimplementedCall(new Empty()));
+                case "UNIMPLEMENTED_SERVICE" -> expectStatus(statusCode, "", name,
+                        () -> unimpl.UnimplementedCall(new Empty()));
+                default -> throw new AssertionError("unknown interop kind " + kind);
+            }
+            System.out.println("interop case ok: " + name);
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        Path serverBin = ROOT.resolve("oracle/go-interop/interop-server");
+        if (!Files.isExecutable(serverBin)) {
+            System.out.println("TestInteropOracle SKIP (go interop server not built)");
+            return;
+        }
+        int port = freePort();
+        Process server = new ProcessBuilder(serverBin.toString(), "-port", String.valueOf(port))
+                .redirectErrorStream(true).start();
+        try {
+            // The Go server prints no readiness line; poll the port.
+            long deadline = System.currentTimeMillis() + 30000;
+            boolean ready = false;
+            while (System.currentTimeMillis() < deadline) {
+                try (java.net.Socket s = new java.net.Socket("127.0.0.1", port)) {
+                    ready = true;
+                    break;
+                } catch (Exception e) {
+                    Thread.sleep(100);
+                }
+            }
+            check(ready, "go interop server did not start");
+
+            Process bridge = new ProcessBuilder("node",
+                    ROOT.resolve("oracle/bridge.mjs").toString(),
+                    "dc-to-http2", "--grpc", "127.0.0.1:" + port)
+                    .redirectErrorStream(false).start();
+            try {
+                // Drain bridge stderr so its pipe never blocks.
+                Thread drain = new Thread(() -> {
+                    try (BufferedReader r = new BufferedReader(new InputStreamReader(bridge.getErrorStream()))) {
+                        while (r.readLine() != null) {
+                            // discard
+                        }
+                    } catch (Exception ignored) {
+                        // bridge gone
+                    }
+                });
+                drain.setDaemon(true);
+                drain.start();
+                echo.StdioTransport transport =
+                        new echo.StdioTransport(bridge.getOutputStream(), bridge.getInputStream());
+                Channel channel = new Channel(transport);
+                runCases(new TestGrpcDc.TestServiceClient(channel),
+                        new TestGrpcDc.UnimplementedServiceClient(channel));
+            } finally {
+                bridge.destroyForcibly();
+            }
+        } finally {
+            server.destroyForcibly();
+        }
+        System.out.println("TestInteropOracle OK");
+    }
+}

@@ -26,5 +26,6 @@ public final class BddScenarios {
         {"bidi-failure", "bidi-fail", new String[]{"fail"}, 0, "", "", "", 0, 3},
         {"deadline-exceeded", "deadline", new String[]{"slow"}, 600, "", "", "", 0, 4},
         {"stream-cancel", "cancel", new String[]{"tick"}, 5, "", "", "", 0, -1},
+        {"stream-break", "stream-break", new String[]{"tick"}, 100, "", "", "", 0, -1},
     };
 }

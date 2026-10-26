@@ -73,6 +73,27 @@ test("loss and RTO retransmit", () => {
   assert.equal(events.length, 1);
 });
 
+test("interleaved fragments do not merge across messages", () => {
+  const link = new Link();
+  link.handshake();
+  const msgA = Buffer.alloc(1500, "a");
+  const msgB = Buffer.alloc(1500, "b");
+  const pktsA = link.client.sendData(0, 63, msgA, {}, link.now);
+  const pktsB = link.client.sendData(0, 63, msgB, {}, link.now);
+  assert.equal(pktsA.length, 2);
+  assert.equal(pktsB.length, 2);
+  // B's BEGIN fragment arrives before A's END fragment.
+  const events = [];
+  for (const p of [pktsA[0], pktsB[0], pktsA[1], pktsB[1]]) {
+    events.push(...link.server.handlePacket(p, link.now).events);
+  }
+  events.push(...link.clientSend(0, 63, Buffer.from("third")));
+  assert.deepEqual(
+    events.filter((e) => e.type === "data").map((e) => e.payload),
+    [msgA, msgB, Buffer.from("third")],
+  );
+});
+
 test("partial reliability abandons and unblocks stream", () => {
   const link = new Link();
   link.handshake();

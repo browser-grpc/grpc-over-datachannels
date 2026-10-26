@@ -26,5 +26,6 @@ public static class BddScenarios
         new object[] {"bidi-failure", "bidi-fail", new string[] {"fail"}, 0, "", "", "", 0, 3},
         new object[] {"deadline-exceeded", "deadline", new string[] {"slow"}, 600, "", "", "", 0, 4},
         new object[] {"stream-cancel", "cancel", new string[] {"tick"}, 5, "", "", "", 0, -1},
+        new object[] {"stream-break", "stream-break", new string[] {"tick"}, 100, "", "", "", 0, -1},
     };
 }

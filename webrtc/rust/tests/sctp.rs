@@ -177,6 +177,39 @@ fn partial_reliability_abandons_and_unblocks_stream() {
     assert_eq!(payloads, vec![b"survivor".to_vec()]);
 }
 
+// Regression: fragments of two consecutive ordered messages must
+// never merge across the message boundary. If message B's BEGIN
+// fragment lands before message A's END fragment, the old merge
+// concatenated B into A and stranded B's SSN, wedging the stream.
+#[test]
+fn interleaved_fragments_do_not_merge_across_messages() {
+    let mut link = Link::new();
+    link.handshake();
+    let msg_a = vec![b'a'; 1500];
+    let msg_b = vec![b'b'; 1500];
+    let pkts_a = link.client.send_data(0, 63, &msg_a, SendOptions::default(), link.now);
+    let pkts_b = link.client.send_data(0, 63, &msg_b, SendOptions::default(), link.now);
+    assert_eq!(pkts_a.len(), 2);
+    assert_eq!(pkts_b.len(), 2);
+    // B's BEGIN fragment arrives before A's END fragment.
+    let interleaved = vec![pkts_a[0].clone(), pkts_b[0].clone(), pkts_a[1].clone(), pkts_b[1].clone()];
+    let mut events = Vec::new();
+    for p in interleaved {
+        let (_, ev) = link.server.handle_packet(&p, link.now);
+        events.extend(ev);
+    }
+    let third = link.client.send_data(0, 63, b"third", SendOptions::default(), link.now);
+    events.extend(link.deliver_to_server(third));
+    let payloads: Vec<Vec<u8>> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Data { payload, .. } => Some(payload.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(payloads, vec![msg_a, msg_b, b"third".to_vec()]);
+}
+
 #[test]
 fn shutdown_handshake() {
     let mut link = Link::new();

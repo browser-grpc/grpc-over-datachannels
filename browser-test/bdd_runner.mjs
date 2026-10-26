@@ -32,7 +32,7 @@ async function expectStatus(run, code, name) {
   throw new Error(`${name}: expected status ${code}, call succeeded`);
 }
 
-export async function runBddScenarios({ client, channel, EchoRequest, EchoResponse, scenarios }) {
+export async function runBddScenarios({ client, channel, EchoRequest, EchoResponse, scenarios, getProduced }) {
   const req = (message, count = 0, delayMs = 0) => new EchoRequest({ message, count, delayMs });
   const results = [];
 
@@ -99,6 +99,29 @@ export async function runBddScenarios({ client, channel, EchoRequest, EchoRespon
           if (got === 1) break;
         }
         check(got === 1, `${c.name}: got ${got} responses before cancel`);
+      } else if (c.kind === "stream-break") {
+        check(typeof getProduced === "function",
+          `${c.name}: no produced counter (harness must expose one)`);
+        const before = await getProduced();
+        const responses = await client.serverStream(req(c.messages[0], c.count));
+        let got = 0;
+        // Natural abandonment: break out of the iteration (no
+        // explicit cancel). The break must RST the call so the
+        // server stops producing; getProduced reads the Node
+        // server's counter back through the harness bridge.
+        for await (const resp of responses) {
+          check(resp.message === c.messages[0], `${c.name}: message ${resp.message}`);
+          got++;
+          if (got === 1) break;
+        }
+        check(got === 1, `${c.name}: got ${got} responses before break`);
+        await new Promise((r) => setTimeout(r, 150));
+        const settled = (await getProduced()) - before;
+        await new Promise((r) => setTimeout(r, 150));
+        const after = (await getProduced()) - before;
+        check(after === settled,
+          `${c.name}: production did not settle (${settled} -> ${after})`);
+        check(settled < 50, `${c.name}: server kept producing (${settled})`);
       } else if (c.kind === "raw-unary") {
         await expectStatus(
           () => channel.unary(c.path, req(c.messages[0]), EchoRequest, EchoResponse),

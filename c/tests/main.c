@@ -139,7 +139,7 @@ static grpcdc_status stream_break_server_stream(void *ctx,
         if (!grpcdc_status_is_ok(st)) return st;
         struct timespec ts;
         ts.tv_sec = 0;
-        ts.tv_nsec = 5 * 1000000L;
+        ts.tv_nsec = 10 * 1000000L;
         nanosleep(&ts, NULL);
     }
     return grpcdc_ok();
@@ -283,6 +283,56 @@ static void test_echo(void) {
               "stream-break production did not settle");
         check(settled < 100, "stream-break server kept producing");
     }
+
+#if defined(GRPCDC_POSIX)
+    /* Same break over the sidecar (socket) transport: handler
+       sends must poll for the RST (sidecar recv_until), or the
+       abandoned call keeps producing into the socket. */
+    {
+        stream_break_produced = 0;
+        int fds[2];
+        check(socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0,
+              "sidecar stream-break socketpair");
+        grpcdc_sidecar *side_a = grpcdc_sidecar_from_fd(fds[0]);
+        grpcdc_sidecar *side_b = grpcdc_sidecar_from_fd(fds[1]);
+        grpcdc_transport sa, sb;
+        grpcdc_sidecar_transport(side_a, &sa);
+        grpcdc_sidecar_transport(side_b, &sb);
+        server_job side_job = {&sb};
+        pthread_t side_thread;
+        check(pthread_create(&side_thread, NULL, stream_break_server_main,
+                             &side_job) == 0,
+              "sidecar stream-break server thread");
+        grpcdc_channel side_channel;
+        grpcdc_channel_init(&side_channel, &sa);
+        EchoClient side_client;
+        side_client.channel = &side_channel;
+        EchoRequest side_req;
+        EchoRequest_init(&side_req);
+        side_req.message = "tick";
+        side_req.count = 200;
+        EchoServerStreamClient side_stream;
+        grpcdc_status sst = EchoClient_server_stream(
+            &side_client, &side_req, &side_stream, NULL, 0, 0);
+        check(grpcdc_status_is_ok(sst), "sidecar stream-break open");
+        EchoResponse side_first;
+        grpcdc_status side_rst;
+        int sr = EchoServerStreamClient_recv(&side_stream, &side_first,
+                                             &side_rst);
+        check(sr == 1 && side_first.index == 0,
+              "sidecar stream-break first response");
+        EchoServerStreamClient_close(&side_stream); /* abandon: RST */
+        struct timespec side_wait;
+        side_wait.tv_sec = 0;
+        side_wait.tv_nsec = 100 * 1000000L;
+        nanosleep(&side_wait, NULL);
+        int side_settled = stream_break_produced;
+        nanosleep(&side_wait, NULL);
+        check(stream_break_produced == side_settled,
+              "sidecar stream-break production did not settle");
+        check(side_settled < 100, "sidecar stream-break server kept producing");
+    }
+#endif
 
     printf("echo tests passed\n");
 }
@@ -686,6 +736,57 @@ static void test_bdd(void) {
             grpcdc_stream_free(stream);
             /* Freeing the stream aborts the call; completing the
                test without a hang is the termination proof. */
+        } else if (strcmp(c->kind, "stream-break") == 0) {
+            /* Dedicated counting server: closing the client
+               stream (no explicit cancel) must RST the call so
+               the server stops producing. */
+            stream_break_produced = 0;
+            grpcdc_memory_pair *break_pair = grpcdc_memory_pair_new();
+            grpcdc_transport ba, bb;
+            grpcdc_memory_pair_transports(break_pair, &ba, &bb);
+            server_job break_job = {&bb};
+            pthread_t break_thread;
+            snprintf(what, sizeof(what), "bdd %s: break server thread",
+                     c->name);
+            check(pthread_create(&break_thread, NULL,
+                                 stream_break_server_main,
+                                 &break_job) == 0,
+                  what);
+            grpcdc_channel break_channel;
+            grpcdc_channel_init(&break_channel, &ba);
+            EchoClient break_client;
+            break_client.channel = &break_channel;
+            EchoRequest req;
+            EchoRequest_init(&req);
+            req.message = (char *)c->messages[0];
+            req.count = c->count;
+            EchoServerStreamClient stream;
+            grpcdc_status st = EchoClient_server_stream(
+                &break_client, &req, &stream, NULL, 0, 0);
+            snprintf(what, sizeof(what), "bdd %s: stream-break open",
+                     c->name);
+            check(grpcdc_status_is_ok(st), what);
+            EchoResponse first;
+            grpcdc_status rst;
+            int r = EchoServerStreamClient_recv(&stream, &first, &rst);
+            snprintf(what, sizeof(what), "bdd %s: stream-break first",
+                     c->name);
+            check(r == 1 && strcmp(first.message, c->messages[0]) == 0 &&
+                      first.index == 0,
+                  what);
+            EchoServerStreamClient_close(&stream); /* abandon: RST */
+            struct timespec wait_ts;
+            wait_ts.tv_sec = 0;
+            wait_ts.tv_nsec = 150 * 1000000L;
+            nanosleep(&wait_ts, NULL);
+            int settled = stream_break_produced;
+            nanosleep(&wait_ts, NULL);
+            snprintf(what, sizeof(what),
+                     "bdd %s: production did not settle", c->name);
+            check(stream_break_produced == settled, what);
+            snprintf(what, sizeof(what),
+                     "bdd %s: server kept producing", c->name);
+            check(settled < 50, what);
         } else if (strcmp(c->kind, "raw-unary") == 0) {
             EchoRequest req;
             EchoRequest_init(&req);

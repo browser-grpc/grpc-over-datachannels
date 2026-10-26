@@ -21,4 +21,5 @@ export const BDD_SCENARIOS = [
   { name: "bidi-failure", kind: "bidi-fail", messages: ["fail"], count: 0, path: "", metadata: "", expectMessage: "", expectNum: 0, expectStatus: 3 },
   { name: "deadline-exceeded", kind: "deadline", messages: ["slow"], count: 600, path: "", metadata: "", expectMessage: "", expectNum: 0, expectStatus: 4 },
   { name: "stream-cancel", kind: "cancel", messages: ["tick"], count: 5, path: "", metadata: "", expectMessage: "", expectNum: 0, expectStatus: -1 },
+  { name: "stream-break", kind: "stream-break", messages: ["tick"], count: 100, path: "", metadata: "", expectMessage: "", expectNum: 0, expectStatus: -1 },
 ];

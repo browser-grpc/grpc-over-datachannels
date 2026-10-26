@@ -122,6 +122,36 @@ def testBdd(): Unit = {
           case e: Exception => terminated = true
         }
         check(terminated, s"${c.name}: stream did not terminate after cancel")
+      case "stream-break" =>
+        // Dedicated counting server (like the Go BDD runner):
+        // reading one response and then abandoning the stream by
+        // closing the iterator (no explicit cancel) must RST the
+        // call so the server stops producing.
+        val produced = new java.util.concurrent.atomic.AtomicInteger(0)
+        val (ba, bb) = MemoryTransport.pair()
+        val bserver = new Server()
+        EchoGrpcDc.registerEchoServer(bserver, new EchoServiceImpl {
+          override def ServerStream(req: EchoRequest, stream: EchoGrpcDc.EchoServerStreamServer): Unit = {
+            var i = 0
+            while (i < req.count) {
+              produced.incrementAndGet()
+              stream.send(EchoResponse(req.message, i))
+              i += 1
+              Thread.sleep(10)
+            }
+          }
+        })
+        bserver.serveTransport(bb)
+        val bclient = new EchoGrpcDc.EchoClient(new Channel(ba))
+        val first = scala.util.Using.resource(bclient.ServerStream(EchoRequest(c.messages(0), c.count))) { stream =>
+          stream.next()
+        }
+        check(first.message == c.messages(0), s"${c.name}: first $first")
+        Thread.sleep(150)
+        val settled = produced.get()
+        Thread.sleep(150)
+        check(produced.get() == settled, s"${c.name}: server kept producing: $settled -> ${produced.get()}")
+        check(settled < 50, s"${c.name}: server produced too many: $settled")
       case "raw-unary" =>
         try {
           channel.unary(c.path, EchoRequest(c.messages(0), 0), EchoResponse())
