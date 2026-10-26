@@ -1,5 +1,5 @@
-//! Generated conformance vectors (fixtures/sctp_vectors.json,
-//! from racket/sctp-spec.rkt): all three mirrored SCTP stacks run
+//! Generated conformance vectors (fixtures/sctp_vectors.json):
+//! all three mirrored SCTP stacks run
 //! the same fragment-delivery scenarios. Thin interpreter only —
 //! scenarios are generated data. The vector file is ours and
 //! fixed-shape, so a scanner for its four value kinds suffices
