@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go test-live-stun test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen soak
+.PHONY: generate plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go test-live-stun test-nat-e2e test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen soak
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -246,6 +246,16 @@ test-live-stun:
 	cd webrtc/go && GRPC_DC_LIVE_STUN=1 go test -run TestLiveStunSrflx -v .
 	cd webrtc/js && GRPC_DC_LIVE_STUN=1 node --test test/live_stun.test.js
 	cd webrtc/rust && GRPC_DC_LIVE_STUN=1 $(CARGO) test --test live_stun -- --nocapture
+
+# Opt-in double-NAT end-to-end test (NOT in the default gate):
+# two peers behind separate kernel NATs (netns + MASQUERADE)
+# exchange real gRPC traffic in both directions. Needs root
+# netns privileges, so it runs inside the CI image.
+CI_IMAGE ?= grpc-dc-ci:latest
+test-nat-e2e:
+	docker run --rm --user root --privileged \
+		-v $(CURDIR):/work -w /work $(CI_IMAGE) bash -c \
+		'command -v ip >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq iproute2 iptables); bash scripts/nat-e2e.sh'
 
 test-python:
 	cd python && python3 -m unittest discover -s tests
