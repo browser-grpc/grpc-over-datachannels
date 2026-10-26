@@ -1214,6 +1214,31 @@
       "</urlset>\n")
      out))
   #:exists 'replace)
+;; AI-discovery file: what this project is, in one screen of
+;; plain text, for LLM crawlers and answer engines.
+(call-with-output-file (build-path out-dir "docs/llms.txt")
+  (lambda (out)
+    (display
+     (string-append
+      "# grpc-over-datachannels\n\n"
+      "gRPC over WebRTC DataChannels: the gRPC wire protocol spoken "
+      "directly over a single RTCDataChannel, so browser tabs and "
+      "native programs call each other peer-to-peer with no "
+      "grpc-web proxy and no external gRPC runtime.\n\n"
+      "Dependency-free generated gRPC clients and servers for "
+      "JavaScript, Go, Rust, Python, Java, C#, C++, Swift, Kotlin, "
+      "Dart, Zig, C, Lua, Ruby, PHP, and Scala, plus a "
+      "zero-dependency WebRTC stack (ICE/DTLS/SCTP/DCEP) and a "
+      "TCP<->DataChannel proxy that bridges browsers to stock "
+      "HTTP/2 gRPC backends. Generated runtimes are graded against "
+      "Google's official grpc-java and grpc-go interop clients and "
+      "servers.\n\n"
+      "Site: " site-url "\n"
+      "Repository: https://github.com/browser-grpc/grpc-over-datachannels\n"
+      "npm: https://www.npmjs.com/package/grpc-dc\n"
+      "PyPI: https://pypi.org/project/grpc-dc/\n")
+     out))
+  #:exists 'replace)
 
 (call-with-output-file (build-path out-dir "RELEASE.json")
   (lambda (out)
