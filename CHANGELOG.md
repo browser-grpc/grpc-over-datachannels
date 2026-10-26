@@ -3,6 +3,35 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.32.13 — 2026-10-26
+
+- Interop client grading extended from Java to C#, Kotlin,
+  and Scala: generated grpc.testing/ORCA stubs for all three
+  (`make interop-stubs`), generated case-table emitters in
+  racket/interop-gen.rkt, and thin TestInteropOracle runners
+  grading each client against the official Go
+  TestServiceServer through the bridge (the same 11 cases,
+  now including custom_metadata on the duplex leg — generated
+  receiving-stream wrappers in Java/C#/Kotlin/Scala expose
+  `headers`/`trailers` accessors). Building these stubs
+  exposed and fixed generator bugs, each mirrored in the
+  browser plugin shim (webgen.rkt): cross-package stub type
+  references are fully qualified in C#/Kotlin/Scala (Java in
+  v0.32.12); C# map fields named after their enclosing
+  message get a trailing underscore; Kotlin async adapter
+  retention is per-service (multiple services per file);
+  Scala fields named with hard keywords (`Payload.type`)
+  are backtick-quoted.
+- SCTP conformance vectors: racket/sctp-spec.rkt scenarios
+  stamped to fixtures/sctp_vectors.json and interpreted by
+  the Go/JS/Rust SCTP suites (interleaved, reversed,
+  duplicated fragments; SSN-ordered release), so the three
+  mirrored stacks prove identical wire behaviour on shared
+  generated inputs. The hand-written per-stack regression
+  tests from v0.32.12 remain.
+- `make stress-interop` also loops the full official-clients
+  oracle function 5x under `-race`.
+
 ## v0.32.12 — 2026-10-26
 
 - Root-caused the intermittent proxy/WebRTC-Direct interop

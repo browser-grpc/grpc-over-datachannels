@@ -21,6 +21,12 @@ object EchoGrpcDc {
                 return resp
             }
 
+            /** Initial metadata (response headers); null until they arrive. */
+            fun headers(): Map<String, String>? = stream.headers?.metadata
+
+            /** Trailing metadata of the terminal status; null until it arrives. */
+            fun trailers(): Map<String, String>? = stream.trailers
+
             /** Abort this stream (sends RST, wakes a pending recv). */
             fun cancel() = stream.cancel()
 
@@ -34,6 +40,12 @@ object EchoGrpcDc {
                 stream.recv(resp)
                 return resp
             }
+
+            /** Initial metadata (response headers); null until they arrive. */
+            fun headers(): Map<String, String>? = stream.headers?.metadata
+
+            /** Trailing metadata of the terminal status; null until it arrives. */
+            fun trailers(): Map<String, String>? = stream.trailers
 
             /** Abort this stream (sends RST, wakes a pending recv). */
             fun cancel() = stream.cancel()

@@ -17,6 +17,7 @@ public final class InteropCases {
         {"server-streaming", "SERVER_STREAMING", new int[]{}, new int[]{31415, 9, 2653, 58979}, -1, ""},
         {"ping-pong", "PING_PONG", new int[]{27182, 8, 1828, 45904}, new int[]{31415, 9, 2653, 58979}, -1, ""},
         {"empty-stream", "EMPTY_STREAM", new int[]{}, new int[]{}, -1, ""},
+        {"custom-metadata", "CUSTOM_METADATA", new int[]{}, new int[]{}, -1, ""},
         {"status-code-and-message", "STATUS_UNARY", new int[]{}, new int[]{}, 2, "test status message"},
         {"status-code-and-message-duplex", "STATUS_DUPLEX", new int[]{}, new int[]{}, 2, "test status message"},
         {"unimplemented-method", "UNIMPLEMENTED_METHOD", new int[]{}, new int[]{}, 12, ""},

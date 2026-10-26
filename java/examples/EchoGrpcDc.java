@@ -169,6 +169,16 @@ public final class EchoGrpcDc {
             return resp;
         }
 
+        /** Initial metadata (response headers); null until they arrive. */
+        public Map<String, String> headers() {
+            return stream.headers() == null ? null : stream.headers().metadata;
+        }
+
+        /** Trailing metadata of the terminal status; null until it arrives. */
+        public Map<String, String> trailers() {
+            return stream.trailers();
+        }
+
         /** Abort this stream (sends RST, wakes a pending recv). */
         public void cancel() {
             stream.cancel();
@@ -193,6 +203,16 @@ public final class EchoGrpcDc {
             EchoResponse resp = new EchoResponse();
             stream.recv(resp);
             return resp;
+        }
+
+        /** Initial metadata (response headers); null until they arrive. */
+        public Map<String, String> headers() {
+            return stream.headers() == null ? null : stream.headers().metadata;
+        }
+
+        /** Trailing metadata of the terminal status; null until it arrives. */
+        public Map<String, String> trailers() {
+            return stream.trailers();
         }
 
         /** Abort this stream (sends RST, wakes a pending recv). */

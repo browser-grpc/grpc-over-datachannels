@@ -3628,6 +3628,12 @@ function javaClientStreamClass(m, svc) {
     + '        public ' + m.output + ' recv() throws Exception {\n'
     + '            ' + m.output + ' resp = new ' + m.output + '();\n'
     + '            stream.recv(resp);\n            return resp;\n        }\n\n'
+    + '        /** Initial metadata (response headers); null until they arrive. */\n'
+    + '        public Map<String, String> headers() {\n'
+    + '            return stream.headers() == null ? null : stream.headers().metadata;\n        }\n\n'
+    + '        /** Trailing metadata of the terminal status; null until it arrives. */\n'
+    + '        public Map<String, String> trailers() {\n'
+    + '            return stream.trailers();\n        }\n\n'
     + '        /** Abort this stream (sends RST, wakes a pending recv). */\n'
     + '        public void cancel() {\n'
     + '            stream.cancel();\n        }\n\n'
@@ -4463,6 +4469,10 @@ function csClientStreamClass(m, svc) {
     + '        public ' + m.output + ' Recv()\n        {\n'
     + '            var resp = new ' + m.output + '();\n'
     + '            _stream.Recv(resp);\n            return resp;\n        }\n\n'
+    + '        /// <summary>Initial metadata (response headers); null until they arrive.</summary>\n'
+    + '        public Dictionary<string, string> Headers => _stream.Headers?.Metadata;\n\n'
+    + '        /// <summary>Trailing metadata of the terminal status; null until it arrives.</summary>\n'
+    + '        public Dictionary<string, string> Trailers => _stream.Trailers;\n\n'
     + '        /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>\n'
     + '        public void Cancel() => _stream.Cancel();\n\n'
     + '        /// <summary>Abandon the call if still live (RST); no-op once terminated.</summary>\n'
@@ -4692,8 +4702,24 @@ function cspFindOwner(model, f) {
 function cspFieldName(model, f) {
   const n = cspPascal(f.name);
   const owner = cspFindOwner(model, f);
-  if (owner && (owner.nested.some((m) => m.name === n) || owner.enums.some((e) => e.name === n))) return n + '_';
+  if (owner && (owner.name === n || owner.nested.some((m) => m.name === n) || owner.enums.some((e) => e.name === n))) return n + '_';
   return n;
+}
+
+function csQualifyType(pkg, simple, full) {
+  if (!full || !pkg || full.startsWith(pkg + '.')) return simple;
+  return full[0].toUpperCase() + full.slice(1);
+}
+
+function csQualifyServices(pkg, services) {
+  return services.map((svc) => ({
+    ...svc,
+    methods: svc.methods.map((m) => ({
+      ...m,
+      input: csQualifyType(pkg, m.input, m.inputFull),
+      output: csQualifyType(pkg, m.output, m.outputFull),
+    })),
+  }));
 }
 
 function cspResolve(model, typeName) {
@@ -5175,7 +5201,7 @@ function emitCsharpFile(model, params) {
       + 'namespace ' + ns + ';\n\n'
       + '/// <summary>Generated gRPC-over-DataChannels stubs for ' + model.name + '.</summary>\n'
       + 'public static class ' + className + '\n{\n'
-      + model.services.map(csService).join('')
+      + csQualifyServices(model.package, model.services).map(csService).join('')
       + '}\n',
   };
   const pbFiles = emitCsharpPbFiles(model);
@@ -6821,6 +6847,10 @@ function kotlinClientStreamClass(m, svc) {
     + '            fun recv(): ' + m.output + ' {\n'
     + '                val resp = ' + m.output + '()\n'
     + '                stream.recv(resp)\n                return resp\n            }\n\n'
+    + '            /** Initial metadata (response headers); null until they arrive. */\n'
+    + '            fun headers(): Map<String, String>? = stream.headers?.metadata\n\n'
+    + '            /** Trailing metadata of the terminal status; null until it arrives. */\n'
+    + '            fun trailers(): Map<String, String>? = stream.trailers\n\n'
     + '            /** Abort this stream (sends RST, wakes a pending recv). */\n'
     + '            fun cancel() = stream.cancel()\n\n'
     + '            /** Abandon the call if still live (RST); no-op once terminated. */\n'
@@ -7030,9 +7060,9 @@ function kotlinService(svc) {
     + '        // Adapters are retained for the process lifetime: registration is\n'
     + '        // once-per-process and bounded by service count.\n'
     + '        val adapter = ' + sname + 'ServerAsyncAdapter(impl)\n'
-    + '        adapters.add(adapter)\n'
+    + '        ' + lowerFirst(sname) + 'Adapters.add(adapter)\n'
     + '        register' + sname + 'Server(server, adapter)\n    }\n\n'
-    + '    private val adapters = ArrayList<' + sname + 'ServerAsyncAdapter>()\n');
+    + '    private val ' + lowerFirst(sname) + 'Adapters = ArrayList<' + sname + 'ServerAsyncAdapter>()\n');
 }
 
 
@@ -7510,6 +7540,22 @@ function emitKotlinPbFile(model) {
   return { name: pascalName(base) + 'Messages.kt', content };
 }
 
+function kotlinQualifyType(pkg, simple, full) {
+  if (!full || !pkg || full.startsWith(pkg + '.')) return simple;
+  return full;
+}
+
+function kotlinQualifyServices(pkg, services) {
+  return services.map((svc) => ({
+    ...svc,
+    methods: svc.methods.map((m) => ({
+      ...m,
+      input: kotlinQualifyType(pkg, m.input, m.inputFull),
+      output: kotlinQualifyType(pkg, m.output, m.outputFull),
+    })),
+  }));
+}
+
 function emitKotlinFile(model, params) {
   const base = baseName(model.name);
   const objectName = pascalName(base) + 'GrpcDc';
@@ -7523,7 +7569,7 @@ function emitKotlinFile(model, params) {
       + 'import java.io.EOFException\nimport java.util.concurrent.CompletableFuture\n\n'
       + '/** Generated gRPC-over-DataChannels stubs for ' + model.name + '. */\n'
       + 'object ' + objectName + ' {\n'
-      + model.services.map(kotlinService).join('')
+      + kotlinQualifyServices(model.package, model.services).map(kotlinService).join('')
       + '}\n',
   };
   const pbFile = emitKotlinPbFile(model);
@@ -11076,7 +11122,11 @@ function scalaService(svc) {
     + '                out\n'
     + '            }\n'
     + '            def cancel(): Unit = stream.cancel()\n'
-    + '            def close(): Unit = stream.close()\n        }\n\n';
+    + '            def close(): Unit = stream.close()\n'
+    + '            /** Initial metadata (response headers); null until they arrive. */\n'
+    + '            def headers: Map[String, String] = if (stream.headers == null) null else stream.headers.metadata\n'
+    + '            /** Trailing metadata of the terminal status; null until it arrives. */\n'
+    + '            def trailers: Map[String, String] = stream.trailers\n        }\n\n';
   return '    /** Client for ' + svc.fullName + '. */\n'
     + '    class ' + sname + 'Client(private val channel: grpcdc.Channel) {\n'
     + classOutputs('server-streaming').map((out) => streamClass('server-streaming', out)).join('')
@@ -11140,8 +11190,18 @@ function scpCamel(s) {
   return parts[0] + parts.slice(1).map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
 }
 
+const SCP_KEYWORDS = new Set([
+  'abstract', 'case', 'catch', 'class', 'def', 'do', 'else', 'extends',
+  'false', 'final', 'finally', 'for', 'forSome', 'if', 'implicit',
+  'import', 'lazy', 'match', 'new', 'null', 'object', 'override',
+  'package', 'private', 'protected', 'return', 'sealed', 'super',
+  'this', 'throw', 'trait', 'try', 'true', 'type', 'val', 'var',
+  'while', 'with', 'yield',
+]);
+
 function scpFieldName(f) {
-  return f.jsonName ? f.jsonName : scpCamel(f.name);
+  const n = f.jsonName ? f.jsonName : scpCamel(f.name);
+  return SCP_KEYWORDS.has(n) ? '`' + n + '`' : n;
 }
 
 function scpFlat(pkg, full) {
@@ -11524,6 +11584,22 @@ function emitScalaPbFile(model) {
   return { name: pascalName(base) + 'Messages.scala', content };
 }
 
+function scalaQualifyType(pkg, simple, full) {
+  if (!full || !pkg || full.startsWith(pkg + '.')) return simple;
+  return full;
+}
+
+function scalaQualifyServices(pkg, services) {
+  return services.map((svc) => ({
+    ...svc,
+    methods: svc.methods.map((m) => ({
+      ...m,
+      input: scalaQualifyType(pkg, m.input, m.inputFull),
+      output: scalaQualifyType(pkg, m.output, m.outputFull),
+    })),
+  }));
+}
+
 function emitScalaFile(model, params) {
   const base = baseName(model.name);
   const objName = camelName(base) + 'GrpcDc';
@@ -11534,7 +11610,7 @@ function emitScalaFile(model, params) {
       + 'package ' + model.package + '\n\n'
       + '/** Generated gRPC-over-DataChannels stubs. */\n'
       + 'object ' + objName + ' {\n'
-      + model.services.map(scalaService).join('')
+      + scalaQualifyServices(model.package, model.services).map(scalaService).join('')
       + '}\n',
   };
   const pbFile = emitScalaPbFile(model);
