@@ -23,8 +23,29 @@ object AsyncPump {
     }
 
     /** Run a suspend block on the pool as a CompletableFuture. */
-    fun <T> future(block: suspend () -> T): CompletableFuture<T> {
-        val result = CompletableFuture<T>()
+    fun <T> future(block: suspend () -> T): CompletableFuture<T> =
+        future({}, block)
+
+    /**
+     * Run a suspend block as a CompletableFuture; cancelling the
+     * future invokes onCancel (generated streaming stubs pass the
+     * stream's cancel, so abandoning collection RSTs the call and
+     * the server stops producing).
+     */
+    fun <T> future(onCancel: () -> Unit, block: suspend () -> T): CompletableFuture<T> {
+        val result = object : CompletableFuture<T>() {
+            override fun cancel(mayInterruptIfRunning: Boolean): Boolean {
+                val cancelled = super.cancel(mayInterruptIfRunning)
+                if (cancelled) {
+                    try {
+                        onCancel()
+                    } catch (ignored: Throwable) {
+                        // best effort
+                    }
+                }
+                return cancelled
+            }
+        }
         executor.execute {
             try {
                 result.complete(runSuspend(block))

@@ -26,15 +26,37 @@ class RecvStream
         return $this->stream->recv(new $cls());
     }
 
+    /** Abandon the call early: RST so the server stops producing. */
+    public function cancel(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function close(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function __destruct()
+    {
+        $this->close();
+    }
+
     /** @return \Generator<int, object> */
     public function iterate(): \Generator
     {
+        $completed = false;
         try {
             while (true) {
                 yield $this->recv();
             }
         } catch (\Grpcdc\CallClosed $e) {
+            $completed = true;
             return;
+        } finally {
+            if (!$completed) {
+                $this->close();
+            }
         }
     }
 }
@@ -162,18 +184,34 @@ class FiberRecvStream
     /** @return \Generator<int, object> */
     public function iterate(): \Generator
     {
+        $completed = false;
         try {
             while (true) {
                 yield $this->next();
             }
         } catch (\Grpcdc\CallClosed $e) {
+            $completed = true;
             return;
+        } finally {
+            if (!$completed) {
+                $this->close();
+            }
         }
     }
 
     public function cancel(): void
     {
         $this->stream->cancel();
+    }
+
+    public function close(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function __destruct()
+    {
+        $this->close();
     }
 }
 

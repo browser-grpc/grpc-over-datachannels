@@ -21,8 +21,13 @@ public class Channel
 
     public Endpoint Endpoint => _endpoint;
 
-    /// <summary>Receives response messages of one call.</summary>
-    public sealed class ClientStream
+    /// <summary>
+    /// Receives response messages of one call. Disposing the
+    /// stream abandons a still-live call with RST CANCELLED so
+    /// the server stops producing; a call that already
+    /// terminated just closes locally.
+    /// </summary>
+    public sealed class ClientStream : IDisposable
     {
         private readonly Endpoint _endpoint;
         private readonly Endpoint.StreamInput _input;
@@ -36,6 +41,8 @@ public class Channel
         internal Tracing.TraceContext TraceCtx;
         internal string TracePath;
         private bool _traceEnded;
+        private bool _terminated;
+        private bool _disposed;
 
         internal void EndTrace(string status)
         {
@@ -54,7 +61,27 @@ public class Channel
         }
 
         /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>
-        public void Cancel() => _endpoint.CancelStream(StreamId);
+        public void Cancel()
+        {
+            if (_terminated)
+            {
+                _endpoint.CloseStream(StreamId);
+                return;
+            }
+            _terminated = true;
+            _endpoint.CancelStream(StreamId);
+        }
+
+        /// <summary>Abandon the call if still live (RST); no-op once terminated.</summary>
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _disposed = true;
+            Cancel();
+        }
 
         private Endpoint.StreamEvent NextEvent()
         {
@@ -74,7 +101,7 @@ public class Channel
             }
             catch (TimeoutException)
             {
-                _endpoint.CancelStream(StreamId);
+                Cancel();
                 throw new StatusException(Wire.CodeDeadlineExceeded, "deadline exceeded");
             }
         }
@@ -91,6 +118,7 @@ public class Channel
                 Endpoint.StreamEvent evt = NextEvent();
                 if (evt == null)
                 {
+                    _terminated = true;
                     throw new StatusException(Wire.CodeUnavailable, "data channel closed");
                 }
                 switch (evt.Kind)
@@ -102,6 +130,7 @@ public class Channel
                         resp.UnmarshalDc(evt.Payload);
                         return;
                     case Endpoint.EventKind.Trailers:
+                        _terminated = true;
                         Trailers = evt.Status.Trailers;
                         EndTrace(Wire.StatusName(evt.Status.Code));
                         if (evt.Status.Code != Wire.CodeOk)
@@ -110,6 +139,7 @@ public class Channel
                         }
                         throw new EndOfStreamException("call completed");
                     case Endpoint.EventKind.Rst:
+                        _terminated = true;
                         Trailers = evt.Status.Trailers;
                         EndTrace(Wire.StatusName(evt.Status.Code));
                         throw evt.Status;

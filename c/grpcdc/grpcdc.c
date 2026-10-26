@@ -931,6 +931,22 @@ const grpcdc_kv *grpcdc_stream_trailers(grpcdc_stream *s, size_t *count) {
 
 void grpcdc_stream_free(grpcdc_stream *s) {
     if (!s) return;
+    if (!s->ended) {
+        /* Abandoning a call that never terminated: RST CANCELLED
+           so the peer stops producing instead of streaming into
+           the void (matches explicit cancellation). */
+        grpcdc_bytes rst;
+        if (grpcdc_status_is_ok(grpcdc_status_frame(
+                GRPCDC_FRAME_RST, s->id,
+                grpcdc_status_make(GRPCDC_CANCELLED, "call cancelled"),
+                &rst))) {
+            s->channel->transport->send(s->channel->transport->ctx,
+                                        rst.data, rst.len);
+            grpcdc_bytes_free(&rst);
+        }
+        s->ended = true;
+        stream_end_trace(s, "CANCELLED");
+    }
     for (size_t i = 0; i < s->trailers_count; i++) {
         free((void *)s->trailers[i].key);
         free((void *)s->trailers[i].value);
@@ -1007,14 +1023,64 @@ typedef struct {
     grpcdc_kv *metadata;
     size_t metadata_count;
     char *path;
+    bool cancelled;
 } server_stream_state;
 
 struct grpcdc_server_stream {
     server_stream_state *state;
 };
 
+/* While a handler runs, the serve loop is busy dispatching and
+   cannot read the transport, so sends poll it (recv_until with an
+   immediate deadline) for a peer RST. Once seen, the stream is
+   remembered as cancelled and the next send fails with CANCELLED
+   instead of streaming into the void. DATA arriving meanwhile is
+   buffered for grpcdc_server_stream_recv; other frames are dropped
+   (the serve loop is single-stream). Transports without recv_until
+   cannot poll and keep the old best-effort behavior. */
+static void server_poll_cancelled(server_stream_state *ss) {
+    if (ss->cancelled || !ss->transport->recv_until) return;
+    while (1) {
+        uint8_t *raw = NULL;
+        size_t raw_len = 0;
+        int rc = ss->transport->recv_until(ss->transport->ctx, &raw,
+                                           &raw_len, grpcdc_now_ms());
+        if (rc == -2) return; /* nothing pending */
+        if (rc != 0) {
+            ss->cancelled = true; /* transport closed */
+            return;
+        }
+        grpcdc_frame frame;
+        grpcdc_status dst = grpcdc_decode_frame(raw, raw_len, &frame);
+        if (!grpcdc_status_is_ok(dst)) {
+            free(raw);
+            continue;
+        }
+        if (frame.stream_id == ss->id && frame.type == GRPCDC_FRAME_RST) {
+            free(raw);
+            ss->cancelled = true;
+            return;
+        }
+        if (frame.stream_id == ss->id && frame.type == GRPCDC_FRAME_DATA) {
+            size_t offset = 0;
+            grpcdc_bytes msg;
+            if (grpcdc_status_is_ok(grpcdc_decode_data_message(
+                    frame.payload, frame.payload_len, &offset, &msg))) {
+                ss->requests = (grpcdc_bytes *)realloc(
+                    ss->requests,
+                    sizeof(grpcdc_bytes) * (ss->request_count + 1));
+                ss->requests[ss->request_count++] = msg;
+            }
+        }
+        free(raw);
+    }
+}
+
 static grpcdc_status server_send_frame(server_stream_state *ss, uint8_t type,
                                        const uint8_t *payload, size_t len) {
+    server_poll_cancelled(ss);
+    if (ss->cancelled)
+        return grpcdc_status_make(GRPCDC_CANCELLED, "call cancelled");
     grpcdc_bytes frame;
     grpcdc_status st = grpcdc_encode_frame(type, ss->id, payload, len, &frame);
     if (!grpcdc_status_is_ok(st)) return st;
@@ -1027,6 +1093,9 @@ static grpcdc_status server_send_frame(server_stream_state *ss, uint8_t type,
 
 static grpcdc_status server_send_headers(server_stream_state *ss) {
     if (ss->headers_sent) return grpcdc_ok();
+    server_poll_cancelled(ss);
+    if (ss->cancelled)
+        return grpcdc_status_make(GRPCDC_CANCELLED, "call cancelled");
     ss->headers_sent = true;
     grpcdc_bytes frame;
     grpcdc_status st = grpcdc_headers_frame(ss->id, NULL, ss->resp_headers,

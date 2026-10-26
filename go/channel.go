@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"time"
 )
 
@@ -51,6 +52,18 @@ type ClientStream struct {
 	traceCtx   *traceContext
 	tracePath  string
 	traceEnded bool
+	done       chan struct{}
+	finishOnce sync.Once
+}
+
+// finish marks the call terminated (trailers, RST, cancel, or
+// channel close) and releases the context watcher goroutine.
+func (s *ClientStream) finish() {
+	s.finishOnce.Do(func() {
+		if s.done != nil {
+			close(s.done)
+		}
+	})
 }
 
 // Header returns the response initial metadata (nil until the
@@ -85,6 +98,7 @@ func (s *ClientStream) Recv(resp Unmarshaler) error {
 			select {
 			case ev, ok = <-s.in.events:
 			case <-s.ctx.Done():
+				s.finish()
 				s.ep.cancelStream(s.id)
 				if errors.Is(s.ctx.Err(), context.DeadlineExceeded) {
 					return NewStatus(CodeDeadlineExceeded, "deadline exceeded")
@@ -95,6 +109,7 @@ func (s *ClientStream) Recv(resp Unmarshaler) error {
 			ev, ok = <-s.in.events
 		}
 		if !ok {
+			s.finish()
 			return NewStatus(CodeUnavailable, "data channel closed")
 		}
 		switch ev.kind {
@@ -105,6 +120,7 @@ func (s *ClientStream) Recv(resp Unmarshaler) error {
 		case eventTrailers:
 			s.trailer = ev.status.Trailers
 			s.endTrace(ev.status.Code.Name())
+			s.finish()
 			if ev.status.Code != CodeOk {
 				return ev.status
 			}
@@ -112,6 +128,7 @@ func (s *ClientStream) Recv(resp Unmarshaler) error {
 		case eventRST:
 			s.trailer = ev.status.Trailers
 			s.endTrace(ev.status.Code.Name())
+			s.finish()
 			return ev.status
 		}
 	}
@@ -147,13 +164,29 @@ func (ch *Channel) open(ctx context.Context, path string, metadata map[string]st
 		traceEnd("client", path, traceCtx, "UNAVAILABLE")
 		return nil, err
 	}
-	return &ClientStream{ep: ch.ep, id: id, in: in, ctx: ctx, traceCtx: traceCtx, tracePath: path}, nil
+	stream := &ClientStream{ep: ch.ep, id: id, in: in, ctx: ctx, traceCtx: traceCtx, tracePath: path, done: make(chan struct{})}
+	// Context cancellation must reach the peer even when no
+	// Recv is in flight (grpc-go semantics): watch Done for the
+	// life of the call and RST the stream when it fires.
+	if ctx != nil {
+		if ctxDone := ctx.Done(); ctxDone != nil {
+			go func() {
+				select {
+				case <-ctxDone:
+					stream.Cancel()
+				case <-stream.done:
+				}
+			}()
+		}
+	}
+	return stream, nil
 }
 
 // Cancel aborts the call: RST towards the peer; a pending Recv
 // returns CodeCancelled (or CodeDeadlineExceeded when the abort
 // came from the context deadline).
 func (s *ClientStream) Cancel() {
+	s.finish()
 	s.ep.cancelStream(s.id)
 }
 

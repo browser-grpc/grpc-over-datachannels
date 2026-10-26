@@ -768,15 +768,39 @@ class DynamicRecvStream
         return $this->stream->recv(new BoundMessage($this->model, null, $this->fileModel))->generic;
     }
 
+    /** Abandon the call early: RST unless it already terminated. */
+    public function cancel(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function close(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function __destruct()
+    {
+        $this->close();
+    }
+
     /** @return \Generator<int, GenericMessage> */
     public function iterate(): \Generator
     {
+        $completed = false;
         try {
             while (true) {
                 yield $this->recv();
             }
         } catch (CallClosed $e) {
+            $completed = true;
             return;
+        } finally {
+            // Abandoning the generator early RSTs the call so the
+            // server stops producing (no-op once terminated).
+            if (!$completed) {
+                $this->close();
+            }
         }
     }
 }

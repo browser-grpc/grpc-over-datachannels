@@ -1,6 +1,9 @@
+#include <atomic>
+#include <chrono>
 #include <future>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "examples/echo_grpc_dc.hpp"
@@ -54,6 +57,24 @@ class AsyncEchoService : public echo::EchoGrpcDc::EchoServerAsync {
 
  private:
   echo::EchoServiceImpl inner_;
+};
+
+/// Slow counting handler for the stream-break regression test.
+class StreamBreakEcho : public echo::EchoServiceImpl {
+ public:
+  std::atomic<int> produced{0};
+
+  void ServerStream(echo::EchoRequest& req,
+                    echo::EchoGrpcDc::EchoServerStreamServer& stream) override {
+    for (std::int32_t i = 0; i < req.count; ++i) {
+      ++produced;
+      echo::EchoResponse resp;
+      resp.message = req.message;
+      resp.index = i;
+      stream.Send(resp);
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+  }
 };
 
 void RunAsync() {
@@ -138,6 +159,31 @@ void TestEcho() {
   echo::EchoResponse with_md = client->Unary(Req("hello", 0), &md);
   Check(with_md.message == "echo: hello [meta]",
         "metadata: " + with_md.message);
+
+  // Breaking a server stream cancels it server-side: destroying
+  // the client stream before trailers sends RST CANCELLED, and
+  // the handler's next Send fails instead of producing forever.
+  {
+    auto break_pair = grpcdc::MemoryTransportPair();
+    grpcdc::Server break_server;
+    StreamBreakEcho break_impl;
+    echo::EchoGrpcDc::RegisterEchoServer(break_server, break_impl);
+    break_server.ServeTransport(break_pair.second);
+    echo::EchoGrpcDc::EchoClient break_client(
+        std::make_shared<grpcdc::Channel>(break_pair.first));
+    {
+      auto break_stream = break_client.ServerStream(Req("tick", 200));
+      echo::EchoResponse first = break_stream.Recv();
+      Check(first.index == 0, "stream-break first response");
+    }  // ~break_stream cancels the call (RST)
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    int settled = break_impl.produced.load();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    Check(break_impl.produced.load() == settled,
+          "stream-break production did not settle");
+    Check(settled < 100,
+          "stream-break server kept producing: " + std::to_string(settled));
+  }
 
   RunAsync();
   std::fprintf(stderr, "TestEcho OK\n");

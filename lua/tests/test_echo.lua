@@ -14,6 +14,8 @@ local function req(message, count)
   return EchoRequest.new(message, count)
 end
 
+local testStreamBreak
+
 --- Loopback end-to-end: all four shapes, error status, metadata.
 --- The single-threaded runtime pumps the peer endpoint from inside
 --- client calls (memory transport peerPump), so no threads are
@@ -64,7 +66,61 @@ local function testEcho()
   local withMd = client:unary(req("hello", 0), { ["x-echo"] = "meta" })
   util.check(withMd.message == "echo: hello [meta]", "metadata: " .. withMd.message)
 
+  testStreamBreak()
+
   print("TestEcho OK")
+end
+
+--- Breaking a server-streaming iteration cancels the call
+--- server-side: breaking the generic-for loop closes the closable
+--- iterator (RST CANCELLED), and the server handler's next send
+--- fails CANCELLED instead of streaming into the void. Mirrors
+--- js/test/echo.test.js "breaking a server stream cancels it
+--- server-side". The single-threaded runtime runs the counting
+--- handler on a coroutine-driven server endpoint: the producer
+--- yields after each message and pumps the endpoint between
+--- sends, which is what "slow" means cooperatively.
+testStreamBreak = function()
+  local produced = 0
+  local serverEp = nil
+  local slowImpl = {}
+  for k, v in pairs(impl) do slowImpl[k] = v end
+  slowImpl.serverStream = function(self, ctx, request, stream)
+    for i = 0, request.count - 1 do
+      produced = produced + 1
+      stream:send(messages.EchoResponse.new(request.message, i))
+      coroutine.yield()
+      serverEp:pump()
+    end
+  end
+
+  local a, b = memoryModule.memoryTransportPair()
+  local server = serverModule.Server.new()
+  stubs.registerEchoServer(server, slowImpl)
+  serverEp = server:serveTransport(b)
+  local driveServer = coroutine.wrap(function()
+    while true do
+      serverEp:pump()
+      coroutine.yield()
+    end
+  end)
+  a.peerPump = function(self)
+    driveServer()
+    return true
+  end
+
+  local coro = stubs.EchoClientCoro.new(channelModule.Channel.new(a))
+  local seen = 0
+  for resp in coro:serverStream(req("tick", 1000)):iter() do
+    seen = seen + 1
+    if seen == 2 then break end
+  end
+  util.check(seen == 2, "stream break seen")
+  for _ = 1, 4 do driveServer() end
+  local settled = produced
+  for _ = 1, 4 do driveServer() end
+  util.check(produced == settled, "stream break settled")
+  util.check(settled < 100, "server kept producing (" .. settled .. ")")
 end
 
 return testEcho

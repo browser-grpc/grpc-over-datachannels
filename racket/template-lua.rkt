@@ -106,12 +106,26 @@
               "function ~a~aCoroStream:cancel()\n"
               "  self.stream:cancel()\n"
               "end\n\n"
+              "--- Abandon the call early: RST so the server stops producing.\n"
+              "function ~a~aCoroStream:close()\n"
+              "  self.stream:close()\n"
+              "end\n\n"
+              "--- To-be-closed (<close>) and GC abandon the call the same way.\n"
+              "function ~a~aCoroStream:__close()\n"
+              "  self:close()\n"
+              "end\n\n"
+              "function ~a~aCoroStream:__gc()\n"
+              "  self:close()\n"
+              "end\n\n"
               "--- Generic-for iterator: for resp in stream:iter() do ... end\n"
+              "--- Breaking the loop closes the closable stream, RST-ing\n"
+              "--- the call unless it already terminated.\n"
               "function ~a~aCoroStream:iter()\n"
-              "  return function() return self:next() end\n"
+              "  return function() return self:next() end, nil, nil, self\n"
               "end\n\n")
              orig-name svc orig-name svc orig-name svc orig-name
              svc orig-name svc orig-name resp
+             svc orig-name svc orig-name svc orig-name
              svc orig-name svc orig-name svc orig-name)]
     [else ""]))
 
@@ -170,9 +184,24 @@
               "  local resp = ~a.new()\n"
               "  self.stream:recv(resp)\n"
               "  return resp\n"
+              "end\n\n"
+              "--- Abandon the call early: RST so the server stops producing.\n"
+              "function ~a~aStream:close()\n"
+              "  self.stream:close()\n"
+              "end\n\n"
+              "function ~a~aStream:cancel()\n"
+              "  self.stream:cancel()\n"
+              "end\n\n"
+              "--- To-be-closed (<close>) and GC abandon the call the same way.\n"
+              "function ~a~aStream:__close()\n"
+              "  self:close()\n"
+              "end\n\n"
+              "function ~a~aStream:__gc()\n"
+              "  self:close()\n"
               "end\n\n")
              orig-name svc orig-name svc orig-name svc orig-name
-             svc orig-name svc orig-name svc orig-name resp)]
+             svc orig-name svc orig-name svc orig-name resp
+             svc orig-name svc orig-name svc orig-name svc orig-name)]
     [else ""]))
 
 (define (lua-server-stream-class m)

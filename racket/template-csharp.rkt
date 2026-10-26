@@ -76,8 +76,8 @@
   (case (hash-ref m 'kind)
     [(server-streaming bidi)
      (format (string-append
-              "    /// <summary>Receiving stream for ~a.~a: Recv() throws EndOfStreamException at end.</summary>\n"
-              "    public sealed class ~a~aStream\n"
+              "    /// <summary>Receiving stream for ~a.~a: Recv() throws EndOfStreamException at end. Dispose to abandon early (RST).</summary>\n"
+              "    public sealed class ~a~aStream : IDisposable\n"
               "    {\n"
               "        private readonly Channel.ClientStream _stream;\n\n"
               "        internal ~a~aStream(Channel.ClientStream stream)\n"
@@ -89,7 +89,11 @@
               "            var resp = new ~a();\n"
               "            _stream.Recv(resp);\n"
               "            return resp;\n"
-              "        }\n"
+              "        }\n\n"
+              "        /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>\n"
+              "        public void Cancel() => _stream.Cancel();\n\n"
+              "        /// <summary>Abandon the call if still live (RST); no-op once terminated.</summary>\n"
+              "        public void Dispose() => _stream.Dispose();\n"
               "    }\n\n")
              svc name svc name svc name resp resp)]
     [else ""]))
@@ -287,7 +291,7 @@
               "            [EnumeratorCancellation] CancellationToken cancellationToken = default)\n"
               "        {\n"
               "            var stream = ~a(req, metadata, timeout);\n"
-              "            await foreach (var item in AsyncPump.Stream(stream.Recv, cancellationToken))\n"
+              "            await foreach (var item in AsyncPump.Stream(stream.Recv, stream.Cancel, cancellationToken))\n"
               "            {\n"
               "                yield return item;\n"
               "            }\n"
@@ -307,7 +311,7 @@
               "            [EnumeratorCancellation] CancellationToken cancellationToken = default)\n"
               "        {\n"
               "            var stream = ~a(reqs, metadata, timeout);\n"
-              "            await foreach (var item in AsyncPump.Stream(stream.Recv, cancellationToken))\n"
+              "            await foreach (var item in AsyncPump.Stream(stream.Recv, stream.Cancel, cancellationToken))\n"
               "            {\n"
               "                yield return item;\n"
               "            }\n"

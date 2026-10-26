@@ -102,8 +102,7 @@ pub const EchoServerStreamServer = struct {
     pub fn send(self: *EchoServerStreamServer, resp: *const EchoResponse) Status {
         const payload = resp.marshalDc(self.alloc);
         defer self.alloc.free(payload);
-        self.sink.send(payload);
-        return Status.ok();
+        return self.sink.send(payload);
     }
 };
 
@@ -145,8 +144,7 @@ pub const EchoBidiServer = struct {
     pub fn send(self: *EchoBidiServer, resp: *const EchoResponse) Status {
         const payload = resp.marshalDc(self.alloc);
         defer self.alloc.free(payload);
-        self.sink.send(payload);
-        return Status.ok();
+        return self.sink.send(payload);
     }
 };
 
@@ -175,8 +173,7 @@ fn unaryAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.Reque
     if (!st.isOk()) return st;
     const payload = resp.marshalDc(reqs.alloc);
     defer reqs.alloc.free(payload);
-    sink.send(payload);
-    return Status.ok();
+    return sink.send(payload);
 }
 
 fn serverStreamAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
@@ -202,8 +199,7 @@ fn clientStreamAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mo
         return Status.init(wire.codeInternal, "client-streaming handler never called sendAndClose");
     const payload = resp.marshalDc(reqs.alloc);
     defer reqs.alloc.free(payload);
-    sink.send(payload);
-    return Status.ok();
+    return sink.send(payload);
 }
 
 fn bidiAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {

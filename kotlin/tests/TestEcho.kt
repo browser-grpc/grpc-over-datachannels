@@ -11,6 +11,7 @@ import grpcdc.MemoryTransport
 import grpcdc.Server
 import grpcdc.StatusException
 import java.io.EOFException
+import java.util.concurrent.atomic.AtomicInteger
 
 private fun req(message: String, count: Int) = EchoRequest(message, count)
 
@@ -117,5 +118,75 @@ fun testEcho() {
     check(withMd.message == "echo: hello [meta]", "metadata: $withMd")
 
     runAsync()
+    testCancellingCollectionStopsServer()
     println("TestEcho OK")
+}
+
+/** Counting service for the stream-break regression test. */
+private class CountingEchoService(private val produced: AtomicInteger) : EchoGrpcDc.EchoServer {
+    override fun Unary(ctx: Endpoint.CallContext, req: EchoRequest): EchoResponse {
+        return EchoResponse("echo: ${req.message}", 0)
+    }
+
+    override fun ServerStream(req: EchoRequest, stream: EchoGrpcDc.EchoServerStreamServer) {
+        for (i in 0 until maxOf(0, req.count)) {
+            produced.incrementAndGet()
+            stream.send(EchoResponse(req.message, i))
+            Thread.sleep(10)
+        }
+    }
+
+    override fun ClientStream(stream: EchoGrpcDc.EchoClientStreamServer) {
+        val parts = ArrayList<String>()
+        while (true) {
+            try {
+                parts.add(stream.recv().message)
+            } catch (e: EOFException) {
+                break
+            }
+        }
+        stream.sendAndClose(EchoResponse(parts.joinToString("+"), parts.size))
+    }
+
+    override fun Bidi(stream: EchoGrpcDc.EchoBidiServer) {
+        var index = 0
+        while (true) {
+            val req: EchoRequest
+            try {
+                req = stream.recv()
+            } catch (e: EOFException) {
+                return
+            }
+            stream.send(EchoResponse(req.message, index))
+            index++
+        }
+    }
+}
+
+// Cancelling the collecting future (the coroutine collection of
+// a server stream) must RST the call: the producing handler's
+// next send fails with CANCELLED and production settles.
+private fun testCancellingCollectionStopsServer() {
+    val produced = AtomicInteger(0)
+    val (a, b) = MemoryTransport.pair()
+    val server = Server()
+    EchoGrpcDc.registerEchoServer(server, CountingEchoService(produced))
+    server.serveTransport(b)
+    val client = EchoGrpcDc.EchoClient(Channel(a))
+
+    val future = client.ServerStreamFuture(req("tick", 1000))
+    val start = System.currentTimeMillis()
+    while (produced.get() < 1 && System.currentTimeMillis() - start < 5000) {
+        Thread.sleep(5)
+    }
+    check(produced.get() >= 1, "server never produced")
+    future.cancel(true)
+    check(future.isCancelled, "future not cancelled")
+
+    Thread.sleep(100)
+    val settled = produced.get()
+    Thread.sleep(100)
+    check(produced.get() == settled,
+        "server kept producing after cancel: $settled -> ${produced.get()}")
+    check(settled < 100, "server produced too many responses: $settled")
 }

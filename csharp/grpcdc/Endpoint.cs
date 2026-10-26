@@ -128,6 +128,14 @@ public class Endpoint
 
         public void Send(byte[] payload)
         {
+            // A stream the endpoint has forgotten was RST by the
+            // peer (or the channel went away): fail the send so a
+            // producing handler stops instead of streaming into
+            // the void.
+            if (_endpoint.Stream(_streamId) == null)
+            {
+                throw new StatusException(Wire.CodeCancelled, "call cancelled");
+            }
             FlushHeaders();
             _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, _streamId, payload));
         }
@@ -148,6 +156,10 @@ public class Endpoint
 
         internal void SendHeaders(Dictionary<string, string> metadata)
         {
+            if (_endpoint.Stream(_streamId) == null)
+            {
+                throw new StatusException(Wire.CodeCancelled, "call cancelled");
+            }
             HeadersSent = true;
             _endpoint.SendFrame(Codec.HeadersFrame(_streamId, null, metadata));
         }

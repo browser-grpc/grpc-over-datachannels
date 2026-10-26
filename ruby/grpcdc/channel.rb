@@ -143,6 +143,7 @@ module Grpcdc
       @trace_ctx = nil
       @trace_path = nil
       @trace_ended = false
+      @terminated = false
     end
 
     def end_trace(status)
@@ -166,10 +167,14 @@ module Grpcdc
             remaining <= 0 ? StreamInput::TIMEOUT : @input.get(remaining)
           end
         if event.equal?(StreamInput::TIMEOUT)
+          @terminated = true
           @endpoint.cancel_stream(@stream_id)
           raise StatusError.new(CODE_DEADLINE_EXCEEDED, "deadline exceeded")
         end
-        raise StatusError.new(CODE_UNAVAILABLE, "data channel closed") if event.nil?
+        if event.nil?
+          @terminated = true
+          raise StatusError.new(CODE_UNAVAILABLE, "data channel closed")
+        end
 
         case event.kind
         when EVENT_HEADERS
@@ -177,12 +182,14 @@ module Grpcdc
         when EVENT_DATA
           return resp.unmarshal_dc(event.payload)
         when EVENT_TRAILERS
+          @terminated = true
           @trailers = event.status.trailers
           end_trace(Grpcdc.status_name(event.status.code))
           raise event.status unless event.status.code == CODE_OK
 
           raise EOFError, "call completed"
         when EVENT_RST
+          @terminated = true
           @trailers = event.status.trailers
           end_trace(Grpcdc.status_name(event.status.code))
           raise event.status
@@ -191,8 +198,18 @@ module Grpcdc
     end
 
     # Abort this stream (sends RST, wakes a pending recv).
+    # No-op once the call terminated (trailers/RST already seen),
+    # so abandoning a completed stream never sends a spurious RST.
     def cancel
+      return if @terminated
+
+      @terminated = true
       @endpoint.cancel_stream(@stream_id)
+    end
+
+    # Abandon the call early: RST unless it already terminated.
+    def close
+      cancel
     end
   end
 
@@ -219,6 +236,10 @@ module Grpcdc
     end
 
     def cancel
+      @stream.cancel
+    end
+
+    def close
       @stream.cancel
     end
   end

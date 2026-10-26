@@ -55,7 +55,14 @@ servers run the `expect_compressed` check, and a server
 declaring `grpc-encoding: gzip` in its initial metadata gets
 its response messages gzipped by the proxy. All four
 compressed cases pass under the grpc-java client against
-our JS/Go/Python servers.
+our JS/Go/Python/Rust servers. One known edge: compression that
+starts mid-stream (first request message uncompressed, later
+ones flagged) is always decompressed correctly by the proxy,
+but the `grpc-encoding` metadata cannot be surfaced — the
+request HEADERS frame already went out with the first
+message — so only a per-message `expect_compressed` check
+on such a stream would miss it. Payloads are never affected
+(covered by the `mid-stream` proxy test).
 
 ORCA (`orca_per_rpc`, `orca_oob`) runs in both directions:
 our servers report per-request and out-of-band load in the
@@ -63,7 +70,7 @@ our servers report per-request and out-of-band load in the
 and our clients assert it against both reference servers.
 The out-of-band stream itself (`OpenRcaService.StreamCoreMetrics`,
 vendored proto with generated stubs) is also graded: our
-JS/Go/Python clients feed the shared state via `FullDuplexCall`
+JS/Go/Python/Rust clients feed the shared state via `FullDuplexCall`
 and read it back on the stream, against the reference Go
 server's ORCA service and against our own servers. The
 real-client runs drive the cases with the upstream Go interop

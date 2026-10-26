@@ -31,6 +31,24 @@ function EchoServerStreamStream:recv()
   return resp
 end
 
+--- Abandon the call early: RST so the server stops producing.
+function EchoServerStreamStream:close()
+  self.stream:close()
+end
+
+function EchoServerStreamStream:cancel()
+  self.stream:cancel()
+end
+
+--- To-be-closed (<close>) and GC abandon the call the same way.
+function EchoServerStreamStream:__close()
+  self:close()
+end
+
+function EchoServerStreamStream:__gc()
+  self:close()
+end
+
 --- Receiving stream for Bidi responses.
 local EchoBidiStream = {}
 EchoBidiStream.__index = EchoBidiStream
@@ -44,6 +62,24 @@ function EchoBidiStream:recv()
   local resp = EchoResponse.new()
   self.stream:recv(resp)
   return resp
+end
+
+--- Abandon the call early: RST so the server stops producing.
+function EchoBidiStream:close()
+  self.stream:close()
+end
+
+function EchoBidiStream:cancel()
+  self.stream:cancel()
+end
+
+--- To-be-closed (<close>) and GC abandon the call the same way.
+function EchoBidiStream:__close()
+  self:close()
+end
+
+function EchoBidiStream:__gc()
+  self:close()
 end
 
 --- Server-streaming sink passed to service implementations.
@@ -155,9 +191,25 @@ function EchoServerStreamCoroStream:cancel()
   self.stream:cancel()
 end
 
+--- Abandon the call early: RST so the server stops producing.
+function EchoServerStreamCoroStream:close()
+  self.stream:close()
+end
+
+--- To-be-closed (<close>) and GC abandon the call the same way.
+function EchoServerStreamCoroStream:__close()
+  self:close()
+end
+
+function EchoServerStreamCoroStream:__gc()
+  self:close()
+end
+
 --- Generic-for iterator: for resp in stream:iter() do ... end
+--- Breaking the loop closes the closable stream, RST-ing
+--- the call unless it already terminated.
 function EchoServerStreamCoroStream:iter()
-  return function() return self:next() end
+  return function() return self:next() end, nil, nil, self
 end
 
 --- Coroutine receiving stream for Bidi responses: a producer
@@ -192,9 +244,25 @@ function EchoBidiCoroStream:cancel()
   self.stream:cancel()
 end
 
+--- Abandon the call early: RST so the server stops producing.
+function EchoBidiCoroStream:close()
+  self.stream:close()
+end
+
+--- To-be-closed (<close>) and GC abandon the call the same way.
+function EchoBidiCoroStream:__close()
+  self:close()
+end
+
+function EchoBidiCoroStream:__gc()
+  self:close()
+end
+
 --- Generic-for iterator: for resp in stream:iter() do ... end
+--- Breaking the loop closes the closable stream, RST-ing
+--- the call unless it already terminated.
 function EchoBidiCoroStream:iter()
-  return function() return self:next() end
+  return function() return self:next() end, nil, nil, self
 end
 
 --- Coroutine client for echo.Echo.

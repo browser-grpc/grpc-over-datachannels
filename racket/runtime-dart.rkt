@@ -469,7 +469,20 @@ class ResponseSink {
   Map<String, String> respTrailers = {};
   bool headersSent = false;
 
+  // A stream the endpoint has forgotten was RST by the peer
+  // (or the channel went away): fail the send so a producing
+  // handler stops instead of streaming into the void. Throwing
+  // out of a handler's send also cancels any async-generator
+  // stream the handler was forwarding (await-for cancels its
+  // subscription when the body throws).
+  void _checkOpen() {
+    if (_endpoint._stream(_streamId) == null) {
+      throw StatusException(Wire.codeCancelled, 'call cancelled');
+    }
+  }
+
   void send(List<int> payload) {
+    _checkOpen();
     flushHeaders();
     _endpoint.sendFrame(Codec.encodeFrame(Wire.frameData, _streamId, payload));
   }
@@ -482,6 +495,7 @@ class ResponseSink {
   }
 
   void sendHeaders([Map<String, String>? metadata]) {
+    _checkOpen();
     headersSent = true;
     _endpoint.sendFrame(Codec.headersFrame(_streamId, null, metadata ?? respHeaders));
   }
@@ -712,6 +726,7 @@ class ClientStream {
   TraceContext? traceCtx;
   String? tracePath;
   bool _traceEnded = false;
+  bool _terminated = false;
 
   ClientStream(this.streamId, this._endpoint, this._input);
 
@@ -723,7 +738,18 @@ class ClientStream {
   }
 
   /// Abort this stream (sends RST, wakes a pending recv).
-  void cancel() => _endpoint.cancelStream(streamId);
+  /// After normal completion this just closes locally.
+  void cancel() {
+    if (_terminated) {
+      _endpoint.closeStream(streamId);
+      return;
+    }
+    _terminated = true;
+    _endpoint.cancelStream(streamId);
+  }
+
+  /// Abandon this stream: RST CANCELLED unless it already completed.
+  void close() => cancel();
 
   /// Decode the next response into resp. EndOfStreamError means the
   /// call completed OK; StatusException reports the trailers status.
@@ -736,6 +762,7 @@ class ClientStream {
               .get()
               .timeout(deadline!.difference(DateTime.now()));
         } on TimeoutException {
+          _terminated = true;
           _endpoint.cancelStream(streamId);
           throw StatusException(
               Wire.codeDeadlineExceeded, 'deadline exceeded');
@@ -744,6 +771,7 @@ class ClientStream {
         event = await _input.get();
       }
       if (event == null) {
+        _terminated = true;
         throw StatusException(Wire.codeUnavailable, 'data channel closed');
       }
       switch (event.kind) {
@@ -754,6 +782,7 @@ class ClientStream {
           resp.unmarshalDc(event.payload!);
           return;
         case EventKind.trailers:
+          _terminated = true;
           final status = event.status;
           trailers = status?.trailers;
           endTrace(Wire.statusName(status?.code ?? Wire.codeOk));
@@ -762,6 +791,7 @@ class ClientStream {
           }
           throw EndOfStreamError();
         case EventKind.rst:
+          _terminated = true;
           final status =
               event.status ?? StatusException(Wire.codeUnavailable, 'stream reset');
           trailers = status.trailers;
@@ -1705,6 +1735,12 @@ class DynamicStream {
     await _stream.recv(resp);
     return resp.generic;
   }
+
+  /// Abandon this stream (RST CANCELLED unless completed).
+  void cancel() => _stream.cancel();
+
+  /// Abandon this stream (RST CANCELLED unless completed).
+  void close() => _stream.close();
 
   /// Collect all responses (simplifies scenario drivers).
   Future<List<GenericMessage>> collect() async {

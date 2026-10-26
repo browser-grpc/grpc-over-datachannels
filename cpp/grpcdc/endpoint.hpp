@@ -171,6 +171,12 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     // Shared with the CallContext (installed by the endpoint).
     std::shared_ptr<ResponseMeta> response = std::make_shared<ResponseMeta>();
     void Send(const Bytes& payload) {
+      // A stream the endpoint has forgotten was RST by the peer
+      // (or the channel went away): fail the send so a producing
+      // handler stops instead of streaming into the void.
+      if (!endpoint_->Stream(stream_id_)) {
+        throw StatusException(wire::kCodeCancelled, "call cancelled");
+      }
       FlushHeaders();
       endpoint_->SendFrame(Codec::EncodeFrame(wire::kFrameData, stream_id_, payload));
     }
@@ -181,6 +187,9 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     }
     void SendHeaders() { SendHeaders(nullptr); }
     void SendHeaders(const Metadata* metadata) {
+      if (!endpoint_->Stream(stream_id_)) {
+        throw StatusException(wire::kCodeCancelled, "call cancelled");
+      }
       response->headers_sent = true;
       endpoint_->SendFrame(Codec::HeadersFrame(stream_id_, nullptr, metadata));
     }

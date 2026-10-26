@@ -94,6 +94,12 @@ function ResponseSink.new(endpoint, streamId)
 end
 
 function ResponseSink:send(payload)
+  -- A stream the endpoint has forgotten was RST by the peer
+  -- (or the channel went away): fail the send so a producing
+  -- handler stops instead of streaming into the void.
+  if self.endpoint.streams[self.streamId] == nil then
+    raise(Status.new(wire.CODE_CANCELLED, "call cancelled"))
+  end
   self:flushHeaders()
   self.endpoint:sendFrame(Codec.encodeFrame(wire.FRAME_DATA, self.streamId, payload))
 end
@@ -106,6 +112,9 @@ function ResponseSink:flushHeaders()
 end
 
 function ResponseSink:sendHeaders(metadata)
+  if self.endpoint.streams[self.streamId] == nil then
+    raise(Status.new(wire.CODE_CANCELLED, "call cancelled"))
+  end
   self.headersSent = true
   self.endpoint:sendFrame(Codec.headersFrame(self.streamId, nil, metadata or self.respHeaders))
 end

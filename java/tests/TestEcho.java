@@ -13,6 +13,7 @@ import java.io.EOFException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Loopback end-to-end: all four shapes, error status, metadata. */
 public final class TestEcho {
@@ -84,7 +85,86 @@ public final class TestEcho {
 
         runAsync(client);
 
+        testBreakingServerStreamCancels();
+
         System.out.println("TestEcho OK");
+    }
+
+    /** Counting service for the stream-break regression test. */
+    static final class CountingEchoService implements EchoGrpcDc.EchoServer {
+        private final AtomicInteger produced;
+
+        CountingEchoService(AtomicInteger produced) {
+            this.produced = produced;
+        }
+
+        @Override
+        public EchoResponse Unary(grpcdc.Endpoint.CallContext ctx, EchoRequest req) {
+            return new EchoResponse("echo: " + req.message, 0);
+        }
+
+        @Override
+        public void ServerStream(EchoRequest req, EchoGrpcDc.EchoServerStreamServer stream) throws Exception {
+            for (int i = 0; i < Math.max(0, req.count); i++) {
+                produced.incrementAndGet();
+                stream.send(new EchoResponse(req.message, i));
+                Thread.sleep(10);
+            }
+        }
+
+        @Override
+        public void ClientStream(EchoGrpcDc.EchoClientStreamServer stream) throws Exception {
+            List<String> parts = new ArrayList<>();
+            while (true) {
+                try {
+                    parts.add(stream.recv().message);
+                } catch (EOFException eof) {
+                    break;
+                }
+            }
+            stream.sendAndClose(new EchoResponse(String.join("+", parts), parts.size()));
+        }
+
+        @Override
+        public void Bidi(EchoGrpcDc.EchoBidiServer stream) throws Exception {
+            int index = 0;
+            while (true) {
+                EchoRequest req;
+                try {
+                    req = stream.recv();
+                } catch (EOFException eof) {
+                    return;
+                }
+                stream.send(new EchoResponse(req.message, index++));
+            }
+        }
+    }
+
+    // Closing the response stream (try-with-resources) after one
+    // response must RST the call: the producing handler's next
+    // send fails with CANCELLED and production settles.
+    private static void testBreakingServerStreamCancels() throws Exception {
+        AtomicInteger produced = new AtomicInteger();
+        Transport[] pair = MemoryTransport.pair();
+        Server server = new Server();
+        EchoGrpcDc.registerEchoServer(server, new CountingEchoService(produced));
+        server.serveTransport(pair[1]);
+        EchoGrpcDc.EchoClient client = new EchoGrpcDc.EchoClient(new Channel(pair[0]));
+
+        int seen = 0;
+        try (EchoGrpcDc.EchoServerStreamStream stream = client.ServerStream(req("tick", 1000))) {
+            EchoResponse first = stream.recv();
+            check(first.index == 0, "break stream first response: " + first);
+            seen = 1;
+        }
+        check(seen == 1, "break stream seen: " + seen);
+
+        Thread.sleep(100);
+        int settled = produced.get();
+        Thread.sleep(100);
+        check(produced.get() == settled,
+                "server kept producing after close: " + settled + " -> " + produced.get());
+        check(settled < 100, "server produced too many responses: " + settled);
     }
 
     /** Async implementation used to test registerEchoServerAsync. */

@@ -60,14 +60,34 @@ class EchoServerStreamStream {
   }
 
   /// Responses as a Dart Stream (native async surface).
-  Stream<EchoResponse> get responses async* {
-    while (true) {
-      try {
-        yield await recv();
-      } on EndOfStreamError {
-        return;
-      }
-    }
+  /// Cancelling the subscription abandons the call:
+  /// RST CANCELLED is sent so the server stops.
+  Stream<EchoResponse> get responses {
+    var cancelled = false;
+    late StreamController<EchoResponse> controller;
+    controller = StreamController<EchoResponse>(
+      onListen: () {
+        () async {
+          try {
+            while (!cancelled) {
+              controller.add(await recv());
+            }
+          } on EndOfStreamError {
+            if (!cancelled) await controller.close();
+          } catch (e, st) {
+            if (!cancelled) {
+              controller.addError(e, st);
+              await controller.close();
+            }
+          }
+        }();
+      },
+      onCancel: () {
+        cancelled = true;
+        _stream.cancel();
+      },
+    );
+    return controller.stream;
   }
 }
 
@@ -84,14 +104,34 @@ class EchoBidiStream {
   }
 
   /// Responses as a Dart Stream (native async surface).
-  Stream<EchoResponse> get responses async* {
-    while (true) {
-      try {
-        yield await recv();
-      } on EndOfStreamError {
-        return;
-      }
-    }
+  /// Cancelling the subscription abandons the call:
+  /// RST CANCELLED is sent so the server stops.
+  Stream<EchoResponse> get responses {
+    var cancelled = false;
+    late StreamController<EchoResponse> controller;
+    controller = StreamController<EchoResponse>(
+      onListen: () {
+        () async {
+          try {
+            while (!cancelled) {
+              controller.add(await recv());
+            }
+          } on EndOfStreamError {
+            if (!cancelled) await controller.close();
+          } catch (e, st) {
+            if (!cancelled) {
+              controller.addError(e, st);
+              await controller.close();
+            }
+          }
+        }();
+      },
+      onCancel: () {
+        cancelled = true;
+        _stream.cancel();
+      },
+    );
+    return controller.stream;
   }
 }
 

@@ -109,7 +109,7 @@ impl Endpoint {
         }
     }
 
-    fn has_stream(&self, stream_id: u32) -> bool {
+    pub(crate) fn has_stream(&self, stream_id: u32) -> bool {
         self.streams.lock().unwrap().contains_key(&stream_id)
     }
 
@@ -140,7 +140,7 @@ impl Endpoint {
             frame_type::DATA => self.deliver(frame.stream_id, StreamEvent::Data(frame.payload)),
             frame_type::TRAILERS => { if let Ok(status) = frame.parse_status() { self.deliver(frame.stream_id, StreamEvent::Trailers(status)); } },
             frame_type::HALF_CLOSE => self.deliver(frame.stream_id, StreamEvent::HalfClose),
-            frame_type::RST => { let status = frame.parse_status().unwrap_or_else(|_| Status::cancelled("stream reset")); self.deliver(frame.stream_id, StreamEvent::Rst(status)); },
+            frame_type::RST => { let status = frame.parse_status().unwrap_or_else(|_| Status::cancelled("stream reset")); self.deliver(frame.stream_id, StreamEvent::Rst(status)); self.streams.lock().unwrap().remove(&frame.stream_id); },
             _ => {} // unknown frame type: ignore for forward compatibility
         }
     }

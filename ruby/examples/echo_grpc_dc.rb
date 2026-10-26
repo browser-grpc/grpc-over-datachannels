@@ -19,15 +19,30 @@ module EchoGrpcDc
       @stream.recv(@resp_cls.new)
     end
 
+    # Abandon the call early: RST so the server stops producing.
+    def cancel
+      @stream.cancel
+    end
+
+    def close
+      @stream.cancel
+    end
+
     def each
       return enum_for(:each) unless block_given?
 
-      loop do
-        begin
-          yield recv
-        rescue EOFError
-          return
+      begin
+        loop do
+          begin
+            yield recv
+          rescue EOFError
+            return
+          end
         end
+      ensure
+        # Breaking out of the block abandons the call: RST so
+        # the server stops producing (no-op once terminated).
+        close
       end
     end
   end
@@ -118,15 +133,25 @@ module EchoGrpcDc
       @stream.cancel
     end
 
+    def close
+      @stream.cancel
+    end
+
     def each
       return enum_for(:each) unless block_given?
 
-      loop do
-        begin
-          yield next_msg
-        rescue StopIteration
-          return
+      begin
+        loop do
+          begin
+            yield next_msg
+          rescue StopIteration
+            return
+          end
         end
+      ensure
+        # Breaking out of the block abandons the call: RST so
+        # the server stops producing (no-op once terminated).
+        close
       end
     end
   end

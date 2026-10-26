@@ -107,7 +107,20 @@ class ResponseSink {
   Map<String, String> respTrailers = {};
   bool headersSent = false;
 
+  // A stream the endpoint has forgotten was RST by the peer
+  // (or the channel went away): fail the send so a producing
+  // handler stops instead of streaming into the void. Throwing
+  // out of a handler's send also cancels any async-generator
+  // stream the handler was forwarding (await-for cancels its
+  // subscription when the body throws).
+  void _checkOpen() {
+    if (_endpoint._stream(_streamId) == null) {
+      throw StatusException(Wire.codeCancelled, 'call cancelled');
+    }
+  }
+
   void send(List<int> payload) {
+    _checkOpen();
     flushHeaders();
     _endpoint.sendFrame(Codec.encodeFrame(Wire.frameData, _streamId, payload));
   }
@@ -120,6 +133,7 @@ class ResponseSink {
   }
 
   void sendHeaders([Map<String, String>? metadata]) {
+    _checkOpen();
     headersSent = true;
     _endpoint.sendFrame(Codec.headersFrame(_streamId, null, metadata ?? respHeaders));
   }

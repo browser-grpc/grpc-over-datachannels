@@ -30,6 +30,7 @@ final class Channel {
         var traceCtx: Tracing.TraceContext? = nil
         var tracePath: String? = nil
         private var traceEnded = false
+        private var terminated = false
 
         func EndTrace(_ status: String) {
             if !traceEnded {
@@ -45,7 +46,18 @@ final class Channel {
         }
 
         /// Abort this stream (sends RST, wakes a pending Recv).
-        func Cancel() { endpoint.CancelStream(streamId) }
+        /// After normal completion this just closes locally.
+        func Cancel() {
+            if terminated {
+                endpoint.CloseStream(streamId)
+                return
+            }
+            terminated = true
+            endpoint.CancelStream(streamId)
+        }
+
+        /// Abandon this stream: RST CANCELLED unless it already completed.
+        func Close() { Cancel() }
 
         /// Decode the next response into resp. EndOfStreamError means
         /// the call completed OK; StatusException reports the
@@ -56,6 +68,7 @@ final class Channel {
                 if let deadlineMs {
                     let result = input.Get(deadlineMs: deadlineMs)
                     if result.timedOut {
+                        terminated = true
                         endpoint.CancelStream(streamId)
                         throw StatusException(Wire.CodeDeadlineExceeded, "deadline exceeded")
                     }
@@ -64,6 +77,7 @@ final class Channel {
                     event = input.Get()
                 }
                 guard let event else {
+                    terminated = true
                     throw StatusException(Wire.CodeUnavailable, "data channel closed")
                 }
                 switch event.kind {
@@ -73,6 +87,7 @@ final class Channel {
                     resp.UnmarshalDc(event.payload)
                     return
                 case .trailers:
+                    terminated = true
                     trailers = event.status?.trailers
                     EndTrace(Wire.StatusName(event.status?.code ?? Wire.CodeOk))
                     if let status = event.status, status.code != Wire.CodeOk {
@@ -80,6 +95,7 @@ final class Channel {
                     }
                     throw EndOfStreamError()
                 case .rst:
+                    terminated = true
                     let status = event.status ?? StatusException(Wire.CodeUnavailable, "stream reset")
                     trailers = status.trailers
                     EndTrace(Wire.StatusName(status.code))

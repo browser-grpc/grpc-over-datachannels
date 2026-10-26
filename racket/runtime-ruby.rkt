@@ -379,6 +379,13 @@ module Grpcdc
     end
 
     def send_data(payload)
+      # A stream the endpoint has forgotten was RST by the peer
+      # (or the channel went away): fail the send so a producing
+      # handler stops instead of streaming into the void.
+      if @endpoint.stream(@id).nil?
+        raise StatusError.new(CODE_CANCELLED, "call cancelled")
+      end
+
       flush_headers
       @endpoint.send_frame(Codec.encode_frame(FRAME_DATA, @id, payload))
     end
@@ -391,6 +398,10 @@ module Grpcdc
     end
 
     def send_headers(metadata = nil)
+      if @endpoint.stream(@id).nil?
+        raise StatusError.new(CODE_CANCELLED, "call cancelled")
+      end
+
       @headers_sent = true
       @endpoint.send_frame(Codec.headers_frame(@id, nil, metadata || @resp_headers))
     end
@@ -806,6 +817,7 @@ module Grpcdc
       @trace_ctx = nil
       @trace_path = nil
       @trace_ended = false
+      @terminated = false
     end
 
     def end_trace(status)
@@ -829,10 +841,14 @@ module Grpcdc
             remaining <= 0 ? StreamInput::TIMEOUT : @input.get(remaining)
           end
         if event.equal?(StreamInput::TIMEOUT)
+          @terminated = true
           @endpoint.cancel_stream(@stream_id)
           raise StatusError.new(CODE_DEADLINE_EXCEEDED, "deadline exceeded")
         end
-        raise StatusError.new(CODE_UNAVAILABLE, "data channel closed") if event.nil?
+        if event.nil?
+          @terminated = true
+          raise StatusError.new(CODE_UNAVAILABLE, "data channel closed")
+        end
 
         case event.kind
         when EVENT_HEADERS
@@ -840,12 +856,14 @@ module Grpcdc
         when EVENT_DATA
           return resp.unmarshal_dc(event.payload)
         when EVENT_TRAILERS
+          @terminated = true
           @trailers = event.status.trailers
           end_trace(Grpcdc.status_name(event.status.code))
           raise event.status unless event.status.code == CODE_OK
 
           raise EOFError, "call completed"
         when EVENT_RST
+          @terminated = true
           @trailers = event.status.trailers
           end_trace(Grpcdc.status_name(event.status.code))
           raise event.status
@@ -854,8 +872,18 @@ module Grpcdc
     end
 
     # Abort this stream (sends RST, wakes a pending recv).
+    # No-op once the call terminated (trailers/RST already seen),
+    # so abandoning a completed stream never sends a spurious RST.
     def cancel
+      return if @terminated
+
+      @terminated = true
       @endpoint.cancel_stream(@stream_id)
+    end
+
+    # Abandon the call early: RST unless it already terminated.
+    def close
+      cancel
     end
   end
 
@@ -882,6 +910,10 @@ module Grpcdc
     end
 
     def cancel
+      @stream.cancel
+    end
+
+    def close
       @stream.cancel
     end
   end
@@ -1751,15 +1783,30 @@ module Grpcdc
       @stream.recv(BoundMessage.new(@model, nil, @file_model)).generic
     end
 
+    # Abandon the call early: RST unless it already terminated.
+    def cancel
+      @stream.cancel
+    end
+
+    def close
+      @stream.cancel
+    end
+
     def each
       return enum_for(:each) unless block_given?
 
-      loop do
-        begin
-          yield recv
-        rescue EOFError
-          return
+      begin
+        loop do
+          begin
+            yield recv
+          rescue EOFError
+            return
+          end
         end
+      ensure
+        # Breaking out of the block abandons the call: RST so
+        # the server stops producing (no-op once terminated).
+        close
       end
     end
   end

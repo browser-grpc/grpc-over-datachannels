@@ -764,14 +764,34 @@
        "    return resp;\n"
        "  }\n\n"
        "  /// Responses as a Dart Stream (native async surface).\n"
-       "  Stream<~a> get responses async* {\n"
-       "    while (true) {\n"
-       "      try {\n"
-       "        yield await recv();\n"
-       "      } on EndOfStreamError {\n"
-       "        return;\n"
-       "      }\n"
-       "    }\n"
+       "  /// Cancelling the subscription abandons the call:\n"
+       "  /// RST CANCELLED is sent so the server stops.\n"
+       "  Stream<~a> get responses {\n"
+       "    var cancelled = false;\n"
+       "    late StreamController<~a> controller;\n"
+       "    controller = StreamController<~a>(\n"
+       "      onListen: () {\n"
+       "        () async {\n"
+       "          try {\n"
+       "            while (!cancelled) {\n"
+       "              controller.add(await recv());\n"
+       "            }\n"
+       "          } on EndOfStreamError {\n"
+       "            if (!cancelled) await controller.close();\n"
+       "          } catch (e, st) {\n"
+       "            if (!cancelled) {\n"
+       "              controller.addError(e, st);\n"
+       "              await controller.close();\n"
+       "            }\n"
+       "          }\n"
+       "        }();\n"
+       "      },\n"
+       "      onCancel: () {\n"
+       "        cancelled = true;\n"
+       "        _stream.cancel();\n"
+       "      },\n"
+       "    );\n"
+       "    return controller.stream;\n"
        "  }\n"
        "}\n\n")
       svc
@@ -780,6 +800,8 @@
       orig-name
       svc
       orig-name
+      resp
+      resp
       resp
       resp
       resp))

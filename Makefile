@@ -107,6 +107,10 @@ interop-stubs:
 		--grpc-dc-go_out=go/interop --grpc-dc-go_opt=go_package=testing -I oracle/interop \
 		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
 		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-rust=bin/protoc-gen-grpc-dc-rust \
+		--grpc-dc-rust_out=rust/gen -I oracle/interop \
+		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
+		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
 	gofmt -w go/interop/*.go
 
 generate: plugins stubs
@@ -876,6 +880,14 @@ test-interop-matrix:
 ## scales it.
 soak:
 	node scripts/soak.mjs $(SOAK_ITERATIONS)
+
+## Flake-hunting lane for the one-off Go/Java custom_metadata
+## hang (v0.32.10): repeated -race runs of the official-client
+## oracle on both sides. Not part of `test`; run when touching
+## the interop harness or on a schedule.
+stress-interop:
+	cd go && go test -race -count=10 -run 'TestInteropOfficialClientsCallGoServer/.*/custom_metadata' .
+	cd js && for i in 1 2; do node --test test/interop_oracle.test.js test/interop_server_oracle.test.js || exit 1; done
 
 ## WebRTC-stack interop matrix: Go/JS/Rust stacks paired
 ## over real ICE/DTLS/DataChannels (gRPC cells for Go/JS,

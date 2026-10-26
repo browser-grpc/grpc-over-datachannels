@@ -44,5 +44,38 @@ module TestEcho
 
     resp = client.Unary(req("hello"), { "x-echo" => "meta" })
     TestUtil.assert_eq(resp.message, "echo: hello [meta]", "metadata")
+
+    # Breaking a server stream cancels it server-side: breaking
+    # out of `each` RSTs the call (RecvStream ensure/close), and
+    # the handler's next send fails CANCELLED instead of
+    # streaming into the void. Mirrors js/test/echo.test.js
+    # "breaking a server stream cancels it server-side".
+    produced = [0]
+    counting = Class.new(EchoService) do
+      define_method(:ServerStream) do |request, stream|
+        request.count.times do |i|
+          produced[0] += 1
+          stream.send(EchoPb::EchoResponse.new(message: request.message, index: i))
+          sleep(0.01)
+        end
+      end
+    end
+    a2, b2 = Grpcdc.memory_transport_pair
+    server2 = Grpcdc::Server.new
+    EchoGrpcDc.register_echo_server(server2, counting.new)
+    server2.serve_transport(b2)
+    client2 = EchoGrpcDc::EchoClient.new(Grpcdc::Channel.new(a2))
+
+    seen = 0
+    client2.ServerStream(req("tick", 1000)).each do |_resp|
+      seen += 1
+      break if seen == 2
+    end
+    TestUtil.assert_eq(seen, 2, "stream break seen")
+    sleep(0.15)
+    settled = produced[0]
+    sleep(0.15)
+    TestUtil.assert_eq(produced[0], settled, "stream break settled")
+    TestUtil.check(settled < 100, "server kept producing (#{settled})")
   end
 end

@@ -144,7 +144,18 @@
                                    (string-downcase (substring p 1)))))
               (string-split s "_"))))
 
-(define (rs-pb-field-name f) (rs-pb-snake (hash-ref f 'name)))
+(define rs-pb-rust-keywords
+  '("type" "ref" "box" "self" "Self" "crate" "super" "move" "static"
+    "mut" "fn" "struct" "enum" "impl" "trait" "loop" "match" "mod"
+    "pub" "use" "where" "async" "await" "dyn" "abstract" "become"
+    "do" "final" "macro" "override" "priv" "typeof" "unsized"
+    "virtual" "yield" "try" "gen"))
+
+(define (rs-pb-field-name f)
+  (define name (rs-pb-snake (hash-ref f 'name)))
+  ;; A proto field named like a Rust keyword (Payload.type) must
+  ;; be emitted as a raw identifier everywhere it appears.
+  (if (member name rs-pb-rust-keywords) (string-append "r#" name) name))
 
 (define (rs-pb-flat pkg full)
   (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))

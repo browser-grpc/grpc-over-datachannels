@@ -155,8 +155,8 @@ public final class EchoGrpcDc {
         }
     }
 
-    /** Receiving stream for Echo.ServerStream: recv() throws EOFException at end. */
-    public static final class EchoServerStreamStream {
+    /** Receiving stream for Echo.ServerStream: recv() throws EOFException at end. Close to abandon early (RST). */
+    public static final class EchoServerStreamStream implements AutoCloseable {
         private final Channel.ClientStream stream;
 
         EchoServerStreamStream(Channel.ClientStream stream) {
@@ -168,10 +168,21 @@ public final class EchoGrpcDc {
             stream.recv(resp);
             return resp;
         }
+
+        /** Abort this stream (sends RST, wakes a pending recv). */
+        public void cancel() {
+            stream.cancel();
+        }
+
+        /** Abandon the call if still live (RST); no-op once terminated. */
+        @Override
+        public void close() {
+            stream.close();
+        }
     }
 
-    /** Receiving stream for Echo.Bidi: recv() throws EOFException at end. */
-    public static final class EchoBidiStream {
+    /** Receiving stream for Echo.Bidi: recv() throws EOFException at end. Close to abandon early (RST). */
+    public static final class EchoBidiStream implements AutoCloseable {
         private final Channel.ClientStream stream;
 
         EchoBidiStream(Channel.ClientStream stream) {
@@ -182,6 +193,17 @@ public final class EchoGrpcDc {
             EchoResponse resp = new EchoResponse();
             stream.recv(resp);
             return resp;
+        }
+
+        /** Abort this stream (sends RST, wakes a pending recv). */
+        public void cancel() {
+            stream.cancel();
+        }
+
+        /** Abandon the call if still live (RST); no-op once terminated. */
+        @Override
+        public void close() {
+            stream.close();
         }
     }
 

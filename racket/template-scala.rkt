@@ -78,6 +78,7 @@
               "        def ~aFuture(req~a, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[List[~a]] = {\n"
               "            grpcdc.Futures {\n"
               "                val stream = ~a(req~a, metadata, timeout)\n"
+              "                try {\n"
               "                val out = scala.collection.mutable.ListBuffer[~a]()\n"
               "                var done = false\n"
               "                while (!done) {\n"
@@ -88,6 +89,9 @@
               "                    }\n"
               "                }\n"
               "                out.toList\n"
+              "                } finally {\n"
+              "                    stream.close()\n"
+              "                }\n"
               "            }\n"
               "        }\n\n")
              name (if (eq? (hash-ref m 'kind) 'server-streaming) (format ": ~a" req) (format "s: List[~a]" req))
@@ -276,22 +280,62 @@
      (apply string-append
             (for/list ([out (in-list (class-outputs 'server-streaming))])
               (string-append
-               (format "        class ~a(private val stream: grpcdc.Channel#ClientStream) {\n" (scala-client-stream-name sname 'server-streaming out))
+               (format "        class ~a(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[~a] with AutoCloseable {\n" (scala-client-stream-name sname 'server-streaming out) out)
                (format "            def recv(): ~a = {\n" out)
                (format "                val resp = new ~a()\n" out)
                "                stream.recv(resp)\n"
                "                resp\n"
                "            }\n"
+               (format "            private var pending: ~a = null\n" out)
+               "            private var finished: Boolean = false\n"
+               "            def hasNext: Boolean = {\n"
+               "                if (pending == null && !finished) {\n"
+               "                    try {\n"
+               "                        pending = recv()\n"
+               "                    } catch {\n"
+               "                        case e: java.io.EOFException => finished = true\n"
+               "                    }\n"
+               "                }\n"
+               "                pending != null\n"
+               "            }\n"
+               (format "            def next(): ~a = {\n" out)
+               "                if (!hasNext) throw new NoSuchElementException(\"next on empty stream\")\n"
+               "                val out = pending\n"
+               "                pending = null\n"
+               "                out\n"
+               "            }\n"
+               "            def cancel(): Unit = stream.cancel()\n"
+               "            def close(): Unit = stream.close()\n"
                "        }\n\n")))
      (apply string-append
             (for/list ([out (in-list (class-outputs 'bidi))])
               (string-append
-               (format "        class ~a(private val stream: grpcdc.Channel#ClientStream) {\n" (scala-client-stream-name sname 'bidi out))
+               (format "        class ~a(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[~a] with AutoCloseable {\n" (scala-client-stream-name sname 'bidi out) out)
                (format "            def recv(): ~a = {\n" out)
                (format "                val resp = new ~a()\n" out)
                "                stream.recv(resp)\n"
                "                resp\n"
                "            }\n"
+               (format "            private var pending: ~a = null\n" out)
+               "            private var finished: Boolean = false\n"
+               "            def hasNext: Boolean = {\n"
+               "                if (pending == null && !finished) {\n"
+               "                    try {\n"
+               "                        pending = recv()\n"
+               "                    } catch {\n"
+               "                        case e: java.io.EOFException => finished = true\n"
+               "                    }\n"
+               "                }\n"
+               "                pending != null\n"
+               "            }\n"
+               (format "            def next(): ~a = {\n" out)
+               "                if (!hasNext) throw new NoSuchElementException(\"next on empty stream\")\n"
+               "                val out = pending\n"
+               "                pending = null\n"
+               "                out\n"
+               "            }\n"
+               "            def cancel(): Unit = stream.cancel()\n"
+               "            def close(): Unit = stream.close()\n"
                "        }\n\n")))
      (apply string-append (map scala-client-method (append methods (alias-client-methods svc))))
      "        // -- async (scala.concurrent.Future) surface ---------------\n\n"

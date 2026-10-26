@@ -104,6 +104,11 @@ class ResponseSink:
         from .codec import encode_frame
         from .wire_gen import FRAME_DATA
 
+        if self._endpoint._stream(self._id) is None:
+            # RST by the peer (or the channel went away): fail
+            # the send so a producing handler stops instead of
+            # streaming into the void.
+            raise StatusError(CODE_CANCELLED, "call cancelled")
         self.flush_headers()
         self._endpoint.send_frame(encode_frame(FRAME_DATA, self._id, payload))
 
@@ -115,6 +120,8 @@ class ResponseSink:
     def send_headers(self, metadata=None):
         if metadata is None:
             metadata = self.resp_headers
+        if self._endpoint._stream(self._id) is None:
+            raise StatusError(CODE_CANCELLED, "call cancelled")
         self.headers_sent = True
         self._endpoint.send_frame(headers_frame(self._id, None, metadata))
 

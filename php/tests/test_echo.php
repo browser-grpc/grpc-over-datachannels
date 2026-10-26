@@ -7,6 +7,26 @@ require_once __DIR__ . "/../examples/echo_pb.php";
 require_once __DIR__ . "/../examples/echo_service.php";
 require_once __DIR__ . "/test_util.php";
 
+/**
+ * Counting slow producer: one message per Fiber suspend, pumping
+ * the endpoint between sends (what "slow" means cooperatively).
+ */
+final class CountingStreamService extends EchoService
+{
+    public int $produced = 0;
+    public ?\Grpcdc\Endpoint $serverEp = null;
+
+    public function ServerStream(\EchoPb\EchoRequest $req, \EchoGrpcDc\SendStream $stream): void
+    {
+        for ($i = 0; $i < $req->count; $i++) {
+            $this->produced++;
+            $stream->send(new \EchoPb\EchoResponse($req->message, $i));
+            \Fiber::suspend();
+            $this->serverEp->pump();
+        }
+    }
+}
+
 final class TestEcho
 {
     private static function req(string $message, int $count = 0): \EchoPb\EchoRequest
@@ -49,5 +69,66 @@ final class TestEcho
 
         $resp = $client->Unary(self::req("hello"), ["x-echo" => "meta"]);
         T::assertEq($resp->message, "echo: hello [meta]", "metadata");
+
+        // Breaking a server stream cancels it server-side:
+        // abandoning the iterate() generator RSTs the call
+        // (generator finally / RecvStream close), and the
+        // handler's next send fails CANCELLED instead of
+        // streaming into the void. Mirrors js/test/echo.test.js
+        // "breaking a server stream cancels it server-side"; the
+        // cooperative runtime drives the server endpoint from a
+        // Fiber so the counting handler produces one message
+        // per drive.
+        [$a2, $b2] = \Grpcdc\memoryTransportPair();
+        $counting = new CountingStreamService();
+        $server2 = new \Grpcdc\Server();
+        \EchoGrpcDc\registerEchoServer($server2, $counting);
+        $serverEp2 = $server2->serveTransport($b2);
+        $counting->serverEp = $serverEp2;
+        $channel2 = new \Grpcdc\Channel($a2);
+        $serverFiber = new \Fiber(function () use ($serverEp2) {
+            while (true) {
+                $serverEp2->pump();
+                \Fiber::suspend();
+            }
+        });
+        $drive = function () use ($serverFiber) {
+            if ($serverFiber->isTerminated()) {
+                return false;
+            }
+            if (!$serverFiber->isStarted()) {
+                $serverFiber->start();
+            } else {
+                $serverFiber->resume();
+            }
+            return true;
+        };
+        $a2->peerPump = $drive;
+        $b2->peerPump = function () use ($channel2) {
+            return $channel2->endpoint->pump();
+        };
+        $client2 = new \EchoGrpcDc\EchoClient($channel2);
+
+        $stream = $client2->ServerStream(self::req("tick", 1000));
+        $gen = $stream->iterate();
+        $seen = 0;
+        foreach ($gen as $resp) {
+            $seen++;
+            if ($seen === 2) {
+                break;
+            }
+        }
+        T::assertEq($seen, 2, "stream break seen");
+        unset($gen, $stream);
+        gc_collect_cycles();
+        for ($i = 0; $i < 4; $i++) {
+            $drive();
+        }
+        $settled = $counting->produced;
+        for ($i = 0; $i < 4; $i++) {
+            $drive();
+        }
+        T::assertEq($counting->produced, $settled, "stream break settled");
+        T::check($settled < 100, "server kept producing ($settled)");
     }
 }

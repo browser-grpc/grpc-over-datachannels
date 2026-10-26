@@ -740,36 +740,48 @@ pub const ResponseSink = struct {
     /// Shared response-metadata state (endpoint-installed).
     state: ?*ResponseState = null,
 
-    pub fn send(self: ResponseSink, payload: []const u8) void {
-        self.flushHeaders();
+    pub fn send(self: ResponseSink, payload: []const u8) Status {
+        // A stream the endpoint has forgotten was RST by the peer
+        // (or the channel went away): fail the send so a producing
+        // handler stops instead of streaming into the void.
+        if (self.endpoint.stream(self.stream_id) == null) {
+            return Status.init(wire.codeCancelled, "call cancelled");
+        }
+        const hst = self.flushHeaders();
+        if (!hst.isOk()) return hst;
         const frame = switch (Codec.encodeFrame(self.endpoint.alloc, wire.frameData, self.stream_id, payload)) {
             .bytes => |b| b,
-            .status => return,
+            .status => |st| return st,
         };
         defer self.endpoint.alloc.free(frame);
         self.endpoint.sendFrame(frame);
+        return Status.ok();
     }
 
     /// Send the initial-metadata HEADERS once (with whatever
     /// the handler recorded via CallContext.setHeaders).
-    pub fn flushHeaders(self: ResponseSink) void {
-        const state = self.state orelse return;
-        if (state.headers_sent) return;
+    pub fn flushHeaders(self: ResponseSink) Status {
+        const state = self.state orelse return Status.ok();
+        if (state.headers_sent) return Status.ok();
         state.headers_sent = true;
-        self.sendHeadersMd(&state.headers);
+        return self.sendHeadersMd(&state.headers);
     }
 
-    pub fn sendHeaders(self: ResponseSink) void {
-        self.flushHeaders();
+    pub fn sendHeaders(self: ResponseSink) Status {
+        return self.flushHeaders();
     }
 
-    fn sendHeadersMd(self: ResponseSink, md: *const Metadata) void {
+    fn sendHeadersMd(self: ResponseSink, md: *const Metadata) Status {
+        if (self.endpoint.stream(self.stream_id) == null) {
+            return Status.init(wire.codeCancelled, "call cancelled");
+        }
         const frame = switch (Codec.headersFrame(self.endpoint.alloc, self.stream_id, null, md)) {
             .bytes => |b| b,
-            .status => return,
+            .status => |st| return st,
         };
         defer self.endpoint.alloc.free(frame);
         self.endpoint.sendFrame(frame);
+        return Status.ok();
     }
 
     pub fn sendTrailers(self: ResponseSink, st: Status) void {
@@ -1124,7 +1136,7 @@ pub const Endpoint = struct {
             }
         }
         const st = args.dispatcher(args.ctx, call_ctx, headers, args.input, sink);
-        if (st.isOk()) sink.flushHeaders();
+        if (st.isOk()) _ = sink.flushHeaders();
         sink.sendTrailers(st);
     }
 
@@ -1176,6 +1188,7 @@ pub const ClientStream = struct {
     trace_ctx: ?status_mod.TraceContext = null,
     trace_path: []const u8 = "",
     trace_ended: bool = false,
+    terminated: bool = false,
 
     pub fn endTrace(self: *ClientStream, status: []const u8) void {
         if (!self.trace_ended) {
@@ -1187,6 +1200,7 @@ pub const ClientStream = struct {
     /// Abort this stream (sends RST, wakes a pending recv).
     pub fn cancel(self: *ClientStream) void {
         self.endpoint.cancelStream(self.stream_id);
+        self.terminated = true;
     }
 
     /// Receive the next response payload. End means the call
@@ -1197,6 +1211,7 @@ pub const ClientStream = struct {
             var event = switch (self.input.getUntil(self.deadline_ms)) {
                 .timeout => {
                     self.endpoint.cancelStream(self.stream_id);
+                    self.terminated = true;
                     return .{ .status = Status.init(wire.codeDeadlineExceeded, "deadline exceeded") };
                 },
                 .event => |ev| ev orelse
@@ -1216,6 +1231,7 @@ pub const ClientStream = struct {
                     return .{ .message = payload };
                 },
                 .trailers => {
+                    self.terminated = true;
                     const st = event.status orelse Status.ok();
                     self.trailers = st.trailers;
                     event.status = null;
@@ -1228,6 +1244,7 @@ pub const ClientStream = struct {
                     return .{ .status = st };
                 },
                 .rst => {
+                    self.terminated = true;
                     const st = event.status orelse Status.init(wire.codeUnavailable, "stream reset");
                     self.trailers = st.trailers;
                     event.status = null;
@@ -1260,6 +1277,12 @@ pub const ClientStream = struct {
     }
 
     pub fn deinit(self: *ClientStream) void {
+        if (!self.terminated) {
+            // Abandoning a call that never terminated: RST
+            // CANCELLED so the peer stops producing.
+            self.endpoint.cancelStream(self.stream_id);
+            self.terminated = true;
+        }
         if (self.headers) |*h| Codec.freeHeaders(self.endpoint.alloc, h);
         const alloc = self.endpoint.alloc;
         for (self.trailers) |pair| {
@@ -1532,8 +1555,8 @@ pub const RequestStream = struct {
 pub const Sink = struct {
     sink: ResponseSink,
 
-    pub fn send(self: Sink, payload: []const u8) void {
-        self.sink.send(payload);
+    pub fn send(self: Sink, payload: []const u8) Status {
+        return self.sink.send(payload);
     }
 };
 
@@ -2513,8 +2536,7 @@ fn dynamicAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.Req
             switch (encodeGeneric(self.alloc, self.output_model, resp, self.file)) {
                 .ok => |bytes| {
                     defer self.alloc.free(bytes);
-                    self.sink.send(bytes);
-                    return Status.ok();
+                    return self.sink.send(bytes);
                 },
                 .status => |st| return st,
             }

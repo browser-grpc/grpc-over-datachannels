@@ -80,6 +80,8 @@
               "                try stream.Recv(resp)\n"
               "                return resp\n"
               "            }\n"
+              "            func Cancel() { stream.Cancel() }\n"
+              "            func Close() { stream.Close() }\n"
               "        }\n\n")
              svc name resp resp)]
     [else ""]))
@@ -88,6 +90,7 @@
   (define name (hash-ref m 'name))
   (define req (hash-ref m 'input))
   (define resp (hash-ref m 'output))
+  (define svc (current-service))
   (case (hash-ref m 'kind)
     [(unary)
      (format (string-append
@@ -98,10 +101,17 @@
     [(server-streaming bidi)
      (format (string-append
               "        func ~aAsync(_ reqs: ~a, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<~a, Error> {\n"
-              "            AsyncThrowingStream { continuation in\n"
+              "            let stream: ~a~aStream\n"
+              "            do {\n"
+              "                stream = try ~a(reqs, metadata, timeout)\n"
+              "            } catch {\n"
+              "                return AsyncThrowingStream { continuation in\n"
+              "                    continuation.finish(throwing: error)\n"
+              "                }\n"
+              "            }\n"
+              "            return AsyncThrowingStream { continuation in\n"
               "                let task = Task.detached {\n"
               "                    do {\n"
-              "                        let stream = try self.~a(reqs, metadata, timeout)\n"
               "                        while true {\n"
               "                            continuation.yield(try stream.Recv())\n"
               "                        }\n"
@@ -111,10 +121,13 @@
               "                        continuation.finish(throwing: error)\n"
               "                    }\n"
               "                }\n"
-              "                continuation.onTermination = { _ in task.cancel() }\n"
+              "                continuation.onTermination = { _ in\n"
+              "                    stream.Cancel()\n"
+              "                    task.cancel()\n"
+              "                }\n"
               "            }\n"
               "        }\n\n")
-             name (if (eq? (hash-ref m 'kind) 'bidi) (format "[~a]" req) req) resp name)]
+             name (if (eq? (hash-ref m 'kind) 'bidi) (format "[~a]" req) req) resp svc name name)]
     [(client-streaming)
      (format (string-append
               "        func ~aAsync(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ~a {\n"

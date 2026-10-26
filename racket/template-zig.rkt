@@ -148,8 +148,7 @@
               "    pub fn send(self: *~a~aServer, resp: *const ~a) Status {\n"
               "        const payload = resp.marshalDc(self.alloc);\n"
               "        defer self.alloc.free(payload);\n"
-              "        self.sink.send(payload);\n"
-              "        return Status.ok();\n"
+              "        return self.sink.send(payload);\n"
               "    }\n"
               "};\n\n")
              orig-name svc orig-name svc orig-name resp)]
@@ -191,8 +190,7 @@
               "    pub fn send(self: *~a~aServer, resp: *const ~a) Status {\n"
               "        const payload = resp.marshalDc(self.alloc);\n"
               "        defer self.alloc.free(payload);\n"
-              "        self.sink.send(payload);\n"
-              "        return Status.ok();\n"
+              "        return self.sink.send(payload);\n"
               "    }\n"
               "};\n\n")
              orig-name svc orig-name svc orig-name req req svc orig-name resp)]))
@@ -241,8 +239,7 @@
               "    if (!st.isOk()) return st;\n"
               "    const payload = resp.marshalDc(reqs.alloc);\n"
               "    defer reqs.alloc.free(payload);\n"
-              "    sink.send(payload);\n"
-              "    return Status.ok();\n"
+              "    return sink.send(payload);\n"
               "}\n\n")
              name svc req (hash-ref m 'output) impl-name)]
     [(server-streaming)
@@ -272,8 +269,7 @@
               "        return Status.init(wire.codeInternal, \"client-streaming handler never called sendAndClose\");\n"
               "    const payload = resp.marshalDc(reqs.alloc);\n"
               "    defer reqs.alloc.free(payload);\n"
-              "    sink.send(payload);\n"
-              "    return Status.ok();\n"
+              "    return sink.send(payload);\n"
               "}\n\n")
              name svc svc orig-name impl-name)]
     [(bidi)

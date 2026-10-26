@@ -29,16 +29,21 @@ public static class AsyncPump
     /// <summary>
     /// Adapt a blocking receive loop to IAsyncEnumerable. recv returns
     /// the next item and throws EndOfStreamException at the end;
-    /// StatusException propagates as the stream's error.
+    /// StatusException propagates as the stream's error. When the
+    /// consumer abandons enumeration early (break / Dispose / token
+    /// cancellation) before the call terminated, abandon is invoked
+    /// so the underlying call is RST and the server stops producing.
     /// </summary>
     public static async IAsyncEnumerable<T> Stream<T>(
         Func<T> recv,
+        Action abandon = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var channel = System.Threading.Channels.Channel.CreateBounded<T>(new BoundedChannelOptions(16)
         {
             FullMode = BoundedChannelFullMode.Wait,
         });
+        bool completed = false;
         var pump = Task.Run(() =>
         {
             try
@@ -51,10 +56,12 @@ public static class AsyncPump
             }
             catch (EndOfStreamException)
             {
+                completed = true;
                 channel.Writer.TryComplete();
             }
             catch (Exception e)
             {
+                completed = true;
                 channel.Writer.TryComplete(e);
             }
         }, cancellationToken);
@@ -67,7 +74,17 @@ public static class AsyncPump
         }
         finally
         {
+            if (!completed)
+            {
+                try { abandon?.Invoke(); } catch { /* best effort */ }
+            }
             _ = pump.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
         }
     }
+
+    /// <summary>Stream without an abandon hook (call runs to completion).</summary>
+    public static IAsyncEnumerable<T> Stream<T>(
+        Func<T> recv,
+        CancellationToken cancellationToken)
+        => Stream(recv, null, cancellationToken);
 }

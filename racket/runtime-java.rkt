@@ -569,6 +569,13 @@ public class Endpoint {
         boolean headersSent;
 
         public void send(byte[] payload) throws Exception {
+            // A stream the endpoint has forgotten was RST by the
+            // peer (or the channel went away): fail the send so a
+            // producing handler stops instead of streaming into
+            // the void.
+            if (endpoint.stream(streamId) == null) {
+                throw new StatusException(Wire.CODE_CANCELLED, "call cancelled");
+            }
             flushHeaders();
             endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, payload));
         }
@@ -585,6 +592,9 @@ public class Endpoint {
         }
 
         void sendHeaders(Map<String, String> metadata) throws Exception {
+            if (endpoint.stream(streamId) == null) {
+                throw new StatusException(Wire.CODE_CANCELLED, "call cancelled");
+            }
             headersSent = true;
             endpoint.sendFrame(Codec.headersFrame(streamId, null, metadata));
         }
@@ -848,8 +858,13 @@ public class Channel {
         return endpoint;
     }
 
-    /** Receives response messages of one call. */
-    public static final class ClientStream {
+    /**
+     * Receives response messages of one call. Closing the stream
+     * (try-with-resources) abandons a still-live call with RST
+     * CANCELLED so the server stops producing; a call that
+     * already terminated just closes locally.
+     */
+    public static final class ClientStream implements AutoCloseable {
         private final Endpoint endpoint;
         private final long streamId;
         private final Endpoint.StreamInput input;
@@ -859,6 +874,8 @@ public class Channel {
         private Tracing.TraceContext traceCtx;
         private String tracePath;
         private boolean traceEnded;
+        private boolean terminated;
+        private boolean closed;
 
         private void endTrace(String status) {
             if (!traceEnded) {
@@ -878,6 +895,7 @@ public class Channel {
         }
 
         private Endpoint.StreamEvent failDeadline() throws Exception {
+            terminated = true;
             endpoint.cancelStream(streamId);
             throw new StatusException(Wire.CODE_DEADLINE_EXCEEDED, "deadline exceeded");
         }
@@ -897,7 +915,25 @@ public class Channel {
          */
         /** Abort this stream (sends RST, wakes a pending recv). */
         public void cancel() {
+            if (terminated) {
+                endpoint.closeStream(streamId);
+                return;
+            }
+            terminated = true;
             endpoint.cancelStream(streamId);
+        }
+
+        /**
+         * Abandon the call: RST CANCELLED when still live so the
+         * server stops producing, local close once terminated.
+         */
+        @Override
+        public void close() {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            cancel();
         }
 
         public void recv(Unmarshaler resp) throws Exception {
@@ -914,6 +950,7 @@ public class Channel {
                     event = input.get();
                 }
                 if (event == null) {
+                    terminated = true;
                     throw new StatusException(Wire.CODE_UNAVAILABLE, "data channel closed");
                 }
                 switch (event.kind) {
@@ -923,6 +960,7 @@ public class Channel {
                         return;
                     }
                     case TRAILERS -> {
+                        terminated = true;
                         trailers = event.status.trailers;
                         endTrace(Wire.statusName(event.status.code));
                         if (event.status.code != Wire.CODE_OK) {
@@ -931,6 +969,7 @@ public class Channel {
                         throw new EOFException("call completed");
                     }
                     case RST -> {
+                        terminated = true;
                         trailers = event.status.trailers;
                         endTrace(Wire.statusName(event.status.code));
                         throw event.status;

@@ -570,7 +570,17 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
     var respTrailers: scala.collection.Map[String, String] = Map.empty
     var headersSent: Boolean = false
 
+    // A stream the endpoint has forgotten was RST by the peer
+    // (or the channel went away): fail the send so a producing
+    // handler stops instead of streaming into the void.
+    private def checkOpen(): Unit = {
+      if (endpoint.stream(streamId) == null) {
+        throw StatusException(Wire.CODE_CANCELLED, "call cancelled")
+      }
+    }
+
     def send(payload: Array[Byte]): Unit = {
+      checkOpen()
       flushHeaders()
       endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, payload))
     }
@@ -587,6 +597,7 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
     }
 
     def sendHeaders(metadata: Map[String, String]): Unit = {
+      checkOpen()
       headersSent = true
       endpoint.sendFrame(Codec.headersFrame(streamId, null, metadata))
     }
@@ -865,6 +876,9 @@ class Channel(val endpoint: Endpoint) {
     var tracePath: String = null
     private var traceEnded: Boolean = false
 
+    @volatile
+    private var terminated: Boolean = false
+
     def endTrace(status: String): Unit = {
       if (!traceEnded) {
         traceEnded = true
@@ -873,12 +887,22 @@ class Channel(val endpoint: Endpoint) {
     }
 
     /** Abort this stream (sends RST, wakes a pending recv). */
-    def cancel(): Unit = endpoint.cancelStream(streamId)
+    def cancel(): Unit = {
+      if (!terminated) {
+        terminated = true
+        endpoint.cancelStream(streamId)
+      }
+    }
+
+    /** Abandon this stream: RST CANCELLED unless it already
+     * completed, in which case it just closes locally. */
+    def close(): Unit = cancel()
 
     private def nextEvent(): Endpoint#StreamEvent = {
       if (deadlineNanos < 0) {
         val event = input.get()
         if (event == null) {
+          terminated = true
           throw StatusException(Wire.CODE_UNAVAILABLE, "data channel closed")
         }
         return event
@@ -888,11 +912,13 @@ class Channel(val endpoint: Endpoint) {
         if (remaining <= 0) throw new java.util.concurrent.TimeoutException()
         val event = input.getNanos(remaining)
         if (event == null) {
+          terminated = true
           throw StatusException(Wire.CODE_UNAVAILABLE, "data channel closed")
         }
         event
       } catch {
         case e: java.util.concurrent.TimeoutException =>
+          terminated = true
           endpoint.cancelStream(streamId)
           throw StatusException(Wire.CODE_DEADLINE_EXCEEDED, "deadline exceeded")
       }
@@ -911,6 +937,7 @@ class Channel(val endpoint: Endpoint) {
             resp.unmarshalDc(event.payload)
             return
           case Endpoint.EventKind.TRAILERS =>
+            terminated = true
             val status = event.status
             trailers = if (status != null) status.trailers else null
             endTrace(Wire.statusName(if (status != null) status.code else Wire.CODE_OK))
@@ -919,6 +946,7 @@ class Channel(val endpoint: Endpoint) {
             }
             throw new EOFException("call completed")
           case Endpoint.EventKind.RST =>
+            terminated = true
             val status = if (event.status != null) event.status
                          else StatusException(Wire.CODE_UNAVAILABLE, "stream reset")
             trailers = status.trailers
@@ -1850,6 +1878,12 @@ object Dynamic {
         stream.recv(resp)
         resp.generic
       }
+
+      /** Abandon this stream (RST CANCELLED unless completed). */
+      def cancel(): Unit = stream.cancel()
+
+      /** Abandon this stream (RST CANCELLED unless completed). */
+      def close(): Unit = stream.close()
     }
 
     def serverStream(service: String, method: String, req: GenericMessage, metadata: Map[String, String] = null, timeout: java.time.Duration = null): DynamicStream = {

@@ -610,6 +610,12 @@ enum Dynamic {
                 try stream.Recv(resp)
                 return resp.generic
             }
+
+            /// Abandon this stream (RST CANCELLED unless completed).
+            func Cancel() { stream.Cancel() }
+
+            /// Abandon this stream (RST CANCELLED unless completed).
+            func Close() { stream.Close() }
         }
 
         func ServerStream(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DynamicStream {

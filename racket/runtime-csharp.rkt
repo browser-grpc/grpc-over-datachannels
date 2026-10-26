@@ -568,6 +568,14 @@ public class Endpoint
 
         public void Send(byte[] payload)
         {
+            // A stream the endpoint has forgotten was RST by the
+            // peer (or the channel went away): fail the send so a
+            // producing handler stops instead of streaming into
+            // the void.
+            if (_endpoint.Stream(_streamId) == null)
+            {
+                throw new StatusException(Wire.CodeCancelled, "call cancelled");
+            }
             FlushHeaders();
             _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, _streamId, payload));
         }
@@ -588,6 +596,10 @@ public class Endpoint
 
         internal void SendHeaders(Dictionary<string, string> metadata)
         {
+            if (_endpoint.Stream(_streamId) == null)
+            {
+                throw new StatusException(Wire.CodeCancelled, "call cancelled");
+            }
             HeadersSent = true;
             _endpoint.SendFrame(Codec.HeadersFrame(_streamId, null, metadata));
         }
@@ -864,8 +876,13 @@ public class Channel
 
     public Endpoint Endpoint => _endpoint;
 
-    /// <summary>Receives response messages of one call.</summary>
-    public sealed class ClientStream
+    /// <summary>
+    /// Receives response messages of one call. Disposing the
+    /// stream abandons a still-live call with RST CANCELLED so
+    /// the server stops producing; a call that already
+    /// terminated just closes locally.
+    /// </summary>
+    public sealed class ClientStream : IDisposable
     {
         private readonly Endpoint _endpoint;
         private readonly Endpoint.StreamInput _input;
@@ -879,6 +896,8 @@ public class Channel
         internal Tracing.TraceContext TraceCtx;
         internal string TracePath;
         private bool _traceEnded;
+        private bool _terminated;
+        private bool _disposed;
 
         internal void EndTrace(string status)
         {
@@ -897,7 +916,27 @@ public class Channel
         }
 
         /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>
-        public void Cancel() => _endpoint.CancelStream(StreamId);
+        public void Cancel()
+        {
+            if (_terminated)
+            {
+                _endpoint.CloseStream(StreamId);
+                return;
+            }
+            _terminated = true;
+            _endpoint.CancelStream(StreamId);
+        }
+
+        /// <summary>Abandon the call if still live (RST); no-op once terminated.</summary>
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _disposed = true;
+            Cancel();
+        }
 
         private Endpoint.StreamEvent NextEvent()
         {
@@ -917,7 +956,7 @@ public class Channel
             }
             catch (TimeoutException)
             {
-                _endpoint.CancelStream(StreamId);
+                Cancel();
                 throw new StatusException(Wire.CodeDeadlineExceeded, "deadline exceeded");
             }
         }
@@ -934,6 +973,7 @@ public class Channel
                 Endpoint.StreamEvent evt = NextEvent();
                 if (evt == null)
                 {
+                    _terminated = true;
                     throw new StatusException(Wire.CodeUnavailable, "data channel closed");
                 }
                 switch (evt.Kind)
@@ -945,6 +985,7 @@ public class Channel
                         resp.UnmarshalDc(evt.Payload);
                         return;
                     case Endpoint.EventKind.Trailers:
+                        _terminated = true;
                         Trailers = evt.Status.Trailers;
                         EndTrace(Wire.StatusName(evt.Status.Code));
                         if (evt.Status.Code != Wire.CodeOk)
@@ -953,6 +994,7 @@ public class Channel
                         }
                         throw new EndOfStreamException("call completed");
                     case Endpoint.EventKind.Rst:
+                        _terminated = true;
                         Trailers = evt.Status.Trailers;
                         EndTrace(Wire.StatusName(evt.Status.Code));
                         throw evt.Status;
@@ -1448,16 +1490,21 @@ public static class AsyncPump
     /// <summary>
     /// Adapt a blocking receive loop to IAsyncEnumerable. recv returns
     /// the next item and throws EndOfStreamException at the end;
-    /// StatusException propagates as the stream's error.
+    /// StatusException propagates as the stream's error. When the
+    /// consumer abandons enumeration early (break / Dispose / token
+    /// cancellation) before the call terminated, abandon is invoked
+    /// so the underlying call is RST and the server stops producing.
     /// </summary>
     public static async IAsyncEnumerable<T> Stream<T>(
         Func<T> recv,
+        Action abandon = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var channel = System.Threading.Channels.Channel.CreateBounded<T>(new BoundedChannelOptions(16)
         {
             FullMode = BoundedChannelFullMode.Wait,
         });
+        bool completed = false;
         var pump = Task.Run(() =>
         {
             try
@@ -1470,10 +1517,12 @@ public static class AsyncPump
             }
             catch (EndOfStreamException)
             {
+                completed = true;
                 channel.Writer.TryComplete();
             }
             catch (Exception e)
             {
+                completed = true;
                 channel.Writer.TryComplete(e);
             }
         }, cancellationToken);
@@ -1486,9 +1535,19 @@ public static class AsyncPump
         }
         finally
         {
+            if (!completed)
+            {
+                try { abandon?.Invoke(); } catch { /* best effort */ }
+            }
             _ = pump.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
         }
     }
+
+    /// <summary>Stream without an abandon hook (call runs to completion).</summary>
+    public static IAsyncEnumerable<T> Stream<T>(
+        Func<T> recv,
+        CancellationToken cancellationToken)
+        => Stream(recv, null, cancellationToken);
 }
 GRPC_RUNTIME_EOF
 )

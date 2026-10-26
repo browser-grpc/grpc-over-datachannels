@@ -567,6 +567,12 @@ object Dynamic {
         stream.recv(resp)
         resp.generic
       }
+
+      /** Abandon this stream (RST CANCELLED unless completed). */
+      def cancel(): Unit = stream.cancel()
+
+      /** Abandon this stream (RST CANCELLED unless completed). */
+      def close(): Unit = stream.close()
     }
 
     def serverStream(service: String, method: String, req: GenericMessage, metadata: Map[String, String] = null, timeout: java.time.Duration = null): DynamicStream = {

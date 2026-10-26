@@ -631,6 +631,13 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
         var headersSent = false
 
         fun send(payload: ByteArray) {
+            // A stream the endpoint has forgotten was RST by the
+            // peer (or the channel went away): fail the send so a
+            // producing handler stops instead of streaming into
+            // the void.
+            if (endpoint.stream(streamId) == null) {
+                throw StatusException(Wire.CODE_CANCELLED, "call cancelled")
+            }
             flushHeaders()
             endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, payload))
         }
@@ -647,6 +654,9 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
         }
 
         internal fun sendHeaders(metadata: Map<String, String>) {
+            if (endpoint.stream(streamId) == null) {
+                throw StatusException(Wire.CODE_CANCELLED, "call cancelled")
+            }
             headersSent = true
             endpoint.sendFrame(Codec.headersFrame(streamId, null, metadata))
         }
@@ -939,16 +949,23 @@ class Channel {
         endpoint.start()
     }
 
-    /** Receives response messages of one call. */
+    /**
+     * Receives response messages of one call. Closing the stream
+     * (use {}) abandons a still-live call with RST CANCELLED so
+     * the server stops producing; a call that already terminated
+     * just closes locally.
+     */
     class ClientStream internal constructor(
         val streamId: Long,
         private val endpoint: Endpoint,
         private val input: Endpoint.StreamInput
-    ) {
+    ) : AutoCloseable {
         internal var deadlineNanos: Long = -1L
         internal var traceCtx: Tracing.TraceContext? = null
         internal var tracePath: String? = null
         private var traceEnded: Boolean = false
+        private var terminated: Boolean = false
+        private var closed: Boolean = false
 
         internal fun endTrace(status: String) {
             if (!traceEnded) {
@@ -958,20 +975,40 @@ class Channel {
         }
 
         /** Abort this stream (sends RST, wakes a pending recv). */
-        fun cancel() = endpoint.cancelStream(streamId)
+        fun cancel() {
+            if (terminated) {
+                endpoint.closeStream(streamId)
+                return
+            }
+            terminated = true
+            endpoint.cancelStream(streamId)
+        }
+
+        /** Abandon the call if still live (RST); no-op once terminated. */
+        override fun close() {
+            if (closed) {
+                return
+            }
+            closed = true
+            cancel()
+        }
 
         private fun nextEvent(): Endpoint.StreamEvent {
             if (deadlineNanos < 0) {
-                return input.get()
-                    ?: throw StatusException(Wire.CODE_UNAVAILABLE, "data channel closed")
+                return input.get() ?: run {
+                    terminated = true
+                    throw StatusException(Wire.CODE_UNAVAILABLE, "data channel closed")
+                }
             }
             try {
                 val remaining = deadlineNanos - System.nanoTime()
                 if (remaining <= 0) throw java.util.concurrent.TimeoutException()
-                return input.get(remaining)
-                    ?: throw StatusException(Wire.CODE_UNAVAILABLE, "data channel closed")
+                return input.get(remaining) ?: run {
+                    terminated = true
+                    throw StatusException(Wire.CODE_UNAVAILABLE, "data channel closed")
+                }
             } catch (e: java.util.concurrent.TimeoutException) {
-                endpoint.cancelStream(streamId)
+                cancel()
                 throw StatusException(Wire.CODE_DEADLINE_EXCEEDED, "deadline exceeded")
             }
         }
@@ -996,6 +1033,7 @@ class Channel {
                         return
                     }
                     Endpoint.EventKind.TRAILERS -> {
+                        terminated = true
                         val status = event.status
                         trailers = status?.trailers
                         endTrace(Wire.statusName(status?.code ?: Wire.CODE_OK))
@@ -1005,6 +1043,7 @@ class Channel {
                         throw EOFException("call completed")
                     }
                     Endpoint.EventKind.RST -> {
+                        terminated = true
                         val status = event.status
                             ?: StatusException(Wire.CODE_UNAVAILABLE, "stream reset")
                         trailers = status.trailers
@@ -1357,8 +1396,29 @@ object AsyncPump {
     }
 
     /** Run a suspend block on the pool as a CompletableFuture. */
-    fun <T> future(block: suspend () -> T): CompletableFuture<T> {
-        val result = CompletableFuture<T>()
+    fun <T> future(block: suspend () -> T): CompletableFuture<T> =
+        future({}, block)
+
+    /**
+     * Run a suspend block as a CompletableFuture; cancelling the
+     * future invokes onCancel (generated streaming stubs pass the
+     * stream's cancel, so abandoning collection RSTs the call and
+     * the server stops producing).
+     */
+    fun <T> future(onCancel: () -> Unit, block: suspend () -> T): CompletableFuture<T> {
+        val result = object : CompletableFuture<T>() {
+            override fun cancel(mayInterruptIfRunning: Boolean): Boolean {
+                val cancelled = super.cancel(mayInterruptIfRunning)
+                if (cancelled) {
+                    try {
+                        onCancel()
+                    } catch (ignored: Throwable) {
+                        // best effort
+                    }
+                }
+                return cancelled
+            }
+        }
         executor.execute {
             try {
                 result.complete(runSuspend(block))

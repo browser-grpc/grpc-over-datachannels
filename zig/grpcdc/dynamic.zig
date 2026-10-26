@@ -787,8 +787,7 @@ fn dynamicAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.Req
             switch (encodeGeneric(self.alloc, self.output_model, resp, self.file)) {
                 .ok => |bytes| {
                     defer self.alloc.free(bytes);
-                    self.sink.send(bytes);
-                    return Status.ok();
+                    return self.sink.send(bytes);
                 },
                 .status => |st| return st,
             }

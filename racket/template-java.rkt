@@ -127,8 +127,8 @@
   (case (hash-ref m 'kind)
     [(server-streaming bidi)
      (format (string-append
-              "    /** Receiving stream for ~a.~a: recv() throws EOFException at end. */\n"
-              "    public static final class ~a~aStream {\n"
+              "    /** Receiving stream for ~a.~a: recv() throws EOFException at end. Close to abandon early (RST). */\n"
+              "    public static final class ~a~aStream implements AutoCloseable {\n"
               "        private final Channel.ClientStream stream;\n\n"
               "        ~a~aStream(Channel.ClientStream stream) {\n"
               "            this.stream = stream;\n"
@@ -137,6 +137,15 @@
               "            ~a resp = new ~a();\n"
               "            stream.recv(resp);\n"
               "            return resp;\n"
+              "        }\n\n"
+              "        /** Abort this stream (sends RST, wakes a pending recv). */\n"
+              "        public void cancel() {\n"
+              "            stream.cancel();\n"
+              "        }\n\n"
+              "        /** Abandon the call if still live (RST); no-op once terminated. */\n"
+              "        @Override\n"
+              "        public void close() {\n"
+              "            stream.close();\n"
               "        }\n"
               "    }\n\n")
              svc name svc name svc name resp resp resp)]

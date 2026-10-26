@@ -433,6 +433,12 @@ class ResponseSink
 
     public function send(string $payload): void
     {
+        // A stream the endpoint has forgotten was RST by the peer
+        // (or the channel went away): fail the send so a producing
+        // handler stops instead of streaming into the void.
+        if ($this->endpoint->streamInput($this->streamId) === null) {
+            throw new StatusError(Wire::CODE_CANCELLED, "call cancelled");
+        }
         $this->flushHeaders();
         $this->endpoint->sendFrame(Codec::encodeFrame(Wire::FRAME_DATA, $this->streamId, $payload));
     }
@@ -447,6 +453,9 @@ class ResponseSink
 
     public function sendHeaders(?array $metadata = null): void
     {
+        if ($this->endpoint->streamInput($this->streamId) === null) {
+            throw new StatusError(Wire::CODE_CANCELLED, "call cancelled");
+        }
         $this->headersSent = true;
         $this->endpoint->sendFrame(Codec::headersFrame($this->streamId, null, $metadata ?? $this->respHeaders));
     }
@@ -925,6 +934,7 @@ class ClientStream
     public ?array $traceCtx = null;
     public ?string $tracePath = null;
     private bool $traceEnded = false;
+    private bool $terminated = false;
     private StreamInput $input;
 
     public function endTrace(string $status): void
@@ -955,10 +965,12 @@ class ClientStream
             $event = $this->input->get();
             if ($event === null) {
                 if ($this->deadline !== null && Endpoint::nowSeconds() >= $this->deadline) {
+                    $this->terminated = true;
                     $this->endpoint->cancelStream($this->streamId);
                     throw new StatusError(Wire::CODE_DEADLINE_EXCEEDED, "deadline exceeded");
                 }
                 if ($this->input->closedFlag) {
+                    $this->terminated = true;
                     throw new StatusError(Wire::CODE_UNAVAILABLE, "data channel closed");
                 }
                 $input = $this->input;
@@ -976,6 +988,7 @@ class ClientStream
                 case "data":
                     return $resp->unmarshalDc($event->payload);
                 case "trailers":
+                    $this->terminated = true;
                     $this->trailers = $event->status->trailers;
                     $this->endTrace(Status::name($event->status->statusCode));
                     if ($event->status->statusCode === Wire::CODE_OK) {
@@ -983,6 +996,7 @@ class ClientStream
                     }
                     throw $event->status;
                 case "rst":
+                    $this->terminated = true;
                     $this->trailers = $event->status->trailers;
                     $this->endTrace(Status::name($event->status->statusCode));
                     throw $event->status;
@@ -990,10 +1004,24 @@ class ClientStream
         }
     }
 
-    /** Abort this stream (sends RST, wakes a pending recv). */
+    /**
+     * Abort this stream (sends RST, wakes a pending recv).
+     * No-op once the call terminated (trailers/RST already seen),
+     * so abandoning a completed stream never sends a spurious RST.
+     */
     public function cancel(): void
     {
+        if ($this->terminated) {
+            return;
+        }
+        $this->terminated = true;
         $this->endpoint->cancelStream($this->streamId);
+    }
+
+    /** Abandon the call early: RST unless it already terminated. */
+    public function close(): void
+    {
+        $this->cancel();
     }
 }
 
@@ -1032,6 +1060,11 @@ class FiberClientStream
     }
 
     public function cancel(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function close(): void
     {
         $this->stream->cancel();
     }
@@ -2180,15 +2213,39 @@ class DynamicRecvStream
         return $this->stream->recv(new BoundMessage($this->model, null, $this->fileModel))->generic;
     }
 
+    /** Abandon the call early: RST unless it already terminated. */
+    public function cancel(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function close(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function __destruct()
+    {
+        $this->close();
+    }
+
     /** @return \Generator<int, GenericMessage> */
     public function iterate(): \Generator
     {
+        $completed = false;
         try {
             while (true) {
                 yield $this->recv();
             }
         } catch (CallClosed $e) {
+            $completed = true;
             return;
+        } finally {
+            // Abandoning the generator early RSTs the call so the
+            // server stops producing (no-op once terminated).
+            if (!$completed) {
+                $this->close();
+            }
         }
     }
 }
