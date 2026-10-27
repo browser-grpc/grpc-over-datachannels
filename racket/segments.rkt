@@ -48,7 +48,10 @@
          js-pb-encode-singular-program js-pb-encode-field-program
          js-pb-decode-singular-program js-pb-decode-case-program
          js-pb-map-helpers-program js-pb-enum-const-program
-         js-pb-message-program)
+         js-pb-message-program
+         wasm-swift-client-method-program wasm-swift-server-iface-method-program
+         wasm-swift-serve-export-program wasm-swift-stream-iface-method-program
+         wasm-swift-stream-feed-export-program wasm-swift-service-program)
 
 ;; ---------------------------------------------------------------------------
 ;; Go stub: RegisterMethod handler table entries (one per method).
@@ -638,6 +641,91 @@
     (each fields (call jsPbDecodeCase))
     "        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n      }\n    }\n    return msg;\n  }\n}\n\n"))
 
+;; ---------------------------------------------------------------------------
+;; Wasm-Swift facade emitter (mirrors template-wasm-swift.rkt).
+;; Serve/stream-feed programs take the enum name as (arg 0).
+;; ---------------------------------------------------------------------------
+
+(define wasm-swift-client-method-program
+  '((kind-case
+     (unary (fmt "        func ~a(_ req: ~a, _ callback: @escaping (Result<~a, StatusException>) -> Void) {\n            bridge.unary(~s, req.MarshalDc()) { result in\n                callback(result.map { bytes in\n                    let resp = ~a()\n                    resp.UnmarshalDc(bytes)\n                    return resp\n                })\n            }\n        }\n\n"
+                 (ref name) (ref input) (ref output) (ref path) (ref output)))
+     (server-streaming (fmt "        func ~a(_ req: ~a, _ onMessage: @escaping (~a) -> Void,\n                _ onDone: @escaping (StatusException?) -> Void) {\n            bridge.serverStream(~s, req.MarshalDc(), { bytes in\n                let resp = ~a()\n                resp.UnmarshalDc(bytes)\n                onMessage(resp)\n            }, onDone)\n        }\n\n"
+                            (ref name) (ref input) (ref output) (ref path) (ref output)))
+     (client-streaming (fmt "        func ~a(_ reqs: [~a], _ callback: @escaping (Result<~a, StatusException>) -> Void) {\n            bridge.clientStream(~s, reqs.map { $0.MarshalDc() }) { result in\n                callback(result.map { bytes in\n                    let resp = ~a()\n                    resp.UnmarshalDc(bytes)\n                    return resp\n                })\n            }\n        }\n\n"
+                            (ref name) (ref input) (ref output) (ref path) (ref output)))
+     (bidi (fmt "        func ~a(_ reqs: [~a], _ onMessage: @escaping (~a) -> Void,\n                _ onDone: @escaping (StatusException?) -> Void) {\n            bridge.bidi(~s, reqs.map { $0.MarshalDc() }, { bytes in\n                let resp = ~a()\n                resp.UnmarshalDc(bytes)\n                onMessage(resp)\n            }, onDone)\n        }\n\n"
+                (ref name) (ref input) (ref output) (ref path) (ref output))))))
+
+(define wasm-swift-server-iface-method-program
+  '((kind-case
+     (unary (fmt "        func ~a(_ req: ~a, _ metadata: [(String, String)]) -> Result<~a, StatusException>\n"
+                 (ref name) (ref input) (ref output)))
+     (server-streaming (fmt "        func ~a(_ req: ~a, _ metadata: [(String, String)], _ sink: ~aServerSink) -> StatusException?\n"
+                            (ref name) (ref input) (svc)))
+     (client-streaming (fmt "        func ~a(_ reqs: [~a], _ metadata: [(String, String)]) -> Result<~a, StatusException>\n"
+                            (ref name) (ref input) (ref output)))
+     (bidi (fmt "        func ~a(_ reqs: [~a], _ metadata: [(String, String)], _ sink: ~aServerSink) -> StatusException?\n"
+                (ref name) (ref input) (svc))))))
+
+(define wasm-swift-serve-export-program
+  '((kind-case
+     (unary (fmt "@_cdecl(~s)\npublic func ~a(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n    let req = ~a()\n    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n    switch ~a.serverImpl!.~a(req, metadata) {\n    case .success(let resp): ServerRespond(callId, resp.MarshalDc())\n    case .failure(let st): ServerFail(callId, st)\n    }\n}\n\n"
+                 (fmt "serve_~a" (lower-first (ref name))) (fmt "serve_~a" (lower-first (ref name)))
+                 (ref input) (arg 0) (ref name)))
+     (server-streaming (fmt "@_cdecl(~s)\npublic func ~a(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n    let req = ~a()\n    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n    if let st = ~a.serverImpl!.~a(req, metadata, ~a.~aServerSink(callId: callId)) {\n        ServerFail(callId, st)\n    } else {\n        ServerComplete(callId)\n    }\n}\n\n"
+                            (fmt "serve_~a" (lower-first (ref name))) (fmt "serve_~a" (lower-first (ref name)))
+                            (ref input) (arg 0) (ref name) (arg 0) (svc)))
+     (client-streaming (fmt "@_cdecl(~s)\npublic func ~a(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n    let reqs = UnpackPacked(Array(UnsafeBufferPointer(start: payload, count: payloadLen))).map { bytes -> ~a in let req = ~a(); req.UnmarshalDc(bytes); return req }\n    switch ~a.serverImpl!.~a(reqs, metadata) {\n    case .success(let resp): ServerRespond(callId, resp.MarshalDc())\n    case .failure(let st): ServerFail(callId, st)\n    }\n}\n\n"
+                            (fmt "serve_~a" (lower-first (ref name))) (fmt "serve_~a" (lower-first (ref name)))
+                            (ref input) (ref input) (arg 0) (ref name)))
+     (bidi (fmt "@_cdecl(~s)\npublic func ~a(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n    let reqs = UnpackPacked(Array(UnsafeBufferPointer(start: payload, count: payloadLen))).map { bytes -> ~a in let req = ~a(); req.UnmarshalDc(bytes); return req }\n    if let st = ~a.serverImpl!.~a(reqs, metadata, ~a.~aServerSink(callId: callId)) {\n        ServerFail(callId, st)\n    } else {\n        ServerComplete(callId)\n    }\n}\n\n"
+                (fmt "serve_~a" (lower-first (ref name))) (fmt "serve_~a" (lower-first (ref name)))
+                (ref input) (ref input) (arg 0) (ref name) (arg 0) (svc))))))
+
+(define wasm-swift-stream-iface-method-program
+  '((kind-case
+     (client-streaming (fmt "        func ~aBegin(_ callId: UInt32, _ metadata: [(String, String)])\n        func ~aRequest(_ callId: UInt32, _ req: ~a)\n        func ~aEnd(_ callId: UInt32) -> Result<~a, StatusException>\n"
+                            (ref name) (ref name) (ref input) (ref name) (ref output)))
+     (bidi (fmt "        func ~aBegin(_ callId: UInt32, _ metadata: [(String, String)])\n        func ~aRequest(_ callId: UInt32, _ req: ~a, _ sink: ~aServerSink) -> StatusException?\n        func ~aEnd(_ callId: UInt32) -> StatusException?\n"
+                (ref name) (ref name) (ref input) (svc) (ref name)))
+     (else ""))))
+
+(define wasm-swift-stream-feed-export-program
+  '((kind-case
+     (client-streaming
+      (fmt "@_cdecl(~s)\npublic func ~a(_ callId: UInt32, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n    ~a.streamImpl!.~aBegin(callId, metadata)\n}\n\n"
+           (fmt "~aStart" (fmt "serve_~a" (lower-first (ref name)))) (fmt "~aStart" (fmt "serve_~a" (lower-first (ref name)))) (arg 0) (ref name))
+      (fmt "@_cdecl(~s)\npublic func ~a(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int) {\n    let req = ~a()\n    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n    ~a.streamImpl!.~aRequest(callId, req)\n}\n\n"
+           (fmt "~aFeed" (fmt "serve_~a" (lower-first (ref name)))) (fmt "~aFeed" (fmt "serve_~a" (lower-first (ref name)))) (ref input) (arg 0) (ref name))
+      (fmt "@_cdecl(~s)\npublic func ~a(_ callId: UInt32) {\n    switch ~a.streamImpl!.~aEnd(callId) {\n    case .success(let resp): ServerRespond(callId, resp.MarshalDc())\n    case .failure(let st): ServerFail(callId, st)\n    }\n}\n\n"
+           (fmt "~aEnd" (fmt "serve_~a" (lower-first (ref name)))) (fmt "~aEnd" (fmt "serve_~a" (lower-first (ref name)))) (arg 0) (ref name)))
+     (bidi
+      (fmt "@_cdecl(~s)\npublic func ~a(_ callId: UInt32, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n    ~a.streamImpl!.~aBegin(callId, metadata)\n}\n\n"
+           (fmt "~aStart" (fmt "serve_~a" (lower-first (ref name)))) (fmt "~aStart" (fmt "serve_~a" (lower-first (ref name)))) (arg 0) (ref name))
+      (fmt "@_cdecl(~s)\npublic func ~a(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int) {\n    let req = ~a()\n    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n    if let st = ~a.streamImpl!.~aRequest(callId, req, ~a.~aServerSink(callId: callId)) {\n        ServerFail(callId, st)\n    }\n}\n\n"
+           (fmt "~aFeed" (fmt "serve_~a" (lower-first (ref name)))) (fmt "~aFeed" (fmt "serve_~a" (lower-first (ref name)))) (ref input) (arg 0) (ref name) (arg 0) (svc))
+      (fmt "@_cdecl(~s)\npublic func ~a(_ callId: UInt32) {\n    if let st = ~a.streamImpl!.~aEnd(callId) {\n        ServerFail(callId, st)\n    } else {\n        ServerComplete(callId)\n    }\n}\n\n"
+           (fmt "~aEnd" (fmt "serve_~a" (lower-first (ref name)))) (fmt "~aEnd" (fmt "serve_~a" (lower-first (ref name)))) (arg 0) (ref name)))
+     (else ""))))
+
+(define wasm-swift-service-program
+  '((fmt "    /// Client for ~a (browser/WASM facade; see file doc).\n    final class ~aClient {\n        private let bridge: GrpcDcWasmBridge\n\n        init(_ bridge: GrpcDcWasmBridge = .shared) {\n            self.bridge = bridge\n        }\n\n" (ref full-name) (svc))
+    (each+ methods client (call wasmSwiftClientMethod))
+    "    }\n\n    /// Streaming response sink for server handlers.\n"
+    (fmt "    struct ~aServerSink {\n        let callId: UInt32\n\n" (svc))
+    (each-unique methods output
+                  (fmt "        func Send(_ resp: ~a) {\n            ServerSend(callId, resp.MarshalDc())\n        }\n" (ref output)))
+    "    }\n\n"
+    (fmt "    /// Service implementation for ~a (browser/WASM facade).\n    protocol ~aServer {\n" (ref full-name) (svc))
+    (each methods (call wasmSwiftServerIfaceMethod))
+    "    }\n\n"
+    (fmt "    static var serverImpl: ~aServer?\n\n    /// Register the service implementation used by the serve_* exports.\n    static func register~aServer(_ impl: ~aServer) {\n        serverImpl = impl\n    }\n\n" (svc) (svc) (svc))
+    (fmt "    /// Incremental service implementation for ~a: requests arrive one at a time.\n    protocol ~aStreamServer {\n" (ref full-name) (svc))
+    (each methods (call wasmSwiftStreamIfaceMethod))
+    "    }\n\n"
+    (fmt "    static var streamImpl: ~aStreamServer?\n\n    /// Register the incremental implementation used by the serve_*Start/Feed/End exports.\n    static func register~aStreamServer(_ impl: ~aStreamServer) {\n        streamImpl = impl\n    }\n" (svc) (svc) (svc))))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -679,7 +767,13 @@
           'jsPbDecodeCase js-pb-decode-case-program
           'jsPbMapHelpers js-pb-map-helpers-program
           'jsPbEnumConst js-pb-enum-const-program
-          'jsPbMessage js-pb-message-program))
+          'jsPbMessage js-pb-message-program
+          'wasmSwiftClientMethod wasm-swift-client-method-program
+          'wasmSwiftServerIfaceMethod wasm-swift-server-iface-method-program
+          'wasmSwiftServeExport wasm-swift-serve-export-program
+          'wasmSwiftStreamIfaceMethod wasm-swift-stream-iface-method-program
+          'wasmSwiftStreamFeedExport wasm-swift-stream-feed-export-program
+          'wasmSwiftService wasm-swift-service-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -802,7 +896,8 @@
                 (format "\t\t\tm.~a = ~a\n" (seg-pascal (hash-ref sib 'name)) (seg-zero sib)))
               (oneof-siblings model node))))
 
-(define (seg-lower-first s)
+(define (seg-lower-first s0)
+  (define s (if (symbol? s0) (symbol->string s0) s0))
   (if (string=? s "")
       s
       (string-append (string (char-downcase (string-ref s 0))) (substring s 1))))
@@ -842,7 +937,7 @@
     [(eq? (car seg) 'arg) (list-ref (env-args env) (second seg))]
     [(eq? (car seg) 'err-stmt) (env-err env)]
     [(eq? (car seg) 'self) node]
-    [(memq (car seg) '(if case-on when guarded kind-case each each+ each-siblings each-sep))
+    [(memq (car seg) '(if case-on when guarded kind-case each each+ each-siblings each-sep each-unique))
      (run-segment seg env)]
     [(eq? (car seg) 'pascal) (seg-pascal (seg-eval (second seg) env))]
     [(eq? (car seg) 'lower-first) (seg-lower-first (seg-eval (second seg) env))]
@@ -916,7 +1011,7 @@
          (if else-part (run-env (cdr else-part) env) ""))]
     [(eq? (car seg) 'kind-case)
      (define kind (hash-ref node 'kind))
-     (define branch (assq kind (cdr seg)))
+     (define branch (or (assq kind (cdr seg)) (assq 'else (cdr seg))))
      (unless branch (error 'run-segments "no kind branch for ~e" kind))
      (run-env (cdr branch) env)]
     [(eq? (car seg) 'case-on)
@@ -986,6 +1081,14 @@
      (apply string-append
             (for/list ([sib (in-list (oneof-siblings (env-model env) node))])
               (run-env (cdr seg) (env-with env #:node sib))))]
+    [(eq? (car seg) 'each-unique)
+     (define seen (mutable-set))
+     (apply string-append
+            (for/list ([el (in-list (hash-ref node (second seg)))]
+                       #:when (let ([v (hash-ref el (third seg))])
+                                (and (not (set-member? seen v))
+                                     (set-add! seen v))))
+              (run-env (cdddr seg) (env-with env #:node el))))]
     [(eq? (car seg) 'each-sep)
      (define-values (keys segs) (splitf-at (cddr seg) symbol?))
      (define items
