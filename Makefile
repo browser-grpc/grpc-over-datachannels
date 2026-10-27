@@ -201,6 +201,8 @@ eventbus-stubs:
 		--grpc-dc-swift_out=swift/grpcdc -I proto proto/events.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-cpp=bin/protoc-gen-grpc-dc-cpp \
 		--grpc-dc-cpp_out=cpp/examples -I proto proto/events.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-zig=bin/protoc-gen-grpc-dc-zig \
+		--grpc-dc-zig_out=zig/examples -I proto proto/events.proto
 
 generate: plugins stubs
 
@@ -415,7 +417,8 @@ test-zig:
 	cd zig && ./build/bin/tests TestCodec && ./build/bin/tests TestEcho \
 		&& ./build/bin/tests TestInterop && ./build/bin/tests TestInteropOracle && ./build/bin/tests TestInteropServerOracle && ./build/bin/tests TestHttp2Oracle && ./build/bin/tests TestOracle \
 		&& ./build/bin/tests TestDynamic && ./build/bin/tests TestBdd && ./build/bin/tests TestDeadline \
-		&& ./build/bin/tests TestPbMessages && ./build/bin/tests TestBddSchemas && ./build/bin/tests TestSidecar
+		&& ./build/bin/tests TestPbMessages && ./build/bin/tests TestBddSchemas && ./build/bin/tests TestSidecar \
+		&& ./build/bin/tests TestEventBus
 
 CC ?= gcc
 CFLAGS_C ?= -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests
