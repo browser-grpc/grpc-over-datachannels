@@ -99,16 +99,19 @@ the browser generators (`SEGMENT_PROGRAMS`) with a JS
 interpreter (`runSegments`). A converted function therefore
 exists exactly once.
 
-Pilot status: Go `go-register-method` /
-`goRegisterMethod` is converted and byte-identical on both
-sides (check-generated; parity green in Chromium, Firefox,
-WebKit). Rollout: convert one emitter function at a time —
-rest of the Go stub emitter (client methods, stream
-impls/ifaces, service assembly), then the Go pb emitter
-(needs `each`, nested-message recursion, and map-helper
-segments added to the grammar), then the other languages by
-template size. Unconverted functions stay hand-mirrored and
-parity-pinned; the grammar grows only as a real function
+Status: the whole Go stub emitter is converted —
+`goRegisterMethod` plus `goDeprecated`, `goClientMethod`,
+`goServerIfaceMethod`(+Deprecated), `goStreamIfaces`,
+`goStreamImpls`, and the `goService` assembly — byte-identical
+on both sides (check-generated; parity green in Chromium,
+Firefox, WebKit). The grammar grew by need: `(when (ref key)
+...)`, `(call Name)`, `(each field ...)`, `(each+ field
+client|server ...)` (alias methods appended), and hyphen ->
+camelCase key translation in the JS interpreter's `ref`.
+Remaining rollout: the Go pb emitter (needs nested-message
+recursion and map-helper segments), then the other languages
+by template size. Unconverted functions stay hand-mirrored
+and parity-pinned; the grammar grows only as a real function
 demands a node.
 
 ## First concrete step

@@ -71,7 +71,8 @@
 
 (define (segment-programs-json)
   (jsexpr->string
-   (hasheq 'goRegisterMethod (datum->jsexpr go-register-method-program))))
+   (for/hash ([(k v) (in-hash segment-programs)])
+     (values k (datum->jsexpr v)))))
 
 (define (scalar-tables-json)
   (string-join
@@ -985,76 +986,23 @@ function goPackage(model, params) {
 }
 
 function goDeprecated(m) {
-  return m.deprecated ? '// Deprecated: marked deprecated in the proto schema.\n' : '';
+  return runSegments(SEGMENT_PROGRAMS.goDeprecated, m, '');
 }
 
 function goClientMethod(m, svc) {
-  const name = m.name;
-  const req = m.input;
-  const resp = m.output;
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return 'func (c *' + svc + 'Client) ' + name + '(ctx context.Context, req *' + req + ') (*' + resp + ', error) {\n'
-        + '\tresp := new(' + resp + ')\n'
-        + '\tif err := c.Channel.Unary(ctx, ' + path + ', req, resp); err != nil {\n'
-        + '\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n';
-    case 'server-streaming':
-      return 'func (c *' + svc + 'Client) ' + name + '(ctx context.Context, req *' + req + ') (*' + svc + name + 'Stream, error) {\n'
-        + '\tstream, err := c.Channel.ServerStream(ctx, ' + path + ', req)\n'
-        + '\tif err != nil {\n\t\treturn nil, err\n\t}\n'
-        + '\treturn &' + svc + name + 'Stream{stream: stream}, nil\n}\n\n'
-        + 'type ' + svc + name + 'Stream struct{ stream *grpcdc.ClientStream }\n\n'
-        + 'func (s *' + svc + name + 'Stream) Recv() (*' + resp + ', error) {\n'
-        + '\tresp := new(' + resp + ')\n'
-        + '\tif err := s.stream.Recv(resp); err != nil {\n\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n';
-    case 'client-streaming':
-      return 'func (c *' + svc + 'Client) ' + name + '(ctx context.Context, reqs ...*' + req + ') (*' + resp + ', error) {\n'
-        + '\tgrpcdcReqs := make([]grpcdc.Marshaler, len(reqs))\n'
-        + '\tfor i, r := range reqs {\n\t\tgrpcdcReqs[i] = r\n\t}\n'
-        + '\tresp := new(' + resp + ')\n'
-        + '\tif err := c.Channel.ClientStreamCall(ctx, ' + path + ', grpcdcReqs, resp); err != nil {\n'
-        + '\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n';
-    default:
-      return 'func (c *' + svc + 'Client) ' + name + '(ctx context.Context, reqs ...*' + req + ') (*' + svc + name + 'Stream, error) {\n'
-        + '\tgrpcdcReqs := make([]grpcdc.Marshaler, len(reqs))\n'
-        + '\tfor i, r := range reqs {\n\t\tgrpcdcReqs[i] = r\n\t}\n'
-        + '\tstream, err := c.Channel.Bidi(ctx, ' + path + ', grpcdcReqs)\n'
-        + '\tif err != nil {\n\t\treturn nil, err\n\t}\n'
-        + '\treturn &' + svc + name + 'Stream{stream: stream}, nil\n}\n\n'
-        + 'type ' + svc + name + 'Stream struct{ stream *grpcdc.ClientStream }\n\n'
-        + 'func (s *' + svc + name + 'Stream) Recv() (*' + resp + ', error) {\n'
-        + '\tresp := new(' + resp + ')\n'
-        + '\tif err := s.stream.Recv(resp); err != nil {\n\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.goClientMethod, m, svc);
 }
 
 function goServerIfaceMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '\t' + m.name + '(context.Context, *' + m.input + ') (*' + m.output + ', error)\n';
-    case 'server-streaming':
-      return '\t' + m.name + '(*' + m.input + ', ' + svc + m.name + 'Server) error\n';
-    default:
-      return '\t' + m.name + '(' + svc + m.name + 'Server) error\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.goServerIfaceMethod, m, svc);
 }
 
 function goServerIfaceMethodDepr(m, svc) {
-  return (m.deprecated ? '\t// Deprecated: marked deprecated in the proto schema.\n' : '') + goServerIfaceMethod(m, svc);
+  return runSegments(SEGMENT_PROGRAMS.goServerIfaceMethodDeprecated, m, svc);
 }
 
 function goStreamIfaces(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return 'type ' + svc + m.name + 'Server interface {\n\tSend(*' + m.output + ') error\n\tContext() context.Context\n}\n\n';
-    case 'client-streaming':
-      return 'type ' + svc + m.name + 'Server interface {\n\tRecv() (*' + m.input + ', error)\n\tSendAndClose(*' + m.output + ') error\n\tContext() context.Context\n}\n\n';
-    default:
-      return 'type ' + svc + m.name + 'Server interface {\n\tSend(*' + m.output + ') error\n\tRecv() (*' + m.input + ', error)\n\tContext() context.Context\n}\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.goStreamIfaces, m, svc);
 }
 
 function goRegisterMethod(m, svc) {
@@ -1064,68 +1012,14 @@ function goRegisterMethod(m, svc) {
 }
 
 function goStreamImpls(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return 'type ' + svc + m.name + 'ServerImpl struct {\n\tctx  context.Context\n\tsink grpcdc.ServerSink\n}\n\n'
-        + 'func (s *' + svc + m.name + 'ServerImpl) Send(resp *' + m.output + ') error {\n\treturn s.sink.Send(resp.MarshalDC())\n}\n'
-        + 'func (s *' + svc + m.name + 'ServerImpl) Context() context.Context { return s.ctx }\n\n';
-    case 'client-streaming':
-      return 'type ' + svc + m.name + 'ServerImpl struct {\n\tctx  context.Context\n\treqs *grpcdc.RequestStream\n\tresp *' + m.output + '\n}\n\n'
-        + 'func (s *' + svc + m.name + 'ServerImpl) Recv() (*' + m.input + ', error) {\n'
-        + '\treq := new(' + m.input + ')\n'
-        + '\tif err := s.reqs.RecvInto(req); err != nil {\n\t\treturn nil, err\n\t}\n\treturn req, nil\n}\n'
-        + 'func (s *' + svc + m.name + 'ServerImpl) SendAndClose(resp *' + m.output + ') error {\n\ts.resp = resp\n\treturn nil\n}\n'
-        + 'func (s *' + svc + m.name + 'ServerImpl) Context() context.Context { return s.ctx }\n\n';
-    default:
-      return 'type ' + svc + m.name + 'ServerImpl struct {\n\tctx  context.Context\n\treqs *grpcdc.RequestStream\n\tsink grpcdc.ServerSink\n}\n\n'
-        + 'func (s *' + svc + m.name + 'ServerImpl) Send(resp *' + m.output + ') error {\n\treturn s.sink.Send(resp.MarshalDC())\n}\n'
-        + 'func (s *' + svc + m.name + 'ServerImpl) Recv() (*' + m.input + ', error) {\n'
-        + '\treq := new(' + m.input + ')\n'
-        + '\tif err := s.reqs.RecvInto(req); err != nil {\n\t\treturn nil, err\n\t}\n\treturn req, nil\n}\n'
-        + 'func (s *' + svc + m.name + 'ServerImpl) Context() context.Context { return s.ctx }\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.goStreamImpls, m, svc);
 }
 
 function goService(svc) {
-  const sname = svc.name;
-  return 'type ' + sname + 'Client struct {\n\tChannel *grpcdc.Channel\n}\n\n'
-    + 'func New' + sname + 'Client(ch *grpcdc.Channel) *' + sname + 'Client {\n\treturn &' + sname + 'Client{Channel: ch}\n}\n\n'
-    + svc.methods.concat(aliasClientMethods(svc)).map((m) => goDeprecated(m) + goClientMethod(m, sname)).join('')
-    + '\n'
-    + 'type ' + sname + 'Server interface {\n'
-    + svc.methods.map((m) => goServerIfaceMethodDepr(m, sname)).join('')
-    + '}\n\n'
-    + svc.methods.map((m) => goStreamIfaces(m, sname)).join('')
-    + svc.methods.map((m) => goStreamImpls(m, sname)).join('')
-    + 'func Register' + sname + 'Server(s *grpcdc.Server, srv ' + sname + 'Server) {\n'
-    + '\ts.RegisterService(grpcdc.ServiceDesc{\n\t\tName: ' + q(svc.fullName) + ',\n\t\tMethods: []grpcdc.Method{\n'
-    + svc.methods.concat(aliasServerMethods(svc)).map((m) => goRegisterMethod(m, sname)).join('')
-    + '\t\t},\n\t})\n}\n';
+  // Emission single-sourced as segments (SEGMENT_PROGRAMS.goService
+  // and the per-method programs it calls, from racket/segments.rkt).
+  return runSegments(SEGMENT_PROGRAMS.goService, svc, svc.name);
 }
-
-// ---------------------------------------------------------------------------
-// Go message types (<base>_pb.go), mirroring the native go template
-// (the gp* functions): structs implementing MarshalDC/UnmarshalDC,
-// dependency-free (stdlib only), byte-identical to the native
-// protoc-gen-grpc-dc-go plugin.
-// ---------------------------------------------------------------------------
-
-const GP_VARINT = new Set(VARINT_TYPES);
-const GP_FIXED = FIXED_TABLES.go;
-
-const GP_PREAMBLE = 'func appendVarint(out []byte, v uint64) []byte {\n\tfor v > 0x7f {\n\t\tout = append(out, byte(v&0x7f)|0x80)\n\t\tv >>= 7\n\t}\n\treturn append(out, byte(v))\n}\n\n'
-  + 'func appendTag(out []byte, field int, wire int) []byte {\n\treturn appendVarint(out, uint64(field<<3|wire))\n}\n\n'
-  + 'func appendBytesField(out []byte, field int, payload []byte) []byte {\n\tout = appendTag(out, field, 2)\n\tout = appendVarint(out, uint64(len(payload)))\n\treturn append(out, payload...)\n}\n\n'
-  + 'func appendStringField(out []byte, field int, value string) []byte {\n\tif value == "" {\n\t\treturn out\n\t}\n\treturn appendBytesField(out, field, []byte(value))\n}\n\n'
-  + 'func zz32(v int32) uint64 { return uint64(uint32((v << 1) ^ (v >> 31))) }\n\nfunc zz64(v int64) uint64 { return uint64((v << 1) ^ (v >> 63)) }\n\n'
-  + 'func unzz32(v uint64) int32 { return int32(uint32(v>>1) ^ uint32(-int32(v&1))) }\n\nfunc unzz64(v uint64) int64 { return int64(v>>1) ^ -int64(v&1) }\n\n'
-  + 'type pbReader struct {\n\tbuf []byte\n\tpos int\n}\n\n'
-  + 'func (r *pbReader) varint() (uint64, error) {\n\tvar result uint64\n\tvar shift uint\n\tfor {\n\t\tif r.pos >= len(r.buf) {\n\t\t\treturn 0, errors.New("truncated varint")\n\t\t}\n\t\tb := r.buf[r.pos]\n\t\tr.pos++\n\t\tresult |= uint64(b&0x7f) << shift\n\t\tif b&0x80 == 0 {\n\t\t\treturn result, nil\n\t\t}\n\t\tshift += 7\n\t\tif shift >= 64 {\n\t\t\treturn 0, errors.New("varint too long")\n\t\t}\n\t}\n}\n\n'
-  + 'func (r *pbReader) take(n int) ([]byte, error) {\n\tif r.pos+n > len(r.buf) {\n\t\treturn nil, errors.New("truncated field")\n\t}\n\tv := r.buf[r.pos : r.pos+n]\n\tr.pos += n\n\treturn v, nil\n}\n\n'
-  + '// field returns (number, value, done, error); value is uint64 for\n// varints and []byte for length-delimited/fixed fields.\n'
-  + 'func (r *pbReader) field() (int, int, any, []byte, bool, error) {\n\tif r.pos >= len(r.buf) {\n\t\treturn 0, 0, nil, nil, true, nil\n\t}\n\tstart := r.pos\n\ttag, err := r.varint()\n\tif err != nil {\n\t\treturn 0, 0, nil, nil, false, err\n\t}\n\tnum := int(tag >> 3)\n\twire := int(tag & 7)\n\tswitch wire {\n\tcase 0:\n\t\tv, err := r.varint()\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tcase 2:\n\t\tn, err := r.varint()\n\t\tif err != nil {\n\t\t\treturn 0, 0, nil, nil, false, err\n\t\t}\n\t\tv, err := r.take(int(n))\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tcase 1:\n\t\tv, err := r.take(8)\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tcase 5:\n\t\tv, err := r.take(4)\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tdefault:\n\t\treturn 0, 0, nil, nil, false, errors.New("bad wire type")\n\t}\n}\n\n';
 
 function gpPascal(s) {
   return s.split('_').map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
@@ -1152,6 +1046,21 @@ function gpEntryType(entry) {
   }
   return gpFlat(entry.pkg, entry.msg.fullName);
 }
+
+const GP_VARINT = new Set(VARINT_TYPES);
+const GP_FIXED = FIXED_TABLES.go;
+
+const GP_PREAMBLE = 'func appendVarint(out []byte, v uint64) []byte {\n\tfor v > 0x7f {\n\t\tout = append(out, byte(v&0x7f)|0x80)\n\t\tv >>= 7\n\t}\n\treturn append(out, byte(v))\n}\n\n'
+  + 'func appendTag(out []byte, field int, wire int) []byte {\n\treturn appendVarint(out, uint64(field<<3|wire))\n}\n\n'
+  + 'func appendBytesField(out []byte, field int, payload []byte) []byte {\n\tout = appendTag(out, field, 2)\n\tout = appendVarint(out, uint64(len(payload)))\n\treturn append(out, payload...)\n}\n\n'
+  + 'func appendStringField(out []byte, field int, value string) []byte {\n\tif value == "" {\n\t\treturn out\n\t}\n\treturn appendBytesField(out, field, []byte(value))\n}\n\n'
+  + 'func zz32(v int32) uint64 { return uint64(uint32((v << 1) ^ (v >> 31))) }\n\nfunc zz64(v int64) uint64 { return uint64((v << 1) ^ (v >> 63)) }\n\n'
+  + 'func unzz32(v uint64) int32 { return int32(uint32(v>>1) ^ uint32(-int32(v&1))) }\n\nfunc unzz64(v uint64) int64 { return int64(v>>1) ^ -int64(v&1) }\n\n'
+  + 'type pbReader struct {\n\tbuf []byte\n\tpos int\n}\n\n'
+  + 'func (r *pbReader) varint() (uint64, error) {\n\tvar result uint64\n\tvar shift uint\n\tfor {\n\t\tif r.pos >= len(r.buf) {\n\t\t\treturn 0, errors.New("truncated varint")\n\t\t}\n\t\tb := r.buf[r.pos]\n\t\tr.pos++\n\t\tresult |= uint64(b&0x7f) << shift\n\t\tif b&0x80 == 0 {\n\t\t\treturn result, nil\n\t\t}\n\t\tshift += 7\n\t\tif shift >= 64 {\n\t\t\treturn 0, errors.New("varint too long")\n\t\t}\n\t}\n}\n\n'
+  + 'func (r *pbReader) take(n int) ([]byte, error) {\n\tif r.pos+n > len(r.buf) {\n\t\treturn nil, errors.New("truncated field")\n\t}\n\tv := r.buf[r.pos : r.pos+n]\n\tr.pos += n\n\treturn v, nil\n}\n\n'
+  + '// field returns (number, value, done, error); value is uint64 for\n// varints and []byte for length-delimited/fixed fields.\n'
+  + 'func (r *pbReader) field() (int, int, any, []byte, bool, error) {\n\tif r.pos >= len(r.buf) {\n\t\treturn 0, 0, nil, nil, true, nil\n\t}\n\tstart := r.pos\n\ttag, err := r.varint()\n\tif err != nil {\n\t\treturn 0, 0, nil, nil, false, err\n\t}\n\tnum := int(tag >> 3)\n\twire := int(tag & 7)\n\tswitch wire {\n\tcase 0:\n\t\tv, err := r.varint()\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tcase 2:\n\t\tn, err := r.varint()\n\t\tif err != nil {\n\t\t\treturn 0, 0, nil, nil, false, err\n\t\t}\n\t\tv, err := r.take(int(n))\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tcase 1:\n\t\tv, err := r.take(8)\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tcase 5:\n\t\tv, err := r.take(4)\n\t\treturn num, wire, v, r.buf[start:r.pos], false, err\n\tdefault:\n\t\treturn 0, 0, nil, nil, false, errors.New("bad wire type")\n\t}\n}\n\n';
 
 function gpScalarType(f) {
   // Leaf payloads single-sourced from scalar-type-tables
@@ -13187,7 +13096,8 @@ JS
                        "const SCALAR_TABLES = " (scalar-tables-json) ";\n"
                        "const SEGMENT_PROGRAMS = " (segment-programs-json) ";\n\n"
                        "function runSegments(program, node, svc) {\n  let out = '';\n  for (const seg of program) out += runSegment(seg, node, svc);\n  return out;\n}\n\n"
-                       "function runSegment(seg, node, svc) {\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      return seg[1].replace(/~[as]/g, (tok) => {\n        const v = runSegment(seg[++i], node, svc);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref':\n      return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[seg[1]];\n    case 'svc':\n      return svc;\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind);\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runSegments(branch.slice(1), node, svc);\n    }\n    default:\n      throw new Error('bad segment: ' + JSON.stringify(seg));\n  }\n}\n\n"
+                       "function segKey(k) {\n  return k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());\n}\n\n"
+                       "function runSegment(seg, node, svc) {\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      return seg[1].replace(/~[as]/g, (tok) => {\n        const v = runSegment(seg[++i], node, svc);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref':\n      return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n    case 'svc':\n      return svc;\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind);\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runSegments(branch.slice(1), node, svc);\n    }\n    case 'when':\n      return node[segKey(seg[1][1])] ? runSegments(seg.slice(2), node, svc) : '';\n    case 'call':\n      return runSegments(SEGMENT_PROGRAMS[seg[1]], node, svc);\n    case 'each': {\n      let out = '';\n      for (const el of node[segKey(seg[1])]) out += runSegments(seg.slice(2), el, svc);\n      return out;\n    }\n    case 'each+': {\n      const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      let out = '';\n      for (const el of all) out += runSegments(seg.slice(3), el, svc);\n      return out;\n    }\n    default:\n      throw new Error('bad segment: ' + JSON.stringify(seg));\n  }\n}\n\n"
                        js-part-3 js-part-4
                        "const RP_ENUM_SHAPE = " (rust-enum-shape-json) ";\n"
                        "const GO_MODULE_PATH = " (go-module-path-json) ";\n\n"
