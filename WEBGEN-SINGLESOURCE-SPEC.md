@@ -9,16 +9,23 @@ and serialized by `webgen.rkt` into the browser generators as
 case (kitchen + features protos through the built-in
 generators, message files byte-compared for every language),
 which is the case that would have caught the Rust enum drift.
-Parity growth (option 3) continued: the corpus case now also
-runs legacy.proto (proto2 required/optional presence, explicit
+Scalar/wire tables (option 2) implemented: `varint-scalar-types`
+and `fixed-scalar-tables` now live once in `racket/spec.rkt`.
+All sixteen templates derive their `<lang>-pb-varint-types` /
+`<lang>-pb-fixed` from them (Rust/Scala re-symbolize the type
+name for case dispatch; Python derives its formats/sizes
+alists), and webgen.rkt serializes both tables into the
+browser generators (`VARINT_TYPES`, `FIXED_TABLES`), replacing
+31 hand-mirrored JS constants. Native output is byte-identical
+(check-generated); parity is green in Chromium/Firefox/WebKit.
+Parity growth (option 3) also continued: the corpus case runs
+legacy.proto (proto2 required/optional presence, explicit
 defaults including enum and double, extensions) through the
-built-in generators with per-language byte comparison, green
-in Chromium/Firefox/WebKit. Remaining under this spec: the
-deeper option-2 surfaces — per-language scalar type maps are
-functions with label/map/optional conditionals, not literal
-tables, so single-sourcing them is option-1-scale work; the
-fixed-width size tables are stable protocol facts. Do not
-start casually (see Risks).
+built-in generators with per-language byte comparison.
+Remaining under this spec: per-language scalar type maps and
+message layout — functions with label/map/optional
+conditionals, not literal tables, so single-sourcing them is
+option-1-scale work. Do not start casually (see Risks).
 
 ## Problem
 

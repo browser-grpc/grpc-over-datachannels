@@ -340,6 +340,9 @@ function parseParams(parameter) {
   }
   return params;
 }
+const FIXED_TABLES = {"c":{"1":[8,"f64"],"15":[4,"i32"],"16":[8,"i64"],"2":[4,"f32"],"6":[8,"u64"],"7":[4,"u32"]},"cpp":{"1":[8,"Double"],"15":[4,"Int32"],"16":[8,"Int64"],"2":[4,"Float"],"6":[8,"Int64"],"7":[4,"Int32"]},"csharp":{"1":[8,"Double"],"15":[4,"Int"],"16":[8,"Long"],"2":[4,"Float"],"6":[8,"Long"],"7":[4,"Int"]},"dart":{"1":[8,"Float64"],"15":[4,"Int32"],"16":[8,"Int64"],"2":[4,"Float32"],"6":[8,"Uint64"],"7":[4,"Uint32"]},"go":{"1":[8,"Float64"],"15":[4,"Int32"],"16":[8,"BigInt64"],"2":[4,"Float32"],"6":[8,"BigUint64"],"7":[4,"Uint32"]},"java":{"1":[8,"Double"],"15":[4,"Int"],"16":[8,"Long"],"2":[4,"Float"],"6":[8,"Long"],"7":[4,"Int"]},"js":{"1":[8,"Float64"],"15":[4,"Int32"],"16":[8,"BigInt64"],"2":[4,"Float32"],"6":[8,"BigUint64"],"7":[4,"Uint32"]},"kotlin":{"1":[8,"Double"],"15":[4,"Int"],"16":[8,"Long"],"2":[4,"Float"],"6":[8,"ULong"],"7":[4,"UInt"]},"lua":{"1":[8,"d"],"15":[4,"i4"],"16":[8,"i8"],"2":[4,"f"],"6":[8,"I8"],"7":[4,"I4"]},"php":{"1":[8,"e"],"15":[4,"V"],"16":[8,"P"],"2":[4,"g"],"6":[8,"P"],"7":[4,"V"]},"python":{"1":[8,"<d"],"15":[4,"<i"],"16":[8,"<q"],"2":[4,"<f"],"6":[8,"<Q"],"7":[4,"<I"]},"ruby":{"1":[8,"E"],"15":[4,"l<"],"16":[8,"q<"],"2":[4,"e"],"6":[8,"Q<"],"7":[4,"V"]},"rust":{"1":[8,"f64"],"15":[4,"i32"],"16":[8,"i64"],"2":[4,"f32"],"6":[8,"u64"],"7":[4,"u32"]},"scala":{"1":[8,"double"],"15":[4,"fixed32"],"16":[8,"fixed64"],"2":[4,"float"],"6":[8,"fixed64"],"7":[4,"fixed32"]},"swift":{"1":[8,"Double"],"15":[4,"Int32"],"16":[8,"Int64"],"2":[4,"Float"],"6":[8,"UInt64"],"7":[4,"UInt32"]},"zig":{"1":[8,"f64"],"15":[4,"i32"],"16":[8,"i64"],"2":[4,"f32"],"6":[8,"u64"],"7":[4,"u32"]}};
+const VARINT_TYPES = [5,3,13,4,17,18,8,14];
+
 // ---------------------------------------------------------------------------
 // JS emitter (mirrors the native js template).
 // ---------------------------------------------------------------------------
@@ -540,8 +543,8 @@ function pbJsName(f) {
   return f.name.replace(/_([a-zA-Z0-9])/g, (_, c) => c.toUpperCase());
 }
 
-const PB_VARINT = new Set([FT.INT32, FT.INT64, FT.UINT32, FT.UINT64, FT.SINT32, FT.SINT64, FT.BOOL, FT.ENUM]);
-const PB_FIXED = { [FT.FLOAT]: [4, 'Float32'], [FT.DOUBLE]: [8, 'Float64'], [FT.FIXED32]: [4, 'Uint32'], [FT.SFIXED32]: [4, 'Int32'], [FT.FIXED64]: [8, 'BigUint64'], [FT.SFIXED64]: [8, 'BigInt64'] };
+const PB_VARINT = new Set(VARINT_TYPES);
+const PB_FIXED = FIXED_TABLES.js;
 const PB_BIGINT = new Set([FT.INT64, FT.UINT64, FT.SINT64, FT.FIXED64, FT.SFIXED64]);
 
 function pbVarintExpr(f, v) {
@@ -1038,8 +1041,8 @@ function goService(svc) {
 // protoc-gen-grpc-dc-go plugin.
 // ---------------------------------------------------------------------------
 
-const GP_VARINT = new Set([FT.INT32, FT.INT64, FT.UINT32, FT.UINT64, FT.SINT32, FT.SINT64, FT.BOOL, FT.ENUM]);
-const GP_FIXED = { [FT.FLOAT]: [4, 'Float32'], [FT.DOUBLE]: [8, 'Float64'], [FT.FIXED32]: [4, 'Uint32'], [FT.SFIXED32]: [4, 'Int32'], [FT.FIXED64]: [8, 'BigUint64'], [FT.SFIXED64]: [8, 'BigInt64'] };
+const GP_VARINT = new Set(VARINT_TYPES);
+const GP_FIXED = FIXED_TABLES.go;
 
 const GP_PREAMBLE = 'func appendVarint(out []byte, v uint64) []byte {\n\tfor v > 0x7f {\n\t\tout = append(out, byte(v&0x7f)|0x80)\n\t\tv >>= 7\n\t}\n\treturn append(out, byte(v))\n}\n\n'
   + 'func appendTag(out []byte, field int, wire int) []byte {\n\treturn appendVarint(out, uint64(field<<3|wire))\n}\n\n'
@@ -1883,9 +1886,13 @@ def _unzz64(value):
 
 `;
 
-const PY_PB_VARINT = new Set([3, 4, 5, 8, 13, 14, 17, 18]);
-const PY_PB_FIXED_FORMATS = { 2: '<f', 1: '<d', 7: '<I', 6: '<Q', 15: '<i', 16: '<q' };
-const PY_PB_FIXED_SIZES = { 2: 4, 1: 8, 7: 4, 6: 8, 15: 4, 16: 8 };
+const PY_PB_VARINT = new Set(VARINT_TYPES);
+const PY_PB_FIXED_FORMATS = {};
+const PY_PB_FIXED_SIZES = {};
+for (const [pyN, [pySize, pyFmt]] of Object.entries(FIXED_TABLES.python)) {
+  PY_PB_FIXED_FORMATS[pyN] = pyFmt;
+  PY_PB_FIXED_SIZES[pyN] = pySize;
+}
 
 function pyPbFlat(pkg, full) {
   const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
@@ -2312,8 +2319,8 @@ function stampGeneratedHeader(file) {
 // plugin.
 // ---------------------------------------------------------------------------
 
-const CB_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const CB_FIXED = { 2: [4, 'f32'], 1: [8, 'f64'], 7: [4, 'u32'], 15: [4, 'i32'], 6: [8, 'u64'], 16: [8, 'i64'] };
+const CB_VARINT = new Set(VARINT_TYPES);
+const CB_FIXED = FIXED_TABLES.c;
 
 function cbPascal(s) {
   return s.split(/[_.-]/).map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
@@ -3108,8 +3115,8 @@ function rustService(svc, msgmod) {
 // Cross-file types resolve to crate::<base>_pb::<Type> modules.
 // ---------------------------------------------------------------------------
 
-const RP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const RP_FIXED = { 1: [8, 'f64'], 2: [4, 'f32'], 6: [8, 'u64'], 7: [4, 'u32'], 15: [4, 'i32'], 16: [8, 'i64'] };
+const RP_VARINT = new Set(VARINT_TYPES);
+const RP_FIXED = FIXED_TABLES.rust;
 
 const RP_SUPPORT = 'fn pb_append_varint(out: &mut Vec<u8>, value: u64) {\n    let mut v = value;\n    while v > 0x7f {\n        out.push(((v & 0x7f) as u8) | 0x80);\n        v >>= 7;\n    }\n    out.push(v as u8);\n}\n\n'
   + 'fn pb_append_tag(out: &mut Vec<u8>, field: u32, wire: u32) {\n    pb_append_varint(out, ((field << 3) | wire) as u64);\n}\n\n'
@@ -3901,8 +3908,8 @@ function javaService(svc) {
 // plugin.
 // ---------------------------------------------------------------------------
 
-const JP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const JP_FIXED = { 2: [4, 'Float'], 1: [8, 'Double'], 7: [4, 'Int'], 15: [4, 'Int'], 6: [8, 'Long'], 16: [8, 'Long'] };
+const JP_VARINT = new Set(VARINT_TYPES);
+const JP_FIXED = FIXED_TABLES.java;
 
 function jpCamel(s) {
   const parts = s.split('_');
@@ -4699,8 +4706,8 @@ function csService(svc) {
 // plugin.
 // ---------------------------------------------------------------------------
 
-const CSP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const CSP_FIXED = { 2: [4, 'Float'], 1: [8, 'Double'], 7: [4, 'Int'], 15: [4, 'Int'], 6: [8, 'Long'], 16: [8, 'Long'] };
+const CSP_VARINT = new Set(VARINT_TYPES);
+const CSP_FIXED = FIXED_TABLES.csharp;
 
 function cspPascal(s) {
   return s.split('_').map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
@@ -5609,8 +5616,8 @@ function cppService(svc) {
 // plugin.
 // ---------------------------------------------------------------------------
 
-const XPP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const XPP_FIXED = { 2: [4, 'Float'], 1: [8, 'Double'], 7: [4, 'Int32'], 15: [4, 'Int32'], 6: [8, 'Int64'], 16: [8, 'Int64'] };
+const XPP_VARINT = new Set(VARINT_TYPES);
+const XPP_FIXED = FIXED_TABLES.cpp;
 
 function xppResolve(model, typeName) {
   const entry = model.types.get(typeName);
@@ -6449,8 +6456,8 @@ const SWIFT_RUN_BLOCKING =
 // protoc-gen-grpc-dc-swift plugin.
 // ---------------------------------------------------------------------------
 
-const SWP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const SWP_FIXED = { 2: [4, 'Float'], 1: [8, 'Double'], 7: [4, 'UInt32'], 15: [4, 'Int32'], 6: [8, 'UInt64'], 16: [8, 'Int64'] };
+const SWP_VARINT = new Set(VARINT_TYPES);
+const SWP_FIXED = FIXED_TABLES.swift;
 
 function swpCamel(s) {
   const parts = s.split('_');
@@ -7178,8 +7185,8 @@ function kotlinService(svc) {
 // plugin.
 // ---------------------------------------------------------------------------
 
-const KT_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const KT_FIXED = { 2: [4, 'Float'], 1: [8, 'Double'], 7: [4, 'UInt'], 15: [4, 'Int'], 6: [8, 'ULong'], 16: [8, 'Long'] };
+const KT_VARINT = new Set(VARINT_TYPES);
+const KT_FIXED = FIXED_TABLES.kotlin;
 
 function kpCamel(s) {
   const parts = s.split('_');
@@ -7939,8 +7946,8 @@ function dartRegisterService(svc) {
 // protoc-gen-grpc-dc-dart plugin.
 // ---------------------------------------------------------------------------
 
-const DTP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const DTP_FIXED = { 2: [4, 'Float32'], 1: [8, 'Float64'], 7: [4, 'Uint32'], 15: [4, 'Int32'], 6: [8, 'Uint64'], 16: [8, 'Int64'] };
+const DTP_VARINT = new Set(VARINT_TYPES);
+const DTP_FIXED = FIXED_TABLES.dart;
 
 function dtpCamel(s) {
   const parts = s.split('_');
@@ -8683,8 +8690,8 @@ function zigRegisterService(svc) {
 // plugin.
 // ---------------------------------------------------------------------------
 
-const ZGP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const ZGP_FIXED = { 2: [4, 'f32'], 1: [8, 'f64'], 7: [4, 'u32'], 15: [4, 'i32'], 6: [8, 'u64'], 16: [8, 'i64'] };
+const ZGP_VARINT = new Set(VARINT_TYPES);
+const ZGP_FIXED = FIXED_TABLES.zig;
 
 function zgpResolve(model, typeName) {
   const entry = model.types.get(typeName);
@@ -9414,8 +9421,8 @@ function luaReturnEntry(svc) {
 // protoc-gen-grpc-dc-lua plugin.
 // ---------------------------------------------------------------------------
 
-const LP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const LP_FIXED = { 2: [4, 'f'], 1: [8, 'd'], 7: [4, 'I4'], 15: [4, 'i4'], 6: [8, 'I8'], 16: [8, 'i8'] };
+const LP_VARINT = new Set(VARINT_TYPES);
+const LP_FIXED = FIXED_TABLES.lua;
 
 function lpCamel(s) {
   const parts = s.split('_');
@@ -10089,8 +10096,8 @@ function rbService(model, svc) {
 // plugin.
 // ---------------------------------------------------------------------------
 
-const RBP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const RBP_FIXED = { 2: [4, 'e'], 1: [8, 'E'], 7: [4, 'V'], 15: [4, 'l<'], 6: [8, 'Q<'], 16: [8, 'q<'] };
+const RBP_VARINT = new Set(VARINT_TYPES);
+const RBP_FIXED = FIXED_TABLES.ruby;
 
 function rbpFlat(pkg, full) {
   const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
@@ -10795,8 +10802,8 @@ function phpService(model, svc) {
 // plugin.
 // ---------------------------------------------------------------------------
 
-const PHPB_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const PHPB_FIXED = { 2: [4, 'g'], 1: [8, 'e'], 7: [4, 'V'], 15: [4, 'V'], 6: [8, 'P'], 16: [8, 'P'] };
+const PHPB_VARINT = new Set(VARINT_TYPES);
+const PHPB_FIXED = FIXED_TABLES.php;
 
 function phpbCamel(s) {
   const parts = s.split('_');
@@ -11454,8 +11461,8 @@ function scalaService(svc) {
 // plugin.
 // ---------------------------------------------------------------------------
 
-const SCP_VARINT = new Set([5, 3, 13, 4, 17, 18, 8, 14]);
-const SCP_FIXED = { 1: [8, 'double'], 2: [4, 'float'], 6: [8, 'fixed64'], 7: [4, 'fixed32'], 15: [4, 'fixed32'], 16: [8, 'fixed64'] };
+const SCP_VARINT = new Set(VARINT_TYPES);
+const SCP_FIXED = FIXED_TABLES.scala;
 
 function scpCamel(s) {
   const parts = s.split('_');
