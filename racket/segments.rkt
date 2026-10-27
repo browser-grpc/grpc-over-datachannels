@@ -65,7 +65,11 @@
          wasm-cpp-deprecated-program wasm-cpp-client-method-program
          wasm-cpp-server-export-program wasm-cpp-server-iface-method-program
          wasm-cpp-stream-iface-method-program wasm-cpp-stream-feed-export-program
-         wasm-cpp-service-program)
+         wasm-cpp-service-program
+         wasm-zig-client-method-program wasm-zig-pending-structs-program
+         wasm-zig-server-serve-export-program wasm-zig-server-iface-field-program
+         wasm-zig-stream-iface-field-program wasm-zig-stream-feed-export-program
+         wasm-zig-service-program)
 
 ;; ---------------------------------------------------------------------------
 ;; Go stub: RegisterMethod handler table entries (one per method).
@@ -1096,6 +1100,92 @@
     (each methods (call wasmCppServerExport (arg 0)))
     (each methods (call wasmCppStreamFeedExport (arg 0)))))
 
+;; ---------------------------------------------------------------------------
+;; Wasm-Zig facade emitter (mirrors template-wasm-zig.rkt).
+;; ---------------------------------------------------------------------------
+
+(define wasm-zig-client-method-program
+  '((kind-case
+     (unary (fmt "    pub fn ~a(self: *~aClient, req: *const ~a, ctx: *anyopaque,\n        callback: *const fn (ctx: *anyopaque, result: CallResult(~a)) void) void {\n        const alloc = self.bridge.alloc;\n        const pending = alloc.create(~aUnaryPending) catch {\n            callback(ctx, .{ .status = oomStatus() });\n            return;\n        };\n        pending.* = .{ .alloc = alloc, .ctx = ctx, .callback = callback };\n        const payload = req.marshalDc(alloc);\n        self.bridge.unary(~s, payload, pending, ~aUnaryPending.complete);\n        alloc.free(payload);\n    }\n\n"
+                 (lower-first (ref name)) (svc) (ref input) (ref output) (ref name) (ref path) (ref name)))
+     (server-streaming (fmt "    pub fn ~a(self: *~aClient, req: *const ~a, ctx: *anyopaque,\n        on_message: *const fn (ctx: *anyopaque, resp: ~a) void,\n        on_done: *const fn (ctx: *anyopaque, status: Status) void) void {\n        const alloc = self.bridge.alloc;\n        const pending = alloc.create(~aStreamPending) catch {\n            on_done(ctx, oomStatus());\n            return;\n        };\n        pending.* = .{ .alloc = alloc, .ctx = ctx, .on_message = on_message, .on_done = on_done };\n        const payload = req.marshalDc(alloc);\n        self.bridge.serverStream(~s, payload, pending, ~aStreamPending.message, ~aStreamPending.done);\n        alloc.free(payload);\n    }\n\n"
+                            (lower-first (ref name)) (svc) (ref input) (ref output) (ref name) (ref path) (ref name) (ref name)))
+     (client-streaming (fmt "    pub fn ~a(self: *~aClient, reqs: []const ~a, ctx: *anyopaque,\n        callback: *const fn (ctx: *anyopaque, result: CallResult(~a)) void) void {\n        const alloc = self.bridge.alloc;\n        const pending = alloc.create(~aUnaryPending) catch {\n            callback(ctx, .{ .status = oomStatus() });\n            return;\n        };\n        pending.* = .{ .alloc = alloc, .ctx = ctx, .callback = callback };\n        const payloads = marshalAll(~a, reqs, alloc);\n        self.bridge.clientStream(~s, payloads, pending, ~aUnaryPending.complete);\n        freeAll(payloads, alloc);\n    }\n\n"
+                            (lower-first (ref name)) (svc) (ref input) (ref output) (ref name) (ref input) (ref path) (ref name)))
+     (bidi (fmt "    pub fn ~a(self: *~aClient, reqs: []const ~a, ctx: *anyopaque,\n        on_message: *const fn (ctx: *anyopaque, resp: ~a) void,\n        on_done: *const fn (ctx: *anyopaque, status: Status) void) void {\n        const alloc = self.bridge.alloc;\n        const pending = alloc.create(~aStreamPending) catch {\n            on_done(ctx, oomStatus());\n            return;\n        };\n        pending.* = .{ .alloc = alloc, .ctx = ctx, .on_message = on_message, .on_done = on_done };\n        const payloads = marshalAll(~a, reqs, alloc);\n        self.bridge.bidi(~s, payloads, pending, ~aStreamPending.message, ~aStreamPending.done);\n        freeAll(payloads, alloc);\n    }\n\n"
+                (lower-first (ref name)) (svc) (ref input) (ref output) (ref name) (ref input) (ref path) (ref name) (ref name))))))
+
+(define wasm-zig-pending-structs-program
+  '((kind-case
+     ((unary client-streaming)
+      (fmt "const ~aUnaryPending = struct {\n    alloc: std.mem.Allocator,\n    ctx: *anyopaque,\n    callback: *const fn (ctx: *anyopaque, result: CallResult(~a)) void,\n\n    fn complete(raw: *anyopaque, st: Status, payload: ?[]const u8) void {\n        const self: *@This() = @ptrCast(@alignCast(raw));\n        defer self.alloc.destroy(self);\n        if (!st.isOk()) {\n            self.callback(self.ctx, .{ .status = st });\n            return;\n        }\n        var resp = ~a{};\n        resp.unmarshalDc(self.alloc, payload orelse \"\");\n        self.callback(self.ctx, .{ .ok = resp });\n    }\n};\n\n"
+           (ref name) (ref output) (ref output)))
+     ((server-streaming bidi)
+      (fmt "const ~aStreamPending = struct {\n    alloc: std.mem.Allocator,\n    ctx: *anyopaque,\n    on_message: *const fn (ctx: *anyopaque, resp: ~a) void,\n    on_done: *const fn (ctx: *anyopaque, status: Status) void,\n\n    fn message(raw: *anyopaque, payload: []const u8) void {\n        const self: *@This() = @ptrCast(@alignCast(raw));\n        var resp = ~a{};\n        resp.unmarshalDc(self.alloc, payload);\n        self.on_message(self.ctx, resp);\n    }\n\n    fn done(raw: *anyopaque, st: Status, _: ?[]const u8) void {\n        const self: *@This() = @ptrCast(@alignCast(raw));\n        defer self.alloc.destroy(self);\n        self.on_done(self.ctx, st);\n    }\n};\n\n"
+           (ref name) (ref output) (ref output))))))
+
+(define wasm-zig-server-serve-export-program
+  '((kind-case
+     (unary (fmt "export fn serve_~a(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {\n    const a = bridge_mod.bridgeAllocator();\n    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n    defer a.free(md);\n    var req = ~a{};\n    req.unmarshalDc(a, payload_ptr[0..payload_len]);\n    switch (g_server_impl.?.~a_fn(g_server_impl.?.ctx, &req, md)) {\n        .ok => |resp| { const bytes = resp.marshalDc(a); defer a.free(bytes); bridge_mod.serverRespond(call_id, bytes); },\n        .status => |st| bridge_mod.serverFail(call_id, st),\n    }\n}\n\n"
+                 (lower-first (ref name)) (ref input) (lower-first (ref name))))
+     (server-streaming (fmt "export fn serve_~a(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {\n    const a = bridge_mod.bridgeAllocator();\n    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n    defer a.free(md);\n    var req = ~a{};\n    req.unmarshalDc(a, payload_ptr[0..payload_len]);\n    var sink = ServerSink{ .call_id = call_id };\n    const st = g_server_impl.?.~a_fn(g_server_impl.?.ctx, &req, md, &sink);\n    if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);\n}\n\n"
+                            (lower-first (ref name)) (ref input) (lower-first (ref name))))
+     (client-streaming (fmt "export fn serve_~a(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {\n    const a = bridge_mod.bridgeAllocator();\n    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n    defer a.free(md);\n    const chunks = bridge_mod.unpack(a, payload_ptr[0..payload_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n    defer a.free(chunks);\n    const reqs = a.alloc(~a, chunks.len) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n    defer a.free(reqs);\n    for (chunks, 0..) |chunk, i| { reqs[i] = ~a{}; reqs[i].unmarshalDc(a, chunk); }\n    switch (g_server_impl.?.~a_fn(g_server_impl.?.ctx, reqs, md)) {\n        .ok => |resp| { const bytes = resp.marshalDc(a); defer a.free(bytes); bridge_mod.serverRespond(call_id, bytes); },\n        .status => |st| bridge_mod.serverFail(call_id, st),\n    }\n}\n\n"
+                            (lower-first (ref name)) (ref input) (ref input) (lower-first (ref name))))
+     (bidi (fmt "export fn serve_~a(call_id: u32, payload_ptr: [*]const u8, payload_len: usize, md_ptr: [*]const u8, md_len: usize) void {\n    const a = bridge_mod.bridgeAllocator();\n    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n    defer a.free(md);\n    const chunks = bridge_mod.unpack(a, payload_ptr[0..payload_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n    defer a.free(chunks);\n    const reqs = a.alloc(~a, chunks.len) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n    defer a.free(reqs);\n    for (chunks, 0..) |chunk, i| { reqs[i] = ~a{}; reqs[i].unmarshalDc(a, chunk); }\n    var sink = ServerSink{ .call_id = call_id };\n    const st = g_server_impl.?.~a_fn(g_server_impl.?.ctx, reqs, md, &sink);\n    if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);\n}\n\n"
+                (lower-first (ref name)) (ref input) (ref input) (lower-first (ref name)))))))
+
+(define wasm-zig-server-iface-field-program
+  '((kind-case
+     (unary (fmt "    ~a_fn: *const fn (ctx: *anyopaque, req: *const ~a, md: []const bridge_mod.MdPair) CallResult(~a),\n" (lower-first (ref name)) (ref input) (ref output)))
+     (server-streaming (fmt "    ~a_fn: *const fn (ctx: *anyopaque, req: *const ~a, md: []const bridge_mod.MdPair, sink: *ServerSink) Status,\n" (lower-first (ref name)) (ref input)))
+     (client-streaming (fmt "    ~a_fn: *const fn (ctx: *anyopaque, reqs: []const ~a, md: []const bridge_mod.MdPair) CallResult(~a),\n" (lower-first (ref name)) (ref input) (ref output)))
+     (bidi (fmt "    ~a_fn: *const fn (ctx: *anyopaque, reqs: []const ~a, md: []const bridge_mod.MdPair, sink: *ServerSink) Status,\n" (lower-first (ref name)) (ref input))))))
+
+(define wasm-zig-stream-iface-field-program
+  '((kind-case
+     (client-streaming
+      (fmt "    ~aBegin_fn: *const fn (ctx: *anyopaque, call_id: u32, md: []const bridge_mod.MdPair) void,\n    ~aRequest_fn: *const fn (ctx: *anyopaque, call_id: u32, req: *const ~a) void,\n    ~aEnd_fn: *const fn (ctx: *anyopaque, call_id: u32) CallResult(~a),\n"
+           (lower-first (ref name)) (lower-first (ref name)) (ref input) (lower-first (ref name)) (ref output)))
+     (bidi
+      (fmt "    ~aBegin_fn: *const fn (ctx: *anyopaque, call_id: u32, md: []const bridge_mod.MdPair) void,\n    ~aRequest_fn: *const fn (ctx: *anyopaque, call_id: u32, req: *const ~a, sink: *ServerSink) Status,\n    ~aEnd_fn: *const fn (ctx: *anyopaque, call_id: u32) Status,\n"
+           (lower-first (ref name)) (lower-first (ref name)) (ref input) (lower-first (ref name))))
+     (else ""))))
+
+(define wasm-zig-stream-feed-export-program
+  '((kind-case
+     (client-streaming
+      (fmt "export fn serve_~aStart(call_id: u32, md_ptr: [*]const u8, md_len: usize) void {\n    const a = bridge_mod.bridgeAllocator();\n    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n    defer a.free(md);\n    g_stream_impl.?.~aBegin_fn(g_stream_impl.?.ctx, call_id, md);\n}\n\n"
+           (lower-first (ref name)) (lower-first (ref name)))
+      (fmt "export fn serve_~aFeed(call_id: u32, payload_ptr: [*]const u8, payload_len: usize) void {\n    const a = bridge_mod.bridgeAllocator();\n    var req = ~a{};\n    req.unmarshalDc(a, payload_ptr[0..payload_len]);\n    g_stream_impl.?.~aRequest_fn(g_stream_impl.?.ctx, call_id, &req);\n}\n\n"
+           (lower-first (ref name)) (ref input) (lower-first (ref name)))
+      (fmt "export fn serve_~aEnd(call_id: u32) void {\n    const a = bridge_mod.bridgeAllocator();\n    switch (g_stream_impl.?.~aEnd_fn(g_stream_impl.?.ctx, call_id)) {\n        .ok => |resp| { const bytes = resp.marshalDc(a); defer a.free(bytes); bridge_mod.serverRespond(call_id, bytes); },\n        .status => |st| bridge_mod.serverFail(call_id, st),\n    }\n}\n\n"
+           (lower-first (ref name)) (lower-first (ref name))))
+     (bidi
+      (fmt "export fn serve_~aStart(call_id: u32, md_ptr: [*]const u8, md_len: usize) void {\n    const a = bridge_mod.bridgeAllocator();\n    const md = bridge_mod.decodeMetadata(a, md_ptr[0..md_len]) catch { bridge_mod.serverFail(call_id, oomStatus()); return; };\n    defer a.free(md);\n    g_stream_impl.?.~aBegin_fn(g_stream_impl.?.ctx, call_id, md);\n}\n\n"
+           (lower-first (ref name)) (lower-first (ref name)))
+      (fmt "export fn serve_~aFeed(call_id: u32, payload_ptr: [*]const u8, payload_len: usize) void {\n    const a = bridge_mod.bridgeAllocator();\n    var req = ~a{};\n    req.unmarshalDc(a, payload_ptr[0..payload_len]);\n    var sink = ServerSink{ .call_id = call_id };\n    const st = g_stream_impl.?.~aRequest_fn(g_stream_impl.?.ctx, call_id, &req, &sink);\n    if (!st.isOk()) bridge_mod.serverFail(call_id, st);\n}\n\n"
+           (lower-first (ref name)) (ref input) (lower-first (ref name)))
+      (fmt "export fn serve_~aEnd(call_id: u32) void {\n    const st = g_stream_impl.?.~aEnd_fn(g_stream_impl.?.ctx, call_id);\n    if (st.isOk()) bridge_mod.serverComplete(call_id) else bridge_mod.serverFail(call_id, st);\n}\n\n"
+           (lower-first (ref name)) (lower-first (ref name))))
+     (else ""))))
+
+(define wasm-zig-service-program
+  '((each methods (call wasmZigPendingStructs))
+    (fmt "/// Client for the service (browser/WASM facade; see module doc).\npub const ~aClient = struct {\n    bridge: *bridge_mod.Bridge,\n\n    pub fn init(bridge: *bridge_mod.Bridge) ~aClient {\n        return .{ .bridge = bridge };\n    }\n\n" (svc) (svc))
+    (each methods (call wasmZigClientMethod))
+    "};\n\n/// Streaming response sink for server handlers.\npub const ServerSink = struct {\n    call_id: u32,\n\n    pub fn send(self: *ServerSink, resp: anytype) Status {\n        const a = bridge_mod.bridgeAllocator();\n        const bytes = resp.marshalDc(a);\n        defer a.free(bytes);\n        bridge_mod.serverSend(self.call_id, bytes);\n        return Status.ok();\n    }\n};\n\n"
+    (fmt "/// Service implementation for ~a (browser/WASM facade).\npub const ~aServer = struct {\n    ctx: *anyopaque,\n" (ref full-name) (svc))
+    (each methods (call wasmZigServerIfaceField))
+    "};\n\n"
+    (fmt "var g_server_impl: ?*~aServer = null;\n\n/// Register the service implementation used by the serve_* exports.\npub fn register~aServer(impl: *~aServer) void {\n    g_server_impl = impl;\n}\n\n" (svc) (svc) (svc))
+    (each methods (call wasmZigServerServeExport))
+    (fmt "/// Incremental service implementation for ~a: requests arrive one at a time via serve_*Start/Feed/End.\npub const ~aStreamServer = struct {\n    ctx: *anyopaque,\n" (ref full-name) (svc))
+    (each methods (call wasmZigStreamIfaceField))
+    "};\n\n"
+    (fmt "var g_stream_impl: ?*~aStreamServer = null;\n\n/// Register the incremental implementation used by the serve_*Start/Feed/End exports.\npub fn register~aStreamServer(impl: *~aStreamServer) void {\n    g_stream_impl = impl;\n}\n\n" (svc) (svc) (svc))
+    (each methods (call wasmZigStreamFeedExport))))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -1170,7 +1260,14 @@
           'wasmCppServerIfaceMethod wasm-cpp-server-iface-method-program
           'wasmCppStreamIfaceMethod wasm-cpp-stream-iface-method-program
           'wasmCppStreamFeedExport wasm-cpp-stream-feed-export-program
-          'wasmCppService wasm-cpp-service-program))
+          'wasmCppService wasm-cpp-service-program
+          'wasmZigClientMethod wasm-zig-client-method-program
+          'wasmZigPendingStructs wasm-zig-pending-structs-program
+          'wasmZigServerServeExport wasm-zig-server-serve-export-program
+          'wasmZigServerIfaceField wasm-zig-server-iface-field-program
+          'wasmZigStreamIfaceField wasm-zig-stream-iface-field-program
+          'wasmZigStreamFeedExport wasm-zig-stream-feed-export-program
+          'wasmZigService wasm-zig-service-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -1421,7 +1518,12 @@
          (if else-part (run-env (cdr else-part) env) ""))]
     [(eq? (car seg) 'kind-case)
      (define kind (hash-ref node 'kind))
-     (define branch (or (assq kind (cdr seg)) (assq 'else (cdr seg))))
+     (define branch
+       (or (for/first ([b (in-list (cdr seg))]
+                       #:when (or (eq? (car b) kind)
+                                  (and (list? (car b)) (memq kind (car b)))))
+             b)
+           (assq 'else (cdr seg))))
      (unless branch (error 'run-segments "no kind branch for ~e" kind))
      (run-env (cdr branch) env)]
     [(eq? (car seg) 'case-on)
