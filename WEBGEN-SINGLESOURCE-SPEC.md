@@ -22,10 +22,18 @@ Parity growth (option 3) also continued: the corpus case runs
 legacy.proto (proto2 required/optional presence, explicit
 defaults including enum and double, extensions) through the
 built-in generators with per-language byte comparison.
-Remaining under this spec: per-language scalar type maps and
-message layout — functions with label/map/optional
-conditionals, not literal tables, so single-sourcing them is
-option-1-scale work. Do not start casually (see Risks).
+Scalar type maps (option 2) also implemented: `scalar-type-tables`
+in `racket/spec.rkt` holds each typed language's scalar leaf
+(default plus type-number -> payload, tuples included); the
+eleven typed templates derive `<lang>-pb-scalar` from it and
+webgen serializes it as `SCALAR_TABLES`. Dynamic languages
+(JS, Python, Lua, Ruby, PHP) have no scalar type names and
+are not listed. Native output byte-identical; parity green
+in all three engines. Remaining: the composite type/layout
+emission (repeated/map/optional wrapping, struct layout) —
+that logic is the descriptor walk plus per-language code
+shape, not data; single-sourcing it is option 1. Do not
+start casually (see Risks).
 
 ## Problem
 

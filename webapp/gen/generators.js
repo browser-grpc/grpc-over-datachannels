@@ -342,6 +342,7 @@ function parseParams(parameter) {
 }
 const FIXED_TABLES = {"c":{"1":[8,"f64"],"15":[4,"i32"],"16":[8,"i64"],"2":[4,"f32"],"6":[8,"u64"],"7":[4,"u32"]},"cpp":{"1":[8,"Double"],"15":[4,"Int32"],"16":[8,"Int64"],"2":[4,"Float"],"6":[8,"Int64"],"7":[4,"Int32"]},"csharp":{"1":[8,"Double"],"15":[4,"Int"],"16":[8,"Long"],"2":[4,"Float"],"6":[8,"Long"],"7":[4,"Int"]},"dart":{"1":[8,"Float64"],"15":[4,"Int32"],"16":[8,"Int64"],"2":[4,"Float32"],"6":[8,"Uint64"],"7":[4,"Uint32"]},"go":{"1":[8,"Float64"],"15":[4,"Int32"],"16":[8,"BigInt64"],"2":[4,"Float32"],"6":[8,"BigUint64"],"7":[4,"Uint32"]},"java":{"1":[8,"Double"],"15":[4,"Int"],"16":[8,"Long"],"2":[4,"Float"],"6":[8,"Long"],"7":[4,"Int"]},"js":{"1":[8,"Float64"],"15":[4,"Int32"],"16":[8,"BigInt64"],"2":[4,"Float32"],"6":[8,"BigUint64"],"7":[4,"Uint32"]},"kotlin":{"1":[8,"Double"],"15":[4,"Int"],"16":[8,"Long"],"2":[4,"Float"],"6":[8,"ULong"],"7":[4,"UInt"]},"lua":{"1":[8,"d"],"15":[4,"i4"],"16":[8,"i8"],"2":[4,"f"],"6":[8,"I8"],"7":[4,"I4"]},"php":{"1":[8,"e"],"15":[4,"V"],"16":[8,"P"],"2":[4,"g"],"6":[8,"P"],"7":[4,"V"]},"python":{"1":[8,"<d"],"15":[4,"<i"],"16":[8,"<q"],"2":[4,"<f"],"6":[8,"<Q"],"7":[4,"<I"]},"ruby":{"1":[8,"E"],"15":[4,"l<"],"16":[8,"q<"],"2":[4,"e"],"6":[8,"Q<"],"7":[4,"V"]},"rust":{"1":[8,"f64"],"15":[4,"i32"],"16":[8,"i64"],"2":[4,"f32"],"6":[8,"u64"],"7":[4,"u32"]},"scala":{"1":[8,"double"],"15":[4,"fixed32"],"16":[8,"fixed64"],"2":[4,"float"],"6":[8,"fixed64"],"7":[4,"fixed32"]},"swift":{"1":[8,"Double"],"15":[4,"Int32"],"16":[8,"Int64"],"2":[4,"Float"],"6":[8,"UInt64"],"7":[4,"UInt32"]},"zig":{"1":[8,"f64"],"15":[4,"i32"],"16":[8,"i64"],"2":[4,"f32"],"6":[8,"u64"],"7":[4,"u32"]}};
 const VARINT_TYPES = [5,3,13,4,17,18,8,14];
+const SCALAR_TABLES = {"go":{"default":null,"types":{"1":"float64","12":"[]byte","13":"uint32","15":"int32","16":"int64","17":"int32","18":"int64","2":"float32","3":"int64","4":"uint64","5":"int32","6":"uint64","7":"uint32","8":"bool","9":"string"}},"rust":{"default":"i32","types":{"1":"f64","12":"Vec<u8>","16":"i64-or-u64","18":"i64-or-u64","2":"f32","3":"i64-or-u64","4":"i64-or-u64","6":"i64-or-u64","8":"bool","9":"String"}},"scala":{"default":"Int","types":{"1":"Double","12":"Array[Byte]","16":"Long","18":"Long","2":"Float","3":"Long","4":"Long","6":"Long","8":"Boolean","9":"String"}},"java":{"default":null,"types":{"1":["double","Double","0"],"12":["byte[]","byte[]","new byte[0]"],"13":["int","Integer","0"],"15":["int","Integer","0"],"16":["long","Long","0L"],"17":["int","Integer","0"],"18":["long","Long","0L"],"2":["float","Float","0"],"3":["long","Long","0L"],"4":["long","Long","0L"],"5":["int","Integer","0"],"6":["long","Long","0L"],"7":["int","Integer","0"],"8":["boolean","Boolean","false"],"9":["String","String","\"\""]}},"csharp":{"default":null,"types":{"1":["double","0"],"12":["byte[]","new byte[0]"],"13":["uint","0"],"15":["int","0"],"16":["long","0"],"17":["int","0"],"18":["long","0"],"2":["float","0"],"3":["long","0"],"4":["ulong","0"],"5":["int","0"],"6":["ulong","0"],"7":["uint","0"],"8":["bool","false"],"9":["string","\"\""]}},"cpp":{"default":null,"types":{"1":["double","0"],"12":["std::vector<std::uint8_t>","{}"],"13":["std::uint32_t","0"],"15":["std::int32_t","0"],"16":["std::int64_t","0"],"17":["std::int32_t","0"],"18":["std::int64_t","0"],"2":["float","0"],"3":["std::int64_t","0"],"4":["std::uint64_t","0"],"5":["std::int32_t","0"],"6":["std::uint64_t","0"],"7":["std::uint32_t","0"],"8":["bool","false"],"9":["std::string","\"\""]}},"swift":{"default":null,"types":{"1":["Double","0"],"12":["[UInt8]","[]"],"13":["UInt32","0"],"15":["Int32","0"],"16":["Int64","0"],"17":["Int32","0"],"18":["Int64","0"],"2":["Float","0"],"3":["Int64","0"],"4":["UInt64","0"],"5":["Int32","0"],"6":["UInt64","0"],"7":["UInt32","0"],"8":["Bool","false"],"9":["String","\"\""]}},"kotlin":{"default":null,"types":{"1":["Double","0.0"],"12":["ByteArray","ByteArray(0)"],"13":["UInt","0u"],"15":["Int","0"],"16":["Long","0L"],"17":["Int","0"],"18":["Long","0L"],"2":["Float","0f"],"3":["Long","0L"],"4":["ULong","0uL"],"5":["Int","0"],"6":["ULong","0uL"],"7":["UInt","0u"],"8":["Boolean","false"],"9":["String","\"\""]}},"dart":{"default":null,"types":{"1":["double","0"],"12":["Uint8List","Uint8List(0)"],"13":["int","0"],"15":["int","0"],"16":["int","0"],"17":["int","0"],"18":["int","0"],"2":["double","0"],"3":["int","0"],"4":["int","0"],"5":["int","0"],"6":["int","0"],"7":["int","0"],"8":["bool","false"],"9":["String","''"]}},"zig":{"default":null,"types":{"1":["f64","0"],"12":["[]const u8","\"\""],"13":["u32","0"],"15":["i32","0"],"16":["i64","0"],"17":["i32","0"],"18":["i64","0"],"2":["f32","0"],"3":["i64","0"],"4":["u64","0"],"5":["i32","0"],"6":["u64","0"],"7":["u32","0"],"8":["bool","false"],"9":["[]const u8","\"\""]}},"c":{"default":null,"types":{"1":["double","0"],"12":["~aBytes","\"\""],"13":["uint32_t","0"],"15":["int32_t","0"],"16":["int64_t","0"],"17":["int32_t","0"],"18":["int64_t","0"],"2":["float","0"],"3":["int64_t","0"],"4":["uint64_t","0"],"5":["int32_t","0"],"6":["uint64_t","0"],"7":["uint32_t","0"],"8":["bool","false"],"9":["char *","\"\""]}}};
 
 // ---------------------------------------------------------------------------
 // JS emitter (mirrors the native js template).
@@ -1083,18 +1084,10 @@ function gpEntryType(entry) {
 }
 
 function gpScalarType(f) {
-  switch (f.type) {
-    case FT.DOUBLE: return 'float64';
-    case FT.FLOAT: return 'float32';
-    case FT.INT64: case FT.SFIXED64: case FT.SINT64: return 'int64';
-    case FT.UINT64: case FT.FIXED64: return 'uint64';
-    case FT.INT32: case FT.SFIXED32: case FT.SINT32: return 'int32';
-    case FT.UINT32: case FT.FIXED32: return 'uint32';
-    case FT.BOOL: return 'bool';
-    case FT.STRING: return 'string';
-    case FT.BYTES: return '[]byte';
-    default: return null;
-  }
+  // Leaf payloads single-sourced from scalar-type-tables
+  // in spec.rkt (SCALAR_TABLES), same table the native
+  // template derives from.
+  return SCALAR_TABLES.go.types[f.type] ?? SCALAR_TABLES.go.default;
 }
 
 function gpFieldType(model, f) {
@@ -2356,17 +2349,10 @@ function cbEntrySupport(entry) {
 }
 
 function cbScalar(f) {
-  switch (f.type) {
-    case 1: return ['double', '0'];
-    case 2: return ['float', '0'];
-    case 3: case 16: case 18: return ['int64_t', '0'];
-    case 4: case 6: return ['uint64_t', '0'];
-    case 5: case 15: case 17: return ['int32_t', '0'];
-    case 7: case 13: return ['uint32_t', '0'];
-    case 8: return ['bool', 'false'];
-    case 9: return ['char *', '""'];
-    default: return null;
-  }
+  // Leaf payloads single-sourced from scalar-type-tables
+  // in spec.rkt (SCALAR_TABLES), same table the native
+  // template derives from.
+  return SCALAR_TABLES.c.types[f.type] ?? SCALAR_TABLES.c.default;
 }
 
 function cbMsgName(model, msg) {
@@ -3174,14 +3160,7 @@ function rpElemType(model, f) {
   if (f.type === 3 || f.type === 16 || f.type === 18) return 'i64';
   if (f.type === 13) return 'u32';
   if (f.type === 7) return 'u32';
-  switch (f.type) {
-    case 1: return 'f64';
-    case 2: return 'f32';
-    case 8: return 'bool';
-    case 9: return 'String';
-    case 12: return 'Vec<u8>';
-    default: return 'i32';
-  }
+  return SCALAR_TABLES.rust.types[f.type] ?? SCALAR_TABLES.rust.default;
 }
 
 function rpType(model, f) {
@@ -3943,16 +3922,10 @@ function jpEntryRef(model, entry) {
 }
 
 function jpScalar(f) {
-  switch (f.type) {
-    case 1: return ['double', 'Double', '0'];
-    case 2: return ['float', 'Float', '0'];
-    case 3: case 4: case 6: case 16: case 18: return ['long', 'Long', '0L'];
-    case 5: case 7: case 13: case 15: case 17: return ['int', 'Integer', '0'];
-    case 8: return ['boolean', 'Boolean', 'false'];
-    case 9: return ['String', 'String', '""'];
-    case 12: return ['byte[]', 'byte[]', 'new byte[0]'];
-    default: return null;
-  }
+  // Leaf payloads single-sourced from scalar-type-tables
+  // in spec.rkt (SCALAR_TABLES), same table the native
+  // template derives from.
+  return SCALAR_TABLES.java.types[f.type] ?? SCALAR_TABLES.java.default;
 }
 
 function jpType(model, f, boxed) {
@@ -4772,18 +4745,10 @@ function cspEntryRef(model, entry) {
 }
 
 function cspScalar(f) {
-  switch (f.type) {
-    case 1: return ['double', '0'];
-    case 2: return ['float', '0'];
-    case 3: case 16: case 18: return ['long', '0'];
-    case 4: case 6: return ['ulong', '0'];
-    case 5: case 15: case 17: return ['int', '0'];
-    case 7: case 13: return ['uint', '0'];
-    case 8: return ['bool', 'false'];
-    case 9: return ['string', '""'];
-    case 12: return ['byte[]', 'new byte[0]'];
-    default: return null;
-  }
+  // Leaf payloads single-sourced from scalar-type-tables
+  // in spec.rkt (SCALAR_TABLES), same table the native
+  // template derives from.
+  return SCALAR_TABLES.csharp.types[f.type] ?? SCALAR_TABLES.csharp.default;
 }
 
 function cspType(model, f) {
@@ -5645,18 +5610,10 @@ function xppEntryRef(model, entry) {
 }
 
 function xppScalar(f) {
-  switch (f.type) {
-    case 1: return ['double', '0'];
-    case 2: return ['float', '0'];
-    case 3: case 16: case 18: return ['std::int64_t', '0'];
-    case 4: case 6: return ['std::uint64_t', '0'];
-    case 5: case 15: case 17: return ['std::int32_t', '0'];
-    case 7: case 13: return ['std::uint32_t', '0'];
-    case 8: return ['bool', 'false'];
-    case 9: return ['std::string', '""'];
-    case 12: return ['std::vector<std::uint8_t>', '{}'];
-    default: return null;
-  }
+  // Leaf payloads single-sourced from scalar-type-tables
+  // in spec.rkt (SCALAR_TABLES), same table the native
+  // template derives from.
+  return SCALAR_TABLES.cpp.types[f.type] ?? SCALAR_TABLES.cpp.default;
 }
 
 function xppType(model, f) {
@@ -6489,18 +6446,10 @@ function swpEntryRef(model, entry) {
 }
 
 function swpScalar(f) {
-  switch (f.type) {
-    case 1: return ['Double', '0'];
-    case 2: return ['Float', '0'];
-    case 3: case 16: case 18: return ['Int64', '0'];
-    case 4: case 6: return ['UInt64', '0'];
-    case 5: case 15: case 17: return ['Int32', '0'];
-    case 7: case 13: return ['UInt32', '0'];
-    case 8: return ['Bool', 'false'];
-    case 9: return ['String', '""'];
-    case 12: return ['[UInt8]', '[]'];
-    default: return null;
-  }
+  // Leaf payloads single-sourced from scalar-type-tables
+  // in spec.rkt (SCALAR_TABLES), same table the native
+  // template derives from.
+  return SCALAR_TABLES.swift.types[f.type] ?? SCALAR_TABLES.swift.default;
 }
 
 function swpType(model, f) {
@@ -7220,18 +7169,10 @@ function kpEntryRef(model, entry) {
 }
 
 function kpScalar(f) {
-  switch (f.type) {
-    case 1: return ['Double', '0.0'];
-    case 2: return ['Float', '0f'];
-    case 3: case 16: case 18: return ['Long', '0L'];
-    case 4: case 6: return ['ULong', '0uL'];
-    case 5: case 15: case 17: return ['Int', '0'];
-    case 7: case 13: return ['UInt', '0u'];
-    case 8: return ['Boolean', 'false'];
-    case 9: return ['String', '""'];
-    case 12: return ['ByteArray', 'ByteArray(0)'];
-    default: return null;
-  }
+  // Leaf payloads single-sourced from scalar-type-tables
+  // in spec.rkt (SCALAR_TABLES), same table the native
+  // template derives from.
+  return SCALAR_TABLES.kotlin.types[f.type] ?? SCALAR_TABLES.kotlin.default;
 }
 
 function kpType(model, f) {
@@ -7980,14 +7921,10 @@ function dtpTypeRef(model, entry) {
 }
 
 function dtpScalar(f) {
-  switch (f.type) {
-    case 1: case 2: return ['double', '0'];
-    case 3: case 4: case 5: case 6: case 7: case 13: case 15: case 16: case 17: case 18: return ['int', '0'];
-    case 8: return ['bool', 'false'];
-    case 9: return ['String', "''"];
-    case 12: return ['Uint8List', 'Uint8List(0)'];
-    default: return null;
-  }
+  // Leaf payloads single-sourced from scalar-type-tables
+  // in spec.rkt (SCALAR_TABLES), same table the native
+  // template derives from.
+  return SCALAR_TABLES.dart.types[f.type] ?? SCALAR_TABLES.dart.default;
 }
 
 function dtpType(model, f) {
@@ -8714,17 +8651,10 @@ function zgpEntryRef(model, entry) {
 }
 
 function zgpScalar(f) {
-  switch (f.type) {
-    case 1: return ['f64', '0'];
-    case 2: return ['f32', '0'];
-    case 3: case 16: case 18: return ['i64', '0'];
-    case 4: case 6: return ['u64', '0'];
-    case 5: case 15: case 17: return ['i32', '0'];
-    case 7: case 13: return ['u32', '0'];
-    case 8: return ['bool', 'false'];
-    case 9: case 12: return ['[]const u8', '""'];
-    default: return null;
-  }
+  // Leaf payloads single-sourced from scalar-type-tables
+  // in spec.rkt (SCALAR_TABLES), same table the native
+  // template derives from.
+  return SCALAR_TABLES.zig.types[f.type] ?? SCALAR_TABLES.zig.default;
 }
 
 function zgpEntryStructName(model, entry) {
@@ -11512,15 +11442,10 @@ function scpEntryRef(model, entry) {
 }
 
 function scpScalarType(f) {
-  switch (f.type) {
-    case 1: return 'Double';
-    case 2: return 'Float';
-    case 3: case 4: case 6: case 16: case 18: return 'Long';
-    case 8: return 'Boolean';
-    case 9: return 'String';
-    case 12: return 'Array[Byte]';
-    default: return 'Int';
-  }
+  // Leaf payloads single-sourced from scalar-type-tables
+  // in spec.rkt (SCALAR_TABLES), same table the native
+  // template derives from.
+  return SCALAR_TABLES.scala.types[f.type] ?? SCALAR_TABLES.scala.default;
 }
 
 function scpElemType(model, f) {
