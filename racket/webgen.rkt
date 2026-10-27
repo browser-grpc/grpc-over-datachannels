@@ -14,7 +14,10 @@
 ;;; plugins is enforced by the webapp parity test. The method
 ;;; rename-alias table is serialized from spec.rkt below, so the
 ;;; browser generators can never disagree with the plugins about
-;;; aliases.
+;;; aliases. The Rust enum emission shape (rust-enum-shape in
+;;; spec.rkt) is serialized the same way as RP_ENUM_SHAPE, so
+;;; the browser Rust emitter shares that static text with
+;;; template-rust.rkt instead of mirroring it.
 
 (require "spec.rkt" json)
 
@@ -25,6 +28,14 @@
    (map (lambda (a)
           (map (lambda (x) (if (symbol? x) (symbol->string x) x)) a))
         method-alias-table)))
+
+;; The Rust enum emission shape, serialized from the shared
+;; table in spec.rkt (rust-enum-shape) so the browser Rust
+;; emitter can never drift from the native template.
+(define (rust-enum-shape-json)
+  (jsexpr->string
+   (for/hash ([entry (in-list rust-enum-shape)])
+     (values (car entry) (cdr entry)))))
 
 (define js-part-1 #<<JS
 // Browser generators for the grpc-dc web app: given the
@@ -3507,15 +3518,19 @@ function rpMapHelpers(model, entry) {
 
 function rpEnumNamed(model, full, e) {
   const name = rpFlat(model.package, full);
-  return '#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\n#[repr(i32)]\npub enum ' + name + ' {\n'
-    + e.values.map((v, i) => '    ' + (i === 0 ? '#[default]\n    ' : '') + rpCamel(v.name) + ' = ' + v.number + ',\n').join('')
-    + '    Unknown(i32),\n}\n\n'
-    + 'impl ' + name + ' {\n    pub fn from_i32(v: i32) -> Self {\n        match v {\n'
-    + e.values.map((v) => '            ' + v.number + ' => ' + name + '::' + rpCamel(v.name) + ',\n').join('')
-    + '            _ => ' + name + '::Unknown(v),\n        }\n    }\n'
-    + '    pub fn to_i32(self) -> i32 {\n        match self {\n'
-    + e.values.map((v) => '            ' + name + '::' + rpCamel(v.name) + ' => ' + v.number + ',\n').join('')
-    + '            ' + name + '::Unknown(v) => v,\n        }\n    }\n}\n\n';
+  // Static text comes from RP_ENUM_SHAPE, serialized from the
+  // shared rust-enum-shape table in spec.rkt (same source the
+  // native template formats) — edit the table, not this code.
+  const S = RP_ENUM_SHAPE;
+  return rpFmt(S.header, name)
+    + e.values.map((v, i) => rpFmt(S.value, i === 0 ? S.defaultMark : '', rpCamel(v.name), v.number)).join('')
+    + S.unknownVariant
+    + rpFmt(S.implOpen, name)
+    + e.values.map((v) => rpFmt(S.fromArm, v.number, name, rpCamel(v.name))).join('')
+    + rpFmt(S.unknownFromArm, name)
+    + S.toOpen
+    + e.values.map((v) => rpFmt(S.toArm, name, rpCamel(v.name), v.number)).join('')
+    + rpFmt(S.unknownToArm, name);
 }
 
 function rpMessageStruct(model, msg) {
@@ -13212,6 +13227,9 @@ JS
 
 (define (emit-web-generators)
   (cons "generators.js"
-        (string-append js-part-1 (alias-table-json) js-part-2 js-part-3 js-part-4 js-part-5 js-part-6 js-part-7 js-part-8 js-part-9 js-part-10 js-part-11 js-part-12 js-part-13 js-part-14 js-part-15 js-part-16 js-part-17 js-part-18 js-part-19 js-part-20 js-part-21 js-part-22)))
+        (string-append js-part-1 (alias-table-json) js-part-2 js-part-3 js-part-4
+                       "const RP_ENUM_SHAPE = " (rust-enum-shape-json) ";\n\n"
+                       "function rpFmt(template, ...args) {\n  let i = 0;\n  return template.replace(/~a/g, () => String(args[i++]));\n}\n\n"
+                       js-part-5 js-part-6 js-part-7 js-part-8 js-part-9 js-part-10 js-part-11 js-part-12 js-part-13 js-part-14 js-part-15 js-part-16 js-part-17 js-part-18 js-part-19 js-part-20 js-part-21 js-part-22)))
 
 

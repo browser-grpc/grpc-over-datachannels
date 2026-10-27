@@ -553,22 +553,22 @@
   (define name (rs-pb-flat (hash-ref model 'package) full))
   (define values (hash-ref e 'values))
   (string-append
-   (format "#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\n#[repr(i32)]\npub enum ~a {\n" name)
+   (format (rust-enum-fragment 'header) name)
    (apply string-append
           (map (lambda (v i)
-                 (format "    ~a~a = ~a,\n" (if (zero? i) "#[default]\n    " "") (rs-pb-camel (hash-ref v 'name)) (hash-ref v 'number)))
+                 (format (rust-enum-fragment 'value) (if (zero? i) (rust-enum-fragment 'defaultMark) "") (rs-pb-camel (hash-ref v 'name)) (hash-ref v 'number)))
                values (range (length values))))
-   "    Unknown(i32),\n}\n\n"
-   (format "impl ~a {\n    pub fn from_i32(v: i32) -> Self {\n        match v {\n" name)
+   (rust-enum-fragment 'unknownVariant)
+   (format (rust-enum-fragment 'implOpen) name)
    (apply string-append
-          (map (lambda (v) (format "            ~a => ~a::~a,\n" (hash-ref v 'number) name (rs-pb-camel (hash-ref v 'name))))
+          (map (lambda (v) (format (rust-enum-fragment 'fromArm) (hash-ref v 'number) name (rs-pb-camel (hash-ref v 'name))))
                values))
-   (format "            _ => ~a::Unknown(v),\n        }\n    }\n" name)
-   (format "    pub fn to_i32(self) -> i32 {\n        match self {\n")
+   (format (rust-enum-fragment 'unknownFromArm) name)
+   (rust-enum-fragment 'toOpen)
    (apply string-append
-          (map (lambda (v) (format "            ~a::~a => ~a,\n" name (rs-pb-camel (hash-ref v 'name)) (hash-ref v 'number)))
+          (map (lambda (v) (format (rust-enum-fragment 'toArm) name (rs-pb-camel (hash-ref v 'name)) (hash-ref v 'number)))
                values))
-   (format "            ~a::Unknown(v) => v,\n        }\n    }\n}\n\n" name)))
+   (format (rust-enum-fragment 'unknownToArm) name)))
 
 (define (emit-rust-pb-file file-model)
   (and (hash-has-key? file-model 'messages)

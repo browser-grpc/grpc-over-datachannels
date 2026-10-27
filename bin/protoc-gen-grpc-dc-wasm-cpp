@@ -86,6 +86,29 @@
  (DATA-LOSS 15)
  (UNAUTHENTICATED 16))
 
+(define rust-enum-shape
+  '((header
+     .
+     "#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\n#[repr(i32)]\npub enum ~a {\n")
+    (defaultMark . "#[default]\n    ")
+    (value . "    ~a~a = ~a,\n")
+    (unknownVariant . "    Unknown(i32),\n}\n\n")
+    (implOpen
+     .
+     "impl ~a {\n    pub fn from_i32(v: i32) -> Self {\n        match v {\n")
+    (fromArm . "            ~a => ~a::~a,\n")
+    (unknownFromArm . "            _ => ~a::Unknown(v),\n        }\n    }\n")
+    (toOpen . "    pub fn to_i32(self) -> i32 {\n        match self {\n")
+    (toArm . "            ~a::~a => ~a,\n")
+    (unknownToArm
+     .
+     "            ~a::Unknown(v) => v,\n        }\n    }\n}\n\n")))
+
+(define (rust-enum-fragment key)
+  (define entry (assq key rust-enum-shape))
+  (unless entry (error 'rust-enum-fragment "unknown key: ~e" key))
+  (cdr entry))
+
 (define-syntax (streaming-kind stx)
   (syntax-case stx ()
     ((_ client? server?)

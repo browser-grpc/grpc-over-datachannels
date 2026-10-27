@@ -1,7 +1,17 @@
 # Spec: single-sourcing the browser (webgen) emitters
 
-Status: scoped, not implemented. Needs a dedicated session;
-do not start casually (see Risks).
+Status: first step implemented. The Rust enum emission shape
+now lives once as the `rust-enum-shape` table in
+`racket/spec.rkt`, consumed by `template-rust.rkt` directly
+and serialized by `webgen.rkt` into the browser generators as
+`RP_ENUM_SHAPE` (the same mechanism as `METHOD_ALIASES`).
+`browser-test/webapp_parity.test.mjs` gained an enum-corpus
+case (kitchen + features protos through the built-in
+generators, message files byte-compared for every language),
+which is the case that would have caught the Rust enum drift.
+Remaining under this spec: scalar/wire tables and message
+layout (option 2), and wider parity growth (option 3) — do
+not start casually (see Risks).
 
 ## Problem
 

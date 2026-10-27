@@ -104,6 +104,36 @@
   (INTERNAL 13) (UNAVAILABLE 14) (DATA-LOSS 15) (UNAUTHENTICATED 16))
 
 ;; ---------------------------------------------------------------------------
+;; Rust enum emission shape — the static text of the generated
+;; Rust enum codec, written once. Consumed by template-rust.rkt
+;; (native plugin) and by webgen.rkt, which serializes the table
+;; into the browser generators as RP_ENUM_SHAPE. A fix to the
+;; enum shape (e.g. the Unknown(i32) round-trip) is made here
+;; only; the webapp parity test byte-compares both sides.
+;; Entries are format strings; the comment names the ~a fill-ins
+;; in order.
+;; ---------------------------------------------------------------------------
+
+(define rust-enum-shape
+  '((header . "#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\n#[repr(i32)]\npub enum ~a {\n") ; enum name
+    (defaultMark . "#[default]\n    ")
+    (value . "    ~a~a = ~a,\n") ; defaultMark-or-empty, value name, number
+    (unknownVariant . "    Unknown(i32),\n}\n\n")
+    (implOpen . "impl ~a {\n    pub fn from_i32(v: i32) -> Self {\n        match v {\n") ; enum name
+    (fromArm . "            ~a => ~a::~a,\n") ; number, enum name, value name
+    (unknownFromArm . "            _ => ~a::Unknown(v),\n        }\n    }\n") ; enum name
+    (toOpen . "    pub fn to_i32(self) -> i32 {\n        match self {\n")
+    (toArm . "            ~a::~a => ~a,\n") ; enum name, value name, number
+    (unknownToArm . "            ~a::Unknown(v) => v,\n        }\n    }\n}\n\n"))) ; enum name
+
+(define (rust-enum-fragment key)
+  (define entry (assq key rust-enum-shape))
+  (unless entry (error 'rust-enum-fragment "unknown key: ~e" key))
+  (cdr entry))
+
+(provide rust-enum-shape rust-enum-fragment)
+
+;; ---------------------------------------------------------------------------
 ;; Streaming-kind classification: (client-streaming?, server-streaming?)
 ;; ---------------------------------------------------------------------------
 
