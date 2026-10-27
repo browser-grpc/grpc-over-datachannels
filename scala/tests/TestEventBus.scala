@@ -36,7 +36,7 @@ object TestEventBus {
 
   private def setupBus(): (EventBusBroker, EventsGrpcDc.EventBusClient) = {
     val broker = new EventBusBroker()
-    val (a, b) = MemoryTransport.Pair()
+    val (a, b) = MemoryTransport.pair()
     val server = new Server()
     broker.register(server)
     server.serveTransport(b)
@@ -98,10 +98,11 @@ object TestEventBus {
     check(all(0).seq == 1L && all(1).seq == 2L, "all seqs")
 
     // -- kinds never cross-match --
-    val (_, client2) = setupBus()
+    val (broker2, client2) = setupBus()
     val got = mutable.ArrayBuffer[Event]()
     collect(Eventbus.subscribeEvents(client2,
       List(Eventbus.tagInt(Tag.KIND, 5))), got)
+    waitFor(() => broker2.stats()("subscribers") == 1L, "kind subscriber")
     Eventbus.publishEvent(client2,
       List(Eventbus.tagString(Tag.KIND, "5")), bytes("s"), "")
     Eventbus.publishEvent(client2,
@@ -112,10 +113,11 @@ object TestEventBus {
     check(text(got(0).payload) == "i", "int kind only")
 
     // -- user tags pass through (Tag is a plain Int) --
-    val (_, client3) = setupBus()
+    val (broker3, client3) = setupBus()
     val got3 = mutable.ArrayBuffer[Event]()
     collect(Eventbus.subscribeEvents(client3,
       List(new TagValue(1004, "x", 0, 0.0, false, 0))), got3)
+    waitFor(() => broker3.stats()("subscribers") == 1L, "user subscriber")
     Eventbus.publishEvent(client3,
       List(new TagValue(1004, "x", 0, 0.0, false, 0)), bytes("u"), "")
     waitFor(() => got3.size == 1, "user tag")

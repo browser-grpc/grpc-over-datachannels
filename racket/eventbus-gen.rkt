@@ -3510,9 +3510,10 @@ module TestEventBus
     TestUtil.assert_eq(all_events.map(&:seq), [1, 2], "all seqs")
 
     # -- kinds never cross-match --
-    _broker2, client2 = setup_bus
+    broker2, client2 = setup_bus
     got = []
     collect(EB.subscribe_events(client2, [EB.tag_int(TAG::KIND, 5)]), got)
+    wait_for("kind subscriber") { broker2.stats["subscribers"] == 1 }
     EB.publish_event(client2, [EB.tag_string(TAG::KIND, "5")], "s")
     EB.publish_event(client2, [EB.tag_enum(TAG::KIND, 5)], "e")
     TestUtil.assert_eq(EB.publish_event(client2, [EB.tag_int(TAG::KIND, 5)], "i"), 3, "seq 3")
@@ -3520,10 +3521,11 @@ module TestEventBus
     TestUtil.assert_eq(got[0].payload, "i", "int kind only")
 
     # -- user tags pass through --
-    _broker3, client3 = setup_bus
+    broker3, client3 = setup_bus
     mine = EventsPb::TagValue.new(tag: 1004, string_value: "x")
     got3 = []
     collect(EB.subscribe_events(client3, [mine]), got3)
+    wait_for("user subscriber") { broker3.stats["subscribers"] == 1 }
     EB.publish_event(client3, [EventsPb::TagValue.new(tag: 1004, string_value: "x")], "u")
     wait_for("user tag") { got3.length == 1 }
     TestUtil.assert_eq(got3[0].tags[0].tag, 1004, "user tag number")
@@ -4811,12 +4813,13 @@ Future<void> testEventBus() async {
   await allSub.cancel();
 
   // -- kinds never cross-match --
-  final (_, client2) = await setupBus();
+  final (broker2, client2) = await setupBus();
   final got = <Event>[];
   final kindSub = (await eb.subscribeEvents(
           client2, [eb.tagInt(Tag.KIND, 5)]))
       .responses
       .listen(got.add);
+  await waitFor(() => broker2.stats()['subscribers'] == 1, 'kind subscriber');
   await eb.publishEvent(client2, [eb.tagString(Tag.KIND, '5')], bytes('s'));
   await eb.publishEvent(client2, [eb.tagEnum(Tag.KIND, 5)], bytes('e'));
   check(
@@ -6254,7 +6257,7 @@ public final class TestEventBus {
 
     private static Object[] setupBus() {
         EventBusBroker broker = new EventBusBroker();
-        Transport[] pair = MemoryTransport.Pair();
+        Transport[] pair = MemoryTransport.pair();
         Server server = new Server();
         broker.register(server);
         server.serveTransport(pair[1]);
@@ -6323,10 +6326,12 @@ public final class TestEventBus {
 
         // -- kinds never cross-match --
         Object[] bus2 = setupBus();
+        EventBusBroker broker2 = (EventBusBroker) bus2[0];
         EventsGrpcDc.EventBusClient client2 = (EventsGrpcDc.EventBusClient) bus2[1];
         List<Event> got = new ArrayList<>();
         collect(Eventbus.subscribeEvents(client2,
                 List.of(Eventbus.tagInt(Tag.KIND, 5))), got);
+        waitFor(() -> broker2.stats().get("subscribers") == 1L, "kind subscriber");
         Eventbus.publishEvent(client2,
                 List.of(Eventbus.tagString(Tag.KIND, "5")), bytes("s"), "");
         Eventbus.publishEvent(client2,
@@ -6434,7 +6439,7 @@ public final class EventBusDemo {
 
     public static void main(String[] args) throws Exception {
         EventBusBroker broker = new EventBusBroker();
-        Transport[] pair = MemoryTransport.Pair();
+        Transport[] pair = MemoryTransport.pair();
         Server server = new Server();
         broker.register(server);
         server.serveTransport(pair[1]);
@@ -7118,10 +7123,11 @@ public static class TestEventBus
         Check(all[0].Seq == 1 && all[1].Seq == 2, "all seqs");
 
         // -- kinds never cross-match --
-        var (_, client2) = SetupBus();
+        var (broker2, client2) = SetupBus();
         var got = new List<Event>();
         Collect(Eventbus.SubscribeEvents(client2,
             new List<TagValue> { Eventbus.TagInt(Tag.KIND, 5) }), got);
+        WaitFor(() => broker2.Stats()["subscribers"] == 1, "kind subscriber");
         Eventbus.PublishEvent(client2,
             new List<TagValue> { Eventbus.TagString(Tag.KIND, "5") }, Bytes("s"));
         Eventbus.PublishEvent(client2,
@@ -7132,10 +7138,11 @@ public static class TestEventBus
         Check(Text(got[0].Payload) == "i", "int kind only");
 
         // -- user tags pass through (C# enums carry unknown values) --
-        var (_, client3) = SetupBus();
+        var (broker3, client3) = SetupBus();
         var got3 = new List<Event>();
         Collect(Eventbus.SubscribeEvents(client3,
             new List<TagValue> { new TagValue((Tag)1004, "x", 0, 0, false, 0) }), got3);
+        WaitFor(() => broker3.Stats()["subscribers"] == 1, "user subscriber");
         Eventbus.PublishEvent(client3,
             new List<TagValue> { new TagValue((Tag)1004, "x", 0, 0, false, 0) }, Bytes("u"));
         WaitFor(() => got3.Count == 1, "user tag");
@@ -7770,7 +7777,7 @@ private fun waitForEb(fn: () -> Boolean, what: String) {
 
 private fun setupBus(): Pair<EventBusBroker, EventsGrpcDc.EventBusClient> {
     val broker = EventBusBroker()
-    val (a, b) = MemoryTransport.Pair()
+    val (a, b) = MemoryTransport.pair()
     val server = Server()
     broker.register(server)
     server.serveTransport(b)
@@ -7830,10 +7837,11 @@ fun testEventBus() {
     checkEb(all[0].seq == 1uL && all[1].seq == 2uL, "all seqs")
 
     // -- kinds never cross-match --
-    val (_, client2) = setupBus()
+    val (broker2, client2) = setupBus()
     val got = ArrayList<Event>()
     collect(Eventbus.subscribeEvents(client2,
         listOf(Eventbus.tagInt(Tag.KIND, 5))), got)
+    waitForEb({ broker2.stats()["subscribers"] == 1L }, "kind subscriber")
     Eventbus.publishEvent(client2,
         listOf(Eventbus.tagString(Tag.KIND, "5")), bytes("s"), "")
     Eventbus.publishEvent(client2,
@@ -7922,7 +7930,7 @@ import java.util.Collections
 
 fun main() {
     val broker = EventBusBroker()
-    val (a, b) = MemoryTransport.Pair()
+    val (a, b) = MemoryTransport.pair()
     val server = Server()
     broker.register(server)
     server.serveTransport(b)
@@ -8492,7 +8500,7 @@ object TestEventBus {
 
   private def setupBus(): (EventBusBroker, EventsGrpcDc.EventBusClient) = {
     val broker = new EventBusBroker()
-    val (a, b) = MemoryTransport.Pair()
+    val (a, b) = MemoryTransport.pair()
     val server = new Server()
     broker.register(server)
     server.serveTransport(b)
@@ -8554,10 +8562,11 @@ object TestEventBus {
     check(all(0).seq == 1L && all(1).seq == 2L, "all seqs")
 
     // -- kinds never cross-match --
-    val (_, client2) = setupBus()
+    val (broker2, client2) = setupBus()
     val got = mutable.ArrayBuffer[Event]()
     collect(Eventbus.subscribeEvents(client2,
       List(Eventbus.tagInt(Tag.KIND, 5))), got)
+    waitFor(() => broker2.stats()("subscribers") == 1L, "kind subscriber")
     Eventbus.publishEvent(client2,
       List(Eventbus.tagString(Tag.KIND, "5")), bytes("s"), "")
     Eventbus.publishEvent(client2,
@@ -8568,10 +8577,11 @@ object TestEventBus {
     check(text(got(0).payload) == "i", "int kind only")
 
     // -- user tags pass through (Tag is a plain Int) --
-    val (_, client3) = setupBus()
+    val (broker3, client3) = setupBus()
     val got3 = mutable.ArrayBuffer[Event]()
     collect(Eventbus.subscribeEvents(client3,
       List(new TagValue(1004, "x", 0, 0.0, false, 0))), got3)
+    waitFor(() => broker3.stats()("subscribers") == 1L, "user subscriber")
     Eventbus.publishEvent(client3,
       List(new TagValue(1004, "x", 0, 0.0, false, 0)), bytes("u"), "")
     waitFor(() => got3.size == 1, "user tag")
@@ -8661,7 +8671,7 @@ import scala.collection.mutable
 object EventBusDemo {
   def main(args: Array[String]): Unit = {
     val broker = new EventBusBroker()
-    val (a, b) = MemoryTransport.Pair()
+    val (a, b) = MemoryTransport.pair()
     val server = new Server()
     broker.register(server)
     server.serveTransport(b)
@@ -9276,9 +9286,10 @@ func TestEventBus() throws {
     check(allEvents[0].seq == 1 && allEvents[1].seq == 2, "all seqs")
 
     // -- kinds never cross-match --
-    let (_, client2) = setupBus()
+    let (broker2, client2) = setupBus()
     let got = EventBox()
     collect(try subscribeEvents(client2, [tagInt(Tag.KIND, 5)]), got)
+    waitFor({ broker2.stats()["subscribers"] == 1 }, "kind subscriber")
     _ = try publishEvent(client2, [tagString(Tag.KIND, "5")], bytes("s"), "")
     _ = try publishEvent(client2, [tagEnum(Tag.KIND, 5)], bytes("e"), "")
     check(try publishEvent(client2, [tagInt(Tag.KIND, 5)], bytes("i"), "") == 3,
@@ -10179,6 +10190,8 @@ void TestEventBus() {
     std::mutex got_mutex;
     Collect(SubscribeEvents(*bus.client, {TagInt(Tag::KIND, 5)}), &got,
             &got_mutex);
+    WaitFor([&] { return bus.broker.Stats().at("subscribers") == 1; },
+            "kind subscriber");
     PublishEvent(*bus.client, {TagString(Tag::KIND, "5")}, Bytes("s"));
     PublishEvent(*bus.client, {TagEnum(Tag::KIND, 5)}, Bytes("e"));
     Check(PublishEvent(*bus.client, {TagInt(Tag::KIND, 5)}, Bytes("i")) == 3,
@@ -10202,6 +10215,8 @@ void TestEventBus() {
     mine.tag = static_cast<Tag>(1004);
     mine.string_value = "x";
     Collect(SubscribeEvents(*bus.client, {mine}), &got, &got_mutex);
+    WaitFor([&] { return bus.broker.Stats().at("subscribers") == 1; },
+            "user subscriber");
     PublishEvent(*bus.client, {mine}, Bytes("u"));
     WaitFor(
         [&] {
@@ -11063,6 +11078,7 @@ pub fn testEventBus(alloc: std.mem.Allocator) void {
         .mutex = &got_mutex,
     };
     _ = std.Thread.spawn(.{}, collectMain, .{&got_ctx}) catch unreachable;
+    waitFor(&bus2.broker, 1, "kind subscriber");
     _ = eb.publishEvent(&bus2.client, &.{eb.tagString(.KIND, "5")}, "s", "");
     _ = eb.publishEvent(&bus2.client, &.{eb.tagEnum(.KIND, 5)}, "e", "");
     checkEq(u64, eb.publishEvent(&bus2.client, &.{eb.tagInt(.KIND, 5)}, "i", ""), 3, "seq 3");

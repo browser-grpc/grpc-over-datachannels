@@ -250,6 +250,28 @@ TURNS (TLS) and IPv6 legs against a real coturn. Browsers
 stay dial-only with relay-only ICE (the symmetric-NAT shape) in `browser-test/direct_turn.test.mjs`. Details and
 test map: [SPEC-WEBRTC.md](SPEC-WEBRTC.md#webrtc-direct-libp2p-style).
 
+### Event bus
+
+Every language also ships a generated event bus,
+`grpcdc.events.v1.EventBus`: `Publish` (unary) and `Subscribe`
+(server-streaming) over the same transports, with an in-memory
+at-most-once broker you can host on any peer. Topics are a
+shallow list of tag-values — a proto-enum tag plus a oneof
+value — and delivery is by containment: a subscriber receives
+an event when the event's tags contain every filter pair, and
+the value kind is part of the match (`int 5` ≠ `"5"` ≠
+`enum 5`). To define your own tags, copy `proto/events.proto`,
+add enum values (1000+), and regenerate. The broker stamps
+each event with a sequence number and timestamp, fans out to
+bounded per-subscriber queues (drop-oldest), and reports
+drops in `stats`. A git-backed log serde sits beside the
+live broker: one commit per event on a branch
+(`grpc-dc-events` by default), deterministic and idempotent,
+importable with sequence-window and tag filters. Demos and
+generated tests ship per language
+(`eventbus_demo` / `TestEventBus`); the browser exercises it
+end-to-end against a native Go broker.
+
 Signaling/ICE stay with your app: hand an *open* channel to these APIs.
 Rust plugs a real `RTCDataChannel` in through the `DcTransport` trait
 (`InboxDc` adapts callback-style stacks such as the `webrtc` crate); JS

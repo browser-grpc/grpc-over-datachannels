@@ -103,10 +103,11 @@ public static class TestEventBus
         Check(all[0].Seq == 1 && all[1].Seq == 2, "all seqs");
 
         // -- kinds never cross-match --
-        var (_, client2) = SetupBus();
+        var (broker2, client2) = SetupBus();
         var got = new List<Event>();
         Collect(Eventbus.SubscribeEvents(client2,
             new List<TagValue> { Eventbus.TagInt(Tag.KIND, 5) }), got);
+        WaitFor(() => broker2.Stats()["subscribers"] == 1, "kind subscriber");
         Eventbus.PublishEvent(client2,
             new List<TagValue> { Eventbus.TagString(Tag.KIND, "5") }, Bytes("s"));
         Eventbus.PublishEvent(client2,
@@ -117,10 +118,11 @@ public static class TestEventBus
         Check(Text(got[0].Payload) == "i", "int kind only");
 
         // -- user tags pass through (C# enums carry unknown values) --
-        var (_, client3) = SetupBus();
+        var (broker3, client3) = SetupBus();
         var got3 = new List<Event>();
         Collect(Eventbus.SubscribeEvents(client3,
             new List<TagValue> { new TagValue((Tag)1004, "x", 0, 0, false, 0) }), got3);
+        WaitFor(() => broker3.Stats()["subscribers"] == 1, "user subscriber");
         Eventbus.PublishEvent(client3,
             new List<TagValue> { new TagValue((Tag)1004, "x", 0, 0, false, 0) }, Bytes("u"));
         WaitFor(() => got3.Count == 1, "user tag");

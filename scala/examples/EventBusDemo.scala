@@ -23,7 +23,7 @@ import scala.collection.mutable
 object EventBusDemo {
   def main(args: Array[String]): Unit = {
     val broker = new EventBusBroker()
-    val (a, b) = MemoryTransport.Pair()
+    val (a, b) = MemoryTransport.pair()
     val server = new Server()
     broker.register(server)
     server.serveTransport(b)

@@ -43,7 +43,7 @@ public final class TestEventBus {
 
     private static Object[] setupBus() {
         EventBusBroker broker = new EventBusBroker();
-        Transport[] pair = MemoryTransport.Pair();
+        Transport[] pair = MemoryTransport.pair();
         Server server = new Server();
         broker.register(server);
         server.serveTransport(pair[1]);
@@ -112,10 +112,12 @@ public final class TestEventBus {
 
         // -- kinds never cross-match --
         Object[] bus2 = setupBus();
+        EventBusBroker broker2 = (EventBusBroker) bus2[0];
         EventsGrpcDc.EventBusClient client2 = (EventsGrpcDc.EventBusClient) bus2[1];
         List<Event> got = new ArrayList<>();
         collect(Eventbus.subscribeEvents(client2,
                 List.of(Eventbus.tagInt(Tag.KIND, 5))), got);
+        waitFor(() -> broker2.stats().get("subscribers") == 1L, "kind subscriber");
         Eventbus.publishEvent(client2,
                 List.of(Eventbus.tagString(Tag.KIND, "5")), bytes("s"), "");
         Eventbus.publishEvent(client2,

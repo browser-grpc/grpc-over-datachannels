@@ -66,9 +66,10 @@ module TestEventBus
     TestUtil.assert_eq(all_events.map(&:seq), [1, 2], "all seqs")
 
     # -- kinds never cross-match --
-    _broker2, client2 = setup_bus
+    broker2, client2 = setup_bus
     got = []
     collect(EB.subscribe_events(client2, [EB.tag_int(TAG::KIND, 5)]), got)
+    wait_for("kind subscriber") { broker2.stats["subscribers"] == 1 }
     EB.publish_event(client2, [EB.tag_string(TAG::KIND, "5")], "s")
     EB.publish_event(client2, [EB.tag_enum(TAG::KIND, 5)], "e")
     TestUtil.assert_eq(EB.publish_event(client2, [EB.tag_int(TAG::KIND, 5)], "i"), 3, "seq 3")
@@ -76,10 +77,11 @@ module TestEventBus
     TestUtil.assert_eq(got[0].payload, "i", "int kind only")
 
     # -- user tags pass through --
-    _broker3, client3 = setup_bus
+    broker3, client3 = setup_bus
     mine = EventsPb::TagValue.new(tag: 1004, string_value: "x")
     got3 = []
     collect(EB.subscribe_events(client3, [mine]), got3)
+    wait_for("user subscriber") { broker3.stats["subscribers"] == 1 }
     EB.publish_event(client3, [EventsPb::TagValue.new(tag: 1004, string_value: "x")], "u")
     wait_for("user tag") { got3.length == 1 }
     TestUtil.assert_eq(got3[0].tags[0].tag, 1004, "user tag number")

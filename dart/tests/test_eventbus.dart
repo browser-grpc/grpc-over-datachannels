@@ -77,12 +77,13 @@ Future<void> testEventBus() async {
   await allSub.cancel();
 
   // -- kinds never cross-match --
-  final (_, client2) = await setupBus();
+  final (broker2, client2) = await setupBus();
   final got = <Event>[];
   final kindSub = (await eb.subscribeEvents(
           client2, [eb.tagInt(Tag.KIND, 5)]))
       .responses
       .listen(got.add);
+  await waitFor(() => broker2.stats()['subscribers'] == 1, 'kind subscriber');
   await eb.publishEvent(client2, [eb.tagString(Tag.KIND, '5')], bytes('s'));
   await eb.publishEvent(client2, [eb.tagEnum(Tag.KIND, 5)], bytes('e'));
   check(

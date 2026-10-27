@@ -26,7 +26,7 @@ public final class EventBusDemo {
 
     public static void main(String[] args) throws Exception {
         EventBusBroker broker = new EventBusBroker();
-        Transport[] pair = MemoryTransport.Pair();
+        Transport[] pair = MemoryTransport.pair();
         Server server = new Server();
         broker.register(server);
         server.serveTransport(pair[1]);

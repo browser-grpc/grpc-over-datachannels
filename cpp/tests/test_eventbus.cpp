@@ -128,6 +128,8 @@ void TestEventBus() {
     std::mutex got_mutex;
     Collect(SubscribeEvents(*bus.client, {TagInt(Tag::KIND, 5)}), &got,
             &got_mutex);
+    WaitFor([&] { return bus.broker.Stats().at("subscribers") == 1; },
+            "kind subscriber");
     PublishEvent(*bus.client, {TagString(Tag::KIND, "5")}, Bytes("s"));
     PublishEvent(*bus.client, {TagEnum(Tag::KIND, 5)}, Bytes("e"));
     Check(PublishEvent(*bus.client, {TagInt(Tag::KIND, 5)}, Bytes("i")) == 3,
@@ -151,6 +153,8 @@ void TestEventBus() {
     mine.tag = static_cast<Tag>(1004);
     mine.string_value = "x";
     Collect(SubscribeEvents(*bus.client, {mine}), &got, &got_mutex);
+    WaitFor([&] { return bus.broker.Stats().at("subscribers") == 1; },
+            "user subscriber");
     PublishEvent(*bus.client, {mine}, Bytes("u"));
     WaitFor(
         [&] {

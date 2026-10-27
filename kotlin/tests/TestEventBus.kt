@@ -34,7 +34,7 @@ private fun waitForEb(fn: () -> Boolean, what: String) {
 
 private fun setupBus(): Pair<EventBusBroker, EventsGrpcDc.EventBusClient> {
     val broker = EventBusBroker()
-    val (a, b) = MemoryTransport.Pair()
+    val (a, b) = MemoryTransport.pair()
     val server = Server()
     broker.register(server)
     server.serveTransport(b)
@@ -94,10 +94,11 @@ fun testEventBus() {
     checkEb(all[0].seq == 1uL && all[1].seq == 2uL, "all seqs")
 
     // -- kinds never cross-match --
-    val (_, client2) = setupBus()
+    val (broker2, client2) = setupBus()
     val got = ArrayList<Event>()
     collect(Eventbus.subscribeEvents(client2,
         listOf(Eventbus.tagInt(Tag.KIND, 5))), got)
+    waitForEb({ broker2.stats()["subscribers"] == 1L }, "kind subscriber")
     Eventbus.publishEvent(client2,
         listOf(Eventbus.tagString(Tag.KIND, "5")), bytes("s"), "")
     Eventbus.publishEvent(client2,

@@ -95,9 +95,10 @@ func TestEventBus() throws {
     check(allEvents[0].seq == 1 && allEvents[1].seq == 2, "all seqs")
 
     // -- kinds never cross-match --
-    let (_, client2) = setupBus()
+    let (broker2, client2) = setupBus()
     let got = EventBox()
     collect(try subscribeEvents(client2, [tagInt(Tag.KIND, 5)]), got)
+    waitFor({ broker2.stats()["subscribers"] == 1 }, "kind subscriber")
     _ = try publishEvent(client2, [tagString(Tag.KIND, "5")], bytes("s"), "")
     _ = try publishEvent(client2, [tagEnum(Tag.KIND, 5)], bytes("e"), "")
     check(try publishEvent(client2, [tagInt(Tag.KIND, 5)], bytes("i"), "") == 3,

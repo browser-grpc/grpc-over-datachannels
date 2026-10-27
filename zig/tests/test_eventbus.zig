@@ -139,6 +139,7 @@ pub fn testEventBus(alloc: std.mem.Allocator) void {
         .mutex = &got_mutex,
     };
     _ = std.Thread.spawn(.{}, collectMain, .{&got_ctx}) catch unreachable;
+    waitFor(&bus2.broker, 1, "kind subscriber");
     _ = eb.publishEvent(&bus2.client, &.{eb.tagString(.KIND, "5")}, "s", "");
     _ = eb.publishEvent(&bus2.client, &.{eb.tagEnum(.KIND, 5)}, "e", "");
     checkEq(u64, eb.publishEvent(&bus2.client, &.{eb.tagInt(.KIND, 5)}, "i", ""), 3, "seq 3");
