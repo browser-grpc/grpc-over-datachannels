@@ -8936,9 +8936,8 @@ function camelName(s) {
 }
 
 function rbDeprecated(m) {
-  return m.deprecated ? '      warn "deprecated"\n' : '';
+  return runSegments(SEGMENT_PROGRAMS.rbDeprecated, m, '');
 }
-
 function rbStubRef(model, full) {
   const e = rbpResolve(model, full);
   return rbpModuleName(e) + '::' + rbpFlat(e.pkg, e.msg.fullName);
@@ -8957,272 +8956,17 @@ function rbStubRequires(model) {
 }
 
 function rbClientMethodKind(model, m, fiber) {
-  const path = q(m.path);
-  const recvCls = fiber ? 'FiberRecvStream' : 'RecvStream';
-  const resp = rbStubRef(model, m.outputFull);
-  switch (m.kind) {
-    case 'unary':
-      return '    def ' + m.name + '(req, metadata = nil, timeout: nil)\n'
-        + rbDeprecated(m)
-        + '      @channel.unary(' + path + ', req, ' + resp + '.new, metadata, timeout: timeout)\n    end\n\n';
-    case 'server-streaming':
-      return '    def ' + m.name + '(req, metadata = nil, timeout: nil)\n'
-        + rbDeprecated(m)
-        + '      stream = @channel.server_stream(' + path + ', req, metadata, timeout: timeout)\n'
-        + '      ' + recvCls + '.new(stream, ' + resp + ')\n    end\n\n';
-    case 'client-streaming':
-      return '    def ' + m.name + '(reqs, metadata = nil, timeout: nil)\n'
-        + rbDeprecated(m)
-        + '      @channel.client_stream(' + path + ', reqs, ' + resp + '.new, metadata, timeout: timeout)\n    end\n\n';
-    default:
-      return '    def ' + m.name + '(reqs, metadata = nil, timeout: nil)\n'
-        + rbDeprecated(m)
-        + '      stream = @channel.bidi(' + path + ', reqs, metadata, timeout: timeout)\n'
-        + '      ' + recvCls + '.new(stream, ' + resp + ')\n    end\n\n';
-  }
+  return runSegments(fiber ? SEGMENT_PROGRAMS.rbFiberClientMethod : SEGMENT_PROGRAMS.rbClientMethod, m, '', model);
 }
-
 function rbServerHandler(model, m) {
-  const handlerVar = snake(m.name) + '_handler';
-  const impl = m.implName;
-  const req = rbStubRef(model, m.inputFull);
-  switch (m.kind) {
-    case 'unary':
-      return '    ' + handlerVar + ' = lambda do |ctx, reqs, sink|\n'
-        + '      req = reqs.recv_into(' + req + '.new)\n'
-        + '      resp = impl.' + impl + '(ctx, req)\n'
-        + '      sink.send(resp.marshal_dc)\n    end\n\n';
-    case 'server-streaming':
-      return '    ' + handlerVar + ' = lambda do |ctx, reqs, sink|\n'
-        + '      req = reqs.recv_into(' + req + '.new)\n'
-        + '      impl.' + impl + '(req, SendStream.new(ctx, sink))\n    end\n\n';
-    case 'client-streaming':
-      return '    ' + handlerVar + ' = lambda do |ctx, reqs, sink|\n'
-        + '      stream = ClientStreamImpl.new(ctx, reqs, ' + req + ')\n'
-        + '      impl.' + impl + '(stream)\n'
-        + '      if stream.resp.nil?\n'
-        + '        raise Grpcdc::StatusError.new(Grpcdc::CODE_INTERNAL, "client-streaming handler never called SendAndClose")\n'
-        + '      end\n'
-        + '      sink.send(stream.resp.marshal_dc)\n    end\n\n';
-    default:
-      return '    ' + handlerVar + ' = lambda do |ctx, reqs, sink|\n'
-        + '      impl.' + impl + '(BidiStream.new(ctx, reqs, sink, ' + req + '))\n    end\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.rbServerHandler, m, '', model);
 }
-
-const RB_KIND_NAMES = {
-  unary: 'KIND_UNARY',
-  'server-streaming': 'KIND_SERVER_STREAMING',
-  'client-streaming': 'KIND_CLIENT_STREAMING',
-  bidi: 'KIND_BIDI',
-};
-
 function rbMethodEntry(m) {
-  return '        Grpcdc::Method.new(' + q(m.name) + ', ' + q(m.path) + ', Grpcdc::' + RB_KIND_NAMES[m.kind] + ', ' + snake(m.name) + '_handler),\n';
+  return runSegments(SEGMENT_PROGRAMS.rbMethodEntry, m, '');
 }
-
-const RB_STREAM_HELPERS = `  # Client receiving stream: recv raises EOFError at end.
-  class RecvStream
-    include Enumerable
-
-    def initialize(stream, resp_cls)
-      @stream = stream
-      @resp_cls = resp_cls
-    end
-
-    def recv
-      @stream.recv(@resp_cls.new)
-    end
-
-    # Response initial metadata (after the first recv).
-    def headers
-      @stream.headers&.metadata
-    end
-
-    # Response trailing metadata (after the call ends).
-    def trailers
-      @stream.trailers
-    end
-
-    # Abandon the call early: RST so the server stops producing.
-    def cancel
-      @stream.cancel
-    end
-
-    def close
-      @stream.cancel
-    end
-
-    def each
-      return enum_for(:each) unless block_given?
-
-      begin
-        loop do
-          begin
-            yield recv
-          rescue EOFError
-            return
-          end
-        end
-      ensure
-        # Breaking out of the block abandons the call: RST so
-        # the server stops producing (no-op once terminated).
-        close
-      end
-    end
-  end
-
-  # Server-streaming sink passed to service implementations.
-  class SendStream
-    attr_reader :context
-
-    def initialize(ctx, sink)
-      @context = ctx
-      @sink = sink
-    end
-
-    def send(resp)
-      @sink.send(resp.marshal_dc)
-    end
-  end
-
-  # Client-streaming stream passed to service implementations.
-  class ClientStreamImpl
-    attr_reader :context, :resp
-
-    def initialize(ctx, reqs, req_cls)
-      @context = ctx
-      @reqs = reqs
-      @req_cls = req_cls
-      @resp = nil
-    end
-
-    def recv
-      @reqs.recv_into(@req_cls.new)
-    end
-
-    def send_and_close(resp)
-      @resp = resp
-    end
-  end
-
-  # Bidi stream passed to service implementations.
-  class BidiStream
-    attr_reader :context
-
-    def initialize(ctx, reqs, sink, req_cls)
-      @context = ctx
-      @reqs = reqs
-      @sink = sink
-      @req_cls = req_cls
-    end
-
-    def send(resp)
-      @sink.send(resp.marshal_dc)
-    end
-
-    def recv
-      @reqs.recv_into(@req_cls.new)
-    end
-  end
-
-  # Fiber-based client receiving stream: a producer Fiber
-  # yields each response; next_msg resumes it and raises
-  # StopIteration when the call completes. cancel aborts
-  # the underlying stream (RST).
-  class FiberRecvStream
-    include Enumerable
-
-    DONE = Object.new
-
-    def initialize(stream, resp_cls)
-      @stream = stream
-      @resp_cls = resp_cls
-      @fiber = Fiber.new do
-        begin
-          loop { Fiber.yield(@stream.recv(@resp_cls.new)) }
-        rescue EOFError
-          DONE
-        end
-      end
-    end
-
-    def next_msg
-      value = @fiber.resume
-      raise StopIteration if value.equal?(DONE)
-
-      value
-    end
-
-    # Response initial metadata (after the first recv).
-    def headers
-      @stream.headers&.metadata
-    end
-
-    # Response trailing metadata (after the call ends).
-    def trailers
-      @stream.trailers
-    end
-
-    def cancel
-      @stream.cancel
-    end
-
-    def close
-      @stream.cancel
-    end
-
-    def each
-      return enum_for(:each) unless block_given?
-
-      begin
-        loop do
-          begin
-            yield next_msg
-          rescue StopIteration
-            return
-          end
-        end
-      ensure
-        # Breaking out of the block abandons the call: RST so
-        # the server stops producing (no-op once terminated).
-        close
-      end
-    end
-  end
-
-`;
-
 function rbService(model, svc) {
-  const sname = svc.name;
-  const all = svc.methods.concat(aliasClientMethods(svc));
-  const allServer = svc.methods.concat(aliasServerMethods(svc));
-  return '  class ' + sname + 'Client\n    def initialize(channel)\n      @channel = channel\n    end\n\n'
-    + all.map((m) => rbClientMethodKind(model, m, false)).join('')
-    + '  end\n\n'
-    + '  # Fiber client: wraps a Grpcdc::FiberChannel (a sync Channel is wrapped).\n'
-    + '  class ' + sname + 'ClientFiber\n    def initialize(channel)\n      @channel = channel.is_a?(Grpcdc::FiberChannel) ? channel : Grpcdc::FiberChannel.new(channel)\n    end\n\n'
-    + all.map((m) => rbClientMethodKind(model, m, true)).join('')
-    + '  end\n\n'
-    + '  def self.register_' + snake(sname) + '_server(server, impl)\n'
-    + allServer.map((m) => rbServerHandler(model, m)).join('')
-    + '    server.register_service(Grpcdc::ServiceDesc.new(\n      ' + q(svc.fullName) + ',\n      [\n'
-    + allServer.map(rbMethodEntry).join('')
-    + '      ]\n    ))\n  end\n';
+  return runSegments(SEGMENT_PROGRAMS.rbService, svc, svc.name, model);
 }
-
-
-// ---------------------------------------------------------------------------
-// Ruby message types, mirroring the native ruby template
-// (the rb-pb-* functions): a single <base>_pb.rb per proto file
-// with the <Base>Pb module, wire support, enums and message
-// classes. Byte-identical to the native protoc-gen-grpc-dc-ruby
-// plugin.
-// ---------------------------------------------------------------------------
-
-const RBP_VARINT = new Set(VARINT_TYPES);
-const RBP_FIXED = FIXED_TABLES.ruby;
-
 function rbpFlat(pkg, full) {
   const rel = pkg && full.startsWith(pkg + '.') ? full.slice(pkg.length + 1) : full;
   return rel.split('.').join('_');
@@ -9247,226 +8991,46 @@ function rbpEntryRef(model, entry) {
 }
 
 function rbpExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case 9: return JSON.stringify(d);
-    case 8: return d;
-    case 14: return String(enumDefaultNumber(model, f));
-    default: return d;
-  }
+  const lit = runSegments(SEGMENT_PROGRAMS.rbPbExplicitLiteral, f, '', model);
+  return lit === '' ? null : lit;
 }
-
 function rbpDefault(model, f) {
-  const lit = rbpExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.type === FT.MESSAGE && rbpResolve(model, f.typeName).kind === 'map') return '{}';
-  if (f.label === 3) return '[]';
-  if (f.type === FT.MESSAGE) return 'nil';
-  if (f.type === FT.STRING) return '""';
-  if (f.type === FT.BYTES) return '"".b';
-  if (f.type === FT.BOOL) return 'false';
-  if (f.type === FT.DOUBLE || f.type === FT.FLOAT) return '0.0';
-  if (f.type === FT.ENUM) {
-    const entry = rbpResolve(model, f.typeName);
-    return String(entry.enum.values[0].number);
-  }
-  return '0';
+  return runSegments(SEGMENT_PROGRAMS.rbPbDefault, f, '', model);
 }
-
 function rbpVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return '(' + v + ' ? 1 : 0)';
-    case 17: return '(((' + v + ' << 1) ^ (' + v + ' >> 31)) & 0xffffffff)';
-    case 18: return '((' + v + ' << 1) ^ (' + v + ' >> 63))';
-    default: return v;
-  }
+  return runSegments(SEGMENT_PROGRAMS.rbPbVarintExpr, f, '', null, [v]);
 }
-
 function rbpVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: case 14: return '(((' + v + ' & 0xffffffff) ^ 0x80000000) - 0x80000000)';
-    case 13: case 7: return '(' + v + ' & 0xffffffff)';
-    case 3: return '(((' + v + ' & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)';
-    case 4: return '(' + v + ' & 0xffffffffffffffff)';
-    case 8: return '(' + v + ' != 0)';
-    case 17: return '(((' + v + ' & 0xffffffff) >> 1) ^ -((' + v + ' & 0xffffffff) & 1))';
-    case 18: return '((' + v + ' >> 1) ^ -(' + v + ' & 1))';
-    default: return v;
-  }
+  return runSegments(SEGMENT_PROGRAMS.rbPbVarintDecode, f, '', null, [v]);
 }
-
 function rbpFixedFmt(f) {
-  return RBP_FIXED[f.type][1];
+  return FIXED_TABLES.ruby[f.type][1];
 }
-
-function rbpWire(f) {
-  return RBP_FIXED[f.type][0] === 8 ? 1 : 5;
-}
-
 function rbpNonzero(f, v) {
-  return f.type === FT.BOOL ? v : v + ' != 0';
+  return runSegments(SEGMENT_PROGRAMS.rbPbNonzero, f, '', null, [v]);
 }
-
 function rbpEncodeSingular(model, pb, f, v, indent) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (RBP_VARINT.has(f.type)) {
-    return proto2
-      ? indent + 'w.tag(' + n + ', 0)\n' + indent + 'w.varint(' + rbpVarintExpr(f, v) + ')\n'
-      : indent + 'if ' + rbpNonzero(f, v) + '\n' + indent + '  w.tag(' + n + ', 0)\n' + indent + '  w.varint(' + rbpVarintExpr(f, v) + ')\n' + indent + 'end\n';
-  }
-  if (RBP_FIXED[f.type]) {
-    return proto2
-      ? indent + 'w.tag(' + n + ', ' + rbpWire(f) + ')\n' + indent + 'w.fixed(' + JSON.stringify(rbpFixedFmt(f)) + ', ' + v + ')\n'
-      : indent + 'if ' + v + ' != 0\n' + indent + '  w.tag(' + n + ', ' + rbpWire(f) + ')\n' + indent + '  w.fixed(' + JSON.stringify(rbpFixedFmt(f)) + ', ' + v + ')\n' + indent + 'end\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + 'w.bytes_field(' + n + ', ' + v + '.encode(Encoding::UTF_8).b)\n'
-      : indent + 'w.string_field(' + n + ', ' + v + ')\n';
-    case 12: return proto2
-      ? indent + 'w.bytes_field(' + n + ', ' + v + ')\n'
-      : indent + 'if ' + v + '.bytesize > 0\n' + indent + '  w.bytes_field(' + n + ', ' + v + ')\n' + indent + 'end\n';
-    case 11: return indent + 'unless ' + v + '.nil?\n' + indent + '  w.bytes_field(' + n + ', ' + v + '.marshal_dc)\n' + indent + 'end\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
+  return runSegments(SEGMENT_PROGRAMS.rbPbEncodeSingular, f, '', model, [v, indent]);
 }
-
-function rbpSetExpr(sib) {
-  const v = '@' + sib.name;
-  switch (sib.type) {
-    case 11: case 10: return '!' + v + '.nil?';
-    case 9: case 12: return '(!' + v + '.nil? && !' + v + '.empty?)';
-    default: return rbpNonzero(sib, v);
-  }
-}
-
-function rbpEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '    unless (' + later.map(rbpSetExpr).join(' || ') + ')\n' + (code.endsWith('\n') ? code : code + '\n') + '    end\n';
-}
-
 function rbpEncodeField(model, pb, f) {
-  const v = '@' + f.name;
-  const n = f.number;
-  if (f.type === FT.MESSAGE && rbpResolve(model, f.typeName).kind === 'map') {
-    const entry = rbpResolve(model, f.typeName);
-    const helper = pb + 'Pb.encode_' + snake(rbpEntryRef(model, entry));
-    return '    ' + v + '.each { |k, val| w.bytes_field(' + n + ', ' + helper + '(k, val)) }\n';
-  }
-  if (f.label !== 3) return rbpEncodeSingular(model, pb, f, v, '    ');
-  if (RBP_VARINT.has(f.type)) {
-    return '    unless ' + v + '.empty?\n      payload = +"".b\n'
-      + '      ' + v + '.each { |x| payload << ' + pb + 'PbVarint.call(' + rbpVarintExpr(f, 'x') + ') }\n'
-      + '      w.bytes_field(' + n + ', payload)\n    end\n';
-  }
-  const fixed = RBP_FIXED[f.type];
-  if (fixed) {
-    return '    unless ' + v + '.empty?\n'
-      + '      w.bytes_field(' + n + ', ' + v + '.pack(' + JSON.stringify(fixed[1] + '*') + '))\n    end\n';
-  }
-  switch (f.type) {
-    case 9: case 12: return '    ' + v + '.each { |x| w.bytes_field(' + n + ', x) }\n';
-    case 11: return '    ' + v + '.each { |x| w.bytes_field(' + n + ', x.marshal_dc) }\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.rbPbEncodeField, f, '', model, [pb]);
 }
-
 function rbpDecodeSingular(model, f, target, src, indent) {
-  if (RBP_VARINT.has(f.type)) {
-    return indent + target + ' = ' + rbpVarintDecode(f, src) + '\n';
-  }
-  if (RBP_FIXED[f.type]) {
-    return indent + target + ' = ' + src + '.unpack1(' + JSON.stringify(rbpFixedFmt(f)) + ')\n';
-  }
-  switch (f.type) {
-    case 9: return indent + target + ' = ' + src + '.dup.force_encoding(Encoding::UTF_8)\n';
-    case 12: return indent + target + ' = ' + src + '\n';
-    case 11: {
-      const ref = rbpEntryRef(model, rbpResolve(model, f.typeName));
-      return indent + target + ' = ' + ref + '.new\n' + indent + target + '.unmarshal_dc(' + src + ')\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.rbPbDecodeSingular, f, '', model, [target, src, indent]);
 }
-
 function rbpOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => '        @' + sib.name + ' = ' + rbpDefault(model, sib) + '\n').join('');
+  return runSegments(SEGMENT_PROGRAMS.rbPbOneofClearing, f, '', model);
 }
-
 function rbpSrc(f) {
   return RBP_VARINT.has(f.type) ? 'varint_value' : (RBP_FIXED[f.type] ? 'fixed_value' : 'bytes_value');
 }
 
 function rbpDecodeCase(model, f) {
-  const v = '@' + f.name;
-  const head = '      when ' + f.number + '\n';
-  if (f.type === FT.MESSAGE && rbpResolve(model, f.typeName).kind === 'map') {
-    const entry = rbpResolve(model, f.typeName);
-    const pb = camelName(baseName(model.name)) + 'Pb';
-    const helper = pb + '.decode_' + snake(rbpEntryRef(model, entry));
-    return head
-      + '        kk, vv = ' + helper + '(bytes_value)\n'
-      + '        ' + v + '[kk] = vv\n';
-  }
-  if (f.label !== 3) {
-    return head + rbpOneofClearing(model, f) + rbpDecodeSingular(model, f, v, rbpSrc(f), '        ');
-  }
-  if (RBP_VARINT.has(f.type)) {
-    return head
-      + '        if wire == 2\n'
-      + '          sub = Reader.new(bytes_value)\n'
-      + '          until sub.done?\n'
-      + '            raw = sub.varint\n'
-      + '            ' + v + ' << ' + rbpVarintDecode(f, 'raw') + '\n'
-      + '          end\n        else\n'
-      + '          ' + v + ' << ' + rbpVarintDecode(f, 'varint_value') + '\n'
-      + '        end\n';
-  }
-  const fixed = RBP_FIXED[f.type];
-  if (fixed) {
-    return head
-      + '        if wire == 2\n'
-      + '          bytes_value.unpack(' + JSON.stringify(fixed[1] + '*') + ').each { |x| ' + v + ' << x }\n'
-      + '        else\n'
-      + '          ' + v + ' << fixed_value.unpack1(' + JSON.stringify(fixed[1]) + ')\n'
-      + '        end\n';
-  }
-  switch (f.type) {
-    case 9: return head + '        ' + v + ' << bytes_value.dup.force_encoding(Encoding::UTF_8)\n';
-    case 12: return head + '        ' + v + ' << bytes_value\n';
-    case 11: return head
-      + '        item = ' + rbpEntryRef(model, rbpResolve(model, f.typeName)) + '.new\n'
-      + '        item.unmarshal_dc(bytes_value)\n'
-      + '        ' + v + ' << item\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.rbPbDecodeCase, f, '', model);
 }
-
 function rbpMapHelpers(model, pb, entry) {
-  const msg = entry.msg;
-  const base = snake(rbpEntryRef(model, entry));
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry lacks key/value');
-  return '  def self.encode_' + base + '(key, value)\n    w = Writer.new\n'
-    + rbpEncodeSingular(model, pb, { ...keyF, label: 1 }, 'key', '    ')
-    + rbpEncodeSingular(model, pb, { ...valF, label: 1 }, 'value', '    ')
-    + '    w.to_bytes\n  end\n\n'
-    + '  def self.decode_' + base + '(data)\n'
-    + '    key = ' + rbpDefault(model, { ...keyF, label: 1 }) + '\n    value = ' + rbpDefault(model, { ...valF, label: 1 }) + '\n'
-    + '    r = Reader.new(data)\n    loop do\n      item = r.field\n      break if item.nil?\n\n      num, wire, varint_value, bytes_value, fixed_value, _raw_value = item\n'
-    + '      if num == ' + keyF.number + '\n'
-    + rbpDecodeSingular(model, { ...keyF, label: 1 }, 'key', rbpSrc(keyF), '        ')
-    + '      elsif num == ' + valF.number + '\n'
-    + (valF.type === FT.MESSAGE
-      ? '        value = ' + rbpEntryRef(model, rbpResolve(model, valF.typeName)) + '.new\n        value.unmarshal_dc(bytes_value)\n'
-      : rbpDecodeSingular(model, { ...valF, label: 1 }, 'value', rbpSrc(valF), '        '))
-    + '      end\n    end\n    [key, value]\n  end\n\n';
+  return runSegments(SEGMENT_PROGRAMS.rbPbMapHelpers, entry, '', model, [pb]);
 }
-
 function rbpSupport(pb) {
   return pb + 'PbVarint = lambda do |value|\n  out = +"".b\n  v = value & 0xffffffffffffffff\n  while v > 0x7f\n    out << ((v & 0x7f) | 0x80)\n    v >>= 7\n  end\n  out << v\n  out\nend\n\n'
     + '  class Writer\n'
@@ -9488,41 +9052,12 @@ function rbpSupport(pb) {
 }
 
 function rbpMessageClass(model, pb, msg) {
-  const name = rbpFlat(model.package, msg.fullName);
-  return '  class ' + name + '\n'
-    + (msg.fields.length
-      ? '    attr_accessor ' + [...msg.fields.map((f) => ':' + f.name), ':unknown_fields'].join(', ') + '\n\n'
-      : '')
-    + '    def initialize(' + msg.fields.map((f) => f.name + ': ' + rbpDefault(model, f)).join(', ') + ')\n'
-    + msg.fields.map((f) => '      @' + f.name + ' = ' + f.name + '\n').join('')
-    + '      @unknown_fields = "".b\n'
-    + '    end\n\n'
-    + '    def marshal_dc\n      w = Writer.new\n'
-    + msg.fields.map((f) => rbpEncodeGuard(model, f, rbpEncodeField(model, pb, f))).join('')
-    + '      w.raw(@unknown_fields)\n'
-    + '      w.to_bytes\n    end\n\n'
-    + '    def unmarshal_dc(data)\n'
-    + '      @unknown_fields = "".b\n'
-    + msg.fields.map((f) => '      @' + f.name + ' = ' + rbpDefault(model, f) + '\n').join('')
-    + '      r = Reader.new(data)\n      loop do\n        item = r.field\n        break if item.nil?\n\n        num, wire, varint_value, bytes_value, fixed_value, raw_value = item\n'
-    + (msg.fields.length
-      ? '        case num\n' + msg.fields.map((f) => rbpDecodeCase(model, f)).join('') + '        else\n          @unknown_fields = @unknown_fields + raw_value\n        end\n'
-      : '        @unknown_fields = @unknown_fields + raw_value\n')
-    + '      end\n      self\n    end\n\n'
-    + '    def ==(other)\n      other.is_a?(' + name + ') && '
-    + (msg.fields.length ? msg.fields.map((f) => '@' + f.name + ' == other.' + f.name).join(' && ') : 'true')
-    + '\n    end\n'
-    + '  end\n\n'
-    + msg.nested.map((n) => rbpMessageClass(model, pb, n)).join('');
+  return runSegments(SEGMENT_PROGRAMS.rbPbMessage, msg, '', model, [pb]);
 }
-
 function rbpEnumDecl(model, e) {
-  const name = rbpFlat(model.package, model.package === '' ? e.name : model.package + '.' + e.name);
-  return '  module ' + name + '\n'
-    + e.values.map((v) => '    ' + v.name + ' = ' + v.number + '\n').join('')
-    + '  end\n\n';
+  const full = model.package ? model.package + '.' + e.name : e.name;
+  return runSegments(SEGMENT_PROGRAMS.rbPbEnum, e, '', model, [full]);
 }
-
 function emitRubyPbFile(model) {
   if (!model.messages.length && !model.enums.length) return null;
   const base = baseName(model.name);
