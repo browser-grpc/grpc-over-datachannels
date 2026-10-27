@@ -153,7 +153,24 @@
          dt-pb-oneof-clearing-program dt-pb-encode-singular-program
          dt-pb-encode-field-program dt-pb-decode-singular-program
          dt-pb-decode-case-program dt-pb-map-helpers-program
-         dt-pb-message-program dt-pb-enum-program)
+         dt-pb-message-program dt-pb-enum-program
+         swift-service-program swift-client-method-program
+         swift-client-stream-class-program swift-client-async-method-program
+         swift-server-stream-iface-program swift-server-iface-method-program
+         swift-server-async-iface-method-program
+         swift-server-async-adapter-method-program swift-stream-impl-program
+         swift-register-method-program
+         swift-pb-message-program swift-pb-nested-enum-program
+         swift-pb-type-program swift-pb-default-program
+         swift-pb-explicit-literal-program swift-pb-varint-expr-program
+         swift-pb-varint-decode-program swift-pb-nonzero-program
+         swift-pb-encode-singular-program swift-pb-set-expr-program
+         swift-pb-encode-guard-program swift-pb-encode-field-program
+         swift-pb-decode-singular-program swift-pb-decode-case-program
+         swift-pb-clearing-program swift-pb-map-helpers-program
+         swift-pb-type-or-ref-program swift-pb-map-val-encode-program
+         swift-pb-map-val-init-program swift-pb-map-val-decode-case-program
+         swift-pb-map-key-decode-case-program)
 
 ;; ---------------------------------------------------------------------------
 ;; Go stub: RegisterMethod handler table entries (one per method).
@@ -3440,6 +3457,453 @@
     (each-sep ",\n" values (fmt "~a  ~a" (arg 0) (ref name)))
     (fmt "\n~a}\n" (arg 0))))
 
+;;; ---------------------------------------------------------------------------
+;;; Swift (template-swift.rkt mirrors, option 1). (swift-service)
+;;; threads the service name via (svc); message-class takes
+;;; (support, indent, decl).
+
+(define swift-deprecated-program
+  '((if (ref deprecated)
+        (then (fmt "~a@available(*, deprecated, message: \"deprecated in the proto schema\")\n" (arg 0)))
+        (else ""))))
+
+(define swift-client-method-raw-program
+  '((kind-case
+     (unary
+      (fmt "        func ~a(_ req: ~a, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ~a {\n            let resp = ~a()\n            try channel.Unary(~s, req, resp, metadata, timeout)\n            return resp\n        }\n\n" (ref name) (ref input) (ref output) (ref output) (ref path)))
+     (server-streaming
+      (fmt "        func ~a(_ req: ~a, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ~a~aStream {\n            return ~a~aStream(try channel.ServerStream(~s, req, metadata, timeout))\n        }\n\n" (ref name) (ref input) (svc) (ref name) (svc) (ref name) (ref path)))
+     (client-streaming
+      (fmt "        func ~a(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ~a {\n            let resp = ~a()\n            try channel.ClientStreamCall(~s, reqs, resp, metadata, timeout)\n            return resp\n        }\n\n" (ref name) (ref input) (ref output) (ref output) (ref path)))
+     (bidi
+      (fmt "        func ~a(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ~a~aStream {\n            return ~a~aStream(try channel.Bidi(~s, reqs, metadata, timeout))\n        }\n\n" (ref name) (ref input) (svc) (ref name) (svc) (ref name) (ref path))))))
+
+(define swift-client-method-program
+  (append swift-deprecated-program swift-client-method-raw-program))
+
+(define swift-client-stream-class-program
+  '((kind-case
+     ((server-streaming bidi)
+      (fmt "        final class ~a~aStream {\n            private let stream: Channel.ClientStream\n            init(_ stream: Channel.ClientStream) { self.stream = stream }\n            func Recv() throws -> ~a {\n                let resp = ~a()\n                try stream.Recv(resp)\n                return resp\n            }\n            /// Initial metadata (response headers); nil until they arrive.\n            var Headers: [String: String]? { stream.headers?.metadata }\n            /// Trailing metadata of the terminal status; nil until it arrives.\n            var Trailers: [String: String]? { stream.trailers }\n            func Cancel() { stream.Cancel() }\n            func Close() { stream.Close() }\n        }\n\n" (svc) (ref name) (ref output) (ref output)))
+     (else ""))))
+
+(define swift-client-async-method-program
+  '((kind-case
+     (unary
+      (fmt "        func ~aAsync(_ req: ~a, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ~a {\n            try await Task.detached { try self.~a(req, metadata, timeout) }.value\n        }\n\n" (ref name) (ref input) (ref output) (ref name)))
+     ((server-streaming bidi)
+      (fmt "        func ~aAsync(_ reqs: ~a, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<~a, Error> {\n            let stream: ~a~aStream\n            do {\n                stream = try ~a(reqs, metadata, timeout)\n            } catch {\n                return AsyncThrowingStream { continuation in\n                    continuation.finish(throwing: error)\n                }\n            }\n            return AsyncThrowingStream { continuation in\n                let task = Task.detached {\n                    do {\n                        while true {\n                            continuation.yield(try stream.Recv())\n                        }\n                    } catch is EndOfStreamError {\n                        continuation.finish()\n                    } catch {\n                        continuation.finish(throwing: error)\n                    }\n                }\n                continuation.onTermination = { _ in\n                    stream.Cancel()\n                    task.cancel()\n                }\n            }\n        }\n\n"
+           (ref name)
+           (kind-case (bidi (fmt "[~a]" (ref input))) (else (ref input)))
+           (ref output) (svc) (ref name) (ref name)))
+     (client-streaming
+      (fmt "        func ~aAsync(_ reqs: [~a], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ~a {\n            try await Task.detached { try self.~a(reqs, metadata, timeout) }.value\n        }\n\n" (ref name) (ref input) (ref output) (ref name))))))
+
+(define swift-server-stream-iface-program
+  '((kind-case
+     (unary "")
+     (server-streaming
+      (fmt "    /// Server-streaming sink passed to service implementations.\n    protocol ~a~aServer: AnyObject {\n        func Send(_ resp: ~a) throws\n        var context: Endpoint.CallContext { get }\n    }\n\n" (svc) (ref name) (ref output)))
+     (client-streaming
+      (fmt "    /// Client-streaming stream passed to service implementations.\n    protocol ~a~aServer: AnyObject {\n        func Recv() throws -> ~a\n        func SendAndClose(_ resp: ~a)\n        var context: Endpoint.CallContext { get }\n    }\n\n" (svc) (ref name) (ref input) (ref output)))
+     (bidi
+      (fmt "    /// Bidi stream passed to service implementations.\n    protocol ~a~aServer: AnyObject {\n        func Send(_ resp: ~a) throws\n        func Recv() throws -> ~a\n        var context: Endpoint.CallContext { get }\n    }\n\n" (svc) (ref name) (ref output) (ref input))))))
+
+(define swift-server-iface-method-raw-program
+  '((kind-case
+     (unary (fmt "        func ~a(_ ctx: Endpoint.CallContext, _ req: ~a) throws -> ~a\n" (ref name) (ref input) (ref output)))
+     (server-streaming (fmt "        func ~a(_ req: ~a, _ stream: ~a~aServer) throws\n" (ref name) (ref input) (svc) (ref name)))
+     (client-streaming (fmt "        func ~a(_ stream: ~a~aServer) throws\n" (ref name) (svc) (ref name)))
+     (bidi (fmt "        func ~a(_ stream: ~a~aServer) throws\n" (ref name) (svc) (ref name))))))
+
+(define swift-server-iface-method-program
+  (append swift-deprecated-program swift-server-iface-method-raw-program))
+
+(define swift-server-async-iface-method-program
+  '((kind-case
+     (unary (fmt "        func ~aAsync(_ ctx: Endpoint.CallContext, _ req: ~a) async throws -> ~a\n" (ref name) (ref input) (ref output)))
+     (server-streaming (fmt "        func ~aAsync(_ req: ~a, _ stream: ~a~aServer) async throws\n" (ref name) (ref input) (svc) (ref name)))
+     (client-streaming (fmt "        func ~aAsync(_ stream: ~a~aServer) async throws\n" (ref name) (svc) (ref name)))
+     (bidi (fmt "        func ~aAsync(_ stream: ~a~aServer) async throws\n" (ref name) (svc) (ref name))))))
+
+(define swift-server-async-adapter-method-program
+  '((kind-case
+     (unary
+      (fmt "        func ~a(_ ctx: Endpoint.CallContext, _ req: ~a) throws -> ~a {\n            try RunBlocking { try await self.impl.~aAsync(ctx, req) }\n        }\n" (ref name) (ref input) (ref output) (ref name)))
+     (server-streaming
+      (fmt "        func ~a(_ req: ~a, _ stream: ~a~aServer) throws {\n            try RunBlocking { try await self.impl.~aAsync(req, stream) }\n        }\n" (ref name) (ref input) (svc) (ref name) (ref name)))
+     (client-streaming
+      (fmt "        func ~a(_ stream: ~a~aServer) throws {\n            try RunBlocking { try await self.impl.~aAsync(stream) }\n        }\n" (ref name) (svc) (ref name) (ref name)))
+     (bidi
+      (fmt "        func ~a(_ stream: ~a~aServer) throws {\n            try RunBlocking { try await self.impl.~aAsync(stream) }\n        }\n" (ref name) (svc) (ref name) (ref name))))))
+
+(define swift-stream-impl-program
+  '((kind-case
+     (unary "")
+     (server-streaming
+      (fmt "    private final class ~a~aServerImpl: ~a~aServer {\n        private var ctxRef: Endpoint.CallContext\n        private let sink: Server.ServerSink\n        init(_ ctx: Endpoint.CallContext, _ sink: @escaping Server.ServerSink) {\n            ctxRef = ctx\n            self.sink = sink\n        }\n        func Send(_ resp: ~a) throws { try sink(resp.MarshalDc()) }\n        var context: Endpoint.CallContext { ctxRef }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output)))
+     (client-streaming
+      (fmt "    private final class ~a~aServerImpl: ~a~aServer {\n        private var ctxRef: Endpoint.CallContext\n        private let reqs: Server.RequestStream\n        private(set) var resp: ~a?\n        init(_ ctx: Endpoint.CallContext, _ reqs: Server.RequestStream) {\n            ctxRef = ctx\n            self.reqs = reqs\n        }\n        func Recv() throws -> ~a {\n            let req = ~a()\n            try reqs.RecvInto(req)\n            return req\n        }\n        func SendAndClose(_ resp: ~a) { self.resp = resp }\n        var context: Endpoint.CallContext { ctxRef }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input) (ref output)))
+     (bidi
+      (fmt "    private final class ~a~aServerImpl: ~a~aServer {\n        private var ctxRef: Endpoint.CallContext\n        private let reqs: Server.RequestStream\n        private let sink: Server.ServerSink\n        init(_ ctx: Endpoint.CallContext, _ reqs: Server.RequestStream, _ sink: @escaping Server.ServerSink) {\n            ctxRef = ctx\n            self.reqs = reqs\n            self.sink = sink\n        }\n        func Send(_ resp: ~a) throws { try sink(resp.MarshalDc()) }\n        func Recv() throws -> ~a {\n            let req = ~a()\n            try reqs.RecvInto(req)\n            return req\n        }\n        var context: Endpoint.CallContext { ctxRef }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input))))))
+
+(define swift-register-method-program
+  '((kind-case
+     (unary
+      (fmt "            Server.Method(name: ~s, path: ~s, kind: Server.KindUnary) { ctx, reqs, sink in\n                let req = ~a()\n                try reqs.RecvInto(req)\n                let resp = try impl.~a(ctx, req)\n                try sink(resp.MarshalDc())\n            },\n" (ref name) (ref path) (ref input) (ref impl-name)))
+     (server-streaming
+      (fmt "            Server.Method(name: ~s, path: ~s, kind: Server.KindServerStreaming) { ctx, reqs, sink in\n                let req = ~a()\n                try reqs.RecvInto(req)\n                try impl.~a(req, ~a~aServerImpl(ctx, sink))\n            },\n" (ref name) (ref path) (ref input) (ref impl-name) (svc) (ref name)))
+     (client-streaming
+      (fmt "            Server.Method(name: ~s, path: ~s, kind: Server.KindClientStreaming) { ctx, reqs, sink in\n                let stream = ~a~aServerImpl(ctx, reqs)\n                try impl.~a(stream)\n                guard let resp = stream.resp else {\n                    throw StatusException(Wire.CodeInternal, \"client-streaming handler never called SendAndClose\")\n                }\n                try sink(resp.MarshalDc())\n            },\n" (ref name) (ref path) (svc) (ref name) (ref impl-name)))
+     (bidi
+      (fmt "            Server.Method(name: ~s, path: ~s, kind: Server.KindBidi) { ctx, reqs, sink in\n                try impl.~a(~a~aServerImpl(ctx, reqs, sink))\n            },\n" (ref name) (ref path) (ref impl-name) (svc) (ref name))))))
+
+(define swift-service-program
+  '((fmt "    /// Client for ~a.\n" (ref full-name))
+      (fmt "    final class ~aClient {\n" (ref name))
+      "        private let channel: Channel\n\n"
+      "        init(_ channel: Channel) {\n            self.channel = channel\n        }\n\n"
+      (each methods (call swiftClientStreamClass))
+      (each+ methods client (call swiftClientMethod "        "))
+      "        // -- async (Swift concurrency) surface ---------------------------\n"
+      "        #if canImport(Foundation)\n\n"
+      (each+ methods client (call swiftClientAsyncMethod))
+      "        #endif\n"
+      "    }\n\n"
+      (each methods (call swiftServerStreamIface))
+      (fmt "    /// Service implementation interface for ~a.\n" (ref full-name))
+      (fmt "    protocol ~aServer: AnyObject {\n" (ref name))
+      (each methods (call swiftServerIfaceMethod "        "))
+      "    }\n\n"
+      "    #if canImport(Foundation)\n"
+      (fmt "    /// Async service implementation interface for ~a.\n" (ref full-name))
+      (fmt "    protocol ~aServerAsync: AnyObject {\n" (ref name))
+      (each methods (call swiftServerAsyncIfaceMethod))
+      "    }\n\n"
+      "    #endif\n\n"
+      (each methods (call swiftStreamImpl))
+      "    #if canImport(Foundation)\n"
+      (fmt "    private final class ~aServerAsyncAdapter: ~aServer {\n" (ref name) (ref name))
+      (fmt "        private let impl: ~aServerAsync\n" (ref name))
+      (fmt "        init(_ impl: ~aServerAsync) { self.impl = impl }\n" (ref name))
+      (each methods (call swiftServerAsyncAdapterMethod))
+      "    }\n\n"
+      "    #endif\n\n"
+      (fmt "    /// Register an implementation of ~a on a Server.\n" (ref full-name))
+      (fmt "    static func Register~aServer(_ server: Server, _ impl: ~aServer) {\n" (ref name) (ref name))
+      (fmt "        server.RegisterService(Server.ServiceDesc(name: ~s, methods: [\n" (ref full-name))
+      (each+ methods server (call swiftRegisterMethod))
+      "        ]))\n    }\n\n"
+      "    #if canImport(Foundation)\n"
+      (fmt "    /// Register an async implementation of ~a on a Server.\n" (ref full-name))
+      (fmt "    static func Register~aServerAsync(_ server: Server, _ impl: ~aServerAsync) {\n" (ref name) (ref name))
+      "        // Adapters are retained for the process lifetime: registration is\n"
+      "        // once-per-process and bounded by service count.\n"
+      (fmt "        ~aAdapters.append(~aServerAsyncAdapter(impl))\n" (ref name) (ref name))
+      (fmt "        Register~aServer(server, ~aAdapters.last!)\n    }\n\n" (ref name) (ref name))
+      (fmt "    private static var ~aAdapters: [~aServerAsyncAdapter] = []\n" (ref name) (ref name))
+      "    #endif\n"))
+
+
+(define swift-pb-type-program
+  '((if (is-map)
+        (then (fmt "[~a: ~a]"
+                   (call-on (key-field (resolved-entry)) swiftPbType)
+                   (call-on (val-field (resolved-entry)) swiftPbTypeOrRef)))
+        (else
+         (if (repeated)
+             (then (fmt "[~a]"
+                        (case-on (ref type)
+                          ((11) (swift-entry-ref))
+                          (else (call-on (with-label (self) 1) swiftPbType)))))
+             (else (case-on (ref type)
+                     ((11) (fmt "~a?" (swift-entry-ref)))
+                     ((14) (swift-entry-ref))
+                     (else (swift-scalar-type)))))))))
+
+(define swift-pb-explicit-literal-program
+  '((if (has-default)
+        (then (fmt "~a"
+                   (case-on (ref type)
+                     ((9) (fmt "~s" (explicit-default)))
+                     ((8) (explicit-default))
+                     ((14) (fmt "~a.~a" (swift-entry-ref) (explicit-default)))
+                     ((2) (fmt "~a" (explicit-default)))
+                     (else (explicit-default)))))
+        (else ""))))
+
+(define swift-pb-default-program
+  '((if (call swiftPbExplicitLiteral)
+        (then (call swiftPbExplicitLiteral))
+        (else (fmt "~a"
+                   (if (is-map)
+                       (then "[:]")
+                       (else (case-on (ref label)
+                               ((3) "[]")
+                               (else (case-on (ref type)
+                                       ((11) "nil")
+                                       ((14) (fmt "~a.~a" (swift-entry-ref) (enum-first-value-name)))
+                                       (else (swift-scalar-zero))))))))))))
+
+(define swift-pb-varint-expr-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (fmt "(~a ? Int64(1) : Int64(0))" (arg 0)))
+           ((17) (fmt "UInt64(UInt32(bitPattern: (~a << 1) ^ (~a >> 31)))" (arg 0) (arg 0)))
+           ((18) (fmt "UInt64(bitPattern: (~a << 1) ^ (~a >> 63))" (arg 0) (arg 0)))
+           ((14) (fmt "Int64(~a.rawValue)" (arg 0)))
+           ((5) (fmt "Int64(~a)" (arg 0)))
+           ((13 7) (fmt "UInt64(~a)" (arg 0)))
+           ((3) (fmt "UInt64(bitPattern: ~a)" (arg 0)))
+           (else (arg 0))))))
+
+(define swift-pb-varint-decode-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((5) (fmt "Int32(truncatingIfNeeded: ~a)" (arg 0)))
+           ((13 7) (fmt "UInt32(truncatingIfNeeded: ~a)" (arg 0)))
+           ((3) (fmt "Int64(bitPattern: ~a)" (arg 0)))
+           ((4 6) (arg 0))
+           ((8) (fmt "~a != 0" (arg 0)))
+           ((17) (fmt "Int32(bitPattern: UInt32(truncatingIfNeeded: (~a >> 1) ^ UInt64(bitPattern: -Int64(bitPattern: ~a & 1))))" (arg 0) (arg 0)))
+           ((18) (fmt "Int64(bitPattern: (~a >> 1) ^ UInt64(bitPattern: -Int64(bitPattern: ~a & 1)))" (arg 0) (arg 0)))))))
+
+(define swift-pb-nonzero-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (arg 0))
+           ((14) (fmt "~a.rawValue != 0" (arg 0)))
+           (else (fmt "~a != 0" (arg 0)))))))
+
+(define swift-pb-encode-singular-program
+  '((case-on (category)
+      ("varint"
+       (if (proto2)
+           (then (fmt "~a{ w.Tag(~a, 0); w.Varint(~a) }\n" (arg 1) (ref number) (call swiftPbVarintExpr (arg 0))))
+           (else (fmt "~aif ~a { w.Tag(~a, 0); w.Varint(~a) }\n" (arg 1) (call swiftPbNonzero (arg 0)) (ref number) (call swiftPbVarintExpr (arg 0))))))
+      ("fixed"
+       (if (proto2)
+           (then (fmt "~a{ w.Tag(~a, ~a); w.Fixed~a(~a) }\n" (arg 1) (ref number)
+                      (case-on (swift-fixed-size) ((8) "1") (else "5"))
+                      (swift-fixed-name) (arg 0)))
+           (else (fmt "~aif ~a { w.Tag(~a, ~a); w.Fixed~a(~a) }\n" (arg 1) (call swiftPbNonzero (arg 0)) (ref number)
+                      (case-on (swift-fixed-size) ((8) "1") (else "5"))
+                      (swift-fixed-name) (arg 0)))))
+      ("string"
+       (if (proto2)
+           (then (fmt "~aw.BytesField(~a, [UInt8](~a.utf8))\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aw.StringField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))))
+      ("bytes"
+       (if (proto2)
+           (then (fmt "~aw.BytesField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aif !~a.isEmpty { w.BytesField(~a, ~a) }\n" (arg 1) (arg 0) (ref number) (arg 0)))))
+      ("message"
+       (fmt "~aif let v = ~a { w.BytesField(~a, v.MarshalDc()) }\n" (arg 1) (arg 0) (ref number)))
+      (else (fail)))))
+
+(define swift-pb-set-expr-program
+  '((case-on (category)
+      ("message" (fmt "~a != nil" (swift-field-name)))
+      (else (fmt "~a"
+                 (case-on (ref type)
+                   ((9 12) (fmt "!~a.isEmpty" (swift-field-name)))
+                   (else (call swiftPbNonzero (swift-field-name)))))))))
+
+(define swift-pb-encode-guard-program
+  '((guarded swiftPbSetExpr "        if !(~a) {\n" "        }\n" (call swiftPbEncodeField (arg 0)))))
+
+(define swift-pb-encode-field-program
+  '((if (is-map)
+        (then (fmt "        for (k, val) in ~a.sorted(by: { $0.key < $1.key }) { w.BytesField(~a, ~a.~aEncode(k, val)) }\n"
+                   (swift-field-name) (ref number) (arg 0) (swift-map-name)))
+        (else
+         (if (repeated)
+             (then (fmt "~a"
+                        (case-on (category)
+                          ("varint"
+                           (fmt "        if !~a.isEmpty {\n            let payload = ~a.Writer()\n            for x in ~a { payload.Varint(~a) }\n            w.BytesField(~a, payload.ToBytes())\n        }\n"
+                                (swift-field-name) (arg 0) (swift-field-name) (call swiftPbVarintExpr "x") (ref number)))
+                          ("fixed"
+                           (fmt "        if !~a.isEmpty {\n            let payload = ~a.Writer()\n            for x in ~a { payload.Fixed~a(x) }\n            w.BytesField(~a, payload.ToBytes())\n        }\n"
+                                (swift-field-name) (arg 0) (swift-field-name) (swift-fixed-name) (ref number)))
+                          ("string" (fmt "        for x in ~a { w.BytesField(~a, [UInt8](x.utf8)) }\n" (swift-field-name) (ref number)))
+                          ("bytes" (fmt "        for x in ~a { w.BytesField(~a, x) }\n" (swift-field-name) (ref number)))
+                          ("message" (fmt "        for x in ~a { w.BytesField(~a, x.MarshalDc()) }\n" (swift-field-name) (ref number)))
+                          (else (fail)))))
+             (else (call swiftPbEncodeSingular (swift-field-name) "        ")))))))
+
+(define swift-pb-decode-singular-program
+  '((case-on (category)
+      ("varint"
+       (fmt "~a~a = ~a\n" (arg 2) (arg 0)
+            (case-on (ref type)
+              ((14) (fmt "~a(rawValue: ~a) ?? ~a" (swift-entry-ref)
+                         (call-on (with-type (self) 5) swiftPbVarintDecode (arg 1))
+                         (call swiftPbDefault)))
+              (else (call swiftPbVarintDecode (arg 1))))))
+      ("fixed"
+       (fmt "~a~a = ~a\n" (arg 2) (arg 0)
+            (case-on (ref type)
+              ((2) (fmt "~a.BitsToFloat(UInt32(truncatingIfNeeded: ~a))" (arg 3) (arg 1)))
+              ((1) (fmt "~a.BitsToDouble(~a)" (arg 3) (arg 1)))
+              ((7) (fmt "UInt32(truncatingIfNeeded: ~a)" (arg 1)))
+              ((15) (fmt "Int32(truncatingIfNeeded: ~a)" (arg 1)))
+              ((16) (fmt "Int64(bitPattern: ~a)" (arg 1)))
+              (else (arg 1)))))
+      ("string" (fmt "~a~a = String(decoding: ~a, as: UTF8.self)\n" (arg 2) (arg 0) (arg 1)))
+      ("bytes" (fmt "~a~a = ~a\n" (arg 2) (arg 0) (arg 1)))
+      ("message"
+       (fmt "~a~a = ~a()\n" (arg 2) (arg 0) (swift-entry-ref))
+       (fmt "~a~a!.UnmarshalDc(~a)\n" (arg 2) (arg 0) (arg 1)))
+      (else (fail)))))
+
+(define swift-pb-clearing-program
+  '((each-siblings (fmt "                ~a = ~a\n" (swift-field-name) (call swiftPbDefault)))))
+
+
+(define swift-pb-enum-conv-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((14) (fmt "~a(rawValue: ~a) ?? ~a" (swift-entry-ref)
+                      (call-on (with-type (self) 5) swiftPbVarintDecode (arg 0))
+                      (call-on (with-label (self) 1) swiftPbDefault)))
+           (else (call swiftPbVarintDecode (arg 0)))))))
+
+(define swift-pb-decode-case-program
+  '((if (is-map)
+        (then
+         (fmt "            case ~a:\n" (ref number))
+         (fmt "                let kv = ~a.~aDecode(field.bytesValue)\n" (arg 0) (swift-map-name))
+         (fmt "                ~a[kv.0] = kv.1\n" (swift-field-name)))
+        (else
+         (fmt "            case ~a:\n" (ref number))
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint"
+                 "                if field.wire == 2 {\n"
+                 (fmt "                    let sub = ~a.Reader(field.bytesValue)\n" (arg 0))
+                 "                    while !sub.Done() {\n"
+                 (fmt "                        ~a.append(~a)\n" (swift-field-name) (call swiftPbEnumConv "sub.Varint()"))
+                 "                    }\n                } else {\n"
+                 (fmt "                    ~a.append(~a)\n" (swift-field-name) (call swiftPbEnumConv "field.varintValue"))
+                 "                }\n")
+                ("fixed"
+                 "                if field.wire == 2 {\n"
+                 (fmt "                    let sub = ~a.Reader(field.bytesValue)\n" (arg 0))
+                 (fmt "                    while !sub.Done() { ~a.append(~a) }\n" (swift-field-name)
+                      (case-on (ref type)
+                        ((2) (fmt "~a.BitsToFloat(sub.Fixed32())" (arg 0)))
+                        ((1) (fmt "~a.BitsToDouble(sub.Fixed64())" (arg 0)))
+                        ((7) "sub.Fixed32()")
+                        ((15) "Int32(bitPattern: sub.Fixed32())")
+                        (else "sub.Fixed64()")))
+                 "                } else {\n"
+                 (fmt "                    ~a.append(~a)\n" (swift-field-name)
+                      (case-on (ref type)
+                        ((2) (fmt "~a.BitsToFloat(UInt32(truncatingIfNeeded: field.fixedValue))" (arg 0)))
+                        ((1) (fmt "~a.BitsToDouble(field.fixedValue)" (arg 0)))
+                        ((7) "UInt32(truncatingIfNeeded: field.fixedValue)")
+                        ((15) "Int32(bitPattern: field.fixedValue)")
+                        (else "field.fixedValue")))
+                 "                }\n")
+                ("string" (fmt "                ~a.append(String(decoding: field.bytesValue, as: UTF8.self))\n" (swift-field-name)))
+                ("bytes" (fmt "                ~a.append(field.bytesValue)\n" (swift-field-name)))
+                ("message"
+                 (fmt "                let item = ~a()\n" (swift-entry-ref))
+                 "                item.UnmarshalDc(field.bytesValue)\n"
+                 (fmt "                ~a.append(item)\n" (swift-field-name)))
+                (else (fail))))
+             (else (call swiftPbClearing)
+                   (call swiftPbDecodeSingular (swift-field-name) (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "                " (arg 0))))))))
+
+(define swift-pb-type-or-ref-program
+  '((case-on (ref type)
+      ((11) (swift-entry-ref))
+      (else (call swiftPbType)))))
+
+(define swift-pb-map-val-encode-program
+  '((case-on (category)
+      ("message" (fmt "        w.BytesField(~a, value.MarshalDc())\n" (ref number)))
+      (else (call swiftPbEncodeSingular "value" "        ")))))
+
+(define swift-pb-map-val-init-program
+  '((case-on (category)
+      ("message" (fmt "~a()" (swift-entry-ref)))
+      (else (call swiftPbDefault)))))
+
+(define swift-pb-map-val-decode-case-program
+  '((case-on (category)
+      ("message" (fmt "            case ~a: value.UnmarshalDc(field.bytesValue)\n" (ref number)))
+      (else (fmt "            case ~a: ~a\n" (ref number)
+                 (trim-end (call swiftPbDecodeSingular "value" (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "" (arg 0))))))))
+
+
+(define swift-pb-map-key-decode-case-program
+  '((fmt "            case ~a: ~a\n" (ref number)
+         (trim-end (call swiftPbDecodeSingular "key" (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "" (arg 0))))))
+
+(define swift-pb-map-helpers-program
+  '((fmt "    static func ~aEncode(_ key: ~a, _ value: ~a) -> [UInt8] {\n"
+         (swift-map-name)
+         (call-on (key-field) swiftPbType)
+         (call-on (val-field) swiftPbTypeOrRef))
+    "        let w = Writer()\n"
+    (call-on (key-field) swiftPbEncodeSingular "key" "        ")
+    (call-on (val-field) swiftPbMapValEncode)
+    "        return w.ToBytes()\n    }\n\n"
+    (fmt "    static func ~aDecode(_ bytes: [UInt8]) -> (~a, ~a) {\n"
+         (swift-map-name)
+         (call-on (key-field) swiftPbType)
+         (call-on (val-field) swiftPbTypeOrRef))
+    (fmt "        var key: ~a = ~a\n"
+         (call-on (key-field) swiftPbType)
+         (call-on (key-field) swiftPbDefault))
+    (fmt "        var value: ~a = ~a\n"
+         (call-on (val-field) swiftPbTypeOrRef)
+         (call-on (val-field) swiftPbMapValInit))
+    "        let r = Reader(bytes)\n        while true {\n            let next: Field?\n            do { next = try r.Next() } catch { break }\n            guard let field = next else { break }\n            switch field.number {\n"
+    (call-on (key-field) swiftPbMapKeyDecodeCase (arg 0))
+    (call-on (val-field) swiftPbMapValDecodeCase (arg 0))
+    "            default: break\n            }\n        }\n        return (key, value)\n    }\n\n"))
+
+(define swift-pb-nested-enum-program
+  '((fmt "~aenum ~a: Int32 {\n" (arg 0) (ref name))
+    (each-sep "\n" values (fmt "~a    case ~a = ~a" (arg 0) (ref name) (ref number)))
+    (fmt "\n~a}\n" (arg 0))))
+
+(define swift-pb-message-program
+  '((fmt "~a~a class ~a: Marshaler, Unmarshaler {\n" (arg 1) (arg 2) (ref name))
+    (each fields (fmt "~a    var ~a: ~a = ~a\n" (arg 1) (swift-field-name) (call swiftPbType) (call swiftPbDefault)))
+    (fmt "~a    var unknownFields: [UInt8] = []\n" (arg 1))
+    (fmt "~a    init() {}\n" (arg 1))
+    (if (no-fields)
+        (then "")
+        (else
+         (fmt "~a    init(~a) {\n" (arg 1)
+              (each-sep ", " fields (fmt "_ ~a: ~a = ~a" (swift-field-name) (call swiftPbType) (call swiftPbDefault))))
+         (each fields (fmt "~a        self.~a = ~a\n" (arg 1) (swift-field-name) (swift-field-name)))
+         (fmt "~a    }\n" (arg 1))))
+    (fmt "~a    func MarshalDc() -> [UInt8] {\n" (arg 1))
+    (fmt "~a        let w = ~a.Writer()\n" (arg 1) (arg 0))
+    (each fields (call swiftPbEncodeGuard (arg 0)))
+    (fmt "~a        w.Raw(unknownFields)\n" (arg 1))
+    (fmt "~a        return w.ToBytes()\n~a    }\n" (arg 1) (arg 1))
+    (fmt "~a    func UnmarshalDc(_ data: [UInt8]) {\n" (arg 1))
+    (fmt "~a        unknownFields = []\n" (arg 1))
+    (each fields (fmt "~a        ~a = ~a\n" (arg 1) (swift-field-name) (call swiftPbDefault)))
+    (fmt "~a        let r = ~a.Reader(data)\n" (arg 1) (arg 0))
+    (fmt "~a        while true {\n" (arg 1))
+    (fmt "~a            let next: ~a.Field?\n" (arg 1) (arg 0))
+    (fmt "~a            do { next = try r.Next() } catch { break }\n" (arg 1))
+    (fmt "~a            guard let field = next else { break }\n" (arg 1))
+    (fmt "~a            switch field.number {\n" (arg 1))
+    (each fields (call swiftPbDecodeCase (arg 0)))
+    (fmt "~a            default: unknownFields += field.rawValue\n~a            }\n~a        }\n~a    }\n" (arg 1) (arg 1) (arg 1) (arg 1))
+    (each nested (call swiftPbMessage (arg 0) (fmt "~a    " (arg 1)) "final"))
+    (each enums (call swiftPbNestedEnum (fmt "~a    " (arg 1))))
+    (fmt "~a}\n" (arg 1))))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -3684,7 +4148,39 @@
           'dtPbDecodeCase dt-pb-decode-case-program
           'dtPbMapHelpers dt-pb-map-helpers-program
           'dtPbMessage dt-pb-message-program
-          'dtPbEnum dt-pb-enum-program))
+          'dtPbEnum dt-pb-enum-program
+          'swiftService swift-service-program
+          'swiftClientMethod swift-client-method-program
+          'swiftClientStreamClass swift-client-stream-class-program
+          'swiftClientAsyncMethod swift-client-async-method-program
+          'swiftServerStreamIface swift-server-stream-iface-program
+          'swiftServerIfaceMethod swift-server-iface-method-program
+          'swiftServerAsyncIfaceMethod swift-server-async-iface-method-program
+          'swiftServerAsyncAdapterMethod swift-server-async-adapter-method-program
+          'swiftStreamImpl swift-stream-impl-program
+          'swiftRegisterMethod swift-register-method-program
+          'swiftPbType swift-pb-type-program
+          'swiftPbDefault swift-pb-default-program
+          'swiftPbExplicitLiteral swift-pb-explicit-literal-program
+          'swiftPbVarintExpr swift-pb-varint-expr-program
+          'swiftPbVarintDecode swift-pb-varint-decode-program
+          'swiftPbNonzero swift-pb-nonzero-program
+          'swiftPbEncodeSingular swift-pb-encode-singular-program
+          'swiftPbSetExpr swift-pb-set-expr-program
+          'swiftPbEncodeGuard swift-pb-encode-guard-program
+          'swiftPbEncodeField swift-pb-encode-field-program
+          'swiftPbDecodeSingular swift-pb-decode-singular-program
+          'swiftPbDecodeCase swift-pb-decode-case-program
+          'swiftPbClearing swift-pb-clearing-program
+          'swiftPbEnumConv swift-pb-enum-conv-program
+          'swiftPbMapHelpers swift-pb-map-helpers-program
+          'swiftPbTypeOrRef swift-pb-type-or-ref-program
+          'swiftPbMapValEncode swift-pb-map-val-encode-program
+          'swiftPbMapValInit swift-pb-map-val-init-program
+          'swiftPbMapValDecodeCase swift-pb-map-val-decode-case-program
+          'swiftPbMapKeyDecodeCase swift-pb-map-key-decode-case-program
+          'swiftPbMessage swift-pb-message-program
+          'swiftPbNestedEnum swift-pb-nested-enum-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -4076,6 +4572,33 @@
                     (format "~a.~a" (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'enum) 'name)))
                 (hash-ref (hash-ref entry 'msg) 'full-name))))
 
+(define (seg-swift-rel pkg full)
+  (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
+                  (substring full (add1 (string-length pkg)))
+                  full))
+  (string-join (string-split rel ".") "."))
+
+(define (seg-swift-entry-ref model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (seg-swift-rel (hash-ref entry 'pkg)
+                 (if (eq? (hash-ref entry 'kind) 'enum)
+                     (let ([e (hash-ref entry 'enum)])
+                       (if (hash-ref entry 'msg)
+                           (format "~a.~a" (hash-ref (hash-ref entry 'msg) 'full-name) (hash-ref e 'name))
+                           (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name))))
+                     (hash-ref (hash-ref entry 'msg) 'full-name))))
+
+(define (seg-swift-map-name model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (string-join (string-split (seg-swift-rel (hash-ref entry 'pkg)
+                                            (hash-ref (hash-ref entry 'msg) 'full-name)) ".") ""))
+
 (define (seg-later-oneof-cond model node)
   (define later (oneof-later-siblings model node))
   (if (null? later)
@@ -4225,6 +4748,15 @@
      (second (assv (hash-ref node 'type) (fixed-scalar-table 'dart)))]
     [(eq? (car seg) 'dart-fixed-name)
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'dart)))]
+    [(eq? (car seg) 'swift-field-name) (seg-dart-field-name node)]
+    [(eq? (car seg) 'swift-entry-ref) (seg-swift-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'swift-map-name) (seg-swift-map-name model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'swift-scalar-type) (first (scalar-type-entry 'swift (hash-ref node 'type)))]
+    [(eq? (car seg) 'swift-scalar-zero) (second (scalar-type-entry 'swift (hash-ref node 'type)))]
+    [(eq? (car seg) 'swift-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'swift)))]
+    [(eq? (car seg) 'swift-fixed-name)
+     (third (assv (hash-ref node 'type) (fixed-scalar-table 'swift)))]
     [(eq? (car seg) 'flat)
      (seg-flat (hash-ref model 'package) (hash-ref node 'full-name))]
     [(eq? (car seg) 'entry-type) (seg-entry-type-of model node)]
