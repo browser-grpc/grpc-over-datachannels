@@ -193,6 +193,8 @@ eventbus-stubs:
 	mkdir -p csharp/grpcdc/events/v1
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-csharp=bin/protoc-gen-grpc-dc-csharp \
 		--grpc-dc-csharp_out=csharp/grpcdc/events/v1 -I proto proto/events.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-kotlin=bin/protoc-gen-grpc-dc-kotlin \
+		--grpc-dc-kotlin_out=kotlin/grpcdc -I proto proto/events.proto
 
 generate: plugins stubs
 
@@ -382,6 +384,7 @@ test-kotlin:
 		&& java -jar kotlin/build/tests.jar TestInterop && java -jar kotlin/build/tests.jar TestInteropOracle && java -jar kotlin/build/tests.jar TestInteropServerOracle && java -jar kotlin/build/tests.jar TestHttp2Oracle && java -jar kotlin/build/tests.jar TestOracle \
 		&& java -jar kotlin/build/tests.jar TestDynamic && java -jar kotlin/build/tests.jar TestBdd && java -jar kotlin/build/tests.jar TestDeadline \
 		&& java -jar kotlin/build/tests.jar TestSidecar && java -jar kotlin/build/tests.jar TestBddSchemas \
+		&& java -jar kotlin/build/tests.jar TestEventBus \
 		&& java -jar kotlin/build/tests.jar TestInlinePump && java -jar kotlin/build/tests.jar TestPbMessages
 
 DART ?= dart
