@@ -1749,6 +1749,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "php/tests" "oracle-gen.rkt" (list (emit-php-oracle-driver)))
   (write-runtime-files "php/tests" "bdd-gen.rkt" (list (emit-php-bdd) (emit-bdd-schemas 'php)))
   (write-runtime-files "php/tests" "interop-gen.rkt" (list (emit-php-interop-cases)))
+  (write-runtime-files "php/examples" "interop-service-gen.rkt" (list (emit-php-interop-service)))
   (make-directory* (build-path root "scala" "grpcdc"))
   (call-with-output-file (build-path root "scala" "grpcdc" "WireGen.scala") #:exists 'replace
     (lambda (out) (display (emit-scala-wire) out)))
