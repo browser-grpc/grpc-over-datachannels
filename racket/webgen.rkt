@@ -11973,144 +11973,23 @@ JS
 
 (define js-part-21 #<<JS
 function wasmKotlinClientMethod(m) {
-  const path = q(m.path);
-  const streamingBody = (bridgeCall) =>
-    '        fun ' + m.name + '(\n'
-    + '            req' + (m.kind === 'bidi' ? 's' : '') + ': ' + (m.kind === 'bidi' ? 'List<' + m.input + '>' : m.input) + ',\n'
-    + '            onMessage: (' + m.output + ') -> Unit,\n'
-    + '            onDone: (StatusException?) -> Unit\n        ) {\n'
-    + '            var finished = false\n'
-    + '            bridge.' + bridgeCall + '(' + path + ', req' + (m.kind === 'bidi' ? 's' : '') + '.map { it.marshalDc() }, { bytes ->\n'
-    + '                if (!finished) {\n'
-    + '                    try {\n'
-    + '                        onMessage(' + m.output + '().apply { unmarshalDc(bytes) })\n'
-    + '                    } catch (e: Throwable) {\n'
-    + '                        finished = true\n'
-    + '                        onDone(StatusException.toStatus(e))\n                    }\n                }\n'
-    + '            }) { err ->\n'
-    + '                if (!finished) {\n'
-    + '                    finished = true\n'
-    + '                    onDone(err)\n                }\n            }\n        }\n\n';
-  switch (m.kind) {
-    case 'unary':
-      return '        fun ' + m.name + '(req: ' + m.input + ', callback: (Result<' + m.output + '>) -> Unit) {\n'
-        + '            bridge.unary(' + path + ', req.marshalDc()) { result ->\n'
-        + '                callback(result.mapCatching { bytes ->\n'
-        + '                    ' + m.output + '().apply { unmarshalDc(bytes) }\n                })\n            }\n        }\n\n';
-    case 'server-streaming':
-      return '        fun ' + m.name + '(\n'
-        + '            req: ' + m.input + ',\n'
-        + '            onMessage: (' + m.output + ') -> Unit,\n'
-        + '            onDone: (StatusException?) -> Unit\n        ) {\n'
-        + '            var finished = false\n'
-        + '            bridge.serverStream(' + path + ', req.marshalDc(), { bytes ->\n'
-        + '                if (!finished) {\n'
-        + '                    try {\n'
-        + '                        onMessage(' + m.output + '().apply { unmarshalDc(bytes) })\n'
-        + '                    } catch (e: Throwable) {\n'
-        + '                        finished = true\n'
-        + '                        onDone(StatusException.toStatus(e))\n                    }\n                }\n'
-        + '            }) { err ->\n'
-        + '                if (!finished) {\n'
-        + '                    finished = true\n'
-        + '                    onDone(err)\n                }\n            }\n        }\n\n';
-    case 'client-streaming':
-      return '        fun ' + m.name + '(reqs: List<' + m.input + '>, callback: (Result<' + m.output + '>) -> Unit) {\n'
-        + '            bridge.clientStream(' + path + ', reqs.map { it.marshalDc() }) { result ->\n'
-        + '                callback(result.mapCatching { bytes ->\n'
-        + '                    ' + m.output + '().apply { unmarshalDc(bytes) }\n                })\n            }\n        }\n\n';
-    default:
-      return streamingBody('bidi');
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmKotlinClientMethod, m, '');
 }
-
 function wasmKotlinServerIfaceMethod(m) {
-  switch (m.kind) {
-    case 'unary':
-      return '        fun ' + m.name + '(req: ' + m.input + ', metadata: Map<String, String>): ' + m.output + '\n';
-    case 'server-streaming':
-      return '        fun ' + m.name + '(req: ' + m.input + ', metadata: Map<String, String>, sink: (' + m.output + ') -> Unit)\n';
-    case 'client-streaming':
-      return '        fun ' + m.name + '(reqs: List<' + m.input + '>, metadata: Map<String, String>): ' + m.output + '\n';
-    default:
-      return '        fun ' + m.name + '(reqs: List<' + m.input + '>, metadata: Map<String, String>, sink: (' + m.output + ') -> Unit)\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmKotlinServerIfaceMethod, m, '');
 }
-
 function wasmKotlinRegisterMethod(m) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '        bridge.unary(' + path + ') { bytes, metadata ->\n'
-        + '            impl.' + m.name + '(' + m.input + '().apply { unmarshalDc(bytes) }, metadata).marshalDc()\n        }\n';
-    case 'server-streaming':
-      return '        bridge.serverStream(' + path + ') { bytes, metadata, sink ->\n'
-        + '            impl.' + m.name + '(' + m.input + '().apply { unmarshalDc(bytes) }, metadata) { resp -> sink(resp.marshalDc()) }\n        }\n';
-    case 'client-streaming':
-      return '        bridge.clientStream(' + path + ') { payloads, metadata ->\n'
-        + '            impl.' + m.name + '(payloads.map { bytes -> ' + m.input + '().apply { unmarshalDc(bytes) } }, metadata).marshalDc()\n        }\n';
-    default:
-      return '        bridge.bidi(' + path + ') { payloads, metadata, sink ->\n'
-        + '            impl.' + m.name + '(payloads.map { bytes -> ' + m.input + '().apply { unmarshalDc(bytes) } }, metadata) { resp -> sink(resp.marshalDc()) }\n        }\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmKotlinRegisterMethod, m, '');
 }
-
 function wasmKotlinStreamIfaceMethod(m) {
-  switch (m.kind) {
-    case 'client-streaming':
-      return '        fun ' + m.name + '(source: ' + m.input + 'Source, metadata: Map<String, String>, respond: (' + m.output + ') -> Unit, fail: (StatusException) -> Unit)\n';
-    case 'bidi':
-      return '        fun ' + m.name + '(source: ' + m.input + 'Source, metadata: Map<String, String>, sink: (' + m.output + ') -> Unit, done: () -> Unit, fail: (StatusException) -> Unit)\n';
-    default:
-      return '';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmKotlinStreamIfaceMethod, m, '');
 }
-
 function wasmKotlinStreamRegisterMethod(m) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'client-streaming':
-      return '        bridge.clientStreamInc(' + path + ') { source, metadata, respond, fail ->\n'
-        + '            impl.' + m.name + '(' + m.input + 'Source(source), metadata, { resp -> respond(resp.marshalDc()) }, fail)\n        }\n';
-    case 'bidi':
-      return '        bridge.bidiInc(' + path + ') { source, metadata, sink, done, fail ->\n'
-        + '            impl.' + m.name + '(' + m.input + 'Source(source), metadata, { resp -> sink(resp.marshalDc()) }, done, fail)\n        }\n';
-    default:
-      return '';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmKotlinStreamRegisterMethod, m, '');
 }
-
 function wasmKotlinService(svc) {
-  const sname = svc.name;
-  const first = svc.methods[0];
-  const allServer = svc.methods.concat(aliasServerMethods(svc));
-  return '    /** Client for ' + svc.fullName + ' (browser/WASM facade; see file doc). */\n'
-    + '    class ' + sname + 'Client(private val bridge: GrpcdcWasmBridge) {\n'
-    + svc.methods.concat(aliasClientMethods(svc)).map(wasmKotlinClientMethod).join('')
-    + '    }\n\n'
-    + '    /** Service implementation interface for ' + svc.fullName + ' (browser/WASM facade). */\n'
-    + '    interface ' + sname + 'Server {\n'
-    + svc.methods.map(wasmKotlinServerIfaceMethod).join('')
-    + '    }\n\n'
-    + '    /** Register an implementation of ' + svc.fullName + ' on a server bridge. */\n'
-    + '    fun register' + sname + 'Server(bridge: GrpcdcWasmServerBridge, impl: ' + sname + 'Server) {\n'
-    + allServer.map(wasmKotlinRegisterMethod).join('')
-    + '        bridge.start(' + q(svc.fullName) + ')\n    }\n\n'
-    + [...new Set(svc.methods.filter((m) => m.kind === 'client-streaming' || m.kind === 'bidi').map((m) => m.input))].map((inp) =>
-        '    /** Typed pull source for incremental server handlers. */\n'
-        + '    class ' + inp + 'Source internal constructor(private val raw: GrpcdcRequestSource) {\n'
-        + '        fun next(onRequest: ((' + inp + '?) -> Unit), onError: (StatusException) -> Unit) {\n'
-        + '            raw.next({ bytes -> onRequest(bytes?.let { ' + inp + '().apply { unmarshalDc(it) } }) }, onError)\n        }\n    }\n\n').join('')
-    + '    /** Incremental service implementation for ' + svc.fullName + ': requests arrive one at a time. */\n'
-    + '    interface ' + sname + 'StreamServer {\n'
-    + svc.methods.map(wasmKotlinStreamIfaceMethod).join('')
-    + '    }\n\n'
-    + '    /** Register an incremental implementation; call bridge.start after all registrations. */\n'
-    + '    fun register' + sname + 'StreamServer(bridge: GrpcdcWasmServerBridge, impl: ' + sname + 'StreamServer) {\n'
-    + allServer.map(wasmKotlinStreamRegisterMethod).join('')
-    + '    }\n';
+  return runSegments(SEGMENT_PROGRAMS.wasmKotlinService, svc, svc.name);
 }
-
 function emitWasmKotlinFile(model, params) {
   const base = baseName(model.name);
   const objectName = pascalName(base) + 'WasmGrpcDc';
