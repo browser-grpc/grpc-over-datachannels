@@ -57,7 +57,11 @@
          wasm-go-stream-register-method-program wasm-go-service-program
          wasm-kotlin-client-method-program wasm-kotlin-server-iface-method-program
          wasm-kotlin-register-method-program wasm-kotlin-stream-iface-method-program
-         wasm-kotlin-stream-register-method-program wasm-kotlin-service-program)
+         wasm-kotlin-stream-register-method-program wasm-kotlin-service-program
+         wasm-scala-client-method-program wasm-scala-server-iface-method-program
+         wasm-scala-register-method-program wasm-scala-stream-iface-method-program
+         wasm-scala-stream-register-method-program wasm-scala-recv-stream-program
+         wasm-scala-source-program wasm-scala-service-program)
 
 ;; ---------------------------------------------------------------------------
 ;; Go stub: RegisterMethod handler table entries (one per method).
@@ -892,6 +896,116 @@
     (each+ methods server (call wasmKotlinStreamRegisterMethod))
     "    }\n"))
 
+;; ---------------------------------------------------------------------------
+;; Wasm-Scala facade emitter (mirrors template-wasm-scala.rkt).
+;; Client methods take the two client-stream class names as
+;; (arg 0)/(arg 1); server-iface methods the sink name as
+;; (arg 0); recv-stream (arg 0) = output type, (arg 1) = class
+;; name; source (arg 0) = message type.
+;; ---------------------------------------------------------------------------
+
+(define wasm-scala-client-method-program
+  '((kind-case
+     (unary (fmt "        def ~a(req: ~a): scala.concurrent.Future[~a] = {\n            bridge.unary(~s, req.marshalDc()).map { bytes =>\n                val resp = new ~a()\n                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n\n"
+                 (ref name) (ref input) (ref output) (ref path) (ref output)))
+     (server-streaming (fmt "        def ~a(req: ~a): ~a = {\n            new ~a(onMessage =>\n                bridge.serverStream(~s, req.marshalDc(), onMessage))\n        }\n\n"
+                            (ref name) (ref input) (arg 0) (arg 0) (ref path)))
+     (client-streaming (fmt "        def ~a(reqs: List[~a]): scala.concurrent.Future[~a] = {\n            bridge.clientStream(~s, reqs.map(_.marshalDc())).map { bytes =>\n                val resp = new ~a()\n                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n\n"
+                            (ref name) (ref input) (ref output) (ref path) (ref output)))
+     (bidi (fmt "        def ~a(reqs: List[~a]): ~a = {\n            new ~a(onMessage =>\n                bridge.bidi(~s, reqs.map(_.marshalDc()), onMessage))\n        }\n\n"
+                (ref name) (ref input) (arg 1) (arg 1) (ref path))))))
+
+(define wasm-scala-server-iface-method-program
+  '((kind-case
+     (unary (fmt "        def ~a(req: ~a, metadata: Map[String, String]): ~a\n" (ref name) (ref input) (ref output)))
+     (server-streaming (fmt "        def ~a(req: ~a, metadata: Map[String, String], sink: ~a): Unit\n" (ref name) (ref input) (arg 0)))
+     (client-streaming (fmt "        def ~a(reqs: List[~a], metadata: Map[String, String]): ~a\n" (ref name) (ref input) (ref output)))
+     (bidi (fmt "        def ~a(reqs: List[~a], metadata: Map[String, String], sink: ~a): Unit\n" (ref name) (ref input) (arg 0))))))
+
+(define wasm-scala-register-method-program
+  '((kind-case
+     (unary (fmt "        bridge.registerUnary(~s, (payload, metadata) =>\n            val req = new ~a()\n            req.unmarshalDc(payload)\n            impl.~a(req, metadata).marshalDc())\n" (ref path) (ref input) (ref impl-name)))
+     (server-streaming (fmt "        bridge.registerServerStream(~s, (payload, metadata, onMessage) =>\n            val req = new ~a()\n            req.unmarshalDc(payload)\n            impl.~a(req, metadata, resp => onMessage(resp.marshalDc())))\n" (ref path) (ref input) (ref impl-name)))
+     (client-streaming (fmt "        bridge.registerClientStream(~s, (payloads, metadata) =>\n            val reqs = payloads.map { payload =>\n                val req = new ~a()\n                req.unmarshalDc(payload)\n                req\n            }\n            impl.~a(reqs, metadata).marshalDc())\n" (ref path) (ref input) (ref impl-name)))
+     (bidi (fmt "        bridge.registerBidi(~s, (payloads, metadata, onMessage) =>\n            val reqs = payloads.map { payload =>\n                val req = new ~a()\n                req.unmarshalDc(payload)\n                req\n            }\n            impl.~a(reqs, metadata, resp => onMessage(resp.marshalDc())))\n" (ref path) (ref input) (ref impl-name))))))
+
+(define wasm-scala-stream-iface-method-program
+  '((kind-case
+     (client-streaming (fmt "        def ~a(source: ~aSource, metadata: Map[String, String]): scala.concurrent.Future[~a]\n" (ref name) (ref input) (ref output)))
+     (bidi (fmt "        def ~a(source: ~aSource, metadata: Map[String, String], sink: ~a => Unit): scala.concurrent.Future[Unit]\n" (ref name) (ref input) (ref output)))
+     (else ""))))
+
+(define wasm-scala-stream-register-method-program
+  '((kind-case
+     (client-streaming (fmt "        bridge.registerClientStreamInc(~s, (source, metadata) =>\n            impl.~a(new ~aSource(source), metadata).map(_.marshalDc()))\n" (ref path) (ref name) (ref input)))
+     (bidi (fmt "        bridge.registerBidiInc(~s, (source, metadata, onMessage) =>\n            impl.~a(new ~aSource(source), metadata, resp => onMessage(resp.marshalDc())))\n" (ref path) (ref name) (ref input)))
+     (else ""))))
+
+(define wasm-scala-recv-stream-program
+  '("    /** Receiving stream: recv() futures queue in arrival order. */\n"
+    (fmt "    class ~a(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) {\n" (arg 1))
+    "        private val buffer = scala.collection.mutable.Queue[Array[Byte]]()\n        private var finished = false\n        private var failure: Throwable = null\n        private var waiter: scala.concurrent.Promise[Array[Byte]] = null\n        call { bytes =>\n            if (waiter != null) {\n                val w = waiter\n                waiter = null\n                w.success(bytes)\n            } else {\n                buffer.enqueue(bytes)\n            }\n            ()\n        }.onComplete {\n            case scala.util.Success(_) =>\n                finished = true\n                if (waiter != null) {\n                    val w = waiter\n                    waiter = null\n                    w.failure(new java.io.EOFException(\"call completed\"))\n                }\n            case scala.util.Failure(err) =>\n                failure = err\n                if (waiter != null) {\n                    val w = waiter\n                    waiter = null\n                    w.failure(err)\n                }\n        }\n\n"
+    (fmt "        def recvBytes(): scala.concurrent.Future[~a] = {\n            val buffered =\n                if (buffer.nonEmpty) scala.concurrent.Future.successful(buffer.dequeue())\n                else if (failure != null) scala.concurrent.Future.failed(failure)\n                else if (finished) scala.concurrent.Future.failed(new java.io.EOFException(\"call completed\"))\n                else {\n                    waiter = scala.concurrent.Promise[Array[Byte]]()\n                    waiter.future\n                }\n            buffered.map { bytes =>\n                val resp = new ~a()\n                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n    }\n\n" (arg 0) (arg 0))))
+
+(define wasm-scala-source-program
+  '("    /** Typed pull source for incremental server handlers. */\n"
+    (fmt "    class ~aSource(private val raw: grpcdcscalajs.GrpcdcRequestSource) {\n        def next(): scala.concurrent.Future[Option[~a]] = {\n            raw.next().map(_.map { bytes =>\n                val req = new ~a()\n                req.unmarshalDc(bytes)\n                req\n            })\n        }\n    }\n\n" (arg 0) (arg 0) (arg 0))))
+
+(define wasm-scala-service-program
+  '((fmt "    /** Client for ~a (browser/Scala.js facade; see file doc). */\n    class ~aClient(private val bridge: grpcdcscalajs.GrpcdcScalaJsBridge) {\n" (ref full-name) (svc))
+    (each-unique methods output (kinds server-streaming) (or-first)
+                  (fmt "        class ~a(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ~a(call)\n\n"
+                       (case-on (distinct-count (get (root) methods) output (kinds server-streaming))
+                         (1 (fmt "~aServerStreamStream" (svc)))
+                         (else (fmt "~a~aServerStreamStream" (svc) (ref output))))
+                       (case-on (distinct-count (get (root) methods) output (kinds server-streaming bidi))
+                         (1 (fmt "~aRecvStream" (svc)))
+                         (else (fmt "~a~aRecvStream" (svc) (ref output))))))
+    (each-unique methods output (kinds bidi) (or-first)
+                  (fmt "        class ~a(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ~a(call)\n\n"
+                       (case-on (distinct-count (get (root) methods) output (kinds bidi))
+                         (1 (fmt "~aBidiStream" (svc)))
+                         (else (fmt "~a~aBidiStream" (svc) (ref output))))
+                       (case-on (distinct-count (get (root) methods) output (kinds server-streaming bidi))
+                         (1 (fmt "~aRecvStream" (svc)))
+                         (else (fmt "~a~aRecvStream" (svc) (ref output))))))
+    (each+ methods client (call wasmScalaClientMethod
+                               (case-on (distinct-count (get (root) methods) output (kinds server-streaming))
+                                 (1 (fmt "~aServerStreamStream" (svc)))
+                                 (else (fmt "~a~aServerStreamStream" (svc) (ref output))))
+                               (case-on (distinct-count (get (root) methods) output (kinds bidi))
+                                 (1 (fmt "~aBidiStream" (svc)))
+                                 (else (fmt "~a~aBidiStream" (svc) (ref output))))))
+    "    }\n\n"
+    (each-unique methods output (kinds server-streaming bidi) (or-first)
+                  (call wasmScalaRecvStream (ref output)
+                        (case-on (distinct-count (get (root) methods) output (kinds server-streaming bidi))
+                          (1 (fmt "~aRecvStream" (svc)))
+                          (else (fmt "~a~aRecvStream" (svc) (ref output))))))
+    (each-unique methods output (kinds server-streaming bidi) (or-first)
+                  (fmt "    /** Streaming response sink for server handlers. */\n    type ~a = ~a => Unit\n\n"
+                       (case-on (distinct-count (get (root) methods) output (kinds server-streaming bidi))
+                         (1 (fmt "~aServerSink" (svc)))
+                         (else (fmt "~a~aServerSink" (svc) (ref output))))
+                       (ref output)))
+    (fmt "    /** Service implementation for ~a (browser/Scala.js facade). */\n    trait ~aServer {\n" (ref full-name) (svc))
+    (each methods (call wasmScalaServerIfaceMethod
+                        (case-on (distinct-count (get (root) methods) output (kinds server-streaming bidi))
+                          (1 (fmt "~aServerSink" (svc)))
+                          (else (fmt "~a~aServerSink" (svc) (ref output))))))
+    "    }\n\n"
+    (fmt "    /** Register an implementation of ~a on a server bridge. */\n    def register~aServer(bridge: grpcdcscalajs.GrpcdcScalaJsServerBridge, impl: ~aServer): Unit = {\n" (ref full-name) (svc) (svc))
+    (each+ methods server (call wasmScalaRegisterMethod))
+    (fmt "        bridge.start(~s)\n    }\n\n" (ref full-name))
+    (each-unique methods input (kinds client-streaming bidi) (or-first)
+                  (call wasmScalaSource (ref input)))
+    (fmt "    /** Incremental service implementation for ~a: requests arrive one at a time. */\n    trait ~aStreamServer {\n" (ref full-name) (svc))
+    (each methods (call wasmScalaStreamIfaceMethod))
+    "    }\n\n"
+    (fmt "    /** Register an incremental implementation; call bridge.start after all registrations. */\n    def register~aStreamServer(bridge: grpcdcscalajs.GrpcdcScalaJsServerBridge, impl: ~aStreamServer): Unit = {\n" (svc) (svc))
+    (each+ methods server (call wasmScalaStreamRegisterMethod))
+    "    }\n"))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -951,7 +1065,15 @@
           'wasmKotlinRegisterMethod wasm-kotlin-register-method-program
           'wasmKotlinStreamIfaceMethod wasm-kotlin-stream-iface-method-program
           'wasmKotlinStreamRegisterMethod wasm-kotlin-stream-register-method-program
-          'wasmKotlinService wasm-kotlin-service-program))
+          'wasmKotlinService wasm-kotlin-service-program
+          'wasmScalaClientMethod wasm-scala-client-method-program
+          'wasmScalaServerIfaceMethod wasm-scala-server-iface-method-program
+          'wasmScalaRegisterMethod wasm-scala-register-method-program
+          'wasmScalaStreamIfaceMethod wasm-scala-stream-iface-method-program
+          'wasmScalaStreamRegisterMethod wasm-scala-stream-register-method-program
+          'wasmScalaRecvStream wasm-scala-recv-stream-program
+          'wasmScalaSource wasm-scala-source-program
+          'wasmScalaService wasm-scala-service-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -1119,9 +1241,15 @@
     [(eq? (car seg) 'self) node]
     [(eq? (car seg) 'root) (env-root env)]
     [(eq? (car seg) 'distinct-count)
+     (define kinds-part (and (pair? (cdddr seg)) (list? (fourth seg))
+                             (eq? (car (fourth seg)) 'kinds)
+                             (cdr (fourth seg))))
      (length (remove-duplicates
               (map (lambda (el) (hash-ref el (third seg)))
-                   (seg-eval (second seg) env))))]
+                   (filter (lambda (el)
+                             (or (not kinds-part)
+                                 (memq (hash-ref el 'kind) kinds-part)))
+                           (seg-eval (second seg) env)))))]
     [(memq (car seg) '(if case-on when guarded kind-case each each+ each-siblings each-sep each-unique))
      (run-segment seg env)]
     [(eq? (car seg) 'pascal) (seg-pascal (seg-eval (second seg) env))]
@@ -1267,19 +1395,30 @@
             (for/list ([sib (in-list (oneof-siblings (env-model env) node))])
               (run-env (cdr seg) (env-with env #:node sib))))]
     [(eq? (car seg) 'each-unique)
-     (define kinds-part (and (pair? (cdddr seg)) (list? (fourth seg))
-                             (eq? (car (fourth seg)) 'kinds)
-                             (cdr (fourth seg))))
-     (define body (if kinds-part (cddddr seg) (cdddr seg)))
+     (define rest (cdddr seg))
+     (define kinds-part (and (pair? rest) (list? (car rest))
+                             (eq? (car (car rest)) 'kinds)
+                             (cdr (car rest))))
+     (when kinds-part (set! rest (cdr rest)))
+     (define or-first? (and (pair? rest) (list? (car rest))
+                            (eq? (car (car rest)) 'or-first)))
+     (when or-first? (set! rest (cdr rest)))
+     (define all (hash-ref node (second seg)))
+     (define filtered
+       (filter (lambda (el)
+                 (or (not kinds-part) (memq (hash-ref el 'kind) kinds-part)))
+               all))
      (define seen (mutable-set))
+     (define uniq
+       (filter (lambda (el)
+                 (define v (hash-ref el (third seg)))
+                 (and (not (set-member? seen v)) (set-add! seen v)))
+               filtered))
      (apply string-append
-            (for/list ([el (in-list (hash-ref node (second seg)))]
-                       #:when (and (or (not kinds-part)
-                                       (memq (hash-ref el 'kind) kinds-part))
-                                   (let ([v (hash-ref el (third seg))])
-                                     (and (not (set-member? seen v))
-                                          (set-add! seen v)))))
-              (run-env body (env-with env #:node el))))]
+            (for/list ([el (in-list (if (and or-first? (null? uniq))
+                                        (list (car all))
+                                        uniq))])
+              (run-env rest (env-with env #:node el))))]
     [(eq? (car seg) 'each-sep)
      (define-values (keys segs) (splitf-at (cddr seg) symbol?))
      (define items
