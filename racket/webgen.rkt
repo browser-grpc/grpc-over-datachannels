@@ -6801,148 +6801,17 @@ JS
 // Lua emitter (mirrors the native lua template).
 // ---------------------------------------------------------------------------
 
-function luaDeprecated(m) {
-  return m.deprecated ? '--- Deprecated in the proto schema.\n' : '';
-}
 
-function luaClientMethodRaw(m, svc) {
-  const name = lowerFirst(m.name);
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return 'function ' + svc + 'Client:' + name + '(req, metadata, timeout)\n'
-        + '  local resp = ' + m.output + '.new()\n'
-        + '  self.channel:unary(' + path + ', req, resp, metadata, timeout)\n'
-        + '  return resp\nend\n\n';
-    case 'server-streaming':
-      return 'function ' + svc + 'Client:' + name + '(req, metadata, timeout)\n'
-        + '  return ' + svc + m.name + 'Stream.new(\n'
-        + '    self.channel:serverStream(' + path + ', req, metadata, timeout))\nend\n\n';
-    case 'client-streaming':
-      return 'function ' + svc + 'Client:' + name + '(reqs, metadata, timeout)\n'
-        + '  local resp = ' + m.output + '.new()\n'
-        + '  self.channel:clientStreamCall(' + path + ', reqs, resp, metadata, timeout)\n'
-        + '  return resp\nend\n\n';
-    default:
-      return 'function ' + svc + 'Client:' + name + '(reqs, metadata, timeout)\n'
-        + '  return ' + svc + m.name + 'Stream.new(self.channel:bidi(' + path + ', reqs, metadata, timeout))\nend\n\n';
-  }
-}
 
-function luaCoroClientStreamClass(m, svc) {
-  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
-  const t = svc + m.name + 'CoroStream';
-  return '--- Coroutine receiving stream for ' + m.name + ' responses: a producer\n'
-    + '--- coroutine yields each response; next() returns nil at the\n'
-    + '--- end of the call and raises a Status on trailers errors.\n'
-    + 'local ' + t + ' = {}\n'
-    + t + '.__index = ' + t + '\n\n'
-    + 'function ' + t + '.new(stream)\n'
-    + '  local self = setmetatable({ stream = stream }, ' + t + ')\n'
-    + '  self.co = coroutine.create(function()\n'
-    + '    while true do\n'
-    + '      local resp = ' + m.output + '.new()\n'
-    + '      stream:recv(resp)\n'
-    + '      coroutine.yield(resp)\n    end\n  end)\n'
-    + '  return self\nend\n\n'
-    + 'function ' + t + ':next()\n'
-    + '  if coroutine.status(self.co) == "dead" then return nil end\n'
-    + '  local ok, value = coroutine.resume(self.co)\n'
-    + '  if not ok then\n'
-    + '    if value == EndOfStream then return nil end\n'
-    + '    error(value, 0)\n  end\n'
-    + '  return value\nend\n\n'
-    + 'function ' + t + ':cancel()\n  self.stream:cancel()\nend\n\n'
-    + '--- Abandon the call early: RST so the server stops producing.\n'
-    + 'function ' + t + ':close()\n  self.stream:close()\nend\n\n'
-    + '--- To-be-closed (<close>) and GC abandon the call the same way.\n'
-    + 'function ' + t + ':__close()\n  self:close()\nend\n\n'
-    + 'function ' + t + ':__gc()\n  self:close()\nend\n\n'
-    + '--- Generic-for iterator: for resp in stream:iter() do ... end\n'
-    + '--- Breaking the loop closes the closable stream, RST-ing\n'
-    + '--- the call unless it already terminated.\n'
-    + 'function ' + t + ':iter()\n  return function() return self:next() end, nil, nil, self\nend\n\n';
-}
 
-function luaCoroClientMethod(m, svc) {
-  const name = lowerFirst(m.name);
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return 'function ' + svc + 'ClientCoro:' + name + '(req, metadata, timeout)\n'
-        + '  local resp = ' + m.output + '.new()\n'
-        + '  self.channel:unary(' + path + ', req, resp, metadata, timeout)\n'
-        + '  return resp\nend\n\n';
-    case 'server-streaming':
-      return 'function ' + svc + 'ClientCoro:' + name + '(req, metadata, timeout)\n'
-        + '  return ' + svc + m.name + 'CoroStream.new(\n'
-        + '    self.channel:serverStream(' + path + ', req, metadata, timeout))\nend\n\n';
-    case 'client-streaming':
-      return 'function ' + svc + 'ClientCoro:' + name + '(reqs, metadata, timeout)\n'
-        + '  local resp = ' + m.output + '.new()\n'
-        + '  self.channel:clientStreamCall(' + path + ', reqs, resp, metadata, timeout)\n'
-        + '  return resp\nend\n\n';
-    default:
-      return 'function ' + svc + 'ClientCoro:' + name + '(reqs, metadata, timeout)\n'
-        + '  return ' + svc + m.name + 'CoroStream.new(self.channel:bidi(' + path + ', reqs, metadata, timeout))\nend\n\n';
-  }
-}
 
-function luaClientStreamClass(m, svc) {
-  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
-  const t = svc + m.name + 'Stream';
-  return '--- Receiving stream for ' + m.name + ' responses.\n'
-    + 'local ' + t + ' = {}\n'
-    + t + '.__index = ' + t + '\n\n'
-    + 'function ' + t + '.new(stream)\n'
-    + '  return setmetatable({ stream = stream }, ' + t + ')\nend\n\n'
-    + '--- Next response; raises EndOfStream at the end of the call.\n'
-    + 'function ' + t + ':recv()\n'
-    + '  local resp = ' + m.output + '.new()\n'
-    + '  self.stream:recv(resp)\n  return resp\nend\n\n'
-    + '--- Response initial metadata (after the first recv).\n'
-    + 'function ' + t + ':headers()\n  return self.stream.headers and self.stream.headers.metadata\nend\n\n'
-    + '--- Response trailing metadata (after the call ends).\n'
-    + 'function ' + t + ':trailers()\n  return self.stream.trailers\nend\n\n'
-    + '--- Abandon the call early: RST so the server stops producing.\n'
-    + 'function ' + t + ':close()\n  self.stream:close()\nend\n\n'
-    + 'function ' + t + ':cancel()\n  self.stream:cancel()\nend\n\n'
-    + '--- To-be-closed (<close>) and GC abandon the call the same way.\n'
-    + 'function ' + t + ':__close()\n  self:close()\nend\n\n'
-    + 'function ' + t + ':__gc()\n  self:close()\nend\n\n';
-}
 
-function luaServerStreamClass(m, svc) {
-  const t = svc + m.name + 'Server';
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return '--- Server-streaming sink passed to service implementations.\n'
-        + 'local ' + t + ' = {}\n' + t + '.__index = ' + t + '\n\n'
-        + 'function ' + t + '.new(sink)\n'
-        + '  return setmetatable({ sink = sink }, ' + t + ')\nend\n\n'
-        + 'function ' + t + ':send(resp)\n  self.sink(resp:marshalDc())\nend\n\n';
-    case 'client-streaming':
-      return '--- Client-streaming stream passed to service implementations.\n'
-        + 'local ' + t + ' = {}\n' + t + '.__index = ' + t + '\n\n'
-        + 'function ' + t + '.new(reqs)\n'
-        + '  return setmetatable({ reqs = reqs, resp = nil }, ' + t + ')\nend\n\n'
-        + 'function ' + t + ':recv()\n'
-        + '  local req = ' + m.input + '.new()\n'
-        + '  self.reqs:recvInto(req)\n  return req\nend\n\n'
-        + 'function ' + t + ':sendAndClose(resp)\n  self.resp = resp\nend\n\n';
-    default:
-      return '--- Bidi stream passed to service implementations.\n'
-        + 'local ' + t + ' = {}\n' + t + '.__index = ' + t + '\n\n'
-        + 'function ' + t + '.new(reqs, sink)\n'
-        + '  return setmetatable({ reqs = reqs, sink = sink }, ' + t + ')\nend\n\n'
-        + 'function ' + t + ':send(resp)\n  self.sink(resp:marshalDc())\nend\n\n'
-        + 'function ' + t + ':recv()\n'
-        + '  local req = ' + m.input + '.new()\n'
-        + '  self.reqs:recvInto(req)\n  return req\nend\n\n';
-  }
-}
+
+
+
+
+
+
 
 const LUA_KIND_CONSTS = {
   unary: 'KIND_UNARY',
@@ -6952,53 +6821,11 @@ const LUA_KIND_CONSTS = {
 };
 
 function luaRegisterMethod(m, svc) {
-  const impl = lowerFirst(m.implName);
-  const head = '      {\n        name = ' + q(m.name) + ',\n        path = ' + q(m.path) + ',\n        kind = Server.' + LUA_KIND_CONSTS[m.kind] + ',\n        handler = function(ctx, reqs, sink)\n';
-  switch (m.kind) {
-    case 'unary':
-      return head
-        + '          local req = ' + m.input + '.new()\n'
-        + '          reqs:recvInto(req)\n'
-        + '          sink(impl:' + impl + '(ctx, req):marshalDc())\n        end,\n      },\n';
-    case 'server-streaming':
-      return head
-        + '          local req = ' + m.input + '.new()\n'
-        + '          reqs:recvInto(req)\n'
-        + '          impl:' + impl + '(ctx, req, ' + svc + m.name + 'Server.new(sink))\n        end,\n      },\n';
-    case 'client-streaming':
-      return head
-        + '          local stream = ' + svc + m.name + 'Server.new(reqs)\n'
-        + '          impl:' + impl + '(ctx, stream)\n'
-        + '          local resp = stream.resp\n'
-        + '          if resp == nil then\n'
-        + '            error(Status.new(wire.CODE_INTERNAL,\n'
-        + '              "client-streaming handler never called sendAndClose"), 0)\n'
-        + '          end\n'
-        + '          sink(resp:marshalDc())\n        end,\n      },\n';
-    default:
-      return head
-        + '          impl:' + impl + '(ctx, ' + svc + m.name + 'Server.new(reqs, sink))\n        end,\n      },\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.luaRegisterMethod, m, svc);
 }
 
 function luaService(svc) {
-  const sname = svc.name;
-  const all = svc.methods.concat(aliasClientMethods(svc));
-  return svc.methods.map((m) => luaClientStreamClass(m, sname)).join('')
-    + svc.methods.map((m) => luaServerStreamClass(m, sname)).join('')
-    + '--- Client for ' + svc.fullName + '.\n'
-    + 'local ' + sname + 'Client = {}\n'
-    + sname + 'Client.__index = ' + sname + 'Client\n\n'
-    + 'function ' + sname + 'Client.new(channel)\n'
-    + '  return setmetatable({ channel = channel }, ' + sname + 'Client)\nend\n\n'
-    + all.map((m) => luaDeprecated(m) + luaClientMethodRaw(m, sname)).join('')
-    + svc.methods.map((m) => luaCoroClientStreamClass(m, sname)).join('')
-    + '--- Coroutine client for ' + svc.fullName + '.\n'
-    + 'local ' + sname + 'ClientCoro = {}\n'
-    + sname + 'ClientCoro.__index = ' + sname + 'ClientCoro\n\n'
-    + 'function ' + sname + 'ClientCoro.new(channel)\n'
-    + '  return setmetatable({ channel = channelModule.CoroutineChannel.new(channel) }, ' + sname + 'ClientCoro)\nend\n\n'
-    + all.map((m) => luaDeprecated(m) + luaCoroClientMethod(m, sname)).join('');
+  return runSegments(SEGMENT_PROGRAMS.luaService, svc, svc.name);
 }
 
 function luaRegisterService(svc) {
@@ -7071,221 +6898,38 @@ function lpEntryFlat(model, entry) {
   return baseName(entry.file) + '_messagesMessages.' + (entry.kind === 'enum' ? entry.enum.name : entry.msg.name);
 }
 
-function lpExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case 9: return JSON.stringify(d);
-    case 8: return d;
-    case 14: return String(enumDefaultNumber(model, f));
-    default: return d;
-  }
-}
 
-function lpDefault(model, f) {
-  const lit = lpExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.type === FT.MESSAGE && lpResolve(model, f.typeName).kind === 'map') return '{}';
-  if (f.label === 3) return '{}';
-  if (f.type === FT.MESSAGE) return 'nil';
-  if (f.type === FT.STRING || f.type === FT.BYTES) return '""';
-  if (f.type === FT.BOOL) return 'false';
-  if (f.type === FT.ENUM) {
-    const entry = lpResolve(model, f.typeName);
-    return String(entry.enum.values[0].number);
-  }
-  return '0';
-}
 
-function lpVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return '(' + v + ' and 1 or 0)';
-    case 17: return '((bxor(' + v + ' << 1, ' + v + ' >> 31)) & 0xffffffff)';
-    case 18: return '(bxor(' + v + ' << 1, -(' + v + ' >> 63)))';
-    default: return v;
-  }
-}
 
-function lpVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: case 14: return '((' + v + ' & 0xffffffff) >= 0x80000000 and (' + v + ' & 0xffffffff) - 0x100000000 or (' + v + ' & 0xffffffff))';
-    case 13: case 7: return '(' + v + ' & 0xffffffff)';
-    case 8: return '(' + v + ' ~= 0)';
-    case 17: return '(((bxor(' + v + ' >> 1, -(' + v + ' & 1))) & 0xffffffff) >= 0x80000000 and ((bxor(' + v + ' >> 1, -(' + v + ' & 1))) & 0xffffffff) - 0x100000000 or ((bxor(' + v + ' >> 1, -(' + v + ' & 1))) & 0xffffffff))';
-    case 18: return '(bxor(' + v + ' >> 1, -(' + v + ' & 1)))';
-    default: return v;
-  }
-}
 
-function lpFixedFmt(f) {
-  return '<' + LP_FIXED[f.type][1];
-}
 
-function lpWire(f) {
-  return LP_FIXED[f.type][0] === 8 ? 1 : 5;
-}
 
-function lpNonzero(f, v) {
-  return f.type === FT.BOOL ? v : v + ' ~= 0';
-}
 
-function lpEncodeSingular(model, f, v, indent) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (LP_VARINT.has(f.type)) {
-    return proto2
-      ? indent + 'w:tag(' + n + ', 0) w:varint(' + lpVarintExpr(f, v) + ')\n'
-      : indent + 'if ' + lpNonzero(f, v) + ' then w:tag(' + n + ', 0) w:varint(' + lpVarintExpr(f, v) + ') end\n';
-  }
-  if (LP_FIXED[f.type]) {
-    return proto2
-      ? indent + 'w:tag(' + n + ', ' + lpWire(f) + ') w:fixed(' + JSON.stringify(lpFixedFmt(f)) + ', ' + v + ')\n'
-      : indent + 'if ' + v + ' ~= 0 then w:tag(' + n + ', ' + lpWire(f) + ') w:fixed(' + JSON.stringify(lpFixedFmt(f)) + ', ' + v + ') end\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + 'w:bytesField(' + n + ', ' + v + ')\n'
-      : indent + 'w:stringField(' + n + ', ' + v + ')\n';
-    case 12: return proto2
-      ? indent + 'w:bytesField(' + n + ', ' + v + ')\n'
-      : indent + 'if #' + v + ' > 0 then w:bytesField(' + n + ', ' + v + ') end\n';
-    case 11: return indent + 'if ' + v + ' ~= nil then w:bytesField(' + n + ', ' + v + ':marshalDc()) end\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
-}
 
-function lpSetExpr(sib) {
-  const v = 'self.' + lpFieldName(sib);
-  switch (sib.type) {
-    case 11: case 10: return v + ' ~= nil';
-    case 9: case 12: return '#' + v + ' > 0';
-    default: return lpNonzero(sib, v);
-  }
-}
 
-function lpEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '    if not (' + later.map(lpSetExpr).join(' or ') + ') then\n' + (code.endsWith('\n') ? code : code + '\n') + '    end\n';
-}
 
-function lpEncodeField(model, f) {
-  const v = 'self.' + lpFieldName(f);
-  const n = f.number;
-  if (f.type === FT.MESSAGE && lpResolve(model, f.typeName).kind === 'map') {
-    const entry = lpResolve(model, f.typeName);
-    const helper = lpEntryFlat(model, entry) + 'Encode';
-    return '    do\n      local keys = {}\n      for k in pairs(' + v + ') do keys[#keys + 1] = k end\n      table.sort(keys)\n      for _, k in ipairs(keys) do w:bytesField(' + n + ', ' + helper + '(k, ' + v + '[k])) end\n    end\n';
-  }
-  if (f.label !== 3) return lpEncodeSingular(model, f, v, '    ');
-  if (LP_VARINT.has(f.type)) {
-    return '    if #' + v + ' > 0 then\n      local payload = {}\n'
-      + '      for _, x in ipairs(' + v + ') do payload[#payload + 1] = varintBytes(' + lpVarintExpr(f, 'x') + ') end\n'
-      + '      w:bytesField(' + n + ', table.concat(payload))\n    end\n';
-  }
-  const fixed = LP_FIXED[f.type];
-  if (fixed) {
-    return '    if #' + v + ' > 0 then\n      local payload = {}\n'
-      + '      for _, x in ipairs(' + v + ') do payload[#payload + 1] = string.pack(' + JSON.stringify('<' + fixed[1]) + ', x) end\n'
-      + '      w:bytesField(' + n + ', table.concat(payload))\n    end\n';
-  }
-  switch (f.type) {
-    case 9: case 12: return '    for _, x in ipairs(' + v + ') do w:bytesField(' + n + ', x) end\n';
-    case 11: return '    for _, x in ipairs(' + v + ') do w:bytesField(' + n + ', x:marshalDc()) end\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
-}
 
-function lpDecodeSingular(model, f, target, src, indent) {
-  if (LP_VARINT.has(f.type)) {
-    return indent + target + ' = ' + lpVarintDecode(f, src) + '\n';
-  }
-  if (LP_FIXED[f.type]) {
-    return indent + target + ' = string.unpack(' + JSON.stringify('<' + LP_FIXED[f.type][1]) + ', ' + src + ')\n';
-  }
-  switch (f.type) {
-    case 9: case 12: return indent + target + ' = ' + src + '\n';
-    case 11: {
-      const ref = lpEntryFlat(model, lpResolve(model, f.typeName));
-      return indent + target + ' = ' + ref + '.new()\n' + indent + target + ':unmarshalDc(' + src + ')\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type);
-  }
-}
 
-function lpOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => '      self.' + lpFieldName(sib) + ' = ' + lpDefault(model, sib) + '\n').join('');
-}
 
-function lpSrc(f) {
-  return LP_VARINT.has(f.type) ? 'field.varintValue' : (LP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
-}
 
-function lpDecodeCase(model, f) {
-  const v = 'self.' + lpFieldName(f);
-  const head = '    elseif field.number == ' + f.number + ' then\n';
-  if (f.type === FT.MESSAGE && lpResolve(model, f.typeName).kind === 'map') {
-    const entry = lpResolve(model, f.typeName);
-    const helper = lpEntryFlat(model, entry) + 'Decode';
-    return head
-      + '      local kk, vv = ' + helper + '(field.bytesValue)\n'
-      + '      ' + v + '[kk] = vv\n';
-  }
-  if (f.label !== 3) {
-    return head + lpOneofClearing(model, f) + lpDecodeSingular(model, f, v, lpSrc(f), '      ');
-  }
-  if (LP_VARINT.has(f.type)) {
-    return head
-      + '      if field.wire == 2 then\n'
-      + '        local sub = Reader.new(field.bytesValue)\n'
-      + '        while not sub:done() do\n'
-      + '          local raw = sub:varint()\n'
-      + '          ' + v + '[#' + v + ' + 1] = ' + lpVarintDecode(f, 'raw') + '\n'
-      + '        end\n      else\n'
-      + '        ' + v + '[#' + v + ' + 1] = ' + lpVarintDecode(f, 'field.varintValue') + '\n'
-      + '      end\n';
-  }
-  const fixed = LP_FIXED[f.type];
-  if (fixed) {
-    return head
-      + '      if field.wire == 2 then\n'
-      + '        local payload = field.bytesValue\n'
-      + '        for i = 1, #payload, ' + fixed[0] + ' do\n'
-      + '          ' + v + '[#' + v + ' + 1] = string.unpack(' + JSON.stringify('<' + fixed[1]) + ', payload, i)\n'
-      + '        end\n      else\n'
-      + '        ' + v + '[#' + v + ' + 1] = string.unpack(' + JSON.stringify('<' + fixed[1]) + ', field.fixedValue)\n'
-      + '      end\n';
-  }
-  switch (f.type) {
-    case 9: case 12: return head + '      ' + v + '[#' + v + ' + 1] = field.bytesValue\n';
-    case 11: return head
-      + '      local item = ' + lpEntryFlat(model, lpResolve(model, f.typeName)) + '.new()\n'
-      + '      item:unmarshalDc(field.bytesValue)\n'
-      + '      ' + v + '[#' + v + ' + 1] = item\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function lpMapHelpers(model, entry) {
-  const msg = entry.msg;
-  const base = lpEntryFlat(model, entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry lacks key/value');
-  return base + 'Encode = function(key, value)\n  local w = Writer.new()\n'
-    + lpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '  ')
-    + lpEncodeSingular(model, { ...valF, label: 1 }, 'value', '  ')
-    + '  return w:toBytes()\nend\n\n'
-    + base + 'Decode = function(data)\n'
-    + '  local key = ' + lpDefault(model, { ...keyF, label: 1 }) + '\n  local value = ' + lpDefault(model, { ...valF, label: 1 }) + '\n'
-    + '  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n'
-    + '    if field.number == ' + keyF.number + ' then\n'
-    + lpDecodeSingular(model, { ...keyF, label: 1 }, 'key', lpSrc(keyF), '      ')
-    + '    elseif field.number == ' + valF.number + ' then\n'
-    + (valF.type === FT.MESSAGE
-      ? '      value = ' + lpEntryFlat(model, lpResolve(model, valF.typeName)) + '.new()\n      value:unmarshalDc(field.bytesValue)\n'
-      : lpDecodeSingular(model, { ...valF, label: 1 }, 'value', lpSrc(valF), '      '))
-    + '    end\n  end\n  return key, value\nend\n\n';
+  return runSegments(SEGMENT_PROGRAMS.luaPbMapHelpers, entry, null, model);
 }
 
 const LP_SUPPORT = '-- @generated by protoc-gen-grpc-dc-lua. DO NOT EDIT.\n'
@@ -7308,27 +6952,11 @@ const LP_SUPPORT = '-- @generated by protoc-gen-grpc-dc-lua. DO NOT EDIT.\n'
   + 'function Reader:next()\n  if self.pos > #self.buf then return nil end\n  local start = self.pos\n  local tag = self:varint()\n  local number = tag >> 3\n  local wire = tag & 7\n  if wire == 0 then\n    local v = self:varint()\n    return { number = number, wire = wire, varintValue = v, bytesValue = "", fixedValue = "", rawValue = self.buf:sub(start, self.pos - 1) }\n  elseif wire == 2 then\n    local n = self:varint()\n    local b = self:take(n)\n    return { number = number, wire = wire, varintValue = 0, bytesValue = b, fixedValue = "", rawValue = self.buf:sub(start, self.pos - 1) }\n  elseif wire == 1 then\n    local b = self:take(8)\n    return { number = number, wire = wire, varintValue = 0, bytesValue = "", fixedValue = b, rawValue = self.buf:sub(start, self.pos - 1) }\n  elseif wire == 5 then\n    local b = self:take(4)\n    return { number = number, wire = wire, varintValue = 0, bytesValue = "", fixedValue = b, rawValue = self.buf:sub(start, self.pos - 1) }\n  end\n  error("bad wire type")\nend\n\n';
 
 function lpMessageClass(model, msg) {
-  const name = lpFlat(model.package, msg.fullName);
-  return name + ' = {}\n' + name + '.__index = ' + name + '\n\n'
-    + 'function ' + name + '.new(' + msg.fields.map(lpFieldName).join(', ') + ')\n'
-    + '  return setmetatable({ ' + [...msg.fields.map((f) => lpFieldName(f) + ' = ' + lpFieldName(f) + ' or ' + lpDefault(model, f)), 'unknownFields = ""'].join(', ') + ' }, ' + name + ')\nend\n\n'
-    + 'function ' + name + ':marshalDc()\n  local w = Writer.new()\n'
-    + msg.fields.map((f) => lpEncodeGuard(model, f, lpEncodeField(model, f))).join('')
-    + '  w:raw(self.unknownFields)\n'
-    + '  return w:toBytes()\nend\n\n'
-    + 'function ' + name + ':unmarshalDc(data)\n'
-    + '  self.unknownFields = ""\n'
-    + msg.fields.map((f) => '  self.' + lpFieldName(f) + ' = ' + lpDefault(model, f) + '\n').join('')
-    + '  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n'
-    + '    if false then\n'
-    + msg.fields.map((f) => lpDecodeCase(model, f)).join('')
-    + '    else\n      self.unknownFields = self.unknownFields .. field.rawValue\n    end\n  end\nend\n\n'
-    + msg.nested.map((n) => lpMessageClass(model, n)).join('');
+  return runSegments(SEGMENT_PROGRAMS.luaPbMessage, msg, null, model);
 }
 
 function lpEnumDecl(model, e) {
-  const name = lpFlat(model.package, model.package === '' ? e.name : model.package + '.' + e.name);
-  return 'local ' + name + ' = { ' + e.values.map((v) => v.name + ' = ' + v.number).join(', ') + ' }\n\n';
+  return runSegments(SEGMENT_PROGRAMS.luaPbEnum, e, null, model);
 }
 
 function emitLuaPbFile(model) {
@@ -8785,8 +8413,8 @@ JS
                        "function segTruthy(v) { return !(v === false || v === null || v === undefined || v === '' || v === 0); }\n\n"
                        "function segKey(k) {\n  return k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());\n}\n\n"
                        "function segCategory(model, node) {\n  const t = node.type;\n  if (t === 11 && gpResolve(model, node.typeName).kind === 'map') return 'map';\n  if (t === 11) return 'message';\n  if (VARINT_TYPES.includes(t)) return 'varint';\n  if (FIXED_TABLES.go[t]) return 'fixed';\n  if (t === 9) return 'string';\n  if (t === 12) return 'bytes';\n  return 'other';\n}\n\n"
-                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      const tmpl = Array.isArray(seg[1]) ? segEval(seg[1], env) : seg[1];\n      return tmpl.replace(/~~|~[as]/g, (tok) => {\n        if (tok === '~~') return '~';\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'root': return env.root;\n    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'lower-first': return lowerFirst(segEval(seg[1], env));\n    case 'js-name': return pbJsName(node);\n    case 'js-fixed-size': return FIXED_TABLES.js[node.type][0];\n    case 'js-fixed-name': return FIXED_TABLES.js[node.type][1];\n    case 'bigint-type': return PB_BIGINT.has(node.type);\n    case 'entry-flat': return node.kind === 'enum' ? pbFlatName(node.pkg, node.full) : pbFlatName(node.pkg, node.msg.fullName);\n    case 'resolved-flat': { const e = pbResolve(model, node.typeName); return pbFlatName(e.pkg, e.msg.fullName); }\n    case 'index': return env.index;\n    case 'parent': return env.parent;\n    case 'and': return seg.slice(1).every((e) => segTruthy(segEval(e, env)));\n    case 'or': return seg.slice(1).some((e) => segTruthy(segEval(e, env)));\n    case 'not': return !segTruthy(segEval(seg[1], env));\n    case 'any-where': { const keys = Array.isArray(seg[1]) ? seg[1] : [seg[1]]; let items = node; for (const k of keys) items = items[segKey(k)]; return items.some((el) => segTruthy(segEval(seg[2], envWith(env, { node: el })))); }\n    case 'snake-case': return snakeCase(segEval(seg[1], env));\n    case 'rs-camel': return rpCamel(segEval(seg[1], env));\n    case 'rs-field-name': return rpFieldName(node);\n    case 'rs-map-type': return rpMapType();\n    case 'rs-entry-ref': { const e = node.typeName !== undefined ? rpResolve(model, node.typeName) : node; return rpEntryRef(model, e); }\n    case 'rs-scalar-type': return SCALAR_TABLES.rust.types[node.type] ?? SCALAR_TABLES.rust.default;\n    case 'rs-fixed-size': return FIXED_TABLES.rust[node.type][0];\n    case 'rs-fixed-name': return FIXED_TABLES.rust[node.type][1];\n    case 'flat-of': return rpFlat(model.package, segEval(seg[1], env));\n    case 'rust-enum-fragment': return RP_ENUM_SHAPE[seg[1]];\n    case 'enum-first-value-name': return rpResolve(model, node.typeName).enum.values[0].name;\n    case 'enum-first-value-num': return rpResolve(model, node.typeName).enum.values[0].number;\n    case 'rb-snake': return String(segEval(seg[1], env)).replace(/[A-Z]/g, (c, i) => (i > 0 ? '_' : '') + c.toLowerCase());\n    case 'stub-ref': return rbStubRef(model, node[segKey(seg[1])]);\n    case 'rb-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? rbpResolve(model, n.typeName) : n; return rbpEntryRef(model, e); }\n    case 'rb-model-module': return rbpModuleName({ file: model.name });\n    case 'rb-fixed-size': return FIXED_TABLES.ruby[node.type][0];\n    case 'rb-fixed-fmt': return FIXED_TABLES.ruby[node.type][1];\n    case 'php-camel': return phpbCamel(segEval(seg[1], env));\n    case 'php-field-name': return phpbFieldName(node);\n    case 'php-flat-of': return phpbFlat(model.package, segEval(seg[1], env));\n    case 'php-stub-ref': return phpStubRef(model, node[segKey(seg[1])]);\n    case 'php-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? phpbResolve(model, n.typeName) : n; return phpbEntryRef(model, e); }\n    case 'php-fixed-size': return FIXED_TABLES.php[node.type][0];\n    case 'php-fixed-fmt': return FIXED_TABLES.php[node.type][1];\n    case 'py-ref': { const e = node.typeName !== undefined ? pyPbResolve(model, node.typeName) : node; return pyPbRef(model, e); }\n    case 'py-fixed-size': return FIXED_TABLES.python[node.type][0];\n    case 'py-fixed-fmt': return FIXED_TABLES.python[node.type][1];\n    case 'with-type': return Object.assign({}, segEval(seg[1], env), { type: seg[2] });\n    case 'trim-end': return String(segEval(seg[1], env)).replace(/\\n+$/, '');\n    case 'c-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntryRef(model, e); }\n    case 'c-entry-support': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntrySupport(e); }\n    case 'c-type-ref': return cbTypeRef(model, node[segKey(seg[1])]);\n    case 'c-support-of': return cbEntrySupport(cbResolve(model, node[segKey(seg[1])]));\n    case 'c-scalar-type': return SCALAR_TABLES.c.types[node.type][0];\n    case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];\n    case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];\n    case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];\n    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + '\u0000' + el.output)).size; }\n    case 'sc-field-name': return scpFieldName(node);\n    case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }\n    case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;\n    case 'sc-fixed-size': return FIXED_TABLES.scala[node.type][0];\n    case 'sc-fixed-kind': return FIXED_TABLES.scala[node.type][1];\n    case 'dart-field-name': return dtpFieldName(node);\n    case 'dart-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpEntryRef(model, e); }\n    case 'dart-type-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpTypeRef(model, e); }\n    case 'dart-scalar-type': return SCALAR_TABLES.dart.types[node.type][0];\n    case 'dart-scalar-zero': return SCALAR_TABLES.dart.types[node.type][1];\n    case 'dart-fixed-size': return FIXED_TABLES.dart[node.type][0];\n    case 'dart-fixed-name': return FIXED_TABLES.dart[node.type][1];\n    case 'swift-field-name': return swpFieldName(node);\n    case 'swift-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpEntryRef(model, e); }\n    case 'swift-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpMapHelperName(model, e); }\n    case 'swift-scalar-type': return SCALAR_TABLES.swift.types[node.type][0];\n    case 'swift-scalar-zero': return SCALAR_TABLES.swift.types[node.type][1];\n    case 'swift-fixed-size': return FIXED_TABLES.swift[node.type][0];\n    case 'swift-fixed-name': return FIXED_TABLES.swift[node.type][1];\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
-                       "function runSegment(seg, env) {\n  const node = env.node;\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'if': {\n      const thenPart = seg.slice(2).find((g) => g[0] === 'then');\n      const elsePart = seg.slice(2).find((g) => g[0] === 'else');\n      if (segTruthy(segEval(seg[1], env))) return runEnv(thenPart.slice(1), env);\n      return elsePart ? runEnv(elsePart.slice(1), env) : '';\n    }\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind || (Array.isArray(b[0]) && b[0].includes(node.kind))) || seg.slice(1).find((b) => b[0] === 'else');\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runEnv(branch.slice(1), env);\n    }\n    case 'case-on': {\n      const val = segEval(seg[1], env);\n      const raw = seg.slice(2);\n      const isKey = (b) => Array.isArray(b) && (Array.isArray(b[0]) || typeof b[0] === 'number' || typeof b[0] === 'string');\n      let branches;\n      if (raw.length === 1 && Array.isArray(raw[0]) && raw[0].every(isKey)) branches = raw[0];\n      else branches = raw.map((b) => (Array.isArray(b) && b.length === 1 && Array.isArray(b[0])) ? b[0] : b);\n      const keysOf = (b) => (Array.isArray(b[0]) ? b[0] : [b[0]]);\n      const branch = branches.find((b) => keysOf(b).includes('else') || keysOf(b).map(String).includes(String(val)));\n      return branch ? runEnv(branch.slice(1), env) : '';\n    }\n    case 'when':\n      return segTruthy(segEval(seg[1], env)) ? runEnv(seg.slice(2), env) : '';\n    case 'guarded': {\n      const text = runEnv(seg.slice(4), env);\n      const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(' || ');\n      if (!cond) return text;\n      return seg[2].split('~a').join(cond) + (text.endsWith('\\n') ? text : text + '\\n') + seg[3];\n    }\n    case 'fail':\n      throw new Error('unsupported field type ' + node.type);\n    case 'each': {\n      let i = 1; const keys = [];\n      while (typeof seg[i] === 'string') { keys.push(seg[i]); i++; }\n      let items = node;\n      for (const k of keys) items = items[segKey(k)];\n      let out = '';\n      items.forEach((el, ix) => { out += runEnv(seg.slice(i), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'each+': {\n      const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      let out = '';\n      all.forEach((el, ix) => { out += runEnv(seg.slice(3), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'guarded-indent': {
+                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      const tmpl = Array.isArray(seg[1]) ? segEval(seg[1], env) : seg[1];\n      return tmpl.replace(/~~|~[as]/g, (tok) => {\n        if (tok === '~~') return '~';\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'root': return env.root;\n    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'lower-first': return lowerFirst(segEval(seg[1], env));\n    case 'js-name': return pbJsName(node);\n    case 'js-fixed-size': return FIXED_TABLES.js[node.type][0];\n    case 'js-fixed-name': return FIXED_TABLES.js[node.type][1];\n    case 'bigint-type': return PB_BIGINT.has(node.type);\n    case 'entry-flat': return node.kind === 'enum' ? pbFlatName(node.pkg, node.full) : pbFlatName(node.pkg, node.msg.fullName);\n    case 'resolved-flat': { const e = pbResolve(model, node.typeName); return pbFlatName(e.pkg, e.msg.fullName); }\n    case 'index': return env.index;\n    case 'parent': return env.parent;\n    case 'and': return seg.slice(1).every((e) => segTruthy(segEval(e, env)));\n    case 'or': return seg.slice(1).some((e) => segTruthy(segEval(e, env)));\n    case 'not': return !segTruthy(segEval(seg[1], env));\n    case 'any-where': { const keys = Array.isArray(seg[1]) ? seg[1] : [seg[1]]; let items = node; for (const k of keys) items = items[segKey(k)]; return items.some((el) => segTruthy(segEval(seg[2], envWith(env, { node: el })))); }\n    case 'snake-case': return snakeCase(segEval(seg[1], env));\n    case 'rs-camel': return rpCamel(segEval(seg[1], env));\n    case 'rs-field-name': return rpFieldName(node);\n    case 'rs-map-type': return rpMapType();\n    case 'rs-entry-ref': { const e = node.typeName !== undefined ? rpResolve(model, node.typeName) : node; return rpEntryRef(model, e); }\n    case 'rs-scalar-type': return SCALAR_TABLES.rust.types[node.type] ?? SCALAR_TABLES.rust.default;\n    case 'rs-fixed-size': return FIXED_TABLES.rust[node.type][0];\n    case 'rs-fixed-name': return FIXED_TABLES.rust[node.type][1];\n    case 'flat-of': return rpFlat(model.package, segEval(seg[1], env));\n    case 'rust-enum-fragment': return RP_ENUM_SHAPE[seg[1]];\n    case 'enum-first-value-name': return rpResolve(model, node.typeName).enum.values[0].name;\n    case 'enum-first-value-num': return rpResolve(model, node.typeName).enum.values[0].number;\n    case 'rb-snake': return String(segEval(seg[1], env)).replace(/[A-Z]/g, (c, i) => (i > 0 ? '_' : '') + c.toLowerCase());\n    case 'stub-ref': return rbStubRef(model, node[segKey(seg[1])]);\n    case 'rb-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? rbpResolve(model, n.typeName) : n; return rbpEntryRef(model, e); }\n    case 'rb-model-module': return rbpModuleName({ file: model.name });\n    case 'rb-fixed-size': return FIXED_TABLES.ruby[node.type][0];\n    case 'rb-fixed-fmt': return FIXED_TABLES.ruby[node.type][1];\n    case 'php-camel': return phpbCamel(segEval(seg[1], env));\n    case 'php-field-name': return phpbFieldName(node);\n    case 'php-flat-of': return phpbFlat(model.package, segEval(seg[1], env));\n    case 'php-stub-ref': return phpStubRef(model, node[segKey(seg[1])]);\n    case 'php-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? phpbResolve(model, n.typeName) : n; return phpbEntryRef(model, e); }\n    case 'php-fixed-size': return FIXED_TABLES.php[node.type][0];\n    case 'php-fixed-fmt': return FIXED_TABLES.php[node.type][1];\n    case 'py-ref': { const e = node.typeName !== undefined ? pyPbResolve(model, node.typeName) : node; return pyPbRef(model, e); }\n    case 'py-fixed-size': return FIXED_TABLES.python[node.type][0];\n    case 'py-fixed-fmt': return FIXED_TABLES.python[node.type][1];\n    case 'with-type': return Object.assign({}, segEval(seg[1], env), { type: seg[2] });\n    case 'trim-end': return String(segEval(seg[1], env)).replace(/\\n+$/, '');\n    case 'c-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntryRef(model, e); }\n    case 'c-entry-support': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntrySupport(e); }\n    case 'c-type-ref': return cbTypeRef(model, node[segKey(seg[1])]);\n    case 'c-support-of': return cbEntrySupport(cbResolve(model, node[segKey(seg[1])]));\n    case 'c-scalar-type': return SCALAR_TABLES.c.types[node.type][0];\n    case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];\n    case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];\n    case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];\n    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + '\u0000' + el.output)).size; }\n    case 'sc-field-name': return scpFieldName(node);\n    case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }\n    case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;\n    case 'sc-fixed-size': return FIXED_TABLES.scala[node.type][0];\n    case 'sc-fixed-kind': return FIXED_TABLES.scala[node.type][1];\n    case 'dart-field-name': return dtpFieldName(node);\n    case 'dart-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpEntryRef(model, e); }\n    case 'dart-type-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpTypeRef(model, e); }\n    case 'dart-scalar-type': return SCALAR_TABLES.dart.types[node.type][0];\n    case 'dart-scalar-zero': return SCALAR_TABLES.dart.types[node.type][1];\n    case 'dart-fixed-size': return FIXED_TABLES.dart[node.type][0];\n    case 'dart-fixed-name': return FIXED_TABLES.dart[node.type][1];\n    case 'swift-field-name': return swpFieldName(node);\n    case 'swift-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpEntryRef(model, e); }\n    case 'swift-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpMapHelperName(model, e); }\n    case 'swift-scalar-type': return SCALAR_TABLES.swift.types[node.type][0];\n    case 'swift-scalar-zero': return SCALAR_TABLES.swift.types[node.type][1];\n    case 'swift-fixed-size': return FIXED_TABLES.swift[node.type][0];\n    case 'swift-fixed-name': return FIXED_TABLES.swift[node.type][1];\n    case 'lua-field-name': return lpFieldName(node);\n    case 'lua-entry-flat': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? lpResolve(model, n.typeName) : n; return lpEntryFlat(model, e); }\n    case 'lua-enum-flat': return lpFlat(model.package, model.package === '' ? node.name : model.package + '.' + node.name);\n    case 'lua-fixed-fmt': return '<' + FIXED_TABLES.lua[node.type][1];\n    case 'lua-fixed-size': return FIXED_TABLES.lua[node.type][0];\n    case 'lua-fixed-wire': return FIXED_TABLES.lua[node.type][0] === 8 ? 1 : 5;\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
+                       "function runSegment(seg, env) {\n  const node = env.node;\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'if': {\n      const thenPart = seg.slice(2).find((g) => g[0] === 'then');\n      const elsePart = seg.slice(2).find((g) => g[0] === 'else');\n      if (segTruthy(segEval(seg[1], env))) return runEnv(thenPart.slice(1), env);\n      return elsePart ? runEnv(elsePart.slice(1), env) : '';\n    }\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind || (Array.isArray(b[0]) && b[0].includes(node.kind))) || seg.slice(1).find((b) => b[0] === 'else');\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runEnv(branch.slice(1), env);\n    }\n    case 'case-on': {\n      const val = segEval(seg[1], env);\n      const raw = seg.slice(2);\n      const isKey = (b) => Array.isArray(b) && (Array.isArray(b[0]) || typeof b[0] === 'number' || typeof b[0] === 'string');\n      let branches;\n      if (raw.length === 1 && Array.isArray(raw[0]) && raw[0].every(isKey)) branches = raw[0];\n      else branches = raw.map((b) => (Array.isArray(b) && b.length === 1 && Array.isArray(b[0])) ? b[0] : b);\n      const keysOf = (b) => (Array.isArray(b[0]) ? b[0] : [b[0]]);\n      const branch = branches.find((b) => keysOf(b).includes('else') || keysOf(b).map(String).includes(String(val)));\n      return branch ? runEnv(branch.slice(1), env) : '';\n    }\n    case 'when':\n      return segTruthy(segEval(seg[1], env)) ? runEnv(seg.slice(2), env) : '';\n    case 'guarded': {\n      const hasJoin = Array.isArray(seg[4]) && seg[4][0] === 'join';\n      const joiner = hasJoin ? seg[4][1] : ' || ';\n      const text = runEnv(seg.slice(hasJoin ? 5 : 4), env);\n      const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(joiner);\n      if (!cond) return text;\n      return seg[2].split('~a').join(cond) + (text.endsWith('\\n') ? text : text + '\\n') + seg[3];\n    }\n    case 'fail':\n      throw new Error('unsupported field type ' + node.type);\n    case 'each': {\n      let i = 1; const keys = [];\n      while (typeof seg[i] === 'string') { keys.push(seg[i]); i++; }\n      let items = node;\n      for (const k of keys) items = items[segKey(k)];\n      let out = '';\n      items.forEach((el, ix) => { out += runEnv(seg.slice(i), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'each+': {\n      const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      let out = '';\n      all.forEach((el, ix) => { out += runEnv(seg.slice(3), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'guarded-indent': {
       const text = runEnv(seg.slice(4), env);
       const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(' or ');
       if (!cond) return text;
