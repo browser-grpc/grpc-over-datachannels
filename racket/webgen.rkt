@@ -2184,131 +2184,17 @@ function pascalName(s) {
   return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
-function javaDeprecated(m, indent) {
-  return m.deprecated ? indent + '@Deprecated\n' : '';
-}
 
-function javaClientMethodRaw(m, svc) {
-  const name = m.name;
-  const req = m.input;
-  const resp = m.output;
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '        public ' + resp + ' ' + name + '(' + req + ' req, Map<String, String> metadata) throws Exception {\n'
-        + '            ' + resp + ' resp = new ' + resp + '();\n'
-        + '            channel.unary(' + path + ', req, resp, metadata);\n'
-        + '            return resp;\n        }\n\n'
-        + '        public ' + resp + ' ' + name + '(' + req + ' req) throws Exception {\n'
-        + '            return ' + name + '(req, null);\n        }\n';
-    case 'server-streaming':
-      return '        public ' + svc + name + 'Stream ' + name + '(' + req + ' req, Map<String, String> metadata) throws Exception {\n'
-        + '            return new ' + svc + name + 'Stream(channel.serverStream(' + path + ', req, metadata));\n        }\n\n'
-        + '        public ' + svc + name + 'Stream ' + name + '(' + req + ' req) throws Exception {\n'
-        + '            return ' + name + '(req, null);\n        }\n';
-    case 'client-streaming':
-      return '        public ' + resp + ' ' + name + '(List<' + req + '> reqs, Map<String, String> metadata) throws Exception {\n'
-        + '            ' + resp + ' resp = new ' + resp + '();\n'
-        + '            channel.clientStream(' + path + ', reqs, resp, metadata);\n'
-        + '            return resp;\n        }\n\n'
-        + '        public ' + resp + ' ' + name + '(List<' + req + '> reqs) throws Exception {\n'
-        + '            return ' + name + '(reqs, null);\n        }\n';
-    default:
-      return '        public ' + svc + name + 'Stream ' + name + '(List<' + req + '> reqs, Map<String, String> metadata) throws Exception {\n'
-        + '            return new ' + svc + name + 'Stream(channel.bidi(' + path + ', reqs, metadata));\n        }\n\n'
-        + '        public ' + svc + name + 'Stream ' + name + '(List<' + req + '> reqs) throws Exception {\n'
-        + '            return ' + name + '(reqs, null);\n        }\n';
-  }
-}
 
-function javaClientTimeoutMethod(m, svc) {
-  const name = m.name;
-  const req = m.input;
-  const resp = m.output;
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '\n        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */\n'
-        + '        public ' + resp + ' ' + name + '(' + req + ' req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n'
-        + '            ' + resp + ' resp = new ' + resp + '();\n'
-        + '            channel.unary(' + path + ', req, resp, metadata, timeout);\n'
-        + '            return resp;\n        }\n';
-    case 'server-streaming':
-      return '\n        /** Deadline variant of ' + name + '. */\n'
-        + '        public ' + svc + name + 'Stream ' + name + '(' + req + ' req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n'
-        + '            return new ' + svc + name + 'Stream(channel.serverStream(' + path + ', req, metadata, timeout));\n        }\n';
-    case 'client-streaming':
-      return '\n        /** Deadline variant of ' + name + '. */\n'
-        + '        public ' + resp + ' ' + name + '(List<' + req + '> reqs, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n'
-        + '            ' + resp + ' resp = new ' + resp + '();\n'
-        + '            channel.clientStream(' + path + ', reqs, resp, metadata, timeout);\n'
-        + '            return resp;\n        }\n';
-    default:
-      return '\n        /** Deadline variant of ' + name + '. */\n'
-        + '        public ' + svc + name + 'Stream ' + name + '(List<' + req + '> reqs, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n'
-        + '            return new ' + svc + name + 'Stream(channel.bidi(' + path + ', reqs, metadata, timeout));\n        }\n';
-  }
-}
 
-function javaClientStreamClass(m, svc) {
-  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
-  return '    /** Receiving stream for ' + svc + '.' + m.name + ': recv() throws EOFException at end. Close to abandon early (RST). */\n'
-    + '    public static final class ' + svc + m.name + 'Stream implements AutoCloseable {\n'
-    + '        private final Channel.ClientStream stream;\n\n'
-    + '        ' + svc + m.name + 'Stream(Channel.ClientStream stream) {\n'
-    + '            this.stream = stream;\n        }\n\n'
-    + '        public ' + m.output + ' recv() throws Exception {\n'
-    + '            ' + m.output + ' resp = new ' + m.output + '();\n'
-    + '            stream.recv(resp);\n            return resp;\n        }\n\n'
-    + '        /** Initial metadata (response headers); null until they arrive. */\n'
-    + '        public Map<String, String> headers() {\n'
-    + '            return stream.headers() == null ? null : stream.headers().metadata;\n        }\n\n'
-    + '        /** Trailing metadata of the terminal status; null until it arrives. */\n'
-    + '        public Map<String, String> trailers() {\n'
-    + '            return stream.trailers();\n        }\n\n'
-    + '        /** Abort this stream (sends RST, wakes a pending recv). */\n'
-    + '        public void cancel() {\n'
-    + '            stream.cancel();\n        }\n\n'
-    + '        /** Abandon the call if still live (RST); no-op once terminated. */\n'
-    + '        @Override\n'
-    + '        public void close() {\n'
-    + '            stream.close();\n        }\n    }\n\n';
-}
 
-function javaServerIfaceMethodRaw(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        ' + m.output + ' ' + m.name + '(Endpoint.CallContext ctx, ' + m.input + ' req) throws Exception;\n';
-    case 'server-streaming':
-      return '        void ' + m.name + '(' + m.input + ' req, ' + svc + m.name + 'Server stream) throws Exception;\n';
-    default:
-      return '        void ' + m.name + '(' + svc + m.name + 'Server stream) throws Exception;\n';
-  }
-}
 
-function javaServerStreamIfaces(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return '    /** Server-streaming sink passed to service implementations. */\n'
-        + '    public interface ' + svc + m.name + 'Server {\n'
-        + '        void send(' + m.output + ' resp) throws Exception;\n'
-        + '        Endpoint.CallContext context();\n    }\n\n';
-    case 'client-streaming':
-      return '    /** Client-streaming stream passed to service implementations. */\n'
-        + '    public interface ' + svc + m.name + 'Server {\n'
-        + '        ' + m.input + ' recv() throws Exception;\n'
-        + '        void sendAndClose(' + m.output + ' resp) throws Exception;\n'
-        + '        Endpoint.CallContext context();\n    }\n\n';
-    default:
-      return '    /** Bidi stream passed to service implementations. */\n'
-        + '    public interface ' + svc + m.name + 'Server {\n'
-        + '        void send(' + m.output + ' resp) throws Exception;\n'
-        + '        ' + m.input + ' recv() throws Exception;\n'
-        + '        Endpoint.CallContext context();\n    }\n\n';
-  }
-}
+
+
+
+
+
+
 
 const JAVA_KIND_CONSTS = {
   unary: 'KIND_UNARY',
@@ -2317,136 +2203,13 @@ const JAVA_KIND_CONSTS = {
   bidi: 'KIND_BIDI',
 };
 
-function javaRegisterMethod(m, svc) {
-  const impl = m.implName;
-  const head = '                    new Server.Method(' + q(m.name) + ', ' + q(m.path) + ', Server.' + JAVA_KIND_CONSTS[m.kind] + ', (ctx, reqs, sink) -> {\n';
-  switch (m.kind) {
-    case 'unary':
-      return head
-        + '                        ' + m.input + ' req = new ' + m.input + '();\n'
-        + '                        reqs.recvInto(req);\n'
-        + '                        sink.send(impl.' + impl + '(ctx, req).marshalDc());\n'
-        + '                    }),\n';
-    case 'server-streaming':
-      return head
-        + '                        ' + m.input + ' req = new ' + m.input + '();\n'
-        + '                        reqs.recvInto(req);\n'
-        + '                        impl.' + impl + '(req, new ' + svc + impl + 'ServerImpl(ctx, sink));\n'
-        + '                    }),\n';
-    case 'client-streaming':
-      return head
-        + '                        ' + svc + impl + 'ServerImpl stream = new ' + svc + impl + 'ServerImpl(ctx, reqs);\n'
-        + '                        impl.' + impl + '(stream);\n'
-        + '                        if (stream.resp == null) {\n'
-        + '                            throw new StatusException(Wire.CODE_INTERNAL,\n'
-        + '                                    "client-streaming handler never called SendAndClose");\n'
-        + '                        }\n'
-        + '                        sink.send(stream.resp.marshalDc());\n'
-        + '                    }),\n';
-    default:
-      return head
-        + '                        impl.' + impl + '(new ' + svc + impl + 'ServerImpl(ctx, reqs, sink));\n'
-        + '                    }),\n';
-  }
-}
 
-function javaStreamImpls(m, svc) {
-  const head = '    private static final class ' + svc + m.name + 'ServerImpl implements ' + svc + m.name + 'Server {\n';
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return head
-        + '        private final Endpoint.CallContext ctx;\n'
-        + '        private final Server.ServerSink sink;\n\n'
-        + '        ' + svc + m.name + 'ServerImpl(Endpoint.CallContext ctx, Server.ServerSink sink) {\n'
-        + '            this.ctx = ctx;\n            this.sink = sink;\n        }\n\n'
-        + '        public void send(' + m.output + ' resp) throws Exception {\n'
-        + '            sink.send(resp.marshalDc());\n        }\n\n'
-        + '        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n';
-    case 'client-streaming':
-      return head
-        + '        private final Endpoint.CallContext ctx;\n'
-        + '        private final Server.RequestStream reqs;\n'
-        + '        ' + m.output + ' resp;\n\n'
-        + '        ' + svc + m.name + 'ServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs) {\n'
-        + '            this.ctx = ctx;\n            this.reqs = reqs;\n        }\n\n'
-        + '        public ' + m.input + ' recv() throws Exception {\n'
-        + '            ' + m.input + ' req = new ' + m.input + '();\n'
-        + '            reqs.recvInto(req);\n            return req;\n        }\n\n'
-        + '        public void sendAndClose(' + m.output + ' resp) {\n'
-        + '            this.resp = resp;\n        }\n\n'
-        + '        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n';
-    default:
-      return head
-        + '        private final Endpoint.CallContext ctx;\n'
-        + '        private final Server.RequestStream reqs;\n'
-        + '        private final Server.ServerSink sink;\n\n'
-        + '        ' + svc + m.name + 'ServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs, Server.ServerSink sink) {\n'
-        + '            this.ctx = ctx;\n            this.reqs = reqs;\n            this.sink = sink;\n        }\n\n'
-        + '        public void send(' + m.output + ' resp) throws Exception {\n'
-        + '            sink.send(resp.marshalDc());\n        }\n\n'
-        + '        public ' + m.input + ' recv() throws Exception {\n'
-        + '            ' + m.input + ' req = new ' + m.input + '();\n'
-        + '            reqs.recvInto(req);\n            return req;\n        }\n\n'
-        + '        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n';
-  }
-}
 
-function javaClientAsyncMethod(m, svc) {
-  const name = m.name;
-  const req = m.input;
-  const resp = m.output;
-  switch (m.kind) {
-    case 'unary':
-      return '        public CompletableFuture<' + resp + '> ' + name + 'Async(' + req + ' req, Map<String, String> metadata) {\n'
-        + '            return CompletableFuture.supplyAsync(() -> {\n'
-        + '                try {\n                    return ' + name + '(req, metadata);\n'
-        + '                } catch (Exception e) {\n                    throw new CompletionException(e);\n                }\n            });\n        }\n\n'
-        + '        public CompletableFuture<' + resp + '> ' + name + 'Async(' + req + ' req) {\n'
-        + '            return ' + name + 'Async(req, null);\n        }\n';
-    case 'server-streaming':
-      return '        /** Collect-all async convenience over the blocking stream. */\n'
-        + '        public CompletableFuture<List<' + resp + '>> ' + name + 'AllAsync(' + req + ' req, Map<String, String> metadata) {\n'
-        + '            return CompletableFuture.supplyAsync(() -> {\n'
-        + '                try {\n                    List<' + resp + '> out = new ArrayList<>();\n'
-        + '                    ' + svc + name + 'Stream stream = ' + name + '(req, metadata);\n'
-        + '                    while (true) {\n                        try {\n                            out.add(stream.recv());\n'
-        + '                        } catch (java.io.EOFException eof) {\n                            return out;\n                        }\n                    }\n'
-        + '                } catch (Exception e) {\n                    throw new CompletionException(e);\n                }\n            });\n        }\n\n'
-        + '        public CompletableFuture<List<' + resp + '>> ' + name + 'AllAsync(' + req + ' req) {\n'
-        + '            return ' + name + 'AllAsync(req, null);\n        }\n';
-    case 'client-streaming':
-      return '        public CompletableFuture<' + resp + '> ' + name + 'Async(List<' + req + '> reqs, Map<String, String> metadata) {\n'
-        + '            return CompletableFuture.supplyAsync(() -> {\n'
-        + '                try {\n                    return ' + name + '(reqs, metadata);\n'
-        + '                } catch (Exception e) {\n                    throw new CompletionException(e);\n                }\n            });\n        }\n\n'
-        + '        public CompletableFuture<' + resp + '> ' + name + 'Async(List<' + req + '> reqs) {\n'
-        + '            return ' + name + 'Async(reqs, null);\n        }\n';
-    default:
-      return '        /** Collect-all async convenience over the blocking stream. */\n'
-        + '        public CompletableFuture<List<' + resp + '>> ' + name + 'AllAsync(List<' + req + '> reqs, Map<String, String> metadata) {\n'
-        + '            return CompletableFuture.supplyAsync(() -> {\n'
-        + '                try {\n                    List<' + resp + '> out = new ArrayList<>();\n'
-        + '                    ' + svc + name + 'Stream stream = ' + name + '(reqs, metadata);\n'
-        + '                    while (true) {\n                        try {\n                            out.add(stream.recv());\n'
-        + '                        } catch (java.io.EOFException eof) {\n                            return out;\n                        }\n                    }\n'
-        + '                } catch (Exception e) {\n                    throw new CompletionException(e);\n                }\n            });\n        }\n\n'
-        + '        public CompletableFuture<List<' + resp + '>> ' + name + 'AllAsync(List<' + req + '> reqs) {\n'
-        + '            return ' + name + 'AllAsync(reqs, null);\n        }\n';
-  }
-}
 
-function javaServerAsyncIfaceMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        CompletableFuture<' + m.output + '> ' + m.name + 'Async(Endpoint.CallContext ctx, ' + m.input + ' req);\n';
-    case 'server-streaming':
-      return '        CompletableFuture<Void> ' + m.name + 'Async(' + m.input + ' req, ' + svc + m.name + 'Server stream);\n';
-    default:
-      return '        CompletableFuture<Void> ' + m.name + 'Async(' + svc + m.name + 'Server stream);\n';
-  }
-}
+
+
+
+
 
 const JAVA_ADAPTER_CATCH =
   '            } catch (CompletionException e) {\n'
@@ -2454,57 +2217,10 @@ const JAVA_ADAPTER_CATCH =
   + '                if (cause instanceof Exception ex) throw ex;\n'
   + '                throw e;\n            }\n';
 
-function javaServerAsyncAdapterMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        public ' + m.output + ' ' + m.name + '(Endpoint.CallContext ctx, ' + m.input + ' req) throws Exception {\n'
-        + '            try {\n                return impl.' + m.name + 'Async(ctx, req).join();\n'
-        + JAVA_ADAPTER_CATCH + '        }\n\n';
-    case 'server-streaming':
-      return '        public void ' + m.name + '(' + m.input + ' req, ' + svc + m.name + 'Server stream) throws Exception {\n'
-        + '            try {\n                impl.' + m.name + 'Async(req, stream).join();\n'
-        + JAVA_ADAPTER_CATCH + '        }\n\n';
-    default:
-      return '        public void ' + m.name + '(' + svc + m.name + 'Server stream) throws Exception {\n'
-        + '            try {\n                impl.' + m.name + 'Async(stream).join();\n'
-        + JAVA_ADAPTER_CATCH + '        }\n\n';
-  }
-}
+
 
 function javaService(svc) {
-  const sname = svc.name;
-  const all = svc.methods.concat(aliasClientMethods(svc));
-  return '    /** Client for ' + svc.fullName + '. */\n'
-    + '    public static final class ' + sname + 'Client {\n'
-    + '        private final Channel channel;\n\n'
-    + '        public ' + sname + 'Client(Channel channel) {\n            this.channel = channel;\n        }\n\n'
-    + all.map((m) => javaDeprecated(m, '        ') + javaClientMethodRaw(m, sname) + javaClientTimeoutMethod(m, sname)).join('')
-    + all.map((m) => javaClientAsyncMethod(m, sname)).join('')
-    + '    }\n\n'
-    + svc.methods.map((m) => javaClientStreamClass(m, sname)).join('')
-    + '    /** Service implementation interface for ' + svc.fullName + '. */\n'
-    + '    public interface ' + sname + 'Server {\n'
-    + svc.methods.map((m) => javaDeprecated(m, '        ') + javaServerIfaceMethodRaw(m, sname)).join('')
-    + '    }\n\n'
-    + svc.methods.map((m) => javaServerStreamIfaces(m, sname)).join('')
-    + svc.methods.map((m) => javaStreamImpls(m, sname)).join('')
-    + '    /** Async service implementation interface for ' + svc.fullName + '. */\n'
-    + '    public interface ' + sname + 'ServerAsync {\n'
-    + svc.methods.map((m) => javaServerAsyncIfaceMethod(m, sname)).join('')
-    + '    }\n\n'
-    + '    private static final class ' + sname + 'ServerAsyncAdapter implements ' + sname + 'Server {\n'
-    + '        private final ' + sname + 'ServerAsync impl;\n\n'
-    + '        ' + sname + 'ServerAsyncAdapter(' + sname + 'ServerAsync impl) {\n            this.impl = impl;\n        }\n\n'
-    + svc.methods.map((m) => javaServerAsyncAdapterMethod(m, sname)).join('')
-    + '    }\n\n'
-    + '    /** Register an implementation of ' + svc.fullName + ' on a Server. */\n'
-    + '    public static void register' + sname + 'Server(Server server, ' + sname + 'Server impl) {\n'
-    + '        server.registerService(new Server.ServiceDesc(\n                ' + q(svc.fullName) + ',\n                List.of(\n'
-    + svc.methods.concat(aliasServerMethods(svc)).map((m) => javaRegisterMethod(m, sname).replace(/\}\),[ \t\r\n]*$/, '})')).join(',\n')
-    + '\n                )));\n    }\n'
-    + '    /** Register an async implementation of ' + svc.fullName + ' on a Server. */\n'
-    + '    public static void register' + sname + 'ServerAsync(Server server, ' + sname + 'ServerAsync impl) {\n'
-    + '        register' + sname + 'Server(server, new ' + sname + 'ServerAsyncAdapter(impl));\n    }\n';
+  return runSegments(SEGMENT_PROGRAMS.javaService, svc, svc.name);
 }
 
 
@@ -2550,343 +2266,72 @@ function jpEntryRef(model, entry) {
   return entry.pkg === '' ? rel : entry.pkg + '.' + rel;
 }
 
-function jpScalar(f) {
-  // Leaf payloads single-sourced from scalar-type-tables
-  // in spec.rkt (SCALAR_TABLES), same table the native
-  // template derives from.
-  return SCALAR_TABLES.java.types[f.type] ?? SCALAR_TABLES.java.default;
-}
 
-function jpType(model, f, boxed) {
-  let singular;
-  if (f.type === FT.MESSAGE) {
-    const entry = jpResolve(model, f.typeName);
-    if (entry.kind === 'map') {
-      const kf = entry.msg.fields.find((x) => x.number === 1);
-      const vf = entry.msg.fields.find((x) => x.number === 2);
-      singular = 'java.util.Map<' + jpType(model, { ...kf, label: 1 }, true) + ', ' + jpType(model, { ...vf, label: 1 }, true) + '>';
-    } else {
-      singular = jpEntryRef(model, entry);
-    }
-  } else if (f.type === FT.ENUM) {
-    singular = jpEntryRef(model, jpResolve(model, f.typeName));
-  } else {
-    const s = jpScalar(f);
-    singular = boxed ? s[1] : s[0];
-  }
-  if (f.type === FT.MESSAGE && jpResolve(model, f.typeName).kind === 'map') return singular;
-  if (f.label === 3) return 'java.util.List<' + jpType(model, { ...f, label: 1 }, true) + '>';
-  return singular;
-}
 
-function jpExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case 9: return JSON.stringify(d);
-    case 8: return d;
-    case 14: return jpEntryRef(model, jpResolve(model, f.typeName)) + '.' + d;
-    case 2: return d + 'f';
-    default: return d;
-  }
-}
 
-function jpBoxedDefault(model, f) {
-  if (f.type === 1) return '0.0';
-  if (f.type === 2) return '0.0f';
-  return jpDefault(model, f);
-}
 
-function jpDefault(model, f) {
-  const lit = jpExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.type === FT.MESSAGE && jpResolve(model, f.typeName).kind === 'map') return 'new java.util.LinkedHashMap<>()';
-  if (f.label === 3) return 'new java.util.ArrayList<>()';
-  if (f.type === FT.MESSAGE) return 'null';
-  if (f.type === FT.ENUM) {
-    const entry = jpResolve(model, f.typeName);
-    return jpEntryRef(model, entry) + '.' + entry.enum.values[0].name;
-  }
-  return jpScalar(f)[2];
-}
 
-function jpVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return '(' + v + ' ? 1 : 0)';
-    case 17: return '((' + v + ' << 1) ^ (' + v + ' >> 31))';
-    case 18: return '((' + v + ' << 1) ^ (' + v + ' >> 63))';
-    default: return v;
-  }
-}
 
-function jpVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: case 14: case 13: return '(int) ' + v;
-    case 3: case 4: return v;
-    case 8: return v + ' != 0';
-    case 17: return '(int) ((' + v + ' >>> 1) ^ -(' + v + ' & 1))';
-    case 18: return '((' + v + ' >>> 1) ^ -(' + v + ' & 1))';
-    default: throw new Error('not a varint type');
-  }
-}
 
-function jpNonzero(f, v) {
-  switch (f.type) {
-    case 8: return v;
-    case 14: return v + ' != null && ' + v + '.number != 0';
-    default: return v + ' != 0';
-  }
-}
 
-function jpFixedBits(info, f, v) {
-  return v;
-}
 
-function jpEncodeSingular(model, f, v, indent, support) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (JP_VARINT.has(f.type)) {
-    const expr = f.type === 14 ? v + '.number' : jpVarintExpr(f, v);
-    if (proto2) return indent + '{ w.tag(' + n + ', 0); w.varint(' + expr + '); }\n';
-    return indent + 'if (' + jpNonzero(f, v) + ') { w.tag(' + n + ', 0); w.varint(' + expr + '); }\n';
-  }
-  const fixed = JP_FIXED[f.type];
-  if (fixed) {
-    const wire = fixed[0] === 8 ? 1 : 5;
-    if (proto2) return indent + '{ w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + jpFixedBits(fixed, f, v) + '); }\n';
-    return indent + 'if (' + jpNonzero(f, v) + ') { w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + jpFixedBits(fixed, f, v) + '); }\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + 'if (' + v + ' != null) w.bytesField(' + n + ', ' + v + '.getBytes(java.nio.charset.StandardCharsets.UTF_8));\n'
-      : indent + 'w.stringField(' + n + ', ' + v + ');\n';
-    case 12: return proto2
-      ? indent + 'if (' + v + ' != null) w.bytesField(' + n + ', ' + v + ');\n'
-      : indent + 'if (' + v + ' != null && ' + v + '.length > 0) w.bytesField(' + n + ', ' + v + ');\n';
-    case 11: return indent + 'if (' + v + ' != null) w.bytesField(' + n + ', ' + v + '.marshalDc());\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
-}
 
-function jpSetExpr(sib) {
-  const v = jpFieldName(sib);
-  switch (sib.type) {
-    case 11: case 10: return v + ' != null';
-    case 9: return '(' + v + ' != null && !' + v + '.isEmpty())';
-    case 12: return '(' + v + ' != null && ' + v + '.length > 0)';
-    default: return jpNonzero(sib, v);
-  }
-}
+
+
+
+
+
+
+
+
+
+
+
 
 // Encode-side oneof clearing: suppress f when a later sibling is
 // set, so only the winning member is written.
-function jpEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '        if (!(' + later.map(jpSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
-}
 
-function jpEncodeField(model, f, support) {
-  const v = jpFieldName(f);
-  const n = f.number;
-  if (f.type === FT.MESSAGE && jpResolve(model, f.typeName).kind === 'map') {
-    const entry = jpResolve(model, f.typeName);
-    const helper = support + '.' + jpMapHelperName(model, entry) + 'Encode';
-    const kf = entry.msg.fields.find((x) => x.number === 1);
-    const vf = entry.msg.fields.find((x) => x.number === 2);
-    return '        if (' + v + ' != null) for (java.util.Map.Entry<' + jpType(model, { ...kf, label: 1 }, true) + ', ' + jpType(model, { ...vf, label: 1 }, true) + '> e : ' + v + '.entrySet()) w.bytesField(' + n + ', ' + helper + '(e.getKey(), e.getValue()));\n';
-  }
-  if (f.label !== 3) return jpEncodeSingular(model, f, v, '        ', support);
-  if (JP_VARINT.has(f.type)) {
-    return '        if (' + v + ' != null && !' + v + '.isEmpty()) {\n'
-      + '            ' + support + '.Writer payload = new ' + support + '.Writer();\n'
-      + '            for (' + jpType(model, { ...f, label: 1 }, true) + ' x : ' + v + ') payload.varint(' + (f.type === 14 ? 'x.number' : jpVarintExpr(f, 'x')) + ');\n'
-      + '            w.bytesField(' + n + ', payload.toBytes());\n        }\n';
-  }
-  const fixed = JP_FIXED[f.type];
-  if (fixed) {
-    return '        if (' + v + ' != null && !' + v + '.isEmpty()) {\n'
-      + '            ' + support + '.Writer payload = new ' + support + '.Writer();\n'
-      + '            for (' + jpType(model, { ...f, label: 1 }, true) + ' x : ' + v + ') payload.fixed' + fixed[1] + '(' + jpFixedBits(fixed, f, 'x') + ');\n'
-      + '            w.bytesField(' + n + ', payload.toBytes());\n        }\n';
-  }
-  switch (f.type) {
-    case 9: return '        if (' + v + ' != null) for (String x : ' + v + ') w.bytesField(' + n + ', x.getBytes(java.nio.charset.StandardCharsets.UTF_8));\n';
-    case 12: return '        if (' + v + ' != null) for (byte[] x : ' + v + ') w.bytesField(' + n + ', x);\n';
-    case 11: return '        if (' + v + ' != null) for (' + jpType(model, { ...f, label: 1 }, true) + ' x : ' + v + ') w.bytesField(' + n + ', x.marshalDc());\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
-}
 
-function jpDecodeSingular(model, f, target, src, indent) {
-  if (JP_VARINT.has(f.type)) {
-    return indent + target + ' = ' + (f.type === 14
-      ? jpEntryRef(model, jpResolve(model, f.typeName)) + '.fromNumber(' + jpVarintDecode({ ...f, type: 5 }, src) + ')'
-      : jpVarintDecode(f, src)) + ';\n';
-  }
-  if (JP_FIXED[f.type]) {
-    let conv;
-    switch (f.type) {
-      case 2: conv = 'Float.intBitsToFloat((int) ' + src + ')'; break;
-      case 1: conv = 'Double.longBitsToDouble(' + src + ')'; break;
-      case 7: case 15: conv = '(int) ' + src; break;
-      default: conv = src;
-    }
-    return indent + target + ' = ' + conv + ';\n';
-  }
-  switch (f.type) {
-    case 9: return indent + target + ' = new String(' + src + ', java.nio.charset.StandardCharsets.UTF_8);\n';
-    case 12: return indent + target + ' = ' + src + ';\n';
-    case 11: {
-      const ref = jpEntryRef(model, jpResolve(model, f.typeName));
-      return indent + target + ' = new ' + ref + '();\n' + indent + target + '.unmarshalDc(' + src + ');\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type);
-  }
-}
 
-function jpOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => '                    ' + jpFieldName(sib) + ' = ' + jpDefault(model, sib) + ';\n').join('');
-}
 
-function jpDecodeCase(model, f, support) {
-  const v = jpFieldName(f);
-  const head = '                case ' + f.number + ' -> {\n';
-  const tail = '                }\n';
-  if (f.type === FT.MESSAGE && jpResolve(model, f.typeName).kind === 'map') {
-    const entry = jpResolve(model, f.typeName);
-    const helper = support + '.' + jpMapHelperName(model, entry) + 'Decode';
-    const kf = entry.msg.fields.find((x) => x.number === 1);
-    const vf = entry.msg.fields.find((x) => x.number === 2);
-    return head
-      + '                    Object[] kv = ' + helper + '(field.bytesValue);\n'
-      + '                    ' + v + '.put((' + jpType(model, { ...kf, label: 1 }, true) + ') kv[0], (' + jpType(model, { ...vf, label: 1 }, true) + ') kv[1]);\n'
-      + tail;
-  }
-  if (f.label !== 3) {
-    const src = JP_VARINT.has(f.type) ? 'field.varintValue' : (JP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
-    return head + jpOneofClearing(model, f) + jpDecodeSingular(model, f, v, src, '                    ') + tail;
-  }
-  if (JP_VARINT.has(f.type)) {
-    const conv = (src) => f.type === 14
-      ? jpEntryRef(model, jpResolve(model, f.typeName)) + '.fromNumber(' + jpVarintDecode({ ...f, type: 5 }, src) + ')'
-      : jpVarintDecode(f, src);
-    return head
-      + '                    if (field.wire == 2) {\n'
-      + '                        ' + support + '.Reader sub = new ' + support + '.Reader(field.bytesValue);\n'
-      + '                        while (!sub.done()) {\n'
-      + '                            ' + v + '.add(' + conv('sub.varint()') + ');\n'
-      + '                        }\n                    } else {\n'
-      + '                        ' + v + '.add(' + conv('field.varintValue') + ');\n'
-      + '                    }\n'
-      + tail;
-  }
-  if (JP_FIXED[f.type]) {
-    const subConv = f.type === 2 ? 'Float.intBitsToFloat(sub.fixed32())'
-      : f.type === 1 ? 'Double.longBitsToDouble(sub.fixed64())'
-      : (f.type === 7 || f.type === 15) ? 'sub.fixed32()' : 'sub.fixed64()';
-    const oneConv = f.type === 2 ? 'Float.intBitsToFloat((int) field.fixedValue)'
-      : f.type === 1 ? 'Double.longBitsToDouble(field.fixedValue)'
-      : (f.type === 7 || f.type === 15) ? '(int) field.fixedValue' : 'field.fixedValue';
-    return head
-      + '                    if (field.wire == 2) {\n'
-      + '                        ' + support + '.Reader sub = new ' + support + '.Reader(field.bytesValue);\n'
-      + '                        while (!sub.done()) ' + v + '.add(' + subConv + ');\n'
-      + '                    } else {\n'
-      + '                        ' + v + '.add(' + oneConv + ');\n'
-      + '                    }\n'
-      + tail;
-  }
-  switch (f.type) {
-    case 9: return head + '                    ' + v + '.add(new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8));\n' + tail;
-    case 12: return head + '                    ' + v + '.add(field.bytesValue);\n' + tail;
-    case 11: return head
-      + '                    ' + jpType(model, { ...f, label: 1 }, true) + ' item = new ' + jpType(model, { ...f, label: 1 }, true) + '();\n'
-      + '                    item.unmarshalDc(field.bytesValue);\n'
-      + '                    ' + v + '.add(item);\n'
-      + tail;
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
-}
+
+
+
+
+
 
 function jpMapHelperName(model, entry) {
   return jpRel(entry.pkg, entry.msg.fullName).split('.').join('');
 }
 
-function jpDecodeSingularStmt(model, f, target) {
-  const src = JP_VARINT.has(f.type) ? 'field.varintValue' : (JP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
-  return jpDecodeSingular(model, f, target, src, '').replace(/\n+$/, '');
-}
 
-function jpMapHelpers(model, entry, support) {
-  const msg = entry.msg;
-  const base = jpMapHelperName(model, entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry lacks key/value');
-  const kt = jpType(model, { ...keyF, label: 1 }, true);
-  const vt = jpType(model, { ...valF, label: 1 }, true);
-  return '    static byte[] ' + base + 'Encode(' + kt + ' key, ' + vt + ' value) {\n'
-    + '        Writer w = new Writer();\n'
-    + jpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '        ', support)
-    + jpEncodeSingular(model, { ...valF, label: 1 }, 'value', '        ', support)
-    + '        return w.toBytes();\n    }\n\n'
-    + '    static Object[] ' + base + 'Decode(byte[] bytes) {\n'
-    + '        ' + kt + ' key = ' + jpBoxedDefault(model, { ...keyF, label: 1 }) + ';\n'
-    + '        ' + vt + ' value = ' + jpBoxedDefault(model, { ...valF, label: 1 }) + ';\n'
-    + '        Reader r = new Reader(bytes);\n        Field field;\n        while ((field = r.next()) != null) {\n            switch (field.number) {\n'
-    + '                case ' + keyF.number + ': ' + jpDecodeSingularStmt(model, { ...keyF, label: 1 }, 'key') + ' break;\n'
-    + '                case ' + valF.number + ': ' + jpDecodeSingularStmt(model, { ...valF, label: 1 }, 'value') + ' break;\n'
-    + '                default: break;\n            }\n        }\n        return new Object[] { key, value };\n    }\n\n';
-}
 
 function jpEnumValues(e) {
-  return e.values.map((v) => '        ' + v.name + '(' + v.number + ')').join(',\n') + ';\n';
+  return runSegments(SEGMENT_PROGRAMS.javaPbEnumValues, e, null, null);
+}
+function jpEnumBody(e, indent) {
+  return runSegments(SEGMENT_PROGRAMS.javaPbEnumBody, e, null, null, [indent]);
+}
+function jpType(model, f, boxed) {
+  return runSegments(SEGMENT_PROGRAMS.javaPbType, f, null, model, [boxed ? 'boxed' : '']);
+}
+function jpDefault(model, f) {
+  return runSegments(SEGMENT_PROGRAMS.javaPbDefault, f, null, model);
+}
+function jpMapHelpers(model, entry, support) {
+  return runSegments(SEGMENT_PROGRAMS.javaPbMapHelpers, entry, null, model, [support]);
 }
 
-function jpEnumBody(e, indent) {
-  return indent + 'public final int number;\n'
-    + indent + e.name + '(int number) { this.number = number; }\n'
-    + indent + 'public static ' + e.name + ' fromNumber(int number) {\n'
-    + indent + '    switch (number) {\n'
-    + e.values.map((v) => indent + '        case ' + v.number + ': return ' + v.name + ';\n').join('')
-    + indent + '        default: return ' + e.values[0].name + ';\n    }\n}\n';
-}
+
+
+
 
 function jpNestedEnum(model, msg, e) {
-  return '        public enum ' + e.name + ' {\n'
-    + jpEnumValues(e)
-    + jpEnumBody(e, '            ')
-    + '        }\n';
+  return runSegments(SEGMENT_PROGRAMS.javaPbNestedEnum, e, null, model);
 }
 
 function jpMessageClass(model, msg, support) {
-  const name = msg.name;
-  return '    public static final class ' + name + ' implements grpcdc.Marshaler, grpcdc.Unmarshaler {\n'
-    + msg.fields.map((f) => '        public ' + jpType(model, f, false) + ' ' + jpFieldName(f) + ' = ' + jpDefault(model, f) + ';\n').join('')
-    + '        public byte[] unknownFields = new byte[0];\n'
-    + '        public ' + name + '() {}\n'
-    + (msg.fields.length
-      ? '        public ' + name + '(' + msg.fields.map((f) => jpType(model, f, false) + ' ' + jpFieldName(f)).join(', ') + ') {\n'
-        + msg.fields.map((f) => '            this.' + jpFieldName(f) + ' = ' + jpFieldName(f) + ';\n').join('')
-        + '        }\n'
-      : '')
-    + '\n        @Override\n        public byte[] marshalDc() {\n'
-    + '            ' + support + '.Writer w = new ' + support + '.Writer();\n'
-    + msg.fields.map((f) => jpEncodeGuard(model, f, jpEncodeField(model, f, support))).join('')
-    + '            w.raw(unknownFields);\n'
-    + '            return w.toBytes();\n        }\n\n'
-    + '        @Override\n        public void unmarshalDc(byte[] data) {\n'
-    + '            unknownFields = new byte[0];\n'
-    + msg.fields.map((f) => '            ' + jpFieldName(f) + ' = ' + jpDefault(model, f) + ';\n').join('')
-    + '            ' + support + '.Reader r = new ' + support + '.Reader(data);\n'
-    + '            ' + support + '.Field field;\n'
-    + '            while ((field = r.next()) != null) {\n                switch (field.number) {\n'
-    + msg.fields.map((f) => jpDecodeCase(model, f, support)).join('')
-    + '                    default -> { unknownFields = ' + support + '.concatBytes(unknownFields, field.rawValue); }\n                }\n            }\n        }\n'
-    + msg.nested.map((n) => jpMessageClass(model, n, support)).join('')
-    + msg.enums.map((e) => jpNestedEnum(model, msg, e)).join('')
-    + '    }\n';
+  return runSegments(SEGMENT_PROGRAMS.javaPbMessage, msg, null, model, [support]);
 }
 
 function jpTopEnum(model, e, pkg) {
@@ -2913,7 +2358,7 @@ function jpTopMessage(model, msg, pkg, support) {
       : '')
     + '\n    @Override\n    public byte[] marshalDc() {\n'
     + '        ' + support + '.Writer w = new ' + support + '.Writer();\n'
-    + msg.fields.map((f) => jpEncodeGuard(model, f, jpEncodeField(model, f, support))).join('')
+    + msg.fields.map((f) => runSegments(SEGMENT_PROGRAMS.javaPbEncodeGuard, f, null, model, [support])).join('')
     + '        w.raw(unknownFields);\n'
     + '        return w.toBytes();\n    }\n\n'
     + '    @Override\n    public void unmarshalDc(byte[] data) {\n'
@@ -2922,7 +2367,7 @@ function jpTopMessage(model, msg, pkg, support) {
     + '        ' + support + '.Reader r = new ' + support + '.Reader(data);\n'
     + '        ' + support + '.Field field;\n'
     + '        while ((field = r.next()) != null) {\n            switch (field.number) {\n'
-    + msg.fields.map((f) => jpDecodeCase(model, f, support)).join('')
+    + msg.fields.map((f) => runSegments(SEGMENT_PROGRAMS.javaPbDecodeCase, f, null, model, [support])).join('')
     + '                default -> { unknownFields = ' + support + '.concatBytes(unknownFields, field.rawValue); }\n            }\n        }\n    }\n'
     + msg.nested.map((n) => jpMessageClass(model, n, support)).join('')
     + msg.enums.map((e) => jpNestedEnum(model, msg, e)).join('')
@@ -6964,8 +6409,8 @@ JS
                        "function segTruthy(v) { return !(v === false || v === null || v === undefined || v === '' || v === 0); }\n\n"
                        "function segKey(k) {\n  return k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());\n}\n\n"
                        "function segCategory(model, node) {\n  const t = node.type;\n  if (t === 11 && gpResolve(model, node.typeName).kind === 'map') return 'map';\n  if (t === 11) return 'message';\n  if (VARINT_TYPES.includes(t)) return 'varint';\n  if (FIXED_TABLES.go[t]) return 'fixed';\n  if (t === 9) return 'string';\n  if (t === 12) return 'bytes';\n  return 'other';\n}\n\n"
-                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      const tmpl = Array.isArray(seg[1]) ? segEval(seg[1], env) : seg[1];\n      return tmpl.replace(/~~|~[as]/g, (tok) => {\n        if (tok === '~~') return '~';\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'root': return env.root;\n    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'trim-suffix': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'lower-first': return lowerFirst(segEval(seg[1], env));\n    case 'js-name': return pbJsName(node);\n    case 'js-fixed-size': return FIXED_TABLES.js[node.type][0];\n    case 'js-fixed-name': return FIXED_TABLES.js[node.type][1];\n    case 'bigint-type': return PB_BIGINT.has(node.type);\n    case 'entry-flat': return node.kind === 'enum' ? pbFlatName(node.pkg, node.full) : pbFlatName(node.pkg, node.msg.fullName);\n    case 'resolved-flat': { const e = pbResolve(model, node.typeName); return pbFlatName(e.pkg, e.msg.fullName); }\n    case 'index': return env.index;\n    case 'parent': return env.parent;\n    case 'and': return seg.slice(1).every((e) => segTruthy(segEval(e, env)));\n    case 'or': return seg.slice(1).some((e) => segTruthy(segEval(e, env)));\n    case 'not': return !segTruthy(segEval(seg[1], env));\n    case 'any-where': { const keys = Array.isArray(seg[1]) ? seg[1] : [seg[1]]; let items = node; for (const k of keys) items = items[segKey(k)]; return items.some((el) => segTruthy(segEval(seg[2], envWith(env, { node: el })))); }\n    case 'snake-case': return snakeCase(segEval(seg[1], env));\n    case 'rs-camel': return rpCamel(segEval(seg[1], env));\n    case 'rs-field-name': return rpFieldName(node);\n    case 'rs-map-type': return rpMapType();\n    case 'rs-entry-ref': { const e = node.typeName !== undefined ? rpResolve(model, node.typeName) : node; return rpEntryRef(model, e); }\n    case 'rs-scalar-type': return SCALAR_TABLES.rust.types[node.type] ?? SCALAR_TABLES.rust.default;\n    case 'rs-fixed-size': return FIXED_TABLES.rust[node.type][0];\n    case 'rs-fixed-name': return FIXED_TABLES.rust[node.type][1];\n    case 'flat-of': return rpFlat(model.package, segEval(seg[1], env));\n    case 'rust-enum-fragment': return RP_ENUM_SHAPE[seg[1]];\n    case 'enum-first-value-name': return rpResolve(model, node.typeName).enum.values[0].name;\n    case 'enum-first-value-num': return rpResolve(model, node.typeName).enum.values[0].number;\n    case 'rb-snake': return String(segEval(seg[1], env)).replace(/[A-Z]/g, (c, i) => (i > 0 ? '_' : '') + c.toLowerCase());\n    case 'stub-ref': return rbStubRef(model, node[segKey(seg[1])]);\n    case 'rb-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? rbpResolve(model, n.typeName) : n; return rbpEntryRef(model, e); }\n    case 'rb-model-module': return rbpModuleName({ file: model.name });\n    case 'rb-fixed-size': return FIXED_TABLES.ruby[node.type][0];\n    case 'rb-fixed-fmt': return FIXED_TABLES.ruby[node.type][1];\n    case 'php-camel': return phpbCamel(segEval(seg[1], env));\n    case 'php-field-name': return phpbFieldName(node);\n    case 'php-flat-of': return phpbFlat(model.package, segEval(seg[1], env));\n    case 'php-stub-ref': return phpStubRef(model, node[segKey(seg[1])]);\n    case 'php-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? phpbResolve(model, n.typeName) : n; return phpbEntryRef(model, e); }\n    case 'php-fixed-size': return FIXED_TABLES.php[node.type][0];\n    case 'php-fixed-fmt': return FIXED_TABLES.php[node.type][1];\n    case 'py-ref': { const e = node.typeName !== undefined ? pyPbResolve(model, node.typeName) : node; return pyPbRef(model, e); }\n    case 'py-fixed-size': return FIXED_TABLES.python[node.type][0];\n    case 'py-fixed-fmt': return FIXED_TABLES.python[node.type][1];\n    case 'with-type': return Object.assign({}, segEval(seg[1], env), { type: seg[2] });\n    case 'trim-end': return String(segEval(seg[1], env)).replace(/\\n+$/, '');\n    case 'c-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntryRef(model, e); }\n    case 'c-entry-support': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntrySupport(e); }\n    case 'c-type-ref': return cbTypeRef(model, node[segKey(seg[1])]);\n    case 'c-support-of': return cbEntrySupport(cbResolve(model, node[segKey(seg[1])]));\n    case 'c-scalar-type': return SCALAR_TABLES.c.types[node.type][0];\n    case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];\n    case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];\n    case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];\n    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + '\u0000' + el.output)).size; }\n    case 'sc-field-name': return scpFieldName(node);\n    case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }\n    case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;\n    case 'sc-fixed-size': return FIXED_TABLES.scala[node.type][0];\n    case 'sc-fixed-kind': return FIXED_TABLES.scala[node.type][1];\n    case 'dart-field-name': return dtpFieldName(node);\n    case 'dart-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpEntryRef(model, e); }\n    case 'dart-type-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpTypeRef(model, e); }\n    case 'dart-scalar-type': return SCALAR_TABLES.dart.types[node.type][0];\n    case 'dart-scalar-zero': return SCALAR_TABLES.dart.types[node.type][1];\n    case 'dart-fixed-size': return FIXED_TABLES.dart[node.type][0];\n    case 'dart-fixed-name': return FIXED_TABLES.dart[node.type][1];\n    case 'swift-field-name': return swpFieldName(node);\n    case 'swift-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpEntryRef(model, e); }\n    case 'swift-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpMapHelperName(model, e); }\n    case 'swift-scalar-type': return SCALAR_TABLES.swift.types[node.type][0];\n    case 'swift-scalar-zero': return SCALAR_TABLES.swift.types[node.type][1];\n    case 'swift-fixed-size': return FIXED_TABLES.swift[node.type][0];\n    case 'swift-fixed-name': return FIXED_TABLES.swift[node.type][1];\n    case 'lua-field-name': return lpFieldName(node);\n    case 'cs-field-name': return cspFieldName(model, node);\n    case 'cs-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cspResolve(model, n.typeName) : n; return cspEntryRef(model, e); }\n    case 'cs-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cspResolve(model, n.typeName) : n; return cspMapHelperName(model, e); }\n    case 'cs-scalar-type': return SCALAR_TABLES.csharp.types[node.type][0];\n    case 'cs-scalar-zero': return SCALAR_TABLES.csharp.types[node.type][1];\n    case 'cs-fixed-size': return FIXED_TABLES.csharp[node.type][0];\n    case 'cs-fixed-name': return FIXED_TABLES.csharp[node.type][1];\n    case 'kotlin-wasm-mode': return kotlinWasmMode;\n    case 'first-value-name': return node.values[0].name;\n    case 'kt-field-name': return kpFieldName(node);\n    case 'kt-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? kpResolve(model, n.typeName) : n; return kpEntryRef(model, e); }\n    case 'kt-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? kpResolve(model, n.typeName) : n; return kpMapHelperName(model, e); }\n    case 'kt-scalar-type': return SCALAR_TABLES.kotlin.types[node.type][0];\n    case 'kt-scalar-zero': return SCALAR_TABLES.kotlin.types[node.type][1];\n    case 'kt-fixed-size': return FIXED_TABLES.kotlin[node.type][0];\n    case 'kt-fixed-name': return FIXED_TABLES.kotlin[node.type][1];\n    case 'zig-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e); }\n    case 'zig-struct-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e).replace(/\\./g, '_'); }\n    case 'zig-scalar-type': return SCALAR_TABLES.zig.types[node.type][0];\n    case 'zig-scalar-zero': return SCALAR_TABLES.zig.types[node.type][1];\n    case 'zig-fixed-size': return FIXED_TABLES.zig[node.type][0];\n    case 'zig-fixed-name': return FIXED_TABLES.zig[node.type][1];\n    case 'lua-entry-flat': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? lpResolve(model, n.typeName) : n; return lpEntryFlat(model, e); }\n    case 'lua-enum-flat': return lpFlat(model.package, model.package === '' ? node.name : model.package + '.' + node.name);\n    case 'lua-fixed-fmt': return '<' + FIXED_TABLES.lua[node.type][1];\n    case 'lua-fixed-size': return FIXED_TABLES.lua[node.type][0];\n    case 'lua-fixed-wire': return FIXED_TABLES.lua[node.type][0] === 8 ? 1 : 5;\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
-                       "function runSegment(seg, env) {\n  const node = env.node;\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'if': {\n      const thenPart = seg.slice(2).find((g) => g[0] === 'then');\n      const elsePart = seg.slice(2).find((g) => g[0] === 'else');\n      if (segTruthy(segEval(seg[1], env))) return runEnv(thenPart.slice(1), env);\n      return elsePart ? runEnv(elsePart.slice(1), env) : '';\n    }\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind || (Array.isArray(b[0]) && b[0].includes(node.kind))) || seg.slice(1).find((b) => b[0] === 'else');\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runEnv(branch.slice(1), env);\n    }\n    case 'case-on': {\n      const val = segEval(seg[1], env);\n      const raw = seg.slice(2);\n      const isKey = (b) => Array.isArray(b) && (Array.isArray(b[0]) || typeof b[0] === 'number' || typeof b[0] === 'string');\n      let branches;\n      if (raw.length === 1 && Array.isArray(raw[0]) && raw[0].every(isKey)) branches = raw[0];\n      else branches = raw.map((b) => (Array.isArray(b) && b.length === 1 && Array.isArray(b[0])) ? b[0] : b);\n      const keysOf = (b) => (Array.isArray(b[0]) ? b[0] : [b[0]]);\n      const branch = branches.find((b) => keysOf(b).includes('else') || keysOf(b).map(String).includes(String(val)));\n      return branch ? runEnv(branch.slice(1), env) : '';\n    }\n    case 'when':\n      return segTruthy(segEval(seg[1], env)) ? runEnv(seg.slice(2), env) : '';\n    case 'trim-suffix': {\n      const text = runEnv(seg.slice(3), env);\n      return text.endsWith(seg[1]) ? text.slice(0, text.length - seg[1].length) + seg[2] : text;\n    }\n    case 'guarded': {\n      const hasJoin = Array.isArray(seg[4]) && seg[4][0] === 'join';\n      const joiner = hasJoin ? seg[4][1] : ' || ';\n      const text = runEnv(seg.slice(hasJoin ? 5 : 4), env);\n      const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(joiner);\n      if (!cond) return text;\n      return seg[2].split('~a').join(cond) + (text.endsWith('\\n') ? text : text + '\\n') + seg[3];\n    }\n    case 'fail':\n      throw new Error('unsupported field type ' + node.type);\n    case 'each': {\n      let i = 1; const keys = [];\n      while (typeof seg[i] === 'string') { keys.push(seg[i]); i++; }\n      let items = node;\n      for (const k of keys) items = items[segKey(k)];\n      let out = '';\n      items.forEach((el, ix) => { out += runEnv(seg.slice(i), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'each+': {\n      const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      let out = '';\n      all.forEach((el, ix) => { out += runEnv(seg.slice(3), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'guarded-indent': {
+                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      const tmpl = Array.isArray(seg[1]) ? segEval(seg[1], env) : seg[1];\n      return tmpl.replace(/~~|~[as]/g, (tok) => {\n        if (tok === '~~') return '~';\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'root': return env.root;\n    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'trim-suffix': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-sep+': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'lower-first': return lowerFirst(segEval(seg[1], env));\n    case 'js-name': return pbJsName(node);\n    case 'js-fixed-size': return FIXED_TABLES.js[node.type][0];\n    case 'js-fixed-name': return FIXED_TABLES.js[node.type][1];\n    case 'bigint-type': return PB_BIGINT.has(node.type);\n    case 'entry-flat': return node.kind === 'enum' ? pbFlatName(node.pkg, node.full) : pbFlatName(node.pkg, node.msg.fullName);\n    case 'resolved-flat': { const e = pbResolve(model, node.typeName); return pbFlatName(e.pkg, e.msg.fullName); }\n    case 'index': return env.index;\n    case 'parent': return env.parent;\n    case 'and': return seg.slice(1).every((e) => segTruthy(segEval(e, env)));\n    case 'or': return seg.slice(1).some((e) => segTruthy(segEval(e, env)));\n    case 'not': return !segTruthy(segEval(seg[1], env));\n    case 'any-where': { const keys = Array.isArray(seg[1]) ? seg[1] : [seg[1]]; let items = node; for (const k of keys) items = items[segKey(k)]; return items.some((el) => segTruthy(segEval(seg[2], envWith(env, { node: el })))); }\n    case 'snake-case': return snakeCase(segEval(seg[1], env));\n    case 'rs-camel': return rpCamel(segEval(seg[1], env));\n    case 'rs-field-name': return rpFieldName(node);\n    case 'rs-map-type': return rpMapType();\n    case 'rs-entry-ref': { const e = node.typeName !== undefined ? rpResolve(model, node.typeName) : node; return rpEntryRef(model, e); }\n    case 'rs-scalar-type': return SCALAR_TABLES.rust.types[node.type] ?? SCALAR_TABLES.rust.default;\n    case 'rs-fixed-size': return FIXED_TABLES.rust[node.type][0];\n    case 'rs-fixed-name': return FIXED_TABLES.rust[node.type][1];\n    case 'flat-of': return rpFlat(model.package, segEval(seg[1], env));\n    case 'rust-enum-fragment': return RP_ENUM_SHAPE[seg[1]];\n    case 'enum-first-value-name': return rpResolve(model, node.typeName).enum.values[0].name;\n    case 'enum-first-value-num': return rpResolve(model, node.typeName).enum.values[0].number;\n    case 'rb-snake': return String(segEval(seg[1], env)).replace(/[A-Z]/g, (c, i) => (i > 0 ? '_' : '') + c.toLowerCase());\n    case 'stub-ref': return rbStubRef(model, node[segKey(seg[1])]);\n    case 'rb-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? rbpResolve(model, n.typeName) : n; return rbpEntryRef(model, e); }\n    case 'rb-model-module': return rbpModuleName({ file: model.name });\n    case 'rb-fixed-size': return FIXED_TABLES.ruby[node.type][0];\n    case 'rb-fixed-fmt': return FIXED_TABLES.ruby[node.type][1];\n    case 'php-camel': return phpbCamel(segEval(seg[1], env));\n    case 'php-field-name': return phpbFieldName(node);\n    case 'php-flat-of': return phpbFlat(model.package, segEval(seg[1], env));\n    case 'php-stub-ref': return phpStubRef(model, node[segKey(seg[1])]);\n    case 'php-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? phpbResolve(model, n.typeName) : n; return phpbEntryRef(model, e); }\n    case 'php-fixed-size': return FIXED_TABLES.php[node.type][0];\n    case 'php-fixed-fmt': return FIXED_TABLES.php[node.type][1];\n    case 'py-ref': { const e = node.typeName !== undefined ? pyPbResolve(model, node.typeName) : node; return pyPbRef(model, e); }\n    case 'py-fixed-size': return FIXED_TABLES.python[node.type][0];\n    case 'py-fixed-fmt': return FIXED_TABLES.python[node.type][1];\n    case 'with-type': return Object.assign({}, segEval(seg[1], env), { type: seg[2] });\n    case 'trim-end': return String(segEval(seg[1], env)).replace(/\\n+$/, '');\n    case 'c-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntryRef(model, e); }\n    case 'c-entry-support': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntrySupport(e); }\n    case 'c-type-ref': return cbTypeRef(model, node[segKey(seg[1])]);\n    case 'c-support-of': return cbEntrySupport(cbResolve(model, node[segKey(seg[1])]));\n    case 'c-scalar-type': return SCALAR_TABLES.c.types[node.type][0];\n    case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];\n    case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];\n    case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];\n    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + '\u0000' + el.output)).size; }\n    case 'sc-field-name': return scpFieldName(node);\n    case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }\n    case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;\n    case 'sc-fixed-size': return FIXED_TABLES.scala[node.type][0];\n    case 'sc-fixed-kind': return FIXED_TABLES.scala[node.type][1];\n    case 'dart-field-name': return dtpFieldName(node);\n    case 'dart-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpEntryRef(model, e); }\n    case 'dart-type-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpTypeRef(model, e); }\n    case 'dart-scalar-type': return SCALAR_TABLES.dart.types[node.type][0];\n    case 'dart-scalar-zero': return SCALAR_TABLES.dart.types[node.type][1];\n    case 'dart-fixed-size': return FIXED_TABLES.dart[node.type][0];\n    case 'dart-fixed-name': return FIXED_TABLES.dart[node.type][1];\n    case 'swift-field-name': return swpFieldName(node);\n    case 'swift-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpEntryRef(model, e); }\n    case 'swift-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpMapHelperName(model, e); }\n    case 'swift-scalar-type': return SCALAR_TABLES.swift.types[node.type][0];\n    case 'swift-scalar-zero': return SCALAR_TABLES.swift.types[node.type][1];\n    case 'swift-fixed-size': return FIXED_TABLES.swift[node.type][0];\n    case 'swift-fixed-name': return FIXED_TABLES.swift[node.type][1];\n    case 'lua-field-name': return lpFieldName(node);\n    case 'java-field-name': return jpFieldName(node);\n    case 'java-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? jpResolve(model, n.typeName) : n; return jpEntryRef(model, e); }\n    case 'java-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? jpResolve(model, n.typeName) : n; return jpMapHelperName(model, e); }\n    case 'java-scalar-type': return SCALAR_TABLES.java.types[node.type][0];\n    case 'java-scalar-boxed': return SCALAR_TABLES.java.types[node.type][1];\n    case 'java-scalar-default': return SCALAR_TABLES.java.types[node.type][2];\n    case 'java-fixed-size': return FIXED_TABLES.java[node.type][0];\n    case 'java-fixed-name': return FIXED_TABLES.java[node.type][1];\n    case 'cs-field-name': return cspFieldName(model, node);\n    case 'cs-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cspResolve(model, n.typeName) : n; return cspEntryRef(model, e); }\n    case 'cs-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cspResolve(model, n.typeName) : n; return cspMapHelperName(model, e); }\n    case 'cs-scalar-type': return SCALAR_TABLES.csharp.types[node.type][0];\n    case 'cs-scalar-zero': return SCALAR_TABLES.csharp.types[node.type][1];\n    case 'cs-fixed-size': return FIXED_TABLES.csharp[node.type][0];\n    case 'cs-fixed-name': return FIXED_TABLES.csharp[node.type][1];\n    case 'kotlin-wasm-mode': return kotlinWasmMode;\n    case 'first-value-name': return node.values[0].name;\n    case 'kt-field-name': return kpFieldName(node);\n    case 'kt-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? kpResolve(model, n.typeName) : n; return kpEntryRef(model, e); }\n    case 'kt-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? kpResolve(model, n.typeName) : n; return kpMapHelperName(model, e); }\n    case 'kt-scalar-type': return SCALAR_TABLES.kotlin.types[node.type][0];\n    case 'kt-scalar-zero': return SCALAR_TABLES.kotlin.types[node.type][1];\n    case 'kt-fixed-size': return FIXED_TABLES.kotlin[node.type][0];\n    case 'kt-fixed-name': return FIXED_TABLES.kotlin[node.type][1];\n    case 'zig-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e); }\n    case 'zig-struct-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e).replace(/\\./g, '_'); }\n    case 'zig-scalar-type': return SCALAR_TABLES.zig.types[node.type][0];\n    case 'zig-scalar-zero': return SCALAR_TABLES.zig.types[node.type][1];\n    case 'zig-fixed-size': return FIXED_TABLES.zig[node.type][0];\n    case 'zig-fixed-name': return FIXED_TABLES.zig[node.type][1];\n    case 'lua-entry-flat': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? lpResolve(model, n.typeName) : n; return lpEntryFlat(model, e); }\n    case 'lua-enum-flat': return lpFlat(model.package, model.package === '' ? node.name : model.package + '.' + node.name);\n    case 'lua-fixed-fmt': return '<' + FIXED_TABLES.lua[node.type][1];\n    case 'lua-fixed-size': return FIXED_TABLES.lua[node.type][0];\n    case 'lua-fixed-wire': return FIXED_TABLES.lua[node.type][0] === 8 ? 1 : 5;\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
+                       "function runSegment(seg, env) {\n  const node = env.node;\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'if': {\n      const thenPart = seg.slice(2).find((g) => g[0] === 'then');\n      const elsePart = seg.slice(2).find((g) => g[0] === 'else');\n      if (segTruthy(segEval(seg[1], env))) return runEnv(thenPart.slice(1), env);\n      return elsePart ? runEnv(elsePart.slice(1), env) : '';\n    }\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind || (Array.isArray(b[0]) && b[0].includes(node.kind))) || seg.slice(1).find((b) => b[0] === 'else');\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runEnv(branch.slice(1), env);\n    }\n    case 'case-on': {\n      const val = segEval(seg[1], env);\n      const raw = seg.slice(2);\n      const isKey = (b) => Array.isArray(b) && (Array.isArray(b[0]) || typeof b[0] === 'number' || typeof b[0] === 'string');\n      let branches;\n      if (raw.length === 1 && Array.isArray(raw[0]) && raw[0].every(isKey)) branches = raw[0];\n      else branches = raw.map((b) => (Array.isArray(b) && b.length === 1 && Array.isArray(b[0])) ? b[0] : b);\n      const keysOf = (b) => (Array.isArray(b[0]) ? b[0] : [b[0]]);\n      const branch = branches.find((b) => keysOf(b).includes('else') || keysOf(b).map(String).includes(String(val)));\n      return branch ? runEnv(branch.slice(1), env) : '';\n    }\n    case 'when':\n      return segTruthy(segEval(seg[1], env)) ? runEnv(seg.slice(2), env) : '';\n    case 'trim-suffix': {\n      const text = runEnv(seg.slice(3), env);\n      return text.endsWith(seg[1]) ? text.slice(0, text.length - seg[1].length) + seg[2] : text;\n    }\n    case 'guarded': {\n      const hasJoin = Array.isArray(seg[4]) && seg[4][0] === 'join';\n      const joiner = hasJoin ? seg[4][1] : ' || ';\n      const text = runEnv(seg.slice(hasJoin ? 5 : 4), env);\n      const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(joiner);\n      if (!cond) return text;\n      return seg[2].split('~a').join(cond) + (text.endsWith('\\n') ? text : text + '\\n') + seg[3];\n    }\n    case 'fail':\n      throw new Error('unsupported field type ' + node.type);\n    case 'each': {\n      let i = 1; const keys = [];\n      while (typeof seg[i] === 'string') { keys.push(seg[i]); i++; }\n      let items = node;\n      for (const k of keys) items = items[segKey(k)];\n      let out = '';\n      items.forEach((el, ix) => { out += runEnv(seg.slice(i), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'each-sep+': {\n      const all = node[seg[2]].concat(seg[3] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      return all.map((child) => runEnv(seg.slice(4), envWith(env, { node: child }))).join(seg[1]);\n    }\n\n    case 'each+': {\n      const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      let out = '';\n      all.forEach((el, ix) => { out += runEnv(seg.slice(3), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'guarded-indent': {
       const text = runEnv(seg.slice(4), env);
       const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(' or ');
       if (!cond) return text;

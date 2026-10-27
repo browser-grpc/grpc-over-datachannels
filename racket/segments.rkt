@@ -5664,13 +5664,13 @@
   (list
    (list 'kind-case
          (list 'unary
-               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a req = new ~a();\n                        reqs.recvInto(req);\n                        sink.send(impl.~a(ctx, req).marshalDc());\n                    })" '(ref name) '(ref path) java-kind-const-expr '(ref input) '(ref input) '(ref impl-name)))
+               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a req = new ~a();\n                        reqs.recvInto(req);\n                        sink.send(impl.~a(ctx, req).marshalDc());\n                    }),\n" '(ref name) '(ref path) java-kind-const-expr '(ref input) '(ref input) '(ref impl-name)))
          (list 'server-streaming
-               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a req = new ~a();\n                        reqs.recvInto(req);\n                        impl.~a(req, new ~a~aServerImpl(ctx, sink));\n                    })" '(ref name) '(ref path) java-kind-const-expr '(ref input) '(ref input) '(ref impl-name) '(svc) '(ref name)))
+               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a req = new ~a();\n                        reqs.recvInto(req);\n                        impl.~a(req, new ~a~aServerImpl(ctx, sink));\n                    }),\n" '(ref name) '(ref path) java-kind-const-expr '(ref input) '(ref input) '(ref impl-name) '(svc) '(ref name)))
          (list 'client-streaming
-               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a~aServerImpl stream = new ~a~aServerImpl(ctx, reqs);\n                        impl.~a(stream);\n                        if (stream.resp == null) {\n                            throw new StatusException(Wire.CODE_INTERNAL,\n                                    \"client-streaming handler never called SendAndClose\");\n                        }\n                        sink.send(stream.resp.marshalDc());\n                    })" '(ref name) '(ref path) java-kind-const-expr '(svc) '(ref name) '(svc) '(ref name) '(ref impl-name)))
+               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a~aServerImpl stream = new ~a~aServerImpl(ctx, reqs);\n                        impl.~a(stream);\n                        if (stream.resp == null) {\n                            throw new StatusException(Wire.CODE_INTERNAL,\n                                    \"client-streaming handler never called SendAndClose\");\n                        }\n                        sink.send(stream.resp.marshalDc());\n                    }),\n" '(ref name) '(ref path) java-kind-const-expr '(svc) '(ref name) '(svc) '(ref name) '(ref impl-name)))
          (list 'bidi
-               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        impl.~a(new ~a~aServerImpl(ctx, reqs, sink));\n                    })" '(ref name) '(ref path) java-kind-const-expr '(ref impl-name) '(svc) '(ref name))))))
+               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        impl.~a(new ~a~aServerImpl(ctx, reqs, sink));\n                    }),\n" '(ref name) '(ref path) java-kind-const-expr '(ref impl-name) '(svc) '(ref name))))))
 
 (define java-stream-impls-program
   '((kind-case
@@ -5734,7 +5734,7 @@
     (each methods (call javaClientStreamClass))
     (fmt "    /** Service implementation interface for ~a. */\n" (ref full-name))
     (fmt "    public interface ~aServer {\n" (ref name))
-    (each methods (call javaServerIfaceMethod))
+    (each methods (call javaServerIfaceMethod "        "))
     "    }\n\n"
     (each methods (call javaServerStreamIfaces))
     (each methods (call javaStreamImpls))
@@ -5750,7 +5750,7 @@
     (fmt "    /** Register an implementation of ~a on a Server. */\n" (ref full-name))
     (fmt "    public static void register~aServer(Server server, ~aServer impl) {\n" (ref name) (ref name))
     (fmt "        server.registerService(new Server.ServiceDesc(\n                ~s,\n                List.of(\n" (ref full-name))
-    (each-sep+ ",\n" methods server (call javaRegisterMethod))
+    (trim-suffix ",\n" "" (each+ methods server (call javaRegisterMethod)))
     "\n                )));\n    }\n"
     (fmt "    /** Register an async implementation of ~a on a Server. */\n" (ref full-name))
     (fmt "    public static void register~aServerAsync(Server server, ~aServerAsync impl) {\n" (ref name) (ref name))
