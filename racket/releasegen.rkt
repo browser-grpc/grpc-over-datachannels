@@ -96,6 +96,24 @@
     (copy-in rel)
     rel))
 
+;; Go modules: the private tree keeps a `replace` pointing at
+;; the sibling webrtc module (monorepo layout). The published
+;; export must require it by version instead — module proxy
+;; resolution honors no replace directives. release-push.sh
+;; tags go/<version> and webrtc/go/<version> on the export so
+;; both module paths resolve at this release (pkg.go.dev).
+(let ([mod (build-path out-dir "go/go.mod")])
+  (when (file-exists? mod)
+    (define kept
+      (for/list ([line (in-list (string-split (file->string mod) "\n"))]
+                 #:unless (or (string-prefix? line "replace ")
+                              (string=? line "")))
+        (string-replace line " v0.0.0" (string-append " " version))))
+    (call-with-output-file mod #:exists 'replace
+      (lambda (out)
+        (display (string-join kept "\n") out)
+        (newline out)))))
+
 ;; ---------------------------------------------------------------------------
 ;; Browser app (docs/app): fallback mode only — no .rkt
 ;; plugins, no racket-web assets. The app engages its
@@ -888,7 +906,7 @@
                   "pip users: `pip install ./python` installs the `grpcdc` package from this tree (pyproject.toml included, no dependencies).")
    "go" (list "Go"
               "cd go && go test ./..."
-              "Import path is the module in go/go.mod; copy the directory into your module tree or use a replace directive.")
+              "Fetch it like any module: `go get github.com/browser-grpc/grpc-over-datachannels/go` (the WebRTC stack arrives as its sibling module `.../webrtc/go`) — or copy this directory into your module tree.")
    "rust" (list "Rust"
                 "cd rust && cargo test"
                 "Add the crate by path: `grpc-dc = { path = \"rust\" }` in Cargo.toml. No external crates.")

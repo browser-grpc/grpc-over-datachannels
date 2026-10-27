@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	grpcdc "grpcdc"
-	busv1 "grpcdc/eventbus"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
+	busv1 "github.com/browser-grpc/grpc-over-datachannels/go/eventbus"
 )
 
 func setupEventBus(t *testing.T, capacity int) (*busv1.EventBusBroker, *busv1.EventBusClient) {

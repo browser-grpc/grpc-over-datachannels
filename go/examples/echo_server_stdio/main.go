@@ -6,8 +6,8 @@ package main
 import (
 	"os"
 
-	grpcdc "grpcdc"
-	echo "grpcdc/examples"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
+	echo "github.com/browser-grpc/grpc-over-datachannels/go/examples"
 )
 
 func main() {

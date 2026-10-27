@@ -6,7 +6,7 @@ import (
 	"time"
 	"strings"
 
-	grpcdc "grpcdc"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
 )
 
 // EchoService is the reference Echo implementation (mirrors the Rust

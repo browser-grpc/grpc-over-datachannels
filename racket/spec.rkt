@@ -134,6 +134,20 @@
 (provide rust-enum-shape rust-enum-fragment)
 
 ;; ---------------------------------------------------------------------------
+;; Go module paths — the published import prefixes for the Go
+;; runtime and the WebRTC stack (pkg.go.dev-resolvable), written
+;; once. template-go.rkt, the eventbus/oracle Go emitters and
+;; webgen.rkt (which serializes the path for the browser Go
+;; emitter) format these in; the go.mod files carry the same
+;; strings. See GO-MODULE-PATH-SPEC.md.
+;; ---------------------------------------------------------------------------
+
+(define go-module-path "github.com/browser-grpc/grpc-over-datachannels/go")
+(define go-webrtc-module-path "github.com/browser-grpc/grpc-over-datachannels/webrtc/go")
+
+(provide go-module-path go-webrtc-module-path)
+
+;; ---------------------------------------------------------------------------
 ;; Streaming-kind classification: (client-streaming?, server-streaming?)
 ;; ---------------------------------------------------------------------------
 

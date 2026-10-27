@@ -8,7 +8,7 @@ import (
 	"errors"
 	"io"
 
-	dcwebrtc "dcwebrtc"
+	dcwebrtc "github.com/browser-grpc/grpc-over-datachannels/webrtc/go"
 )
 
 // DcTransport carries grpcdc frames over one WebRTC DataChannel.

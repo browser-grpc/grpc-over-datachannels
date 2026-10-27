@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	grpcdc "grpcdc"
-	echo "grpcdc/examples"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
+	echo "github.com/browser-grpc/grpc-over-datachannels/go/examples"
 )
 
 // Oracle tests: the official grpc-java implementation, bridged over

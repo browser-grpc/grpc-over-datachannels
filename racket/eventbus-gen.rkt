@@ -11,7 +11,7 @@
 ;;; the protoc plugins generate them from proto/events.proto
 ;;; (make eventbus-stubs), and these modules build on them.
 
-(require "eventbus-spec.rkt" racket/runtime-path)
+(require "spec.rkt" "eventbus-spec.rkt" racket/runtime-path)
 (provide generate-eventbus)
 
 (define-runtime-path here ".")
@@ -867,7 +867,7 @@ import (
 	"sync"
 	"time"
 
-	"grpcdc"
+	"~a"
 )
 
 // SubscriberQueueCapacity is the per-subscriber queue bound:
@@ -1137,7 +1137,7 @@ func SubscribeEvents(ctx context.Context, client *EventBusClient, filter []*TagV
 	return client.Subscribe(ctx, &SubscribeRequest{Filter: filter})
 }
 TPL
-           queue-capacity)))
+           go-module-path queue-capacity)))
 
 (define (emit-go-gitlog)
   (string-append
@@ -2427,7 +2427,7 @@ TPL
 (define (emit-go-test)
   (string-append
    (go-header)
-   #<<TPL
+   (format #<<TPL
 // Event bus end-to-end over the loopback transport, plus the
 // git log serde round-trip.
 package grpcdc_test
@@ -2441,8 +2441,8 @@ import (
 	"testing"
 	"time"
 
-	grpcdc "grpcdc"
-	busv1 "grpcdc/eventbus"
+	grpcdc "~a"
+	busv1 "~a/eventbus"
 )
 
 func setupEventBus(t *testing.T, capacity int) (*busv1.EventBusBroker, *busv1.EventBusClient) {
@@ -2709,12 +2709,12 @@ func TestEventBusGitLogRoundTrip(t *testing.T) {
 	}
 }
 TPL
-   ))
+           go-module-path go-module-path)))
 
 (define (emit-go-demo)
   (string-append
    (go-header)
-   #<<TPL
+   (format #<<TPL
 // Event bus demo: a broker, one filtered subscriber, and
 // three publishes over one in-memory transport.
 // `go run ./examples/eventbus_demo` from the go/ directory.
@@ -2725,8 +2725,8 @@ import (
 	"fmt"
 	"time"
 
-	grpcdc "grpcdc"
-	busv1 "grpcdc/eventbus"
+	grpcdc "~a"
+	busv1 "~a/eventbus"
 )
 
 func main() {
@@ -2771,7 +2771,7 @@ func main() {
 	fmt.Printf("broker stats: %+v\n", broker.Stats())
 }
 TPL
-   ))
+           go-module-path go-module-path)))
 
 (define (emit-rust-test)
   (string-append

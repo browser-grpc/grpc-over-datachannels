@@ -9,7 +9,7 @@ import (
 	"context"
 	"io"
 
-	grpcdc "grpcdc"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
 )
 
 func dynamicResponse(method *grpcdc.MethodModel, message string, index int64) *grpcdc.GenericMessage {

@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"time"
 
-	grpcdc "grpcdc"
-	busv1 "grpcdc/eventbus"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
+	busv1 "github.com/browser-grpc/grpc-over-datachannels/go/eventbus"
 )
 
 func main() {

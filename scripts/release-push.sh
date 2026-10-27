@@ -70,6 +70,12 @@ else
   git tag "$VERSION"
   git push origin HEAD
   git push origin "$VERSION"
+  # Submodule tags: the Go module proxy resolves the modules at
+  # go/ and webrtc/go/ only via go/<version> / webrtc/go/<version>
+  # tags (pkg.go.dev). Same commit as $VERSION.
+  git tag "go/$VERSION"
+  git tag "webrtc/go/$VERSION"
+  git push origin "go/$VERSION" "webrtc/go/$VERSION"
   echo "published $REPO $VERSION"
 fi
 cd - >/dev/null

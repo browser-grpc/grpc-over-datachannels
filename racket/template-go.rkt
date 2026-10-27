@@ -769,7 +769,7 @@
            (format "package ~a\n\n" (go-package file-model params))
            (if (null? (hash-ref file-model 'services))
                ""
-               "import (\n\t\"context\"\n\n\tgrpcdc \"grpcdc\"\n)\n\n")
+               (format "import (\n\t\"context\"\n\n\tgrpcdc \"~a\"\n)\n\n" go-module-path))
            ;; trace=hooks: re-export the runtime tracer registrar;
            ;; trace_methods bakes the filter in at init.
            (if (and (pair? (hash-ref file-model 'services))

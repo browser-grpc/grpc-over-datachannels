@@ -1525,7 +1525,7 @@ function emitGoFile(model, params) {
       + 'package ' + goPackage(model, params) + '\n\n'
       + (model.services.length === 0
         ? ''
-        : 'import (\n\t"context"\n\n\tgrpcdc "grpcdc"\n)\n\n')
+        : 'import (\n\t"context"\n\n\tgrpcdc "' + GO_MODULE_PATH + '"\n)\n\n')
       + model.services.map(goService).join(''),
   };
   const pb = emitGoPbFile(model, params);
@@ -2991,6 +2991,7 @@ export function generateFiles(lang, setBytes, entries, parameter) {
   }
   return files.map(stampGeneratedHeader);
 }const RP_ENUM_SHAPE = {"defaultMark":"#[default]\n    ","fromArm":"            ~a => ~a::~a,\n","header":"#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\n#[repr(i32)]\npub enum ~a {\n","implOpen":"impl ~a {\n    pub fn from_i32(v: i32) -> Self {\n        match v {\n","toArm":"            ~a::~a => ~a,\n","toOpen":"    pub fn to_i32(self) -> i32 {\n        match self {\n","unknownFromArm":"            _ => ~a::Unknown(v),\n        }\n    }\n","unknownToArm":"            ~a::Unknown(v) => v,\n        }\n    }\n}\n\n","unknownVariant":"    Unknown(i32),\n}\n\n","value":"    ~a~a = ~a,\n"};
+const GO_MODULE_PATH = "github.com/browser-grpc/grpc-over-datachannels/go";
 
 function rpFmt(template, ...args) {
   let i = 0;

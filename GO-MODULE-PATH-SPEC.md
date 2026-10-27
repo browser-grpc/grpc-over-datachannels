@@ -1,7 +1,15 @@
 # Spec: a pkg.go.dev-indexable Go module path
 
-Status: scoped, not implemented. Breaking change; needs a
-dedicated session and a major/minor version decision.
+Status: implemented; ships in v0.33.0 (minor bump, per the
+rollout below) with a CHANGELOG migration note. Module paths
+are single-sourced as `go-module-path` /
+`go-webrtc-module-path` in `racket/spec.rkt`; the Go template,
+eventbus/oracle emitters and the browser Go emitter (via a
+serialized `GO_MODULE_PATH`) all format them in. The private
+tree keeps the `replace`; releasegen rewrites the exported
+`go/go.mod` to require the webrtc module by version, and
+release-push.sh tags `go/<version>` and `webrtc/go/<version>`
+so the Go module proxy resolves both paths.
 
 ## Problem
 

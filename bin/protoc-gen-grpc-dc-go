@@ -109,6 +109,11 @@
   (unless entry (error 'rust-enum-fragment "unknown key: ~e" key))
   (cdr entry))
 
+(define go-module-path "github.com/browser-grpc/grpc-over-datachannels/go")
+
+(define go-webrtc-module-path
+  "github.com/browser-grpc/grpc-over-datachannels/webrtc/go")
+
 (define-syntax (streaming-kind stx)
   (syntax-case stx ()
     ((_ client? server?)
@@ -1808,7 +1813,9 @@
       (format "package ~a\n\n" (go-package file-model params))
       (if (null? (hash-ref file-model 'services))
         ""
-        "import (\n\t\"context\"\n\n\tgrpcdc \"grpcdc\"\n)\n\n")
+        (format
+         "import (\n\t\"context\"\n\n\tgrpcdc \"~a\"\n)\n\n"
+         go-module-path))
       (if (and (pair? (hash-ref file-model 'services))
                (equal? (hash-ref params 'trace #f) "hooks"))
         (string-append

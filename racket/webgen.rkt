@@ -37,6 +37,11 @@
    (for/hash ([entry (in-list rust-enum-shape)])
      (values (car entry) (cdr entry)))))
 
+;; The Go module path, serialized from spec.rkt so the browser
+;; Go emitter imports the same module the native template does.
+(define (go-module-path-json)
+  (jsexpr->string go-module-path))
+
 (define js-part-1 #<<JS
 // Browser generators for the grpc-dc web app: given the
 // FileDescriptorSet bytes produced by the in-page protocompile
@@ -1573,7 +1578,7 @@ function emitGoFile(model, params) {
       + 'package ' + goPackage(model, params) + '\n\n'
       + (model.services.length === 0
         ? ''
-        : 'import (\n\t"context"\n\n\tgrpcdc "grpcdc"\n)\n\n')
+        : 'import (\n\t"context"\n\n\tgrpcdc "' + GO_MODULE_PATH + '"\n)\n\n')
       + model.services.map(goService).join(''),
   };
   const pb = emitGoPbFile(model, params);
@@ -13228,7 +13233,8 @@ JS
 (define (emit-web-generators)
   (cons "generators.js"
         (string-append js-part-1 (alias-table-json) js-part-2 js-part-3 js-part-4
-                       "const RP_ENUM_SHAPE = " (rust-enum-shape-json) ";\n\n"
+                       "const RP_ENUM_SHAPE = " (rust-enum-shape-json) ";\n"
+                       "const GO_MODULE_PATH = " (go-module-path-json) ";\n\n"
                        "function rpFmt(template, ...args) {\n  let i = 0;\n  return template.replace(/~a/g, () => String(args[i++]));\n}\n\n"
                        js-part-5 js-part-6 js-part-7 js-part-8 js-part-9 js-part-10 js-part-11 js-part-12 js-part-13 js-part-14 js-part-15 js-part-16 js-part-17 js-part-18 js-part-19 js-part-20 js-part-21 js-part-22)))
 

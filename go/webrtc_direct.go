@@ -10,7 +10,7 @@ import (
 	"errors"
 	"time"
 
-	dcwebrtc "dcwebrtc"
+	dcwebrtc "github.com/browser-grpc/grpc-over-datachannels/webrtc/go"
 )
 
 // DirectListener binds a WebRTC-Direct listener. Its Multiaddr

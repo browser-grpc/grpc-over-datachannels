@@ -109,6 +109,11 @@
   (unless entry (error 'rust-enum-fragment "unknown key: ~e" key))
   (cdr entry))
 
+(define go-module-path "github.com/browser-grpc/grpc-over-datachannels/go")
+
+(define go-webrtc-module-path
+  "github.com/browser-grpc/grpc-over-datachannels/webrtc/go")
+
 (define-syntax (streaming-kind stx)
   (syntax-case stx ()
     ((_ client? server?)

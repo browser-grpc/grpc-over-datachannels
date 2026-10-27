@@ -26,8 +26,8 @@ import (
 	"testing"
 	"time"
 
-	grpcdc "grpcdc"
-	testingpb "grpcdc/interop"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
+	testingpb "github.com/browser-grpc/grpc-over-datachannels/go/interop"
 )
 
 // testServiceImpl mirrors the reference TestServiceImpl
