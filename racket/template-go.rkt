@@ -23,136 +23,19 @@
 (define current-service (make-parameter ""))
 
 (define (go-deprecated m)
-  (if (hash-ref m 'deprecated #f)
-      "// Deprecated: marked deprecated in the proto schema.
-"
-      ""))
+  (run-segments go-deprecated-program m (current-service)))
 
 (define (go-client-method* m)
-  (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define path (hash-ref m 'path))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "func (c *~aClient) ~a(ctx context.Context, req *~a) (*~a, error) {\n"
-              "\tresp := new(~a)\n"
-              "\tif err := c.Channel.Unary(ctx, ~s, req, resp); err != nil {\n"
-              "\t\treturn nil, err\n"
-              "\t}\n"
-              "\treturn resp, nil\n"
-              "}\n")
-             svc name req resp resp path)]
-    [(server-streaming)
-     (format (string-append
-              "func (c *~aClient) ~a(ctx context.Context, req *~a) (*~a~aStream, error) {\n"
-              "\tstream, err := c.Channel.ServerStream(ctx, ~s, req)\n"
-              "\tif err != nil {\n"
-              "\t\treturn nil, err\n"
-              "\t}\n"
-              "\treturn &~a~aStream{stream: stream}, nil\n"
-              "}\n\n"
-              "type ~a~aStream struct{ stream *grpcdc.ClientStream }\n\n"
-              "func (s *~a~aStream) Recv() (*~a, error) {\n"
-              "\tresp := new(~a)\n"
-              "\tif err := s.stream.Recv(resp); err != nil {\n"
-              "\t\treturn nil, err\n"
-              "\t}\n"
-              "\treturn resp, nil\n"
-              "}\n")
-             svc name req svc name path svc name svc name svc name resp resp)]
-    [(client-streaming)
-     (format (string-append
-              "func (c *~aClient) ~a(ctx context.Context, reqs ...*~a) (*~a, error) {\n"
-              "\tgrpcdcReqs := make([]grpcdc.Marshaler, len(reqs))\n"
-              "\tfor i, r := range reqs {\n"
-              "\t\tgrpcdcReqs[i] = r\n"
-              "\t}\n"
-              "\tresp := new(~a)\n"
-              "\tif err := c.Channel.ClientStreamCall(ctx, ~s, grpcdcReqs, resp); err != nil {\n"
-              "\t\treturn nil, err\n"
-              "\t}\n"
-              "\treturn resp, nil\n"
-              "}\n")
-             svc name req resp resp path)]
-    [(bidi)
-     (format (string-append
-              "func (c *~aClient) ~a(ctx context.Context, reqs ...*~a) (*~a~aStream, error) {\n"
-              "\tgrpcdcReqs := make([]grpcdc.Marshaler, len(reqs))\n"
-              "\tfor i, r := range reqs {\n"
-              "\t\tgrpcdcReqs[i] = r\n"
-              "\t}\n"
-              "\tstream, err := c.Channel.Bidi(ctx, ~s, grpcdcReqs)\n"
-              "\tif err != nil {\n"
-              "\t\treturn nil, err\n"
-              "\t}\n"
-              "\treturn &~a~aStream{stream: stream}, nil\n"
-              "}\n\n"
-              "type ~a~aStream struct{ stream *grpcdc.ClientStream }\n\n"
-              "func (s *~a~aStream) Recv() (*~a, error) {\n"
-              "\tresp := new(~a)\n"
-              "\tif err := s.stream.Recv(resp); err != nil {\n"
-              "\t\treturn nil, err\n"
-              "\t}\n"
-              "\treturn resp, nil\n"
-              "}\n")
-             svc name req svc name path svc name svc name svc name resp resp)]))
+  (run-segments go-client-method-program m (current-service)))
 
 (define (go-server-iface-method/deprecated m)
-  (string-append
-   (if (hash-ref m 'deprecated #f)
-       "\t// Deprecated: marked deprecated in the proto schema.
-"
-       "")
-   (go-server-iface-method m)))
+  (run-segments go-server-iface-method-deprecated-program m (current-service)))
 
 (define (go-server-iface-method m)
-  (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format "\t~a(context.Context, *~a) (*~a, error)\n" name req resp)]
-    [(server-streaming)
-     (format "\t~a(*~a, ~a~aServer) error\n" name req svc name)]
-    [(client-streaming)
-     (format "\t~a(~a~aServer) error\n" name svc name)]
-    [(bidi)
-     (format "\t~a(~a~aServer) error\n" name svc name)]))
+  (run-segments go-server-iface-method-program m (current-service)))
 
 (define (go-stream-ifaces m)
-  (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary) ""]
-    [(server-streaming)
-     (format (string-append
-              "type ~a~aServer interface {\n"
-              "\tSend(*~a) error\n"
-              "\tContext() context.Context\n"
-              "}\n\n")
-             svc name resp)]
-    [(client-streaming)
-     (format (string-append
-              "type ~a~aServer interface {\n"
-              "\tRecv() (*~a, error)\n"
-              "\tSendAndClose(*~a) error\n"
-              "\tContext() context.Context\n"
-              "}\n\n")
-             svc name req resp)]
-    [(bidi)
-     (format (string-append
-              "type ~a~aServer interface {\n"
-              "\tSend(*~a) error\n"
-              "\tRecv() (*~a, error)\n"
-              "\tContext() context.Context\n"
-              "}\n\n")
-             svc name resp req)]))
+  (run-segments go-stream-ifaces-program m (current-service)))
 
 (define (go-register-method m)
   ;; Emission lives in segments.rkt (go-register-method-program),
@@ -160,86 +43,13 @@
   (run-segments go-register-method-program m (current-service)))
 
 (define (go-stream-impls m)
-  (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary) ""]
-    [(server-streaming)
-     (format (string-append
-              "type ~a~aServerImpl struct {\n"
-              "\tctx  context.Context\n"
-              "\tsink grpcdc.ServerSink\n"
-              "}\n\n"
-              "func (s *~a~aServerImpl) Send(resp *~a) error {\n\treturn s.sink.Send(resp.MarshalDC())\n}\n"
-              "func (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n")
-             svc name svc name resp svc name)]
-    [(client-streaming)
-     (format (string-append
-              "type ~a~aServerImpl struct {\n"
-              "\tctx  context.Context\n"
-              "\treqs *grpcdc.RequestStream\n"
-              "\tresp *~a\n"
-              "}\n\n"
-              "func (s *~a~aServerImpl) Recv() (*~a, error) {\n"
-              "\treq := new(~a)\n"
-              "\tif err := s.reqs.RecvInto(req); err != nil {\n"
-              "\t\treturn nil, err\n"
-              "\t}\n"
-              "\treturn req, nil\n"
-              "}\n"
-              "func (s *~a~aServerImpl) SendAndClose(resp *~a) error {\n"
-              "\ts.resp = resp\n"
-              "\treturn nil\n"
-              "}\n"
-              "func (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n")
-             svc name resp svc name req req svc name resp svc name)]
-    [(bidi)
-     (format (string-append
-              "type ~a~aServerImpl struct {\n"
-              "\tctx  context.Context\n"
-              "\treqs *grpcdc.RequestStream\n"
-              "\tsink grpcdc.ServerSink\n"
-              "}\n\n"
-              "func (s *~a~aServerImpl) Send(resp *~a) error {\n\treturn s.sink.Send(resp.MarshalDC())\n}\n"
-              "func (s *~a~aServerImpl) Recv() (*~a, error) {\n"
-              "\treq := new(~a)\n"
-              "\tif err := s.reqs.RecvInto(req); err != nil {\n"
-              "\t\treturn nil, err\n"
-              "\t}\n"
-              "\treturn req, nil\n"
-              "}\n"
-              "func (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n")
-             svc name svc name resp svc name req req svc name)]))
+  (run-segments go-stream-impls-program m (current-service)))
 
 (define (go-service svc)
-  (define sname (hash-ref svc 'name))
-  (define methods (hash-ref svc 'methods))
-  (parameterize ([current-service sname])
-    (string-append
-     (format "type ~aClient struct {\n\tChannel *grpcdc.Channel\n}\n\n" sname)
-     (format "func New~aClient(ch *grpcdc.Channel) *~aClient {\n\treturn &~aClient{Channel: ch}\n}\n\n" sname sname sname)
-     (apply string-append (map (lambda (m) (string-append (go-deprecated m) (go-client-method* m))) (append methods (alias-client-methods svc))))
-     "\n"
-     (format "type ~aServer interface {\n" sname)
-     (apply string-append (map go-server-iface-method/deprecated methods))
-     "}\n\n"
-     (apply string-append (map go-stream-ifaces methods))
-     (apply string-append (map go-stream-impls methods))
-     (format "func Register~aServer(s *grpcdc.Server, srv ~aServer) {\n" sname sname)
-     (format "\ts.RegisterService(grpcdc.ServiceDesc{\n\t\tName: ~s,\n\t\tMethods: []grpcdc.Method{\n"
-             (hash-ref svc 'full-name))
-     (apply string-append (map go-register-method (append methods (alias-server-methods svc))))
-     "\t\t},\n\t})\n}\n")))
-
-;; ---------------------------------------------------------------------------
-;; Go message types (<base>_pb.go): structs implementing
-;; MarshalDC/UnmarshalDC, dependency-free (stdlib only). Mirrors
-;; the Python/JS emitters on the shared desc.rkt model. Cross-file
-;; types resolve to the same generated naming, so files generated
-;; into one Go package link together.
-;; ---------------------------------------------------------------------------
+  ;; Emission lives in segments.rkt (go-service-program and the
+  ;; per-method programs it calls), shared with the browser
+  ;; generators; edit them there.
+  (run-segments go-service-program svc (hash-ref svc 'name)))
 
 (define go-pb-varint-types varint-scalar-types)
 (define go-pb-fixed (fixed-scalar-table 'go))
