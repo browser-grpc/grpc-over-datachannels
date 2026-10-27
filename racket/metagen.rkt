@@ -1654,6 +1654,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "cpp/tests" "oracle-gen.rkt" (list (emit-cpp-oracle-driver)))
   (write-runtime-files "cpp/tests" "bdd-gen.rkt" (list (emit-cpp-bdd) (emit-bdd-schemas 'cpp)))
   (write-runtime-files "cpp/tests" "interop-gen.rkt" (list (emit-cpp-interop-cases)))
+  (write-runtime-files "cpp/examples" "interop-service-gen.rkt" (list (emit-cpp-interop-service)))
   (make-directory* (build-path root "swift" "grpcdc"))
   (call-with-output-file (build-path root "swift" "grpcdc" "Wire.swift") #:exists 'replace
     (lambda (out) (display (emit-swift-wire) out)))
