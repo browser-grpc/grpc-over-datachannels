@@ -1701,6 +1701,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "dart/tests" "oracle-gen.rkt" (list (emit-dart-oracle-driver)))
   (write-runtime-files "dart/tests" "bdd-gen.rkt" (list (emit-dart-bdd) (emit-bdd-schemas 'dart)))
   (write-runtime-files "dart/tests" "interop-gen.rkt" (list (emit-dart-interop-cases)))
+  (write-runtime-files "dart/examples" "interop-service-gen.rkt" (list (emit-dart-interop-service)))
   (make-directory* (build-path root "zig" "grpcdc"))
   (call-with-output-file (build-path root "zig" "grpcdc" "wire.zig") #:exists 'replace
     (lambda (out) (display (emit-zig-wire) out)))
