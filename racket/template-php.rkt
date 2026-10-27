@@ -12,7 +12,7 @@
 ;;; pump; the Fiber client mirror uses PHP 8.1 Fibers like the
 ;;; Ruby stub's Fiber surface.
 
-(require "spec.rkt" "desc.rkt")
+(require "spec.rkt" "desc.rkt" "segments.rkt")
 (provide emit-php-file)
 
 (define current-service (make-parameter ""))
@@ -34,118 +34,15 @@
                               (substring part 1))))))
 
 (define (php-deprecated m)
-  (if (hash-ref m 'deprecated #f)
-      "        trigger_error(\"deprecated\", E_USER_DEPRECATED);\n"
-      ""))
-
+  (run-segments php-deprecated-program m ""))
 (define (php-client-method model m)
-  (define name (hash-ref m 'name))
-  (define req (php-stub-ref model (hash-ref m 'input-full)))
-  (define resp (php-stub-ref model (hash-ref m 'output-full)))
-  (define path (hash-ref m 'path))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "    public function ~a(~a $req, ?array $metadata = null, ?float $timeout = null): ~a\n"
-              "    {\n~a        return $this->channel->unary(~s, $req, new ~a(), $metadata, $timeout);\n    }\n\n")
-             name req resp (php-deprecated m) path resp)]
-    [(server-streaming)
-     (format (string-append
-              "    public function ~a(~a $req, ?array $metadata = null, ?float $timeout = null): RecvStream\n"
-              "    {\n~a        $stream = $this->channel->serverStream(~s, $req, $metadata, $timeout);\n"
-              "        return new RecvStream($stream, ~a::class);\n    }\n\n")
-             name req (php-deprecated m) path resp)]
-    [(client-streaming)
-     (format (string-append
-              "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): ~a\n"
-              "    {\n~a        return $this->channel->clientStream(~s, $reqs, new ~a(), $metadata, $timeout);\n    }\n\n")
-             name resp (php-deprecated m) path resp)]
-    [(bidi)
-     (format (string-append
-              "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): RecvStream\n"
-              "    {\n~a        $stream = $this->channel->bidi(~s, $reqs, $metadata, $timeout);\n"
-              "        return new RecvStream($stream, ~a::class);\n    }\n\n")
-             name (php-deprecated m) path resp)]))
-
+  (run-segments php-client-method-program m "" model))
 (define (php-fiber-client-method model m)
-  (define name (hash-ref m 'name))
-  (define req (php-stub-ref model (hash-ref m 'input-full)))
-  (define resp (php-stub-ref model (hash-ref m 'output-full)))
-  (define path (hash-ref m 'path))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "    public function ~a(~a $req, ?array $metadata = null, ?float $timeout = null): ~a\n"
-              "    {\n~a        return $this->channel->unary(~s, $req, new ~a(), $metadata, $timeout);\n    }\n\n")
-             name req resp (php-deprecated m) path resp)]
-    [(server-streaming)
-     (format (string-append
-              "    public function ~a(~a $req, ?array $metadata = null, ?float $timeout = null): FiberRecvStream\n"
-              "    {\n~a        $stream = $this->channel->serverStream(~s, $req, $metadata, $timeout);\n"
-              "        return new FiberRecvStream($stream, ~a::class);\n    }\n\n")
-             name req (php-deprecated m) path resp)]
-    [(client-streaming)
-     (format (string-append
-              "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): ~a\n"
-              "    {\n~a        return $this->channel->clientStream(~s, $reqs, new ~a(), $metadata, $timeout);\n    }\n\n")
-             name resp (php-deprecated m) path resp)]
-    [(bidi)
-     (format (string-append
-              "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): FiberRecvStream\n"
-              "    {\n~a        $stream = $this->channel->bidi(~s, $reqs, $metadata, $timeout);\n"
-              "        return new FiberRecvStream($stream, ~a::class);\n    }\n\n")
-             name (php-deprecated m) path resp)]))
-
+  (run-segments php-fiber-client-method-program m "" model))
 (define (php-server-handler model m)
-  (define name (hash-ref m 'name))
-  (define impl-name (method-impl-name m))
-  (define req (php-stub-ref model (hash-ref m 'input-full)))
-  (define handler-var (string-append "$" (snake (string->symbol name)) "Handler"))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n"
-              "        $req = $reqs->recvInto(new ~a());\n"
-              "        $resp = $impl->~a($ctx, $req);\n"
-              "        $sink->send($resp->marshalDc());\n"
-              "    };\n\n")
-             handler-var req impl-name)]
-    [(server-streaming)
-     (format (string-append
-              "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n"
-              "        $req = $reqs->recvInto(new ~a());\n"
-              "        $impl->~a($req, new SendStream($ctx, $sink));\n"
-              "    };\n\n")
-             handler-var req impl-name)]
-    [(client-streaming)
-     (format (string-append
-              "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n"
-              "        $stream = new ClientStreamImpl($ctx, $reqs, ~a::class);\n"
-              "        $impl->~a($stream);\n"
-              "        if ($stream->resp === null) {\n"
-              "            throw new \\Grpcdc\\StatusError(\\Grpcdc\\Wire::CODE_INTERNAL, \"client-streaming handler never called sendAndClose\");\n"
-              "        }\n"
-              "        $sink->send($stream->resp->marshalDc());\n"
-              "    };\n\n")
-             handler-var req impl-name)]
-    [(bidi)
-     (format (string-append
-              "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n"
-              "        $impl->~a(new BidiStream($ctx, $reqs, $sink, ~a::class));\n"
-              "    };\n\n")
-             handler-var impl-name req)]))
-
+  (run-segments php-server-handler-program m "" model))
 (define (php-method-entry m)
-  (define kind-name
-    (case (hash-ref m 'kind)
-      [(unary) "KIND_UNARY"]
-      [(server-streaming) "KIND_SERVER_STREAMING"]
-      [(client-streaming) "KIND_CLIENT_STREAMING"]
-      [(bidi) "KIND_BIDI"]))
-  (format "            new \\Grpcdc\\Method(~s, ~s, \\Grpcdc\\Server::~a, ~a),\n"
-          (hash-ref m 'name) (hash-ref m 'path) kind-name
-          (string-append "$" (snake (string->symbol (hash-ref m 'name))) "Handler")))
-
+  (run-segments php-method-entry-program m ""))
 (define php-stream-helpers
   (string-append
    "// Client receiving stream: recv throws CallClosed at end.\n"
@@ -269,29 +166,7 @@
    "}\n\n"))
 
 (define (php-service model svc)
-  (define sname (hash-ref svc 'name))
-  (define methods (hash-ref svc 'methods))
-  (parameterize ([current-service sname])
-    (string-append
-     (format "class ~aClient\n{\n    private \\Grpcdc\\Channel $channel;\n\n    public function __construct(\\Grpcdc\\Channel $channel)\n    {\n        $this->channel = $channel;\n    }\n\n" sname)
-     (apply string-append (map (lambda (m) (php-client-method model m)) (append methods (alias-client-methods svc))))
-     "}\n\n"
-     (format "// Fiber client: wraps a Grpcdc\\FiberChannel (a sync Channel is wrapped).\nclass ~aClientFiber\n{\n    private \\Grpcdc\\FiberChannel $channel;\n\n    public function __construct($channel)\n    {\n        $this->channel = $channel instanceof \\Grpcdc\\FiberChannel ? $channel : new \\Grpcdc\\FiberChannel($channel);\n    }\n\n" sname)
-     (apply string-append (map (lambda (m) (php-fiber-client-method model m)) (append methods (alias-client-methods svc))))
-     "}\n\n"
-     (format "function register~aServer(\\Grpcdc\\Server $server, object $impl): void\n{\n" sname)
-     (apply string-append (map (lambda (m) (php-server-handler model m)) (append methods (alias-server-methods svc))))
-     (format "    $server->registerService(new \\Grpcdc\\ServiceDesc(\n        ~s,\n        [\n"
-             (hash-ref svc 'full-name))
-     (apply string-append (map php-method-entry (append methods (alias-server-methods svc))))
-     "        ]\n    ));\n}\n")))
-
-;; ---------------------------------------------------------------------------
-;; Generated message types (<base>_pb.php, namespace <Base>Pb): the
-;; stdlib-only protobuf wire codec the stubs require, emitted from
-;; the shared desc.rkt model. Mirrors the Ruby emitter.
-;; ---------------------------------------------------------------------------
-
+  (run-segments php-service-program svc (hash-ref svc 'name) model))
 (define php-pb-varint-types varint-scalar-types)
 ;; type -> (size pack-format) for float/double/fixed32/fixed64.
 ;; sfixed32/sfixed64 decode through unsigned + sign conversion.
@@ -395,249 +270,32 @@
                                (hash-ref (hash-ref entry 'msg) 'full-name))))))
 
 (define (php-pb-type model f)
-  (define type (hash-ref f 'type))
-  (cond [(and (= type 11)
-              (eq? (hash-ref (php-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map)) "array"]
-        [(= (hash-ref f 'label) 3) "array"]
-        [(memv type '(1 2)) "float"]
-        [(memv type '(9 12)) "string"]
-        [(= type 8) "bool"]
-        [(= type 11) (format "?~a" (php-pb-entry-ref model (php-pb-resolve model (hash-ref f 'type-name))))]
-        [else "int"]))
-
+  (run-segments php-pb-type-program f "" model))
 (define (php-pb-explicit-literal model f)
-  (define d (field-explicit-default f))
-  (and d
-       (case (hash-ref f 'type)
-         [(9) (format "~s" d)]
-         [(8) d]
-         [(14) (format "~a" (enum-default-number model f))]
-         [(2) (format "~a" d)]
-         [else d])))
-
+  (define lit (run-segments php-pb-explicit-literal-program f "" model))
+  (and (not (string=? lit "")) lit))
 (define (php-pb-default model f)
-  (cond [(php-pb-explicit-literal model f) => (lambda (lit) lit)]
-        [(and (= (hash-ref f 'type) 11)
-              (eq? (hash-ref (php-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map)) "[]"]
-        [(= (hash-ref f 'label) 3) "[]"]
-        [(= (hash-ref f 'type) 11) "null"]
-        [(memv (hash-ref f 'type) '(9 12)) "\"\""]
-        [(= (hash-ref f 'type) 8) "false"]
-        [(memv (hash-ref f 'type) '(1 2)) "0.0"]
-        [(= (hash-ref f 'type) 14)
-         (define entry (php-pb-resolve model (hash-ref f 'type-name)))
-         (format "~a" (hash-ref (car (hash-ref (hash-ref entry 'enum) 'values)) 'number))]
-        [else "0"]))
-
+  (run-segments php-pb-default-program f "" model))
 (define (php-pb-varint-expr f v)
-  (case (hash-ref f 'type)
-    [(8) (format "(~a ? 1 : 0)" v)]
-    [(17) (format "(((~a << 1) ^ (~a >> 31)) & 0xffffffff)" v v)]
-    [(18) (format "((~a << 1) ^ (~a >> 63))" v v)]
-    [else v]))
-
+  (run-segments php-pb-varint-expr-program f "" #f (list v)))
 (define (php-pb-varint-decode f v)
-  (case (hash-ref f 'type)
-    [(5 14) (format "(((~a & 0xffffffff) >= 0x80000000) ? ((~a & 0xffffffff) - 0x100000000) : (~a & 0xffffffff))" v v v)]
-    [(13 7) (format "(~a & 0xffffffff)" v)]
-    [(8) (format "(~a !== 0)" v)]
-    [(17) (format "(((~a & 0xffffffff) >> 1) ^ -((~a & 0xffffffff) & 1))" v v)]
-    [(18) (format "((~a >> 1) ^ -(~a & 1))" v v)]
-    [else v]))
-
-(define (php-pb-fixed-fmt f)
-  (third (assv (hash-ref f 'type) php-pb-fixed)))
-
-(define (php-pb-wire f)
-  (if (= (second (assv (hash-ref f 'type) php-pb-fixed)) 8) 1 5))
-
+  (run-segments php-pb-varint-decode-program f "" #f (list v)))
 (define (php-pb-nonzero f v)
-  (case (hash-ref f 'type)
-    [(8) v]
-    [else (format "~a !== 0" v)]))
-
+  (run-segments php-pb-nonzero-program f "" #f (list v)))
 (define (php-pb-fixed-decode f src)
-  (case (hash-ref f 'type)
-    [(15) (format "(((unpack('V', ~a)[1]) >= 0x80000000) ? (unpack('V', ~a)[1] - 0x100000000) : unpack('V', ~a)[1])" src src src)]
-    [(16) (format "(((((unpack('V', substr(~a, 4, 4))[1]) >= 0x80000000) ? (unpack('V', substr(~a, 4, 4))[1] - 0x100000000) : unpack('V', substr(~a, 4, 4))[1]) << 32) | unpack('V', substr(~a, 0, 4))[1])" src src src src)]
-    [else (format "unpack(~s, ~a)[1]" (php-pb-fixed-fmt f) src)]))
-
+  (run-segments php-pb-fixed-decode-program f "" #f (list src)))
 (define (php-pb-encode-singular model f v indent)
-  (define n (hash-ref f 'number))
-  (define type (hash-ref f 'type))
-  ;; Proto2 optional/required fields have explicit presence.
-  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
-  (cond [(memv type php-pb-varint-types)
-         (if proto2?
-             (format "~a{\n~a    $w->tag(~a, 0);\n~a    $w->varint(~a);\n~a}\n" indent indent n indent (php-pb-varint-expr f v) indent)
-             (format "~aif (~a) {\n~a    $w->tag(~a, 0);\n~a    $w->varint(~a);\n~a}\n" indent (php-pb-nonzero f v) indent n indent (php-pb-varint-expr f v) indent))]
-        [(assv type php-pb-fixed)
-         (if proto2?
-             (format "~a{\n~a    $w->tag(~a, ~a);\n~a    $w->fixed(~s, ~a);\n~a}\n" indent indent n (php-pb-wire f) indent
-                     (if (= type 16) "P" (php-pb-fixed-fmt f))
-                     (if (= type 15) (format "(~a & 0xffffffff)" v) v) indent)
-             (format "~aif (~a != 0) {\n~a    $w->tag(~a, ~a);\n~a    $w->fixed(~s, ~a);\n~a}\n" indent v indent n (php-pb-wire f) indent
-                     (if (= type 16) "P" (php-pb-fixed-fmt f))
-                     (if (= type 15) (format "(~a & 0xffffffff)" v) v) indent))]
-        [(= type 9)
-         (if proto2?
-             (format "~a$w->bytesField(~a, ~a);\n" indent n v)
-             (format "~a$w->stringField(~a, ~a);\n" indent n v))]
-        [(= type 12)
-         (if proto2?
-             (format "~a$w->bytesField(~a, ~a);\n" indent n v)
-             (format "~aif (strlen(~a) > 0) {\n~a    $w->bytesField(~a, ~a);\n~a}\n" indent v indent n v indent))]
-        [(= type 11) (format "~aif (~a !== null) {\n~a    $w->bytesField(~a, ~a->marshalDc());\n~a}\n" indent v indent n v indent)]
-        [else (error 'emit-php-pb-file "unsupported field type ~a (groups)" type)]))
-
-(define (php-pb-set-expr sib)
-  (define v (format "$this->~a" (php-pb-field-name sib)))
-  (case (hash-ref sib 'type)
-    [(11 10) (format "~a !== null" v)]
-    [(9 12) (format "(~a !== null && ~a !== \"\")" v v)]
-    [(1 2) (format "~a != 0" v)]
-    [else (php-pb-nonzero sib v)]))
-
-;; Encode-side oneof clearing: suppress f when a later sibling is
-;; set, so only the winning member is written.
-(define (php-pb-encode-guard model f code)
-  (define later (oneof-later-siblings model f))
-  (if (null? later)
-      code
-      (format "        if (!(~a)) {\n~a        }\n"
-              (string-join (map php-pb-set-expr later) " || ")
-              (if (string-suffix? code "\n") code (string-append code "\n")))))
-
+  (run-segments php-pb-encode-singular-program f "" model (list v indent)))
 (define (php-pb-encode-field model f)
-  (define v (format "$this->~a" (php-pb-field-name f)))
-  (define n (hash-ref f 'number))
-  (define type (hash-ref f 'type))
-  (cond [(and (= type 11)
-              (eq? (hash-ref (php-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         (define entry (php-pb-resolve model (hash-ref f 'type-name)))
-         (define helper (format "encode~a" (php-pb-entry-ref model entry)))
-         (format "        foreach (~a as $k => $val) {\n            $w->bytesField(~a, ~a($k, $val));\n        }\n" v n helper)]
-        [(not (= (hash-ref f 'label) 3)) (php-pb-encode-singular model f v "        ")]
-        [(memv type php-pb-varint-types)
-         (string-append
-          (format "        if (!empty(~a)) {\n            $payload = \"\";\n" v)
-          (format "            foreach (~a as $x) {\n                $payload .= pbVarintBytes(~a);\n            }\n" v (php-pb-varint-expr f "$x"))
-          (format "            $w->bytesField(~a, $payload);\n        }\n" n))]
-        [(assv type php-pb-fixed)
-         (string-append
-          (format "        if (!empty(~a)) {\n            $payload = \"\";\n" v)
-          (format "            foreach (~a as $x) {\n                $payload .= pack(~s, ~a);\n            }\n" v
-                  (if (= type 16) "P" (php-pb-fixed-fmt f))
-                  (if (= type 15) "($x & 0xffffffff)" "$x"))
-          (format "            $w->bytesField(~a, $payload);\n        }\n" n))]
-        [(= type 9) (format "        foreach (~a as $x) {\n            $w->bytesField(~a, $x);\n        }\n" v n)]
-        [(= type 12) (format "        foreach (~a as $x) {\n            $w->bytesField(~a, $x);\n        }\n" v n)]
-        [(= type 11) (format "        foreach (~a as $x) {\n            $w->bytesField(~a, $x->marshalDc());\n        }\n" v n)]
-        [else (error 'emit-php-pb-file "unsupported repeated field type ~a" type)]))
-
+  (run-segments php-pb-encode-field-program f "" model))
 (define (php-pb-decode-singular model f target src indent)
-  (define type (hash-ref f 'type))
-  (cond [(memv type php-pb-varint-types)
-         (format "~a~a = ~a;\n" indent target (php-pb-varint-decode f src))]
-        [(assv type php-pb-fixed)
-         (format "~a~a = ~a;\n" indent target (php-pb-fixed-decode f src))]
-        [(= type 9) (format "~a~a = ~a;\n" indent target src)]
-        [(= type 12) (format "~a~a = ~a;\n" indent target src)]
-        [(= type 11)
-         (define ref (php-pb-entry-ref model (php-pb-resolve model (hash-ref f 'type-name))))
-         (string-append
-          (format "~a~a = new ~a();\n" indent target ref)
-          (format "~a~a->unmarshalDc(~a);\n" indent target src))]
-        [else (error 'emit-php-pb-file "unsupported field type ~a" type)]))
-
+  (run-segments php-pb-decode-singular-program f "" model (list target src indent)))
 (define (php-pb-oneof-clearing model f)
-  (apply string-append
-         (map (lambda (sib)
-                (format "                    $this->~a = ~a;\n" (php-pb-field-name sib) (php-pb-default model sib)))
-              (oneof-siblings model f))))
-
+  (run-segments php-pb-oneof-clearing-program f "" model))
 (define (php-pb-decode-case model f)
-  (define v (format "$this->~a" (php-pb-field-name f)))
-  (define type (hash-ref f 'type))
-  (define head (format "                case ~a:\n" (hash-ref f 'number)))
-  (define clearing (php-pb-oneof-clearing model f))
-  (define foot "                    break;\n")
-  (cond [(and (= type 11)
-              (eq? (hash-ref (php-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         (define entry (php-pb-resolve model (hash-ref f 'type-name)))
-         (define helper (format "decode~a" (php-pb-entry-ref model entry)))
-         (string-append head
-                        (format "                    [$kk, $vv] = ~a($bytesValue);\n" helper)
-                        (format "                    ~a[$kk] = $vv;\n" v)
-                        foot)]
-        [(not (= (hash-ref f 'label) 3))
-         (string-append head
-                        clearing
-                        (php-pb-decode-singular model f v
-                                                (cond [(memv type php-pb-varint-types) "$varintValue"]
-                                                      [(assv type php-pb-fixed) "$fixedValue"]
-                                                      [else "$bytesValue"])
-                                                "                    ")
-                        foot)]
-        [(memv type php-pb-varint-types)
-         (string-append head
-                        "                    if ($wire === 2) {\n"
-                        "                        $sub = new Reader($bytesValue);\n"
-                        "                        while (!$sub->done()) {\n"
-                        "                            $raw = $sub->varint();\n"
-                        (format "                            ~a[] = ~a;\n" v (php-pb-varint-decode f "$raw"))
-                        "                        }\n                    } else {\n"
-                        (format "                        ~a[] = ~a;\n" v (php-pb-varint-decode f "$varintValue"))
-                        "                    }\n"
-                        foot)]
-        [(assv type php-pb-fixed)
-         (string-append head
-                        "                    if ($wire === 2) {\n"
-                        (format "                        for ($i = 0; $i < strlen($bytesValue); $i += ~a) {\n" (second (assv type php-pb-fixed)))
-                        (format "                            ~a[] = ~a;\n" v (php-pb-fixed-decode f (format "substr($bytesValue, $i, ~a)" (second (assv type php-pb-fixed)))))
-                        "                        }\n                    } else {\n"
-                        (format "                        ~a[] = ~a;\n" v (php-pb-fixed-decode f "$fixedValue"))
-                        "                    }\n"
-                        foot)]
-        [(= type 9) (string-append head (format "                    ~a[] = $bytesValue;\n" v) foot)]
-        [(= type 12) (string-append head (format "                    ~a[] = $bytesValue;\n" v) foot)]
-        [(= type 11)
-         (string-append head
-                        (format "                    $item = new ~a();\n" (php-pb-entry-ref model (php-pb-resolve model (hash-ref f 'type-name))))
-                        "                    $item->unmarshalDc($bytesValue);\n"
-                        (format "                    ~a[] = $item;\n" v)
-                        foot)]
-        [else (error 'emit-php-pb-file "unsupported repeated field type ~a" type)]))
-
+  (run-segments php-pb-decode-case-program f "" model))
 (define (php-pb-map-helpers model entry)
-  (define msg (hash-ref entry 'msg))
-  (define base (php-pb-entry-ref model entry))
-  (define key-f (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref msg 'fields)))
-  (define val-f (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref msg 'fields)))
-  (unless (and key-f val-f) (error 'emit-php-pb-file "map entry ~a lacks key/value" (hash-ref msg 'full-name)))
-  (string-append
-   (format "function encode~a($key, $value): string\n{\n    $w = new Writer();\n" base)
-   (php-pb-encode-singular model (hash-set key-f 'label 1) "$key" "    ")
-   (php-pb-encode-singular model (hash-set val-f 'label 1) "$value" "    ")
-   "    return $w->toBytes();\n}\n\n"
-   (format "function decode~a(string $data): array\n{\n" base)
-   (format "    $key = ~a;\n    $value = ~a;\n" (php-pb-default model (hash-set key-f 'label 1)) (php-pb-default model (hash-set val-f 'label 1)))
-   "    $r = new Reader($data);\n    while (($item = $r->field()) !== null) {\n        [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;\n"
-   (format "        if ($num === ~a) {\n~a" (hash-ref key-f 'number)
-           (php-pb-decode-singular model (hash-set key-f 'label 1) "$key"
-                                   (cond [(memv (hash-ref key-f 'type) php-pb-varint-types) "$varintValue"]
-                                         [(assv (hash-ref key-f 'type) php-pb-fixed) "$fixedValue"]
-                                         [else "$bytesValue"]) "            "))
-   (format "        } elseif ($num === ~a) {\n~a" (hash-ref val-f 'number)
-           (if (= (hash-ref val-f 'type) 11)
-               (format "            $value = new ~a();\n            $value->unmarshalDc($bytesValue);\n"
-                       (php-pb-entry-ref model (php-pb-resolve model (hash-ref val-f 'type-name))))
-               (php-pb-decode-singular model (hash-set val-f 'label 1) "$value"
-                                       (cond [(memv (hash-ref val-f 'type) php-pb-varint-types) "$varintValue"]
-                                             [(assv (hash-ref val-f 'type) php-pb-fixed) "$fixedValue"]
-                                             [else "$bytesValue"]) "            ")))
-   "        }\n    }\n    return [$key, $value];\n}\n\n"))
-
+  (run-segments php-pb-map-helpers-program entry "" model))
 (define php-pb-support
   (string-append
    "function pbVarintBytes(int $value): string\n{\n    $out = \"\";\n    $v = $value;\n    while (true) {\n        $b = $v & 0x7f;\n        $v = ($v >> 7) & 0x01ffffffffffffff;\n        if ($v === 0) {\n            return $out . chr($b);\n        }\n        $out .= chr($b | 0x80);\n    }\n}\n\n"
@@ -658,45 +316,12 @@
    "    public function field(): ?array\n    {\n        if ($this->done()) {\n            return null;\n        }\n        $start = $this->pos;\n        $tag = $this->varint();\n        $num = $tag >> 3;\n        $wire = $tag & 7;\n        switch ($wire) {\n            case 0:\n                $v = $this->varint();\n                return [$num, $wire, $v, \"\", \"\", substr($this->buf, $start, $this->pos - $start)];\n            case 2:\n                $n = $this->varint();\n                $b = $this->take($n);\n                return [$num, $wire, 0, $b, \"\", substr($this->buf, $start, $this->pos - $start)];\n            case 1:\n                $b = $this->take(8);\n                return [$num, $wire, 0, \"\", $b, substr($this->buf, $start, $this->pos - $start)];\n            case 5:\n                $b = $this->take(4);\n                return [$num, $wire, 0, \"\", $b, substr($this->buf, $start, $this->pos - $start)];\n            default:\n                throw new \\InvalidArgumentException(\"bad wire type\");\n        }\n    }\n}\n\n"))
 
 (define (php-pb-message-class model msg)
-  (define name (php-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
-  (define fields (hash-ref msg 'fields))
-  (string-append
-   (format "class ~a\n{\n" name)
-   (apply string-append
-          (map (lambda (f) (format "    public ~a $~a = ~a;\n" (php-pb-type model f) (php-pb-field-name f) (php-pb-default model f))) fields))
-   (if (null? fields) "" "\n")
-   "    public string $unknownFields = \"\";\n"
-   (format "    public function __construct(~a)\n    {\n" (string-join (map (lambda (f) (format "~a $~a = ~a" (php-pb-type model f) (php-pb-field-name f) (php-pb-default model f))) fields) ", "))
-   (apply string-append (map (lambda (f) (format "        $this->~a = $~a;\n" (php-pb-field-name f) (php-pb-field-name f))) fields))
-   "    }\n\n"
-   "    public function marshalDc(): string\n    {\n        $w = new Writer();\n"
-   (apply string-append (map (lambda (f) (php-pb-encode-guard model f (php-pb-encode-field model f))) fields))
-   "        $w->raw($this->unknownFields);\n"
-   "        return $w->toBytes();\n    }\n\n"
-   "    public function unmarshalDc(string $data): self\n    {\n"
-   "        $this->unknownFields = \"\";\n"
-   (apply string-append (map (lambda (f) (format "        $this->~a = ~a;\n" (php-pb-field-name f) (php-pb-default model f))) fields))
-   "        $r = new Reader($data);\n        while (($item = $r->field()) !== null) {\n            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;\n            switch ($num) {\n"
-   (apply string-append (map (lambda (f) (php-pb-decode-case model f)) fields))
-   "                default:\n                    $this->unknownFields .= $rawValue;\n                    break;\n            }\n        }\n        return $this;\n    }\n\n"
-   (format "    public function equals(?object $other): bool\n    {\n        return $other instanceof ~a~a;\n    }\n}\n\n" name
-           (if (null? fields)
-               ""
-               (string-append "\n            && " (string-join (map (lambda (f) (format "$this->~a === $other->~a" (php-pb-field-name f) (php-pb-field-name f))) fields) "\n            && "))))
-   (apply string-append (map (lambda (n) (php-pb-message-class model n)) (hash-ref msg 'nested)))))
-
+  (run-segments php-pb-message-program msg "" model))
 (define (php-pb-enum model e)
-  (define name (php-pb-flat (hash-ref model 'package)
-                            (if (string=? (hash-ref model 'package) "")
-                                (hash-ref e 'name)
-                                (format "~a.~a" (hash-ref model 'package) (hash-ref e 'name)))))
-  (string-append
-   (format "final class ~a\n{\n" name)
-   (apply string-append
-          (map (lambda (v) (format "    public const ~a = ~a;\n" (hash-ref v 'name) (hash-ref v 'number)))
-               (hash-ref e 'values)))
-   "}\n\n"))
-
+  (run-segments php-pb-enum-program e "" model
+                (list (if (string=? (hash-ref model 'package) "")
+                          (hash-ref e 'name)
+                          (format "~a.~a" (hash-ref model 'package) (hash-ref e 'name))))))
 (define (emit-php-pb-file file-model)
   (and (hash-has-key? file-model 'messages)
        (hash-has-key? file-model 'types)

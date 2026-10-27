@@ -4411,6 +4411,577 @@
     (each values (fmt "    ~a = ~a\n" (ref name) (ref number)))
     "  end\n\n"))
 
+(define php-deprecated-program
+  '((when (ref deprecated)
+      "        trigger_error(\"deprecated\", E_USER_DEPRECATED);\n")))
+
+(define php-client-method-program
+  '((kind-case
+     (unary
+      (fmt
+       "    public function ~a(~a $req, ?array $metadata = null, ?float $timeout = null): ~a\n    {\n~a        return $this->channel->unary(~s, $req, new ~a(), $metadata, $timeout);\n    }\n\n"
+       (ref name)
+       (php-stub-ref input-full)
+       (php-stub-ref output-full)
+       (call phpDeprecated)
+       (ref path)
+       (php-stub-ref output-full)))
+     (server-streaming
+      (fmt
+       "    public function ~a(~a $req, ?array $metadata = null, ?float $timeout = null): RecvStream\n    {\n~a        $stream = $this->channel->serverStream(~s, $req, $metadata, $timeout);\n        return new RecvStream($stream, ~a::class);\n    }\n\n"
+       (ref name)
+       (php-stub-ref input-full)
+       (call phpDeprecated)
+       (ref path)
+       (php-stub-ref output-full)))
+     (client-streaming
+      (fmt
+       "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): ~a\n    {\n~a        return $this->channel->clientStream(~s, $reqs, new ~a(), $metadata, $timeout);\n    }\n\n"
+       (ref name)
+       (php-stub-ref output-full)
+       (call phpDeprecated)
+       (ref path)
+       (php-stub-ref output-full)))
+     (bidi
+      (fmt
+       "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): RecvStream\n    {\n~a        $stream = $this->channel->bidi(~s, $reqs, $metadata, $timeout);\n        return new RecvStream($stream, ~a::class);\n    }\n\n"
+       (ref name)
+       (call phpDeprecated)
+       (ref path)
+       (php-stub-ref output-full))))))
+
+(define php-fiber-client-method-program
+  '((kind-case
+     (unary
+      (fmt
+       "    public function ~a(~a $req, ?array $metadata = null, ?float $timeout = null): ~a\n    {\n~a        return $this->channel->unary(~s, $req, new ~a(), $metadata, $timeout);\n    }\n\n"
+       (ref name)
+       (php-stub-ref input-full)
+       (php-stub-ref output-full)
+       (call phpDeprecated)
+       (ref path)
+       (php-stub-ref output-full)))
+     (server-streaming
+      (fmt
+       "    public function ~a(~a $req, ?array $metadata = null, ?float $timeout = null): FiberRecvStream\n    {\n~a        $stream = $this->channel->serverStream(~s, $req, $metadata, $timeout);\n        return new FiberRecvStream($stream, ~a::class);\n    }\n\n"
+       (ref name)
+       (php-stub-ref input-full)
+       (call phpDeprecated)
+       (ref path)
+       (php-stub-ref output-full)))
+     (client-streaming
+      (fmt
+       "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): ~a\n    {\n~a        return $this->channel->clientStream(~s, $reqs, new ~a(), $metadata, $timeout);\n    }\n\n"
+       (ref name)
+       (php-stub-ref output-full)
+       (call phpDeprecated)
+       (ref path)
+       (php-stub-ref output-full)))
+     (bidi
+      (fmt
+       "    public function ~a(array $reqs, ?array $metadata = null, ?float $timeout = null): FiberRecvStream\n    {\n~a        $stream = $this->channel->bidi(~s, $reqs, $metadata, $timeout);\n        return new FiberRecvStream($stream, ~a::class);\n    }\n\n"
+       (ref name)
+       (call phpDeprecated)
+       (ref path)
+       (php-stub-ref output-full))))))
+
+(define php-server-handler-program
+  '((kind-case
+     (unary
+      (fmt
+       "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n        $req = $reqs->recvInto(new ~a());\n        $resp = $impl->~a($ctx, $req);\n        $sink->send($resp->marshalDc());\n    };\n\n"
+       (fmt "$~aHandler" (rb-snake (ref name)))
+       (php-stub-ref input-full)
+       (ref impl-name)))
+     (server-streaming
+      (fmt
+       "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n        $req = $reqs->recvInto(new ~a());\n        $impl->~a($req, new SendStream($ctx, $sink));\n    };\n\n"
+       (fmt "$~aHandler" (rb-snake (ref name)))
+       (php-stub-ref input-full)
+       (ref impl-name)))
+     (client-streaming
+      (fmt
+       "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n        $stream = new ClientStreamImpl($ctx, $reqs, ~a::class);\n        $impl->~a($stream);\n        if ($stream->resp === null) {\n            throw new \\Grpcdc\\StatusError(\\Grpcdc\\Wire::CODE_INTERNAL, \"client-streaming handler never called sendAndClose\");\n        }\n        $sink->send($stream->resp->marshalDc());\n    };\n\n"
+       (fmt "$~aHandler" (rb-snake (ref name)))
+       (php-stub-ref input-full)
+       (ref impl-name)))
+     (bidi
+      (fmt
+       "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n        $impl->~a(new BidiStream($ctx, $reqs, $sink, ~a::class));\n    };\n\n"
+       (fmt "$~aHandler" (rb-snake (ref name)))
+       (ref impl-name)
+       (php-stub-ref input-full))))))
+
+(define php-method-entry-program
+  '((fmt
+     "            new \\Grpcdc\\Method(~s, ~s, \\Grpcdc\\Server::~a, ~a),\n"
+     (ref name)
+     (ref path)
+     (kind-case
+      (unary "KIND_UNARY")
+      (server-streaming "KIND_SERVER_STREAMING")
+      (client-streaming "KIND_CLIENT_STREAMING")
+      (bidi "KIND_BIDI"))
+     (fmt "$~aHandler" (rb-snake (ref name))))))
+
+(define php-service-program
+  '((fmt
+     "class ~aClient\n{\n    private \\Grpcdc\\Channel $channel;\n\n    public function __construct(\\Grpcdc\\Channel $channel)\n    {\n        $this->channel = $channel;\n    }\n\n"
+     (svc))
+    (each+ methods client (call phpClientMethod))
+    "}\n\n"
+    (fmt
+     "// Fiber client: wraps a Grpcdc\\FiberChannel (a sync Channel is wrapped).\nclass ~aClientFiber\n{\n    private \\Grpcdc\\FiberChannel $channel;\n\n    public function __construct($channel)\n    {\n        $this->channel = $channel instanceof \\Grpcdc\\FiberChannel ? $channel : new \\Grpcdc\\FiberChannel($channel);\n    }\n\n"
+     (svc))
+    (each+ methods client (call phpFiberClientMethod))
+    "}\n\n"
+    (fmt
+     "function register~aServer(\\Grpcdc\\Server $server, object $impl): void\n{\n"
+     (svc))
+    (each+ methods server (call phpServerHandler))
+    (fmt
+     "    $server->registerService(new \\Grpcdc\\ServiceDesc(\n        ~s,\n        [\n"
+     (ref full-name))
+    (each+ methods server (call phpMethodEntry))
+    "        ]\n    ));\n}\n"))
+
+(define php-pb-type-program
+  '((if (is-map)
+      (then "array")
+      (else
+       (if (repeated)
+         (then "array")
+         (else
+          (case-on
+           (type)
+           ((1 2) "float")
+           ((9 12) "string")
+           (8 "bool")
+           (11 (fmt "?~a" (php-entry-ref)))
+           (else "int"))))))))
+
+(define php-pb-explicit-literal-program
+  '((if (has-default)
+      (then
+       (case-on
+        (type)
+        (9 (fmt "~s" (default-raw)))
+        (14 (fmt "~a" (enum-default-num)))
+        (else (default-raw))))
+      (else ""))))
+
+(define php-pb-default-program
+  '((if (call phpPbExplicitLiteral)
+      (then (call phpPbExplicitLiteral))
+      (else
+       (if (is-map)
+         (then "[]")
+         (else
+          (if (repeated)
+            (then "[]")
+            (else
+             (case-on
+              (type)
+              (11 "null")
+              ((9 12) "\"\"")
+              (8 "false")
+              ((1 2) "0.0")
+              (14 (fmt "~a" (enum-first-value-num)))
+              (else "0"))))))))))
+
+(define php-pb-varint-expr-program
+  '((case-on
+     (type)
+     (8 (fmt "(~a ? 1 : 0)" (arg 0)))
+     (17 (fmt "(((~a << 1) ^ (~a >> 31)) & 0xffffffff)" (arg 0) (arg 0)))
+     (18 (fmt "((~a << 1) ^ (~a >> 63))" (arg 0) (arg 0)))
+     (else (arg 0)))))
+
+(define php-pb-varint-decode-program
+  '((case-on
+     (type)
+     ((5 14)
+      (fmt
+       "(((~a & 0xffffffff) >= 0x80000000) ? ((~a & 0xffffffff) - 0x100000000) : (~a & 0xffffffff))"
+       (arg 0)
+       (arg 0)
+       (arg 0)))
+     ((13 7) (fmt "(~a & 0xffffffff)" (arg 0)))
+     (8 (fmt "(~a !== 0)" (arg 0)))
+     (17
+      (fmt
+       "(((~a & 0xffffffff) >> 1) ^ -((~a & 0xffffffff) & 1))"
+       (arg 0)
+       (arg 0)))
+     (18 (fmt "((~a >> 1) ^ -(~a & 1))" (arg 0) (arg 0)))
+     (else (arg 0)))))
+
+(define php-pb-nonzero-program
+  '((case-on (type) (8 (arg 0)) (else (fmt "~a !== 0" (arg 0))))))
+
+(define php-pb-fixed-decode-program
+  '((case-on
+     (type)
+     (15
+      (fmt
+       "(((unpack('V', ~a)[1]) >= 0x80000000) ? (unpack('V', ~a)[1] - 0x100000000) : unpack('V', ~a)[1])"
+       (arg 0)
+       (arg 0)
+       (arg 0)))
+     (16
+      (fmt
+       "(((((unpack('V', substr(~a, 4, 4))[1]) >= 0x80000000) ? (unpack('V', substr(~a, 4, 4))[1] - 0x100000000) : unpack('V', substr(~a, 4, 4))[1]) << 32) | unpack('V', substr(~a, 0, 4))[1])"
+       (arg 0)
+       (arg 0)
+       (arg 0)
+       (arg 0)))
+     (else (fmt "unpack(~s, ~a)[1]" (php-fixed-fmt) (arg 0))))))
+
+(define php-pb-set-expr-program
+  '((case-on
+     (type)
+     ((11 10) (fmt "$this->~a !== null" (php-field-name)))
+     ((9 12)
+      (fmt
+       "($this->~a !== null && $this->~a !== \"\")"
+       (php-field-name)
+       (php-field-name)))
+     ((1 2) (fmt "$this->~a != 0" (php-field-name)))
+     (else (call phpPbNonzero (fmt "$this->~a" (php-field-name)))))))
+
+(define php-pb-oneof-clearing-program
+  '((each-siblings
+     (fmt
+      "                    $this->~a = ~a;\n"
+      (php-field-name)
+      (call phpPbDefault)))))
+
+(define php-pb-encode-singular-program
+  '((case-on
+     (category)
+     ("varint"
+      (if (proto2)
+        (then
+         (fmt
+          "~a{\n~a    $w->tag(~a, 0);\n~a    $w->varint(~a);\n~a}\n"
+          (arg 1)
+          (arg 1)
+          (ref number)
+          (arg 1)
+          (call phpPbVarintExpr (arg 0))
+          (arg 1)))
+        (else
+         (fmt
+          "~aif (~a) {\n~a    $w->tag(~a, 0);\n~a    $w->varint(~a);\n~a}\n"
+          (arg 1)
+          (call phpPbNonzero (arg 0))
+          (arg 1)
+          (ref number)
+          (arg 1)
+          (call phpPbVarintExpr (arg 0))
+          (arg 1)))))
+     ("fixed"
+      (if (proto2)
+        (then
+         (fmt
+          "~a{\n~a    $w->tag(~a, ~a);\n~a    $w->fixed(~s, ~a);\n~a}\n"
+          (arg 1)
+          (arg 1)
+          (ref number)
+          (case-on (php-fixed-size) (8 "1") (else "5"))
+          (arg 1)
+          (case-on (type) (16 "P") (else (php-fixed-fmt)))
+          (case-on
+           (type)
+           (15 (fmt "(~a & 0xffffffff)" (arg 0)))
+           (else (arg 0)))
+          (arg 1)))
+        (else
+         (fmt
+          "~aif (~a != 0) {\n~a    $w->tag(~a, ~a);\n~a    $w->fixed(~s, ~a);\n~a}\n"
+          (arg 1)
+          (arg 0)
+          (arg 1)
+          (ref number)
+          (case-on (php-fixed-size) (8 "1") (else "5"))
+          (arg 1)
+          (case-on (type) (16 "P") (else (php-fixed-fmt)))
+          (case-on
+           (type)
+           (15 (fmt "(~a & 0xffffffff)" (arg 0)))
+           (else (arg 0)))
+          (arg 1)))))
+     ("string"
+      (if (proto2)
+        (then (fmt "~a$w->bytesField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))
+        (else
+         (fmt "~a$w->stringField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))))
+     ("bytes"
+      (if (proto2)
+        (then (fmt "~a$w->bytesField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))
+        (else
+         (fmt
+          "~aif (strlen(~a) > 0) {\n~a    $w->bytesField(~a, ~a);\n~a}\n"
+          (arg 1)
+          (arg 0)
+          (arg 1)
+          (ref number)
+          (arg 0)
+          (arg 1)))))
+     ("message"
+      (fmt
+       "~aif (~a !== null) {\n~a    $w->bytesField(~a, ~a->marshalDc());\n~a}\n"
+       (arg 1)
+       (arg 0)
+       (arg 1)
+       (ref number)
+       (arg 0)
+       (arg 1)))
+     (else (fail)))))
+
+(define php-pb-encode-field-program
+  '((if (is-map)
+      (then
+       (fmt
+        "        foreach ($this->~a as $k => $val) {\n            $w->bytesField(~a, ~a($k, $val));\n        }\n"
+        (php-field-name)
+        (ref number)
+        (fmt "encode~a" (php-entry-ref))))
+      (else
+       (if (repeated)
+         (then
+          (case-on
+           (category)
+           ("varint"
+            (fmt
+             "        if (!empty($this->~a)) {\n            $payload = \"\";\n            foreach ($this->~a as $x) {\n                $payload .= pbVarintBytes(~a);\n            }\n            $w->bytesField(~a, $payload);\n        }\n"
+             (php-field-name)
+             (php-field-name)
+             (call phpPbVarintExpr "$x")
+             (ref number)))
+           ("fixed"
+            (fmt
+             "        if (!empty($this->~a)) {\n            $payload = \"\";\n            foreach ($this->~a as $x) {\n                $payload .= pack(~s, ~a);\n            }\n            $w->bytesField(~a, $payload);\n        }\n"
+             (php-field-name)
+             (php-field-name)
+             (case-on (type) (16 "P") (else (php-fixed-fmt)))
+             (case-on (type) (15 "($x & 0xffffffff)") (else "$x"))
+             (ref number)))
+           ("string"
+            (fmt
+             "        foreach ($this->~a as $x) {\n            $w->bytesField(~a, $x);\n        }\n"
+             (php-field-name)
+             (ref number)))
+           ("bytes"
+            (fmt
+             "        foreach ($this->~a as $x) {\n            $w->bytesField(~a, $x);\n        }\n"
+             (php-field-name)
+             (ref number)))
+           ("message"
+            (fmt
+             "        foreach ($this->~a as $x) {\n            $w->bytesField(~a, $x->marshalDc());\n        }\n"
+             (php-field-name)
+             (ref number)))
+           (else (fail))))
+         (else
+          (call
+           phpPbEncodeSingular
+           (fmt "$this->~a" (php-field-name))
+           "        ")))))))
+
+(define php-pb-decode-singular-program
+  '((case-on
+     (category)
+     ("varint"
+      (fmt "~a~a = ~a;\n" (arg 2) (arg 0) (call phpPbVarintDecode (arg 1))))
+     ("fixed"
+      (fmt "~a~a = ~a;\n" (arg 2) (arg 0) (call phpPbFixedDecode (arg 1))))
+     ("string" (fmt "~a~a = ~a;\n" (arg 2) (arg 0) (arg 1)))
+     ("bytes" (fmt "~a~a = ~a;\n" (arg 2) (arg 0) (arg 1)))
+     ("message"
+      (fmt
+       "~a~a = new ~a();\n~a~a->unmarshalDc(~a);\n"
+       (arg 2)
+       (arg 0)
+       (php-entry-ref)
+       (arg 2)
+       (arg 0)
+       (arg 1)))
+     (else (fail)))))
+
+(define php-pb-decode-case-program
+  '((if (is-map)
+      (then
+       (fmt
+        "                case ~a:\n                    [$kk, $vv] = ~a($bytesValue);\n                    $this->~a[$kk] = $vv;\n                    break;\n"
+        (ref number)
+        (fmt "decode~a" (php-entry-ref))
+        (php-field-name)))
+      (else
+       (if (repeated)
+         (then
+          (case-on
+           (category)
+           ("varint"
+            (fmt
+             "                case ~a:\n                    if ($wire === 2) {\n                        $sub = new Reader($bytesValue);\n                        while (!$sub->done()) {\n                            $raw = $sub->varint();\n                            $this->~a[] = ~a;\n                        }\n                    } else {\n                        $this->~a[] = ~a;\n                    }\n                    break;\n"
+             (ref number)
+             (php-field-name)
+             (call phpPbVarintDecode "$raw")
+             (php-field-name)
+             (call phpPbVarintDecode "$varintValue")))
+           ("fixed"
+            (fmt
+             "                case ~a:\n                    if ($wire === 2) {\n                        for ($i = 0; $i < strlen($bytesValue); $i += ~a) {\n                            $this->~a[] = ~a;\n                        }\n                    } else {\n                        $this->~a[] = ~a;\n                    }\n                    break;\n"
+             (ref number)
+             (php-fixed-size)
+             (php-field-name)
+             (call
+              phpPbFixedDecode
+              (fmt "substr($bytesValue, $i, ~a)" (php-fixed-size)))
+             (php-field-name)
+             (call phpPbFixedDecode "$fixedValue")))
+           ("string"
+            (fmt
+             "                case ~a:\n                    $this->~a[] = $bytesValue;\n                    break;\n"
+             (ref number)
+             (php-field-name)))
+           ("bytes"
+            (fmt
+             "                case ~a:\n                    $this->~a[] = $bytesValue;\n                    break;\n"
+             (ref number)
+             (php-field-name)))
+           ("message"
+            (fmt
+             "                case ~a:\n                    $item = new ~a();\n                    $item->unmarshalDc($bytesValue);\n                    $this->~a[] = $item;\n                    break;\n"
+             (ref number)
+             (php-entry-ref)
+             (php-field-name)))
+           (else (fail))))
+         (else
+          (fmt
+           "                case ~a:\n~a~a                    break;\n"
+           (ref number)
+           (call phpPbOneofClearing)
+           (call
+            phpPbDecodeSingular
+            (fmt "$this->~a" (php-field-name))
+            (case-on
+             (category)
+             ("varint" "$varintValue")
+             ("fixed" "$fixedValue")
+             (else "$bytesValue"))
+            "                    "))))))))
+
+(define php-pb-map-helpers-program
+  '((fmt
+     "function encode~a($key, $value): string\n{\n    $w = new Writer();\n"
+     (php-entry-ref))
+    (call-on (with-label (key-field) 1) phpPbEncodeSingular "$key" "    ")
+    (call-on (with-label (val-field) 1) phpPbEncodeSingular "$value" "    ")
+    "    return $w->toBytes();\n}\n\n"
+    (fmt "function decode~a(string $data): array\n{\n" (php-entry-ref))
+    (fmt
+     "    $key = ~a;\n    $value = ~a;\n"
+     (call-on (with-label (key-field) 1) phpPbDefault)
+     (call-on (with-label (val-field) 1) phpPbDefault))
+    "    $r = new Reader($data);\n    while (($item = $r->field()) !== null) {\n        [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;\n"
+    (fmt
+     "        if ($num === ~a) {\n~a"
+     (get (key-field) number)
+     (call-on
+      (with-label (key-field) 1)
+      phpPbDecodeSingular
+      "$key"
+      (case-on
+       (category-of (key-field))
+       ("varint" "$varintValue")
+       ("fixed" "$fixedValue")
+       (else "$bytesValue"))
+      "            "))
+    (fmt
+     "        } elseif ($num === ~a) {\n~a"
+     (get (val-field) number)
+     (case-on
+      (get (val-field) type)
+      (11
+       (fmt
+        "            $value = new ~a();\n            $value->unmarshalDc($bytesValue);\n"
+        (php-entry-ref (val-field))))
+      (else
+       (call-on
+        (with-label (val-field) 1)
+        phpPbDecodeSingular
+        "$value"
+        (case-on
+         (category-of (val-field))
+         ("varint" "$varintValue")
+         ("fixed" "$fixedValue")
+         (else "$bytesValue"))
+        "            "))))
+    "        }\n    }\n    return [$key, $value];\n}\n\n"))
+
+(define php-pb-message-program
+  '((fmt "class ~a\n{\n" (php-flat-of (ref full-name)))
+    (each
+     fields
+     (fmt
+      "    public ~a $~a = ~a;\n"
+      (call phpPbType)
+      (php-field-name)
+      (call phpPbDefault)))
+    (if (no-fields) (then "") (else "\n"))
+    "    public string $unknownFields = \"\";\n"
+    (fmt
+     "    public function __construct(~a)\n    {\n"
+     (each-sep
+      ", "
+      fields
+      (fmt
+       "~a $~a = ~a"
+       (call phpPbType)
+       (php-field-name)
+       (call phpPbDefault))))
+    (each
+     fields
+     (fmt "        $this->~a = $~a;\n" (php-field-name) (php-field-name)))
+    "    }\n\n    public function marshalDc(): string\n    {\n        $w = new Writer();\n"
+    (each
+     fields
+     (guarded
+      phpPbSetExpr
+      "        if (!(~a)) {\n"
+      "        }\n"
+      (call phpPbEncodeField)))
+    "        $w->raw($this->unknownFields);\n        return $w->toBytes();\n    }\n\n    public function unmarshalDc(string $data): self\n    {\n        $this->unknownFields = \"\";\n"
+    (each
+     fields
+     (fmt "        $this->~a = ~a;\n" (php-field-name) (call phpPbDefault)))
+    "        $r = new Reader($data);\n        while (($item = $r->field()) !== null) {\n            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;\n            switch ($num) {\n"
+    (each fields (call phpPbDecodeCase))
+    "                default:\n                    $this->unknownFields .= $rawValue;\n                    break;\n            }\n        }\n        return $this;\n    }\n\n"
+    (fmt
+     "    public function equals(?object $other): bool\n    {\n        return $other instanceof ~a~a;\n    }\n}\n\n"
+     (php-flat-of (ref full-name))
+     (if (no-fields)
+       (then "")
+       (else
+        (fmt
+         "\n            && ~a"
+         (each-sep
+          "\n            && "
+          fields
+          (fmt
+           "$this->~a === $other->~a"
+           (php-field-name)
+           (php-field-name)))))))
+    (each nested (call phpPbMessage))))
+
+(define php-pb-enum-program
+  '((fmt "final class ~a\n{\n" (php-flat-of (arg 0)))
+    (each values (fmt "    public const ~a = ~a;\n" (ref name) (ref number)))
+    "}\n\n"))
+
 (define segment-programs
   (hasheq
    'goRegisterMethod
@@ -4666,7 +5237,51 @@
    'rbPbMessage
    rb-pb-message-program
    'rbPbEnum
-   rb-pb-enum-program))
+   rb-pb-enum-program
+   'phpDeprecated
+   php-deprecated-program
+   'phpClientMethod
+   php-client-method-program
+   'phpFiberClientMethod
+   php-fiber-client-method-program
+   'phpServerHandler
+   php-server-handler-program
+   'phpMethodEntry
+   php-method-entry-program
+   'phpService
+   php-service-program
+   'phpPbType
+   php-pb-type-program
+   'phpPbExplicitLiteral
+   php-pb-explicit-literal-program
+   'phpPbDefault
+   php-pb-default-program
+   'phpPbVarintExpr
+   php-pb-varint-expr-program
+   'phpPbVarintDecode
+   php-pb-varint-decode-program
+   'phpPbNonzero
+   php-pb-nonzero-program
+   'phpPbFixedDecode
+   php-pb-fixed-decode-program
+   'phpPbSetExpr
+   php-pb-set-expr-program
+   'phpPbOneofClearing
+   php-pb-oneof-clearing-program
+   'phpPbEncodeSingular
+   php-pb-encode-singular-program
+   'phpPbEncodeField
+   php-pb-encode-field-program
+   'phpPbDecodeSingular
+   php-pb-decode-singular-program
+   'phpPbDecodeCase
+   php-pb-decode-case-program
+   'phpPbMapHelpers
+   php-pb-map-helpers-program
+   'phpPbMessage
+   php-pb-message-program
+   'phpPbEnum
+   php-pb-enum-program))
 
 (define (seg-ref node key)
   (if (eq? key 'impl-name)
@@ -5009,6 +5624,165 @@
         (hash-ref entry 'pkg)
         (hash-ref (hash-ref entry 'msg) 'full-name))))))
 
+(define (seg-php-camel s0)
+  (define s (if (symbol? s0) (symbol->string s0) s0))
+  (define parts (string-split s "_"))
+  (if (null? parts)
+    s
+    (apply
+     string-append
+     (car parts)
+     (map
+      (lambda (p)
+        (if (string=? p "")
+          ""
+          (string-append
+           (string (char-upcase (string-ref p 0)))
+           (substring p 1))))
+      (cdr parts)))))
+
+(define (seg-php-field-name f)
+  (define jn (hash-ref f 'json-name ""))
+  (if (and jn (not (string=? jn ""))) jn (seg-php-camel (hash-ref f 'name))))
+
+(define seg-php-reserved
+  (list->set
+   (map
+    string-downcase
+    '("abstract"
+      "and"
+      "array"
+      "as"
+      "break"
+      "callable"
+      "case"
+      "catch"
+      "class"
+      "clone"
+      "const"
+      "continue"
+      "declare"
+      "default"
+      "do"
+      "echo"
+      "else"
+      "elseif"
+      "empty"
+      "enddeclare"
+      "endfor"
+      "endforeach"
+      "endif"
+      "endswitch"
+      "endwhile"
+      "enum"
+      "eval"
+      "exit"
+      "extends"
+      "final"
+      "finally"
+      "fn"
+      "for"
+      "foreach"
+      "function"
+      "global"
+      "goto"
+      "if"
+      "implements"
+      "include"
+      "include_once"
+      "instanceof"
+      "insteadof"
+      "interface"
+      "isset"
+      "list"
+      "match"
+      "namespace"
+      "new"
+      "or"
+      "parent"
+      "print"
+      "private"
+      "protected"
+      "public"
+      "readonly"
+      "require"
+      "require_once"
+      "return"
+      "self"
+      "static"
+      "switch"
+      "throw"
+      "trait"
+      "try"
+      "unset"
+      "use"
+      "var"
+      "while"
+      "xor"
+      "yield"
+      "int"
+      "float"
+      "bool"
+      "string"
+      "true"
+      "false"
+      "null"
+      "void"
+      "iterable"
+      "object"
+      "mixed"
+      "never"
+      "resource"
+      "numeric"))))
+
+(define (seg-php-flat pkg full)
+  (define rel
+    (if (and pkg
+             (not (string=? pkg ""))
+             (string-prefix? full (string-append pkg ".")))
+      (substring full (add1 (string-length pkg)))
+      full))
+  (define flat (string-join (string-split rel ".") "_"))
+  (if (set-member? seg-php-reserved (string-downcase flat))
+    (string-append flat "_")
+    flat))
+
+(define (seg-php-stub-ref model node key)
+  (define e (seg-resolve model (hash-ref node key)))
+  (format
+   "\\~a\\~a"
+   (seg-rb-module-name e)
+   (seg-php-flat (hash-ref e 'pkg) (hash-ref (hash-ref e 'msg) 'full-name))))
+
+(define (seg-php-entry-ref model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+      (seg-resolve model (hash-ref node 'type-name))
+      node))
+  (define local
+    (seg-php-flat
+     (hash-ref entry 'pkg)
+     (if (eq? (hash-ref entry 'kind) 'enum)
+       (let ((e (hash-ref entry 'enum)))
+         (if (hash-ref entry 'msg)
+           (format
+            "~a.~a"
+            (hash-ref (hash-ref entry 'msg) 'full-name)
+            (hash-ref e 'name))
+           (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name))))
+       (hash-ref (hash-ref entry 'msg) 'full-name))))
+  (if (or (eq? (hash-ref entry 'kind) 'map)
+          (equal? (hash-ref entry 'file) (hash-ref model 'name)))
+    local
+    (format
+     "\\~a\\~a"
+     (seg-rb-module-name entry)
+     (if (eq? (hash-ref entry 'kind) 'enum)
+       (hash-ref (hash-ref entry 'enum) 'name)
+       (seg-php-flat
+        (hash-ref entry 'pkg)
+        (hash-ref (hash-ref entry 'msg) 'full-name))))))
+
 (define (seg-later-oneof-cond model node)
   (define later (oneof-later-siblings model node))
   (if (null? later) "" (string-join (map seg-set-expr later) " || ")))
@@ -5123,6 +5897,19 @@
     (second (assv (hash-ref node 'type) (fixed-scalar-table 'ruby))))
    ((eq? (car seg) 'rb-fixed-fmt)
     (third (assv (hash-ref node 'type) (fixed-scalar-table 'ruby))))
+   ((eq? (car seg) 'php-camel) (seg-php-camel (seg-eval (second seg) env)))
+   ((eq? (car seg) 'php-field-name) (seg-php-field-name node))
+   ((eq? (car seg) 'php-flat-of)
+    (seg-php-flat (hash-ref model 'package) (seg-eval (second seg) env)))
+   ((eq? (car seg) 'php-stub-ref) (seg-php-stub-ref model node (second seg)))
+   ((eq? (car seg) 'php-entry-ref)
+    (seg-php-entry-ref
+     model
+     (if (null? (cdr seg)) node (seg-eval (second seg) env))))
+   ((eq? (car seg) 'php-fixed-size)
+    (second (assv (hash-ref node 'type) (fixed-scalar-table 'php))))
+   ((eq? (car seg) 'php-fixed-fmt)
+    (third (assv (hash-ref node 'type) (fixed-scalar-table 'php))))
    ((eq? (car seg) 'flat)
     (seg-flat (hash-ref model 'package) (hash-ref node 'full-name)))
    ((eq? (car seg) 'entry-type) (seg-entry-type-of model node))
