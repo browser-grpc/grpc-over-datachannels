@@ -12068,159 +12068,23 @@ function emitWasmCppFile(model, params) {
   };
 }
 function wasmSwiftClientMethod(m) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '        func ' + m.name + '(_ req: ' + m.input + ', _ callback: @escaping (Result<' + m.output + ', StatusException>) -> Void) {\n'
-        + '            bridge.unary(' + path + ', req.MarshalDc()) { result in\n'
-        + '                callback(result.map { bytes in\n'
-        + '                    let resp = ' + m.output + '()\n'
-        + '                    resp.UnmarshalDc(bytes)\n                    return resp\n                })\n            }\n        }\n\n';
-    case 'server-streaming':
-      return '        func ' + m.name + '(_ req: ' + m.input + ', _ onMessage: @escaping (' + m.output + ') -> Void,\n'
-        + '                _ onDone: @escaping (StatusException?) -> Void) {\n'
-        + '            bridge.serverStream(' + path + ', req.MarshalDc(), { bytes in\n'
-        + '                let resp = ' + m.output + '()\n'
-        + '                resp.UnmarshalDc(bytes)\n                onMessage(resp)\n            }, onDone)\n        }\n\n';
-    case 'client-streaming':
-      return '        func ' + m.name + '(_ reqs: [' + m.input + '], _ callback: @escaping (Result<' + m.output + ', StatusException>) -> Void) {\n'
-        + '            bridge.clientStream(' + path + ', reqs.map { $0.MarshalDc() }) { result in\n'
-        + '                callback(result.map { bytes in\n'
-        + '                    let resp = ' + m.output + '()\n'
-        + '                    resp.UnmarshalDc(bytes)\n                    return resp\n                })\n            }\n        }\n\n';
-    default:
-      return '        func ' + m.name + '(_ reqs: [' + m.input + '], _ onMessage: @escaping (' + m.output + ') -> Void,\n'
-        + '                _ onDone: @escaping (StatusException?) -> Void) {\n'
-        + '            bridge.bidi(' + path + ', reqs.map { $0.MarshalDc() }, { bytes in\n'
-        + '                let resp = ' + m.output + '()\n'
-        + '                resp.UnmarshalDc(bytes)\n                onMessage(resp)\n            }, onDone)\n        }\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmSwiftClientMethod, m, '');
 }
-
 function wasmSwiftServerIfaceMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        func ' + m.name + '(_ req: ' + m.input + ', _ metadata: [(String, String)]) -> Result<' + m.output + ', StatusException>\n';
-    case 'server-streaming':
-      return '        func ' + m.name + '(_ req: ' + m.input + ', _ metadata: [(String, String)], _ sink: ' + svc + 'ServerSink) -> StatusException?\n';
-    case 'client-streaming':
-      return '        func ' + m.name + '(_ reqs: [' + m.input + '], _ metadata: [(String, String)]) -> Result<' + m.output + ', StatusException>\n';
-    default:
-      return '        func ' + m.name + '(_ reqs: [' + m.input + '], _ metadata: [(String, String)], _ sink: ' + svc + 'ServerSink) -> StatusException?\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmSwiftServerIfaceMethod, m, svc);
 }
-
-function wasmSwiftExportName(m) {
-  return 'serve_' + lowerFirst(m.name);
-}
-
 function wasmSwiftServeExport(enumName, m, svc) {
-  const exportName = wasmSwiftExportName(m);
-  const cdecl = '@_cdecl(' + q(exportName) + ')\n';
-  const sig = 'public func ' + exportName + '(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n'
-    + '    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n';
-  switch (m.kind) {
-    case 'unary':
-      return cdecl + sig
-        + '    let req = ' + m.input + '()\n'
-        + '    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n'
-        + '    switch ' + enumName + '.serverImpl!.' + m.name + '(req, metadata) {\n'
-        + '    case .success(let resp): ServerRespond(callId, resp.MarshalDc())\n'
-        + '    case .failure(let st): ServerFail(callId, st)\n    }\n}\n\n';
-    case 'server-streaming':
-      return cdecl + sig
-        + '    let req = ' + m.input + '()\n'
-        + '    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n'
-        + '    if let st = ' + enumName + '.serverImpl!.' + m.name + '(req, metadata, ' + enumName + '.' + svc + 'ServerSink(callId: callId)) {\n'
-        + '        ServerFail(callId, st)\n    } else {\n        ServerComplete(callId)\n    }\n}\n\n';
-    case 'client-streaming':
-      return cdecl + sig
-        + '    let reqs = UnpackPacked(Array(UnsafeBufferPointer(start: payload, count: payloadLen))).map { bytes -> ' + m.input + ' in let req = ' + m.input + '(); req.UnmarshalDc(bytes); return req }\n'
-        + '    switch ' + enumName + '.serverImpl!.' + m.name + '(reqs, metadata) {\n'
-        + '    case .success(let resp): ServerRespond(callId, resp.MarshalDc())\n'
-        + '    case .failure(let st): ServerFail(callId, st)\n    }\n}\n\n';
-    default:
-      return cdecl + sig
-        + '    let reqs = UnpackPacked(Array(UnsafeBufferPointer(start: payload, count: payloadLen))).map { bytes -> ' + m.input + ' in let req = ' + m.input + '(); req.UnmarshalDc(bytes); return req }\n'
-        + '    if let st = ' + enumName + '.serverImpl!.' + m.name + '(reqs, metadata, ' + enumName + '.' + svc + 'ServerSink(callId: callId)) {\n'
-        + '        ServerFail(callId, st)\n    } else {\n        ServerComplete(callId)\n    }\n}\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmSwiftServeExport, m, svc, null, [enumName]);
 }
-
 function wasmSwiftStreamIfaceMethod(m, svc) {
-  switch (m.kind) {
-    case 'client-streaming':
-      return '        func ' + m.name + 'Begin(_ callId: UInt32, _ metadata: [(String, String)])\n'
-        + '        func ' + m.name + 'Request(_ callId: UInt32, _ req: ' + m.input + ')\n'
-        + '        func ' + m.name + 'End(_ callId: UInt32) -> Result<' + m.output + ', StatusException>\n';
-    case 'bidi':
-      return '        func ' + m.name + 'Begin(_ callId: UInt32, _ metadata: [(String, String)])\n'
-        + '        func ' + m.name + 'Request(_ callId: UInt32, _ req: ' + m.input + ', _ sink: ' + svc + 'ServerSink) -> StatusException?\n'
-        + '        func ' + m.name + 'End(_ callId: UInt32) -> StatusException?\n';
-    default:
-      return '';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmSwiftStreamIfaceMethod, m, svc);
 }
-
 function wasmSwiftStreamFeedExport(enumName, m, svc) {
-  const exportName = wasmSwiftExportName(m);
-  if (m.kind !== 'client-streaming' && m.kind !== 'bidi') return '';
-  const decl = (suffix, rest) => '@_cdecl(' + q(exportName + suffix) + ')\npublic func ' + exportName + suffix + rest;
-  const start = decl('Start', '(_ callId: UInt32, _ md: UnsafePointer<UInt8>, _ mdLen: Int) {\n'
-    + '    let metadata = DecodeMetadata(Array(UnsafeBufferPointer(start: md, count: mdLen)))\n'
-    + '    ' + enumName + '.streamImpl!.' + m.name + 'Begin(callId, metadata)\n}\n\n');
-  if (m.kind === 'client-streaming') {
-    return start
-      + decl('Feed', '(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int) {\n'
-        + '    let req = ' + m.input + '()\n'
-        + '    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n'
-        + '    ' + enumName + '.streamImpl!.' + m.name + 'Request(callId, req)\n}\n\n')
-      + decl('End', '(_ callId: UInt32) {\n'
-        + '    switch ' + enumName + '.streamImpl!.' + m.name + 'End(callId) {\n'
-        + '    case .success(let resp): ServerRespond(callId, resp.MarshalDc())\n'
-        + '    case .failure(let st): ServerFail(callId, st)\n    }\n}\n\n');
-  }
-  return start
-    + decl('Feed', '(_ callId: UInt32, _ payload: UnsafePointer<UInt8>, _ payloadLen: Int) {\n'
-      + '    let req = ' + m.input + '()\n'
-      + '    req.UnmarshalDc(Array(UnsafeBufferPointer(start: payload, count: payloadLen)))\n'
-      + '    if let st = ' + enumName + '.streamImpl!.' + m.name + 'Request(callId, req, ' + enumName + '.' + svc + 'ServerSink(callId: callId)) {\n'
-      + '        ServerFail(callId, st)\n    }\n}\n\n')
-    + decl('End', '(_ callId: UInt32) {\n'
-      + '    if let st = ' + enumName + '.streamImpl!.' + m.name + 'End(callId) {\n'
-      + '        ServerFail(callId, st)\n    } else {\n        ServerComplete(callId)\n    }\n}\n\n');
+  return runSegments(SEGMENT_PROGRAMS.wasmSwiftStreamFeedExport, m, svc, null, [enumName]);
 }
-
 function wasmSwiftService(svc) {
-  const sname = svc.name;
-  const first = svc.methods[0];
-  return '    /// Client for ' + svc.fullName + ' (browser/WASM facade; see file doc).\n'
-    + '    final class ' + sname + 'Client {\n'
-    + '        private let bridge: GrpcDcWasmBridge\n\n'
-    + '        init(_ bridge: GrpcDcWasmBridge = .shared) {\n            self.bridge = bridge\n        }\n\n'
-    + svc.methods.concat(aliasClientMethods(svc)).map(wasmSwiftClientMethod).join('')
-    + '    }\n\n'
-    + '    /// Streaming response sink for server handlers.\n'
-    + '    struct ' + sname + 'ServerSink {\n        let callId: UInt32\n\n'
-    + [...new Set(svc.methods.map((m) => m.output))].map((out) =>
-        '        func Send(_ resp: ' + out + ') {\n            ServerSend(callId, resp.MarshalDc())\n        }\n').join('')
-    + '    }\n\n'
-    + '    /// Service implementation for ' + svc.fullName + ' (browser/WASM facade).\n'
-    + '    protocol ' + sname + 'Server {\n'
-    + svc.methods.map((m) => wasmSwiftServerIfaceMethod(m, sname)).join('')
-    + '    }\n\n'
-    + '    static var serverImpl: ' + sname + 'Server?\n\n'
-    + '    /// Register the service implementation used by the serve_* exports.\n'
-    + '    static func register' + sname + 'Server(_ impl: ' + sname + 'Server) {\n        serverImpl = impl\n    }\n\n'
-    + '    /// Incremental service implementation for ' + svc.fullName + ': requests arrive one at a time.\n'
-    + '    protocol ' + sname + 'StreamServer {\n'
-    + svc.methods.map((m) => wasmSwiftStreamIfaceMethod(m, sname)).join('')
-    + '    }\n\n'
-    + '    static var streamImpl: ' + sname + 'StreamServer?\n\n'
-    + '    /// Register the incremental implementation used by the serve_*Start/Feed/End exports.\n'
-    + '    static func register' + sname + 'StreamServer(_ impl: ' + sname + 'StreamServer) {\n        streamImpl = impl\n    }\n';
+  return runSegments(SEGMENT_PROGRAMS.wasmSwiftService, svc, svc.name);
 }
-
 function emitWasmSwiftFile(model, params) {
   const base = baseName(model.name);
   const enumName = pascalName(base) + 'WasmGrpcDc';
