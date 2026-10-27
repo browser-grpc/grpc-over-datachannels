@@ -343,54 +343,149 @@ function parseParams(parameter) {
 const FIXED_TABLES = {"c":{"1":[8,"f64"],"15":[4,"i32"],"16":[8,"i64"],"2":[4,"f32"],"6":[8,"u64"],"7":[4,"u32"]},"cpp":{"1":[8,"Double"],"15":[4,"Int32"],"16":[8,"Int64"],"2":[4,"Float"],"6":[8,"Int64"],"7":[4,"Int32"]},"csharp":{"1":[8,"Double"],"15":[4,"Int"],"16":[8,"Long"],"2":[4,"Float"],"6":[8,"Long"],"7":[4,"Int"]},"dart":{"1":[8,"Float64"],"15":[4,"Int32"],"16":[8,"Int64"],"2":[4,"Float32"],"6":[8,"Uint64"],"7":[4,"Uint32"]},"go":{"1":[8,"Float64"],"15":[4,"Int32"],"16":[8,"BigInt64"],"2":[4,"Float32"],"6":[8,"BigUint64"],"7":[4,"Uint32"]},"java":{"1":[8,"Double"],"15":[4,"Int"],"16":[8,"Long"],"2":[4,"Float"],"6":[8,"Long"],"7":[4,"Int"]},"js":{"1":[8,"Float64"],"15":[4,"Int32"],"16":[8,"BigInt64"],"2":[4,"Float32"],"6":[8,"BigUint64"],"7":[4,"Uint32"]},"kotlin":{"1":[8,"Double"],"15":[4,"Int"],"16":[8,"Long"],"2":[4,"Float"],"6":[8,"ULong"],"7":[4,"UInt"]},"lua":{"1":[8,"d"],"15":[4,"i4"],"16":[8,"i8"],"2":[4,"f"],"6":[8,"I8"],"7":[4,"I4"]},"php":{"1":[8,"e"],"15":[4,"V"],"16":[8,"P"],"2":[4,"g"],"6":[8,"P"],"7":[4,"V"]},"python":{"1":[8,"<d"],"15":[4,"<i"],"16":[8,"<q"],"2":[4,"<f"],"6":[8,"<Q"],"7":[4,"<I"]},"ruby":{"1":[8,"E"],"15":[4,"l<"],"16":[8,"q<"],"2":[4,"e"],"6":[8,"Q<"],"7":[4,"V"]},"rust":{"1":[8,"f64"],"15":[4,"i32"],"16":[8,"i64"],"2":[4,"f32"],"6":[8,"u64"],"7":[4,"u32"]},"scala":{"1":[8,"double"],"15":[4,"fixed32"],"16":[8,"fixed64"],"2":[4,"float"],"6":[8,"fixed64"],"7":[4,"fixed32"]},"swift":{"1":[8,"Double"],"15":[4,"Int32"],"16":[8,"Int64"],"2":[4,"Float"],"6":[8,"UInt64"],"7":[4,"UInt32"]},"zig":{"1":[8,"f64"],"15":[4,"i32"],"16":[8,"i64"],"2":[4,"f32"],"6":[8,"u64"],"7":[4,"u32"]}};
 const VARINT_TYPES = [5,3,13,4,17,18,8,14];
 const SCALAR_TABLES = {"go":{"default":null,"types":{"1":"float64","12":"[]byte","13":"uint32","15":"int32","16":"int64","17":"int32","18":"int64","2":"float32","3":"int64","4":"uint64","5":"int32","6":"uint64","7":"uint32","8":"bool","9":"string"}},"rust":{"default":"i32","types":{"1":"f64","12":"Vec<u8>","16":"i64-or-u64","18":"i64-or-u64","2":"f32","3":"i64-or-u64","4":"i64-or-u64","6":"i64-or-u64","8":"bool","9":"String"}},"scala":{"default":"Int","types":{"1":"Double","12":"Array[Byte]","16":"Long","18":"Long","2":"Float","3":"Long","4":"Long","6":"Long","8":"Boolean","9":"String"}},"java":{"default":null,"types":{"1":["double","Double","0"],"12":["byte[]","byte[]","new byte[0]"],"13":["int","Integer","0"],"15":["int","Integer","0"],"16":["long","Long","0L"],"17":["int","Integer","0"],"18":["long","Long","0L"],"2":["float","Float","0"],"3":["long","Long","0L"],"4":["long","Long","0L"],"5":["int","Integer","0"],"6":["long","Long","0L"],"7":["int","Integer","0"],"8":["boolean","Boolean","false"],"9":["String","String","\"\""]}},"csharp":{"default":null,"types":{"1":["double","0"],"12":["byte[]","new byte[0]"],"13":["uint","0"],"15":["int","0"],"16":["long","0"],"17":["int","0"],"18":["long","0"],"2":["float","0"],"3":["long","0"],"4":["ulong","0"],"5":["int","0"],"6":["ulong","0"],"7":["uint","0"],"8":["bool","false"],"9":["string","\"\""]}},"cpp":{"default":null,"types":{"1":["double","0"],"12":["std::vector<std::uint8_t>","{}"],"13":["std::uint32_t","0"],"15":["std::int32_t","0"],"16":["std::int64_t","0"],"17":["std::int32_t","0"],"18":["std::int64_t","0"],"2":["float","0"],"3":["std::int64_t","0"],"4":["std::uint64_t","0"],"5":["std::int32_t","0"],"6":["std::uint64_t","0"],"7":["std::uint32_t","0"],"8":["bool","false"],"9":["std::string","\"\""]}},"swift":{"default":null,"types":{"1":["Double","0"],"12":["[UInt8]","[]"],"13":["UInt32","0"],"15":["Int32","0"],"16":["Int64","0"],"17":["Int32","0"],"18":["Int64","0"],"2":["Float","0"],"3":["Int64","0"],"4":["UInt64","0"],"5":["Int32","0"],"6":["UInt64","0"],"7":["UInt32","0"],"8":["Bool","false"],"9":["String","\"\""]}},"kotlin":{"default":null,"types":{"1":["Double","0.0"],"12":["ByteArray","ByteArray(0)"],"13":["UInt","0u"],"15":["Int","0"],"16":["Long","0L"],"17":["Int","0"],"18":["Long","0L"],"2":["Float","0f"],"3":["Long","0L"],"4":["ULong","0uL"],"5":["Int","0"],"6":["ULong","0uL"],"7":["UInt","0u"],"8":["Boolean","false"],"9":["String","\"\""]}},"dart":{"default":null,"types":{"1":["double","0"],"12":["Uint8List","Uint8List(0)"],"13":["int","0"],"15":["int","0"],"16":["int","0"],"17":["int","0"],"18":["int","0"],"2":["double","0"],"3":["int","0"],"4":["int","0"],"5":["int","0"],"6":["int","0"],"7":["int","0"],"8":["bool","false"],"9":["String","''"]}},"zig":{"default":null,"types":{"1":["f64","0"],"12":["[]const u8","\"\""],"13":["u32","0"],"15":["i32","0"],"16":["i64","0"],"17":["i32","0"],"18":["i64","0"],"2":["f32","0"],"3":["i64","0"],"4":["u64","0"],"5":["i32","0"],"6":["u64","0"],"7":["u32","0"],"8":["bool","false"],"9":["[]const u8","\"\""]}},"c":{"default":null,"types":{"1":["double","0"],"12":["~aBytes","\"\""],"13":["uint32_t","0"],"15":["int32_t","0"],"16":["int64_t","0"],"17":["int32_t","0"],"18":["int64_t","0"],"2":["float","0"],"3":["int64_t","0"],"4":["uint64_t","0"],"5":["int32_t","0"],"6":["uint64_t","0"],"7":["uint32_t","0"],"8":["bool","false"],"9":["char *","\"\""]}}};
-const SEGMENT_PROGRAMS = {"goClientMethod":[["kind-case",["unary",["fmt","func (c *~aClient) ~a(ctx context.Context, req *~a) (*~a, error) {\n\tresp := new(~a)\n\tif err := c.Channel.Unary(ctx, ~s, req, resp); err != nil {\n\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n",["svc"],["ref","name"],["ref","input"],["ref","output"],["ref","output"],["ref","path"]]],["server-streaming",["fmt","func (c *~aClient) ~a(ctx context.Context, req *~a) (*~a~aStream, error) {\n\tstream, err := c.Channel.ServerStream(ctx, ~s, req)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn &~a~aStream{stream: stream}, nil\n}\n\ntype ~a~aStream struct{ stream *grpcdc.ClientStream }\n\nfunc (s *~a~aStream) Recv() (*~a, error) {\n\tresp := new(~a)\n\tif err := s.stream.Recv(resp); err != nil {\n\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n",["svc"],["ref","name"],["ref","input"],["svc"],["ref","name"],["ref","path"],["svc"],["ref","name"],["svc"],["ref","name"],["svc"],["ref","name"],["ref","output"],["ref","output"]]],["client-streaming",["fmt","func (c *~aClient) ~a(ctx context.Context, reqs ...*~a) (*~a, error) {\n\tgrpcdcReqs := make([]grpcdc.Marshaler, len(reqs))\n\tfor i, r := range reqs {\n\t\tgrpcdcReqs[i] = r\n\t}\n\tresp := new(~a)\n\tif err := c.Channel.ClientStreamCall(ctx, ~s, grpcdcReqs, resp); err != nil {\n\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n",["svc"],["ref","name"],["ref","input"],["ref","output"],["ref","output"],["ref","path"]]],["bidi",["fmt","func (c *~aClient) ~a(ctx context.Context, reqs ...*~a) (*~a~aStream, error) {\n\tgrpcdcReqs := make([]grpcdc.Marshaler, len(reqs))\n\tfor i, r := range reqs {\n\t\tgrpcdcReqs[i] = r\n\t}\n\tstream, err := c.Channel.Bidi(ctx, ~s, grpcdcReqs)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn &~a~aStream{stream: stream}, nil\n}\n\ntype ~a~aStream struct{ stream *grpcdc.ClientStream }\n\nfunc (s *~a~aStream) Recv() (*~a, error) {\n\tresp := new(~a)\n\tif err := s.stream.Recv(resp); err != nil {\n\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n",["svc"],["ref","name"],["ref","input"],["svc"],["ref","name"],["ref","path"],["svc"],["ref","name"],["svc"],["ref","name"],["svc"],["ref","name"],["ref","output"],["ref","output"]]]]],"goDeprecated":[["when",["ref","deprecated"],"// Deprecated: marked deprecated in the proto schema.\n"]],"goRegisterMethod":[["kind-case",["unary",["fmt","\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treq := new(~a)\n\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tresp, err := srv.~a(ctx, req)\n\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\treturn sink.Send(resp.MarshalDC())\n\t\t}},\n",["ref","name"],["ref","path"],["ref","input"],["ref","impl-name"]]],["server-streaming",["fmt","\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treq := new(~a)\n\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\treturn srv.~a(req, &~a~aServerImpl{ctx: ctx, sink: sink})\n\t\t}},\n",["ref","name"],["ref","path"],["ref","input"],["ref","impl-name"],["svc"],["ref","impl-name"]]],["client-streaming",["fmt","\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindClientStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\tstream := &~a~aServerImpl{ctx: ctx, reqs: reqs}\n\t\t\tif err := srv.~a(stream); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tif stream.resp == nil {\n\t\t\t\treturn grpcdc.NewStatus(grpcdc.CodeInternal, \"client-streaming handler never called SendAndClose\")\n\t\t\t}\n\t\t\treturn sink.Send(stream.resp.MarshalDC())\n\t\t}},\n",["ref","name"],["ref","path"],["svc"],["ref","impl-name"],["ref","impl-name"]]],["bidi",["fmt","\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindBidi, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treturn srv.~a(&~a~aServerImpl{ctx: ctx, reqs: reqs, sink: sink})\n\t\t}},\n",["ref","name"],["ref","path"],["ref","impl-name"],["svc"],["ref","impl-name"]]]]],"goServerIfaceMethod":[["kind-case",["unary",["fmt","\t~a(context.Context, *~a) (*~a, error)\n",["ref","name"],["ref","input"],["ref","output"]]],["server-streaming",["fmt","\t~a(*~a, ~a~aServer) error\n",["ref","name"],["ref","input"],["svc"],["ref","name"]]],["client-streaming",["fmt","\t~a(~a~aServer) error\n",["ref","name"],["svc"],["ref","name"]]],["bidi",["fmt","\t~a(~a~aServer) error\n",["ref","name"],["svc"],["ref","name"]]]]],"goServerIfaceMethodDeprecated":[["when",["ref","deprecated"],"\t// Deprecated: marked deprecated in the proto schema.\n"],["call","goServerIfaceMethod"]],"goService":[["fmt","type ~aClient struct {\n\tChannel *grpcdc.Channel\n}\n\n",["ref","name"]],["fmt","func New~aClient(ch *grpcdc.Channel) *~aClient {\n\treturn &~aClient{Channel: ch}\n}\n\n",["ref","name"],["ref","name"],["ref","name"]],["each+","methods","client",["call","goDeprecated"],["call","goClientMethod"]],"\n",["fmt","type ~aServer interface {\n",["ref","name"]],["each","methods",["call","goServerIfaceMethodDeprecated"]],"}\n\n",["each","methods",["call","goStreamIfaces"]],["each","methods",["call","goStreamImpls"]],["fmt","func Register~aServer(s *grpcdc.Server, srv ~aServer) {\n",["ref","name"],["ref","name"]],["fmt","\ts.RegisterService(grpcdc.ServiceDesc{\n\t\tName: ~s,\n\t\tMethods: []grpcdc.Method{\n",["ref","full-name"]],["each+","methods","server",["call","goRegisterMethod"]],"\t\t},\n\t})\n}\n"],"goStreamIfaces":[["kind-case",["unary"],["server-streaming",["fmt","type ~a~aServer interface {\n\tSend(*~a) error\n\tContext() context.Context\n}\n\n",["svc"],["ref","name"],["ref","output"]]],["client-streaming",["fmt","type ~a~aServer interface {\n\tRecv() (*~a, error)\n\tSendAndClose(*~a) error\n\tContext() context.Context\n}\n\n",["svc"],["ref","name"],["ref","input"],["ref","output"]]],["bidi",["fmt","type ~a~aServer interface {\n\tSend(*~a) error\n\tRecv() (*~a, error)\n\tContext() context.Context\n}\n\n",["svc"],["ref","name"],["ref","output"],["ref","input"]]]]],"goStreamImpls":[["kind-case",["unary"],["server-streaming",["fmt","type ~a~aServerImpl struct {\n\tctx  context.Context\n\tsink grpcdc.ServerSink\n}\n\nfunc (s *~a~aServerImpl) Send(resp *~a) error {\n\treturn s.sink.Send(resp.MarshalDC())\n}\nfunc (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n",["svc"],["ref","name"],["svc"],["ref","name"],["ref","output"],["svc"],["ref","name"]]],["client-streaming",["fmt","type ~a~aServerImpl struct {\n\tctx  context.Context\n\treqs *grpcdc.RequestStream\n\tresp *~a\n}\n\nfunc (s *~a~aServerImpl) Recv() (*~a, error) {\n\treq := new(~a)\n\tif err := s.reqs.RecvInto(req); err != nil {\n\t\treturn nil, err\n\t}\n\treturn req, nil\n}\nfunc (s *~a~aServerImpl) SendAndClose(resp *~a) error {\n\ts.resp = resp\n\treturn nil\n}\nfunc (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n",["svc"],["ref","name"],["ref","output"],["svc"],["ref","name"],["ref","input"],["ref","input"],["svc"],["ref","name"],["ref","output"],["svc"],["ref","name"]]],["bidi",["fmt","type ~a~aServerImpl struct {\n\tctx  context.Context\n\treqs *grpcdc.RequestStream\n\tsink grpcdc.ServerSink\n}\n\nfunc (s *~a~aServerImpl) Send(resp *~a) error {\n\treturn s.sink.Send(resp.MarshalDC())\n}\nfunc (s *~a~aServerImpl) Recv() (*~a, error) {\n\treq := new(~a)\n\tif err := s.reqs.RecvInto(req); err != nil {\n\t\treturn nil, err\n\t}\n\treturn req, nil\n}\nfunc (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n",["svc"],["ref","name"],["svc"],["ref","name"],["ref","output"],["svc"],["ref","name"],["ref","input"],["ref","input"],["svc"],["ref","name"]]]]]};
+const SEGMENT_PROGRAMS = {"goClientMethod":[["kind-case",["unary",["fmt","func (c *~aClient) ~a(ctx context.Context, req *~a) (*~a, error) {\n\tresp := new(~a)\n\tif err := c.Channel.Unary(ctx, ~s, req, resp); err != nil {\n\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n",["svc"],["ref","name"],["ref","input"],["ref","output"],["ref","output"],["ref","path"]]],["server-streaming",["fmt","func (c *~aClient) ~a(ctx context.Context, req *~a) (*~a~aStream, error) {\n\tstream, err := c.Channel.ServerStream(ctx, ~s, req)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn &~a~aStream{stream: stream}, nil\n}\n\ntype ~a~aStream struct{ stream *grpcdc.ClientStream }\n\nfunc (s *~a~aStream) Recv() (*~a, error) {\n\tresp := new(~a)\n\tif err := s.stream.Recv(resp); err != nil {\n\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n",["svc"],["ref","name"],["ref","input"],["svc"],["ref","name"],["ref","path"],["svc"],["ref","name"],["svc"],["ref","name"],["svc"],["ref","name"],["ref","output"],["ref","output"]]],["client-streaming",["fmt","func (c *~aClient) ~a(ctx context.Context, reqs ...*~a) (*~a, error) {\n\tgrpcdcReqs := make([]grpcdc.Marshaler, len(reqs))\n\tfor i, r := range reqs {\n\t\tgrpcdcReqs[i] = r\n\t}\n\tresp := new(~a)\n\tif err := c.Channel.ClientStreamCall(ctx, ~s, grpcdcReqs, resp); err != nil {\n\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n",["svc"],["ref","name"],["ref","input"],["ref","output"],["ref","output"],["ref","path"]]],["bidi",["fmt","func (c *~aClient) ~a(ctx context.Context, reqs ...*~a) (*~a~aStream, error) {\n\tgrpcdcReqs := make([]grpcdc.Marshaler, len(reqs))\n\tfor i, r := range reqs {\n\t\tgrpcdcReqs[i] = r\n\t}\n\tstream, err := c.Channel.Bidi(ctx, ~s, grpcdcReqs)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn &~a~aStream{stream: stream}, nil\n}\n\ntype ~a~aStream struct{ stream *grpcdc.ClientStream }\n\nfunc (s *~a~aStream) Recv() (*~a, error) {\n\tresp := new(~a)\n\tif err := s.stream.Recv(resp); err != nil {\n\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n",["svc"],["ref","name"],["ref","input"],["svc"],["ref","name"],["ref","path"],["svc"],["ref","name"],["svc"],["ref","name"],["svc"],["ref","name"],["ref","output"],["ref","output"]]]]],"goDeprecated":[["when",["ref","deprecated"],"// Deprecated: marked deprecated in the proto schema.\n"]],"goPbConstructor":[["if",["any-default"],["then",["fmt","// New~a returns a ~a with the descriptor's explicit (proto2)\n// default values applied.\n",["flat"],["flat"]],["fmt","func New~a() *~a {\n\treturn &~a{\n",["flat"],["flat"],["flat"]],["each","fields",["when",["has-default"],["fmt","\t~a: ~a,\n",["pascal",["ref","name"]],["call","goPbDefaultLiteral"]]]],"\t}\n}\n\n"],["else"]]],"goPbDecodeCase":[["fmt","\t\tcase ~a:\n",["ref","number"]],["if",["is-map"],["then","\t\t\tif b, ok := value.([]byte); ok {\n",["fmt","\t\t\t\tk, val, err := ~a(b)\n",["fmt","decode~a",["entry-type"]]],"\t\t\t\tif err != nil {\n\t\t\t\t\treturn err\n\t\t\t\t}\n",["fmt","\t\t\t\tif ~a == nil {\n\t\t\t\t\t~a = make(~a)\n\t\t\t\t}\n",["fmt","m.~a",["pascal",["ref","name"]]],["fmt","m.~a",["pascal",["ref","name"]]],["field-type"]],["fmt","\t\t\t\t~a[k] = val\n\t\t\t}\n",["fmt","m.~a",["pascal",["ref","name"]]]]],["else",["if",["repeated"],["then",["case-on",["category"],[["varint","\t\t\tswitch value := value.(type) {\n","\t\t\tcase uint64:\n",["fmt","\t\t\t\t~a = append(~a, ~a)\n",["fmt","m.~a",["pascal",["ref","name"]]],["fmt","m.~a",["pascal",["ref","name"]]],["if",["type-is",14],["then",["fmt","~a(~a)",["entry-type"],["call","goPbVarintDecode","value"]]],["else",["call","goPbVarintDecode","value"]]]],"\t\t\tcase []byte:\n","\t\t\t\tsub := &pbReader{buf: value}\n","\t\t\t\tfor sub.pos < len(sub.buf) {\n","\t\t\t\t\tv, err := sub.varint()\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\treturn err\n\t\t\t\t\t}\n",["fmt","\t\t\t\t\t~a = append(~a, ~a)\n",["fmt","m.~a",["pascal",["ref","name"]]],["fmt","m.~a",["pascal",["ref","name"]]],["if",["type-is",14],["then",["fmt","~a(~a)",["entry-type"],["call","goPbVarintDecode","v"]]],["else",["call","goPbVarintDecode","v"]]]],"\t\t\t\t}\n\t\t\t}\n"],["fixed","\t\t\tif b, ok := value.([]byte); ok {\n",["fmt","\t\t\t\tif len(b) == ~a {\n",["fixed-size"]],["fmt","\t\t\t\t\t~a = append(~a, ~a)\n",["fmt","m.~a",["pascal",["ref","name"]]],["fmt","m.~a",["pascal",["ref","name"]]],["call","goPbFixedDecode","b"]],"\t\t\t\t} else {\n",["fmt","\t\t\t\t\tfor off := 0; off+~a <= len(b); off += ~a {\n",["fixed-size"],["fixed-size"]],["fmt","\t\t\t\t\t\t~a = append(~a, ~a)\n",["fmt","m.~a",["pascal",["ref","name"]]],["fmt","m.~a",["pascal",["ref","name"]]],["call","goPbFixedDecode",["fmt","b[off:off+~a]",["fixed-size"]]]],"\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n"],["string",["fmt","\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t~a = append(~a, string(b))\n\t\t\t}\n",["fmt","m.~a",["pascal",["ref","name"]]],["fmt","m.~a",["pascal",["ref","name"]]]]],["bytes",["fmt","\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t~a = append(~a, append([]byte(nil), b...))\n\t\t\t}\n",["fmt","m.~a",["pascal",["ref","name"]]],["fmt","m.~a",["pascal",["ref","name"]]]]],["message","\t\t\tif b, ok := value.([]byte); ok {\n",["fmt","\t\t\t\tvar tmpv ~a\n",["field-type-of",["with-label",["self"],1]]],["call","goPbDecodeSingular","tmpv","b","\t\t\t\t"],["fmt","\t\t\t\t~a = append(~a, tmpv)\n\t\t\t}\n",["fmt","m.~a",["pascal",["ref","name"]]],["fmt","m.~a",["pascal",["ref","name"]]]]],["else",["fail"]]]]],["else",["oneof-clearing"],["if",["is-varint"],["then",["fmt","\t\t\tif v, ok := value.(uint64); ok {\n~a\t\t\t}\n",["call","goPbDecodeSingular",["fmt","m.~a",["pascal",["ref","name"]]],"v","\t\t\t\t"]]],["else",["fmt","\t\t\tif b, ok := value.([]byte); ok {\n~a\t\t\t}\n",["call","goPbDecodeSingular",["fmt","m.~a",["pascal",["ref","name"]]],"b","\t\t\t\t"]]]]]]]]],"goPbDecodeSingular":[["case-on",["category"],[["varint",["fmt","~a~a = ~a\n",["arg",2],["arg",0],["if",["type-is",14],["then",["fmt","~a(~a)",["entry-type"],["call","goPbVarintDecode",["arg",1]]]],["else",["call","goPbVarintDecode",["arg",1]]]]]],["fixed",["fmt","~a~a = ~a\n",["arg",2],["arg",0],["call","goPbFixedDecode",["arg",1]]]],["string",["fmt","~a~a = string(~a)\n",["arg",2],["arg",0],["arg",1]]],["bytes",["fmt","~a~a = append([]byte(nil), ~a...)\n",["arg",2],["arg",0],["arg",1]]],["message",["fmt","~atmp~a := new(~a)\n",["arg",2],["ref","number"],["entry-type"]],["fmt","~aif err := tmp~a.UnmarshalDC(~a); err != nil {\n~a\t~a\n~a}\n",["arg",2],["ref","number"],["arg",1],["arg",2],["err-stmt"],["arg",2]],["fmt","~a~a = tmp~a\n",["arg",2],["arg",0],["ref","number"]]],["else",["fail"]]]]],"goPbDefaultLiteral":[["if",["has-default"],["then",["case-on",["type"],[[9,["fmt","~s",["default-raw"]]],[14,["fmt","~a(~a)",["entry-type"],["enum-default-num"]]],["else",["default-raw"]]]]],["else"]]],"goPbEncodeField":[["if",["is-map"],["then",["fmt","\t{\n\t\tkeys := make([]~a, 0, len(~a))\n\t\tfor k := range ~a { keys = append(keys, k) }\n\t\tsort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })\n\t\tfor _, k := range keys {\n\t\t\tout = appendBytesField(out, ~a, ~a(k, ~a[k]))\n\t\t}\n\t}\n",["field-type-of",["with-label",["key-field",["resolved-entry"]],1]],["fmt","m.~a",["pascal",["ref","name"]]],["fmt","m.~a",["pascal",["ref","name"]]],["ref","number"],["fmt","encode~a",["entry-type"]],["fmt","m.~a",["pascal",["ref","name"]]]]],["else",["if",["repeated"],["then",["case-on",["category"],[["varint",["fmt","\tif len(~a) > 0 {\n\t\tvar payload []byte\n",["fmt","m.~a",["pascal",["ref","name"]]]],["fmt","\t\tfor _, x := range ~a {\n\t\t\tpayload = appendVarint(payload, ~a)\n\t\t}\n",["fmt","m.~a",["pascal",["ref","name"]]],["call","goPbVarintExpr","x"]],["fmt","\t\tout = appendBytesField(out, ~a, payload)\n\t}\n",["ref","number"]]],["fixed",["fmt","\tif len(~a) > 0 {\n\t\tvar payload []byte\n",["fmt","m.~a",["pascal",["ref","name"]]]],["fmt","\t\tfor _, x := range ~a {\n\t\t\tpayload = append(payload, ~a...)\n\t\t}\n",["fmt","m.~a",["pascal",["ref","name"]]],["call","goPbFixedEncode","x"]],["fmt","\t\tout = appendBytesField(out, ~a, payload)\n\t}\n",["ref","number"]]],["string",["fmt","\tfor _, x := range ~a {\n\t\tout = appendBytesField(out, ~a, []byte(x))\n\t}\n",["fmt","m.~a",["pascal",["ref","name"]]],["ref","number"]]],["bytes",["fmt","\tfor _, x := range ~a {\n\t\tout = appendBytesField(out, ~a, x)\n\t}\n",["fmt","m.~a",["pascal",["ref","name"]]],["ref","number"]]],["message",["fmt","\tfor _, x := range ~a {\n\t\tout = appendBytesField(out, ~a, x.MarshalDC())\n\t}\n",["fmt","m.~a",["pascal",["ref","name"]]],["ref","number"]]],["else",["fail"]]]]],["else",["call","goPbEncodeSingular",["fmt","m.~a",["pascal",["ref","name"]]],"\t"]]]]]],"goPbEncodeFieldGuarded":[["guarded",["call","goPbEncodeField"]]],"goPbEncodeSingular":[["case-on",["category"],[["varint",["if",["proto2"],["then",["fmt","~aout = appendTag(out, ~a, 0)\n",["arg",1],["ref","number"]],["fmt","~aout = appendVarint(out, ~a)\n",["arg",1],["call","goPbVarintExpr",["arg",0]]]],["else",["fmt","~aif ~a {\n",["arg",1],["if",["type-is",8],["then",["arg",0]],["else",["fmt","~a != 0",["arg",0]]]]],["fmt","~a\tout = appendTag(out, ~a, 0)\n",["arg",1],["ref","number"]],["fmt","~a\tout = appendVarint(out, ~a)\n",["arg",1],["call","goPbVarintExpr",["arg",0]]],["fmt","~a}\n",["arg",1]]]]]],["fixed",["if",["proto2"],["then",["fmt","~aout = appendTag(out, ~a, ~a)\n",["arg",1],["ref","number"],["fixed-wire"]],["fmt","~aout = append(out, ~a...)\n",["arg",1],["call","goPbFixedEncode",["arg",0]]]],["else",["fmt","~aif ~a != 0 {\n",["arg",1],["arg",0]],["fmt","~a\tout = appendTag(out, ~a, ~a)\n",["arg",1],["ref","number"],["fixed-wire"]],["fmt","~a\tout = append(out, ~a...)\n",["arg",1],["call","goPbFixedEncode",["arg",0]]],["fmt","~a}\n",["arg",1]]]]],["string",["if",["proto2"],["then",["fmt","~aout = appendBytesField(out, ~a, []byte(~a))\n",["arg",1],["ref","number"],["arg",0]]],["else",["fmt","~aout = appendStringField(out, ~a, ~a)\n",["arg",1],["ref","number"],["arg",0]]]]],["bytes",["if",["proto2"],["then",["fmt","~aout = appendBytesField(out, ~a, ~a)\n",["arg",1],["ref","number"],["arg",0]]],["else",["fmt","~aif len(~a) > 0 {\n~a\tout = appendBytesField(out, ~a, ~a)\n~a}\n",["arg",1],["arg",0],["arg",1],["ref","number"],["arg",0],["arg",1]]]]],["message",["fmt","~aif ~a != nil {\n~a\tout = appendBytesField(out, ~a, ~a.MarshalDC())\n~a}\n",["arg",1],["arg",0],["arg",1],["ref","number"],["arg",0],["arg",1]]],["else",["fail"]]]],"goPbEnum":[["fmt","type ~a int32\n\nconst (\n",["arg",0]],["each","enum","values",["fmt","\t~a_~a ~a = ~a\n",["arg",0],["ref","name"],["arg",0],["ref","number"]]],")\n\n"],"goPbFixedDecode":[["case-on",["fixed-name"],[["Float32",["fmt","pbFloat32FromBits(binary.LittleEndian.Uint32(~a))",["arg",0]]],["Float64",["fmt","pbFloat64FromBits(binary.LittleEndian.Uint64(~a))",["arg",0]]],["Uint32",["fmt","binary.LittleEndian.Uint32(~a)",["arg",0]]],["Int32",["fmt","int32(binary.LittleEndian.Uint32(~a))",["arg",0]]],["BigUint64",["fmt","binary.LittleEndian.Uint64(~a)",["arg",0]]],["BigInt64",["fmt","int64(binary.LittleEndian.Uint64(~a))",["arg",0]]]]]],"goPbFixedEncode":[["case-on",["fixed-name"],[["Float32",["fmt","fixed32Bytes(pbFloat32Bits(~a))",["arg",0]]],["Float64",["fmt","fixed64Bytes(pbFloat64Bits(~a))",["arg",0]]],["Uint32",["fmt","fixed32Bytes(~a)",["arg",0]]],["Int32",["fmt","fixed32Bytes(uint32(~a))",["arg",0]]],["BigUint64",["fmt","fixed64Bytes(~a)",["arg",0]]],["BigInt64",["fmt","fixed64Bytes(uint64(~a))",["arg",0]]]]]],"goPbMapHelpers":[["fmt","func encode~a(key ~a, value ~a) []byte {\n\tvar out []byte\n",["entry-type"],["field-type-of",["with-label",["key-field"],1]],["field-type-of",["with-label",["val-field"],1]]],["call-on",["key-field"],"goPbEncodeSingular","key","\t"],["call-on",["val-field"],"goPbEncodeSingular","value","\t"],"\treturn out\n}\n\n",["fmt","func decode~a(data []byte) (~a, ~a, error) {\n",["entry-type"],["field-type-of",["with-label",["key-field"],1]],["field-type-of",["with-label",["val-field"],1]]],["fmt","\tvar key ~a\n\tvar value ~a\n",["field-type-of",["with-label",["key-field"],1]],["field-type-of",["with-label",["val-field"],1]]],"\tr := &pbReader{buf: data}\n\tfor {\n\t\tnum, _, value0, _, done, err := r.field()\n\t\tif err != nil {\n\t\t\treturn key, value, err\n\t\t}\n\t\tif done {\n\t\t\treturn key, value, nil\n\t\t}\n\t\tswitch num {\n",["fmt","\t\tcase ~a:\n",["get",["key-field"],"number"]],["case-on",["category-of",["key-field"]],[["varint",["fmt","\t\t\tif v, ok := value0.(uint64); ok {\n~a\t\t\t}\n",["call-on",["key-field"],"goPbDecodeSingular","key","v","\t\t\t\t"]]],["else",["fmt","\t\t\tif b, ok := value0.([]byte); ok {\n~a\t\t\t}\n",["call-on",["key-field"],"goPbDecodeSingular","key","b","\t\t\t\t"]]]]],["fmt","\t\tcase ~a:\n",["get",["val-field"],"number"]],["case-on",["category-of",["val-field"]],[["varint",["fmt","\t\t\tif v, ok := value0.(uint64); ok {\n~a\t\t\t}\n",["call-on",["val-field"],"goPbDecodeSingular","value","v","\t\t\t\t"]]],["else",["fmt","\t\t\tif b, ok := value0.([]byte); ok {\n~a\t\t\t}\n",["call-on",["val-field"],"goPbDecodeSingular","value","b","\t\t\t\t"]]]]],"\t\t}\n\t}\n}\n\n"],"goPbMessage":[["fmt","type ~a struct {\n",["flat"]],["each","fields",["fmt","\t~a ~a\n",["pascal",["ref","name"]],["field-type"]]],"\tUnknownFields []byte\n}\n\n",["call","goPbConstructor"],["fmt","func (m *~a) MarshalDC() []byte {\n\tvar out []byte\n",["flat"]],["each","fields",["call","goPbEncodeFieldGuarded"]],"\tout = append(out, m.UnknownFields...)\n\treturn out\n}\n\n",["fmt","func (m *~a) UnmarshalDC(data []byte) error {\n",["flat"]],"\tm.UnknownFields = nil\n\tr := &pbReader{buf: data}\n\tfor {\n",["if",["no-fields"],["then","\t\tnum, _, _, raw, done, err := r.field()\n"],["else","\t\tnum, _, value, raw, done, err := r.field()\n"]],"\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif done {\n\t\t\treturn nil\n\t\t}\n\t\tswitch num {\n",["each","fields",["call","goPbDecodeCase"]],"\t\tdefault:\n\t\t\tm.UnknownFields = append(m.UnknownFields, raw...)\n\t\t}\n\t}\n}\n\n"],"goPbVarintDecode":[["case-on",["type"],[[5,["fmt","int32(~a)",["arg",0]]],[14,["fmt","int32(~a)",["arg",0]]],[13,["fmt","uint32(~a)",["arg",0]]],[3,["fmt","int64(~a)",["arg",0]]],[4,["arg",0]],[8,["fmt","~a != 0",["arg",0]]],[17,["fmt","unzz32(~a)",["arg",0]]],[18,["fmt","unzz64(~a)",["arg",0]]]]]],"goPbVarintExpr":[["case-on",["type"],[[8,["fmt","boolToUint64(~a)",["arg",0]]],[17,["fmt","zz32(~a)",["arg",0]]],[18,["fmt","zz64(~a)",["arg",0]]],[5,["fmt","uint64(int64(~a))",["arg",0]]],[14,["fmt","uint64(int64(~a))",["arg",0]]],["else",["fmt","uint64(~a)",["arg",0]]]]]],"goPbZero":[["case-on",["type"],[[11,"nil"],[12,"nil"],[9,"\"\""],[8,"false"],["else","0"]]]],"goRegisterMethod":[["kind-case",["unary",["fmt","\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treq := new(~a)\n\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tresp, err := srv.~a(ctx, req)\n\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\treturn sink.Send(resp.MarshalDC())\n\t\t}},\n",["ref","name"],["ref","path"],["ref","input"],["ref","impl-name"]]],["server-streaming",["fmt","\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treq := new(~a)\n\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\treturn srv.~a(req, &~a~aServerImpl{ctx: ctx, sink: sink})\n\t\t}},\n",["ref","name"],["ref","path"],["ref","input"],["ref","impl-name"],["svc"],["ref","impl-name"]]],["client-streaming",["fmt","\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindClientStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\tstream := &~a~aServerImpl{ctx: ctx, reqs: reqs}\n\t\t\tif err := srv.~a(stream); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tif stream.resp == nil {\n\t\t\t\treturn grpcdc.NewStatus(grpcdc.CodeInternal, \"client-streaming handler never called SendAndClose\")\n\t\t\t}\n\t\t\treturn sink.Send(stream.resp.MarshalDC())\n\t\t}},\n",["ref","name"],["ref","path"],["svc"],["ref","impl-name"],["ref","impl-name"]]],["bidi",["fmt","\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindBidi, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treturn srv.~a(&~a~aServerImpl{ctx: ctx, reqs: reqs, sink: sink})\n\t\t}},\n",["ref","name"],["ref","path"],["ref","impl-name"],["svc"],["ref","impl-name"]]]]],"goServerIfaceMethod":[["kind-case",["unary",["fmt","\t~a(context.Context, *~a) (*~a, error)\n",["ref","name"],["ref","input"],["ref","output"]]],["server-streaming",["fmt","\t~a(*~a, ~a~aServer) error\n",["ref","name"],["ref","input"],["svc"],["ref","name"]]],["client-streaming",["fmt","\t~a(~a~aServer) error\n",["ref","name"],["svc"],["ref","name"]]],["bidi",["fmt","\t~a(~a~aServer) error\n",["ref","name"],["svc"],["ref","name"]]]]],"goServerIfaceMethodDeprecated":[["when",["ref","deprecated"],"\t// Deprecated: marked deprecated in the proto schema.\n"],["call","goServerIfaceMethod"]],"goService":[["fmt","type ~aClient struct {\n\tChannel *grpcdc.Channel\n}\n\n",["ref","name"]],["fmt","func New~aClient(ch *grpcdc.Channel) *~aClient {\n\treturn &~aClient{Channel: ch}\n}\n\n",["ref","name"],["ref","name"],["ref","name"]],["each+","methods","client",["call","goDeprecated"],["call","goClientMethod"]],"\n",["fmt","type ~aServer interface {\n",["ref","name"]],["each","methods",["call","goServerIfaceMethodDeprecated"]],"}\n\n",["each","methods",["call","goStreamIfaces"]],["each","methods",["call","goStreamImpls"]],["fmt","func Register~aServer(s *grpcdc.Server, srv ~aServer) {\n",["ref","name"],["ref","name"]],["fmt","\ts.RegisterService(grpcdc.ServiceDesc{\n\t\tName: ~s,\n\t\tMethods: []grpcdc.Method{\n",["ref","full-name"]],["each+","methods","server",["call","goRegisterMethod"]],"\t\t},\n\t})\n}\n"],"goStreamIfaces":[["kind-case",["unary"],["server-streaming",["fmt","type ~a~aServer interface {\n\tSend(*~a) error\n\tContext() context.Context\n}\n\n",["svc"],["ref","name"],["ref","output"]]],["client-streaming",["fmt","type ~a~aServer interface {\n\tRecv() (*~a, error)\n\tSendAndClose(*~a) error\n\tContext() context.Context\n}\n\n",["svc"],["ref","name"],["ref","input"],["ref","output"]]],["bidi",["fmt","type ~a~aServer interface {\n\tSend(*~a) error\n\tRecv() (*~a, error)\n\tContext() context.Context\n}\n\n",["svc"],["ref","name"],["ref","output"],["ref","input"]]]]],"goStreamImpls":[["kind-case",["unary"],["server-streaming",["fmt","type ~a~aServerImpl struct {\n\tctx  context.Context\n\tsink grpcdc.ServerSink\n}\n\nfunc (s *~a~aServerImpl) Send(resp *~a) error {\n\treturn s.sink.Send(resp.MarshalDC())\n}\nfunc (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n",["svc"],["ref","name"],["svc"],["ref","name"],["ref","output"],["svc"],["ref","name"]]],["client-streaming",["fmt","type ~a~aServerImpl struct {\n\tctx  context.Context\n\treqs *grpcdc.RequestStream\n\tresp *~a\n}\n\nfunc (s *~a~aServerImpl) Recv() (*~a, error) {\n\treq := new(~a)\n\tif err := s.reqs.RecvInto(req); err != nil {\n\t\treturn nil, err\n\t}\n\treturn req, nil\n}\nfunc (s *~a~aServerImpl) SendAndClose(resp *~a) error {\n\ts.resp = resp\n\treturn nil\n}\nfunc (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n",["svc"],["ref","name"],["ref","output"],["svc"],["ref","name"],["ref","input"],["ref","input"],["svc"],["ref","name"],["ref","output"],["svc"],["ref","name"]]],["bidi",["fmt","type ~a~aServerImpl struct {\n\tctx  context.Context\n\treqs *grpcdc.RequestStream\n\tsink grpcdc.ServerSink\n}\n\nfunc (s *~a~aServerImpl) Send(resp *~a) error {\n\treturn s.sink.Send(resp.MarshalDC())\n}\nfunc (s *~a~aServerImpl) Recv() (*~a, error) {\n\treq := new(~a)\n\tif err := s.reqs.RecvInto(req); err != nil {\n\t\treturn nil, err\n\t}\n\treturn req, nil\n}\nfunc (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n",["svc"],["ref","name"],["svc"],["ref","name"],["ref","output"],["svc"],["ref","name"],["ref","input"],["ref","input"],["svc"],["ref","name"]]]]]};
 
-function runSegments(program, node, svc) {
+function runSegments(program, node, svc, model, args, errStmt) {
+  const env = { model: model ?? null, node, svc, args: args ?? [], err: errStmt ?? 'return err' };
+  return runEnv(program, env);
+}
+
+function runEnv(program, env) {
   let out = '';
-  for (const seg of program) out += runSegment(seg, node, svc);
+  for (const seg of program) out += runSegment(seg, env);
   return out;
 }
+
+function envWith(env, over) { return Object.assign({}, env, over); }
+
+function segTruthy(v) { return !(v === false || v === null || v === undefined || v === '' || v === 0); }
 
 function segKey(k) {
   return k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 }
 
-function runSegment(seg, node, svc) {
+function segCategory(model, node) {
+  const t = node.type;
+  if (t === 11 && gpResolve(model, node.typeName).kind === 'map') return 'map';
+  if (t === 11) return 'message';
+  if (VARINT_TYPES.includes(t)) return 'varint';
+  if (FIXED_TABLES.go[t]) return 'fixed';
+  if (t === 9) return 'string';
+  if (t === 12) return 'bytes';
+  return 'other';
+}
+
+function segEval(seg, env) {
+  const node = env.node; const model = env.model;
   if (typeof seg === 'string') return seg;
+  if (typeof seg === 'number') return seg;
   switch (seg[0]) {
     case 'fmt': {
       let i = 1;
       return seg[1].replace(/~[as]/g, (tok) => {
-        const v = runSegment(seg[++i], node, svc);
+        const v = segEval(seg[++i], env);
         return tok === '~s' ? JSON.stringify(String(v)) : String(v);
       });
     }
-    case 'ref':
-      return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];
-    case 'svc':
-      return svc;
+    case 'ref': {
+      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];
+      let acc = node;
+      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];
+      return acc;
+    }
+    case 'svc': return env.svc;
+    case 'arg': return env.args[seg[1]];
+    case 'err-stmt': return env.err;
+    case 'self': return node;
+    case 'if': case 'case-on': case 'when': case 'guarded': case 'kind-case':
+      return runSegment(seg, env);
+    case 'pascal': return gpPascal(segEval(seg[1], env));
+    case 'flat': return gpFlat(model.package, node.fullName);
+    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);
+    case 'field-type': return gpFieldType(model, node);
+    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));
+    case 'resolved-entry': return gpResolve(model, node.typeName);
+    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }
+    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }
+    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });
+    case 'get': return segEval(seg[1], env)[segKey(seg[2])];
+    case 'fixed-name': return FIXED_TABLES.go[node.type][1];
+    case 'fixed-size': return FIXED_TABLES.go[node.type][0];
+    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;
+    case 'type': return node.type;
+    case 'category': return segCategory(model, node);
+    case 'category-of': return segCategory(model, segEval(seg[1], env));
+    case 'proto2': return model.syntax === 'proto2';
+    case 'type-is': return node.type === seg[1];
+    case 'is-varint': return VARINT_TYPES.includes(node.type);
+    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;
+    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';
+    case 'repeated': return node.label === 3;
+    case 'has-default': return fieldExplicitDefault(node) != null;
+    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);
+    case 'no-fields': return node.fields.length === 0;
+    case 'default-raw': return fieldExplicitDefault(node);
+    case 'enum-default-num': return enumDefaultNumber(model, node);
+    case 'oneof-clearing': return gpOneofClearing(model, node);
+    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');
+    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));
+    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));
+    default: throw new Error('bad expression: ' + JSON.stringify(seg));
+  }
+}
+
+function runSegment(seg, env) {
+  const node = env.node;
+  if (typeof seg === 'string') return seg;
+  switch (seg[0]) {
+    case 'if': {
+      const thenPart = seg.slice(2).find((g) => g[0] === 'then');
+      const elsePart = seg.slice(2).find((g) => g[0] === 'else');
+      if (segTruthy(segEval(seg[1], env))) return runEnv(thenPart.slice(1), env);
+      return elsePart ? runEnv(elsePart.slice(1), env) : '';
+    }
     case 'kind-case': {
       const branch = seg.slice(1).find((b) => b[0] === node.kind);
       if (!branch) throw new Error('no kind branch for ' + node.kind);
-      return runSegments(branch.slice(1), node, svc);
+      return runEnv(branch.slice(1), env);
+    }
+    case 'case-on': {
+      const val = segEval(seg[1], env);
+      const raw = seg.slice(2);
+      const isKey = (b) => Array.isArray(b) && (typeof b[0] === 'number' || typeof b[0] === 'string' || b[0] === 'else');
+      let branches;
+      if (raw.length === 1 && Array.isArray(raw[0]) && raw[0].every(isKey)) branches = raw[0];
+      else branches = raw.map((b) => (Array.isArray(b) && b.length === 1 && Array.isArray(b[0])) ? b[0] : b);
+      const branch = branches.find((b) => b[0] === 'else' || String(b[0]) === String(val));
+      return branch ? runEnv(branch.slice(1), env) : '';
     }
     case 'when':
-      return node[segKey(seg[1][1])] ? runSegments(seg.slice(2), node, svc) : '';
-    case 'call':
-      return runSegments(SEGMENT_PROGRAMS[seg[1]], node, svc);
+      return segTruthy(segEval(seg[1], env)) ? runEnv(seg.slice(2), env) : '';
+    case 'guarded': {
+      const text = runEnv(seg.slice(1), env);
+      const cond = oneofLaterSiblings(env.model, node).map(gpSetExpr).join(' || ');
+      if (!cond) return text;
+      return '\tif !(' + cond + ') {\n' + (text.endsWith('\n') ? text : text + '\n') + '\t}\n';
+    }
+    case 'fail':
+      throw new Error('unsupported field type ' + node.type);
     case 'each': {
+      let i = 1; const keys = [];
+      while (typeof seg[i] === 'string') { keys.push(seg[i]); i++; }
+      let items = node;
+      for (const k of keys) items = items[segKey(k)];
       let out = '';
-      for (const el of node[segKey(seg[1])]) out += runSegments(seg.slice(2), el, svc);
+      for (const el of items) out += runEnv(seg.slice(i), envWith(env, { node: el }));
       return out;
     }
     case 'each+': {
       const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));
       let out = '';
-      for (const el of all) out += runSegments(seg.slice(3), el, svc);
+      for (const el of all) out += runEnv(seg.slice(3), envWith(env, { node: el }));
       return out;
     }
     default:
-      throw new Error('bad segment: ' + JSON.stringify(seg));
+      return segEval(seg, env);
   }
 }
 
@@ -1049,52 +1144,11 @@ function gpFieldType(model, f) {
 }
 
 function gpVarintExpr(f, v) {
-  switch (f.type) {
-    case FT.BOOL: return 'boolToUint64(' + v + ')';
-    case FT.SINT32: return 'zz32(' + v + ')';
-    case FT.SINT64: return 'zz64(' + v + ')';
-    case FT.INT32: case FT.ENUM: return 'uint64(int64(' + v + '))';
-    default: return 'uint64(' + v + ')';
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbVarintExpr, f, '', null, [v]);
 }
-
 function gpVarintDecode(f, v) {
-  switch (f.type) {
-    case FT.INT32: case FT.ENUM: return 'int32(' + v + ')';
-    case FT.UINT32: return 'uint32(' + v + ')';
-    case FT.INT64: return 'int64(' + v + ')';
-    case FT.UINT64: return v;
-    case FT.BOOL: return v + ' != 0';
-    case FT.SINT32: return 'unzz32(' + v + ')';
-    case FT.SINT64: return 'unzz64(' + v + ')';
-    default: throw new Error('not a varint type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbVarintDecode, f, '', null, [v]);
 }
-
-function gpFixedDecode(info, v) {
-  switch (info[1]) {
-    case 'Float32': return 'pbFloat32FromBits(binary.LittleEndian.Uint32(' + v + '))';
-    case 'Float64': return 'pbFloat64FromBits(binary.LittleEndian.Uint64(' + v + '))';
-    case 'Uint32': return 'binary.LittleEndian.Uint32(' + v + ')';
-    case 'Int32': return 'int32(binary.LittleEndian.Uint32(' + v + '))';
-    case 'BigUint64': return 'binary.LittleEndian.Uint64(' + v + ')';
-    case 'BigInt64': return 'int64(binary.LittleEndian.Uint64(' + v + '))';
-    default: throw new Error('bad fixed kind');
-  }
-}
-
-function gpFixedEncode(info, v) {
-  switch (info[1]) {
-    case 'Float32': return 'fixed32Bytes(pbFloat32Bits(' + v + '))';
-    case 'Float64': return 'fixed64Bytes(pbFloat64Bits(' + v + '))';
-    case 'Uint32': return 'fixed32Bytes(' + v + ')';
-    case 'Int32': return 'fixed32Bytes(uint32(' + v + '))';
-    case 'BigUint64': return 'fixed64Bytes(' + v + ')';
-    case 'BigInt64': return 'fixed64Bytes(uint64(' + v + '))';
-    default: throw new Error('bad fixed kind');
-  }
-}
-
 function gpZero(f) {
   switch (f.type) {
     case FT.MESSAGE: case FT.GROUP: case FT.BYTES: return 'nil';
@@ -1128,163 +1182,17 @@ function gpEncodeGuard(model, f, code) {
 }
 
 function gpEncodeSingular(model, f, v, indent) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (GP_VARINT.has(f.type)) {
-    if (proto2) {
-      return indent + 'out = appendTag(out, ' + n + ', 0)\n' + indent + 'out = appendVarint(out, ' + gpVarintExpr(f, v) + ')\n';
-    }
-    return indent + 'if ' + (f.type === FT.BOOL ? v : v + ' != 0') + ' {\n'
-      + indent + '\tout = appendTag(out, ' + n + ', 0)\n'
-      + indent + '\tout = appendVarint(out, ' + gpVarintExpr(f, v) + ')\n'
-      + indent + '}\n';
-  }
-  const fixed = GP_FIXED[f.type];
-  if (fixed) {
-    const wire = fixed[0] === 8 ? 1 : 5;
-    if (proto2) {
-      return indent + 'out = appendTag(out, ' + n + ', ' + wire + ')\n'
-        + indent + 'out = append(out, ' + gpFixedEncode(fixed, v) + '...)\n';
-    }
-    return indent + 'if ' + v + ' != 0 {\n'
-      + indent + '\tout = appendTag(out, ' + n + ', ' + wire + ')\n'
-      + indent + '\tout = append(out, ' + gpFixedEncode(fixed, v) + '...)\n'
-      + indent + '}\n';
-  }
-  switch (f.type) {
-    case FT.STRING:
-      return proto2
-        ? indent + 'out = appendBytesField(out, ' + n + ', []byte(' + v + '))\n'
-        : indent + 'out = appendStringField(out, ' + n + ', ' + v + ')\n';
-    case FT.BYTES:
-      return proto2
-        ? indent + 'out = appendBytesField(out, ' + n + ', ' + v + ')\n'
-        : indent + 'if len(' + v + ') > 0 {\n' + indent + '\tout = appendBytesField(out, ' + n + ', ' + v + ')\n' + indent + '}\n';
-    case FT.MESSAGE:
-      return indent + 'if ' + v + ' != nil {\n' + indent + '\tout = appendBytesField(out, ' + n + ', ' + v + '.MarshalDC())\n' + indent + '}\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbEncodeSingular, f, '', model, [v, indent]);
 }
-
 function gpEncodeField(model, f) {
-  const v = 'm.' + gpPascal(f.name);
-  const n = f.number;
-  if (f.type === FT.MESSAGE && gpResolve(model, f.typeName).kind === 'map') {
-    const helper = 'encode' + gpEntryType(gpResolve(model, f.typeName));
-    const kf = gpResolve(model, f.typeName).msg.fields.find((x) => x.number === 1);
-    const kt = gpFieldType(model, { ...kf, label: 1 });
-    return '\t{\n\t\tkeys := make([]' + kt + ', 0, len(' + v + '))\n\t\tfor k := range ' + v + ' { keys = append(keys, k) }\n\t\tsort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })\n\t\tfor _, k := range keys {\n\t\t\tout = appendBytesField(out, ' + n + ', ' + helper + '(k, ' + v + '[k]))\n\t\t}\n\t}\n';
-  }
-  if (f.label !== 3) return gpEncodeSingular(model, f, v, '\t');
-  if (GP_VARINT.has(f.type)) {
-    return '\tif len(' + v + ') > 0 {\n\t\tvar payload []byte\n'
-      + '\t\tfor _, x := range ' + v + ' {\n\t\t\tpayload = appendVarint(payload, ' + gpVarintExpr(f, 'x') + ')\n\t\t}\n'
-      + '\t\tout = appendBytesField(out, ' + n + ', payload)\n\t}\n';
-  }
-  const fixed = GP_FIXED[f.type];
-  if (fixed) {
-    return '\tif len(' + v + ') > 0 {\n\t\tvar payload []byte\n'
-      + '\t\tfor _, x := range ' + v + ' {\n\t\t\tpayload = append(payload, ' + gpFixedEncode(fixed, 'x') + '...)\n\t\t}\n'
-      + '\t\tout = appendBytesField(out, ' + n + ', payload)\n\t}\n';
-  }
-  switch (f.type) {
-    case FT.STRING:
-      return '\tfor _, x := range ' + v + ' {\n\t\tout = appendBytesField(out, ' + n + ', []byte(x))\n\t}\n';
-    case FT.BYTES:
-      return '\tfor _, x := range ' + v + ' {\n\t\tout = appendBytesField(out, ' + n + ', x)\n\t}\n';
-    case FT.MESSAGE:
-      return '\tfor _, x := range ' + v + ' {\n\t\tout = appendBytesField(out, ' + n + ', x.MarshalDC())\n\t}\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbEncodeField, f, '', model);
 }
 function gpDecodeSingular(model, f, target, src, indent, errStmt) {
-  if (GP_VARINT.has(f.type)) {
-    const conv = f.type === FT.ENUM
-      ? gpEntryType(gpResolve(model, f.typeName)) + '(' + gpVarintDecode({ ...f, type: FT.INT32 }, src) + ')'
-      : gpVarintDecode(f, src);
-    return indent + target + ' = ' + conv + '\n';
-  }
-  const fixed = GP_FIXED[f.type];
-  if (fixed) return indent + target + ' = ' + gpFixedDecode(fixed, src) + '\n';
-  switch (f.type) {
-    case FT.STRING: return indent + target + ' = string(' + src + ')\n';
-    case FT.BYTES: return indent + target + ' = append([]byte(nil), ' + src + '...)\n';
-    case FT.MESSAGE: {
-      const tname = gpEntryType(gpResolve(model, f.typeName));
-      return indent + 'tmp' + f.number + ' := new(' + tname + ')\n'
-        + indent + 'if err := tmp' + f.number + '.UnmarshalDC(' + src + '); err != nil {\n'
-        + indent + '\t' + errStmt + '\n'
-        + indent + '}\n'
-        + indent + target + ' = tmp' + f.number + '\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbDecodeSingular, f, '', model, [target, src, indent], errStmt);
 }
-
 function gpDecodeCase(model, f) {
-  const target = 'm.' + gpPascal(f.name);
-  const head = '\t\tcase ' + f.number + ':\n';
-  if (f.type === FT.MESSAGE && gpResolve(model, f.typeName).kind === 'map') {
-    const helper = 'decode' + gpEntryType(gpResolve(model, f.typeName));
-    return head
-      + '\t\t\tif b, ok := value.([]byte); ok {\n'
-      + '\t\t\t\tk, val, err := ' + helper + '(b)\n'
-      + '\t\t\t\tif err != nil {\n\t\t\t\t\treturn err\n\t\t\t\t}\n'
-      + '\t\t\t\tif ' + target + ' == nil {\n\t\t\t\t\t' + target + ' = make(' + gpFieldType(model, f) + ')\n\t\t\t\t}\n'
-      + '\t\t\t\t' + target + '[k] = val\n\t\t\t}\n';
-  }
-  if (f.label !== 3) {
-    const inner = GP_VARINT.has(f.type)
-      ? '\t\t\tif v, ok := value.(uint64); ok {\n' + gpDecodeSingular(model, f, target, 'v', '\t\t\t\t', 'return err') + '\t\t\t}\n'
-      : '\t\t\tif b, ok := value.([]byte); ok {\n' + gpDecodeSingular(model, f, target, 'b', '\t\t\t\t', 'return err') + '\t\t\t}\n';
-    return head + gpOneofClearing(model, f) + inner;
-  }
-  if (GP_VARINT.has(f.type)) {
-    const conv = (src) => f.type === FT.ENUM
-      ? gpEntryType(gpResolve(model, f.typeName)) + '(' + gpVarintDecode({ ...f, type: FT.INT32 }, src) + ')'
-      : gpVarintDecode(f, src);
-    return head
-      + '\t\t\tswitch value := value.(type) {\n'
-      + '\t\t\tcase uint64:\n'
-      + '\t\t\t\t' + target + ' = append(' + target + ', ' + conv('value') + ')\n'
-      + '\t\t\tcase []byte:\n'
-      + '\t\t\t\tsub := &pbReader{buf: value}\n'
-      + '\t\t\t\tfor sub.pos < len(sub.buf) {\n'
-      + '\t\t\t\t\tv, err := sub.varint()\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\treturn err\n\t\t\t\t\t}\n'
-      + '\t\t\t\t\t' + target + ' = append(' + target + ', ' + conv('v') + ')\n'
-      + '\t\t\t\t}\n\t\t\t}\n';
-  }
-  const fixed = GP_FIXED[f.type];
-  if (fixed) {
-    const size = fixed[0];
-    return head
-      + '\t\t\tif b, ok := value.([]byte); ok {\n'
-      + '\t\t\t\tif len(b) == ' + size + ' {\n'
-      + '\t\t\t\t\t' + target + ' = append(' + target + ', ' + gpFixedDecode(fixed, 'b') + ')\n'
-      + '\t\t\t\t} else {\n'
-      + '\t\t\t\t\tfor off := 0; off+' + size + ' <= len(b); off += ' + size + ' {\n'
-      + '\t\t\t\t\t\t' + target + ' = append(' + target + ', ' + gpFixedDecode(fixed, 'b[off:off+' + size + ']') + ')\n'
-      + '\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n';
-  }
-  switch (f.type) {
-    case FT.STRING:
-      return head + '\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t' + target + ' = append(' + target + ', string(b))\n\t\t\t}\n';
-    case FT.BYTES:
-      return head + '\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t' + target + ' = append(' + target + ', append([]byte(nil), b...))\n\t\t\t}\n';
-    case FT.MESSAGE: {
-      return head
-        + '\t\t\tif b, ok := value.([]byte); ok {\n'
-        + '\t\t\t\tvar tmpv ' + gpFieldType(model, { ...f, label: 1 }) + '\n'
-        + gpDecodeSingular(model, f, 'tmpv', 'b', '\t\t\t\t', 'return err')
-        + '\t\t\t\t' + target + ' = append(' + target + ', tmpv)\n\t\t\t}\n';
-    }
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbDecodeCase, f, '', model);
 }
-
-// Mirrors the native model map-entry-emitted-in-own-file?: will the map
-// entry's own file emit its helpers? (Go helpers are
-// package-level, so the using file must skip them then.)
 function gpMapEmittedInOwnFile(model, entry) {
   if (entry.file === model.name) return false;
   if (!(model.generateFiles || []).includes(entry.file)) return false;
@@ -1298,87 +1206,20 @@ function gpMapEmittedInOwnFile(model, entry) {
 }
 
 function gpMapHelpers(model, entry) {
-  const msg = entry.msg;
-  const base = gpEntryType(entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry ' + msg.fullName + ' lacks key/value fields');
-  const kt = gpFieldType(model, { ...keyF, label: 1 });
-  const vt = gpFieldType(model, { ...valF, label: 1 });
-  const errStmt = 'return key, value, err';
-  const decCase = (fld, targetName) => {
-    const inner = GP_VARINT.has(fld.type)
-      ? '\t\t\tif v, ok := value0.(uint64); ok {\n' + gpDecodeSingular(model, fld, targetName, 'v', '\t\t\t\t', errStmt) + '\t\t\t}\n'
-      : '\t\t\tif b, ok := value0.([]byte); ok {\n' + gpDecodeSingular(model, fld, targetName, 'b', '\t\t\t\t', errStmt) + '\t\t\t}\n';
-    return '\t\tcase ' + fld.number + ':\n' + inner;
-  };
-  return 'func encode' + base + '(key ' + kt + ', value ' + vt + ') []byte {\n\tvar out []byte\n'
-    + gpEncodeSingular(model, keyF, 'key', '\t')
-    + gpEncodeSingular(model, valF, 'value', '\t')
-    + '\treturn out\n}\n\n'
-    + 'func decode' + base + '(data []byte) (' + kt + ', ' + vt + ', error) {\n'
-    + '\tvar key ' + kt + '\n\tvar value ' + vt + '\n'
-    + '\tr := &pbReader{buf: data}\n\tfor {\n\t\tnum, _, value0, _, done, err := r.field()\n\t\tif err != nil {\n\t\t\treturn key, value, err\n\t\t}\n\t\tif done {\n\t\t\treturn key, value, nil\n\t\t}\n\t\tswitch num {\n'
-    + decCase(keyF, 'key')
-    + decCase(valF, 'value')
-    + '\t\t}\n\t}\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.goPbMapHelpers, entry, '', model, [], 'return key, value, err');
 }
-
 function gpEnum(entry) {
-  const e = entry.enum;
-  const tname = gpEntryType(entry);
-  return 'type ' + tname + ' int32\n\nconst (\n'
-    + e.values.map((v) => '\t' + tname + '_' + v.name + ' ' + tname + ' = ' + v.number + '\n').join('')
-    + ')\n\n';
+  return runSegments(SEGMENT_PROGRAMS.goPbEnum, entry, '', null, [gpEntryType(entry)]);
 }
-
 function gpDefaultLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case FT.STRING: return JSON.stringify(d);
-    case FT.ENUM: return gpEntryType(gpResolve(model, f.typeName)) + '(' + enumDefaultNumber(model, f) + ')';
-    default: return d;
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbDefaultLiteral, f, '', model);
 }
-
 function gpConstructor(model, msg) {
-  const name = gpFlat(model.package, msg.fullName);
-  const inits = [];
-  for (const f of msg.fields) {
-    const lit = gpDefaultLiteral(model, f);
-    if (lit !== null) inits.push('\t' + gpPascal(f.name) + ': ' + lit + ',\n');
-  }
-  if (!inits.length) return '';
-  return '// New' + name + ' returns a ' + name + ' with the descriptor\'s explicit (proto2)\n// default values applied.\n'
-    + 'func New' + name + '() *' + name + ' {\n\treturn &' + name + '{\n'
-    + inits.join('')
-    + '\t}\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.goPbConstructor, msg, '', model);
 }
-
 function gpMessage(model, msg) {
-  const name = gpFlat(model.package, msg.fullName);
-  return 'type ' + name + ' struct {\n'
-    + msg.fields.map((f) => '\t' + gpPascal(f.name) + ' ' + gpFieldType(model, f) + '\n').join('')
-    + '\tUnknownFields []byte\n'
-    + '}\n\n'
-    + gpConstructor(model, msg)
-    + 'func (m *' + name + ') MarshalDC() []byte {\n\tvar out []byte\n'
-    + msg.fields.map((f) => gpEncodeGuard(model, f, gpEncodeField(model, f))).join('')
-    + '\tout = append(out, m.UnknownFields...)\n'
-    + '\treturn out\n}\n\n'
-    + 'func (m *' + name + ') UnmarshalDC(data []byte) error {\n'
-    + '\tm.UnknownFields = nil\n'
-    + '\tr := &pbReader{buf: data}\n\tfor {\n'
-    + (msg.fields.length === 0
-      ? '\t\tnum, _, _, raw, done, err := r.field()\n'
-      : '\t\tnum, _, value, raw, done, err := r.field()\n')
-    + '\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif done {\n\t\t\treturn nil\n\t\t}\n\t\tswitch num {\n'
-    + msg.fields.map((f) => gpDecodeCase(model, f)).join('')
-    + '\t\tdefault:\n\t\t\tm.UnknownFields = append(m.UnknownFields, raw...)\n'
-    + '\t\t}\n\t}\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.goPbMessage, msg, '', model);
 }
-
 function gpApplyPrefix(content, prefix) {
   const pairs = [
     ['appendVarint', 'AppendVarint'], ['appendTag', 'AppendTag'],

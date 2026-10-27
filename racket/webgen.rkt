@@ -1093,52 +1093,11 @@ function gpFieldType(model, f) {
 }
 
 function gpVarintExpr(f, v) {
-  switch (f.type) {
-    case FT.BOOL: return 'boolToUint64(' + v + ')';
-    case FT.SINT32: return 'zz32(' + v + ')';
-    case FT.SINT64: return 'zz64(' + v + ')';
-    case FT.INT32: case FT.ENUM: return 'uint64(int64(' + v + '))';
-    default: return 'uint64(' + v + ')';
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbVarintExpr, f, '', null, [v]);
 }
-
 function gpVarintDecode(f, v) {
-  switch (f.type) {
-    case FT.INT32: case FT.ENUM: return 'int32(' + v + ')';
-    case FT.UINT32: return 'uint32(' + v + ')';
-    case FT.INT64: return 'int64(' + v + ')';
-    case FT.UINT64: return v;
-    case FT.BOOL: return v + ' != 0';
-    case FT.SINT32: return 'unzz32(' + v + ')';
-    case FT.SINT64: return 'unzz64(' + v + ')';
-    default: throw new Error('not a varint type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbVarintDecode, f, '', null, [v]);
 }
-
-function gpFixedDecode(info, v) {
-  switch (info[1]) {
-    case 'Float32': return 'pbFloat32FromBits(binary.LittleEndian.Uint32(' + v + '))';
-    case 'Float64': return 'pbFloat64FromBits(binary.LittleEndian.Uint64(' + v + '))';
-    case 'Uint32': return 'binary.LittleEndian.Uint32(' + v + ')';
-    case 'Int32': return 'int32(binary.LittleEndian.Uint32(' + v + '))';
-    case 'BigUint64': return 'binary.LittleEndian.Uint64(' + v + ')';
-    case 'BigInt64': return 'int64(binary.LittleEndian.Uint64(' + v + '))';
-    default: throw new Error('bad fixed kind');
-  }
-}
-
-function gpFixedEncode(info, v) {
-  switch (info[1]) {
-    case 'Float32': return 'fixed32Bytes(pbFloat32Bits(' + v + '))';
-    case 'Float64': return 'fixed64Bytes(pbFloat64Bits(' + v + '))';
-    case 'Uint32': return 'fixed32Bytes(' + v + ')';
-    case 'Int32': return 'fixed32Bytes(uint32(' + v + '))';
-    case 'BigUint64': return 'fixed64Bytes(' + v + ')';
-    case 'BigInt64': return 'fixed64Bytes(uint64(' + v + '))';
-    default: throw new Error('bad fixed kind');
-  }
-}
-
 function gpZero(f) {
   switch (f.type) {
     case FT.MESSAGE: case FT.GROUP: case FT.BYTES: return 'nil';
@@ -1172,163 +1131,17 @@ function gpEncodeGuard(model, f, code) {
 }
 
 function gpEncodeSingular(model, f, v, indent) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (GP_VARINT.has(f.type)) {
-    if (proto2) {
-      return indent + 'out = appendTag(out, ' + n + ', 0)\n' + indent + 'out = appendVarint(out, ' + gpVarintExpr(f, v) + ')\n';
-    }
-    return indent + 'if ' + (f.type === FT.BOOL ? v : v + ' != 0') + ' {\n'
-      + indent + '\tout = appendTag(out, ' + n + ', 0)\n'
-      + indent + '\tout = appendVarint(out, ' + gpVarintExpr(f, v) + ')\n'
-      + indent + '}\n';
-  }
-  const fixed = GP_FIXED[f.type];
-  if (fixed) {
-    const wire = fixed[0] === 8 ? 1 : 5;
-    if (proto2) {
-      return indent + 'out = appendTag(out, ' + n + ', ' + wire + ')\n'
-        + indent + 'out = append(out, ' + gpFixedEncode(fixed, v) + '...)\n';
-    }
-    return indent + 'if ' + v + ' != 0 {\n'
-      + indent + '\tout = appendTag(out, ' + n + ', ' + wire + ')\n'
-      + indent + '\tout = append(out, ' + gpFixedEncode(fixed, v) + '...)\n'
-      + indent + '}\n';
-  }
-  switch (f.type) {
-    case FT.STRING:
-      return proto2
-        ? indent + 'out = appendBytesField(out, ' + n + ', []byte(' + v + '))\n'
-        : indent + 'out = appendStringField(out, ' + n + ', ' + v + ')\n';
-    case FT.BYTES:
-      return proto2
-        ? indent + 'out = appendBytesField(out, ' + n + ', ' + v + ')\n'
-        : indent + 'if len(' + v + ') > 0 {\n' + indent + '\tout = appendBytesField(out, ' + n + ', ' + v + ')\n' + indent + '}\n';
-    case FT.MESSAGE:
-      return indent + 'if ' + v + ' != nil {\n' + indent + '\tout = appendBytesField(out, ' + n + ', ' + v + '.MarshalDC())\n' + indent + '}\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbEncodeSingular, f, '', model, [v, indent]);
 }
-
 function gpEncodeField(model, f) {
-  const v = 'm.' + gpPascal(f.name);
-  const n = f.number;
-  if (f.type === FT.MESSAGE && gpResolve(model, f.typeName).kind === 'map') {
-    const helper = 'encode' + gpEntryType(gpResolve(model, f.typeName));
-    const kf = gpResolve(model, f.typeName).msg.fields.find((x) => x.number === 1);
-    const kt = gpFieldType(model, { ...kf, label: 1 });
-    return '\t{\n\t\tkeys := make([]' + kt + ', 0, len(' + v + '))\n\t\tfor k := range ' + v + ' { keys = append(keys, k) }\n\t\tsort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })\n\t\tfor _, k := range keys {\n\t\t\tout = appendBytesField(out, ' + n + ', ' + helper + '(k, ' + v + '[k]))\n\t\t}\n\t}\n';
-  }
-  if (f.label !== 3) return gpEncodeSingular(model, f, v, '\t');
-  if (GP_VARINT.has(f.type)) {
-    return '\tif len(' + v + ') > 0 {\n\t\tvar payload []byte\n'
-      + '\t\tfor _, x := range ' + v + ' {\n\t\t\tpayload = appendVarint(payload, ' + gpVarintExpr(f, 'x') + ')\n\t\t}\n'
-      + '\t\tout = appendBytesField(out, ' + n + ', payload)\n\t}\n';
-  }
-  const fixed = GP_FIXED[f.type];
-  if (fixed) {
-    return '\tif len(' + v + ') > 0 {\n\t\tvar payload []byte\n'
-      + '\t\tfor _, x := range ' + v + ' {\n\t\t\tpayload = append(payload, ' + gpFixedEncode(fixed, 'x') + '...)\n\t\t}\n'
-      + '\t\tout = appendBytesField(out, ' + n + ', payload)\n\t}\n';
-  }
-  switch (f.type) {
-    case FT.STRING:
-      return '\tfor _, x := range ' + v + ' {\n\t\tout = appendBytesField(out, ' + n + ', []byte(x))\n\t}\n';
-    case FT.BYTES:
-      return '\tfor _, x := range ' + v + ' {\n\t\tout = appendBytesField(out, ' + n + ', x)\n\t}\n';
-    case FT.MESSAGE:
-      return '\tfor _, x := range ' + v + ' {\n\t\tout = appendBytesField(out, ' + n + ', x.MarshalDC())\n\t}\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbEncodeField, f, '', model);
 }
 function gpDecodeSingular(model, f, target, src, indent, errStmt) {
-  if (GP_VARINT.has(f.type)) {
-    const conv = f.type === FT.ENUM
-      ? gpEntryType(gpResolve(model, f.typeName)) + '(' + gpVarintDecode({ ...f, type: FT.INT32 }, src) + ')'
-      : gpVarintDecode(f, src);
-    return indent + target + ' = ' + conv + '\n';
-  }
-  const fixed = GP_FIXED[f.type];
-  if (fixed) return indent + target + ' = ' + gpFixedDecode(fixed, src) + '\n';
-  switch (f.type) {
-    case FT.STRING: return indent + target + ' = string(' + src + ')\n';
-    case FT.BYTES: return indent + target + ' = append([]byte(nil), ' + src + '...)\n';
-    case FT.MESSAGE: {
-      const tname = gpEntryType(gpResolve(model, f.typeName));
-      return indent + 'tmp' + f.number + ' := new(' + tname + ')\n'
-        + indent + 'if err := tmp' + f.number + '.UnmarshalDC(' + src + '); err != nil {\n'
-        + indent + '\t' + errStmt + '\n'
-        + indent + '}\n'
-        + indent + target + ' = tmp' + f.number + '\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbDecodeSingular, f, '', model, [target, src, indent], errStmt);
 }
-
 function gpDecodeCase(model, f) {
-  const target = 'm.' + gpPascal(f.name);
-  const head = '\t\tcase ' + f.number + ':\n';
-  if (f.type === FT.MESSAGE && gpResolve(model, f.typeName).kind === 'map') {
-    const helper = 'decode' + gpEntryType(gpResolve(model, f.typeName));
-    return head
-      + '\t\t\tif b, ok := value.([]byte); ok {\n'
-      + '\t\t\t\tk, val, err := ' + helper + '(b)\n'
-      + '\t\t\t\tif err != nil {\n\t\t\t\t\treturn err\n\t\t\t\t}\n'
-      + '\t\t\t\tif ' + target + ' == nil {\n\t\t\t\t\t' + target + ' = make(' + gpFieldType(model, f) + ')\n\t\t\t\t}\n'
-      + '\t\t\t\t' + target + '[k] = val\n\t\t\t}\n';
-  }
-  if (f.label !== 3) {
-    const inner = GP_VARINT.has(f.type)
-      ? '\t\t\tif v, ok := value.(uint64); ok {\n' + gpDecodeSingular(model, f, target, 'v', '\t\t\t\t', 'return err') + '\t\t\t}\n'
-      : '\t\t\tif b, ok := value.([]byte); ok {\n' + gpDecodeSingular(model, f, target, 'b', '\t\t\t\t', 'return err') + '\t\t\t}\n';
-    return head + gpOneofClearing(model, f) + inner;
-  }
-  if (GP_VARINT.has(f.type)) {
-    const conv = (src) => f.type === FT.ENUM
-      ? gpEntryType(gpResolve(model, f.typeName)) + '(' + gpVarintDecode({ ...f, type: FT.INT32 }, src) + ')'
-      : gpVarintDecode(f, src);
-    return head
-      + '\t\t\tswitch value := value.(type) {\n'
-      + '\t\t\tcase uint64:\n'
-      + '\t\t\t\t' + target + ' = append(' + target + ', ' + conv('value') + ')\n'
-      + '\t\t\tcase []byte:\n'
-      + '\t\t\t\tsub := &pbReader{buf: value}\n'
-      + '\t\t\t\tfor sub.pos < len(sub.buf) {\n'
-      + '\t\t\t\t\tv, err := sub.varint()\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\treturn err\n\t\t\t\t\t}\n'
-      + '\t\t\t\t\t' + target + ' = append(' + target + ', ' + conv('v') + ')\n'
-      + '\t\t\t\t}\n\t\t\t}\n';
-  }
-  const fixed = GP_FIXED[f.type];
-  if (fixed) {
-    const size = fixed[0];
-    return head
-      + '\t\t\tif b, ok := value.([]byte); ok {\n'
-      + '\t\t\t\tif len(b) == ' + size + ' {\n'
-      + '\t\t\t\t\t' + target + ' = append(' + target + ', ' + gpFixedDecode(fixed, 'b') + ')\n'
-      + '\t\t\t\t} else {\n'
-      + '\t\t\t\t\tfor off := 0; off+' + size + ' <= len(b); off += ' + size + ' {\n'
-      + '\t\t\t\t\t\t' + target + ' = append(' + target + ', ' + gpFixedDecode(fixed, 'b[off:off+' + size + ']') + ')\n'
-      + '\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n';
-  }
-  switch (f.type) {
-    case FT.STRING:
-      return head + '\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t' + target + ' = append(' + target + ', string(b))\n\t\t\t}\n';
-    case FT.BYTES:
-      return head + '\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t' + target + ' = append(' + target + ', append([]byte(nil), b...))\n\t\t\t}\n';
-    case FT.MESSAGE: {
-      return head
-        + '\t\t\tif b, ok := value.([]byte); ok {\n'
-        + '\t\t\t\tvar tmpv ' + gpFieldType(model, { ...f, label: 1 }) + '\n'
-        + gpDecodeSingular(model, f, 'tmpv', 'b', '\t\t\t\t', 'return err')
-        + '\t\t\t\t' + target + ' = append(' + target + ', tmpv)\n\t\t\t}\n';
-    }
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbDecodeCase, f, '', model);
 }
-
-// Mirrors the native model map-entry-emitted-in-own-file?: will the map
-// entry's own file emit its helpers? (Go helpers are
-// package-level, so the using file must skip them then.)
 function gpMapEmittedInOwnFile(model, entry) {
   if (entry.file === model.name) return false;
   if (!(model.generateFiles || []).includes(entry.file)) return false;
@@ -1342,87 +1155,20 @@ function gpMapEmittedInOwnFile(model, entry) {
 }
 
 function gpMapHelpers(model, entry) {
-  const msg = entry.msg;
-  const base = gpEntryType(entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry ' + msg.fullName + ' lacks key/value fields');
-  const kt = gpFieldType(model, { ...keyF, label: 1 });
-  const vt = gpFieldType(model, { ...valF, label: 1 });
-  const errStmt = 'return key, value, err';
-  const decCase = (fld, targetName) => {
-    const inner = GP_VARINT.has(fld.type)
-      ? '\t\t\tif v, ok := value0.(uint64); ok {\n' + gpDecodeSingular(model, fld, targetName, 'v', '\t\t\t\t', errStmt) + '\t\t\t}\n'
-      : '\t\t\tif b, ok := value0.([]byte); ok {\n' + gpDecodeSingular(model, fld, targetName, 'b', '\t\t\t\t', errStmt) + '\t\t\t}\n';
-    return '\t\tcase ' + fld.number + ':\n' + inner;
-  };
-  return 'func encode' + base + '(key ' + kt + ', value ' + vt + ') []byte {\n\tvar out []byte\n'
-    + gpEncodeSingular(model, keyF, 'key', '\t')
-    + gpEncodeSingular(model, valF, 'value', '\t')
-    + '\treturn out\n}\n\n'
-    + 'func decode' + base + '(data []byte) (' + kt + ', ' + vt + ', error) {\n'
-    + '\tvar key ' + kt + '\n\tvar value ' + vt + '\n'
-    + '\tr := &pbReader{buf: data}\n\tfor {\n\t\tnum, _, value0, _, done, err := r.field()\n\t\tif err != nil {\n\t\t\treturn key, value, err\n\t\t}\n\t\tif done {\n\t\t\treturn key, value, nil\n\t\t}\n\t\tswitch num {\n'
-    + decCase(keyF, 'key')
-    + decCase(valF, 'value')
-    + '\t\t}\n\t}\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.goPbMapHelpers, entry, '', model, [], 'return key, value, err');
 }
-
 function gpEnum(entry) {
-  const e = entry.enum;
-  const tname = gpEntryType(entry);
-  return 'type ' + tname + ' int32\n\nconst (\n'
-    + e.values.map((v) => '\t' + tname + '_' + v.name + ' ' + tname + ' = ' + v.number + '\n').join('')
-    + ')\n\n';
+  return runSegments(SEGMENT_PROGRAMS.goPbEnum, entry, '', null, [gpEntryType(entry)]);
 }
-
 function gpDefaultLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case FT.STRING: return JSON.stringify(d);
-    case FT.ENUM: return gpEntryType(gpResolve(model, f.typeName)) + '(' + enumDefaultNumber(model, f) + ')';
-    default: return d;
-  }
+  return runSegments(SEGMENT_PROGRAMS.goPbDefaultLiteral, f, '', model);
 }
-
 function gpConstructor(model, msg) {
-  const name = gpFlat(model.package, msg.fullName);
-  const inits = [];
-  for (const f of msg.fields) {
-    const lit = gpDefaultLiteral(model, f);
-    if (lit !== null) inits.push('\t' + gpPascal(f.name) + ': ' + lit + ',\n');
-  }
-  if (!inits.length) return '';
-  return '// New' + name + ' returns a ' + name + ' with the descriptor\'s explicit (proto2)\n// default values applied.\n'
-    + 'func New' + name + '() *' + name + ' {\n\treturn &' + name + '{\n'
-    + inits.join('')
-    + '\t}\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.goPbConstructor, msg, '', model);
 }
-
 function gpMessage(model, msg) {
-  const name = gpFlat(model.package, msg.fullName);
-  return 'type ' + name + ' struct {\n'
-    + msg.fields.map((f) => '\t' + gpPascal(f.name) + ' ' + gpFieldType(model, f) + '\n').join('')
-    + '\tUnknownFields []byte\n'
-    + '}\n\n'
-    + gpConstructor(model, msg)
-    + 'func (m *' + name + ') MarshalDC() []byte {\n\tvar out []byte\n'
-    + msg.fields.map((f) => gpEncodeGuard(model, f, gpEncodeField(model, f))).join('')
-    + '\tout = append(out, m.UnknownFields...)\n'
-    + '\treturn out\n}\n\n'
-    + 'func (m *' + name + ') UnmarshalDC(data []byte) error {\n'
-    + '\tm.UnknownFields = nil\n'
-    + '\tr := &pbReader{buf: data}\n\tfor {\n'
-    + (msg.fields.length === 0
-      ? '\t\tnum, _, _, raw, done, err := r.field()\n'
-      : '\t\tnum, _, value, raw, done, err := r.field()\n')
-    + '\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif done {\n\t\t\treturn nil\n\t\t}\n\t\tswitch num {\n'
-    + msg.fields.map((f) => gpDecodeCase(model, f)).join('')
-    + '\t\tdefault:\n\t\t\tm.UnknownFields = append(m.UnknownFields, raw...)\n'
-    + '\t\t}\n\t}\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.goPbMessage, msg, '', model);
 }
-
 function gpApplyPrefix(content, prefix) {
   const pairs = [
     ['appendVarint', 'AppendVarint'], ['appendTag', 'AppendTag'],
@@ -13095,9 +12841,15 @@ JS
                        "const VARINT_TYPES = " (varint-types-json) ";\n"
                        "const SCALAR_TABLES = " (scalar-tables-json) ";\n"
                        "const SEGMENT_PROGRAMS = " (segment-programs-json) ";\n\n"
-                       "function runSegments(program, node, svc) {\n  let out = '';\n  for (const seg of program) out += runSegment(seg, node, svc);\n  return out;\n}\n\n"
+                       "function runSegments(program, node, svc, model, args, errStmt) {\n"
+                       "  const env = { model: model ?? null, node, svc, args: args ?? [], err: errStmt ?? 'return err' };\n  return runEnv(program, env);\n}\n\n"
+                       "function runEnv(program, env) {\n  let out = '';\n  for (const seg of program) out += runSegment(seg, env);\n  return out;\n}\n\n"
+                       "function envWith(env, over) { return Object.assign({}, env, over); }\n\n"
+                       "function segTruthy(v) { return !(v === false || v === null || v === undefined || v === '' || v === 0); }\n\n"
                        "function segKey(k) {\n  return k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());\n}\n\n"
-                       "function runSegment(seg, node, svc) {\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      return seg[1].replace(/~[as]/g, (tok) => {\n        const v = runSegment(seg[++i], node, svc);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref':\n      return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n    case 'svc':\n      return svc;\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind);\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runSegments(branch.slice(1), node, svc);\n    }\n    case 'when':\n      return node[segKey(seg[1][1])] ? runSegments(seg.slice(2), node, svc) : '';\n    case 'call':\n      return runSegments(SEGMENT_PROGRAMS[seg[1]], node, svc);\n    case 'each': {\n      let out = '';\n      for (const el of node[segKey(seg[1])]) out += runSegments(seg.slice(2), el, svc);\n      return out;\n    }\n    case 'each+': {\n      const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      let out = '';\n      for (const el of all) out += runSegments(seg.slice(3), el, svc);\n      return out;\n    }\n    default:\n      throw new Error('bad segment: ' + JSON.stringify(seg));\n  }\n}\n\n"
+                       "function segCategory(model, node) {\n  const t = node.type;\n  if (t === 11 && gpResolve(model, node.typeName).kind === 'map') return 'map';\n  if (t === 11) return 'message';\n  if (VARINT_TYPES.includes(t)) return 'varint';\n  if (FIXED_TABLES.go[t]) return 'fixed';\n  if (t === 9) return 'string';\n  if (t === 12) return 'bytes';\n  return 'other';\n}\n\n"
+                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      return seg[1].replace(/~[as]/g, (tok) => {\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'kind-case':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
+                       "function runSegment(seg, env) {\n  const node = env.node;\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'if': {\n      const thenPart = seg.slice(2).find((g) => g[0] === 'then');\n      const elsePart = seg.slice(2).find((g) => g[0] === 'else');\n      if (segTruthy(segEval(seg[1], env))) return runEnv(thenPart.slice(1), env);\n      return elsePart ? runEnv(elsePart.slice(1), env) : '';\n    }\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind);\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runEnv(branch.slice(1), env);\n    }\n    case 'case-on': {\n      const val = segEval(seg[1], env);\n      const raw = seg.slice(2);\n      const isKey = (b) => Array.isArray(b) && (typeof b[0] === 'number' || typeof b[0] === 'string' || b[0] === 'else');\n      let branches;\n      if (raw.length === 1 && Array.isArray(raw[0]) && raw[0].every(isKey)) branches = raw[0];\n      else branches = raw.map((b) => (Array.isArray(b) && b.length === 1 && Array.isArray(b[0])) ? b[0] : b);\n      const branch = branches.find((b) => b[0] === 'else' || String(b[0]) === String(val));\n      return branch ? runEnv(branch.slice(1), env) : '';\n    }\n    case 'when':\n      return segTruthy(segEval(seg[1], env)) ? runEnv(seg.slice(2), env) : '';\n    case 'guarded': {\n      const text = runEnv(seg.slice(1), env);\n      const cond = oneofLaterSiblings(env.model, node).map(gpSetExpr).join(' || ');\n      if (!cond) return text;\n      return '\\tif !(' + cond + ') {\\n' + (text.endsWith('\\n') ? text : text + '\\n') + '\\t}\\n';\n    }\n    case 'fail':\n      throw new Error('unsupported field type ' + node.type);\n    case 'each': {\n      let i = 1; const keys = [];\n      while (typeof seg[i] === 'string') { keys.push(seg[i]); i++; }\n      let items = node;\n      for (const k of keys) items = items[segKey(k)];\n      let out = '';\n      for (const el of items) out += runEnv(seg.slice(i), envWith(env, { node: el }));\n      return out;\n    }\n    case 'each+': {\n      const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      let out = '';\n      for (const el of all) out += runEnv(seg.slice(3), envWith(env, { node: el }));\n      return out;\n    }\n    default:\n      return segEval(seg, env);\n  }\n}\n\n"
                        js-part-3 js-part-4
                        "const RP_ENUM_SHAPE = " (rust-enum-shape-json) ";\n"
                        "const GO_MODULE_PATH = " (go-module-path-json) ";\n\n"
