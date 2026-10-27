@@ -61,4 +61,5 @@
     (go "go/eventbus.go" "go/eventbus_git.go")
     (rust "rust/src/eventbus.rs" "rust/src/eventbus_git.rs")
     (ruby "ruby/grpcdc/eventbus.rb" "ruby/grpcdc/eventbus_git.rb")
-    (php "php/grpcdc/eventbus.php" "php/grpcdc/eventbus_git.php")))
+    (php "php/grpcdc/eventbus.php" "php/grpcdc/eventbus_git.php")
+    (dart "dart/grpcdc/eventbus.dart" "dart/grpcdc/eventbus_git.dart")))

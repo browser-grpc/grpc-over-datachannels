@@ -183,6 +183,8 @@ eventbus-stubs:
 		--grpc-dc-ruby_out=ruby/grpcdc -I proto proto/events.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-php=bin/protoc-gen-grpc-dc-php \
 		--grpc-dc-php_out=php/grpcdc -I proto proto/events.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-dart=bin/protoc-gen-grpc-dc-dart \
+		--grpc-dc-dart_out=dart/grpcdc -I proto proto/events.proto
 
 generate: plugins stubs
 
@@ -334,6 +336,7 @@ test-cpp:
 	cd cpp && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
+		&& ./build/tests TestEventBus \
 		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar && ./build/tests TestBddSidecar
 	# C++20 coroutine surface test: built with zig's clang because
 	# GCC 13 hits an ICE (build_special_member_call) on this file.
@@ -353,6 +356,7 @@ test-swift:
 	cd swift && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestHttp2Oracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
+		&& ./build/tests TestEventBus \
 		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar
 
 KOTLINC ?= kotlinc
@@ -382,6 +386,7 @@ test-dart:
 	cd dart && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestHttp2Oracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
+		&& ./build/tests TestEventBus \
 		&& ./build/tests TestSidecar && ./build/tests TestPbMessages && ./build/tests TestBddSchemas
 
 ZIG ?= zig
