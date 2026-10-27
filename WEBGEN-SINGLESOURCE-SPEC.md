@@ -126,8 +126,13 @@ growing multi-key `case-on` branches, a parameterized
 `guarded` (set-expression program + open/close literals),
 `each-siblings`/`each-sep`, and `lower-first`/`js-name`/
 `js-fixed-size`/`js-fixed-name`/`bigint-type`/`entry-flat`/
-`resolved-flat` expressions. Remaining rollout: the other
-languages by template size (wasm wrappers next, then Rust).
+`resolved-flat` expressions. All six wasm facade emitters
+(swift, go, kotlin, scala, cpp, zig) are converted as well,
+growing a `root` env slot, `distinct-count` and `each-unique`
+(with `(kinds ...)` filters and `(or-first)` fallback),
+parameterized `guarded`, multi-key `case-on`/`kind-case`
+branches, and the `~~` fmt escape. Remaining rollout: the
+native languages by template size (Rust next, 634 lines).
 Unconverted functions stay hand-mirrored and parity-pinned;
 the grammar grows only as a real function demands a node.
 
