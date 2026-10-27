@@ -43,7 +43,7 @@ public final class TestEventBus {
 
     private static Object[] setupBus() {
         EventBusBroker broker = new EventBusBroker();
-        Transport[] pair = MemoryTransport.pair();
+        Transport[] pair = MemoryTransport.Pair();
         Server server = new Server();
         broker.register(server);
         server.serveTransport(pair[1]);

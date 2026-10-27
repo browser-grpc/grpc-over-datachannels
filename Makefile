@@ -197,6 +197,8 @@ eventbus-stubs:
 		--grpc-dc-kotlin_out=kotlin/grpcdc -I proto proto/events.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-scala=bin/protoc-gen-grpc-dc-scala \
 		--grpc-dc-scala_out=scala/grpcdc -I proto proto/events.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-swift=bin/protoc-gen-grpc-dc-swift \
+		--grpc-dc-swift_out=swift/grpcdc -I proto proto/events.proto
 
 generate: plugins stubs
 

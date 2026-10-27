@@ -18,7 +18,7 @@ import java.util.Collections
 
 fun main() {
     val broker = EventBusBroker()
-    val (a, b) = MemoryTransport.pair()
+    val (a, b) = MemoryTransport.Pair()
     val server = Server()
     broker.register(server)
     server.serveTransport(b)

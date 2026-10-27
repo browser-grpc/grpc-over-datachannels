@@ -36,7 +36,7 @@ object TestEventBus {
 
   private def setupBus(): (EventBusBroker, EventsGrpcDc.EventBusClient) = {
     val broker = new EventBusBroker()
-    val (a, b) = MemoryTransport.pair()
+    val (a, b) = MemoryTransport.Pair()
     val server = new Server()
     broker.register(server)
     server.serveTransport(b)

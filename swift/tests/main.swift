@@ -10,6 +10,7 @@ do {
     switch args[1] {
     case "TestCodec": try TestCodec()
     case "TestEcho": try TestEcho()
+    case "TestEventBus": try TestEventBus()
     case "TestInterop": try TestInterop()
     case "TestInteropOracle": try TestInteropOracle()
     case "TestOracle": try TestOracle()

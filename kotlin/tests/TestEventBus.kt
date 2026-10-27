@@ -34,7 +34,7 @@ private fun waitForEb(fn: () -> Boolean, what: String) {
 
 private fun setupBus(): Pair<EventBusBroker, EventsGrpcDc.EventBusClient> {
     val broker = EventBusBroker()
-    val (a, b) = MemoryTransport.pair()
+    val (a, b) = MemoryTransport.Pair()
     val server = Server()
     broker.register(server)
     server.serveTransport(b)

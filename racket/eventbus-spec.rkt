@@ -67,4 +67,5 @@
     (java "java/grpcdc/events/v1/Eventbus.java" "java/grpcdc/events/v1/EventbusGit.java")
     (csharp "csharp/grpcdc/events/v1/Eventbus.cs" "csharp/grpcdc/events/v1/EventbusGit.cs")
     (kotlin "kotlin/grpcdc/Eventbus.kt" "kotlin/grpcdc/EventbusGit.kt")
-    (scala "scala/grpcdc/Eventbus.scala" "scala/grpcdc/EventbusGit.scala")))
+    (scala "scala/grpcdc/Eventbus.scala" "scala/grpcdc/EventbusGit.scala")
+    (swift "swift/grpcdc/Eventbus.swift" "swift/grpcdc/EventbusGit.swift")))
