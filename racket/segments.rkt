@@ -234,6 +234,25 @@
          cs-pb-decode-case-program cs-pb-map-decode-line-program
          cs-pb-map-helpers-program cs-pb-nested-enum-program
          cs-pb-message-program
+         java-service-program java-client-method-program
+         java-client-timeout-method-program java-client-method-pair-program
+         java-client-stream-class-program java-server-iface-method-program
+         java-server-stream-ifaces-program java-register-method-program
+         java-stream-impls-program java-client-async-method-program
+         java-server-async-iface-method-program
+         java-server-async-adapter-method-program
+         java-pb-type-program java-pb-explicit-literal-program
+         java-pb-default-program java-pb-boxed-default-program
+         java-pb-varint-expr-program java-pb-varint-payload-program
+         java-pb-varint-decode-program java-pb-nonzero-program
+         java-pb-encode-singular-program java-pb-set-expr-program
+         java-pb-encode-guard-program java-pb-encode-field-program
+         java-pb-decode-singular-program java-pb-clearing-program
+         java-pb-enum-conv-program java-pb-decode-case-program
+         java-pb-map-decode-stmt-program java-pb-map-helpers-program
+         java-pb-enum-values-program java-pb-enum-body-program
+         java-pb-nested-enum-program java-pb-message-program
+         java-pb-map-case-head-program
          lua-pb-enum-program)
 
 ;; ---------------------------------------------------------------------------
@@ -5558,6 +5577,496 @@
     (each enums (call csPbNestedEnum (fmt "~a    " (arg 1))))
     (fmt "~a}\n" (arg 1))))
 
+;;; ---------------------------------------------------------------------------
+;;; Java (template-java.rkt mirrors, option 1). javaPbType takes
+;;; a boxed flag as (arg 0) ("" or "boxed").
+
+(define java-deprecated-program
+  '((if (ref deprecated)
+        (then (fmt "~a@Deprecated\n" (arg 0)))
+        (else ""))))
+
+(define java-client-method-raw-program
+  '((kind-case
+     (unary
+      (fmt "        public ~a ~a(~a req, Map<String, String> metadata) throws Exception {\n            ~a resp = new ~a();\n            channel.unary(~s, req, resp, metadata);\n            return resp;\n        }\n\n        public ~a ~a(~a req) throws Exception {\n            return ~a(req, null);\n        }\n"
+           (ref output) (ref name) (ref input) (ref output) (ref output) (ref path)
+           (ref output) (ref name) (ref input) (ref name)))
+     (server-streaming
+      (fmt "        public ~a~aStream ~a(~a req, Map<String, String> metadata) throws Exception {\n            return new ~a~aStream(channel.serverStream(~s, req, metadata));\n        }\n\n        public ~a~aStream ~a(~a req) throws Exception {\n            return ~a(req, null);\n        }\n"
+           (svc) (ref name) (ref name) (ref input) (svc) (ref name) (ref path)
+           (svc) (ref name) (ref name) (ref input) (ref name)))
+     (client-streaming
+      (fmt "        public ~a ~a(List<~a> reqs, Map<String, String> metadata) throws Exception {\n            ~a resp = new ~a();\n            channel.clientStream(~s, reqs, resp, metadata);\n            return resp;\n        }\n\n        public ~a ~a(List<~a> reqs) throws Exception {\n            return ~a(reqs, null);\n        }\n"
+           (ref output) (ref name) (ref input) (ref output) (ref output) (ref path)
+           (ref output) (ref name) (ref input) (ref name)))
+     (bidi
+      (fmt "        public ~a~aStream ~a(List<~a> reqs, Map<String, String> metadata) throws Exception {\n            return new ~a~aStream(channel.bidi(~s, reqs, metadata));\n        }\n\n        public ~a~aStream ~a(List<~a> reqs) throws Exception {\n            return ~a(reqs, null);\n        }\n"
+           (svc) (ref name) (ref name) (ref input) (svc) (ref name) (ref path)
+           (svc) (ref name) (ref name) (ref input) (ref name))))))
+
+(define java-client-method-program
+  (append java-deprecated-program java-client-method-raw-program))
+
+(define java-client-timeout-method-program
+  '((kind-case
+     (unary
+      (fmt "\n        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */\n        public ~a ~a(~a req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n            ~a resp = new ~a();\n            channel.unary(~s, req, resp, metadata, timeout);\n            return resp;\n        }\n"
+           (ref output) (ref name) (ref input) (ref output) (ref output) (ref path)))
+     (server-streaming
+      (fmt "\n        /** Deadline variant of ~a. */\n        public ~a~aStream ~a(~a req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n            return new ~a~aStream(channel.serverStream(~s, req, metadata, timeout));\n        }\n"
+           (ref name) (svc) (ref name) (ref name) (ref input) (svc) (ref name) (ref path)))
+     (client-streaming
+      (fmt "\n        /** Deadline variant of ~a. */\n        public ~a ~a(List<~a> reqs, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n            ~a resp = new ~a();\n            channel.clientStream(~s, reqs, resp, metadata, timeout);\n            return resp;\n        }\n"
+           (ref name) (ref output) (ref name) (ref input) (ref output) (ref output) (ref path)))
+     (bidi
+      (fmt "\n        /** Deadline variant of ~a. */\n        public ~a~aStream ~a(List<~a> reqs, Map<String, String> metadata, java.time.Duration timeout) throws Exception {\n            return new ~a~aStream(channel.bidi(~s, reqs, metadata, timeout));\n        }\n"
+           (ref name) (svc) (ref name) (ref name) (ref input) (svc) (ref name) (ref path))))))
+
+(define java-client-method-pair-program
+  '((call javaClientMethod "        ")
+    (call javaClientTimeoutMethod)))
+
+(define java-client-stream-class-program
+  '((kind-case
+     ((server-streaming bidi)
+      (fmt "    /** Receiving stream for ~a.~a: recv() throws EOFException at end. Close to abandon early (RST). */\n    public static final class ~a~aStream implements AutoCloseable {\n        private final Channel.ClientStream stream;\n\n        ~a~aStream(Channel.ClientStream stream) {\n            this.stream = stream;\n        }\n\n        public ~a recv() throws Exception {\n            ~a resp = new ~a();\n            stream.recv(resp);\n            return resp;\n        }\n\n        /** Initial metadata (response headers); null until they arrive. */\n        public Map<String, String> headers() {\n            return stream.headers() == null ? null : stream.headers().metadata;\n        }\n\n        /** Trailing metadata of the terminal status; null until it arrives. */\n        public Map<String, String> trailers() {\n            return stream.trailers();\n        }\n\n        /** Abort this stream (sends RST, wakes a pending recv). */\n        public void cancel() {\n            stream.cancel();\n        }\n\n        /** Abandon the call if still live (RST); no-op once terminated. */\n        @Override\n        public void close() {\n            stream.close();\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref output) (ref output)))
+     (else ""))))
+
+(define java-server-iface-method-raw-program
+  '((kind-case
+     (unary (fmt "        ~a ~a(Endpoint.CallContext ctx, ~a req) throws Exception;\n" (ref output) (ref name) (ref input)))
+     (server-streaming (fmt "        void ~a(~a req, ~a~aServer stream) throws Exception;\n" (ref name) (ref input) (svc) (ref name)))
+     (client-streaming (fmt "        void ~a(~a~aServer stream) throws Exception;\n" (ref name) (svc) (ref name)))
+     (bidi (fmt "        void ~a(~a~aServer stream) throws Exception;\n" (ref name) (svc) (ref name))))))
+
+(define java-server-iface-method-program
+  (append java-deprecated-program java-server-iface-method-raw-program))
+
+(define java-server-stream-ifaces-program
+  '((kind-case
+     (unary "")
+     (server-streaming
+      (fmt "    /** Server-streaming sink passed to service implementations. */\n    public interface ~a~aServer {\n        void send(~a resp) throws Exception;\n        Endpoint.CallContext context();\n    }\n\n" (svc) (ref name) (ref output)))
+     (client-streaming
+      (fmt "    /** Client-streaming stream passed to service implementations. */\n    public interface ~a~aServer {\n        ~a recv() throws Exception;\n        void sendAndClose(~a resp) throws Exception;\n        Endpoint.CallContext context();\n    }\n\n" (svc) (ref name) (ref input) (ref output)))
+     (bidi
+      (fmt "    /** Bidi stream passed to service implementations. */\n    public interface ~a~aServer {\n        void send(~a resp) throws Exception;\n        ~a recv() throws Exception;\n        Endpoint.CallContext context();\n    }\n\n" (svc) (ref name) (ref output) (ref input))))))
+
+(define java-kind-const-expr
+  '(case-on (ref kind)
+     ((unary) "KIND_UNARY")
+     ((server-streaming) "KIND_SERVER_STREAMING")
+     ((client-streaming) "KIND_CLIENT_STREAMING")
+     ((bidi) "KIND_BIDI")))
+
+(define java-register-method-program
+  (list
+   (list 'kind-case
+         (list 'unary
+               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a req = new ~a();\n                        reqs.recvInto(req);\n                        sink.send(impl.~a(ctx, req).marshalDc());\n                    })" '(ref name) '(ref path) java-kind-const-expr '(ref input) '(ref input) '(ref impl-name)))
+         (list 'server-streaming
+               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a req = new ~a();\n                        reqs.recvInto(req);\n                        impl.~a(req, new ~a~aServerImpl(ctx, sink));\n                    })" '(ref name) '(ref path) java-kind-const-expr '(ref input) '(ref input) '(ref impl-name) '(svc) '(ref name)))
+         (list 'client-streaming
+               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a~aServerImpl stream = new ~a~aServerImpl(ctx, reqs);\n                        impl.~a(stream);\n                        if (stream.resp == null) {\n                            throw new StatusException(Wire.CODE_INTERNAL,\n                                    \"client-streaming handler never called SendAndClose\");\n                        }\n                        sink.send(stream.resp.marshalDc());\n                    })" '(ref name) '(ref path) java-kind-const-expr '(svc) '(ref name) '(svc) '(ref name) '(ref impl-name)))
+         (list 'bidi
+               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        impl.~a(new ~a~aServerImpl(ctx, reqs, sink));\n                    })" '(ref name) '(ref path) java-kind-const-expr '(ref impl-name) '(svc) '(ref name))))))
+
+(define java-stream-impls-program
+  '((kind-case
+     (unary "")
+     (server-streaming
+      (fmt "    private static final class ~a~aServerImpl implements ~a~aServer {\n        private final Endpoint.CallContext ctx;\n        private final Server.ServerSink sink;\n\n        ~a~aServerImpl(Endpoint.CallContext ctx, Server.ServerSink sink) {\n            this.ctx = ctx;\n            this.sink = sink;\n        }\n\n        public void send(~a resp) throws Exception {\n            sink.send(resp.marshalDc());\n        }\n\n        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output)))
+     (client-streaming
+      (fmt "    private static final class ~a~aServerImpl implements ~a~aServer {\n        private final Endpoint.CallContext ctx;\n        private final Server.RequestStream reqs;\n        ~a resp;\n\n        ~a~aServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs) {\n            this.ctx = ctx;\n            this.reqs = reqs;\n        }\n\n        public ~a recv() throws Exception {\n            ~a req = new ~a();\n            reqs.recvInto(req);\n            return req;\n        }\n\n        public void sendAndClose(~a resp) {\n            this.resp = resp;\n        }\n\n        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output) (svc) (ref name) (ref input) (ref input) (ref input) (ref output)))
+     (bidi
+      (fmt "    private static final class ~a~aServerImpl implements ~a~aServer {\n        private final Endpoint.CallContext ctx;\n        private final Server.RequestStream reqs;\n        private final Server.ServerSink sink;\n\n        ~a~aServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs, Server.ServerSink sink) {\n            this.ctx = ctx;\n            this.reqs = reqs;\n            this.sink = sink;\n        }\n\n        public void send(~a resp) throws Exception {\n            sink.send(resp.marshalDc());\n        }\n\n        public ~a recv() throws Exception {\n            ~a req = new ~a();\n            reqs.recvInto(req);\n            return req;\n        }\n\n        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input) (ref input))))))
+
+(define java-client-async-method-program
+  '((kind-case
+     (unary
+      (fmt "        public CompletableFuture<~a> ~aAsync(~a req, Map<String, String> metadata) {\n            return CompletableFuture.supplyAsync(() -> {\n                try {\n                    return ~a(req, metadata);\n                } catch (Exception e) {\n                    throw new CompletionException(e);\n                }\n            });\n        }\n\n        public CompletableFuture<~a> ~aAsync(~a req) {\n            return ~aAsync(req, null);\n        }\n"
+           (ref output) (ref name) (ref input) (ref name)
+           (ref output) (ref name) (ref input) (ref name)))
+     ((server-streaming bidi)
+      (fmt "        /** Collect-all async convenience over the blocking stream. */\n        public CompletableFuture<List<~a>> ~aAllAsync(~a req~a, Map<String, String> metadata) {\n            return CompletableFuture.supplyAsync(() -> {\n                try {\n                    List<~a> out = new ArrayList<>();\n                    ~a~aStream stream = ~a(req~a, metadata);\n                    while (true) {\n                        try {\n                            out.add(stream.recv());\n                        } catch (java.io.EOFException eof) {\n                            return out;\n                        }\n                    }\n                } catch (Exception e) {\n                    throw new CompletionException(e);\n                }\n            });\n        }\n\n        public CompletableFuture<List<~a>> ~aAllAsync(~a req~a) {\n            return ~aAllAsync(req~a, null);\n        }\n"
+           (ref output) (ref name)
+           (kind-case (bidi (fmt "List<~a>" (ref input))) (else (ref input)))
+           (kind-case (bidi "s") (else ""))
+           (ref output) (svc) (ref name) (ref name)
+           (kind-case (bidi "s") (else ""))
+           (ref output) (ref name)
+           (kind-case (bidi (fmt "List<~a>" (ref input))) (else (ref input)))
+           (kind-case (bidi "s") (else ""))
+           (ref name)
+           (kind-case (bidi "s") (else ""))))
+     (client-streaming
+      (fmt "        public CompletableFuture<~a> ~aAsync(List<~a> reqs, Map<String, String> metadata) {\n            return CompletableFuture.supplyAsync(() -> {\n                try {\n                    return ~a(reqs, metadata);\n                } catch (Exception e) {\n                    throw new CompletionException(e);\n                }\n            });\n        }\n\n        public CompletableFuture<~a> ~aAsync(List<~a> reqs) {\n            return ~aAsync(reqs, null);\n        }\n"
+           (ref output) (ref name) (ref input) (ref name)
+           (ref output) (ref name) (ref input) (ref name))))))
+
+(define java-server-async-iface-method-program
+  '((kind-case
+     (unary (fmt "        CompletableFuture<~a> ~aAsync(Endpoint.CallContext ctx, ~a req);\n" (ref output) (ref name) (ref input)))
+     (server-streaming (fmt "        CompletableFuture<Void> ~aAsync(~a req, ~a~aServer stream);\n" (ref name) (ref input) (svc) (ref name)))
+     (client-streaming (fmt "        CompletableFuture<Void> ~aAsync(~a~aServer stream);\n" (ref name) (svc) (ref name)))
+     (bidi (fmt "        CompletableFuture<Void> ~aAsync(~a~aServer stream);\n" (ref name) (svc) (ref name))))))
+
+(define java-server-async-adapter-method-program
+  '((kind-case
+     (unary
+      (fmt "        public ~a ~a(Endpoint.CallContext ctx, ~a req) throws Exception {\n            try {\n                return impl.~aAsync(ctx, req).join();\n            } catch (CompletionException e) {\n                Throwable cause = e.getCause();\n                if (cause instanceof Exception ex) throw ex;\n                throw e;\n            }\n        }\n\n" (ref output) (ref name) (ref input) (ref name)))
+     (server-streaming
+      (fmt "        public void ~a(~a req, ~a~aServer stream) throws Exception {\n            try {\n                impl.~aAsync(req, stream).join();\n            } catch (CompletionException e) {\n                Throwable cause = e.getCause();\n                if (cause instanceof Exception ex) throw ex;\n                throw e;\n            }\n        }\n\n" (ref name) (ref input) (svc) (ref name) (ref name)))
+     (client-streaming
+      (fmt "        public void ~a(~a~aServer stream) throws Exception {\n            try {\n                impl.~aAsync(stream).join();\n            } catch (CompletionException e) {\n                Throwable cause = e.getCause();\n                if (cause instanceof Exception ex) throw ex;\n                throw e;\n            }\n        }\n\n" (ref name) (svc) (ref name) (ref name)))
+     (bidi
+      (fmt "        public void ~a(~a~aServer stream) throws Exception {\n            try {\n                impl.~aAsync(stream).join();\n            } catch (CompletionException e) {\n                Throwable cause = e.getCause();\n                if (cause instanceof Exception ex) throw ex;\n                throw e;\n            }\n        }\n\n" (ref name) (svc) (ref name) (ref name))))))
+
+(define java-service-program
+  '((fmt "    /** Client for ~a. */\n" (ref full-name))
+    (fmt "    public static final class ~aClient {\n" (ref name))
+    "        private final Channel channel;\n\n"
+    (fmt "        public ~aClient(Channel channel) {\n            this.channel = channel;\n        }\n\n" (ref name))
+    (each+ methods client (call javaClientMethodPair))
+    (each+ methods client (call javaClientAsyncMethod))
+    "    }\n\n"
+    (each methods (call javaClientStreamClass))
+    (fmt "    /** Service implementation interface for ~a. */\n" (ref full-name))
+    (fmt "    public interface ~aServer {\n" (ref name))
+    (each methods (call javaServerIfaceMethod))
+    "    }\n\n"
+    (each methods (call javaServerStreamIfaces))
+    (each methods (call javaStreamImpls))
+    (fmt "    /** Async service implementation interface for ~a. */\n" (ref full-name))
+    (fmt "    public interface ~aServerAsync {\n" (ref name))
+    (each methods (call javaServerAsyncIfaceMethod))
+    "    }\n\n"
+    (fmt "    private static final class ~aServerAsyncAdapter implements ~aServer {\n" (ref name) (ref name))
+    (fmt "        private final ~aServerAsync impl;\n\n" (ref name))
+    (fmt "        ~aServerAsyncAdapter(~aServerAsync impl) {\n            this.impl = impl;\n        }\n\n" (ref name) (ref name))
+    (each methods (call javaServerAsyncAdapterMethod))
+    "    }\n\n"
+    (fmt "    /** Register an implementation of ~a on a Server. */\n" (ref full-name))
+    (fmt "    public static void register~aServer(Server server, ~aServer impl) {\n" (ref name) (ref name))
+    (fmt "        server.registerService(new Server.ServiceDesc(\n                ~s,\n                List.of(\n" (ref full-name))
+    (each-sep+ ",\n" methods server (call javaRegisterMethod))
+    "\n                )));\n    }\n"
+    (fmt "    /** Register an async implementation of ~a on a Server. */\n" (ref full-name))
+    (fmt "    public static void register~aServerAsync(Server server, ~aServerAsync impl) {\n" (ref name) (ref name))
+    (fmt "        register~aServer(server, new ~aServerAsyncAdapter(impl));\n    }\n" (ref name) (ref name))))
+
+(define java-pb-type-program
+  '((if (is-map)
+        (then (fmt "java.util.Map<~a, ~a>"
+                   (call-on (key-field (resolved-entry)) javaPbType "boxed")
+                   (call-on (val-field (resolved-entry)) javaPbType "boxed")))
+        (else
+         (if (repeated)
+             (then (fmt "java.util.List<~a>"
+                        (call-on (with-label (self) 1) javaPbType "boxed")))
+             (else (case-on (ref type)
+                     ((11) (java-entry-ref))
+                     ((14) (java-entry-ref))
+                     (else (if (arg 0) (then (java-scalar-boxed)) (else (java-scalar-type)))))))))))
+
+(define java-pb-explicit-literal-program
+  '((if (has-default)
+        (then (fmt "~a"
+                   (case-on (ref type)
+                     ((9) (fmt "~s" (default-raw)))
+                     ((8) (default-raw))
+                     ((14) (fmt "~a.~a" (java-entry-ref) (default-raw)))
+                     ((2) (fmt "~af" (default-raw)))
+                     (else (default-raw)))))
+        (else ""))))
+
+(define java-pb-default-program
+  '((if (call javaPbExplicitLiteral)
+        (then (call javaPbExplicitLiteral))
+        (else (fmt "~a"
+                   (if (is-map)
+                       (then "new java.util.LinkedHashMap<>()")
+                       (else (case-on (ref label)
+                               ((3) "new java.util.ArrayList<>()")
+                               (else (case-on (ref type)
+                                       ((11) "null")
+                                       ((14) (fmt "~a.~a" (java-entry-ref) (enum-first-value-name)))
+                                       (else (java-scalar-default))))))))))))
+
+(define java-pb-boxed-default-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((1) "0.0")
+           ((2) "0.0f")
+           (else (call javaPbDefault))))))
+
+(define java-pb-varint-expr-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (fmt "(~a ? 1 : 0)" (arg 0)))
+           ((17) (fmt "((~a << 1) ^ (~a >> 31))" (arg 0) (arg 0)))
+           ((18) (fmt "((~a << 1) ^ (~a >> 63))" (arg 0) (arg 0)))
+           (else (arg 0))))))
+
+(define java-pb-varint-payload-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((14) (fmt "~a.number" (arg 0)))
+           (else (call javaPbVarintExpr (arg 0)))))))
+
+(define java-pb-varint-decode-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((5) (fmt "(int) ~a" (arg 0)))
+           ((14) (fmt "(int) ~a" (arg 0)))
+           ((13) (fmt "(int) ~a" (arg 0)))
+           ((3) (arg 0))
+           ((4) (arg 0))
+           ((8) (fmt "~a != 0" (arg 0)))
+           ((17) (fmt "(int) ((~a >>> 1) ^ -(~a & 1))" (arg 0) (arg 0)))
+           ((18) (fmt "((~a >>> 1) ^ -(~a & 1))" (arg 0) (arg 0)))))))
+
+(define java-pb-nonzero-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (arg 0))
+           ((14) (fmt "~a != null && ~a.number != 0" (arg 0) (arg 0)))
+           (else (fmt "~a != 0" (arg 0)))))))
+
+(define java-pb-encode-singular-program
+  '((case-on (category)
+      ("varint"
+       (if (proto2)
+           (then (fmt "~a{ w.tag(~a, 0); w.varint(~a); }\n" (arg 1) (ref number) (call javaPbVarintPayload (arg 0))))
+           (else (fmt "~aif (~a) { w.tag(~a, 0); w.varint(~a); }\n" (arg 1) (call javaPbNonzero (arg 0)) (ref number) (call javaPbVarintPayload (arg 0))))))
+      ("fixed"
+       (if (proto2)
+           (then (fmt "~a{ w.tag(~a, ~a); w.fixed~a(~a); }\n" (arg 1) (ref number)
+                      (case-on (java-fixed-size) ((8) "1") (else "5")) (java-fixed-name) (arg 0)))
+           (else (fmt "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a); }\n" (arg 1) (call javaPbNonzero (arg 0)) (ref number)
+                      (case-on (java-fixed-size) ((8) "1") (else "5")) (java-fixed-name) (arg 0)))))
+      ("string"
+       (if (proto2)
+           (then (fmt "~aif (~a != null) w.bytesField(~a, ~a.getBytes(java.nio.charset.StandardCharsets.UTF_8));\n" (arg 1) (arg 0) (ref number) (arg 0)))
+           (else (fmt "~aw.stringField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))))
+      ("bytes"
+       (if (proto2)
+           (then (fmt "~aif (~a != null) w.bytesField(~a, ~a);\n" (arg 1) (arg 0) (ref number) (arg 0)))
+           (else (fmt "~aif (~a != null && ~a.length > 0) w.bytesField(~a, ~a);\n" (arg 1) (arg 0) (arg 0) (ref number) (arg 0)))))
+      ("message"
+       (fmt "~aif (~a != null) w.bytesField(~a, ~a.marshalDc());\n" (arg 1) (arg 0) (ref number) (arg 0)))
+      (else (fail)))))
+
+(define java-pb-set-expr-program
+  '((case-on (ref type)
+      ((11 10) (fmt "~a != null" (java-field-name)))
+      ((9) (fmt "(~a != null && !~a.isEmpty())" (java-field-name) (java-field-name)))
+      ((12) (fmt "(~a != null && ~a.length > 0)" (java-field-name) (java-field-name)))
+      (else (call javaPbNonzero (java-field-name))))))
+
+(define java-pb-encode-guard-program
+  '((guarded javaPbSetExpr "        if (!(~a)) {\n" "        }\n" (call javaPbEncodeField (arg 0)))))
+
+(define java-pb-encode-field-program
+  '((if (is-map)
+        (then (fmt "        if (~a != null) for (java.util.Map.Entry<~a, ~a> e : ~a.entrySet()) w.bytesField(~a, ~a(e.getKey(), e.getValue()));\n"
+                   (java-field-name)
+                   (call-on (key-field (resolved-entry)) javaPbType "boxed")
+                   (call-on (val-field (resolved-entry)) javaPbType "boxed")
+                   (java-field-name) (ref number)
+                   (fmt "~a.~aEncode" (arg 0) (java-map-name))))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint"
+                 (fmt "        if (~a != null && !~a.isEmpty()) {\n" (java-field-name) (java-field-name))
+                 (fmt "            ~a.Writer payload = new ~a.Writer();\n" (arg 0) (arg 0))
+                 (fmt "            for (~a x : ~a) payload.varint(~a);\n"
+                      (call-on (with-label (self) 1) javaPbType "boxed")
+                      (java-field-name)
+                      (call javaPbVarintPayload "x"))
+                 (fmt "            w.bytesField(~a, payload.toBytes());\n        }\n" (ref number)))
+                ("fixed"
+                 (fmt "        if (~a != null && !~a.isEmpty()) {\n" (java-field-name) (java-field-name))
+                 (fmt "            ~a.Writer payload = new ~a.Writer();\n" (arg 0) (arg 0))
+                 (fmt "            for (~a x : ~a) payload.fixed~a(~a);\n"
+                      (call-on (with-label (self) 1) javaPbType "boxed")
+                      (java-field-name) (java-fixed-name) "x")
+                 (fmt "            w.bytesField(~a, payload.toBytes());\n        }\n" (ref number)))
+                ("string" (fmt "        if (~a != null) for (String x : ~a) w.bytesField(~a, x.getBytes(java.nio.charset.StandardCharsets.UTF_8));\n" (java-field-name) (java-field-name) (ref number)))
+                ("bytes" (fmt "        if (~a != null) for (byte[] x : ~a) w.bytesField(~a, x);\n" (java-field-name) (java-field-name) (ref number)))
+                ("message" (fmt "        if (~a != null) for (~a x : ~a) w.bytesField(~a, x.marshalDc());\n"
+                                (java-field-name)
+                                (call-on (with-label (self) 1) javaPbType "boxed")
+                                (java-field-name) (ref number)))
+                (else (fail))))
+             (else (call javaPbEncodeSingular (java-field-name) "        ")))))))
+
+(define java-pb-decode-singular-program
+  '((case-on (category)
+      ("varint"
+       (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+            (case-on (ref type)
+              ((14) (fmt "~a.fromNumber(~a)" (java-entry-ref)
+                         (call-on (with-type (self) 5) javaPbVarintDecode (arg 1))))
+              (else (call javaPbVarintDecode (arg 1))))))
+      ("fixed"
+       (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+            (case-on (ref type)
+              ((2) (fmt "Float.intBitsToFloat((int) ~a)" (arg 1)))
+              ((1) (fmt "Double.longBitsToDouble(~a)" (arg 1)))
+              ((7 15) (fmt "(int) ~a" (arg 1)))
+              (else (arg 1)))))
+      ("string" (fmt "~a~a = new String(~a, java.nio.charset.StandardCharsets.UTF_8);\n" (arg 2) (arg 0) (arg 1)))
+      ("bytes" (fmt "~a~a = ~a;\n" (arg 2) (arg 0) (arg 1)))
+      ("message"
+       (fmt "~a~a = new ~a();\n" (arg 2) (arg 0) (java-entry-ref))
+       (fmt "~a~a.unmarshalDc(~a);\n" (arg 2) (arg 0) (arg 1)))
+      (else (fail)))))
+
+(define java-pb-clearing-program
+  '((each-siblings (fmt "                    ~a = ~a;\n" (java-field-name) (call javaPbDefault)))))
+
+(define java-pb-enum-conv-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((14) (fmt "~a.fromNumber(~a)" (java-entry-ref)
+                      (call-on (with-type (self) 5) javaPbVarintDecode (arg 0))))
+           (else (call javaPbVarintDecode (arg 0)))))))
+
+(define java-pb-decode-case-program
+  '((fmt "                case ~a -> {\n" (ref number))
+    (if (is-map)
+        (then
+         (fmt "                    Object[] kv = ~a(field.bytesValue);\n" (fmt "~a.~aDecode" (arg 0) (java-map-name)))
+         (fmt "                    ~a.put((~a) kv[0], (~a) kv[1]);\n" (java-field-name)
+              (call-on (key-field (resolved-entry)) javaPbType "boxed")
+              (call-on (val-field (resolved-entry)) javaPbType "boxed")))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint"
+                 "                    if (field.wire == 2) {\n"
+                 (fmt "                        ~a.Reader sub = new ~a.Reader(field.bytesValue);\n" (arg 0) (arg 0))
+                 "                        while (!sub.done()) {\n"
+                 (fmt "                            ~a.add(~a);\n" (java-field-name) (call javaPbEnumConv "sub.varint()"))
+                 "                        }\n                    } else {\n"
+                 (fmt "                        ~a.add(~a);\n" (java-field-name) (call javaPbEnumConv "field.varintValue"))
+                 "                    }\n")
+                ("fixed"
+                 "                    if (field.wire == 2) {\n"
+                 (fmt "                        ~a.Reader sub = new ~a.Reader(field.bytesValue);\n" (arg 0) (arg 0))
+                 (fmt "                        while (!sub.done()) ~a.add(~a);\n" (java-field-name)
+                      (case-on (ref type)
+                        ((2) "Float.intBitsToFloat(sub.fixed32())")
+                        ((1) "Double.longBitsToDouble(sub.fixed64())")
+                        ((7 15) "sub.fixed32()")
+                        (else "sub.fixed64()")))
+                 "                    } else {\n"
+                 (fmt "                        ~a.add(~a);\n" (java-field-name)
+                      (case-on (ref type)
+                        ((2) "Float.intBitsToFloat((int) field.fixedValue)")
+                        ((1) "Double.longBitsToDouble(field.fixedValue)")
+                        ((7 15) "(int) field.fixedValue")
+                        (else "field.fixedValue")))
+                 "                    }\n")
+                ("string" (fmt "                    ~a.add(new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8));\n" (java-field-name)))
+                ("bytes" (fmt "                    ~a.add(field.bytesValue);\n" (java-field-name)))
+                ("message"
+                 (fmt "                    ~a item = new ~a();\n"
+                      (call-on (with-label (self) 1) javaPbType "boxed")
+                      (call-on (with-label (self) 1) javaPbType "boxed"))
+                 "                    item.unmarshalDc(field.bytesValue);\n"
+                 (fmt "                    ~a.add(item);\n" (java-field-name)))
+                (else (fail))))
+             (else (call javaPbClearing)
+                   (call javaPbDecodeSingular (java-field-name) (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "                    ")))))
+    "                }\n"))
+
+(define java-pb-map-decode-stmt-program
+  '((trim-end (call javaPbDecodeSingular (arg 0) (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) ""))))
+
+
+(define java-pb-map-case-head-program
+  '((fmt "                case ~a: " (ref number))))
+
+(define java-pb-map-helpers-program
+  '((fmt "    static byte[] ~aEncode(~a key, ~a value) {\n"
+         (java-map-name)
+         (call-on (key-field) javaPbType "boxed")
+         (call-on (val-field) javaPbType "boxed"))
+    "        Writer w = new Writer();\n"
+    (call-on (key-field) javaPbEncodeSingular "key" "        ")
+    (call-on (val-field) javaPbEncodeSingular "value" "        ")
+    "        return w.toBytes();\n    }\n\n"
+    (fmt "    static Object[] ~aDecode(byte[] bytes) {\n" (java-map-name))
+    (fmt "        ~a key = ~a;\n"
+         (call-on (key-field) javaPbType "boxed")
+         (call-on (key-field) javaPbBoxedDefault))
+    (fmt "        ~a value = ~a;\n"
+         (call-on (val-field) javaPbType "boxed")
+         (call-on (val-field) javaPbBoxedDefault))
+    "        Reader r = new Reader(bytes);\n        Field field;\n        while ((field = r.next()) != null) {\n            switch (field.number) {\n"
+    (call-on (key-field) javaPbMapCaseHead)
+    (call-on (key-field) javaPbMapDecodeStmt "key")
+    " break;\n"
+    (call-on (val-field) javaPbMapCaseHead)
+    (call-on (val-field) javaPbMapDecodeStmt "value")
+    " break;\n"
+    "                default: break;\n            }\n        }\n        return new Object[] { key, value };\n    }\n\n"))
+
+(define java-pb-enum-values-program
+  '((each-sep ",\n" values (fmt "        ~a(~a)" (ref name) (ref number)))
+    ";\n"))
+
+(define java-pb-enum-body-program
+  '((fmt "~apublic final int number;\n" (arg 0))
+    (fmt "~a~a(int number) { this.number = number; }\n" (arg 0) (ref name))
+    (fmt "~apublic static ~a fromNumber(int number) {\n" (arg 0) (ref name))
+    (fmt "~a    switch (number) {\n" (arg 0))
+    (each values (fmt "~a        case ~a: return ~a;\n" (arg 0) (ref number) (ref name)))
+    (fmt "~a        default: return ~a;\n    }\n}\n" (arg 0) (first-value-name))))
+
+(define java-pb-nested-enum-program
+  '((fmt "        public enum ~a {\n" (ref name))
+    (call javaPbEnumValues)
+    (call javaPbEnumBody "            ")
+    "        }\n"))
+
+(define java-pb-message-program
+  '("    public static final class "
+    (ref name)
+    " implements grpcdc.Marshaler, grpcdc.Unmarshaler {\n"
+    (each fields (fmt "        public ~a ~a = ~a;\n" (call javaPbType "") (java-field-name) (call javaPbDefault)))
+    "        public byte[] unknownFields = new byte[0];\n"
+    (fmt "        public ~a() {}\n" (ref name))
+    (if (no-fields)
+        (then "")
+        (else
+         (fmt "        public ~a(~a) {\n" (ref name)
+              (each-sep ", " fields (fmt "~a ~a" (call javaPbType "") (java-field-name))))
+         (each fields (fmt "            this.~a = ~a;\n" (java-field-name) (java-field-name)))
+         "        }\n"))
+    "\n        @Override\n        public byte[] marshalDc() {\n"
+    (fmt "            ~a.Writer w = new ~a.Writer();\n" (arg 0) (arg 0))
+    (each fields (call javaPbEncodeGuard (arg 0)))
+    "            w.raw(unknownFields);\n"
+    "            return w.toBytes();\n        }\n\n"
+    "        @Override\n        public void unmarshalDc(byte[] data) {\n"
+    "            unknownFields = new byte[0];\n"
+    (each fields (fmt "            ~a = ~a;\n" (java-field-name) (call javaPbDefault)))
+    (fmt "            ~a.Reader r = new ~a.Reader(data);\n" (arg 0) (arg 0))
+    (fmt "            ~a.Field field;\n" (arg 0))
+    "            while ((field = r.next()) != null) {\n                switch (field.number) {\n"
+    (each fields (call javaPbDecodeCase (arg 0)))
+    (fmt "                    default -> { unknownFields = ~a.concatBytes(unknownFields, field.rawValue); }\n                }\n            }\n        }\n" (arg 0))
+    (each nested (call javaPbMessage (arg 0)))
+    (each enums (call javaPbNestedEnum))
+    "    }\n"))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -5953,7 +6462,42 @@
           'csPbMapDecodeLine cs-pb-map-decode-line-program
           'csPbMapHelpers cs-pb-map-helpers-program
           'csPbNestedEnum cs-pb-nested-enum-program
-          'csPbMessage cs-pb-message-program))
+          'csPbMessage cs-pb-message-program
+          'javaService java-service-program
+          'javaClientMethod java-client-method-program
+          'javaClientTimeoutMethod java-client-timeout-method-program
+          'javaClientMethodPair java-client-method-pair-program
+          'javaClientStreamClass java-client-stream-class-program
+          'javaServerIfaceMethod java-server-iface-method-program
+          'javaServerStreamIfaces java-server-stream-ifaces-program
+          'javaRegisterMethod java-register-method-program
+          'javaStreamImpls java-stream-impls-program
+          'javaClientAsyncMethod java-client-async-method-program
+          'javaServerAsyncIfaceMethod java-server-async-iface-method-program
+          'javaServerAsyncAdapterMethod java-server-async-adapter-method-program
+          'javaPbType java-pb-type-program
+          'javaPbExplicitLiteral java-pb-explicit-literal-program
+          'javaPbDefault java-pb-default-program
+          'javaPbBoxedDefault java-pb-boxed-default-program
+          'javaPbVarintExpr java-pb-varint-expr-program
+          'javaPbVarintPayload java-pb-varint-payload-program
+          'javaPbVarintDecode java-pb-varint-decode-program
+          'javaPbNonzero java-pb-nonzero-program
+          'javaPbEncodeSingular java-pb-encode-singular-program
+          'javaPbSetExpr java-pb-set-expr-program
+          'javaPbEncodeGuard java-pb-encode-guard-program
+          'javaPbEncodeField java-pb-encode-field-program
+          'javaPbDecodeSingular java-pb-decode-singular-program
+          'javaPbClearing java-pb-clearing-program
+          'javaPbEnumConv java-pb-enum-conv-program
+          'javaPbDecodeCase java-pb-decode-case-program
+          'javaPbMapDecodeStmt java-pb-map-decode-stmt-program
+          'javaPbMapHelpers java-pb-map-helpers-program
+          'javaPbEnumValues java-pb-enum-values-program
+          'javaPbEnumBody java-pb-enum-body-program
+          'javaPbNestedEnum java-pb-nested-enum-program
+          'javaPbMessage java-pb-message-program
+          'javaPbMapCaseHead java-pb-map-case-head-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -6546,7 +7090,7 @@
                              (or (not kinds-part)
                                  (memq (hash-ref el 'kind) kinds-part)))
                            (seg-eval (second seg) env)))))]
-    [(memq (car seg) '(if case-on when guarded guarded-indent kind-case each each+ each-siblings each-sep each-unique each-unique-pair each-where each-sep-where))
+    [(memq (car seg) '(if case-on when guarded guarded-indent kind-case each each+ each-sep+ each-siblings each-sep each-unique each-unique-pair each-where each-sep-where))
      (run-segment seg env)]
     [(eq? (car seg) 'pascal) (seg-pascal (seg-eval (second seg) env))]
     [(eq? (car seg) 'lower-first) (seg-lower-first (seg-eval (second seg) env))]
@@ -6658,6 +7202,16 @@
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'dart)))]
     [(eq? (car seg) 'swift-field-name) (seg-dart-field-name node)]
     [(eq? (car seg) 'lua-field-name) (seg-dart-field-name node)]
+    [(eq? (car seg) 'java-field-name) (seg-dart-field-name node)]
+    [(eq? (car seg) 'java-entry-ref) (seg-kt-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'java-map-name) (seg-kt-map-name model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'java-scalar-type) (first (scalar-type-entry 'java (hash-ref node 'type)))]
+    [(eq? (car seg) 'java-scalar-boxed) (second (scalar-type-entry 'java (hash-ref node 'type)))]
+    [(eq? (car seg) 'java-scalar-default) (third (scalar-type-entry 'java (hash-ref node 'type)))]
+    [(eq? (car seg) 'java-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'java)))]
+    [(eq? (car seg) 'java-fixed-name)
+     (third (assv (hash-ref node 'type) (fixed-scalar-table 'java)))]
     [(eq? (car seg) 'cs-field-name) (seg-cs-field-name model node)]
     [(eq? (car seg) 'cs-entry-ref) (seg-cs-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
     [(eq? (car seg) 'cs-map-name) (seg-cs-map-name model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
@@ -6850,6 +7404,15 @@
      (apply string-append
             (for/list ([el (in-list (append (hash-ref node (second seg)) aliases))] [i (in-naturals)])
               (run-env (cdddr seg) (env-with env #:node el #:index i))))]
+    [(eq? (car seg) 'each-sep+)
+     ;; (each-sep+ "sep" methods client|server body...)
+     (define aliases (if (eq? (fourth seg) 'client)
+                         (alias-client-methods node)
+                         (alias-server-methods node)))
+     (string-join
+      (for/list ([el (in-list (append (hash-ref node (third seg)) aliases))] [i (in-naturals)])
+        (run-env (cddddr seg) (env-with env #:node el #:index i)))
+      (second seg))]
     [(eq? (car seg) 'guarded-indent)
      ;; (guarded-indent SetExprProgram "open ~a template" "    " body...)
      (define text (run-env (cddddr seg) env))
