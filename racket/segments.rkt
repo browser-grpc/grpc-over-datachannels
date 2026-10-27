@@ -39,7 +39,7 @@
          go-client-method-program go-server-iface-method-program
          go-server-iface-method-deprecated-program
          go-stream-ifaces-program go-stream-impls-program
-         go-service-program segment-programs run-segments seg-kotlin-wasm-mode
+         go-service-program segment-programs run-segments seg-kotlin-wasm-mode seg-cpp-pkg
          js-deprecated-program js-client-method-program
          js-method-table-entry-program js-service-program
          js-pb-varint-expr-program js-pb-varint-decode-program
@@ -253,6 +253,25 @@
          java-pb-enum-values-program java-pb-enum-body-program
          java-pb-nested-enum-program java-pb-message-program
          java-pb-map-case-head-program
+         cpp-service-program cpp-client-method-program
+         cpp-stream-class-program cpp-client-async-method-program
+         cpp-coro-stream-class-program cpp-client-coro-method-program
+         cpp-server-stream-iface-program cpp-server-iface-method-program
+         cpp-server-async-iface-method-program
+         cpp-server-async-adapter-method-program cpp-stream-impl-program
+         cpp-register-method-program
+         cpp-pb-type-program cpp-pb-type-or-ref-program
+         cpp-pb-explicit-literal-program cpp-pb-default-program
+         cpp-pb-varint-expr-program cpp-pb-varint-decode-program
+         cpp-pb-nonzero-program cpp-pb-encode-singular-program
+         cpp-pb-set-expr-program cpp-pb-encode-guard-program
+         cpp-pb-encode-field-program cpp-pb-decode-singular-program
+         cpp-pb-clearing-program cpp-pb-enum-conv-program
+         cpp-pb-decode-case-program cpp-pb-map-decode-line-program
+         cpp-pb-map-val-encode-program cpp-pb-map-helpers-decl-program
+         cpp-pb-map-helpers-impl-program cpp-pb-nested-enum-program
+         cpp-pb-message-program cpp-pb-message-impls-program
+         cpp-pb-map-val-decode-line-program cpp-pb-map-val-suffix-program
          lua-pb-enum-program)
 
 ;; ---------------------------------------------------------------------------
@@ -6067,6 +6086,508 @@
     (each enums (call javaPbNestedEnum))
     "    }\n"))
 
+;;; ---------------------------------------------------------------------------
+;;; C++ (template-cpp.rkt mirrors, option 1). Method programs use
+;;; (cpp-stub-type 'input-full|'output-full); message programs
+;;; take (support, indent) / (support, qual).
+
+(define cpp-deprecated-program
+  '((if (ref deprecated)
+        (then (fmt "~a[[deprecated(\"deprecated in the proto schema\")]]\n" (arg 0)))
+        (else ""))))
+
+(define cpp-client-method-raw-program
+  '((kind-case
+     (unary
+      (fmt "    ~a ~a(~a req,\n                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n      ~a resp;\n      channel_->Unary(~s, req, resp, metadata, timeout);\n      return resp;\n    }\n\n"
+           (cpp-stub-type 'output-full) (ref name) (cpp-stub-type 'input-full) (cpp-stub-type 'output-full) (ref path)))
+     (server-streaming
+      (fmt "    ~a~aStream ~a(\n        ~a req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n      return ~a~aStream(\n          channel_->ServerStream(~s, req, metadata, timeout));\n    }\n\n"
+           (svc) (ref name) (ref name) (cpp-stub-type 'input-full) (svc) (ref name) (ref path)))
+     (client-streaming
+      (fmt "    ~a ~a(std::vector<~a> reqs,\n                              const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n      std::vector<const grpcdc::Marshaler*> ptrs;\n      for (auto& r : reqs) ptrs.push_back(&r);\n      ~a resp;\n      channel_->ClientStreamCall(~s, ptrs, resp, metadata, timeout);\n      return resp;\n    }\n\n"
+           (cpp-stub-type 'output-full) (ref name) (cpp-stub-type 'input-full) (cpp-stub-type 'output-full) (ref path)))
+     (bidi
+      (fmt "    ~a~aStream ~a(std::vector<~a> reqs,\n                        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n      std::vector<const grpcdc::Marshaler*> ptrs;\n      for (auto& r : reqs) ptrs.push_back(&r);\n      return ~a~aStream(channel_->Bidi(~s, ptrs, metadata, timeout));\n    }\n\n"
+           (svc) (ref name) (ref name) (cpp-stub-type 'input-full) (svc) (ref name) (ref path))))))
+
+(define cpp-client-method-program
+  (append cpp-deprecated-program cpp-client-method-raw-program))
+
+(define cpp-stream-class-program
+  '((kind-case
+     ((server-streaming bidi)
+      (fmt "    class ~a~aStream {\n     public:\n      explicit ~a~aStream(grpcdc::Channel::ClientStream stream)\n          : stream_(std::move(stream)) {}\n      ~a Recv() {\n        ~a resp;\n        stream_.Recv(resp);\n        return resp;\n      }\n\n      /// Initial metadata (response headers).\n      const grpcdc::Metadata& Headers() const { return stream_.headers().metadata; }\n\n      /// Trailing metadata of the terminal status.\n      const grpcdc::Metadata& Trailers() const { return stream_.trailers(); }\n\n      /// Abort this stream (sends RST, wakes a pending Recv).\n      void Cancel() { stream_.Cancel(); }\n\n     private:\n      grpcdc::Channel::ClientStream stream_;\n    };\n\n"
+           (svc) (ref name) (svc) (ref name) (cpp-stub-type 'output-full) (cpp-stub-type 'output-full)))
+     (else ""))))
+
+(define cpp-client-async-method-program
+  '((kind-case
+     (unary
+      (fmt "    std::future<~a> ~aAsync(\n        ~a req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n      return std::async(std::launch::async,\n                        [this, req, metadata, timeout] { return ~a(req, metadata, timeout); });\n    }\n\n"
+           (cpp-stub-type 'output-full) (ref name) (cpp-stub-type 'input-full) (ref name)))
+     (server-streaming
+      (fmt "    std::future<std::vector<~a>> ~aAsync(\n        ~a req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n      return std::async(std::launch::async, [this, req, metadata, timeout] {\n        auto stream = ~a(req, metadata, timeout);\n        std::vector<~a> out;\n        while (true) {\n          try {\n            out.push_back(stream.Recv());\n          } catch (const grpcdc::EndOfStream&) {\n            break;\n          }\n        }\n        return out;\n      });\n    }\n\n"
+           (cpp-stub-type 'output-full) (ref name) (cpp-stub-type 'input-full) (ref name) (cpp-stub-type 'output-full)))
+     (client-streaming
+      (fmt "    std::future<~a> ~aAsync(\n        std::vector<~a> reqs,\n        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n      return std::async(\n          std::launch::async,\n          [this, reqs, metadata, timeout] { return ~a(reqs, metadata, timeout); });\n    }\n\n"
+           (cpp-stub-type 'output-full) (ref name) (cpp-stub-type 'input-full) (ref name)))
+     (bidi
+      (fmt "    std::future<std::vector<~a>> ~aAsync(\n        std::vector<~a> reqs,\n        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n      return std::async(std::launch::async, [this, reqs, metadata, timeout] {\n        auto stream = ~a(reqs, metadata, timeout);\n        std::vector<~a> out;\n        while (true) {\n          try {\n            out.push_back(stream.Recv());\n          } catch (const grpcdc::EndOfStream&) {\n            break;\n          }\n        }\n        return out;\n      });\n    }\n\n"
+           (cpp-stub-type 'output-full) (ref name) (cpp-stub-type 'input-full) (ref name) (cpp-stub-type 'output-full))))))
+
+(define cpp-coro-stream-class-program
+  '((kind-case
+     ((server-streaming bidi)
+      (fmt "    class ~a~aStream {\n     public:\n      explicit ~a~aStream(grpcdc::AsyncClientStream stream)\n          : stream_(std::move(stream)) {}\n      /// Next response, or std::nullopt when the call completed OK.\n      grpcdc::Task<std::optional<~a>> Recv() {\n        ~a resp;\n        try {\n          co_await stream_.Recv(resp);\n        } catch (const grpcdc::EndOfStream&) {\n          co_return std::nullopt;\n        }\n        co_return resp;\n      }\n      void Cancel() { stream_.Cancel(); }\n\n     private:\n      grpcdc::AsyncClientStream stream_;\n    };\n\n"
+           (svc) (ref name) (svc) (ref name) (cpp-stub-type 'output-full) (cpp-stub-type 'output-full)))
+     (else ""))))
+
+(define cpp-client-coro-method-program
+  '((kind-case
+     (unary
+      (fmt "    grpcdc::Task<~a> ~a(~a req,\n                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n      ~a resp;\n      co_await channel_->Unary(~s, req, resp, metadata, timeout);\n      co_return resp;\n    }\n\n"
+           (cpp-stub-type 'output-full) (ref name) (cpp-stub-type 'input-full) (cpp-stub-type 'output-full) (ref path)))
+     (server-streaming
+      (fmt "    grpcdc::Task<~a~aStream> ~a(\n        ~a req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n      co_return ~a~aStream(\n          co_await channel_->ServerStream(~s, req, metadata, timeout));\n    }\n\n"
+           (svc) (ref name) (ref name) (cpp-stub-type 'input-full) (svc) (ref name) (ref path)))
+     (client-streaming
+      (fmt "    grpcdc::Task<~a> ~a(std::vector<~a> reqs,\n                              const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n      std::vector<const grpcdc::Marshaler*> ptrs;\n      for (auto& r : reqs) ptrs.push_back(&r);\n      ~a resp;\n      co_await channel_->ClientStreamCall(~s, ptrs, resp, metadata, timeout);\n      co_return resp;\n    }\n\n"
+           (cpp-stub-type 'output-full) (ref name) (cpp-stub-type 'input-full) (cpp-stub-type 'output-full) (ref path)))
+     (bidi
+      (fmt "    grpcdc::Task<~a~aStream> ~a(std::vector<~a> reqs,\n                        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n      std::vector<const grpcdc::Marshaler*> ptrs;\n      for (auto& r : reqs) ptrs.push_back(&r);\n      co_return ~a~aStream(\n          co_await channel_->Bidi(~s, ptrs, metadata, timeout));\n    }\n\n"
+           (svc) (ref name) (ref name) (cpp-stub-type 'input-full) (svc) (ref name) (ref path))))))
+
+(define cpp-server-stream-iface-program
+  '((kind-case
+     (unary "")
+     (server-streaming
+      (fmt "  /// Server-streaming sink passed to service implementations.\n  struct ~a~aServer {\n    virtual ~~~a~aServer() = default;\n    virtual void Send(~a& resp) = 0;\n    virtual grpcdc::Endpoint::CallContext& Context() = 0;\n  };\n\n" (svc) (ref name) (svc) (ref name) (cpp-stub-type 'output-full)))
+     (client-streaming
+      (fmt "  /// Client-streaming stream passed to service implementations.\n  struct ~a~aServer {\n    virtual ~~~a~aServer() = default;\n    virtual ~a Recv() = 0;\n    virtual void SendAndClose(~a& resp) = 0;\n    virtual grpcdc::Endpoint::CallContext& Context() = 0;\n  };\n\n" (svc) (ref name) (svc) (ref name) (cpp-stub-type 'input-full) (cpp-stub-type 'output-full)))
+     (bidi
+      (fmt "  /// Bidi stream passed to service implementations.\n  struct ~a~aServer {\n    virtual ~~~a~aServer() = default;\n    virtual void Send(~a& resp) = 0;\n    virtual ~a Recv() = 0;\n    virtual grpcdc::Endpoint::CallContext& Context() = 0;\n  };\n\n" (svc) (ref name) (svc) (ref name) (cpp-stub-type 'output-full) (cpp-stub-type 'input-full))))))
+
+(define cpp-server-iface-method-raw-program
+  '((kind-case
+     (unary
+      (fmt "    virtual ~a ~a(grpcdc::Endpoint::CallContext& ctx,\n                               ~a& req) = 0;\n" (cpp-stub-type 'output-full) (ref name) (cpp-stub-type 'input-full)))
+     (server-streaming
+      (fmt "    virtual void ~a(~a& req,\n                              ~a~aServer& stream) = 0;\n" (ref name) (cpp-stub-type 'input-full) (svc) (ref name)))
+     (client-streaming
+      (fmt "    virtual void ~a(~a~aServer& stream) = 0;\n" (ref name) (svc) (ref name)))
+     (bidi
+      (fmt "    virtual void ~a(~a~aServer& stream) = 0;\n" (ref name) (svc) (ref name))))))
+
+(define cpp-server-iface-method-program
+  (append cpp-deprecated-program cpp-server-iface-method-raw-program))
+
+(define cpp-server-async-iface-method-program
+  '((kind-case
+     (unary
+      (fmt "    virtual std::future<~a> ~aAsync(\n        grpcdc::Endpoint::CallContext& ctx, ~a& req) = 0;\n" (cpp-stub-type 'output-full) (ref name) (cpp-stub-type 'input-full)))
+     (server-streaming
+      (fmt "    virtual std::future<void> ~aAsync(\n        ~a& req, ~a~aServer& stream) = 0;\n" (ref name) (cpp-stub-type 'input-full) (svc) (ref name)))
+     (client-streaming
+      (fmt "    virtual std::future<void> ~aAsync(\n        ~a~aServer& stream) = 0;\n" (ref name) (svc) (ref name)))
+     (bidi
+      (fmt "    virtual std::future<void> ~aAsync(~a~aServer& stream) = 0;\n" (ref name) (svc) (ref name))))))
+
+(define cpp-server-async-adapter-method-program
+  '((kind-case
+     (unary
+      (fmt "    ~a ~a(grpcdc::Endpoint::CallContext& ctx,\n                       ~a& req) override {\n      return impl_->~aAsync(ctx, req).get();\n    }\n"
+           (cpp-stub-type 'output-full) (ref name) (cpp-stub-type 'input-full) (ref name)))
+     (server-streaming
+      (fmt "    void ~a(~a& req,\n                      ~a~aServer& stream) override {\n      impl_->~aAsync(req, stream).get();\n    }\n"
+           (ref name) (cpp-stub-type 'input-full) (svc) (ref name) (ref name)))
+     (client-streaming
+      (fmt "    void ~a(~a~aServer& stream) override {\n      impl_->~aAsync(stream).get();\n    }\n" (ref name) (svc) (ref name) (ref name)))
+     (bidi
+      (fmt "    void ~a(~a~aServer& stream) override { impl_->~aAsync(stream).get(); }\n" (ref name) (svc) (ref name) (ref name))))))
+
+(define cpp-stream-impl-program
+  '((kind-case
+     (unary "")
+     (server-streaming
+      (fmt "  class ~a~aServerImpl : public ~a~aServer {\n   public:\n    ~a~aServerImpl(grpcdc::Endpoint::CallContext& ctx,\n                               grpcdc::Server::ServerSink& sink)\n        : ctx_(ctx), sink_(sink) {}\n    void Send(~a& resp) override { sink_(resp.MarshalDc()); }\n    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n\n   private:\n    grpcdc::Endpoint::CallContext& ctx_;\n    grpcdc::Server::ServerSink& sink_;\n  };\n\n"
+           (svc) (ref name) (svc) (ref name) (svc) (ref name) (cpp-stub-type 'output-full)))
+     (client-streaming
+      (fmt "  class ~a~aServerImpl : public ~a~aServer {\n   public:\n    ~a~aServerImpl(grpcdc::Endpoint::CallContext& ctx,\n                               grpcdc::Server::RequestStream& reqs)\n        : ctx_(ctx), reqs_(reqs) {}\n    ~a Recv() override {\n      ~a req;\n      reqs_.RecvInto(req);\n      return req;\n    }\n    void SendAndClose(~a& resp) override {\n      resp_ = resp;\n      has_resp_ = true;\n    }\n    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n    ~a Resp() const { return resp_; }\n    bool HasResp() const { return has_resp_; }\n\n   private:\n    grpcdc::Endpoint::CallContext& ctx_;\n    grpcdc::Server::RequestStream& reqs_;\n    ~a resp_;\n    bool has_resp_ = false;\n  };\n\n"
+           (svc) (ref name) (svc) (ref name) (svc) (ref name) (cpp-stub-type 'input-full) (cpp-stub-type 'input-full) (cpp-stub-type 'output-full) (cpp-stub-type 'output-full) (cpp-stub-type 'output-full)))
+     (bidi
+      (fmt "  class ~a~aServerImpl : public ~a~aServer {\n   public:\n    ~a~aServerImpl(grpcdc::Endpoint::CallContext& ctx,\n                       grpcdc::Server::RequestStream& reqs,\n                       grpcdc::Server::ServerSink& sink)\n        : ctx_(ctx), reqs_(reqs), sink_(sink) {}\n    void Send(~a& resp) override { sink_(resp.MarshalDc()); }\n    ~a Recv() override {\n      ~a req;\n      reqs_.RecvInto(req);\n      return req;\n    }\n    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n\n   private:\n    grpcdc::Endpoint::CallContext& ctx_;\n    grpcdc::Server::RequestStream& reqs_;\n    grpcdc::Server::ServerSink& sink_;\n  };\n\n"
+           (svc) (ref name) (svc) (ref name) (svc) (ref name) (cpp-stub-type 'output-full) (cpp-stub-type 'input-full) (cpp-stub-type 'input-full))))))
+
+(define cpp-register-method-program
+  (let ([kind-const '(case-on (ref kind)
+                       ((unary) "kKindUnary")
+                       ((server-streaming) "kKindServerStreaming")
+                       ((client-streaming) "kKindClientStreaming")
+                       ((bidi) "kKindBidi"))])
+    (list
+     (list 'kind-case
+           (list 'unary
+                 (list 'fmt "            {~s, ~s, grpcdc::Server::~a,\n             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n                     grpcdc::Server::RequestStream& reqs,\n                     grpcdc::Server::ServerSink& sink) {\n               ~a req;\n               reqs.RecvInto(req);\n               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);\n               ~a resp = impl.~a(mutable_ctx, req);\n               sink(resp.MarshalDc());\n             }},\n" '(ref name) '(ref path) kind-const '(cpp-stub-type 'input-full) '(cpp-stub-type 'output-full) '(ref impl-name)))
+           (list 'server-streaming
+                 (list 'fmt "            {~s, ~s,\n             grpcdc::Server::~a,\n             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n                     grpcdc::Server::RequestStream& reqs,\n                     grpcdc::Server::ServerSink& sink) {\n               ~a req;\n               reqs.RecvInto(req);\n               ~a~aServerImpl stream(\n                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), sink);\n               impl.~a(req, stream);\n             }},\n" '(ref name) '(ref path) kind-const '(cpp-stub-type 'input-full) '(svc) '(ref name) '(ref impl-name)))
+           (list 'client-streaming
+                 (list 'fmt "            {~s, ~s,\n             grpcdc::Server::~a,\n             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n                     grpcdc::Server::RequestStream& reqs,\n                     grpcdc::Server::ServerSink& sink) {\n               ~a~aServerImpl stream(\n                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), reqs);\n               impl.~a(stream);\n               if (!stream.HasResp()) {\n                 throw grpcdc::StatusException(\n                     grpcdc::wire::kCodeInternal,\n                     \"client-streaming handler never called SendAndClose\");\n               }\n               ~a resp = stream.Resp();\n               sink(resp.MarshalDc());\n             }},\n" '(ref name) '(ref path) kind-const '(svc) '(ref name) '(ref impl-name) '(cpp-stub-type 'output-full)))
+           (list 'bidi
+                 (list 'fmt "            {~s, ~s, grpcdc::Server::~a,\n             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n                     grpcdc::Server::RequestStream& reqs,\n                     grpcdc::Server::ServerSink& sink) {\n               ~a~aServerImpl stream(\n                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), reqs, sink);\n               impl.~a(stream);\n             }},\n" '(ref name) '(ref path) kind-const '(svc) '(ref name) '(ref impl-name)))))))
+
+(define cpp-service-program
+  '((fmt "  /// Client for ~a.\n" (ref full-name))
+    (fmt "  class ~aClient {\n" (ref name))
+    "   public:\n"
+    (fmt "    explicit ~aClient(std::shared_ptr<grpcdc::Channel> channel)\n        : channel_(std::move(channel)) {}\n\n" (ref name))
+    (each methods (call cppClientStreamClass))
+    (each+ methods client (call cppClientMethod "    "))
+    "    // -- async (std::future) surface -------------------------------------\n\n"
+    (each+ methods client (call cppClientAsyncMethod))
+    "   private:\n    std::shared_ptr<grpcdc::Channel> channel_;\n  };\n\n"
+    "#if __cplusplus >= 202002L\n"
+    (fmt "  /// C++20 coroutine client for ~a (co_await / grpcdc::Task).\n" (ref full-name))
+    (fmt "  class ~aClientCoro {\n" (ref name))
+    "   public:\n"
+    (fmt "    explicit ~aClientCoro(std::shared_ptr<grpcdc::AsyncChannel> channel)\n        : channel_(std::move(channel)) {}\n" (ref name))
+    (fmt "    explicit ~aClientCoro(std::shared_ptr<grpcdc::Channel> channel)\n        : channel_(std::make_shared<grpcdc::AsyncChannel>(std::move(channel))) {}\n\n" (ref name))
+    (each+ methods client (call cppCoroStreamClass))
+    (each+ methods client (call cppCoroMethod))
+    "   private:\n    std::shared_ptr<grpcdc::AsyncChannel> channel_;\n  };\n"
+    "#endif  // __cplusplus >= 202002L\n\n"
+    (each methods (call cppServerStreamIface))
+    (fmt "  /// Service implementation interface for ~a.\n" (ref full-name))
+    (fmt "  struct ~aServer {\n    virtual ~~~aServer() = default;\n" (ref name) (ref name))
+    (each methods (call cppServerIfaceMethod "    "))
+    "  };\n\n"
+    (fmt "  /// Async service implementation interface for ~a.\n" (ref full-name))
+    (fmt "  struct ~aServerAsync {\n    virtual ~~~aServerAsync() = default;\n" (ref name) (ref name))
+    (each methods (call cppServerAsyncIfaceMethod))
+    "  };\n\n"
+    " private:\n"
+    (each methods (call cppStreamImpl))
+    (fmt "  class ~aServerAsyncAdapter : public ~aServer {\n" (ref name) (ref name))
+    (fmt "   public:\n    explicit ~aServerAsyncAdapter(~aServerAsync* impl) : impl_(impl) {}\n" (ref name) (ref name))
+    (each methods (call cppServerAsyncAdapterMethod))
+    (fmt "\n   private:\n    ~aServerAsync* impl_;\n  };\n\n" (ref name))
+    " public:\n"
+    (fmt "  /// Register an implementation of ~a on a Server.\n" (ref full-name))
+    (fmt "  static void Register~aServer(grpcdc::Server& server, ~aServer& impl) {\n" (ref name) (ref name))
+    (fmt "    server.RegisterService(grpcdc::Server::ServiceDesc{\n        ~s,\n        {\n" (ref full-name))
+    (each+ methods server (call cppRegisterMethod))
+    "        }});\n  }\n\n"
+    (fmt "  /// Register an async implementation of ~a on a Server.\n" (ref full-name))
+    (fmt "  static void Register~aServerAsync(grpcdc::Server& server,\n                                      ~aServerAsync& impl) {\n" (ref name) (ref name))
+    "    // Adapters are retained for the process lifetime: registration is\n"
+    "    // once-per-process and bounded by service count.\n"
+    (fmt "    static std::vector<std::shared_ptr<~aServerAsyncAdapter>> adapters;\n" (ref name))
+    (fmt "    auto adapter = std::make_shared<~aServerAsyncAdapter>(&impl);\n" (ref name))
+    "    adapters.push_back(adapter);\n"
+    (fmt "    Register~aServer(server, *adapter);\n  }\n" (ref name))))
+
+(define cpp-pb-type-program
+  '((if (is-map)
+        (then (fmt "std::map<~a, ~a>"
+                   (call-on (key-field (resolved-entry)) cppPbType)
+                   (call-on (val-field (resolved-entry)) cppPbTypeOrRef)))
+        (else
+         (if (repeated)
+             (then (fmt "std::vector<~a>"
+                        (case-on (ref type)
+                          ((11) (cpp-entry-ref))
+                          (else (call-on (with-label (self) 1) cppPbType)))))
+             (else (case-on (ref type)
+                     ((11) (fmt "std::optional<~a>" (cpp-entry-ref)))
+                     ((14) (cpp-entry-ref))
+                     (else (cpp-scalar-type)))))))))
+
+(define cpp-pb-type-or-ref-program
+  '((if (is-map)
+        (then (call cppPbType))
+        (else (case-on (ref type)
+                ((11) (cpp-entry-ref))
+                (else (call cppPbType)))))))
+
+(define cpp-pb-explicit-literal-program
+  '((if (has-default)
+        (then (fmt "~a"
+                   (case-on (ref type)
+                     ((9) (fmt "~s" (default-raw)))
+                     ((8) (default-raw))
+                     ((14) (fmt "~a::~a" (cpp-entry-ref) (default-raw)))
+                     ((2) (fmt "~a" (default-raw)))
+                     (else (default-raw)))))
+        (else ""))))
+
+(define cpp-pb-default-program
+  '((if (call cppPbExplicitLiteral)
+        (then (call cppPbExplicitLiteral))
+        (else (fmt "~a"
+                   (if (is-map)
+                       (then "{}")
+                       (else (case-on (ref label)
+                               ((3) "{}")
+                               (else (case-on (ref type)
+                                       ((11) "std::nullopt")
+                                       ((14) (fmt "~a::~a" (cpp-entry-ref) (enum-first-value-name)))
+                                       (else (cpp-scalar-zero))))))))))))
+
+(define cpp-pb-varint-expr-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (fmt "(~a ? 1 : 0)" (arg 0)))
+           ((17) (fmt "static_cast<std::uint64_t>((~a << 1) ^ (~a >> 31))" (arg 0) (arg 0)))
+           ((18) (fmt "static_cast<std::uint64_t>((~a << 1) ^ (~a >> 63))" (arg 0) (arg 0)))
+           ((14) (fmt "static_cast<std::int32_t>(~a)" (arg 0)))
+           ((5) (fmt "static_cast<std::int64_t>(~a)" (arg 0)))
+           (else (fmt "static_cast<std::uint64_t>(~a)" (arg 0)))))))
+
+(define cpp-pb-varint-decode-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((5) (fmt "static_cast<std::int32_t>(~a)" (arg 0)))
+           ((13 7) (fmt "static_cast<std::uint32_t>(~a)" (arg 0)))
+           ((3) (fmt "static_cast<std::int64_t>(~a)" (arg 0)))
+           ((4 6) (arg 0))
+           ((8) (fmt "~a != 0" (arg 0)))
+           ((17) (fmt "static_cast<std::int32_t>((~a >> 1) ^ -static_cast<std::int64_t>(~a & 1))" (arg 0) (arg 0)))
+           ((18) (fmt "static_cast<std::int64_t>((~a >> 1) ^ -static_cast<std::int64_t>(~a & 1))" (arg 0) (arg 0)))))))
+
+(define cpp-pb-nonzero-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (arg 0))
+           ((14) (fmt "static_cast<std::int32_t>(~a) != 0" (arg 0)))
+           (else (fmt "~a != 0" (arg 0)))))))
+
+(define cpp-pb-encode-singular-program
+  '((case-on (category)
+      ("varint"
+       (if (proto2)
+           (then (fmt "~a{ w.Tag(~a, 0); w.Varint(~a); }\n" (arg 1) (ref number) (call cppPbVarintExpr (arg 0))))
+           (else (fmt "~aif (~a) { w.Tag(~a, 0); w.Varint(~a); }\n" (arg 1) (call cppPbNonzero (arg 0)) (ref number) (call cppPbVarintExpr (arg 0))))))
+      ("fixed"
+       (if (proto2)
+           (then (fmt "~a{ w.Tag(~a, ~a); w.Fixed~a(~a); }\n" (arg 1) (ref number)
+                      (case-on (cpp-fixed-size) ((8) "1") (else "5")) (cpp-fixed-name) (arg 0)))
+           (else (fmt "~aif (~a) { w.Tag(~a, ~a); w.Fixed~a(~a); }\n" (arg 1) (call cppPbNonzero (arg 0)) (ref number)
+                      (case-on (cpp-fixed-size) ((8) "1") (else "5")) (cpp-fixed-name) (arg 0)))))
+      ("string"
+       (if (proto2)
+           (then (fmt "~aw.BytesField(~a, grpcdc::Bytes(~a.begin(), ~a.end()));\n" (arg 1) (ref number) (arg 0) (arg 0)))
+           (else (fmt "~aw.StringField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))))
+      ("bytes"
+       (if (proto2)
+           (then (fmt "~aw.BytesField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aif (!~a.empty()) w.BytesField(~a, ~a);\n" (arg 1) (arg 0) (ref number) (arg 0)))))
+      ("message"
+       (fmt "~aif (~a) w.BytesField(~a, ~a->MarshalDc());\n" (arg 1) (arg 0) (ref number) (arg 0)))
+      (else (fail)))))
+
+(define cpp-pb-set-expr-program
+  '((case-on (ref type)
+      ((11 10) (fmt "~a.has_value()" (ref name)))
+      ((9 12) (fmt "!~a.empty()" (ref name)))
+      (else (call cppPbNonzero (ref name))))))
+
+(define cpp-pb-encode-guard-program
+  '((guarded cppPbSetExpr "    if (!(~a)) {\n" "    }\n" (call cppPbEncodeField (arg 0)))))
+
+(define cpp-pb-encode-field-program
+  '((if (is-map)
+        (then (fmt "    if (!~a.empty()) for (const auto& e : ~a) w.BytesField(~a, ~a(e.first, e.second));\n"
+                   (ref name) (ref name) (ref number)
+                   (fmt "~a::~aEncode" (arg 0) (cpp-map-name))))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint"
+                 (fmt "    if (!~a.empty()) {\n" (ref name))
+                 (fmt "        ~a::Writer payload;\n" (arg 0))
+                 (fmt "        for (auto x : ~a) payload.Varint(~a);\n" (ref name) (call cppPbVarintExpr "x"))
+                 (fmt "        w.BytesField(~a, payload.ToBytes());\n    }\n" (ref number)))
+                ("fixed"
+                 (fmt "    if (!~a.empty()) {\n" (ref name))
+                 (fmt "        ~a::Writer payload;\n" (arg 0))
+                 (fmt "        for (auto x : ~a) payload.Fixed~a(x);\n" (ref name) (cpp-fixed-name))
+                 (fmt "        w.BytesField(~a, payload.ToBytes());\n    }\n" (ref number)))
+                ("string" (fmt "    for (const auto& x : ~a) w.BytesField(~a, grpcdc::Bytes(x.begin(), x.end()));\n" (ref name) (ref number)))
+                ("bytes" (fmt "    for (const auto& x : ~a) w.BytesField(~a, x);\n" (ref name) (ref number)))
+                ("message" (fmt "    for (const auto& x : ~a) w.BytesField(~a, x.MarshalDc());\n" (ref name) (ref number)))
+                (else (fail))))
+             (else (call cppPbEncodeSingular (ref name) "    ")))))))
+
+(define cpp-pb-decode-singular-program
+  '((case-on (category)
+      ("varint"
+       (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+            (case-on (ref type)
+              ((14) (fmt "static_cast<~a>(~a)" (cpp-entry-ref)
+                         (call-on (with-type (self) 5) cppPbVarintDecode (arg 1))))
+              (else (call cppPbVarintDecode (arg 1))))))
+      ("fixed"
+       (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+            (case-on (ref type)
+              ((2) (fmt "~a::BitsToFloat(static_cast<std::uint32_t>(~a))" (arg 3) (arg 1)))
+              ((1) (fmt "~a::BitsToDouble(~a)" (arg 3) (arg 1)))
+              ((7) (fmt "static_cast<std::uint32_t>(~a)" (arg 1)))
+              ((15) (fmt "static_cast<std::int32_t>(~a)" (arg 1)))
+              (else (arg 1)))))
+      ("string" (fmt "~a~a = std::string(~a.begin(), ~a.end());\n" (arg 2) (arg 0) (arg 1) (arg 1)))
+      ("bytes" (fmt "~a~a = ~a;\n" (arg 2) (arg 0) (arg 1)))
+      ("message"
+       (fmt "~a~a.emplace();\n" (arg 2) (arg 0))
+       (fmt "~a~a->UnmarshalDc(~a);\n" (arg 2) (arg 0) (arg 1)))
+      (else (fail)))))
+
+(define cpp-pb-clearing-program
+  '((each-siblings (fmt "            ~a = ~a;\n" (ref name) (call cppPbDefault)))))
+
+(define cpp-pb-enum-conv-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((14) (fmt "static_cast<~a>(~a)" (cpp-entry-ref)
+                      (call-on (with-type (self) 5) cppPbVarintDecode (arg 0))))
+           (else (call cppPbVarintDecode (arg 0)))))))
+
+(define cpp-pb-decode-case-program
+  '((fmt "        case ~a: {\n" (ref number))
+    (if (is-map)
+        (then
+         (fmt "            auto kv = ~a(field.bytes);\n" (fmt "~a::~aDecode" (arg 0) (cpp-map-name)))
+         (fmt "            ~a[kv.first] = kv.second;\n" (ref name)))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint"
+                 "            if (field.wire == 2) {\n"
+                 (fmt "                ~a::Reader sub(field.bytes);\n" (arg 0))
+                 "                while (!sub.Done()) {\n"
+                 (fmt "                    ~a.push_back(~a);\n" (ref name) (call cppPbEnumConv "sub.Varint()"))
+                 "                }\n            } else {\n"
+                 (fmt "                ~a.push_back(~a);\n" (ref name) (call cppPbEnumConv "field.varint"))
+                 "            }\n")
+                ("fixed"
+                 "            if (field.wire == 2) {\n"
+                 (fmt "                ~a::Reader sub(field.bytes);\n" (arg 0))
+                 (fmt "                while (!sub.Done()) ~a.push_back(~a);\n" (ref name)
+                      (case-on (ref type)
+                        ((2) (fmt "~a::BitsToFloat(sub.Fixed32())" (arg 0)))
+                        ((1) (fmt "~a::BitsToDouble(sub.Fixed64())" (arg 0)))
+                        ((7) "static_cast<std::uint32_t>(sub.Fixed32())")
+                        ((15) "sub.Fixed32()")
+                        (else "sub.Fixed64()")))
+                 "            } else {\n"
+                 (fmt "                ~a.push_back(~a);\n" (ref name)
+                      (case-on (ref type)
+                        ((2) (fmt "~a::BitsToFloat(static_cast<std::uint32_t>(field.fixed))" (arg 0)))
+                        ((1) (fmt "~a::BitsToDouble(field.fixed)" (arg 0)))
+                        ((7) "static_cast<std::uint32_t>(field.fixed)")
+                        ((15) "static_cast<std::int32_t>(field.fixed)")
+                        (else "field.fixed")))
+                 "            }\n")
+                ("string" (fmt "            ~a.push_back(std::string(field.bytes.begin(), field.bytes.end()));\n" (ref name)))
+                ("bytes" (fmt "            ~a.push_back(field.bytes);\n" (ref name)))
+                ("message"
+                 (fmt "            ~a item;\n" (cpp-entry-ref))
+                 "            item.UnmarshalDc(field.bytes);\n"
+                 (fmt "            ~a.push_back(item);\n" (ref name)))
+                (else (fail))))
+             (else (call cppPbClearing)
+                   (call cppPbDecodeSingular (ref name) (case-on (category) ("varint" "field.varint") ("fixed" "field.fixed") (else "field.bytes")) "            " (arg 0))))))
+    "            break;\n        }\n"))
+
+(define cpp-pb-map-decode-line-program
+  '((fmt "            case ~a: ~a break;\n" (ref number)
+         (trim-end (call cppPbDecodeSingular (arg 0) (case-on (category) ("varint" "field.varint") ("fixed" "field.fixed") (else "field.bytes")) "" (arg 1))))))
+
+(define cpp-pb-map-val-encode-program
+  '((case-on (ref type)
+      ((11) (fmt "    w.BytesField(~a, value.MarshalDc());\n" (ref number)))
+      (else (call cppPbEncodeSingular "value" "    ")))))
+
+
+(define cpp-pb-map-val-decode-line-program
+  '((case-on (ref type)
+      ((11) (fmt "            case ~a: value.UnmarshalDc(field.bytes); break;\n" (ref number)))
+      (else (call cppPbMapDecodeLine "value" (arg 0))))))
+
+
+(define cpp-pb-map-val-suffix-program
+  '((case-on (ref type)
+      ((11) "")
+      (else (fmt " = ~a" (call cppPbDefault))))))
+
+(define cpp-pb-map-helpers-decl-program
+  '((fmt "inline grpcdc::Bytes ~aEncode(const ~a& key, const ~a& value);\n"
+         (cpp-map-name)
+         (call-on (key-field) cppPbType)
+         (call-on (val-field) cppPbTypeOrRef))
+    (fmt "inline std::pair<~a, ~a> ~aDecode(const grpcdc::Bytes& bytes);\n"
+         (call-on (key-field) cppPbType)
+         (call-on (val-field) cppPbTypeOrRef)
+         (cpp-map-name))))
+
+(define cpp-pb-map-helpers-impl-program
+  '((fmt "inline grpcdc::Bytes ~aEncode(const ~a& key, const ~a& value) {\n"
+         (cpp-map-name)
+         (call-on (key-field) cppPbType)
+         (call-on (val-field) cppPbTypeOrRef))
+    "    Writer w;\n"
+    (call-on (key-field) cppPbEncodeSingular "key" "    ")
+    (call-on (val-field) cppPbMapValEncode)
+    "    return w.ToBytes();\n}\n\n"
+    (fmt "inline std::pair<~a, ~a> ~aDecode(const grpcdc::Bytes& bytes) {\n"
+         (call-on (key-field) cppPbType)
+         (call-on (val-field) cppPbTypeOrRef)
+         (cpp-map-name))
+    (fmt "    ~a key = ~a;\n"
+         (call-on (key-field) cppPbType)
+         (call-on (key-field) cppPbDefault))
+    (fmt "    ~a value~a;\n"
+         (call-on (val-field) cppPbTypeOrRef)
+         (call-on (val-field) cppPbMapValSuffix))
+    "    Reader r(bytes);\n    Field field;\n    while (r.Next(field)) {\n        switch (field.number) {\n"
+    (call-on (key-field) cppPbMapDecodeLine "key" (arg 0))
+    (call-on (val-field) cppPbMapValDecodeLine (arg 0))
+    "            default: break;\n        }\n    }\n    return {key, value};\n}\n\n"))
+
+(define cpp-pb-nested-enum-program
+  '((fmt "~aenum class ~a : std::int32_t {\n" (arg 0) (ref name))
+    (each-sep ",\n" values (fmt "~a  ~a = ~a" (arg 0) (ref name) (ref number)))
+    (fmt "\n~a};\n" (arg 0))))
+
+(define cpp-pb-message-program
+  '((fmt "~aclass ~a : public grpcdc::Marshaler, public grpcdc::Unmarshaler {\n~a public:\n" (arg 1) (ref name) (arg 1))
+    (each enums (call cppPbNestedEnum (fmt "~a  " (arg 1))))
+    (each nested (call cppPbMessage (arg 0) (fmt "~a  " (arg 1))))
+    (each fields (fmt "~a  ~a ~a = ~a;\n" (arg 1) (call cppPbType) (ref name) (call cppPbDefault)))
+    (fmt "~a  grpcdc::Bytes unknown_fields;\n" (arg 1))
+    (fmt "~a  ~a() = default;\n" (arg 1) (ref name))
+    (fmt "~a  grpcdc::Bytes MarshalDc() const override;\n" (arg 1))
+    (fmt "~a  void UnmarshalDc(const grpcdc::Bytes& data) override;\n" (arg 1))
+    (fmt "~a};\n" (arg 1))))
+
+(define cpp-pb-message-impls-program
+  '((fmt "inline grpcdc::Bytes ~a::MarshalDc() const {\n" (if (arg 1) (then (fmt "~a::~a" (arg 1) (ref name))) (else (ref name))))
+    (fmt "    ~a::Writer w;\n" (arg 0))
+    (each fields (call cppPbEncodeGuard (arg 0)))
+    "    w.Raw(unknown_fields);\n"
+    "    return w.ToBytes();\n}\n\n"
+    (fmt "inline void ~a::UnmarshalDc(const grpcdc::Bytes& data) {\n" (if (arg 1) (then (fmt "~a::~a" (arg 1) (ref name))) (else (ref name))))
+    "    unknown_fields.clear();\n"
+    (each fields (fmt "    ~a = ~a;\n" (ref name) (call cppPbDefault)))
+    (fmt "    ~a::Reader r(data);\n" (arg 0))
+    (fmt "    ~a::Field field;\n" (arg 0))
+    "    while (r.Next(field)) {\n      switch (field.number) {\n"
+    (each fields (call cppPbDecodeCase (arg 0)))
+    "        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;\n      }\n    }\n}\n\n"
+    (each-where nested (not (ref map-entry))
+                (call cppPbMessageImpls (arg 0) (if (arg 1) (then (fmt "~a::~a" (arg 1) (get (parent) name))) (else (get (parent) name)))))))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -6497,7 +7018,43 @@
           'javaPbEnumBody java-pb-enum-body-program
           'javaPbNestedEnum java-pb-nested-enum-program
           'javaPbMessage java-pb-message-program
-          'javaPbMapCaseHead java-pb-map-case-head-program))
+          'javaPbMapCaseHead java-pb-map-case-head-program
+          'cppService cpp-service-program
+          'cppClientMethod cpp-client-method-program
+          'cppClientStreamClass cpp-stream-class-program
+          'cppClientAsyncMethod cpp-client-async-method-program
+          'cppCoroStreamClass cpp-coro-stream-class-program
+          'cppCoroMethod cpp-client-coro-method-program
+          'cppServerStreamIface cpp-server-stream-iface-program
+          'cppServerIfaceMethod cpp-server-iface-method-program
+          'cppServerAsyncIfaceMethod cpp-server-async-iface-method-program
+          'cppServerAsyncAdapterMethod cpp-server-async-adapter-method-program
+          'cppStreamImpl cpp-stream-impl-program
+          'cppRegisterMethod cpp-register-method-program
+          'cppPbType cpp-pb-type-program
+          'cppPbTypeOrRef cpp-pb-type-or-ref-program
+          'cppPbExplicitLiteral cpp-pb-explicit-literal-program
+          'cppPbDefault cpp-pb-default-program
+          'cppPbVarintExpr cpp-pb-varint-expr-program
+          'cppPbVarintDecode cpp-pb-varint-decode-program
+          'cppPbNonzero cpp-pb-nonzero-program
+          'cppPbEncodeSingular cpp-pb-encode-singular-program
+          'cppPbSetExpr cpp-pb-set-expr-program
+          'cppPbEncodeGuard cpp-pb-encode-guard-program
+          'cppPbEncodeField cpp-pb-encode-field-program
+          'cppPbDecodeSingular cpp-pb-decode-singular-program
+          'cppPbClearing cpp-pb-clearing-program
+          'cppPbEnumConv cpp-pb-enum-conv-program
+          'cppPbDecodeCase cpp-pb-decode-case-program
+          'cppPbMapDecodeLine cpp-pb-map-decode-line-program
+          'cppPbMapValEncode cpp-pb-map-val-encode-program
+          'cppPbMapHelpersDecl cpp-pb-map-helpers-decl-program
+          'cppPbMapHelpersImpl cpp-pb-map-helpers-impl-program
+          'cppPbNestedEnum cpp-pb-nested-enum-program
+          'cppPbMessage cpp-pb-message-program
+          'cppPbMessageImpls cpp-pb-message-impls-program
+          'cppPbMapValDecodeLine cpp-pb-map-val-decode-line-program
+          'cppPbMapValSuffix cpp-pb-map-val-suffix-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -6538,6 +7095,7 @@
 ;; read by the (rs-map-type) builtin.
 (define seg-rust-no-std (make-parameter #f))
 (define seg-kotlin-wasm-mode (make-parameter #f))
+(define seg-cpp-pkg (make-parameter ""))
 
 (define (seg-truthy? v)
   (not (or (not v) (equal? v "") (equal? v 0))))
@@ -6890,6 +7448,48 @@
                     (format "~a.~a" (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'enum) 'name)))
                 (hash-ref (hash-ref entry 'msg) 'full-name))))
 
+(define (seg-cpp-stub-type m full-key)
+  (define full (hash-ref m full-key))
+  (define pkg (seg-cpp-pkg))
+  (if (or (string=? pkg "")
+          (not (string-contains? full "."))
+          (string-prefix? full (string-append pkg ".")))
+      (hash-ref m (if (eq? full-key 'input-full) 'input 'output))
+      (string-append "::" (string-join (string-split full ".") "::"))))
+
+(define (seg-cpp-rel pkg full)
+  (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
+                  (substring full (add1 (string-length pkg)))
+                  full))
+  (string-join (string-split rel ".") "::"))
+
+(define (seg-cpp-ns pkg)
+  (if (string=? pkg "") "proto" (string-join (string-split pkg ".") "::")))
+
+(define (seg-cpp-entry-ref model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (define rel
+    (if (eq? (hash-ref entry 'kind) 'enum)
+        (let ([e (hash-ref entry 'enum)])
+          (if (hash-ref entry 'msg)
+              (string-append (seg-cpp-rel (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)) "::" (hash-ref e 'name))
+              (seg-cpp-rel (hash-ref entry 'pkg) (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name)))))
+        (seg-cpp-rel (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name))))
+  (if (equal? (hash-ref entry 'file) (hash-ref model 'name))
+      rel
+      (string-append "::" (seg-cpp-ns (hash-ref entry 'pkg)) "::" rel)))
+
+(define (seg-cpp-map-name model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (string-join (string-split (seg-cpp-rel (hash-ref entry 'pkg)
+                                          (hash-ref (hash-ref entry 'msg) 'full-name)) "::") ""))
+
 (define (seg-cs-pascal s)
   (string-join
    (map (lambda (part)
@@ -7202,6 +7802,17 @@
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'dart)))]
     [(eq? (car seg) 'swift-field-name) (seg-dart-field-name node)]
     [(eq? (car seg) 'lua-field-name) (seg-dart-field-name node)]
+    [(eq? (car seg) 'cpp-stub-type)
+     (seg-cpp-stub-type node (let ([k (second seg)])
+                               (if (and (list? k) (eq? (car k) 'quote)) (second k) k)))]
+    [(eq? (car seg) 'cpp-entry-ref) (seg-cpp-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'cpp-map-name) (seg-cpp-map-name model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'cpp-scalar-type) (first (scalar-type-entry 'cpp (hash-ref node 'type)))]
+    [(eq? (car seg) 'cpp-scalar-zero) (second (scalar-type-entry 'cpp (hash-ref node 'type)))]
+    [(eq? (car seg) 'cpp-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'cpp)))]
+    [(eq? (car seg) 'cpp-fixed-name)
+     (third (assv (hash-ref node 'type) (fixed-scalar-table 'cpp)))]
     [(eq? (car seg) 'java-field-name) (seg-dart-field-name node)]
     [(eq? (car seg) 'java-entry-ref) (seg-kt-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
     [(eq? (car seg) 'java-map-name) (seg-kt-map-name model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
