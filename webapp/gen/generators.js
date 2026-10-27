@@ -343,6 +343,37 @@ function parseParams(parameter) {
 const FIXED_TABLES = {"c":{"1":[8,"f64"],"15":[4,"i32"],"16":[8,"i64"],"2":[4,"f32"],"6":[8,"u64"],"7":[4,"u32"]},"cpp":{"1":[8,"Double"],"15":[4,"Int32"],"16":[8,"Int64"],"2":[4,"Float"],"6":[8,"Int64"],"7":[4,"Int32"]},"csharp":{"1":[8,"Double"],"15":[4,"Int"],"16":[8,"Long"],"2":[4,"Float"],"6":[8,"Long"],"7":[4,"Int"]},"dart":{"1":[8,"Float64"],"15":[4,"Int32"],"16":[8,"Int64"],"2":[4,"Float32"],"6":[8,"Uint64"],"7":[4,"Uint32"]},"go":{"1":[8,"Float64"],"15":[4,"Int32"],"16":[8,"BigInt64"],"2":[4,"Float32"],"6":[8,"BigUint64"],"7":[4,"Uint32"]},"java":{"1":[8,"Double"],"15":[4,"Int"],"16":[8,"Long"],"2":[4,"Float"],"6":[8,"Long"],"7":[4,"Int"]},"js":{"1":[8,"Float64"],"15":[4,"Int32"],"16":[8,"BigInt64"],"2":[4,"Float32"],"6":[8,"BigUint64"],"7":[4,"Uint32"]},"kotlin":{"1":[8,"Double"],"15":[4,"Int"],"16":[8,"Long"],"2":[4,"Float"],"6":[8,"ULong"],"7":[4,"UInt"]},"lua":{"1":[8,"d"],"15":[4,"i4"],"16":[8,"i8"],"2":[4,"f"],"6":[8,"I8"],"7":[4,"I4"]},"php":{"1":[8,"e"],"15":[4,"V"],"16":[8,"P"],"2":[4,"g"],"6":[8,"P"],"7":[4,"V"]},"python":{"1":[8,"<d"],"15":[4,"<i"],"16":[8,"<q"],"2":[4,"<f"],"6":[8,"<Q"],"7":[4,"<I"]},"ruby":{"1":[8,"E"],"15":[4,"l<"],"16":[8,"q<"],"2":[4,"e"],"6":[8,"Q<"],"7":[4,"V"]},"rust":{"1":[8,"f64"],"15":[4,"i32"],"16":[8,"i64"],"2":[4,"f32"],"6":[8,"u64"],"7":[4,"u32"]},"scala":{"1":[8,"double"],"15":[4,"fixed32"],"16":[8,"fixed64"],"2":[4,"float"],"6":[8,"fixed64"],"7":[4,"fixed32"]},"swift":{"1":[8,"Double"],"15":[4,"Int32"],"16":[8,"Int64"],"2":[4,"Float"],"6":[8,"UInt64"],"7":[4,"UInt32"]},"zig":{"1":[8,"f64"],"15":[4,"i32"],"16":[8,"i64"],"2":[4,"f32"],"6":[8,"u64"],"7":[4,"u32"]}};
 const VARINT_TYPES = [5,3,13,4,17,18,8,14];
 const SCALAR_TABLES = {"go":{"default":null,"types":{"1":"float64","12":"[]byte","13":"uint32","15":"int32","16":"int64","17":"int32","18":"int64","2":"float32","3":"int64","4":"uint64","5":"int32","6":"uint64","7":"uint32","8":"bool","9":"string"}},"rust":{"default":"i32","types":{"1":"f64","12":"Vec<u8>","16":"i64-or-u64","18":"i64-or-u64","2":"f32","3":"i64-or-u64","4":"i64-or-u64","6":"i64-or-u64","8":"bool","9":"String"}},"scala":{"default":"Int","types":{"1":"Double","12":"Array[Byte]","16":"Long","18":"Long","2":"Float","3":"Long","4":"Long","6":"Long","8":"Boolean","9":"String"}},"java":{"default":null,"types":{"1":["double","Double","0"],"12":["byte[]","byte[]","new byte[0]"],"13":["int","Integer","0"],"15":["int","Integer","0"],"16":["long","Long","0L"],"17":["int","Integer","0"],"18":["long","Long","0L"],"2":["float","Float","0"],"3":["long","Long","0L"],"4":["long","Long","0L"],"5":["int","Integer","0"],"6":["long","Long","0L"],"7":["int","Integer","0"],"8":["boolean","Boolean","false"],"9":["String","String","\"\""]}},"csharp":{"default":null,"types":{"1":["double","0"],"12":["byte[]","new byte[0]"],"13":["uint","0"],"15":["int","0"],"16":["long","0"],"17":["int","0"],"18":["long","0"],"2":["float","0"],"3":["long","0"],"4":["ulong","0"],"5":["int","0"],"6":["ulong","0"],"7":["uint","0"],"8":["bool","false"],"9":["string","\"\""]}},"cpp":{"default":null,"types":{"1":["double","0"],"12":["std::vector<std::uint8_t>","{}"],"13":["std::uint32_t","0"],"15":["std::int32_t","0"],"16":["std::int64_t","0"],"17":["std::int32_t","0"],"18":["std::int64_t","0"],"2":["float","0"],"3":["std::int64_t","0"],"4":["std::uint64_t","0"],"5":["std::int32_t","0"],"6":["std::uint64_t","0"],"7":["std::uint32_t","0"],"8":["bool","false"],"9":["std::string","\"\""]}},"swift":{"default":null,"types":{"1":["Double","0"],"12":["[UInt8]","[]"],"13":["UInt32","0"],"15":["Int32","0"],"16":["Int64","0"],"17":["Int32","0"],"18":["Int64","0"],"2":["Float","0"],"3":["Int64","0"],"4":["UInt64","0"],"5":["Int32","0"],"6":["UInt64","0"],"7":["UInt32","0"],"8":["Bool","false"],"9":["String","\"\""]}},"kotlin":{"default":null,"types":{"1":["Double","0.0"],"12":["ByteArray","ByteArray(0)"],"13":["UInt","0u"],"15":["Int","0"],"16":["Long","0L"],"17":["Int","0"],"18":["Long","0L"],"2":["Float","0f"],"3":["Long","0L"],"4":["ULong","0uL"],"5":["Int","0"],"6":["ULong","0uL"],"7":["UInt","0u"],"8":["Boolean","false"],"9":["String","\"\""]}},"dart":{"default":null,"types":{"1":["double","0"],"12":["Uint8List","Uint8List(0)"],"13":["int","0"],"15":["int","0"],"16":["int","0"],"17":["int","0"],"18":["int","0"],"2":["double","0"],"3":["int","0"],"4":["int","0"],"5":["int","0"],"6":["int","0"],"7":["int","0"],"8":["bool","false"],"9":["String","''"]}},"zig":{"default":null,"types":{"1":["f64","0"],"12":["[]const u8","\"\""],"13":["u32","0"],"15":["i32","0"],"16":["i64","0"],"17":["i32","0"],"18":["i64","0"],"2":["f32","0"],"3":["i64","0"],"4":["u64","0"],"5":["i32","0"],"6":["u64","0"],"7":["u32","0"],"8":["bool","false"],"9":["[]const u8","\"\""]}},"c":{"default":null,"types":{"1":["double","0"],"12":["~aBytes","\"\""],"13":["uint32_t","0"],"15":["int32_t","0"],"16":["int64_t","0"],"17":["int32_t","0"],"18":["int64_t","0"],"2":["float","0"],"3":["int64_t","0"],"4":["uint64_t","0"],"5":["int32_t","0"],"6":["uint64_t","0"],"7":["uint32_t","0"],"8":["bool","false"],"9":["char *","\"\""]}}};
+const SEGMENT_PROGRAMS = {"goRegisterMethod":[["kind-case",["unary",["fmt","\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treq := new(~a)\n\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tresp, err := srv.~a(ctx, req)\n\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\treturn sink.Send(resp.MarshalDC())\n\t\t}},\n",["ref","name"],["ref","path"],["ref","input"],["ref","impl-name"]]],["server-streaming",["fmt","\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treq := new(~a)\n\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\treturn srv.~a(req, &~a~aServerImpl{ctx: ctx, sink: sink})\n\t\t}},\n",["ref","name"],["ref","path"],["ref","input"],["ref","impl-name"],["svc"],["ref","impl-name"]]],["client-streaming",["fmt","\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindClientStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\tstream := &~a~aServerImpl{ctx: ctx, reqs: reqs}\n\t\t\tif err := srv.~a(stream); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tif stream.resp == nil {\n\t\t\t\treturn grpcdc.NewStatus(grpcdc.CodeInternal, \"client-streaming handler never called SendAndClose\")\n\t\t\t}\n\t\t\treturn sink.Send(stream.resp.MarshalDC())\n\t\t}},\n",["ref","name"],["ref","path"],["svc"],["ref","impl-name"],["ref","impl-name"]]],["bidi",["fmt","\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindBidi, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treturn srv.~a(&~a~aServerImpl{ctx: ctx, reqs: reqs, sink: sink})\n\t\t}},\n",["ref","name"],["ref","path"],["ref","impl-name"],["svc"],["ref","impl-name"]]]]]};
+
+function runSegments(program, node, svc) {
+  let out = '';
+  for (const seg of program) out += runSegment(seg, node, svc);
+  return out;
+}
+
+function runSegment(seg, node, svc) {
+  if (typeof seg === 'string') return seg;
+  switch (seg[0]) {
+    case 'fmt': {
+      let i = 1;
+      return seg[1].replace(/~[as]/g, (tok) => {
+        const v = runSegment(seg[++i], node, svc);
+        return tok === '~s' ? JSON.stringify(String(v)) : String(v);
+      });
+    }
+    case 'ref':
+      return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[seg[1]];
+    case 'svc':
+      return svc;
+    case 'kind-case': {
+      const branch = seg.slice(1).find((b) => b[0] === node.kind);
+      if (!branch) throw new Error('no kind branch for ' + node.kind);
+      return runSegments(branch.slice(1), node, svc);
+    }
+    default:
+      throw new Error('bad segment: ' + JSON.stringify(seg));
+  }
+}
 
 // ---------------------------------------------------------------------------
 // JS emitter (mirrors the native js template).
@@ -965,32 +996,9 @@ function goStreamIfaces(m, svc) {
 }
 
 function goRegisterMethod(m, svc) {
-  const impl = m.implName;
-  const head = '\t\t{Name: ' + q(m.name) + ', Path: ' + q(m.path) + ', Kind: grpcdc.';
-  switch (m.kind) {
-    case 'unary':
-      return head + 'KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n'
-        + '\t\t\treq := new(' + m.input + ')\n'
-        + '\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n'
-        + '\t\t\tresp, err := srv.' + impl + '(ctx, req)\n'
-        + '\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n'
-        + '\t\t\treturn sink.Send(resp.MarshalDC())\n\t\t}},\n';
-    case 'server-streaming':
-      return head + 'KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n'
-        + '\t\t\treq := new(' + m.input + ')\n'
-        + '\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n'
-        + '\t\t\treturn srv.' + impl + '(req, &' + svc + impl + 'ServerImpl{ctx: ctx, sink: sink})\n\t\t}},\n';
-    case 'client-streaming':
-      return head + 'KindClientStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n'
-        + '\t\t\tstream := &' + svc + impl + 'ServerImpl{ctx: ctx, reqs: reqs}\n'
-        + '\t\t\tif err := srv.' + impl + '(stream); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n'
-        + '\t\t\tif stream.resp == nil {\n'
-        + '\t\t\t\treturn grpcdc.NewStatus(grpcdc.CodeInternal, "client-streaming handler never called SendAndClose")\n\t\t\t}\n'
-        + '\t\t\treturn sink.Send(stream.resp.MarshalDC())\n\t\t}},\n';
-    default:
-      return head + 'KindBidi, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n'
-        + '\t\t\treturn srv.' + impl + '(&' + svc + impl + 'ServerImpl{ctx: ctx, reqs: reqs, sink: sink})\n\t\t}},\n';
-  }
+  // Emission single-sourced as segments (SEGMENT_PROGRAMS.goRegisterMethod,
+  // from racket/segments.rkt); edit the program there.
+  return runSegments(SEGMENT_PROGRAMS.goRegisterMethod, m, svc);
 }
 
 function goStreamImpls(m, svc) {

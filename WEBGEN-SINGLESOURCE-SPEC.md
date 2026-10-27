@@ -79,6 +79,38 @@ scalar/wire tables, message layout), option 3 in parallel for
 everything else. Option 1 only if the webapp becomes a
 primary distribution channel.
 
+## Option 1 mechanism (pilot implemented)
+
+Emission as data, interpreted twice. `racket/segments.rkt`
+holds segment programs — lists of nodes:
+
+- `"text"` — literal output
+- `(fmt "template" expr ...)` — format over the exprs
+  (`~a` display, `~s` write; JS substitutes `~a` as
+  `String(v)`, `~s` as a JSON string)
+- `(ref name)` — field of the current model node;
+  `(ref impl-name)` follows the method-impl-name rule
+- `(svc)` — the enclosing service name (template parameter)
+- `(kind-case (kind seg ...) ...)` — dispatch on `(ref kind)`
+
+The Racket interpreter (`run-segments`) is spliced into every
+plugin by metagen; webgen.rkt serializes the same datum into
+the browser generators (`SEGMENT_PROGRAMS`) with a JS
+interpreter (`runSegments`). A converted function therefore
+exists exactly once.
+
+Pilot status: Go `go-register-method` /
+`goRegisterMethod` is converted and byte-identical on both
+sides (check-generated; parity green in Chromium, Firefox,
+WebKit). Rollout: convert one emitter function at a time —
+rest of the Go stub emitter (client methods, stream
+impls/ifaces, service assembly), then the Go pb emitter
+(needs `each`, nested-message recursion, and map-helper
+segments added to the grammar), then the other languages by
+template size. Unconverted functions stay hand-mirrored and
+parity-pinned; the grammar grows only as a real function
+demands a node.
+
 ## First concrete step
 
 Inventory the data-shaped duplications: grep `webgen.rkt`

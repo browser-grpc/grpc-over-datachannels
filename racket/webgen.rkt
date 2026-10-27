@@ -19,7 +19,7 @@
 ;;; the browser Rust emitter shares that static text with
 ;;; template-rust.rkt instead of mirroring it.
 
-(require "spec.rkt" json)
+(require "spec.rkt" "segments.rkt" json)
 
 (provide emit-web-generators)
 
@@ -61,6 +61,18 @@
 ;; (scalar-type-tables): per language {default, types} where
 ;; types maps a field-type number to the leaf payload (a type
 ;; name, or an array such as [primitive, boxed, default]).
+;; Emitter segment programs, serialized from segments.rkt:
+;; the same data the native templates interpret, so converted
+;; emitter functions exist exactly once (option 1 rollout).
+(define (datum->jsexpr v)
+  (cond [(symbol? v) (symbol->string v)]
+        [(pair? v) (map datum->jsexpr v)]
+        [else v]))
+
+(define (segment-programs-json)
+  (jsexpr->string
+   (hasheq 'goRegisterMethod (datum->jsexpr go-register-method-program))))
+
 (define (scalar-tables-json)
   (string-join
    (for/list ([row (in-list scalar-type-tables)])
@@ -1046,32 +1058,9 @@ function goStreamIfaces(m, svc) {
 }
 
 function goRegisterMethod(m, svc) {
-  const impl = m.implName;
-  const head = '\t\t{Name: ' + q(m.name) + ', Path: ' + q(m.path) + ', Kind: grpcdc.';
-  switch (m.kind) {
-    case 'unary':
-      return head + 'KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n'
-        + '\t\t\treq := new(' + m.input + ')\n'
-        + '\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n'
-        + '\t\t\tresp, err := srv.' + impl + '(ctx, req)\n'
-        + '\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n'
-        + '\t\t\treturn sink.Send(resp.MarshalDC())\n\t\t}},\n';
-    case 'server-streaming':
-      return head + 'KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n'
-        + '\t\t\treq := new(' + m.input + ')\n'
-        + '\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n'
-        + '\t\t\treturn srv.' + impl + '(req, &' + svc + impl + 'ServerImpl{ctx: ctx, sink: sink})\n\t\t}},\n';
-    case 'client-streaming':
-      return head + 'KindClientStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n'
-        + '\t\t\tstream := &' + svc + impl + 'ServerImpl{ctx: ctx, reqs: reqs}\n'
-        + '\t\t\tif err := srv.' + impl + '(stream); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n'
-        + '\t\t\tif stream.resp == nil {\n'
-        + '\t\t\t\treturn grpcdc.NewStatus(grpcdc.CodeInternal, "client-streaming handler never called SendAndClose")\n\t\t\t}\n'
-        + '\t\t\treturn sink.Send(stream.resp.MarshalDC())\n\t\t}},\n';
-    default:
-      return head + 'KindBidi, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n'
-        + '\t\t\treturn srv.' + impl + '(&' + svc + impl + 'ServerImpl{ctx: ctx, reqs: reqs, sink: sink})\n\t\t}},\n';
-  }
+  // Emission single-sourced as segments (SEGMENT_PROGRAMS.goRegisterMethod,
+  // from racket/segments.rkt); edit the program there.
+  return runSegments(SEGMENT_PROGRAMS.goRegisterMethod, m, svc);
 }
 
 function goStreamImpls(m, svc) {
@@ -13195,7 +13184,10 @@ JS
         (string-append js-part-1 (alias-table-json) js-part-2
                        "const FIXED_TABLES = " (fixed-tables-json) ";\n"
                        "const VARINT_TYPES = " (varint-types-json) ";\n"
-                       "const SCALAR_TABLES = " (scalar-tables-json) ";\n\n"
+                       "const SCALAR_TABLES = " (scalar-tables-json) ";\n"
+                       "const SEGMENT_PROGRAMS = " (segment-programs-json) ";\n\n"
+                       "function runSegments(program, node, svc) {\n  let out = '';\n  for (const seg of program) out += runSegment(seg, node, svc);\n  return out;\n}\n\n"
+                       "function runSegment(seg, node, svc) {\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      return seg[1].replace(/~[as]/g, (tok) => {\n        const v = runSegment(seg[++i], node, svc);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref':\n      return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[seg[1]];\n    case 'svc':\n      return svc;\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind);\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runSegments(branch.slice(1), node, svc);\n    }\n    default:\n      throw new Error('bad segment: ' + JSON.stringify(seg));\n  }\n}\n\n"
                        js-part-3 js-part-4
                        "const RP_ENUM_SHAPE = " (rust-enum-shape-json) ";\n"
                        "const GO_MODULE_PATH = " (go-module-path-json) ";\n\n"
