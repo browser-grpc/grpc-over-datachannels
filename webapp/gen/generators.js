@@ -11420,161 +11420,28 @@ function emitScalaFile(model, params) {
 // ---------------------------------------------------------------------------
 
 function wasmGoClientMethod(m, svc) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return 'func (c *' + svc + 'Client) ' + m.name + '(req *echo.' + m.input + ') (*echo.' + m.output + ', error) {\n'
-        + '\tpayload, err := callUnary(c.bridge, ' + path + ', req.MarshalDC())\n'
-        + '\tif err != nil {\n\t\treturn nil, err\n\t}\n'
-        + '\tresp := new(echo.' + m.output + ')\n'
-        + '\tif err := resp.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n'
-        + '\treturn resp, nil\n}\n';
-    case 'server-streaming':
-      return 'func (c *' + svc + 'Client) ' + m.name + '(req *echo.' + m.input + ', onResp func(*echo.' + m.output + ') error) error {\n'
-        + '\treturn callStream(c.bridge, "serverStream", ' + path + ', req.MarshalDC(), func(payload []byte) error {\n'
-        + '\t\tresp := new(echo.' + m.output + ')\n'
-        + '\t\tif err := resp.UnmarshalDC(payload); err != nil {\n\t\t\treturn err\n\t\t}\n'
-        + '\t\treturn onResp(resp)\n\t})\n}\n';
-    case 'client-streaming':
-      return 'func (c *' + svc + 'Client) ' + m.name + '(reqs ...*echo.' + m.input + ') (*echo.' + m.output + ', error) {\n'
-        + '\tpayloads := make([][]byte, len(reqs))\n'
-        + '\tfor i, r := range reqs {\n\t\tpayloads[i] = r.MarshalDC()\n\t}\n'
-        + '\tpayload, err := callClientStream(c.bridge, ' + path + ', payloads)\n'
-        + '\tif err != nil {\n\t\treturn nil, err\n\t}\n'
-        + '\tresp := new(echo.' + m.output + ')\n'
-        + '\tif err := resp.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n'
-        + '\treturn resp, nil\n}\n';
-    default:
-      return 'func (c *' + svc + 'Client) ' + m.name + '(reqs []*echo.' + m.input + ', onResp func(*echo.' + m.output + ') error) error {\n'
-        + '\tpayloads := make([][]byte, len(reqs))\n'
-        + '\tfor i, r := range reqs {\n\t\tpayloads[i] = r.MarshalDC()\n\t}\n'
-        + '\treturn callStreamPayloads(c.bridge, "bidi", ' + path + ', payloads, func(payload []byte) error {\n'
-        + '\t\tresp := new(echo.' + m.output + ')\n'
-        + '\t\tif err := resp.UnmarshalDC(payload); err != nil {\n\t\t\treturn err\n\t\t}\n'
-        + '\t\treturn onResp(resp)\n\t})\n}\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmGoClientMethod, m, svc);
 }
-
 function wasmGoSinkName(svc, out) {
   const outs = [...new Set(svc.methods.map((m) => m.output))];
   return outs.length === 1 ? svc.name + 'ServerSink' : svc.name + out + 'ServerSink';
 }
 
 function wasmGoServerIfaceMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '\t' + m.name + '(req *echo.' + m.input + ', metadata [][2]string) (*echo.' + m.output + ', error)\n';
-    case 'server-streaming':
-      return '\t' + m.name + '(req *echo.' + m.input + ', metadata [][2]string, sink *' + wasmGoSinkName(svc, m.output) + ') error\n';
-    case 'client-streaming':
-      return '\t' + m.name + '(reqs []*echo.' + m.input + ', metadata [][2]string) (*echo.' + m.output + ', error)\n';
-    default:
-      return '\t' + m.name + '(reqs []*echo.' + m.input + ', metadata [][2]string, sink *' + wasmGoSinkName(svc, m.output) + ') error\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmGoServerIfaceMethod, m, svc.name, null, [wasmGoSinkName(svc, m.output)]);
 }
-
 function wasmGoRegisterMethod(m, svc) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '\tregisterUnaryHandler(bridge, ' + path + ', func(payload []byte, metadata [][2]string) ([]byte, error) {\n'
-        + '\t\treq := new(echo.' + m.input + ')\n'
-        + '\t\tif err := req.UnmarshalDC(payload); err != nil {\n\t\t\treturn nil, err\n\t\t}\n'
-        + '\t\tresp, err := impl.' + m.name + '(req, metadata)\n'
-        + '\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n'
-        + '\t\treturn resp.MarshalDC(), nil\n\t})\n';
-    case 'server-streaming':
-      return '\tregisterServerStreamHandler(bridge, ' + path + ', func(payload []byte, metadata [][2]string, sink *ServerSink) error {\n'
-        + '\t\treq := new(echo.' + m.input + ')\n'
-        + '\t\tif err := req.UnmarshalDC(payload); err != nil {\n\t\t\treturn err\n\t\t}\n'
-        + '\t\treturn impl.' + m.name + '(req, metadata, &' + wasmGoSinkName(svc, m.output) + '{sink: sink})\n\t})\n';
-    case 'client-streaming':
-      return '\tregisterClientStreamHandler(bridge, ' + path + ', func(payloads [][]byte, metadata [][2]string) ([]byte, error) {\n'
-        + '\t\treqs := make([]*echo.' + m.input + ', len(payloads))\n'
-        + '\t\tfor i, payload := range payloads {\n'
-        + '\t\t\treqs[i] = new(echo.' + m.input + ')\n'
-        + '\t\t\tif err := reqs[i].UnmarshalDC(payload); err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t}\n'
-        + '\t\tresp, err := impl.' + m.name + '(reqs, metadata)\n'
-        + '\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n'
-        + '\t\treturn resp.MarshalDC(), nil\n\t})\n';
-    default:
-      return '\tregisterBidiHandler(bridge, ' + path + ', func(payloads [][]byte, metadata [][2]string, sink *ServerSink) error {\n'
-        + '\t\treqs := make([]*echo.' + m.input + ', len(payloads))\n'
-        + '\t\tfor i, payload := range payloads {\n'
-        + '\t\t\treqs[i] = new(echo.' + m.input + ')\n'
-        + '\t\t\tif err := reqs[i].UnmarshalDC(payload); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n'
-        + '\t\treturn impl.' + m.name + '(reqs, metadata, &' + wasmGoSinkName(svc, m.output) + '{sink: sink})\n\t})\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmGoRegisterMethod, m, svc.name, null, [wasmGoSinkName(svc, m.output)]);
 }
-
 function wasmGoStreamIfaceMethod(m, svc) {
-  switch (m.kind) {
-    case 'client-streaming':
-      return '\t' + m.name + '(source *' + m.input + 'Source, metadata [][2]string) (*echo.' + m.output + ', error)\n';
-    case 'bidi':
-      return '\t' + m.name + '(source *' + m.input + 'Source, metadata [][2]string, sink *' + wasmGoSinkName(svc, m.output) + ') error\n';
-    default:
-      return '';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmGoStreamIfaceMethod, m, svc.name, null, [wasmGoSinkName(svc, m.output)]);
 }
-
 function wasmGoStreamRegisterMethod(m, svc) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'client-streaming':
-      return '\tregisterClientStreamIncHandler(bridge, ' + path + ', func(source *RequestSource, metadata [][2]string) ([]byte, error) {\n'
-        + '\t\tresp, err := impl.' + m.name + '(&' + m.input + 'Source{raw: source}, metadata)\n'
-        + '\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n'
-        + '\t\treturn resp.MarshalDC(), nil\n\t})\n';
-    case 'bidi':
-      return '\tregisterBidiIncHandler(bridge, ' + path + ', func(source *RequestSource, metadata [][2]string, sink *ServerSink) error {\n'
-        + '\t\treturn impl.' + m.name + '(&' + m.input + 'Source{raw: source}, metadata, &' + wasmGoSinkName(svc, m.output) + '{sink: sink})\n\t})\n';
-    default:
-      return '';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmGoStreamRegisterMethod, m, svc.name, null, [wasmGoSinkName(svc, m.output)]);
 }
-
 function wasmGoService(svc) {
-  const sname = svc.name;
-  const first = svc.methods[0];
-  return 'type ' + sname + 'Client struct {\n\tbridge js.Value\n}\n\n'
-    + 'func New' + sname + 'Client(bridge js.Value) *' + sname + 'Client {\n\treturn &' + sname + 'Client{bridge: bridge}\n}\n\n'
-    + svc.methods.map((m) => wasmGoClientMethod(m, sname)).join('')
-    + '\n// ' + sname + 'Server is the service implementation for ' + svc.fullName + '.\n'
-    + 'type ' + sname + 'Server interface {\n'
-    + svc.methods.map((m) => wasmGoServerIfaceMethod(m, svc)).join('')
-    + '}\n\n'
-    + [...new Set(svc.methods.map((m) => m.output))].map((out) => {
-        const sink = wasmGoSinkName(svc, out);
-        return '// ' + sink + ' sends responses on streaming calls.\n'
-          + 'type ' + sink + ' struct {\n\tsink *ServerSink\n}\n\n'
-          + '// Send marshals and forwards one response.\n'
-          + 'func (s *' + sink + ') Send(resp *echo.' + out + ') error {\n\ts.sink.Send(resp.MarshalDC())\n\treturn nil\n}\n\n';
-      }).join('')
-    + '// Register' + sname + 'Server registers impl on the JS server bridge and starts serving.\n'
-    + 'func Register' + sname + 'Server(bridge js.Value, impl ' + sname + 'Server) {\n'
-    + svc.methods.map((m) => wasmGoRegisterMethod(m, svc)).join('')
-    + '\tbridge.Call("start", ' + q(svc.fullName) + ')\n}\n'
-    + [...new Set(svc.methods.filter((m) => m.kind === 'client-streaming' || m.kind === 'bidi').map((m) => m.input))].map((inp) =>
-        '\n// ' + inp + 'Source pulls typed requests one at a time for incremental handlers.\n'
-        + 'type ' + inp + 'Source struct {\n\traw *RequestSource\n}\n\n'
-        + '// Next returns the next request, or (nil, nil) at end of stream.\n'
-        + 'func (s *' + inp + 'Source) Next() (*echo.' + inp + ', error) {\n'
-        + '\tpayload, err := s.raw.Next()\n'
-        + '\tif err != nil || payload == nil {\n\t\treturn nil, err\n\t}\n'
-        + '\treq := new(echo.' + inp + ')\n'
-        + '\tif err := req.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n'
-        + '\treturn req, nil\n}\n\n').join('')
-    + '// ' + sname + 'StreamServer is the incremental implementation for ' + svc.fullName + ': requests arrive one at a time.\n'
-    + 'type ' + sname + 'StreamServer interface {\n'
-    + svc.methods.map((m) => wasmGoStreamIfaceMethod(m, svc)).join('')
-    + '}\n\n'
-    + '// Register' + sname + 'StreamServer registers an incremental impl; call bridge start after all registrations.\n'
-    + 'func Register' + sname + 'StreamServer(bridge js.Value, impl ' + sname + 'StreamServer) {\n'
-    + svc.methods.map((m) => wasmGoStreamRegisterMethod(m, svc)).join('')
-    + '}\n';
+  return runSegments(SEGMENT_PROGRAMS.wasmGoService, svc, svc.name);
 }
-
 function emitWasmGoFile(model, params) {
   const base = baseName(model.name);
   const pkg = params.go_package || 'echowasm';
