@@ -1175,211 +1175,23 @@ function snake(s) {
 }
 
 function pyDeprecated(m) {
-  return m.deprecated
-    ? '        """Deprecated: marked deprecated in the proto schema."""\n        import warnings as _warnings; _warnings.warn("deprecated", DeprecationWarning, stacklevel=2)\n'
-    : '';
+  return runSegments(SEGMENT_PROGRAMS.pyDeprecated, m, '');
 }
-
 function pyClientMethod(pb, m) {
-  const path = q(m.path);
-  const depr = pyDeprecated(m);
-  switch (m.kind) {
-    case 'unary':
-      return '    def ' + m.name + '(self, req, metadata=None, timeout=None):\n' + depr
-        + '        return self._channel.unary(' + path + ', req, ' + pb + '.' + m.output + '(), metadata, timeout)\n\n';
-    case 'server-streaming':
-      return '    def ' + m.name + '(self, req, metadata=None, timeout=None):\n' + depr
-        + '        stream = self._channel.server_stream(' + path + ', req, metadata, timeout)\n'
-        + '        return _RecvStream(stream, ' + pb + '.' + m.output + ')\n\n';
-    case 'client-streaming':
-      return '    def ' + m.name + '(self, reqs, metadata=None, timeout=None):\n' + depr
-        + '        return self._channel.client_stream(' + path + ', reqs, ' + pb + '.' + m.output + '(), metadata, timeout)\n\n';
-    default:
-      return '    def ' + m.name + '(self, reqs, metadata=None, timeout=None):\n' + depr
-        + '        stream = self._channel.bidi(' + path + ', reqs, metadata, timeout)\n'
-        + '        return _RecvStream(stream, ' + pb + '.' + m.output + ')\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.pyClientMethod, m, '', null, [pb]);
 }
-
 function pyAsyncClientMethod(pb, m) {
-  const path = q(m.path);
-  const depr = pyDeprecated(m);
-  switch (m.kind) {
-    case 'unary':
-      return '    async def ' + m.name + '(self, req, metadata=None, timeout=None):\n' + depr
-        + '        return await self._channel.unary(' + path + ', req, ' + pb + '.' + m.output + '(), metadata, timeout)\n\n';
-    case 'server-streaming':
-      return '    async def ' + m.name + '(self, req, metadata=None, timeout=None):\n' + depr
-        + '        stream = await self._channel.server_stream(' + path + ', req, metadata, timeout)\n'
-        + '        return _AsyncRecvStream(stream, ' + pb + '.' + m.output + ')\n\n';
-    case 'client-streaming':
-      return '    async def ' + m.name + '(self, reqs, metadata=None, timeout=None):\n' + depr
-        + '        return await self._channel.client_stream(' + path + ', reqs, ' + pb + '.' + m.output + '(), metadata, timeout)\n\n';
-    default:
-      return '    async def ' + m.name + '(self, reqs, metadata=None, timeout=None):\n' + depr
-        + '        stream = await self._channel.bidi(' + path + ', reqs, metadata, timeout)\n'
-        + '        return _AsyncRecvStream(stream, ' + pb + '.' + m.output + ')\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.pyAsyncClientMethod, m, '', null, [pb]);
 }
-
 function pyServerHandler(pb, m) {
-  const impl = m.implName;
-  switch (m.kind) {
-    case 'unary':
-      return '    def _' + m.name + '_handler(ctx, reqs, sink):\n'
-        + '        req = reqs.recv_into(' + pb + '.' + m.input + '())\n'
-        + '        resp = impl.' + impl + '(ctx, req)\n'
-        + '        sink.send(resp.marshal_dc())\n\n';
-    case 'server-streaming':
-      return '    def _' + m.name + '_handler(ctx, reqs, sink):\n'
-        + '        req = reqs.recv_into(' + pb + '.' + m.input + '())\n'
-        + '        impl.' + impl + '(req, _SendStream(ctx, sink))\n\n';
-    case 'client-streaming':
-      return '    def _' + m.name + '_handler(ctx, reqs, sink):\n'
-        + '        stream = _ClientStreamImpl(ctx, reqs, ' + pb + '.' + m.input + ')\n'
-        + '        impl.' + impl + '(stream)\n'
-        + '        if stream.resp is None:\n'
-        + '            raise grpcdc.StatusError(grpcdc.CODE_INTERNAL, "client-streaming handler never called SendAndClose")\n'
-        + '        sink.send(stream.resp.marshal_dc())\n\n';
-    default:
-      return '    def _' + m.name + '_handler(ctx, reqs, sink):\n'
-        + '        impl.' + impl + '(_BidiStream(ctx, reqs, sink, ' + pb + '.' + m.input + '))\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.pyServerHandler, m, '', null, [pb]);
 }
-
-const PY_KIND_NAMES = {
-  unary: 'KIND_UNARY',
-  'server-streaming': 'KIND_SERVER_STREAMING',
-  'client-streaming': 'KIND_CLIENT_STREAMING',
-  bidi: 'KIND_BIDI',
-};
-
 function pyMethodEntry(m) {
-  return '        grpcdc.Method(' + q(m.name) + ', ' + q(m.path) + ', grpcdc.' + PY_KIND_NAMES[m.kind] + ', _' + m.name + '_handler),\n';
+  return runSegments(SEGMENT_PROGRAMS.pyMethodEntry, m, '');
 }
-
-const PY_STREAM_HELPERS = `class _RecvStream:
-    """Client receiving stream: recv() raises EOFError at end."""
-
-    def __init__(self, stream, resp_cls):
-        self._stream = stream
-        self._resp_cls = resp_cls
-
-    def recv(self):
-        if self._stream is None:
-            raise EOFError("stream closed")
-        return self._stream.recv(self._resp_cls())
-
-    def close(self):
-        """Abandon the call early: RST so the server stops."""
-        stream, self._stream = self._stream, None
-        if stream is not None:
-            stream.cancel()
-
-    def __del__(self):
-        self.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        self.close()
-        return False
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        try:
-            return self.recv()
-        except EOFError:
-            raise StopIteration
-
-
-class _SendStream:
-    """Server-streaming sink passed to service implementations."""
-
-    def __init__(self, ctx, sink):
-        self.context = ctx
-        self._sink = sink
-
-    def send(self, resp):
-        self._sink.send(resp.marshal_dc())
-
-
-class _ClientStreamImpl:
-    """Client-streaming stream passed to service implementations."""
-
-    def __init__(self, ctx, reqs, req_cls):
-        self.context = ctx
-        self._reqs = reqs
-        self._req_cls = req_cls
-        self.resp = None
-
-    def recv(self):
-        return self._reqs.recv_into(self._req_cls())
-
-    def send_and_close(self, resp):
-        self.resp = resp
-
-
-class _BidiStream:
-    """Bidi stream passed to service implementations."""
-
-    def __init__(self, ctx, reqs, sink, req_cls):
-        self.context = ctx
-        self._reqs = reqs
-        self._sink = sink
-        self._req_cls = req_cls
-
-    def send(self, resp):
-        self._sink.send(resp.marshal_dc())
-
-    def recv(self):
-        return self._reqs.recv_into(self._req_cls())
-
-
-class _AsyncRecvStream:
-    """Async client receiving stream: async-for or await recv()."""
-
-    def __init__(self, stream, resp_cls):
-        self._stream = stream
-        self._resp_cls = resp_cls
-
-    async def recv(self):
-        return await self._stream.recv(self._resp_cls())
-
-    def cancel(self):
-        self._stream.cancel()
-
-    async def aclose(self):
-        self.cancel()
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        try:
-            return await self.recv()
-        except EOFError:
-            raise StopAsyncIteration
-
-
-`;
-
 function pyService(pb, svc) {
-  const sname = svc.name;
-  return 'class ' + sname + 'Client:\n    def __init__(self, channel):\n        self._channel = channel\n\n'
-    + svc.methods.concat(aliasClientMethods(svc)).map((m) => pyClientMethod(pb, m)).join('')
-    + 'class ' + sname + 'ClientAsync:\n    """Asyncio client: wrap a grpcdc.AsyncChannel (a sync Channel is wrapped)."""\n\n    def __init__(self, channel):\n        if isinstance(channel, grpcdc.AsyncChannel):\n            self._channel = channel\n        else:\n            self._channel = grpcdc.AsyncChannel(channel=channel)\n\n'
-    + svc.methods.concat(aliasClientMethods(svc)).map((m) => pyAsyncClientMethod(pb, m)).join('')
-    + 'def register_' + snake(sname) + '_server(server, impl):\n'
-    + svc.methods.concat(aliasServerMethods(svc)).map((m) => pyServerHandler(pb, m)).join('')
-    + '    server.register_service(grpcdc.ServiceDesc(\n        ' + q(svc.fullName) + ',\n        [\n'
-    + svc.methods.concat(aliasServerMethods(svc)).map(pyMethodEntry).join('')
-    + '        ],\n    ))\n';
+  return runSegments(SEGMENT_PROGRAMS.pyService, svc, svc.name, null, [pb]);
 }
-
 function emitPythonFile(model, params) {
   const base = baseName(model.name);
   const pb = base + '_pb';
@@ -1542,241 +1354,48 @@ function pyPbRef(model, entry) {
 }
 
 function pyPbVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return '(1 if ' + v + ' else 0)';
-    case 17: return '(((' + v + ' << 1) ^ (' + v + ' >> 31)) & 0xFFFFFFFF)';
-    case 18: return '(((' + v + ' << 1) ^ (' + v + ' >> 63)) & 0xFFFFFFFFFFFFFFFF)';
-    default: return v;
-  }
+  return runSegments(SEGMENT_PROGRAMS.pyPbVarintExpr, f, '', null, [v]);
 }
-
 function pyPbVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: case 14: return '_as_int32(' + v + ')';
-    case 13: return '(' + v + ' & 0xFFFFFFFF)';
-    case 3: return '_as_int64(' + v + ')';
-    case 4: return v;
-    case 8: return '(' + v + ' != 0)';
-    case 17: return '_unzz32(' + v + ')';
-    case 18: return '_unzz64(' + v + ')';
-    default: throw new Error('not a varint type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.pyPbVarintDecode, f, '', null, [v]);
 }
-
 function pyPbExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case 9: return JSON.stringify(d);
-    case 8: return d === 'true' ? 'True' : 'False';
-    case 14: return String(enumDefaultNumber(model, f));
-    default: return d;
-  }
+  const lit = runSegments(SEGMENT_PROGRAMS.pyPbExplicitLiteral, f, '', model);
+  return lit === '' ? null : lit;
 }
-
 function pyPbDefault(f, model) {
-  const lit = pyPbExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.label === 3) {
-    const t = f.type === 11 ? model.types.get(f.typeName) : null;
-    return t && t.kind === 'map' ? 'dict' : 'list';
-  }
-  switch (f.type) {
-    case 9: return '""';
-    case 12: return 'b""';
-    case 8: return 'False';
-    case 11: case 10: return 'None';
-    case 1: case 2: return '0.0';
-    default: return '0';
-  }
+  return runSegments(SEGMENT_PROGRAMS.pyPbDefault, f, '', model);
 }
-
 function pyPbDefaultExpr(f, model) {
-  const d = pyPbDefault(f, model);
-  if (d === 'list') return '[]';
-  if (d === 'dict') return '{}';
-  return d;
+  return runSegments(SEGMENT_PROGRAMS.pyPbDefaultExpr, f, '', model);
 }
-
 function pyPbEncodeSingular(model, f, v, indent) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (PY_PB_VARINT.has(f.type)) {
-    return proto2
-      ? indent + 'out = _append_tag(out, ' + n + ', 0)\n' + indent + 'out = _append_varint(out, ' + pyPbVarintExpr(f, v) + ')\n'
-      : indent + 'out = _append_varint_field(out, ' + n + ', ' + pyPbVarintExpr(f, v) + ')\n';
-  }
-  if (PY_PB_FIXED_FORMATS[f.type]) {
-    return proto2
-      ? indent + 'out = _append_fixed_field(out, ' + n + ', _struct.pack(' + q(PY_PB_FIXED_FORMATS[f.type]) + ', ' + v + '))\n'
-      : indent + 'if ' + v + ': out = _append_fixed_field(out, ' + n + ', _struct.pack(' + q(PY_PB_FIXED_FORMATS[f.type]) + ', ' + v + '))\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + 'out = _append_bytes_field(out, ' + n + ', ' + v + '.encode("utf-8"))\n'
-      : indent + 'out = _append_string_field(out, ' + n + ', ' + v + ')\n';
-    case 12: return proto2
-      ? indent + 'out = _append_bytes_field(out, ' + n + ', ' + v + ')\n'
-      : indent + 'if ' + v + ': out = _append_bytes_field(out, ' + n + ', ' + v + ')\n';
-    case 11: return indent + 'if ' + v + ' is not None: out = _append_bytes_field(out, ' + n + ', ' + v + '.marshal_dc())\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
+  return runSegments(SEGMENT_PROGRAMS.pyPbEncodeSingular, f, '', model, [v, indent]);
 }
-
 function pyPbOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => '                self.' + sib.name + ' = ' + pyPbDefaultExpr(sib, model) + '\n').join('');
+  return runSegments(SEGMENT_PROGRAMS.pyPbOneofClearing, f, '', model);
 }
-
-// Encode-side oneof clearing: suppress f when a later sibling is
-// set, so only the winning member is written.
-function pyPbEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  const lines = code.split('\n');
-  if (lines.length && lines[lines.length - 1] === '') lines.pop();
-  return '        if not (' + later.map((sib) => 'self.' + sib.name).join(' or ') + '):\n'
-    + lines.map((l) => (l === '' ? l : '    ' + l)).join('\n') + '\n';
-}
-
 function pyPbEncodeField(model, f) {
-  const a = f.name;
-  const v = 'self.' + a;
-  const n = f.number;
-  if (f.type === 11) {
-    const entry = pyPbResolve(model, f.typeName);
-    if (entry.kind === 'map') {
-      const helper = '_encode_' + pyPbFlat(entry.pkg, entry.msg.fullName) + 'Entry';
-      return '        if self.' + a + ':\n            for k, val in self.' + a + '.items():\n                out = _append_bytes_field(out, ' + n + ', ' + helper + '(k, val))\n';
-    }
-  }
-  if (f.label !== 3) return pyPbEncodeSingular(model, f, v, '        ');
-  if (PY_PB_VARINT.has(f.type)) {
-    return '        if self.' + a + ':\n            payload = bytearray()\n            for v in self.' + a + ':\n'
-      + '                payload = _append_varint(payload, ' + pyPbVarintExpr(f, 'v') + ')\n'
-      + '            out = _append_bytes_field(out, ' + n + ', bytes(payload))\n';
-  }
-  if (PY_PB_FIXED_FORMATS[f.type]) {
-    return '        if self.' + a + ':\n            payload = bytearray()\n            for v in self.' + a + ':\n'
-      + '                payload.extend(_struct.pack(' + q(PY_PB_FIXED_FORMATS[f.type]) + ', v))\n'
-      + '            out = _append_bytes_field(out, ' + n + ', bytes(payload))\n';
-  }
-  switch (f.type) {
-    case 9: return '        for v in self.' + a + ':\n            out = _append_bytes_field(out, ' + n + ', v.encode("utf-8"))\n';
-    case 12: return '        for v in self.' + a + ':\n            out = _append_bytes_field(out, ' + n + ', v)\n';
-    case 11: return '        for v in self.' + a + ':\n            out = _append_bytes_field(out, ' + n + ', v.marshal_dc())\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.pyPbEncodeField, f, '', model);
 }
-
 function pyPbDecodeSingular(model, f, target, src, indent) {
-  if (PY_PB_VARINT.has(f.type)) return indent + target + ' = ' + pyPbVarintDecode(f, src) + '\n';
-  if (PY_PB_FIXED_FORMATS[f.type]) return indent + target + ' = _struct.unpack(' + q(PY_PB_FIXED_FORMATS[f.type]) + ', ' + src + ')[0]\n';
-  switch (f.type) {
-    case 9: return indent + target + ' = ' + src + '.decode("utf-8")\n';
-    case 12: return indent + target + ' = bytes(' + src + ')\n';
-    case 11: {
-      const ref = pyPbRef(model, pyPbResolve(model, f.typeName));
-      return indent + 'tmp = ' + ref + '()\n' + indent + 'tmp.unmarshal_dc(' + src + ')\n' + indent + target + ' = tmp\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.pyPbDecodeSingular, f, '', model, [target, src, indent]);
 }
-
 function pyPbDecodeCase(model, f, first) {
-  const a = f.name;
-  const target = 'self.' + a;
-  const head = '            ' + (first ? 'if' : 'elif') + ' num == ' + f.number + ':\n';
-  if (f.type === 11) {
-    const entry = pyPbResolve(model, f.typeName);
-    if (entry.kind === 'map') {
-      const helper = '_decode_' + pyPbFlat(entry.pkg, entry.msg.fullName) + 'Entry';
-      return head + '                k, val = ' + helper + '(value)\n                self.' + a + '[k] = val\n';
-    }
-  }
-  if (f.label !== 3) return head + pyPbOneofClearing(model, f) + pyPbDecodeSingular(model, f, target, 'value', '                ');
-  if (PY_PB_VARINT.has(f.type)) {
-    return head + '                if wire == 2:\n                    sub = _Reader(value)\n                    while sub.pos < len(sub.buf):\n'
-      + '                        self.' + a + '.append(' + pyPbVarintDecode(f, 'sub.varint()') + ')\n'
-      + '                else:\n                    self.' + a + '.append(' + pyPbVarintDecode(f, 'value') + ')\n';
-  }
-  if (PY_PB_FIXED_FORMATS[f.type]) {
-    const size = PY_PB_FIXED_SIZES[f.type];
-    return head + '                if wire == 2:\n                    for off in range(0, len(value), ' + size + '):\n'
-      + '                        self.' + a + '.append(_struct.unpack(' + q(PY_PB_FIXED_FORMATS[f.type]) + ', value[off:off + ' + size + '])[0])\n'
-      + '                else:\n                    self.' + a + '.append(_struct.unpack(' + q(PY_PB_FIXED_FORMATS[f.type]) + ', value)[0])\n';
-  }
-  switch (f.type) {
-    case 9: return head + '                self.' + a + '.append(value.decode("utf-8"))\n';
-    case 12: return head + '                self.' + a + '.append(bytes(value))\n';
-    case 11: return head + pyPbDecodeSingular(model, f, 'tmp2', 'value', '                ') + '                self.' + a + '.append(tmp2)\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.pyPbDecodeCase, f, '', model, [first ? 'if' : 'elif']);
 }
-
 function pyPbMapHelpers(model, entry) {
-  const msg = entry.msg;
-  const base = pyPbFlat(entry.pkg, msg.fullName);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry ' + msg.fullName + ' lacks key/value fields');
-  return 'def _encode_' + base + 'Entry(key, value):\n    out = bytearray()\n'
-    + pyPbEncodeSingular(model, keyF, 'key', '    ')
-    + pyPbEncodeSingular(model, valF, 'value', '    ')
-    + '    return bytes(out)\n\n\n'
-    + 'def _decode_' + base + 'Entry(data):\n'
-    + '    key = ' + pyPbDefaultExpr(keyF, model) + '\n    value = ' + pyPbDefaultExpr(valF, model) + '\n'
-    + '    reader = _Reader(data)\n    while True:\n        item = reader.field()\n        if item is None:\n            return key, value\n        num, wire, raw, _raw_bytes = item\n        if num == 1:\n'
-    + pyPbDecodeSingular(model, keyF, 'key', 'raw', '            ')
-    + '        elif num == 2:\n'
-    + pyPbDecodeSingular(model, valF, 'value', 'raw', '            ')
-    + '\n';
+  return runSegments(SEGMENT_PROGRAMS.pyPbMapHelpers, entry, '', model);
 }
-
 function pyPbInitLine(model, f) {
-  const a = f.name;
-  if (f.label === 3) {
-    const d = pyPbDefault(f, model);
-    return '        self.' + a + ' = ' + d + '(' + a + ') if ' + a + ' is not None else ' + (d === 'dict' ? '{}' : '[]') + '\n';
-  }
-  if (f.type === 11) {
-    const entry = pyPbResolve(model, f.typeName);
-    if (entry.kind === 'map') return '        self.' + a + ' = dict(' + a + ') if ' + a + ' is not None else {}\n';
-  }
-  return '        self.' + a + ' = ' + a + '\n';
+  return runSegments(SEGMENT_PROGRAMS.pyPbInitLine, f, '', model);
 }
-
 function pyPbClass(model, msg) {
-  const flat = pyPbFlat(model.package, msg.fullName);
-  const params = msg.fields.map((f) => {
-    const d = pyPbDefault(f, model);
-    return f.name + '=' + (d === 'list' || d === 'dict' ? 'None' : d);
-  }).join(', ');
-  return 'class ' + flat + ':\n    """Message ' + msg.fullName + '."""\n\n'
-    + '    def __init__(self, ' + params + '):\n'
-    + msg.fields.map((f) => pyPbInitLine(model, f)).join('')
-    + '        self.unknown_fields = b""\n'
-    + '\n    def marshal_dc(self):\n        out = bytearray()\n'
-    + msg.fields.map((f) => pyPbEncodeGuard(model, f, pyPbEncodeField(model, f))).join('')
-    + '        out += self.unknown_fields\n'
-    + '        return bytes(out)\n'
-    + '\n    def unmarshal_dc(self, data):\n'
-    + '        self.unknown_fields = b""\n'
-    + msg.fields.map((f) => '        self.' + f.name + ' = ' + pyPbDefaultExpr(f, model) + '\n').join('')
-    + '        reader = _Reader(data)\n        while True:\n            item = reader.field()\n            if item is None:\n                return self\n            num, wire, value, raw = item\n'
-    + msg.fields.map((f, i) => pyPbDecodeCase(model, f, i === 0)).join('')
-    + (msg.fields.length ? '            else:\n                self.unknown_fields = self.unknown_fields + raw\n' : '')
-    + '\n    def __eq__(self, other):\n        return isinstance(other, ' + flat + ') and self.__dict__ == other.__dict__\n'
-    + '\n    def __repr__(self):\n        return f"' + flat + '(' + msg.fields.map((f) => f.name + '={self.' + f.name + '!r}').join(', ') + ')"\n\n\n';
+  return runSegments(SEGMENT_PROGRAMS.pyPbMessage, msg, '', model);
 }
-
 function pyPbEnum(entry) {
-  const e = entry.enum;
-  const full = pyPbEnumFull(entry);
-  return 'class ' + pyPbFlat(entry.pkg, full) + ':\n    """Enum ' + full + '."""\n'
-    + e.values.map((v) => '    ' + v.name + ' = ' + v.number + '\n').join('')
-    + '\n\n';
+  return runSegments(SEGMENT_PROGRAMS.pyPbEnum, entry, '', null);
 }
-
 function emitPythonPbFile(model) {
   const messages = model.messages;
   const serviceTypes = new Set();
