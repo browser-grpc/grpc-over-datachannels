@@ -1708,6 +1708,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "c" "runtime-c.rkt" (emit-c-runtime-files))
   (write-runtime-files "c/tests" "bdd-gen.rkt" (list (emit-c-bdd) (emit-bdd-schemas 'c)))
   (write-runtime-files "c/tests" "interop-gen.rkt" (list (emit-c-interop-cases)))
+  (write-runtime-files "c/examples/interop" "interop-service-gen.rkt" (list (emit-c-interop-service)))
   (write-runtime-files "c/tests" "oracle-gen.rkt" (list (emit-c-oracle-driver)))
   (make-directory* (build-path root "zig" "tests"))
   (call-with-output-file (build-path root "zig" "tests" "fixtures.zig") #:exists 'replace
