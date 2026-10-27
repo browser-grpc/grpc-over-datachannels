@@ -155,55 +155,9 @@
              svc name resp req)]))
 
 (define (go-register-method m)
-  (define name (hash-ref m 'name))
-  (define impl-name (method-impl-name m))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n"
-              "\t\t\treq := new(~a)\n"
-              "\t\t\tif err := reqs.RecvInto(req); err != nil {\n"
-              "\t\t\t\treturn err\n"
-              "\t\t\t}\n"
-              "\t\t\tresp, err := srv.~a(ctx, req)\n"
-              "\t\t\tif err != nil {\n"
-              "\t\t\t\treturn err\n"
-              "\t\t\t}\n"
-              "\t\t\treturn sink.Send(resp.MarshalDC())\n"
-              "\t\t}},\n")
-             name (hash-ref m 'path) req impl-name)]
-    [(server-streaming)
-     (format (string-append
-              "\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n"
-              "\t\t\treq := new(~a)\n"
-              "\t\t\tif err := reqs.RecvInto(req); err != nil {\n"
-              "\t\t\t\treturn err\n"
-              "\t\t\t}\n"
-              "\t\t\treturn srv.~a(req, &~a~aServerImpl{ctx: ctx, sink: sink})\n"
-              "\t\t}},\n")
-             name (hash-ref m 'path) req impl-name svc impl-name)]
-    [(client-streaming)
-     (format (string-append
-              "\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindClientStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n"
-              "\t\t\tstream := &~a~aServerImpl{ctx: ctx, reqs: reqs}\n"
-              "\t\t\tif err := srv.~a(stream); err != nil {\n"
-              "\t\t\t\treturn err\n"
-              "\t\t\t}\n"
-              "\t\t\tif stream.resp == nil {\n"
-              "\t\t\t\treturn grpcdc.NewStatus(grpcdc.CodeInternal, \"client-streaming handler never called SendAndClose\")\n"
-              "\t\t\t}\n"
-              "\t\t\treturn sink.Send(stream.resp.MarshalDC())\n"
-              "\t\t}},\n")
-             name (hash-ref m 'path) svc impl-name impl-name)]
-    [(bidi)
-     (format (string-append
-              "\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindBidi, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n"
-              "\t\t\treturn srv.~a(&~a~aServerImpl{ctx: ctx, reqs: reqs, sink: sink})\n"
-              "\t\t}},\n")
-             name (hash-ref m 'path) impl-name svc impl-name)]))
+  ;; Emission lives in segments.rkt (go-register-method-program),
+  ;; shared with the browser generators; edit it there.
+  (run-segments go-register-method-program m (current-service)))
 
 (define (go-stream-impls m)
   (define name (hash-ref m 'name))
