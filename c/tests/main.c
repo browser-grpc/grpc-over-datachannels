@@ -32,13 +32,14 @@
 #include "../examples/interop/test_grpc_dc.h"
 #include "../examples/interop/orca_grpc_dc.h"
 #include "interop_cases.h"
-
 static void check(int cond, const char *what) {
     if (!cond) {
         fprintf(stderr, "FAIL: %s\n", what);
         exit(1);
     }
 }
+
+#include "test_eventbus.h"
 
 static void test_codec(void) {
     /* HEADERS frame golden bytes (same vectors as other languages). */
@@ -2310,6 +2311,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "TestBddSchemas") == 0) test_bdd_schemas();
     else if (strcmp(argv[1], "TestCodec") == 0) test_codec();
     else if (strcmp(argv[1], "TestEcho") == 0) test_echo();
+    else if (strcmp(argv[1], "TestEventBus") == 0) test_eventbus();
     else if (strcmp(argv[1], "TestPbMessages") == 0) test_pb_messages();
     else if (strcmp(argv[1], "TestBdd") == 0) test_bdd();
     else if (strcmp(argv[1], "TestDynamic") == 0) {

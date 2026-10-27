@@ -203,6 +203,8 @@ eventbus-stubs:
 		--grpc-dc-cpp_out=cpp/examples -I proto proto/events.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-zig=bin/protoc-gen-grpc-dc-zig \
 		--grpc-dc-zig_out=zig/examples -I proto proto/events.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
+		--grpc-dc-c_out=c/grpcdc -I proto proto/events.proto
 
 generate: plugins stubs
 
@@ -431,7 +433,7 @@ test-c:
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -o c/build/echo_server_stdio
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -o c/build/echo_client_stdio
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/interop_server_stdio.c -o c/build/interop_server_stdio
-	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestBddSchemas && ./c/build/tests TestOracle && ./c/build/tests TestInteropOracle && ./c/build/tests TestInteropServerOracle && ./c/build/tests TestDynamic && ./c/build/tests TestSidecar
+	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestBddSchemas && ./c/build/tests TestOracle && ./c/build/tests TestInteropOracle && ./c/build/tests TestInteropServerOracle && ./c/build/tests TestDynamic && ./c/build/tests TestSidecar && ./c/build/tests TestEventBus
 
 LUA ?= lua
 

@@ -70,4 +70,5 @@
     (scala "scala/grpcdc/Eventbus.scala" "scala/grpcdc/EventbusGit.scala")
     (swift "swift/grpcdc/Eventbus.swift" "swift/grpcdc/EventbusGit.swift")
     (cpp "cpp/grpcdc/eventbus.hpp" "cpp/grpcdc/eventbus_git.hpp")
-    (zig "zig/examples/eventbus.zig" "zig/examples/eventbus_git.zig")))
+    (zig "zig/examples/eventbus.zig" "zig/examples/eventbus_git.zig")
+    (c "c/grpcdc/eventbus.h" "c/grpcdc/eventbus_git.h")))
