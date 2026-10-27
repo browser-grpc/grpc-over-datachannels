@@ -1719,6 +1719,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "zig/tests" "oracle-gen.rkt" (list (emit-zig-oracle-driver)))
   (write-runtime-files "zig/tests" "bdd-gen.rkt" (list (emit-zig-bdd) (emit-bdd-schemas 'zig)))
   (write-runtime-files "zig/tests" "interop-gen.rkt" (list (emit-zig-interop-cases)))
+  (write-runtime-files "zig/examples" "interop-service-gen.rkt" (list (emit-zig-interop-service)))
   (make-directory* (build-path root "lua" "grpcdc"))
   (call-with-output-file (build-path root "lua" "grpcdc" "wire.lua") #:exists 'replace
     (lambda (out) (display (emit-lua-wire) out)))
