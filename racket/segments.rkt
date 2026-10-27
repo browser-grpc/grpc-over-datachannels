@@ -104,7 +104,18 @@
          php-pb-oneof-clearing-program php-pb-encode-singular-program
          php-pb-encode-field-program php-pb-decode-singular-program
          php-pb-decode-case-program php-pb-map-helpers-program
-         php-pb-message-program php-pb-enum-program)
+         php-pb-message-program php-pb-enum-program
+         py-deprecated-program py-client-method-program
+         py-async-client-method-program py-server-handler-program
+         py-method-entry-program py-service-program
+         py-pb-varint-expr-program py-pb-varint-decode-program
+         py-pb-explicit-literal-program py-pb-default-program
+         py-pb-default-expr-program py-pb-encode-singular-program
+         py-pb-set-expr-program py-pb-oneof-clearing-program
+         py-pb-encode-field-program py-pb-decode-singular-program
+         py-pb-decode-case-program py-pb-map-helpers-program
+         py-pb-init-line-program py-pb-message-program
+         py-pb-enum-program)
 
 ;; ---------------------------------------------------------------------------
 ;; Go stub: RegisterMethod handler table entries (one per method).
@@ -2079,6 +2090,229 @@
     (each values (fmt "    public const ~a = ~a;\n" (ref name) (ref number)))
     "}\n\n"))
 
+;; ---------------------------------------------------------------------------
+;; Python stub emitter (mirrors template-python.rkt). Programs
+;; take the pb module name as (arg 0).
+;; ---------------------------------------------------------------------------
+
+(define py-deprecated-program
+  '((when (ref deprecated)
+      "        \"\"\"Deprecated: marked deprecated in the proto schema.\"\"\"\n        import warnings as _warnings; _warnings.warn(\"deprecated\", DeprecationWarning, stacklevel=2)\n")))
+
+(define py-client-method-program
+  '((kind-case
+     (unary (fmt "    def ~a(self, req, metadata=None, timeout=None):\n~a        return self._channel.unary(~s, req, ~a.~a(), metadata, timeout)\n\n" (ref name) (call pyDeprecated) (ref path) (arg 0) (ref output)))
+     (server-streaming (fmt "    def ~a(self, req, metadata=None, timeout=None):\n~a        stream = self._channel.server_stream(~s, req, metadata, timeout)\n        return _RecvStream(stream, ~a.~a)\n\n" (ref name) (call pyDeprecated) (ref path) (arg 0) (ref output)))
+     (client-streaming (fmt "    def ~a(self, reqs, metadata=None, timeout=None):\n~a        return self._channel.client_stream(~s, reqs, ~a.~a(), metadata, timeout)\n\n" (ref name) (call pyDeprecated) (ref path) (arg 0) (ref output)))
+     (bidi (fmt "    def ~a(self, reqs, metadata=None, timeout=None):\n~a        stream = self._channel.bidi(~s, reqs, metadata, timeout)\n        return _RecvStream(stream, ~a.~a)\n\n" (ref name) (call pyDeprecated) (ref path) (arg 0) (ref output))))))
+
+(define py-async-client-method-program
+  '((kind-case
+     (unary (fmt "    async def ~a(self, req, metadata=None, timeout=None):\n~a        return await self._channel.unary(~s, req, ~a.~a(), metadata, timeout)\n\n" (ref name) (call pyDeprecated) (ref path) (arg 0) (ref output)))
+     (server-streaming (fmt "    async def ~a(self, req, metadata=None, timeout=None):\n~a        stream = await self._channel.server_stream(~s, req, metadata, timeout)\n        return _AsyncRecvStream(stream, ~a.~a)\n\n" (ref name) (call pyDeprecated) (ref path) (arg 0) (ref output)))
+     (client-streaming (fmt "    async def ~a(self, reqs, metadata=None, timeout=None):\n~a        return await self._channel.client_stream(~s, reqs, ~a.~a(), metadata, timeout)\n\n" (ref name) (call pyDeprecated) (ref path) (arg 0) (ref output)))
+     (bidi (fmt "    async def ~a(self, reqs, metadata=None, timeout=None):\n~a        stream = await self._channel.bidi(~s, reqs, metadata, timeout)\n        return _AsyncRecvStream(stream, ~a.~a)\n\n" (ref name) (call pyDeprecated) (ref path) (arg 0) (ref output))))))
+
+(define py-server-handler-program
+  '((kind-case
+     (unary (fmt "    def _~a_handler(ctx, reqs, sink):\n        req = reqs.recv_into(~a.~a())\n        resp = impl.~a(ctx, req)\n        sink.send(resp.marshal_dc())\n\n" (ref name) (arg 0) (ref input) (ref impl-name)))
+     (server-streaming (fmt "    def _~a_handler(ctx, reqs, sink):\n        req = reqs.recv_into(~a.~a())\n        impl.~a(req, _SendStream(ctx, sink))\n\n" (ref name) (arg 0) (ref input) (ref impl-name)))
+     (client-streaming (fmt "    def _~a_handler(ctx, reqs, sink):\n        stream = _ClientStreamImpl(ctx, reqs, ~a.~a)\n        impl.~a(stream)\n        if stream.resp is None:\n            raise grpcdc.StatusError(grpcdc.CODE_INTERNAL, \"client-streaming handler never called SendAndClose\")\n        sink.send(stream.resp.marshal_dc())\n\n" (ref name) (arg 0) (ref input) (ref impl-name)))
+     (bidi (fmt "    def _~a_handler(ctx, reqs, sink):\n        impl.~a(_BidiStream(ctx, reqs, sink, ~a.~a))\n\n" (ref name) (ref impl-name) (arg 0) (ref input))))))
+
+(define py-method-entry-program
+  '((fmt "        grpcdc.Method(~s, ~s, grpcdc.~a, _~a_handler),\n"
+         (ref name) (ref path)
+         (kind-case (unary "KIND_UNARY") (server-streaming "KIND_SERVER_STREAMING")
+                    (client-streaming "KIND_CLIENT_STREAMING") (bidi "KIND_BIDI"))
+         (ref name))))
+
+(define py-service-program
+  '((fmt "class ~aClient:\n    def __init__(self, channel):\n        self._channel = channel\n\n" (svc))
+    (each+ methods client (call pyClientMethod (arg 0)))
+    (fmt "class ~aClientAsync:\n    \"\"\"Asyncio client: wrap a grpcdc.AsyncChannel (a sync Channel is wrapped).\"\"\"\n\n    def __init__(self, channel):\n        if isinstance(channel, grpcdc.AsyncChannel):\n            self._channel = channel\n        else:\n            self._channel = grpcdc.AsyncChannel(channel=channel)\n\n" (svc))
+    (each+ methods client (call pyAsyncClientMethod (arg 0)))
+    (fmt "def register_~a_server(server, impl):\n" (snake-case (svc)))
+    (each+ methods server (call pyServerHandler (arg 0)))
+    (fmt "    server.register_service(grpcdc.ServiceDesc(\n        ~s,\n        [\n" (ref full-name))
+    (each+ methods server (call pyMethodEntry))
+    "        ],\n    ))\n"))
+
+;; ---------------------------------------------------------------------------
+;; Python pb emitter (mirrors template-python.rkt's py-pb-*).
+;; ---------------------------------------------------------------------------
+
+(define py-pb-varint-expr-program
+  '((case-on (type)
+      (8 (fmt "(1 if ~a else 0)" (arg 0)))
+      (17 (fmt "(((~a << 1) ^ (~a >> 31)) & 0xFFFFFFFF)" (arg 0) (arg 0)))
+      (18 (fmt "(((~a << 1) ^ (~a >> 63)) & 0xFFFFFFFFFFFFFFFF)" (arg 0) (arg 0)))
+      (else (arg 0)))))
+
+(define py-pb-varint-decode-program
+  '((case-on (type)
+      ((5 14) (fmt "_as_int32(~a)" (arg 0)))
+      (13 (fmt "(~a & 0xFFFFFFFF)" (arg 0)))
+      (3 (fmt "_as_int64(~a)" (arg 0)))
+      (4 (arg 0))
+      (8 (fmt "(~a != 0)" (arg 0)))
+      (17 (fmt "_unzz32(~a)" (arg 0)))
+      (18 (fmt "_unzz64(~a)" (arg 0))))))
+
+(define py-pb-explicit-literal-program
+  '((if (has-default)
+        (then (case-on (type)
+                (9 (fmt "~s" (default-raw)))
+                (8 (case-on (default-raw) ("true" "True") (else "False")))
+                (14 (fmt "~a" (enum-default-num)))
+                (else (default-raw))))
+        (else ""))))
+
+(define py-pb-default-program
+  '((if (call pyPbExplicitLiteral)
+        (then (call pyPbExplicitLiteral))
+        (else
+         (if (repeated)
+             (then (if (is-map) (then "dict") (else "list")))
+             (else
+              (case-on (type)
+                (9 "\"\"")
+                (12 "b\"\"")
+                (8 "False")
+                ((11 10) "None")
+                ((1 2) "0.0")
+                (else "0"))))))))
+
+(define py-pb-default-expr-program
+  '((case-on (call pyPbDefault) ("list" "[]") ("dict" "{}") (else (call pyPbDefault)))))
+
+(define py-pb-encode-singular-program
+  '((case-on (category)
+      ("varint"
+       (if (proto2)
+           (then (fmt "~aout = _append_tag(out, ~a, 0)\n~aout = _append_varint(out, ~a)\n" (arg 1) (ref number) (arg 1) (call pyPbVarintExpr (arg 0))))
+           (else (fmt "~aout = _append_varint_field(out, ~a, ~a)\n" (arg 1) (ref number) (call pyPbVarintExpr (arg 0))))))
+      ("fixed"
+       (if (proto2)
+           (then (fmt "~aout = _append_fixed_field(out, ~a, _struct.pack(~s, ~a))\n" (arg 1) (ref number) (py-fixed-fmt) (arg 0)))
+           (else (fmt "~aif ~a: out = _append_fixed_field(out, ~a, _struct.pack(~s, ~a))\n" (arg 1) (arg 0) (ref number) (py-fixed-fmt) (arg 0)))))
+      ("string"
+       (if (proto2)
+           (then (fmt "~aout = _append_bytes_field(out, ~a, ~a.encode(\"utf-8\"))\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aout = _append_string_field(out, ~a, ~a)\n" (arg 1) (ref number) (arg 0)))))
+      ("bytes"
+       (if (proto2)
+           (then (fmt "~aout = _append_bytes_field(out, ~a, ~a)\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aif ~a: out = _append_bytes_field(out, ~a, ~a)\n" (arg 1) (arg 0) (ref number) (arg 0)))))
+      ("message"
+       (fmt "~aif ~a is not None: out = _append_bytes_field(out, ~a, ~a.marshal_dc())\n" (arg 1) (arg 0) (ref number) (arg 0)))
+      (else (fail)))))
+
+(define py-pb-set-expr-program
+  '((fmt "self.~a" (ref name))))
+
+(define py-pb-oneof-clearing-program
+  '((each-siblings (fmt "                self.~a = ~a\n" (ref name) (call pyPbDefaultExpr)))))
+
+(define py-pb-encode-field-program
+  '((if (is-map)
+        (then (fmt "        if self.~a:\n            for k, val in self.~a.items():\n                out = _append_bytes_field(out, ~a, ~a(k, val))\n"
+                   (ref name) (ref name) (ref number) (fmt "_encode_~aEntry" (resolved-flat))))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint" (fmt "        if self.~a:\n            payload = bytearray()\n            for v in self.~a:\n                payload = _append_varint(payload, ~a)\n            out = _append_bytes_field(out, ~a, bytes(payload))\n"
+                               (ref name) (ref name) (call pyPbVarintExpr "v") (ref number)))
+                ("fixed" (fmt "        if self.~a:\n            payload = bytearray()\n            for v in self.~a:\n                payload.extend(_struct.pack(~s, v))\n            out = _append_bytes_field(out, ~a, bytes(payload))\n"
+                              (ref name) (ref name) (py-fixed-fmt) (ref number)))
+                ("string" (fmt "        for v in self.~a:\n            out = _append_bytes_field(out, ~a, v.encode(\"utf-8\"))\n" (ref name) (ref number)))
+                ("bytes" (fmt "        for v in self.~a:\n            out = _append_bytes_field(out, ~a, v)\n" (ref name) (ref number)))
+                ("message" (fmt "        for v in self.~a:\n            out = _append_bytes_field(out, ~a, v.marshal_dc())\n" (ref name) (ref number)))
+                (else (fail))))
+             (else (call pyPbEncodeSingular (fmt "self.~a" (ref name)) "        ")))))))
+
+(define py-pb-decode-singular-program
+  '((case-on (category)
+      ("varint" (fmt "~a~a = ~a\n" (arg 2) (arg 0) (call pyPbVarintDecode (arg 1))))
+      ("fixed" (fmt "~a~a = _struct.unpack(~s, ~a)[0]\n" (arg 2) (arg 0) (py-fixed-fmt) (arg 1)))
+      ("string" (fmt "~a~a = ~a.decode(\"utf-8\")\n" (arg 2) (arg 0) (arg 1)))
+      ("bytes" (fmt "~a~a = bytes(~a)\n" (arg 2) (arg 0) (arg 1)))
+      ("message" (fmt "~atmp = ~a()\n~atmp.unmarshal_dc(~a)\n~a~a = tmp\n" (arg 2) (py-ref) (arg 2) (arg 1) (arg 2) (arg 0)))
+      (else (fail)))))
+
+(define py-pb-decode-case-program
+  '((fmt "            ~a num == ~a:\n" (arg 0) (ref number))
+    (if (is-map)
+        (then (fmt "                k, val = ~a(value)\n                self.~a[k] = val\n"
+                   (fmt "_decode_~aEntry" (resolved-flat)) (ref name)))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint" (fmt "                if wire == 2:\n                    sub = _Reader(value)\n                    while sub.pos < len(sub.buf):\n                        self.~a.append(~a)\n                else:\n                    self.~a.append(~a)\n"
+                               (ref name) (call pyPbVarintDecode "sub.varint()") (ref name) (call pyPbVarintDecode "value")))
+                ("fixed" (fmt "                if wire == 2:\n                    for off in range(0, len(value), ~a):\n                        self.~a.append(_struct.unpack(~s, value[off:off + ~a])[0])\n                else:\n                    self.~a.append(_struct.unpack(~s, value)[0])\n"
+                              (py-fixed-size) (ref name) (py-fixed-fmt) (py-fixed-size) (ref name) (py-fixed-fmt)))
+                ("string" (fmt "                self.~a.append(value.decode(\"utf-8\"))\n" (ref name)))
+                ("bytes" (fmt "                self.~a.append(bytes(value))\n" (ref name)))
+                ("message" (call pyPbDecodeSingular "tmp2" "value" "                ")
+                           (fmt "                self.~a.append(tmp2)\n" (ref name)))
+                (else (fail))))
+             (else (call pyPbOneofClearing)
+                   (call pyPbDecodeSingular (fmt "self.~a" (ref name)) "value" "                ")))))))
+
+(define py-pb-map-helpers-program
+  '((fmt "def _encode_~aEntry(key, value):\n    out = bytearray()\n" (entry-flat))
+    (call-on (key-field) pyPbEncodeSingular "key" "    ")
+    (call-on (val-field) pyPbEncodeSingular "value" "    ")
+    "    return bytes(out)\n\n\n"
+    (fmt "def _decode_~aEntry(data):\n" (entry-flat))
+    (fmt "    key = ~a\n    value = ~a\n" (call-on (key-field) pyPbDefaultExpr) (call-on (val-field) pyPbDefaultExpr))
+    "    reader = _Reader(data)\n    while True:\n        item = reader.field()\n        if item is None:\n            return key, value\n        num, wire, raw, _raw_bytes = item\n        if num == 1:\n"
+    (call-on (key-field) pyPbDecodeSingular "key" "raw" "            ")
+    "        elif num == 2:\n"
+    (call-on (val-field) pyPbDecodeSingular "value" "raw" "            ")
+    "\n"))
+
+(define py-pb-init-line-program
+  '((if (repeated)
+        (then (fmt "        self.~a = ~a(~a) if ~a is not None else ~a\n"
+                   (ref name) (call pyPbDefault) (ref name) (ref name)
+                   (case-on (call pyPbDefault) ("dict" "{}") (else "[]"))))
+        (else
+         (if (type-is 11)
+             (then (if (is-map)
+                       (then (fmt "        self.~a = dict(~a) if ~a is not None else {}\n" (ref name) (ref name) (ref name)))
+                       (else (fmt "        self.~a = ~a\n" (ref name) (ref name)))))
+             (else (fmt "        self.~a = ~a\n" (ref name) (ref name))))))))
+
+(define py-pb-message-program
+  '((fmt "class ~a:\n    \"\"\"Message ~a.\"\"\"\n\n" (flat) (ref full-name))
+    (fmt "    def __init__(self, ~a):\n"
+         (each-sep ", " fields
+                    (fmt "~a=~a" (ref name)
+                         (case-on (call pyPbDefault) ("list" "None") ("dict" "None") (else (call pyPbDefault))))))
+    (each fields (call pyPbInitLine))
+    "        self.unknown_fields = b\"\"\n\n    def marshal_dc(self):\n        out = bytearray()\n"
+    (each fields (guarded-indent pyPbSetExpr "        if not (~a):\n" "    " (call pyPbEncodeField)))
+    "        out += self.unknown_fields\n        return bytes(out)\n\n    def unmarshal_dc(self, data):\n        self.unknown_fields = b\"\"\n"
+    (each fields (fmt "        self.~a = ~a\n" (ref name)
+                      (case-on (call pyPbDefault) ("list" "[]") ("dict" "{}") (else (call pyPbDefault)))))
+    "        reader = _Reader(data)\n        while True:\n            item = reader.field()\n            if item is None:\n                return self\n            num, wire, value, raw = item\n"
+    (each fields (call pyPbDecodeCase (case-on (index) (0 "if") (else "elif"))))
+    (if (no-fields)
+        (then "")
+        (else "            else:\n                self.unknown_fields = self.unknown_fields + raw\n"))
+    (fmt "\n    def __eq__(self, other):\n        return isinstance(other, ~a) and self.__dict__ == other.__dict__\n" (flat))
+    (fmt "\n    def __repr__(self):\n        return f\"~a(~a)\"\n\n\n"
+         (flat) (each-sep ", " fields (fmt "~a={self.~a!r}" (ref name) (ref name))))))
+
+(define py-pb-enum-program
+  '((fmt "class ~a:\n    \"\"\"Enum ~a.\"\"\"\n" (entry-flat) (ref full))
+    (each enum values (fmt "    ~a = ~a\n" (ref name) (ref number)))
+    "\n\n"))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -2228,7 +2462,28 @@
           'phpPbDecodeCase php-pb-decode-case-program
           'phpPbMapHelpers php-pb-map-helpers-program
           'phpPbMessage php-pb-message-program
-          'phpPbEnum php-pb-enum-program))
+          'phpPbEnum php-pb-enum-program
+          'pyDeprecated py-deprecated-program
+          'pyClientMethod py-client-method-program
+          'pyAsyncClientMethod py-async-client-method-program
+          'pyServerHandler py-server-handler-program
+          'pyMethodEntry py-method-entry-program
+          'pyService py-service-program
+          'pyPbVarintExpr py-pb-varint-expr-program
+          'pyPbVarintDecode py-pb-varint-decode-program
+          'pyPbExplicitLiteral py-pb-explicit-literal-program
+          'pyPbDefault py-pb-default-program
+          'pyPbDefaultExpr py-pb-default-expr-program
+          'pyPbEncodeSingular py-pb-encode-singular-program
+          'pyPbSetExpr py-pb-set-expr-program
+          'pyPbOneofClearing py-pb-oneof-clearing-program
+          'pyPbEncodeField py-pb-encode-field-program
+          'pyPbDecodeSingular py-pb-decode-singular-program
+          'pyPbDecodeCase py-pb-decode-case-program
+          'pyPbMapHelpers py-pb-map-helpers-program
+          'pyPbInitLine py-pb-init-line-program
+          'pyPbMessage py-pb-message-program
+          'pyPbEnum py-pb-enum-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -2536,6 +2791,22 @@
                   (seg-php-flat (hash-ref entry 'pkg)
                                 (hash-ref (hash-ref entry 'msg) 'full-name))))))
 
+(define (seg-py-ref model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (define flat
+    (seg-flat (hash-ref entry 'pkg)
+              (if (eq? (hash-ref entry 'kind) 'enum)
+                  (hash-ref entry 'full)
+                  (hash-ref (hash-ref entry 'msg) 'full-name))))
+  (if (equal? (hash-ref entry 'file) (hash-ref model 'name))
+      flat
+      (format "~a_pb.~a" (path->string (path-replace-extension
+                                        (file-name-from-path (hash-ref entry 'file)) ""))
+              flat)))
+
 (define (seg-later-oneof-cond model node)
   (define later (oneof-later-siblings model node))
   (if (null? later)
@@ -2575,7 +2846,7 @@
                              (or (not kinds-part)
                                  (memq (hash-ref el 'kind) kinds-part)))
                            (seg-eval (second seg) env)))))]
-    [(memq (car seg) '(if case-on when guarded kind-case each each+ each-siblings each-sep each-unique))
+    [(memq (car seg) '(if case-on when guarded guarded-indent kind-case each each+ each-siblings each-sep each-unique))
      (run-segment seg env)]
     [(eq? (car seg) 'pascal) (seg-pascal (seg-eval (second seg) env))]
     [(eq? (car seg) 'lower-first) (seg-lower-first (seg-eval (second seg) env))]
@@ -2629,6 +2900,11 @@
      (second (assv (hash-ref node 'type) (fixed-scalar-table 'php)))]
     [(eq? (car seg) 'php-fixed-fmt)
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'php)))]
+    [(eq? (car seg) 'py-ref) (seg-py-ref model node)]
+    [(eq? (car seg) 'py-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'python)))]
+    [(eq? (car seg) 'py-fixed-fmt)
+     (third (assv (hash-ref node 'type) (fixed-scalar-table 'python)))]
     [(eq? (car seg) 'flat)
      (seg-flat (hash-ref model 'package) (hash-ref node 'full-name))]
     [(eq? (car seg) 'entry-type) (seg-entry-type-of model node)]
@@ -2760,6 +3036,25 @@
      (apply string-append
             (for/list ([el (in-list (append (hash-ref node (second seg)) aliases))] [i (in-naturals)])
               (run-env (cdddr seg) (env-with env #:node el #:index i))))]
+    [(eq? (car seg) 'guarded-indent)
+     ;; (guarded-indent SetExprProgram "open ~a template" "    " body...)
+     (define text (run-env (cddddr seg) env))
+     (define cond-str
+       (string-join
+        (map (lambda (sib)
+               (run-env (hash-ref segment-programs (second seg))
+                        (env-with env #:node sib)))
+             (oneof-later-siblings (env-model env) node))
+        " or "))
+     (if (equal? cond-str "")
+         text
+         (string-append
+          (format (third seg) cond-str)
+          (string-join
+           (map (lambda (l) (if (string=? l "") l (string-append (fourth seg) l)))
+                (string-split text "\n" #:trim? #f))
+           "\n")
+          "\n"))]
     [(eq? (car seg) 'each-siblings)
      (apply string-append
             (for/list ([sib (in-list (oneof-siblings (env-model env) node))] [i (in-naturals)])

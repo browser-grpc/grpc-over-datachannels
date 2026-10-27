@@ -8,7 +8,7 @@
 ;;; and imports the runtime as grpcdc. Method names keep the proto
 ;;; spelling (Unary, ServerStream, ...), mirroring the Go stub.
 
-(require "spec.rkt" "desc.rkt")
+(require "spec.rkt" "desc.rkt" "segments.rkt")
 (provide emit-python-file)
 
 (define current-service (make-parameter ""))
@@ -22,10 +22,7 @@
                  [else (string c)]))))
 
 (define (py-deprecated m)
-  (if (hash-ref m 'deprecated #f)
-      "        \"\"\"Deprecated: marked deprecated in the proto schema.\"\"\"\n        import warnings as _warnings; _warnings.warn(\"deprecated\", DeprecationWarning, stacklevel=2)\n"
-      ""))
-
+  (run-segments py-deprecated-program m ""))
 (define (py-client-method/raw pb m)
   (define name (hash-ref m 'name))
   (define req (hash-ref m 'input))
@@ -56,82 +53,13 @@
              name (py-deprecated m) path pb resp)]))
 
 (define (py-client-method pb m)
-  (py-client-method/raw pb m))
-
+  (run-segments py-client-method-program m "" #f (list pb)))
 (define (py-async-client-method/raw pb m)
-  (define name (hash-ref m 'name))
-  (define resp (hash-ref m 'output))
-  (define path (hash-ref m 'path))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "    async def ~a(self, req, metadata=None, timeout=None):\n"
-              "~a        return await self._channel.unary(~s, req, ~a.~a(), metadata, timeout)\n\n")
-             name (py-deprecated m) path pb resp)]
-    [(server-streaming)
-     (format (string-append
-              "    async def ~a(self, req, metadata=None, timeout=None):\n"
-              "~a        stream = await self._channel.server_stream(~s, req, metadata, timeout)\n"
-              "        return _AsyncRecvStream(stream, ~a.~a)\n\n")
-             name (py-deprecated m) path pb resp)]
-    [(client-streaming)
-     (format (string-append
-              "    async def ~a(self, reqs, metadata=None, timeout=None):\n"
-              "~a        return await self._channel.client_stream(~s, reqs, ~a.~a(), metadata, timeout)\n\n")
-             name (py-deprecated m) path pb resp)]
-    [(bidi)
-     (format (string-append
-              "    async def ~a(self, reqs, metadata=None, timeout=None):\n"
-              "~a        stream = await self._channel.bidi(~s, reqs, metadata, timeout)\n"
-              "        return _AsyncRecvStream(stream, ~a.~a)\n\n")
-             name (py-deprecated m) path pb resp)]))
-
+  (run-segments py-async-client-method-program m "" #f (list pb)))
 (define (py-server-handler pb m)
-  (define name (hash-ref m 'name))
-  (define impl-name (method-impl-name m))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define path (hash-ref m 'path))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "    def _~a_handler(ctx, reqs, sink):\n"
-              "        req = reqs.recv_into(~a.~a())\n"
-              "        resp = impl.~a(ctx, req)\n"
-              "        sink.send(resp.marshal_dc())\n\n")
-             name pb req impl-name)]
-    [(server-streaming)
-     (format (string-append
-              "    def _~a_handler(ctx, reqs, sink):\n"
-              "        req = reqs.recv_into(~a.~a())\n"
-              "        impl.~a(req, _SendStream(ctx, sink))\n\n")
-             name pb req impl-name)]
-    [(client-streaming)
-     (format (string-append
-              "    def _~a_handler(ctx, reqs, sink):\n"
-              "        stream = _ClientStreamImpl(ctx, reqs, ~a.~a)\n"
-              "        impl.~a(stream)\n"
-              "        if stream.resp is None:\n"
-              "            raise grpcdc.StatusError(grpcdc.CODE_INTERNAL, \"client-streaming handler never called SendAndClose\")\n"
-              "        sink.send(stream.resp.marshal_dc())\n\n")
-             name pb req impl-name)]
-    [(bidi)
-     (format (string-append
-              "    def _~a_handler(ctx, reqs, sink):\n"
-              "        impl.~a(_BidiStream(ctx, reqs, sink, ~a.~a))\n\n")
-             name impl-name pb req)]))
-
+  (run-segments py-server-handler-program m (current-service) #f (list pb)))
 (define (py-method-entry m)
-  (define kind-name
-    (case (hash-ref m 'kind)
-      [(unary) "KIND_UNARY"]
-      [(server-streaming) "KIND_SERVER_STREAMING"]
-      [(client-streaming) "KIND_CLIENT_STREAMING"]
-      [(bidi) "KIND_BIDI"]))
-  (format "        grpcdc.Method(~s, ~s, grpcdc.~a, _~a_handler),\n"
-          (hash-ref m 'name) (hash-ref m 'path) kind-name (hash-ref m 'name)))
-
+  (run-segments py-method-entry-program m ""))
 (define py-stream-helpers
   (string-append
    "class _RecvStream:\n"
@@ -211,27 +139,7 @@
    "            raise StopAsyncIteration\n\n\n"))
 
 (define (py-service pb svc)
-  (define sname (hash-ref svc 'name))
-  (define methods (hash-ref svc 'methods))
-  (parameterize ([current-service sname])
-    (string-append
-     (format "class ~aClient:\n    def __init__(self, channel):\n        self._channel = channel\n\n" sname)
-     (apply string-append (map (lambda (m) (py-client-method pb m)) (append methods (alias-client-methods svc))))
-     (format "class ~aClientAsync:\n    \"\"\"Asyncio client: wrap a grpcdc.AsyncChannel (a sync Channel is wrapped).\"\"\"\n\n    def __init__(self, channel):\n        if isinstance(channel, grpcdc.AsyncChannel):\n            self._channel = channel\n        else:\n            self._channel = grpcdc.AsyncChannel(channel=channel)\n\n" sname)
-     (apply string-append (map (lambda (m) (py-async-client-method/raw pb m)) (append methods (alias-client-methods svc))))
-     (format "def register_~a_server(server, impl):\n" (snake (string->symbol sname)))
-     (apply string-append (map (lambda (m) (py-server-handler pb m)) (append methods (alias-server-methods svc))))
-     (format "    server.register_service(grpcdc.ServiceDesc(\n        ~s,\n        [\n"
-             (hash-ref svc 'full-name))
-     (apply string-append (map py-method-entry (append methods (alias-server-methods svc))))
-     "        ],\n    ))\n")))
-
-;; ---------------------------------------------------------------------------
-;; Generated message classes (<base>_pb.py): dependency-free
-;; protobuf wire format with the marshal_dc()/unmarshal_dc()
-;; surface the stubs consume. Field type codes match desc.rkt.
-;; ---------------------------------------------------------------------------
-
+  (run-segments py-service-program svc (hash-ref svc 'name) #f (list pb)))
 (define py-pb-preamble
   (string-append
    "import struct as _struct\n\n\n"
@@ -342,292 +250,34 @@
               flat)))
 
 (define (py-pb-varint-expr f v)
-  (case (hash-ref f 'type)
-    [(8) (format "(1 if ~a else 0)" v)]
-    [(17) (format "(((~a << 1) ^ (~a >> 31)) & 0xFFFFFFFF)" v v)]
-    [(18) (format "(((~a << 1) ^ (~a >> 63)) & 0xFFFFFFFFFFFFFFFF)" v v)]
-    [else v]))
-
+  (run-segments py-pb-varint-expr-program f "" #f (list v)))
 (define (py-pb-varint-decode f v)
-  (case (hash-ref f 'type)
-    [(5 14) (format "_as_int32(~a)" v)]
-    [(13) (format "(~a & 0xFFFFFFFF)" v)]
-    [(3) (format "_as_int64(~a)" v)]
-    [(4) v]
-    [(8) (format "(~a != 0)" v)]
-    [(17) (format "_unzz32(~a)" v)]
-    [(18) (format "_unzz64(~a)" v)]))
-
+  (run-segments py-pb-varint-decode-program f "" #f (list v)))
 (define (py-pb-explicit-literal model f)
-  (define d (field-explicit-default f))
-  (and d
-       (case (hash-ref f 'type)
-         [(9) (format "~s" d)]
-         [(8) (if (equal? d "true") "True" "False")]
-         [(14) (format "~a" (enum-default-number model f))]
-         [(2) (format "~a" d)]
-         [else d])))
-
+  (define lit (run-segments py-pb-explicit-literal-program f "" model))
+  (and (not (string=? lit "")) lit))
 (define (py-pb-default f model)
-  (cond [(py-pb-explicit-literal model f) => (lambda (lit) lit)]
-        [(= (hash-ref f 'label) 3)
-         (let ([t (and (= (hash-ref f 'type) 11)
-                       (hash-ref (hash-ref model 'types) (hash-ref f 'type-name) #f))])
-           (if (and t (eq? (hash-ref t 'kind) 'map)) "dict" "list"))]
-        [else
-         (case (hash-ref f 'type)
-           [(9) "\"\""]
-           [(12) "b\"\""]
-           [(8) "False"]
-           [(11 10) "None"]
-           [(1 2) "0.0"]
-           [else "0"])]))
-
+  (run-segments py-pb-default-program f "" model))
 (define (py-pb-encode-singular model f v indent)
-  (define n (hash-ref f 'number))
-  (define type (hash-ref f 'type))
-  ;; Proto2 optional/required fields have explicit presence.
-  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
-  (cond [(memv type pb-varint-types)
-         (if proto2?
-             (format "~aout = _append_tag(out, ~a, 0)\n~aout = _append_varint(out, ~a)\n" indent n indent (py-pb-varint-expr f v))
-             (format "~aout = _append_varint_field(out, ~a, ~a)\n" indent n (py-pb-varint-expr f v)))]
-        [(assv type pb-fixed-formats)
-         => (lambda (p)
-              (if proto2?
-                  (format "~aout = _append_fixed_field(out, ~a, _struct.pack(~s, ~a))\n" indent n (cdr p) v)
-                  (format "~aif ~a: out = _append_fixed_field(out, ~a, _struct.pack(~s, ~a))\n"
-                          indent v n (cdr p) v)))]
-        [(= type 9)
-         (if proto2?
-             (format "~aout = _append_bytes_field(out, ~a, ~a.encode(\"utf-8\"))\n" indent n v)
-             (format "~aout = _append_string_field(out, ~a, ~a)\n" indent n v))]
-        [(= type 12)
-         (if proto2?
-             (format "~aout = _append_bytes_field(out, ~a, ~a)\n" indent n v)
-             (format "~aif ~a: out = _append_bytes_field(out, ~a, ~a)\n" indent v n v))]
-        [(= type 11)
-         (define entry (py-pb-resolve model (hash-ref f 'type-name)))
-         (format "~aif ~a is not None: out = _append_bytes_field(out, ~a, ~a.marshal_dc())\n" indent v n v)]
-        [else (error 'emit-python-pb-file "unsupported field type ~a (groups)" type)]))
-
+  (run-segments py-pb-encode-singular-program f "" model (list v indent)))
 (define (py-pb-encode-field model f)
-  (define a (hash-ref f 'name))
-  (define v (format "self.~a" a))
-  (define n (hash-ref f 'number))
-  (define type (hash-ref f 'type))
-  (cond [(and (= type 11)
-              (eq? (hash-ref (py-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         (define entry (py-pb-resolve model (hash-ref f 'type-name)))
-         (define helper (format "_encode_~aEntry" (py-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name))))
-         (format "        if self.~a:\n            for k, val in self.~a.items():\n                out = _append_bytes_field(out, ~a, ~a(k, val))\n" a a n helper)]
-        [(not (= (hash-ref f 'label) 3)) (py-pb-encode-singular model f v "        ")]
-        [(memv type pb-varint-types)
-         (string-append
-          (format "        if self.~a:\n            payload = bytearray()\n            for v in self.~a:\n" a a)
-          (format "                payload = _append_varint(payload, ~a)\n" (py-pb-varint-expr f "v"))
-          (format "            out = _append_bytes_field(out, ~a, bytes(payload))\n" n))]
-        [(assv type pb-fixed-formats)
-         => (lambda (p)
-              (string-append
-               (format "        if self.~a:\n            payload = bytearray()\n            for v in self.~a:\n" a a)
-               (format "                payload.extend(_struct.pack(~s, v))\n" (cdr p))
-               (format "            out = _append_bytes_field(out, ~a, bytes(payload))\n" n)))]
-        [(= type 9)
-         (format "        for v in self.~a:\n            out = _append_bytes_field(out, ~a, v.encode(\"utf-8\"))\n" a n)]
-        [(= type 12)
-         (format "        for v in self.~a:\n            out = _append_bytes_field(out, ~a, v)\n" a n)]
-        [(= type 11)
-         (define entry (py-pb-resolve model (hash-ref f 'type-name)))
-         (format "        for v in self.~a:\n            out = _append_bytes_field(out, ~a, v.marshal_dc())\n" a n)]
-        [else (error 'emit-python-pb-file "unsupported repeated field type ~a" type)]))
-
+  (run-segments py-pb-encode-field-program f "" model))
 (define (py-pb-decode-singular model f target src indent)
-  (define type (hash-ref f 'type))
-  (cond [(memv type pb-varint-types)
-         (format "~a~a = ~a\n" indent target (py-pb-varint-decode f src))]
-        [(assv type pb-fixed-formats)
-         => (lambda (p)
-              (format "~a~a = _struct.unpack(~s, ~a)[0]\n" indent target (cdr p) src))]
-        [(= type 9) (format "~a~a = ~a.decode(\"utf-8\")\n" indent target src)]
-        [(= type 12) (format "~a~a = bytes(~a)\n" indent target src)]
-        [(= type 11)
-         (define ref (py-pb-ref model (py-pb-resolve model (hash-ref f 'type-name))))
-         (string-append
-          (format "~atmp = ~a()\n" indent ref)
-          (format "~atmp.unmarshal_dc(~a)\n" indent src)
-          (format "~a~a = tmp\n" indent target))]
-        [else (error 'emit-python-pb-file "unsupported field type ~a" type)]))
-
+  (run-segments py-pb-decode-singular-program f "" model (list target src indent)))
 (define (py-pb-oneof-clearing model f)
-  (apply string-append
-         (map (lambda (sib)
-                (format "                self.~a = ~a\n" (hash-ref sib 'name) (py-pb-default-expr model sib)))
-              (oneof-siblings model f))))
-
-;; Encode-side oneof clearing: suppress f when a later sibling is
-;; set (Python truthiness matches proto3 zero checks; a message
-;; instance is present even when empty), so only the winner is
-;; written.
-(define (py-pb-encode-guard model f code)
-  (define later (oneof-later-siblings model f))
-  (if (null? later)
-      code
-      (string-append
-       (format "        if not (~a):\n"
-               (string-join (map (lambda (sib) (format "self.~a" (hash-ref sib 'name))) later) " or "))
-       (string-join (map (lambda (l) (if (string=? l "") l (string-append "    " l)))
-                         (string-split code "\n"))
-                    "\n")
-       "\n")))
-
+  (run-segments py-pb-oneof-clearing-program f "" model))
 (define (py-pb-decode-case model f first?)
-  (define a (hash-ref f 'name))
-  (define target (format "self.~a" a))
-  (define n (hash-ref f 'number))
-  (define type (hash-ref f 'type))
-  (define clearing (py-pb-oneof-clearing model f))
-  (define head (format "            ~a num == ~a:\n" (if first? "if" "elif") n))
-  (cond [(and (= type 11)
-              (eq? (hash-ref (py-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         (define entry (py-pb-resolve model (hash-ref f 'type-name)))
-         (define helper (format "_decode_~aEntry" (py-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name))))
-         (string-append head
-                        (format "                k, val = ~a(value)\n" helper)
-                        (format "                self.~a[k] = val\n" a))]
-        [(not (= (hash-ref f 'label) 3))
-         (string-append head clearing (py-pb-decode-singular model f target "value" "                "))]
-        [(memv type pb-varint-types)
-         (string-append
-          head
-          "                if wire == 2:\n"
-          "                    sub = _Reader(value)\n"
-          "                    while sub.pos < len(sub.buf):\n"
-          (format "                        self.~a.append(~a)\n" a (py-pb-varint-decode f "sub.varint()"))
-          "                else:\n"
-          (format "                    self.~a.append(~a)\n" a (py-pb-varint-decode f "value")))]
-        [(assv type pb-fixed-formats)
-         => (lambda (p)
-              (define size (cdr (assv type pb-fixed-sizes)))
-              (string-append
-               head
-               "                if wire == 2:\n"
-               (format "                    for off in range(0, len(value), ~a):\n" size)
-               (format "                        self.~a.append(_struct.unpack(~s, value[off:off + ~a])[0])\n" a (cdr p) size)
-               "                else:\n"
-               (format "                    self.~a.append(_struct.unpack(~s, value)[0])\n" a (cdr p))))]
-        [(= type 9) (string-append head (format "                self.~a.append(value.decode(\"utf-8\"))\n" a))]
-        [(= type 12) (string-append head (format "                self.~a.append(bytes(value))\n" a))]
-        [(= type 11)
-         (string-append head
-                        (py-pb-decode-singular model f "tmp2" "value" "                ")
-                        (format "                self.~a.append(tmp2)\n" a))]
-        [else (error 'emit-python-pb-file "unsupported repeated field type ~a" type)]))
-
+  (run-segments py-pb-decode-case-program f "" model (list (if first? "if" "elif"))))
 (define (py-pb-map-helpers model entry)
-  (define msg (hash-ref entry 'msg))
-  (define base (py-pb-flat (hash-ref entry 'pkg) (hash-ref msg 'full-name)))
-  (define key-f (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref msg 'fields)))
-  (define val-f (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref msg 'fields)))
-  (unless (and key-f val-f) (error 'emit-python-pb-file "map entry ~a lacks key/value" (hash-ref msg 'full-name)))
-  (string-append
-   (format "def _encode_~aEntry(key, value):\n    out = bytearray()\n" base)
-   (py-pb-encode-singular model key-f "key" "    ")
-   (py-pb-encode-singular model val-f "value" "    ")
-   "    return bytes(out)\n\n\n"
-   (format "def _decode_~aEntry(data):\n" base)
-   (format "    key = ~a\n    value = ~a\n" (py-pb-default-expr model key-f) (py-pb-default-expr model val-f))
-   "    reader = _Reader(data)\n"
-   "    while True:\n"
-   "        item = reader.field()\n"
-   "        if item is None:\n"
-   "            return key, value\n"
-   "        num, wire, raw, _raw_bytes = item\n"
-   "        if num == 1:\n"
-   (py-pb-decode-singular model key-f "key" "raw" "            ")
-   "        elif num == 2:\n"
-   (py-pb-decode-singular model val-f "value" "raw" "            ")
-   "\n"))
-
+  (run-segments py-pb-map-helpers-program entry "" model))
 (define (py-pb-default-expr model f)
-  (define d (py-pb-default f model))
-  (cond [(equal? d "list") "[]"]
-        [(equal? d "dict") "{}"]
-        [(equal? d "None") "None"]
-        [else d]))
-
+  (run-segments py-pb-default-expr-program f "" model))
 (define (py-pb-init-line model f)
-  (define a (hash-ref f 'name))
-  (cond [(= (hash-ref f 'label) 3)
-         (define d (py-pb-default f model))
-         (format "        self.~a = ~a(~a) if ~a is not None else ~a\n"
-                 a d a a (if (equal? d "dict") "{}" "[]"))]
-        [(= (hash-ref f 'type) 11)
-         (define entry (py-pb-resolve model (hash-ref f 'type-name)))
-         (if (eq? (hash-ref entry 'kind) 'map)
-             (format "        self.~a = dict(~a) if ~a is not None else {}\n" a a a)
-             (format "        self.~a = ~a\n" a a))]
-        [else (format "        self.~a = ~a\n" a a)]))
-
+  (run-segments py-pb-init-line-program f "" model))
 (define (py-pb-class model msg)
-  (define flat (py-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
-  (define fields (hash-ref msg 'fields))
-  (define params
-    (string-join
-     (for/list ([f (in-list fields)])
-       (format "~a=~a" (hash-ref f 'name)
-               (let ([d (py-pb-default f model)])
-                 (if (or (equal? d "list") (equal? d "dict")) "None" d))))
-     ", "))
-  (string-append
-   (format "class ~a:\n    \"\"\"Message ~a.\"\"\"\n\n" flat (hash-ref msg 'full-name))
-   (format "    def __init__(self, ~a):\n" params)
-   (apply string-append (map (lambda (f) (py-pb-init-line model f)) fields))
-   "        self.unknown_fields = b\"\"\n"
-   "\n    def marshal_dc(self):\n        out = bytearray()\n"
-   (apply string-append (map (lambda (f) (py-pb-encode-guard model f (py-pb-encode-field model f))) fields))
-   "        out += self.unknown_fields\n"
-   "        return bytes(out)\n"
-   "\n    def unmarshal_dc(self, data):\n"
-   "        self.unknown_fields = b\"\"\n"
-   (apply string-append
-          (for/list ([f (in-list fields)])
-            (format "        self.~a = ~a\n" (hash-ref f 'name)
-                    (let ([d (py-pb-default f model)])
-                      (cond [(equal? d "list") "[]"]
-                            [(equal? d "dict") "{}"]
-                            [else d])))))
-   "        reader = _Reader(data)\n"
-   "        while True:\n"
-   "            item = reader.field()\n"
-   "            if item is None:\n"
-   "                return self\n"
-   "            num, wire, value, raw = item\n"
-   (apply string-append
-          (for/list ([f (in-list fields)] [i (in-naturals)])
-            (py-pb-decode-case model f (zero? i))))
-   (if (null? fields)
-       ""
-       "            else:\n                self.unknown_fields = self.unknown_fields + raw\n")
-   (format "\n    def __eq__(self, other):\n        return isinstance(other, ~a) and self.__dict__ == other.__dict__\n" flat)
-   (format "\n    def __repr__(self):\n        return f\"~a(~a)\"\n\n\n"
-           flat
-           (string-join (for/list ([f (in-list fields)])
-                          (format "~a={self.~a!r}" (hash-ref f 'name) (hash-ref f 'name)))
-                        ", "))))
-
+  (run-segments py-pb-message-program msg "" model))
 (define (py-pb-enum entry)
-  (define e (hash-ref entry 'enum))
-  ;; 'full includes the parent message: nested enums must not
-  ;; collide on their simple name.
-  (define full (hash-ref entry 'full))
-  (string-append
-   (format "class ~a:\n    \"\"\"Enum ~a.\"\"\"\n" (py-pb-flat (hash-ref entry 'pkg) full) full)
-   (apply string-append
-          (for/list ([v (in-list (hash-ref e 'values))])
-            (format "    ~a = ~a\n" (hash-ref v 'name) (hash-ref v 'number))))
-   "\n\n"))
-
+  (run-segments py-pb-enum-program entry ""))
 (define (emit-python-pb-file file-model)
   ;; Models without message metadata (synthetic test models that
   ;; predate the desc 'types registry) get no pb companion; real
