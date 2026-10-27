@@ -9,7 +9,7 @@
 ;;; (grpcdc.Futures), and a service trait + register function.
 ;;; Method names keep the proto spelling (Unary, ServerStream...).
 
-(require "spec.rkt" "desc.rkt")
+(require "spec.rkt" "desc.rkt" "segments.rkt")
 (provide emit-scala-file)
 
 (define current-service (make-parameter ""))
@@ -24,210 +24,27 @@
 
 
 (define (scala-client-method m)
-  (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define path (hash-ref m 'path))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "        def ~a(req: ~a, metadata: Map[String, String] = null, timeout: java.time.Duration = null): ~a = {\n"
-              "            val resp = new ~a()\n"
-              "            channel.unary(~s, req, resp, metadata, timeout)\n"
-              "            resp\n"
-              "        }\n\n")
-             name req resp resp path)]
-    [(server-streaming)
-     (format (string-append
-              "        def ~a(req: ~a, metadata: Map[String, String] = null, timeout: java.time.Duration = null): ~a = {\n"
-              "            new ~a(channel.serverStream(~s, req, metadata, timeout))\n"
-              "        }\n\n")
-             name req (scala-client-stream-name svc 'server-streaming resp)
-             (scala-client-stream-name svc 'server-streaming resp) path)]
-    [(client-streaming)
-     (format (string-append
-              "        def ~a(reqs: List[~a], metadata: Map[String, String] = null, timeout: java.time.Duration = null): ~a = {\n"
-              "            val resp = new ~a()\n"
-              "            channel.clientStreamCall(~s, reqs, resp, metadata, timeout)\n"
-              "            resp\n"
-              "        }\n\n")
-             name req resp resp path)]
-    [(bidi)
-     (format (string-append
-              "        def ~a(reqs: List[~a], metadata: Map[String, String] = null, timeout: java.time.Duration = null): ~a = {\n"
-              "            new ~a(channel.bidi(~s, reqs, metadata, timeout))\n"
-              "        }\n\n")
-             name req (scala-client-stream-name svc 'bidi resp)
-             (scala-client-stream-name svc 'bidi resp) path)]))
-
+  (run-segments scala-client-method-program m "" #f
+                (list (scala-client-stream-name (current-service) 'server-streaming (hash-ref m 'output))
+                      (scala-client-stream-name (current-service) 'bidi (hash-ref m 'output)))))
 (define (scala-future-method m)
-  (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (case (hash-ref m 'kind)
-    [(unary client-streaming)
-     (format (string-append
-              "        def ~aFuture(req~a, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[~a] = {\n"
-              "            grpcdc.Futures { ~a(req~a, metadata, timeout) }\n"
-              "        }\n\n")
-             name (if (eq? (hash-ref m 'kind) 'unary) (format ": ~a" req) (format "s: List[~a]" req))
-             resp name (if (eq? (hash-ref m 'kind) 'unary) "" "s"))]
-    [(server-streaming bidi)
-     (format (string-append
-              "        def ~aFuture(req~a, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[List[~a]] = {\n"
-              "            grpcdc.Futures {\n"
-              "                val stream = ~a(req~a, metadata, timeout)\n"
-              "                try {\n"
-              "                val out = scala.collection.mutable.ListBuffer[~a]()\n"
-              "                var done = false\n"
-              "                while (!done) {\n"
-              "                    try {\n"
-              "                        out += stream.recv()\n"
-              "                    } catch {\n"
-              "                        case e: java.io.EOFException => done = true\n"
-              "                    }\n"
-              "                }\n"
-              "                out.toList\n"
-              "                } finally {\n"
-              "                    stream.close()\n"
-              "                }\n"
-              "            }\n"
-              "        }\n\n")
-             name (if (eq? (hash-ref m 'kind) 'server-streaming) (format ": ~a" req) (format "s: List[~a]" req))
-             resp name (if (eq? (hash-ref m 'kind) 'server-streaming) "" "s") resp)]))
-
+  (run-segments scala-future-method-program m ""))
 (define (scala-server-iface-method m)
-  (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format "        def ~a(ctx: grpcdc.Endpoint#CallContext, req: ~a): ~a\n" name req resp)]
-    [(server-streaming)
-     (format "        def ~a(req: ~a, stream: ~a): Unit\n" name req (scala-ss-trait-name svc resp))]
-    [(client-streaming)
-     (format "        def ~a(stream: ~a): Unit\n" name (scala-pair-trait-name svc 'client-streaming req resp "ClientStreamServer"))]
-    [(bidi)
-     (format "        def ~a(stream: ~a): Unit\n" name (scala-pair-trait-name svc 'bidi req resp "BidiServer"))]))
-
+  (run-segments scala-server-iface-method-program m "" #f (list (scala-ss-trait-name (current-service) (hash-ref m 'output))
+                      (scala-pair-trait-name (current-service) 'client-streaming (hash-ref m 'input) (hash-ref m 'output) "ClientStreamServer")
+                      (scala-pair-trait-name (current-service) 'bidi (hash-ref m 'input) (hash-ref m 'output) "BidiServer"))))
 (define (scala-register-method m)
-  (define name (hash-ref m 'name))
-  (define impl-name (method-impl-name m))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define path (hash-ref m 'path))
-  (define kind-const
-    (case (hash-ref m 'kind)
-      [(unary) "KIND_UNARY"]
-      [(server-streaming) "KIND_SERVER_STREAMING"]
-      [(client-streaming) "KIND_CLIENT_STREAMING"]
-      [(bidi) "KIND_BIDI"]))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n"
-              "                val req = new ~a()\n"
-              "                reqs.recvInto(req)\n"
-              "                val resp = impl.~a(ctx, req)\n"
-              "                sink.send(resp.marshalDc())\n"
-              "            }),\n")
-             name path kind-const req impl-name)]
-    [(server-streaming)
-     (format (string-append
-              "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n"
-              "                val req = new ~a()\n"
-              "                reqs.recvInto(req)\n"
-              "                impl.~a(req, new ~a {\n"
-              "                    def send(resp: ~a): Unit = sink.send(resp.marshalDc())\n"
-              "                    val context: grpcdc.Endpoint#CallContext = ctx\n"
-              "                })\n"
-              "            }),\n")
-             name path kind-const req impl-name (scala-ss-trait-name svc resp) resp)]
-    [(client-streaming)
-     (format (string-append
-              "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n"
-              "                var response: ~a = null\n"
-              "                impl.~a(new ~a {\n"
-              "                    def recv(): ~a = {\n"
-              "                        val req = new ~a()\n"
-              "                        reqs.recvInto(req)\n"
-              "                        req\n"
-              "                    }\n"
-              "                    def sendAndClose(resp: ~a): Unit = { response = resp }\n"
-              "                    val context: grpcdc.Endpoint#CallContext = ctx\n"
-              "                })\n"
-              "                if (response == null) {\n"
-              "                    throw grpcdc.StatusException(grpcdc.Wire.CODE_INTERNAL, \"client-streaming handler never called sendAndClose\")\n"
-              "                }\n"
-              "                sink.send(response.marshalDc())\n"
-              "            }),\n")
-             name path kind-const resp impl-name (scala-pair-trait-name svc 'client-streaming req resp "ClientStreamServer") req req resp)]
-    [(bidi)
-     (format (string-append
-              "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n"
-              "                impl.~a(new ~a {\n"
-              "                    def send(resp: ~a): Unit = sink.send(resp.marshalDc())\n"
-              "                    def recv(): ~a = {\n"
-              "                        val req = new ~a()\n"
-              "                        reqs.recvInto(req)\n"
-              "                        req\n"
-              "                    }\n"
-              "                    val context: grpcdc.Endpoint#CallContext = ctx\n"
-              "                })\n"
-              "            }),\n")
-             name path kind-const impl-name (scala-pair-trait-name svc 'bidi req resp "BidiServer") resp req req)]))
-
-
+  (run-segments scala-register-method-program m "" #f (list (scala-ss-trait-name (current-service) (hash-ref m 'output))
+                      (scala-pair-trait-name (current-service) 'client-streaming (hash-ref m 'input) (hash-ref m 'output) "ClientStreamServer")
+                      (scala-pair-trait-name (current-service) 'bidi (hash-ref m 'input) (hash-ref m 'output) "BidiServer"))))
 (define (scala-server-async-iface-method m)
-  (define name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format "        def ~aAsync(ctx: grpcdc.Endpoint#CallContext, req: ~a): scala.concurrent.Future[~a]\n" name req resp)]
-    [(server-streaming)
-     (format "        def ~aAsync(req: ~a, stream: ~a): scala.concurrent.Future[Unit]\n" name req (scala-ss-trait-name svc resp))]
-    [(client-streaming)
-     (format "        def ~aAsync(stream: ~a): scala.concurrent.Future[Unit]\n" name (scala-pair-trait-name svc 'client-streaming req resp "ClientStreamServer"))]
-    [(bidi)
-     (format "        def ~aAsync(stream: ~a): scala.concurrent.Future[Unit]\n" name (scala-pair-trait-name svc 'bidi req resp "BidiServer"))]))
-
+  (run-segments scala-server-async-iface-method-program m "" #f (list (scala-ss-trait-name (current-service) (hash-ref m 'output))
+                      (scala-pair-trait-name (current-service) 'client-streaming (hash-ref m 'input) (hash-ref m 'output) "ClientStreamServer")
+                      (scala-pair-trait-name (current-service) 'bidi (hash-ref m 'input) (hash-ref m 'output) "BidiServer"))))
 (define (scala-server-async-adapter-method m)
-  (define name (hash-ref m 'name))
-  (define impl-name (method-impl-name m))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "            def ~a(ctx: grpcdc.Endpoint#CallContext, req: ~a): ~a = {\n"
-              "                scala.concurrent.Await.result(impl.~aAsync(ctx, req), scala.concurrent.duration.Duration.Inf)\n"
-              "            }\n")
-             name req resp impl-name)]
-    [(server-streaming)
-     (format (string-append
-              "            def ~a(req: ~a, stream: ~a): Unit = {\n"
-              "                scala.concurrent.Await.result(impl.~aAsync(req, stream), scala.concurrent.duration.Duration.Inf)\n"
-              "            }\n")
-             name req (scala-ss-trait-name svc resp) impl-name)]
-    [(client-streaming)
-     (format (string-append
-              "            def ~a(stream: ~a): Unit = {\n"
-              "                scala.concurrent.Await.result(impl.~aAsync(stream), scala.concurrent.duration.Duration.Inf)\n"
-              "            }\n")
-             name (scala-pair-trait-name svc 'client-streaming req resp "ClientStreamServer") impl-name)]
-    [(bidi)
-     (format (string-append
-              "            def ~a(stream: ~a): Unit = {\n"
-              "                scala.concurrent.Await.result(impl.~aAsync(stream), scala.concurrent.duration.Duration.Inf)\n"
-              "            }\n")
-             name (scala-pair-trait-name svc 'bidi req resp "BidiServer") impl-name)]))
-
+  (run-segments scala-server-async-adapter-method-program m "" #f (list (scala-ss-trait-name (current-service) (hash-ref m 'output))
+                      (scala-pair-trait-name (current-service) 'client-streaming (hash-ref m 'input) (hash-ref m 'output) "ClientStreamServer")
+                      (scala-pair-trait-name (current-service) 'bidi (hash-ref m 'input) (hash-ref m 'output) "BidiServer"))))
 (define current-methods (make-parameter '()))
 
 ;; Helper stream traits/classes are typed by message type. While a
@@ -263,145 +80,7 @@
       (format "~a~a~a" svc out suffix)))
 
 (define (scala-service svc)
-  (define sname (hash-ref svc 'name))
-  (define methods (hash-ref svc 'methods))
-  (define req (hash-ref (car methods) 'input))
-  (define resp (hash-ref (car methods) 'output))
-  (define (class-outputs kind)
-    (define os (kind-outputs kind))
-    (if (null? os) (list resp) os))
-  (define (pair-list kind)
-    (define ps (kind-pairs kind))
-    (if (null? ps) (list (cons req resp)) ps))
-  (parameterize ([current-service sname] [current-methods methods])
-    (string-append
-     (format "    /** Client for ~a. */\n" (hash-ref svc 'full-name))
-     (format "    class ~aClient(private val channel: grpcdc.Channel) {\n" sname)
-     (apply string-append
-            (for/list ([out (in-list (class-outputs 'server-streaming))])
-              (string-append
-               (format "        class ~a(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[~a] with AutoCloseable {\n" (scala-client-stream-name sname 'server-streaming out) out)
-               (format "            def recv(): ~a = {\n" out)
-               (format "                val resp = new ~a()\n" out)
-               "                stream.recv(resp)\n"
-               "                resp\n"
-               "            }\n"
-               (format "            private var pending: ~a = null\n" out)
-               "            private var finished: Boolean = false\n"
-               "            def hasNext: Boolean = {\n"
-               "                if (pending == null && !finished) {\n"
-               "                    try {\n"
-               "                        pending = recv()\n"
-               "                    } catch {\n"
-               "                        case e: java.io.EOFException => finished = true\n"
-               "                    }\n"
-               "                }\n"
-               "                pending != null\n"
-               "            }\n"
-               (format "            def next(): ~a = {\n" out)
-               "                if (!hasNext) throw new NoSuchElementException(\"next on empty stream\")\n"
-               "                val out = pending\n"
-               "                pending = null\n"
-               "                out\n"
-               "            }\n"
-               "            def cancel(): Unit = stream.cancel()\n"
-               "            def close(): Unit = stream.close()\n"
-               "            /** Initial metadata (response headers); null until they arrive. */\n"
-               "            def headers: Map[String, String] = if (stream.headers == null) null else stream.headers.metadata\n"
-               "            /** Trailing metadata of the terminal status; null until it arrives. */\n"
-               "            def trailers: Map[String, String] = stream.trailers\n"
-               "        }\n\n")))
-     (apply string-append
-            (for/list ([out (in-list (class-outputs 'bidi))])
-              (string-append
-               (format "        class ~a(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[~a] with AutoCloseable {\n" (scala-client-stream-name sname 'bidi out) out)
-               (format "            def recv(): ~a = {\n" out)
-               (format "                val resp = new ~a()\n" out)
-               "                stream.recv(resp)\n"
-               "                resp\n"
-               "            }\n"
-               (format "            private var pending: ~a = null\n" out)
-               "            private var finished: Boolean = false\n"
-               "            def hasNext: Boolean = {\n"
-               "                if (pending == null && !finished) {\n"
-               "                    try {\n"
-               "                        pending = recv()\n"
-               "                    } catch {\n"
-               "                        case e: java.io.EOFException => finished = true\n"
-               "                    }\n"
-               "                }\n"
-               "                pending != null\n"
-               "            }\n"
-               (format "            def next(): ~a = {\n" out)
-               "                if (!hasNext) throw new NoSuchElementException(\"next on empty stream\")\n"
-               "                val out = pending\n"
-               "                pending = null\n"
-               "                out\n"
-               "            }\n"
-               "            def cancel(): Unit = stream.cancel()\n"
-               "            def close(): Unit = stream.close()\n"
-               "            /** Initial metadata (response headers); null until they arrive. */\n"
-               "            def headers: Map[String, String] = if (stream.headers == null) null else stream.headers.metadata\n"
-               "            /** Trailing metadata of the terminal status; null until it arrives. */\n"
-               "            def trailers: Map[String, String] = stream.trailers\n"
-               "        }\n\n")))
-     (apply string-append (map scala-client-method (append methods (alias-client-methods svc))))
-     "        // -- async (scala.concurrent.Future) surface ---------------\n\n"
-     (apply string-append (map scala-future-method (append methods (alias-client-methods svc))))
-     "    }\n\n"
-     (apply string-append
-            (for/list ([out (in-list (class-outputs 'server-streaming))])
-              (string-append
-               (format "    /** Server-streaming sink passed to service implementations. */\n")
-               (format "    trait ~a {\n" (scala-ss-trait-name sname out))
-               (format "        def send(resp: ~a): Unit\n" out)
-               "        val context: grpcdc.Endpoint#CallContext\n"
-               "    }\n\n")))
-     (apply string-append
-            (for/list ([pr (in-list (pair-list 'client-streaming))])
-              (string-append
-               (format "    /** Client-streaming stream passed to service implementations. */\n")
-               (format "    trait ~a {\n" (scala-pair-trait-name sname 'client-streaming (car pr) (cdr pr) "ClientStreamServer"))
-               (format "        def recv(): ~a\n" (car pr))
-               (format "        def sendAndClose(resp: ~a): Unit\n" (cdr pr))
-               "        val context: grpcdc.Endpoint#CallContext\n"
-               "    }\n\n")))
-     (apply string-append
-            (for/list ([pr (in-list (pair-list 'bidi))])
-              (string-append
-               (format "    /** Bidi stream passed to service implementations. */\n")
-               (format "    trait ~a {\n" (scala-pair-trait-name sname 'bidi (car pr) (cdr pr) "BidiServer"))
-               (format "        def send(resp: ~a): Unit\n" (cdr pr))
-               (format "        def recv(): ~a\n" (car pr))
-               "        val context: grpcdc.Endpoint#CallContext\n"
-               "    }\n\n")))
-     (format "    /** Service implementation interface for ~a. */\n" (hash-ref svc 'full-name))
-     (format "    trait ~aServer {\n" sname)
-     (apply string-append (map scala-server-iface-method methods))
-     "    }\n\n"
-     (format "    /** Register an implementation of ~a on a Server. */\n" (hash-ref svc 'full-name))
-     (format "    def register~aServer(server: grpcdc.Server, impl: ~aServer): Unit = {\n" sname sname)
-     (format "        server.registerService(grpcdc.Server.ServiceDesc(~s, List(\n" (hash-ref svc 'full-name))
-     (apply string-append (map scala-register-method (append methods (alias-server-methods svc))))
-     "        )))\n"
-     "    }\n\n"
-     (format "    /** Async service implementation for ~a (scala.concurrent.Future). */\n" (hash-ref svc 'full-name))
-     (format "    trait ~aServerAsync {\n" sname)
-     (apply string-append (map scala-server-async-iface-method methods))
-     "    }\n\n"
-     (format "    /** Register a Future-based implementation (adapts to the sync trait). */\n")
-     (format "    def register~aServerAsync(server: grpcdc.Server, impl: ~aServerAsync): Unit = {\n" sname sname)
-     (format "        register~aServer(server, new ~aServer {\n" sname sname)
-     (apply string-append (map scala-server-async-adapter-method methods))
-     "        })\n"
-     "    }\n")))
-
-;; ---------------------------------------------------------------------------
-;; Generated message types (<Base>Messages.scala, in the proto
-;; package): the stdlib-only protobuf wire codec beside the stubs,
-;; emitted from the shared desc.rkt model. Mirrors the PHP emitter.
-;; ---------------------------------------------------------------------------
-
+  (run-segments scala-service-program svc (hash-ref svc 'name)))
 (define sc-pb-varint-types varint-scalar-types)
 ;; type -> (size kind) ; kind: double float fixed32 fixed64
 (define sc-pb-fixed (map (lambda (e) (list (first e) (second e) (string->symbol (third e)))) (fixed-scalar-table 'scala)))
@@ -465,263 +144,38 @@
 (define (sc-pb-scalar-type f) (scalar-type-entry 'scala (hash-ref f 'type)))
 
 (define (sc-pb-elem-type model f)
-  (if (= (hash-ref f 'type) 11)
-      (sc-pb-entry-ref model (sc-pb-resolve model (hash-ref f 'type-name)))
-      (sc-pb-scalar-type f)))
-
+  (run-segments sc-pb-elem-type-program f "" model))
 (define (sc-pb-type model f)
-  (cond [(and (= (hash-ref f 'type) 11)
-              (eq? (hash-ref (sc-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         (define entry (sc-pb-resolve model (hash-ref f 'type-name)))
-         (define msg (hash-ref entry 'msg))
-         (define kf (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref msg 'fields)))
-         (define vf (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref msg 'fields)))
-         (format "Map[~a, ~a]" (sc-pb-elem-type model kf) (sc-pb-elem-type model vf))]
-        [(= (hash-ref f 'label) 3)
-         (format "List[~a]" (sc-pb-elem-type model f))]
-        [else (sc-pb-elem-type model f)]))
-
+  (run-segments sc-pb-type-program f "" model))
 (define (sc-pb-explicit-literal model f)
-  (define d (field-explicit-default f))
-  (and d
-       (case (hash-ref f 'type)
-         [(9) (format "~s" d)]
-         [(8) d]
-         [(14) (format "~a" (enum-default-number model f))]
-         [(2) (format "~af" d)]
-         [else d])))
-
+  (define lit (run-segments sc-pb-explicit-literal-program f "" model))
+  (and (not (string=? lit "")) lit))
 (define (sc-pb-default model f)
-  (cond [(sc-pb-explicit-literal model f) => (lambda (lit) lit)]
-        [(and (= (hash-ref f 'type) 11)
-              (eq? (hash-ref (sc-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map)) "Map.empty"]
-        [(= (hash-ref f 'label) 3) "List.empty"]
-        [(= (hash-ref f 'type) 11) "null"]
-        [(= (hash-ref f 'type) 9) "\"\""]
-        [(= (hash-ref f 'type) 12) "Array.empty[Byte]"]
-        [(= (hash-ref f 'type) 8) "false"]
-        [(= (hash-ref f 'type) 1) "0.0"]
-        [(= (hash-ref f 'type) 2) "0.0f"]
-        [(memv (hash-ref f 'type) '(3 4 6 16 18)) "0L"]
-        [(= (hash-ref f 'type) 14)
-         (define entry (sc-pb-resolve model (hash-ref f 'type-name)))
-         (format "~a" (hash-ref (car (hash-ref (hash-ref entry 'enum) 'values)) 'number))]
-        [else "0"]))
-
+  (run-segments sc-pb-default-program f "" model))
 (define (sc-pb-varint-expr f v)
-  (case (hash-ref f 'type)
-    [(8) (format "(if (~a) 1L else 0L)" v)]
-    [(17) (format "(((~a << 1) ^ (~a >> 31)) & 0xffffffffL)" v v)]
-    [(18) (format "((~a << 1) ^ (~a >> 63))" v v)]
-    ;; int32/enum negatives sign-extend to 64 bits on the wire
-    ;; (protoc's canonical 10-byte varint); uint32/bool mask.
-    [(5 14) (format "(~a.toLong)" v)]
-    [(13 7) (format "(~a & 0xffffffffL)" v)]
-    [else (format "~a.toLong" v)]))
-
+  (run-segments sc-pb-varint-expr-program f "" #f (list v)))
 (define (sc-pb-varint-decode f v)
-  (case (hash-ref f 'type)
-    [(5 14 13 7) (format "~a.toInt" v)]
-    [(8) (format "(~a != 0L)" v)]
-    [(17) (format "(((~a.toInt) >>> 1) ^ -((~a.toInt) & 1))" v v)]
-    [(18) (format "((~a >>> 1) ^ -(~a & 1L))" v v)]
-    [else v]))
-
-(define (sc-pb-fixed-info f) (assv (hash-ref f 'type) sc-pb-fixed))
-(define (sc-pb-wire f) (if (= (second (sc-pb-fixed-info f)) 8) 1 5))
-
+  (run-segments sc-pb-varint-decode-program f "" #f (list v)))
 (define (sc-pb-fixed-encode-expr f v)
-  (case (third (sc-pb-fixed-info f))
-    [(double) (format "~a.int64BytesLE(java.lang.Double.doubleToRawLongBits(~a))" (current-pb-obj) v)]
-    [(float) (format "~a.int32BytesLE(java.lang.Float.floatToRawIntBits(~a))" (current-pb-obj) v)]
-    [(fixed64) (format "~a.int64BytesLE(~a)" (current-pb-obj) v)]
-    [(fixed32) (format "~a.int32BytesLE(~a)" (current-pb-obj) v)]))
-
+  (run-segments sc-pb-fixed-encode-program f "" #f (list (current-pb-obj) v)))
 (define (sc-pb-fixed-decode-expr f src)
-  (case (third (sc-pb-fixed-info f))
-    [(double) (format "java.lang.Double.longBitsToDouble(~a.toInt64LE(~a, 0))" (current-pb-obj) src)]
-    [(float) (format "java.lang.Float.intBitsToFloat(~a.toInt32LE(~a, 0))" (current-pb-obj) src)]
-    [(fixed64) (format "~a.toInt64LE(~a, 0)" (current-pb-obj) src)]
-    [(fixed32) (format "~a.toInt32LE(~a, 0)" (current-pb-obj) src)]))
-
+  (run-segments sc-pb-fixed-decode-program f "" #f (list (current-pb-obj) src)))
 (define current-pb-obj (make-parameter "Pb"))
 
 (define (sc-pb-nonzero f v)
-  (case (hash-ref f 'type)
-    [(8) v]
-    [else (format "~a != 0" v)]))
-
+  (run-segments sc-pb-nonzero-program f "" #f (list v)))
 (define (sc-pb-encode-singular model f v indent)
-  (define n (hash-ref f 'number))
-  (define type (hash-ref f 'type))
-  (define obj (current-pb-obj))
-  ;; Proto2 optional/required fields have explicit presence.
-  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
-  (cond [(memv type sc-pb-varint-types)
-         (if proto2?
-             (format "~a{\n~a  w.tag(~a, 0)\n~a  w.varint(~a)\n~a}\n" indent indent n indent (sc-pb-varint-expr f v) indent)
-             (format "~aif (~a) {\n~a  w.tag(~a, 0)\n~a  w.varint(~a)\n~a}\n" indent (sc-pb-nonzero f v) indent n indent (sc-pb-varint-expr f v) indent))]
-        [(assv type sc-pb-fixed)
-         (if proto2?
-             (format "~a{\n~a  w.fixed(~a, ~a, ~a)\n~a}\n" indent indent n (sc-pb-wire f) (sc-pb-fixed-encode-expr f v) indent)
-             (format "~aif (~a != 0) {\n~a  w.fixed(~a, ~a, ~a)\n~a}\n" indent v indent n (sc-pb-wire f) (sc-pb-fixed-encode-expr f v) indent))]
-        [(= type 9)
-         (if proto2?
-             (format "~aw.bytesField(~a, ~a.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n" indent n v)
-             (format "~aw.stringField(~a, ~a)\n" indent n v))]
-        [(= type 12)
-         (if proto2?
-             (format "~aw.bytesField(~a, ~a)\n" indent n v)
-             (format "~aif (~a.nonEmpty) {\n~a  w.bytesField(~a, ~a)\n~a}\n" indent v indent n v indent))]
-        [(= type 11) (format "~aif (~a != null) {\n~a  w.bytesField(~a, ~a.marshalDc())\n~a}\n" indent v indent n v indent)]
-        [else (error 'emit-scala-pb-file "unsupported field type ~a (groups)" type)]))
-
-(define (sc-pb-set-expr sib)
-  (define v (sc-pb-field-name sib))
-  (case (hash-ref sib 'type)
-    [(11 10) (format "~a != null" v)]
-    [(9 12) (format "~a.nonEmpty" v)]
-    [else (sc-pb-nonzero sib v)]))
-
-;; Encode-side oneof clearing: suppress f when a later sibling is
-;; set, so only the winning member is written.
-(define (sc-pb-encode-guard model f code)
-  (define later (oneof-later-siblings model f))
-  (if (null? later)
-      code
-      (format "    if (!(~a)) {\n~a    }\n"
-              (string-join (map sc-pb-set-expr later) " || ")
-              (if (string-suffix? code "\n") code (string-append code "\n")))))
-
+  (run-segments sc-pb-encode-singular-program f "" model (list (current-pb-obj) v indent)))
 (define (sc-pb-encode-field model f)
-  (define v (sc-pb-field-name f))
-  (define n (hash-ref f 'number))
-  (define type (hash-ref f 'type))
-  (define obj (current-pb-obj))
-  (cond [(and (= type 11)
-              (eq? (hash-ref (sc-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         (define entry (sc-pb-resolve model (hash-ref f 'type-name)))
-         (define helper (format "~a.encode~a" obj (sc-pb-entry-ref model entry)))
-         ;; Sorted key order on encode (protobuf canonical
-         ;; form): Map iteration order is unspecified, so an
-         ;; unsorted loop makes encodings nondeterministic.
-         (format "    for (k <- ~a.keys.toArray.sorted) {\n      w.bytesField(~a, ~a(k, ~a(k)))\n    }\n" v n helper v)]
-        [(not (= (hash-ref f 'label) 3)) (sc-pb-encode-singular model f v "    ")]
-        [(memv type sc-pb-varint-types)
-         (string-append
-          (format "    if (~a.nonEmpty) {\n      val payload = new java.io.ByteArrayOutputStream()\n" v)
-          (format "      for (x <- ~a) {\n        payload.write(~a.varintBytes(~a))\n      }\n" v obj (sc-pb-varint-expr f "x"))
-          (format "      w.bytesField(~a, payload.toByteArray)\n    }\n" n))]
-        [(assv type sc-pb-fixed)
-         (string-append
-          (format "    if (~a.nonEmpty) {\n      val payload = new java.io.ByteArrayOutputStream()\n" v)
-          (format "      for (x <- ~a) {\n        payload.write(~a)\n      }\n" v (sc-pb-fixed-encode-expr f "x"))
-          (format "      w.bytesField(~a, payload.toByteArray)\n    }\n" n))]
-        [(= type 9) (format "    for (x <- ~a) {\n      w.bytesField(~a, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n    }\n" v n)]
-        [(= type 12) (format "    for (x <- ~a) {\n      w.bytesField(~a, x)\n    }\n" v n)]
-        [(= type 11) (format "    for (x <- ~a) {\n      w.bytesField(~a, x.marshalDc())\n    }\n" v n)]
-        [else (error 'emit-scala-pb-file "unsupported repeated field type ~a" type)]))
-
+  (run-segments sc-pb-encode-field-program f "" model (list (current-pb-obj))))
 (define (sc-pb-decode-singular model f target src indent)
-  (define type (hash-ref f 'type))
-  (cond [(memv type sc-pb-varint-types)
-         (format "~a~a = ~a\n" indent target (sc-pb-varint-decode f src))]
-        [(assv type sc-pb-fixed)
-         (format "~a~a = ~a\n" indent target (sc-pb-fixed-decode-expr f src))]
-        [(= type 9) (format "~a~a = new String(~a, java.nio.charset.StandardCharsets.UTF_8)\n" indent target src)]
-        [(= type 12) (format "~a~a = ~a\n" indent target src)]
-        [(= type 11)
-         (define ref (sc-pb-entry-ref model (sc-pb-resolve model (hash-ref f 'type-name))))
-         (string-append
-          (format "~a~a = new ~a()\n" indent target ref)
-          (format "~a~a.unmarshalDc(~a)\n" indent target src))]
-        [else (error 'emit-scala-pb-file "unsupported field type ~a" type)]))
-
+  (run-segments sc-pb-decode-singular-program f "" model (list (current-pb-obj) target src indent)))
 (define (sc-pb-oneof-clearing model f)
-  (apply string-append
-         (map (lambda (sib)
-                (format "          ~a = ~a\n" (sc-pb-field-name sib) (sc-pb-default model sib)))
-              (oneof-siblings model f))))
-
+  (run-segments sc-pb-oneof-clearing-program f "" model))
 (define (sc-pb-decode-case model f)
-  (define v (sc-pb-field-name f))
-  (define type (hash-ref f 'type))
-  (define obj (current-pb-obj))
-  (define head (format "        case ~a =>\n" (hash-ref f 'number)))
-  (define clearing (sc-pb-oneof-clearing model f))
-  (cond [(and (= type 11)
-              (eq? (hash-ref (sc-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         (define entry (sc-pb-resolve model (hash-ref f 'type-name)))
-         (define helper (format "~a.decode~a" obj (sc-pb-entry-ref model entry)))
-         (string-append head
-                        (format "          val (kk, vv) = ~a(field.bytesValue)\n" helper)
-                        (format "          ~a = ~a + (kk -> vv)\n" v v))]
-        [(not (= (hash-ref f 'label) 3))
-         (string-append head
-                        clearing
-                        (sc-pb-decode-singular model f v
-                                               (cond [(memv type sc-pb-varint-types) "field.varintValue"]
-                                                     [(assv type sc-pb-fixed) "field.fixedValue"]
-                                                     [else "field.bytesValue"])
-                                               "          "))]
-        [(memv type sc-pb-varint-types)
-         (string-append head
-                        "          if (field.wire == 2) {\n"
-                        (format "            val sub = new ~a.Reader(field.bytesValue)\n" obj)
-                        "            while (!sub.done) {\n"
-                        "              val raw = sub.varint()\n"
-                        (format "              ~a = ~a :+ ~a\n" v v (sc-pb-varint-decode f "raw"))
-                        "            }\n          } else {\n"
-                        (format "            ~a = ~a :+ ~a\n" v v (sc-pb-varint-decode f "field.varintValue"))
-                        "          }\n")]
-        [(assv type sc-pb-fixed)
-         (string-append head
-                        "          if (field.wire == 2) {\n"
-                        (format "            var i = 0\n            while (i < field.bytesValue.length) {\n")
-                        (format "              ~a = ~a :+ ~a\n" v v
-                                (sc-pb-fixed-decode-expr f (format "java.util.Arrays.copyOfRange(field.bytesValue, i, i + ~a)" (second (sc-pb-fixed-info f)))))
-                        (format "              i += ~a\n            }\n          } else {\n" (second (sc-pb-fixed-info f)))
-                        (format "            ~a = ~a :+ ~a\n" v v (sc-pb-fixed-decode-expr f "field.fixedValue"))
-                        "          }\n")]
-        [(= type 9) (string-append head (format "          ~a = ~a :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)\n" v v))]
-        [(= type 12) (string-append head (format "          ~a = ~a :+ field.bytesValue\n" v v))]
-        [(= type 11)
-         (string-append head
-                        (format "          val item = new ~a()\n" (sc-pb-entry-ref model (sc-pb-resolve model (hash-ref f 'type-name))))
-                        "          item.unmarshalDc(field.bytesValue)\n"
-                        (format "          ~a = ~a :+ item\n" v v))]
-        [else (error 'emit-scala-pb-file "unsupported repeated field type ~a" type)]))
-
+  (run-segments sc-pb-decode-case-program f "" model (list (current-pb-obj))))
 (define (sc-pb-map-helpers model entry)
-  (define msg (hash-ref entry 'msg))
-  (define base (sc-pb-entry-ref model entry))
-  (define obj (current-pb-obj))
-  (define key-f (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref msg 'fields)))
-  (define val-f (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref msg 'fields)))
-  (unless (and key-f val-f) (error 'emit-scala-pb-file "map entry ~a lacks key/value" (hash-ref msg 'full-name)))
-  (string-append
-   (format "  def encode~a(key: ~a, value: ~a): Array[Byte] = {\n    val w = new Writer()\n" base (sc-pb-elem-type model key-f) (sc-pb-elem-type model val-f))
-   (sc-pb-encode-singular model (hash-set key-f 'label 1) "key" "    ")
-   (sc-pb-encode-singular model (hash-set val-f 'label 1) "value" "    ")
-   "    w.toBytes\n  }\n\n"
-   (format "  def decode~a(data: Array[Byte]): (~a, ~a) = {\n" base (sc-pb-elem-type model key-f) (sc-pb-elem-type model val-f))
-   (format "    var key: ~a = ~a\n    var value: ~a = ~a\n" (sc-pb-elem-type model key-f) (sc-pb-default model (hash-set key-f 'label 1)) (sc-pb-elem-type model val-f) (sc-pb-default model (hash-set val-f 'label 1)))
-   "    val r = new Reader(data)\n    var field = r.next()\n    while (field != null) {\n      field.number match {\n"
-   (format "        case ~a =>\n~a" (hash-ref key-f 'number)
-           (sc-pb-decode-singular model (hash-set key-f 'label 1) "key"
-                                  (cond [(memv (hash-ref key-f 'type) sc-pb-varint-types) "field.varintValue"]
-                                        [(assv (hash-ref key-f 'type) sc-pb-fixed) "field.fixedValue"]
-                                        [else "field.bytesValue"]) "          "))
-   (format "        case ~a =>\n~a" (hash-ref val-f 'number)
-           (if (= (hash-ref val-f 'type) 11)
-               (format "          value = new ~a()\n          value.unmarshalDc(field.bytesValue)\n"
-                       (sc-pb-entry-ref model (sc-pb-resolve model (hash-ref val-f 'type-name))))
-               (sc-pb-decode-singular model (hash-set val-f 'label 1) "value"
-                                      (cond [(memv (hash-ref val-f 'type) sc-pb-varint-types) "field.varintValue"]
-                                            [(assv (hash-ref val-f 'type) sc-pb-fixed) "field.fixedValue"]
-                                            [else "field.bytesValue"]) "          ")))
-   "        case _ => ()\n      }\n      field = r.next()\n    }\n    (key, value)\n  }\n\n"))
-
+  (run-segments sc-pb-map-helpers-program entry "" model (list (current-pb-obj))))
 (define (sc-pb-support obj)
   (string-append
    (format "object ~a {\n" obj)
@@ -748,42 +202,12 @@
    "    def next(): Field = {\n      if (done) {\n        return null\n      }\n      val start = pos\n      val tag = varint()\n      val number = (tag >>> 3).toInt\n      val wire = (tag & 7).toInt\n      wire match {\n        case 0 =>\n          val v = varint()\n          new Field(number, wire, v, Array.empty[Byte], Array.empty[Byte], buf.slice(start, pos))\n        case 2 =>\n          val n = varint().toInt\n          new Field(number, wire, 0L, take(n), Array.empty[Byte], buf.slice(start, pos))\n        case 1 => new Field(number, wire, 0L, Array.empty[Byte], take(8), buf.slice(start, pos))\n        case 5 => new Field(number, wire, 0L, Array.empty[Byte], take(4), buf.slice(start, pos))\n        case _ => throw new IllegalArgumentException(\"bad wire type\")\n      }\n    }\n  }\n"))
 
 (define (sc-pb-message-class model msg)
-  (define name (sc-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
-  (define fields (hash-ref msg 'fields))
-  (define obj (current-pb-obj))
-  (string-append
-   (format "class ~a(\n" name)
-   (string-join (map (lambda (f) (format "    var ~a: ~a = ~a" (sc-pb-field-name f) (sc-pb-type model f) (sc-pb-default model f))) fields) ",\n")
-   (if (null? fields) "" "\n")
-   ") extends grpcdc.Marshaler with grpcdc.Unmarshaler {\n"
-   "  var unknownFields: Array[Byte] = Array.empty[Byte]\n"
-   "  def marshalDc(): Array[Byte] = {\n"
-   (format "    val w = new ~a.Writer()\n" obj)
-   (apply string-append (map (lambda (f) (sc-pb-encode-guard model f (sc-pb-encode-field model f))) fields))
-   "    w.raw(unknownFields)\n"
-   "    w.toBytes\n  }\n\n"
-   "  def unmarshalDc(data: Array[Byte]): Unit = {\n"
-   "    unknownFields = Array.empty[Byte]\n"
-   (apply string-append (map (lambda (f) (format "    ~a = ~a\n" (sc-pb-field-name f) (sc-pb-default model f))) fields))
-   (format "    val r = new ~a.Reader(data)\n" obj)
-   "    var field = r.next()\n    while (field != null) {\n      field.number match {\n"
-   (apply string-append (map (lambda (f) (sc-pb-decode-case model f)) fields))
-   "        case _ => unknownFields = unknownFields ++ field.rawValue\n      }\n      field = r.next()\n    }\n  }\n"
-   "}\n\n"
-   (apply string-append (map (lambda (n) (sc-pb-message-class model n)) (hash-ref msg 'nested)))))
-
+  (run-segments sc-pb-message-program msg "" model (list (current-pb-obj))))
 (define (sc-pb-enum model e)
-  (define name (sc-pb-flat (hash-ref model 'package)
-                           (if (string=? (hash-ref model 'package) "")
-                               (hash-ref e 'name)
-                               (format "~a.~a" (hash-ref model 'package) (hash-ref e 'name)))))
-  (string-append
-   (format "object ~a {\n" name)
-   (apply string-append
-          (map (lambda (v) (format "  final val ~a: Int = ~a\n" (hash-ref v 'name) (hash-ref v 'number)))
-               (hash-ref e 'values)))
-   "}\n\n"))
-
+  (run-segments sc-pb-enum-program e "" model
+                (list (if (string=? (hash-ref model 'package) "")
+                          (hash-ref e 'name)
+                          (format "~a.~a" (hash-ref model 'package) (hash-ref e 'name))))))
 (define (emit-scala-pb-file file-model)
   (and (hash-has-key? file-model 'messages)
        (hash-has-key? file-model 'types)

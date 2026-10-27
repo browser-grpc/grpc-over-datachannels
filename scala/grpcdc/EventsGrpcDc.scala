@@ -39,7 +39,7 @@ object EventsGrpcDc {
             def trailers: Map[String, String] = stream.trailers
         }
 
-        class EventBusBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[PublishReply] with AutoCloseable {
+        class EventBusPublishReplyBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[PublishReply] with AutoCloseable {
             def recv(): PublishReply = {
                 val resp = new PublishReply()
                 stream.recv(resp)
@@ -116,14 +116,14 @@ object EventsGrpcDc {
     }
 
     /** Client-streaming stream passed to service implementations. */
-    trait EventBusClientStreamServer {
+    trait EventBusPublishRequestPublishReplyClientStreamServer {
         def recv(): PublishRequest
         def sendAndClose(resp: PublishReply): Unit
         val context: grpcdc.Endpoint#CallContext
     }
 
     /** Bidi stream passed to service implementations. */
-    trait EventBusBidiServer {
+    trait EventBusPublishRequestPublishReplyBidiServer {
         def send(resp: PublishReply): Unit
         def recv(): PublishRequest
         val context: grpcdc.Endpoint#CallContext

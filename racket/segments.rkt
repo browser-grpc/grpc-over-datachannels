@@ -127,7 +127,21 @@
          c-pb-message-program c-deprecated-program
          c-client-method-program c-server-types-program
          c-server-impl-field-program c-server-adapter-program
-         c-method-desc-entry-program c-service-program)
+         c-method-desc-entry-program c-service-program
+         scala-client-method-program scala-future-method-program
+         scala-server-iface-method-program scala-register-method-program
+         scala-server-async-iface-method-program
+         scala-server-async-adapter-method-program
+         scala-stream-class-program scala-service-program
+         sc-pb-varint-expr-program sc-pb-varint-decode-program
+         sc-pb-fixed-encode-program sc-pb-fixed-decode-program
+         sc-pb-nonzero-program sc-pb-explicit-literal-program
+         sc-pb-default-program sc-pb-elem-type-program
+         sc-pb-type-program sc-pb-set-expr-program
+         sc-pb-oneof-clearing-program sc-pb-encode-singular-program
+         sc-pb-encode-field-program sc-pb-decode-singular-program
+         sc-pb-decode-case-program sc-pb-map-helpers-program
+         sc-pb-message-program sc-pb-enum-program)
 
 ;; ---------------------------------------------------------------------------
 ;; Go stub: RegisterMethod handler table entries (one per method).
@@ -2688,6 +2702,390 @@
     "    };\n"
     (fmt "    grpcdc_server_add_service(srv, ~s, methods, sizeof(methods) / sizeof(methods[0]), impl);\n}\n\n" (ref full-name))))
 
+;; ---------------------------------------------------------------------------
+;; Scala stub emitter (mirrors template-scala.rkt). Method
+;; programs take stream/trait helper names as arguments; inside
+;; the service program they are derived from the root methods.
+;; ---------------------------------------------------------------------------
+
+(define scala-client-method-program
+  '((kind-case
+     (unary (fmt "        def ~a(req: ~a, metadata: Map[String, String] = null, timeout: java.time.Duration = null): ~a = {\n            val resp = new ~a()\n            channel.unary(~s, req, resp, metadata, timeout)\n            resp\n        }\n\n" (ref name) (ref input) (ref output) (ref output) (ref path)))
+     (server-streaming (fmt "        def ~a(req: ~a, metadata: Map[String, String] = null, timeout: java.time.Duration = null): ~a = {\n            new ~a(channel.serverStream(~s, req, metadata, timeout))\n        }\n\n" (ref name) (ref input) (arg 0) (arg 0) (ref path)))
+     (client-streaming (fmt "        def ~a(reqs: List[~a], metadata: Map[String, String] = null, timeout: java.time.Duration = null): ~a = {\n            val resp = new ~a()\n            channel.clientStreamCall(~s, reqs, resp, metadata, timeout)\n            resp\n        }\n\n" (ref name) (ref input) (ref output) (ref output) (ref path)))
+     (bidi (fmt "        def ~a(reqs: List[~a], metadata: Map[String, String] = null, timeout: java.time.Duration = null): ~a = {\n            new ~a(channel.bidi(~s, reqs, metadata, timeout))\n        }\n\n" (ref name) (ref input) (arg 1) (arg 1) (ref path))))))
+
+(define scala-future-method-program
+  '((kind-case
+     ((unary client-streaming)
+      (fmt "        def ~aFuture(req~a, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[~a] = {\n            grpcdc.Futures { ~a(req~a, metadata, timeout) }\n        }\n\n"
+           (ref name)
+           (kind-case (unary (fmt ": ~a" (ref input))) (client-streaming (fmt "s: List[~a]" (ref input))))
+           (ref output) (ref name)
+           (kind-case (unary "") (client-streaming "s"))))
+     ((server-streaming bidi)
+      (fmt "        def ~aFuture(req~a, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[List[~a]] = {\n            grpcdc.Futures {\n                val stream = ~a(req~a, metadata, timeout)\n                try {\n                val out = scala.collection.mutable.ListBuffer[~a]()\n                var done = false\n                while (!done) {\n                    try {\n                        out += stream.recv()\n                    } catch {\n                        case e: java.io.EOFException => done = true\n                    }\n                }\n                out.toList\n                } finally {\n                    stream.close()\n                }\n            }\n        }\n\n"
+           (ref name)
+           (kind-case (server-streaming (fmt ": ~a" (ref input))) (bidi (fmt "s: List[~a]" (ref input))))
+           (ref output) (ref name)
+           (kind-case (server-streaming "") (bidi "s"))
+           (ref output))))))
+
+(define scala-server-iface-method-program
+  '((kind-case
+     (unary (fmt "        def ~a(ctx: grpcdc.Endpoint#CallContext, req: ~a): ~a\n" (ref name) (ref input) (ref output)))
+     (server-streaming (fmt "        def ~a(req: ~a, stream: ~a): Unit\n" (ref name) (ref input) (arg 0)))
+     (client-streaming (fmt "        def ~a(stream: ~a): Unit\n" (ref name) (arg 1)))
+     (bidi (fmt "        def ~a(stream: ~a): Unit\n" (ref name) (arg 2))))))
+
+(define scala-register-method-program
+  '((kind-case
+     (unary (fmt "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n                val req = new ~a()\n                reqs.recvInto(req)\n                val resp = impl.~a(ctx, req)\n                sink.send(resp.marshalDc())\n            }),\n"
+                 (ref name) (ref path)
+                 (kind-case (unary "KIND_UNARY") (server-streaming "KIND_SERVER_STREAMING") (client-streaming "KIND_CLIENT_STREAMING") (bidi "KIND_BIDI"))
+                 (ref input) (ref impl-name)))
+     (server-streaming (fmt "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n                val req = new ~a()\n                reqs.recvInto(req)\n                impl.~a(req, new ~a {\n                    def send(resp: ~a): Unit = sink.send(resp.marshalDc())\n                    val context: grpcdc.Endpoint#CallContext = ctx\n                })\n            }),\n"
+                            (ref name) (ref path)
+                            (kind-case (unary "KIND_UNARY") (server-streaming "KIND_SERVER_STREAMING") (client-streaming "KIND_CLIENT_STREAMING") (bidi "KIND_BIDI"))
+                            (ref input) (ref impl-name) (arg 0) (ref output)))
+     (client-streaming (fmt "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n                var response: ~a = null\n                impl.~a(new ~a {\n                    def recv(): ~a = {\n                        val req = new ~a()\n                        reqs.recvInto(req)\n                        req\n                    }\n                    def sendAndClose(resp: ~a): Unit = { response = resp }\n                    val context: grpcdc.Endpoint#CallContext = ctx\n                })\n                if (response == null) {\n                    throw grpcdc.StatusException(grpcdc.Wire.CODE_INTERNAL, \"client-streaming handler never called sendAndClose\")\n                }\n                sink.send(response.marshalDc())\n            }),\n"
+                            (ref name) (ref path)
+                            (kind-case (unary "KIND_UNARY") (server-streaming "KIND_SERVER_STREAMING") (client-streaming "KIND_CLIENT_STREAMING") (bidi "KIND_BIDI"))
+                            (ref output) (ref impl-name) (arg 1) (ref input) (ref input) (ref output)))
+     (bidi (fmt "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n                impl.~a(new ~a {\n                    def send(resp: ~a): Unit = sink.send(resp.marshalDc())\n                    def recv(): ~a = {\n                        val req = new ~a()\n                        reqs.recvInto(req)\n                        req\n                    }\n                    val context: grpcdc.Endpoint#CallContext = ctx\n                })\n            }),\n"
+                (ref name) (ref path)
+                (kind-case (unary "KIND_UNARY") (server-streaming "KIND_SERVER_STREAMING") (client-streaming "KIND_CLIENT_STREAMING") (bidi "KIND_BIDI"))
+                (ref impl-name) (arg 2) (ref output) (ref input) (ref input))))))
+
+(define scala-server-async-iface-method-program
+  '((kind-case
+     (unary (fmt "        def ~aAsync(ctx: grpcdc.Endpoint#CallContext, req: ~a): scala.concurrent.Future[~a]\n" (ref name) (ref input) (ref output)))
+     (server-streaming (fmt "        def ~aAsync(req: ~a, stream: ~a): scala.concurrent.Future[Unit]\n" (ref name) (ref input) (arg 0)))
+     (client-streaming (fmt "        def ~aAsync(stream: ~a): scala.concurrent.Future[Unit]\n" (ref name) (arg 1)))
+     (bidi (fmt "        def ~aAsync(stream: ~a): scala.concurrent.Future[Unit]\n" (ref name) (arg 2))))))
+
+(define scala-server-async-adapter-method-program
+  '((kind-case
+     (unary (fmt "            def ~a(ctx: grpcdc.Endpoint#CallContext, req: ~a): ~a = {\n                scala.concurrent.Await.result(impl.~aAsync(ctx, req), scala.concurrent.duration.Duration.Inf)\n            }\n" (ref name) (ref input) (ref output) (ref impl-name)))
+     (server-streaming (fmt "            def ~a(req: ~a, stream: ~a): Unit = {\n                scala.concurrent.Await.result(impl.~aAsync(req, stream), scala.concurrent.duration.Duration.Inf)\n            }\n" (ref name) (ref input) (arg 0) (ref impl-name)))
+     (client-streaming (fmt "            def ~a(stream: ~a): Unit = {\n                scala.concurrent.Await.result(impl.~aAsync(stream), scala.concurrent.duration.Duration.Inf)\n            }\n" (ref name) (arg 1) (ref impl-name)))
+     (bidi (fmt "            def ~a(stream: ~a): Unit = {\n                scala.concurrent.Await.result(impl.~aAsync(stream), scala.concurrent.duration.Duration.Inf)\n            }\n" (ref name) (arg 2) (ref impl-name))))))
+
+(define scala-stream-class-program
+  '((fmt "        class ~a(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[~a] with AutoCloseable {\n" (arg 0) (ref output))
+    (fmt "            def recv(): ~a = {\n                val resp = new ~a()\n                stream.recv(resp)\n                resp\n            }\n" (ref output) (ref output))
+    (fmt "            private var pending: ~a = null\n" (ref output))
+    "            private var finished: Boolean = false\n            def hasNext: Boolean = {\n                if (pending == null && !finished) {\n                    try {\n                        pending = recv()\n                    } catch {\n                        case e: java.io.EOFException => finished = true\n                    }\n                }\n                pending != null\n            }\n"
+    (fmt "            def next(): ~a = {\n" (ref output))
+    "                if (!hasNext) throw new NoSuchElementException(\"next on empty stream\")\n                val out = pending\n                pending = null\n                out\n            }\n            def cancel(): Unit = stream.cancel()\n            def close(): Unit = stream.close()\n            /** Initial metadata (response headers); null until they arrive. */\n            def headers: Map[String, String] = if (stream.headers == null) null else stream.headers.metadata\n            /** Trailing metadata of the terminal status; null until it arrives. */\n            def trailers: Map[String, String] = stream.trailers\n        }\n\n"))
+
+(define scala-service-program
+  '((fmt "    /** Client for ~a. */\n    class ~aClient(private val channel: grpcdc.Channel) {\n" (ref full-name) (svc))
+    (each-unique methods output (kinds server-streaming) (or-first)
+                  (call scalaStreamClass
+                        (case-on (distinct-count (get (root) methods) output (kinds server-streaming))
+                          (1 (fmt "~aServerStreamStream" (svc)))
+                          (else (fmt "~a~aServerStreamStream" (svc) (ref output))))))
+    (each-unique methods output (kinds bidi) (or-first)
+                  (call scalaStreamClass
+                        (case-on (distinct-count (get (root) methods) output (kinds bidi))
+                          (1 (fmt "~aBidiStream" (svc)))
+                          (else (fmt "~a~aBidiStream" (svc) (ref output))))))
+    (each+ methods client
+           (call scalaClientMethod
+                 (case-on (distinct-count (get (root) methods) output (kinds server-streaming))
+                   (1 (fmt "~aServerStreamStream" (svc)))
+                   (else (fmt "~a~aServerStreamStream" (svc) (ref output))))
+                 (case-on (distinct-count (get (root) methods) output (kinds bidi))
+                   (1 (fmt "~aBidiStream" (svc)))
+                   (else (fmt "~a~aBidiStream" (svc) (ref output))))))
+    "        // -- async (scala.concurrent.Future) surface ---------------\n\n"
+    (each+ methods client (call scalaFutureMethod))
+    "    }\n\n"
+    (each-unique methods output (kinds server-streaming) (or-first)
+                  (fmt "    /** Server-streaming sink passed to service implementations. */\n    trait ~a {\n        def send(resp: ~a): Unit\n        val context: grpcdc.Endpoint#CallContext\n    }\n\n"
+                       (case-on (distinct-count (get (root) methods) output (kinds server-streaming))
+                         (1 (fmt "~aServerStreamServer" (svc)))
+                         (else (fmt "~a~aServerStreamServer" (svc) (ref output))))
+                       (ref output)))
+    (each-unique-pair methods (kinds client-streaming) (or-first)
+                  (fmt "    /** Client-streaming stream passed to service implementations. */\n    trait ~a {\n        def recv(): ~a\n        def sendAndClose(resp: ~a): Unit\n        val context: grpcdc.Endpoint#CallContext\n    }\n\n"
+                       (case-on (distinct-pair-count (get (root) methods) (kinds client-streaming))
+                         (1 (fmt "~aClientStreamServer" (svc)))
+                         (else (fmt "~a~a~aClientStreamServer" (svc) (ref input) (ref output))))
+                       (ref input) (ref output)))
+    (each-unique-pair methods (kinds bidi) (or-first)
+                  (fmt "    /** Bidi stream passed to service implementations. */\n    trait ~a {\n        def send(resp: ~a): Unit\n        def recv(): ~a\n        val context: grpcdc.Endpoint#CallContext\n    }\n\n"
+                       (case-on (distinct-pair-count (get (root) methods) (kinds bidi))
+                         (1 (fmt "~aBidiServer" (svc)))
+                         (else (fmt "~a~a~aBidiServer" (svc) (ref input) (ref output))))
+                       (ref output) (ref input)))
+    (fmt "    /** Service implementation interface for ~a. */\n    trait ~aServer {\n" (ref full-name) (svc))
+    (each methods
+          (call scalaServerIfaceMethod
+                (case-on (distinct-count (get (root) methods) output (kinds server-streaming))
+                  (1 (fmt "~aServerStreamServer" (svc)))
+                  (else (fmt "~a~aServerStreamServer" (svc) (ref output))))
+                (case-on (distinct-pair-count (get (root) methods) (kinds client-streaming))
+                  (1 (fmt "~aClientStreamServer" (svc)))
+                  (else (fmt "~a~a~aClientStreamServer" (svc) (ref input) (ref output))))
+                (case-on (distinct-pair-count (get (root) methods) (kinds bidi))
+                  (1 (fmt "~aBidiServer" (svc)))
+                  (else (fmt "~a~a~aBidiServer" (svc) (ref input) (ref output))))))
+    "    }\n\n"
+    (fmt "    /** Register an implementation of ~a on a Server. */\n    def register~aServer(server: grpcdc.Server, impl: ~aServer): Unit = {\n        server.registerService(grpcdc.Server.ServiceDesc(~s, List(\n" (ref full-name) (svc) (svc) (ref full-name))
+    (each+ methods server
+           (call scalaRegisterMethod
+                 (case-on (distinct-count (get (root) methods) output (kinds server-streaming))
+                   (1 (fmt "~aServerStreamServer" (svc)))
+                   (else (fmt "~a~aServerStreamServer" (svc) (ref output))))
+                 (case-on (distinct-pair-count (get (root) methods) (kinds client-streaming))
+                   (1 (fmt "~aClientStreamServer" (svc)))
+                   (else (fmt "~a~a~aClientStreamServer" (svc) (ref input) (ref output))))
+                 (case-on (distinct-pair-count (get (root) methods) (kinds bidi))
+                   (1 (fmt "~aBidiServer" (svc)))
+                   (else (fmt "~a~a~aBidiServer" (svc) (ref input) (ref output))))))
+    "        )))\n    }\n\n"
+    (fmt "    /** Async service implementation for ~a (scala.concurrent.Future). */\n    trait ~aServerAsync {\n" (ref full-name) (svc))
+    (each methods
+          (call scalaServerAsyncIfaceMethod
+                (case-on (distinct-count (get (root) methods) output (kinds server-streaming))
+                  (1 (fmt "~aServerStreamServer" (svc)))
+                  (else (fmt "~a~aServerStreamServer" (svc) (ref output))))
+                (case-on (distinct-pair-count (get (root) methods) (kinds client-streaming))
+                  (1 (fmt "~aClientStreamServer" (svc)))
+                  (else (fmt "~a~a~aClientStreamServer" (svc) (ref input) (ref output))))
+                (case-on (distinct-pair-count (get (root) methods) (kinds bidi))
+                  (1 (fmt "~aBidiServer" (svc)))
+                  (else (fmt "~a~a~aBidiServer" (svc) (ref input) (ref output))))))
+    "    }\n\n"
+    (fmt "    /** Register a Future-based implementation (adapts to the sync trait). */\n    def register~aServerAsync(server: grpcdc.Server, impl: ~aServerAsync): Unit = {\n        register~aServer(server, new ~aServer {\n" (svc) (svc) (svc) (svc))
+    (each methods
+          (call scalaServerAsyncAdapterMethod
+                (case-on (distinct-count (get (root) methods) output (kinds server-streaming))
+                  (1 (fmt "~aServerStreamServer" (svc)))
+                  (else (fmt "~a~aServerStreamServer" (svc) (ref output))))
+                (case-on (distinct-pair-count (get (root) methods) (kinds client-streaming))
+                  (1 (fmt "~aClientStreamServer" (svc)))
+                  (else (fmt "~a~a~aClientStreamServer" (svc) (ref input) (ref output))))
+                (case-on (distinct-pair-count (get (root) methods) (kinds bidi))
+                  (1 (fmt "~aBidiServer" (svc)))
+                  (else (fmt "~a~a~aBidiServer" (svc) (ref input) (ref output))))))
+    "        })\n    }\n"))
+
+;; ---------------------------------------------------------------------------
+;; Scala pb emitter (mirrors template-scala.rkt's sc-pb-*).
+;; Programs take the support object name as (arg 0) where needed.
+;; ---------------------------------------------------------------------------
+
+(define sc-pb-varint-expr-program
+  '((case-on (type)
+      (8 (fmt "(if (~a) 1L else 0L)" (arg 0)))
+      (17 (fmt "(((~a << 1) ^ (~a >> 31)) & 0xffffffffL)" (arg 0) (arg 0)))
+      (18 (fmt "((~a << 1) ^ (~a >> 63))" (arg 0) (arg 0)))
+      ((5 14) (fmt "(~a.toLong)" (arg 0)))
+      ((13 7) (fmt "(~a & 0xffffffffL)" (arg 0)))
+      (else (fmt "~a.toLong" (arg 0))))))
+
+(define sc-pb-varint-decode-program
+  '((case-on (type)
+      ((5 14 13 7) (fmt "~a.toInt" (arg 0)))
+      (8 (fmt "(~a != 0L)" (arg 0)))
+      (17 (fmt "(((~a.toInt) >>> 1) ^ -((~a.toInt) & 1))" (arg 0) (arg 0)))
+      (18 (fmt "((~a >>> 1) ^ -(~a & 1L))" (arg 0) (arg 0)))
+      (else (arg 0)))))
+
+(define sc-pb-fixed-encode-program
+  '((case-on (sc-fixed-kind)
+      ("double" (fmt "~a.int64BytesLE(java.lang.Double.doubleToRawLongBits(~a))" (arg 0) (arg 1)))
+      ("float" (fmt "~a.int32BytesLE(java.lang.Float.floatToRawIntBits(~a))" (arg 0) (arg 1)))
+      ("fixed64" (fmt "~a.int64BytesLE(~a)" (arg 0) (arg 1)))
+      ("fixed32" (fmt "~a.int32BytesLE(~a)" (arg 0) (arg 1))))))
+
+(define sc-pb-fixed-decode-program
+  '((case-on (sc-fixed-kind)
+      ("double" (fmt "java.lang.Double.longBitsToDouble(~a.toInt64LE(~a, 0))" (arg 0) (arg 1)))
+      ("float" (fmt "java.lang.Float.intBitsToFloat(~a.toInt32LE(~a, 0))" (arg 0) (arg 1)))
+      ("fixed64" (fmt "~a.toInt64LE(~a, 0)" (arg 0) (arg 1)))
+      ("fixed32" (fmt "~a.toInt32LE(~a, 0)" (arg 0) (arg 1))))))
+
+(define sc-pb-nonzero-program
+  '((case-on (type) (8 (arg 0)) (else (fmt "~a != 0" (arg 0))))))
+
+(define sc-pb-explicit-literal-program
+  '((if (has-default)
+        (then (case-on (type)
+                (9 (fmt "~s" (default-raw)))
+                (8 (default-raw))
+                (14 (fmt "~a" (enum-default-num)))
+                (2 (fmt "~af" (default-raw)))
+                (else (default-raw))))
+        (else ""))))
+
+(define sc-pb-default-program
+  '((if (call scPbExplicitLiteral)
+        (then (call scPbExplicitLiteral))
+        (else
+         (if (is-map)
+             (then "Map.empty")
+             (else
+              (if (repeated)
+                  (then "List.empty")
+                  (else
+                   (case-on (type)
+                     (11 "null")
+                     (9 "\"\"")
+                     (12 "Array.empty[Byte]")
+                     (8 "false")
+                     (1 "0.0")
+                     (2 "0.0f")
+                     ((3 4 6 16 18) "0L")
+                     (14 (fmt "~a" (enum-first-value-num)))
+                     (else "0"))))))))))
+
+(define sc-pb-elem-type-program
+  '((case-on (type)
+      (11 (sc-entry-ref))
+      (else (sc-scalar-type)))))
+
+(define sc-pb-type-program
+  '((if (is-map)
+        (then (fmt "Map[~a, ~a]" (call-on (key-field (resolved-entry)) scPbElemType) (call-on (val-field (resolved-entry)) scPbElemType)))
+        (else
+         (if (repeated)
+             (then (fmt "List[~a]" (call scPbElemType)))
+             (else (call scPbElemType)))))))
+
+(define sc-pb-set-expr-program
+  '((case-on (type)
+      ((11 10) (fmt "~a != null" (sc-field-name)))
+      ((9 12) (fmt "~a.nonEmpty" (sc-field-name)))
+      (else (call scPbNonzero (sc-field-name))))))
+
+(define sc-pb-oneof-clearing-program
+  '((each-siblings (fmt "          ~a = ~a\n" (sc-field-name) (call scPbDefault)))))
+
+(define sc-pb-encode-singular-program
+  '((case-on (category)
+      ("varint"
+       (if (proto2)
+           (then (fmt "~a{\n~a  w.tag(~a, 0)\n~a  w.varint(~a)\n~a}\n" (arg 2) (arg 2) (ref number) (arg 2) (call scPbVarintExpr (arg 1)) (arg 2)))
+           (else (fmt "~aif (~a) {\n~a  w.tag(~a, 0)\n~a  w.varint(~a)\n~a}\n" (arg 2) (call scPbNonzero (arg 1)) (arg 2) (ref number) (arg 2) (call scPbVarintExpr (arg 1)) (arg 2)))))
+      ("fixed"
+       (if (proto2)
+           (then (fmt "~a{\n~a  w.fixed(~a, ~a, ~a)\n~a}\n" (arg 2) (arg 2) (ref number) (case-on (sc-fixed-size) (8 "1") (else "5")) (call scPbFixedEncode (arg 0) (arg 1)) (arg 2)))
+           (else (fmt "~aif (~a != 0) {\n~a  w.fixed(~a, ~a, ~a)\n~a}\n" (arg 2) (arg 1) (arg 2) (ref number) (case-on (sc-fixed-size) (8 "1") (else "5")) (call scPbFixedEncode (arg 0) (arg 1)) (arg 2)))))
+      ("string"
+       (if (proto2)
+           (then (fmt "~aw.bytesField(~a, ~a.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n" (arg 2) (ref number) (arg 1)))
+           (else (fmt "~aw.stringField(~a, ~a)\n" (arg 2) (ref number) (arg 1)))))
+      ("bytes"
+       (if (proto2)
+           (then (fmt "~aw.bytesField(~a, ~a)\n" (arg 2) (ref number) (arg 1)))
+           (else (fmt "~aif (~a.nonEmpty) {\n~a  w.bytesField(~a, ~a)\n~a}\n" (arg 2) (arg 1) (arg 2) (ref number) (arg 1) (arg 2)))))
+      ("message"
+       (fmt "~aif (~a != null) {\n~a  w.bytesField(~a, ~a.marshalDc())\n~a}\n" (arg 2) (arg 1) (arg 2) (ref number) (arg 1) (arg 2)))
+      (else (fail)))))
+
+(define sc-pb-encode-field-program
+  '((if (is-map)
+        (then (fmt "    for (k <- ~a.keys.toArray.sorted) {\n      w.bytesField(~a, ~a(k, ~a(k)))\n    }\n"
+                   (sc-field-name) (ref number) (fmt "~a.encode~a" (arg 0) (sc-entry-ref)) (sc-field-name)))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint" (fmt "    if (~a.nonEmpty) {\n      val payload = new java.io.ByteArrayOutputStream()\n      for (x <- ~a) {\n        payload.write(~a.varintBytes(~a))\n      }\n      w.bytesField(~a, payload.toByteArray)\n    }\n"
+                               (sc-field-name) (sc-field-name) (arg 0) (call scPbVarintExpr "x") (ref number)))
+                ("fixed" (fmt "    if (~a.nonEmpty) {\n      val payload = new java.io.ByteArrayOutputStream()\n      for (x <- ~a) {\n        payload.write(~a)\n      }\n      w.bytesField(~a, payload.toByteArray)\n    }\n"
+                              (sc-field-name) (sc-field-name) (call scPbFixedEncode (arg 0) "x") (ref number)))
+                ("string" (fmt "    for (x <- ~a) {\n      w.bytesField(~a, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n    }\n" (sc-field-name) (ref number)))
+                ("bytes" (fmt "    for (x <- ~a) {\n      w.bytesField(~a, x)\n    }\n" (sc-field-name) (ref number)))
+                ("message" (fmt "    for (x <- ~a) {\n      w.bytesField(~a, x.marshalDc())\n    }\n" (sc-field-name) (ref number)))
+                (else (fail))))
+             (else (call scPbEncodeSingular (arg 0) (sc-field-name) "    ")))))))
+
+(define sc-pb-decode-singular-program
+  '((case-on (category)
+      ("varint" (fmt "~a~a = ~a\n" (arg 3) (arg 1) (call scPbVarintDecode (arg 2))))
+      ("fixed" (fmt "~a~a = ~a\n" (arg 3) (arg 1) (call scPbFixedDecode (arg 0) (arg 2))))
+      ("string" (fmt "~a~a = new String(~a, java.nio.charset.StandardCharsets.UTF_8)\n" (arg 3) (arg 1) (arg 2)))
+      ("bytes" (fmt "~a~a = ~a\n" (arg 3) (arg 1) (arg 2)))
+      ("message" (fmt "~a~a = new ~a()\n~a~a.unmarshalDc(~a)\n" (arg 3) (arg 1) (sc-entry-ref) (arg 3) (arg 1) (arg 2)))
+      (else (fail)))))
+
+(define sc-pb-decode-case-program
+  '((fmt "        case ~a =>\n" (ref number))
+    (if (is-map)
+        (then (fmt "          val (kk, vv) = ~a(field.bytesValue)\n          ~a = ~a + (kk -> vv)\n"
+                   (fmt "~a.decode~a" (arg 0) (sc-entry-ref)) (sc-field-name) (sc-field-name)))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint" (fmt "          if (field.wire == 2) {\n            val sub = new ~a.Reader(field.bytesValue)\n            while (!sub.done) {\n              val raw = sub.varint()\n              ~a = ~a :+ ~a\n            }\n          } else {\n            ~a = ~a :+ ~a\n          }\n"
+                               (arg 0) (sc-field-name) (sc-field-name) (call scPbVarintDecode "raw") (sc-field-name) (sc-field-name) (call scPbVarintDecode "field.varintValue")))
+                ("fixed" (fmt "          if (field.wire == 2) {\n            var i = 0\n            while (i < field.bytesValue.length) {\n              ~a = ~a :+ ~a\n              i += ~a\n            }\n          } else {\n            ~a = ~a :+ ~a\n          }\n"
+                              (sc-field-name) (sc-field-name)
+                              (call scPbFixedDecode (arg 0) (fmt "java.util.Arrays.copyOfRange(field.bytesValue, i, i + ~a)" (sc-fixed-size)))
+                              (sc-fixed-size)
+                              (sc-field-name) (sc-field-name) (call scPbFixedDecode (arg 0) "field.fixedValue")))
+                ("string" (fmt "          ~a = ~a :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)\n" (sc-field-name) (sc-field-name)))
+                ("bytes" (fmt "          ~a = ~a :+ field.bytesValue\n" (sc-field-name) (sc-field-name)))
+                ("message" (fmt "          val item = new ~a()\n          item.unmarshalDc(field.bytesValue)\n          ~a = ~a :+ item\n" (sc-entry-ref) (sc-field-name) (sc-field-name)))
+                (else (fail))))
+             (else (call scPbOneofClearing)
+                   (call scPbDecodeSingular (arg 0) (sc-field-name)
+                         (case-on (category)
+                           ("varint" "field.varintValue")
+                           ("fixed" "field.fixedValue")
+                           (else "field.bytesValue"))
+                         "          ")))))))
+
+(define sc-pb-map-helpers-program
+  '((fmt "  def encode~a(key: ~a, value: ~a): Array[Byte] = {\n    val w = new Writer()\n"
+         (sc-entry-ref) (call-on (key-field) scPbElemType) (call-on (val-field) scPbElemType))
+    (call-on (with-label (key-field) 1) scPbEncodeSingular (arg 0) "key" "    ")
+    (call-on (with-label (val-field) 1) scPbEncodeSingular (arg 0) "value" "    ")
+    "    w.toBytes\n  }\n\n"
+    (fmt "  def decode~a(data: Array[Byte]): (~a, ~a) = {\n"
+         (sc-entry-ref) (call-on (key-field) scPbElemType) (call-on (val-field) scPbElemType))
+    (fmt "    var key: ~a = ~a\n    var value: ~a = ~a\n"
+         (call-on (key-field) scPbElemType) (call-on (with-label (key-field) 1) scPbDefault)
+         (call-on (val-field) scPbElemType) (call-on (with-label (val-field) 1) scPbDefault))
+    "    val r = new Reader(data)\n    var field = r.next()\n    while (field != null) {\n      field.number match {\n"
+    (fmt "        case ~a =>\n~a" (get (key-field) number)
+         (call-on (with-label (key-field) 1) scPbDecodeSingular (arg 0) "key"
+                  (case-on (category-of (key-field)) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue"))
+                  "          "))
+    (fmt "        case ~a =>\n~a" (get (val-field) number)
+         (case-on (get (val-field) type)
+           (11 (fmt "          value = new ~a()\n          value.unmarshalDc(field.bytesValue)\n" (sc-entry-ref (val-field))))
+           (else (call-on (with-label (val-field) 1) scPbDecodeSingular (arg 0) "value"
+                          (case-on (category-of (val-field)) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue"))
+                          "          "))))
+    "        case _ => ()\n      }\n      field = r.next()\n    }\n    (key, value)\n  }\n\n"))
+
+(define sc-pb-message-program
+  '((fmt "class ~a(\n" (flat))
+    (each-sep ",\n" fields (fmt "    var ~a: ~a = ~a" (sc-field-name) (call scPbType) (call scPbDefault)))
+    (if (no-fields) (then "") (else "\n"))
+    ") extends grpcdc.Marshaler with grpcdc.Unmarshaler {\n  var unknownFields: Array[Byte] = Array.empty[Byte]\n  def marshalDc(): Array[Byte] = {\n"
+    (fmt "    val w = new ~a.Writer()\n" (arg 0))
+    (each fields (guarded scPbSetExpr "    if (!(~a)) {\n" "    }\n" (call scPbEncodeField (arg 0))))
+    "    w.raw(unknownFields)\n    w.toBytes\n  }\n\n  def unmarshalDc(data: Array[Byte]): Unit = {\n    unknownFields = Array.empty[Byte]\n"
+    (each fields (fmt "    ~a = ~a\n" (sc-field-name) (call scPbDefault)))
+    (fmt "    val r = new ~a.Reader(data)\n" (arg 0))
+    "    var field = r.next()\n    while (field != null) {\n      field.number match {\n"
+    (each fields (call scPbDecodeCase (arg 0)))
+    "        case _ => unknownFields = unknownFields ++ field.rawValue\n      }\n      field = r.next()\n    }\n  }\n}\n\n"
+    (each nested (call scPbMessage (arg 0)))))
+
+(define sc-pb-enum-program
+  '((fmt "object ~a {\n" (flat-of (arg 0)))
+    (each values (fmt "  final val ~a: Int = ~a\n" (ref name) (ref number)))
+    "}\n\n"))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -2882,7 +3280,33 @@
           'cServerImplField c-server-impl-field-program
           'cServerAdapter c-server-adapter-program
           'cMethodDescEntry c-method-desc-entry-program
-          'cService c-service-program))
+          'cService c-service-program
+          'scalaClientMethod scala-client-method-program
+          'scalaFutureMethod scala-future-method-program
+          'scalaServerIfaceMethod scala-server-iface-method-program
+          'scalaRegisterMethod scala-register-method-program
+          'scalaServerAsyncIfaceMethod scala-server-async-iface-method-program
+          'scalaServerAsyncAdapterMethod scala-server-async-adapter-method-program
+          'scalaStreamClass scala-stream-class-program
+          'scalaService scala-service-program
+          'scPbVarintExpr sc-pb-varint-expr-program
+          'scPbVarintDecode sc-pb-varint-decode-program
+          'scPbFixedEncode sc-pb-fixed-encode-program
+          'scPbFixedDecode sc-pb-fixed-decode-program
+          'scPbNonzero sc-pb-nonzero-program
+          'scPbExplicitLiteral sc-pb-explicit-literal-program
+          'scPbDefault sc-pb-default-program
+          'scPbElemType sc-pb-elem-type-program
+          'scPbType sc-pb-type-program
+          'scPbSetExpr sc-pb-set-expr-program
+          'scPbOneofClearing sc-pb-oneof-clearing-program
+          'scPbEncodeSingular sc-pb-encode-singular-program
+          'scPbEncodeField sc-pb-encode-field-program
+          'scPbDecodeSingular sc-pb-decode-singular-program
+          'scPbDecodeCase sc-pb-decode-case-program
+          'scPbMapHelpers sc-pb-map-helpers-program
+          'scPbMessage sc-pb-message-program
+          'scPbEnum sc-pb-enum-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -3216,6 +3640,46 @@
                 (hash-ref entry 'full)
                 (hash-ref (hash-ref entry 'msg) 'full-name))))
 
+(define seg-sc-keywords
+  '("abstract" "case" "catch" "class" "def" "do" "else" "extends"
+    "false" "final" "finally" "for" "forSome" "if" "implicit"
+    "import" "lazy" "match" "new" "null" "object" "override"
+    "package" "private" "protected" "return" "sealed" "super"
+    "this" "throw" "trait" "try" "true" "type" "val" "var"
+    "while" "with" "yield"))
+
+(define (seg-sc-field-name f)
+  (define jn (hash-ref f 'json-name ""))
+  (define n (if (and jn (not (string=? jn ""))) jn (seg-php-camel (hash-ref f 'name))))
+  (if (member n seg-sc-keywords) (string-append "`" n "`") n))
+
+(define (seg-sc-entry-ref model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (define flat
+    (seg-flat (hash-ref entry 'pkg)
+              (if (eq? (hash-ref entry 'kind) 'enum)
+                  (let ([e (hash-ref entry 'enum)])
+                    (if (hash-ref entry 'msg)
+                        (format "~a.~a" (hash-ref (hash-ref entry 'msg) 'full-name) (hash-ref e 'name))
+                        (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name))))
+                  (hash-ref (hash-ref entry 'msg) 'full-name))))
+  (define simple
+    (if (eq? (hash-ref entry 'kind) 'enum)
+        (hash-ref (hash-ref entry 'enum) 'name)
+        flat))
+  (cond [(or (eq? (hash-ref entry 'kind) 'map)
+             (equal? (hash-ref entry 'file) (hash-ref model 'name)))
+         (if (eq? (hash-ref entry 'kind) 'enum)
+             (seg-flat (hash-ref entry 'pkg)
+                       (if (hash-ref entry 'msg)
+                           (format "~a.~a" (hash-ref (hash-ref entry 'msg) 'full-name) simple)
+                           (format "~a.~a" (hash-ref entry 'pkg) simple)))
+             flat)]
+        [else (format "~a.~a" (hash-ref entry 'pkg) simple)]))
+
 (define (seg-later-oneof-cond model node)
   (define later (oneof-later-siblings model node))
   (if (null? later)
@@ -3255,7 +3719,7 @@
                              (or (not kinds-part)
                                  (memq (hash-ref el 'kind) kinds-part)))
                            (seg-eval (second seg) env)))))]
-    [(memq (car seg) '(if case-on when guarded guarded-indent kind-case each each+ each-siblings each-sep each-unique))
+    [(memq (car seg) '(if case-on when guarded guarded-indent kind-case each each+ each-siblings each-sep each-unique each-unique-pair))
      (run-segment seg env)]
     [(eq? (car seg) 'pascal) (seg-pascal (seg-eval (second seg) env))]
     [(eq? (car seg) 'lower-first) (seg-lower-first (seg-eval (second seg) env))]
@@ -3331,6 +3795,23 @@
      (second (assv (hash-ref node 'type) (fixed-scalar-table 'c)))]
     [(eq? (car seg) 'c-fixed-name)
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'c)))]
+    [(eq? (car seg) 'distinct-pair-count)
+     (define kinds-part (and (pair? (cddr seg)) (list? (third seg))
+                             (eq? (car (third seg)) 'kinds)
+                             (cdr (third seg))))
+     (length (remove-duplicates
+              (map (lambda (el) (cons (hash-ref el 'input) (hash-ref el 'output)))
+                   (filter (lambda (el)
+                             (or (not kinds-part)
+                                 (memq (hash-ref el 'kind) kinds-part)))
+                           (seg-eval (second seg) env)))))]
+    [(eq? (car seg) 'sc-field-name) (seg-sc-field-name node)]
+    [(eq? (car seg) 'sc-entry-ref) (seg-sc-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'sc-scalar-type) (scalar-type-entry 'scala (hash-ref node 'type))]
+    [(eq? (car seg) 'sc-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'scala)))]
+    [(eq? (car seg) 'sc-fixed-kind)
+     (third (assv (hash-ref node 'type) (fixed-scalar-table 'scala)))]
     [(eq? (car seg) 'flat)
      (seg-flat (hash-ref model 'package) (hash-ref node 'full-name))]
     [(eq? (car seg) 'entry-type) (seg-entry-type-of model node)]
@@ -3511,6 +3992,36 @@
                                         uniq))]
                        [i (in-naturals)])
               (run-env rest (env-with env #:node el #:index i))))]
+    [(eq? (car seg) 'each-unique-pair)
+     (define rest (cddr seg))
+     (define kinds-part (and (pair? rest) (list? (car rest))
+                             (eq? (car (car rest)) 'kinds)
+                             (cdr (car rest))))
+     (when kinds-part (set! rest (cdr rest)))
+     (define or-first? (and (pair? rest) (list? (car rest))
+                            (eq? (car (car rest)) 'or-first)))
+     (when or-first? (set! rest (cdr rest)))
+     (define all (hash-ref node (second seg)))
+     (define filtered
+       (filter (lambda (el)
+                 (or (not kinds-part) (memq (hash-ref el 'kind) kinds-part)))
+               all))
+     (define seen (mutable-set))
+     (define uniq
+       (filter (lambda (el)
+                 (define v (cons (hash-ref el 'input) (hash-ref el 'output)))
+                 (and (not (set-member? seen v)) (set-add! seen v)))
+               filtered))
+     (apply string-append
+            (for/list ([el (in-list (if (and or-first? (null? uniq))
+                                        (list (car all))
+                                        uniq))]
+                       [i (in-naturals)])
+              (run-env rest
+                       (env-with env
+                                 #:node (hasheq 'input (hash-ref el 'input)
+                                                'output (hash-ref el 'output))
+                                 #:index i))))]
     [(eq? (car seg) 'each-sep)
      (define-values (keys segs) (splitf-at (cddr seg) symbol?))
      (define items
