@@ -3,6 +3,19 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## Unreleased
+
+- Event bus (`grpcdc.events.v1`): generated publish/subscribe
+  with shallow tag-value filtering (enum tags extensible in
+  your own schema copy), in-memory at-most-once broker for
+  JavaScript, Python, Go, and Rust — native and browser — plus
+  a git-backed log serde (one commit per event) for native
+  peers. Demos and generated tests in each language; browser
+  end-to-end (Chromium/Firefox/WebKit) verified.
+- Rust protobuf enums now preserve unknown values
+  (`Tag::Unknown(n)`) instead of collapsing them to the first
+  value; JS client streams cancel promptly on break/return.
+
 ## v0.32.15 — 2026-10-26 (published to GitHub/npm/PyPI/GHCR)
 
 - Interop case table extended everywhere: the generated

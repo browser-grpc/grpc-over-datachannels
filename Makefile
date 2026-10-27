@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go test-live-stun test-live-stun-ci test-nat-e2e test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen soak
+.PHONY: generate plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go eventbus-stubs test-live-stun test-live-stun-ci test-nat-e2e test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen soak
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -18,7 +18,7 @@ plugins:
 	$(PROTOC) --descriptor_set_out=fixtures/echo_descriptor_set.bin -I proto proto/echo.proto
 
 ## Regenerate service stubs for proto/echo.proto
-stubs:
+stubs: eventbus-stubs
 	mkdir -p rust/gen js/examples go/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-rust=bin/protoc-gen-grpc-dc-rust \
 		--grpc-dc-rust_out=rust/gen -I proto proto/echo.proto
@@ -164,6 +164,21 @@ interop-stubs:
 		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
 		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
 	gofmt -w go/interop/*.go
+
+## Event bus stubs (proto/events.proto) for the languages with
+## a generated eventbus module; stamped into each language's
+## runtime tree by the same plugins as user protos.
+eventbus-stubs:
+	mkdir -p rust/gen go/eventbus js/src python/grpcdc
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-rust=bin/protoc-gen-grpc-dc-rust \
+		--grpc-dc-rust_out=rust/gen -I proto proto/events.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-js=bin/protoc-gen-grpc-dc-js \
+		--grpc-dc-js_out=js/src -I proto proto/events.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-go=bin/protoc-gen-grpc-dc-go \
+		--grpc-dc-go_out=go/eventbus -I proto proto/events.proto
+	gofmt -w go/eventbus/events_grpc_dc.go go/eventbus/events_pb.go
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-python=bin/protoc-gen-grpc-dc-python \
+		--grpc-dc-python_out=python/grpcdc -I proto proto/events.proto
 
 generate: plugins stubs
 

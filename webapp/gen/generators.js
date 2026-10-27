@@ -3213,7 +3213,7 @@ function rpVarintExpr(f, v) {
 function rpVarintDecode(f, v) {
   switch (f.type) {
     case 5: case 15: return '(' + v + ' as u32 as i32)';
-    case 14: return '(' + v + ' as i32)';
+    case 14: return v + '.to_i32()';
     case 13: case 7: return '(' + v + ' as u32)';
     case 8: return '(' + v + ' != 0)';
     case 17: return '(((' + v + ' as u32 >> 1) as i32) ^ (-(((' + v + ' as u32) & 1) as i32)))';
@@ -3259,7 +3259,7 @@ function rpEncodeSingular(model, f, v, indent) {
   const n = f.number;
   const proto2 = model.syntax === 'proto2';
   if (RP_VARINT.has(f.type)) {
-    const expr = f.type === 14 ? '(' + v + ' as i32 as u64)' : rpVarintExpr(f, v);
+    const expr = f.type === 14 ? '(' + v + '.to_i32() as u64)' : rpVarintExpr(f, v);
     if (proto2) {
       return indent + '{ pb_append_tag(&mut out, ' + n + ', 0); pb_append_varint(&mut out, ' + expr + '); }\n';
     }
@@ -3290,7 +3290,7 @@ function rpSetExpr(sib) {
     case 11: case 10: return v + '.is_some()';
     case 9: case 12: return '!' + v + '.is_empty()';
     case 8: return v;
-    case 14: return '(' + v + ' as i32) != 0';
+    case 14: return v + '.to_i32() != 0';
     case 1: case 2: return v + ' != 0.0';
     default: return v + ' != 0';
   }
@@ -3326,7 +3326,7 @@ function rpEncodeField(model, f) {
   if (f.label !== 3) return rpEncodeSingular(model, f, v, '        ');
   if (RP_VARINT.has(f.type)) {
     return '        if !' + v + '.is_empty() {\n            let mut payload = Vec::new();\n'
-      + '            for x in &' + v + ' { pb_append_varint(&mut payload, ' + (f.type === 14 ? '(*x as i32 as u64)' : rpVarintExpr(f, '(*x)')) + '); }\n'
+      + '            for x in &' + v + ' { pb_append_varint(&mut payload, ' + (f.type === 14 ? '((*x).to_i32() as u64)' : rpVarintExpr(f, '(*x)')) + '); }\n'
       + '            pb_append_bytes_field(&mut out, ' + n + ', &payload);\n        }\n';
   }
   if (rpFixedInfo(f)) {
@@ -3460,12 +3460,15 @@ function rpMapHelpers(model, entry) {
 
 function rpEnumNamed(model, full, e) {
   const name = rpFlat(model.package, full);
-  return '#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\npub enum ' + name + ' {\n'
+  return '#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\n#[repr(i32)]\npub enum ' + name + ' {\n'
     + e.values.map((v, i) => '    ' + (i === 0 ? '#[default]\n    ' : '') + rpCamel(v.name) + ' = ' + v.number + ',\n').join('')
-    + '}\n\n'
+    + '    Unknown(i32),\n}\n\n'
     + 'impl ' + name + ' {\n    pub fn from_i32(v: i32) -> Self {\n        match v {\n'
     + e.values.map((v) => '            ' + v.number + ' => ' + name + '::' + rpCamel(v.name) + ',\n').join('')
-    + '            _ => ' + name + '::' + rpCamel(e.values[0].name) + ',\n        }\n    }\n}\n\n';
+    + '            _ => ' + name + '::Unknown(v),\n        }\n    }\n'
+    + '    pub fn to_i32(self) -> i32 {\n        match self {\n'
+    + e.values.map((v) => '            ' + name + '::' + rpCamel(v.name) + ' => ' + v.number + ',\n').join('')
+    + '            ' + name + '::Unknown(v) => v,\n        }\n    }\n}\n\n';
 }
 
 function rpMessageStruct(model, msg) {

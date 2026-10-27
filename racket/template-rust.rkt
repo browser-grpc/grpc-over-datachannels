@@ -258,7 +258,7 @@
 (define (rs-pb-varint-decode f v)
   (case (hash-ref f 'type)
     [(5 15) (format "(~a as u32 as i32)" v)]
-    [(14) (format "(~a as i32)" v)]
+    [(14) (format "~a.to_i32()" v)]
     [(13 7) (format "(~a as u32)" v)]
     [(8) (format "(~a != 0)" v)]
     [(17) (format "(((~a as u32 >> 1) as i32) ^ (-(((~a as u32) & 1) as i32)))" v v)]
@@ -295,10 +295,10 @@
   (cond [(memv type rs-pb-varint-types)
          (if proto2?
              (format "~a{ pb_append_tag(&mut out, ~a, 0); pb_append_varint(&mut out, ~a); }\n" indent n
-                     (if (= type 14) (format "(~a as i32 as u64)" v) (rs-pb-varint-expr f v)))
+                     (if (= type 14) (format "(~a.to_i32() as u64)" v) (rs-pb-varint-expr f v)))
              (format "~aif ~a { pb_append_tag(&mut out, ~a, 0); pb_append_varint(&mut out, ~a); }\n" indent
                      (if (= type 8) v (format "~a != ~a" v (rs-pb-default model (hash-set f 'label 1)))) n
-                     (if (= type 14) (format "(~a as i32 as u64)" v) (rs-pb-varint-expr f v))))]
+                     (if (= type 14) (format "(~a.to_i32() as u64)" v) (rs-pb-varint-expr f v))))]
         [(assv type rs-pb-fixed)
          (if proto2?
              (format "~a{ pb_append_tag(&mut out, ~a, ~a); ~a }\n" indent n (rs-pb-wire f) (rs-pb-fixed-encode-expr f v))
@@ -320,7 +320,7 @@
     [(11 10) (format "~a.is_some()" v)]
     [(9 12) (format "!~a.is_empty()" v)]
     [(8) v]
-    [(14) (format "(~a as i32) != 0" v)]
+    [(14) (format "~a.to_i32() != 0" v)]
     [(1 2) (format "~a != 0.0" v)]
     [else (format "~a != 0" v)]))
 
@@ -351,7 +351,7 @@
          (string-append
           (format "        if !~a.is_empty() {\n            let mut payload = Vec::new();\n" v)
           (format "            for x in &~a { pb_append_varint(&mut payload, ~a); }\n" v
-                  (if (= type 14) "(*x as i32 as u64)" (rs-pb-varint-expr f "(*x)")))
+                  (if (= type 14) "((*x).to_i32() as u64)" (rs-pb-varint-expr f "(*x)")))
           (format "            pb_append_bytes_field(&mut out, ~a, &payload);\n        }\n" n))]
         [(assv type rs-pb-fixed)
          (string-append
@@ -553,17 +553,22 @@
   (define name (rs-pb-flat (hash-ref model 'package) full))
   (define values (hash-ref e 'values))
   (string-append
-   (format "#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\npub enum ~a {\n" name)
+   (format "#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\n#[repr(i32)]\npub enum ~a {\n" name)
    (apply string-append
           (map (lambda (v i)
                  (format "    ~a~a = ~a,\n" (if (zero? i) "#[default]\n    " "") (rs-pb-camel (hash-ref v 'name)) (hash-ref v 'number)))
                values (range (length values))))
-   "}\n\n"
+   "    Unknown(i32),\n}\n\n"
    (format "impl ~a {\n    pub fn from_i32(v: i32) -> Self {\n        match v {\n" name)
    (apply string-append
           (map (lambda (v) (format "            ~a => ~a::~a,\n" (hash-ref v 'number) name (rs-pb-camel (hash-ref v 'name))))
                values))
-   (format "            _ => ~a::~a,\n        }\n    }\n}\n\n" name (rs-pb-camel (hash-ref (car values) 'name)))))
+   (format "            _ => ~a::Unknown(v),\n        }\n    }\n" name)
+   (format "    pub fn to_i32(self) -> i32 {\n        match self {\n")
+   (apply string-append
+          (map (lambda (v) (format "            ~a::~a => ~a,\n" name (rs-pb-camel (hash-ref v 'name)) (hash-ref v 'number)))
+               values))
+   (format "            ~a::Unknown(v) => v,\n        }\n    }\n}\n\n" name)))
 
 (define (emit-rust-pb-file file-model)
   (and (hash-has-key? file-model 'messages)

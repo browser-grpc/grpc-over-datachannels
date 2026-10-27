@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc event bus browser test</title>
+<script type="module">
+import { Channel } from "/js/index.js";
+import { EventBusClient } from "/js/src/events_grpc_dc.js";
+import { PublishRequest, SubscribeRequest, Tag } from "/js/src/events_pb.js";
+import { tagString } from "/js/src/eventbus.js";
+
+// The browser is a pure event-bus client: it subscribes with a
+// topic filter, publishes two orders events and one noise
+// event, and reports what the subscription delivered. The
+// broker is a native EventBusBroker on the other end of the
+// "grpc" RTCDataChannel, reached exactly like
+// grpc_page.html's Echo service.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+
+const enc = (s) => new TextEncoder().encode(s);
+const dec = (bytes) => new TextDecoder().decode(bytes);
+
+window.__runBus = async () => {
+  if (dc.readyState !== "open") {
+    await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+  }
+  const client = new EventBusClient(new Channel(dc));
+  const received = [];
+  const collected = (async () => {
+    for await (const event of await client.subscribe(
+      new SubscribeRequest({ filter: [tagString(Tag.TOPIC, "orders")] }),
+    )) {
+      received.push(`${event.seq}:${dec(event.payload)}`);
+      if (received.length === 2) break;
+    }
+  })();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const seqs = [];
+  for (const [topic, payload] of [["orders", "o1"], ["other", "noise"], ["orders", "o2"]]) {
+    const reply = await client.publish(new PublishRequest({
+      tags: [tagString(Tag.TOPIC, topic)],
+      payload: enc(payload),
+      publisherId: "browser-page",
+    }));
+    seqs.push(Number(reply.seq));
+  }
+  await collected;
+  return { received, seqs };
+};
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>

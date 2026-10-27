@@ -115,6 +115,61 @@ export declare function createPeer(
   options?: { parity?: "odd" | "even" },
 ): { endpoint: Endpoint; server: Server; channel: Channel };
 
+// Event bus (grpcdc.events.v1): message/stub types live in
+// grpc-dc's generated events_pb/events_grpc_dc modules; these
+// are the broker and helpers over them. TagValue/Event are
+// structural here so the plain-JS generated classes satisfy
+// them without casts.
+export interface TagValueLike {
+  tag: number;
+  stringValue?: string;
+  intValue?: bigint;
+  doubleValue?: number;
+  boolValue?: boolean;
+  enumValue?: number;
+}
+
+export interface BusEvent {
+  tags: TagValueLike[];
+  payload: Uint8Array;
+  seq: bigint;
+  publisherId: string;
+  timestampUnixMs: bigint;
+}
+
+export declare function tagString(tag: number, value: string): TagValueLike;
+export declare function tagInt(tag: number, value: bigint | number): TagValueLike;
+export declare function tagDouble(tag: number, value: number): TagValueLike;
+export declare function tagBool(tag: number, value: boolean): TagValueLike;
+export declare function tagEnum(tag: number, value: number): TagValueLike;
+export declare function tagsMatch(
+  eventTags: TagValueLike[],
+  filter: TagValueLike[],
+): boolean;
+
+export declare class EventBusBroker {
+  constructor(options?: { queueCapacity?: number });
+  publishEvent(
+    tags: TagValueLike[],
+    payload: Uint8Array,
+    publisherId?: string,
+  ): BusEvent;
+  stats(): { published: number; subscribers: number; dropped: number };
+  register(server: Server): EventBusBroker;
+}
+
+export declare function publishEvent(
+  client: unknown,
+  tags: TagValueLike[],
+  payload: Uint8Array,
+  publisherId?: string,
+): Promise<bigint>;
+
+export declare function subscribeEvents(
+  client: unknown,
+  filter: TagValueLike[],
+): Promise<AsyncIterable<BusEvent>>;
+
 export declare class GenericMessage {
   constructor(model?: unknown);
   set(number: number, value: unknown): void;

@@ -123,26 +123,36 @@ impl<'a> PbReader<'a> {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(i32)]
 pub enum PayloadType {
     #[default]
     Compressable = 0,
+    Unknown(i32),
 }
 
 impl PayloadType {
     pub fn from_i32(v: i32) -> Self {
         match v {
             0 => PayloadType::Compressable,
-            _ => PayloadType::Compressable,
+            _ => PayloadType::Unknown(v),
+        }
+    }
+    pub fn to_i32(self) -> i32 {
+        match self {
+            PayloadType::Compressable => 0,
+            PayloadType::Unknown(v) => v,
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(i32)]
 pub enum GrpclbRouteType {
     #[default]
     GrpclbRouteTypeUnknown = 0,
     GrpclbRouteTypeFallback = 1,
     GrpclbRouteTypeBackend = 2,
+    Unknown(i32),
 }
 
 impl GrpclbRouteType {
@@ -151,7 +161,15 @@ impl GrpclbRouteType {
             0 => GrpclbRouteType::GrpclbRouteTypeUnknown,
             1 => GrpclbRouteType::GrpclbRouteTypeFallback,
             2 => GrpclbRouteType::GrpclbRouteTypeBackend,
-            _ => GrpclbRouteType::GrpclbRouteTypeUnknown,
+            _ => GrpclbRouteType::Unknown(v),
+        }
+    }
+    pub fn to_i32(self) -> i32 {
+        match self {
+            GrpclbRouteType::GrpclbRouteTypeUnknown => 0,
+            GrpclbRouteType::GrpclbRouteTypeFallback => 1,
+            GrpclbRouteType::GrpclbRouteTypeBackend => 2,
+            GrpclbRouteType::Unknown(v) => v,
         }
     }
 }
@@ -216,7 +234,7 @@ impl Default for Payload {
 impl Payload {
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        if self.r#type != PayloadType::Compressable { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (self.r#type as i32 as u64)); }
+        if self.r#type != PayloadType::Compressable { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (self.r#type.to_i32() as u64)); }
         if !self.body.is_empty() { pb_append_bytes_field(&mut out, 2, &self.body); }
         out.extend_from_slice(&self.unknown_fields);
         out
@@ -326,7 +344,7 @@ impl Default for SimpleRequest {
 impl SimpleRequest {
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        if self.response_type != PayloadType::Compressable { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (self.response_type as i32 as u64)); }
+        if self.response_type != PayloadType::Compressable { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (self.response_type.to_i32() as u64)); }
         if self.response_size != 0 { pb_append_tag(&mut out, 2, 0); pb_append_varint(&mut out, (self.response_size as u64)); }
         if let Some(v) = &self.payload { pb_append_bytes_field(&mut out, 3, &v.encode()); }
         if self.fill_username { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (if self.fill_username { 1u64 } else { 0u64 })); }
@@ -420,7 +438,7 @@ impl SimpleResponse {
         pb_append_string_field(&mut out, 2, &self.username);
         pb_append_string_field(&mut out, 3, &self.oauth_scope);
         pb_append_string_field(&mut out, 4, &self.server_id);
-        if self.grpclb_route_type != GrpclbRouteType::GrpclbRouteTypeUnknown { pb_append_tag(&mut out, 5, 0); pb_append_varint(&mut out, (self.grpclb_route_type as i32 as u64)); }
+        if self.grpclb_route_type != GrpclbRouteType::GrpclbRouteTypeUnknown { pb_append_tag(&mut out, 5, 0); pb_append_varint(&mut out, (self.grpclb_route_type.to_i32() as u64)); }
         pb_append_string_field(&mut out, 6, &self.hostname);
         out.extend_from_slice(&self.unknown_fields);
         out
@@ -622,7 +640,7 @@ impl Default for StreamingOutputCallRequest {
 impl StreamingOutputCallRequest {
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        if self.response_type != PayloadType::Compressable { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (self.response_type as i32 as u64)); }
+        if self.response_type != PayloadType::Compressable { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (self.response_type.to_i32() as u64)); }
         for x in &self.response_parameters { pb_append_bytes_field(&mut out, 2, &x.encode()); }
         if let Some(v) = &self.payload { pb_append_bytes_field(&mut out, 3, &v.encode()); }
         if let Some(v) = &self.response_status { pb_append_bytes_field(&mut out, 7, &v.encode()); }
@@ -1451,10 +1469,12 @@ impl LoadBalancerAccumulatedStatsResponse_StatsPerMethodEntry {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(i32)]
 pub enum ClientConfigureRequest_RpcType {
     #[default]
     EmptyCall = 0,
     UnaryCall = 1,
+    Unknown(i32),
 }
 
 impl ClientConfigureRequest_RpcType {
@@ -1462,7 +1482,14 @@ impl ClientConfigureRequest_RpcType {
         match v {
             0 => ClientConfigureRequest_RpcType::EmptyCall,
             1 => ClientConfigureRequest_RpcType::UnaryCall,
-            _ => ClientConfigureRequest_RpcType::EmptyCall,
+            _ => ClientConfigureRequest_RpcType::Unknown(v),
+        }
+    }
+    pub fn to_i32(self) -> i32 {
+        match self {
+            ClientConfigureRequest_RpcType::EmptyCall => 0,
+            ClientConfigureRequest_RpcType::UnaryCall => 1,
+            ClientConfigureRequest_RpcType::Unknown(v) => v,
         }
     }
 }
@@ -1491,7 +1518,7 @@ impl ClientConfigureRequest {
         let mut out = Vec::new();
         if !self.types.is_empty() {
             let mut payload = Vec::new();
-            for x in &self.types { pb_append_varint(&mut payload, (*x as i32 as u64)); }
+            for x in &self.types { pb_append_varint(&mut payload, ((*x).to_i32() as u64)); }
             pb_append_bytes_field(&mut out, 1, &payload);
         }
         for x in &self.metadata { pb_append_bytes_field(&mut out, 2, &x.encode()); }
@@ -1553,7 +1580,7 @@ impl Default for ClientConfigureRequest_Metadata {
 impl ClientConfigureRequest_Metadata {
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        if self.r#type != ClientConfigureRequest_RpcType::EmptyCall { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (self.r#type as i32 as u64)); }
+        if self.r#type != ClientConfigureRequest_RpcType::EmptyCall { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (self.r#type.to_i32() as u64)); }
         pb_append_string_field(&mut out, 2, &self.key);
         pb_append_string_field(&mut out, 3, &self.value);
         out.extend_from_slice(&self.unknown_fields);
