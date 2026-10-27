@@ -12035,180 +12035,29 @@ function wasmScalaClientStreamName(svc, kind, out) {
 }
 
 function wasmScalaClientMethod(m, svc) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '        def ' + m.name + '(req: ' + m.input + '): scala.concurrent.Future[' + m.output + '] = {\n'
-        + '            bridge.unary(' + path + ', req.marshalDc()).map { bytes =>\n'
-        + '                val resp = new ' + m.output + '()\n'
-        + '                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n\n';
-    case 'server-streaming':
-      return '        def ' + m.name + '(req: ' + m.input + '): ' + wasmScalaClientStreamName(svc, 'server-streaming', m.output) + ' = {\n'
-        + '            new ' + wasmScalaClientStreamName(svc, 'server-streaming', m.output) + '(onMessage =>\n'
-        + '                bridge.serverStream(' + path + ', req.marshalDc(), onMessage))\n        }\n\n';
-    case 'client-streaming':
-      return '        def ' + m.name + '(reqs: List[' + m.input + ']): scala.concurrent.Future[' + m.output + '] = {\n'
-        + '            bridge.clientStream(' + path + ', reqs.map(_.marshalDc())).map { bytes =>\n'
-        + '                val resp = new ' + m.output + '()\n'
-        + '                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n\n';
-    default:
-      return '        def ' + m.name + '(reqs: List[' + m.input + ']): ' + wasmScalaClientStreamName(svc, 'bidi', m.output) + ' = {\n'
-        + '            new ' + wasmScalaClientStreamName(svc, 'bidi', m.output) + '(onMessage =>\n'
-        + '                bridge.bidi(' + path + ', reqs.map(_.marshalDc()), onMessage))\n        }\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmScalaClientMethod, m, '', null, [wasmScalaClientStreamName(svc, 'server-streaming', m.output), wasmScalaClientStreamName(svc, 'bidi', m.output)]);
 }
-
 function wasmScalaServerIfaceMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String]): ' + m.output + '\n';
-    case 'server-streaming':
-      return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String], sink: ' + wasmScalaSinkName(svc, m.output) + '): Unit\n';
-    case 'client-streaming':
-      return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String]): ' + m.output + '\n';
-    default:
-      return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String], sink: ' + wasmScalaSinkName(svc, m.output) + '): Unit\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmScalaServerIfaceMethod, m, '', null, [wasmScalaSinkName(svc, m.output)]);
 }
-
 function wasmScalaRegisterMethod(m) {
-  const impl = m.implName;
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '        bridge.registerUnary(' + path + ', (payload, metadata) =>\n'
-        + '            val req = new ' + m.input + '()\n'
-        + '            req.unmarshalDc(payload)\n'
-        + '            impl.' + impl + '(req, metadata).marshalDc())\n';
-    case 'server-streaming':
-      return '        bridge.registerServerStream(' + path + ', (payload, metadata, onMessage) =>\n'
-        + '            val req = new ' + m.input + '()\n'
-        + '            req.unmarshalDc(payload)\n'
-        + '            impl.' + impl + '(req, metadata, resp => onMessage(resp.marshalDc())))\n';
-    case 'client-streaming':
-      return '        bridge.registerClientStream(' + path + ', (payloads, metadata) =>\n'
-        + '            val reqs = payloads.map { payload =>\n'
-        + '                val req = new ' + m.input + '()\n'
-        + '                req.unmarshalDc(payload)\n                req\n            }\n'
-        + '            impl.' + impl + '(reqs, metadata).marshalDc())\n';
-    default:
-      return '        bridge.registerBidi(' + path + ', (payloads, metadata, onMessage) =>\n'
-        + '            val reqs = payloads.map { payload =>\n'
-        + '                val req = new ' + m.input + '()\n'
-        + '                req.unmarshalDc(payload)\n                req\n            }\n'
-        + '            impl.' + impl + '(reqs, metadata, resp => onMessage(resp.marshalDc())))\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmScalaRegisterMethod, m, '');
 }
-
 function wasmScalaStreamIfaceMethod(m) {
-  switch (m.kind) {
-    case 'client-streaming':
-      return '        def ' + m.name + '(source: ' + m.input + 'Source, metadata: Map[String, String]): scala.concurrent.Future[' + m.output + ']\n';
-    case 'bidi':
-      return '        def ' + m.name + '(source: ' + m.input + 'Source, metadata: Map[String, String], sink: ' + m.output + ' => Unit): scala.concurrent.Future[Unit]\n';
-    default:
-      return '';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmScalaStreamIfaceMethod, m, '');
 }
-
 function wasmScalaStreamRegisterMethod(m) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'client-streaming':
-      return '        bridge.registerClientStreamInc(' + path + ', (source, metadata) =>\n'
-        + '            impl.' + m.name + '(new ' + m.input + 'Source(source), metadata).map(_.marshalDc()))\n';
-    case 'bidi':
-      return '        bridge.registerBidiInc(' + path + ', (source, metadata, onMessage) =>\n'
-        + '            impl.' + m.name + '(new ' + m.input + 'Source(source), metadata, resp => onMessage(resp.marshalDc())))\n';
-    default:
-      return '';
-  }
+  return runSegments(SEGMENT_PROGRAMS.wasmScalaStreamRegisterMethod, m, '');
 }
-
 function wasmScalaRecvStream(svc, out) {
-  const name = wasmScalaRecvName(svc, out);
-  return '    /** Receiving stream: recv() futures queue in arrival order. */\n'
-    + '    class ' + name + '(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) {\n'
-    + '        private val buffer = scala.collection.mutable.Queue[Array[Byte]]()\n'
-    + '        private var finished = false\n'
-    + '        private var failure: Throwable = null\n'
-    + '        private var waiter: scala.concurrent.Promise[Array[Byte]] = null\n'
-    + '        call { bytes =>\n'
-    + '            if (waiter != null) {\n'
-    + '                val w = waiter\n                waiter = null\n                w.success(bytes)\n'
-    + '            } else {\n                buffer.enqueue(bytes)\n            }\n'
-    + '            ()\n        }.onComplete {\n'
-    + '            case scala.util.Success(_) =>\n'
-    + '                finished = true\n'
-    + '                if (waiter != null) {\n'
-    + '                    val w = waiter\n                    waiter = null\n'
-    + '                    w.failure(new java.io.EOFException("call completed"))\n                }\n'
-    + '            case scala.util.Failure(err) =>\n'
-    + '                failure = err\n'
-    + '                if (waiter != null) {\n'
-    + '                    val w = waiter\n                    waiter = null\n                    w.failure(err)\n                }\n        }\n\n'
-    + '        def recvBytes(): scala.concurrent.Future[' + out + '] = {\n'
-    + '            val buffered =\n'
-    + '                if (buffer.nonEmpty) scala.concurrent.Future.successful(buffer.dequeue())\n'
-    + '                else if (failure != null) scala.concurrent.Future.failed(failure)\n'
-    + '                else if (finished) scala.concurrent.Future.failed(new java.io.EOFException("call completed"))\n'
-    + '                else {\n'
-    + '                    waiter = scala.concurrent.Promise[Array[Byte]]()\n'
-    + '                    waiter.future\n                }\n'
-    + '            buffered.map { bytes =>\n'
-    + '                val resp = new ' + out + '()\n'
-    + '                resp.unmarshalDc(bytes)\n                resp\n            }\n        }\n    }\n\n';
+  return runSegments(SEGMENT_PROGRAMS.wasmScalaRecvStream, svc, svc.name, null, [out, wasmScalaRecvName(svc, out)]);
 }
-
 function wasmScalaSource(typ) {
-  return '    /** Typed pull source for incremental server handlers. */\n'
-    + '    class ' + typ + 'Source(private val raw: grpcdcscalajs.GrpcdcRequestSource) {\n'
-    + '        def next(): scala.concurrent.Future[Option[' + typ + ']] = {\n'
-    + '            raw.next().map(_.map { bytes =>\n'
-    + '                val req = new ' + typ + '()\n'
-    + '                req.unmarshalDc(bytes)\n                req\n            })\n        }\n    }\n\n';
+  return runSegments(SEGMENT_PROGRAMS.wasmScalaSource, {}, '', null, [typ]);
 }
-
 function wasmScalaService(svc) {
-  const sname = svc.name;
-  const first = svc.methods[0];
-  const req0 = first.input;
-  const resp0 = first.output;
-  const outsOr = (kind) => {
-    const os = wasmScalaKindOutputs(svc, kind);
-    return os.length ? os : [resp0];
-  };
-  const streamOutputs = wasmScalaStreamOutputs(svc);
-  const recvOuts = streamOutputs.length ? streamOutputs : [resp0];
-  const streamIns = [...new Set(svc.methods.filter((m) => m.kind === 'client-streaming' || m.kind === 'bidi').map((m) => m.input))];
-  const allServer = svc.methods.concat(aliasServerMethods(svc));
-  return '    /** Client for ' + svc.fullName + ' (browser/Scala.js facade; see file doc). */\n'
-    + '    class ' + sname + 'Client(private val bridge: grpcdcscalajs.GrpcdcScalaJsBridge) {\n'
-    + outsOr('server-streaming').map((out) => '        class ' + wasmScalaClientStreamName(svc, 'server-streaming', out) + '(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ' + wasmScalaRecvName(svc, out) + '(call)\n\n').join('')
-    + outsOr('bidi').map((out) => '        class ' + wasmScalaClientStreamName(svc, 'bidi', out) + '(call: (Array[Byte] => Unit) => scala.concurrent.Future[Unit]) extends ' + wasmScalaRecvName(svc, out) + '(call)\n\n').join('')
-    + svc.methods.concat(aliasClientMethods(svc)).map((m) => wasmScalaClientMethod(m, svc)).join('')
-    + '    }\n\n'
-    + recvOuts.map((out) => wasmScalaRecvStream(svc, out)).join('')
-    + recvOuts.map((out) => '    /** Streaming response sink for server handlers. */\n    type ' + wasmScalaSinkName(svc, out) + ' = ' + out + ' => Unit\n\n').join('')
-    + '    /** Service implementation for ' + svc.fullName + ' (browser/Scala.js facade). */\n'
-    + '    trait ' + sname + 'Server {\n'
-    + svc.methods.map((m) => wasmScalaServerIfaceMethod(m, svc)).join('')
-    + '    }\n\n'
-    + '    /** Register an implementation of ' + svc.fullName + ' on a server bridge. */\n'
-    + '    def register' + sname + 'Server(bridge: grpcdcscalajs.GrpcdcScalaJsServerBridge, impl: ' + sname + 'Server): Unit = {\n'
-    + allServer.map(wasmScalaRegisterMethod).join('')
-    + '        bridge.start(' + q(svc.fullName) + ')\n    }\n\n'
-    + (streamIns.length ? streamIns : [req0]).map(wasmScalaSource).join('')
-    + '    /** Incremental service implementation for ' + svc.fullName + ': requests arrive one at a time. */\n'
-    + '    trait ' + sname + 'StreamServer {\n'
-    + svc.methods.map(wasmScalaStreamIfaceMethod).join('')
-    + '    }\n\n'
-    + '    /** Register an incremental implementation; call bridge.start after all registrations. */\n'
-    + '    def register' + sname + 'StreamServer(bridge: grpcdcscalajs.GrpcdcScalaJsServerBridge, impl: ' + sname + 'StreamServer): Unit = {\n'
-    + allServer.map(wasmScalaStreamRegisterMethod).join('')
-    + '    }\n';
+  return runSegments(SEGMENT_PROGRAMS.wasmScalaService, svc, svc.name);
 }
-
 function emitWasmScalaFile(model, params) {
   const base = baseName(model.name);
   const objName = camelName(base) + 'ScalaJsGrpcDc';
