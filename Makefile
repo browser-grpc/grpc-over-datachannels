@@ -181,6 +181,8 @@ eventbus-stubs:
 		--grpc-dc-python_out=python/grpcdc -I proto proto/events.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-ruby=bin/protoc-gen-grpc-dc-ruby \
 		--grpc-dc-ruby_out=ruby/grpcdc -I proto proto/events.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-php=bin/protoc-gen-grpc-dc-php \
+		--grpc-dc-php_out=php/grpcdc -I proto proto/events.proto
 
 generate: plugins stubs
 
@@ -493,6 +495,7 @@ test-php:
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestInterop \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestInteropOracle \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestInteropServerOracle \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestEventBus \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestOracle \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDynamic \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestBdd \
