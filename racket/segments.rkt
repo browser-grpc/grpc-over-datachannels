@@ -3625,11 +3625,11 @@
   '((if (has-default)
         (then (fmt "~a"
                    (case-on (ref type)
-                     ((9) (fmt "~s" (explicit-default)))
-                     ((8) (explicit-default))
-                     ((14) (fmt "~a.~a" (swift-entry-ref) (explicit-default)))
-                     ((2) (fmt "~a" (explicit-default)))
-                     (else (explicit-default)))))
+                     ((9) (fmt "~s" (default-raw)))
+                     ((8) (default-raw))
+                     ((14) (fmt "~a.~a" (swift-entry-ref) (default-raw)))
+                     ((2) (fmt "~a" (default-raw)))
+                     (else (default-raw)))))
         (else ""))))
 
 (define swift-pb-default-program

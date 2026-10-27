@@ -1069,6 +1069,114 @@ function pyAsyncClientMethod(pb, m) {
 function pyServerHandler(pb, m) {
   return runSegments(SEGMENT_PROGRAMS.pyServerHandler, m, '', null, [pb]);
 }
+const PY_STREAM_HELPERS = `class _RecvStream:
+    """Client receiving stream: recv() raises EOFError at end."""
+
+    def __init__(self, stream, resp_cls):
+        self._stream = stream
+        self._resp_cls = resp_cls
+
+    def recv(self):
+        if self._stream is None:
+            raise EOFError("stream closed")
+        return self._stream.recv(self._resp_cls())
+
+    def close(self):
+        """Abandon the call early: RST so the server stops."""
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            stream.cancel()
+
+    def __del__(self):
+        self.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        try:
+            return self.recv()
+        except EOFError:
+            raise StopIteration
+
+
+class _SendStream:
+    """Server-streaming sink passed to service implementations."""
+
+    def __init__(self, ctx, sink):
+        self.context = ctx
+        self._sink = sink
+
+    def send(self, resp):
+        self._sink.send(resp.marshal_dc())
+
+
+class _ClientStreamImpl:
+    """Client-streaming stream passed to service implementations."""
+
+    def __init__(self, ctx, reqs, req_cls):
+        self.context = ctx
+        self._reqs = reqs
+        self._req_cls = req_cls
+        self.resp = None
+
+    def recv(self):
+        return self._reqs.recv_into(self._req_cls())
+
+    def send_and_close(self, resp):
+        self.resp = resp
+
+
+class _BidiStream:
+    """Bidi stream passed to service implementations."""
+
+    def __init__(self, ctx, reqs, sink, req_cls):
+        self.context = ctx
+        self._reqs = reqs
+        self._sink = sink
+        self._req_cls = req_cls
+
+    def send(self, resp):
+        self._sink.send(resp.marshal_dc())
+
+    def recv(self):
+        return self._reqs.recv_into(self._req_cls())
+
+
+class _AsyncRecvStream:
+    """Async client receiving stream: async-for or await recv()."""
+
+    def __init__(self, stream, resp_cls):
+        self._stream = stream
+        self._resp_cls = resp_cls
+
+    async def recv(self):
+        return await self._stream.recv(self._resp_cls())
+
+    def cancel(self):
+        self._stream.cancel()
+
+    async def aclose(self):
+        self.cancel()
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return await self.recv()
+        except EOFError:
+            raise StopAsyncIteration
+
+
+`;
 function pyMethodEntry(m) {
   return runSegments(SEGMENT_PROGRAMS.pyMethodEntry, m, '');
 }
@@ -1943,6 +2051,8 @@ function rpVarintExpr(f, v) {
 function rpVarintDecode(f, v) {
   return runSegments(SEGMENT_PROGRAMS.rsPbVarintDecode, f, '', null, [v]);
 }
+const RP_FIXED = FIXED_TABLES.rust;
+
 function rpFixedInfo(f) {
   return RP_FIXED[f.type] || null;
 }
@@ -1990,9 +2100,24 @@ function rpEnumNamed(model, full, e) {
 function rpMessageStruct(model, msg) {
   return runSegments(SEGMENT_PROGRAMS.rsPbMessage, msg, '', model);
 }
+let rpNoStd = false;
 function rpMapType() {
   return rpNoStd ? 'BTreeMap' : 'std::collections::HashMap';
 }
+
+const RP_SUPPORT = 'fn pb_append_varint(out: &mut Vec<u8>, value: u64) {\n    let mut v = value;\n    while v > 0x7f {\n        out.push(((v & 0x7f) as u8) | 0x80);\n        v >>= 7;\n    }\n    out.push(v as u8);\n}\n\n'
+  + 'fn pb_append_tag(out: &mut Vec<u8>, field: u32, wire: u32) {\n    pb_append_varint(out, ((field << 3) | wire) as u64);\n}\n\n'
+  + 'fn pb_append_bytes_field(out: &mut Vec<u8>, field: u32, payload: &[u8]) {\n    pb_append_tag(out, field, 2);\n    pb_append_varint(out, payload.len() as u64);\n    out.extend_from_slice(payload);\n}\n\n'
+  + 'fn pb_append_string_field(out: &mut Vec<u8>, field: u32, value: &str) {\n    if !value.is_empty() {\n        pb_append_bytes_field(out, field, value.as_bytes());\n    }\n}\n\n'
+  + 'fn pb_append_fixed32(out: &mut Vec<u8>, value: u32) {\n    out.extend_from_slice(&value.to_le_bytes());\n}\n\n'
+  + 'fn pb_append_fixed64(out: &mut Vec<u8>, value: u64) {\n    out.extend_from_slice(&value.to_le_bytes());\n}\n\n'
+  + '#[derive(Clone, Debug, Default)]\nstruct PbField {\n    number: u32,\n    wire: u32,\n    varint_value: u64,\n    bytes_value: Vec<u8>,\n    fixed_value: u64,\n    raw_value: Vec<u8>,\n}\n\n'
+  + 'struct PbReader<\'a> {\n    buf: &\'a [u8],\n    pos: usize,\n}\n\n'
+  + 'impl<\'a> PbReader<\'a> {\n    fn new(buf: &\'a [u8]) -> Self {\n        PbReader { buf, pos: 0 }\n    }\n\n'
+  + '    fn done(&self) -> bool {\n        self.pos >= self.buf.len()\n    }\n\n'
+  + '    fn varint(&mut self) -> Result<u64, String> {\n        let mut result: u64 = 0;\n        let mut shift = 0;\n        loop {\n            if self.pos >= self.buf.len() {\n                return Err("truncated varint".to_string());\n            }\n            let b = self.buf[self.pos];\n            self.pos += 1;\n            result |= ((b & 0x7f) as u64) << shift;\n            if b & 0x80 == 0 {\n                return Ok(result);\n            }\n            shift += 7;\n            if shift >= 70 {\n                return Err("varint too long".to_string());\n            }\n        }\n    }\n\n'
+  + '    fn take(&mut self, n: usize) -> Result<Vec<u8>, String> {\n        if self.pos + n > self.buf.len() {\n            return Err("truncated field".to_string());\n        }\n        let v = self.buf[self.pos..self.pos + n].to_vec();\n        self.pos += n;\n        Ok(v)\n    }\n\n'
+  + '    fn next(&mut self) -> Result<Option<PbField>, String> {\n        if self.done() {\n            return Ok(None);\n        }\n        let start = self.pos;\n        let tag = self.varint()?;\n        let mut field = PbField {\n            number: (tag >> 3) as u32,\n            wire: (tag & 7) as u32,\n            ..Default::default()\n        };\n        match field.wire {\n            0 => field.varint_value = self.varint()?,\n            2 => {\n                let n = self.varint()? as usize;\n                field.bytes_value = self.take(n)?;\n            }\n            1 => {\n                field.bytes_value = self.take(8)?;\n                field.fixed_value = u64::from_le_bytes(field.bytes_value[..8].try_into().unwrap());\n            }\n            5 => {\n                field.bytes_value = self.take(4)?;\n                field.fixed_value = u32::from_le_bytes(field.bytes_value[..4].try_into().unwrap()) as u64;\n            }\n            _ => return Err("bad wire type".to_string()),\n        }\n        field.raw_value = self.buf[start..self.pos].to_vec();\n        Ok(Some(field))\n    }\n}\n\n';
 
 function emitRustPbFile(model, noStd) {
   if (!model.messages.length && !model.enums.length) return null;
@@ -4645,184 +4770,23 @@ JS
 // Swift emitter (mirrors the native swift template).
 // ---------------------------------------------------------------------------
 
-function swiftDeprecated(m, indent) {
-  return m.deprecated ? indent + '@available(*, deprecated, message: "deprecated in the proto schema")\n' : '';
-}
 
-function swiftClientMethodRaw(m, svc) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '        func ' + m.name + '(_ req: ' + m.input + ', _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ' + m.output + ' {\n'
-        + '            let resp = ' + m.output + '()\n'
-        + '            try channel.Unary(' + path + ', req, resp, metadata, timeout)\n'
-        + '            return resp\n        }\n\n';
-    case 'server-streaming':
-      return '        func ' + m.name + '(_ req: ' + m.input + ', _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ' + svc + m.name + 'Stream {\n'
-        + '            return ' + svc + m.name + 'Stream(try channel.ServerStream(' + path + ', req, metadata, timeout))\n        }\n\n';
-    case 'client-streaming':
-      return '        func ' + m.name + '(_ reqs: [' + m.input + '], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ' + m.output + ' {\n'
-        + '            let resp = ' + m.output + '()\n'
-        + '            try channel.ClientStreamCall(' + path + ', reqs, resp, metadata, timeout)\n'
-        + '            return resp\n        }\n\n';
-    default:
-      return '        func ' + m.name + '(_ reqs: [' + m.input + '], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ' + svc + m.name + 'Stream {\n'
-        + '            return ' + svc + m.name + 'Stream(try channel.Bidi(' + path + ', reqs, metadata, timeout))\n        }\n\n';
-  }
-}
 
-function swiftClientStreamClass(m, svc) {
-  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
-  return '        final class ' + svc + m.name + 'Stream {\n'
-    + '            private let stream: Channel.ClientStream\n'
-    + '            init(_ stream: Channel.ClientStream) { self.stream = stream }\n'
-    + '            func Recv() throws -> ' + m.output + ' {\n'
-    + '                let resp = ' + m.output + '()\n'
-    + '                try stream.Recv(resp)\n                return resp\n            }\n'
-    + '            /// Initial metadata (response headers); nil until they arrive.\n'
-    + '            var Headers: [String: String]? { stream.headers?.metadata }\n'
-    + '            /// Trailing metadata of the terminal status; nil until it arrives.\n'
-    + '            var Trailers: [String: String]? { stream.trailers }\n'
-    + '            func Cancel() { stream.Cancel() }\n            func Close() { stream.Close() }\n        }\n\n';
-}
 
-function swiftClientAsyncMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        func ' + m.name + 'Async(_ req: ' + m.input + ', _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ' + m.output + ' {\n'
-        + '            try await Task.detached { try self.' + m.name + '(req, metadata, timeout) }.value\n        }\n\n';
-    case 'server-streaming':
-    case 'bidi': {
-      const reqsType = m.kind === 'bidi' ? '[' + m.input + ']' : m.input;
-      return '        func ' + m.name + 'Async(_ reqs: ' + reqsType + ', _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<' + m.output + ', Error> {\n'
-        + '            let stream: ' + svc + m.name + 'Stream\n'
-        + '            do {\n'
-        + '                stream = try ' + m.name + '(reqs, metadata, timeout)\n'
-        + '            } catch {\n'
-        + '                return AsyncThrowingStream { continuation in\n'
-        + '                    continuation.finish(throwing: error)\n'
-        + '                }\n'
-        + '            }\n'
-        + '            return AsyncThrowingStream { continuation in\n'
-        + '                let task = Task.detached {\n'
-        + '                    do {\n'
-        + '                        while true {\n'
-        + '                            continuation.yield(try stream.Recv())\n                        }\n'
-        + '                    } catch is EndOfStreamError {\n'
-        + '                        continuation.finish()\n'
-        + '                    } catch {\n'
-        + '                        continuation.finish(throwing: error)\n                    }\n'
-        + '                }\n'
-        + '                continuation.onTermination = { _ in\n'
-        + '                    stream.Cancel()\n'
-        + '                    task.cancel()\n'
-        + '                }\n            }\n        }\n\n';
-    }
-    default:
-      return '        func ' + m.name + 'Async(_ reqs: [' + m.input + '], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ' + m.output + ' {\n'
-        + '            try await Task.detached { try self.' + m.name + '(reqs, metadata, timeout) }.value\n        }\n\n';
-  }
-}
 
-function swiftServerStreamIface(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return '    /// Server-streaming sink passed to service implementations.\n'
-        + '    protocol ' + svc + m.name + 'Server: AnyObject {\n'
-        + '        func Send(_ resp: ' + m.output + ') throws\n'
-        + '        var context: Endpoint.CallContext { get }\n    }\n\n';
-    case 'client-streaming':
-      return '    /// Client-streaming stream passed to service implementations.\n'
-        + '    protocol ' + svc + m.name + 'Server: AnyObject {\n'
-        + '        func Recv() throws -> ' + m.input + '\n'
-        + '        func SendAndClose(_ resp: ' + m.output + ')\n'
-        + '        var context: Endpoint.CallContext { get }\n    }\n\n';
-    default:
-      return '    /// Bidi stream passed to service implementations.\n'
-        + '    protocol ' + svc + m.name + 'Server: AnyObject {\n'
-        + '        func Send(_ resp: ' + m.output + ') throws\n'
-        + '        func Recv() throws -> ' + m.input + '\n'
-        + '        var context: Endpoint.CallContext { get }\n    }\n\n';
-  }
-}
 
-function swiftServerIfaceMethodRaw(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        func ' + m.name + '(_ ctx: Endpoint.CallContext, _ req: ' + m.input + ') throws -> ' + m.output + '\n';
-    case 'server-streaming':
-      return '        func ' + m.name + '(_ req: ' + m.input + ', _ stream: ' + svc + m.name + 'Server) throws\n';
-    default:
-      return '        func ' + m.name + '(_ stream: ' + svc + m.name + 'Server) throws\n';
-  }
-}
 
-function swiftServerAsyncIfaceMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        func ' + m.name + 'Async(_ ctx: Endpoint.CallContext, _ req: ' + m.input + ') async throws -> ' + m.output + '\n';
-    case 'server-streaming':
-      return '        func ' + m.name + 'Async(_ req: ' + m.input + ', _ stream: ' + svc + m.name + 'Server) async throws\n';
-    default:
-      return '        func ' + m.name + 'Async(_ stream: ' + svc + m.name + 'Server) async throws\n';
-  }
-}
 
-function swiftServerAsyncAdapterMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        func ' + m.name + '(_ ctx: Endpoint.CallContext, _ req: ' + m.input + ') throws -> ' + m.output + ' {\n'
-        + '            try RunBlocking { try await self.impl.' + m.name + 'Async(ctx, req) }\n        }\n';
-    case 'server-streaming':
-      return '        func ' + m.name + '(_ req: ' + m.input + ', _ stream: ' + svc + m.name + 'Server) throws {\n'
-        + '            try RunBlocking { try await self.impl.' + m.name + 'Async(req, stream) }\n        }\n';
-    default:
-      return '        func ' + m.name + '(_ stream: ' + svc + m.name + 'Server) throws {\n'
-        + '            try RunBlocking { try await self.impl.' + m.name + 'Async(stream) }\n        }\n';
-  }
-}
 
-function swiftStreamImpl(m, svc) {
-  const head = '    private final class ' + svc + m.name + 'ServerImpl: ' + svc + m.name + 'Server {\n';
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return head
-        + '        private var ctxRef: Endpoint.CallContext\n'
-        + '        private let sink: Server.ServerSink\n'
-        + '        init(_ ctx: Endpoint.CallContext, _ sink: @escaping Server.ServerSink) {\n'
-        + '            ctxRef = ctx\n            self.sink = sink\n        }\n'
-        + '        func Send(_ resp: ' + m.output + ') throws { try sink(resp.MarshalDc()) }\n'
-        + '        var context: Endpoint.CallContext { ctxRef }\n    }\n\n';
-    case 'client-streaming':
-      return head
-        + '        private var ctxRef: Endpoint.CallContext\n'
-        + '        private let reqs: Server.RequestStream\n'
-        + '        private(set) var resp: ' + m.output + '?\n'
-        + '        init(_ ctx: Endpoint.CallContext, _ reqs: Server.RequestStream) {\n'
-        + '            ctxRef = ctx\n            self.reqs = reqs\n        }\n'
-        + '        func Recv() throws -> ' + m.input + ' {\n'
-        + '            let req = ' + m.input + '()\n'
-        + '            try reqs.RecvInto(req)\n            return req\n        }\n'
-        + '        func SendAndClose(_ resp: ' + m.output + ') { self.resp = resp }\n'
-        + '        var context: Endpoint.CallContext { ctxRef }\n    }\n\n';
-    default:
-      return head
-        + '        private var ctxRef: Endpoint.CallContext\n'
-        + '        private let reqs: Server.RequestStream\n'
-        + '        private let sink: Server.ServerSink\n'
-        + '        init(_ ctx: Endpoint.CallContext, _ reqs: Server.RequestStream, _ sink: @escaping Server.ServerSink) {\n'
-        + '            ctxRef = ctx\n            self.reqs = reqs\n            self.sink = sink\n        }\n'
-        + '        func Send(_ resp: ' + m.output + ') throws { try sink(resp.MarshalDc()) }\n'
-        + '        func Recv() throws -> ' + m.input + ' {\n'
-        + '            let req = ' + m.input + '()\n'
-        + '            try reqs.RecvInto(req)\n            return req\n        }\n'
-        + '        var context: Endpoint.CallContext { ctxRef }\n    }\n\n';
-  }
-}
+
+
+
+
+
+
+
+
+
 
 const SWIFT_KIND_CONSTS = {
   unary: 'KindUnary',
@@ -4831,82 +4795,10 @@ const SWIFT_KIND_CONSTS = {
   bidi: 'KindBidi',
 };
 
-function swiftRegisterMethod(m, svc) {
-  const impl = m.implName;
-  const head = '            Server.Method(name: ' + q(m.name) + ', path: ' + q(m.path) + ', kind: Server.' + SWIFT_KIND_CONSTS[m.kind] + ') { ctx, reqs, sink in\n';
-  switch (m.kind) {
-    case 'unary':
-      return head
-        + '                let req = ' + m.input + '()\n'
-        + '                try reqs.RecvInto(req)\n'
-        + '                let resp = try impl.' + impl + '(ctx, req)\n'
-        + '                try sink(resp.MarshalDc())\n            },\n';
-    case 'server-streaming':
-      return head
-        + '                let req = ' + m.input + '()\n'
-        + '                try reqs.RecvInto(req)\n'
-        + '                try impl.' + impl + '(req, ' + svc + m.name + 'ServerImpl(ctx, sink))\n            },\n';
-    case 'client-streaming':
-      return head
-        + '                let stream = ' + svc + m.name + 'ServerImpl(ctx, reqs)\n'
-        + '                try impl.' + impl + '(stream)\n'
-        + '                guard let resp = stream.resp else {\n'
-        + '                    throw StatusException(Wire.CodeInternal, "client-streaming handler never called SendAndClose")\n'
-        + '                }\n'
-        + '                try sink(resp.MarshalDc())\n            },\n';
-    default:
-      return head
-        + '                try impl.' + impl + '(' + svc + m.name + 'ServerImpl(ctx, reqs, sink))\n            },\n';
-  }
-}
+
 
 function swiftService(svc) {
-  const sname = svc.name;
-  const all = svc.methods.concat(aliasClientMethods(svc));
-  return '    /// Client for ' + svc.fullName + '.\n'
-    + '    final class ' + sname + 'Client {\n'
-    + '        private let channel: Channel\n\n'
-    + '        init(_ channel: Channel) {\n            self.channel = channel\n        }\n\n'
-    + svc.methods.map((m) => swiftClientStreamClass(m, sname)).join('')
-    + all.map((m) => swiftDeprecated(m, '        ') + swiftClientMethodRaw(m, sname)).join('')
-    + '        // -- async (Swift concurrency) surface ---------------------------\n'
-    + '        #if canImport(Foundation)\n\n'
-    + all.map((m) => swiftClientAsyncMethod(m, sname)).join('')
-    + '        #endif\n'
-    + '    }\n\n'
-    + svc.methods.map((m) => swiftServerStreamIface(m, sname)).join('')
-    + '    /// Service implementation interface for ' + svc.fullName + '.\n'
-    + '    protocol ' + sname + 'Server: AnyObject {\n'
-    + svc.methods.map((m) => swiftDeprecated(m, '        ') + swiftServerIfaceMethodRaw(m, sname)).join('')
-    + '    }\n\n'
-    + '    #if canImport(Foundation)\n'
-    + '    /// Async service implementation interface for ' + svc.fullName + '.\n'
-    + '    protocol ' + sname + 'ServerAsync: AnyObject {\n'
-    + svc.methods.map((m) => swiftServerAsyncIfaceMethod(m, sname)).join('')
-    + '    }\n\n'
-    + '    #endif\n\n'
-    + svc.methods.map((m) => swiftStreamImpl(m, sname)).join('')
-    + '    #if canImport(Foundation)\n'
-    + '    private final class ' + sname + 'ServerAsyncAdapter: ' + sname + 'Server {\n'
-    + '        private let impl: ' + sname + 'ServerAsync\n'
-    + '        init(_ impl: ' + sname + 'ServerAsync) { self.impl = impl }\n'
-    + svc.methods.map((m) => swiftServerAsyncAdapterMethod(m, sname)).join('')
-    + '    }\n\n'
-    + '    #endif\n\n'
-    + '    /// Register an implementation of ' + svc.fullName + ' on a Server.\n'
-    + '    static func Register' + sname + 'Server(_ server: Server, _ impl: ' + sname + 'Server) {\n'
-    + '        server.RegisterService(Server.ServiceDesc(name: ' + q(svc.fullName) + ', methods: [\n'
-    + svc.methods.concat(aliasServerMethods(svc)).map((m) => swiftRegisterMethod(m, sname)).join('')
-    + '        ]))\n    }\n\n'
-    + '    #if canImport(Foundation)\n'
-    + '    /// Register an async implementation of ' + svc.fullName + ' on a Server.\n'
-    + '    static func Register' + sname + 'ServerAsync(_ server: Server, _ impl: ' + sname + 'ServerAsync) {\n'
-    + '        // Adapters are retained for the process lifetime: registration is\n'
-    + '        // once-per-process and bounded by service count.\n'
-    + '        ' + sname + 'Adapters.append(' + sname + 'ServerAsyncAdapter(impl))\n'
-    + '        Register' + sname + 'Server(server, ' + sname + 'Adapters.last!)\n    }\n\n'
-    + '    private static var ' + sname + 'Adapters: [' + sname + 'ServerAsyncAdapter] = []\n'
-    + '    #endif\n';
+  return runSegments(SEGMENT_PROGRAMS.swiftService, svc, svc.name);
 }
 
 const SWIFT_RUN_BLOCKING =
@@ -4964,294 +4856,42 @@ function swpEntryRef(model, entry) {
     : swpRel(entry.pkg, entry.msg.fullName);
 }
 
-function swpScalar(f) {
-  // Leaf payloads single-sourced from scalar-type-tables
-  // in spec.rkt (SCALAR_TABLES), same table the native
-  // template derives from.
-  return SCALAR_TABLES.swift.types[f.type] ?? SCALAR_TABLES.swift.default;
-}
 
-function swpType(model, f) {
-  let singular;
-  if (f.type === FT.MESSAGE) {
-    const entry = swpResolve(model, f.typeName);
-    if (entry.kind === 'map') {
-      const kf = entry.msg.fields.find((x) => x.number === 1);
-      const vf = entry.msg.fields.find((x) => x.number === 2);
-      singular = '[' + swpType(model, { ...kf, label: 1 }) + ': '
-        + (vf.type === FT.MESSAGE
-          ? swpEntryRef(model, swpResolve(model, vf.typeName))
-          : swpType(model, { ...vf, label: 1 })) + ']';
-    } else {
-      singular = swpEntryRef(model, entry) + '?';
-    }
-  } else if (f.type === FT.ENUM) {
-    singular = swpEntryRef(model, swpResolve(model, f.typeName));
-  } else {
-    singular = swpScalar(f)[0];
-  }
-  if (f.type === FT.MESSAGE && swpResolve(model, f.typeName).kind === 'map') return singular;
-  if (f.label === 3) {
-    return '[' + (f.type === FT.MESSAGE
-      ? swpEntryRef(model, swpResolve(model, f.typeName))
-      : swpType(model, { ...f, label: 1 })) + ']';
-  }
-  return singular;
-}
 
-function swpExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case 9: return JSON.stringify(d);
-    case 8: return d;
-    case 14: return swpEntryRef(model, swpResolve(model, f.typeName)) + '.' + d;
-    default: return d;
-  }
-}
 
-function swpDefault(model, f) {
-  const lit = swpExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.type === FT.MESSAGE && swpResolve(model, f.typeName).kind === 'map') return '[:]';
-  if (f.label === 3) return '[]';
-  if (f.type === FT.MESSAGE) return 'nil';
-  if (f.type === FT.ENUM) {
-    const entry = swpResolve(model, f.typeName);
-    return swpEntryRef(model, entry) + '.' + entry.enum.values[0].name;
-  }
-  return swpScalar(f)[1];
-}
 
-function swpVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return '(' + v + ' ? Int64(1) : Int64(0))';
-    case 17: return 'UInt64(UInt32(bitPattern: (' + v + ' << 1) ^ (' + v + ' >> 31)))';
-    case 18: return 'UInt64(bitPattern: (' + v + ' << 1) ^ (' + v + ' >> 63))';
-    case 14: return 'Int64(' + v + '.rawValue)';
-    case 5: return 'Int64(' + v + ')';
-    case 13: case 7: return 'UInt64(' + v + ')';
-    case 3: return 'UInt64(bitPattern: ' + v + ')';
-    default: return v;
-  }
-}
 
-function swpVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: return 'Int32(truncatingIfNeeded: ' + v + ')';
-    case 13: case 7: return 'UInt32(truncatingIfNeeded: ' + v + ')';
-    case 3: return 'Int64(bitPattern: ' + v + ')';
-    case 4: case 6: return v;
-    case 8: return v + ' != 0';
-    case 17: return 'Int32(bitPattern: UInt32(truncatingIfNeeded: (' + v + ' >> 1) ^ UInt64(bitPattern: -Int64(bitPattern: ' + v + ' & 1))))';
-    case 18: return 'Int64(bitPattern: (' + v + ' >> 1) ^ UInt64(bitPattern: -Int64(bitPattern: ' + v + ' & 1)))';
-    default: throw new Error('not a varint type');
-  }
-}
 
-function swpNonzero(f, v) {
-  switch (f.type) {
-    case 8: return v;
-    case 14: return v + '.rawValue != 0';
-    default: return v + ' != 0';
-  }
-}
 
-function swpEncodeSingular(model, f, v, indent) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (SWP_VARINT.has(f.type)) {
-    return proto2
-      ? indent + '{ w.Tag(' + n + ', 0); w.Varint(' + swpVarintExpr(f, v) + ') }\n'
-      : indent + 'if ' + swpNonzero(f, v) + ' { w.Tag(' + n + ', 0); w.Varint(' + swpVarintExpr(f, v) + ') }\n';
-  }
-  const fixed = SWP_FIXED[f.type];
-  if (fixed) {
-    const wire = fixed[0] === 8 ? 1 : 5;
-    return proto2
-      ? indent + '{ w.Tag(' + n + ', ' + wire + '); w.Fixed' + fixed[1] + '(' + v + ') }\n'
-      : indent + 'if ' + swpNonzero(f, v) + ' { w.Tag(' + n + ', ' + wire + '); w.Fixed' + fixed[1] + '(' + v + ') }\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + 'w.BytesField(' + n + ', [UInt8](' + v + '.utf8))\n'
-      : indent + 'w.StringField(' + n + ', ' + v + ')\n';
-    case 12: return proto2
-      ? indent + 'w.BytesField(' + n + ', ' + v + ')\n'
-      : indent + 'if !' + v + '.isEmpty { w.BytesField(' + n + ', ' + v + ') }\n';
-    case 11: return indent + 'if let v = ' + v + ' { w.BytesField(' + n + ', v.MarshalDc()) }\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
-}
 
-function swpSetExpr(sib) {
-  const v = swpFieldName(sib);
-  switch (sib.type) {
-    case 11: case 10: return v + ' != nil';
-    case 9: case 12: return '!' + v + '.isEmpty';
-    default: return swpNonzero(sib, v);
-  }
-}
 
-function swpEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '        if !(' + later.map(swpSetExpr).join(' || ') + ') {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
-}
 
-function swpEncodeField(model, f, support) {
-  const v = swpFieldName(f);
-  const n = f.number;
-  if (f.type === FT.MESSAGE && swpResolve(model, f.typeName).kind === 'map') {
-    const entry = swpResolve(model, f.typeName);
-    const helper = support + '.' + swpMapHelperName(model, entry) + 'Encode';
-    return '        for (k, val) in ' + v + '.sorted(by: { $0.key < $1.key }) { w.BytesField(' + n + ', ' + helper + '(k, val)) }\n';
-  }
-  if (f.label !== 3) return swpEncodeSingular(model, f, v, '        ');
-  if (SWP_VARINT.has(f.type)) {
-    return '        if !' + v + '.isEmpty {\n'
-      + '            let payload = ' + support + '.Writer()\n'
-      + '            for x in ' + v + ' { payload.Varint(' + swpVarintExpr(f, 'x') + ') }\n'
-      + '            w.BytesField(' + n + ', payload.ToBytes())\n        }\n';
-  }
-  const fixed = SWP_FIXED[f.type];
-  if (fixed) {
-    return '        if !' + v + '.isEmpty {\n'
-      + '            let payload = ' + support + '.Writer()\n'
-      + '            for x in ' + v + ' { payload.Fixed' + fixed[1] + '(x) }\n'
-      + '            w.BytesField(' + n + ', payload.ToBytes())\n        }\n';
-  }
-  switch (f.type) {
-    case 9: return '        for x in ' + v + ' { w.BytesField(' + n + ', [UInt8](x.utf8)) }\n';
-    case 12: return '        for x in ' + v + ' { w.BytesField(' + n + ', x) }\n';
-    case 11: return '        for x in ' + v + ' { w.BytesField(' + n + ', x.MarshalDc()) }\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
-}
 
-function swpDecodeSingular(model, f, target, src, indent, support) {
-  if (SWP_VARINT.has(f.type)) {
-    return indent + target + ' = ' + (f.type === 14
-      ? swpEntryRef(model, swpResolve(model, f.typeName)) + '(rawValue: ' + swpVarintDecode({ ...f, type: 5 }, src) + ') ?? ' + swpDefault(model, f)
-      : swpVarintDecode(f, src)) + '\n';
-  }
-  if (SWP_FIXED[f.type]) {
-    let conv;
-    switch (f.type) {
-      case 2: conv = support + '.BitsToFloat(UInt32(truncatingIfNeeded: ' + src + '))'; break;
-      case 1: conv = support + '.BitsToDouble(' + src + ')'; break;
-      case 7: conv = 'UInt32(truncatingIfNeeded: ' + src + ')'; break;
-      case 15: conv = 'Int32(truncatingIfNeeded: ' + src + ')'; break;
-      case 16: conv = 'Int64(bitPattern: ' + src + ')'; break;
-      default: conv = src;
-    }
-    return indent + target + ' = ' + conv + '\n';
-  }
-  switch (f.type) {
-    case 9: return indent + target + ' = String(decoding: ' + src + ', as: UTF8.self)\n';
-    case 12: return indent + target + ' = ' + src + '\n';
-    case 11: {
-      const ref = swpEntryRef(model, swpResolve(model, f.typeName));
-      return indent + target + ' = ' + ref + '()\n' + indent + target + '!.UnmarshalDc(' + src + ')\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type);
-  }
-}
 
-function swpOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => '                ' + swpFieldName(sib) + ' = ' + swpDefault(model, sib) + '\n').join('');
-}
 
-function swpSrc(f) {
-  return SWP_VARINT.has(f.type) ? 'field.varintValue' : (SWP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
-}
 
-function swpDecodeCase(model, f, support) {
-  const v = swpFieldName(f);
-  const head = '            case ' + f.number + ':\n';
-  if (f.type === FT.MESSAGE && swpResolve(model, f.typeName).kind === 'map') {
-    const entry = swpResolve(model, f.typeName);
-    const helper = support + '.' + swpMapHelperName(model, entry) + 'Decode';
-    return head
-      + '                let kv = ' + helper + '(field.bytesValue)\n'
-      + '                ' + v + '[kv.0] = kv.1\n';
-  }
-  if (f.label !== 3) {
-    return head + swpOneofClearing(model, f) + swpDecodeSingular(model, f, v, swpSrc(f), '                ', support);
-  }
-  if (SWP_VARINT.has(f.type)) {
-    const conv = (src) => f.type === 14
-      ? swpEntryRef(model, swpResolve(model, f.typeName)) + '(rawValue: ' + swpVarintDecode({ ...f, type: 5 }, src) + ') ?? ' + swpDefault(model, { ...f, label: 1 })
-      : swpVarintDecode(f, src);
-    return head
-      + '                if field.wire == 2 {\n'
-      + '                    let sub = ' + support + '.Reader(field.bytesValue)\n'
-      + '                    while !sub.Done() {\n'
-      + '                        ' + v + '.append(' + conv('sub.Varint()') + ')\n'
-      + '                    }\n                } else {\n'
-      + '                    ' + v + '.append(' + conv('field.varintValue') + ')\n'
-      + '                }\n';
-  }
-  const fixed = SWP_FIXED[f.type];
-  if (fixed) {
-    const subConv = f.type === 2 ? support + '.BitsToFloat(sub.Fixed32())'
-      : f.type === 1 ? support + '.BitsToDouble(sub.Fixed64())'
-      : f.type === 7 ? 'sub.Fixed32()'
-      : f.type === 15 ? 'Int32(bitPattern: sub.Fixed32())' : 'sub.Fixed64()';
-    const oneConv = f.type === 2 ? support + '.BitsToFloat(UInt32(truncatingIfNeeded: field.fixedValue))'
-      : f.type === 1 ? support + '.BitsToDouble(field.fixedValue)'
-      : f.type === 7 ? 'UInt32(truncatingIfNeeded: field.fixedValue)'
-      : f.type === 15 ? 'Int32(truncatingIfNeeded: field.fixedValue)' : 'field.fixedValue';
-    return head
-      + '                if field.wire == 2 {\n'
-      + '                    let sub = ' + support + '.Reader(field.bytesValue)\n'
-      + '                    while !sub.Done() { ' + v + '.append(' + subConv + ') }\n'
-      + '                } else {\n'
-      + '                    ' + v + '.append(' + oneConv + ')\n'
-      + '                }\n';
-  }
-  switch (f.type) {
-    case 9: return head + '                ' + v + '.append(String(decoding: field.bytesValue, as: UTF8.self))\n';
-    case 12: return head + '                ' + v + '.append(field.bytesValue)\n';
-    case 11: return head
-      + '                let item = ' + swpEntryRef(model, swpResolve(model, f.typeName)) + '()\n'
-      + '                item.UnmarshalDc(field.bytesValue)\n'
-      + '                ' + v + '.append(item)\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function swpMapHelperName(model, entry) {
   return swpRel(entry.pkg, entry.msg.fullName).split('.').join('');
 }
 
 function swpMapHelpers(model, entry, support) {
-  const msg = entry.msg;
-  const base = swpMapHelperName(model, entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry lacks key/value');
-  const kt = swpType(model, { ...keyF, label: 1 });
-  const vt = swpType(model, { ...valF, label: 1 });
-  const vtPlain = (valF.type === FT.MESSAGE && swpResolve(model, valF.typeName).kind !== 'map')
-    ? swpEntryRef(model, swpResolve(model, valF.typeName))
-    : vt;
-  return '    static func ' + base + 'Encode(_ key: ' + kt + ', _ value: ' + vtPlain + ') -> [UInt8] {\n'
-    + '        let w = Writer()\n'
-    + swpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '        ')
-    + (valF.type === FT.MESSAGE
-      ? '        w.BytesField(' + valF.number + ', value.MarshalDc())\n'
-      : swpEncodeSingular(model, { ...valF, label: 1 }, 'value', '        '))
-    + '        return w.ToBytes()\n    }\n\n'
-    + '    static func ' + base + 'Decode(_ bytes: [UInt8]) -> (' + kt + ', ' + vtPlain + ') {\n'
-    + '        var key: ' + kt + ' = ' + swpDefault(model, { ...keyF, label: 1 }) + '\n'
-    + '        var value: ' + vtPlain + ' = ' + (valF.type === FT.MESSAGE ? vtPlain + '()' : swpDefault(model, { ...valF, label: 1 })) + '\n'
-    + '        let r = Reader(bytes)\n        while true {\n            let next: Field?\n            do { next = try r.Next() } catch { break }\n            guard let field = next else { break }\n            switch field.number {\n'
-    + '            case ' + keyF.number + ': ' + swpDecodeSingular(model, { ...keyF, label: 1 }, 'key', swpSrc(keyF), '', support).replace(/\s+$/, '') + '\n'
-    + '            case ' + valF.number + ': ' + (valF.type === FT.MESSAGE
-      ? 'value.UnmarshalDc(field.bytesValue)'
-      : swpDecodeSingular(model, { ...valF, label: 1 }, 'value', swpSrc(valF), '', support).replace(/\s+$/, '')) + '\n'
-    + '            default: break\n            }\n        }\n        return (key, value)\n    }\n\n';
+  return runSegments(SEGMENT_PROGRAMS.swiftPbMapHelpers, entry, null, model, [support]);
 }
 
 const SWP_SUPPORT_BODY = '    struct BadWireType: Error {}\n'
@@ -5299,42 +4939,11 @@ const SWP_SUPPORT_BODY = '    struct BadWireType: Error {}\n'
   + '    }\n\n';
 
 function swpNestedEnum(e, indent) {
-  return indent + 'enum ' + e.name + ': Int32 {\n'
-    + e.values.map((v) => indent + '    case ' + v.name + ' = ' + v.number).join('\n')
-    + '\n' + indent + '}\n';
+  return runSegments(SEGMENT_PROGRAMS.swiftPbNestedEnum, e, null, null, [indent]);
 }
 
 function swpMessageClass(model, msg, support, indent, decl) {
-  const name = msg.name;
-  return indent + decl + ' class ' + name + ': Marshaler, Unmarshaler {\n'
-    + msg.fields.map((f) => indent + '    var ' + swpFieldName(f) + ': ' + swpType(model, f) + ' = ' + swpDefault(model, f) + '\n').join('')
-    + indent + '    var unknownFields: [UInt8] = []\n'
-    + indent + '    init() {}\n'
-    + (msg.fields.length
-      ? indent + '    init(' + msg.fields.map((f) => '_ ' + swpFieldName(f) + ': ' + swpType(model, f) + ' = ' + swpDefault(model, f)).join(', ') + ') {\n'
-        + msg.fields.map((f) => indent + '        self.' + swpFieldName(f) + ' = ' + swpFieldName(f) + '\n').join('')
-        + indent + '    }\n'
-      : '')
-    + indent + '    func MarshalDc() -> [UInt8] {\n'
-    + indent + '        let w = ' + support + '.Writer()\n'
-    + msg.fields.map((f) => swpEncodeGuard(model, f, swpEncodeField(model, f, support))).join('')
-    + indent + '        w.Raw(unknownFields)\n'
-    + indent + '        return w.ToBytes()\n' + indent + '    }\n'
-    + indent + '    func UnmarshalDc(_ data: [UInt8]) {\n'
-    + indent + '        unknownFields = []\n'
-    + msg.fields.map((f) => indent + '        ' + swpFieldName(f) + ' = ' + swpDefault(model, f) + '\n').join('')
-    + indent + '        let r = ' + support + '.Reader(data)\n'
-    + indent + '        while true {\n'
-    + indent + '            let next: ' + support + '.Field?\n'
-    + indent + '            do { next = try r.Next() } catch { break }\n'
-    + indent + '            guard let field = next else { break }\n'
-    + indent + '            switch field.number {\n'
-    + msg.fields.map((f) => swpDecodeCase(model, f, support)).join('')
-    + indent + '            default: unknownFields += field.rawValue\n'
-    + indent + '            }\n' + indent + '        }\n' + indent + '    }\n'
-    + msg.nested.map((n) => swpMessageClass(model, n, support, indent + '    ', 'final')).join('')
-    + msg.enums.map((e) => swpNestedEnum(e, indent + '    ')).join('')
-    + indent + '}\n';
+  return runSegments(SEGMENT_PROGRAMS.swiftPbMessage, msg, null, model, [support, indent, decl]);
 }
 
 function emitSwiftPbFile(model) {
@@ -7911,6 +7520,10 @@ function rbpDecodeSingular(model, f, target, src, indent) {
 function rbpOneofClearing(model, f) {
   return runSegments(SEGMENT_PROGRAMS.rbPbOneofClearing, f, '', model);
 }
+const RBP_FIXED = FIXED_TABLES.ruby;
+
+const RBP_VARINT = new Set(VARINT_TYPES);
+
 function rbpSrc(f) {
   return RBP_VARINT.has(f.type) ? 'varint_value' : (RBP_FIXED[f.type] ? 'fixed_value' : 'bytes_value');
 }
@@ -7983,6 +7596,178 @@ function rbpSupportBody(pb) {
   return '# @generated by protoc-gen-grpc-dc-ruby. DO NOT EDIT.\n'
     + rbpSupport(pb);
 }
+
+const RB_STREAM_HELPERS = `  # Client receiving stream: recv raises EOFError at end.
+  class RecvStream
+    include Enumerable
+
+    def initialize(stream, resp_cls)
+      @stream = stream
+      @resp_cls = resp_cls
+    end
+
+    def recv
+      @stream.recv(@resp_cls.new)
+    end
+
+    # Response initial metadata (after the first recv).
+    def headers
+      @stream.headers&.metadata
+    end
+
+    # Response trailing metadata (after the call ends).
+    def trailers
+      @stream.trailers
+    end
+
+    # Abandon the call early: RST so the server stops producing.
+    def cancel
+      @stream.cancel
+    end
+
+    def close
+      @stream.cancel
+    end
+
+    def each
+      return enum_for(:each) unless block_given?
+
+      begin
+        loop do
+          begin
+            yield recv
+          rescue EOFError
+            return
+          end
+        end
+      ensure
+        # Breaking out of the block abandons the call: RST so
+        # the server stops producing (no-op once terminated).
+        close
+      end
+    end
+  end
+
+  # Server-streaming sink passed to service implementations.
+  class SendStream
+    attr_reader :context
+
+    def initialize(ctx, sink)
+      @context = ctx
+      @sink = sink
+    end
+
+    def send(resp)
+      @sink.send(resp.marshal_dc)
+    end
+  end
+
+  # Client-streaming stream passed to service implementations.
+  class ClientStreamImpl
+    attr_reader :context, :resp
+
+    def initialize(ctx, reqs, req_cls)
+      @context = ctx
+      @reqs = reqs
+      @req_cls = req_cls
+      @resp = nil
+    end
+
+    def recv
+      @reqs.recv_into(@req_cls.new)
+    end
+
+    def send_and_close(resp)
+      @resp = resp
+    end
+  end
+
+  # Bidi stream passed to service implementations.
+  class BidiStream
+    attr_reader :context
+
+    def initialize(ctx, reqs, sink, req_cls)
+      @context = ctx
+      @reqs = reqs
+      @sink = sink
+      @req_cls = req_cls
+    end
+
+    def send(resp)
+      @sink.send(resp.marshal_dc)
+    end
+
+    def recv
+      @reqs.recv_into(@req_cls.new)
+    end
+  end
+
+  # Fiber-based client receiving stream: a producer Fiber
+  # yields each response; next_msg resumes it and raises
+  # StopIteration when the call completes. cancel aborts
+  # the underlying stream (RST).
+  class FiberRecvStream
+    include Enumerable
+
+    DONE = Object.new
+
+    def initialize(stream, resp_cls)
+      @stream = stream
+      @resp_cls = resp_cls
+      @fiber = Fiber.new do
+        begin
+          loop { Fiber.yield(@stream.recv(@resp_cls.new)) }
+        rescue EOFError
+          DONE
+        end
+      end
+    end
+
+    def next_msg
+      value = @fiber.resume
+      raise StopIteration if value.equal?(DONE)
+
+      value
+    end
+
+    # Response initial metadata (after the first recv).
+    def headers
+      @stream.headers&.metadata
+    end
+
+    # Response trailing metadata (after the call ends).
+    def trailers
+      @stream.trailers
+    end
+
+    def cancel
+      @stream.cancel
+    end
+
+    def close
+      @stream.cancel
+    end
+
+    def each
+      return enum_for(:each) unless block_given?
+
+      begin
+        loop do
+          begin
+            yield next_msg
+          rescue StopIteration
+            return
+          end
+        end
+      ensure
+        # Breaking out of the block abandons the call: RST so
+        # the server stops producing (no-op once terminated).
+        close
+      end
+    end
+  end
+
+`;
 
 function emitRubyFile(model, params) {
   const base = baseName(model.name);
@@ -8116,6 +7901,10 @@ function phpbDecodeSingular(model, f, target, src, indent) {
 function phpbOneofClearing(model, f) {
   return runSegments(SEGMENT_PROGRAMS.phpPbOneofClearing, f, '', model);
 }
+const PHPB_FIXED = FIXED_TABLES.php;
+
+const PHPB_VARINT = new Set(VARINT_TYPES);
+
 function phpbSrc(f) {
   return PHPB_VARINT.has(f.type) ? '$varintValue' : (PHPB_FIXED[f.type] ? '$fixedValue' : '$bytesValue');
 }
@@ -8133,6 +7922,23 @@ function phpbEnumDecl(model, e) {
   const full = model.package ? model.package + '.' + e.name : e.name;
   return runSegments(SEGMENT_PROGRAMS.phpPbEnum, e, '', model, [full]);
 }
+const PHPB_SUPPORT = 'function pbVarintBytes(int $value): string\n{\n    $out = "";\n    $v = $value;\n    while (true) {\n        $b = $v & 0x7f;\n        $v = ($v >> 7) & 0x01ffffffffffffff;\n        if ($v === 0) {\n            return $out . chr($b);\n        }\n        $out .= chr($b | 0x80);\n    }\n}\n\n'
+  + 'final class Writer\n{\n    private string $out = "";\n\n'
+  + '    public function varint(int $value): void\n    {\n        $this->out .= pbVarintBytes($value);\n    }\n\n'
+  + '    public function tag(int $field, int $wire): void\n    {\n        $this->varint(($field << 3) | $wire);\n    }\n\n'
+  + '    public function bytesField(int $field, string $payload): void\n    {\n        $this->tag($field, 2);\n        $this->varint(strlen($payload));\n        $this->out .= $payload;\n    }\n\n'
+  + '    public function stringField(int $field, string $value): void\n    {\n        if ($value === "") {\n            return;\n        }\n        $this->bytesField($field, $value);\n    }\n\n'
+  + '    public function fixed(string $fmt, $value): void\n    {\n        $this->out .= pack($fmt, $value);\n    }\n\n'
+  + '    public function raw(string $payload): void\n    {\n        $this->out .= $payload;\n    }\n\n'
+  + '    public function toBytes(): string\n    {\n        return $this->out;\n    }\n}\n\n'
+  + 'final class Reader\n{\n    private string $buf;\n    private int $pos = 0;\n\n'
+  + '    public function __construct(string $buf)\n    {\n        $this->buf = $buf;\n    }\n\n'
+  + '    public function done(): bool\n    {\n        return $this->pos >= strlen($this->buf);\n    }\n\n'
+  + '    public function varint(): int\n    {\n        $result = 0;\n        $shift = 0;\n        while (true) {\n            if ($this->pos >= strlen($this->buf)) {\n                throw new \\InvalidArgumentException("truncated varint");\n            }\n            $b = ord($this->buf[$this->pos]);\n            $this->pos++;\n            if ($shift < 63) {\n                $result |= ($b & 0x7f) << $shift;\n            } elseif (($b & 1) !== 0) {\n                $result |= PHP_INT_MIN;\n            }\n            if (($b & 0x80) === 0) {\n                return $result;\n            }\n            $shift += 7;\n            if ($shift >= 70) {\n                throw new \\InvalidArgumentException("varint too long");\n            }\n        }\n    }\n\n'
+  + '    public function take(int $n): string\n    {\n        if ($this->pos + $n > strlen($this->buf)) {\n            throw new \\InvalidArgumentException("truncated field");\n        }\n        $value = substr($this->buf, $this->pos, $n);\n        $this->pos += $n;\n        return $value;\n    }\n\n'
+  + '    /** [number, wire, varint_value, bytes_value, fixed_value] or null. */\n'
+  + '    public function field(): ?array\n    {\n        if ($this->done()) {\n            return null;\n        }\n        $start = $this->pos;\n        $tag = $this->varint();\n        $num = $tag >> 3;\n        $wire = $tag & 7;\n        switch ($wire) {\n            case 0:\n                $v = $this->varint();\n                return [$num, $wire, $v, "", "", substr($this->buf, $start, $this->pos - $start)];\n            case 2:\n                $n = $this->varint();\n                $b = $this->take($n);\n                return [$num, $wire, 0, $b, "", substr($this->buf, $start, $this->pos - $start)];\n            case 1:\n                $b = $this->take(8);\n                return [$num, $wire, 0, "", $b, substr($this->buf, $start, $this->pos - $start)];\n            case 5:\n                $b = $this->take(4);\n                return [$num, $wire, 0, "", $b, substr($this->buf, $start, $this->pos - $start)];\n            default:\n                throw new \\InvalidArgumentException("bad wire type");\n        }\n    }\n}\n\n';
+
 function emitPhpPbFile(model) {
   if (!model.messages.length && !model.enums.length) return null;
   const base = baseName(model.name);
@@ -8162,6 +7968,239 @@ function emitPhpPbFile(model) {
     + [...helpers].reverse().join('');
   return { name: base + '_pb.php', content };
 }
+
+const PHP_STREAM_HELPERS = `// Client receiving stream: recv throws CallClosed at end.
+class RecvStream
+{
+    private \\Grpcdc\\ClientStream $stream;
+    private string $respClass;
+
+    public function __construct(\\Grpcdc\\ClientStream $stream, string $respClass)
+    {
+        $this->stream = $stream;
+        $this->respClass = $respClass;
+    }
+
+    public function recv(): object
+    {
+        $cls = $this->respClass;
+        return $this->stream->recv(new $cls());
+    }
+
+    /** Response initial metadata (after the first recv). */
+    public function headers(): ?array
+    {
+        return $this->stream->headers?->metadata;
+    }
+
+    /** Response trailing metadata (after the call ends). */
+    public function trailers(): ?array
+    {
+        return $this->stream->trailers;
+    }
+
+    /** Abandon the call early: RST so the server stops producing. */
+    public function cancel(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function close(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function __destruct()
+    {
+        $this->close();
+    }
+
+    /** @return \\Generator<int, object> */
+    public function iterate(): \\Generator
+    {
+        $completed = false;
+        try {
+            while (true) {
+                yield $this->recv();
+            }
+        } catch (\\Grpcdc\\CallClosed $e) {
+            $completed = true;
+            return;
+        } finally {
+            if (!$completed) {
+                $this->close();
+            }
+        }
+    }
+}
+
+// Server-streaming sink passed to service implementations.
+class SendStream
+{
+    public \\Grpcdc\\CallContext $context;
+    private \\Grpcdc\\ResponseSink $sink;
+
+    public function __construct(\\Grpcdc\\CallContext $ctx, \\Grpcdc\\ResponseSink $sink)
+    {
+        $this->context = $ctx;
+        $this->sink = $sink;
+    }
+
+    public function send(object $resp): void
+    {
+        $this->sink->send($resp->marshalDc());
+    }
+}
+
+// Client-streaming stream passed to service implementations.
+class ClientStreamImpl
+{
+    public \\Grpcdc\\CallContext $context;
+    public ?object $resp = null;
+    private \\Grpcdc\\RequestStream $reqs;
+    private string $reqClass;
+
+    public function __construct(\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, string $reqClass)
+    {
+        $this->context = $ctx;
+        $this->reqs = $reqs;
+        $this->reqClass = $reqClass;
+    }
+
+    public function recv(): object
+    {
+        $cls = $this->reqClass;
+        return $this->reqs->recvInto(new $cls());
+    }
+
+    public function sendAndClose(object $resp): void
+    {
+        $this->resp = $resp;
+    }
+}
+
+// Bidi stream passed to service implementations.
+class BidiStream
+{
+    public \\Grpcdc\\CallContext $context;
+    private \\Grpcdc\\RequestStream $reqs;
+    private \\Grpcdc\\ResponseSink $sink;
+    private string $reqClass;
+
+    public function __construct(\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink, string $reqClass)
+    {
+        $this->context = $ctx;
+        $this->reqs = $reqs;
+        $this->sink = $sink;
+        $this->reqClass = $reqClass;
+    }
+
+    public function send(object $resp): void
+    {
+        $this->sink->send($resp->marshalDc());
+    }
+
+    public function recv(): object
+    {
+        $cls = $this->reqClass;
+        return $this->reqs->recvInto(new $cls());
+    }
+}
+
+// Fiber-based client receiving stream: a producer Fiber suspends
+// per response; next() resumes it and throws CallClosed when the
+// call completes. cancel aborts the underlying stream (RST).
+class FiberRecvStream
+{
+    /** @var \\Grpcdc\\ClientStream|\\Grpcdc\\FiberClientStream */
+    private $stream;
+    private string $respClass;
+    private ?\\Fiber $fiber = null;
+    private bool $started = false;
+    private bool $done = false;
+
+    public function __construct($stream, string $respClass)
+    {
+        $this->stream = $stream;
+        $this->respClass = $respClass;
+    }
+
+    public function next(): object
+    {
+        if ($this->done) {
+            throw new \\Grpcdc\\CallClosed("stream exhausted");
+        }
+        if (!$this->started) {
+            $this->started = true;
+            $cls = $this->respClass;
+            $stream = $this->stream;
+            $this->fiber = new \\Fiber(function () use ($stream, $cls) {
+                try {
+                    while (true) {
+                        \\Fiber::suspend($stream->recv(new $cls()));
+                    }
+                } catch (\\Grpcdc\\CallClosed $e) {
+                    return;
+                }
+            });
+            $value = $this->fiber->start();
+        } else {
+            $value = $this->fiber->resume();
+        }
+        if ($this->fiber->isTerminated()) {
+            $this->done = true;
+            throw new \\Grpcdc\\CallClosed("stream exhausted");
+        }
+        return $value;
+    }
+
+    /** @return \\Generator<int, object> */
+    public function iterate(): \\Generator
+    {
+        $completed = false;
+        try {
+            while (true) {
+                yield $this->next();
+            }
+        } catch (\\Grpcdc\\CallClosed $e) {
+            $completed = true;
+            return;
+        } finally {
+            if (!$completed) {
+                $this->close();
+            }
+        }
+    }
+
+    /** Response initial metadata (after the first recv). */
+    public function headers(): ?array
+    {
+        return $this->stream->headers?->metadata;
+    }
+
+    /** Response trailing metadata (after the call ends). */
+    public function trailers(): ?array
+    {
+        return $this->stream->trailers;
+    }
+
+    public function cancel(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function close(): void
+    {
+        $this->stream->cancel();
+    }
+
+    public function __destruct()
+    {
+        $this->close();
+    }
+}
+
+`;
 
 function emitPhpFile(model, params) {
   const base = baseName(model.name);
@@ -8333,6 +8372,10 @@ function scpDecodeSingular(model, f, target, src, indent, obj) {
 function scpOneofClearing(model, f) {
   return runSegments(SEGMENT_PROGRAMS.scPbOneofClearing, f, '', model);
 }
+const SCP_FIXED = FIXED_TABLES.scala;
+
+const SCP_VARINT = new Set(VARINT_TYPES);
+
 function scpSrc(f) {
   return SCP_VARINT.has(f.type) ? 'field.varintValue' : (SCP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
 }
@@ -8742,7 +8785,7 @@ JS
                        "function segTruthy(v) { return !(v === false || v === null || v === undefined || v === '' || v === 0); }\n\n"
                        "function segKey(k) {\n  return k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());\n}\n\n"
                        "function segCategory(model, node) {\n  const t = node.type;\n  if (t === 11 && gpResolve(model, node.typeName).kind === 'map') return 'map';\n  if (t === 11) return 'message';\n  if (VARINT_TYPES.includes(t)) return 'varint';\n  if (FIXED_TABLES.go[t]) return 'fixed';\n  if (t === 9) return 'string';\n  if (t === 12) return 'bytes';\n  return 'other';\n}\n\n"
-                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      const tmpl = Array.isArray(seg[1]) ? segEval(seg[1], env) : seg[1];\n      return tmpl.replace(/~~|~[as]/g, (tok) => {\n        if (tok === '~~') return '~';\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'root': return env.root;\n    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'lower-first': return lowerFirst(segEval(seg[1], env));\n    case 'js-name': return pbJsName(node);\n    case 'js-fixed-size': return FIXED_TABLES.js[node.type][0];\n    case 'js-fixed-name': return FIXED_TABLES.js[node.type][1];\n    case 'bigint-type': return PB_BIGINT.has(node.type);\n    case 'entry-flat': return node.kind === 'enum' ? pbFlatName(node.pkg, node.full) : pbFlatName(node.pkg, node.msg.fullName);\n    case 'resolved-flat': { const e = pbResolve(model, node.typeName); return pbFlatName(e.pkg, e.msg.fullName); }\n    case 'index': return env.index;\n    case 'parent': return env.parent;\n    case 'and': return seg.slice(1).every((e) => segTruthy(segEval(e, env)));\n    case 'or': return seg.slice(1).some((e) => segTruthy(segEval(e, env)));\n    case 'not': return !segTruthy(segEval(seg[1], env));\n    case 'any-where': { const keys = Array.isArray(seg[1]) ? seg[1] : [seg[1]]; let items = node; for (const k of keys) items = items[segKey(k)]; return items.some((el) => segTruthy(segEval(seg[2], envWith(env, { node: el })))); }\n    case 'snake-case': return snakeCase(segEval(seg[1], env));\n    case 'rs-camel': return rpCamel(segEval(seg[1], env));\n    case 'rs-field-name': return rpFieldName(node);\n    case 'rs-map-type': return rpMapType();\n    case 'rs-entry-ref': { const e = node.typeName !== undefined ? rpResolve(model, node.typeName) : node; return rpEntryRef(model, e); }\n    case 'rs-scalar-type': return SCALAR_TABLES.rust.types[node.type] ?? SCALAR_TABLES.rust.default;\n    case 'rs-fixed-size': return FIXED_TABLES.rust[node.type][0];\n    case 'rs-fixed-name': return FIXED_TABLES.rust[node.type][1];\n    case 'flat-of': return rpFlat(model.package, segEval(seg[1], env));\n    case 'rust-enum-fragment': return RP_ENUM_SHAPE[seg[1]];\n    case 'enum-first-value-name': return rpResolve(model, node.typeName).enum.values[0].name;\n    case 'enum-first-value-num': return rpResolve(model, node.typeName).enum.values[0].number;\n    case 'rb-snake': return String(segEval(seg[1], env)).replace(/[A-Z]/g, (c, i) => (i > 0 ? '_' : '') + c.toLowerCase());\n    case 'stub-ref': return rbStubRef(model, node[segKey(seg[1])]);\n    case 'rb-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? rbpResolve(model, n.typeName) : n; return rbpEntryRef(model, e); }\n    case 'rb-model-module': return rbpModuleName({ file: model.name });\n    case 'rb-fixed-size': return FIXED_TABLES.ruby[node.type][0];\n    case 'rb-fixed-fmt': return FIXED_TABLES.ruby[node.type][1];\n    case 'php-camel': return phpbCamel(segEval(seg[1], env));\n    case 'php-field-name': return phpbFieldName(node);\n    case 'php-flat-of': return phpbFlat(model.package, segEval(seg[1], env));\n    case 'php-stub-ref': return phpStubRef(model, node[segKey(seg[1])]);\n    case 'php-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? phpbResolve(model, n.typeName) : n; return phpbEntryRef(model, e); }\n    case 'php-fixed-size': return FIXED_TABLES.php[node.type][0];\n    case 'php-fixed-fmt': return FIXED_TABLES.php[node.type][1];\n    case 'py-ref': { const e = node.typeName !== undefined ? pyPbResolve(model, node.typeName) : node; return pyPbRef(model, e); }\n    case 'py-fixed-size': return FIXED_TABLES.python[node.type][0];\n    case 'py-fixed-fmt': return FIXED_TABLES.python[node.type][1];\n    case 'with-type': return Object.assign({}, segEval(seg[1], env), { type: seg[2] });\n    case 'trim-end': return String(segEval(seg[1], env)).replace(/\\n+$/, '');\n    case 'c-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntryRef(model, e); }\n    case 'c-entry-support': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntrySupport(e); }\n    case 'c-type-ref': return cbTypeRef(model, node[segKey(seg[1])]);\n    case 'c-support-of': return cbEntrySupport(cbResolve(model, node[segKey(seg[1])]));\n    case 'c-scalar-type': return SCALAR_TABLES.c.types[node.type][0];\n    case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];\n    case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];\n    case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];\n    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + '\u0000' + el.output)).size; }\n    case 'sc-field-name': return scpFieldName(node);\n    case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }\n    case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;\n    case 'sc-fixed-size': return FIXED_TABLES.scala[node.type][0];\n    case 'sc-fixed-kind': return FIXED_TABLES.scala[node.type][1];\n    case 'dart-field-name': return dtpFieldName(node);\n    case 'dart-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpEntryRef(model, e); }\n    case 'dart-type-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpTypeRef(model, e); }\n    case 'dart-scalar-type': return SCALAR_TABLES.dart.types[node.type][0];\n    case 'dart-scalar-zero': return SCALAR_TABLES.dart.types[node.type][1];\n    case 'dart-fixed-size': return FIXED_TABLES.dart[node.type][0];\n    case 'dart-fixed-name': return FIXED_TABLES.dart[node.type][1];\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
+                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      const tmpl = Array.isArray(seg[1]) ? segEval(seg[1], env) : seg[1];\n      return tmpl.replace(/~~|~[as]/g, (tok) => {\n        if (tok === '~~') return '~';\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'root': return env.root;\n    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'lower-first': return lowerFirst(segEval(seg[1], env));\n    case 'js-name': return pbJsName(node);\n    case 'js-fixed-size': return FIXED_TABLES.js[node.type][0];\n    case 'js-fixed-name': return FIXED_TABLES.js[node.type][1];\n    case 'bigint-type': return PB_BIGINT.has(node.type);\n    case 'entry-flat': return node.kind === 'enum' ? pbFlatName(node.pkg, node.full) : pbFlatName(node.pkg, node.msg.fullName);\n    case 'resolved-flat': { const e = pbResolve(model, node.typeName); return pbFlatName(e.pkg, e.msg.fullName); }\n    case 'index': return env.index;\n    case 'parent': return env.parent;\n    case 'and': return seg.slice(1).every((e) => segTruthy(segEval(e, env)));\n    case 'or': return seg.slice(1).some((e) => segTruthy(segEval(e, env)));\n    case 'not': return !segTruthy(segEval(seg[1], env));\n    case 'any-where': { const keys = Array.isArray(seg[1]) ? seg[1] : [seg[1]]; let items = node; for (const k of keys) items = items[segKey(k)]; return items.some((el) => segTruthy(segEval(seg[2], envWith(env, { node: el })))); }\n    case 'snake-case': return snakeCase(segEval(seg[1], env));\n    case 'rs-camel': return rpCamel(segEval(seg[1], env));\n    case 'rs-field-name': return rpFieldName(node);\n    case 'rs-map-type': return rpMapType();\n    case 'rs-entry-ref': { const e = node.typeName !== undefined ? rpResolve(model, node.typeName) : node; return rpEntryRef(model, e); }\n    case 'rs-scalar-type': return SCALAR_TABLES.rust.types[node.type] ?? SCALAR_TABLES.rust.default;\n    case 'rs-fixed-size': return FIXED_TABLES.rust[node.type][0];\n    case 'rs-fixed-name': return FIXED_TABLES.rust[node.type][1];\n    case 'flat-of': return rpFlat(model.package, segEval(seg[1], env));\n    case 'rust-enum-fragment': return RP_ENUM_SHAPE[seg[1]];\n    case 'enum-first-value-name': return rpResolve(model, node.typeName).enum.values[0].name;\n    case 'enum-first-value-num': return rpResolve(model, node.typeName).enum.values[0].number;\n    case 'rb-snake': return String(segEval(seg[1], env)).replace(/[A-Z]/g, (c, i) => (i > 0 ? '_' : '') + c.toLowerCase());\n    case 'stub-ref': return rbStubRef(model, node[segKey(seg[1])]);\n    case 'rb-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? rbpResolve(model, n.typeName) : n; return rbpEntryRef(model, e); }\n    case 'rb-model-module': return rbpModuleName({ file: model.name });\n    case 'rb-fixed-size': return FIXED_TABLES.ruby[node.type][0];\n    case 'rb-fixed-fmt': return FIXED_TABLES.ruby[node.type][1];\n    case 'php-camel': return phpbCamel(segEval(seg[1], env));\n    case 'php-field-name': return phpbFieldName(node);\n    case 'php-flat-of': return phpbFlat(model.package, segEval(seg[1], env));\n    case 'php-stub-ref': return phpStubRef(model, node[segKey(seg[1])]);\n    case 'php-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? phpbResolve(model, n.typeName) : n; return phpbEntryRef(model, e); }\n    case 'php-fixed-size': return FIXED_TABLES.php[node.type][0];\n    case 'php-fixed-fmt': return FIXED_TABLES.php[node.type][1];\n    case 'py-ref': { const e = node.typeName !== undefined ? pyPbResolve(model, node.typeName) : node; return pyPbRef(model, e); }\n    case 'py-fixed-size': return FIXED_TABLES.python[node.type][0];\n    case 'py-fixed-fmt': return FIXED_TABLES.python[node.type][1];\n    case 'with-type': return Object.assign({}, segEval(seg[1], env), { type: seg[2] });\n    case 'trim-end': return String(segEval(seg[1], env)).replace(/\\n+$/, '');\n    case 'c-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntryRef(model, e); }\n    case 'c-entry-support': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntrySupport(e); }\n    case 'c-type-ref': return cbTypeRef(model, node[segKey(seg[1])]);\n    case 'c-support-of': return cbEntrySupport(cbResolve(model, node[segKey(seg[1])]));\n    case 'c-scalar-type': return SCALAR_TABLES.c.types[node.type][0];\n    case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];\n    case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];\n    case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];\n    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + '\u0000' + el.output)).size; }\n    case 'sc-field-name': return scpFieldName(node);\n    case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }\n    case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;\n    case 'sc-fixed-size': return FIXED_TABLES.scala[node.type][0];\n    case 'sc-fixed-kind': return FIXED_TABLES.scala[node.type][1];\n    case 'dart-field-name': return dtpFieldName(node);\n    case 'dart-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpEntryRef(model, e); }\n    case 'dart-type-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpTypeRef(model, e); }\n    case 'dart-scalar-type': return SCALAR_TABLES.dart.types[node.type][0];\n    case 'dart-scalar-zero': return SCALAR_TABLES.dart.types[node.type][1];\n    case 'dart-fixed-size': return FIXED_TABLES.dart[node.type][0];\n    case 'dart-fixed-name': return FIXED_TABLES.dart[node.type][1];\n    case 'swift-field-name': return swpFieldName(node);\n    case 'swift-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpEntryRef(model, e); }\n    case 'swift-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpMapHelperName(model, e); }\n    case 'swift-scalar-type': return SCALAR_TABLES.swift.types[node.type][0];\n    case 'swift-scalar-zero': return SCALAR_TABLES.swift.types[node.type][1];\n    case 'swift-fixed-size': return FIXED_TABLES.swift[node.type][0];\n    case 'swift-fixed-name': return FIXED_TABLES.swift[node.type][1];\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
                        "function runSegment(seg, env) {\n  const node = env.node;\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'if': {\n      const thenPart = seg.slice(2).find((g) => g[0] === 'then');\n      const elsePart = seg.slice(2).find((g) => g[0] === 'else');\n      if (segTruthy(segEval(seg[1], env))) return runEnv(thenPart.slice(1), env);\n      return elsePart ? runEnv(elsePart.slice(1), env) : '';\n    }\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind || (Array.isArray(b[0]) && b[0].includes(node.kind))) || seg.slice(1).find((b) => b[0] === 'else');\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runEnv(branch.slice(1), env);\n    }\n    case 'case-on': {\n      const val = segEval(seg[1], env);\n      const raw = seg.slice(2);\n      const isKey = (b) => Array.isArray(b) && (Array.isArray(b[0]) || typeof b[0] === 'number' || typeof b[0] === 'string');\n      let branches;\n      if (raw.length === 1 && Array.isArray(raw[0]) && raw[0].every(isKey)) branches = raw[0];\n      else branches = raw.map((b) => (Array.isArray(b) && b.length === 1 && Array.isArray(b[0])) ? b[0] : b);\n      const keysOf = (b) => (Array.isArray(b[0]) ? b[0] : [b[0]]);\n      const branch = branches.find((b) => keysOf(b).includes('else') || keysOf(b).map(String).includes(String(val)));\n      return branch ? runEnv(branch.slice(1), env) : '';\n    }\n    case 'when':\n      return segTruthy(segEval(seg[1], env)) ? runEnv(seg.slice(2), env) : '';\n    case 'guarded': {\n      const text = runEnv(seg.slice(4), env);\n      const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(' || ');\n      if (!cond) return text;\n      return seg[2].split('~a').join(cond) + (text.endsWith('\\n') ? text : text + '\\n') + seg[3];\n    }\n    case 'fail':\n      throw new Error('unsupported field type ' + node.type);\n    case 'each': {\n      let i = 1; const keys = [];\n      while (typeof seg[i] === 'string') { keys.push(seg[i]); i++; }\n      let items = node;\n      for (const k of keys) items = items[segKey(k)];\n      let out = '';\n      items.forEach((el, ix) => { out += runEnv(seg.slice(i), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'each+': {\n      const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      let out = '';\n      all.forEach((el, ix) => { out += runEnv(seg.slice(3), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'guarded-indent': {
       const text = runEnv(seg.slice(4), env);
       const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(' or ');
