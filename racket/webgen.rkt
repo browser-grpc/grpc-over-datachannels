@@ -5008,175 +5008,23 @@ JS
 
 let kotlinWasmMode = false;
 
-function kotlinDeprecated(m, indent) {
-  return m.deprecated ? indent + '@Deprecated("deprecated in the proto schema")\n' : '';
-}
 
-function kotlinClientMethodRaw(m, svc) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '        fun ' + m.name + '(req: ' + m.input + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ' + m.output + ' {\n'
-        + '            val resp = ' + m.output + '()\n'
-        + '            channel.unary(' + path + ', req, resp, metadata, timeout)\n'
-        + '            return resp\n        }\n\n';
-    case 'server-streaming':
-      return '        fun ' + m.name + '(req: ' + m.input + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ' + svc + m.name + 'Stream {\n'
-        + '            return ' + svc + m.name + 'Stream(channel.serverStream(' + path + ', req, metadata, timeout))\n        }\n\n';
-    case 'client-streaming':
-      return '        fun ' + m.name + '(reqs: List<' + m.input + '>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ' + m.output + ' {\n'
-        + '            val resp = ' + m.output + '()\n'
-        + '            channel.clientStreamCall(' + path + ', reqs, resp, metadata, timeout)\n'
-        + '            return resp\n        }\n\n';
-    default:
-      return '        fun ' + m.name + '(reqs: List<' + m.input + '>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ' + svc + m.name + 'Stream {\n'
-        + '            return ' + svc + m.name + 'Stream(channel.bidi(' + path + ', reqs, metadata, timeout))\n        }\n\n';
-  }
-}
 
-function kotlinClientStreamClass(m, svc) {
-  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
-  return '        class ' + svc + m.name + 'Stream(private val stream: Channel.ClientStream) : AutoCloseable {\n'
-    + '            fun recv(): ' + m.output + ' {\n'
-    + '                val resp = ' + m.output + '()\n'
-    + '                stream.recv(resp)\n                return resp\n            }\n\n'
-    + '            /** Initial metadata (response headers); null until they arrive. */\n'
-    + '            fun headers(): Map<String, String>? = stream.headers?.metadata\n\n'
-    + '            /** Trailing metadata of the terminal status; null until it arrives. */\n'
-    + '            fun trailers(): Map<String, String>? = stream.trailers\n\n'
-    + '            /** Abort this stream (sends RST, wakes a pending recv). */\n'
-    + '            fun cancel() = stream.cancel()\n\n'
-    + '            /** Abandon the call if still live (RST); no-op once terminated. */\n'
-    + '            override fun close() = stream.close()\n        }\n\n';
-}
 
-function kotlinClientAsyncMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        suspend fun ' + m.name + 'Async(req: ' + m.input + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ' + m.output + ' {\n'
-        + '            return AsyncPump.await(' + m.name + 'Future(req, metadata, timeout))\n        }\n\n'
-        + '        fun ' + m.name + 'Future(req: ' + m.input + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<' + m.output + '> {\n'
-        + '            return AsyncPump.future { ' + m.name + '(req, metadata, timeout) }\n        }\n\n';
-    case 'server-streaming':
-    case 'bidi': {
-      const reqsSig = m.kind === 'bidi' ? 'reqs: List<' + m.input + '>' : 'req: ' + m.input;
-      const callArgs = m.kind === 'bidi' ? 'reqs' : 'req';
-      return '        suspend fun ' + m.name + 'Async(' + reqsSig + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): List<' + m.output + '> {\n'
-        + '            return AsyncPump.await(' + m.name + 'Future(' + callArgs + ', metadata, timeout))\n        }\n\n'
-        + '        fun ' + m.name + 'Future(' + reqsSig + ', metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<List<' + m.output + '>> {\n'
-        + '            val stream = ' + m.name + '(' + callArgs + ', metadata, timeout)\n'
-        + '            return AsyncPump.future(onCancel = { stream.cancel() }) {\n'
-        + '                val out = ArrayList<' + m.output + '>()\n'
-        + '                while (true) {\n'
-        + '                    try {\n                        out.add(stream.recv())\n'
-        + '                    } catch (e: EOFException) {\n                        break\n                    }\n                }\n'
-        + '                out\n            }\n        }\n\n';
-    }
-    default:
-      return '        suspend fun ' + m.name + 'Async(reqs: List<' + m.input + '>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ' + m.output + ' {\n'
-        + '            return AsyncPump.await(' + m.name + 'Future(reqs, metadata, timeout))\n        }\n\n'
-        + '        fun ' + m.name + 'Future(reqs: List<' + m.input + '>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<' + m.output + '> {\n'
-        + '            return AsyncPump.future { ' + m.name + '(reqs, metadata, timeout) }\n        }\n\n';
-  }
-}
 
-function kotlinServerStreamIface(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return '    /** Server-streaming sink passed to service implementations. */\n'
-        + '    interface ' + svc + m.name + 'Server {\n'
-        + '        fun send(resp: ' + m.output + ')\n'
-        + '        val context: Endpoint.CallContext\n    }\n\n';
-    case 'client-streaming':
-      return '    /** Client-streaming stream passed to service implementations. */\n'
-        + '    interface ' + svc + m.name + 'Server {\n'
-        + '        fun recv(): ' + m.input + '\n'
-        + '        fun sendAndClose(resp: ' + m.output + ')\n'
-        + '        val context: Endpoint.CallContext\n    }\n\n';
-    default:
-      return '    /** Bidi stream passed to service implementations. */\n'
-        + '    interface ' + svc + m.name + 'Server {\n'
-        + '        fun send(resp: ' + m.output + ')\n'
-        + '        fun recv(): ' + m.input + '\n'
-        + '        val context: Endpoint.CallContext\n    }\n\n';
-  }
-}
 
-function kotlinServerIfaceMethodRaw(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        fun ' + m.name + '(ctx: Endpoint.CallContext, req: ' + m.input + '): ' + m.output + '\n';
-    case 'server-streaming':
-      return '        fun ' + m.name + '(req: ' + m.input + ', stream: ' + svc + m.name + 'Server)\n';
-    default:
-      return '        fun ' + m.name + '(stream: ' + svc + m.name + 'Server)\n';
-  }
-}
 
-function kotlinServerAsyncIfaceMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        suspend fun ' + m.name + 'Async(ctx: Endpoint.CallContext, req: ' + m.input + '): ' + m.output + '\n';
-    case 'server-streaming':
-      return '        suspend fun ' + m.name + 'Async(req: ' + m.input + ', stream: ' + svc + m.name + 'Server)\n';
-    default:
-      return '        suspend fun ' + m.name + 'Async(stream: ' + svc + m.name + 'Server)\n';
-  }
-}
 
-function kotlinServerAsyncAdapterMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        override fun ' + m.name + '(ctx: Endpoint.CallContext, req: ' + m.input + '): ' + m.output + ' {\n'
-        + '            return AsyncPump.runSuspend { impl.' + m.name + 'Async(ctx, req) }\n        }\n\n';
-    case 'server-streaming':
-      return '        override fun ' + m.name + '(req: ' + m.input + ', stream: ' + svc + m.name + 'Server) {\n'
-        + '            AsyncPump.runSuspend { impl.' + m.name + 'Async(req, stream) }\n        }\n\n';
-    default:
-      return '        override fun ' + m.name + '(stream: ' + svc + m.name + 'Server) {\n'
-        + '            AsyncPump.runSuspend { impl.' + m.name + 'Async(stream) }\n        }\n\n';
-  }
-}
 
-function kotlinStreamImpl(m, svc) {
-  const head = '    private class ' + svc + m.name + 'ServerImpl(\n';
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return head
-        + '        override val context: Endpoint.CallContext,\n'
-        + '        private val sink: Server.ServerSink\n'
-        + '    ) : ' + svc + m.name + 'Server {\n'
-        + '        override fun send(resp: ' + m.output + ') {\n'
-        + '            sink.send(resp.marshalDc())\n        }\n    }\n\n';
-    case 'client-streaming':
-      return head
-        + '        override val context: Endpoint.CallContext,\n'
-        + '        private val reqs: Server.RequestStream\n'
-        + '    ) : ' + svc + m.name + 'Server {\n'
-        + '        var resp: ' + m.output + '? = null\n'
-        + '            private set\n\n'
-        + '        override fun recv(): ' + m.input + ' {\n'
-        + '            val req = ' + m.input + '()\n'
-        + '            reqs.recvInto(req)\n            return req\n        }\n\n'
-        + '        override fun sendAndClose(resp: ' + m.output + ') {\n'
-        + '            this.resp = resp\n        }\n    }\n\n';
-    default:
-      return head
-        + '        override val context: Endpoint.CallContext,\n'
-        + '        private val reqs: Server.RequestStream,\n'
-        + '        private val sink: Server.ServerSink\n'
-        + '    ) : ' + svc + m.name + 'Server {\n'
-        + '        override fun send(resp: ' + m.output + ') {\n'
-        + '            sink.send(resp.marshalDc())\n        }\n\n'
-        + '        override fun recv(): ' + m.input + ' {\n'
-        + '            val req = ' + m.input + '()\n'
-        + '            reqs.recvInto(req)\n            return req\n        }\n    }\n\n';
-  }
-}
+
+
+
+
+
+
+
+
+
 
 const KOTLIN_KIND_CONSTS = {
   unary: 'KIND_UNARY',
@@ -5185,77 +5033,10 @@ const KOTLIN_KIND_CONSTS = {
   bidi: 'KIND_BIDI',
 };
 
-function kotlinRegisterMethod(m, svc) {
-  const impl = m.implName;
-  const head = '                    Server.Method(' + q(m.name) + ', ' + q(m.path) + ', Server.' + KOTLIN_KIND_CONSTS[m.kind] + ') { ctx, reqs, sink ->\n';
-  switch (m.kind) {
-    case 'unary':
-      return head
-        + '                        val req = ' + m.input + '()\n'
-        + '                        reqs.recvInto(req)\n'
-        + '                        sink.send(impl.' + impl + '(ctx, req).marshalDc())\n                    },\n';
-    case 'server-streaming':
-      return head
-        + '                        val req = ' + m.input + '()\n'
-        + '                        reqs.recvInto(req)\n'
-        + '                        impl.' + impl + '(req, ' + svc + m.name + 'ServerImpl(ctx, sink))\n                    },\n';
-    case 'client-streaming':
-      return head
-        + '                        val stream = ' + svc + m.name + 'ServerImpl(ctx, reqs)\n'
-        + '                        impl.' + impl + '(stream)\n'
-        + '                        val resp = stream.resp\n'
-        + '                            ?: throw StatusException(\n'
-        + '                                Wire.CODE_INTERNAL,\n'
-        + '                                "client-streaming handler never called sendAndClose"\n'
-        + '                            )\n'
-        + '                        sink.send(resp.marshalDc())\n                    },\n';
-    default:
-      return head
-        + '                        impl.' + impl + '(' + svc + m.name + 'ServerImpl(ctx, reqs, sink))\n                    },\n';
-  }
-}
+
 
 function kotlinService(svc) {
-  const sname = svc.name;
-  const all = svc.methods.concat(aliasClientMethods(svc));
-  let regs = svc.methods.concat(aliasServerMethods(svc)).map((m) => kotlinRegisterMethod(m, sname)).join('');
-  if (regs.endsWith(',\n')) regs = regs.slice(0, regs.length - 2) + '\n';
-  return '    /** Client for ' + svc.fullName + '. */\n'
-    + '    class ' + sname + 'Client(private val channel: Channel) {\n'
-    + svc.methods.map((m) => kotlinClientStreamClass(m, sname)).join('')
-    + all.map((m) => kotlinDeprecated(m, '        ') + kotlinClientMethodRaw(m, sname)).join('')
-    + (kotlinWasmMode ? '' : '        // -- async (coroutine / CompletableFuture) surface ---------------\n\n'
-      + all.map((m) => kotlinClientAsyncMethod(m, sname)).join(''))
-    + '    }\n\n'
-    + svc.methods.map((m) => kotlinServerStreamIface(m, sname)).join('')
-    + '    /** Service implementation interface for ' + svc.fullName + '. */\n'
-    + '    interface ' + sname + 'Server {\n'
-    + svc.methods.map((m) => kotlinDeprecated(m, '        ') + kotlinServerIfaceMethodRaw(m, sname)).join('')
-    + '    }\n\n'
-    + (kotlinWasmMode ? '' : '    /** Async service implementation interface for ' + svc.fullName + '. */\n'
-      + '    interface ' + sname + 'ServerAsync {\n'
-      + svc.methods.map((m) => kotlinServerAsyncIfaceMethod(m, sname)).join('')
-      + '    }\n\n')
-    + svc.methods.map((m) => kotlinStreamImpl(m, sname)).join('')
-    + (kotlinWasmMode ? '' : '    private class ' + sname + 'ServerAsyncAdapter(private val impl: ' + sname + 'ServerAsync) : ' + sname + 'Server {\n'
-      + svc.methods.map((m) => kotlinServerAsyncAdapterMethod(m, sname)).join('')
-      + '    }\n\n')
-    + '    /** Register an implementation of ' + svc.fullName + ' on a Server. */\n'
-    + '    fun register' + sname + 'Server(server: Server, impl: ' + sname + 'Server) {\n'
-    + '        server.registerService(\n'
-    + '            Server.ServiceDesc(\n'
-    + '                ' + q(svc.fullName) + ',\n'
-    + '                listOf(\n'
-    + regs
-    + '                )\n            )\n        )\n    }\n\n'
-    + (kotlinWasmMode ? '' : '    /** Register an async implementation of ' + svc.fullName + ' on a Server. */\n'
-    + '    fun register' + sname + 'ServerAsync(server: Server, impl: ' + sname + 'ServerAsync) {\n'
-    + '        // Adapters are retained for the process lifetime: registration is\n'
-    + '        // once-per-process and bounded by service count.\n'
-    + '        val adapter = ' + sname + 'ServerAsyncAdapter(impl)\n'
-    + '        ' + lowerFirst(sname) + 'Adapters.add(adapter)\n'
-    + '        register' + sname + 'Server(server, adapter)\n    }\n\n'
-    + '    private val ' + lowerFirst(sname) + 'Adapters = ArrayList<' + sname + 'ServerAsyncAdapter>()\n');
+  return runSegments(SEGMENT_PROGRAMS.kotlinService, svc, svc.name);
 }
 
 
@@ -5301,302 +5082,42 @@ function kpEntryRef(model, entry) {
   return entry.pkg === '' ? rel : entry.pkg + '.' + rel;
 }
 
-function kpScalar(f) {
-  // Leaf payloads single-sourced from scalar-type-tables
-  // in spec.rkt (SCALAR_TABLES), same table the native
-  // template derives from.
-  return SCALAR_TABLES.kotlin.types[f.type] ?? SCALAR_TABLES.kotlin.default;
-}
 
-function kpType(model, f) {
-  let singular;
-  if (f.type === FT.MESSAGE) {
-    const entry = kpResolve(model, f.typeName);
-    if (entry.kind === 'map') {
-      const kf = entry.msg.fields.find((x) => x.number === 1);
-      const vf = entry.msg.fields.find((x) => x.number === 2);
-      singular = 'MutableMap<' + kpType(model, { ...kf, label: 1 }) + ', '
-        + (vf.type === FT.MESSAGE
-          ? kpEntryRef(model, kpResolve(model, vf.typeName))
-          : kpType(model, { ...vf, label: 1 })) + '>';
-    } else {
-      singular = kpEntryRef(model, entry) + '?';
-    }
-  } else if (f.type === FT.ENUM) {
-    singular = kpEntryRef(model, kpResolve(model, f.typeName));
-  } else {
-    singular = kpScalar(f)[0];
-  }
-  if (f.type === FT.MESSAGE && kpResolve(model, f.typeName).kind === 'map') return singular;
-  if (f.label === 3) {
-    return 'MutableList<' + (f.type === FT.MESSAGE
-      ? kpEntryRef(model, kpResolve(model, f.typeName))
-      : kpType(model, { ...f, label: 1 })) + '>';
-  }
-  return singular;
-}
 
-function kpExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case 9: return JSON.stringify(d);
-    case 8: return d;
-    case 14: return kpEntryRef(model, kpResolve(model, f.typeName)) + '.' + d;
-    case 2: return d + 'f';
-    default: return d;
-  }
-}
 
-function kpDefault(model, f) {
-  const lit = kpExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.type === FT.MESSAGE && kpResolve(model, f.typeName).kind === 'map') return 'mutableMapOf()';
-  if (f.label === 3) return 'mutableListOf()';
-  if (f.type === FT.MESSAGE) return 'null';
-  if (f.type === FT.ENUM) {
-    const entry = kpResolve(model, f.typeName);
-    return kpEntryRef(model, entry) + '.' + entry.enum.values[0].name;
-  }
-  return kpScalar(f)[1];
-}
 
-function kpVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return 'if (' + v + ') 1L else 0L';
-    case 17: return '(((' + v + ' shl 1) xor (' + v + ' shr 31)).toLong() and 0xffffffffL)';
-    case 18: return '((' + v + ' shl 1) xor (' + v + ' shr 63))';
-    case 14: return v + '.number.toLong()';
-    case 5: return v + '.toLong()';
-    case 13: case 7: return v + '.toLong()';
-    case 3: return v;
-    default: return v + '.toLong()';
-  }
-}
 
-function kpVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: return v + '.toInt()';
-    case 13: case 7: return v + '.toUInt()';
-    case 3: return v;
-    case 4: case 6: return v + '.toULong()';
-    case 8: return v + ' != 0L';
-    case 17: return '(((' + v + ' shr 1) xor -(' + v + ' and 1L)).toInt())';
-    case 18: return '((' + v + ' shr 1) xor -(' + v + ' and 1L))';
-    default: throw new Error('not a varint type');
-  }
-}
 
-function kpNonzero(f, v) {
-  switch (f.type) {
-    case 8: return v;
-    case 14: return v + '.number != 0';
-    default: return v + ' != ' + kpScalar(f)[1];
-  }
-}
 
-function kpEncodeSingular(model, f, v, indent) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (KT_VARINT.has(f.type)) {
-    return proto2
-      ? indent + '{ w.tag(' + n + ', 0); w.varint(' + kpVarintExpr(f, v) + ') }\n'
-      : indent + 'if (' + kpNonzero(f, v) + ') { w.tag(' + n + ', 0); w.varint(' + kpVarintExpr(f, v) + ') }\n';
-  }
-  const fixed = KT_FIXED[f.type];
-  if (fixed) {
-    const wire = fixed[0] === 8 ? 1 : 5;
-    return proto2
-      ? indent + '{ w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + v + ') }\n'
-      : indent + 'if (' + kpNonzero(f, v) + ') { w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + v + ') }\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + 'w.bytesField(' + n + ', ' + v + '.toByteArray(Charsets.UTF_8))\n'
-      : indent + 'w.stringField(' + n + ', ' + v + ')\n';
-    case 12: return proto2
-      ? indent + 'w.bytesField(' + n + ', ' + v + ')\n'
-      : indent + 'if (' + v + '.isNotEmpty()) w.bytesField(' + n + ', ' + v + ')\n';
-    case 11: return indent + v + '?.let { w.bytesField(' + n + ', it.marshalDc()) }\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
-}
 
-function kpSetExpr(sib) {
-  const v = kpFieldName(sib);
-  switch (sib.type) {
-    case 11: case 10: return v + ' != null';
-    case 9: case 12: return v + '.isNotEmpty()';
-    default: return kpNonzero(sib, v);
-  }
-}
 
-function kpEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '        if (!(' + later.map(kpSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
-}
 
-function kpEncodeField(model, f, support) {
-  const v = kpFieldName(f);
-  const n = f.number;
-  if (f.type === FT.MESSAGE && kpResolve(model, f.typeName).kind === 'map') {
-    const entry = kpResolve(model, f.typeName);
-    const helper = support + '.' + kpMapHelperName(model, entry) + 'Encode';
-    return '        for (e in ' + v + ') w.bytesField(' + n + ', ' + helper + '(e.key, e.value))\n';
-  }
-  if (f.label !== 3) return kpEncodeSingular(model, f, v, '        ');
-  if (KT_VARINT.has(f.type)) {
-    return '        if (' + v + '.isNotEmpty()) {\n'
-      + '            val payload = ' + support + '.Writer()\n'
-      + '            for (x in ' + v + ') payload.varint(' + kpVarintExpr(f, 'x') + ')\n'
-      + '            w.bytesField(' + n + ', payload.toBytes())\n        }\n';
-  }
-  const fixed = KT_FIXED[f.type];
-  if (fixed) {
-    return '        if (' + v + '.isNotEmpty()) {\n'
-      + '            val payload = ' + support + '.Writer()\n'
-      + '            for (x in ' + v + ') payload.fixed' + fixed[1] + '(x)\n'
-      + '            w.bytesField(' + n + ', payload.toBytes())\n        }\n';
-  }
-  switch (f.type) {
-    case 9: return '        for (x in ' + v + ') w.bytesField(' + n + ', x.toByteArray(Charsets.UTF_8))\n';
-    case 12: return '        for (x in ' + v + ') w.bytesField(' + n + ', x)\n';
-    case 11: return '        for (x in ' + v + ') w.bytesField(' + n + ', x.marshalDc())\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
-}
 
-function kpDecodeSingular(model, f, target, src, indent, support) {
-  if (KT_VARINT.has(f.type)) {
-    return indent + target + ' = ' + (f.type === 14
-      ? kpEntryRef(model, kpResolve(model, f.typeName)) + '.fromNumber(' + kpVarintDecode({ ...f, type: 5 }, src) + ')'
-      : kpVarintDecode(f, src)) + '\n';
-  }
-  if (KT_FIXED[f.type]) {
-    let conv;
-    switch (f.type) {
-      case 2: conv = support + '.bitsToFloat(' + src + '.toUInt())'; break;
-      case 1: conv = support + '.bitsToDouble(' + src + '.toULong())'; break;
-      case 7: conv = src + '.toUInt()'; break;
-      case 15: conv = src + '.toInt()'; break;
-      case 6: conv = src + '.toULong()'; break;
-      default: conv = src;
-    }
-    return indent + target + ' = ' + conv + '\n';
-  }
-  switch (f.type) {
-    case 9: return indent + target + ' = String(' + src + ', Charsets.UTF_8)\n';
-    case 12: return indent + target + ' = ' + src + '\n';
-    case 11: {
-      const ref = kpEntryRef(model, kpResolve(model, f.typeName));
-      return indent + target + ' = ' + ref + '()\n' + indent + target + '!!.unmarshalDc(' + src + ')\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type);
-  }
-}
 
-function kpOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => '                    ' + kpFieldName(sib) + ' = ' + kpDefault(model, sib) + '\n').join('');
-}
 
-function kpSrc(f) {
-  return KT_VARINT.has(f.type) ? 'field.varintValue' : (KT_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
-}
 
-function kpDecodeCase(model, f, support) {
-  const v = kpFieldName(f);
-  const head = '                ' + f.number + ' -> {\n';
-  const tail = '                }\n';
-  const clearing = kpOneofClearing(model, f);
-  if (f.type === FT.MESSAGE && kpResolve(model, f.typeName).kind === 'map') {
-    const entry = kpResolve(model, f.typeName);
-    const helper = support + '.' + kpMapHelperName(model, entry) + 'Decode';
-    return head
-      + '                    val kv = ' + helper + '(field.bytesValue)\n'
-      + '                    ' + v + '[kv.first] = kv.second\n'
-      + tail;
-  }
-  if (f.label !== 3) {
-    return head + clearing + kpDecodeSingular(model, f, v, kpSrc(f), '                    ', support) + tail;
-  }
-  if (KT_VARINT.has(f.type)) {
-    const conv = (src) => f.type === 14
-      ? kpEntryRef(model, kpResolve(model, f.typeName)) + '.fromNumber(' + kpVarintDecode({ ...f, type: 5 }, src) + ')'
-      : kpVarintDecode(f, src);
-    return head
-      + '                    if (field.wire == 2) {\n'
-      + '                        val sub = ' + support + '.Reader(field.bytesValue)\n'
-      + '                        while (!sub.done()) {\n'
-      + '                            ' + v + '.add(' + conv('sub.varint()') + ')\n'
-      + '                        }\n                    } else {\n'
-      + '                        ' + v + '.add(' + conv('field.varintValue') + ')\n'
-      + '                    }\n'
-      + tail;
-  }
-  const fixed = KT_FIXED[f.type];
-  if (fixed) {
-    const subConv = f.type === 2 ? support + '.bitsToFloat(sub.fixed32())'
-      : f.type === 1 ? support + '.bitsToDouble(sub.fixed64())'
-      : f.type === 7 ? 'sub.fixed32()'
-      : f.type === 15 ? 'sub.fixed32().toInt()' : 'sub.fixed64()';
-    const oneConv = f.type === 2 ? support + '.bitsToFloat(field.fixedValue.toUInt())'
-      : f.type === 1 ? support + '.bitsToDouble(field.fixedValue.toULong())'
-      : f.type === 7 ? 'field.fixedValue.toUInt()'
-      : f.type === 15 ? 'field.fixedValue.toInt()'
-      : f.type === 6 ? 'field.fixedValue.toULong()' : 'field.fixedValue';
-    return head
-      + '                    if (field.wire == 2) {\n'
-      + '                        val sub = ' + support + '.Reader(field.bytesValue)\n'
-      + '                        while (!sub.done()) ' + v + '.add(' + subConv + ')\n'
-      + '                    } else {\n'
-      + '                        ' + v + '.add(' + oneConv + ')\n'
-      + '                    }\n'
-      + tail;
-  }
-  switch (f.type) {
-    case 9: return head + '                    ' + v + '.add(String(field.bytesValue, Charsets.UTF_8))\n' + tail;
-    case 12: return head + '                    ' + v + '.add(field.bytesValue)\n' + tail;
-    case 11: return head
-      + '                    val item = ' + kpEntryRef(model, kpResolve(model, f.typeName)) + '()\n'
-      + '                    item.unmarshalDc(field.bytesValue)\n'
-      + '                    ' + v + '.add(item)\n'
-      + tail;
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function kpMapHelperName(model, entry) {
   return kpRel(entry.pkg, entry.msg.fullName).split('.').join('');
 }
 
 function kpMapHelpers(model, entry, support) {
-  const msg = entry.msg;
-  const base = kpMapHelperName(model, entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry lacks key/value');
-  const kt = kpType(model, { ...keyF, label: 1 });
-  const vt = kpType(model, { ...valF, label: 1 });
-  const vtPlain = (valF.type === FT.MESSAGE && kpResolve(model, valF.typeName).kind !== 'map')
-    ? kpEntryRef(model, kpResolve(model, valF.typeName))
-    : vt;
-  return '    fun ' + base + 'Encode(key: ' + kt + ', value: ' + vtPlain + '): ByteArray {\n'
-    + '        val w = Writer()\n'
-    + kpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '        ')
-    + (valF.type === FT.MESSAGE
-      ? '        w.bytesField(' + valF.number + ', value.marshalDc())\n'
-      : kpEncodeSingular(model, { ...valF, label: 1 }, 'value', '        '))
-    + '        return w.toBytes()\n    }\n\n'
-    + '    fun ' + base + 'Decode(bytes: ByteArray): Pair<' + kt + ', ' + vtPlain + '> {\n'
-    + '        var key: ' + kt + ' = ' + kpDefault(model, { ...keyF, label: 1 }) + '\n'
-    + '        var value: ' + vtPlain + ' = ' + (valF.type === FT.MESSAGE ? vtPlain + '()' : kpDefault(model, { ...valF, label: 1 })) + '\n'
-    + '        val r = Reader(bytes)\n        while (true) {\n            val field = r.next() ?: break\n            when (field.number) {\n'
-    + '                ' + keyF.number + ' -> ' + kpDecodeSingular(model, { ...keyF, label: 1 }, 'key', kpSrc(keyF), '', support).replace(/\s+$/, '') + '\n'
-    + '                ' + valF.number + ' -> ' + (valF.type === FT.MESSAGE
-      ? 'value.unmarshalDc(field.bytesValue)'
-      : kpDecodeSingular(model, { ...valF, label: 1 }, 'value', kpSrc(valF), '', support).replace(/\s+$/, '')) + '\n'
-    + '                else -> {}\n            }\n        }\n        return Pair(key, value)\n    }\n\n';
+  return runSegments(SEGMENT_PROGRAMS.ktPbMapHelpers, entry, null, model, [support]);
 }
 
 function kpSupport(base, pkg, helpers) {
@@ -5667,36 +5188,10 @@ function kpTopEnum(e) {
     + '\n';
 }
 
-function kpNestedEnum(e, indent) {
-  return indent + 'enum class ' + e.name + '(val number: Int) {\n'
-    + kpEnumBody(e, indent);
-}
+
 
 function kpMessageClass(model, msg, support, indent, decl) {
-  const name = msg.name;
-  return indent + decl + ' class ' + name + '(\n'
-    + msg.fields.map((f) => indent + '    var ' + kpFieldName(f) + ': ' + kpType(model, f) + ' = ' + kpDefault(model, f)).join(',\n')
-    + (msg.fields.length ? ',' : '')
-    + '\n' + indent + ') : Marshaler, Unmarshaler {\n'
-    + indent + '    var unknownFields: ByteArray = ByteArray(0)\n'
-    + indent + '    override fun marshalDc(): ByteArray {\n'
-    + indent + '        val w = ' + support + '.Writer()\n'
-    + msg.fields.map((f) => kpEncodeGuard(model, f, kpEncodeField(model, f, support))).join('')
-    + indent + '        w.raw(unknownFields)\n'
-    + indent + '        return w.toBytes()\n' + indent + '    }\n'
-    + indent + '    override fun unmarshalDc(data: ByteArray) {\n'
-    + indent + '        unknownFields = ByteArray(0)\n'
-    + msg.fields.map((f) => indent + '        ' + kpFieldName(f) + ' = ' + kpDefault(model, f) + '\n').join('')
-    + indent + '        val r = ' + support + '.Reader(data)\n'
-    + indent + '        while (true) {\n'
-    + indent + '            val field = r.next() ?: break\n'
-    + indent + '            when (field.number) {\n'
-    + msg.fields.map((f) => kpDecodeCase(model, f, support)).join('')
-    + indent + '                else -> { unknownFields = unknownFields + field.rawValue }\n'
-    + indent + '            }\n' + indent + '        }\n' + indent + '    }\n'
-    + msg.nested.map((n) => kpMessageClass(model, n, support, indent + '    ', '')).join('')
-    + msg.enums.map((e) => kpNestedEnum(e, indent + '    ')).join('')
-    + indent + '}\n';
+  return runSegments(SEGMENT_PROGRAMS.ktPbMessage, msg, null, model, [support, indent, decl]);
 }
 
 function emitKotlinPbFile(model) {
@@ -7959,8 +7454,8 @@ JS
                        "function segTruthy(v) { return !(v === false || v === null || v === undefined || v === '' || v === 0); }\n\n"
                        "function segKey(k) {\n  return k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());\n}\n\n"
                        "function segCategory(model, node) {\n  const t = node.type;\n  if (t === 11 && gpResolve(model, node.typeName).kind === 'map') return 'map';\n  if (t === 11) return 'message';\n  if (VARINT_TYPES.includes(t)) return 'varint';\n  if (FIXED_TABLES.go[t]) return 'fixed';\n  if (t === 9) return 'string';\n  if (t === 12) return 'bytes';\n  return 'other';\n}\n\n"
-                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      const tmpl = Array.isArray(seg[1]) ? segEval(seg[1], env) : seg[1];\n      return tmpl.replace(/~~|~[as]/g, (tok) => {\n        if (tok === '~~') return '~';\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'root': return env.root;\n    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'lower-first': return lowerFirst(segEval(seg[1], env));\n    case 'js-name': return pbJsName(node);\n    case 'js-fixed-size': return FIXED_TABLES.js[node.type][0];\n    case 'js-fixed-name': return FIXED_TABLES.js[node.type][1];\n    case 'bigint-type': return PB_BIGINT.has(node.type);\n    case 'entry-flat': return node.kind === 'enum' ? pbFlatName(node.pkg, node.full) : pbFlatName(node.pkg, node.msg.fullName);\n    case 'resolved-flat': { const e = pbResolve(model, node.typeName); return pbFlatName(e.pkg, e.msg.fullName); }\n    case 'index': return env.index;\n    case 'parent': return env.parent;\n    case 'and': return seg.slice(1).every((e) => segTruthy(segEval(e, env)));\n    case 'or': return seg.slice(1).some((e) => segTruthy(segEval(e, env)));\n    case 'not': return !segTruthy(segEval(seg[1], env));\n    case 'any-where': { const keys = Array.isArray(seg[1]) ? seg[1] : [seg[1]]; let items = node; for (const k of keys) items = items[segKey(k)]; return items.some((el) => segTruthy(segEval(seg[2], envWith(env, { node: el })))); }\n    case 'snake-case': return snakeCase(segEval(seg[1], env));\n    case 'rs-camel': return rpCamel(segEval(seg[1], env));\n    case 'rs-field-name': return rpFieldName(node);\n    case 'rs-map-type': return rpMapType();\n    case 'rs-entry-ref': { const e = node.typeName !== undefined ? rpResolve(model, node.typeName) : node; return rpEntryRef(model, e); }\n    case 'rs-scalar-type': return SCALAR_TABLES.rust.types[node.type] ?? SCALAR_TABLES.rust.default;\n    case 'rs-fixed-size': return FIXED_TABLES.rust[node.type][0];\n    case 'rs-fixed-name': return FIXED_TABLES.rust[node.type][1];\n    case 'flat-of': return rpFlat(model.package, segEval(seg[1], env));\n    case 'rust-enum-fragment': return RP_ENUM_SHAPE[seg[1]];\n    case 'enum-first-value-name': return rpResolve(model, node.typeName).enum.values[0].name;\n    case 'enum-first-value-num': return rpResolve(model, node.typeName).enum.values[0].number;\n    case 'rb-snake': return String(segEval(seg[1], env)).replace(/[A-Z]/g, (c, i) => (i > 0 ? '_' : '') + c.toLowerCase());\n    case 'stub-ref': return rbStubRef(model, node[segKey(seg[1])]);\n    case 'rb-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? rbpResolve(model, n.typeName) : n; return rbpEntryRef(model, e); }\n    case 'rb-model-module': return rbpModuleName({ file: model.name });\n    case 'rb-fixed-size': return FIXED_TABLES.ruby[node.type][0];\n    case 'rb-fixed-fmt': return FIXED_TABLES.ruby[node.type][1];\n    case 'php-camel': return phpbCamel(segEval(seg[1], env));\n    case 'php-field-name': return phpbFieldName(node);\n    case 'php-flat-of': return phpbFlat(model.package, segEval(seg[1], env));\n    case 'php-stub-ref': return phpStubRef(model, node[segKey(seg[1])]);\n    case 'php-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? phpbResolve(model, n.typeName) : n; return phpbEntryRef(model, e); }\n    case 'php-fixed-size': return FIXED_TABLES.php[node.type][0];\n    case 'php-fixed-fmt': return FIXED_TABLES.php[node.type][1];\n    case 'py-ref': { const e = node.typeName !== undefined ? pyPbResolve(model, node.typeName) : node; return pyPbRef(model, e); }\n    case 'py-fixed-size': return FIXED_TABLES.python[node.type][0];\n    case 'py-fixed-fmt': return FIXED_TABLES.python[node.type][1];\n    case 'with-type': return Object.assign({}, segEval(seg[1], env), { type: seg[2] });\n    case 'trim-end': return String(segEval(seg[1], env)).replace(/\\n+$/, '');\n    case 'c-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntryRef(model, e); }\n    case 'c-entry-support': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntrySupport(e); }\n    case 'c-type-ref': return cbTypeRef(model, node[segKey(seg[1])]);\n    case 'c-support-of': return cbEntrySupport(cbResolve(model, node[segKey(seg[1])]));\n    case 'c-scalar-type': return SCALAR_TABLES.c.types[node.type][0];\n    case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];\n    case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];\n    case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];\n    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + '\u0000' + el.output)).size; }\n    case 'sc-field-name': return scpFieldName(node);\n    case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }\n    case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;\n    case 'sc-fixed-size': return FIXED_TABLES.scala[node.type][0];\n    case 'sc-fixed-kind': return FIXED_TABLES.scala[node.type][1];\n    case 'dart-field-name': return dtpFieldName(node);\n    case 'dart-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpEntryRef(model, e); }\n    case 'dart-type-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpTypeRef(model, e); }\n    case 'dart-scalar-type': return SCALAR_TABLES.dart.types[node.type][0];\n    case 'dart-scalar-zero': return SCALAR_TABLES.dart.types[node.type][1];\n    case 'dart-fixed-size': return FIXED_TABLES.dart[node.type][0];\n    case 'dart-fixed-name': return FIXED_TABLES.dart[node.type][1];\n    case 'swift-field-name': return swpFieldName(node);\n    case 'swift-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpEntryRef(model, e); }\n    case 'swift-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpMapHelperName(model, e); }\n    case 'swift-scalar-type': return SCALAR_TABLES.swift.types[node.type][0];\n    case 'swift-scalar-zero': return SCALAR_TABLES.swift.types[node.type][1];\n    case 'swift-fixed-size': return FIXED_TABLES.swift[node.type][0];\n    case 'swift-fixed-name': return FIXED_TABLES.swift[node.type][1];\n    case 'lua-field-name': return lpFieldName(node);\n    case 'zig-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e); }\n    case 'zig-struct-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e).replace(/\\./g, '_'); }\n    case 'zig-scalar-type': return SCALAR_TABLES.zig.types[node.type][0];\n    case 'zig-scalar-zero': return SCALAR_TABLES.zig.types[node.type][1];\n    case 'zig-fixed-size': return FIXED_TABLES.zig[node.type][0];\n    case 'zig-fixed-name': return FIXED_TABLES.zig[node.type][1];\n    case 'lua-entry-flat': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? lpResolve(model, n.typeName) : n; return lpEntryFlat(model, e); }\n    case 'lua-enum-flat': return lpFlat(model.package, model.package === '' ? node.name : model.package + '.' + node.name);\n    case 'lua-fixed-fmt': return '<' + FIXED_TABLES.lua[node.type][1];\n    case 'lua-fixed-size': return FIXED_TABLES.lua[node.type][0];\n    case 'lua-fixed-wire': return FIXED_TABLES.lua[node.type][0] === 8 ? 1 : 5;\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
-                       "function runSegment(seg, env) {\n  const node = env.node;\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'if': {\n      const thenPart = seg.slice(2).find((g) => g[0] === 'then');\n      const elsePart = seg.slice(2).find((g) => g[0] === 'else');\n      if (segTruthy(segEval(seg[1], env))) return runEnv(thenPart.slice(1), env);\n      return elsePart ? runEnv(elsePart.slice(1), env) : '';\n    }\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind || (Array.isArray(b[0]) && b[0].includes(node.kind))) || seg.slice(1).find((b) => b[0] === 'else');\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runEnv(branch.slice(1), env);\n    }\n    case 'case-on': {\n      const val = segEval(seg[1], env);\n      const raw = seg.slice(2);\n      const isKey = (b) => Array.isArray(b) && (Array.isArray(b[0]) || typeof b[0] === 'number' || typeof b[0] === 'string');\n      let branches;\n      if (raw.length === 1 && Array.isArray(raw[0]) && raw[0].every(isKey)) branches = raw[0];\n      else branches = raw.map((b) => (Array.isArray(b) && b.length === 1 && Array.isArray(b[0])) ? b[0] : b);\n      const keysOf = (b) => (Array.isArray(b[0]) ? b[0] : [b[0]]);\n      const branch = branches.find((b) => keysOf(b).includes('else') || keysOf(b).map(String).includes(String(val)));\n      return branch ? runEnv(branch.slice(1), env) : '';\n    }\n    case 'when':\n      return segTruthy(segEval(seg[1], env)) ? runEnv(seg.slice(2), env) : '';\n    case 'guarded': {\n      const hasJoin = Array.isArray(seg[4]) && seg[4][0] === 'join';\n      const joiner = hasJoin ? seg[4][1] : ' || ';\n      const text = runEnv(seg.slice(hasJoin ? 5 : 4), env);\n      const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(joiner);\n      if (!cond) return text;\n      return seg[2].split('~a').join(cond) + (text.endsWith('\\n') ? text : text + '\\n') + seg[3];\n    }\n    case 'fail':\n      throw new Error('unsupported field type ' + node.type);\n    case 'each': {\n      let i = 1; const keys = [];\n      while (typeof seg[i] === 'string') { keys.push(seg[i]); i++; }\n      let items = node;\n      for (const k of keys) items = items[segKey(k)];\n      let out = '';\n      items.forEach((el, ix) => { out += runEnv(seg.slice(i), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'each+': {\n      const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      let out = '';\n      all.forEach((el, ix) => { out += runEnv(seg.slice(3), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'guarded-indent': {
+                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      const tmpl = Array.isArray(seg[1]) ? segEval(seg[1], env) : seg[1];\n      return tmpl.replace(/~~|~[as]/g, (tok) => {\n        if (tok === '~~') return '~';\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'root': return env.root;\n    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'trim-suffix': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'lower-first': return lowerFirst(segEval(seg[1], env));\n    case 'js-name': return pbJsName(node);\n    case 'js-fixed-size': return FIXED_TABLES.js[node.type][0];\n    case 'js-fixed-name': return FIXED_TABLES.js[node.type][1];\n    case 'bigint-type': return PB_BIGINT.has(node.type);\n    case 'entry-flat': return node.kind === 'enum' ? pbFlatName(node.pkg, node.full) : pbFlatName(node.pkg, node.msg.fullName);\n    case 'resolved-flat': { const e = pbResolve(model, node.typeName); return pbFlatName(e.pkg, e.msg.fullName); }\n    case 'index': return env.index;\n    case 'parent': return env.parent;\n    case 'and': return seg.slice(1).every((e) => segTruthy(segEval(e, env)));\n    case 'or': return seg.slice(1).some((e) => segTruthy(segEval(e, env)));\n    case 'not': return !segTruthy(segEval(seg[1], env));\n    case 'any-where': { const keys = Array.isArray(seg[1]) ? seg[1] : [seg[1]]; let items = node; for (const k of keys) items = items[segKey(k)]; return items.some((el) => segTruthy(segEval(seg[2], envWith(env, { node: el })))); }\n    case 'snake-case': return snakeCase(segEval(seg[1], env));\n    case 'rs-camel': return rpCamel(segEval(seg[1], env));\n    case 'rs-field-name': return rpFieldName(node);\n    case 'rs-map-type': return rpMapType();\n    case 'rs-entry-ref': { const e = node.typeName !== undefined ? rpResolve(model, node.typeName) : node; return rpEntryRef(model, e); }\n    case 'rs-scalar-type': return SCALAR_TABLES.rust.types[node.type] ?? SCALAR_TABLES.rust.default;\n    case 'rs-fixed-size': return FIXED_TABLES.rust[node.type][0];\n    case 'rs-fixed-name': return FIXED_TABLES.rust[node.type][1];\n    case 'flat-of': return rpFlat(model.package, segEval(seg[1], env));\n    case 'rust-enum-fragment': return RP_ENUM_SHAPE[seg[1]];\n    case 'enum-first-value-name': return rpResolve(model, node.typeName).enum.values[0].name;\n    case 'enum-first-value-num': return rpResolve(model, node.typeName).enum.values[0].number;\n    case 'rb-snake': return String(segEval(seg[1], env)).replace(/[A-Z]/g, (c, i) => (i > 0 ? '_' : '') + c.toLowerCase());\n    case 'stub-ref': return rbStubRef(model, node[segKey(seg[1])]);\n    case 'rb-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? rbpResolve(model, n.typeName) : n; return rbpEntryRef(model, e); }\n    case 'rb-model-module': return rbpModuleName({ file: model.name });\n    case 'rb-fixed-size': return FIXED_TABLES.ruby[node.type][0];\n    case 'rb-fixed-fmt': return FIXED_TABLES.ruby[node.type][1];\n    case 'php-camel': return phpbCamel(segEval(seg[1], env));\n    case 'php-field-name': return phpbFieldName(node);\n    case 'php-flat-of': return phpbFlat(model.package, segEval(seg[1], env));\n    case 'php-stub-ref': return phpStubRef(model, node[segKey(seg[1])]);\n    case 'php-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? phpbResolve(model, n.typeName) : n; return phpbEntryRef(model, e); }\n    case 'php-fixed-size': return FIXED_TABLES.php[node.type][0];\n    case 'php-fixed-fmt': return FIXED_TABLES.php[node.type][1];\n    case 'py-ref': { const e = node.typeName !== undefined ? pyPbResolve(model, node.typeName) : node; return pyPbRef(model, e); }\n    case 'py-fixed-size': return FIXED_TABLES.python[node.type][0];\n    case 'py-fixed-fmt': return FIXED_TABLES.python[node.type][1];\n    case 'with-type': return Object.assign({}, segEval(seg[1], env), { type: seg[2] });\n    case 'trim-end': return String(segEval(seg[1], env)).replace(/\\n+$/, '');\n    case 'c-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntryRef(model, e); }\n    case 'c-entry-support': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntrySupport(e); }\n    case 'c-type-ref': return cbTypeRef(model, node[segKey(seg[1])]);\n    case 'c-support-of': return cbEntrySupport(cbResolve(model, node[segKey(seg[1])]));\n    case 'c-scalar-type': return SCALAR_TABLES.c.types[node.type][0];\n    case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];\n    case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];\n    case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];\n    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + '\u0000' + el.output)).size; }\n    case 'sc-field-name': return scpFieldName(node);\n    case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }\n    case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;\n    case 'sc-fixed-size': return FIXED_TABLES.scala[node.type][0];\n    case 'sc-fixed-kind': return FIXED_TABLES.scala[node.type][1];\n    case 'dart-field-name': return dtpFieldName(node);\n    case 'dart-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpEntryRef(model, e); }\n    case 'dart-type-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpTypeRef(model, e); }\n    case 'dart-scalar-type': return SCALAR_TABLES.dart.types[node.type][0];\n    case 'dart-scalar-zero': return SCALAR_TABLES.dart.types[node.type][1];\n    case 'dart-fixed-size': return FIXED_TABLES.dart[node.type][0];\n    case 'dart-fixed-name': return FIXED_TABLES.dart[node.type][1];\n    case 'swift-field-name': return swpFieldName(node);\n    case 'swift-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpEntryRef(model, e); }\n    case 'swift-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpMapHelperName(model, e); }\n    case 'swift-scalar-type': return SCALAR_TABLES.swift.types[node.type][0];\n    case 'swift-scalar-zero': return SCALAR_TABLES.swift.types[node.type][1];\n    case 'swift-fixed-size': return FIXED_TABLES.swift[node.type][0];\n    case 'swift-fixed-name': return FIXED_TABLES.swift[node.type][1];\n    case 'lua-field-name': return lpFieldName(node);\n    case 'kotlin-wasm-mode': return kotlinWasmMode;\n    case 'first-value-name': return node.values[0].name;\n    case 'kt-field-name': return kpFieldName(node);\n    case 'kt-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? kpResolve(model, n.typeName) : n; return kpEntryRef(model, e); }\n    case 'kt-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? kpResolve(model, n.typeName) : n; return kpMapHelperName(model, e); }\n    case 'kt-scalar-type': return SCALAR_TABLES.kotlin.types[node.type][0];\n    case 'kt-scalar-zero': return SCALAR_TABLES.kotlin.types[node.type][1];\n    case 'kt-fixed-size': return FIXED_TABLES.kotlin[node.type][0];\n    case 'kt-fixed-name': return FIXED_TABLES.kotlin[node.type][1];\n    case 'zig-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e); }\n    case 'zig-struct-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e).replace(/\\./g, '_'); }\n    case 'zig-scalar-type': return SCALAR_TABLES.zig.types[node.type][0];\n    case 'zig-scalar-zero': return SCALAR_TABLES.zig.types[node.type][1];\n    case 'zig-fixed-size': return FIXED_TABLES.zig[node.type][0];\n    case 'zig-fixed-name': return FIXED_TABLES.zig[node.type][1];\n    case 'lua-entry-flat': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? lpResolve(model, n.typeName) : n; return lpEntryFlat(model, e); }\n    case 'lua-enum-flat': return lpFlat(model.package, model.package === '' ? node.name : model.package + '.' + node.name);\n    case 'lua-fixed-fmt': return '<' + FIXED_TABLES.lua[node.type][1];\n    case 'lua-fixed-size': return FIXED_TABLES.lua[node.type][0];\n    case 'lua-fixed-wire': return FIXED_TABLES.lua[node.type][0] === 8 ? 1 : 5;\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
+                       "function runSegment(seg, env) {\n  const node = env.node;\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'if': {\n      const thenPart = seg.slice(2).find((g) => g[0] === 'then');\n      const elsePart = seg.slice(2).find((g) => g[0] === 'else');\n      if (segTruthy(segEval(seg[1], env))) return runEnv(thenPart.slice(1), env);\n      return elsePart ? runEnv(elsePart.slice(1), env) : '';\n    }\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind || (Array.isArray(b[0]) && b[0].includes(node.kind))) || seg.slice(1).find((b) => b[0] === 'else');\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runEnv(branch.slice(1), env);\n    }\n    case 'case-on': {\n      const val = segEval(seg[1], env);\n      const raw = seg.slice(2);\n      const isKey = (b) => Array.isArray(b) && (Array.isArray(b[0]) || typeof b[0] === 'number' || typeof b[0] === 'string');\n      let branches;\n      if (raw.length === 1 && Array.isArray(raw[0]) && raw[0].every(isKey)) branches = raw[0];\n      else branches = raw.map((b) => (Array.isArray(b) && b.length === 1 && Array.isArray(b[0])) ? b[0] : b);\n      const keysOf = (b) => (Array.isArray(b[0]) ? b[0] : [b[0]]);\n      const branch = branches.find((b) => keysOf(b).includes('else') || keysOf(b).map(String).includes(String(val)));\n      return branch ? runEnv(branch.slice(1), env) : '';\n    }\n    case 'when':\n      return segTruthy(segEval(seg[1], env)) ? runEnv(seg.slice(2), env) : '';\n    case 'trim-suffix': {\n      const text = runEnv(seg.slice(3), env);\n      return text.endsWith(seg[1]) ? text.slice(0, text.length - seg[1].length) + seg[2] : text;\n    }\n    case 'guarded': {\n      const hasJoin = Array.isArray(seg[4]) && seg[4][0] === 'join';\n      const joiner = hasJoin ? seg[4][1] : ' || ';\n      const text = runEnv(seg.slice(hasJoin ? 5 : 4), env);\n      const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(joiner);\n      if (!cond) return text;\n      return seg[2].split('~a').join(cond) + (text.endsWith('\\n') ? text : text + '\\n') + seg[3];\n    }\n    case 'fail':\n      throw new Error('unsupported field type ' + node.type);\n    case 'each': {\n      let i = 1; const keys = [];\n      while (typeof seg[i] === 'string') { keys.push(seg[i]); i++; }\n      let items = node;\n      for (const k of keys) items = items[segKey(k)];\n      let out = '';\n      items.forEach((el, ix) => { out += runEnv(seg.slice(i), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'each+': {\n      const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      let out = '';\n      all.forEach((el, ix) => { out += runEnv(seg.slice(3), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'guarded-indent': {
       const text = runEnv(seg.slice(4), env);
       const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(' or ');
       if (!cond) return text;
