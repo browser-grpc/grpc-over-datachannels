@@ -9183,9 +9183,8 @@ function emitRubyFile(model, params) {
 // ---------------------------------------------------------------------------
 
 function phpDeprecated(m) {
-  return m.deprecated ? '        trigger_error("deprecated", E_USER_DEPRECATED);\n' : '';
+  return runSegments(SEGMENT_PROGRAMS.phpDeprecated, m, '');
 }
-
 function phpStubRef(model, full) {
   const e = phpbResolve(model, full);
   return '\\' + phpbNamespace(e) + '\\' + phpbFlat(e.pkg, e.msg.fullName);
@@ -9204,332 +9203,17 @@ function phpStubRequires(model) {
 }
 
 function phpClientMethodKind(model, m, fiber) {
-  const path = q(m.path);
-  const depr = phpDeprecated(m);
-  const recvCls = fiber ? 'FiberRecvStream' : 'RecvStream';
-  const reqT = phpStubRef(model, m.inputFull);
-  const respT = phpStubRef(model, m.outputFull);
-  switch (m.kind) {
-    case 'unary':
-      return '    public function ' + m.name + '(' + reqT + ' $req, ?array $metadata = null, ?float $timeout = null): ' + respT + '\n'
-        + '    {\n' + depr + '        return $this->channel->unary(' + path + ', $req, new ' + respT + '(), $metadata, $timeout);\n    }\n\n';
-    case 'server-streaming':
-      return '    public function ' + m.name + '(' + reqT + ' $req, ?array $metadata = null, ?float $timeout = null): ' + recvCls + '\n'
-        + '    {\n' + depr + '        $stream = $this->channel->serverStream(' + path + ', $req, $metadata, $timeout);\n'
-        + '        return new ' + recvCls + '($stream, ' + respT + '::class);\n    }\n\n';
-    case 'client-streaming':
-      return '    public function ' + m.name + '(array $reqs, ?array $metadata = null, ?float $timeout = null): ' + respT + '\n'
-        + '    {\n' + depr + '        return $this->channel->clientStream(' + path + ', $reqs, new ' + respT + '(), $metadata, $timeout);\n    }\n\n';
-    default:
-      return '    public function ' + m.name + '(array $reqs, ?array $metadata = null, ?float $timeout = null): ' + recvCls + '\n'
-        + '    {\n' + depr + '        $stream = $this->channel->bidi(' + path + ', $reqs, $metadata, $timeout);\n'
-        + '        return new ' + recvCls + '($stream, ' + respT + '::class);\n    }\n\n';
-  }
+  return runSegments(fiber ? SEGMENT_PROGRAMS.phpFiberClientMethod : SEGMENT_PROGRAMS.phpClientMethod, m, '', model);
 }
-
 function phpServerHandler(model, m) {
-  const handlerVar = '$' + snake(m.name) + 'Handler';
-  const impl = m.implName;
-  const type = (t) => phpStubRef(model, m.inputFull);
-  const head = '    ' + handlerVar + ' = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n';
-  switch (m.kind) {
-    case 'unary':
-      return head
-        + '        $req = $reqs->recvInto(new ' + type(m.input) + '());\n'
-        + '        $resp = $impl->' + impl + '($ctx, $req);\n'
-        + '        $sink->send($resp->marshalDc());\n    };\n\n';
-    case 'server-streaming':
-      return head
-        + '        $req = $reqs->recvInto(new ' + type(m.input) + '());\n'
-        + '        $impl->' + impl + '($req, new SendStream($ctx, $sink));\n    };\n\n';
-    case 'client-streaming':
-      return head
-        + '        $stream = new ClientStreamImpl($ctx, $reqs, ' + type(m.input) + '::class);\n'
-        + '        $impl->' + impl + '($stream);\n'
-        + '        if ($stream->resp === null) {\n'
-        + '            throw new \\Grpcdc\\StatusError(\\Grpcdc\\Wire::CODE_INTERNAL, "client-streaming handler never called sendAndClose");\n'
-        + '        }\n'
-        + '        $sink->send($stream->resp->marshalDc());\n    };\n\n';
-    default:
-      return head
-        + '        $impl->' + impl + '(new BidiStream($ctx, $reqs, $sink, ' + type(m.input) + '::class));\n    };\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.phpServerHandler, m, '', model);
 }
-
-const PHP_KIND_NAMES = {
-  unary: 'KIND_UNARY',
-  'server-streaming': 'KIND_SERVER_STREAMING',
-  'client-streaming': 'KIND_CLIENT_STREAMING',
-  bidi: 'KIND_BIDI',
-};
-
 function phpMethodEntry(m) {
-  return '            new \\Grpcdc\\Method(' + q(m.name) + ', ' + q(m.path) + ', \\Grpcdc\\Server::' + PHP_KIND_NAMES[m.kind] + ', $' + snake(m.name) + 'Handler),\n';
+  return runSegments(SEGMENT_PROGRAMS.phpMethodEntry, m, '');
 }
-
-const PHP_STREAM_HELPERS = `// Client receiving stream: recv throws CallClosed at end.
-class RecvStream
-{
-    private \\Grpcdc\\ClientStream $stream;
-    private string $respClass;
-
-    public function __construct(\\Grpcdc\\ClientStream $stream, string $respClass)
-    {
-        $this->stream = $stream;
-        $this->respClass = $respClass;
-    }
-
-    public function recv(): object
-    {
-        $cls = $this->respClass;
-        return $this->stream->recv(new $cls());
-    }
-
-    /** Response initial metadata (after the first recv). */
-    public function headers(): ?array
-    {
-        return $this->stream->headers?->metadata;
-    }
-
-    /** Response trailing metadata (after the call ends). */
-    public function trailers(): ?array
-    {
-        return $this->stream->trailers;
-    }
-
-    /** Abandon the call early: RST so the server stops producing. */
-    public function cancel(): void
-    {
-        $this->stream->cancel();
-    }
-
-    public function close(): void
-    {
-        $this->stream->cancel();
-    }
-
-    public function __destruct()
-    {
-        $this->close();
-    }
-
-    /** @return \\Generator<int, object> */
-    public function iterate(): \\Generator
-    {
-        $completed = false;
-        try {
-            while (true) {
-                yield $this->recv();
-            }
-        } catch (\\Grpcdc\\CallClosed $e) {
-            $completed = true;
-            return;
-        } finally {
-            if (!$completed) {
-                $this->close();
-            }
-        }
-    }
-}
-
-// Server-streaming sink passed to service implementations.
-class SendStream
-{
-    public \\Grpcdc\\CallContext $context;
-    private \\Grpcdc\\ResponseSink $sink;
-
-    public function __construct(\\Grpcdc\\CallContext $ctx, \\Grpcdc\\ResponseSink $sink)
-    {
-        $this->context = $ctx;
-        $this->sink = $sink;
-    }
-
-    public function send(object $resp): void
-    {
-        $this->sink->send($resp->marshalDc());
-    }
-}
-
-// Client-streaming stream passed to service implementations.
-class ClientStreamImpl
-{
-    public \\Grpcdc\\CallContext $context;
-    public ?object $resp = null;
-    private \\Grpcdc\\RequestStream $reqs;
-    private string $reqClass;
-
-    public function __construct(\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, string $reqClass)
-    {
-        $this->context = $ctx;
-        $this->reqs = $reqs;
-        $this->reqClass = $reqClass;
-    }
-
-    public function recv(): object
-    {
-        $cls = $this->reqClass;
-        return $this->reqs->recvInto(new $cls());
-    }
-
-    public function sendAndClose(object $resp): void
-    {
-        $this->resp = $resp;
-    }
-}
-
-// Bidi stream passed to service implementations.
-class BidiStream
-{
-    public \\Grpcdc\\CallContext $context;
-    private \\Grpcdc\\RequestStream $reqs;
-    private \\Grpcdc\\ResponseSink $sink;
-    private string $reqClass;
-
-    public function __construct(\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink, string $reqClass)
-    {
-        $this->context = $ctx;
-        $this->reqs = $reqs;
-        $this->sink = $sink;
-        $this->reqClass = $reqClass;
-    }
-
-    public function send(object $resp): void
-    {
-        $this->sink->send($resp->marshalDc());
-    }
-
-    public function recv(): object
-    {
-        $cls = $this->reqClass;
-        return $this->reqs->recvInto(new $cls());
-    }
-}
-
-// Fiber-based client receiving stream: a producer Fiber suspends
-// per response; next() resumes it and throws CallClosed when the
-// call completes. cancel aborts the underlying stream (RST).
-class FiberRecvStream
-{
-    /** @var \\Grpcdc\\ClientStream|\\Grpcdc\\FiberClientStream */
-    private $stream;
-    private string $respClass;
-    private ?\\Fiber $fiber = null;
-    private bool $started = false;
-    private bool $done = false;
-
-    public function __construct($stream, string $respClass)
-    {
-        $this->stream = $stream;
-        $this->respClass = $respClass;
-    }
-
-    public function next(): object
-    {
-        if ($this->done) {
-            throw new \\Grpcdc\\CallClosed("stream exhausted");
-        }
-        if (!$this->started) {
-            $this->started = true;
-            $cls = $this->respClass;
-            $stream = $this->stream;
-            $this->fiber = new \\Fiber(function () use ($stream, $cls) {
-                try {
-                    while (true) {
-                        \\Fiber::suspend($stream->recv(new $cls()));
-                    }
-                } catch (\\Grpcdc\\CallClosed $e) {
-                    return;
-                }
-            });
-            $value = $this->fiber->start();
-        } else {
-            $value = $this->fiber->resume();
-        }
-        if ($this->fiber->isTerminated()) {
-            $this->done = true;
-            throw new \\Grpcdc\\CallClosed("stream exhausted");
-        }
-        return $value;
-    }
-
-    /** @return \\Generator<int, object> */
-    public function iterate(): \\Generator
-    {
-        $completed = false;
-        try {
-            while (true) {
-                yield $this->next();
-            }
-        } catch (\\Grpcdc\\CallClosed $e) {
-            $completed = true;
-            return;
-        } finally {
-            if (!$completed) {
-                $this->close();
-            }
-        }
-    }
-
-    /** Response initial metadata (after the first recv). */
-    public function headers(): ?array
-    {
-        return $this->stream->headers?->metadata;
-    }
-
-    /** Response trailing metadata (after the call ends). */
-    public function trailers(): ?array
-    {
-        return $this->stream->trailers;
-    }
-
-    public function cancel(): void
-    {
-        $this->stream->cancel();
-    }
-
-    public function close(): void
-    {
-        $this->stream->cancel();
-    }
-
-    public function __destruct()
-    {
-        $this->close();
-    }
-}
-
-`;
-
 function phpService(model, svc) {
-  const sname = svc.name;
-  const all = svc.methods.concat(aliasClientMethods(svc));
-  const allServer = svc.methods.concat(aliasServerMethods(svc));
-  return 'class ' + sname + 'Client\n{\n    private \\Grpcdc\\Channel $channel;\n\n    public function __construct(\\Grpcdc\\Channel $channel)\n    {\n        $this->channel = $channel;\n    }\n\n'
-    + all.map((m) => phpClientMethodKind(model, m, false)).join('')
-    + '}\n\n'
-    + '// Fiber client: wraps a Grpcdc\\FiberChannel (a sync Channel is wrapped).\n'
-    + 'class ' + sname + 'ClientFiber\n{\n    private \\Grpcdc\\FiberChannel $channel;\n\n    public function __construct($channel)\n    {\n        $this->channel = $channel instanceof \\Grpcdc\\FiberChannel ? $channel : new \\Grpcdc\\FiberChannel($channel);\n    }\n\n'
-    + all.map((m) => phpClientMethodKind(model, m, true)).join('')
-    + '}\n\n'
-    + 'function register' + sname + 'Server(\\Grpcdc\\Server $server, object $impl): void\n{\n'
-    + allServer.map((m) => phpServerHandler(model, m)).join('')
-    + '    $server->registerService(new \\Grpcdc\\ServiceDesc(\n        ' + q(svc.fullName) + ',\n        [\n'
-    + allServer.map(phpMethodEntry).join('')
-    + '        ]\n    ));\n}\n';
+  return runSegments(SEGMENT_PROGRAMS.phpService, svc, svc.name, model);
 }
-
-
-// ---------------------------------------------------------------------------
-// PHP message types, mirroring the native php template
-// (the php-pb-* functions): a single <base>_pb.php per proto file
-// with the <Base>Pb namespace, wire support, enums and message
-// classes. Byte-identical to the native protoc-gen-grpc-dc-php
-// plugin.
-// ---------------------------------------------------------------------------
-
-const PHPB_VARINT = new Set(VARINT_TYPES);
-const PHPB_FIXED = FIXED_TABLES.php;
-
 function phpbCamel(s) {
   const parts = s.split('_');
   if (!parts.length) return s;
@@ -9567,301 +9251,59 @@ function phpbEntryRef(model, entry) {
 }
 
 function phpbType(model, f) {
-  if (f.type === FT.MESSAGE && phpbResolve(model, f.typeName).kind === 'map') return 'array';
-  if (f.label === 3) return 'array';
-  if (f.type === FT.DOUBLE || f.type === FT.FLOAT) return 'float';
-  if (f.type === FT.STRING || f.type === FT.BYTES) return 'string';
-  if (f.type === FT.BOOL) return 'bool';
-  if (f.type === FT.MESSAGE) return '?' + phpbEntryRef(model, phpbResolve(model, f.typeName));
-  return 'int';
+  return runSegments(SEGMENT_PROGRAMS.phpPbType, f, '', model);
 }
-
 function phpbExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case 9: return JSON.stringify(d);
-    case 8: return d;
-    case 14: return String(enumDefaultNumber(model, f));
-    default: return d;
-  }
+  const lit = runSegments(SEGMENT_PROGRAMS.phpPbExplicitLiteral, f, '', model);
+  return lit === '' ? null : lit;
 }
-
 function phpbDefault(model, f) {
-  const lit = phpbExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.type === FT.MESSAGE && phpbResolve(model, f.typeName).kind === 'map') return '[]';
-  if (f.label === 3) return '[]';
-  if (f.type === FT.MESSAGE) return 'null';
-  if (f.type === FT.STRING || f.type === FT.BYTES) return '""';
-  if (f.type === FT.BOOL) return 'false';
-  if (f.type === FT.DOUBLE || f.type === FT.FLOAT) return '0.0';
-  if (f.type === FT.ENUM) {
-    const entry = phpbResolve(model, f.typeName);
-    return String(entry.enum.values[0].number);
-  }
-  return '0';
+  return runSegments(SEGMENT_PROGRAMS.phpPbDefault, f, '', model);
 }
-
 function phpbVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return '(' + v + ' ? 1 : 0)';
-    case 17: return '(((' + v + ' << 1) ^ (' + v + ' >> 31)) & 0xffffffff)';
-    case 18: return '((' + v + ' << 1) ^ (' + v + ' >> 63))';
-    default: return v;
-  }
+  return runSegments(SEGMENT_PROGRAMS.phpPbVarintExpr, f, '', null, [v]);
 }
-
 function phpbVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: case 14: return '(((' + v + ' & 0xffffffff) >= 0x80000000) ? ((' + v + ' & 0xffffffff) - 0x100000000) : (' + v + ' & 0xffffffff))';
-    case 13: case 7: return '(' + v + ' & 0xffffffff)';
-    case 8: return '(' + v + ' !== 0)';
-    case 17: return '(((' + v + ' & 0xffffffff) >> 1) ^ -((' + v + ' & 0xffffffff) & 1))';
-    case 18: return '((' + v + ' >> 1) ^ -(' + v + ' & 1))';
-    default: return v;
-  }
+  return runSegments(SEGMENT_PROGRAMS.phpPbVarintDecode, f, '', null, [v]);
 }
-
 function phpbFixedFmt(f) {
-  return PHPB_FIXED[f.type][1];
+  return FIXED_TABLES.php[f.type][1];
 }
-
-function phpbWire(f) {
-  return PHPB_FIXED[f.type][0] === 8 ? 1 : 5;
-}
-
 function phpbNonzero(f, v) {
-  return f.type === FT.BOOL ? v : v + ' !== 0';
+  return runSegments(SEGMENT_PROGRAMS.phpPbNonzero, f, '', null, [v]);
 }
-
 function phpbFixedDecode(f, src) {
-  switch (f.type) {
-    case 15: return "(((unpack('V', " + src + ")[1]) >= 0x80000000) ? (unpack('V', " + src + ")[1] - 0x100000000) : unpack('V', " + src + ")[1])";
-    case 16: return "(((((unpack('V', substr(" + src + ", 4, 4))[1]) >= 0x80000000) ? (unpack('V', substr(" + src + ", 4, 4))[1] - 0x100000000) : unpack('V', substr(" + src + ", 4, 4))[1]) << 32) | unpack('V', substr(" + src + ", 0, 4))[1])";
-    default: return 'unpack(' + JSON.stringify(phpbFixedFmt(f)) + ', ' + src + ')[1]';
-  }
+  return runSegments(SEGMENT_PROGRAMS.phpPbFixedDecode, f, '', null, [src]);
 }
-
 function phpbEncodeSingular(model, f, v, indent) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (PHPB_VARINT.has(f.type)) {
-    return proto2
-      ? indent + '{\n' + indent + '    $w->tag(' + n + ', 0);\n' + indent + '    $w->varint(' + phpbVarintExpr(f, v) + ');\n' + indent + '}\n'
-      : indent + 'if (' + phpbNonzero(f, v) + ') {\n' + indent + '    $w->tag(' + n + ', 0);\n' + indent + '    $w->varint(' + phpbVarintExpr(f, v) + ');\n' + indent + '}\n';
-  }
-  if (PHPB_FIXED[f.type]) {
-    const fmt = f.type === 16 ? 'P' : phpbFixedFmt(f);
-    const val = f.type === 15 ? '(' + v + ' & 0xffffffff)' : v;
-    return proto2
-      ? indent + '{\n' + indent + '    $w->tag(' + n + ', ' + phpbWire(f) + ');\n' + indent + '    $w->fixed(' + JSON.stringify(fmt) + ', ' + val + ');\n' + indent + '}\n'
-      : indent + 'if (' + v + ' != 0) {\n' + indent + '    $w->tag(' + n + ', ' + phpbWire(f) + ');\n' + indent + '    $w->fixed(' + JSON.stringify(fmt) + ', ' + val + ');\n' + indent + '}\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + '$w->bytesField(' + n + ', ' + v + ');\n'
-      : indent + '$w->stringField(' + n + ', ' + v + ');\n';
-    case 12: return proto2
-      ? indent + '$w->bytesField(' + n + ', ' + v + ');\n'
-      : indent + 'if (strlen(' + v + ') > 0) {\n' + indent + '    $w->bytesField(' + n + ', ' + v + ');\n' + indent + '}\n';
-    case 11: return indent + 'if (' + v + ' !== null) {\n' + indent + '    $w->bytesField(' + n + ', ' + v + '->marshalDc());\n' + indent + '}\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
+  return runSegments(SEGMENT_PROGRAMS.phpPbEncodeSingular, f, '', model, [v, indent]);
 }
-
-function phpbSetExpr(sib) {
-  const v = '$this->' + phpbFieldName(sib);
-  switch (sib.type) {
-    case 11: case 10: return v + ' !== null';
-    case 9: case 12: return '(' + v + ' !== null && ' + v + ' !== "")';
-    case 1: case 2: return v + ' != 0';
-    default: return phpbNonzero(sib, v);
-  }
-}
-
-function phpbEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '        if (!(' + later.map(phpbSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
-}
-
 function phpbEncodeField(model, f) {
-  const v = '$this->' + phpbFieldName(f);
-  const n = f.number;
-  if (f.type === FT.MESSAGE && phpbResolve(model, f.typeName).kind === 'map') {
-    const entry = phpbResolve(model, f.typeName);
-    const helper = 'encode' + phpbEntryRef(model, entry);
-    return '        foreach (' + v + ' as $k => $val) {\n            $w->bytesField(' + n + ', ' + helper + '($k, $val));\n        }\n';
-  }
-  if (f.label !== 3) return phpbEncodeSingular(model, f, v, '        ');
-  if (PHPB_VARINT.has(f.type)) {
-    return '        if (!empty(' + v + ')) {\n            $payload = "";\n'
-      + '            foreach (' + v + ' as $x) {\n                $payload .= pbVarintBytes(' + phpbVarintExpr(f, '$x') + ');\n            }\n'
-      + '            $w->bytesField(' + n + ', $payload);\n        }\n';
-  }
-  const fixed = PHPB_FIXED[f.type];
-  if (fixed) {
-    const fmt = f.type === 16 ? 'P' : phpbFixedFmt(f);
-    const val = f.type === 15 ? '($x & 0xffffffff)' : '$x';
-    return '        if (!empty(' + v + ')) {\n            $payload = "";\n'
-      + '            foreach (' + v + ' as $x) {\n                $payload .= pack(' + JSON.stringify(fmt) + ', ' + val + ');\n            }\n'
-      + '            $w->bytesField(' + n + ', $payload);\n        }\n';
-  }
-  switch (f.type) {
-    case 9: case 12: return '        foreach (' + v + ' as $x) {\n            $w->bytesField(' + n + ', $x);\n        }\n';
-    case 11: return '        foreach (' + v + ' as $x) {\n            $w->bytesField(' + n + ', $x->marshalDc());\n        }\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.phpPbEncodeField, f, '', model);
 }
-
 function phpbDecodeSingular(model, f, target, src, indent) {
-  if (PHPB_VARINT.has(f.type)) {
-    return indent + target + ' = ' + phpbVarintDecode(f, src) + ';\n';
-  }
-  if (PHPB_FIXED[f.type]) {
-    return indent + target + ' = ' + phpbFixedDecode(f, src) + ';\n';
-  }
-  switch (f.type) {
-    case 9: case 12: return indent + target + ' = ' + src + ';\n';
-    case 11: {
-      const ref = phpbEntryRef(model, phpbResolve(model, f.typeName));
-      return indent + target + ' = new ' + ref + '();\n' + indent + target + '->unmarshalDc(' + src + ');\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.phpPbDecodeSingular, f, '', model, [target, src, indent]);
 }
-
 function phpbOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => '                    $this->' + phpbFieldName(sib) + ' = ' + phpbDefault(model, sib) + ';\n').join('');
+  return runSegments(SEGMENT_PROGRAMS.phpPbOneofClearing, f, '', model);
 }
-
 function phpbSrc(f) {
   return PHPB_VARINT.has(f.type) ? '$varintValue' : (PHPB_FIXED[f.type] ? '$fixedValue' : '$bytesValue');
 }
 
 function phpbDecodeCase(model, f) {
-  const v = '$this->' + phpbFieldName(f);
-  const head = '                case ' + f.number + ':\n';
-  const foot = '                    break;\n';
-  if (f.type === FT.MESSAGE && phpbResolve(model, f.typeName).kind === 'map') {
-    const entry = phpbResolve(model, f.typeName);
-    const helper = 'decode' + phpbEntryRef(model, entry);
-    return head
-      + '                    [$kk, $vv] = ' + helper + '($bytesValue);\n'
-      + '                    ' + v + '[$kk] = $vv;\n'
-      + foot;
-  }
-  if (f.label !== 3) {
-    return head + phpbOneofClearing(model, f) + phpbDecodeSingular(model, f, v, phpbSrc(f), '                    ') + foot;
-  }
-  if (PHPB_VARINT.has(f.type)) {
-    return head
-      + '                    if ($wire === 2) {\n'
-      + '                        $sub = new Reader($bytesValue);\n'
-      + '                        while (!$sub->done()) {\n'
-      + '                            $raw = $sub->varint();\n'
-      + '                            ' + v + '[] = ' + phpbVarintDecode(f, '$raw') + ';\n'
-      + '                        }\n                    } else {\n'
-      + '                        ' + v + '[] = ' + phpbVarintDecode(f, '$varintValue') + ';\n'
-      + '                    }\n'
-      + foot;
-  }
-  const fixed = PHPB_FIXED[f.type];
-  if (fixed) {
-    return head
-      + '                    if ($wire === 2) {\n'
-      + '                        for ($i = 0; $i < strlen($bytesValue); $i += ' + fixed[0] + ') {\n'
-      + '                            ' + v + '[] = ' + phpbFixedDecode(f, 'substr($bytesValue, $i, ' + fixed[0] + ')') + ';\n'
-      + '                        }\n                    } else {\n'
-      + '                        ' + v + '[] = ' + phpbFixedDecode(f, '$fixedValue') + ';\n'
-      + '                    }\n'
-      + foot;
-  }
-  switch (f.type) {
-    case 9: case 12: return head + '                    ' + v + '[] = $bytesValue;\n' + foot;
-    case 11: return head
-      + '                    $item = new ' + phpbEntryRef(model, phpbResolve(model, f.typeName)) + '();\n'
-      + '                    $item->unmarshalDc($bytesValue);\n'
-      + '                    ' + v + '[] = $item;\n'
-      + foot;
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.phpPbDecodeCase, f, '', model);
 }
-
 function phpbMapHelpers(model, entry) {
-  const msg = entry.msg;
-  const base = phpbEntryRef(model, entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry lacks key/value');
-  return 'function encode' + base + '($key, $value): string\n{\n    $w = new Writer();\n'
-    + phpbEncodeSingular(model, { ...keyF, label: 1 }, '$key', '    ')
-    + phpbEncodeSingular(model, { ...valF, label: 1 }, '$value', '    ')
-    + '    return $w->toBytes();\n}\n\n'
-    + 'function decode' + base + '(string $data): array\n{\n'
-    + '    $key = ' + phpbDefault(model, { ...keyF, label: 1 }) + ';\n    $value = ' + phpbDefault(model, { ...valF, label: 1 }) + ';\n'
-    + '    $r = new Reader($data);\n    while (($item = $r->field()) !== null) {\n        [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;\n'
-    + '        if ($num === ' + keyF.number + ') {\n'
-    + phpbDecodeSingular(model, { ...keyF, label: 1 }, '$key', phpbSrc(keyF), '            ')
-    + '        } elseif ($num === ' + valF.number + ') {\n'
-    + (valF.type === FT.MESSAGE
-      ? '            $value = new ' + phpbEntryRef(model, phpbResolve(model, valF.typeName)) + '();\n            $value->unmarshalDc($bytesValue);\n'
-      : phpbDecodeSingular(model, { ...valF, label: 1 }, '$value', phpbSrc(valF), '            '))
-    + '        }\n    }\n    return [$key, $value];\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.phpPbMapHelpers, entry, '', model);
 }
-
-const PHPB_SUPPORT = 'function pbVarintBytes(int $value): string\n{\n    $out = "";\n    $v = $value;\n    while (true) {\n        $b = $v & 0x7f;\n        $v = ($v >> 7) & 0x01ffffffffffffff;\n        if ($v === 0) {\n            return $out . chr($b);\n        }\n        $out .= chr($b | 0x80);\n    }\n}\n\n'
-  + 'final class Writer\n{\n    private string $out = "";\n\n'
-  + '    public function varint(int $value): void\n    {\n        $this->out .= pbVarintBytes($value);\n    }\n\n'
-  + '    public function tag(int $field, int $wire): void\n    {\n        $this->varint(($field << 3) | $wire);\n    }\n\n'
-  + '    public function bytesField(int $field, string $payload): void\n    {\n        $this->tag($field, 2);\n        $this->varint(strlen($payload));\n        $this->out .= $payload;\n    }\n\n'
-  + '    public function stringField(int $field, string $value): void\n    {\n        if ($value === "") {\n            return;\n        }\n        $this->bytesField($field, $value);\n    }\n\n'
-  + '    public function fixed(string $fmt, $value): void\n    {\n        $this->out .= pack($fmt, $value);\n    }\n\n'
-  + '    public function raw(string $payload): void\n    {\n        $this->out .= $payload;\n    }\n\n'
-  + '    public function toBytes(): string\n    {\n        return $this->out;\n    }\n}\n\n'
-  + 'final class Reader\n{\n    private string $buf;\n    private int $pos = 0;\n\n'
-  + '    public function __construct(string $buf)\n    {\n        $this->buf = $buf;\n    }\n\n'
-  + '    public function done(): bool\n    {\n        return $this->pos >= strlen($this->buf);\n    }\n\n'
-  + '    public function varint(): int\n    {\n        $result = 0;\n        $shift = 0;\n        while (true) {\n            if ($this->pos >= strlen($this->buf)) {\n                throw new \\InvalidArgumentException("truncated varint");\n            }\n            $b = ord($this->buf[$this->pos]);\n            $this->pos++;\n            if ($shift < 63) {\n                $result |= ($b & 0x7f) << $shift;\n            } elseif (($b & 1) !== 0) {\n                $result |= PHP_INT_MIN;\n            }\n            if (($b & 0x80) === 0) {\n                return $result;\n            }\n            $shift += 7;\n            if ($shift >= 70) {\n                throw new \\InvalidArgumentException("varint too long");\n            }\n        }\n    }\n\n'
-  + '    public function take(int $n): string\n    {\n        if ($this->pos + $n > strlen($this->buf)) {\n            throw new \\InvalidArgumentException("truncated field");\n        }\n        $value = substr($this->buf, $this->pos, $n);\n        $this->pos += $n;\n        return $value;\n    }\n\n'
-  + '    /** [number, wire, varint_value, bytes_value, fixed_value] or null. */\n'
-  + '    public function field(): ?array\n    {\n        if ($this->done()) {\n            return null;\n        }\n        $start = $this->pos;\n        $tag = $this->varint();\n        $num = $tag >> 3;\n        $wire = $tag & 7;\n        switch ($wire) {\n            case 0:\n                $v = $this->varint();\n                return [$num, $wire, $v, "", "", substr($this->buf, $start, $this->pos - $start)];\n            case 2:\n                $n = $this->varint();\n                $b = $this->take($n);\n                return [$num, $wire, 0, $b, "", substr($this->buf, $start, $this->pos - $start)];\n            case 1:\n                $b = $this->take(8);\n                return [$num, $wire, 0, "", $b, substr($this->buf, $start, $this->pos - $start)];\n            case 5:\n                $b = $this->take(4);\n                return [$num, $wire, 0, "", $b, substr($this->buf, $start, $this->pos - $start)];\n            default:\n                throw new \\InvalidArgumentException("bad wire type");\n        }\n    }\n}\n\n';
-
 function phpbMessageClass(model, msg) {
-  const name = phpbFlat(model.package, msg.fullName);
-  return 'class ' + name + '\n{\n'
-    + msg.fields.map((f) => '    public ' + phpbType(model, f) + ' $' + phpbFieldName(f) + ' = ' + phpbDefault(model, f) + ';\n').join('')
-    + (msg.fields.length ? '\n' : '')
-    + '    public string $unknownFields = "";\n'
-    + '    public function __construct(' + msg.fields.map((f) => phpbType(model, f) + ' $' + phpbFieldName(f) + ' = ' + phpbDefault(model, f)).join(', ') + ')\n    {\n'
-    + msg.fields.map((f) => '        $this->' + phpbFieldName(f) + ' = $' + phpbFieldName(f) + ';\n').join('')
-    + '    }\n\n'
-    + '    public function marshalDc(): string\n    {\n        $w = new Writer();\n'
-    + msg.fields.map((f) => phpbEncodeGuard(model, f, phpbEncodeField(model, f))).join('')
-    + '        $w->raw($this->unknownFields);\n'
-    + '        return $w->toBytes();\n    }\n\n'
-    + '    public function unmarshalDc(string $data): self\n    {\n'
-    + '        $this->unknownFields = "";\n'
-    + msg.fields.map((f) => '        $this->' + phpbFieldName(f) + ' = ' + phpbDefault(model, f) + ';\n').join('')
-    + '        $r = new Reader($data);\n        while (($item = $r->field()) !== null) {\n            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;\n            switch ($num) {\n'
-    + msg.fields.map((f) => phpbDecodeCase(model, f)).join('')
-    + '                default:\n                    $this->unknownFields .= $rawValue;\n                    break;\n            }\n        }\n        return $this;\n    }\n\n'
-    + '    public function equals(?object $other): bool\n    {\n        return $other instanceof ' + name
-    + (msg.fields.length
-      ? '\n            && ' + msg.fields.map((f) => '$this->' + phpbFieldName(f) + ' === $other->' + phpbFieldName(f)).join('\n            && ')
-      : '')
-    + ';\n    }\n}\n\n'
-    + msg.nested.map((n) => phpbMessageClass(model, n)).join('');
+  return runSegments(SEGMENT_PROGRAMS.phpPbMessage, msg, '', model);
 }
-
 function phpbEnumDecl(model, e) {
-  const name = phpbFlat(model.package, model.package === '' ? e.name : model.package + '.' + e.name);
-  return 'final class ' + name + '\n{\n'
-    + e.values.map((v) => '    public const ' + v.name + ' = ' + v.number + ';\n').join('')
-    + '}\n\n';
+  const full = model.package ? model.package + '.' + e.name : e.name;
+  return runSegments(SEGMENT_PROGRAMS.phpPbEnum, e, '', model, [full]);
 }
-
 function emitPhpPbFile(model) {
   if (!model.messages.length && !model.enums.length) return null;
   const base = baseName(model.name);
