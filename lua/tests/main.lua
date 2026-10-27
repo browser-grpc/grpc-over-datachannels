@@ -15,6 +15,8 @@ local ok, err = pcall(function()
     require("test_echo")()
   elseif name == "TestBdd" then
     require("test_bdd")()
+  elseif name == "TestEventBus" then
+    require("test_eventbus")()
   elseif name == "TestInterop" then
     require("test_interop")()
   elseif name == "TestInteropOracle" then

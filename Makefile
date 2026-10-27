@@ -185,6 +185,8 @@ eventbus-stubs:
 		--grpc-dc-php_out=php/grpcdc -I proto proto/events.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-dart=bin/protoc-gen-grpc-dc-dart \
 		--grpc-dc-dart_out=dart/grpcdc -I proto proto/events.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-lua=bin/protoc-gen-grpc-dc-lua \
+		--grpc-dc-lua_out=lua/examples -I proto proto/events.proto
 
 generate: plugins stubs
 
@@ -419,6 +421,7 @@ test-lua:
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestInterop \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestInteropOracle \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestInteropServerOracle \
+		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestEventBus \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestOracle \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDynamic \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestBdd \

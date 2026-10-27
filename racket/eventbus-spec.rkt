@@ -62,4 +62,5 @@
     (rust "rust/src/eventbus.rs" "rust/src/eventbus_git.rs")
     (ruby "ruby/grpcdc/eventbus.rb" "ruby/grpcdc/eventbus_git.rb")
     (php "php/grpcdc/eventbus.php" "php/grpcdc/eventbus_git.php")
-    (dart "dart/grpcdc/eventbus.dart" "dart/grpcdc/eventbus_git.dart")))
+    (dart "dart/grpcdc/eventbus.dart" "dart/grpcdc/eventbus_git.dart")
+    (lua "lua/grpcdc/eventbus.lua" "lua/grpcdc/eventbus_git.lua")))
