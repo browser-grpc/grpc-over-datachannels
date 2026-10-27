@@ -6069,165 +6069,17 @@ function zigSnake(s) {
   return out;
 }
 
-function zigDeprecated(m, indent) {
-  return m.deprecated ? indent + '/// Deprecated in the proto schema.\n' : '';
-}
 
-function zigClientMethodRaw(m, svc) {
-  const name = lowerFirst(m.name);
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '    pub fn ' + name + '(self: *' + svc + 'Client, req: *const ' + m.input + ', metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(' + m.output + ') {\n'
-        + '        var resp = ' + m.output + '{};\n'
-        + '        const st = self.channel.unary(' + path + ', req, &resp, metadata, timeout_ms);\n'
-        + '        if (!st.isOk()) return .{ .status = st };\n'
-        + '        return .{ .ok = resp };\n    }\n\n';
-    case 'server-streaming':
-      return '    pub fn ' + name + '(self: *' + svc + 'Client, req: *const ' + m.input + ', metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(' + svc + m.name + 'Client) {\n'
-        + '        switch (self.channel.serverStream(' + path + ', req, metadata, timeout_ms)) {\n'
-        + '            .ok => |stream| return .{ .ok = .{ .stream = stream } },\n'
-        + '            .status => |st| return .{ .status = st },\n        }\n    }\n\n';
-    case 'client-streaming':
-      return '    pub fn ' + name + '(self: *' + svc + 'Client, reqs: []const ' + m.input + ', metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(' + m.output + ') {\n'
-        + '        var resp = ' + m.output + '{};\n'
-        + '        const st = self.channel.clientStreamCall(' + path + ', reqs, &resp, metadata, timeout_ms);\n'
-        + '        if (!st.isOk()) return .{ .status = st };\n'
-        + '        return .{ .ok = resp };\n    }\n\n';
-    default:
-      return '    pub fn ' + name + '(self: *' + svc + 'Client, reqs: []const ' + m.input + ', metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(' + svc + m.name + 'Client) {\n'
-        + '        switch (self.channel.bidi(' + path + ', reqs, metadata, timeout_ms)) {\n'
-        + '            .ok => |stream| return .{ .ok = .{ .stream = stream } },\n'
-        + '            .status => |st| return .{ .status = st },\n        }\n    }\n\n';
-  }
-}
 
-function zigClientStreamClass(m, svc) {
-  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
-  return '/// Response stream of a ' + m.name + ' call.\n'
-    + 'pub const ' + svc + m.name + 'Client = struct {\n'
-    + '    stream: ClientStream,\n\n'
-    + '    pub fn recv(self: *' + svc + m.name + 'Client) status_mod.RecvResult(' + m.output + ') {\n'
-    + '        var resp = ' + m.output + '{};\n'
-    + '        switch (self.stream.recvInto(&resp)) {\n'
-    + '            .message => return .{ .message = resp },\n'
-    + '            .end => return .end,\n'
-    + '            .status => |st| return .{ .status = st },\n        }\n    }\n\n'
-    + '    /// Initial metadata (response headers); null until they arrive.\n'
-    + '    pub fn headers(self: *' + svc + m.name + 'Client) ?grpcdc.codec.Headers {\n'
-    + '        return self.stream.headers;\n    }\n\n'
-    + '    /// Trailing metadata of the terminal status.\n'
-    + '    pub fn trailers(self: *' + svc + m.name + 'Client) []const status_mod.TrailerPair {\n'
-    + '        return self.stream.trailers;\n    }\n\n'
-    + '    /// Abandon the call: RST so the server stops producing.\n'
-    + '    pub fn cancel(self: *' + svc + m.name + 'Client) void {\n'
-    + '        self.stream.cancel();\n    }\n\n'
-    + '    pub fn deinit(self: *' + svc + m.name + 'Client) void {\n'
-    + '        self.stream.deinit();\n    }\n};\n\n';
-}
 
-function zigServerStreamStruct(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return '/// Sends responses of a ' + m.name + ' call.\n'
-        + 'pub const ' + svc + m.name + 'Server = struct {\n'
-        + '    sink: server_mod.Sink,\n    alloc: std.mem.Allocator,\n\n'
-        + '    pub fn send(self: *' + svc + m.name + 'Server, resp: *const ' + m.output + ') Status {\n'
-        + '        const payload = resp.marshalDc(self.alloc);\n'
-        + '        defer self.alloc.free(payload);\n'
-        + '        return self.sink.send(payload);\n    }\n};\n\n';
-    case 'client-streaming':
-      return '/// Receives requests of a ' + m.name + ' call.\n'
-        + 'pub const ' + svc + m.name + 'Server = struct {\n'
-        + '    reqs: *server_mod.RequestStream,\n    alloc: std.mem.Allocator,\n'
-        + '    resp: ?' + m.output + ' = null,\n\n'
-        + '    pub fn recv(self: *' + svc + m.name + 'Server) status_mod.RecvResult(' + m.input + ') {\n'
-        + '        var req = ' + m.input + '{};\n'
-        + '        switch (self.reqs.recvInto(&req)) {\n'
-        + '            .message => return .{ .message = req },\n'
-        + '            .end => return .end,\n'
-        + '            .status => |st| return .{ .status = st },\n        }\n    }\n\n'
-        + '    pub fn sendAndClose(self: *' + svc + m.name + 'Server, resp: ' + m.output + ') void {\n'
-        + '        self.resp = resp;\n    }\n};\n\n';
-    default:
-      return '/// Full-duplex stream of a ' + m.name + ' call.\n'
-        + 'pub const ' + svc + m.name + 'Server = struct {\n'
-        + '    reqs: *server_mod.RequestStream,\n    sink: server_mod.Sink,\n    alloc: std.mem.Allocator,\n\n'
-        + '    pub fn recv(self: *' + svc + m.name + 'Server) status_mod.RecvResult(' + m.input + ') {\n'
-        + '        var req = ' + m.input + '{};\n'
-        + '        switch (self.reqs.recvInto(&req)) {\n'
-        + '            .message => return .{ .message = req },\n'
-        + '            .end => return .end,\n'
-        + '            .status => |st| return .{ .status = st },\n        }\n    }\n\n'
-        + '    pub fn send(self: *' + svc + m.name + 'Server, resp: *const ' + m.output + ') Status {\n'
-        + '        const payload = resp.marshalDc(self.alloc);\n'
-        + '        defer self.alloc.free(payload);\n'
-        + '        return self.sink.send(payload);\n    }\n};\n\n';
-  }
-}
 
-function zigServerVtableField(m, svc) {
-  const name = zigSnake(m.name);
-  switch (m.kind) {
-    case 'unary':
-      return '    ' + name + '_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const ' + m.input + ', resp: *' + m.output + ', alloc: std.mem.Allocator) Status,\n';
-    case 'server-streaming':
-      return '    ' + name + '_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const ' + m.input + ', stream: *' + svc + m.name + 'Server) Status,\n';
-    default:
-      return '    ' + name + '_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, stream: *' + svc + m.name + 'Server) Status,\n';
-  }
-}
 
-function zigAdapter(m, svc) {
-  const name = lowerFirst(m.name);
-  const impl = zigSnake(m.implName);
-  const head = 'fn ' + lowerFirst(svc) + m.name + 'Adapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n'
-    + '    const impl: *' + svc + 'Server = @ptrCast(@alignCast(ctx));\n';
-  switch (m.kind) {
-    case 'unary':
-      return head
-        + '    var req = ' + m.input + '{};\n'
-        + '    switch (reqs.recvInto(&req)) {\n'
-        + '        .message => {},\n'
-        + '        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),\n'
-        + '        .status => |st| return st,\n    }\n'
-        + '    var arena = std.heap.ArenaAllocator.init(reqs.alloc);\n'
-        + '    defer arena.deinit();\n'
-        + '    var resp = ' + m.output + '{};\n'
-        + '    const st = impl.' + impl + '_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());\n'
-        + '    if (!st.isOk()) return st;\n'
-        + '    const payload = resp.marshalDc(reqs.alloc);\n'
-        + '    defer reqs.alloc.free(payload);\n'
-        + '    return sink.send(payload);\n}\n\n';
-    case 'server-streaming':
-      return head
-        + '    var req = ' + m.input + '{};\n'
-        + '    switch (reqs.recvInto(&req)) {\n'
-        + '        .message => {},\n'
-        + '        .end => return Status.init(wire.codeInternal, "server-streaming call closed with no request"),\n'
-        + '        .status => |st| return st,\n    }\n'
-        + '    var stream = ' + svc + m.name + 'Server{ .sink = sink, .alloc = reqs.alloc };\n'
-        + '    return impl.' + impl + '_fn(impl.ctx, call_ctx, &req, &stream);\n}\n\n';
-    case 'client-streaming':
-      return head
-        + '    var arena = std.heap.ArenaAllocator.init(reqs.alloc);\n'
-        + '    defer arena.deinit();\n'
-        + '    var stream = ' + svc + m.name + 'Server{ .reqs = reqs, .alloc = arena.allocator() };\n'
-        + '    const st = impl.' + impl + '_fn(impl.ctx, call_ctx, &stream);\n'
-        + '    if (!st.isOk()) return st;\n'
-        + '    const resp = stream.resp orelse\n'
-        + '        return Status.init(wire.codeInternal, "client-streaming handler never called sendAndClose");\n'
-        + '    const payload = resp.marshalDc(reqs.alloc);\n'
-        + '    defer reqs.alloc.free(payload);\n'
-        + '    return sink.send(payload);\n}\n\n';
-    default:
-      return head
-        + '    var stream = ' + svc + m.name + 'Server{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc };\n'
-        + '    return impl.' + impl + '_fn(impl.ctx, call_ctx, &stream);\n}\n\n';
-  }
-}
+
+
+
+
+
+
 
 const ZIG_KIND_CONSTS = {
   unary: 'unary',
@@ -6237,27 +6089,11 @@ const ZIG_KIND_CONSTS = {
 };
 
 function zigRegisterMethod(m, svc) {
-  return '                .{ .name = ' + q(m.name) + ', .path = ' + q(m.path) + ', .kind = .' + ZIG_KIND_CONSTS[m.kind] + ', .ctx = impl, .handler = ' + lowerFirst(svc) + m.name + 'Adapter },\n';
+  return runSegments(SEGMENT_PROGRAMS.zigRegisterMethod, m, svc);
 }
 
 function zigService(svc) {
-  const sname = svc.name;
-  return '/// Client for ' + svc.fullName + '.\n'
-    + 'pub const ' + sname + 'Client = struct {\n'
-    + '    channel: *Channel,\n\n'
-    + '    pub fn init(channel: *Channel) ' + sname + 'Client {\n'
-    + '        return .{ .channel = channel };\n    }\n\n'
-    + svc.methods.concat(aliasClientMethods(svc)).map((m) => zigDeprecated(m, '    ') + zigClientMethodRaw(m, sname)).join('')
-    + '};\n\n'
-    + svc.methods.map((m) => zigClientStreamClass(m, sname)).join('')
-    + svc.methods.map((m) => zigServerStreamStruct(m, sname)).join('')
-    + '/// Service implementation interface for ' + svc.fullName + ' (vtable: Zig has no\n'
-    + '/// interfaces, so generated stubs dispatch through fn pointers).\n'
-    + 'pub const ' + sname + 'Server = struct {\n'
-    + '    ctx: *anyopaque,\n'
-    + svc.methods.map((m) => zigServerVtableField(m, sname)).join('')
-    + '};\n\n'
-    + svc.methods.concat(aliasServerMethods(svc)).map((m) => zigAdapter(m, sname)).join('');
+  return runSegments(SEGMENT_PROGRAMS.zigService, svc, svc.name);
 }
 
 function zigTypeOrigins(model) {
@@ -6333,295 +6169,44 @@ function zgpEntryRef(model, entry) {
   return baseName(entry.file) + '_messages.' + rel;
 }
 
-function zgpScalar(f) {
-  // Leaf payloads single-sourced from scalar-type-tables
-  // in spec.rkt (SCALAR_TABLES), same table the native
-  // template derives from.
-  return SCALAR_TABLES.zig.types[f.type] ?? SCALAR_TABLES.zig.default;
-}
+
 
 function zgpEntryStructName(model, entry) {
   return zgpEntryRef(model, entry).split('.').join('_');
 }
 
 function zgpType(model, f) {
-  let singular;
-  if (f.type === FT.MESSAGE) {
-    const entry = zgpResolve(model, f.typeName);
-    singular = entry.kind === 'map'
-      ? '[]const ' + zgpEntryStructName(model, entry)
-      : '?*' + zgpEntryRef(model, entry);
-  } else if (f.type === FT.ENUM) {
-    singular = zgpEntryRef(model, zgpResolve(model, f.typeName));
-  } else {
-    singular = zgpScalar(f)[0];
-  }
-  if (f.type === FT.MESSAGE && zgpResolve(model, f.typeName).kind === 'map') return singular;
-  if (f.label === 3) {
-    return '[]const ' + (f.type === FT.MESSAGE
-      ? zgpEntryRef(model, zgpResolve(model, f.typeName))
-      : zgpType(model, { ...f, label: 1 }));
-  }
-  return singular;
+  return runSegments(SEGMENT_PROGRAMS.zigPbType, f, null, model);
 }
 
-function zgpExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case 9: return JSON.stringify(d);
-    case 8: return d;
-    case 14: return '.' + d;
-    default: return d;
-  }
-}
 
-function zgpDefault(model, f) {
-  const lit = zgpExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.type === FT.MESSAGE && zgpResolve(model, f.typeName).kind === 'map') return '&.{}';
-  if (f.label === 3) return '&.{}';
-  if (f.type === FT.MESSAGE) return 'null';
-  if (f.type === FT.ENUM) {
-    const entry = zgpResolve(model, f.typeName);
-    return '.' + entry.enum.values[0].name;
-  }
-  return zgpScalar(f)[1];
-}
 
-function zgpVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return '@intFromBool(' + v + ')';
-    case 17: return '@as(u64, @bitCast(@as(i64, ((' + v + ' << 1) ^ (' + v + ' >> 31)))))';
-    case 18: return '@as(u64, @bitCast(((' + v + ' << 1) ^ (' + v + ' >> 63))))';
-    case 14: return '@as(u64, @bitCast(@as(i64, @intFromEnum(' + v + '))))';
-    case 5: return '@as(u64, @bitCast(@as(i64, ' + v + ')))';
-    case 3: return '@as(u64, @bitCast(' + v + '))';
-    default: return v;
-  }
-}
 
-function zgpVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: return '@as(i32, @truncate(@as(i64, @bitCast(' + v + '))))';
-    case 13: case 7: return '@as(u32, @truncate(' + v + '))';
-    case 3: return '@as(i64, @bitCast(' + v + '))';
-    case 4: case 6: return v;
-    case 8: return v + ' != 0';
-    case 17: return '@as(i32, @bitCast(@as(u32, @truncate((' + v + ' >> 1) ^ (0 -% (' + v + ' & 1))))))';
-    case 18: return '@as(i64, @bitCast((' + v + ' >> 1) ^ (0 -% (' + v + ' & 1))))';
-    default: throw new Error('not a varint type');
-  }
-}
 
-function zgpNonzero(f, v) {
-  switch (f.type) {
-    case 8: return v;
-    case 14: return '@intFromEnum(' + v + ') != 0';
-    default: return v + ' != 0';
-  }
-}
 
-function zgpEncodeSingular(model, f, v, indent) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (ZGP_VARINT.has(f.type)) {
-    return proto2
-      ? indent + '{ w.tag(' + n + ', 0); w.varint(' + zgpVarintExpr(f, v) + '); }\n'
-      : indent + 'if (' + zgpNonzero(f, v) + ') { w.tag(' + n + ', 0); w.varint(' + zgpVarintExpr(f, v) + '); }\n';
-  }
-  const fixed = ZGP_FIXED[f.type];
-  if (fixed) {
-    const wire = fixed[0] === 8 ? 1 : 5;
-    return proto2
-      ? indent + '{ w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + v + '); }\n'
-      : indent + 'if (' + zgpNonzero(f, v) + ') { w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + v + '); }\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + 'w.bytesField(' + n + ', ' + v + ');\n'
-      : indent + 'w.stringField(' + n + ', ' + v + ');\n';
-    case 12: return proto2
-      ? indent + 'w.bytesField(' + n + ', ' + v + ');\n'
-      : indent + 'if (' + v + '.len > 0) w.bytesField(' + n + ', ' + v + ');\n';
-    case 11: return indent + 'if (' + v + ') |p| w.bytesField(' + n + ', p.marshalDc(alloc));\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
-}
 
-function zgpSetExpr(sib) {
-  const v = 'self.' + sib.name;
-  switch (sib.type) {
-    case 11: case 10: return v + ' != null';
-    case 9: case 12: return v + '.len > 0';
-    default: return zgpNonzero(sib, v);
-  }
-}
 
-function zgpEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '        if (!(' + later.map(zgpSetExpr).join(' or ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
-}
 
-function zgpEncodeField(model, f) {
-  const v = 'self.' + f.name;
-  const n = f.number;
-  if (f.type === FT.MESSAGE && zgpResolve(model, f.typeName).kind === 'map') {
-    const entry = zgpResolve(model, f.typeName);
-    return '        for (' + v + ') |e| w.bytesField(' + n + ', encode' + zgpEntryStructName(model, entry) + '(alloc, e.key, e.value));\n';
-  }
-  if (f.label !== 3) return zgpEncodeSingular(model, f, v, '        ');
-  if (ZGP_VARINT.has(f.type)) {
-    return '        if (' + v + '.len > 0) {\n            var payload = PbWriter.init(alloc);\n            defer payload.deinit();\n'
-      + '            for (' + v + ') |x| payload.varint(' + zgpVarintExpr(f, 'x') + ');\n'
-      + '            w.bytesField(' + n + ', payload.toBytes());\n        }\n';
-  }
-  const fixed = ZGP_FIXED[f.type];
-  if (fixed) {
-    return '        if (' + v + '.len > 0) {\n            var payload = PbWriter.init(alloc);\n            defer payload.deinit();\n'
-      + '            for (' + v + ') |x| payload.fixed' + fixed[1] + '(x);\n'
-      + '            w.bytesField(' + n + ', payload.toBytes());\n        }\n';
-  }
-  switch (f.type) {
-    case 9: case 12: return '        for (' + v + ') |x| w.bytesField(' + n + ', x);\n';
-    case 11: return '        for (' + v + ') |x| w.bytesField(' + n + ', x.marshalDc(alloc));\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
-}
 
-function zgpDecodeSingular(model, f, target, src, indent) {
-  if (ZGP_VARINT.has(f.type)) {
-    return indent + target + ' = ' + (f.type === 14
-      ? '@enumFromInt(@as(i32, @truncate(@as(i64, @bitCast(' + src + ')))))'
-      : zgpVarintDecode(f, src)) + ';\n';
-  }
-  if (ZGP_FIXED[f.type]) {
-    let conv;
-    switch (f.type) {
-      case 2: conv = '@as(f32, @bitCast(@as(u32, @truncate(' + src + '))))'; break;
-      case 1: conv = '@as(f64, @bitCast(' + src + '))'; break;
-      case 7: conv = '@as(u32, @truncate(' + src + '))'; break;
-      case 15: conv = '@as(i32, @bitCast(@as(u32, @truncate(' + src + '))))'; break;
-      case 6: conv = src; break;
-      case 16: conv = '@as(i64, @bitCast(' + src + '))'; break;
-      default: conv = src;
-    }
-    return indent + target + ' = ' + conv + ';\n';
-  }
-  switch (f.type) {
-    case 9: return indent + target + ' = alloc.dupe(u8, ' + src + ') catch "";\n';
-    case 12: return indent + target + ' = alloc.dupe(u8, ' + src + ') catch &.{};\n';
-    case 11: {
-      const ref = zgpEntryRef(model, zgpResolve(model, f.typeName));
-      return indent + target + ' = alloc.create(' + ref + ') catch unreachable;\n'
-        + indent + target + '.?.* = .{};\n'
-        + indent + target + '.?.unmarshalDc(alloc, ' + src + ');\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type);
-  }
-}
 
-function zgpOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => '                    self.' + sib.name + ' = ' + zgpDefault(model, sib) + ';\n').join('');
-}
 
-function zgpSrc(f) {
-  return ZGP_VARINT.has(f.type) ? 'field.varint_value' : (ZGP_FIXED[f.type] ? 'field.fixed_value' : 'field.bytes_value');
-}
 
-function zgpDecodeCase(model, f) {
-  const v = 'self.' + f.name;
-  const head = '                ' + f.number + ' => {\n';
-  const tail = '                },\n';
-  if (f.type === FT.MESSAGE && zgpResolve(model, f.typeName).kind === 'map') {
-    const entry = zgpResolve(model, f.typeName);
-    const sname = zgpEntryStructName(model, entry);
-    return head
-      + '                    const kv = decode' + sname + '(alloc, field.bytes_value);\n'
-      + '                    ' + f.name + '_list.append(alloc, kv) catch {};\n'
-      + tail;
-  }
-  if (f.label !== 3) {
-    return head + zgpOneofClearing(model, f) + zgpDecodeSingular(model, f, v, zgpSrc(f), '                    ') + tail;
-  }
-  if (ZGP_VARINT.has(f.type)) {
-    const conv = (src, raw) => f.type === 14
-      ? '@enumFromInt(@as(i32, @truncate(@as(i64, @bitCast(' + raw + ')))))'
-      : zgpVarintDecode(f, src);
-    return head
-      + '                    if (field.wire == 2) {\n'
-      + '                        var sub = PbReader.init(field.bytes_value);\n'
-      + '                        while (!sub.done()) {\n'
-      + '                            ' + f.name + '_list.append(alloc, ' + conv('sub.varint()', 'sub.varint()') + ') catch {};\n'
-      + '                        }\n                    } else {\n'
-      + '                        ' + f.name + '_list.append(alloc, ' + conv('field.varint_value', 'field.varint_value') + ') catch {};\n'
-      + '                    }\n'
-      + tail;
-  }
-  const fixed = ZGP_FIXED[f.type];
-  if (fixed) {
-    const subConv = f.type === 2 ? '@as(f32, @bitCast(std.mem.readInt(u32, sub.take(4)[0..4], .little)))'
-      : f.type === 1 ? '@as(f64, @bitCast(std.mem.readInt(u64, sub.take(8)[0..8], .little)))'
-      : f.type === 7 ? 'std.mem.readInt(u32, sub.take(4)[0..4], .little)'
-      : f.type === 15 ? '@as(i32, @bitCast(std.mem.readInt(u32, sub.take(4)[0..4], .little)))'
-      : f.type === 6 ? 'std.mem.readInt(u64, sub.take(8)[0..8], .little)'
-      : '@as(i64, @bitCast(std.mem.readInt(u64, sub.take(8)[0..8], .little)))';
-    const oneConv = f.type === 2 ? '@as(f32, @bitCast(@as(u32, @truncate(field.fixed_value))))'
-      : f.type === 1 ? '@as(f64, @bitCast(field.fixed_value))'
-      : f.type === 7 ? '@as(u32, @truncate(field.fixed_value))'
-      : f.type === 15 ? '@as(i32, @bitCast(@as(u32, @truncate(field.fixed_value))))'
-      : f.type === 6 ? 'field.fixed_value'
-      : '@as(i64, @bitCast(field.fixed_value))';
-    return head
-      + '                    if (field.wire == 2) {\n'
-      + '                        var sub = PbReader.init(field.bytes_value);\n'
-      + '                        while (!sub.done()) {\n'
-      + '                            ' + f.name + '_list.append(alloc, ' + subConv + ') catch {};\n'
-      + '                        }\n                    } else {\n'
-      + '                        ' + f.name + '_list.append(alloc, ' + oneConv + ') catch {};\n'
-      + '                    }\n'
-      + tail;
-  }
-  switch (f.type) {
-    case 9: return head + '                    ' + f.name + '_list.append(alloc, alloc.dupe(u8, field.bytes_value) catch "") catch {};\n' + tail;
-    case 12: return head + '                    ' + f.name + '_list.append(alloc, alloc.dupe(u8, field.bytes_value) catch &.{} ) catch {};\n' + tail;
-    case 11: return head
-      + '                    var item: ' + zgpEntryRef(model, zgpResolve(model, f.typeName)) + ' = .{};\n'
-      + '                    item.unmarshalDc(alloc, field.bytes_value);\n'
-      + '                    ' + f.name + '_list.append(alloc, item) catch {};\n'
-      + tail;
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function zgpMapHelpers(model, entry) {
-  const msg = entry.msg;
-  const sname = zgpEntryStructName(model, entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry lacks key/value');
-  const kt = zgpType(model, { ...keyF, label: 1 });
-  const vt = zgpType(model, { ...valF, label: 1 });
-  const vtPlain = (valF.type === FT.MESSAGE && zgpResolve(model, valF.typeName).kind !== 'map')
-    ? zgpEntryRef(model, zgpResolve(model, valF.typeName))
-    : vt;
-  return 'pub fn encode' + sname + '(alloc: std.mem.Allocator, key: ' + kt + ', value: ' + vtPlain + ') []u8 {\n'
-    + '    var w = PbWriter.init(alloc);\n    defer w.deinit();\n'
-    + zgpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '    ')
-    + (valF.type === FT.MESSAGE
-      ? '    w.bytesField(' + valF.number + ', value.marshalDc(alloc));\n'
-      : zgpEncodeSingular(model, { ...valF, label: 1 }, 'value', '    '))
-    + '    return w.toBytes();\n}\n\n'
-    + 'pub fn decode' + sname + '(alloc: std.mem.Allocator, data: []const u8) ' + sname + ' {\n'
-    + ([9, 12, 11].includes(keyF.type) || [9, 12, 11].includes(valF.type) ? '' : '    _ = alloc;\n')
-    + '    var result: ' + sname + ' = .{ .key = ' + zgpDefault(model, { ...keyF, label: 1 }) + ', .value = ' + (valF.type === FT.MESSAGE ? '.{}' : zgpDefault(model, { ...valF, label: 1 })) + ' };\n'
-    + '    var r = PbReader.init(data);\n    while (r.next()) |field| {\n        switch (field.number) {\n'
-    + '            ' + keyF.number + ' => { ' + zgpDecodeSingular(model, { ...keyF, label: 1 }, 'result.key', zgpSrc(keyF), '').replace(/\s+$/, '') + ' },\n'
-    + '            ' + valF.number + ' => { ' + (valF.type === FT.MESSAGE
-      ? 'result.value.unmarshalDc(alloc, field.bytes_value);'
-      : zgpDecodeSingular(model, { ...valF, label: 1 }, 'result.value', zgpSrc(valF), '').replace(/\s+$/, '')) + ' },\n'
-    + '            else => {},\n        }\n    }\n    return result;\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.zigPbMapHelpers, entry, null, model);
 }
 
 const ZGP_SUPPORT = '// @generated by protoc-gen-grpc-dc-zig. DO NOT EDIT.\n'
@@ -6674,51 +6259,12 @@ const ZGP_SUPPORT = '// @generated by protoc-gen-grpc-dc-zig. DO NOT EDIT.\n'
   + '    }\n'
   + '};\n\n';
 
-function zgpNestedEnum(e, indent) {
-  return indent + 'pub const ' + e.name + ' = enum(i32) {\n'
-    + e.values.map((v) => indent + '    ' + v.name + ' = ' + v.number).join(',\n')
-    + ',\n' + indent + '};\n';
-}
 
-function zgpIsListField(model, f) {
-  return f.label === 3 || (f.type === FT.MESSAGE && zgpResolve(model, f.typeName).kind === 'map');
-}
+
+
 
 function zgpMessageStruct(model, msg, indent) {
-  const name = msg.name;
-  return indent + 'pub const ' + name + ' = struct {\n'
-    + msg.fields.map((f) => indent + '    ' + f.name + ': ' + zgpType(model, f) + ' = ' + zgpDefault(model, f) + ',\n').join('')
-    + indent + '    unknown_fields: []const u8 = &.{},\n'
-    + indent + '    pub fn marshalDc(self: *const ' + name + ', alloc: std.mem.Allocator) []u8 {\n'
-    + indent + '        _ = .{ self, alloc };\n'
-    + indent + '        var w = PbWriter.init(alloc);\n' + indent + '        defer w.deinit();\n'
-    + msg.fields.map((f) => zgpEncodeGuard(model, f, zgpEncodeField(model, f))).join('')
-    + indent + '        w.raw(self.unknown_fields);\n'
-    + indent + '        return w.toBytes();\n' + indent + '    }\n'
-    + indent + '    pub fn unmarshalDc(self: *' + name + ', alloc: std.mem.Allocator, data: []const u8) void {\n'
-    + indent + '        _ = .{ self, alloc, data };\n'
-    + msg.fields.map((f) => indent + '        self.' + f.name + ' = ' + zgpDefault(model, f) + ';\n').join('')
-    + msg.fields.filter((f) => zgpIsListField(model, f)).map((f) => {
-      const elem = (f.type === FT.MESSAGE && zgpResolve(model, f.typeName).kind === 'map')
-        ? zgpEntryStructName(model, zgpResolve(model, f.typeName))
-        : (f.type === FT.MESSAGE
-          ? zgpEntryRef(model, zgpResolve(model, f.typeName))
-          : zgpType(model, { ...f, label: 1 }));
-      return indent + '        var ' + f.name + '_list = std.ArrayList(' + elem + ').empty;\n';
-    }).join('')
-    + indent + '        self.unknown_fields = &.{};\n'
-    + indent + '        var unknown_fields_list = std.ArrayList(u8).empty;\n'
-    + indent + '        var r = PbReader.init(data);\n'
-    + indent + '        while (r.next()) |field| {\n' + indent + '            switch (field.number) {\n'
-    + msg.fields.map((f) => zgpDecodeCase(model, f)).join('')
-    + indent + '                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },\n'
-    + indent + '            }\n' + indent + '        }\n'
-    + indent + '        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};\n'
-    + msg.fields.filter((f) => zgpIsListField(model, f)).map((f) => indent + '        self.' + f.name + ' = ' + f.name + '_list.toOwnedSlice(alloc) catch &.{};\n').join('')
-    + indent + '    }\n'
-    + msg.nested.filter((n) => !n.mapEntry).map((n) => zgpMessageStruct(model, n, indent + '    ')).join('')
-    + msg.enums.map((e) => zgpNestedEnum(e, indent + '    ')).join('')
-    + indent + '};\n';
+  return runSegments(SEGMENT_PROGRAMS.zigPbMessage, msg, null, model, [indent]);
 }
 
 function emitZigPbFile(model) {
@@ -8413,7 +7959,7 @@ JS
                        "function segTruthy(v) { return !(v === false || v === null || v === undefined || v === '' || v === 0); }\n\n"
                        "function segKey(k) {\n  return k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());\n}\n\n"
                        "function segCategory(model, node) {\n  const t = node.type;\n  if (t === 11 && gpResolve(model, node.typeName).kind === 'map') return 'map';\n  if (t === 11) return 'message';\n  if (VARINT_TYPES.includes(t)) return 'varint';\n  if (FIXED_TABLES.go[t]) return 'fixed';\n  if (t === 9) return 'string';\n  if (t === 12) return 'bytes';\n  return 'other';\n}\n\n"
-                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      const tmpl = Array.isArray(seg[1]) ? segEval(seg[1], env) : seg[1];\n      return tmpl.replace(/~~|~[as]/g, (tok) => {\n        if (tok === '~~') return '~';\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'root': return env.root;\n    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'lower-first': return lowerFirst(segEval(seg[1], env));\n    case 'js-name': return pbJsName(node);\n    case 'js-fixed-size': return FIXED_TABLES.js[node.type][0];\n    case 'js-fixed-name': return FIXED_TABLES.js[node.type][1];\n    case 'bigint-type': return PB_BIGINT.has(node.type);\n    case 'entry-flat': return node.kind === 'enum' ? pbFlatName(node.pkg, node.full) : pbFlatName(node.pkg, node.msg.fullName);\n    case 'resolved-flat': { const e = pbResolve(model, node.typeName); return pbFlatName(e.pkg, e.msg.fullName); }\n    case 'index': return env.index;\n    case 'parent': return env.parent;\n    case 'and': return seg.slice(1).every((e) => segTruthy(segEval(e, env)));\n    case 'or': return seg.slice(1).some((e) => segTruthy(segEval(e, env)));\n    case 'not': return !segTruthy(segEval(seg[1], env));\n    case 'any-where': { const keys = Array.isArray(seg[1]) ? seg[1] : [seg[1]]; let items = node; for (const k of keys) items = items[segKey(k)]; return items.some((el) => segTruthy(segEval(seg[2], envWith(env, { node: el })))); }\n    case 'snake-case': return snakeCase(segEval(seg[1], env));\n    case 'rs-camel': return rpCamel(segEval(seg[1], env));\n    case 'rs-field-name': return rpFieldName(node);\n    case 'rs-map-type': return rpMapType();\n    case 'rs-entry-ref': { const e = node.typeName !== undefined ? rpResolve(model, node.typeName) : node; return rpEntryRef(model, e); }\n    case 'rs-scalar-type': return SCALAR_TABLES.rust.types[node.type] ?? SCALAR_TABLES.rust.default;\n    case 'rs-fixed-size': return FIXED_TABLES.rust[node.type][0];\n    case 'rs-fixed-name': return FIXED_TABLES.rust[node.type][1];\n    case 'flat-of': return rpFlat(model.package, segEval(seg[1], env));\n    case 'rust-enum-fragment': return RP_ENUM_SHAPE[seg[1]];\n    case 'enum-first-value-name': return rpResolve(model, node.typeName).enum.values[0].name;\n    case 'enum-first-value-num': return rpResolve(model, node.typeName).enum.values[0].number;\n    case 'rb-snake': return String(segEval(seg[1], env)).replace(/[A-Z]/g, (c, i) => (i > 0 ? '_' : '') + c.toLowerCase());\n    case 'stub-ref': return rbStubRef(model, node[segKey(seg[1])]);\n    case 'rb-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? rbpResolve(model, n.typeName) : n; return rbpEntryRef(model, e); }\n    case 'rb-model-module': return rbpModuleName({ file: model.name });\n    case 'rb-fixed-size': return FIXED_TABLES.ruby[node.type][0];\n    case 'rb-fixed-fmt': return FIXED_TABLES.ruby[node.type][1];\n    case 'php-camel': return phpbCamel(segEval(seg[1], env));\n    case 'php-field-name': return phpbFieldName(node);\n    case 'php-flat-of': return phpbFlat(model.package, segEval(seg[1], env));\n    case 'php-stub-ref': return phpStubRef(model, node[segKey(seg[1])]);\n    case 'php-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? phpbResolve(model, n.typeName) : n; return phpbEntryRef(model, e); }\n    case 'php-fixed-size': return FIXED_TABLES.php[node.type][0];\n    case 'php-fixed-fmt': return FIXED_TABLES.php[node.type][1];\n    case 'py-ref': { const e = node.typeName !== undefined ? pyPbResolve(model, node.typeName) : node; return pyPbRef(model, e); }\n    case 'py-fixed-size': return FIXED_TABLES.python[node.type][0];\n    case 'py-fixed-fmt': return FIXED_TABLES.python[node.type][1];\n    case 'with-type': return Object.assign({}, segEval(seg[1], env), { type: seg[2] });\n    case 'trim-end': return String(segEval(seg[1], env)).replace(/\\n+$/, '');\n    case 'c-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntryRef(model, e); }\n    case 'c-entry-support': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntrySupport(e); }\n    case 'c-type-ref': return cbTypeRef(model, node[segKey(seg[1])]);\n    case 'c-support-of': return cbEntrySupport(cbResolve(model, node[segKey(seg[1])]));\n    case 'c-scalar-type': return SCALAR_TABLES.c.types[node.type][0];\n    case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];\n    case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];\n    case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];\n    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + '\u0000' + el.output)).size; }\n    case 'sc-field-name': return scpFieldName(node);\n    case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }\n    case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;\n    case 'sc-fixed-size': return FIXED_TABLES.scala[node.type][0];\n    case 'sc-fixed-kind': return FIXED_TABLES.scala[node.type][1];\n    case 'dart-field-name': return dtpFieldName(node);\n    case 'dart-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpEntryRef(model, e); }\n    case 'dart-type-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpTypeRef(model, e); }\n    case 'dart-scalar-type': return SCALAR_TABLES.dart.types[node.type][0];\n    case 'dart-scalar-zero': return SCALAR_TABLES.dart.types[node.type][1];\n    case 'dart-fixed-size': return FIXED_TABLES.dart[node.type][0];\n    case 'dart-fixed-name': return FIXED_TABLES.dart[node.type][1];\n    case 'swift-field-name': return swpFieldName(node);\n    case 'swift-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpEntryRef(model, e); }\n    case 'swift-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpMapHelperName(model, e); }\n    case 'swift-scalar-type': return SCALAR_TABLES.swift.types[node.type][0];\n    case 'swift-scalar-zero': return SCALAR_TABLES.swift.types[node.type][1];\n    case 'swift-fixed-size': return FIXED_TABLES.swift[node.type][0];\n    case 'swift-fixed-name': return FIXED_TABLES.swift[node.type][1];\n    case 'lua-field-name': return lpFieldName(node);\n    case 'lua-entry-flat': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? lpResolve(model, n.typeName) : n; return lpEntryFlat(model, e); }\n    case 'lua-enum-flat': return lpFlat(model.package, model.package === '' ? node.name : model.package + '.' + node.name);\n    case 'lua-fixed-fmt': return '<' + FIXED_TABLES.lua[node.type][1];\n    case 'lua-fixed-size': return FIXED_TABLES.lua[node.type][0];\n    case 'lua-fixed-wire': return FIXED_TABLES.lua[node.type][0] === 8 ? 1 : 5;\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
+                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      const tmpl = Array.isArray(seg[1]) ? segEval(seg[1], env) : seg[1];\n      return tmpl.replace(/~~|~[as]/g, (tok) => {\n        if (tok === '~~') return '~';\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'root': return env.root;\n    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'lower-first': return lowerFirst(segEval(seg[1], env));\n    case 'js-name': return pbJsName(node);\n    case 'js-fixed-size': return FIXED_TABLES.js[node.type][0];\n    case 'js-fixed-name': return FIXED_TABLES.js[node.type][1];\n    case 'bigint-type': return PB_BIGINT.has(node.type);\n    case 'entry-flat': return node.kind === 'enum' ? pbFlatName(node.pkg, node.full) : pbFlatName(node.pkg, node.msg.fullName);\n    case 'resolved-flat': { const e = pbResolve(model, node.typeName); return pbFlatName(e.pkg, e.msg.fullName); }\n    case 'index': return env.index;\n    case 'parent': return env.parent;\n    case 'and': return seg.slice(1).every((e) => segTruthy(segEval(e, env)));\n    case 'or': return seg.slice(1).some((e) => segTruthy(segEval(e, env)));\n    case 'not': return !segTruthy(segEval(seg[1], env));\n    case 'any-where': { const keys = Array.isArray(seg[1]) ? seg[1] : [seg[1]]; let items = node; for (const k of keys) items = items[segKey(k)]; return items.some((el) => segTruthy(segEval(seg[2], envWith(env, { node: el })))); }\n    case 'snake-case': return snakeCase(segEval(seg[1], env));\n    case 'rs-camel': return rpCamel(segEval(seg[1], env));\n    case 'rs-field-name': return rpFieldName(node);\n    case 'rs-map-type': return rpMapType();\n    case 'rs-entry-ref': { const e = node.typeName !== undefined ? rpResolve(model, node.typeName) : node; return rpEntryRef(model, e); }\n    case 'rs-scalar-type': return SCALAR_TABLES.rust.types[node.type] ?? SCALAR_TABLES.rust.default;\n    case 'rs-fixed-size': return FIXED_TABLES.rust[node.type][0];\n    case 'rs-fixed-name': return FIXED_TABLES.rust[node.type][1];\n    case 'flat-of': return rpFlat(model.package, segEval(seg[1], env));\n    case 'rust-enum-fragment': return RP_ENUM_SHAPE[seg[1]];\n    case 'enum-first-value-name': return rpResolve(model, node.typeName).enum.values[0].name;\n    case 'enum-first-value-num': return rpResolve(model, node.typeName).enum.values[0].number;\n    case 'rb-snake': return String(segEval(seg[1], env)).replace(/[A-Z]/g, (c, i) => (i > 0 ? '_' : '') + c.toLowerCase());\n    case 'stub-ref': return rbStubRef(model, node[segKey(seg[1])]);\n    case 'rb-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? rbpResolve(model, n.typeName) : n; return rbpEntryRef(model, e); }\n    case 'rb-model-module': return rbpModuleName({ file: model.name });\n    case 'rb-fixed-size': return FIXED_TABLES.ruby[node.type][0];\n    case 'rb-fixed-fmt': return FIXED_TABLES.ruby[node.type][1];\n    case 'php-camel': return phpbCamel(segEval(seg[1], env));\n    case 'php-field-name': return phpbFieldName(node);\n    case 'php-flat-of': return phpbFlat(model.package, segEval(seg[1], env));\n    case 'php-stub-ref': return phpStubRef(model, node[segKey(seg[1])]);\n    case 'php-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? phpbResolve(model, n.typeName) : n; return phpbEntryRef(model, e); }\n    case 'php-fixed-size': return FIXED_TABLES.php[node.type][0];\n    case 'php-fixed-fmt': return FIXED_TABLES.php[node.type][1];\n    case 'py-ref': { const e = node.typeName !== undefined ? pyPbResolve(model, node.typeName) : node; return pyPbRef(model, e); }\n    case 'py-fixed-size': return FIXED_TABLES.python[node.type][0];\n    case 'py-fixed-fmt': return FIXED_TABLES.python[node.type][1];\n    case 'with-type': return Object.assign({}, segEval(seg[1], env), { type: seg[2] });\n    case 'trim-end': return String(segEval(seg[1], env)).replace(/\\n+$/, '');\n    case 'c-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntryRef(model, e); }\n    case 'c-entry-support': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntrySupport(e); }\n    case 'c-type-ref': return cbTypeRef(model, node[segKey(seg[1])]);\n    case 'c-support-of': return cbEntrySupport(cbResolve(model, node[segKey(seg[1])]));\n    case 'c-scalar-type': return SCALAR_TABLES.c.types[node.type][0];\n    case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];\n    case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];\n    case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];\n    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + '\u0000' + el.output)).size; }\n    case 'sc-field-name': return scpFieldName(node);\n    case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }\n    case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;\n    case 'sc-fixed-size': return FIXED_TABLES.scala[node.type][0];\n    case 'sc-fixed-kind': return FIXED_TABLES.scala[node.type][1];\n    case 'dart-field-name': return dtpFieldName(node);\n    case 'dart-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpEntryRef(model, e); }\n    case 'dart-type-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpTypeRef(model, e); }\n    case 'dart-scalar-type': return SCALAR_TABLES.dart.types[node.type][0];\n    case 'dart-scalar-zero': return SCALAR_TABLES.dart.types[node.type][1];\n    case 'dart-fixed-size': return FIXED_TABLES.dart[node.type][0];\n    case 'dart-fixed-name': return FIXED_TABLES.dart[node.type][1];\n    case 'swift-field-name': return swpFieldName(node);\n    case 'swift-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpEntryRef(model, e); }\n    case 'swift-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpMapHelperName(model, e); }\n    case 'swift-scalar-type': return SCALAR_TABLES.swift.types[node.type][0];\n    case 'swift-scalar-zero': return SCALAR_TABLES.swift.types[node.type][1];\n    case 'swift-fixed-size': return FIXED_TABLES.swift[node.type][0];\n    case 'swift-fixed-name': return FIXED_TABLES.swift[node.type][1];\n    case 'lua-field-name': return lpFieldName(node);\n    case 'zig-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e); }\n    case 'zig-struct-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e).replace(/\\./g, '_'); }\n    case 'zig-scalar-type': return SCALAR_TABLES.zig.types[node.type][0];\n    case 'zig-scalar-zero': return SCALAR_TABLES.zig.types[node.type][1];\n    case 'zig-fixed-size': return FIXED_TABLES.zig[node.type][0];\n    case 'zig-fixed-name': return FIXED_TABLES.zig[node.type][1];\n    case 'lua-entry-flat': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? lpResolve(model, n.typeName) : n; return lpEntryFlat(model, e); }\n    case 'lua-enum-flat': return lpFlat(model.package, model.package === '' ? node.name : model.package + '.' + node.name);\n    case 'lua-fixed-fmt': return '<' + FIXED_TABLES.lua[node.type][1];\n    case 'lua-fixed-size': return FIXED_TABLES.lua[node.type][0];\n    case 'lua-fixed-wire': return FIXED_TABLES.lua[node.type][0] === 8 ? 1 : 5;\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
                        "function runSegment(seg, env) {\n  const node = env.node;\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'if': {\n      const thenPart = seg.slice(2).find((g) => g[0] === 'then');\n      const elsePart = seg.slice(2).find((g) => g[0] === 'else');\n      if (segTruthy(segEval(seg[1], env))) return runEnv(thenPart.slice(1), env);\n      return elsePart ? runEnv(elsePart.slice(1), env) : '';\n    }\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind || (Array.isArray(b[0]) && b[0].includes(node.kind))) || seg.slice(1).find((b) => b[0] === 'else');\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runEnv(branch.slice(1), env);\n    }\n    case 'case-on': {\n      const val = segEval(seg[1], env);\n      const raw = seg.slice(2);\n      const isKey = (b) => Array.isArray(b) && (Array.isArray(b[0]) || typeof b[0] === 'number' || typeof b[0] === 'string');\n      let branches;\n      if (raw.length === 1 && Array.isArray(raw[0]) && raw[0].every(isKey)) branches = raw[0];\n      else branches = raw.map((b) => (Array.isArray(b) && b.length === 1 && Array.isArray(b[0])) ? b[0] : b);\n      const keysOf = (b) => (Array.isArray(b[0]) ? b[0] : [b[0]]);\n      const branch = branches.find((b) => keysOf(b).includes('else') || keysOf(b).map(String).includes(String(val)));\n      return branch ? runEnv(branch.slice(1), env) : '';\n    }\n    case 'when':\n      return segTruthy(segEval(seg[1], env)) ? runEnv(seg.slice(2), env) : '';\n    case 'guarded': {\n      const hasJoin = Array.isArray(seg[4]) && seg[4][0] === 'join';\n      const joiner = hasJoin ? seg[4][1] : ' || ';\n      const text = runEnv(seg.slice(hasJoin ? 5 : 4), env);\n      const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(joiner);\n      if (!cond) return text;\n      return seg[2].split('~a').join(cond) + (text.endsWith('\\n') ? text : text + '\\n') + seg[3];\n    }\n    case 'fail':\n      throw new Error('unsupported field type ' + node.type);\n    case 'each': {\n      let i = 1; const keys = [];\n      while (typeof seg[i] === 'string') { keys.push(seg[i]); i++; }\n      let items = node;\n      for (const k of keys) items = items[segKey(k)];\n      let out = '';\n      items.forEach((el, ix) => { out += runEnv(seg.slice(i), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'each+': {\n      const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      let out = '';\n      all.forEach((el, ix) => { out += runEnv(seg.slice(3), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'guarded-indent': {
       const text = runEnv(seg.slice(4), env);
       const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(' or ');
