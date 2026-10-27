@@ -6192,212 +6192,37 @@ JS
 // ---------------------------------------------------------------------------
 
 function dartDeprecated(m, indent) {
-  return m.deprecated ? indent + "@Deprecated('deprecated in the proto schema')\n" : '';
+  return runSegments(SEGMENT_PROGRAMS.dartDeprecated, m, '', null, [indent]);
+}
+function dartClientMethod(m) {
+  return runSegments(SEGMENT_PROGRAMS.dartClientMethod, m, '');
 }
 
 function dartClientMethodRaw(m, svc) {
-  const name = lowerFirst(m.name);
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '  Future<' + m.output + '> ' + name + '(' + m.input + ' req,\n'
-        + '      {Map<String, String>? metadata, Duration? timeout}) async {\n'
-        + '    final resp = ' + m.output + '();\n'
-        + '    await _channel.unary(' + path + ', req, resp, metadata: metadata, timeout: timeout);\n'
-        + '    return resp;\n  }\n\n';
-    case 'server-streaming':
-      return '  Future<' + svc + m.name + 'Stream> ' + name + '(' + m.input + ' req,\n'
-        + '      {Map<String, String>? metadata, Duration? timeout}) async {\n'
-        + '    return ' + svc + m.name + 'Stream(\n'
-        + '        await _channel.serverStream(' + path + ', req,\n'
-        + '            metadata: metadata, timeout: timeout));\n  }\n\n';
-    case 'client-streaming':
-      return '  Future<' + m.output + '> ' + name + '(List<' + m.input + '> reqs,\n'
-        + '      {Map<String, String>? metadata, Duration? timeout}) async {\n'
-        + '    final resp = ' + m.output + '();\n'
-        + '    await _channel.clientStreamCall(' + path + ', reqs, resp,\n'
-        + '        metadata: metadata, timeout: timeout);\n'
-        + '    return resp;\n  }\n\n';
-    default:
-      return '  Future<' + svc + m.name + 'Stream> ' + name + '(List<' + m.input + '> reqs,\n'
-        + '      {Map<String, String>? metadata, Duration? timeout}) async {\n'
-        + '    return ' + svc + m.name + 'Stream(\n'
-        + '        await _channel.bidi(' + path + ', reqs, metadata: metadata, timeout: timeout));\n  }\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.dartClientMethod, m, '');
 }
-
 function dartClientStreamClass(m, svc) {
-  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
-  return '/// Receiving stream for ' + svc + '/' + m.name + ' responses.\n'
-    + 'class ' + svc + m.name + 'Stream {\n'
-    + '  final ClientStream _stream;\n\n'
-    + '  ' + svc + m.name + 'Stream(this._stream);\n\n'
-    + '  Future<' + m.output + '> recv() async {\n'
-    + '    final resp = ' + m.output + '();\n'
-    + '    await _stream.recv(resp);\n    return resp;\n  }\n\n'
-    + '  /// Initial metadata (response headers); null until they arrive.\n'
-    + '  Map<String, String>? get headers => _stream.headers?.metadata;\n\n'
-    + '  /// Trailing metadata of the terminal status; null until it arrives.\n'
-    + '  Map<String, String>? get trailers => _stream.trailers;\n\n'
-    + '  /// Abort this stream (sends RST, wakes a pending recv).\n'
-    + '  void cancel() => _stream.cancel();\n\n'
-    + '  /// Abandon the call if still live (RST); no-op once terminated.\n'
-    + '  void close() => _stream.close();\n\n'
-    + '  /// Responses as a Dart Stream (native async surface).\n'
-    + '  /// Cancelling the subscription abandons the call:\n'
-    + '  /// RST CANCELLED is sent so the server stops.\n'
-    + '  Stream<' + m.output + '> get responses {\n'
-    + '    var cancelled = false;\n'
-    + '    late StreamController<' + m.output + '> controller;\n'
-    + '    controller = StreamController<' + m.output + '>(\n'
-    + '      onListen: () {\n'
-    + '        () async {\n'
-    + '          try {\n'
-    + '            while (!cancelled) {\n'
-    + '              controller.add(await recv());\n'
-    + '            }\n'
-    + '          } on EndOfStreamError {\n'
-    + '            if (!cancelled) await controller.close();\n'
-    + '          } catch (e, st) {\n'
-    + '            if (!cancelled) {\n'
-    + '              controller.addError(e, st);\n'
-    + '              await controller.close();\n'
-    + '            }\n'
-    + '          }\n'
-    + '        }();\n'
-    + '      },\n'
-    + '      onCancel: () {\n'
-    + '        cancelled = true;\n'
-    + '        _stream.cancel();\n'
-    + '      },\n'
-    + '    );\n'
-    + '    return controller.stream;\n  }\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.dartClientStreamClass, m, svc);
 }
-
 function dartServerStreamIface(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return '/// Server-streaming sink passed to service implementations.\n'
-        + 'abstract class ' + svc + m.name + 'Server {\n'
-        + '  void send(' + m.output + ' resp);\n'
-        + '  CallContext get context;\n}\n\n';
-    case 'client-streaming':
-      return '/// Client-streaming stream passed to service implementations.\n'
-        + 'abstract class ' + svc + m.name + 'Server {\n'
-        + '  Future<' + m.input + '> recv();\n'
-        + '  void sendAndClose(' + m.output + ' resp);\n'
-        + '  CallContext get context;\n}\n\n';
-    default:
-      return '/// Bidi stream passed to service implementations.\n'
-        + 'abstract class ' + svc + m.name + 'Server {\n'
-        + '  void send(' + m.output + ' resp);\n'
-        + '  Future<' + m.input + '> recv();\n'
-        + '  CallContext get context;\n}\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.dartServerStreamIface, m, svc);
+}
+function dartServerIfaceMethod(m, svc) {
+  return runSegments(SEGMENT_PROGRAMS.dartServerIfaceMethod, m, svc);
 }
 
 function dartServerIfaceMethodRaw(m, svc) {
-  const name = lowerFirst(m.name);
-  switch (m.kind) {
-    case 'unary':
-      return '  Future<' + m.output + '> ' + name + '(CallContext ctx, ' + m.input + ' req);\n';
-    case 'server-streaming':
-      return '  Future<void> ' + name + '(' + m.input + ' req, ' + svc + m.name + 'Server stream);\n';
-    default:
-      return '  Future<void> ' + name + '(' + svc + m.name + 'Server stream);\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.dartServerIfaceMethod, m, svc);
 }
-
 function dartStreamImpl(m, svc) {
-  const head = 'class _' + svc + m.name + 'ServerImpl implements ' + svc + m.name + 'Server {\n';
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return head
-        + '  @override\n  final CallContext context;\n  final ServerSink _sink;\n\n'
-        + '  _' + svc + m.name + 'ServerImpl(this.context, this._sink);\n\n'
-        + '  @override\n  void send(' + m.output + ' resp) {\n    _sink(resp.marshalDc());\n  }\n}\n\n';
-    case 'client-streaming':
-      return head
-        + '  @override\n  final CallContext context;\n  final RequestStream _reqs;\n'
-        + '  ' + m.output + '? resp;\n\n'
-        + '  _' + svc + m.name + 'ServerImpl(this.context, this._reqs);\n\n'
-        + '  @override\n  Future<' + m.input + '> recv() async {\n'
-        + '    final req = ' + m.input + '();\n'
-        + '    await _reqs.recvInto(req);\n    return req;\n  }\n\n'
-        + '  @override\n  void sendAndClose(' + m.output + ' resp) {\n    this.resp = resp;\n  }\n}\n\n';
-    default:
-      return head
-        + '  @override\n  final CallContext context;\n  final RequestStream _reqs;\n  final ServerSink _sink;\n\n'
-        + '  _' + svc + m.name + 'ServerImpl(this.context, this._reqs, this._sink);\n\n'
-        + '  @override\n  void send(' + m.output + ' resp) {\n    _sink(resp.marshalDc());\n  }\n\n'
-        + '  @override\n  Future<' + m.input + '> recv() async {\n'
-        + '    final req = ' + m.input + '();\n'
-        + '    await _reqs.recvInto(req);\n    return req;\n  }\n}\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.dartStreamImpl, m, svc);
 }
-
-const DART_KIND_CONSTS = {
-  unary: 'kindUnary',
-  'server-streaming': 'kindServerStreaming',
-  'client-streaming': 'kindClientStreaming',
-  bidi: 'kindBidi',
-};
-
 function dartRegisterMethod(m, svc) {
-  const impl = lowerFirst(m.implName);
-  const kind = DART_KIND_CONSTS[m.kind];
-  switch (m.kind) {
-    case 'unary':
-      return '      Method(' + q(m.name) + ', ' + q(m.path) + ', Server.' + kind + ',\n'
-        + '          (ctx, reqs, sink) async {\n'
-        + '        final req = ' + m.input + '();\n'
-        + '        await reqs.recvInto(req);\n'
-        + '        sink((await impl.' + impl + '(ctx, req)).marshalDc());\n      }),\n';
-    case 'server-streaming':
-      return '      Method(' + q(m.name) + ', ' + q(m.path) + ',\n'
-        + '          Server.' + kind + ', (ctx, reqs, sink) async {\n'
-        + '        final req = ' + m.input + '();\n'
-        + '        await reqs.recvInto(req);\n'
-        + '        await impl.' + impl + '(req, _' + svc + m.name + 'ServerImpl(ctx, sink));\n      }),\n';
-    case 'client-streaming':
-      return '      Method(' + q(m.name) + ', ' + q(m.path) + ',\n'
-        + '          Server.' + kind + ', (ctx, reqs, sink) async {\n'
-        + '        final stream = _' + svc + m.name + 'ServerImpl(ctx, reqs);\n'
-        + '        await impl.' + impl + '(stream);\n'
-        + '        final resp = stream.resp;\n'
-        + '        if (resp == null) {\n'
-        + '          throw StatusException(Wire.codeInternal,\n'
-        + "              'client-streaming handler never called sendAndClose');\n"
-        + '        }\n'
-        + '        sink(resp.marshalDc());\n      }),\n';
-    default:
-      return '      Method(' + q(m.name) + ', ' + q(m.path) + ', Server.' + kind + ',\n'
-        + '          (ctx, reqs, sink) async {\n'
-        + '        await impl.' + impl + '(_' + svc + m.name + 'ServerImpl(ctx, reqs, sink));\n      }),\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.dartRegisterMethod, m, svc);
 }
-
 function dartService(svc) {
-  const sname = svc.name;
-  return '/// Client for ' + svc.fullName + '.\n'
-    + 'class ' + sname + 'Client {\n'
-    + '  final Channel _channel;\n\n'
-    + '  ' + sname + 'Client(this._channel);\n\n'
-    + svc.methods.concat(aliasClientMethods(svc)).map((m) => dartDeprecated(m, '  ') + dartClientMethodRaw(m, sname)).join('')
-    + '}\n\n'
-    + svc.methods.map((m) => dartClientStreamClass(m, sname)).join('')
-    + svc.methods.map((m) => dartServerStreamIface(m, sname)).join('')
-    + '/// Service implementation interface for ' + svc.fullName + '.\n'
-    + 'abstract class ' + sname + 'Server {\n'
-    + svc.methods.map((m) => dartDeprecated(m, '  ') + dartServerIfaceMethodRaw(m, sname)).join('')
-    + '}\n\n'
-    + svc.methods.map((m) => dartStreamImpl(m, sname)).join('');
+  return runSegments(SEGMENT_PROGRAMS.dartService, svc, svc.name);
 }
-
 function dartRegisterService(svc) {
   const sname = svc.name;
   return '  /// Register an implementation of ' + svc.fullName + ' on a Server.\n'
@@ -6457,292 +6282,46 @@ function dtpScalar(f) {
 }
 
 function dtpType(model, f) {
-  let singular;
-  if (f.type === FT.MESSAGE) {
-    const entry = dtpResolve(model, f.typeName);
-    if (entry.kind === 'map') {
-      const kf = entry.msg.fields.find((x) => x.number === 1);
-      const vf = entry.msg.fields.find((x) => x.number === 2);
-      singular = 'Map<' + dtpType(model, { ...kf, label: 1 }) + ', '
-        + (vf.type === FT.MESSAGE
-          ? dtpTypeRef(model, dtpResolve(model, vf.typeName))
-          : dtpType(model, { ...vf, label: 1 })) + '>';
-    } else {
-      singular = dtpTypeRef(model, entry) + '?';
-    }
-  } else if (f.type === FT.ENUM) {
-    singular = dtpTypeRef(model, dtpResolve(model, f.typeName));
-  } else {
-    singular = dtpScalar(f)[0];
-  }
-  if (f.type === FT.MESSAGE && dtpResolve(model, f.typeName).kind === 'map') return singular;
-  if (f.label === 3) {
-    return 'List<' + (f.type === FT.MESSAGE
-      ? dtpTypeRef(model, dtpResolve(model, f.typeName))
-      : dtpType(model, { ...f, label: 1 })) + '>';
-  }
-  return singular;
+  return runSegments(SEGMENT_PROGRAMS.dtPbType, f, '', model);
 }
-
 function dtpExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case 9: return JSON.stringify(d);
-    case 8: return d;
-    case 14: return dtpEntryRef(model, dtpResolve(model, f.typeName)) + '.' + d;
-    default: return d;
-  }
+  const lit = runSegments(SEGMENT_PROGRAMS.dtPbExplicitLiteral, f, '', model);
+  return lit === '' ? null : lit;
 }
-
 function dtpDefault(model, f) {
-  const lit = dtpExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.type === FT.MESSAGE && dtpResolve(model, f.typeName).kind === 'map') return '{}';
-  if (f.label === 3) return '[]';
-  if (f.type === FT.MESSAGE) return 'null';
-  if (f.type === FT.ENUM) {
-    const entry = dtpResolve(model, f.typeName);
-    return dtpTypeRef(model, entry) + '.' + entry.enum.values[0].name;
-  }
-  return dtpScalar(f)[1];
+  return runSegments(SEGMENT_PROGRAMS.dtPbDefault, f, '', model);
 }
-
 function dtpVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return '(' + v + ' ? 1 : 0)';
-    case 17: return '(((' + v + ' << 1) ^ (' + v + ' >> 31)) & 0xffffffff)';
-    case 18: return '((' + v + ' << 1) ^ (' + v + ' >> 63))';
-    case 14: return v + '.index';
-    default: return v;
-  }
+  return runSegments(SEGMENT_PROGRAMS.dtPbVarintExpr, f, '', null, [v]);
 }
-
 function dtpVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: return '(' + v + ').toSigned(32)';
-    case 13: case 7: case 4: case 6: return '(' + v + ').toUnsigned(64)';
-    case 8: return v + ' != 0';
-    case 17: return '(((' + v + ' >> 1) ^ -(' + v + ' & 1))).toSigned(32)';
-    case 18: return '((' + v + ' >> 1) ^ -(' + v + ' & 1))';
-    default: return v;
-  }
+  return runSegments(SEGMENT_PROGRAMS.dtPbVarintDecode, f, '', null, [v]);
 }
-
 function dtpNonzero(f, v) {
-  switch (f.type) {
-    case 8: return v;
-    case 14: return v + '.index != 0';
-    default: return v + ' != 0';
-  }
+  return runSegments(SEGMENT_PROGRAMS.dtPbNonzero, f, '', null, [v]);
 }
-
 function dtpEncodeSingular(model, f, v, indent, support) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (DTP_VARINT.has(f.type)) {
-    return proto2
-      ? indent + '{ w.tag(' + n + ', 0); w.varint(' + dtpVarintExpr(f, v) + '); }\n'
-      : indent + 'if (' + dtpNonzero(f, v) + ') { w.tag(' + n + ', 0); w.varint(' + dtpVarintExpr(f, v) + '); }\n';
-  }
-  const fixed = DTP_FIXED[f.type];
-  if (fixed) {
-    const wire = fixed[0] === 8 ? 1 : 5;
-    return proto2
-      ? indent + '{ w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + v + '); }\n'
-      : indent + 'if (' + dtpNonzero(f, v) + ') { w.tag(' + n + ', ' + wire + '); w.fixed' + fixed[1] + '(' + v + '); }\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + 'w.bytesField(' + n + ', utf8.encode(' + v + '));\n'
-      : indent + 'w.stringField(' + n + ', ' + v + ');\n';
-    case 12: return proto2
-      ? indent + 'w.bytesField(' + n + ', ' + v + ');\n'
-      : indent + 'if (' + v + '.isNotEmpty) w.bytesField(' + n + ', ' + v + ');\n';
-    case 11: return indent + 'if (' + v + ' != null) w.bytesField(' + n + ', ' + v + '!.marshalDc());\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
+  return runSegments(SEGMENT_PROGRAMS.dtPbEncodeSingular, f, '', model, [v, indent]);
 }
-
-function dtpSetExpr(sib) {
-  const v = dtpFieldName(sib);
-  switch (sib.type) {
-    case 11: case 10: return v + ' != null';
-    case 9: case 12: return v + '.isNotEmpty';
-    default: return dtpNonzero(sib, v);
-  }
-}
-
-function dtpEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '    if (!(' + later.map(dtpSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '    }\n';
-}
-
 function dtpEncodeField(model, f, support) {
-  const v = dtpFieldName(f);
-  const n = f.number;
-  if (f.type === FT.MESSAGE && dtpResolve(model, f.typeName).kind === 'map') {
-    const entry = dtpResolve(model, f.typeName);
-    const helper = support + dtpMapHelperName(model, entry) + 'Encode';
-    return '    ' + v + '.forEach((k, val) { w.bytesField(' + n + ', ' + helper + '(k, val)); });\n';
-  }
-  if (f.label !== 3) return dtpEncodeSingular(model, f, v, '    ', support);
-  if (DTP_VARINT.has(f.type)) {
-    return '    if (' + v + '.isNotEmpty) {\n'
-      + '        final payload = ' + support + 'Writer();\n'
-      + '        for (final x in ' + v + ') { payload.varint(' + dtpVarintExpr(f, 'x') + '); }\n'
-      + '        w.bytesField(' + n + ', payload.toBytes());\n    }\n';
-  }
-  const fixed = DTP_FIXED[f.type];
-  if (fixed) {
-    return '    if (' + v + '.isNotEmpty) {\n'
-      + '        final payload = ' + support + 'Writer();\n'
-      + '        for (final x in ' + v + ') { payload.fixed' + fixed[1] + '(x); }\n'
-      + '        w.bytesField(' + n + ', payload.toBytes());\n    }\n';
-  }
-  switch (f.type) {
-    case 9: return '    for (final x in ' + v + ') { w.bytesField(' + n + ', utf8.encode(x)); }\n';
-    case 12: return '    for (final x in ' + v + ') { w.bytesField(' + n + ', x); }\n';
-    case 11: return '    for (final x in ' + v + ') { w.bytesField(' + n + ', x.marshalDc()); }\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.dtPbEncodeField, f, '', model, [support]);
 }
-
 function dtpDecodeSingular(model, f, target, src, indent, support) {
-  if (DTP_VARINT.has(f.type)) {
-    return indent + target + ' = ' + (f.type === 14
-      ? dtpTypeRef(model, dtpResolve(model, f.typeName)) + '.values[' + dtpVarintDecode({ ...f, type: 5 }, src) + '] '
-      : dtpVarintDecode(f, src)) + ';\n';
-  }
-  if (DTP_FIXED[f.type]) {
-    let conv;
-    switch (f.type) {
-      case 2: conv = support + 'BitsToFloat32(' + src + ')'; break;
-      case 1: conv = support + 'BitsToFloat64(' + src + ')'; break;
-      case 7: conv = '(' + src + ').toUnsigned(32)'; break;
-      case 15: conv = '(' + src + ').toSigned(32)'; break;
-      case 6: conv = '(' + src + ').toUnsigned(64)'; break;
-      case 16: conv = '(' + src + ').toSigned(64)'; break;
-      default: conv = src;
-    }
-    return indent + target + ' = ' + conv + ';\n';
-  }
-  switch (f.type) {
-    case 9: return indent + target + ' = utf8.decode(' + src + ');\n';
-    case 12: return indent + target + ' = ' + src + ';\n';
-    case 11: {
-      const ref = dtpTypeRef(model, dtpResolve(model, f.typeName));
-      return indent + target + ' = ' + ref + '();\n' + indent + target + '!.unmarshalDc(' + src + ');\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.dtPbDecodeSingular, f, '', model, [target, src, indent, support]);
 }
-
 function dtpOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => '          ' + dtpFieldName(sib) + ' = ' + dtpDefault(model, sib) + ';\n').join('');
+  return runSegments(SEGMENT_PROGRAMS.dtPbOneofClearing, f, '', model);
 }
-
 function dtpSrc(f) {
   return DTP_VARINT.has(f.type) ? 'field.varintValue' : (DTP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
 }
 
 function dtpDecodeCase(model, f, support) {
-  const v = dtpFieldName(f);
-  const head = '        case ' + f.number + ':\n';
-  const tail = '          break;\n';
-  if (f.type === FT.MESSAGE && dtpResolve(model, f.typeName).kind === 'map') {
-    const entry = dtpResolve(model, f.typeName);
-    const helper = support + dtpMapHelperName(model, entry) + 'Decode';
-    return head
-      + '          final kv = ' + helper + '(field.bytesValue);\n'
-      + '          ' + v + '[kv.key] = kv.value;\n'
-      + tail;
-  }
-  if (f.label !== 3) {
-    return head + dtpOneofClearing(model, f) + dtpDecodeSingular(model, f, v, dtpSrc(f), '          ', support) + tail;
-  }
-  if (DTP_VARINT.has(f.type)) {
-    const conv = (src) => f.type === 14
-      ? dtpTypeRef(model, dtpResolve(model, f.typeName)) + '.values[' + dtpVarintDecode({ ...f, type: 5 }, src) + ']'
-      : dtpVarintDecode(f, src);
-    return head
-      + '          if (field.wire == 2) {\n'
-      + '            final sub = ' + support + 'Reader(field.bytesValue);\n'
-      + '            while (!sub.done()) {\n'
-      + '              ' + v + '.add(' + conv('sub.varint()') + ');\n'
-      + '            }\n          } else {\n'
-      + '            ' + v + '.add(' + conv('field.varintValue') + ');\n'
-      + '          }\n'
-      + tail;
-  }
-  const fixed = DTP_FIXED[f.type];
-  if (fixed) {
-    const subConv = f.type === 2 ? support + 'BitsToFloat32(sub.fixed32())'
-      : f.type === 1 ? support + 'BitsToFloat64(sub.fixed64())'
-      : f.type === 7 ? '(sub.fixed32()).toUnsigned(32)'
-      : f.type === 15 ? '(sub.fixed32()).toSigned(32)'
-      : f.type === 6 ? '(sub.fixed64()).toUnsigned(64)' : '(sub.fixed64()).toSigned(64)';
-    const oneConv = f.type === 2 ? support + 'BitsToFloat32(field.fixedValue)'
-      : f.type === 1 ? support + 'BitsToFloat64(field.fixedValue)'
-      : f.type === 7 ? '(field.fixedValue).toUnsigned(32)'
-      : f.type === 15 ? '(field.fixedValue).toSigned(32)'
-      : f.type === 6 ? '(field.fixedValue).toUnsigned(64)' : '(field.fixedValue).toSigned(64)';
-    return head
-      + '          if (field.wire == 2) {\n'
-      + '            final sub = ' + support + 'Reader(field.bytesValue);\n'
-      + '            while (!sub.done()) { ' + v + '.add(' + subConv + '); }\n'
-      + '          } else {\n'
-      + '            ' + v + '.add(' + oneConv + ');\n'
-      + '          }\n'
-      + tail;
-  }
-  switch (f.type) {
-    case 9: return head + '          ' + v + '.add(utf8.decode(field.bytesValue));\n' + tail;
-    case 12: return head + '          ' + v + '.add(field.bytesValue);\n' + tail;
-    case 11: return head
-      + '          final item = ' + dtpTypeRef(model, dtpResolve(model, f.typeName)) + '();\n'
-      + '          item.unmarshalDc(field.bytesValue);\n'
-      + '          ' + v + '.add(item);\n'
-      + tail;
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.dtPbDecodeCase, f, '', model, [support]);
 }
-
-function dtpMapHelperName(model, entry) {
-  return dtpRel(entry.pkg, entry.msg.fullName);
-}
-
 function dtpMapHelpers(model, entry, support) {
-  const msg = entry.msg;
-  const base = dtpMapHelperName(model, entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry lacks key/value');
-  const kt = dtpType(model, { ...keyF, label: 1 });
-  const vt = dtpType(model, { ...valF, label: 1 });
-  const vtPlain = (valF.type === FT.MESSAGE && dtpResolve(model, valF.typeName).kind !== 'map')
-    ? dtpTypeRef(model, dtpResolve(model, valF.typeName))
-    : vt;
-  return 'Uint8List ' + support + base + 'Encode(' + kt + ' key, ' + vtPlain + ' value) {\n'
-    + '  final w = ' + support + 'Writer();\n'
-    + dtpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '  ', support)
-    + (valF.type === FT.MESSAGE
-      ? '  w.bytesField(' + valF.number + ', value.marshalDc());\n'
-      : dtpEncodeSingular(model, { ...valF, label: 1 }, 'value', '  ', support))
-    + '  return w.toBytes();\n}\n\n'
-    + 'MapEntry<' + kt + ', ' + vtPlain + '> ' + support + base + 'Decode(Uint8List bytes) {\n'
-    + '  ' + kt + ' key = ' + dtpDefault(model, { ...keyF, label: 1 }) + ';\n'
-    + '  ' + vtPlain + ' value = ' + (valF.type === FT.MESSAGE ? vtPlain + '()' : dtpDefault(model, { ...valF, label: 1 })) + ';\n'
-    + '  final r = ' + support + 'Reader(bytes);\n'
-    + '  while (true) {\n    final field = r.next();\n    if (field == null) break;\n    switch (field.number) {\n'
-    + '      case ' + keyF.number + ':\n' + dtpDecodeSingular(model, { ...keyF, label: 1 }, 'key', dtpSrc(keyF), '        ', support) + '        break;\n'
-    + '      case ' + valF.number + ':\n' + (valF.type === FT.MESSAGE
-      ? '        value.unmarshalDc(field.bytesValue);\n'
-      : dtpDecodeSingular(model, { ...valF, label: 1 }, 'value', dtpSrc(valF), '        ', support)) + '        break;\n'
-    + '      default:\n        break;\n    }\n  }\n  return MapEntry(key, value);\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.dtPbMapHelpers, entry, '', model, [support]);
 }
-
 function dtpSupportHead(p) {
   return '// @generated by protoc-gen-grpc-dc-dart. DO NOT EDIT.\n'
     + "import 'dart:convert';\n"
@@ -6798,50 +6377,11 @@ function dtpClassName(model, msg) {
 }
 
 function dtpMessageClass(model, msg, support, indent) {
-  const name = dtpClassName(model, msg);
-  const params = msg.fields.filter((f) => !(f.label === 3 || f.type === FT.BYTES
-    || (f.type === FT.MESSAGE && dtpResolve(model, f.typeName).kind === 'map')));
-  const inits = msg.fields.filter((f) => (f.label === 3 || f.type === FT.BYTES
-    || (f.type === FT.MESSAGE && dtpResolve(model, f.typeName).kind === 'map')));
-  let ctor;
-  if (!params.length && !inits.length) {
-    ctor = indent + '  ' + name + '();\n';
-  } else {
-    ctor = indent + '  ' + name + '('
-      + (params.length ? '[' + params.map((f) => 'this.' + dtpFieldName(f) + ' = ' + dtpDefault(model, f)).join(', ') + ']' : '')
-      + (inits.length
-        ? ') : ' + inits.map((f) => dtpFieldName(f) + ' = ' + dtpDefault(model, f)).join(', ') + ';\n'
-        : ');\n');
-  }
-  return indent + 'class ' + name + ' implements Marshaler, Unmarshaler {\n'
-    + msg.fields.map((f) => indent + '  ' + dtpType(model, f) + ' ' + dtpFieldName(f) + ';\n').join('')
-    + indent + '  Uint8List unknownFields = Uint8List(0);\n'
-    + ctor
-    + indent + '  @override\n' + indent + '  Uint8List marshalDc() {\n'
-    + indent + '    final w = ' + support + 'Writer();\n'
-    + msg.fields.map((f) => dtpEncodeGuard(model, f, dtpEncodeField(model, f, support))).join('')
-    + indent + '    w.raw(unknownFields);\n'
-    + indent + '    return w.toBytes();\n' + indent + '  }\n'
-    + indent + '  @override\n' + indent + '  void unmarshalDc(List<int> data) {\n'
-    + indent + '    unknownFields = Uint8List(0);\n'
-    + msg.fields.map((f) => indent + '    ' + dtpFieldName(f) + ' = ' + dtpDefault(model, f) + ';\n').join('')
-    + indent + '    final r = ' + support + 'Reader(Uint8List.fromList(data));\n'
-    + indent + '    while (true) {\n' + indent + '      final field = r.next();\n' + indent + '      if (field == null) break;\n' + indent + '      switch (field.number) {\n'
-    + msg.fields.map((f) => dtpDecodeCase(model, f, support)).join('')
-    + indent + '        default:\n' + indent + '          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);\n' + indent + '          break;\n'
-    + indent + '      }\n' + indent + '    }\n' + indent + '  }\n'
-    + indent + '}\n'
-    + msg.nested.map((n) => dtpMessageClass(model, n, support, indent)).join('')
-    + msg.enums.map((e) => dtpEnumDecl(model, msg, e, indent)).join('');
+  return runSegments(SEGMENT_PROGRAMS.dtPbMessage, msg, '', model, [support, indent]);
 }
-
 function dtpEnumDecl(model, msg, e, indent) {
-  const name = msg ? dtpClassName(model, msg) + '_' + e.name : e.name;
-  return indent + 'enum ' + name + ' {\n'
-    + e.values.map((v) => indent + '  ' + v.name).join(',\n')
-    + '\n' + indent + '}\n';
+  return runSegments(SEGMENT_PROGRAMS.dtPbEnum, e, '', model, [indent, msg ? dtpClassName(model, msg) + '_' + e.name : e.name]);
 }
-
 function emitDartPbFile(model) {
   if (!model.messages.length && !model.enums.length) return null;
   const base = baseName(model.name);
