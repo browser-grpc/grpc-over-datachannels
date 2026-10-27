@@ -3913,6 +3913,504 @@
     "                _ => {\n                    msg.unknown_fields.extend_from_slice(&field.raw_value);\n                }\n            }\n        }\n        Ok(msg)\n    }\n}\n\n"
     (each nested (call rsPbMessage))))
 
+(define rb-deprecated-program
+  '((when (ref deprecated) "      warn \"deprecated\"\n")))
+
+(define rb-client-method-program
+  '((kind-case
+     (unary
+      (fmt
+       "    def ~a(req, metadata = nil, timeout: nil)\n~a      @channel.unary(~s, req, ~a.new, metadata, timeout: timeout)\n    end\n\n"
+       (ref name)
+       (call rbDeprecated)
+       (ref path)
+       (stub-ref output-full)))
+     (server-streaming
+      (fmt
+       "    def ~a(req, metadata = nil, timeout: nil)\n~a      stream = @channel.server_stream(~s, req, metadata, timeout: timeout)\n      RecvStream.new(stream, ~a)\n    end\n\n"
+       (ref name)
+       (call rbDeprecated)
+       (ref path)
+       (stub-ref output-full)))
+     (client-streaming
+      (fmt
+       "    def ~a(reqs, metadata = nil, timeout: nil)\n~a      @channel.client_stream(~s, reqs, ~a.new, metadata, timeout: timeout)\n    end\n\n"
+       (ref name)
+       (call rbDeprecated)
+       (ref path)
+       (stub-ref output-full)))
+     (bidi
+      (fmt
+       "    def ~a(reqs, metadata = nil, timeout: nil)\n~a      stream = @channel.bidi(~s, reqs, metadata, timeout: timeout)\n      RecvStream.new(stream, ~a)\n    end\n\n"
+       (ref name)
+       (call rbDeprecated)
+       (ref path)
+       (stub-ref output-full))))))
+
+(define rb-fiber-client-method-program
+  '((kind-case
+     (unary
+      (fmt
+       "    def ~a(req, metadata = nil, timeout: nil)\n~a      @channel.unary(~s, req, ~a.new, metadata, timeout: timeout)\n    end\n\n"
+       (ref name)
+       (call rbDeprecated)
+       (ref path)
+       (stub-ref output-full)))
+     (server-streaming
+      (fmt
+       "    def ~a(req, metadata = nil, timeout: nil)\n~a      stream = @channel.server_stream(~s, req, metadata, timeout: timeout)\n      FiberRecvStream.new(stream, ~a)\n    end\n\n"
+       (ref name)
+       (call rbDeprecated)
+       (ref path)
+       (stub-ref output-full)))
+     (client-streaming
+      (fmt
+       "    def ~a(reqs, metadata = nil, timeout: nil)\n~a      @channel.client_stream(~s, reqs, ~a.new, metadata, timeout: timeout)\n    end\n\n"
+       (ref name)
+       (call rbDeprecated)
+       (ref path)
+       (stub-ref output-full)))
+     (bidi
+      (fmt
+       "    def ~a(reqs, metadata = nil, timeout: nil)\n~a      stream = @channel.bidi(~s, reqs, metadata, timeout: timeout)\n      FiberRecvStream.new(stream, ~a)\n    end\n\n"
+       (ref name)
+       (call rbDeprecated)
+       (ref path)
+       (stub-ref output-full))))))
+
+(define rb-server-handler-program
+  '((kind-case
+     (unary
+      (fmt
+       "    ~a = lambda do |ctx, reqs, sink|\n      req = reqs.recv_into(~a.new)\n      resp = impl.~a(ctx, req)\n      sink.send(resp.marshal_dc)\n    end\n\n"
+       (fmt "~a_handler" (rb-snake (ref name)))
+       (stub-ref input-full)
+       (ref impl-name)))
+     (server-streaming
+      (fmt
+       "    ~a = lambda do |ctx, reqs, sink|\n      req = reqs.recv_into(~a.new)\n      impl.~a(req, SendStream.new(ctx, sink))\n    end\n\n"
+       (fmt "~a_handler" (rb-snake (ref name)))
+       (stub-ref input-full)
+       (ref impl-name)))
+     (client-streaming
+      (fmt
+       "    ~a = lambda do |ctx, reqs, sink|\n      stream = ClientStreamImpl.new(ctx, reqs, ~a)\n      impl.~a(stream)\n      if stream.resp.nil?\n        raise Grpcdc::StatusError.new(Grpcdc::CODE_INTERNAL, \"client-streaming handler never called SendAndClose\")\n      end\n      sink.send(stream.resp.marshal_dc)\n    end\n\n"
+       (fmt "~a_handler" (rb-snake (ref name)))
+       (stub-ref input-full)
+       (ref impl-name)))
+     (bidi
+      (fmt
+       "    ~a = lambda do |ctx, reqs, sink|\n      impl.~a(BidiStream.new(ctx, reqs, sink, ~a))\n    end\n\n"
+       (fmt "~a_handler" (rb-snake (ref name)))
+       (ref impl-name)
+       (stub-ref input-full))))))
+
+(define rb-method-entry-program
+  '((fmt
+     "        Grpcdc::Method.new(~s, ~s, Grpcdc::~a, ~a),\n"
+     (ref name)
+     (ref path)
+     (kind-case
+      (unary "KIND_UNARY")
+      (server-streaming "KIND_SERVER_STREAMING")
+      (client-streaming "KIND_CLIENT_STREAMING")
+      (bidi "KIND_BIDI"))
+     (fmt "~a_handler" (rb-snake (ref name))))))
+
+(define rb-service-program
+  '((fmt
+     "  class ~aClient\n    def initialize(channel)\n      @channel = channel\n    end\n\n"
+     (svc))
+    (each+ methods client (call rbClientMethod))
+    "  end\n\n"
+    (fmt
+     "  # Fiber client: wraps a Grpcdc::FiberChannel (a sync Channel is wrapped).\n  class ~aClientFiber\n    def initialize(channel)\n      @channel = channel.is_a?(Grpcdc::FiberChannel) ? channel : Grpcdc::FiberChannel.new(channel)\n    end\n\n"
+     (svc))
+    (each+ methods client (call rbFiberClientMethod))
+    "  end\n\n"
+    (fmt "  def self.register_~a_server(server, impl)\n" (rb-snake (svc)))
+    (each+ methods server (call rbServerHandler))
+    (fmt
+     "    server.register_service(Grpcdc::ServiceDesc.new(\n      ~s,\n      [\n"
+     (ref full-name))
+    (each+ methods server (call rbMethodEntry))
+    "      ]\n    ))\n  end\n"))
+
+(define rb-pb-varint-expr-program
+  '((case-on
+     (type)
+     (8 (fmt "(~a ? 1 : 0)" (arg 0)))
+     (17 (fmt "(((~a << 1) ^ (~a >> 31)) & 0xffffffff)" (arg 0) (arg 0)))
+     (18 (fmt "((~a << 1) ^ (~a >> 63))" (arg 0) (arg 0)))
+     (else (arg 0)))))
+
+(define rb-pb-varint-decode-program
+  '((case-on
+     (type)
+     ((5 14) (fmt "(((~a & 0xffffffff) ^ 0x80000000) - 0x80000000)" (arg 0)))
+     ((13 7) (fmt "(~a & 0xffffffff)" (arg 0)))
+     (3
+      (fmt
+       "(((~a & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)"
+       (arg 0)))
+     (4 (fmt "(~a & 0xffffffffffffffff)" (arg 0)))
+     (8 (fmt "(~a != 0)" (arg 0)))
+     (17
+      (fmt
+       "(((~a & 0xffffffff) >> 1) ^ -((~a & 0xffffffff) & 1))"
+       (arg 0)
+       (arg 0)))
+     (18 (fmt "((~a >> 1) ^ -(~a & 1))" (arg 0) (arg 0)))
+     (else (arg 0)))))
+
+(define rb-pb-nonzero-program
+  '((case-on (type) (8 (arg 0)) (else (fmt "~a != 0" (arg 0))))))
+
+(define rb-pb-explicit-literal-program
+  '((if (has-default)
+      (then
+       (case-on
+        (type)
+        (9 (fmt "~s" (default-raw)))
+        (14 (fmt "~a" (enum-default-num)))
+        (else (default-raw))))
+      (else ""))))
+
+(define rb-pb-default-program
+  '((if (call rbPbExplicitLiteral)
+      (then (call rbPbExplicitLiteral))
+      (else
+       (if (is-map)
+         (then "{}")
+         (else
+          (if (repeated)
+            (then "[]")
+            (else
+             (case-on
+              (type)
+              (11 "nil")
+              (9 "\"\"")
+              (12 "\"\".b")
+              (8 "false")
+              ((1 2) "0.0")
+              (14 (fmt "~a" (enum-first-value-num)))
+              (else "0"))))))))))
+
+(define rb-pb-encode-singular-program
+  '((case-on
+     (category)
+     ("varint"
+      (if (proto2)
+        (then
+         (fmt
+          "~aw.tag(~a, 0)\n~aw.varint(~a)\n"
+          (arg 1)
+          (ref number)
+          (arg 1)
+          (call rbPbVarintExpr (arg 0))))
+        (else
+         (fmt
+          "~aif ~a\n~a  w.tag(~a, 0)\n~a  w.varint(~a)\n~aend\n"
+          (arg 1)
+          (call rbPbNonzero (arg 0))
+          (arg 1)
+          (ref number)
+          (arg 1)
+          (call rbPbVarintExpr (arg 0))
+          (arg 1)))))
+     ("fixed"
+      (if (proto2)
+        (then
+         (fmt
+          "~aw.tag(~a, ~a)\n~aw.fixed(~s, ~a)\n"
+          (arg 1)
+          (ref number)
+          (case-on (rb-fixed-size) (8 "1") (else "5"))
+          (arg 1)
+          (rb-fixed-fmt)
+          (arg 0)))
+        (else
+         (fmt
+          "~aif ~a != 0\n~a  w.tag(~a, ~a)\n~a  w.fixed(~s, ~a)\n~aend\n"
+          (arg 1)
+          (arg 0)
+          (arg 1)
+          (ref number)
+          (case-on (rb-fixed-size) (8 "1") (else "5"))
+          (arg 1)
+          (rb-fixed-fmt)
+          (arg 0)
+          (arg 1)))))
+     ("string"
+      (if (proto2)
+        (then
+         (fmt
+          "~aw.bytes_field(~a, ~a.encode(Encoding::UTF_8).b)\n"
+          (arg 1)
+          (ref number)
+          (arg 0)))
+        (else
+         (fmt "~aw.string_field(~a, ~a)\n" (arg 1) (ref number) (arg 0)))))
+     ("bytes"
+      (if (proto2)
+        (then (fmt "~aw.bytes_field(~a, ~a)\n" (arg 1) (ref number) (arg 0)))
+        (else
+         (fmt
+          "~aif ~a.bytesize > 0\n~a  w.bytes_field(~a, ~a)\n~aend\n"
+          (arg 1)
+          (arg 0)
+          (arg 1)
+          (ref number)
+          (arg 0)
+          (arg 1)))))
+     ("message"
+      (fmt
+       "~aunless ~a.nil?\n~a  w.bytes_field(~a, ~a.marshal_dc)\n~aend\n"
+       (arg 1)
+       (arg 0)
+       (arg 1)
+       (ref number)
+       (arg 0)
+       (arg 1)))
+     (else (fail)))))
+
+(define rb-pb-set-expr-program
+  '((case-on
+     (type)
+     ((11 10) (fmt "!@~a.nil?" (ref name)))
+     ((9 12) (fmt "(!@~a.nil? && !@~a.empty?)" (ref name) (ref name)))
+     (else (call rbPbNonzero (fmt "@~a" (ref name)))))))
+
+(define rb-pb-oneof-clearing-program
+  '((each-siblings (fmt "        @~a = ~a\n" (ref name) (call rbPbDefault)))))
+
+(define rb-pb-encode-field-program
+  '((if (is-map)
+      (then
+       (fmt
+        "    @~a.each { |k, val| w.bytes_field(~a, ~a(k, val)) }\n"
+        (ref name)
+        (ref number)
+        (fmt "~aPb.encode_~a" (arg 0) (rb-snake (rb-entry-ref)))))
+      (else
+       (if (repeated)
+         (then
+          (case-on
+           (category)
+           ("varint"
+            (fmt
+             "    unless @~a.empty?\n      payload = +\"\".b\n      @~a.each { |x| payload << ~aPbVarint.call(~a) }\n      w.bytes_field(~a, payload)\n    end\n"
+             (ref name)
+             (ref name)
+             (arg 0)
+             (call rbPbVarintExpr "x")
+             (ref number)))
+           ("fixed"
+            (fmt
+             "    unless @~a.empty?\n      w.bytes_field(~a, @~a.pack(~s))\n    end\n"
+             (ref name)
+             (ref number)
+             (ref name)
+             (fmt "~a*" (rb-fixed-fmt))))
+           ("string"
+            (fmt
+             "    @~a.each { |x| w.bytes_field(~a, x) }\n"
+             (ref name)
+             (ref number)))
+           ("bytes"
+            (fmt
+             "    @~a.each { |x| w.bytes_field(~a, x) }\n"
+             (ref name)
+             (ref number)))
+           ("message"
+            (fmt
+             "    @~a.each { |x| w.bytes_field(~a, x.marshal_dc) }\n"
+             (ref name)
+             (ref number)))
+           (else (fail))))
+         (else (call rbPbEncodeSingular (fmt "@~a" (ref name)) "    ")))))))
+
+(define rb-pb-decode-singular-program
+  '((case-on
+     (category)
+     ("varint"
+      (fmt "~a~a = ~a\n" (arg 2) (arg 0) (call rbPbVarintDecode (arg 1))))
+     ("fixed"
+      (fmt "~a~a = ~a.unpack1(~s)\n" (arg 2) (arg 0) (arg 1) (rb-fixed-fmt)))
+     ("string"
+      (fmt
+       "~a~a = ~a.dup.force_encoding(Encoding::UTF_8)\n"
+       (arg 2)
+       (arg 0)
+       (arg 1)))
+     ("bytes" (fmt "~a~a = ~a\n" (arg 2) (arg 0) (arg 1)))
+     ("message"
+      (fmt
+       "~a~a = ~a.new\n~a~a.unmarshal_dc(~a)\n"
+       (arg 2)
+       (arg 0)
+       (rb-entry-ref)
+       (arg 2)
+       (arg 0)
+       (arg 1)))
+     (else (fail)))))
+
+(define rb-pb-decode-case-program
+  '((if (is-map)
+      (then
+       (fmt
+        "      when ~a\n        kk, vv = ~a(bytes_value)\n        @~a[kk] = vv\n"
+        (ref number)
+        (fmt "~a.decode_~a" (rb-model-module) (rb-snake (rb-entry-ref)))
+        (ref name)))
+      (else
+       (if (repeated)
+         (then
+          (case-on
+           (category)
+           ("varint"
+            (fmt
+             "      when ~a\n        if wire == 2\n          sub = Reader.new(bytes_value)\n          until sub.done?\n            raw = sub.varint\n            @~a << ~a\n          end\n        else\n          @~a << ~a\n        end\n"
+             (ref number)
+             (ref name)
+             (call rbPbVarintDecode "raw")
+             (ref name)
+             (call rbPbVarintDecode "varint_value")))
+           ("fixed"
+            (fmt
+             "      when ~a\n        if wire == 2\n          bytes_value.unpack(~s).each { |x| @~a << x }\n        else\n          @~a << fixed_value.unpack1(~s)\n        end\n"
+             (ref number)
+             (fmt "~a*" (rb-fixed-fmt))
+             (ref name)
+             (ref name)
+             (rb-fixed-fmt)))
+           ("string"
+            (fmt
+             "      when ~a\n        @~a << bytes_value.dup.force_encoding(Encoding::UTF_8)\n"
+             (ref number)
+             (ref name)))
+           ("bytes"
+            (fmt
+             "      when ~a\n        @~a << bytes_value\n"
+             (ref number)
+             (ref name)))
+           ("message"
+            (fmt
+             "      when ~a\n        item = ~a.new\n        item.unmarshal_dc(bytes_value)\n        @~a << item\n"
+             (ref number)
+             (rb-entry-ref)
+             (ref name)))
+           (else (fail))))
+         (else
+          (fmt
+           "      when ~a\n~a~a"
+           (ref number)
+           (call rbPbOneofClearing)
+           (call
+            rbPbDecodeSingular
+            (fmt "@~a" (ref name))
+            (case-on
+             (category)
+             ("varint" "varint_value")
+             ("fixed" "fixed_value")
+             (else "bytes_value"))
+            "        "))))))))
+
+(define rb-pb-map-helpers-program
+  '((fmt
+     "  def self.encode_~a(key, value)\n    w = Writer.new\n"
+     (rb-snake (rb-entry-ref)))
+    (call-on (with-label (key-field) 1) rbPbEncodeSingular "key" "    ")
+    (call-on (with-label (val-field) 1) rbPbEncodeSingular "value" "    ")
+    "    w.to_bytes\n  end\n\n"
+    (fmt "  def self.decode_~a(data)\n" (rb-snake (rb-entry-ref)))
+    (fmt
+     "    key = ~a\n    value = ~a\n"
+     (call-on (with-label (key-field) 1) rbPbDefault)
+     (call-on (with-label (val-field) 1) rbPbDefault))
+    "    r = Reader.new(data)\n    loop do\n      item = r.field\n      break if item.nil?\n\n      num, wire, varint_value, bytes_value, fixed_value, _raw_value = item\n"
+    (fmt
+     "      if num == ~a\n~a"
+     (get (key-field) number)
+     (call-on
+      (with-label (key-field) 1)
+      rbPbDecodeSingular
+      "key"
+      (case-on
+       (category-of (key-field))
+       ("varint" "varint_value")
+       ("fixed" "fixed_value")
+       (else "bytes_value"))
+      "        "))
+    (fmt
+     "      elsif num == ~a\n~a"
+     (get (val-field) number)
+     (case-on
+      (get (val-field) type)
+      (11
+       (fmt
+        "        value = ~a.new\n        value.unmarshal_dc(bytes_value)\n"
+        (rb-entry-ref (val-field))))
+      (else
+       (call-on
+        (with-label (val-field) 1)
+        rbPbDecodeSingular
+        "value"
+        (case-on
+         (category-of (val-field))
+         ("varint" "varint_value")
+         ("fixed" "fixed_value")
+         (else "bytes_value"))
+        "        "))))
+    "      end\n    end\n    [key, value]\n  end\n\n"))
+
+(define rb-pb-message-program
+  '((fmt "  class ~a\n" (flat))
+    (if (no-fields)
+      (then "")
+      (else
+       (fmt
+        "    attr_accessor ~a, :unknown_fields\n\n"
+        (each-sep ", " fields (fmt ":~a" (ref name))))))
+    (fmt
+     "    def initialize(~a)\n"
+     (each-sep ", " fields (fmt "~a: ~a" (ref name) (call rbPbDefault))))
+    (each fields (fmt "      @~a = ~a\n" (ref name) (ref name)))
+    "      @unknown_fields = \"\".b\n    end\n\n    def marshal_dc\n      w = Writer.new\n"
+    (each
+     fields
+     (guarded
+      rbPbSetExpr
+      "    unless (~a)\n"
+      "    end\n"
+      (call rbPbEncodeField (arg 0))))
+    "      w.raw(@unknown_fields)\n      w.to_bytes\n    end\n\n    def unmarshal_dc(data)\n      @unknown_fields = \"\".b\n"
+    (each fields (fmt "      @~a = ~a\n" (ref name) (call rbPbDefault)))
+    "      r = Reader.new(data)\n      loop do\n        item = r.field\n        break if item.nil?\n\n        num, wire, varint_value, bytes_value, fixed_value, raw_value = item\n"
+    (if (no-fields)
+      (then "        @unknown_fields = @unknown_fields + raw_value\n")
+      (else
+       "        case num\n"
+       (each fields (call rbPbDecodeCase))
+       "        else\n          @unknown_fields = @unknown_fields + raw_value\n        end\n"))
+    "      end\n      self\n    end\n\n"
+    (fmt
+     "    def ==(other)\n      other.is_a?(~a) && ~a\n    end\n  end\n\n"
+     (flat)
+     (if (no-fields)
+       (then "true")
+       (else
+        (each-sep
+         " && "
+         fields
+         (fmt "@~a == other.~a" (ref name) (ref name))))))
+    (each nested (call rbPbMessage (arg 0)))))
+
+(define rb-pb-enum-program
+  '((fmt "  module ~a\n" (flat-of (arg 0)))
+    (each values (fmt "    ~a = ~a\n" (ref name) (ref number)))
+    "  end\n\n"))
+
 (define segment-programs
   (hasheq
    'goRegisterMethod
@@ -4128,7 +4626,47 @@
    'rsPbEnumNamed
    rs-pb-enum-named-program
    'rsPbMessage
-   rs-pb-message-program))
+   rs-pb-message-program
+   'rbDeprecated
+   rb-deprecated-program
+   'rbClientMethod
+   rb-client-method-program
+   'rbFiberClientMethod
+   rb-fiber-client-method-program
+   'rbServerHandler
+   rb-server-handler-program
+   'rbMethodEntry
+   rb-method-entry-program
+   'rbService
+   rb-service-program
+   'rbPbVarintExpr
+   rb-pb-varint-expr-program
+   'rbPbVarintDecode
+   rb-pb-varint-decode-program
+   'rbPbNonzero
+   rb-pb-nonzero-program
+   'rbPbExplicitLiteral
+   rb-pb-explicit-literal-program
+   'rbPbDefault
+   rb-pb-default-program
+   'rbPbEncodeSingular
+   rb-pb-encode-singular-program
+   'rbPbSetExpr
+   rb-pb-set-expr-program
+   'rbPbOneofClearing
+   rb-pb-oneof-clearing-program
+   'rbPbEncodeField
+   rb-pb-encode-field-program
+   'rbPbDecodeSingular
+   rb-pb-decode-singular-program
+   'rbPbDecodeCase
+   rb-pb-decode-case-program
+   'rbPbMapHelpers
+   rb-pb-map-helpers-program
+   'rbPbMessage
+   rb-pb-message-program
+   'rbPbEnum
+   rb-pb-enum-program))
 
 (define (seg-ref node key)
   (if (eq? key 'impl-name)
@@ -4417,6 +4955,60 @@
        (hash-ref (hash-ref entry 'enum) 'name)
        flat))))
 
+(define (seg-rb-snake s0)
+  (define s (if (symbol? s0) (symbol->string s0) s0))
+  (apply
+   string-append
+   (for/list
+    ((c (in-string s)) (i (in-naturals)))
+    (cond
+     ((char-upper-case? c)
+      (string-append (if (> i 0) "_" "") (string (char-downcase c))))
+     (else (string c))))))
+
+(define (seg-rb-module-name entry)
+  (string-append
+   (seg-pascal
+    (path->string
+     (path-replace-extension (file-name-from-path (hash-ref entry 'file)) "")))
+   "Pb"))
+
+(define (seg-rb-stub-ref model node key)
+  (define e (seg-resolve model (hash-ref node key)))
+  (format
+   "~a::~a"
+   (seg-rb-module-name e)
+   (seg-flat (hash-ref e 'pkg) (hash-ref (hash-ref e 'msg) 'full-name))))
+
+(define (seg-rb-entry-ref model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+      (seg-resolve model (hash-ref node 'type-name))
+      node))
+  (define local
+    (seg-flat
+     (hash-ref entry 'pkg)
+     (if (eq? (hash-ref entry 'kind) 'enum)
+       (let ((e (hash-ref entry 'enum)))
+         (if (hash-ref entry 'msg)
+           (format
+            "~a.~a"
+            (hash-ref (hash-ref entry 'msg) 'full-name)
+            (hash-ref e 'name))
+           (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name))))
+       (hash-ref (hash-ref entry 'msg) 'full-name))))
+  (if (or (eq? (hash-ref entry 'kind) 'map)
+          (equal? (hash-ref entry 'file) (hash-ref model 'name)))
+    local
+    (format
+     "~a::~a"
+     (seg-rb-module-name entry)
+     (if (eq? (hash-ref entry 'kind) 'enum)
+       (hash-ref (hash-ref entry 'enum) 'name)
+       (seg-flat
+        (hash-ref entry 'pkg)
+        (hash-ref (hash-ref entry 'msg) 'full-name))))))
+
 (define (seg-later-oneof-cond model node)
   (define later (oneof-later-siblings model node))
   (if (null? later) "" (string-join (map seg-set-expr later) " || ")))
@@ -4506,6 +5098,31 @@
        (hash-ref (seg-resolve model (hash-ref node 'type-name)) 'enum)
        'values))
      'name))
+   ((eq? (car seg) 'enum-first-value-num)
+    (hash-ref
+     (car
+      (hash-ref
+       (hash-ref (seg-resolve model (hash-ref node 'type-name)) 'enum)
+       'values))
+     'number))
+   ((eq? (car seg) 'rb-snake) (seg-rb-snake (seg-eval (second seg) env)))
+   ((eq? (car seg) 'stub-ref) (seg-rb-stub-ref model node (second seg)))
+   ((eq? (car seg) 'rb-entry-ref)
+    (seg-rb-entry-ref
+     model
+     (if (null? (cdr seg)) node (seg-eval (second seg) env))))
+   ((eq? (car seg) 'rb-model-module)
+    (string-append
+     (seg-pascal
+      (path->string
+       (path-replace-extension
+        (file-name-from-path (hash-ref model 'name))
+        "")))
+     "Pb"))
+   ((eq? (car seg) 'rb-fixed-size)
+    (second (assv (hash-ref node 'type) (fixed-scalar-table 'ruby))))
+   ((eq? (car seg) 'rb-fixed-fmt)
+    (third (assv (hash-ref node 'type) (fixed-scalar-table 'ruby))))
    ((eq? (car seg) 'flat)
     (seg-flat (hash-ref model 'package) (hash-ref node 'full-name)))
    ((eq? (car seg) 'entry-type) (seg-entry-type-of model node))
