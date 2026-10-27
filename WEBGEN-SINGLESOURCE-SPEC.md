@@ -9,9 +9,16 @@ and serialized by `webgen.rkt` into the browser generators as
 case (kitchen + features protos through the built-in
 generators, message files byte-compared for every language),
 which is the case that would have caught the Rust enum drift.
-Remaining under this spec: scalar/wire tables and message
-layout (option 2), and wider parity growth (option 3) — do
-not start casually (see Risks).
+Parity growth (option 3) continued: the corpus case now also
+runs legacy.proto (proto2 required/optional presence, explicit
+defaults including enum and double, extensions) through the
+built-in generators with per-language byte comparison, green
+in Chromium/Firefox/WebKit. Remaining under this spec: the
+deeper option-2 surfaces — per-language scalar type maps are
+functions with label/map/optional conditionals, not literal
+tables, so single-sourcing them is option-1-scale work; the
+fixed-width size tables are stable protocol facts. Do not
+start casually (see Risks).
 
 ## Problem
 

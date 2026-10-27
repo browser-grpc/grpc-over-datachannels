@@ -351,28 +351,29 @@ async function runCase(name, engine) {
     assert.match(fbManifest.fallbackNote ?? "", /stubs and generated message types for every selected language/, "fallback manifest explains the coverage");
     assert.deepEqual(fbManifest.missing, [], "fallback manifest reports nothing missing: " + fbManifest.missing.join(", "));
 
-    // Case 6: enum-bearing schemas through the built-in
-    // generators (the hand-mirrored emitters in webgen.rkt).
-    // Message files for every language are byte-compared
-    // against the native plugins; this is the case that pins
-    // enum emission — e.g. the Rust Unknown(i32) round-trip
-    // shape, now single-sourced via rust-enum-shape in
-    // spec.rkt — against drift between template-*.rkt and
+    // Case 6: enum-bearing and proto2 schemas through the
+    // built-in generators (the hand-mirrored emitters in
+    // webgen.rkt). Message files for every language are
+    // byte-compared against the native plugins; this is the
+    // case that pins enum emission — e.g. the Rust Unknown(i32)
+    // round-trip shape, now single-sourced via rust-enum-shape
+    // in spec.rkt — plus proto2 presence/defaults/extensions
+    // (legacy.proto) against drift between template-*.rkt and
     // their browser mirrors.
-    await page.setInputFiles("#upload", [join(ROOT, "webapp/testdata/common.proto"), join(ROOT, "webapp/testdata/kitchen.proto"), join(ROOT, "webapp/testdata/features.proto")]);
+    await page.setInputFiles("#upload", [join(ROOT, "webapp/testdata/common.proto"), join(ROOT, "webapp/testdata/kitchen.proto"), join(ROOT, "webapp/testdata/features.proto"), join(ROOT, "webapp/testdata/legacy.proto")]);
     await page.waitForFunction(
       () => {
         const t = document.querySelector("#tree").textContent;
-        return t.includes("kitchen.v1") && t.includes("feat.v1");
+        return t.includes("kitchen.v1") && t.includes("feat.v1") && t.includes("legacy");
       },
       null,
       { timeout: 30000 },
     );
     entries = await downloadZip(page);
     assert.equal(await page.evaluate(() => window.__generatedVia), "built-in generators");
-    refs = await nativeReference(join(ROOT, "webapp/testdata"), ["common.proto", "kitchen.proto", "features.proto"]);
+    refs = await nativeReference(join(ROOT, "webapp/testdata"), ["common.proto", "kitchen.proto", "features.proto", "legacy.proto"]);
     for (const lang of LANGS) {
-      for (const base of ["kitchen", "features"]) {
+      for (const base of ["kitchen", "features", "legacy"]) {
         const stub = LANG_CONFIG[lang].stub(base);
         const expected = await readFile(join(refs[lang], stub));
         const actual = entries.get(`gen/${lang}/${stub}`);
