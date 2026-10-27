@@ -342,7 +342,15 @@
                                   (call goPbDecodeSingular (fmt "m.~a" (pascal (ref name))) "b" "\t\t\t\t"))))))))))
 
 (define go-pb-encode-field-guarded-program
-  '((guarded (call goPbEncodeField))))
+  '((guarded goPbSetExpr "\tif !(~a) {\n" "\t}\n" (call goPbEncodeField))))
+
+(define go-pb-set-expr-program
+  '((case-on (type)
+      ((11 10) (fmt "m.~a != nil" (pascal (ref name))))
+      (9 (fmt "m.~a != \"\"" (pascal (ref name))))
+      (12 (fmt "len(m.~a) > 0" (pascal (ref name))))
+      (8 (fmt "m.~a" (pascal (ref name))))
+      (else (fmt "m.~a != ~a" (pascal (ref name)) (call goPbZero))))))
 
 (define go-pb-map-helpers-program
   '((fmt "func encode~a(key ~a, value ~a) []byte {\n\tvar out []byte\n"
@@ -438,6 +446,7 @@
           'goPbEnum go-pb-enum-program
           'goPbDefaultLiteral go-pb-default-literal-program
           'goPbConstructor go-pb-constructor-program
+          'goPbSetExpr go-pb-set-expr-program
           'goPbMessage go-pb-message-program))
 
 ;; ---------------------------------------------------------------------------
@@ -561,6 +570,18 @@
                 (format "\t\t\tm.~a = ~a\n" (seg-pascal (hash-ref sib 'name)) (seg-zero sib)))
               (oneof-siblings model node))))
 
+(define (seg-lower-first s)
+  (if (string=? s "")
+      s
+      (string-append (string (char-downcase (string-ref s 0))) (substring s 1))))
+
+(define (seg-js-name f)
+  (define jn (hash-ref f 'json-name ""))
+  (if (and jn (not (string=? jn "")))
+      jn
+      (regexp-replace* #rx"_([a-zA-Z0-9])" (hash-ref f 'name)
+                       (lambda (all c) (string-upcase c)))))
+
 (define (seg-later-oneof-cond model node)
   (define later (oneof-later-siblings model node))
   (if (null? later)
@@ -577,7 +598,10 @@
     [(number? seg) seg]
     [(eq? (car seg) 'fmt)
      (apply format (second seg)
-            (map (lambda (e) (seg-eval e env)) (cddr seg)))]
+            (map (lambda (e)
+                   (define v (seg-eval e env))
+                   (if (symbol? v) (symbol->string v) v))
+                 (cddr seg)))]
     [(eq? (car seg) 'ref)
      (if (null? (cddr seg))
          (seg-ref node (second seg))
@@ -589,6 +613,17 @@
     [(memq (car seg) '(if case-on when guarded kind-case))
      (run-segment seg env)]
     [(eq? (car seg) 'pascal) (seg-pascal (seg-eval (second seg) env))]
+    [(eq? (car seg) 'lower-first) (seg-lower-first (seg-eval (second seg) env))]
+    [(eq? (car seg) 'js-name) (seg-js-name node)]
+    [(eq? (car seg) 'js-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'js)))]
+    [(eq? (car seg) 'js-fixed-name)
+     (third (assv (hash-ref node 'type) (fixed-scalar-table 'js)))]
+    [(eq? (car seg) 'bigint-type)
+     (and (memv (hash-ref node 'type) '(3 4 18 6 16)) #t)]
+    [(eq? (car seg) 'entry-flat) (seg-entry-type node)]
+    [(eq? (car seg) 'resolved-flat)
+     (seg-entry-type (seg-resolve model (hash-ref node 'type-name)))]
     [(eq? (car seg) 'flat)
      (seg-flat (hash-ref model 'package) (hash-ref node 'full-name))]
     [(eq? (car seg) 'entry-type) (seg-entry-type-of model node)]
@@ -660,7 +695,8 @@
      (define raw (cddr seg))
      (define (branch-key? b)
        (and (list? b) (pair? b)
-            (or (number? (car b)) (string? (car b)) (eq? (car b) 'else))))
+            (or (number? (car b)) (string? (car b)) (eq? (car b) 'else)
+                (and (list? (car b)) (andmap number? (car b))))))
      (define branches
        (cond [(and (= (length raw) 1) (list? (car raw))
                    (andmap branch-key? (car raw)))
@@ -672,7 +708,11 @@
                         raw)]))
      (define branch
        (for/first ([b (in-list branches)]
-                   #:when (or (eq? (car b) 'else) (equal? (car b) val)))
+                   #:when (or (eq? (car b) 'else)
+                              (member val (if (list? (car b))
+                                              (car b)
+                                              (list (car b)))
+                                      equal?)))
          b))
      (if branch (run-env (cdr branch) env) "")]
     [(eq? (car seg) 'when)
@@ -680,13 +720,20 @@
          (run-env (cddr seg) env)
          "")]
     [(eq? (car seg) 'guarded)
-     (define text (run-env (cdr seg) env))
-     (define cond-str (seg-later-oneof-cond (env-model env) node))
+     ;; (guarded SetExprProgram "open ~a template" "close" body...)
+     (define text (run-env (cddddr seg) env))
+     (define cond-str
+       (string-join
+        (map (lambda (sib)
+               (run-env (hash-ref segment-programs (second seg))
+                        (env-with env #:node sib)))
+             (oneof-later-siblings (env-model env) node))
+        " || "))
      (if (equal? cond-str "")
          text
-         (string-append "\tif !(" cond-str ") {\n"
+         (string-append (format (third seg) cond-str)
                         (if (string-suffix? text "\n") text (string-append text "\n"))
-                        "\t}\n"))]
+                        (fourth seg)))]
     [(eq? (car seg) 'fail)
      (error 'run-segments "unsupported field type ~a" (hash-ref node 'type))]
     [(eq? (car seg) 'each)
@@ -703,4 +750,16 @@
      (apply string-append
             (for/list ([el (in-list (append (hash-ref node (second seg)) aliases))])
               (run-env (cdddr seg) (env-with env #:node el))))]
+    [(eq? (car seg) 'each-siblings)
+     (apply string-append
+            (for/list ([sib (in-list (oneof-siblings (env-model env) node))])
+              (run-env (cdr seg) (env-with env #:node sib))))]
+    [(eq? (car seg) 'each-sep)
+     (define-values (keys segs) (splitf-at (cddr seg) symbol?))
+     (define items
+       (foldl (lambda (k acc) (hash-ref acc k)) node keys))
+     (string-join
+      (for/list ([el (in-list items)])
+        (run-env segs (env-with env #:node el)))
+      (second seg))]
     [else (seg-eval seg env)]))
