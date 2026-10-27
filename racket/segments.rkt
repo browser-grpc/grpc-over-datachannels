@@ -141,7 +141,19 @@
          sc-pb-oneof-clearing-program sc-pb-encode-singular-program
          sc-pb-encode-field-program sc-pb-decode-singular-program
          sc-pb-decode-case-program sc-pb-map-helpers-program
-         sc-pb-message-program sc-pb-enum-program)
+         sc-pb-message-program sc-pb-enum-program
+         dart-deprecated-program dart-client-method-program
+         dart-client-stream-class-program dart-server-stream-iface-program
+         dart-server-iface-method-program dart-stream-impl-program
+         dart-register-method-program dart-service-program
+         dt-pb-varint-expr-program dt-pb-varint-decode-program
+         dt-pb-nonzero-program dt-pb-explicit-literal-program
+         dt-pb-default-program dt-pb-elem-type-program
+         dt-pb-type-program dt-pb-set-expr-program
+         dt-pb-oneof-clearing-program dt-pb-encode-singular-program
+         dt-pb-encode-field-program dt-pb-decode-singular-program
+         dt-pb-decode-case-program dt-pb-map-helpers-program
+         dt-pb-message-program dt-pb-enum-program)
 
 ;; ---------------------------------------------------------------------------
 ;; Go stub: RegisterMethod handler table entries (one per method).
@@ -3086,6 +3098,348 @@
     (each values (fmt "  final val ~a: Int = ~a\n" (ref name) (ref number)))
     "}\n\n"))
 
+;; ---------------------------------------------------------------------------
+;; Dart stub emitter (mirrors template-dart.rkt).
+;; ---------------------------------------------------------------------------
+
+(define dart-deprecated-program
+  '((when (ref deprecated) (fmt "~a@Deprecated('deprecated in the proto schema')\n" (arg 0)))))
+
+(define dart-client-method-program
+  '((call dartDeprecated "  ")
+    (kind-case
+     (unary (fmt "  Future<~a> ~a(~a req,\n      {Map<String, String>? metadata, Duration? timeout}) async {\n    final resp = ~a();\n    await _channel.unary(~s, req, resp, metadata: metadata, timeout: timeout);\n    return resp;\n  }\n\n" (ref output) (lower-first (ref name)) (ref input) (ref output) (ref path)))
+     (server-streaming (fmt "  Future<~a~aStream> ~a(~a req,\n      {Map<String, String>? metadata, Duration? timeout}) async {\n    return ~a~aStream(\n        await _channel.serverStream(~s, req,\n            metadata: metadata, timeout: timeout));\n  }\n\n" (svc) (ref name) (lower-first (ref name)) (ref input) (svc) (ref name) (ref path)))
+     (client-streaming (fmt "  Future<~a> ~a(List<~a> reqs,\n      {Map<String, String>? metadata, Duration? timeout}) async {\n    final resp = ~a();\n    await _channel.clientStreamCall(~s, reqs, resp,\n        metadata: metadata, timeout: timeout);\n    return resp;\n  }\n\n" (ref output) (lower-first (ref name)) (ref input) (ref output) (ref path)))
+     (bidi (fmt "  Future<~a~aStream> ~a(List<~a> reqs,\n      {Map<String, String>? metadata, Duration? timeout}) async {\n    return ~a~aStream(\n        await _channel.bidi(~s, reqs, metadata: metadata, timeout: timeout));\n  }\n\n" (svc) (ref name) (lower-first (ref name)) (ref input) (svc) (ref name) (ref path))))))
+
+(define dart-client-stream-class-program
+  '((kind-case
+     ((server-streaming bidi)
+      (fmt "/// Receiving stream for ~a/~a responses.\nclass ~a~aStream {\n  final ClientStream _stream;\n\n  ~a~aStream(this._stream);\n\n  Future<~a> recv() async {\n    final resp = ~a();\n    await _stream.recv(resp);\n    return resp;\n  }\n\n  /// Initial metadata (response headers); null until they arrive.\n  Map<String, String>? get headers => _stream.headers?.metadata;\n\n  /// Trailing metadata of the terminal status; null until it arrives.\n  Map<String, String>? get trailers => _stream.trailers;\n\n  /// Abort this stream (sends RST, wakes a pending recv).\n  void cancel() => _stream.cancel();\n\n  /// Abandon the call if still live (RST); no-op once terminated.\n  void close() => _stream.close();\n\n  /// Responses as a Dart Stream (native async surface).\n  /// Cancelling the subscription abandons the call:\n  /// RST CANCELLED is sent so the server stops.\n  Stream<~a> get responses {\n    var cancelled = false;\n    late StreamController<~a> controller;\n    controller = StreamController<~a>(\n      onListen: () {\n        () async {\n          try {\n            while (!cancelled) {\n              controller.add(await recv());\n            }\n          } on EndOfStreamError {\n            if (!cancelled) await controller.close();\n          } catch (e, st) {\n            if (!cancelled) {\n              controller.addError(e, st);\n              await controller.close();\n            }\n          }\n        }();\n      },\n      onCancel: () {\n        cancelled = true;\n        _stream.cancel();\n      },\n    );\n    return controller.stream;\n  }\n}\n\n"
+           (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref output) (ref output) (ref output) (ref output)))
+     (else ""))))
+
+(define dart-server-stream-iface-program
+  '((kind-case
+     (unary "")
+     (server-streaming (fmt "/// Server-streaming sink passed to service implementations.\nabstract class ~a~aServer {\n  void send(~a resp);\n  CallContext get context;\n}\n\n" (svc) (ref name) (ref output)))
+     (client-streaming (fmt "/// Client-streaming stream passed to service implementations.\nabstract class ~a~aServer {\n  Future<~a> recv();\n  void sendAndClose(~a resp);\n  CallContext get context;\n}\n\n" (svc) (ref name) (ref input) (ref output)))
+     (bidi (fmt "/// Bidi stream passed to service implementations.\nabstract class ~a~aServer {\n  void send(~a resp);\n  Future<~a> recv();\n  CallContext get context;\n}\n\n" (svc) (ref name) (ref output) (ref input))))))
+
+(define dart-server-iface-method-program
+  '((call dartDeprecated "  ")
+    (kind-case
+     (unary (fmt "  Future<~a> ~a(CallContext ctx, ~a req);\n" (ref output) (lower-first (ref name)) (ref input)))
+     (server-streaming (fmt "  Future<void> ~a(~a req, ~a~aServer stream);\n" (lower-first (ref name)) (ref input) (svc) (ref name)))
+     (client-streaming (fmt "  Future<void> ~a(~a~aServer stream);\n" (lower-first (ref name)) (svc) (ref name)))
+     (bidi (fmt "  Future<void> ~a(~a~aServer stream);\n" (lower-first (ref name)) (svc) (ref name))))))
+
+(define dart-stream-impl-program
+  '((kind-case
+     (unary "")
+     (server-streaming (fmt "class _~a~aServerImpl implements ~a~aServer {\n  @override\n  final CallContext context;\n  final ServerSink _sink;\n\n  _~a~aServerImpl(this.context, this._sink);\n\n  @override\n  void send(~a resp) {\n    _sink(resp.marshalDc());\n  }\n}\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output)))
+     (client-streaming (fmt "class _~a~aServerImpl implements ~a~aServer {\n  @override\n  final CallContext context;\n  final RequestStream _reqs;\n  ~a? resp;\n\n  _~a~aServerImpl(this.context, this._reqs);\n\n  @override\n  Future<~a> recv() async {\n    final req = ~a();\n    await _reqs.recvInto(req);\n    return req;\n  }\n\n  @override\n  void sendAndClose(~a resp) {\n    this.resp = resp;\n  }\n}\n\n" (svc) (ref name) (svc) (ref name) (ref output) (svc) (ref name) (ref input) (ref input) (ref output)))
+     (bidi (fmt "class _~a~aServerImpl implements ~a~aServer {\n  @override\n  final CallContext context;\n  final RequestStream _reqs;\n  final ServerSink _sink;\n\n  _~a~aServerImpl(this.context, this._reqs, this._sink);\n\n  @override\n  void send(~a resp) {\n    _sink(resp.marshalDc());\n  }\n\n  @override\n  Future<~a> recv() async {\n    final req = ~a();\n    await _reqs.recvInto(req);\n    return req;\n  }\n}\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input))))))
+
+(define dart-register-method-program
+  '((kind-case
+     (unary (fmt "      Method(~s, ~s, Server.~a,\n          (ctx, reqs, sink) async {\n        final req = ~a();\n        await reqs.recvInto(req);\n        sink((await impl.~a(ctx, req)).marshalDc());\n      }),\n"
+                 (ref name) (ref path)
+                 (kind-case (unary "kindUnary") (server-streaming "kindServerStreaming") (client-streaming "kindClientStreaming") (bidi "kindBidi"))
+                 (ref input) (lower-first (ref impl-name))))
+     (server-streaming (fmt "      Method(~s, ~s,\n          Server.~a, (ctx, reqs, sink) async {\n        final req = ~a();\n        await reqs.recvInto(req);\n        await impl.~a(req, _~a~aServerImpl(ctx, sink));\n      }),\n"
+                            (ref name) (ref path)
+                            (kind-case (unary "kindUnary") (server-streaming "kindServerStreaming") (client-streaming "kindClientStreaming") (bidi "kindBidi"))
+                            (ref input) (lower-first (ref impl-name)) (svc) (ref name)))
+     (client-streaming (fmt "      Method(~s, ~s,\n          Server.~a, (ctx, reqs, sink) async {\n        final stream = _~a~aServerImpl(ctx, reqs);\n        await impl.~a(stream);\n        final resp = stream.resp;\n        if (resp == null) {\n          throw StatusException(Wire.codeInternal,\n              'client-streaming handler never called sendAndClose');\n        }\n        sink(resp.marshalDc());\n      }),\n"
+                            (ref name) (ref path)
+                            (kind-case (unary "kindUnary") (server-streaming "kindServerStreaming") (client-streaming "kindClientStreaming") (bidi "kindBidi"))
+                            (svc) (ref name) (lower-first (ref impl-name))))
+     (bidi (fmt "      Method(~s, ~s, Server.~a,\n          (ctx, reqs, sink) async {\n        await impl.~a(_~a~aServerImpl(ctx, reqs, sink));\n      }),\n"
+                (ref name) (ref path)
+                (kind-case (unary "kindUnary") (server-streaming "kindServerStreaming") (client-streaming "kindClientStreaming") (bidi "kindBidi"))
+                (lower-first (ref impl-name)) (svc) (ref name))))))
+
+(define dart-service-program
+  '((fmt "/// Client for ~a.\nclass ~aClient {\n  final Channel _channel;\n\n  ~aClient(this._channel);\n\n" (ref full-name) (svc) (svc))
+    (each+ methods client (call dartClientMethod))
+    "}\n\n"
+    (each methods (call dartClientStreamClass))
+    (each methods (call dartServerStreamIface))
+    (fmt "/// Service implementation interface for ~a.\nabstract class ~aServer {\n" (ref full-name) (svc))
+    (each methods (call dartServerIfaceMethod))
+    "}\n\n"
+    (each methods (call dartStreamImpl))))
+
+;; ---------------------------------------------------------------------------
+;; Dart pb emitter (mirrors template-dart.rkt's dart-pb-*).
+;; Programs take the support prefix as (arg 0) where needed.
+;; ---------------------------------------------------------------------------
+
+(define dt-pb-varint-expr-program
+  '((case-on (type)
+      (8 (fmt "(~a ? 1 : 0)" (arg 0)))
+      (17 (fmt "(((~a << 1) ^ (~a >> 31)) & 0xffffffff)" (arg 0) (arg 0)))
+      (18 (fmt "((~a << 1) ^ (~a >> 63))" (arg 0) (arg 0)))
+      (14 (fmt "~a.index" (arg 0)))
+      (else (arg 0)))))
+
+(define dt-pb-varint-decode-program
+  '((case-on (type)
+      (5 (fmt "(~a).toSigned(32)" (arg 0)))
+      ((13 7 4 6) (fmt "(~a).toUnsigned(64)" (arg 0)))
+      (8 (fmt "~a != 0" (arg 0)))
+      (17 (fmt "(((~a >> 1) ^ -(~a & 1))).toSigned(32)" (arg 0) (arg 0)))
+      (18 (fmt "((~a >> 1) ^ -(~a & 1))" (arg 0) (arg 0)))
+      (else (arg 0)))))
+
+(define dt-pb-nonzero-program
+  '((case-on (type)
+      (8 (arg 0))
+      (14 (fmt "~a.index != 0" (arg 0)))
+      (else (fmt "~a != 0" (arg 0))))))
+
+(define dt-pb-explicit-literal-program
+  '((if (has-default)
+        (then (case-on (type)
+                (9 (fmt "~s" (default-raw)))
+                (8 (default-raw))
+                (14 (fmt "~a.~a" (dart-entry-ref) (default-raw)))
+                (else (default-raw))))
+        (else ""))))
+
+(define dt-pb-default-program
+  '((if (call dtPbExplicitLiteral)
+        (then (call dtPbExplicitLiteral))
+        (else
+         (if (is-map)
+             (then "{}")
+             (else
+              (if (repeated)
+                  (then "[]")
+                  (else
+                   (case-on (type)
+                     (11 "null")
+                     (14 (fmt "~a.~a" (dart-type-ref) (enum-first-value-name)))
+                     (else (dart-scalar-zero)))))))))))
+
+(define dt-pb-elem-type-program
+  '((case-on (type)
+      (11 (dart-type-ref))
+      (14 (dart-type-ref))
+      (else (dart-scalar-type)))))
+
+(define dt-pb-type-program
+  '((if (is-map)
+        (then (fmt "Map<~a, ~a>"
+                   (call-on (with-label (key-field (resolved-entry)) 1) dtPbType)
+                   (case-on (get (val-field (resolved-entry)) type)
+                     (11 (dart-type-ref (val-field (resolved-entry))))
+                     (else (call-on (with-label (val-field (resolved-entry)) 1) dtPbType)))))
+        (else
+         (if (repeated)
+             (then (fmt "List<~a>"
+                        (if (type-is 11)
+                            (then (dart-type-ref))
+                            (else (call-on (with-label (self) 1) dtPbType)))))
+             (else
+              (case-on (type)
+                (11 (fmt "~a?" (dart-type-ref)))
+                (14 (dart-type-ref))
+                (else (dart-scalar-type)))))))))
+
+(define dt-pb-set-expr-program
+  '((case-on (type)
+      ((11 10) (fmt "~a != null" (dart-field-name)))
+      ((9 12) (fmt "~a.isNotEmpty" (dart-field-name)))
+      (else (call dtPbNonzero (dart-field-name))))))
+
+(define dt-pb-oneof-clearing-program
+  '((each-siblings (fmt "          ~a = ~a;\n" (dart-field-name) (call dtPbDefault)))))
+
+(define dt-pb-encode-singular-program
+  '((case-on (category)
+      ("varint"
+       (if (proto2)
+           (then (fmt "~a{ w.tag(~a, 0); w.varint(~a); }\n" (arg 1) (ref number) (call dtPbVarintExpr (arg 0))))
+           (else (fmt "~aif (~a) { w.tag(~a, 0); w.varint(~a); }\n" (arg 1) (call dtPbNonzero (arg 0)) (ref number) (call dtPbVarintExpr (arg 0))))))
+      ("fixed"
+       (if (proto2)
+           (then (fmt "~a{ w.tag(~a, ~a); w.fixed~a(~a); }\n" (arg 1) (ref number) (case-on (dart-fixed-size) (8 "1") (else "5")) (dart-fixed-name) (arg 0)))
+           (else (fmt "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a); }\n" (arg 1) (call dtPbNonzero (arg 0)) (ref number) (case-on (dart-fixed-size) (8 "1") (else "5")) (dart-fixed-name) (arg 0)))))
+      ("string"
+       (if (proto2)
+           (then (fmt "~aw.bytesField(~a, utf8.encode(~a));\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aw.stringField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))))
+      ("bytes"
+       (if (proto2)
+           (then (fmt "~aw.bytesField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aif (~a.isNotEmpty) w.bytesField(~a, ~a);\n" (arg 1) (arg 0) (ref number) (arg 0)))))
+      ("message"
+       (fmt "~aif (~a != null) w.bytesField(~a, ~a!.marshalDc());\n" (arg 1) (arg 0) (ref number) (arg 0)))
+      (else (fail)))))
+
+(define dt-pb-encode-field-program
+  '((if (is-map)
+        (then (fmt "    ~a.forEach((k, val) { w.bytesField(~a, ~a(k, val)); });\n"
+                   (dart-field-name) (ref number) (fmt "~a~aEncode" (arg 0) (resolved-flat))))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint" (fmt "    if (~a.isNotEmpty) {\n        final payload = ~aWriter();\n        for (final x in ~a) { payload.varint(~a); }\n        w.bytesField(~a, payload.toBytes());\n    }\n"
+                               (dart-field-name) (arg 0) (dart-field-name) (call dtPbVarintExpr "x") (ref number)))
+                ("fixed" (fmt "    if (~a.isNotEmpty) {\n        final payload = ~aWriter();\n        for (final x in ~a) { payload.fixed~a(x); }\n        w.bytesField(~a, payload.toBytes());\n    }\n"
+                              (dart-field-name) (arg 0) (dart-field-name) (dart-fixed-name) (ref number)))
+                ("string" (fmt "    for (final x in ~a) { w.bytesField(~a, utf8.encode(x)); }\n" (dart-field-name) (ref number)))
+                ("bytes" (fmt "    for (final x in ~a) { w.bytesField(~a, x); }\n" (dart-field-name) (ref number)))
+                ("message" (fmt "    for (final x in ~a) { w.bytesField(~a, x.marshalDc()); }\n" (dart-field-name) (ref number)))
+                (else (fail))))
+             (else (call dtPbEncodeSingular (dart-field-name) "    ")))))))
+
+(define dt-pb-decode-singular-program
+  '((case-on (category)
+      ("varint" (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+                     (if (type-is 14)
+                         (then (fmt "~a.values[~a] " (dart-type-ref) (call-on (with-type (self) 5) dtPbVarintDecode (arg 1))))
+                         (else (call dtPbVarintDecode (arg 1))))))
+      ("fixed" (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+                    (case-on (type)
+                      (2 (fmt "~aBitsToFloat32(~a)" (arg 3) (arg 1)))
+                      (1 (fmt "~aBitsToFloat64(~a)" (arg 3) (arg 1)))
+                      (7 (fmt "(~a).toUnsigned(32)" (arg 1)))
+                      (15 (fmt "(~a).toSigned(32)" (arg 1)))
+                      (6 (fmt "(~a).toUnsigned(64)" (arg 1)))
+                      (16 (fmt "(~a).toSigned(64)" (arg 1)))
+                      (else (arg 1)))))
+      ("string" (fmt "~a~a = utf8.decode(~a);\n" (arg 2) (arg 0) (arg 1)))
+      ("bytes" (fmt "~a~a = ~a;\n" (arg 2) (arg 0) (arg 1)))
+      ("message" (fmt "~a~a = ~a();\n~a~a!.unmarshalDc(~a);\n" (arg 2) (arg 0) (dart-type-ref) (arg 2) (arg 0) (arg 1)))
+      (else (fail)))))
+
+(define dt-pb-decode-case-program
+  '((fmt "        case ~a:\n" (ref number))
+    (if (is-map)
+        (then (fmt "          final kv = ~a(field.bytesValue);\n          ~a[kv.key] = kv.value;\n          break;\n"
+                   (fmt "~a~aDecode" (arg 0) (resolved-flat)) (dart-field-name)))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint" (fmt "          if (field.wire == 2) {\n            final sub = ~aReader(field.bytesValue);\n            while (!sub.done()) {\n              ~a.add(~a);\n            }\n          } else {\n            ~a.add(~a);\n          }\n          break;\n"
+                               (arg 0) (dart-field-name)
+                               (if (type-is 14)
+                                   (then (fmt "~a.values[~a]" (dart-type-ref) (call-on (with-type (self) 5) dtPbVarintDecode "sub.varint()")))
+                                   (else (call dtPbVarintDecode "sub.varint()")))
+                               (dart-field-name)
+                               (if (type-is 14)
+                                   (then (fmt "~a.values[~a]" (dart-type-ref) (call-on (with-type (self) 5) dtPbVarintDecode "field.varintValue")))
+                                   (else (call dtPbVarintDecode "field.varintValue")))))
+                ("fixed" (fmt "          if (field.wire == 2) {\n            final sub = ~aReader(field.bytesValue);\n            while (!sub.done()) { ~a.add(~a); }\n          } else {\n            ~a.add(~a);\n          }\n          break;\n"
+                              (arg 0) (dart-field-name)
+                              (case-on (type)
+                                (2 (fmt "~aBitsToFloat32(sub.fixed32())" (arg 0)))
+                                (1 (fmt "~aBitsToFloat64(sub.fixed64())" (arg 0)))
+                                (7 "(sub.fixed32()).toUnsigned(32)")
+                                (15 "(sub.fixed32()).toSigned(32)")
+                                (6 "(sub.fixed64()).toUnsigned(64)")
+                                (else "(sub.fixed64()).toSigned(64)"))
+                              (dart-field-name)
+                              (case-on (type)
+                                (2 (fmt "~aBitsToFloat32(field.fixedValue)" (arg 0)))
+                                (1 (fmt "~aBitsToFloat64(field.fixedValue)" (arg 0)))
+                                (7 "(field.fixedValue).toUnsigned(32)")
+                                (15 "(field.fixedValue).toSigned(32)")
+                                (6 "(field.fixedValue).toUnsigned(64)")
+                                (else "(field.fixedValue).toSigned(64)"))))
+                ("string" (fmt "          ~a.add(utf8.decode(field.bytesValue));\n          break;\n" (dart-field-name)))
+                ("bytes" (fmt "          ~a.add(field.bytesValue);\n          break;\n" (dart-field-name)))
+                ("message" (fmt "          final item = ~a();\n          item.unmarshalDc(field.bytesValue);\n          ~a.add(item);\n          break;\n" (dart-type-ref) (dart-field-name)))
+                (else (fail))))
+             (else (call dtPbOneofClearing)
+                   (call dtPbDecodeSingular (dart-field-name)
+                         (case-on (category)
+                           ("varint" "field.varintValue")
+                           ("fixed" "field.fixedValue")
+                           (else "field.bytesValue"))
+                         "          " (arg 0))
+                   "          break;\n"))))))
+
+(define dt-pb-map-helpers-program
+  '((fmt "Uint8List ~a~aEncode(~a key, ~a value) {\n"
+         (arg 0) (entry-flat)
+         (call-on (with-label (key-field) 1) dtPbType)
+         (case-on (get (val-field) type)
+           (11 (dart-type-ref (val-field)))
+           (else (call-on (with-label (val-field) 1) dtPbType))))
+    (fmt "  final w = ~aWriter();\n" (arg 0))
+    (call-on (with-label (key-field) 1) dtPbEncodeSingular "key" "  ")
+    (case-on (get (val-field) type)
+      (11 (fmt "  w.bytesField(~a, value.marshalDc());\n" (get (val-field) number)))
+      (else (call-on (with-label (val-field) 1) dtPbEncodeSingular "value" "  ")))
+    "  return w.toBytes();\n}\n\n"
+    (fmt "MapEntry<~a, ~a> ~a~aDecode(Uint8List bytes) {\n"
+         (call-on (with-label (key-field) 1) dtPbType)
+         (case-on (get (val-field) type)
+           (11 (dart-type-ref (val-field)))
+           (else (call-on (with-label (val-field) 1) dtPbType)))
+         (arg 0) (entry-flat))
+    (fmt "  ~a key = ~a;\n" (call-on (with-label (key-field) 1) dtPbType) (call-on (with-label (key-field) 1) dtPbDefault))
+    (fmt "  ~a value = ~a;\n"
+         (case-on (get (val-field) type)
+           (11 (dart-type-ref (val-field)))
+           (else (call-on (with-label (val-field) 1) dtPbType)))
+         (case-on (get (val-field) type)
+           (11 (fmt "~a()" (dart-type-ref (val-field))))
+           (else (call-on (with-label (val-field) 1) dtPbDefault))))
+    (fmt "  final r = ~aReader(bytes);\n" (arg 0))
+    "  while (true) {\n    final field = r.next();\n    if (field == null) break;\n    switch (field.number) {\n"
+    (fmt "      case ~a:\n~a        break;\n" (get (key-field) number)
+         (call-on (with-label (key-field) 1) dtPbDecodeSingular "key"
+                  (case-on (category-of (key-field)) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue"))
+                  "        " (arg 0)))
+    (fmt "      case ~a:\n~a        break;\n" (get (val-field) number)
+         (case-on (get (val-field) type)
+           (11 "        value.unmarshalDc(field.bytesValue);\n")
+           (else (call-on (with-label (val-field) 1) dtPbDecodeSingular "value"
+                          (case-on (category-of (val-field)) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue"))
+                          "        " (arg 0)))))
+    "      default:\n        break;\n    }\n  }\n  return MapEntry(key, value);\n}\n\n"))
+
+(define dt-pb-message-program
+  '((fmt "~aclass ~a implements Marshaler, Unmarshaler {\n" (arg 1) (flat))
+    (each fields (fmt "~a  ~a ~a;\n" (arg 1) (call dtPbType) (dart-field-name)))
+    (fmt "~a  Uint8List unknownFields = Uint8List(0);\n" (arg 1))
+    (if (any-where fields (or (repeated) (type-is 12) (is-map)))
+        (then (fmt "~a  ~a(" (arg 1) (flat))
+              (if (any-where fields (not (or (repeated) (type-is 12) (is-map))))
+                  (then (fmt "[~a]" (each-sep-where ", " fields (not (or (repeated) (type-is 12) (is-map)))
+                                                    (fmt "this.~a = ~a" (dart-field-name) (call dtPbDefault)))))
+                  (else ""))
+              (fmt ") : ~a;\n" (each-sep-where ", " fields (or (repeated) (type-is 12) (is-map))
+                                               (fmt "~a = ~a" (dart-field-name) (call dtPbDefault)))))
+        (else (if (any-where fields (not (or (repeated) (type-is 12) (is-map))))
+                  (then (fmt "~a  ~a([~a]);\n" (arg 1) (flat)
+                             (each-sep-where ", " fields (not (or (repeated) (type-is 12) (is-map)))
+                                             (fmt "this.~a = ~a" (dart-field-name) (call dtPbDefault)))))
+                  (else (fmt "~a  ~a();\n" (arg 1) (flat))))))
+    (fmt "~a  @override\n~a  Uint8List marshalDc() {\n~a    final w = ~aWriter();\n" (arg 1) (arg 1) (arg 1) (arg 0))
+    (each fields (guarded dtPbSetExpr "    if (!(~a)) {\n" "    }\n" (call dtPbEncodeField (arg 0))))
+    (fmt "~a    w.raw(unknownFields);\n~a    return w.toBytes();\n~a  }\n" (arg 1) (arg 1) (arg 1))
+    (fmt "~a  @override\n~a  void unmarshalDc(List<int> data) {\n~a    unknownFields = Uint8List(0);\n" (arg 1) (arg 1) (arg 1))
+    (each fields (fmt "~a    ~a = ~a;\n" (arg 1) (dart-field-name) (call dtPbDefault)))
+    (fmt "~a    final r = ~aReader(Uint8List.fromList(data));\n~a    while (true) {\n~a      final field = r.next();\n~a      if (field == null) break;\n~a      switch (field.number) {\n" (arg 1) (arg 0) (arg 1) (arg 1) (arg 1) (arg 1))
+    (each fields (call dtPbDecodeCase (arg 0)))
+    (fmt "~a        default:\n~a          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);\n~a          break;\n~a      }\n~a    }\n~a  }\n~a}\n" (arg 1) (arg 1) (arg 1) (arg 1) (arg 1) (arg 1) (arg 1))
+    (each nested (call dtPbMessage (arg 0) (arg 1)))
+    (each enums (call dtPbEnum (arg 1) (fmt "~a_~a" (flat-of (get (parent) full-name)) (ref name))))))
+
+(define dt-pb-enum-program
+  '((fmt "~aenum ~a {\n" (arg 0) (arg 1))
+    (each-sep ",\n" values (fmt "~a  ~a" (arg 0) (ref name)))
+    (fmt "\n~a}\n" (arg 0))))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -3306,7 +3660,31 @@
           'scPbDecodeCase sc-pb-decode-case-program
           'scPbMapHelpers sc-pb-map-helpers-program
           'scPbMessage sc-pb-message-program
-          'scPbEnum sc-pb-enum-program))
+          'scPbEnum sc-pb-enum-program
+          'dartDeprecated dart-deprecated-program
+          'dartClientMethod dart-client-method-program
+          'dartClientStreamClass dart-client-stream-class-program
+          'dartServerStreamIface dart-server-stream-iface-program
+          'dartServerIfaceMethod dart-server-iface-method-program
+          'dartStreamImpl dart-stream-impl-program
+          'dartRegisterMethod dart-register-method-program
+          'dartService dart-service-program
+          'dtPbVarintExpr dt-pb-varint-expr-program
+          'dtPbVarintDecode dt-pb-varint-decode-program
+          'dtPbNonzero dt-pb-nonzero-program
+          'dtPbExplicitLiteral dt-pb-explicit-literal-program
+          'dtPbDefault dt-pb-default-program
+          'dtPbElemType dt-pb-elem-type-program
+          'dtPbType dt-pb-type-program
+          'dtPbSetExpr dt-pb-set-expr-program
+          'dtPbOneofClearing dt-pb-oneof-clearing-program
+          'dtPbEncodeSingular dt-pb-encode-singular-program
+          'dtPbEncodeField dt-pb-encode-field-program
+          'dtPbDecodeSingular dt-pb-decode-singular-program
+          'dtPbDecodeCase dt-pb-decode-case-program
+          'dtPbMapHelpers dt-pb-map-helpers-program
+          'dtPbMessage dt-pb-message-program
+          'dtPbEnum dt-pb-enum-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -3321,7 +3699,7 @@
       (hash-ref node key #f)))
 
 (define (run-segments program node svc [model #f] [args '()] [err "return err"])
-  (run-env program (list model node svc args err node 0)))
+  (run-env program (list model node svc args err node 0 node)))
 
 (define (run-env program env)
   (apply string-append
@@ -3335,10 +3713,13 @@
 (define (env-err env) (fifth env))
 (define (env-root env) (sixth env))
 (define (env-index env) (seventh env))
+(define (env-parent env) (eighth env))
 (define (env-with env #:model [model (env-model env)] #:node [node (env-node env)]
                   #:args [args (env-args env)] #:err [err (env-err env)]
-                  #:root [root (env-root env)] #:index [index (env-index env)])
-  (list model node (env-svc env) args err root index))
+                  #:root [root (env-root env)] #:index [index (env-index env)]
+                  #:parent [parent #f])
+  (list model node (env-svc env) args err root index
+        (or parent (if (eq? node (env-node env)) (env-parent env) (env-node env)))))
 
 ;; Set by template-rust.rkt alongside its own no_std parameter;
 ;; read by the (rs-map-type) builtin.
@@ -3680,6 +4061,21 @@
              flat)]
         [else (format "~a.~a" (hash-ref entry 'pkg) simple)]))
 
+(define (seg-dart-field-name f)
+  (define jn (hash-ref f 'json-name ""))
+  (if (and jn (not (string=? jn ""))) jn (seg-php-camel (hash-ref f 'name))))
+
+(define (seg-dart-entry-ref model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (seg-flat (hash-ref entry 'pkg)
+            (if (eq? (hash-ref entry 'kind) 'enum)
+                (or (hash-ref entry 'full #f)
+                    (format "~a.~a" (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'enum) 'name)))
+                (hash-ref (hash-ref entry 'msg) 'full-name))))
+
 (define (seg-later-oneof-cond model node)
   (define later (oneof-later-siblings model node))
   (if (null? later)
@@ -3719,7 +4115,7 @@
                              (or (not kinds-part)
                                  (memq (hash-ref el 'kind) kinds-part)))
                            (seg-eval (second seg) env)))))]
-    [(memq (car seg) '(if case-on when guarded guarded-indent kind-case each each+ each-siblings each-sep each-unique each-unique-pair))
+    [(memq (car seg) '(if case-on when guarded guarded-indent kind-case each each+ each-siblings each-sep each-unique each-unique-pair each-where each-sep-where))
      (run-segment seg env)]
     [(eq? (car seg) 'pascal) (seg-pascal (seg-eval (second seg) env))]
     [(eq? (car seg) 'lower-first) (seg-lower-first (seg-eval (second seg) env))]
@@ -3734,6 +4130,14 @@
     [(eq? (car seg) 'resolved-flat)
      (seg-entry-type (seg-resolve model (hash-ref node 'type-name)))]
     [(eq? (car seg) 'index) (env-index env)]
+    [(eq? (car seg) 'parent) (env-parent env)]
+    [(eq? (car seg) 'and) (andmap (lambda (e) (seg-truthy? (seg-eval e env))) (cdr seg))]
+    [(eq? (car seg) 'or) (and (ormap (lambda (e) (seg-truthy? (seg-eval e env))) (cdr seg)) #t)]
+    [(eq? (car seg) 'not) (not (seg-truthy? (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'any-where)
+     (define keys (if (list? (second seg)) (second seg) (list (second seg))))
+     (define items (foldl (lambda (k acc) (hash-ref acc k)) node keys))
+     (and (ormap (lambda (el) (seg-truthy? (seg-eval (third seg) (env-with env #:node el)))) items) #t)]
     [(eq? (car seg) 'snake-case) (seg-snake-case (seg-eval (second seg) env))]
     [(eq? (car seg) 'rs-camel) (seg-rs-camel (seg-eval (second seg) env))]
     [(eq? (car seg) 'rs-field-name) (seg-rs-field-name node)]
@@ -3812,6 +4216,15 @@
      (second (assv (hash-ref node 'type) (fixed-scalar-table 'scala)))]
     [(eq? (car seg) 'sc-fixed-kind)
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'scala)))]
+    [(eq? (car seg) 'dart-field-name) (seg-dart-field-name node)]
+    [(eq? (car seg) 'dart-entry-ref) (seg-dart-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'dart-type-ref) (string-replace (seg-dart-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env))) "." "_")]
+    [(eq? (car seg) 'dart-scalar-type) (first (scalar-type-entry 'dart (hash-ref node 'type)))]
+    [(eq? (car seg) 'dart-scalar-zero) (second (scalar-type-entry 'dart (hash-ref node 'type)))]
+    [(eq? (car seg) 'dart-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'dart)))]
+    [(eq? (car seg) 'dart-fixed-name)
+     (third (assv (hash-ref node 'type) (fixed-scalar-table 'dart)))]
     [(eq? (car seg) 'flat)
      (seg-flat (hash-ref model 'package) (hash-ref node 'full-name))]
     [(eq? (car seg) 'entry-type) (seg-entry-type-of model node)]
@@ -3992,6 +4405,23 @@
                                         uniq))]
                        [i (in-naturals)])
               (run-env rest (env-with env #:node el #:index i))))]
+    [(eq? (car seg) 'each-where)
+     (define-values (keys segs) (splitf-at (cdr seg) symbol?))
+     (define pred (car segs))
+     (define items (foldl (lambda (k acc) (hash-ref acc k)) node keys))
+     (apply string-append
+            (for/list ([el (in-list items)] [i (in-naturals)]
+                       #:when (seg-truthy? (seg-eval pred (env-with env #:node el))))
+              (run-env (cdr segs) (env-with env #:node el #:index i))))]
+    [(eq? (car seg) 'each-sep-where)
+     (define-values (keys segs) (splitf-at (cddr seg) symbol?))
+     (define pred (car segs))
+     (define items (foldl (lambda (k acc) (hash-ref acc k)) node keys))
+     (string-join
+      (for/list ([el (in-list items)] [i (in-naturals)]
+                 #:when (seg-truthy? (seg-eval pred (env-with env #:node el))))
+        (run-env (cdr segs) (env-with env #:node el #:index i)))
+      (second seg))]
     [(eq? (car seg) 'each-unique-pair)
      (define rest (cddr seg))
      (define kinds-part (and (pair? rest) (list? (car rest))
