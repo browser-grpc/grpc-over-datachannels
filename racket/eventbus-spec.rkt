@@ -64,4 +64,5 @@
     (php "php/grpcdc/eventbus.php" "php/grpcdc/eventbus_git.php")
     (dart "dart/grpcdc/eventbus.dart" "dart/grpcdc/eventbus_git.dart")
     (lua "lua/grpcdc/eventbus.lua" "lua/grpcdc/eventbus_git.lua")
-    (java "java/grpcdc/events/v1/Eventbus.java" "java/grpcdc/events/v1/EventbusGit.java")))
+    (java "java/grpcdc/events/v1/Eventbus.java" "java/grpcdc/events/v1/EventbusGit.java")
+    (csharp "csharp/grpcdc/events/v1/Eventbus.cs" "csharp/grpcdc/events/v1/EventbusGit.cs")))

@@ -190,6 +190,9 @@ eventbus-stubs:
 	mkdir -p java/grpcdc/events/v1
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-java=bin/protoc-gen-grpc-dc-java \
 		--grpc-dc-java_out=java/grpcdc/events/v1 -I proto proto/events.proto
+	mkdir -p csharp/grpcdc/events/v1
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-csharp=bin/protoc-gen-grpc-dc-csharp \
+		--grpc-dc-csharp_out=csharp/grpcdc/events/v1 -I proto proto/events.proto
 
 generate: plugins stubs
 
@@ -316,6 +319,7 @@ test-csharp:
 		&& dotnet build examples/EchoClientStdio/EchoClientStdio.csproj --nologo -v q \
 		&& dotnet run --project tests --no-build -- TestCodec \
 		&& dotnet run --project tests --no-build -- TestEcho \
+		&& dotnet run --project tests --no-build -- TestEventBus \
 		&& dotnet run --project tests --no-build -- TestInterop \
 		&& dotnet run --project tests --no-build -- TestInteropOracle \
 		&& dotnet build examples/InteropServerStdio/InteropServerStdio.csproj --nologo -v q \
