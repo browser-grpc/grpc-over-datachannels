@@ -292,10 +292,10 @@
 ;; the shared desc.rkt model. Mirrors the Ruby emitter.
 ;; ---------------------------------------------------------------------------
 
-(define php-pb-varint-types '(5 3 13 4 17 18 8 14))
+(define php-pb-varint-types varint-scalar-types)
 ;; type -> (size pack-format) for float/double/fixed32/fixed64.
 ;; sfixed32/sfixed64 decode through unsigned + sign conversion.
-(define php-pb-fixed '((2 4 "g") (1 8 "e") (7 4 "V") (15 4 "V") (6 8 "P") (16 8 "P")))
+(define php-pb-fixed (fixed-scalar-table 'php))
 
 (define (php-pb-camel s)
   (define parts (string-split s "_"))

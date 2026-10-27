@@ -386,8 +386,8 @@
 ;; struct declarations.
 ;; ---------------------------------------------------------------------------
 
-(define zig-pb-varint-types '(5 3 13 4 17 18 8 14))
-(define zig-pb-fixed '((2 4 "f32") (1 8 "f64") (7 4 "u32") (15 4 "i32") (6 8 "u64") (16 8 "i64")))
+(define zig-pb-varint-types varint-scalar-types)
+(define zig-pb-fixed (fixed-scalar-table 'zig))
 
 (define (zig-pb-resolve model type-name)
   (hash-ref (hash-ref model 'types) type-name

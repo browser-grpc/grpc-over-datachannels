@@ -460,8 +460,8 @@
                            'output (cs-qualify-type pkg (hash-ref m 'output)
                                                     (hash-ref m 'output-full #f)))))))
 
-(define cs-pb-varint-types '(5 3 13 4 17 18 8 14))
-(define cs-pb-fixed '((2 4 "Float") (1 8 "Double") (7 4 "Int") (15 4 "Int") (6 8 "Long") (16 8 "Long")))
+(define cs-pb-varint-types varint-scalar-types)
+(define cs-pb-fixed (fixed-scalar-table 'csharp))
 
 (define (cs-pb-resolve model type-name)
   (hash-ref (hash-ref model 'types) type-name

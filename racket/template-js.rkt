@@ -67,8 +67,8 @@
 ;; no message metadata or nothing to emit.
 ;; ---------------------------------------------------------------------------
 
-(define js-pb-varint-types '(5 3 13 4 17 18 8 14))
-(define js-pb-fixed '((2 4 "Float32") (1 8 "Float64") (7 4 "Uint32") (15 4 "Int32") (6 8 "BigUint64") (16 8 "BigInt64")))
+(define js-pb-varint-types varint-scalar-types)
+(define js-pb-fixed (fixed-scalar-table 'js))
 (define js-pb-bigint-types '(3 4 18 6 16))
 
 (define js-pb-preamble

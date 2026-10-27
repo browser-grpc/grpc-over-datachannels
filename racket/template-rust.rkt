@@ -127,9 +127,9 @@
 ;; resolve to crate::<base>_pb::<Type> sibling modules.
 ;; ---------------------------------------------------------------------------
 
-(define rs-pb-varint-types '(5 3 13 4 17 18 8 14))
+(define rs-pb-varint-types varint-scalar-types)
 ;; type -> (size kind)
-(define rs-pb-fixed '((1 8 f64) (2 4 f32) (6 8 u64) (7 4 u32) (15 4 i32) (16 8 i64)))
+(define rs-pb-fixed (map (lambda (e) (list (first e) (second e) (string->symbol (third e)))) (fixed-scalar-table 'rust)))
 
 (define (rs-pb-snake s)
   (string-join (map string-downcase (string-split s "_")) "_"))

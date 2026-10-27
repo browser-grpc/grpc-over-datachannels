@@ -148,6 +148,50 @@
 (provide go-module-path go-webrtc-module-path)
 
 ;; ---------------------------------------------------------------------------
+;; Protobuf scalar wire tables — written once, consumed by
+;; every language template and serialized by webgen.rkt into
+;; the browser generators (WEBGEN-SINGLESOURCE-SPEC option 2).
+;;
+;; varint-scalar-types: field-type numbers carried as varints
+;; (int32 int64 uint32 uint64 sint32 sint64 bool enum).
+;;
+;; fixed-scalar-tables: per language, (type-number byte-size
+;; type-name) for the fixed-width scalar types (float double
+;; fixed32 sfixed32 fixed64 sfixed64); type-name is the token
+;; the language's generated codec uses (a Rust primitive, a
+;; DataView accessor suffix, a struct/pack format, ...).
+;; Templates derive their local tables from these (Rust and
+;; Scala map the name back to a symbol for case dispatch).
+;; ---------------------------------------------------------------------------
+
+(define varint-scalar-types '(5 3 13 4 17 18 8 14))
+
+(define fixed-scalar-tables
+  '((js     (2 4 "Float32") (1 8 "Float64") (7 4 "Uint32") (15 4 "Int32") (6 8 "BigUint64") (16 8 "BigInt64"))
+    (go     (2 4 "Float32") (1 8 "Float64") (7 4 "Uint32") (15 4 "Int32") (6 8 "BigUint64") (16 8 "BigInt64"))
+    (python (2 4 "<f") (1 8 "<d") (7 4 "<I") (15 4 "<i") (6 8 "<Q") (16 8 "<q"))
+    (c      (2 4 "f32") (1 8 "f64") (7 4 "u32") (15 4 "i32") (6 8 "u64") (16 8 "i64"))
+    (rust   (1 8 "f64") (2 4 "f32") (6 8 "u64") (7 4 "u32") (15 4 "i32") (16 8 "i64"))
+    (java   (2 4 "Float") (1 8 "Double") (7 4 "Int") (15 4 "Int") (6 8 "Long") (16 8 "Long"))
+    (csharp (2 4 "Float") (1 8 "Double") (7 4 "Int") (15 4 "Int") (6 8 "Long") (16 8 "Long"))
+    (cpp    (2 4 "Float") (1 8 "Double") (7 4 "Int32") (15 4 "Int32") (6 8 "Int64") (16 8 "Int64"))
+    (swift  (2 4 "Float") (1 8 "Double") (7 4 "UInt32") (15 4 "Int32") (6 8 "UInt64") (16 8 "Int64"))
+    (kotlin (2 4 "Float") (1 8 "Double") (7 4 "UInt") (15 4 "Int") (6 8 "ULong") (16 8 "Long"))
+    (dart   (2 4 "Float32") (1 8 "Float64") (7 4 "Uint32") (15 4 "Int32") (6 8 "Uint64") (16 8 "Int64"))
+    (zig    (2 4 "f32") (1 8 "f64") (7 4 "u32") (15 4 "i32") (6 8 "u64") (16 8 "i64"))
+    (lua    (2 4 "f") (1 8 "d") (7 4 "I4") (15 4 "i4") (6 8 "I8") (16 8 "i8"))
+    (ruby   (2 4 "e") (1 8 "E") (7 4 "V") (15 4 "l<") (6 8 "Q<") (16 8 "q<"))
+    (php    (2 4 "g") (1 8 "e") (7 4 "V") (15 4 "V") (6 8 "P") (16 8 "P"))
+    (scala  (1 8 "double") (2 4 "float") (6 8 "fixed64") (7 4 "fixed32") (15 4 "fixed32") (16 8 "fixed64"))))
+
+(define (fixed-scalar-table lang)
+  (define entry (assq lang fixed-scalar-tables))
+  (unless entry (error 'fixed-scalar-table "unknown language: ~e" lang))
+  (cdr entry))
+
+(provide varint-scalar-types fixed-scalar-tables fixed-scalar-table)
+
+;; ---------------------------------------------------------------------------
 ;; Streaming-kind classification: (client-streaming?, server-streaming?)
 ;; ---------------------------------------------------------------------------
 

@@ -402,9 +402,9 @@
 ;; emitted from the shared desc.rkt model. Mirrors the PHP emitter.
 ;; ---------------------------------------------------------------------------
 
-(define sc-pb-varint-types '(5 3 13 4 17 18 8 14))
+(define sc-pb-varint-types varint-scalar-types)
 ;; type -> (size kind) ; kind: double float fixed32 fixed64
-(define sc-pb-fixed '((1 8 double) (2 4 float) (6 8 fixed64) (7 4 fixed32) (15 4 fixed32) (16 8 fixed64)))
+(define sc-pb-fixed (map (lambda (e) (list (first e) (second e) (string->symbol (third e)))) (fixed-scalar-table 'scala)))
 
 (define (sc-pb-camel s)
   (define parts (string-split s "_"))

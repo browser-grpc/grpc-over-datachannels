@@ -331,8 +331,8 @@
 ;; desc.rkt model.
 ;; ---------------------------------------------------------------------------
 
-(define dart-pb-varint-types '(5 3 13 4 17 18 8 14))
-(define dart-pb-fixed '((2 4 "Float32") (1 8 "Float64") (7 4 "Uint32") (15 4 "Int32") (6 8 "Uint64") (16 8 "Int64")))
+(define dart-pb-varint-types varint-scalar-types)
+(define dart-pb-fixed (fixed-scalar-table 'dart))
 
 (define (dart-pb-camel s)
   (define parts (string-split s "_"))

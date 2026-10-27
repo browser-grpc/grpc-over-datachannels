@@ -403,8 +403,8 @@
 ;; the Java emitter on the shared desc.rkt model.
 ;; ---------------------------------------------------------------------------
 
-(define swift-pb-varint-types '(5 3 13 4 17 18 8 14))
-(define swift-pb-fixed '((2 4 "Float") (1 8 "Double") (7 4 "UInt32") (15 4 "Int32") (6 8 "UInt64") (16 8 "Int64")))
+(define swift-pb-varint-types varint-scalar-types)
+(define swift-pb-fixed (fixed-scalar-table 'swift))
 
 (define (swift-pb-camel s)
   (define parts (string-split s "_"))

@@ -312,9 +312,9 @@
    "    v = value & 0xFFFFFFFFFFFFFFFF\n"
    "    return (v >> 1) ^ -(v & 1)\n\n\n"))
 
-(define pb-varint-types '(3 4 5 8 13 14 17 18)) ; int64 uint64 int32 bool uint32 enum sint32 sint64
-(define pb-fixed-formats '((2 . "<f") (1 . "<d") (7 . "<I") (6 . "<Q") (15 . "<i") (16 . "<q")))
-(define pb-fixed-sizes '((2 . 4) (1 . 8) (7 . 4) (6 . 8) (15 . 4) (16 . 8)))
+(define pb-varint-types varint-scalar-types) ; int64 uint64 int32 bool uint32 enum sint32 sint64
+(define pb-fixed-formats (map (lambda (e) (cons (first e) (third e))) (fixed-scalar-table 'python)))
+(define pb-fixed-sizes (map (lambda (e) (cons (first e) (second e))) (fixed-scalar-table 'python)))
 
 (define (py-pb-flat pkg full)
   (define rel (if (and pkg (not (string=? pkg ""))

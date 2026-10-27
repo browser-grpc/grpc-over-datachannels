@@ -558,8 +558,8 @@
 ;; shared desc.rkt model.
 ;; ---------------------------------------------------------------------------
 
-(define cpp-pb-varint-types '(5 3 13 4 17 18 8 14))
-(define cpp-pb-fixed '((2 4 "Float") (1 8 "Double") (7 4 "Int32") (15 4 "Int32") (6 8 "Int64") (16 8 "Int64")))
+(define cpp-pb-varint-types varint-scalar-types)
+(define cpp-pb-fixed (fixed-scalar-table 'cpp))
 
 (define (cpp-pb-resolve model type-name)
   (hash-ref (hash-ref model 'types) type-name

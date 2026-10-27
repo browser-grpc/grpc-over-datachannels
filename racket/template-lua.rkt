@@ -431,8 +431,8 @@
 ;; model.
 ;; ---------------------------------------------------------------------------
 
-(define lua-pb-varint-types '(5 3 13 4 17 18 8 14))
-(define lua-pb-fixed '((2 4 "f") (1 8 "d") (7 4 "I4") (15 4 "i4") (6 8 "I8") (16 8 "i8")))
+(define lua-pb-varint-types varint-scalar-types)
+(define lua-pb-fixed (fixed-scalar-table 'lua))
 
 (define (lua-pb-camel s)
   (define parts (string-split s "_"))

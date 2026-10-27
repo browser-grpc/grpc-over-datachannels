@@ -318,10 +318,10 @@
 ;; the shared desc.rkt model. Mirrors the Lua emitter.
 ;; ---------------------------------------------------------------------------
 
-(define rb-pb-varint-types '(5 3 13 4 17 18 8 14))
+(define rb-pb-varint-types varint-scalar-types)
 ;; type -> (size pack-format) ; pack: e/E float/double, V/Q< unsigned
 ;; fixed, l</q< signed fixed.
-(define rb-pb-fixed '((2 4 "e") (1 8 "E") (7 4 "V") (15 4 "l<") (6 8 "Q<") (16 8 "q<")))
+(define rb-pb-fixed (fixed-scalar-table 'ruby))
 
 (define (rb-pb-flat pkg full)
   (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))

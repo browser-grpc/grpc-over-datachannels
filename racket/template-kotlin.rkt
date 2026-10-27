@@ -434,8 +434,8 @@
 ;; emitter on the shared desc.rkt model.
 ;; ---------------------------------------------------------------------------
 
-(define kt-pb-varint-types '(5 3 13 4 17 18 8 14))
-(define kt-pb-fixed '((2 4 "Float") (1 8 "Double") (7 4 "UInt") (15 4 "Int") (6 8 "ULong") (16 8 "Long")))
+(define kt-pb-varint-types varint-scalar-types)
+(define kt-pb-fixed (fixed-scalar-table 'kotlin))
 
 (define (kt-pb-camel s)
   (define parts (string-split s "_"))

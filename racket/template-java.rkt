@@ -559,8 +559,8 @@
 ;; emitter on the shared desc.rkt model.
 ;; ---------------------------------------------------------------------------
 
-(define java-pb-varint-types '(5 3 13 4 17 18 8 14))
-(define java-pb-fixed '((2 4 "Float") (1 8 "Double") (7 4 "Int") (15 4 "Int") (6 8 "Long") (16 8 "Long")))
+(define java-pb-varint-types varint-scalar-types)
+(define java-pb-fixed (fixed-scalar-table 'java))
 
 (define (java-pb-camel s)
   (define parts (string-split s "_"))
