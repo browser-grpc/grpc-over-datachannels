@@ -184,6 +184,23 @@
          lua-pb-map-helpers-program lua-pb-message-program
          lua-pb-map-val-decode-program lua-pb-map-key-head-program lua-pb-map-key-decode-program
          lua-pb-map-val-head-program
+         zig-service-program zig-client-method-program
+         zig-client-stream-class-program zig-server-stream-struct-program
+         zig-server-vtable-field-program zig-adapter-program
+         zig-register-method-program
+         zig-pb-type-program zig-pb-explicit-literal-program
+         zig-pb-default-program zig-pb-varint-expr-program
+         zig-pb-varint-decode-program zig-pb-nonzero-program
+         zig-pb-encode-singular-program zig-pb-set-expr-program
+         zig-pb-encode-guard-program zig-pb-encode-field-program
+         zig-pb-decode-singular-program zig-pb-clearing-program
+         zig-pb-enum-conv-program zig-pb-decode-case-program
+         zig-pb-map-val-encode-program zig-pb-map-val-init-program
+         zig-pb-map-decode-line-program zig-pb-map-val-decode-line-program
+         zig-pb-map-helpers-program zig-pb-nested-enum-program
+         zig-pb-list-decl-program zig-pb-list-assign-program
+         zig-pb-message-program zig-pb-type-or-ref-program
+         zig-pb-alloc-unused-program
          lua-pb-enum-program)
 
 ;; ---------------------------------------------------------------------------
@@ -4239,6 +4256,412 @@
   '((fmt "local ~a = { ~a }\n\n" (lua-enum-flat)
          (each-sep ", " values (fmt "~a = ~a" (ref name) (ref number))))))
 
+;;; ---------------------------------------------------------------------------
+;;; Zig (template-zig.rkt mirrors, option 1). Field names are the
+;;; raw proto names; message structs take (indent).
+
+(define zig-deprecated-program
+  '((if (ref deprecated)
+        (then (fmt "~a/// Deprecated in the proto schema.\n" (arg 0)))
+        (else ""))))
+
+(define zig-client-method-raw-program
+  '((kind-case
+     (unary
+      (fmt "    pub fn ~a(self: *~aClient, req: *const ~a, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a) {\n        var resp = ~a{};\n        const st = self.channel.unary(~s, req, &resp, metadata, timeout_ms);\n        if (!st.isOk()) return .{ .status = st };\n        return .{ .ok = resp };\n    }\n\n" (lower-first (ref name)) (svc) (ref input) (ref output) (ref output) (ref path)))
+     (server-streaming
+      (fmt "    pub fn ~a(self: *~aClient, req: *const ~a, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a~aClient) {\n        switch (self.channel.serverStream(~s, req, metadata, timeout_ms)) {\n            .ok => |stream| return .{ .ok = .{ .stream = stream } },\n            .status => |st| return .{ .status = st },\n        }\n    }\n\n" (lower-first (ref name)) (svc) (ref input) (svc) (ref name) (ref path)))
+     (client-streaming
+      (fmt "    pub fn ~a(self: *~aClient, reqs: []const ~a, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a) {\n        var resp = ~a{};\n        const st = self.channel.clientStreamCall(~s, reqs, &resp, metadata, timeout_ms);\n        if (!st.isOk()) return .{ .status = st };\n        return .{ .ok = resp };\n    }\n\n" (lower-first (ref name)) (svc) (ref input) (ref output) (ref output) (ref path)))
+     (bidi
+      (fmt "    pub fn ~a(self: *~aClient, reqs: []const ~a, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a~aClient) {\n        switch (self.channel.bidi(~s, reqs, metadata, timeout_ms)) {\n            .ok => |stream| return .{ .ok = .{ .stream = stream } },\n            .status => |st| return .{ .status = st },\n        }\n    }\n\n" (lower-first (ref name)) (svc) (ref input) (svc) (ref name) (ref path))))))
+
+(define zig-client-method-program
+  (append zig-deprecated-program zig-client-method-raw-program))
+
+(define zig-stream-class-body
+  (list
+   (list 'fmt "/// Response stream of a ~a call.\npub const ~a~aClient = struct {\n    stream: ClientStream,\n\n    pub fn recv(self: *~a~aClient) status_mod.RecvResult(~a) {\n        var resp = ~a{};\n        switch (self.stream.recvInto(&resp)) {\n            .message => return .{ .message = resp },\n            .end => return .end,\n            .status => |st| return .{ .status = st },\n        }\n    }\n\n    /// Initial metadata (response headers); null until they arrive.\n    pub fn headers(self: *~a~aClient) ?grpcdc.codec.Headers {\n        return self.stream.headers;\n    }\n\n    /// Trailing metadata of the terminal status.\n    pub fn trailers(self: *~a~aClient) []const status_mod.TrailerPair {\n        return self.stream.trailers;\n    }\n\n    /// Abandon the call: RST so the server stops producing.\n    pub fn cancel(self: *~a~aClient) void {\n        self.stream.cancel();\n    }\n\n    pub fn deinit(self: *~a~aClient) void {\n        self.stream.deinit();\n    }\n};\n\n"
+         '(ref name) '(svc) '(ref name) '(svc) '(ref name) '(ref output) '(ref output) '(svc) '(ref name) '(svc) '(ref name) '(svc) '(ref name) '(svc) '(ref name))))
+
+(define zig-client-stream-class-program
+  (list (append (list 'kind-case
+                      (append (list '(server-streaming bidi)) zig-stream-class-body)
+                      (list 'else "")))))
+
+(define zig-server-stream-struct-program
+  '((kind-case
+     (unary "")
+     (server-streaming
+      (fmt "/// Sends responses of a ~a call.\npub const ~a~aServer = struct {\n    sink: server_mod.Sink,\n    alloc: std.mem.Allocator,\n\n    pub fn send(self: *~a~aServer, resp: *const ~a) Status {\n        const payload = resp.marshalDc(self.alloc);\n        defer self.alloc.free(payload);\n        return self.sink.send(payload);\n    }\n};\n\n" (ref name) (svc) (ref name) (svc) (ref name) (ref output)))
+     (client-streaming
+      (fmt "/// Receives requests of a ~a call.\npub const ~a~aServer = struct {\n    reqs: *server_mod.RequestStream,\n    alloc: std.mem.Allocator,\n    resp: ?~a = null,\n\n    pub fn recv(self: *~a~aServer) status_mod.RecvResult(~a) {\n        var req = ~a{};\n        switch (self.reqs.recvInto(&req)) {\n            .message => return .{ .message = req },\n            .end => return .end,\n            .status => |st| return .{ .status = st },\n        }\n    }\n\n    pub fn sendAndClose(self: *~a~aServer, resp: ~a) void {\n        self.resp = resp;\n    }\n};\n\n" (ref name) (svc) (ref name) (ref output) (svc) (ref name) (ref input) (ref input) (svc) (ref name) (ref output)))
+     (bidi
+      (fmt "/// Full-duplex stream of a ~a call.\npub const ~a~aServer = struct {\n    reqs: *server_mod.RequestStream,\n    sink: server_mod.Sink,\n    alloc: std.mem.Allocator,\n\n    pub fn recv(self: *~a~aServer) status_mod.RecvResult(~a) {\n        var req = ~a{};\n        switch (self.reqs.recvInto(&req)) {\n            .message => return .{ .message = req },\n            .end => return .end,\n            .status => |st| return .{ .status = st },\n        }\n    }\n\n    pub fn send(self: *~a~aServer, resp: *const ~a) Status {\n        const payload = resp.marshalDc(self.alloc);\n        defer self.alloc.free(payload);\n        return self.sink.send(payload);\n    }\n};\n\n" (ref name) (svc) (ref name) (svc) (ref name) (ref input) (ref input) (svc) (ref name) (ref output))))))
+
+(define zig-server-vtable-field-program
+  '((kind-case
+     (unary
+      (fmt "    ~a_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const ~a, resp: *~a, alloc: std.mem.Allocator) Status,\n" (snake-case (ref name)) (ref input) (ref output)))
+     (server-streaming
+      (fmt "    ~a_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const ~a, stream: *~a~aServer) Status,\n" (snake-case (ref name)) (ref input) (svc) (ref name)))
+     (client-streaming
+      (fmt "    ~a_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, stream: *~a~aServer) Status,\n" (snake-case (ref name)) (svc) (ref name)))
+     (bidi
+      (fmt "    ~a_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, stream: *~a~aServer) Status,\n" (snake-case (ref name)) (svc) (ref name))))))
+
+(define zig-adapter-program
+  '((kind-case
+     (unary
+      (fmt "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n    var req = ~a{};\n    switch (reqs.recvInto(&req)) {\n        .message => {},\n        .end => return Status.init(wire.codeInternal, \"unary call closed with no request\"),\n        .status => |st| return st,\n    }\n    var arena = std.heap.ArenaAllocator.init(reqs.alloc);\n    defer arena.deinit();\n    var resp = ~a{};\n    const st = impl.~a_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());\n    if (!st.isOk()) return st;\n    const payload = resp.marshalDc(reqs.alloc);\n    defer reqs.alloc.free(payload);\n    return sink.send(payload);\n}\n\n" (lower-first (svc)) (ref name) (svc) (ref input) (ref output) (snake-case (ref impl-name))))
+     (server-streaming
+      (fmt "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n    var req = ~a{};\n    switch (reqs.recvInto(&req)) {\n        .message => {},\n        .end => return Status.init(wire.codeInternal, \"server-streaming call closed with no request\"),\n        .status => |st| return st,\n    }\n    var stream = ~a~aServer{ .sink = sink, .alloc = reqs.alloc };\n    return impl.~a_fn(impl.ctx, call_ctx, &req, &stream);\n}\n\n" (lower-first (svc)) (ref name) (svc) (ref input) (svc) (ref name) (snake-case (ref impl-name))))
+     (client-streaming
+      (fmt "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n    var arena = std.heap.ArenaAllocator.init(reqs.alloc);\n    defer arena.deinit();\n    var stream = ~a~aServer{ .reqs = reqs, .alloc = arena.allocator() };\n    const st = impl.~a_fn(impl.ctx, call_ctx, &stream);\n    if (!st.isOk()) return st;\n    const resp = stream.resp orelse\n        return Status.init(wire.codeInternal, \"client-streaming handler never called sendAndClose\");\n    const payload = resp.marshalDc(reqs.alloc);\n    defer reqs.alloc.free(payload);\n    return sink.send(payload);\n}\n\n" (lower-first (svc)) (ref name) (svc) (svc) (ref name) (snake-case (ref impl-name))))
+     (bidi
+      (fmt "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n    var stream = ~a~aServer{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc };\n    return impl.~a_fn(impl.ctx, call_ctx, &stream);\n}\n\n" (lower-first (svc)) (ref name) (svc) (svc) (ref name) (snake-case (ref impl-name)))))))
+
+(define zig-register-method-program
+  '((fmt "                .{ .name = ~s, .path = ~s, .kind = .~a, .ctx = impl, .handler = ~a~aAdapter },\n"
+         (ref name) (ref path)
+         (case-on (ref kind)
+           ((unary) "unary")
+           ((server-streaming) "server_streaming")
+           ((client-streaming) "client_streaming")
+           ((bidi) "bidi"))
+         (lower-first (svc)) (ref name))))
+
+(define zig-service-program
+  '((fmt "/// Client for ~a.\n" (ref full-name))
+    (fmt "pub const ~aClient = struct {\n" (ref name))
+    "    channel: *Channel,\n\n"
+    (fmt "    pub fn init(channel: *Channel) ~aClient {\n" (ref name))
+    "        return .{ .channel = channel };\n    }\n\n"
+    (each+ methods client (call zigClientMethod "    "))
+    "};\n\n"
+    (each methods (call zigClientStreamClass))
+    (each methods (call zigServerStreamStruct))
+    (fmt "/// Service implementation interface for ~a (vtable: Zig has no\n" (ref full-name))
+    "/// interfaces, so generated stubs dispatch through fn pointers).\n"
+    (fmt "pub const ~aServer = struct {\n" (ref name))
+    "    ctx: *anyopaque,\n"
+    (each methods (call zigServerVtableField))
+    "};\n\n"
+    (each+ methods server (call zigAdapter))))
+
+(define zig-pb-type-program
+  '((if (is-map)
+        (then (fmt "[]const ~a" (zig-struct-name)))
+        (else
+         (if (repeated)
+             (then (fmt "[]const ~a"
+                        (case-on (ref type)
+                          ((11) (zig-entry-ref))
+                          (else (call-on (with-label (self) 1) zigPbType)))))
+             (else (case-on (ref type)
+                     ((11) (fmt "?*~a" (zig-entry-ref)))
+                     ((14) (zig-entry-ref))
+                     (else (zig-scalar-type)))))))))
+
+(define zig-pb-explicit-literal-program
+  '((if (has-default)
+        (then (fmt "~a"
+                   (case-on (ref type)
+                     ((9) (fmt "~s" (default-raw)))
+                     ((8) (default-raw))
+                     ((14) (fmt ".~a" (default-raw)))
+                     ((2) (fmt "~a" (default-raw)))
+                     (else (default-raw)))))
+        (else ""))))
+
+(define zig-pb-default-program
+  '((if (call zigPbExplicitLiteral)
+        (then (call zigPbExplicitLiteral))
+        (else (fmt "~a"
+                   (if (is-map)
+                       (then "&.{}")
+                       (else (case-on (ref label)
+                               ((3) "&.{}")
+                               (else (case-on (ref type)
+                                       ((11) "null")
+                                       ((14) (fmt ".~a" (enum-first-value-name)))
+                                       (else (zig-scalar-zero))))))))))))
+
+(define zig-pb-varint-expr-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (fmt "@intFromBool(~a)" (arg 0)))
+           ((17) (fmt "@as(u64, @bitCast(@as(i64, ((~a << 1) ^ (~a >> 31)))))" (arg 0) (arg 0)))
+           ((18) (fmt "@as(u64, @bitCast(((~a << 1) ^ (~a >> 63))))" (arg 0) (arg 0)))
+           ((14) (fmt "@as(u64, @bitCast(@as(i64, @intFromEnum(~a))))" (arg 0)))
+           ((5) (fmt "@as(u64, @bitCast(@as(i64, ~a)))" (arg 0)))
+           ((3) (fmt "@as(u64, @bitCast(~a))" (arg 0)))
+           (else (arg 0))))))
+
+(define zig-pb-varint-decode-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((5) (fmt "@as(i32, @truncate(@as(i64, @bitCast(~a))))" (arg 0)))
+           ((13 7) (fmt "@as(u32, @truncate(~a))" (arg 0)))
+           ((3) (fmt "@as(i64, @bitCast(~a))" (arg 0)))
+           ((4 6) (arg 0))
+           ((8) (fmt "~a != 0" (arg 0)))
+           ((17) (fmt "@as(i32, @bitCast(@as(u32, @truncate((~a >> 1) ^ (0 -% (~a & 1))))))" (arg 0) (arg 0)))
+           ((18) (fmt "@as(i64, @bitCast((~a >> 1) ^ (0 -% (~a & 1))))" (arg 0) (arg 0)))))))
+
+(define zig-pb-nonzero-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (arg 0))
+           ((14) (fmt "@intFromEnum(~a) != 0" (arg 0)))
+           (else (fmt "~a != 0" (arg 0)))))))
+
+(define zig-pb-encode-singular-program
+  '((case-on (category)
+      ("varint"
+       (if (proto2)
+           (then (fmt "~a{ w.tag(~a, 0); w.varint(~a); }\n" (arg 1) (ref number) (call zigPbVarintExpr (arg 0))))
+           (else (fmt "~aif (~a) { w.tag(~a, 0); w.varint(~a); }\n" (arg 1) (call zigPbNonzero (arg 0)) (ref number) (call zigPbVarintExpr (arg 0))))))
+      ("fixed"
+       (if (proto2)
+           (then (fmt "~a{ w.tag(~a, ~a); w.fixed~a(~a); }\n" (arg 1) (ref number)
+                      (case-on (zig-fixed-size) ((8) "1") (else "5")) (zig-fixed-name) (arg 0)))
+           (else (fmt "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a); }\n" (arg 1) (call zigPbNonzero (arg 0)) (ref number)
+                      (case-on (zig-fixed-size) ((8) "1") (else "5")) (zig-fixed-name) (arg 0)))))
+      ("string"
+       (if (proto2)
+           (then (fmt "~aw.bytesField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aw.stringField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))))
+      ("bytes"
+       (if (proto2)
+           (then (fmt "~aw.bytesField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aif (~a.len > 0) w.bytesField(~a, ~a);\n" (arg 1) (arg 0) (ref number) (arg 0)))))
+      ("message"
+       (fmt "~aif (~a) |p| w.bytesField(~a, p.marshalDc(alloc));\n" (arg 1) (arg 0) (ref number)))
+      (else (fail)))))
+
+(define zig-pb-set-expr-program
+  '((case-on (ref type)
+      ((11 10) (fmt "self.~a != null" (ref name)))
+      ((9 12) (fmt "self.~a.len > 0" (ref name)))
+      (else (call zigPbNonzero (fmt "self.~a" (ref name)))))))
+
+(define zig-pb-encode-guard-program
+  '((guarded zigPbSetExpr "        if (!(~a)) {\n" "        }\n" (join " or ") (call zigPbEncodeField))))
+
+(define zig-pb-encode-field-program
+  '((if (is-map)
+        (then (fmt "        for (~a) |e| w.bytesField(~a, encode~a(alloc, e.key, e.value));\n"
+                   (fmt "self.~a" (ref name)) (ref number) (zig-struct-name)))
+        (else
+         (if (repeated)
+             (then (fmt "~a"
+                        (case-on (category)
+                          ("varint"
+                           (fmt "~a~a~a"
+                                (fmt "        if (~a.len > 0) {\n            var payload = PbWriter.init(alloc);\n            defer payload.deinit();\n" (fmt "self.~a" (ref name)))
+                                (fmt "            for (~a) |x| payload.varint(~a);\n" (fmt "self.~a" (ref name)) (call zigPbVarintExpr "x"))
+                                (fmt "            w.bytesField(~a, payload.toBytes());\n        }\n" (ref number))))
+                          ("fixed"
+                           (fmt "~a~a~a"
+                                (fmt "        if (~a.len > 0) {\n            var payload = PbWriter.init(alloc);\n            defer payload.deinit();\n" (fmt "self.~a" (ref name)))
+                                (fmt "            for (~a) |x| payload.fixed~a(x);\n" (fmt "self.~a" (ref name)) (zig-fixed-name))
+                                (fmt "            w.bytesField(~a, payload.toBytes());\n        }\n" (ref number))))
+                          ("string" (fmt "        for (~a) |x| w.bytesField(~a, x);\n" (fmt "self.~a" (ref name)) (ref number)))
+                          ("bytes" (fmt "        for (~a) |x| w.bytesField(~a, x);\n" (fmt "self.~a" (ref name)) (ref number)))
+                          ("message" (fmt "        for (~a) |x| w.bytesField(~a, x.marshalDc(alloc));\n" (fmt "self.~a" (ref name)) (ref number)))
+                          (else (fail)))))
+             (else (call zigPbEncodeSingular (fmt "self.~a" (ref name)) "        ")))))))
+
+(define zig-pb-decode-singular-program
+  '((case-on (category)
+      ("varint"
+       (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+            (case-on (ref type)
+              ((14) (fmt "@enumFromInt(@as(i32, @truncate(@as(i64, @bitCast(~a)))))" (arg 1)))
+              (else (call zigPbVarintDecode (arg 1))))))
+      ("fixed"
+       (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+            (case-on (ref type)
+              ((2) (fmt "@as(f32, @bitCast(@as(u32, @truncate(~a))))" (arg 1)))
+              ((1) (fmt "@as(f64, @bitCast(~a))" (arg 1)))
+              ((7) (fmt "@as(u32, @truncate(~a))" (arg 1)))
+              ((15) (fmt "@as(i32, @bitCast(@as(u32, @truncate(~a))))" (arg 1)))
+              ((16) (fmt "@as(i64, @bitCast(~a))" (arg 1)))
+              (else (arg 1)))))
+      ("string" (fmt "~a~a = alloc.dupe(u8, ~a) catch \"\";\n" (arg 2) (arg 0) (arg 1)))
+      ("bytes" (fmt "~a~a = alloc.dupe(u8, ~a) catch &.{};\n" (arg 2) (arg 0) (arg 1)))
+      ("message"
+       (fmt "~a~a = alloc.create(~a) catch unreachable;\n" (arg 2) (arg 0) (zig-entry-ref))
+       (fmt "~a~a.?.* = .{};\n" (arg 2) (arg 0))
+       (fmt "~a~a.?.unmarshalDc(alloc, ~a);\n" (arg 2) (arg 0) (arg 1)))
+      (else (fail)))))
+
+(define zig-pb-clearing-program
+  '((each-siblings (fmt "                    self.~a = ~a;\n" (ref name) (call zigPbDefault)))))
+
+(define zig-pb-enum-conv-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((14) (fmt "@enumFromInt(@as(i32, @truncate(@as(i64, @bitCast(~a)))))" (arg 0)))
+           (else (call zigPbVarintDecode (arg 0)))))))
+
+(define zig-pb-decode-case-program
+  '((fmt "                ~a => {\n" (ref number))
+    (if (is-map)
+        (then
+         (fmt "                    const kv = decode~a(alloc, field.bytes_value);\n" (zig-struct-name))
+         (fmt "                    ~a_list.append(alloc, kv) catch {};\n" (ref name)))
+        (else
+         (if (repeated)
+             (then (fmt "~a"
+                        (case-on (category)
+                          ("varint"
+                           (fmt "~a~a~a~a"
+                                "                    if (field.wire == 2) {\n"
+                                "                        var sub = PbReader.init(field.bytes_value);\n                        while (!sub.done()) {\n"
+                                (fmt "                            ~a_list.append(alloc, ~a) catch {};\n" (ref name) (call zigPbEnumConv "sub.varint()"))
+                                (fmt "~a~a~a"
+                                     "                        }\n                    } else {\n"
+                                     (fmt "                        ~a_list.append(alloc, ~a) catch {};\n" (ref name) (call zigPbEnumConv "field.varint_value"))
+                                     "                    }\n")))
+                          ("fixed"
+                           (fmt "~a~a~a~a"
+                                "                    if (field.wire == 2) {\n"
+                                "                        var sub = PbReader.init(field.bytes_value);\n                        while (!sub.done()) {\n"
+                                (fmt "                            ~a_list.append(alloc, ~a) catch {};\n" (ref name)
+                                     (case-on (ref type)
+                                       ((2) "@as(f32, @bitCast(std.mem.readInt(u32, sub.take(4)[0..4], .little)))")
+                                       ((1) "@as(f64, @bitCast(std.mem.readInt(u64, sub.take(8)[0..8], .little)))")
+                                       ((7) "std.mem.readInt(u32, sub.take(4)[0..4], .little)")
+                                       ((15) "@as(i32, @bitCast(std.mem.readInt(u32, sub.take(4)[0..4], .little)))")
+                                       ((6) "std.mem.readInt(u64, sub.take(8)[0..8], .little)")
+                                       (else "@as(i64, @bitCast(std.mem.readInt(u64, sub.take(8)[0..8], .little)))")))
+                                (fmt "~a~a~a"
+                                     "                        }\n                    } else {\n"
+                                     (fmt "                        ~a_list.append(alloc, ~a) catch {};\n" (ref name)
+                                          (case-on (ref type)
+                                            ((2) "@as(f32, @bitCast(@as(u32, @truncate(field.fixed_value))))")
+                                            ((1) "@as(f64, @bitCast(field.fixed_value))")
+                                            ((7) "@as(u32, @truncate(field.fixed_value))")
+                                            ((15) "@as(i32, @bitCast(@as(u32, @truncate(field.fixed_value))))")
+                                            ((6) "field.fixed_value")
+                                            (else "@as(i64, @bitCast(field.fixed_value))")))
+                                     "                    }\n")))
+                          ("string" (fmt "                    ~a_list.append(alloc, alloc.dupe(u8, field.bytes_value) catch \"\") catch {};\n" (ref name)))
+                          ("bytes" (fmt "                    ~a_list.append(alloc, alloc.dupe(u8, field.bytes_value) catch &.{}) catch {};\n" (ref name)))
+                          ("message"
+                           (fmt "                    var item: ~a = .{};\n" (zig-entry-ref))
+                           "                    item.unmarshalDc(alloc, field.bytes_value);\n"
+                           (fmt "                    ~a_list.append(alloc, item) catch {};\n" (ref name)))
+                          (else (fail)))))
+             (else (call zigPbClearing)
+                   (call zigPbDecodeSingular (fmt "self.~a" (ref name)) (case-on (category) ("varint" "field.varint_value") ("fixed" "field.fixed_value") (else "field.bytes_value")) "                    ")))))
+    "                },\n"))
+
+
+(define zig-pb-type-or-ref-program
+  '((if (is-map)
+        (then (call zigPbType))
+        (else (case-on (ref type)
+                ((11) (zig-entry-ref))
+                (else (call zigPbType)))))))
+
+(define zig-pb-map-val-encode-program
+  '((case-on (ref type)
+      ((11) (fmt "    w.bytesField(~a, value.marshalDc(alloc));\n" (ref number)))
+      (else (call zigPbEncodeSingular "value" "    ")))))
+
+(define zig-pb-map-val-init-program
+  '((case-on (ref type)
+      ((11) ".{}")
+      (else (call zigPbDefault)))))
+
+(define zig-pb-map-decode-line-program
+  '((fmt "            ~a => { ~a },\n" (ref number)
+         (trim-end (call zigPbDecodeSingular (arg 0) (case-on (category) ("varint" "field.varint_value") ("fixed" "field.fixed_value") (else "field.bytes_value")) "")))))
+
+(define zig-pb-map-val-decode-line-program
+  '((case-on (ref type)
+      ((11) (fmt "            ~a => { result.value.unmarshalDc(alloc, field.bytes_value); },\n" (ref number)))
+      (else (call zigPbMapDecodeLine "result.value")))))
+
+
+(define zig-pb-alloc-unused-program
+  '((case-on (get (key-field) type)
+      ((9 12 11) "")
+      (else (case-on (get (val-field) type)
+              ((9 12 11) "")
+              (else "    _ = alloc;\n"))))))
+
+(define zig-pb-map-helpers-program
+  '((fmt "pub fn encode~a(alloc: std.mem.Allocator, key: ~a, value: ~a) []u8 {\n"
+         (zig-struct-name)
+         (call-on (key-field) zigPbType)
+         (call-on (val-field) zigPbTypeOrRef))
+    "    var w = PbWriter.init(alloc);\n    defer w.deinit();\n"
+    (call-on (key-field) zigPbEncodeSingular "key" "    ")
+    (call-on (val-field) zigPbMapValEncode)
+    "    return w.toBytes();\n}\n\n"
+    (fmt "pub fn decode~a(alloc: std.mem.Allocator, data: []const u8) ~a {\n" (zig-struct-name) (zig-struct-name))
+    (call zigPbAllocUnused)
+    (fmt "    var result: ~a = .{ .key = ~a, .value = ~a };\n"
+         (zig-struct-name)
+         (call-on (key-field) zigPbDefault)
+         (call-on (val-field) zigPbMapValInit))
+    "    var r = PbReader.init(data);\n    while (r.next()) |field| {\n        switch (field.number) {\n"
+    (call-on (key-field) zigPbMapDecodeLine "result.key")
+    (call-on (val-field) zigPbMapValDecodeLine)
+    "            else => {},\n        }\n    }\n    return result;\n}\n\n"))
+
+(define zig-pb-nested-enum-program
+  '((fmt "~apub const ~a = enum(i32) {\n" (arg 0) (ref name))
+    (each-sep ",\n" values (fmt "~a    ~a = ~a" (arg 0) (ref name) (ref number)))
+    (fmt ",\n~a};\n" (arg 0))))
+
+(define zig-pb-list-decl-program
+  '((if (or (repeated) (is-map))
+        (then (fmt "~a        var ~a_list = std.ArrayList(~a).empty;\n"
+                   (arg 0) (ref name)
+                   (if (is-map)
+                       (then (zig-struct-name))
+                       (else (case-on (ref type)
+                               ((11) (zig-entry-ref))
+                               (else (call-on (with-label (self) 1) zigPbType)))))))
+        (else ""))))
+
+(define zig-pb-list-assign-program
+  '((if (or (repeated) (is-map))
+        (then (fmt "~a        self.~a = ~a_list.toOwnedSlice(alloc) catch &.{};\n" (arg 0) (ref name) (ref name)))
+        (else ""))))
+
+(define zig-pb-message-program
+  '((fmt "~apub const ~a = struct {\n" (arg 0) (ref name))
+    (each fields (fmt "~a    ~a: ~a = ~a,\n" (arg 0) (ref name) (call zigPbType) (call zigPbDefault)))
+    (fmt "~a    unknown_fields: []const u8 = &.{},\n" (arg 0))
+    (fmt "~a    pub fn marshalDc(self: *const ~a, alloc: std.mem.Allocator) []u8 {\n" (arg 0) (ref name))
+    (fmt "~a        _ = .{ self, alloc };\n" (arg 0))
+    (fmt "~a        var w = PbWriter.init(alloc);\n~a        defer w.deinit();\n" (arg 0) (arg 0))
+    (each fields (call zigPbEncodeGuard))
+    (fmt "~a        w.raw(self.unknown_fields);\n" (arg 0))
+    (fmt "~a        return w.toBytes();\n~a    }\n" (arg 0) (arg 0))
+    (fmt "~a    pub fn unmarshalDc(self: *~a, alloc: std.mem.Allocator, data: []const u8) void {\n" (arg 0) (ref name))
+    (fmt "~a        _ = .{ self, alloc, data };\n" (arg 0))
+    (each fields (fmt "~a        self.~a = ~a;\n" (arg 0) (ref name) (call zigPbDefault)))
+    (each fields (call zigPbListDecl (arg 0)))
+    (fmt "~a        self.unknown_fields = &.{};\n" (arg 0))
+    (fmt "~a        var unknown_fields_list = std.ArrayList(u8).empty;\n" (arg 0))
+    (fmt "~a        var r = PbReader.init(data);\n" (arg 0))
+    (fmt "~a        while (r.next()) |field| {\n~a            switch (field.number) {\n" (arg 0) (arg 0))
+    (each fields (call zigPbDecodeCase))
+    (fmt "~a                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },\n~a            }\n~a        }\n" (arg 0) (arg 0) (arg 0))
+    (fmt "~a        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};\n" (arg 0))
+    (each fields (call zigPbListAssign (arg 0)))
+    (fmt "~a    }\n" (arg 0))
+    (each-where nested (not (ref map-entry)) (call zigPbMessage (fmt "~a    " (arg 0))))
+    (each enums (call zigPbNestedEnum (fmt "~a    " (arg 0))))
+    (fmt "~a};\n" (arg 0))))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -4541,7 +4964,39 @@
           'luaPbMapKeyDecode lua-pb-map-key-decode-program
           'luaPbMapValHead lua-pb-map-val-head-program
           'luaPbMessage lua-pb-message-program
-          'luaPbEnum lua-pb-enum-program))
+          'luaPbEnum lua-pb-enum-program
+          'zigService zig-service-program
+          'zigClientMethod zig-client-method-program
+          'zigClientStreamClass zig-client-stream-class-program
+          'zigServerStreamStruct zig-server-stream-struct-program
+          'zigServerVtableField zig-server-vtable-field-program
+          'zigAdapter zig-adapter-program
+          'zigRegisterMethod zig-register-method-program
+          'zigPbType zig-pb-type-program
+          'zigPbExplicitLiteral zig-pb-explicit-literal-program
+          'zigPbDefault zig-pb-default-program
+          'zigPbVarintExpr zig-pb-varint-expr-program
+          'zigPbVarintDecode zig-pb-varint-decode-program
+          'zigPbNonzero zig-pb-nonzero-program
+          'zigPbEncodeSingular zig-pb-encode-singular-program
+          'zigPbSetExpr zig-pb-set-expr-program
+          'zigPbEncodeGuard zig-pb-encode-guard-program
+          'zigPbEncodeField zig-pb-encode-field-program
+          'zigPbDecodeSingular zig-pb-decode-singular-program
+          'zigPbClearing zig-pb-clearing-program
+          'zigPbEnumConv zig-pb-enum-conv-program
+          'zigPbDecodeCase zig-pb-decode-case-program
+          'zigPbMapValEncode zig-pb-map-val-encode-program
+          'zigPbMapValInit zig-pb-map-val-init-program
+          'zigPbMapDecodeLine zig-pb-map-decode-line-program
+          'zigPbMapValDecodeLine zig-pb-map-val-decode-line-program
+          'zigPbMapHelpers zig-pb-map-helpers-program
+          'zigPbNestedEnum zig-pb-nested-enum-program
+          'zigPbListDecl zig-pb-list-decl-program
+          'zigPbListAssign zig-pb-list-assign-program
+          'zigPbMessage zig-pb-message-program
+          'zigPbTypeOrRef zig-pb-type-or-ref-program
+          'zigPbAllocUnused zig-pb-alloc-unused-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -4933,6 +5388,28 @@
                     (format "~a.~a" (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'enum) 'name)))
                 (hash-ref (hash-ref entry 'msg) 'full-name))))
 
+(define (seg-zig-entry-ref model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (define full
+    (if (eq? (hash-ref entry 'kind) 'enum)
+        (let ([e (hash-ref entry 'enum)])
+          (if (hash-ref entry 'msg)
+              (format "~a.~a" (hash-ref (hash-ref entry 'msg) 'full-name) (hash-ref e 'name))
+              (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name))))
+        (hash-ref (hash-ref entry 'msg) 'full-name)))
+  (define pkg (hash-ref entry 'pkg))
+  (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
+                  (substring full (add1 (string-length pkg)))
+                  full))
+  (if (equal? (hash-ref entry 'file) (hash-ref model 'name))
+      rel
+      (format "~a_messages.~a"
+              (path->string (path-replace-extension (file-name-from-path (hash-ref entry 'file)) ""))
+              rel)))
+
 (define (seg-lua-entry-flat model node)
   (define entry
     (if (hash-has-key? node 'type-name)
@@ -5141,6 +5618,15 @@
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'dart)))]
     [(eq? (car seg) 'swift-field-name) (seg-dart-field-name node)]
     [(eq? (car seg) 'lua-field-name) (seg-dart-field-name node)]
+    [(eq? (car seg) 'zig-entry-ref) (seg-zig-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'zig-struct-name)
+     (string-replace (seg-zig-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env))) "." "_")]
+    [(eq? (car seg) 'zig-scalar-type) (first (scalar-type-entry 'zig (hash-ref node 'type)))]
+    [(eq? (car seg) 'zig-scalar-zero) (second (scalar-type-entry 'zig (hash-ref node 'type)))]
+    [(eq? (car seg) 'zig-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'zig)))]
+    [(eq? (car seg) 'zig-fixed-name)
+     (third (assv (hash-ref node 'type) (fixed-scalar-table 'zig)))]
     [(eq? (car seg) 'lua-entry-flat) (seg-lua-entry-flat model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
     [(eq? (car seg) 'lua-enum-flat) (seg-lua-enum-flat model node)]
     [(eq? (car seg) 'lua-fixed-fmt)
