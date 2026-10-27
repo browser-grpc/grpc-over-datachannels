@@ -67,24 +67,24 @@ func RegisterEventBusServer(s *grpcdc.Server, srv EventBusServer) {
 	s.RegisterService(grpcdc.ServiceDesc{
 		Name: "grpcdc.events.v1.EventBus",
 		Methods: []grpcdc.Method{
-		{Name: "Publish", Path: "/grpcdc.events.v1.EventBus/Publish", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
-			req := new(PublishRequest)
-			if err := reqs.RecvInto(req); err != nil {
-				return err
-			}
-			resp, err := srv.Publish(ctx, req)
-			if err != nil {
-				return err
-			}
-			return sink.Send(resp.MarshalDC())
-		}},
-		{Name: "Subscribe", Path: "/grpcdc.events.v1.EventBus/Subscribe", Kind: grpcdc.KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
-			req := new(SubscribeRequest)
-			if err := reqs.RecvInto(req); err != nil {
-				return err
-			}
-			return srv.Subscribe(req, &EventBusSubscribeServerImpl{ctx: ctx, sink: sink})
-		}},
+			{Name: "Publish", Path: "/grpcdc.events.v1.EventBus/Publish", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(PublishRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.Publish(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "Subscribe", Path: "/grpcdc.events.v1.EventBus/Subscribe", Kind: grpcdc.KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(SubscribeRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				return srv.Subscribe(req, &EventBusSubscribeServerImpl{ctx: ctx, sink: sink})
+			}},
 		},
 	})
 }

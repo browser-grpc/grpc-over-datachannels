@@ -143,18 +143,18 @@ type Tag int32
 
 const (
 	Tag_TAG_UNSPECIFIED Tag = 0
-	Tag_TOPIC Tag = 1
-	Tag_SOURCE Tag = 2
-	Tag_KIND Tag = 3
+	Tag_TOPIC           Tag = 1
+	Tag_SOURCE          Tag = 2
+	Tag_KIND            Tag = 3
 )
 
 type TagValue struct {
-	Tag Tag
-	StringValue string
-	IntValue int64
-	DoubleValue float64
-	BoolValue bool
-	EnumValue int32
+	Tag           Tag
+	StringValue   string
+	IntValue      int64
+	DoubleValue   float64
+	BoolValue     bool
+	EnumValue     int32
 	UnknownFields []byte
 }
 
@@ -165,25 +165,25 @@ func (m *TagValue) MarshalDC() []byte {
 		out = EventsPbAppendVarint(out, uint64(int64(m.Tag)))
 	}
 	if !(m.IntValue != 0 || m.DoubleValue != 0 || m.BoolValue || m.EnumValue != 0) {
-	out = EventsPbAppendStringField(out, 2, m.StringValue)
+		out = EventsPbAppendStringField(out, 2, m.StringValue)
 	}
 	if !(m.DoubleValue != 0 || m.BoolValue || m.EnumValue != 0) {
-	if m.IntValue != 0 {
-		out = EventsPbAppendTag(out, 3, 0)
-		out = EventsPbAppendVarint(out, uint64(m.IntValue))
-	}
+		if m.IntValue != 0 {
+			out = EventsPbAppendTag(out, 3, 0)
+			out = EventsPbAppendVarint(out, uint64(m.IntValue))
+		}
 	}
 	if !(m.BoolValue || m.EnumValue != 0) {
-	if m.DoubleValue != 0 {
-		out = EventsPbAppendTag(out, 4, 1)
-		out = append(out, EventsPbFixed64Bytes(EventsPbFloat64Bits(m.DoubleValue))...)
-	}
+		if m.DoubleValue != 0 {
+			out = EventsPbAppendTag(out, 4, 1)
+			out = append(out, EventsPbFixed64Bytes(EventsPbFloat64Bits(m.DoubleValue))...)
+		}
 	}
 	if !(m.EnumValue != 0) {
-	if m.BoolValue {
-		out = EventsPbAppendTag(out, 5, 0)
-		out = EventsPbAppendVarint(out, EventsPbBoolToUint64(m.BoolValue))
-	}
+		if m.BoolValue {
+			out = EventsPbAppendTag(out, 5, 0)
+			out = EventsPbAppendVarint(out, EventsPbBoolToUint64(m.BoolValue))
+		}
 	}
 	if m.EnumValue != 0 {
 		out = EventsPbAppendTag(out, 6, 0)
@@ -256,9 +256,9 @@ func (m *TagValue) UnmarshalDC(data []byte) error {
 }
 
 type PublishRequest struct {
-	Tags []*TagValue
-	Payload []byte
-	PublisherId string
+	Tags          []*TagValue
+	Payload       []byte
+	PublisherId   string
 	UnknownFields []byte
 }
 
@@ -312,7 +312,7 @@ func (m *PublishRequest) UnmarshalDC(data []byte) error {
 }
 
 type PublishReply struct {
-	Seq uint64
+	Seq           uint64
 	UnknownFields []byte
 }
 
@@ -349,7 +349,7 @@ func (m *PublishReply) UnmarshalDC(data []byte) error {
 }
 
 type SubscribeRequest struct {
-	Filter []*TagValue
+	Filter        []*TagValue
 	UnknownFields []byte
 }
 
@@ -391,12 +391,12 @@ func (m *SubscribeRequest) UnmarshalDC(data []byte) error {
 }
 
 type Event struct {
-	Tags []*TagValue
-	Payload []byte
-	Seq uint64
-	PublisherId string
+	Tags            []*TagValue
+	Payload         []byte
+	Seq             uint64
+	PublisherId     string
 	TimestampUnixMs int64
-	UnknownFields []byte
+	UnknownFields   []byte
 }
 
 func (m *Event) MarshalDC() []byte {
@@ -463,4 +463,3 @@ func (m *Event) UnmarshalDC(data []byte) error {
 		}
 	}
 }
-
