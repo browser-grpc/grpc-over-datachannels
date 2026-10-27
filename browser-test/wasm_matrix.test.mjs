@@ -10,41 +10,13 @@
 // deadline code 4) are shared by both roles.
 
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
-import { fileURLToPath } from "node:url";
-import { chromium, firefox, webkit } from "playwright";
+import { chromium } from "playwright";
+import { launchBrowser, newPage, runEngines, startStaticServer } from "./harness.mjs";
 
 import { Peer } from "../webrtc/js/peer.js";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const MIME = {
-  ".html": "text/html",
-  ".js": "text/javascript",
-  ".mjs": "text/javascript",
-  ".wasm": "application/wasm",
-};
-
-const server = createServer(async (req, res) => {
-  try {
-    const path = normalize(join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname)));
-    if (!path.startsWith(ROOT)) throw new Error("outside root");
-    const body = await readFile(path);
-    res.writeHead(200, {
-      "content-type": MIME[extname(path)] ?? "application/octet-stream",
-      // SharedArrayBuffer (worker mailbox) needs cross-origin isolation.
-      "cross-origin-opener-policy": "same-origin",
-      "cross-origin-embedder-policy": "require-corp",
-    });
-    res.end(body);
-  } catch {
-    res.writeHead(404);
-    res.end("not found");
-  }
-});
-await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-const baseUrl = `http://127.0.0.1:${server.address().port}/browser-test`;
+const { server, pageUrl } = await startStaticServer("browser-test", { isolated: true });
+const baseUrl = pageUrl;
 
 // Fifth element: whether the client page's summary carries the
 // slow-call deadline check (native clients do; facade client
@@ -83,15 +55,8 @@ async function channelOf(peer) {
   return dc;
 }
 
-async function runPair(name, engine, [clientLabel, clientPage, serverLabel, serverPage, expectDeadline]) {
-  const launchOptions = { args: ["--enable-features=SharedArrayBuffer"] };
-  if (name === "firefox") {
-    launchOptions.firefoxUserPrefs = {
-      "media.peerconnection.ice.obfuscate_host_addresses": false,
-    };
-  }
-  if (name === "webkit") delete launchOptions.args; // Chromium-only flags; MiniBrowser rejects them
-  const browser = await engine.launch(launchOptions);
+async function runPair(name, [clientLabel, clientPage, serverLabel, serverPage, expectDeadline]) {
+  const browser = await launchBrowser(name, { extraArgs: ["--enable-features=SharedArrayBuffer"] });
   let clientPeer;
   let serverPeer;
   try {
@@ -150,9 +115,7 @@ async function runPair(name, engine, [clientLabel, clientPage, serverLabel, serv
 
 const which = process.argv[2] ?? "chromium";
 for (const pair of PAIRS) {
-  if (which === "chromium" || which === "all") await runPair("chromium", chromium, pair);
-  if (which === "firefox" || which === "all") await runPair("firefox", firefox, pair);
-  if (which === "webkit" || (which === "all" && process.env.GRPC_DC_WEBKIT)) await runPair("webkit", webkit, pair);
+  await runEngines(which, (name) => runPair(name, pair), { webkitEnvGate: true });
 }
 console.log("wasm browser matrix test passed");
 server.close();

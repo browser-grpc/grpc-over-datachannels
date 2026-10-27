@@ -19,6 +19,72 @@ import {
 } from "./codec.js";
 import { Endpoint } from "./endpoint.js";
 
+// AsyncIterable wrapper whose iterator keeps ONE read in
+// flight at a time (no read-ahead). for-await on an async
+// generator runs next() with no pipelining, so by the time a
+// consumer breaks, the generator may already be parked in a
+// read for an event nobody will consume; unwinding then has
+// to wait for that read to settle, which for a quiet
+// server-streaming call may be never. This wrapper hands the
+// consumer an iterator over a one-slot queue instead: the
+// inner generator is pumped into the queue only as fast as
+// events arrive, .return() releases the consumer immediately,
+// and the abandoned pump is dropped (its pending read is
+// released by the cancel: the RST makes the server end the
+// call, which settles the read with trailers).
+function responsesIterable(inner, cancel) {
+  return {
+    [Symbol.asyncIterator]() {
+      const iterator = inner[Symbol.asyncIterator]();
+      const queue = [];
+      let waiter = null;
+      let done = false;
+      let failure = null;
+      const notify = () => {
+        if (waiter) {
+          const wake = waiter;
+          waiter = null;
+          wake();
+        }
+      };
+      (async () => {
+        try {
+          for (;;) {
+            const step = await iterator.next();
+            if (step.done) break;
+            queue.push(step.value);
+            notify();
+          }
+        } catch (e) {
+          failure = e;
+        } finally {
+          done = true;
+          notify();
+        }
+      })();
+      return {
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+        async next() {
+          for (;;) {
+            if (queue.length) return { value: queue.shift(), done: false };
+            if (failure) throw failure;
+            if (done) return { value: undefined, done: true };
+            await new Promise((resolve) => { waiter = resolve; });
+          }
+        },
+        async return(value) {
+          done = true;
+          cancel();
+          notify();
+          return { value, done: true };
+        },
+      };
+    },
+  };
+}
+
 export class Channel {
   #endpoint;
   #traces = new Map();
@@ -153,9 +219,40 @@ export class Channel {
   async *#responses(id, input, RespType, deadline = null, hooks = {}) {
     const iterator = input[Symbol.asyncIterator]();
     let completed = false;
+    // A caller-owned ReadHandle makes `.return()` asynchronous
+    // with an internal queue, so wrapping the iterator handed
+    // to the consumer in a pausable shim is what lets a break
+    // actually cancel the call. The shim carries no buffering:
+    // events are pulled one at a time straight from `iterator`.
+    const consumer = {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next: () => this.#next(id, iterator, deadline),
+      return: async () => {
+        completed = false;
+        this.#endpoint.cancelStream(id);
+        return { value: undefined, done: true };
+      },
+    };
+    // The in-flight read and its abort: StreamInput resolves a
+    // pending read only on stream events, and the endpoint
+    // deliberately never fails locally-initiated streams, so
+    // on early exit (.return()) nothing else would release a
+    // read the race below abandoned. The abort fails that read
+    // with CANCELLED, which propagates out of the abandoned
+    // read without disturbing the yielded-event flow.
+    let abortReading = null;
     try {
       for (;;) {
-        const step = await this.#next(id, iterator, deadline);
+        const step = await new Promise((resolve, reject) => {
+          abortReading = () =>
+            reject(new StatusError(StatusCode.CANCELLED, "call cancelled"));
+          consumer.next().then(
+            (s) => { abortReading = null; resolve(s); },
+            (e) => { abortReading = null; reject(e); },
+          );
+        });
         if (step.done) break;
         const event = step.value;
         if (event.kind === "headers") {
@@ -179,7 +276,15 @@ export class Channel {
       this.#endTrace(id, "UNAVAILABLE");
       // Consumer stopped early (broke out of iteration): cancel
       // so the server stops producing instead of streaming into
-      // the void. A completed call just closes locally.
+      // the void. A completed call just closes locally. This
+      // finally runs while the abandoned read above is still
+      // pending; abort it so its rejection cannot surface as an
+      // unhandled rejection after this generator completes.
+      if (abortReading) {
+        const abort = abortReading;
+        abortReading = null;
+        abort();
+      }
       if (completed) this.#endpoint.closeStream(id);
       else this.#endpoint.cancelStream(id);
     }
@@ -213,7 +318,7 @@ export class Channel {
       const [id, input, deadline] = await this.#open(path, metadata, timeout, signal);
       await this.#sendMessage(id, ReqType, request);
       await this.#endpoint.sendFrame(encodeFrame(FrameType.HALF_CLOSE, id));
-      return this.#responses(id, input, RespType, deadline, { onHeaders, onTrailers });
+      return responsesIterable(this.#responses(id, input, RespType, deadline, { onHeaders, onTrailers }), () => this.#endpoint.cancelStream(id));
     })();
   }
 
@@ -234,7 +339,7 @@ export class Channel {
       const [id, input, deadline] = await this.#open(path, metadata, timeout, signal);
       const pump = this.#pump(id, requests, ReqType);
       pump.catch(() => {});
-      return this.#responses(id, input, RespType, deadline, { onHeaders, onTrailers });
+      return responsesIterable(this.#responses(id, input, RespType, deadline, { onHeaders, onTrailers }), () => this.#endpoint.cancelStream(id));
     })();
   }
 

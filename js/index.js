@@ -17,6 +17,17 @@ export {
   fromHex,
 } from "./src/codec.js";
 export { Endpoint, StreamInput } from "./src/endpoint.js";
+export {
+  EventBusBroker,
+  publishEvent,
+  subscribeEvents,
+  tagBool,
+  tagDouble,
+  tagEnum,
+  tagInt,
+  tagString,
+  tagsMatch,
+} from "./src/eventbus.js";
 export { Channel } from "./src/channel.js";
 export { Server } from "./src/server.js";
 export { memoryDataChannelPair } from "./src/loopback.js";

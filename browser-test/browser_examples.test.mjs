@@ -11,10 +11,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { fileURLToPath } from "node:url";
-import { chromium, firefox, webkit } from "playwright";
+import { ROOT, launchBrowser, newPage, runEngines } from "./harness.mjs";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const LANGS = ["Go", "Zig", "C++", "Swift", "Kotlin", "Lua", "Dart", "Rust", "Scala.js"];
 
 const probe = createServer();
@@ -40,15 +38,8 @@ await new Promise((resolve, reject) => {
   });
 });
 
-async function runBrowser(name, engine) {
-  const launchOptions = { args: ["--no-sandbox", "--disable-dev-shm-usage"] };
-  if (name === "firefox") {
-    launchOptions.firefoxUserPrefs = {
-      "media.peerconnection.ice.obfuscate_host_addresses": false,
-    };
-  }
-  if (name === "webkit") delete launchOptions.args; // Chromium-only flags; MiniBrowser rejects them
-  const browser = await engine.launch(launchOptions);
+async function runBrowser(name) {
+  const browser = await launchBrowser(name);
   const failures = [];
   try {
     const page = await browser.newPage();
@@ -81,9 +72,7 @@ async function runBrowser(name, engine) {
 
 const which = process.argv[2] ?? "chromium";
 try {
-  if (which === "chromium" || which === "all") await runBrowser("chromium", chromium);
-  if (which === "firefox" || which === "all") await runBrowser("firefox", firefox);
-  if (which === "webkit" || which === "all") await runBrowser("webkit", webkit);
+  await runEngines(which, runBrowser);
 } finally {
   server.kill();
 }

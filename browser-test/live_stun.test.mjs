@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { chromium, firefox, webkit } from "playwright";
+import { launchBrowser, newPage, runEngines } from "./harness.mjs";
 
 if (!process.env.GRPC_DC_LIVE_STUN) {
   console.log("live_stun: SKIP (GRPC_DC_LIVE_STUN not set)");
@@ -44,10 +44,8 @@ const server = createServer((_req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const pageUrl = `http://127.0.0.1:${server.address().port}/`;
 
-async function runBrowser(name, engine) {
-  const launchOptions = { args: ["--no-sandbox", "--disable-dev-shm-usage"] };
-  if (name === "webkit") delete launchOptions.args; // Chromium-only flags
-  const browser = await engine.launch(launchOptions);
+async function runBrowser(name) {
+  const browser = await launchBrowser(name);
   try {
     const page = await browser.newPage();
     await page.goto(pageUrl);
@@ -62,11 +60,7 @@ async function runBrowser(name, engine) {
 }
 
 try {
-  const which = process.argv[2] ?? "chromium";
-  const enginesToRun = which === "all" ? ["chromium", "firefox", "webkit"] : [which];
-  for (const engineName of enginesToRun) {
-    await runBrowser(engineName, { chromium, firefox, webkit }[engineName]);
-  }
+  await runEngines(process.argv[2], runBrowser);
   console.log("live_stun: PASSED");
 } finally {
   server.close();

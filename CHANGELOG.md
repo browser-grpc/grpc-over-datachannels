@@ -3,7 +3,32 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.32.15 — 2026-10-26
+## v0.32.16 — 2026-10-27
+
+- Event bus (`grpcdc.events.v1`): generated publish/subscribe
+  with shallow tag-value filtering (enum tags extensible in
+  your own schema copy), in-memory at-most-once broker, plus
+  a git-backed log serde (one commit per event) for native
+  peers — now in all sixteen languages (JavaScript, Python,
+  Go, Rust, Ruby, PHP, Dart, Lua, Java, C#, Kotlin, Scala,
+  Swift, C++, Zig, C), native and (for JavaScript) browser.
+  Demos and generated tests in each language; browser
+  end-to-end (Chromium/Firefox/WebKit) verified. Where a
+  language's generated enum is closed (Dart, Java, Kotlin,
+  Swift, Zig), user-defined tags arrive by regenerating from
+  an extended schema copy; where the runtime dispatches
+  inline on one thread (C, and Lua's synchronous dispatch),
+  the suites exercise fan-out through in-process
+  subscriptions fed by Publish RPC, as documented in the
+  generated modules.
+- Browser-test and Go harness boilerplate consolidated into
+  `browser-test/harness.mjs` and
+  `go/cmd/internal/browserharness` (no behavior change).
+- Rust protobuf enums now preserve unknown values
+  (`Tag::Unknown(n)`) instead of collapsing them to the first
+  value; JS client streams cancel promptly on break/return.
+
+## v0.32.15 — 2026-10-26 (published to GitHub/npm/PyPI/GHCR)
 
 - Interop case table extended everywhere: the generated
   tables now include `special_status_message`,

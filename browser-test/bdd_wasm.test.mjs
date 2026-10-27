@@ -12,11 +12,9 @@
 // generated table instead of restating literals per test file.
 
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
-import { fileURLToPath } from "node:url";
-import { chromium, firefox, webkit } from "playwright";
+import { join } from "node:path";
+import { chromium } from "playwright";
+import { launchBrowser, newPage, runEngines, startStaticServer } from "./harness.mjs";
 
 import { Peer } from "../webrtc/js/peer.js";
 import { Server, StatusCode, StatusError } from "../js/index.js";
@@ -25,33 +23,8 @@ import { createEchoService } from "../js/examples/echo_grpc_dc.js";
 import { BDD_SCENARIOS } from "./bdd_scenarios.generated.mjs";
 import { WASM_BDD_CLIENTS } from "./bdd_wasm_manifest.generated.mjs";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const MIME = {
-  ".html": "text/html",
-  ".js": "text/javascript",
-  ".mjs": "text/javascript",
-  ".wasm": "application/wasm",
-};
-
-const server = createServer(async (req, res) => {
-  try {
-    const path = normalize(join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname)));
-    if (!path.startsWith(ROOT)) throw new Error("outside root");
-    const body = await readFile(path);
-    res.writeHead(200, {
-      "content-type": MIME[extname(path)] ?? "application/octet-stream",
-      // SharedArrayBuffer (worker mailbox) needs cross-origin isolation.
-      "cross-origin-opener-policy": "same-origin",
-      "cross-origin-embedder-policy": "require-corp",
-    });
-    res.end(body);
-  } catch {
-    res.writeHead(404);
-    res.end("not found");
-  }
-});
-await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-const baseUrl = `http://127.0.0.1:${server.address().port}/browser-test`;
+const { server, pageUrl } = await startStaticServer("browser-test", { isolated: true });
+const baseUrl = pageUrl;
 
 // Canonical Echo semantics (the BDD specification): "fail" is
 // rejected in every method, delayMs delays unary, x-echo
@@ -110,18 +83,9 @@ function expectedSummary(client) {
   return expected;
 }
 
-async function runClient(name, engine, client) {
+async function runClient(name, client) {
   const answerer = await Peer.create();
-  const launchOptions = {
-    args: ["--no-sandbox", "--disable-dev-shm-usage", "--enable-features=SharedArrayBuffer"],
-  };
-  if (name === "firefox") {
-    launchOptions.firefoxUserPrefs = {
-      "media.peerconnection.ice.obfuscate_host_addresses": false,
-    };
-  }
-  if (name === "webkit") delete launchOptions.args; // Chromium-only flags; MiniBrowser rejects them
-  const browser = await engine.launch(launchOptions);
+  const browser = await launchBrowser(name, { extraArgs: ["--enable-features=SharedArrayBuffer"] });
   try {
     const grpcServer = new Server();
     grpcServer.addService(createEchoService(handlers));
@@ -179,9 +143,7 @@ async function runClient(name, engine, client) {
 
 const which = process.argv[2] ?? "chromium";
 for (const client of WASM_BDD_CLIENTS) {
-  if (which === "chromium" || which === "all") await runClient("chromium", chromium, client);
-  if (which === "firefox" || which === "all") await runClient("firefox", firefox, client);
-  if (which === "webkit" || (which === "all" && process.env.GRPC_DC_WEBKIT)) await runClient("webkit", webkit, client);
+  await runEngines(which, (name) => runClient(name, client), { webkitEnvGate: true });
 }
 
 server.close();

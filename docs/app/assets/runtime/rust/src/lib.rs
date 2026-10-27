@@ -23,6 +23,9 @@ pub mod channel;
 pub mod codec;
 pub mod dynamic;
 pub mod endpoint;
+pub mod eventbus;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod eventbus_git;
 pub mod message;
 pub mod server;
 pub mod status;

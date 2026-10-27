@@ -15,5 +15,6 @@
     <Compile Remove="EchoClientStdio/**/*.cs" />
     <Compile Remove="DynamicEchoServerStdio/**/*.cs" />
     <Compile Remove="InteropServerStdio/**/*.cs" />
+    <Compile Remove="EventBusDemo/**/*.cs" />
   </ItemGroup>
 </Project>

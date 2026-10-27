@@ -24,20 +24,9 @@ import (
 
 	dcwebrtc "dcwebrtc"
 	grpcdc "grpcdc"
+	bh "grpcdc/cmd/internal/browserharness"
 	echo "grpcdc/examples"
 )
-
-func waitForFile(path string) string {
-	for {
-		if content, err := os.ReadFile(path); err == nil {
-			text := string(content)
-			if strings.TrimSpace(text) != "" {
-				return text
-			}
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-}
 
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, "error:", err)
@@ -73,7 +62,7 @@ func main() {
 		panic(err)
 	}
 	fmt.Fprintln(os.Stderr, "OFFER_WRITTEN")
-	answer := waitForFile(base + ".answer")
+	answer := bh.WaitForFile(base + ".answer")
 	if err := peer.HandleAnswer(answer); err != nil {
 		panic(err)
 	}

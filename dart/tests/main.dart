@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'test_eventbus.dart';
 import 'test_bdd.dart';
 import 'test_bdd_schemas.dart';
 import 'test_deadline.dart';
@@ -57,6 +58,9 @@ Future<void> main(List<String> args) async {
         break;
       case 'TestPbMessages':
         await testPbMessages();
+        break;
+      case 'TestEventBus':
+        await testEventBus();
         break;
       case 'TestSidecar':
         await testSidecar();

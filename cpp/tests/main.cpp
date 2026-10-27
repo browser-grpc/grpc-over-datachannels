@@ -7,6 +7,7 @@
 namespace tests {
 void TestCodec();
 void TestEcho();
+void TestEventBus();
 void TestInterop();
 void TestInteropOracle();
 void TestInteropServerOracle();
@@ -34,6 +35,8 @@ int main(int argc, char** argv) {
       tests::TestCodec();
     } else if (name == "TestEcho") {
       tests::TestEcho();
+    } else if (name == "TestEventBus") {
+      tests::TestEventBus();
     } else if (name == "TestInterop") {
       tests::TestInterop();
     } else if (name == "TestInteropOracle") {

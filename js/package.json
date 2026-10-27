@@ -1,7 +1,7 @@
 {
   "name": "grpc-dc",
-  "version": "0.32.15",
-  "description": "gRPC in the browser over WebRTC DataChannels: dependency-free generated gRPC clients & servers for JavaScript — no grpc-web proxy, no external runtime",
+  "version": "0.32.16",
+  "description": "gRPC in the browser over WebRTC DataChannels: dependency-free generated gRPC clients & servers for JavaScript \u2014 no grpc-web proxy, no external runtime",
   "keywords": [
     "grpc",
     "grpc-web",
@@ -29,7 +29,8 @@
     },
     "./wire_gen.js": "./wire_gen.js",
     "./webrtc_direct": "./src/webrtc_direct.js",
-    "./http2": "./src/http2.js"
+    "./http2": "./src/http2.js",
+    "./eventbus_gitlog": "./src/eventbus_gitlog.js"
   },
   "bin": {
     "protoc-gen-grpc-dc-js": "plugin/protoc-gen-grpc-dc-js.mjs",

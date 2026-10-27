@@ -11,6 +11,7 @@ object Main {
       args(0) match {
         case "TestCodec" => testCodec()
         case "TestEcho" => testEcho()
+        case "TestEventBus" => TestEventBus.run()
         case "TestInterop" => testInterop()
         case "TestOracle" => testOracle()
         case "TestDynamic" => testDynamic()

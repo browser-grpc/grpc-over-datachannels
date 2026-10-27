@@ -31,6 +31,10 @@ try {
             require_once __DIR__ . "/test_interop_server_oracle.php";
             TestInteropServerOracle::run();
             break;
+        case "TestEventBus":
+            require_once __DIR__ . "/test_eventbus.php";
+            TestEventBus::run();
+            break;
         case "TestOracle":
             require_once __DIR__ . "/test_oracle.php";
             TestOracle::run();

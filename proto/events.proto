@@ -1,0 +1,87 @@
+// Event bus over gRPC: publish/subscribe with tag-based
+// filtering. This file is the public wire contract of the
+// grpc-dc event bus (generated into every language's runtime
+// package as its `eventbus` module; see PLUGINS.md for how to
+// generate stubs from it).
+//
+// Extension: copy this file, add values to Tag (numbers 1000
+// and up are the user-defined range) and your own enums for
+// enum_value, then regenerate with the grpc-dc protoc plugins.
+// Proto3 enums are open, so brokers and clients generated from
+// this stock file pass unknown tag numbers through unchanged.
+
+syntax = "proto3";
+
+package grpcdc.events.v1;
+
+// Routing/filtering tags. 0 is the unspecified sentinel;
+// 1-999 are reserved for the bus itself (new well-known tags
+// land here); 1000+ is the user-defined range: extend in your
+// own copy of this file.
+enum Tag {
+  TAG_UNSPECIFIED = 0;
+  TOPIC = 1;
+  SOURCE = 2;
+  KIND = 3;
+}
+
+// One tag/value pair. The value's kind is part of its identity
+// when matching: int 5, "5", and enum 5 are three different
+// values and never match each other.
+message TagValue {
+  Tag tag = 1;
+  oneof value {
+    string string_value = 2;
+    int64 int_value = 3;
+    double double_value = 4;
+    bool bool_value = 5;
+    // A value from any enum (yours included), carried as its
+    // number so it survives peers that don't know the enum.
+    int32 enum_value = 6;
+  }
+}
+
+message PublishRequest {
+  // Routing tags attached to the event. May be empty (the
+  // event then matches only empty filters).
+  repeated TagValue tags = 1;
+  // Opaque payload, typically a serialized proto of the
+  // publisher's own event type.
+  bytes payload = 2;
+  // Free-form publisher identity, copied into the event.
+  string publisher_id = 3;
+}
+
+message PublishReply {
+  // Broker-assigned sequence number of the accepted event.
+  uint64 seq = 1;
+}
+
+message SubscribeRequest {
+  // Containment filter: an event is delivered when its tag
+  // list contains every (tag, value) pair listed here. An
+  // empty filter receives all events. The same tag may appear
+  // several times (the event must carry all those values).
+  repeated TagValue filter = 1;
+}
+
+message Event {
+  repeated TagValue tags = 1;
+  bytes payload = 2;
+  // Broker-global sequence, assigned in publish order (1-based).
+  uint64 seq = 3;
+  string publisher_id = 4;
+  // Broker wall clock when the event was accepted, in
+  // milliseconds since the Unix epoch.
+  int64 timestamp_unix_ms = 5;
+}
+
+// Publish/subscribe fan-out. Any peer can host the broker (it
+// is an ordinary generated server); publishers and subscribers
+// are ordinary generated clients. Delivery is at-most-once:
+// each subscriber has a bounded queue and drops its oldest
+// events when it falls behind.
+service EventBus {
+  rpc Publish(PublishRequest) returns (PublishReply);
+  rpc Subscribe(SubscribeRequest) returns (stream Event);
+}

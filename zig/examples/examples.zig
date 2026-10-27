@@ -11,3 +11,5 @@ pub const interop_empty = @import("interop/empty_messages.zig");
 pub const interop_test_grpc_dc = @import("interop/test_grpc_dc.zig");
 pub const interop_orca_grpc_dc = @import("interop/orca_grpc_dc.zig");
 pub const interop_orca_load_report_messages = @import("interop/orca_load_report_messages.zig");
+pub const eventbus = @import("eventbus.zig");
+pub const eventbus_git = @import("eventbus_git.zig");

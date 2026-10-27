@@ -9,39 +9,15 @@
 // js-string builtins are probe-and-skipped via __wasmError.
 
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
-import { fileURLToPath } from "node:url";
-import { chromium, firefox, webkit } from "playwright";
+import { join } from "node:path";
+import { launchBrowser, newPage, runEngines, startStaticServer } from "./harness.mjs";
 
 import { Peer } from "../webrtc/js/peer.js";
 import { Server, StatusCode, StatusError } from "../js/index.js";
 import { EchoResponse } from "../js/examples/echo_pb.js";
 import { createEchoService } from "../js/examples/echo_grpc_dc.js";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const MIME = {
-  ".html": "text/html",
-  ".js": "text/javascript",
-  ".mjs": "text/javascript",
-  ".wasm": "application/wasm",
-};
-
-const server = createServer(async (req, res) => {
-  try {
-    const path = normalize(join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname)));
-    if (!path.startsWith(ROOT)) throw new Error("outside root");
-    const body = await readFile(path);
-    res.writeHead(200, { "content-type": MIME[extname(path)] ?? "application/octet-stream" });
-    res.end(body);
-  } catch {
-    res.writeHead(404);
-    res.end("not found");
-  }
-});
-await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-const pageUrl = `http://127.0.0.1:${server.address().port}/browser-test/dart_wasm_page.html`;
+const { server, pageUrl } = await startStaticServer("browser-test/dart_wasm_page.html");
 
 const handlers = {
   async unary(req, ctx) {
@@ -76,27 +52,18 @@ const handlers = {
   },
 };
 
-async function runBrowser(name, engine) {
+async function runBrowser(name) {
   const answerer = await Peer.create();
     // Playwright's Firefox answers no mDNS queries for its obfuscated
   // .local candidates and will not initiate checks to same-IP pairs,
   // so legs where our stack must reach it need raw IP candidates.
   // Chromium needs no equivalent (it answers mDNS queries itself).
-  const launchOptions = { args: ["--no-sandbox", "--disable-dev-shm-usage"] };
-  if (name === "firefox") {
-    launchOptions.firefoxUserPrefs = {
-      "media.peerconnection.ice.obfuscate_host_addresses": false,
-    };
-  }
-  if (name === "webkit") delete launchOptions.args; // Chromium-only flags; MiniBrowser rejects them
-  const browser = await engine.launch(launchOptions);
+  const browser = await launchBrowser(name);
   try {
     const grpcServer = new Server();
     grpcServer.addService(createEchoService(handlers));
 
-    const page = await browser.newPage();
-    page.on("console", (msg) => console.log(`[${name} console] ${msg.text()}`));
-    page.on("pageerror", (err) => console.log(`[${name} pageerror] ${err.message}`));
+    const page = await newPage(browser, name);
     await page.goto(pageUrl);
     await page.waitForFunction(() => window.__offer || window.__wasmError, null, { timeout: 30000 });
     const wasmError = await page.evaluate(() => window.__wasmError ?? null);
@@ -133,10 +100,7 @@ async function runBrowser(name, engine) {
   }
 }
 
-const which = process.argv[2] ?? "chromium";
-if (which === "chromium" || which === "all") await runBrowser("chromium", chromium);
-if (which === "firefox" || which === "all") await runBrowser("firefox", firefox);
-if (which === "webkit" || (which === "all" && process.env.GRPC_DC_WEBKIT)) await runBrowser("webkit", webkit);
+await runEngines(process.argv[2], runBrowser, { webkitEnvGate: true });
 
 server.close();
 console.log("dart wasm browser test passed");
