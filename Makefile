@@ -187,6 +187,9 @@ eventbus-stubs:
 		--grpc-dc-dart_out=dart/grpcdc -I proto proto/events.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-lua=bin/protoc-gen-grpc-dc-lua \
 		--grpc-dc-lua_out=lua/examples -I proto proto/events.proto
+	mkdir -p java/grpcdc/events/v1
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-java=bin/protoc-gen-grpc-dc-java \
+		--grpc-dc-java_out=java/grpcdc/events/v1 -I proto proto/events.proto
 
 generate: plugins stubs
 
@@ -304,6 +307,7 @@ test-java:
 		&& java -cp build tests.TestInterop && java -cp build tests.TestInteropOracle && java -cp build tests.TestInteropServerOracle && java -cp build tests.TestOracle && java -cp build tests.TestHttp2Oracle \
 		&& java -cp build tests.TestDynamic && java -cp build tests.TestBdd && java -cp build tests.TestDeadline \
 		&& java -cp build tests.TestSidecar \
+		&& java -cp build tests.TestEventBus \
 		&& java -cp build tests.TestPbMessages && java -cp build tests.TestBddSchemas
 
 test-csharp:
