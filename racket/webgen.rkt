@@ -8679,252 +8679,26 @@ function scalaClientStreamName(svc, kind, out) {
 }
 
 function scalaClientMethod(m, svc) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + m.output + ' = {\n'
-        + '            val resp = new ' + m.output + '()\n'
-        + '            channel.unary(' + path + ', req, resp, metadata, timeout)\n'
-        + '            resp\n        }\n\n';
-    case 'server-streaming':
-      return '        def ' + m.name + '(req: ' + m.input + ', metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + scalaClientStreamName(svc, 'server-streaming', m.output) + ' = {\n'
-        + '            new ' + scalaClientStreamName(svc, 'server-streaming', m.output) + '(channel.serverStream(' + path + ', req, metadata, timeout))\n        }\n\n';
-    case 'client-streaming':
-      return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + m.output + ' = {\n'
-        + '            val resp = new ' + m.output + '()\n'
-        + '            channel.clientStreamCall(' + path + ', reqs, resp, metadata, timeout)\n'
-        + '            resp\n        }\n\n';
-    default:
-      return '        def ' + m.name + '(reqs: List[' + m.input + '], metadata: Map[String, String] = null, timeout: java.time.Duration = null): ' + scalaClientStreamName(svc, 'bidi', m.output) + ' = {\n'
-        + '            new ' + scalaClientStreamName(svc, 'bidi', m.output) + '(channel.bidi(' + path + ', reqs, metadata, timeout))\n        }\n\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.scalaClientMethod, m, '', null, [scalaClientStreamName(svc, 'server-streaming', m.output), scalaClientStreamName(svc, 'bidi', m.output)]);
 }
-
 function scalaFutureMethod(m) {
-  switch (m.kind) {
-    case 'unary':
-    case 'client-streaming': {
-      const sig = m.kind === 'unary' ? ': ' + m.input : 's: List[' + m.input + ']';
-      const arg = m.kind === 'unary' ? '' : 's';
-      return '        def ' + m.name + 'Future(req' + sig + ', metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[' + m.output + '] = {\n'
-        + '            grpcdc.Futures { ' + m.name + '(req' + arg + ', metadata, timeout) }\n        }\n\n';
-    }
-    default: {
-      const sig = m.kind === 'server-streaming' ? ': ' + m.input : 's: List[' + m.input + ']';
-      const arg = m.kind === 'server-streaming' ? '' : 's';
-      return '        def ' + m.name + 'Future(req' + sig + ', metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[List[' + m.output + ']] = {\n'
-        + '            grpcdc.Futures {\n'
-        + '                val stream = ' + m.name + '(req' + arg + ', metadata, timeout)\n'
-        + '                try {\n'
-        + '                val out = scala.collection.mutable.ListBuffer[' + m.output + ']()\n'
-        + '                var done = false\n'
-        + '                while (!done) {\n'
-        + '                    try {\n'
-        + '                        out += stream.recv()\n'
-        + '                    } catch {\n'
-        + '                        case e: java.io.EOFException => done = true\n'
-        + '                    }\n                }\n'
-        + '                out.toList\n                } finally {\n                    stream.close()\n                }\n            }\n        }\n\n';
-    }
-  }
+  return runSegments(SEGMENT_PROGRAMS.scalaFutureMethod, m, '');
 }
-
 function scalaServerIfaceMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        def ' + m.name + '(ctx: grpcdc.Endpoint#CallContext, req: ' + m.input + '): ' + m.output + '\n';
-    case 'server-streaming':
-      return '        def ' + m.name + '(req: ' + m.input + ', stream: ' + scalaSsTraitName(svc, m.output) + '): Unit\n';
-    case 'client-streaming':
-      return '        def ' + m.name + '(stream: ' + scalaPairTraitName(svc, 'client-streaming', m.input, m.output, 'ClientStreamServer') + '): Unit\n';
-    default:
-      return '        def ' + m.name + '(stream: ' + scalaPairTraitName(svc, 'bidi', m.input, m.output, 'BidiServer') + '): Unit\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.scalaServerIfaceMethod, m, '', null, [scalaSsTraitName(svc, m.output), scalaPairTraitName(svc, 'client-streaming', m.input, m.output, 'ClientStreamServer'), scalaPairTraitName(svc, 'bidi', m.input, m.output, 'BidiServer')]);
 }
-
-const SCALA_KIND_CONSTS = {
-  unary: 'KIND_UNARY',
-  'server-streaming': 'KIND_SERVER_STREAMING',
-  'client-streaming': 'KIND_CLIENT_STREAMING',
-  bidi: 'KIND_BIDI',
-};
-
 function scalaRegisterMethod(m, svc) {
-  const impl = m.implName;
-  const head = '            grpcdc.Server.Method(' + q(m.name) + ', ' + q(m.path) + ', grpcdc.Server.' + SCALA_KIND_CONSTS[m.kind] + ', (ctx, reqs, sink) => {\n';
-  switch (m.kind) {
-    case 'unary':
-      return head
-        + '                val req = new ' + m.input + '()\n'
-        + '                reqs.recvInto(req)\n'
-        + '                val resp = impl.' + impl + '(ctx, req)\n'
-        + '                sink.send(resp.marshalDc())\n            }),\n';
-    case 'server-streaming':
-      return head
-        + '                val req = new ' + m.input + '()\n'
-        + '                reqs.recvInto(req)\n'
-        + '                impl.' + impl + '(req, new ' + scalaSsTraitName(svc, m.output) + ' {\n'
-        + '                    def send(resp: ' + m.output + '): Unit = sink.send(resp.marshalDc())\n'
-        + '                    val context: grpcdc.Endpoint#CallContext = ctx\n'
-        + '                })\n            }),\n';
-    case 'client-streaming':
-      return head
-        + '                var response: ' + m.output + ' = null\n'
-        + '                impl.' + impl + '(new ' + scalaPairTraitName(svc, 'client-streaming', m.input, m.output, 'ClientStreamServer') + ' {\n'
-        + '                    def recv(): ' + m.input + ' = {\n'
-        + '                        val req = new ' + m.input + '()\n'
-        + '                        reqs.recvInto(req)\n                        req\n                    }\n'
-        + '                    def sendAndClose(resp: ' + m.output + '): Unit = { response = resp }\n'
-        + '                    val context: grpcdc.Endpoint#CallContext = ctx\n'
-        + '                })\n'
-        + '                if (response == null) {\n'
-        + '                    throw grpcdc.StatusException(grpcdc.Wire.CODE_INTERNAL, "client-streaming handler never called sendAndClose")\n'
-        + '                }\n'
-        + '                sink.send(response.marshalDc())\n            }),\n';
-    default:
-      return head
-        + '                impl.' + impl + '(new ' + scalaPairTraitName(svc, 'bidi', m.input, m.output, 'BidiServer') + ' {\n'
-        + '                    def send(resp: ' + m.output + '): Unit = sink.send(resp.marshalDc())\n'
-        + '                    def recv(): ' + m.input + ' = {\n'
-        + '                        val req = new ' + m.input + '()\n'
-        + '                        reqs.recvInto(req)\n                        req\n                    }\n'
-        + '                    val context: grpcdc.Endpoint#CallContext = ctx\n'
-        + '                })\n            }),\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.scalaRegisterMethod, m, '', null, [scalaSsTraitName(svc, m.output), scalaPairTraitName(svc, 'client-streaming', m.input, m.output, 'ClientStreamServer'), scalaPairTraitName(svc, 'bidi', m.input, m.output, 'BidiServer')]);
 }
-
 function scalaServerAsyncIfaceMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '        def ' + m.name + 'Async(ctx: grpcdc.Endpoint#CallContext, req: ' + m.input + '): scala.concurrent.Future[' + m.output + ']\n';
-    case 'server-streaming':
-      return '        def ' + m.name + 'Async(req: ' + m.input + ', stream: ' + scalaSsTraitName(svc, m.output) + '): scala.concurrent.Future[Unit]\n';
-    case 'client-streaming':
-      return '        def ' + m.name + 'Async(stream: ' + scalaPairTraitName(svc, 'client-streaming', m.input, m.output, 'ClientStreamServer') + '): scala.concurrent.Future[Unit]\n';
-    default:
-      return '        def ' + m.name + 'Async(stream: ' + scalaPairTraitName(svc, 'bidi', m.input, m.output, 'BidiServer') + '): scala.concurrent.Future[Unit]\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.scalaServerAsyncIfaceMethod, m, '', null, [scalaSsTraitName(svc, m.output), scalaPairTraitName(svc, 'client-streaming', m.input, m.output, 'ClientStreamServer'), scalaPairTraitName(svc, 'bidi', m.input, m.output, 'BidiServer')]);
 }
-
 function scalaServerAsyncAdapterMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '            def ' + m.name + '(ctx: grpcdc.Endpoint#CallContext, req: ' + m.input + '): ' + m.output + ' = {\n'
-        + '                scala.concurrent.Await.result(impl.' + m.implName + 'Async(ctx, req), scala.concurrent.duration.Duration.Inf)\n            }\n';
-    case 'server-streaming':
-      return '            def ' + m.name + '(req: ' + m.input + ', stream: ' + scalaSsTraitName(svc, m.output) + '): Unit = {\n'
-        + '                scala.concurrent.Await.result(impl.' + m.implName + 'Async(req, stream), scala.concurrent.duration.Duration.Inf)\n            }\n';
-    case 'client-streaming':
-      return '            def ' + m.name + '(stream: ' + scalaPairTraitName(svc, 'client-streaming', m.input, m.output, 'ClientStreamServer') + '): Unit = {\n'
-        + '                scala.concurrent.Await.result(impl.' + m.implName + 'Async(stream), scala.concurrent.duration.Duration.Inf)\n            }\n';
-    default:
-      return '            def ' + m.name + '(stream: ' + scalaPairTraitName(svc, 'bidi', m.input, m.output, 'BidiServer') + '): Unit = {\n'
-        + '                scala.concurrent.Await.result(impl.' + m.implName + 'Async(stream), scala.concurrent.duration.Duration.Inf)\n            }\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.scalaServerAsyncAdapterMethod, m, '', null, [scalaSsTraitName(svc, m.output), scalaPairTraitName(svc, 'client-streaming', m.input, m.output, 'ClientStreamServer'), scalaPairTraitName(svc, 'bidi', m.input, m.output, 'BidiServer')]);
 }
-
 function scalaService(svc) {
-  const sname = svc.name;
-  const methods = svc.methods;
-  const first = methods[0];
-  const req0 = first.input;
-  const resp0 = first.output;
-  const all = methods.concat(aliasClientMethods(svc));
-  const allServer = methods.concat(aliasServerMethods(svc));
-  const classOutputs = (kind) => {
-    const os = scalaKindOutputs(svc, kind);
-    return os.length ? os : [resp0];
-  };
-  const pairList = (kind) => {
-    const ps = scalaKindPairs(svc, kind);
-    return ps.length ? ps : [[req0, resp0]];
-  };
-  const streamClass = (kind, out) =>
-    '        class ' + scalaClientStreamName(svc, kind, out) + '(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[' + out + '] with AutoCloseable {\n'
-    + '            def recv(): ' + out + ' = {\n'
-    + '                val resp = new ' + out + '()\n'
-    + '                stream.recv(resp)\n                resp\n            }\n'
-    + '            private var pending: ' + out + ' = null\n'
-    + '            private var finished: Boolean = false\n'
-    + '            def hasNext: Boolean = {\n'
-    + '                if (pending == null && !finished) {\n'
-    + '                    try {\n'
-    + '                        pending = recv()\n'
-    + '                    } catch {\n'
-    + '                        case e: java.io.EOFException => finished = true\n'
-    + '                    }\n'
-    + '                }\n'
-    + '                pending != null\n'
-    + '            }\n'
-    + '            def next(): ' + out + ' = {\n'
-    + '                if (!hasNext) throw new NoSuchElementException("next on empty stream")\n'
-    + '                val out = pending\n'
-    + '                pending = null\n'
-    + '                out\n'
-    + '            }\n'
-    + '            def cancel(): Unit = stream.cancel()\n'
-    + '            def close(): Unit = stream.close()\n'
-    + '            /** Initial metadata (response headers); null until they arrive. */\n'
-    + '            def headers: Map[String, String] = if (stream.headers == null) null else stream.headers.metadata\n'
-    + '            /** Trailing metadata of the terminal status; null until it arrives. */\n'
-    + '            def trailers: Map[String, String] = stream.trailers\n        }\n\n';
-  return '    /** Client for ' + svc.fullName + '. */\n'
-    + '    class ' + sname + 'Client(private val channel: grpcdc.Channel) {\n'
-    + classOutputs('server-streaming').map((out) => streamClass('server-streaming', out)).join('')
-    + classOutputs('bidi').map((out) => streamClass('bidi', out)).join('')
-    + all.map((m) => scalaClientMethod(m, svc)).join('')
-    + '        // -- async (scala.concurrent.Future) surface ---------------\n\n'
-    + all.map(scalaFutureMethod).join('')
-    + '    }\n\n'
-    + classOutputs('server-streaming').map((out) =>
-        '    /** Server-streaming sink passed to service implementations. */\n'
-        + '    trait ' + scalaSsTraitName(svc, out) + ' {\n'
-        + '        def send(resp: ' + out + '): Unit\n'
-        + '        val context: grpcdc.Endpoint#CallContext\n    }\n\n').join('')
-    + pairList('client-streaming').map(([inp, out]) =>
-        '    /** Client-streaming stream passed to service implementations. */\n'
-        + '    trait ' + scalaPairTraitName(svc, 'client-streaming', inp, out, 'ClientStreamServer') + ' {\n'
-        + '        def recv(): ' + inp + '\n'
-        + '        def sendAndClose(resp: ' + out + '): Unit\n'
-        + '        val context: grpcdc.Endpoint#CallContext\n    }\n\n').join('')
-    + pairList('bidi').map(([inp, out]) =>
-        '    /** Bidi stream passed to service implementations. */\n'
-        + '    trait ' + scalaPairTraitName(svc, 'bidi', inp, out, 'BidiServer') + ' {\n'
-        + '        def send(resp: ' + out + '): Unit\n'
-        + '        def recv(): ' + inp + '\n'
-        + '        val context: grpcdc.Endpoint#CallContext\n    }\n\n').join('')
-    + '    /** Service implementation interface for ' + svc.fullName + '. */\n'
-    + '    trait ' + sname + 'Server {\n'
-    + methods.map((m) => scalaServerIfaceMethod(m, svc)).join('')
-    + '    }\n\n'
-    + '    /** Register an implementation of ' + svc.fullName + ' on a Server. */\n'
-    + '    def register' + sname + 'Server(server: grpcdc.Server, impl: ' + sname + 'Server): Unit = {\n'
-    + '        server.registerService(grpcdc.Server.ServiceDesc(' + q(svc.fullName) + ', List(\n'
-    + allServer.map((m) => scalaRegisterMethod(m, svc)).join('')
-    + '        )))\n    }\n\n'
-    + '    /** Async service implementation for ' + svc.fullName + ' (scala.concurrent.Future). */\n'
-    + '    trait ' + sname + 'ServerAsync {\n'
-    + methods.map((m) => scalaServerAsyncIfaceMethod(m, svc)).join('')
-    + '    }\n\n'
-    + '    /** Register a Future-based implementation (adapts to the sync trait). */\n'
-    + '    def register' + sname + 'ServerAsync(server: grpcdc.Server, impl: ' + sname + 'ServerAsync): Unit = {\n'
-    + '        register' + sname + 'Server(server, new ' + sname + 'Server {\n'
-    + methods.map((m) => scalaServerAsyncAdapterMethod(m, svc)).join('')
-    + '        })\n    }\n';
+  return runSegments(SEGMENT_PROGRAMS.scalaService, svc, svc.name);
 }
-
-
-// ---------------------------------------------------------------------------
-// Scala message types, mirroring the native scala template
-// (the sc-pb-* functions): a single <Base>Messages.scala per proto
-// file with the <Base>Pb support object, enums and message
-// classes. Byte-identical to the native protoc-gen-grpc-dc-scala
-// plugin.
-// ---------------------------------------------------------------------------
-
-const SCP_VARINT = new Set(VARINT_TYPES);
-const SCP_FIXED = FIXED_TABLES.scala;
-
 function scpCamel(s) {
   const parts = s.split('_');
   if (!parts.length) return s;
@@ -8980,262 +8754,55 @@ function scpScalarType(f) {
 }
 
 function scpElemType(model, f) {
-  return f.type === FT.MESSAGE
-    ? scpEntryRef(model, scpResolve(model, f.typeName))
-    : scpScalarType(f);
+  return runSegments(SEGMENT_PROGRAMS.scPbElemType, f, '', model);
 }
-
 function scpType(model, f) {
-  if (f.type === FT.MESSAGE && scpResolve(model, f.typeName).kind === 'map') {
-    const entry = scpResolve(model, f.typeName);
-    const kf = entry.msg.fields.find((x) => x.number === 1);
-    const vf = entry.msg.fields.find((x) => x.number === 2);
-    return 'Map[' + scpElemType(model, kf) + ', ' + scpElemType(model, vf) + ']';
-  }
-  if (f.label === 3) return 'List[' + scpElemType(model, f) + ']';
-  return scpElemType(model, f);
+  return runSegments(SEGMENT_PROGRAMS.scPbType, f, '', model);
 }
-
 function scpExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case 9: return JSON.stringify(d);
-    case 8: return d;
-    case 14: return String(enumDefaultNumber(model, f));
-    case 2: return d + 'f';
-    default: return d;
-  }
+  const lit = runSegments(SEGMENT_PROGRAMS.scPbExplicitLiteral, f, '', model);
+  return lit === '' ? null : lit;
 }
-
 function scpDefault(model, f) {
-  const lit = scpExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.type === FT.MESSAGE && scpResolve(model, f.typeName).kind === 'map') return 'Map.empty';
-  if (f.label === 3) return 'List.empty';
-  if (f.type === FT.MESSAGE) return 'null';
-  if (f.type === FT.STRING) return '""';
-  if (f.type === FT.BYTES) return 'Array.empty[Byte]';
-  if (f.type === FT.BOOL) return 'false';
-  if (f.type === FT.DOUBLE) return '0.0';
-  if (f.type === FT.FLOAT) return '0.0f';
-  if ([3, 4, 6, 16, 18].includes(f.type)) return '0L';
-  if (f.type === FT.ENUM) {
-    const entry = scpResolve(model, f.typeName);
-    return String(entry.enum.values[0].number);
-  }
-  return '0';
+  return runSegments(SEGMENT_PROGRAMS.scPbDefault, f, '', model);
 }
-
 function scpVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return '(if (' + v + ') 1L else 0L)';
-    case 17: return '(((' + v + ' << 1) ^ (' + v + ' >> 31)) & 0xffffffffL)';
-    case 18: return '((' + v + ' << 1) ^ (' + v + ' >> 63))';
-    case 5: case 14: return '(' + v + '.toLong)';
-    case 13: case 7: return '(' + v + ' & 0xffffffffL)';
-    default: return v + '.toLong';
-  }
+  return runSegments(SEGMENT_PROGRAMS.scPbVarintExpr, f, '', null, [v]);
 }
-
 function scpVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: case 14: case 13: case 7: return v + '.toInt';
-    case 8: return '(' + v + ' != 0L)';
-    case 17: return '(((' + v + '.toInt) >>> 1) ^ -((' + v + '.toInt) & 1))';
-    case 18: return '((' + v + ' >>> 1) ^ -(' + v + ' & 1L))';
-    default: return v;
-  }
+  return runSegments(SEGMENT_PROGRAMS.scPbVarintDecode, f, '', null, [v]);
 }
-
-function scpWire(f) {
-  return SCP_FIXED[f.type][0] === 8 ? 1 : 5;
-}
-
 function scpFixedEncodeExpr(f, v, obj) {
-  switch (SCP_FIXED[f.type][1]) {
-    case 'double': return obj + '.int64BytesLE(java.lang.Double.doubleToRawLongBits(' + v + '))';
-    case 'float': return obj + '.int32BytesLE(java.lang.Float.floatToRawIntBits(' + v + '))';
-    case 'fixed64': return obj + '.int64BytesLE(' + v + ')';
-    case 'fixed32': return obj + '.int32BytesLE(' + v + ')';
-    default: throw new Error('bad fixed kind');
-  }
+  return runSegments(SEGMENT_PROGRAMS.scPbFixedEncode, f, '', null, [obj, v]);
 }
-
 function scpFixedDecodeExpr(f, src, obj) {
-  switch (SCP_FIXED[f.type][1]) {
-    case 'double': return 'java.lang.Double.longBitsToDouble(' + obj + '.toInt64LE(' + src + ', 0))';
-    case 'float': return 'java.lang.Float.intBitsToFloat(' + obj + '.toInt32LE(' + src + ', 0))';
-    case 'fixed64': return obj + '.toInt64LE(' + src + ', 0)';
-    case 'fixed32': return obj + '.toInt32LE(' + src + ', 0)';
-    default: throw new Error('bad fixed kind');
-  }
+  return runSegments(SEGMENT_PROGRAMS.scPbFixedDecode, f, '', null, [obj, src]);
 }
-
 function scpNonzero(f, v) {
-  return f.type === FT.BOOL ? v : v + ' != 0';
+  return runSegments(SEGMENT_PROGRAMS.scPbNonzero, f, '', null, [v]);
 }
-
 function scpEncodeSingular(model, f, v, indent, obj) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (SCP_VARINT.has(f.type)) {
-    return proto2
-      ? indent + '{\n' + indent + '  w.tag(' + n + ', 0)\n' + indent + '  w.varint(' + scpVarintExpr(f, v) + ')\n' + indent + '}\n'
-      : indent + 'if (' + scpNonzero(f, v) + ') {\n' + indent + '  w.tag(' + n + ', 0)\n' + indent + '  w.varint(' + scpVarintExpr(f, v) + ')\n' + indent + '}\n';
-  }
-  if (SCP_FIXED[f.type]) {
-    return proto2
-      ? indent + '{\n' + indent + '  w.fixed(' + n + ', ' + scpWire(f) + ', ' + scpFixedEncodeExpr(f, v, obj) + ')\n' + indent + '}\n'
-      : indent + 'if (' + v + ' != 0) {\n' + indent + '  w.fixed(' + n + ', ' + scpWire(f) + ', ' + scpFixedEncodeExpr(f, v, obj) + ')\n' + indent + '}\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + 'w.bytesField(' + n + ', ' + v + '.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n'
-      : indent + 'w.stringField(' + n + ', ' + v + ')\n';
-    case 12: return proto2
-      ? indent + 'w.bytesField(' + n + ', ' + v + ')\n'
-      : indent + 'if (' + v + '.nonEmpty) {\n' + indent + '  w.bytesField(' + n + ', ' + v + ')\n' + indent + '}\n';
-    case 11: return indent + 'if (' + v + ' != null) {\n' + indent + '  w.bytesField(' + n + ', ' + v + '.marshalDc())\n' + indent + '}\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
+  return runSegments(SEGMENT_PROGRAMS.scPbEncodeSingular, f, '', model, [obj, v, indent]);
 }
-
-function scpSetExpr(sib) {
-  const v = scpFieldName(sib);
-  switch (sib.type) {
-    case 11: case 10: return v + ' != null';
-    case 9: case 12: return v + '.nonEmpty';
-    default: return scpNonzero(sib, v);
-  }
-}
-
-function scpEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '    if (!(' + later.map(scpSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '    }\n';
-}
-
 function scpEncodeField(model, f, obj) {
-  const v = scpFieldName(f);
-  const n = f.number;
-  if (f.type === FT.MESSAGE && scpResolve(model, f.typeName).kind === 'map') {
-    const entry = scpResolve(model, f.typeName);
-    const helper = obj + '.encode' + scpEntryRef(model, entry);
-    return '    for (k <- ' + v + '.keys.toArray.sorted) {\n      w.bytesField(' + n + ', ' + helper + '(k, ' + v + '(k)))\n    }\n';
-  }
-  if (f.label !== 3) return scpEncodeSingular(model, f, v, '    ', obj);
-  if (SCP_VARINT.has(f.type)) {
-    return '    if (' + v + '.nonEmpty) {\n      val payload = new java.io.ByteArrayOutputStream()\n'
-      + '      for (x <- ' + v + ') {\n        payload.write(' + obj + '.varintBytes(' + scpVarintExpr(f, 'x') + '))\n      }\n'
-      + '      w.bytesField(' + n + ', payload.toByteArray)\n    }\n';
-  }
-  if (SCP_FIXED[f.type]) {
-    return '    if (' + v + '.nonEmpty) {\n      val payload = new java.io.ByteArrayOutputStream()\n'
-      + '      for (x <- ' + v + ') {\n        payload.write(' + scpFixedEncodeExpr(f, 'x', obj) + ')\n      }\n'
-      + '      w.bytesField(' + n + ', payload.toByteArray)\n    }\n';
-  }
-  switch (f.type) {
-    case 9: return '    for (x <- ' + v + ') {\n      w.bytesField(' + n + ', x.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n    }\n';
-    case 12: return '    for (x <- ' + v + ') {\n      w.bytesField(' + n + ', x)\n    }\n';
-    case 11: return '    for (x <- ' + v + ') {\n      w.bytesField(' + n + ', x.marshalDc())\n    }\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.scPbEncodeField, f, '', model, [obj]);
 }
-
 function scpDecodeSingular(model, f, target, src, indent, obj) {
-  if (SCP_VARINT.has(f.type)) {
-    return indent + target + ' = ' + scpVarintDecode(f, src) + '\n';
-  }
-  if (SCP_FIXED[f.type]) {
-    return indent + target + ' = ' + scpFixedDecodeExpr(f, src, obj) + '\n';
-  }
-  switch (f.type) {
-    case 9: return indent + target + ' = new String(' + src + ', java.nio.charset.StandardCharsets.UTF_8)\n';
-    case 12: return indent + target + ' = ' + src + '\n';
-    case 11: {
-      const ref = scpEntryRef(model, scpResolve(model, f.typeName));
-      return indent + target + ' = new ' + ref + '()\n' + indent + target + '.unmarshalDc(' + src + ')\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.scPbDecodeSingular, f, '', model, [obj, target, src, indent]);
 }
-
 function scpOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => '          ' + scpFieldName(sib) + ' = ' + scpDefault(model, sib) + '\n').join('');
+  return runSegments(SEGMENT_PROGRAMS.scPbOneofClearing, f, '', model);
 }
-
 function scpSrc(f) {
   return SCP_VARINT.has(f.type) ? 'field.varintValue' : (SCP_FIXED[f.type] ? 'field.fixedValue' : 'field.bytesValue');
 }
 
 function scpDecodeCase(model, f, obj) {
-  const v = scpFieldName(f);
-  const head = '        case ' + f.number + ' =>\n';
-  if (f.type === FT.MESSAGE && scpResolve(model, f.typeName).kind === 'map') {
-    const entry = scpResolve(model, f.typeName);
-    const helper = obj + '.decode' + scpEntryRef(model, entry);
-    return head
-      + '          val (kk, vv) = ' + helper + '(field.bytesValue)\n'
-      + '          ' + v + ' = ' + v + ' + (kk -> vv)\n';
-  }
-  if (f.label !== 3) {
-    return head + scpOneofClearing(model, f) + scpDecodeSingular(model, f, v, scpSrc(f), '          ', obj);
-  }
-  if (SCP_VARINT.has(f.type)) {
-    return head
-      + '          if (field.wire == 2) {\n'
-      + '            val sub = new ' + obj + '.Reader(field.bytesValue)\n'
-      + '            while (!sub.done) {\n'
-      + '              val raw = sub.varint()\n'
-      + '              ' + v + ' = ' + v + ' :+ ' + scpVarintDecode(f, 'raw') + '\n'
-      + '            }\n          } else {\n'
-      + '            ' + v + ' = ' + v + ' :+ ' + scpVarintDecode(f, 'field.varintValue') + '\n'
-      + '          }\n';
-  }
-  if (SCP_FIXED[f.type]) {
-    const size = SCP_FIXED[f.type][0];
-    return head
-      + '          if (field.wire == 2) {\n'
-      + '            var i = 0\n            while (i < field.bytesValue.length) {\n'
-      + '              ' + v + ' = ' + v + ' :+ ' + scpFixedDecodeExpr(f, 'java.util.Arrays.copyOfRange(field.bytesValue, i, i + ' + size + ')', obj) + '\n'
-      + '              i += ' + size + '\n            }\n          } else {\n'
-      + '            ' + v + ' = ' + v + ' :+ ' + scpFixedDecodeExpr(f, 'field.fixedValue', obj) + '\n'
-      + '          }\n';
-  }
-  switch (f.type) {
-    case 9: return head + '          ' + v + ' = ' + v + ' :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)\n';
-    case 12: return head + '          ' + v + ' = ' + v + ' :+ field.bytesValue\n';
-    case 11: return head
-      + '          val item = new ' + scpEntryRef(model, scpResolve(model, f.typeName)) + '()\n'
-      + '          item.unmarshalDc(field.bytesValue)\n'
-      + '          ' + v + ' = ' + v + ' :+ item\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.scPbDecodeCase, f, '', model, [obj]);
 }
-
 function scpMapHelpers(model, entry, obj) {
-  const msg = entry.msg;
-  const base = scpEntryRef(model, entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry lacks key/value');
-  return '  def encode' + base + '(key: ' + scpElemType(model, keyF) + ', value: ' + scpElemType(model, valF) + '): Array[Byte] = {\n    val w = new Writer()\n'
-    + scpEncodeSingular(model, { ...keyF, label: 1 }, 'key', '    ', obj)
-    + scpEncodeSingular(model, { ...valF, label: 1 }, 'value', '    ', obj)
-    + '    w.toBytes\n  }\n\n'
-    + '  def decode' + base + '(data: Array[Byte]): (' + scpElemType(model, keyF) + ', ' + scpElemType(model, valF) + ') = {\n'
-    + '    var key: ' + scpElemType(model, keyF) + ' = ' + scpDefault(model, { ...keyF, label: 1 }) + '\n    var value: ' + scpElemType(model, valF) + ' = ' + scpDefault(model, { ...valF, label: 1 }) + '\n'
-    + '    val r = new Reader(data)\n    var field = r.next()\n    while (field != null) {\n      field.number match {\n'
-    + '        case ' + keyF.number + ' =>\n'
-    + scpDecodeSingular(model, { ...keyF, label: 1 }, 'key', scpSrc(keyF), '          ', obj)
-    + '        case ' + valF.number + ' =>\n'
-    + (valF.type === FT.MESSAGE
-      ? '          value = new ' + scpEntryRef(model, scpResolve(model, valF.typeName)) + '()\n          value.unmarshalDc(field.bytesValue)\n'
-      : scpDecodeSingular(model, { ...valF, label: 1 }, 'value', scpSrc(valF), '          ', obj))
-    + '        case _ => ()\n      }\n      field = r.next()\n    }\n    (key, value)\n  }\n\n';
+  return runSegments(SEGMENT_PROGRAMS.scPbMapHelpers, entry, '', model, [obj]);
 }
-
 function scpSupportHead(obj) {
   return 'object ' + obj + ' {\n'
     + '  class Writer {\n'
@@ -9262,35 +8829,12 @@ function scpSupportHead(obj) {
 }
 
 function scpMessageClass(model, msg, obj) {
-  const name = scpFlat(model.package, msg.fullName);
-  return 'class ' + name + '(\n'
-    + msg.fields.map((f) => '    var ' + scpFieldName(f) + ': ' + scpType(model, f) + ' = ' + scpDefault(model, f)).join(',\n')
-    + (msg.fields.length ? '\n' : '')
-    + ') extends grpcdc.Marshaler with grpcdc.Unmarshaler {\n'
-    + '  var unknownFields: Array[Byte] = Array.empty[Byte]\n'
-    + '  def marshalDc(): Array[Byte] = {\n'
-    + '    val w = new ' + obj + '.Writer()\n'
-    + msg.fields.map((f) => scpEncodeGuard(model, f, scpEncodeField(model, f, obj))).join('')
-    + '    w.raw(unknownFields)\n'
-    + '    w.toBytes\n  }\n\n'
-    + '  def unmarshalDc(data: Array[Byte]): Unit = {\n'
-    + '    unknownFields = Array.empty[Byte]\n'
-    + msg.fields.map((f) => '    ' + scpFieldName(f) + ' = ' + scpDefault(model, f) + '\n').join('')
-    + '    val r = new ' + obj + '.Reader(data)\n'
-    + '    var field = r.next()\n    while (field != null) {\n      field.number match {\n'
-    + msg.fields.map((f) => scpDecodeCase(model, f, obj)).join('')
-    + '        case _ => unknownFields = unknownFields ++ field.rawValue\n      }\n      field = r.next()\n    }\n  }\n'
-    + '}\n\n'
-    + msg.nested.map((n) => scpMessageClass(model, n, obj)).join('');
+  return runSegments(SEGMENT_PROGRAMS.scPbMessage, msg, '', model, [obj]);
 }
-
 function scpEnumDecl(model, e) {
-  const name = scpFlat(model.package, model.package === '' ? e.name : model.package + '.' + e.name);
-  return 'object ' + name + ' {\n'
-    + e.values.map((v) => '  final val ' + v.name + ': Int = ' + v.number + '\n').join('')
-    + '}\n\n';
+  const full = model.package ? model.package + '.' + e.name : e.name;
+  return runSegments(SEGMENT_PROGRAMS.scPbEnum, e, '', model, [full]);
 }
-
 function emitScalaPbFile(model) {
   if (!model.messages.length && !model.enums.length) return null;
   const base = baseName(model.name);
