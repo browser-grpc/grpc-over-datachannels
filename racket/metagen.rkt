@@ -1741,6 +1741,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "ruby/tests" "oracle-gen.rkt" (list (emit-ruby-oracle-driver)))
   (write-runtime-files "ruby/tests" "bdd-gen.rkt" (list (emit-ruby-bdd) (emit-bdd-schemas 'ruby)))
   (write-runtime-files "ruby/tests" "interop-gen.rkt" (list (emit-ruby-interop-cases)))
+  (write-runtime-files "ruby/examples" "interop-service-gen.rkt" (list (emit-ruby-interop-service)))
   (make-directory* (build-path root "php" "grpcdc"))
   (call-with-output-file (build-path root "php" "grpcdc" "wire_gen.php") #:exists 'replace
     (lambda (out) (display (emit-php-wire) out)))
