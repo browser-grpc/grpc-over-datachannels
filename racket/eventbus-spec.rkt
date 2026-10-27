@@ -59,4 +59,5 @@
   '((js "js/src/eventbus.js" "js/src/eventbus_gitlog.js")
     (python "python/grpcdc/eventbus.py" "python/grpcdc/eventbus_git.py")
     (go "go/eventbus.go" "go/eventbus_git.go")
-    (rust "rust/src/eventbus.rs" "rust/src/eventbus_git.rs")))
+    (rust "rust/src/eventbus.rs" "rust/src/eventbus_git.rs")
+    (ruby "ruby/grpcdc/eventbus.rb" "ruby/grpcdc/eventbus_git.rb")))

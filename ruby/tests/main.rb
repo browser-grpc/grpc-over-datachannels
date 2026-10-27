@@ -51,6 +51,9 @@ begin
   when "TestBddSchemas"
     require_relative "test_bdd_schemas"
     TestBddSchemas.run
+  when "TestEventBus"
+    require_relative "test_eventbus"
+    TestEventBus.run
   when "TestSidecar"
     require_relative "test_sidecar"
     TestSidecar.run

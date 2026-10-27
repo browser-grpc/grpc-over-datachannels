@@ -179,6 +179,8 @@ eventbus-stubs:
 	gofmt -w go/eventbus/events_grpc_dc.go go/eventbus/events_pb.go
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-python=bin/protoc-gen-grpc-dc-python \
 		--grpc-dc-python_out=python/grpcdc -I proto proto/events.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-ruby=bin/protoc-gen-grpc-dc-ruby \
+		--grpc-dc-ruby_out=ruby/grpcdc -I proto proto/events.proto
 
 generate: plugins stubs
 
@@ -473,6 +475,7 @@ test-ruby:
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestInterop \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestInteropOracle \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestInteropServerOracle \
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestEventBus \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestOracle \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestDynamic \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestBdd \
