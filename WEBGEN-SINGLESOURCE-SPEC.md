@@ -119,10 +119,17 @@ program arguments (`(arg i)`), an error-statement slot
 `(flat)`, `(proto2)`, `(has-default)` ...), statement nodes
 `if`/`case-on`/`when`/`guarded`/`fail`, and child-node
 construction (`(with-label expr label)`, `(key-field e)` /
-`(val-field e)`). Remaining rollout: the other languages by
-template size (JS template next, 472 lines). Unconverted
-functions stay hand-mirrored and parity-pinned; the grammar
-grows only as a real function demands a node.
+`(val-field e)`). The JS emitter (stub + pb, 472-line template)
+is converted the same way (`jsDeprecated`/`jsClientMethod`/
+`jsMethodTableEntry`/`jsService` and the `jsPb*` family),
+growing multi-key `case-on` branches, a parameterized
+`guarded` (set-expression program + open/close literals),
+`each-siblings`/`each-sep`, and `lower-first`/`js-name`/
+`js-fixed-size`/`js-fixed-name`/`bigint-type`/`entry-flat`/
+`resolved-flat` expressions. Remaining rollout: the other
+languages by template size (wasm wrappers next, then Rust).
+Unconverted functions stay hand-mirrored and parity-pinned;
+the grammar grows only as a real function demands a node.
 
 ## First concrete step
 
