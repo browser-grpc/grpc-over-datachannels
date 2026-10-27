@@ -1176,6 +1176,425 @@
     (each+ methods server (call goRegisterMethod))
     "\t\t},\n\t})\n}\n"))
 
+(define go-pb-varint-expr-program
+  '((case-on
+     (type)
+     ((8 (fmt "boolToUint64(~a)" (arg 0)))
+      (17 (fmt "zz32(~a)" (arg 0)))
+      (18 (fmt "zz64(~a)" (arg 0)))
+      (5 (fmt "uint64(int64(~a))" (arg 0)))
+      (14 (fmt "uint64(int64(~a))" (arg 0)))
+      (else (fmt "uint64(~a)" (arg 0)))))))
+
+(define go-pb-varint-decode-program
+  '((case-on
+     (type)
+     ((5 (fmt "int32(~a)" (arg 0)))
+      (14 (fmt "int32(~a)" (arg 0)))
+      (13 (fmt "uint32(~a)" (arg 0)))
+      (3 (fmt "int64(~a)" (arg 0)))
+      (4 (arg 0))
+      (8 (fmt "~a != 0" (arg 0)))
+      (17 (fmt "unzz32(~a)" (arg 0)))
+      (18 (fmt "unzz64(~a)" (arg 0)))))))
+
+(define go-pb-fixed-encode-program
+  '((case-on
+     (fixed-name)
+     (("Float32" (fmt "fixed32Bytes(pbFloat32Bits(~a))" (arg 0)))
+      ("Float64" (fmt "fixed64Bytes(pbFloat64Bits(~a))" (arg 0)))
+      ("Uint32" (fmt "fixed32Bytes(~a)" (arg 0)))
+      ("Int32" (fmt "fixed32Bytes(uint32(~a))" (arg 0)))
+      ("BigUint64" (fmt "fixed64Bytes(~a)" (arg 0)))
+      ("BigInt64" (fmt "fixed64Bytes(uint64(~a))" (arg 0)))))))
+
+(define go-pb-fixed-decode-program
+  '((case-on
+     (fixed-name)
+     (("Float32"
+       (fmt "pbFloat32FromBits(binary.LittleEndian.Uint32(~a))" (arg 0)))
+      ("Float64"
+       (fmt "pbFloat64FromBits(binary.LittleEndian.Uint64(~a))" (arg 0)))
+      ("Uint32" (fmt "binary.LittleEndian.Uint32(~a)" (arg 0)))
+      ("Int32" (fmt "int32(binary.LittleEndian.Uint32(~a))" (arg 0)))
+      ("BigUint64" (fmt "binary.LittleEndian.Uint64(~a)" (arg 0)))
+      ("BigInt64" (fmt "int64(binary.LittleEndian.Uint64(~a))" (arg 0)))))))
+
+(define go-pb-zero-program
+  '((case-on
+     (type)
+     ((11 "nil") (12 "nil") (9 "\"\"") (8 "false") (else "0")))))
+
+(define go-pb-encode-singular-program
+  '((case-on
+     (category)
+     (("varint"
+       (if (proto2)
+         (then
+          (fmt "~aout = appendTag(out, ~a, 0)\n" (arg 1) (ref number))
+          (fmt
+           "~aout = appendVarint(out, ~a)\n"
+           (arg 1)
+           (call goPbVarintExpr (arg 0))))
+         (else
+          (fmt
+           "~aif ~a {\n"
+           (arg 1)
+           (if (type-is 8) (then (arg 0)) (else (fmt "~a != 0" (arg 0)))))
+          (fmt "~a\tout = appendTag(out, ~a, 0)\n" (arg 1) (ref number))
+          (fmt
+           "~a\tout = appendVarint(out, ~a)\n"
+           (arg 1)
+           (call goPbVarintExpr (arg 0)))
+          (fmt "~a}\n" (arg 1))))))
+     ("fixed"
+      (if (proto2)
+        (then
+         (fmt
+          "~aout = appendTag(out, ~a, ~a)\n"
+          (arg 1)
+          (ref number)
+          (fixed-wire))
+         (fmt
+          "~aout = append(out, ~a...)\n"
+          (arg 1)
+          (call goPbFixedEncode (arg 0))))
+        (else
+         (fmt "~aif ~a != 0 {\n" (arg 1) (arg 0))
+         (fmt
+          "~a\tout = appendTag(out, ~a, ~a)\n"
+          (arg 1)
+          (ref number)
+          (fixed-wire))
+         (fmt
+          "~a\tout = append(out, ~a...)\n"
+          (arg 1)
+          (call goPbFixedEncode (arg 0)))
+         (fmt "~a}\n" (arg 1)))))
+     ("string"
+      (if (proto2)
+        (then
+         (fmt
+          "~aout = appendBytesField(out, ~a, []byte(~a))\n"
+          (arg 1)
+          (ref number)
+          (arg 0)))
+        (else
+         (fmt
+          "~aout = appendStringField(out, ~a, ~a)\n"
+          (arg 1)
+          (ref number)
+          (arg 0)))))
+     ("bytes"
+      (if (proto2)
+        (then
+         (fmt
+          "~aout = appendBytesField(out, ~a, ~a)\n"
+          (arg 1)
+          (ref number)
+          (arg 0)))
+        (else
+         (fmt
+          "~aif len(~a) > 0 {\n~a\tout = appendBytesField(out, ~a, ~a)\n~a}\n"
+          (arg 1)
+          (arg 0)
+          (arg 1)
+          (ref number)
+          (arg 0)
+          (arg 1)))))
+     ("message"
+      (fmt
+       "~aif ~a != nil {\n~a\tout = appendBytesField(out, ~a, ~a.MarshalDC())\n~a}\n"
+       (arg 1)
+       (arg 0)
+       (arg 1)
+       (ref number)
+       (arg 0)
+       (arg 1)))
+     (else (fail)))))
+
+(define go-pb-encode-field-program
+  '((if (is-map)
+      (then
+       (fmt
+        "\t{\n\t\tkeys := make([]~a, 0, len(~a))\n\t\tfor k := range ~a { keys = append(keys, k) }\n\t\tsort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })\n\t\tfor _, k := range keys {\n\t\t\tout = appendBytesField(out, ~a, ~a(k, ~a[k]))\n\t\t}\n\t}\n"
+        (field-type-of (with-label (key-field (resolved-entry)) 1))
+        (fmt "m.~a" (pascal (ref name)))
+        (fmt "m.~a" (pascal (ref name)))
+        (ref number)
+        (fmt "encode~a" (entry-type))
+        (fmt "m.~a" (pascal (ref name)))))
+      (else
+       (if (repeated)
+         (then
+          (case-on
+           (category)
+           (("varint"
+             (fmt
+              "\tif len(~a) > 0 {\n\t\tvar payload []byte\n"
+              (fmt "m.~a" (pascal (ref name))))
+             (fmt
+              "\t\tfor _, x := range ~a {\n\t\t\tpayload = appendVarint(payload, ~a)\n\t\t}\n"
+              (fmt "m.~a" (pascal (ref name)))
+              (call goPbVarintExpr "x"))
+             (fmt
+              "\t\tout = appendBytesField(out, ~a, payload)\n\t}\n"
+              (ref number)))
+            ("fixed"
+             (fmt
+              "\tif len(~a) > 0 {\n\t\tvar payload []byte\n"
+              (fmt "m.~a" (pascal (ref name))))
+             (fmt
+              "\t\tfor _, x := range ~a {\n\t\t\tpayload = append(payload, ~a...)\n\t\t}\n"
+              (fmt "m.~a" (pascal (ref name)))
+              (call goPbFixedEncode "x"))
+             (fmt
+              "\t\tout = appendBytesField(out, ~a, payload)\n\t}\n"
+              (ref number)))
+            ("string"
+             (fmt
+              "\tfor _, x := range ~a {\n\t\tout = appendBytesField(out, ~a, []byte(x))\n\t}\n"
+              (fmt "m.~a" (pascal (ref name)))
+              (ref number)))
+            ("bytes"
+             (fmt
+              "\tfor _, x := range ~a {\n\t\tout = appendBytesField(out, ~a, x)\n\t}\n"
+              (fmt "m.~a" (pascal (ref name)))
+              (ref number)))
+            ("message"
+             (fmt
+              "\tfor _, x := range ~a {\n\t\tout = appendBytesField(out, ~a, x.MarshalDC())\n\t}\n"
+              (fmt "m.~a" (pascal (ref name)))
+              (ref number)))
+            (else (fail)))))
+         (else
+          (call goPbEncodeSingular (fmt "m.~a" (pascal (ref name))) "\t")))))))
+
+(define go-pb-decode-singular-program
+  '((case-on
+     (category)
+     (("varint"
+       (fmt
+        "~a~a = ~a\n"
+        (arg 2)
+        (arg 0)
+        (if (type-is 14)
+          (then (fmt "~a(~a)" (entry-type) (call goPbVarintDecode (arg 1))))
+          (else (call goPbVarintDecode (arg 1))))))
+      ("fixed"
+       (fmt "~a~a = ~a\n" (arg 2) (arg 0) (call goPbFixedDecode (arg 1))))
+      ("string" (fmt "~a~a = string(~a)\n" (arg 2) (arg 0) (arg 1)))
+      ("bytes"
+       (fmt "~a~a = append([]byte(nil), ~a...)\n" (arg 2) (arg 0) (arg 1)))
+      ("message"
+       (fmt "~atmp~a := new(~a)\n" (arg 2) (ref number) (entry-type))
+       (fmt
+        "~aif err := tmp~a.UnmarshalDC(~a); err != nil {\n~a\t~a\n~a}\n"
+        (arg 2)
+        (ref number)
+        (arg 1)
+        (arg 2)
+        (err-stmt)
+        (arg 2))
+       (fmt "~a~a = tmp~a\n" (arg 2) (arg 0) (ref number)))
+      (else (fail))))))
+
+(define go-pb-decode-case-program
+  '((fmt "\t\tcase ~a:\n" (ref number))
+    (if (is-map)
+      (then
+       "\t\t\tif b, ok := value.([]byte); ok {\n"
+       (fmt "\t\t\t\tk, val, err := ~a(b)\n" (fmt "decode~a" (entry-type)))
+       "\t\t\t\tif err != nil {\n\t\t\t\t\treturn err\n\t\t\t\t}\n"
+       (fmt
+        "\t\t\t\tif ~a == nil {\n\t\t\t\t\t~a = make(~a)\n\t\t\t\t}\n"
+        (fmt "m.~a" (pascal (ref name)))
+        (fmt "m.~a" (pascal (ref name)))
+        (field-type))
+       (fmt "\t\t\t\t~a[k] = val\n\t\t\t}\n" (fmt "m.~a" (pascal (ref name)))))
+      (else
+       (if (repeated)
+         (then
+          (case-on
+           (category)
+           (("varint"
+             "\t\t\tswitch value := value.(type) {\n"
+             "\t\t\tcase uint64:\n"
+             (fmt
+              "\t\t\t\t~a = append(~a, ~a)\n"
+              (fmt "m.~a" (pascal (ref name)))
+              (fmt "m.~a" (pascal (ref name)))
+              (if (type-is 14)
+                (then
+                 (fmt "~a(~a)" (entry-type) (call goPbVarintDecode "value")))
+                (else (call goPbVarintDecode "value"))))
+             "\t\t\tcase []byte:\n"
+             "\t\t\t\tsub := &pbReader{buf: value}\n"
+             "\t\t\t\tfor sub.pos < len(sub.buf) {\n"
+             "\t\t\t\t\tv, err := sub.varint()\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\treturn err\n\t\t\t\t\t}\n"
+             (fmt
+              "\t\t\t\t\t~a = append(~a, ~a)\n"
+              (fmt "m.~a" (pascal (ref name)))
+              (fmt "m.~a" (pascal (ref name)))
+              (if (type-is 14)
+                (then (fmt "~a(~a)" (entry-type) (call goPbVarintDecode "v")))
+                (else (call goPbVarintDecode "v"))))
+             "\t\t\t\t}\n\t\t\t}\n")
+            ("fixed"
+             "\t\t\tif b, ok := value.([]byte); ok {\n"
+             (fmt "\t\t\t\tif len(b) == ~a {\n" (fixed-size))
+             (fmt
+              "\t\t\t\t\t~a = append(~a, ~a)\n"
+              (fmt "m.~a" (pascal (ref name)))
+              (fmt "m.~a" (pascal (ref name)))
+              (call goPbFixedDecode "b"))
+             "\t\t\t\t} else {\n"
+             (fmt
+              "\t\t\t\t\tfor off := 0; off+~a <= len(b); off += ~a {\n"
+              (fixed-size)
+              (fixed-size))
+             (fmt
+              "\t\t\t\t\t\t~a = append(~a, ~a)\n"
+              (fmt "m.~a" (pascal (ref name)))
+              (fmt "m.~a" (pascal (ref name)))
+              (call goPbFixedDecode (fmt "b[off:off+~a]" (fixed-size))))
+             "\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n")
+            ("string"
+             (fmt
+              "\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t~a = append(~a, string(b))\n\t\t\t}\n"
+              (fmt "m.~a" (pascal (ref name)))
+              (fmt "m.~a" (pascal (ref name)))))
+            ("bytes"
+             (fmt
+              "\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t~a = append(~a, append([]byte(nil), b...))\n\t\t\t}\n"
+              (fmt "m.~a" (pascal (ref name)))
+              (fmt "m.~a" (pascal (ref name)))))
+            ("message"
+             "\t\t\tif b, ok := value.([]byte); ok {\n"
+             (fmt
+              "\t\t\t\tvar tmpv ~a\n"
+              (field-type-of (with-label (self) 1)))
+             (call goPbDecodeSingular "tmpv" "b" "\t\t\t\t")
+             (fmt
+              "\t\t\t\t~a = append(~a, tmpv)\n\t\t\t}\n"
+              (fmt "m.~a" (pascal (ref name)))
+              (fmt "m.~a" (pascal (ref name)))))
+            (else (fail)))))
+         (else
+          (oneof-clearing)
+          (if (is-varint)
+            (then
+             (fmt
+              "\t\t\tif v, ok := value.(uint64); ok {\n~a\t\t\t}\n"
+              (call
+               goPbDecodeSingular
+               (fmt "m.~a" (pascal (ref name)))
+               "v"
+               "\t\t\t\t")))
+            (else
+             (fmt
+              "\t\t\tif b, ok := value.([]byte); ok {\n~a\t\t\t}\n"
+              (call
+               goPbDecodeSingular
+               (fmt "m.~a" (pascal (ref name)))
+               "b"
+               "\t\t\t\t"))))))))))
+
+(define go-pb-encode-field-guarded-program '((guarded (call goPbEncodeField))))
+
+(define go-pb-map-helpers-program
+  '((fmt
+     "func encode~a(key ~a, value ~a) []byte {\n\tvar out []byte\n"
+     (entry-type)
+     (field-type-of (with-label (key-field) 1))
+     (field-type-of (with-label (val-field) 1)))
+    (call-on (key-field) goPbEncodeSingular "key" "\t")
+    (call-on (val-field) goPbEncodeSingular "value" "\t")
+    "\treturn out\n}\n\n"
+    (fmt
+     "func decode~a(data []byte) (~a, ~a, error) {\n"
+     (entry-type)
+     (field-type-of (with-label (key-field) 1))
+     (field-type-of (with-label (val-field) 1)))
+    (fmt
+     "\tvar key ~a\n\tvar value ~a\n"
+     (field-type-of (with-label (key-field) 1))
+     (field-type-of (with-label (val-field) 1)))
+    "\tr := &pbReader{buf: data}\n\tfor {\n\t\tnum, _, value0, _, done, err := r.field()\n\t\tif err != nil {\n\t\t\treturn key, value, err\n\t\t}\n\t\tif done {\n\t\t\treturn key, value, nil\n\t\t}\n\t\tswitch num {\n"
+    (fmt "\t\tcase ~a:\n" (get (key-field) number))
+    (case-on
+     (category-of (key-field))
+     (("varint"
+       (fmt
+        "\t\t\tif v, ok := value0.(uint64); ok {\n~a\t\t\t}\n"
+        (call-on (key-field) goPbDecodeSingular "key" "v" "\t\t\t\t")))
+      (else
+       (fmt
+        "\t\t\tif b, ok := value0.([]byte); ok {\n~a\t\t\t}\n"
+        (call-on (key-field) goPbDecodeSingular "key" "b" "\t\t\t\t")))))
+    (fmt "\t\tcase ~a:\n" (get (val-field) number))
+    (case-on
+     (category-of (val-field))
+     (("varint"
+       (fmt
+        "\t\t\tif v, ok := value0.(uint64); ok {\n~a\t\t\t}\n"
+        (call-on (val-field) goPbDecodeSingular "value" "v" "\t\t\t\t")))
+      (else
+       (fmt
+        "\t\t\tif b, ok := value0.([]byte); ok {\n~a\t\t\t}\n"
+        (call-on (val-field) goPbDecodeSingular "value" "b" "\t\t\t\t")))))
+    "\t\t}\n\t}\n}\n\n"))
+
+(define go-pb-enum-program
+  '((fmt "type ~a int32\n\nconst (\n" (arg 0))
+    (each
+     enum
+     values
+     (fmt "\t~a_~a ~a = ~a\n" (arg 0) (ref name) (arg 0) (ref number)))
+    ")\n\n"))
+
+(define go-pb-default-literal-program
+  '((if (has-default)
+      (then
+       (case-on
+        (type)
+        ((9 (fmt "~s" (default-raw)))
+         (14 (fmt "~a(~a)" (entry-type) (enum-default-num)))
+         (else (default-raw)))))
+      (else))))
+
+(define go-pb-constructor-program
+  '((if (any-default)
+      (then
+       (fmt
+        "// New~a returns a ~a with the descriptor's explicit (proto2)\n// default values applied.\n"
+        (flat)
+        (flat))
+       (fmt "func New~a() *~a {\n\treturn &~a{\n" (flat) (flat) (flat))
+       (each
+        fields
+        (when (has-default)
+          (fmt "\t~a: ~a,\n" (pascal (ref name)) (call goPbDefaultLiteral))))
+       "\t}\n}\n\n")
+      (else))))
+
+(define go-pb-message-program
+  '((fmt "type ~a struct {\n" (flat))
+    (each fields (fmt "\t~a ~a\n" (pascal (ref name)) (field-type)))
+    "\tUnknownFields []byte\n}\n\n"
+    (call goPbConstructor)
+    (fmt "func (m *~a) MarshalDC() []byte {\n\tvar out []byte\n" (flat))
+    (each fields (call goPbEncodeFieldGuarded))
+    "\tout = append(out, m.UnknownFields...)\n\treturn out\n}\n\n"
+    (fmt "func (m *~a) UnmarshalDC(data []byte) error {\n" (flat))
+    "\tm.UnknownFields = nil\n\tr := &pbReader{buf: data}\n\tfor {\n"
+    (if (no-fields)
+      (then "\t\tnum, _, _, raw, done, err := r.field()\n")
+      (else "\t\tnum, _, value, raw, done, err := r.field()\n"))
+    "\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif done {\n\t\t\treturn nil\n\t\t}\n\t\tswitch num {\n"
+    (each fields (call goPbDecodeCase))
+    "\t\tdefault:\n\t\t\tm.UnknownFields = append(m.UnknownFields, raw...)\n\t\t}\n\t}\n}\n\n"))
+
 (define segment-programs
   (hasheq
    'goRegisterMethod
@@ -1193,45 +1612,347 @@
    'goStreamImpls
    go-stream-impls-program
    'goService
-   go-service-program))
+   go-service-program
+   'goPbVarintExpr
+   go-pb-varint-expr-program
+   'goPbVarintDecode
+   go-pb-varint-decode-program
+   'goPbFixedEncode
+   go-pb-fixed-encode-program
+   'goPbFixedDecode
+   go-pb-fixed-decode-program
+   'goPbZero
+   go-pb-zero-program
+   'goPbEncodeSingular
+   go-pb-encode-singular-program
+   'goPbEncodeField
+   go-pb-encode-field-program
+   'goPbDecodeSingular
+   go-pb-decode-singular-program
+   'goPbDecodeCase
+   go-pb-decode-case-program
+   'goPbEncodeFieldGuarded
+   go-pb-encode-field-guarded-program
+   'goPbMapHelpers
+   go-pb-map-helpers-program
+   'goPbEnum
+   go-pb-enum-program
+   'goPbDefaultLiteral
+   go-pb-default-literal-program
+   'goPbConstructor
+   go-pb-constructor-program
+   'goPbMessage
+   go-pb-message-program))
 
 (define (seg-ref node key)
   (if (eq? key 'impl-name)
     (hash-ref node 'impl-name (hash-ref node 'name))
-    (hash-ref node key)))
+    (hash-ref node key #f)))
 
-(define (run-segments program node svc)
+(define (run-segments
+         program
+         node
+         svc
+         (model #f)
+         (args '())
+         (err "return err"))
+  (run-env program (list model node svc args err)))
+
+(define (run-env program env)
   (apply
    string-append
-   (for/list ((seg (in-list program))) (run-segment seg node svc))))
+   (for/list ((seg (in-list program))) (run-segment seg env))))
 
-(define (run-segment seg node svc)
+(define (env-model env) (first env))
+
+(define (env-node env) (second env))
+
+(define (env-svc env) (third env))
+
+(define (env-args env) (fourth env))
+
+(define (env-err env) (fifth env))
+
+(define (env-with
+         env
+         #:model
+         (model (env-model env))
+         #:node
+         (node (env-node env))
+         #:args
+         (args (env-args env))
+         #:err
+         (err (env-err env)))
+  (list model node (env-svc env) args err))
+
+(define (seg-truthy? v) (not (or (not v) (equal? v "") (equal? v 0))))
+
+(define (seg-pascal s)
+  (string-join
+   (map
+    (lambda (part)
+      (if (string=? part "")
+        ""
+        (string-append
+         (string (char-upcase (string-ref part 0)))
+         (substring part 1))))
+    (string-split s "_"))
+   ""))
+
+(define (seg-flat pkg full)
+  (define rel
+    (if (and pkg
+             (not (string=? pkg ""))
+             (string-prefix? full (string-append pkg ".")))
+      (substring full (add1 (string-length pkg)))
+      full))
+  (string-join (string-split rel ".") "_"))
+
+(define (seg-resolve model type-name)
+  (hash-ref
+   (hash-ref model 'types)
+   type-name
+   (lambda () (error 'run-segments "unresolved type ~a" type-name))))
+
+(define (seg-entry-type entry)
+  (seg-flat
+   (hash-ref entry 'pkg)
+   (if (eq? (hash-ref entry 'kind) 'enum)
+     (hash-ref entry 'full)
+     (hash-ref (hash-ref entry 'msg) 'full-name))))
+
+(define (seg-entry-type-of model node)
+  (if (hash-has-key? node 'type-name)
+    (seg-entry-type (seg-resolve model (hash-ref node 'type-name)))
+    (seg-entry-type node)))
+
+(define (seg-field-type model f)
+  (define type (hash-ref f 'type))
+  (define base
+    (cond
+     ((= type 11)
+      (define entry (seg-resolve model (hash-ref f 'type-name)))
+      (if (eq? (hash-ref entry 'kind) 'map)
+        (let* ((entry-msg (hash-ref entry 'msg))
+               (kf
+                (findf
+                 (lambda (x) (= (hash-ref x 'number) 1))
+                 (hash-ref entry-msg 'fields)))
+               (vf
+                (findf
+                 (lambda (x) (= (hash-ref x 'number) 2))
+                 (hash-ref entry-msg 'fields))))
+          (format
+           "map[~a]~a"
+           (seg-field-type model (hash-set kf 'label 1))
+           (seg-field-type model (hash-set vf 'label 1))))
+        (string-append "*" (seg-entry-type entry))))
+     ((= type 14) (seg-entry-type (seg-resolve model (hash-ref f 'type-name))))
+     (else (scalar-type-entry 'go type))))
+  (if (= (hash-ref f 'label) 3)
+    (if (and (= type 11)
+             (eq?
+              (hash-ref (seg-resolve model (hash-ref f 'type-name)) 'kind)
+              'map))
+      base
+      (string-append "[]" base))
+    base))
+
+(define (seg-category model node)
+  (define type (hash-ref node 'type))
+  (cond
+   ((and (= type 11)
+         (eq?
+          (hash-ref (seg-resolve model (hash-ref node 'type-name)) 'kind)
+          'map))
+    "map")
+   ((= type 11) "message")
+   ((memv type varint-scalar-types) "varint")
+   ((assv type (fixed-scalar-table 'go)) "fixed")
+   ((= type 9) "string")
+   ((= type 12) "bytes")
+   (else "other")))
+
+(define (seg-fixed-info node)
+  (assv (hash-ref node 'type) (fixed-scalar-table 'go)))
+
+(define (seg-zero node)
+  (case (hash-ref node 'type)
+    ((11 12) "nil")
+    ((9) "\"\"")
+    ((8) "false")
+    (else "0")))
+
+(define (seg-set-expr sib)
+  (define v (format "m.~a" (seg-pascal (hash-ref sib 'name))))
+  (case (hash-ref sib 'type)
+    ((11 10) (format "~a != nil" v))
+    ((9) (format "~a != \"\"" v))
+    ((12) (format "len(~a) > 0" v))
+    ((8) v)
+    (else (format "~a != 0" v))))
+
+(define (seg-oneof-clearing model node)
+  (apply
+   string-append
+   (map
+    (lambda (sib)
+      (format
+       "\t\t\tm.~a = ~a\n"
+       (seg-pascal (hash-ref sib 'name))
+       (seg-zero sib)))
+    (oneof-siblings model node))))
+
+(define (seg-later-oneof-cond model node)
+  (define later (oneof-later-siblings model node))
+  (if (null? later) "" (string-join (map seg-set-expr later) " || ")))
+
+(define (seg-eval seg env)
+  (define node (env-node env))
+  (define model (env-model env))
   (cond
    ((string? seg) seg)
+   ((number? seg) seg)
    ((eq? (car seg) 'fmt)
-    (apply
-     format
-     (second seg)
-     (map (lambda (e) (run-segment e node svc)) (cddr seg))))
-   ((eq? (car seg) 'ref) (seg-ref node (second seg)))
-   ((eq? (car seg) 'svc) svc)
+    (apply format (second seg) (map (lambda (e) (seg-eval e env)) (cddr seg))))
+   ((eq? (car seg) 'ref)
+    (if (null? (cddr seg))
+      (seg-ref node (second seg))
+      (foldl (lambda (k acc) (hash-ref acc k)) node (cdr seg))))
+   ((eq? (car seg) 'svc) (env-svc env))
+   ((eq? (car seg) 'arg) (list-ref (env-args env) (second seg)))
+   ((eq? (car seg) 'err-stmt) (env-err env))
+   ((eq? (car seg) 'self) node)
+   ((memq (car seg) '(if case-on when guarded kind-case))
+    (run-segment seg env))
+   ((eq? (car seg) 'pascal) (seg-pascal (seg-eval (second seg) env)))
+   ((eq? (car seg) 'flat)
+    (seg-flat (hash-ref model 'package) (hash-ref node 'full-name)))
+   ((eq? (car seg) 'entry-type) (seg-entry-type-of model node))
+   ((eq? (car seg) 'field-type) (seg-field-type model node))
+   ((eq? (car seg) 'field-type-of)
+    (seg-field-type model (seg-eval (second seg) env)))
+   ((eq? (car seg) 'resolved-entry)
+    (seg-resolve model (hash-ref node 'type-name)))
+   ((eq? (car seg) 'key-field)
+    (define entry (if (null? (cdr seg)) node (seg-eval (second seg) env)))
+    (findf
+     (lambda (x) (= (hash-ref x 'number) 1))
+     (hash-ref (hash-ref entry 'msg) 'fields)))
+   ((eq? (car seg) 'val-field)
+    (define entry (if (null? (cdr seg)) node (seg-eval (second seg) env)))
+    (findf
+     (lambda (x) (= (hash-ref x 'number) 2))
+     (hash-ref (hash-ref entry 'msg) 'fields)))
+   ((eq? (car seg) 'with-label)
+    (hash-set (seg-eval (second seg) env) 'label (third seg)))
+   ((eq? (car seg) 'get) (hash-ref (seg-eval (second seg) env) (third seg)))
+   ((eq? (car seg) 'fixed-name) (third (seg-fixed-info node)))
+   ((eq? (car seg) 'fixed-size) (second (seg-fixed-info node)))
+   ((eq? (car seg) 'fixed-wire) (if (= (second (seg-fixed-info node)) 8) 1 5))
+   ((eq? (car seg) 'type) (hash-ref node 'type))
+   ((eq? (car seg) 'category) (seg-category model node))
+   ((eq? (car seg) 'category-of)
+    (seg-category model (seg-eval (second seg) env)))
+   ((eq? (car seg) 'proto2) (equal? (hash-ref model 'syntax "") "proto2"))
+   ((eq? (car seg) 'type-is) (= (hash-ref node 'type) (second seg)))
+   ((eq? (car seg) 'is-varint)
+    (and (memv (hash-ref node 'type) varint-scalar-types) #t))
+   ((eq? (car seg) 'is-fixed) (and (seg-fixed-info node) #t))
+   ((eq? (car seg) 'is-map)
+    (and (= (hash-ref node 'type) 11)
+         (eq?
+          (hash-ref (seg-resolve model (hash-ref node 'type-name)) 'kind)
+          'map)))
+   ((eq? (car seg) 'repeated) (= (hash-ref node 'label) 3))
+   ((eq? (car seg) 'has-default) (and (field-explicit-default node) #t))
+   ((eq? (car seg) 'any-default)
+    (for/or
+     ((f (in-list (hash-ref node 'fields))))
+     (field-explicit-default f)))
+   ((eq? (car seg) 'no-fields) (null? (hash-ref node 'fields)))
+   ((eq? (car seg) 'default-raw) (field-explicit-default node))
+   ((eq? (car seg) 'enum-default-num) (enum-default-number model node))
+   ((eq? (car seg) 'oneof-clearing) (seg-oneof-clearing model node))
+   ((eq? (car seg) 'later-oneof-cond) (seg-later-oneof-cond model node))
+   ((eq? (car seg) 'call)
+    (run-env
+     (hash-ref segment-programs (second seg))
+     (env-with env #:args (map (lambda (e) (seg-eval e env)) (cddr seg)))))
+   ((eq? (car seg) 'call-on)
+    (run-env
+     (hash-ref segment-programs (third seg))
+     (env-with
+      env
+      #:node
+      (seg-eval (second seg) env)
+      #:args
+      (map (lambda (e) (seg-eval e env)) (cdddr seg)))))
+   (else (error 'run-segments "bad expression: ~e" seg))))
+
+(define (run-segment seg env)
+  (define node (env-node env))
+  (cond
+   ((string? seg) seg)
+   ((eq? (car seg) 'if)
+    (define then-segs (cdr (assq 'then (cddr seg))))
+    (define else-part (assq 'else (cddr seg)))
+    (if (seg-truthy? (seg-eval (second seg) env))
+      (run-env then-segs env)
+      (if else-part (run-env (cdr else-part) env) "")))
    ((eq? (car seg) 'kind-case)
     (define kind (hash-ref node 'kind))
     (define branch (assq kind (cdr seg)))
     (unless branch (error 'run-segments "no kind branch for ~e" kind))
-    (run-segments (cdr branch) node svc))
+    (run-env (cdr branch) env))
+   ((eq? (car seg) 'case-on)
+    (define val (seg-eval (second seg) env))
+    (define raw (cddr seg))
+    (define (branch-key? b)
+      (and (list? b)
+           (pair? b)
+           (or (number? (car b)) (string? (car b)) (eq? (car b) 'else))))
+    (define branches
+      (cond
+       ((and (= (length raw) 1)
+             (list? (car raw))
+             (andmap branch-key? (car raw)))
+        (car raw))
+       (else
+        (map
+         (lambda (b)
+           (if (and (list? b) (= (length b) 1) (list? (car b))) (car b) b))
+         raw))))
+    (define branch
+      (for/first
+       ((b (in-list branches))
+        #:when
+        (or (eq? (car b) 'else) (equal? (car b) val)))
+       b))
+    (if branch (run-env (cdr branch) env) ""))
    ((eq? (car seg) 'when)
-    (if (hash-ref node (second (second seg)) #f)
-      (run-segments (cddr seg) node svc)
-      ""))
-   ((eq? (car seg) 'call)
-    (run-segments (hash-ref segment-programs (second seg)) node svc))
+    (if (seg-truthy? (seg-eval (second seg) env)) (run-env (cddr seg) env) ""))
+   ((eq? (car seg) 'guarded)
+    (define text (run-env (cdr seg) env))
+    (define cond-str (seg-later-oneof-cond (env-model env) node))
+    (if (equal? cond-str "")
+      text
+      (string-append
+       "\tif !("
+       cond-str
+       ") {\n"
+       (if (string-suffix? text "\n") text (string-append text "\n"))
+       "\t}\n")))
+   ((eq? (car seg) 'fail)
+    (error 'run-segments "unsupported field type ~a" (hash-ref node 'type)))
    ((eq? (car seg) 'each)
+    (define-values (keys segs) (splitf-at (cdr seg) symbol?))
+    (define items (foldl (lambda (k acc) (hash-ref acc k)) node keys))
     (apply
      string-append
      (for/list
-      ((el (in-list (hash-ref node (second seg)))))
-      (run-segments (cddr seg) el svc))))
+      ((el (in-list items)))
+      (run-env segs (env-with env #:node el)))))
    ((eq? (car seg) 'each+)
     (define aliases
       (if (eq? (third seg) 'client)
@@ -1241,8 +1962,8 @@
      string-append
      (for/list
       ((el (in-list (append (hash-ref node (second seg)) aliases))))
-      (run-segments (cdddr seg) el svc))))
-   (else (error 'run-segments "bad segment: ~e" seg))))
+      (run-env (cdddr seg) (env-with env #:node el)))))
+   (else (seg-eval seg env))))
 
 (define (lower-first s)
   (if (string=? s "")
