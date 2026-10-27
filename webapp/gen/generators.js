@@ -2622,112 +2622,23 @@ function snakeCase(s) {
 }
 
 function rustDeprecated(m, indent) {
-  return m.deprecated ? indent + '#[deprecated = "deprecated in the proto schema"]\n' : '';
+  return runSegments(SEGMENT_PROGRAMS.rustDeprecated, m, '', null, [indent]);
 }
-
 function rustClientMethod(m, msgmod) {
-  const fn = snakeCase(m.name);
-  const req = msgmod + '::' + m.input;
-  const resp = msgmod + '::' + m.output;
-  const path = q(m.path);
-  const depr = rustDeprecated(m, '    ');
-  switch (m.kind) {
-    case 'unary':
-      return depr + '    pub async fn ' + fn + '(&self, req: ' + req + ') -> Result<' + resp + ', ::grpc_dc::Status> {\n        self.channel.unary(' + path + ', req).await\n    }\n';
-    case 'server-streaming':
-      return depr + '    pub async fn ' + fn + '(&self, req: ' + req + ') -> Result<::grpc_dc::ResponseStream<' + resp + '>, ::grpc_dc::Status> {\n        self.channel.server_stream(' + path + ', req).await\n    }\n';
-    case 'client-streaming':
-      return depr + '    pub async fn ' + fn + '<S>(&self, reqs: S) -> Result<' + resp + ', ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ' + req + '> + Send + \'static {\n        self.channel.client_stream(' + path + ', reqs).await\n    }\n';
-    default:
-      return depr + '    pub async fn ' + fn + '<S>(&self, reqs: S) -> Result<::grpc_dc::ResponseStream<' + resp + '>, ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ' + req + '> + Send + \'static {\n        self.channel.bidi(' + path + ', reqs).await\n    }\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.rustClientMethod, m, '', null, [msgmod]);
 }
-
 function rustClientOptionsMethod(m, msgmod) {
-  const fn = snakeCase(m.name);
-  const req = msgmod + '::' + m.input;
-  const resp = msgmod + '::' + m.output;
-  const path = q(m.path);
-  const depr = rustDeprecated(m, '    ');
-  switch (m.kind) {
-    case 'unary':
-      return depr + '    pub async fn ' + fn + '_with_options(&self, req: ' + req + ', options: ::grpc_dc::CallOptions) -> Result<' + resp + ', ::grpc_dc::Status> {\n        self.channel.unary_with_options(' + path + ', req, options).await\n    }\n';
-    case 'server-streaming':
-      return depr + '    pub async fn ' + fn + '_with_options(&self, req: ' + req + ', options: ::grpc_dc::CallOptions) -> Result<::grpc_dc::ResponseStream<' + resp + '>, ::grpc_dc::Status> {\n        self.channel.server_stream_with_options(' + path + ', req, options).await\n    }\n';
-    case 'client-streaming':
-      return depr + '    pub async fn ' + fn + '_with_options<S>(&self, reqs: S, options: ::grpc_dc::CallOptions) -> Result<' + resp + ', ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ' + req + '> + Send + \'static {\n        self.channel.client_stream_with_options(' + path + ', reqs, options).await\n    }\n';
-    default:
-      return depr + '    pub async fn ' + fn + '_with_options<S>(&self, reqs: S, options: ::grpc_dc::CallOptions) -> Result<::grpc_dc::ResponseStream<' + resp + '>, ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ' + req + '> + Send + \'static {\n        self.channel.bidi_with_options(' + path + ', reqs, options).await\n    }\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.rustClientOptionsMethod, m, '', null, [msgmod]);
 }
-
 function rustTraitMethod(m, msgmod) {
-  const fn = snakeCase(m.name);
-  const req = msgmod + '::' + m.input;
-  const resp = msgmod + '::' + m.output;
-  switch (m.kind) {
-    case 'unary':
-      return '    async fn ' + fn + '(&self, req: ' + req + ', ctx: ::grpc_dc::CallCtx) -> Result<' + resp + ', ::grpc_dc::Status>;\n';
-    case 'server-streaming':
-      return '    async fn ' + fn + '(&self, req: ' + req + ', ctx: ::grpc_dc::CallCtx) -> Result<::grpc_dc::ResponseStream<' + resp + '>, ::grpc_dc::Status>;\n';
-    case 'client-streaming':
-      return '    async fn ' + fn + '(&self, reqs: ::grpc_dc::RequestStream<' + req + '>, ctx: ::grpc_dc::CallCtx) -> Result<' + resp + ', ::grpc_dc::Status>;\n';
-    default:
-      return '    async fn ' + fn + '(&self, reqs: ::grpc_dc::RequestStream<' + req + '>, ctx: ::grpc_dc::CallCtx) -> Result<::grpc_dc::ResponseStream<' + resp + '>, ::grpc_dc::Status>;\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.rustTraitMethodDeprecated, m, '', null, [msgmod]);
 }
-
-const RUST_HELPERS = {
-  unary: 'unary_method',
-  'server-streaming': 'server_stream_method',
-  'client-streaming': 'client_stream_method',
-  bidi: 'bidi_method',
-};
-
 function rustRegisterMethod(m, serviceVar) {
-  return '        ::grpc_dc::' + RUST_HELPERS[m.kind] + '(' + q(m.name) + ', { let svc = ' + serviceVar + '.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.' + snakeCase(m.implName) + '(req, ctx).await } } }),\n';
+  return runSegments(SEGMENT_PROGRAMS.rustRegisterMethod, m, '', null, [serviceVar]);
 }
-
 function rustService(svc, msgmod) {
-  const sname = svc.name;
-  return 'pub struct ' + sname + 'Client { channel: ::grpc_dc::Channel }\n\n'
-    + 'impl ' + sname + 'Client {\n    pub fn new(channel: ::grpc_dc::Channel) -> Self { Self { channel } }\n'
-    + svc.methods.concat(aliasClientMethods(svc)).map((m) => rustClientMethod(m, msgmod)).join('')
-    + svc.methods.concat(aliasClientMethods(svc)).map((m) => rustClientOptionsMethod(m, msgmod)).join('')
-    + '}\n\n'
-    + '#[::grpc_dc::async_trait]\npub trait ' + sname + ': Send + Sync + \'static {\n'
-    + svc.methods.map((m) => rustDeprecated(m, '    ') + rustTraitMethod(m, msgmod)).join('')
-    + '}\n\n'
-    + 'pub fn ' + snakeCase(sname) + '_service<S: ' + sname + '>(svc: std::sync::Arc<S>) -> ::grpc_dc::ServiceDef {\n    ::grpc_dc::ServiceDef::new(' + q(svc.fullName) + ', vec![\n'
-    + svc.methods.concat(aliasServerMethods(svc)).map((m) => rustRegisterMethod(m, 'svc')).join('')
-    + '    ])\n}\n';
+  return runSegments(SEGMENT_PROGRAMS.rustService, svc, svc.name, null, [msgmod]);
 }
-
-
-// ---------------------------------------------------------------------------
-// Rust message types (<base>_pb.rs), mirroring the native rust template
-// (the rp* functions): structs with encode/decode, std-only,
-// byte-identical to the native protoc-gen-grpc-dc-rust plugin.
-// Cross-file types resolve to crate::<base>_pb::<Type> modules.
-// ---------------------------------------------------------------------------
-
-const RP_VARINT = new Set(VARINT_TYPES);
-const RP_FIXED = FIXED_TABLES.rust;
-
-const RP_SUPPORT = 'fn pb_append_varint(out: &mut Vec<u8>, value: u64) {\n    let mut v = value;\n    while v > 0x7f {\n        out.push(((v & 0x7f) as u8) | 0x80);\n        v >>= 7;\n    }\n    out.push(v as u8);\n}\n\n'
-  + 'fn pb_append_tag(out: &mut Vec<u8>, field: u32, wire: u32) {\n    pb_append_varint(out, ((field << 3) | wire) as u64);\n}\n\n'
-  + 'fn pb_append_bytes_field(out: &mut Vec<u8>, field: u32, payload: &[u8]) {\n    pb_append_tag(out, field, 2);\n    pb_append_varint(out, payload.len() as u64);\n    out.extend_from_slice(payload);\n}\n\n'
-  + 'fn pb_append_string_field(out: &mut Vec<u8>, field: u32, value: &str) {\n    if !value.is_empty() {\n        pb_append_bytes_field(out, field, value.as_bytes());\n    }\n}\n\n'
-  + 'fn pb_append_fixed32(out: &mut Vec<u8>, value: u32) {\n    out.extend_from_slice(&value.to_le_bytes());\n}\n\n'
-  + 'fn pb_append_fixed64(out: &mut Vec<u8>, value: u64) {\n    out.extend_from_slice(&value.to_le_bytes());\n}\n\n'
-  + '#[derive(Clone, Debug, Default)]\nstruct PbField {\n    number: u32,\n    wire: u32,\n    varint_value: u64,\n    bytes_value: Vec<u8>,\n    fixed_value: u64,\n    raw_value: Vec<u8>,\n}\n\n'
-  + 'struct PbReader<\'a> {\n    buf: &\'a [u8],\n    pos: usize,\n}\n\n'
-  + 'impl<\'a> PbReader<\'a> {\n    fn new(buf: &\'a [u8]) -> Self {\n        PbReader { buf, pos: 0 }\n    }\n\n'
-  + '    fn done(&self) -> bool {\n        self.pos >= self.buf.len()\n    }\n\n'
-  + '    fn varint(&mut self) -> Result<u64, String> {\n        let mut result: u64 = 0;\n        let mut shift = 0;\n        loop {\n            if self.pos >= self.buf.len() {\n                return Err("truncated varint".to_string());\n            }\n            let b = self.buf[self.pos];\n            self.pos += 1;\n            result |= ((b & 0x7f) as u64) << shift;\n            if b & 0x80 == 0 {\n                return Ok(result);\n            }\n            shift += 7;\n            if shift >= 70 {\n                return Err("varint too long".to_string());\n            }\n        }\n    }\n\n'
-  + '    fn take(&mut self, n: usize) -> Result<Vec<u8>, String> {\n        if self.pos + n > self.buf.len() {\n            return Err("truncated field".to_string());\n        }\n        let v = self.buf[self.pos..self.pos + n].to_vec();\n        self.pos += n;\n        Ok(v)\n    }\n\n'
-  + '    fn next(&mut self) -> Result<Option<PbField>, String> {\n        if self.done() {\n            return Ok(None);\n        }\n        let start = self.pos;\n        let tag = self.varint()?;\n        let mut field = PbField {\n            number: (tag >> 3) as u32,\n            wire: (tag & 7) as u32,\n            ..Default::default()\n        };\n        match field.wire {\n            0 => field.varint_value = self.varint()?,\n            2 => {\n                let n = self.varint()? as usize;\n                field.bytes_value = self.take(n)?;\n            }\n            1 => {\n                field.bytes_value = self.take(8)?;\n                field.fixed_value = u64::from_le_bytes(field.bytes_value[..8].try_into().unwrap());\n            }\n            5 => {\n                field.bytes_value = self.take(4)?;\n                field.fixed_value = u32::from_le_bytes(field.bytes_value[..4].try_into().unwrap()) as u64;\n            }\n            _ => return Err("bad wire type".to_string()),\n        }\n        field.raw_value = self.buf[start..self.pos].to_vec();\n        Ok(Some(field))\n    }\n}\n\n';
-
 function rpSnake(s) {
   return s.split('_').map((p) => p.toLowerCase()).join('_');
 }
@@ -2765,68 +2676,20 @@ function rpEntryRef(model, entry) {
 }
 
 function rpElemType(model, f) {
-  if (f.type === FT.MESSAGE || f.type === FT.ENUM) return rpEntryRef(model, rpResolve(model, f.typeName));
-  if (f.type === 4 || f.type === 6) return 'u64';
-  if (f.type === 3 || f.type === 16 || f.type === 18) return 'i64';
-  if (f.type === 13) return 'u32';
-  if (f.type === 7) return 'u32';
-  return SCALAR_TABLES.rust.types[f.type] ?? SCALAR_TABLES.rust.default;
+  return runSegments(SEGMENT_PROGRAMS.rsPbElemType, f, '', model);
 }
-
 function rpType(model, f) {
-  if (f.type === FT.MESSAGE && rpResolve(model, f.typeName).kind === 'map') {
-    const entry = rpResolve(model, f.typeName);
-    const kf = entry.msg.fields.find((x) => x.number === 1);
-    const vf = entry.msg.fields.find((x) => x.number === 2);
-    return rpMapType() + '<' + rpElemType(model, kf) + ', ' + rpElemType(model, vf) + '>';
-  }
-  if (f.label === 3) return 'Vec<' + rpElemType(model, f) + '>';
-  if (f.type === FT.MESSAGE) return 'Option<Box<' + rpElemType(model, f) + '>>';
-  return rpElemType(model, f);
+  return runSegments(SEGMENT_PROGRAMS.rsPbType, f, '', model);
 }
-
 function rpDefault(model, f) {
-  if (f.type === FT.MESSAGE && rpResolve(model, f.typeName).kind === 'map') return rpMapType() + '::new()';
-  if (f.label === 3) return 'Vec::new()';
-  if (f.type === FT.MESSAGE) return 'None';
-  if (f.type === FT.STRING) return 'String::new()';
-  if (f.type === FT.BYTES) return 'Vec::new()';
-  if (f.type === FT.BOOL) return 'false';
-  if (f.type === 1 || f.type === 2) return '0.0';
-  if (f.type === FT.ENUM) {
-    const d = fieldExplicitDefault(f);
-    const entry = rpResolve(model, f.typeName);
-    if (d !== null) return rpEntryRef(model, entry) + '::' + rpCamel(d);
-    return rpEntryRef(model, entry) + '::' + rpCamel(entry.enum.values[0].name);
-  }
-  const d = fieldExplicitDefault(f);
-  if (d === null) return '0';
-  if (f.type === FT.STRING) return JSON.stringify(d) + '.to_string()';
-  return d;
+  return runSegments(SEGMENT_PROGRAMS.rsPbDefault, f, '', model);
 }
-
 function rpVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return '(if ' + v + ' { 1u64 } else { 0u64 })';
-    case 17: return '((((' + v + ' << 1) ^ (' + v + ' >> 31)) as u32) as u64)';
-    case 18: return '(((' + v + ' << 1) ^ (' + v + ' >> 63)) as u64)';
-    default: return '(' + v + ' as u64)';
-  }
+  return runSegments(SEGMENT_PROGRAMS.rsPbVarintExpr, f, '', null, [v]);
 }
-
 function rpVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: case 15: return '(' + v + ' as u32 as i32)';
-    case 14: return v + '.to_i32()';
-    case 13: case 7: return '(' + v + ' as u32)';
-    case 8: return '(' + v + ' != 0)';
-    case 17: return '(((' + v + ' as u32 >> 1) as i32) ^ (-(((' + v + ' as u32) & 1) as i32)))';
-    case 18: return '(((' + v + ' >> 1) as i64) ^ (-((' + v + ' & 1) as i64)))';
-    case 4: case 6: return '(' + v + ' as u64)';
-    default: return '(' + v + ' as i64)';
-  }
+  return runSegments(SEGMENT_PROGRAMS.rsPbVarintDecode, f, '', null, [v]);
 }
-
 function rpFixedInfo(f) {
   return RP_FIXED[f.type] || null;
 }
@@ -2836,271 +2699,44 @@ function rpWire(f) {
 }
 
 function rpFixedEncodeExpr(f, v) {
-  switch (rpFixedInfo(f)[1]) {
-    case 'f64': return 'pb_append_fixed64(&mut out, ' + v + '.to_bits());';
-    case 'f32': return 'pb_append_fixed32(&mut out, ' + v + '.to_bits());';
-    case 'u64': return 'pb_append_fixed64(&mut out, ' + v + ');';
-    case 'i64': return 'pb_append_fixed64(&mut out, ' + v + ' as u64);';
-    case 'u32': return 'pb_append_fixed32(&mut out, ' + v + ');';
-    case 'i32': return 'pb_append_fixed32(&mut out, ' + v + ' as u32);';
-    default: throw new Error('bad fixed kind');
-  }
+  return runSegments(SEGMENT_PROGRAMS.rsPbFixedEncode, f, '', null, [v]);
 }
-
 function rpFixedDecodeExpr(f, src) {
-  switch (rpFixedInfo(f)[1]) {
-    case 'f64': return 'f64::from_bits(' + src + ')';
-    case 'f32': return 'f32::from_bits(' + src + ' as u32)';
-    case 'u64': return '(' + src + ' as u64)';
-    case 'i64': return '(' + src + ' as u64 as i64)';
-    case 'u32': return '(' + src + ' as u32)';
-    case 'i32': return '(' + src + ' as u32 as i32)';
-    default: throw new Error('bad fixed kind');
-  }
+  return runSegments(SEGMENT_PROGRAMS.rsPbFixedDecode, f, '', null, [src]);
 }
-
 function rpEncodeSingular(model, f, v, indent) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (RP_VARINT.has(f.type)) {
-    const expr = f.type === 14 ? '(' + v + '.to_i32() as u64)' : rpVarintExpr(f, v);
-    if (proto2) {
-      return indent + '{ pb_append_tag(&mut out, ' + n + ', 0); pb_append_varint(&mut out, ' + expr + '); }\n';
-    }
-    const cond = f.type === 8 ? v : v + ' != ' + rpDefault(model, { ...f, label: 1 });
-    return indent + 'if ' + cond + ' { pb_append_tag(&mut out, ' + n + ', 0); pb_append_varint(&mut out, ' + expr + '); }\n';
-  }
-  if (rpFixedInfo(f)) {
-    if (proto2) {
-      return indent + '{ pb_append_tag(&mut out, ' + n + ', ' + rpWire(f) + '); ' + rpFixedEncodeExpr(f, v) + ' }\n';
-    }
-    return indent + 'if ' + v + ' != ' + rpDefault(model, { ...f, label: 1 }) + ' { pb_append_tag(&mut out, ' + n + ', ' + rpWire(f) + '); ' + rpFixedEncodeExpr(f, v) + ' }\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + 'pb_append_bytes_field(&mut out, ' + n + ', ' + v + '.as_bytes());\n'
-      : indent + 'pb_append_string_field(&mut out, ' + n + ', &' + v + ');\n';
-    case 12: return proto2
-      ? indent + 'pb_append_bytes_field(&mut out, ' + n + ', &' + v + ');\n'
-      : indent + 'if !' + v + '.is_empty() { pb_append_bytes_field(&mut out, ' + n + ', &' + v + '); }\n';
-    case 11: return indent + 'if let Some(v) = &' + v + ' { pb_append_bytes_field(&mut out, ' + n + ', &v.encode()); }\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
+  return runSegments(SEGMENT_PROGRAMS.rsPbEncodeSingular, f, '', model, [v, indent]);
 }
-
-function rpSetExpr(sib) {
-  const v = 'self.' + rpFieldName(sib);
-  switch (sib.type) {
-    case 11: case 10: return v + '.is_some()';
-    case 9: case 12: return '!' + v + '.is_empty()';
-    case 8: return v;
-    case 14: return v + '.to_i32() != 0';
-    case 1: case 2: return v + ' != 0.0';
-    default: return v + ' != 0';
-  }
-}
-
-// Encode-side oneof clearing: suppress f when a later sibling is
-// set, so only the winning member is written.
-function rpEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '        if !(' + later.map(rpSetExpr).join(' || ') + ') {\n' + (code.endsWith('\n') ? code : code + '\n') + '        }\n';
-}
-
 function rpFixedEncodeExprPayload(f, v) {
-  switch (rpFixedInfo(f)[1]) {
-    case 'f64': return 'payload.extend_from_slice(&' + v + '.to_bits().to_le_bytes());';
-    case 'f32': return 'payload.extend_from_slice(&' + v + '.to_bits().to_le_bytes());';
-    case 'u64': return 'payload.extend_from_slice(&' + v + '.to_le_bytes());';
-    case 'i64': return 'payload.extend_from_slice(&(' + v + ' as u64).to_le_bytes());';
-    case 'u32': return 'payload.extend_from_slice(&' + v + '.to_le_bytes());';
-    case 'i32': return 'payload.extend_from_slice(&(' + v + ' as u32).to_le_bytes());';
-    default: throw new Error('bad fixed kind');
-  }
+  return runSegments(SEGMENT_PROGRAMS.rsPbFixedEncodePayload, f, '', null, [v]);
 }
-
 function rpEncodeField(model, f) {
-  const v = 'self.' + rpFieldName(f);
-  const n = f.number;
-  if (f.type === FT.MESSAGE && rpResolve(model, f.typeName).kind === 'map') {
-    const helper = 'pb_encode_' + rpEntryRef(model, rpResolve(model, f.typeName));
-    return '        { let mut keys: Vec<&_> = ' + v + '.keys().collect(); keys.sort(); for k in keys { let val = &' + v + '[k]; pb_append_bytes_field(&mut out, ' + n + ', &' + helper + '(k, val)); } }\n';
-  }
-  if (f.label !== 3) return rpEncodeSingular(model, f, v, '        ');
-  if (RP_VARINT.has(f.type)) {
-    return '        if !' + v + '.is_empty() {\n            let mut payload = Vec::new();\n'
-      + '            for x in &' + v + ' { pb_append_varint(&mut payload, ' + (f.type === 14 ? '((*x).to_i32() as u64)' : rpVarintExpr(f, '(*x)')) + '); }\n'
-      + '            pb_append_bytes_field(&mut out, ' + n + ', &payload);\n        }\n';
-  }
-  if (rpFixedInfo(f)) {
-    return '        if !' + v + '.is_empty() {\n            let mut payload = Vec::new();\n'
-      + '            for x in &' + v + ' { ' + rpFixedEncodeExprPayload(f, '(*x)') + ' }\n'
-      + '            pb_append_bytes_field(&mut out, ' + n + ', &payload);\n        }\n';
-  }
-  switch (f.type) {
-    case 9: return '        for x in &' + v + ' { pb_append_bytes_field(&mut out, ' + n + ', x.as_bytes()); }\n';
-    case 12: return '        for x in &' + v + ' { pb_append_bytes_field(&mut out, ' + n + ', x); }\n';
-    case 11: return '        for x in &' + v + ' { pb_append_bytes_field(&mut out, ' + n + ', &x.encode()); }\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.rsPbEncodeField, f, '', model);
 }
-
 function rpDecodeSingular(model, f, target, src, indent) {
-  if (RP_VARINT.has(f.type)) {
-    return indent + target + ' = ' + (f.type === 14
-      ? rpEntryRef(model, rpResolve(model, f.typeName)) + '::from_i32(' + src + ' as i32)'
-      : rpVarintDecode(f, src)) + ';\n';
-  }
-  if (rpFixedInfo(f)) return indent + target + ' = ' + rpFixedDecodeExpr(f, src) + ';\n';
-  switch (f.type) {
-    case 9: return indent + target + ' = String::from_utf8_lossy(&' + src + ').into_owned();\n';
-    case 12: return indent + target + ' = ' + src + ';\n';
-    case 11: return indent + target + ' = Some(Box::new(' + rpEntryRef(model, rpResolve(model, f.typeName)) + '::decode(&' + src + ')?));\n';
-    default: throw new Error('unsupported field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.rsPbDecodeSingular, f, '', model, [target, src, indent]);
 }
-
 function rpOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => '                    msg.' + rpFieldName(sib) + ' = ' + rpDefault(model, sib) + ';\n').join('');
+  return runSegments(SEGMENT_PROGRAMS.rsPbOneofClearing, f, '', model);
 }
-
 function rpFixedDecodeExpr32(f, src) {
-  switch (rpFixedInfo(f)[1]) {
-    case 'f32': return 'f32::from_bits(' + src + ' as u32)';
-    case 'u32': return '(' + src + ' as u32)';
-    case 'i32': return '(' + src + ' as u32 as i32)';
-    default: return rpFixedDecodeExpr(f, src);
-  }
+  return runSegments(SEGMENT_PROGRAMS.rsPbFixedDecode32, f, '', null, [src]);
 }
-
 function rpDecodeCase(model, f) {
-  const v = 'msg.' + rpFieldName(f);
-  const head = '                ' + f.number + ' => {\n';
-  const tail = '                }\n';
-  if (f.type === FT.MESSAGE && rpResolve(model, f.typeName).kind === 'map') {
-    const helper = 'pb_decode_' + rpEntryRef(model, rpResolve(model, f.typeName));
-    return head
-      + '                    let (kk, vv) = ' + helper + '(&field.bytes_value)?;\n'
-      + '                    ' + v + '.insert(kk, vv);\n'
-      + tail;
-  }
-  if (f.label !== 3) {
-    const src = RP_VARINT.has(f.type) ? 'field.varint_value' : (rpFixedInfo(f) ? 'field.fixed_value' : 'field.bytes_value');
-    return head + rpOneofClearing(model, f) + rpDecodeSingular(model, f, v, src, '                    ') + tail;
-  }
-  if (RP_VARINT.has(f.type)) {
-    const conv = (src) => f.type === 14
-      ? rpEntryRef(model, rpResolve(model, f.typeName)) + '::from_i32(' + src + ' as i32)'
-      : rpVarintDecode(f, src);
-    return head
-      + '                    if field.wire == 2 {\n                        let mut sub = PbReader::new(&field.bytes_value);\n                        while !sub.done() {\n                            let raw = sub.varint()?;\n'
-      + '                            ' + v + '.push(' + conv('raw') + ');\n'
-      + '                        }\n                    } else {\n'
-      + '                        ' + v + '.push(' + conv('field.varint_value') + ');\n'
-      + '                    }\n'
-      + tail;
-  }
-  if (rpFixedInfo(f)) {
-    const size = rpFixedInfo(f)[0];
-    const push = (src) => '                            ' + v + '.push(' + (size === 4 ? rpFixedDecodeExpr32(f, src) : rpFixedDecodeExpr(f, src)) + ');\n';
-    return head
-      + '                    if field.wire == 2 {\n                        let mut i = 0;\n                        while i < field.bytes_value.len() {\n'
-      + '                            let mut padded = [0u8; 8];\n                            padded[..' + size + '].copy_from_slice(&field.bytes_value[i..i + ' + size + ']);\n                            let chunk = u64::from_le_bytes(padded);\n'
-      + push('chunk')
-      + '                            i += ' + size + ';\n                        }\n                    } else {\n'
-      + '                        ' + v + '.push(' + rpFixedDecodeExpr(f, 'field.fixed_value') + ');\n'
-      + '                    }\n'
-      + tail;
-  }
-  switch (f.type) {
-    case 9: return head + '                    ' + v + '.push(String::from_utf8_lossy(&field.bytes_value).into_owned());\n' + tail;
-    case 12: return head + '                    ' + v + '.push(field.bytes_value.clone());\n' + tail;
-    case 11: return head + '                    ' + v + '.push(' + rpEntryRef(model, rpResolve(model, f.typeName)) + '::decode(&field.bytes_value)?);\n' + tail;
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.rsPbDecodeCase, f, '', model);
 }
-
 function rpDecodeSingularKv(model, f, target, field, indent) {
-  const varint = field + '.varint_value';
-  const fixed = field + '.fixed_value';
-  const bytes = field + '.bytes_value';
-  if (RP_VARINT.has(f.type)) {
-    return indent + target + ' = ' + (f.type === 14
-      ? rpEntryRef(model, rpResolve(model, f.typeName)) + '::from_i32(' + varint + ' as i32)'
-      : rpVarintDecode(f, varint)) + ';\n';
-  }
-  if (rpFixedInfo(f)) return indent + target + ' = ' + rpFixedDecodeExpr(f, fixed) + ';\n';
-  switch (f.type) {
-    case 9: return indent + target + ' = String::from_utf8_lossy(&' + bytes + ').into_owned();\n';
-    case 12: return indent + target + ' = ' + bytes + '.clone();\n';
-    case 11: return indent + target + ' = ' + rpEntryRef(model, rpResolve(model, f.typeName)) + '::decode(&' + bytes + ')?;\n';
-    default: throw new Error('unsupported map value type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.rsPbDecodeSingularKv, f, '', model, [target, field, indent]);
 }
-
 function rpMapHelpers(model, entry) {
-  const msg = entry.msg;
-  const base = rpEntryRef(model, entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry lacks key/value');
-  return 'fn pb_encode_' + base + '(key: &' + rpElemType(model, keyF) + ', value: &' + rpElemType(model, valF) + ') -> Vec<u8> {\n    let mut out = Vec::new();\n'
-    + rpEncodeSingular(model, { ...keyF, label: 1 }, '(*key)', '    ')
-    + (valF.type === 11
-      ? '    pb_append_bytes_field(&mut out, ' + valF.number + ', &value.encode());\n'
-      : rpEncodeSingular(model, { ...valF, label: 1 }, '(*value)', '    '))
-    + '    out\n}\n\n'
-    + 'fn pb_decode_' + base + '(data: &[u8]) -> Result<(' + rpElemType(model, keyF) + ', ' + rpElemType(model, valF) + '), String> {\n'
-    + '    let mut key: ' + rpElemType(model, keyF) + ' = ' + rpDefault(model, { ...keyF, label: 1 }) + ';\n'
-    + '    let mut value: ' + rpElemType(model, valF) + ' = ' + (valF.type === 11
-      ? rpElemType(model, valF) + '::default()'
-      : rpDefault(model, { ...valF, label: 1 })) + ';\n'
-    + '    let mut r = PbReader::new(data);\n    while let Some(field) = r.next()? {\n        match field.number {\n'
-    + '            ' + keyF.number + ' => {\n' + rpDecodeSingularKv(model, { ...keyF, label: 1 }, 'key', 'field', '                ') + '            }\n'
-    + '            ' + valF.number + ' => {\n' + rpDecodeSingularKv(model, { ...valF, label: 1 }, 'value', 'field', '                ') + '            }\n'
-    + '            _ => {}\n        }\n    }\n    Ok((key, value))\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.rsPbMapHelpers, entry, '', model);
 }
-
 function rpEnumNamed(model, full, e) {
-  const name = rpFlat(model.package, full);
-  // Static text comes from RP_ENUM_SHAPE, serialized from the
-  // shared rust-enum-shape table in spec.rkt (same source the
-  // native template formats) — edit the table, not this code.
-  const S = RP_ENUM_SHAPE;
-  return rpFmt(S.header, name)
-    + e.values.map((v, i) => rpFmt(S.value, i === 0 ? S.defaultMark : '', rpCamel(v.name), v.number)).join('')
-    + S.unknownVariant
-    + rpFmt(S.implOpen, name)
-    + e.values.map((v) => rpFmt(S.fromArm, v.number, name, rpCamel(v.name))).join('')
-    + rpFmt(S.unknownFromArm, name)
-    + S.toOpen
-    + e.values.map((v) => rpFmt(S.toArm, name, rpCamel(v.name), v.number)).join('')
-    + rpFmt(S.unknownToArm, name);
+  return runSegments(SEGMENT_PROGRAMS.rsPbEnumNamed, e, '', model, [full]);
 }
-
 function rpMessageStruct(model, msg) {
-  const name = rpFlat(model.package, msg.fullName);
-  return msg.enums.map((e) => rpEnumNamed(model, msg.fullName + '.' + e.name, e)).join('')
-    + '#[derive(Clone, Debug, PartialEq)]\npub struct ' + name + ' {\n'
-    + msg.fields.map((f) => '    pub ' + rpFieldName(f) + ': ' + rpType(model, f) + ',\n').join('')
-    + '    pub unknown_fields: Vec<u8>,\n}\n\n'
-    + 'impl Default for ' + name + ' {\n    fn default() -> Self {\n        Self {\n'
-    + msg.fields.map((f) => '            ' + rpFieldName(f) + ': ' + rpDefault(model, f) + ',\n').join('')
-    + '            unknown_fields: Vec::new(),\n        }\n    }\n}\n\n'
-    + 'impl ' + name + ' {\n    pub fn encode(&self) -> Vec<u8> {\n        let mut out = Vec::new();\n'
-    + msg.fields.map((f) => rpEncodeGuard(model, f, rpEncodeField(model, f))).join('')
-    + '        out.extend_from_slice(&self.unknown_fields);\n'
-    + '        out\n    }\n\n'
-    + '    pub fn decode(bytes: &[u8]) -> Result<Self, String> {\n        let mut msg = Self::default();\n        let mut reader = PbReader::new(bytes);\n        while let Some(field) = reader.next()? {\n            match field.number {\n'
-    + msg.fields.map((f) => rpDecodeCase(model, f)).join('')
-    + '                _ => {\n                    msg.unknown_fields.extend_from_slice(&field.raw_value);\n                }\n'
-    + '            }\n        }\n        Ok(msg)\n    }\n}\n\n'
-    + msg.nested.map((n) => rpMessageStruct(model, n)).join('');
+  return runSegments(SEGMENT_PROGRAMS.rsPbMessage, msg, '', model);
 }
-
-let rpNoStd = false;
-
 function rpMapType() {
   return rpNoStd ? 'BTreeMap' : 'std::collections::HashMap';
 }
