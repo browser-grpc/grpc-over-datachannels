@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Playwright real-browser test: native RTCDataChannel + grpc-dc JS client against the reimplemented Node WebRTC stack.",
   "scripts": {
-    "test": "node test.mjs && node bdd.test.mjs all && node go_server.test.mjs && node browser_server.test.mjs && node dtls_server.test.mjs all && node turn.test.mjs all && node direct_turn.test.mjs && node trickle.test.mjs all && node close.test.mjs all && node restart.test.mjs all"
+    "test": "node test.mjs && node bdd.test.mjs all && node go_server.test.mjs && node browser_server.test.mjs && node dtls_server.test.mjs all && node turn.test.mjs all && node direct_turn.test.mjs all && node trickle.test.mjs all && node close.test.mjs all && node restart.test.mjs all"
   },
   "devDependencies": {
     "playwright": "^1.64.1"

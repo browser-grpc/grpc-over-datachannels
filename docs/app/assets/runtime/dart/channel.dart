@@ -32,6 +32,18 @@ class ClientStream {
     }
   }
 
+  /// Send one request message on an open stream (no half-close).
+  void send(Marshaler msg) {
+    _endpoint.sendFrame(
+        Codec.encodeFrame(Wire.frameData, streamId, msg.marshalDc()));
+  }
+
+  /// Half-close an open stream (no more requests).
+  void halfClose() {
+    _endpoint.sendFrame(
+        Codec.encodeFrame(Wire.frameHalfClose, streamId, Uint8List(0)));
+  }
+
   /// Abort this stream (sends RST, wakes a pending recv).
   /// After normal completion this just closes locally.
   void cancel() {
@@ -216,6 +228,13 @@ class Channel {
     } finally {
       endpoint.closeStream(stream.streamId);
     }
+  }
+
+  /// Open a stream without sending anything: drive it with
+  /// ClientStream.send / halfClose / recv / cancel.
+  Future<ClientStream> openStream(String path,
+      {Map<String, String>? metadata, Duration? timeout}) {
+    return _open(path, metadata, timeout: timeout);
   }
 
   /// Start a bidi call with all requests sent up front.

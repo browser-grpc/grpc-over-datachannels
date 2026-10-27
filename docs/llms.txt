@@ -1,0 +1,10 @@
+# grpc-over-datachannels
+
+gRPC over WebRTC DataChannels: the gRPC wire protocol spoken directly over a single RTCDataChannel, so browser tabs and native programs call each other peer-to-peer with no grpc-web proxy and no external gRPC runtime.
+
+Dependency-free generated gRPC clients and servers for JavaScript, Go, Rust, Python, Java, C#, C++, Swift, Kotlin, Dart, Zig, C, Lua, Ruby, PHP, and Scala, plus a zero-dependency WebRTC stack (ICE/DTLS/SCTP/DCEP) and a TCP<->DataChannel proxy that bridges browsers to stock HTTP/2 gRPC backends. Generated runtimes are graded against Google's official grpc-java and grpc-go interop clients and servers.
+
+Site: https://browser-grpc.github.io/grpc-over-datachannels/
+Repository: https://github.com/browser-grpc/grpc-over-datachannels
+npm: https://www.npmjs.com/package/grpc-dc
+PyPI: https://pypi.org/project/grpc-dc/

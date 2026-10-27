@@ -5,6 +5,9 @@ import 'dart:typed_data';
 
 import '../examples/empty_messages.dart';
 import '../examples/messages_messages.dart';
+import '../examples/orca_grpc_dc.dart';
+import '../examples/orca_load_report_messages.dart';
+import '../examples/orca_messages.dart';
 import '../examples/test_grpc_dc.dart';
 import '../examples/stdio_transport.dart';
 import '../grpcdc/channel.dart';
@@ -48,7 +51,7 @@ Future<void> _expectStatus(int code, String message, String what, Future<void> F
   throw StateError('$what: expected status $code, call succeeded');
 }
 
-Future<void> _runCases(TestServiceClient client, UnimplementedServiceClient unimpl) async {
+Future<void> _runCases(Channel channel, TestServiceClient client, UnimplementedServiceClient unimpl) async {
   for (final row in interopCases) {
     final name = row[0] as String;
     final kind = row[1] as String;
@@ -179,6 +182,62 @@ Future<void> _runCases(TestServiceClient client, UnimplementedServiceClient unim
           });
         }
         break;
+      case 'SPECIAL_STATUS':
+        {
+          final req = SimpleRequest();
+          req.responseStatus = EchoStatus(statusCode, statusMessage);
+          await _expectStatus(statusCode, statusMessage, name, () async {
+            await client.unaryCall(req);
+          });
+        }
+        break;
+      case 'CANCEL_AFTER_BEGIN':
+        {
+          // Begin a client-streaming call and cancel it before
+          // sending any request: the pending recv must report
+          // CANCELLED.
+          final stream = await channel.openStream('/grpc.testing.TestService/StreamingInputCall');
+          stream.cancel();
+          await _expectStatus(statusCode, '', name, () async {
+            await stream.recv(StreamingInputCallResponse());
+          });
+        }
+        break;
+      case 'CANCEL_AFTER_FIRST':
+        {
+          // Duplex call (no half-close): the server answers the
+          // one request, then waits for more input, so the cancel
+          // deterministically lands mid-call (same shape as the
+          // Python/JS suites).
+          final stream = await channel.openStream('/grpc.testing.TestService/FullDuplexCall');
+          stream.send(_streamRequest([respSizes[0]], 1));
+          final resp = StreamingOutputCallResponse();
+          await stream.recv(resp);
+          check(resp.payload!.body.length == respSizes[0], '$name: body ${resp.payload!.body.length}');
+          stream.cancel();
+          await _expectStatus(statusCode, '', name, () async {
+            await stream.recv(StreamingOutputCallResponse());
+          });
+        }
+        break;
+      case 'TIMEOUT_SLEEPING':
+        {
+          final req = StreamingOutputCallRequest();
+          req.payload = _payload(0);
+          for (final size in respSizes) {
+            req.responseParameters.add(ResponseParameters(size, 1000000));
+          }
+          await _expectStatus(statusCode, '', name, () async {
+            final stream = await client.streamingOutputCall(req,
+                timeout: const Duration(milliseconds: 100));
+            try {
+              await stream.recv();
+            } finally {
+              stream.close();
+            }
+          });
+        }
+        break;
       case 'UNIMPLEMENTED_METHOD':
         await _expectStatus(statusCode, '', name, () async {
           await client.unimplementedCall(Empty());
@@ -194,6 +253,134 @@ Future<void> _runCases(TestServiceClient client, UnimplementedServiceClient unim
     }
     print('interop case ok: $name');
   }
+}
+
+// Compression rows (upstream client_compressed_unary,
+// client_compressed_streaming, server_compressed_unary,
+// server_compressed_streaming): the DataChannel wire is
+// compression-free; the client declares grpc-encoding: gzip
+// and the bridge gzips request messages on the HTTP/2 hop,
+// decompressing responses the same way.
+Future<void> _runCompressionCases(TestServiceClient client) async {
+  const gzip = {'grpc-encoding': 'gzip'};
+  {
+    final req = SimpleRequest();
+    req.responseSize = 31415;
+    req.payload = _payload(271828);
+    req.expectCompressed = BoolValue(true);
+    final resp = await client.unaryCall(req, metadata: gzip);
+    check(resp.payload!.body.length == 31415, 'client_compressed_unary: body');
+    print('interop case ok: client_compressed_unary');
+  }
+  {
+    final sizes = [27182, 8, 1828, 45904];
+    final reqs = sizes.map((s) {
+      final r = StreamingInputCallRequest();
+      r.payload = _payload(s);
+      r.expectCompressed = BoolValue(true);
+      return r;
+    }).toList();
+    final resp = await client.streamingInputCall(reqs, metadata: gzip);
+    final total = sizes.fold<int>(0, (a, b) => a + b);
+    check(resp.aggregatedPayloadSize == total,
+        'client_compressed_streaming: aggregated ${resp.aggregatedPayloadSize}');
+    print('interop case ok: client_compressed_streaming');
+  }
+  {
+    final req = SimpleRequest();
+    req.responseSize = 31415;
+    req.payload = _payload(271828);
+    req.responseCompressed = BoolValue(true);
+    final resp = await client.unaryCall(req);
+    check(resp.payload!.body.length == 31415, 'server_compressed_unary: body');
+    print('interop case ok: server_compressed_unary');
+  }
+  {
+    final sizes = [31415, 9, 2653, 58979];
+    final req = StreamingOutputCallRequest();
+    req.payload = _payload(0);
+    for (final size in sizes) {
+      req.responseParameters.add(ResponseParameters(size, 0, BoolValue(true)));
+    }
+    final stream = await client.streamingOutputCall(req);
+    try {
+      for (final size in sizes) {
+        final resp = await stream.recv();
+        check(resp.payload!.body.length == size,
+            'server_compressed_streaming: body ${resp.payload!.body.length}');
+      }
+    } finally {
+      stream.close();
+    }
+    print('interop case ok: server_compressed_streaming');
+  }
+}
+
+// ORCA rows (upstream orca_per_rpc / orca_oob): per-RPC the
+// report returns as the serialized OrcaLoadReport in the
+// endpoint-load-metrics-bin trailer (base64 -bin value); OOB the
+// value fed through FullDuplexCall comes back on the
+// OpenRcaService StreamCoreMetrics stream.
+Future<void> _runOrcaCases(Channel channel, TestServiceClient client) async {
+  final req = SimpleRequest();
+  req.orcaPerQueryReport = TestOrcaReport(0.8210, 0.5847)
+    ..requestCost['cost'] = 3456.32
+    ..utilization['util'] = 0.30499;
+  final stream = await channel.serverStream('/grpc.testing.TestService/UnaryCall', req);
+  try {
+    final resp = SimpleResponse();
+    await stream.recv(resp);
+    try {
+      await stream.recv(SimpleResponse());
+      throw StateError('orca_per_rpc: expected EOF');
+    } on EndOfStreamError {
+      // end of stream: trailers now readable
+    }
+    final encoded = stream.trailers?['endpoint-load-metrics-bin'];
+    check(encoded != null, 'orca_per_rpc: no endpoint-load-metrics-bin trailer');
+    final report = OrcaLoadReport();
+    report.unmarshalDc(base64Decode(base64.normalize(encoded!)));
+    check(
+        report.cpuUtilization == 0.8210 &&
+            report.memUtilization == 0.5847 &&
+            report.requestCost['cost'] == 3456.32 &&
+            report.utilization['util'] == 0.30499,
+        'orca_per_rpc: report ${report.cpuUtilization}/${report.memUtilization}');
+  } finally {
+    stream.close();
+  }
+  print('interop case ok: orca_per_rpc');
+
+  final feedReq = StreamingOutputCallRequest();
+  feedReq.orcaOobReport = TestOrcaReport(0.9, 0.85)..utilization['util'] = 0.5;
+  final feed = await client.fullDuplexCall([feedReq]);
+  try {
+    try {
+      while (true) {
+        await feed.recv();
+      }
+    } on EndOfStreamError {
+      // feed call completed
+    }
+  } finally {
+    feed.close();
+  }
+  final orca = OpenRcaServiceClient(channel);
+  var matched = false;
+  final metrics = await orca.streamCoreMetrics(OrcaLoadReportRequest());
+  try {
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
+    while (!matched && DateTime.now().isBefore(deadline)) {
+      final got = await metrics.recv();
+      matched = got.cpuUtilization == 0.9 &&
+          got.memUtilization == 0.85 &&
+          got.utilization['util'] == 0.5;
+    }
+  } finally {
+    metrics.close();
+  }
+  check(matched, 'orca_oob: no matching OOB report within 30s');
+  print('interop case ok: orca_oob');
 }
 
 Future<void> testInteropOracle() async {
@@ -233,7 +420,10 @@ Future<void> testInteropOracle() async {
     try {
       final transport = StdioTransport(bridge.stdout, bridge.stdin.add);
       final channel = Channel(transport);
-      await _runCases(TestServiceClient(channel), UnimplementedServiceClient(channel));
+      final client = TestServiceClient(channel);
+      await _runCases(channel, client, UnimplementedServiceClient(channel));
+      await _runCompressionCases(client);
+      await _runOrcaCases(channel, client);
     } finally {
       bridge.kill(ProcessSignal.sigkill);
     }

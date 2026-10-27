@@ -20,6 +20,8 @@ object Main {
         case "TestBddSchemas" => testBddSchemas()
         case "TestSidecar" => testSidecar()
         case "TestInteropOracle" => testInteropOracle()
+        case "TestInteropServerOracle" => testInteropServerOracle()
+        case "TestHttp2Oracle" => testHttp2Oracle()
         case other =>
           System.err.println(s"unknown test: $other")
           System.exit(2)

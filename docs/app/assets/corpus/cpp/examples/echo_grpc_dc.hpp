@@ -42,6 +42,9 @@ struct EchoGrpcDc {
       /// Trailing metadata of the terminal status.
       const grpcdc::Metadata& Trailers() const { return stream_.trailers(); }
 
+      /// Abort this stream (sends RST, wakes a pending Recv).
+      void Cancel() { stream_.Cancel(); }
+
      private:
       grpcdc::Channel::ClientStream stream_;
     };
@@ -61,6 +64,9 @@ struct EchoGrpcDc {
 
       /// Trailing metadata of the terminal status.
       const grpcdc::Metadata& Trailers() const { return stream_.trailers(); }
+
+      /// Abort this stream (sends RST, wakes a pending Recv).
+      void Cancel() { stream_.Cancel(); }
 
      private:
       grpcdc::Channel::ClientStream stream_;

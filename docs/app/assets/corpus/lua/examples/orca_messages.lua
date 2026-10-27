@@ -114,7 +114,7 @@ function Reader:next()
   error("bad wire type")
 end
 
-local orca_load_report_messagesMessages = require("orca_load_report_messages")
+local orca_load_report_messagesMessages = require("examples.orca_load_report_messages")
 
 local OrcaLoadReportRequest
 OrcaLoadReportRequest = {}

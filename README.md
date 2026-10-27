@@ -35,7 +35,7 @@ paste a `.proto`, get protoc stubs for every language. Keywords:
 `rtcdatachannel`, `protobuf`, `protoc plugin`, `wasm`,
 `browser rpc`, `peer-to-peer`.
 
-This repository is a generated public export (version v0.32.14)
+This repository is a generated public export (version v0.32.15)
 of the grpc-over-datachannels project. Generated code may be used
 without restriction (see GENERATED-CODE-LICENSE.md); everything
 else is Apache-2.0 (see LICENSE).
@@ -189,7 +189,7 @@ table runs natively in every language above and in real browsers.
 
 ## Provenance
 
-Exported from source commit `0256dcc65de41db4708ec7096802638a757c1d3b` by the project's
+Exported from source commit `93af9410ef812d7c5fbf3cccbb42a4e9f791dd6a` by the project's
 code generator. This tree contains no build system: each language
 directory carries its runtime, generated stubs, examples, and
 tests in that language's usual layout.

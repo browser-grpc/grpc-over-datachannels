@@ -42,12 +42,29 @@ function StreamInput:hasData()
   return self.first <= self.last
 end
 
---- Monotonic clock in seconds: the WASM/browser host provides
---- host_now (no os library there); native Lua uses os.clock.
---- Returns nil when no clock exists (deadlines then propagate
---- but are not enforced locally).
+--- Wall clock in seconds: the WASM/browser host provides
+--- host_now (no os library there). Natively, combine os.time
+--- (wall, one-second steps; os.clock alone is CPU time on
+--- POSIX and never advances while blocked on a transport) with
+--- the CPU-time delta since an anchor reading: the estimate
+--- carries sub-second resolution while the process runs, and
+--- the os.time floor keeps it honest while blocked. Returns
+--- nil when no clock exists (deadlines then propagate but are
+--- not enforced locally).
+local wallAnchor, clockAnchor
 local function nowSeconds()
   if host_now ~= nil then return host_now() end
+  if os ~= nil and os.time ~= nil then
+    local wall = os.time()
+    if os.clock == nil then return wall end
+    if wallAnchor == nil then
+      wallAnchor, clockAnchor = wall, os.clock()
+    end
+    local est = wallAnchor + (os.clock() - clockAnchor)
+    if est < wall then return wall end
+    if est > wall + 0.999 then return wall + 0.999 end
+    return est
+  end
   if os ~= nil and os.clock ~= nil then return os.clock() end
   return nil
 end

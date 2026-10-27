@@ -12,4 +12,5 @@ pub const channel = @import("channel.zig");
 pub const server = @import("server.zig");
 pub const memory_transport = @import("memory_transport.zig");
 pub const sidecar_transport = @import("sidecar_transport.zig");
+pub const http2_transport = @import("http2_transport.zig");
 pub const dynamic = @import("dynamic.zig");

@@ -9,6 +9,7 @@ void TestCodec();
 void TestEcho();
 void TestInterop();
 void TestInteropOracle();
+void TestInteropServerOracle();
 void TestOracle();
 void TestDynamic();
 void TestBdd();
@@ -37,6 +38,8 @@ int main(int argc, char** argv) {
       tests::TestInterop();
     } else if (name == "TestInteropOracle") {
       tests::TestInteropOracle();
+    } else if (name == "TestInteropServerOracle") {
+      tests::TestInteropServerOracle();
     } else if (name == "TestOracle") {
       tests::TestOracle();
     } else if (name == "TestDynamic") {

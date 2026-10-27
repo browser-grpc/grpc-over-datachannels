@@ -5,6 +5,7 @@
 # DataChannel). Skips when the Go server binary is not built
 # (Dockerfile.ci builds it).
 
+require "base64"
 require "open3"
 require "socket"
 require "grpcdc"
@@ -51,7 +52,7 @@ module TestInteropOracle
     sizes
   end
 
-  def self.run_cases(client, unimpl)
+  def self.run_cases(channel, client, unimpl)
     INTEROP_CASES.each do |c|
       what = "interop #{c['name']}"
       case c["kind"]
@@ -123,6 +124,46 @@ module TestInteropOracle
           stream.recv
         end
         stream.close
+      when "SPECIAL_STATUS"
+        req = MessagesPb::SimpleRequest.new(
+          response_status: MessagesPb::EchoStatus.new(
+            code: c["status_code"], message: c["status_message"]))
+        expect_status(what, c["status_code"], c["status_message"]) do
+          client.UnaryCall(req)
+        end
+      when "CANCEL_AFTER_BEGIN"
+        # Begin a client-streaming call and cancel it before
+        # sending any request: the pending recv must report
+        # CANCELLED.
+        stream = channel.open_stream("/grpc.testing.TestService/StreamingInputCall", nil)
+        stream.cancel
+        expect_status(what, c["status_code"], nil) do
+          stream.recv(MessagesPb::StreamingInputCallResponse.new)
+        end
+      when "CANCEL_AFTER_FIRST"
+        # Duplex call (no half-close): the server answers the one
+        # request, then waits for more input, so the cancel
+        # deterministically lands mid-call (same shape as the
+        # Python/JS suites).
+        stream = channel.open_stream("/grpc.testing.TestService/FullDuplexCall", nil)
+        channel.send_message(stream, out_req([c["resp_sizes"][0]]))
+        resp = MessagesPb::StreamingOutputCallResponse.new
+        stream.recv(resp)
+        TestUtil.assert_eq(resp.payload.body.bytesize, c["resp_sizes"][0], what)
+        stream.cancel
+        expect_status(what, c["status_code"], nil) do
+          stream.recv(MessagesPb::StreamingOutputCallResponse.new)
+        end
+      when "TIMEOUT_SLEEPING"
+        req = MessagesPb::StreamingOutputCallRequest.new
+        req.response_parameters = c["resp_sizes"].map do |s|
+          MessagesPb::ResponseParameters.new(size: s, interval_us: 1000000)
+        end
+        req.payload = payload(0)
+        expect_status(what, c["status_code"], nil) do
+          stream = client.StreamingOutputCall(req, nil, timeout: 0.1)
+          loop { stream.recv }
+        end
       when "UNIMPLEMENTED_METHOD"
         expect_status(what, c["status_code"], nil) do
           client.UnimplementedCall(EmptyPb::Empty.new)
@@ -138,8 +179,108 @@ module TestInteropOracle
     end
   end
 
+  # Compression rows (upstream client_compressed_unary,
+  # client_compressed_streaming, server_compressed_unary,
+  # server_compressed_streaming): the DataChannel wire is
+  # compression-free; the client declares grpc-encoding: gzip
+  # and the bridge gzips request messages on the HTTP/2 hop,
+  # decompressing responses the same way.
+  def self.run_compression_cases(client)
+    gzip = { "grpc-encoding" => "gzip" }
+    req = MessagesPb::SimpleRequest.new(
+      response_size: 31415, payload: payload(271828),
+      expect_compressed: MessagesPb::BoolValue.new(value: true))
+    resp = client.UnaryCall(req, gzip)
+    TestUtil.assert_eq(resp.payload.body.bytesize, 31415, "client_compressed_unary")
+    puts "interop case ok: client_compressed_unary"
+
+    sizes = [27182, 8, 1828, 45904]
+    reqs = sizes.map do |s|
+      MessagesPb::StreamingInputCallRequest.new(
+        payload: payload(s),
+        expect_compressed: MessagesPb::BoolValue.new(value: true))
+    end
+    resp = client.StreamingInputCall(reqs, gzip)
+    TestUtil.assert_eq(resp.aggregated_payload_size, sizes.sum, "client_compressed_streaming")
+    puts "interop case ok: client_compressed_streaming"
+
+    req = MessagesPb::SimpleRequest.new(
+      response_size: 31415, payload: payload(271828),
+      response_compressed: MessagesPb::BoolValue.new(value: true))
+    resp = client.UnaryCall(req)
+    TestUtil.assert_eq(resp.payload.body.bytesize, 31415, "server_compressed_unary")
+    puts "interop case ok: server_compressed_unary"
+
+    sizes = [31415, 9, 2653, 58979]
+    req = MessagesPb::StreamingOutputCallRequest.new
+    req.response_parameters = sizes.map do |s|
+      MessagesPb::ResponseParameters.new(size: s, compressed: MessagesPb::BoolValue.new(value: true))
+    end
+    req.payload = payload(0)
+    stream = client.StreamingOutputCall(req)
+    TestUtil.assert_eq(recv_all(stream), sizes, "server_compressed_streaming")
+    stream.close
+    puts "interop case ok: server_compressed_streaming"
+  end
+
+  # ORCA rows (upstream orca_per_rpc / orca_oob): per-RPC the
+  # report returns as the serialized OrcaLoadReport in the
+  # endpoint-load-metrics-bin trailer (base64 -bin value); OOB
+  # the value fed through FullDuplexCall comes back on the
+  # OpenRcaService StreamCoreMetrics stream.
+  def self.run_orca_cases(channel, client)
+    req = MessagesPb::SimpleRequest.new(
+      orca_per_query_report: MessagesPb::TestOrcaReport.new(
+        cpu_utilization: 0.8210, memory_utilization: 0.5847,
+        request_cost: { "cost" => 3456.32 }, utilization: { "util" => 0.30499 }))
+    stream = channel.server_stream("/grpc.testing.TestService/UnaryCall", req)
+    stream.recv(MessagesPb::SimpleResponse.new)
+    begin
+      stream.recv(MessagesPb::SimpleResponse.new)
+      TestUtil.check(false, "orca_per_rpc: expected EOF")
+    rescue EOFError
+      nil # end of stream: trailers now readable
+    end
+    encoded = stream.trailers && stream.trailers["endpoint-load-metrics-bin"]
+    TestUtil.check(!encoded.nil?, "orca_per_rpc: no endpoint-load-metrics-bin trailer")
+    report = OrcaLoadReportPb::OrcaLoadReport.new
+    report.unmarshal_dc(Base64.decode64(encoded))
+    TestUtil.check(
+      report.cpu_utilization == 0.8210 && report.mem_utilization == 0.5847 &&
+        report.request_cost["cost"] == 3456.32 && report.utilization["util"] == 0.30499,
+      "orca_per_rpc: report mismatch")
+    stream.close
+    puts "interop case ok: orca_per_rpc"
+
+    feed_req = MessagesPb::StreamingOutputCallRequest.new(
+      orca_oob_report: MessagesPb::TestOrcaReport.new(
+        cpu_utilization: 0.9, memory_utilization: 0.85, utilization: { "util" => 0.5 }))
+    feed = client.FullDuplexCall([feed_req])
+    begin
+      loop { feed.recv }
+    rescue EOFError
+      nil # feed call completed
+    end
+    feed.close
+    orca = OrcaGrpcDc::OpenRcaServiceClient.new(channel)
+    metrics = orca.StreamCoreMetrics(OrcaPb::OrcaLoadReportRequest.new, nil, timeout: 30)
+    matched = false
+    30.times do
+      got = metrics.recv
+      if got.cpu_utilization == 0.9 && got.mem_utilization == 0.85 &&
+         got.utilization["util"] == 0.5
+        matched = true
+        break
+      end
+    end
+    TestUtil.check(matched, "orca_oob: no matching OOB report")
+    metrics.close
+    puts "interop case ok: orca_oob"
+  end
+
   def self.run
     require "interop/test_grpc_dc"
+    require "interop/orca_grpc_dc"
     require "stdio"
 
     root = TestUtil.root
@@ -170,7 +311,9 @@ module TestInteropOracle
       channel = Grpcdc::Channel.new(transport)
       client = TestGrpcDc::TestServiceClient.new(channel)
       unimpl = TestGrpcDc::UnimplementedServiceClient.new(channel)
-      run_cases(client, unimpl)
+      run_cases(channel, client, unimpl)
+      run_compression_cases(client)
+      run_orca_cases(channel, client)
     ensure
       OracleCleanup.kill(bridge_wait)
       OracleCleanup.kill(server_wait)

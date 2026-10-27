@@ -1,0 +1,240 @@
+#pragma once
+// TestService implementation (grpc.testing) over the generated
+// C++ server, mirroring the reference TestServiceImpl semantics
+// the interop cases grade. Used by the Direction-B interop tests
+// (official clients vs generated servers). Mirrors
+// js/test/interop_service.js.
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
+#include "examples/messages_messages.hpp"
+#include "examples/orca_grpc_dc.hpp"
+#include "examples/orca_load_report_messages.hpp"
+#include "examples/test_grpc_dc.hpp"
+#include "grpcdc/endpoint.hpp"
+#include "grpcdc/status.hpp"
+
+namespace grpc::testing {
+
+class InteropServiceImpl : public TestGrpcDc::TestServiceServer,
+                           public xds::service::orca::v3::OrcaGrpcDc::OpenRcaServiceServer {
+ public:
+  // Latest ORCA out-of-band report (full-duplex updates).
+  inline static xds::data::orca::v3::OrcaLoadReport* oob_report = nullptr;
+
+  Empty EmptyCall(grpcdc::Endpoint::CallContext& ctx, Empty& req) override {
+    EchoMetadata(ctx);
+    return Empty();
+  }
+
+  SimpleResponse UnaryCall(grpcdc::Endpoint::CallContext& ctx,
+                           SimpleRequest& req) override {
+    EchoMetadata(ctx);
+    CompressionChecks(ctx, OptPtr(req.expect_compressed), OptPtr(req.response_compressed));
+    if (req.orca_per_query_report) {
+      const TestOrcaReport& report = *req.orca_per_query_report;
+      xds::data::orca::v3::OrcaLoadReport out;
+      out.cpu_utilization = report.cpu_utilization;
+      out.mem_utilization = report.memory_utilization;
+      out.request_cost = report.request_cost;
+      out.utilization = report.utilization;
+      SetOrcaTrailer(ctx, out);
+    } else if (oob_report != nullptr) {
+      SetOrcaTrailer(ctx, *oob_report);
+    }
+    return UnaryResponse(req);
+  }
+
+  SimpleResponse CacheableUnaryCall(grpcdc::Endpoint::CallContext& ctx,
+                                    SimpleRequest& req) override {
+    EchoMetadata(ctx);
+    MaybeFail(OptPtr(req.response_status));
+    SimpleResponse resp;
+    resp.payload = req.payload;
+    return resp;
+  }
+
+  void StreamingOutputCall(StreamingOutputCallRequest& req,
+                           TestGrpcDc::TestServiceStreamingOutputCallServer& stream) override {
+    EchoMetadata(stream.Context());
+    SendResponses(req, [&](StreamingOutputCallResponse& resp) { stream.Send(resp); });
+  }
+
+  void StreamingInputCall(TestGrpcDc::TestServiceStreamingInputCallServer& stream) override {
+    EchoMetadata(stream.Context());
+    std::int32_t total = 0;
+    while (true) {
+      StreamingInputCallRequest req;
+      try {
+        req = stream.Recv();
+      } catch (const grpcdc::EndOfStream&) {
+        break;
+      }
+      if (req.expect_compressed && req.expect_compressed->value &&
+          MetadataGet(stream.Context().metadata, "grpc-encoding") != "gzip") {
+        throw grpcdc::StatusException(grpcdc::wire::kCodeInvalidArgument,
+                                      "expected compressed request, got uncompressed");
+      }
+      if (req.payload) total += static_cast<std::int32_t>(req.payload->body.size());
+    }
+    StreamingInputCallResponse resp;
+    resp.aggregated_payload_size = total;
+    stream.SendAndClose(resp);
+  }
+
+  void FullDuplexCall(TestGrpcDc::TestServiceFullDuplexCallServer& stream) override {
+    EchoMetadata(stream.Context());
+    while (true) {
+      StreamingOutputCallRequest req;
+      try {
+        req = stream.Recv();
+      } catch (const grpcdc::EndOfStream&) {
+        return;
+      }
+      if (req.orca_oob_report) {
+        auto* out = new xds::data::orca::v3::OrcaLoadReport();
+        out->cpu_utilization = req.orca_oob_report->cpu_utilization;
+        out->mem_utilization = req.orca_oob_report->memory_utilization;
+        out->utilization = req.orca_oob_report->utilization;
+        delete oob_report;
+        oob_report = out;
+      }
+      SendResponses(req, [&](StreamingOutputCallResponse& resp) { stream.Send(resp); });
+    }
+  }
+
+  void HalfDuplexCall(TestGrpcDc::TestServiceHalfDuplexCallServer& stream) override {
+    EchoMetadata(stream.Context());
+    std::vector<StreamingOutputCallRequest> collected;
+    while (true) {
+      try {
+        collected.push_back(stream.Recv());
+      } catch (const grpcdc::EndOfStream&) {
+        break;
+      }
+    }
+    for (const auto& req : collected) {
+      SendResponses(req, [&](StreamingOutputCallResponse& resp) { stream.Send(resp); });
+    }
+  }
+
+  Empty UnimplementedCall(grpcdc::Endpoint::CallContext& ctx, Empty& req) override {
+    throw grpcdc::StatusException(grpcdc::wire::kCodeUnimplemented, "not implemented");
+  }
+
+  // OpenRcaService (ORCA out-of-band): stream the current OOB
+  // report on an interval until the client goes away.
+  void StreamCoreMetrics(xds::service::orca::v3::OrcaLoadReportRequest& req,
+                         xds::service::orca::v3::OrcaGrpcDc::OpenRcaServiceStreamCoreMetricsServer& stream) override {
+    while (true) {
+      xds::data::orca::v3::OrcaLoadReport empty;
+      stream.Send(oob_report != nullptr ? *oob_report : empty);
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+  }
+
+ private:
+  static const std::string* MetadataFind(const grpcdc::Metadata& md, const std::string& key) {
+    auto it = md.find(key);
+    return it == md.end() ? nullptr : &it->second;
+  }
+
+  static std::string MetadataGet(const grpcdc::Metadata& md, const std::string& key) {
+    const std::string* v = MetadataFind(md, key);
+    return v != nullptr ? *v : "";
+  }
+
+  static std::string Base64Encode(const grpcdc::Bytes& data) {
+    static const char* kTab =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    for (std::size_t i = 0; i < data.size(); i += 3) {
+      std::uint32_t v = static_cast<std::uint32_t>(data[i]) << 16;
+      std::size_t rem = data.size() - i;
+      if (rem > 1) v |= static_cast<std::uint32_t>(data[i + 1]) << 8;
+      if (rem > 2) v |= data[i + 2];
+      out.push_back(kTab[(v >> 18) & 63]);
+      out.push_back(kTab[(v >> 12) & 63]);
+      out.push_back(rem > 1 ? kTab[(v >> 6) & 63] : '=');
+      out.push_back(rem > 2 ? kTab[v & 63] : '=');
+    }
+    return out;
+  }
+
+  template <typename T>
+  static const T* OptPtr(const std::optional<T>& v) {
+    return v ? &*v : nullptr;
+  }
+
+  static Payload MakePayload(PayloadType type, std::int32_t size) {
+    Payload payload;
+    payload.type = type;
+    payload.body.assign(static_cast<std::size_t>(std::max(0, size)), 0);
+    return payload;
+  }
+
+  static void EchoMetadata(const grpcdc::Endpoint::CallContext& ctx) {
+    if (const std::string* initial = MetadataFind(ctx.metadata, "x-grpc-test-echo-initial")) {
+      ctx.SetHeaders({{"x-grpc-test-echo-initial", *initial}});
+    }
+    if (const std::string* trailing = MetadataFind(ctx.metadata, "x-grpc-test-echo-trailing-bin")) {
+      ctx.SetTrailers({{"x-grpc-test-echo-trailing-bin", *trailing}});
+    }
+  }
+
+  static void SetOrcaTrailer(const grpcdc::Endpoint::CallContext& ctx,
+                             const xds::data::orca::v3::OrcaLoadReport& report) {
+    ctx.SetTrailers({{"endpoint-load-metrics-bin", Base64Encode(report.MarshalDc())}});
+  }
+
+  // Compression interop (server direction): the bridge
+  // terminates gzip at the HTTP/2 hop and surfaces the
+  // declared encoding as ordinary metadata.
+  static void CompressionChecks(const grpcdc::Endpoint::CallContext& ctx,
+                                const BoolValue* expect_compressed,
+                                const BoolValue* response_compressed) {
+    if (expect_compressed != nullptr && expect_compressed->value &&
+        MetadataGet(ctx.metadata, "grpc-encoding") != "gzip") {
+      throw grpcdc::StatusException(grpcdc::wire::kCodeInvalidArgument,
+                                    "expected compressed request, got uncompressed");
+    }
+    if (response_compressed != nullptr && response_compressed->value) {
+      ctx.SetHeaders({{"grpc-encoding", "gzip"}});
+    }
+  }
+
+  static void MaybeFail(const EchoStatus* status) {
+    if (status != nullptr && (status->code != 0 || !status->message.empty())) {
+      throw grpcdc::StatusException(status->code, status->message);
+    }
+  }
+
+  static SimpleResponse UnaryResponse(const SimpleRequest& req) {
+    MaybeFail(OptPtr(req.response_status));
+    SimpleResponse resp;
+    resp.payload = MakePayload(req.response_type, req.response_size);
+    return resp;
+  }
+
+  template <typename SendFn>
+  static void SendResponses(const StreamingOutputCallRequest& req, SendFn&& send) {
+    MaybeFail(OptPtr(req.response_status));
+    bool first = true;
+    for (const auto& param : req.response_parameters) {
+      if (!first && param.interval_us > 0) {
+        std::this_thread::sleep_for(std::chrono::microseconds(param.interval_us));
+      }
+      first = false;
+      StreamingOutputCallResponse resp;
+      resp.payload = MakePayload(req.response_type, param.size);
+      send(resp);
+    }
+  }
+};
+
+}  // namespace grpc::testing

@@ -137,6 +137,21 @@ class Channel {
       }
     }
 
+    /// Send one request message on an open stream (no half-close).
+    void Send(const Marshaler& msg) {
+      endpoint_->SendFrame(
+          Codec::EncodeFrame(wire::kFrameData, stream_id_, msg.MarshalDc()));
+    }
+
+    /// Half-close an open stream (no more requests).
+    void HalfClose() {
+      endpoint_->SendFrame(
+          Codec::EncodeFrame(wire::kFrameHalfClose, stream_id_, Bytes{}));
+    }
+
+    /// Abort this stream (sends RST, wakes a pending Recv).
+    void Cancel() { CancelIfLive(); }
+
    private:
     void CancelIfLive() noexcept {
       if (!terminated_ && endpoint_) {
@@ -239,6 +254,14 @@ class Channel {
       endpoint_->CloseStream(stream.stream_id());
       throw;
     }
+  }
+
+  /// Open a stream without sending anything: drive it with
+  /// ClientStream::Send / HalfClose / Recv / Cancel.
+  ClientStream OpenStream(const std::string& path,
+                          const Metadata* metadata = nullptr,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+    return Open(path, metadata, timeout);
   }
 
   /// Start a bidi call with all requests sent up front.

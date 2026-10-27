@@ -61,6 +61,11 @@ pub const OpenRcaServiceStreamCoreMetricsClient = struct {
         return self.stream.trailers;
     }
 
+    /// Abandon the call: RST so the server stops producing.
+    pub fn cancel(self: *OpenRcaServiceStreamCoreMetricsClient) void {
+        self.stream.cancel();
+    }
+
     pub fn deinit(self: *OpenRcaServiceStreamCoreMetricsClient) void {
         self.stream.deinit();
     }

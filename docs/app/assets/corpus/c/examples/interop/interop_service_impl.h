@@ -1,0 +1,425 @@
+#pragma once
+/* TestService implementation (grpc.testing) over the generated
+   C server, mirroring the reference TestServiceImpl semantics
+   the interop cases grade. Used by the Direction-B interop tests
+   (official clients vs generated servers). Mirrors
+   js/test/interop_service.js. */
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+static void isvc_sleep_us(long us) {
+    struct timespec ts;
+    ts.tv_sec = us / 1000000;
+    ts.tv_nsec = (us % 1000000) * 1000;
+    nanosleep(&ts, NULL);
+}
+
+#include "test_grpc_dc.h"
+#include "orca_grpc_dc.h"
+
+static const char *isvc_md_get(const grpcdc_kv *md, size_t md_count, const char *key) {
+    for (size_t i = 0; i < md_count; i++)
+        if (strcmp(md[i].key, key) == 0) return md[i].value;
+    return NULL;
+}
+
+/* Latest ORCA out-of-band report (full-duplex updates). */
+static OrcaLoadReport isvc_oob_report;
+static int isvc_oob_set = 0;
+
+/* Base64 buffer for the endpoint-load-metrics-bin trailer:
+   the status/headers carriers borrow value pointers, so the
+   encoded text lives in process-static storage. */
+static char *isvc_orca_b64 = NULL;
+static size_t isvc_orca_b64_cap = 0;
+
+static const char *isvc_orca_b64_encode(const uint8_t *data, size_t len) {
+    static const char tab[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t need = 4 * ((len + 2) / 3) + 1;
+    if (need > isvc_orca_b64_cap) {
+        isvc_orca_b64 = (char *)realloc(isvc_orca_b64, need);
+        isvc_orca_b64_cap = need;
+    }
+    size_t o = 0;
+    for (size_t i = 0; i < len; i += 3) {
+        uint32_t v = (uint32_t)data[i] << 16;
+        int rem = (int)(len - i);
+        if (rem > 1) v |= (uint32_t)data[i + 1] << 8;
+        if (rem > 2) v |= data[i + 2];
+        isvc_orca_b64[o++] = tab[(v >> 18) & 63];
+        isvc_orca_b64[o++] = tab[(v >> 12) & 63];
+        isvc_orca_b64[o++] = rem > 1 ? tab[(v >> 6) & 63] : '=';
+        isvc_orca_b64[o++] = rem > 2 ? tab[v & 63] : '=';
+    }
+    isvc_orca_b64[o] = 0;
+    return isvc_orca_b64;
+}
+
+/* Echo interop metadata into status-carried headers/trailers
+   (unary / client-streaming shape). */
+static void isvc_echo_md_status(grpcdc_status *st, const grpcdc_kv *md, size_t md_count) {
+    const char *initial = isvc_md_get(md, md_count, "x-grpc-test-echo-initial");
+    if (initial) {
+        st->headers[st->headers_count].key = "x-grpc-test-echo-initial";
+        st->headers[st->headers_count].value = initial;
+        st->headers_count++;
+    }
+    const char *trailing = isvc_md_get(md, md_count, "x-grpc-test-echo-trailing-bin");
+    if (trailing) {
+        st->trailers[st->trailers_count].key = "x-grpc-test-echo-trailing-bin";
+        st->trailers[st->trailers_count].value = trailing;
+        st->trailers_count++;
+    }
+}
+
+/* Echo interop metadata through a server stream (streaming
+   shape: initial rides HEADERS, trailing rides the status). */
+static void isvc_echo_md_stream(grpcdc_server_stream *raw) {
+    const grpcdc_kv *md;
+    size_t md_count;
+    grpcdc_server_stream_metadata(raw, &md, &md_count);
+    const char *initial = isvc_md_get(md, md_count, "x-grpc-test-echo-initial");
+    if (initial)
+        grpcdc_server_stream_set_header(raw, "x-grpc-test-echo-initial", initial);
+    const char *trailing = isvc_md_get(md, md_count, "x-grpc-test-echo-trailing-bin");
+    if (trailing)
+        grpcdc_server_stream_set_trailer(raw, "x-grpc-test-echo-trailing-bin", trailing);
+}
+
+static const grpcdc_kv *isvc_stream_md(grpcdc_server_stream *raw, size_t *count) {
+    const grpcdc_kv *md;
+    grpcdc_server_stream_metadata(raw, &md, count);
+    return md;
+}
+
+/* Compression interop (server direction): the bridge
+   terminates gzip at the HTTP/2 hop and surfaces the declared
+   encoding as ordinary metadata. */
+static grpcdc_status isvc_compression_checks(grpcdc_status *st, const grpcdc_kv *md,
+                                             size_t md_count,
+                                             const BoolValue *expect_compressed,
+                                             const BoolValue *response_compressed) {
+    if (expect_compressed && expect_compressed->value) {
+        const char *enc = isvc_md_get(md, md_count, "grpc-encoding");
+        if (!enc || strcmp(enc, "gzip") != 0)
+            return grpcdc_status_make(GRPCDC_INVALID_ARGUMENT,
+                                      "expected compressed request, got uncompressed");
+    }
+    if (response_compressed && response_compressed->value) {
+        st->headers[st->headers_count].key = "grpc-encoding";
+        st->headers[st->headers_count].value = "gzip";
+        st->headers_count++;
+    }
+    return grpcdc_ok();
+}
+
+static grpcdc_status isvc_maybe_fail(const EchoStatus *status) {
+    if (status && (status->code != 0 || (status->message && status->message[0])))
+        return grpcdc_status_make(status->code, status->message);
+    return grpcdc_ok();
+}
+
+static Payload *isvc_payload(PayloadType type, int32_t size) {
+    Payload *p = (Payload *)calloc(1, sizeof(Payload));
+    p->type = type;
+    size_t n = size < 0 ? 0 : (size_t)size;
+    p->body.data = (uint8_t *)calloc(n ? n : 1, 1);
+    p->body.len = n;
+    return p;
+}
+
+static grpcdc_status isvc_unary_response(const SimpleRequest *req, SimpleResponse *resp) {
+    grpcdc_status st = isvc_maybe_fail(req->response_status);
+    if (!grpcdc_status_is_ok(st)) return st;
+    memset(resp, 0, sizeof(*resp));
+    resp->payload = isvc_payload(req->response_type, req->response_size);
+    return grpcdc_ok();
+}
+
+static void isvc_set_orca_trailer(grpcdc_status *st, const OrcaLoadReport *report) {
+    Orca_load_reportPbBytes bytes = OrcaLoadReport_marshal(report);
+    const char *encoded = isvc_orca_b64_encode(bytes.data, bytes.len);
+    free(bytes.data);
+    st->trailers[st->trailers_count].key = "endpoint-load-metrics-bin";
+    st->trailers[st->trailers_count].value = encoded;
+    st->trailers_count++;
+}
+
+static void isvc_orca_from_test_report(OrcaLoadReport *out, const TestOrcaReport *report,
+                                       int with_cost) {
+    memset(out, 0, sizeof(*out));
+    out->cpu_utilization = report->cpu_utilization;
+    out->mem_utilization = report->memory_utilization;
+    if (with_cost) {
+        out->request_cost_count = report->request_cost_count;
+        out->request_cost = (OrcaLoadReport_RequestCostEntry *)calloc(
+            report->request_cost_count ? report->request_cost_count : 1,
+            sizeof(OrcaLoadReport_RequestCostEntry));
+        for (size_t i = 0; i < report->request_cost_count; i++) {
+            out->request_cost[i].key = report->request_cost[i].key;
+            out->request_cost[i].value = report->request_cost[i].value;
+        }
+    }
+    out->utilization_count = report->utilization_count;
+    out->utilization = (OrcaLoadReport_UtilizationEntry *)calloc(
+        report->utilization_count ? report->utilization_count : 1,
+        sizeof(OrcaLoadReport_UtilizationEntry));
+    for (size_t i = 0; i < report->utilization_count; i++) {
+        out->utilization[i].key = report->utilization[i].key;
+        out->utilization[i].value = report->utilization[i].value;
+    }
+}
+
+static grpcdc_status isvc_empty_call(void *ctx, const grpcdc_kv *md, size_t md_count,
+                                     const Empty *req, Empty *resp) {
+    (void)ctx;
+    (void)req;
+    (void)resp;
+    grpcdc_status st = grpcdc_ok();
+    isvc_echo_md_status(&st, md, md_count);
+    return st;
+}
+
+static grpcdc_status isvc_unary_call(void *ctx, const grpcdc_kv *md, size_t md_count,
+                                     const SimpleRequest *req, SimpleResponse *resp) {
+    (void)ctx;
+    grpcdc_status st = grpcdc_ok();
+    isvc_echo_md_status(&st, md, md_count);
+    grpcdc_status cst = isvc_compression_checks(&st, md, md_count,
+                                                req->expect_compressed,
+                                                req->response_compressed);
+    if (!grpcdc_status_is_ok(cst)) return cst;
+    if (req->orca_per_query_report) {
+        OrcaLoadReport report;
+        isvc_orca_from_test_report(&report, req->orca_per_query_report, 1);
+        isvc_set_orca_trailer(&st, &report);
+    } else if (isvc_oob_set) {
+        isvc_set_orca_trailer(&st, &isvc_oob_report);
+    }
+    grpcdc_status ust = isvc_unary_response(req, resp);
+    if (!grpcdc_status_is_ok(ust)) return ust;
+    /* Preserve echo/orca metadata gathered above. */
+    ust.headers_count = st.headers_count;
+    for (size_t i = 0; i < st.headers_count; i++) ust.headers[i] = st.headers[i];
+    ust.trailers_count = st.trailers_count;
+    for (size_t i = 0; i < st.trailers_count; i++) ust.trailers[i] = st.trailers[i];
+    return ust;
+}
+
+static grpcdc_status isvc_cacheable_unary_call(void *ctx, const grpcdc_kv *md,
+                                               size_t md_count,
+                                               const SimpleRequest *req,
+                                               SimpleResponse *resp) {
+    (void)ctx;
+    grpcdc_status st = grpcdc_ok();
+    isvc_echo_md_status(&st, md, md_count);
+    grpcdc_status fst = isvc_maybe_fail(req->response_status);
+    if (!grpcdc_status_is_ok(fst)) return fst;
+    memset(resp, 0, sizeof(*resp));
+    resp->payload = req->payload ? req->payload : isvc_payload(req->response_type, 0);
+    return st;
+}
+
+typedef grpcdc_status (*isvc_send_fn)(void *stream, const StreamingOutputCallResponse *resp);
+
+/* Sleep for an interop response interval in 10ms slices,
+   aborting when the client cancels: the C serve loop is
+   single-stream, so an uninterruptible sleep would wedge
+   every later call behind a dead one. */
+static int isvc_sleep_interval(grpcdc_server_stream *raw, int32_t interval_us,
+                               int first) {
+    if (first || interval_us <= 0) return 0;
+    long remaining = interval_us;
+    while (remaining > 0) {
+        long slice = remaining > 10000 ? 10000 : remaining;
+        isvc_sleep_us(slice);
+        remaining -= slice;
+        if (grpcdc_server_stream_cancelled(raw)) return 1;
+    }
+    return 0;
+}
+
+static grpcdc_status isvc_send_responses(const StreamingOutputCallRequest *req,
+                                         void *stream, isvc_send_fn send,
+                                         grpcdc_server_stream *raw) {
+    grpcdc_status fst = isvc_maybe_fail(req->response_status);
+    if (!grpcdc_status_is_ok(fst)) return fst;
+    int first = 1;
+    for (size_t i = 0; i < req->response_parameters_count; i++) {
+        const ResponseParameters *param = &req->response_parameters[i];
+        if (isvc_sleep_interval(raw, param->interval_us, first))
+            return grpcdc_status_make(GRPCDC_CANCELLED, "call cancelled");
+        first = 0;
+        StreamingOutputCallResponse resp;
+        memset(&resp, 0, sizeof(resp));
+        resp.payload = isvc_payload(req->response_type, param->size);
+        grpcdc_status st = send(stream, &resp);
+        if (!grpcdc_status_is_ok(st)) return st;
+    }
+    return grpcdc_ok();
+}
+
+static grpcdc_status isvc_send_output_stream(void *stream,
+                                             const StreamingOutputCallResponse *resp) {
+    return TestServiceStreamingOutputCallStream_send(
+        (TestServiceStreamingOutputCallStream *)stream, resp);
+}
+
+static grpcdc_status isvc_streaming_output_call(void *ctx, const grpcdc_kv *md,
+                                                size_t md_count,
+                                                const StreamingOutputCallRequest *req,
+                                                TestServiceStreamingOutputCallStream *stream) {
+    (void)ctx;
+    (void)md;
+    (void)md_count;
+    isvc_echo_md_stream(stream->raw);
+    return isvc_send_responses(req, stream, isvc_send_output_stream, stream->raw);
+}
+
+static grpcdc_status isvc_streaming_input_call(void *ctx,
+                                               TestServiceStreamingInputCallStream *stream,
+                                               StreamingInputCallResponse *resp) {
+    (void)ctx;
+    isvc_echo_md_stream(stream->raw);
+    size_t md_count = 0;
+    const grpcdc_kv *md = isvc_stream_md(stream->raw, &md_count);
+    int32_t total = 0;
+    while (1) {
+        StreamingInputCallRequest req;
+        grpcdc_status rst;
+        int r = TestServiceStreamingInputCallStream_recv(stream, &req, &rst);
+        if (r == 0) break;
+        if (r < 0) return rst;
+        if (req.expect_compressed && req.expect_compressed->value) {
+            const char *enc = isvc_md_get(md, md_count, "grpc-encoding");
+            if (!enc || strcmp(enc, "gzip") != 0)
+                return grpcdc_status_make(GRPCDC_INVALID_ARGUMENT,
+                                          "expected compressed request, got uncompressed");
+        }
+        if (req.payload) total += (int32_t)req.payload->body.len;
+    }
+    memset(resp, 0, sizeof(*resp));
+    resp->aggregated_payload_size = total;
+    return grpcdc_ok();
+}
+
+static grpcdc_status isvc_send_full_duplex(void *stream,
+                                           const StreamingOutputCallResponse *resp) {
+    return TestServiceFullDuplexCallStream_send(
+        (TestServiceFullDuplexCallStream *)stream, resp);
+}
+
+static grpcdc_status isvc_full_duplex_call(void *ctx,
+                                           TestServiceFullDuplexCallStream *stream) {
+    (void)ctx;
+    isvc_echo_md_stream(stream->raw);
+    while (1) {
+        StreamingOutputCallRequest req;
+        grpcdc_status rst;
+        int r = TestServiceFullDuplexCallStream_recv(stream, &req, &rst);
+        if (r == 0) return grpcdc_ok();
+        if (r < 0) return rst;
+        if (req.orca_oob_report) {
+            isvc_orca_from_test_report(&isvc_oob_report, req.orca_oob_report, 0);
+            isvc_oob_set = 1;
+        }
+        grpcdc_status st = isvc_send_responses(&req, stream, isvc_send_full_duplex, stream->raw);
+        if (!grpcdc_status_is_ok(st)) return st;
+    }
+}
+
+static grpcdc_status isvc_send_half_duplex(void *stream,
+                                           const StreamingOutputCallResponse *resp) {
+    return TestServiceHalfDuplexCallStream_send(
+        (TestServiceHalfDuplexCallStream *)stream, resp);
+}
+
+static grpcdc_status isvc_half_duplex_call(void *ctx,
+                                           TestServiceHalfDuplexCallStream *stream) {
+    (void)ctx;
+    isvc_echo_md_stream(stream->raw);
+    size_t cap = 4, count = 0;
+    StreamingOutputCallRequest *collected =
+        (StreamingOutputCallRequest *)calloc(cap, sizeof(StreamingOutputCallRequest));
+    while (1) {
+        StreamingOutputCallRequest req;
+        grpcdc_status rst;
+        int r = TestServiceHalfDuplexCallStream_recv(stream, &req, &rst);
+        if (r == 0) break;
+        if (r < 0) {
+            free(collected);
+            return rst;
+        }
+        if (count == cap) {
+            cap *= 2;
+            collected = (StreamingOutputCallRequest *)realloc(
+                collected, cap * sizeof(StreamingOutputCallRequest));
+        }
+        collected[count++] = req;
+    }
+    for (size_t i = 0; i < count; i++) {
+        grpcdc_status st = isvc_send_responses(&collected[i], stream, isvc_send_half_duplex, stream->raw);
+        if (!grpcdc_status_is_ok(st)) {
+            free(collected);
+            return st;
+        }
+    }
+    free(collected);
+    return grpcdc_ok();
+}
+
+static grpcdc_status isvc_unimplemented_call(void *ctx, const grpcdc_kv *md,
+                                             size_t md_count, const Empty *req,
+                                             Empty *resp) {
+    (void)ctx;
+    (void)md;
+    (void)md_count;
+    (void)req;
+    (void)resp;
+    return grpcdc_status_make(GRPCDC_UNIMPLEMENTED, "not implemented");
+}
+
+static grpcdc_status isvc_stream_core_metrics(void *ctx, const grpcdc_kv *md,
+                                              size_t md_count,
+                                              const OrcaLoadReportRequest *req,
+                                              OpenRcaServiceStreamCoreMetricsStream *stream) {
+    (void)ctx;
+    (void)md;
+    (void)md_count;
+    (void)req;
+    /* OpenRcaService (ORCA out-of-band): send the current OOB
+       report once and close. The generated C server serves one
+       stream at a time, so an endless metrics stream would
+       starve every other call on the connection (the official
+       clients' ORCA load balancer holds this stream open
+       concurrently with the RPCs it grades); a one-shot report
+       is legal ORCA and the balancer reopens the stream when
+       it wants another. */
+    {
+        OrcaLoadReport report;
+        memset(&report, 0, sizeof(report));
+        if (isvc_oob_set) report = isvc_oob_report;
+        return OpenRcaServiceStreamCoreMetricsStream_send(stream, &report);
+    }
+}
+
+static TestServiceServerImpl isvc_test_service = {
+    NULL,
+    isvc_empty_call,
+    isvc_unary_call,
+    isvc_cacheable_unary_call,
+    isvc_streaming_output_call,
+    isvc_streaming_input_call,
+    isvc_full_duplex_call,
+    isvc_half_duplex_call,
+    isvc_unimplemented_call,
+};
+
+static OpenRcaServiceServerImpl isvc_open_rca = {
+    NULL,
+    isvc_stream_core_metrics,
+};

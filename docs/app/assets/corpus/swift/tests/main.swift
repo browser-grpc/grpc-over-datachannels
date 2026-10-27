@@ -13,6 +13,8 @@ do {
     case "TestInterop": try TestInterop()
     case "TestInteropOracle": try TestInteropOracle()
     case "TestOracle": try TestOracle()
+    case "TestInteropServerOracle": try TestInteropServerOracle()
+    case "TestHttp2Oracle": try TestHttp2Oracle()
     case "TestDynamic": try TestDynamic()
     case "TestBdd": try TestBdd()
     case "TestDeadline": try TestDeadline()

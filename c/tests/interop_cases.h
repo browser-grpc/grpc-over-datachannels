@@ -29,6 +29,10 @@ static const InteropCase interop_cases[] = {
     { "status-code-and-message-duplex", "STATUS_DUPLEX", {  }, 0, {  }, 0, 2, "test status message" },
     { "unimplemented-method", "UNIMPLEMENTED_METHOD", {  }, 0, {  }, 0, 12, "" },
     { "unimplemented-service", "UNIMPLEMENTED_SERVICE", {  }, 0, {  }, 0, 12, "" },
+    { "special-status-message", "SPECIAL_STATUS", {  }, 0, {  }, 0, 2, "\t\ntest with whitespace\r\nand Unicode BMP ☺ and non-BMP 😈\t\n" },
+    { "cancel-after-begin", "CANCEL_AFTER_BEGIN", {  }, 0, {  }, 0, 1, "" },
+    { "cancel-after-first-response", "CANCEL_AFTER_FIRST", {  }, 0, { 31415 }, 1, 1, "" },
+    { "timeout-on-sleeping-server", "TIMEOUT_SLEEPING", {  }, 0, { 1, 1, 1 }, 3, 4, "" },
 };
 
 #define INTEROP_CASE_COUNT (sizeof(interop_cases) / sizeof(interop_cases[0]))

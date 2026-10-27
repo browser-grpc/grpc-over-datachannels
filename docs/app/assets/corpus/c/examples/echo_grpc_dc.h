@@ -36,6 +36,8 @@ static inline int EchoServerStreamClient_recv(EchoServerStreamClient *s, EchoRes
 
 static inline void EchoServerStreamClient_close(EchoServerStreamClient *s) { grpcdc_stream_free(s->raw); }
 
+static inline void EchoServerStreamClient_cancel(EchoServerStreamClient *s) { grpcdc_stream_cancel(s->raw); }
+
 static inline grpcdc_status EchoClient_client_stream(EchoClient *c, const EchoRequest *reqs, size_t req_count, EchoResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
     grpcdc_stream *raw; grpcdc_status st;
     st = grpcdc_channel_open(c->channel, "/echo.Echo/ClientStream", NULL, 0, 0, md, md_count, deadline_ms, &raw);
@@ -75,6 +77,8 @@ static inline int EchoBidiClient_recv(EchoBidiClient *s, EchoResponse *resp, grp
 }
 
 static inline void EchoBidiClient_close(EchoBidiClient *s) { grpcdc_stream_free(s->raw); }
+
+static inline void EchoBidiClient_cancel(EchoBidiClient *s) { grpcdc_stream_cancel(s->raw); }
 
 typedef struct { grpcdc_server_stream *raw; } EchoServerStreamStream;
 static inline grpcdc_status EchoServerStreamStream_send(EchoServerStreamStream *s, const EchoResponse *resp) { EchoPbBytes rb = EchoResponse_marshal(resp); grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }

@@ -53,6 +53,8 @@ static inline int TestServiceStreamingOutputCallClient_recv(TestServiceStreaming
 
 static inline void TestServiceStreamingOutputCallClient_close(TestServiceStreamingOutputCallClient *s) { grpcdc_stream_free(s->raw); }
 
+static inline void TestServiceStreamingOutputCallClient_cancel(TestServiceStreamingOutputCallClient *s) { grpcdc_stream_cancel(s->raw); }
+
 static inline grpcdc_status TestServiceClient_streaming_input_call(TestServiceClient *c, const StreamingInputCallRequest *reqs, size_t req_count, StreamingInputCallResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
     grpcdc_stream *raw; grpcdc_status st;
     st = grpcdc_channel_open(c->channel, "/grpc.testing.TestService/StreamingInputCall", NULL, 0, 0, md, md_count, deadline_ms, &raw);
@@ -93,6 +95,8 @@ static inline int TestServiceFullDuplexCallClient_recv(TestServiceFullDuplexCall
 
 static inline void TestServiceFullDuplexCallClient_close(TestServiceFullDuplexCallClient *s) { grpcdc_stream_free(s->raw); }
 
+static inline void TestServiceFullDuplexCallClient_cancel(TestServiceFullDuplexCallClient *s) { grpcdc_stream_cancel(s->raw); }
+
 typedef struct { grpcdc_stream *raw; } TestServiceHalfDuplexCallClient;
 
 static inline grpcdc_status TestServiceClient_half_duplex_call(TestServiceClient *c, const StreamingOutputCallRequest *reqs, size_t req_count, TestServiceHalfDuplexCallClient *out_stream, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
@@ -114,6 +118,8 @@ static inline int TestServiceHalfDuplexCallClient_recv(TestServiceHalfDuplexCall
 }
 
 static inline void TestServiceHalfDuplexCallClient_close(TestServiceHalfDuplexCallClient *s) { grpcdc_stream_free(s->raw); }
+
+static inline void TestServiceHalfDuplexCallClient_cancel(TestServiceHalfDuplexCallClient *s) { grpcdc_stream_cancel(s->raw); }
 
 static inline grpcdc_status TestServiceClient_unimplemented_call(TestServiceClient *c, const Empty *req, Empty *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
     EmptyPbBytes rb = Empty_marshal(req);

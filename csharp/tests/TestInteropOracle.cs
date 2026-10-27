@@ -48,7 +48,7 @@ public static class TestInteropOracle
         throw new InvalidOperationException($"{what}: expected status {code}, call succeeded");
     }
 
-    private static void RunCases(TestGrpcDc.TestServiceClient client, TestGrpcDc.UnimplementedServiceClient unimpl)
+    private static void RunCases(Channel channel, TestGrpcDc.TestServiceClient client, TestGrpcDc.UnimplementedServiceClient unimpl)
     {
         foreach (object[] row in InteropCases.Cases)
         {
@@ -168,6 +168,57 @@ public static class TestInteropOracle
                     });
                     break;
                 }
+                case "SPECIAL_STATUS":
+                {
+                    var req = new SimpleRequest { ResponseStatus = new EchoStatus(statusCode, statusMessage) };
+                    ExpectStatus(statusCode, statusMessage, name, () => client.UnaryCall(req));
+                    break;
+                }
+                case "CANCEL_AFTER_BEGIN":
+                {
+                    // Begin a client-streaming call and cancel it
+                    // before sending any request: the pending Recv
+                    // must report CANCELLED.
+                    using Channel.ClientStream stream = channel.OpenStream(
+                        "/grpc.testing.TestService/StreamingInputCall");
+                    stream.Cancel();
+                    ExpectStatus(statusCode, "", name,
+                        () => stream.Recv(new StreamingInputCallResponse()));
+                    break;
+                }
+                case "CANCEL_AFTER_FIRST":
+                {
+                    // Duplex call (no half-close): the server
+                    // answers the one request, then waits for more
+                    // input, so the cancel deterministically lands
+                    // mid-call (same shape as the Python/JS suites).
+                    using Channel.ClientStream stream = channel.OpenStream(
+                        "/grpc.testing.TestService/FullDuplexCall");
+                    stream.Send(StreamRequest(new[] { respSizes[0] }, 1));
+                    var resp = new StreamingOutputCallResponse();
+                    stream.Recv(resp);
+                    Program.Check(resp.Payload.Body.Length == respSizes[0],
+                        $"{name}: body {resp.Payload.Body.Length}");
+                    stream.Cancel();
+                    ExpectStatus(statusCode, "", name,
+                        () => stream.Recv(new StreamingOutputCallResponse()));
+                    break;
+                }
+                case "TIMEOUT_SLEEPING":
+                {
+                    var req = new StreamingOutputCallRequest();
+                    foreach (int size in respSizes)
+                    {
+                        req.ResponseParameters.Add(new ResponseParameters { Size = size, IntervalUs = 1000000 });
+                    }
+                    ExpectStatus(statusCode, "", name, () =>
+                    {
+                        using var stream = client.StreamingOutputCall(
+                            req, null, TimeSpan.FromMilliseconds(100));
+                        stream.Recv();
+                    });
+                    break;
+                }
                 case "UNIMPLEMENTED_METHOD":
                     ExpectStatus(statusCode, "", name, () => client.UnimplementedCall(new Empty()));
                     break;
@@ -178,6 +229,67 @@ public static class TestInteropOracle
                     throw new InvalidOperationException("unknown interop kind " + kind);
             }
             Console.WriteLine("interop case ok: " + name);
+        }
+    }
+
+    // Compression rows (upstream client_compressed_unary,
+    // client_compressed_streaming, server_compressed_unary,
+    // server_compressed_streaming): the DataChannel wire is
+    // compression-free; the client declares grpc-encoding: gzip
+    // and the bridge gzips request messages on the HTTP/2 hop,
+    // decompressing responses the same way.
+    private static void RunCompressionCases(TestGrpcDc.TestServiceClient client)
+    {
+        var gzip = new Dictionary<string, string> { ["grpc-encoding"] = "gzip" };
+        {
+            var req = new SimpleRequest
+            {
+                ResponseSize = 31415,
+                Payload = PayloadOf(271828),
+                ExpectCompressed = new BoolValue(true),
+            };
+            SimpleResponse resp = client.UnaryCall(req, gzip);
+            Program.Check(resp.Payload.Body.Length == 31415, "client_compressed_unary: body");
+            Console.WriteLine("interop case ok: client_compressed_unary");
+        }
+        {
+            int[] sizes = { 27182, 8, 1828, 45904 };
+            var reqs = sizes.Select(s => new StreamingInputCallRequest
+            {
+                Payload = PayloadOf(s),
+                ExpectCompressed = new BoolValue(true),
+            }).ToList();
+            StreamingInputCallResponse resp = client.StreamingInputCall(reqs, gzip);
+            Program.Check(resp.AggregatedPayloadSize == sizes.Sum(),
+                $"client_compressed_streaming: aggregated {resp.AggregatedPayloadSize}");
+            Console.WriteLine("interop case ok: client_compressed_streaming");
+        }
+        {
+            var req = new SimpleRequest
+            {
+                ResponseSize = 31415,
+                Payload = PayloadOf(271828),
+                ResponseCompressed = new BoolValue(true),
+            };
+            SimpleResponse resp = client.UnaryCall(req);
+            Program.Check(resp.Payload.Body.Length == 31415, "server_compressed_unary: body");
+            Console.WriteLine("interop case ok: server_compressed_unary");
+        }
+        {
+            int[] sizes = { 31415, 9, 2653, 58979 };
+            var req = new StreamingOutputCallRequest();
+            foreach (int size in sizes)
+            {
+                req.ResponseParameters.Add(new ResponseParameters { Size = size, Compressed = new BoolValue(true) });
+            }
+            using var stream = client.StreamingOutputCall(req);
+            foreach (int size in sizes)
+            {
+                StreamingOutputCallResponse resp = stream.Recv();
+                Program.Check(resp.Payload.Body.Length == size,
+                    $"server_compressed_streaming: body {resp.Payload.Body.Length}");
+            }
+            Console.WriteLine("interop case ok: server_compressed_streaming");
         }
     }
 
@@ -324,7 +436,8 @@ public static class TestInteropOracle
                 var transport = new StdioTransport(bridge.StandardInput.BaseStream, bridge.StandardOutput.BaseStream);
                 var channel = new Channel(transport);
                 var client = new TestGrpcDc.TestServiceClient(channel);
-                RunCases(client, new TestGrpcDc.UnimplementedServiceClient(channel));
+                RunCases(channel, client, new TestGrpcDc.UnimplementedServiceClient(channel));
+                RunCompressionCases(client);
                 RunOrcaCases(channel, client);
             }
             finally

@@ -8,6 +8,7 @@
 
 require_once __DIR__ . "/../grpcdc.php";
 require_once __DIR__ . "/../examples/test_grpc_dc.php";
+require_once __DIR__ . "/../examples/orca_grpc_dc.php";
 require_once __DIR__ . "/../examples/stdio.php";
 require_once __DIR__ . "/test_util.php";
 require_once __DIR__ . "/test_oracle.php";
@@ -64,7 +65,7 @@ final class TestInteropOracle
         return $sizes;
     }
 
-    private static function runCases(\TestGrpcDc\TestServiceClient $client, \TestGrpcDc\UnimplementedServiceClient $unimpl): void
+    private static function runCases(\Grpcdc\Channel $channel, \TestGrpcDc\TestServiceClient $client, \TestGrpcDc\UnimplementedServiceClient $unimpl): void
     {
         $cases = require __DIR__ . "/interop_cases_generated.php";
         foreach ($cases as $c) {
@@ -147,6 +148,49 @@ final class TestInteropOracle
                         fn() => $stream->recv());
                     $stream->close();
                     break;
+                case "SPECIAL_STATUS":
+                    $req = new \MessagesPb\SimpleRequest();
+                    $req->responseStatus = new \MessagesPb\EchoStatus(
+                        $c["status_code"], $c["status_message"]);
+                    self::expectStatus($what, $c["status_code"], $c["status_message"],
+                        fn() => $client->UnaryCall($req));
+                    break;
+                case "CANCEL_AFTER_BEGIN":
+                    // Begin a client-streaming call and cancel it
+                    // before sending any request: the pending recv
+                    // must report CANCELLED.
+                    $stream = $channel->openStream("/grpc.testing.TestService/StreamingInputCall");
+                    $stream->cancel();
+                    self::expectStatus($what, $c["status_code"], null,
+                        fn() => $stream->recv(new \MessagesPb\StreamingInputCallResponse()));
+                    break;
+                case "CANCEL_AFTER_FIRST":
+                    // Duplex call (no half-close): the server
+                    // answers the one request, then waits for more
+                    // input, so the cancel deterministically lands
+                    // mid-call (same shape as the Python/JS suites).
+                    $stream = $channel->openStream("/grpc.testing.TestService/FullDuplexCall");
+                    $channel->sendMessage($stream, self::outReq([$c["resp_sizes"][0]]));
+                    $resp = $stream->recv(new \MessagesPb\StreamingOutputCallResponse());
+                    T::assertEq(strlen($resp->payload->body), $c["resp_sizes"][0], $what);
+                    $stream->cancel();
+                    self::expectStatus($what, $c["status_code"], null,
+                        fn() => $stream->recv(new \MessagesPb\StreamingOutputCallResponse()));
+                    break;
+                case "TIMEOUT_SLEEPING":
+                    $req = new \MessagesPb\StreamingOutputCallRequest();
+                    $req->responseParameters = array_map(
+                        fn($s) => new \MessagesPb\ResponseParameters($s, 1000000),
+                        $c["resp_sizes"]);
+                    $req->payload = self::payload(0);
+                    self::expectStatus($what, $c["status_code"], null,
+                        function () use ($client, $req) {
+                            $stream = $client->StreamingOutputCall($req, null, 0.1);
+                            while (true) {
+                                $stream->recv();
+                            }
+                        });
+                    break;
                 case "UNIMPLEMENTED_METHOD":
                     self::expectStatus($what, $c["status_code"], null,
                         fn() => $client->UnimplementedCall(new \EmptyPb\Empty_()));
@@ -160,6 +204,111 @@ final class TestInteropOracle
             }
             echo "interop case ok: " . $c["name"] . "\n";
         }
+    }
+
+    // Compression rows (upstream client_compressed_unary,
+    // client_compressed_streaming, server_compressed_unary,
+    // server_compressed_streaming): the DataChannel wire is
+    // compression-free; the client declares grpc-encoding: gzip
+    // and the bridge gzips request messages on the HTTP/2 hop,
+    // decompressing responses the same way.
+    private static function runCompressionCases(\TestGrpcDc\TestServiceClient $client): void
+    {
+        $gzip = ["grpc-encoding" => "gzip"];
+        $req = new \MessagesPb\SimpleRequest();
+        $req->responseSize = 31415;
+        $req->payload = self::payload(271828);
+        $req->expectCompressed = new \MessagesPb\BoolValue(true);
+        $resp = $client->UnaryCall($req, $gzip);
+        T::assertEq(strlen($resp->payload->body), 31415, "client_compressed_unary");
+        echo "interop case ok: client_compressed_unary\n";
+
+        $sizes = [27182, 8, 1828, 45904];
+        $reqs = array_map(function ($s) {
+            $r = new \MessagesPb\StreamingInputCallRequest();
+            $r->payload = self::payload($s);
+            $r->expectCompressed = new \MessagesPb\BoolValue(true);
+            return $r;
+        }, $sizes);
+        $resp = $client->StreamingInputCall($reqs, $gzip);
+        T::assertEq($resp->aggregatedPayloadSize, array_sum($sizes), "client_compressed_streaming");
+        echo "interop case ok: client_compressed_streaming\n";
+
+        $req = new \MessagesPb\SimpleRequest();
+        $req->responseSize = 31415;
+        $req->payload = self::payload(271828);
+        $req->responseCompressed = new \MessagesPb\BoolValue(true);
+        $resp = $client->UnaryCall($req);
+        T::assertEq(strlen($resp->payload->body), 31415, "server_compressed_unary");
+        echo "interop case ok: server_compressed_unary\n";
+
+        $sizes = [31415, 9, 2653, 58979];
+        $req = new \MessagesPb\StreamingOutputCallRequest();
+        $req->responseParameters = array_map(
+            fn($s) => new \MessagesPb\ResponseParameters($s, 0, new \MessagesPb\BoolValue(true)),
+            $sizes);
+        $req->payload = self::payload(0);
+        $stream = $client->StreamingOutputCall($req);
+        foreach ($sizes as $size) {
+            $one = $stream->recv();
+            T::assertEq(strlen($one->payload->body), $size, "server_compressed_streaming");
+        }
+        $stream->close();
+        echo "interop case ok: server_compressed_streaming\n";
+    }
+
+    // ORCA rows (upstream orca_per_rpc / orca_oob): per-RPC the
+    // report returns as the serialized OrcaLoadReport in the
+    // endpoint-load-metrics-bin trailer (base64 -bin value); OOB
+    // the value fed through FullDuplexCall comes back on the
+    // OpenRcaService StreamCoreMetrics stream.
+    private static function runOrcaCases(\Grpcdc\Channel $channel, \TestGrpcDc\TestServiceClient $client): void
+    {
+        $req = new \MessagesPb\SimpleRequest();
+        $req->orcaPerQueryReport = new \MessagesPb\TestOrcaReport(
+            0.8210, 0.5847, ["cost" => 3456.32], ["util" => 0.30499]);
+        $stream = $channel->serverStream("/grpc.testing.TestService/UnaryCall", $req);
+        $stream->recv(new \MessagesPb\SimpleResponse());
+        try {
+            $stream->recv(new \MessagesPb\SimpleResponse());
+            T::check(false, "orca_per_rpc: expected EOF");
+        } catch (\Grpcdc\CallClosed $e) {
+            // end of stream: trailers now readable
+        }
+        $encoded = $stream->trailers["endpoint-load-metrics-bin"] ?? null;
+        T::check($encoded !== null, "orca_per_rpc: no endpoint-load-metrics-bin trailer");
+        $report = new \OrcaLoadReportPb\OrcaLoadReport();
+        $report->unmarshalDc(base64_decode($encoded));
+        T::check(
+            $report->cpuUtilization === 0.8210 && $report->memUtilization === 0.5847 &&
+                ($report->requestCost["cost"] ?? null) === 3456.32 &&
+                ($report->utilization["util"] ?? null) === 0.30499,
+            "orca_per_rpc: report mismatch");
+        $stream->close();
+        echo "interop case ok: orca_per_rpc\n";
+
+        $feedReq = new \MessagesPb\StreamingOutputCallRequest();
+        $feedReq->orcaOobReport = new \MessagesPb\TestOrcaReport(0.9, 0.85, [], ["util" => 0.5]);
+        $feed = $client->FullDuplexCall([$feedReq]);
+        try {
+            while (true) {
+                $feed->recv();
+            }
+        } catch (\Grpcdc\CallClosed $e) {
+            // feed call completed
+        }
+        $feed->close();
+        $orca = new \OrcaGrpcDc\OpenRcaServiceClient($channel);
+        $metrics = $orca->StreamCoreMetrics(new \OrcaPb\OrcaLoadReportRequest(), null, 30.0);
+        $matched = false;
+        for ($i = 0; $i < 30 && !$matched; $i++) {
+            $got = $metrics->recv();
+            $matched = $got->cpuUtilization === 0.9 && $got->memUtilization === 0.85 &&
+                ($got->utilization["util"] ?? null) === 0.5;
+        }
+        T::check($matched, "orca_oob: no matching OOB report");
+        $metrics->close();
+        echo "interop case ok: orca_oob\n";
     }
 
     public static function run(): void
@@ -198,7 +347,9 @@ final class TestInteropOracle
             $channel = new \Grpcdc\Channel($transport);
             $client = new \TestGrpcDc\TestServiceClient($channel);
             $unimpl = new \TestGrpcDc\UnimplementedServiceClient($channel);
-            self::runCases($client, $unimpl);
+            self::runCases($channel, $client, $unimpl);
+            self::runCompressionCases($client);
+            self::runOrcaCases($channel, $client);
         } finally {
             OracleRunner::kill($bridgeProc);
             OracleRunner::kill($serverProc);

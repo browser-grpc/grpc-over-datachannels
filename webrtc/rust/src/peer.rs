@@ -317,9 +317,21 @@ impl Peer {
     /// PeerConfig-driven gathering ignores them).
     pub fn gather_srflx(&mut self, server: &str, timeout: Duration) -> io::Result<bool> {
         use std::net::ToSocketAddrs;
-        let server_addr = server
-            .to_socket_addrs()?
-            .next()
+        // Prefer an address in the socket's family: public STUN
+        // names often resolve IPv6 first, and an IPv6 answer is
+        // undialable (EAFNOSUPPORT) on an IPv4-bound socket.
+        let addrs: Vec<_> = server.to_socket_addrs()?.collect();
+        let want_v6 = self
+            .socket
+            .udp_socket()
+            .and_then(|s| s.local_addr().ok())
+            .map(|a| a.is_ipv6())
+            .unwrap_or(false);
+        let server_addr = addrs
+            .iter()
+            .copied()
+            .find(|a| a.is_ipv6() == want_v6)
+            .or_else(|| addrs.first().copied())
             .ok_or_else(|| bad("stun server does not resolve"))?;
         let request = crate::stun::Message::new(crate::proto_gen::stun_msg::BINDING_REQUEST);
         let tid = request.transaction_id;

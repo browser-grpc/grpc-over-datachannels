@@ -1,0 +1,211 @@
+local wire = require("grpcdc.wire")
+local statusModule = require("grpcdc.status")
+local messages = require("examples.messages_messages")
+local emptyMessages = require("examples.empty_messages")
+local orcaMessages = require("examples.orca_load_report_messages")
+
+local Status = statusModule.Status
+local EndOfStream = statusModule.EndOfStream
+local Empty = emptyMessages.Empty
+local SimpleResponse = messages.SimpleResponse
+local Payload = messages.Payload
+local StreamingOutputCallResponse = messages.StreamingOutputCallResponse
+local StreamingInputCallResponse = messages.StreamingInputCallResponse
+local OrcaLoadReport = orcaMessages.OrcaLoadReport
+
+--- TestService implementation (grpc.testing) over the generated
+--- Lua server, mirroring the reference TestServiceImpl semantics
+--- the interop cases grade. Used by the Direction-B interop
+--- tests (official clients vs generated servers). Mirrors
+--- js/test/interop_service.js.
+local InteropServiceImpl = {}
+
+-- Latest ORCA out-of-band report (full-duplex updates).
+local oobReport = nil
+
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+local function b64encode(data)
+  local out = {}
+  for i = 1, #data, 3 do
+    local a = data:byte(i)
+    local b = data:byte(i + 1)
+    local c = data:byte(i + 2)
+    local v = a * 65536 + (b or 0) * 256 + (c or 0)
+    out[#out + 1] = B64:sub(math.floor(v / 262144) % 64 + 1, math.floor(v / 262144) % 64 + 1)
+    out[#out + 1] = B64:sub(math.floor(v / 4096) % 64 + 1, math.floor(v / 4096) % 64 + 1)
+    out[#out + 1] = b ~= nil and B64:sub(math.floor(v / 64) % 64 + 1, math.floor(v / 64) % 64 + 1) or "="
+    out[#out + 1] = c ~= nil and B64:sub(v % 64 + 1, v % 64 + 1) or "="
+  end
+  return table.concat(out)
+end
+
+local function echoMetadata(ctx)
+  local initial = ctx.metadata["x-grpc-test-echo-initial"]
+  if initial ~= nil then
+    ctx:setHeaders({ ["x-grpc-test-echo-initial"] = initial })
+  end
+  local trailing = ctx.metadata["x-grpc-test-echo-trailing-bin"]
+  if trailing ~= nil then
+    ctx:setTrailers({ ["x-grpc-test-echo-trailing-bin"] = trailing })
+  end
+end
+
+local function setOrcaTrailer(ctx, report)
+  ctx:setTrailers({
+    ["endpoint-load-metrics-bin"] = b64encode(report:marshalDc()),
+  })
+end
+
+-- Compression interop (server direction): the bridge
+-- terminates gzip at the HTTP/2 hop and surfaces the declared
+-- encoding as ordinary metadata.
+local function compressionChecks(ctx, expectCompressed, responseCompressed)
+  if expectCompressed ~= nil and expectCompressed.value
+      and ctx.metadata["grpc-encoding"] ~= "gzip" then
+    error(Status.new(wire.CODE_INVALID_ARGUMENT,
+      "expected compressed request, got uncompressed"), 0)
+  end
+  if responseCompressed ~= nil and responseCompressed.value then
+    ctx:setHeaders({ ["grpc-encoding"] = "gzip" })
+  end
+end
+
+local function maybeFail(status)
+  if status ~= nil and (status.code ~= 0 or (status.message ~= nil and status.message ~= "")) then
+    error(Status.new(status.code, status.message), 0)
+  end
+end
+
+local function unaryResponse(req)
+  maybeFail(req.responseStatus)
+  local resp = SimpleResponse.new()
+  resp.payload = Payload.new(req.responseType, string.rep("\0", math.max(0, req.responseSize)))
+  return resp
+end
+
+local function sleepUs(us)
+  -- Busy-wait: the generated Lua runtime has no blocking sleep
+  -- primitive in the stdlib profile. os.clock() is CPU time,
+  -- which advances 1:1 while spinning.
+  local deadline = os.clock() + us / 1000000.0
+  while os.clock() < deadline do
+  end
+end
+
+local function sendResponses(req, send)
+  maybeFail(req.responseStatus)
+  local first = true
+  for _, param in ipairs(req.responseParameters) do
+    if not first and param.intervalUs > 0 then
+      sleepUs(param.intervalUs)
+    end
+    first = false
+    send(StreamingOutputCallResponse.new(
+      Payload.new(req.responseType, string.rep("\0", math.max(0, param.size)))))
+  end
+end
+
+local function recvOrEof(stream)
+  local ok, req = pcall(function() return stream:recv() end)
+  if not ok then
+    if req == EndOfStream then return nil end
+    error(req, 0)
+  end
+  return req
+end
+
+function InteropServiceImpl:emptyCall(ctx, req)
+  echoMetadata(ctx)
+  return Empty.new()
+end
+
+function InteropServiceImpl:unaryCall(ctx, req)
+  echoMetadata(ctx)
+  compressionChecks(ctx, req.expectCompressed, req.responseCompressed)
+  if req.orcaPerQueryReport ~= nil then
+    local report = req.orcaPerQueryReport
+    setOrcaTrailer(ctx, OrcaLoadReport.new(
+      report.cpuUtilization, report.memoryUtilization, 0,
+      report.requestCost, report.utilization))
+  elseif oobReport ~= nil then
+    setOrcaTrailer(ctx, oobReport)
+  end
+  return unaryResponse(req)
+end
+
+function InteropServiceImpl:cacheableUnaryCall(ctx, req)
+  echoMetadata(ctx)
+  maybeFail(req.responseStatus)
+  local resp = SimpleResponse.new()
+  resp.payload = req.payload or Payload.new()
+  return resp
+end
+
+function InteropServiceImpl:streamingOutputCall(ctx, req, stream)
+  echoMetadata(ctx)
+  sendResponses(req, function(resp) stream:send(resp) end)
+end
+
+function InteropServiceImpl:streamingInputCall(ctx, stream)
+  echoMetadata(ctx)
+  local total = 0
+  while true do
+    local req = recvOrEof(stream)
+    if req == nil then break end
+    if req.expectCompressed ~= nil and req.expectCompressed.value
+        and ctx.metadata["grpc-encoding"] ~= "gzip" then
+      error(Status.new(wire.CODE_INVALID_ARGUMENT,
+        "expected compressed request, got uncompressed"), 0)
+    end
+    if req.payload ~= nil then total = total + #req.payload.body end
+  end
+  stream:sendAndClose(StreamingInputCallResponse.new(total))
+end
+
+function InteropServiceImpl:fullDuplexCall(ctx, stream)
+  echoMetadata(ctx)
+  while true do
+    local req = recvOrEof(stream)
+    if req == nil then return end
+    if req.orcaOobReport ~= nil then
+      local report = req.orcaOobReport
+      oobReport = OrcaLoadReport.new(
+        report.cpuUtilization, report.memoryUtilization, 0,
+        {}, report.utilization)
+    end
+    sendResponses(req, function(resp) stream:send(resp) end)
+  end
+end
+
+function InteropServiceImpl:halfDuplexCall(ctx, stream)
+  echoMetadata(ctx)
+  local collected = {}
+  while true do
+    local req = recvOrEof(stream)
+    if req == nil then break end
+    collected[#collected + 1] = req
+  end
+  for _, req in ipairs(collected) do
+    sendResponses(req, function(resp) stream:send(resp) end)
+  end
+end
+
+function InteropServiceImpl:unimplementedCall(ctx, req)
+  error(Status.new(wire.CODE_UNIMPLEMENTED, "not implemented"), 0)
+end
+
+-- OpenRcaService (ORCA out-of-band): stream the current OOB
+-- report on an interval until the client goes away. The stdio
+-- main wires InteropServiceImpl.pumpFn to the endpoint pump so
+-- concurrent streams keep moving while this loop runs (the
+-- generated endpoint supports reentrant dispatch).
+function InteropServiceImpl:streamCoreMetrics(ctx, req, stream)
+  while true do
+    stream:send(oobReport or OrcaLoadReport.new())
+    sleepUs(200 * 1000)
+    if self.pumpFn ~= nil then self.pumpFn() end
+  end
+end
+
+return InteropServiceImpl

@@ -1,6 +1,6 @@
 {
   "name": "grpc-dc",
-  "version": "0.32.14",
+  "version": "0.32.15",
   "description": "gRPC in the browser over WebRTC DataChannels: dependency-free generated gRPC clients & servers for JavaScript — no grpc-web proxy, no external runtime",
   "keywords": [
     "grpc",

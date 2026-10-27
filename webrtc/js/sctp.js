@@ -8,6 +8,7 @@
 import crypto from "node:crypto";
 import { CRC32C_TABLE, SctpChunk, SctpParam, SctpReconfig } from "./proto_gen.js";
 import { SctpReassembler } from "./sctp_reassembly_gen.js";
+import { SctpSackTracker } from "./sctp_sack_gen.js";
 
 // Env-gated packet tracing for wedge hunts (node only).
 const SCTP_TRACE =
@@ -115,8 +116,7 @@ export class Association {
     this.state = "closed";
     this.nextTsn = crypto.randomBytes(4).readUInt32BE(0);
     this.outCumDone = u32(this.nextTsn - 1);
-    this.peerCumTsn = 0;
-    this.peerReceived = new Set();
+    this.sack = new SctpSackTracker(0);
     this.outSsn = new Map();
     this.unacked = new Map();
     this.queued = [];
@@ -135,7 +135,6 @@ export class Association {
     this.lastInitMs = 0;
     this.lastPacketOutMs = 0;
     this.rtoMs = INITIAL_RTO_MS;
-    this.missCounts = new Map();
     this.abandonedOrdered = [];
     // Stream reset (RFC 6525) bookkeeping.
     this.reconfSeq = this.nextTsn;
@@ -294,7 +293,7 @@ export class Association {
   #processPendingResets(packets, events) {
     const remaining = [];
     for (const pending of this.pendingReconf) {
-      if (diff32(this.peerCumTsn, pending.lastTsn) < 0) {
+      if (diff32(this.sack.cum(), pending.lastTsn) < 0) {
         remaining.push(pending);
         continue;
       }
@@ -330,7 +329,7 @@ export class Association {
         // No stream list means all streams; datachannels always
         // list one, but handle the general case for known ones.
         const targets = streams.length ? streams : this.reasm.streamIds();
-        if (diff32(this.peerCumTsn, lastTsn) < 0) {
+        if (diff32(this.sack.cum(), lastTsn) < 0) {
           // Wait until everything sent has arrived (RFC 6525 §5.2).
           this.pendingReconf.push({ seq, lastTsn, streams: targets });
           continue;
@@ -445,26 +444,14 @@ export class Association {
   }
 
   #sackPacket() {
-    const gaps = [];
-    const sorted = [...this.peerReceived].filter((t) => diff32(t, this.peerCumTsn) > 0)
-      .sort((a, b) => diff32(a, b));
-    let i = 0;
-    while (i < sorted.length) {
-      const start = sorted[i];
-      let end = start;
-      while (i + 1 < sorted.length && sorted[i + 1] === add32(end, 1)) {
-        end = sorted[++i];
-      }
-      gaps.push([diff32(start, this.peerCumTsn) & 0xffff, diff32(end, this.peerCumTsn) & 0xffff]);
-      i++;
-    }
+    const gaps = this.sack.gapBlocks();
     const body = Buffer.alloc(12 + gaps.length * 4);
-    body.writeUInt32BE(this.peerCumTsn, 0);
+    body.writeUInt32BE(this.sack.cum(), 0);
     body.writeUInt32BE(INITIAL_RWND, 4);
     body.writeUInt16BE(gaps.length, 8);
     body.writeUInt16BE(0, 10);
-    gaps.forEach(([s, e], idx) => {
-      body.writeUInt16BE(s, 12 + idx * 4);
+    gaps.forEach(([s2, e], idx) => {
+      body.writeUInt16BE(s2, 12 + idx * 4);
       body.writeUInt16BE(e, 14 + idx * 4);
     });
     return this.#packet(this.peerTag, chunk(SctpChunk.SACK, 0, body));
@@ -494,7 +481,7 @@ export class Association {
           if (!this.isClient || this.state !== "cookie-wait" || view.body.length < 16) break;
           this.peerTag = view.body.readUInt32BE(0);
           this.peerInitialTsn = view.body.readUInt32BE(12);
-          this.peerCumTsn = u32(view.body.readUInt32BE(12) - 1);
+          this.sack.reset(u32(view.body.readUInt32BE(12) - 1));
           for (const [ty, value] of parseParams(view.body.subarray(16))) {
             if (ty === 7) this.pendingCookie = Buffer.from(value);
           }
@@ -511,7 +498,7 @@ export class Association {
           this.peerInitialTsn = peerTsn;
           this.peerTag = peerTag;
           this.myTag = myTag;
-          this.peerCumTsn = u32(peerTsn - 1);
+          this.sack.reset(u32(peerTsn - 1));
           this.nextTsn = myTsn;
           this.outCumDone = u32(myTsn - 1);
           this.state = "established";
@@ -582,13 +569,7 @@ export class Association {
     const isBegin = (flags & 0x02) !== 0;
     const isEnd = (flags & 0x01) !== 0;
 
-    if (diff32(tsn, this.peerCumTsn) > 0) {
-      this.peerReceived.add(tsn);
-      while (this.peerReceived.has(add32(this.peerCumTsn, 1))) {
-        this.peerCumTsn = add32(this.peerCumTsn, 1);
-        this.peerReceived.delete(this.peerCumTsn);
-      }
-    }
+    this.sack.noteReceived(tsn);
 
     for (const d of this.reasm.feed(tsn, stream, ssn, ppid, unordered, isBegin, isEnd, payload)) {
       events.push({ type: "data", stream: d.stream, ppid: d.ppid, payload: d.payload });
@@ -598,10 +579,7 @@ export class Association {
   #handleForwardTsn(body, events) {
     if (body.length < 4) return;
     const newCum = body.readUInt32BE(0);
-    if (diff32(newCum, this.peerCumTsn) > 0) {
-      this.peerReceived = new Set([...this.peerReceived].filter((t) => diff32(t, newCum) > 0));
-      this.peerCumTsn = newCum;
-    }
+    this.sack.forwardTsn(newCum);
     for (let pos = 4; pos + 4 <= body.length; pos += 4) {
       const stream = body.readUInt16BE(pos);
       const ssn = body.readUInt16BE(pos + 2);
@@ -617,23 +595,16 @@ export class Association {
     const cum = body.readUInt32BE(0);
     this.peerRwnd = body.readUInt32BE(4);
     const numGaps = body.readUInt16BE(8);
-    const gapRanges = [];
+    const blocks = [];
     for (let i2 = 0, pos = 12; i2 < numGaps && pos + 4 <= body.length; i2++, pos += 4) {
-      const s = body.readUInt16BE(pos);
-      const e = body.readUInt16BE(pos + 2);
-      gapRanges.push([add32(cum, s), add32(cum, e)]);
+      blocks.push([body.readUInt16BE(pos), body.readUInt16BE(pos + 2)]);
     }
-    strace(
-      `sack cum=${cum} gaps=${JSON.stringify(gapRanges)} unacked=${this.unacked.size} queue=${this.outQueue.length}`,
-    );
+    const unackedTsns = [...this.unacked.keys()].sort((a, b) => diff32(a, b));
+    const { acked, retransmit } = this.sack.noteSack(cum, blocks, unackedTsns);
     let freed = 0;
-    for (const tsn of [...this.unacked.keys()]) {
-      const inGap = gapRanges.some(([s, e]) => diff32(tsn, s) >= 0 && diff32(tsn, e) <= 0);
-      if (diff32(tsn, cum) <= 0 || inGap) {
-        freed += this.unacked.get(tsn).payload.length;
-        this.unacked.delete(tsn);
-        this.missCounts.delete(tsn);
-      }
+    for (const tsn of acked) {
+      freed += this.unacked.get(tsn).payload.length;
+      this.unacked.delete(tsn);
     }
     this.inflightBytes = Math.max(0, this.inflightBytes - freed);
     if (freed > 0) {
@@ -646,21 +617,12 @@ export class Association {
       }
     }
     this.#advanceOutCum();
-    if (gapRanges.length) {
-      const firstStart = gapRanges[0][0];
-      for (const tsn of [...this.unacked.keys()]) {
-        if (diff32(tsn, cum) > 0 && diff32(tsn, firstStart) < 0) {
-          const count = (this.missCounts.get(tsn) ?? 0) + 1;
-          this.missCounts.set(tsn, count);
-          if (count >= 3) {
-            const c = this.unacked.get(tsn);
-            this.missCounts.delete(tsn);
-            packets.push(this.#packet(this.peerTag, dataChunkBytes(c)));
-            c.retransmits += 1;
-            c.lastSentMs = nowMs;
-          }
-        }
-      }
+    for (const tsn of retransmit) {
+      const c = this.unacked.get(tsn);
+      if (!c) continue;
+      packets.push(this.#packet(this.peerTag, dataChunkBytes(c)));
+      c.retransmits += 1;
+      c.lastSentMs = nowMs;
     }
     packets.push(...this.#flushQueue(nowMs));
     return packets;
@@ -742,7 +704,7 @@ export class Association {
     if (this.state !== "established") return [];
     this.state = "shutdown-sent";
     const body = Buffer.alloc(4);
-    body.writeUInt32BE(this.peerCumTsn, 0);
+    body.writeUInt32BE(this.sack.cum(), 0);
     return [this.#packet(this.peerTag, chunk(SctpChunk.SHUTDOWN, 0, body))];
   }
 }

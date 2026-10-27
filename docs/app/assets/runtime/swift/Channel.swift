@@ -72,6 +72,16 @@ final class Channel {
             self.input = input
         }
 
+        /// Send one request message on an open stream (no half-close).
+        func Send(_ msg: Marshaler) throws {
+            try endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, streamId, msg.MarshalDc()))
+        }
+
+        /// Half-close an open stream (no more requests).
+        func HalfClose() throws {
+            try endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameHalfClose, streamId, []))
+        }
+
         /// Abort this stream (sends RST, wakes a pending Recv).
         /// After normal completion this just closes locally.
         func Cancel() {
@@ -221,6 +231,12 @@ final class Channel {
         defer { endpointInstance.CloseStream(stream.streamId) }
         try SendAll(stream, reqs)
         try CollectOne(stream, resp, "client-streaming call")
+    }
+
+    /// Open a stream without sending anything: drive it with
+    /// ClientStream.Send / HalfClose / Recv / Cancel.
+    func OpenStream(_ path: String, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ClientStream {
+        return try Open(path, metadata, timeout)
     }
 
     /// Start a bidi call with all requests sent up front.

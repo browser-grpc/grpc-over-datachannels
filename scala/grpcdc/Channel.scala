@@ -36,6 +36,16 @@ class Channel(val endpoint: Endpoint) {
       }
     }
 
+    /** Send one request message on an open stream (no half-close). */
+    def send(msg: Marshaler): Unit = {
+      endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, msg.marshalDc()))
+    }
+
+    /** Half-close an open stream (no more requests). */
+    def halfClose(): Unit = {
+      endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_HALF_CLOSE, streamId, new Array[Byte](0)))
+    }
+
     /** Abort this stream (sends RST, wakes a pending recv). */
     def cancel(): Unit = {
       if (!terminated) {
@@ -205,6 +215,12 @@ class Channel(val endpoint: Endpoint) {
     } finally {
       endpoint.closeStream(stream.streamId)
     }
+  }
+
+  /** Open a stream without sending anything: drive it with
+   *  ClientStream.send / halfClose / recv / cancel. */
+  def openStream(path: String, metadata: Map[String, String] = null, timeout: java.time.Duration = null): ClientStream = {
+    open(path, metadata, timeout)
   }
 
   /** Start a bidi call with all requests sent up front. */

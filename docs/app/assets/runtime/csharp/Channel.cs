@@ -60,6 +60,18 @@ public class Channel
             _input = input;
         }
 
+        /// <summary>Send one request message on an open stream (no half-close).</summary>
+        public void Send(IMarshaler msg)
+        {
+            _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, StreamId, msg.MarshalDc()));
+        }
+
+        /// <summary>Half-close an open stream (no more requests).</summary>
+        public void HalfClose()
+        {
+            _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameHalfClose, StreamId, Array.Empty<byte>()));
+        }
+
         /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>
         public void Cancel()
         {
@@ -294,6 +306,13 @@ public class Channel
         {
             _endpoint.CloseStream(stream.StreamId);
         }
+    }
+
+    /// <summary>Open a stream without sending anything: drive it with
+    /// ClientStream.Send / HalfClose / Recv / Cancel.</summary>
+    public ClientStream OpenStream(string path, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+    {
+        return Open(path, metadata, timeout);
     }
 
     /// <summary>Start a bidi call with all requests sent up front.</summary>

@@ -31,8 +31,8 @@ struct OrcaGrpcDc {
      public:
       explicit OpenRcaServiceStreamCoreMetricsStream(grpcdc::Channel::ClientStream stream)
           : stream_(std::move(stream)) {}
-      OrcaLoadReport Recv() {
-        OrcaLoadReport resp;
+      ::xds::data::orca::v3::OrcaLoadReport Recv() {
+        ::xds::data::orca::v3::OrcaLoadReport resp;
         stream_.Recv(resp);
         return resp;
       }
@@ -42,6 +42,9 @@ struct OrcaGrpcDc {
 
       /// Trailing metadata of the terminal status.
       const grpcdc::Metadata& Trailers() const { return stream_.trailers(); }
+
+      /// Abort this stream (sends RST, wakes a pending Recv).
+      void Cancel() { stream_.Cancel(); }
 
      private:
       grpcdc::Channel::ClientStream stream_;
@@ -55,11 +58,11 @@ struct OrcaGrpcDc {
 
     // -- async (std::future) surface -------------------------------------
 
-    std::future<std::vector<OrcaLoadReport>> StreamCoreMetricsAsync(
+    std::future<std::vector<::xds::data::orca::v3::OrcaLoadReport>> StreamCoreMetricsAsync(
         OrcaLoadReportRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       return std::async(std::launch::async, [this, req, metadata, timeout] {
         auto stream = StreamCoreMetrics(req, metadata, timeout);
-        std::vector<OrcaLoadReport> out;
+        std::vector<::xds::data::orca::v3::OrcaLoadReport> out;
         while (true) {
           try {
             out.push_back(stream.Recv());
@@ -89,8 +92,8 @@ struct OrcaGrpcDc {
       explicit OpenRcaServiceStreamCoreMetricsStream(grpcdc::AsyncClientStream stream)
           : stream_(std::move(stream)) {}
       /// Next response, or std::nullopt when the call completed OK.
-      grpcdc::Task<std::optional<OrcaLoadReport>> Recv() {
-        OrcaLoadReport resp;
+      grpcdc::Task<std::optional<::xds::data::orca::v3::OrcaLoadReport>> Recv() {
+        ::xds::data::orca::v3::OrcaLoadReport resp;
         try {
           co_await stream_.Recv(resp);
         } catch (const grpcdc::EndOfStream&) {
@@ -118,7 +121,7 @@ struct OrcaGrpcDc {
   /// Server-streaming sink passed to service implementations.
   struct OpenRcaServiceStreamCoreMetricsServer {
     virtual ~OpenRcaServiceStreamCoreMetricsServer() = default;
-    virtual void Send(OrcaLoadReport& resp) = 0;
+    virtual void Send(::xds::data::orca::v3::OrcaLoadReport& resp) = 0;
     virtual grpcdc::Endpoint::CallContext& Context() = 0;
   };
 
@@ -142,7 +145,7 @@ struct OrcaGrpcDc {
     OpenRcaServiceStreamCoreMetricsServerImpl(grpcdc::Endpoint::CallContext& ctx,
                                grpcdc::Server::ServerSink& sink)
         : ctx_(ctx), sink_(sink) {}
-    void Send(OrcaLoadReport& resp) override { sink_(resp.MarshalDc()); }
+    void Send(::xds::data::orca::v3::OrcaLoadReport& resp) override { sink_(resp.MarshalDc()); }
     grpcdc::Endpoint::CallContext& Context() override { return ctx_; }
 
    private:

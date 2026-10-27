@@ -118,35 +118,35 @@ class CompiledApp {
       Y: (ms, c) =>
       setTimeout(() => dartInstance.exports.$invokeCallback(c),ms),
       Z: (string, times) => string.repeat(times),
-      a: (jsArray, jsArrayOffset, wasmArray, wasmArrayOffset, length) => {
+      a: (decoder, codeUnits) => decoder.decode(codeUnits),
+      b: (o, start, length) => new Uint8Array(o.buffer, o.byteOffset + start, length),
+      c: () => new TextDecoder("utf-8", {fatal: true}),
+      d: () => new TextDecoder("utf-8", {fatal: false}),
+      e: (jsArray, jsArrayOffset, wasmArray, wasmArrayOffset, length) => {
         const setValue = dartInstance.exports.$wasmI8ArraySet;
         for (let i = 0; i < length; i++) {
           setValue(wasmArray, wasmArrayOffset + i, jsArray[jsArrayOffset + i]);
         }
       },
-      b: (o, start, length) => new Uint8Array(o.buffer, o.byteOffset + start, length),
-      c: (x0,x1) => x0.send(x1),
-      d: x0 => new Uint8Array(x0),
-      e: (jsArray, jsArrayOffset, wasmArray, wasmArrayOffset, length) => {
+      f: (x0,x1) => x0.send(x1),
+      g: x0 => new Uint8Array(x0),
+      h: (jsArray, jsArrayOffset, wasmArray, wasmArrayOffset, length) => {
         const getValue = dartInstance.exports.$wasmI8ArrayGet;
         for (let i = 0; i < length; i++) {
           jsArray[jsArrayOffset + i] = getValue(wasmArray, wasmArrayOffset + i);
         }
       },
-      f: o => o,
-      g: s => new Date(s * 1000).getTimezoneOffset() * 60,
-      h: Date.now,
-      i: (s) => +s,
-      j: s => {
+      i: o => o,
+      j: s => new Date(s * 1000).getTimezoneOffset() * 60,
+      k: Date.now,
+      l: (s) => +s,
+      m: s => {
         if (!/^\s*[+-]?(?:Infinity|NaN|(?:\.\d+|\d+(?:\.\d*)?)(?:[eE][+-]?\d+)?)\s*$/.test(s)) {
           return NaN;
         }
         return parseFloat(s);
       },
-      k: s => s.trim(),
-      l: (decoder, codeUnits) => decoder.decode(codeUnits),
-      m: () => new TextDecoder("utf-8", {fatal: true}),
-      n: () => new TextDecoder("utf-8", {fatal: false}),
+      n: s => s.trim(),
       o: (wasmFunction,f) => finalizeWrapper(f, function(x0) { return wasmFunction(f,arguments.length,x0) }),
       p: (x0,x1) => x0.setOnMessage(x1),
       q: (o) => new DataView(o.buffer, o.byteOffset, o.byteLength),

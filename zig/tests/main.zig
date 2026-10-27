@@ -6,6 +6,8 @@ const test_echo = @import("test_echo.zig");
 const test_interop = @import("test_interop.zig");
 const test_interop_oracle = @import("test_interop_oracle.zig");
 const test_oracle = @import("test_oracle.zig");
+const test_http2_oracle = @import("test_http2_oracle.zig");
+const test_interop_server_oracle = @import("test_interop_server_oracle.zig");
 const test_dynamic = @import("test_dynamic.zig");
 const test_pb_messages = @import("test_pb_messages.zig");
 const test_bdd_schemas = @import("test_bdd_schemas.zig");
@@ -33,6 +35,10 @@ pub fn main() !void {
         test_interop_oracle.testInteropOracle(alloc);
     } else if (std.mem.eql(u8, name, "TestOracle")) {
         test_oracle.testOracle(alloc);
+    } else if (std.mem.eql(u8, name, "TestHttp2Oracle")) {
+        test_http2_oracle.testHttp2Oracle(alloc);
+    } else if (std.mem.eql(u8, name, "TestInteropServerOracle")) {
+        test_interop_server_oracle.testInteropServerOracle(alloc);
     } else if (std.mem.eql(u8, name, "TestDynamic")) {
         test_dynamic.testDynamic(alloc);
     } else if (std.mem.eql(u8, name, "TestDeadline")) {

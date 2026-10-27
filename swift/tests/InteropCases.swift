@@ -27,5 +27,9 @@ enum InteropCases {
         Case(name: "status-code-and-message-duplex", kind: "STATUS_DUPLEX", reqSizes: [], respSizes: [], statusCode: 2, statusMessage: "test status message"),
         Case(name: "unimplemented-method", kind: "UNIMPLEMENTED_METHOD", reqSizes: [], respSizes: [], statusCode: 12, statusMessage: ""),
         Case(name: "unimplemented-service", kind: "UNIMPLEMENTED_SERVICE", reqSizes: [], respSizes: [], statusCode: 12, statusMessage: ""),
+        Case(name: "special-status-message", kind: "SPECIAL_STATUS", reqSizes: [], respSizes: [], statusCode: 2, statusMessage: "\t\ntest with whitespace\r\nand Unicode BMP ☺ and non-BMP 😈\t\n"),
+        Case(name: "cancel-after-begin", kind: "CANCEL_AFTER_BEGIN", reqSizes: [], respSizes: [], statusCode: 1, statusMessage: ""),
+        Case(name: "cancel-after-first-response", kind: "CANCEL_AFTER_FIRST", reqSizes: [], respSizes: [31415], statusCode: 1, statusMessage: ""),
+        Case(name: "timeout-on-sleeping-server", kind: "TIMEOUT_SLEEPING", reqSizes: [], respSizes: [1, 1, 1], statusCode: 4, statusMessage: ""),
     ]
 }
