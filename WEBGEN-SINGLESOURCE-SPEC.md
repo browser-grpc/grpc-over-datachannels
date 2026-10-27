@@ -131,10 +131,15 @@ growing multi-key `case-on` branches, a parameterized
 growing a `root` env slot, `distinct-count` and `each-unique`
 (with `(kinds ...)` filters and `(or-first)` fallback),
 parameterized `guarded`, multi-key `case-on`/`kind-case`
-branches, and the `~~` fmt escape. Remaining rollout: the
-native languages by template size (Rust next, 634 lines).
-Unconverted functions stay hand-mirrored and parity-pinned;
-the grammar grows only as a real function demands a node.
+branches, and the `~~` fmt escape. Since then the native
+emitters have been converted in template-size order: Rust,
+Ruby, PHP, Python, C (pb; the C stub JS remains inline in
+`emitCFile`, parity-pinned), Scala, Dart, and Swift, each
+byte-identical on both sides with parity green in Chromium,
+Firefox, and WebKit. Remaining rollout: Lua, Zig, Kotlin
+(plus kotlin-native), C#, Java, C++. Unconverted functions
+stay hand-mirrored and parity-pinned; the grammar grows
+only as a real function demands a node.
 
 ## First concrete step
 
