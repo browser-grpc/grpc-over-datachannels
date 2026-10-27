@@ -1,7 +1,13 @@
 # Spec: generating the interop TestService implementations
 
-Status: draft for review. No code changes yet. Decision needed
-before implementation (see Open questions).
+Status: in progress. JS and Python implementations are now
+generated (racket/interop-service-gen.rkt, method table in
+racket/interop-spec.rkt) with byte-identical bodies plus the
+standard @generated header; their suites pass. The remaining
+seven languages still hand-mirror the behavior; rollout
+continues per the plan below. The open questions were settled
+by proceeding with generation, test+example scope, and the
+Ruby hook as a planned slot.
 
 ## Problem
 

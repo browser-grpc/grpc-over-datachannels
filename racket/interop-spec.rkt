@@ -22,7 +22,7 @@
 ;;; requests); resp-sizes: requested response sizes. status-code
 ;;; -1 = expect OK.
 
-(provide interop-case-table)
+(provide interop-case-table interop-service-methods)
 
 (define interop-case-table
   '((empty EMPTY () () -1 "")
@@ -40,3 +40,19 @@
     (cancel-after-begin CANCEL_AFTER_BEGIN () () 1 "")
     (cancel-after-first-response CANCEL_AFTER_FIRST () (31415) 1 "")
     (timeout-on-sleeping-server TIMEOUT_SLEEPING () (1 1 1) 4 "")))
+
+;;; grpc.testing TestService behavior, shared by the generated
+;;; implementations (interop-service-gen.rkt; INTEROP-GEN-SPEC.md).
+;;; Row: (method kind behavior). Kinds follow the generated
+;;; stubs; behavior names the shared rule the emitters stamp.
+;;; UnimplementedCall is deliberately in the table (the impl
+;;; raises UNIMPLEMENTED itself, matching the reference).
+(define interop-service-methods
+  '((EmptyCall unary empty)
+    (UnaryCall unary sized-with-status-and-orca)
+    (CacheableUnaryCall unary echo-payload)
+    (StreamingOutputCall server-streaming response-parameters)
+    (StreamingInputCall client-streaming aggregate-payload-size)
+    (FullDuplexCall bidi per-request-response-parameters-and-orca-oob)
+    (HalfDuplexCall bidi collect-then-response-parameters)
+    (UnimplementedCall unary raise-unimplemented)))

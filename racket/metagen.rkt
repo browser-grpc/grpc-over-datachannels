@@ -26,7 +26,7 @@
 (require "spec.rkt" "pb.rkt" json racket/runtime-path "webrtc-gen.rkt"
          "oracle-spec.rkt" "oracle-gen.rkt" "bdd-gen.rkt" "webgen.rkt" "mux-gen.rkt"
          "interop-gen.rkt" "sctp-gen.rkt"
-         "proxy-gen.rkt" "http2-gen.rkt" "eventbus-gen.rkt"
+         "proxy-gen.rkt" "http2-gen.rkt" "eventbus-gen.rkt" "interop-service-gen.rkt"
          "runtime-go.rkt" "runtime-js.rkt" "runtime-rust.rkt" "runtime-python.rkt" "runtime-java.rkt" "runtime-csharp.rkt" "runtime-cpp.rkt" "runtime-swift.rkt" "runtime-kotlin.rkt" "runtime-dart.rkt" "runtime-zig.rkt" "runtime-c.rkt" "runtime-lua.rkt" "runtime-ruby.rkt" "runtime-php.rkt" "runtime-scala.rkt")
 
 (define-runtime-path here ".")
@@ -1603,6 +1603,7 @@ BROWSER_SERVER_EOF
   (emit-oracle-scenarios)
   (emit-sctp-vectors)
   (write-runtime-files "js/test" "oracle-gen.rkt" (list (emit-js-oracle-driver)))
+  (write-runtime-files "js/test" "interop-service-gen.rkt" (list (emit-js-interop-service)))
   (write-runtime-files "js/test" "bdd-gen.rkt" (list (emit-js-bdd) (emit-bdd-schemas 'js)))
   (write-runtime-files "browser-test" "bdd-gen.rkt" (list (emit-browser-bdd-scenarios) (emit-browser-bdd-manifest)))
   (write-runtime-files "go" "oracle-gen.rkt" (list (emit-go-oracle-driver)))
@@ -1613,6 +1614,7 @@ BROWSER_SERVER_EOF
   (printf "generated python/grpcdc/wire_gen.py\n")
   (write-runtime-files "python" "runtime-python.rkt" (emit-python-runtime-files))
   (write-runtime-files "python/tests" "oracle-gen.rkt" (list (emit-python-oracle-driver)))
+  (write-runtime-files "python/tests" "interop-service-gen.rkt" (list (emit-py-interop-service)))
   (write-runtime-files "python/tests" "bdd-gen.rkt" (list (emit-python-bdd) (emit-bdd-schemas 'python)))
   (make-directory* (build-path root "java" "grpcdc"))
   (call-with-output-file (build-path root "java" "grpcdc" "Wire.java") #:exists 'replace
