@@ -51,7 +51,10 @@
          js-pb-message-program
          wasm-swift-client-method-program wasm-swift-server-iface-method-program
          wasm-swift-serve-export-program wasm-swift-stream-iface-method-program
-         wasm-swift-stream-feed-export-program wasm-swift-service-program)
+         wasm-swift-stream-feed-export-program wasm-swift-service-program
+         wasm-go-client-method-program wasm-go-server-iface-method-program
+         wasm-go-register-method-program wasm-go-stream-iface-method-program
+         wasm-go-stream-register-method-program wasm-go-service-program)
 
 ;; ---------------------------------------------------------------------------
 ;; Go stub: RegisterMethod handler table entries (one per method).
@@ -726,6 +729,106 @@
     "    }\n\n"
     (fmt "    static var streamImpl: ~aStreamServer?\n\n    /// Register the incremental implementation used by the serve_*Start/Feed/End exports.\n    static func register~aStreamServer(_ impl: ~aStreamServer) {\n        streamImpl = impl\n    }\n" (svc) (svc) (svc))))
 
+;; ---------------------------------------------------------------------------
+;; Wasm-Go facade emitter (mirrors template-wasm-go.rkt). Method
+;; programs take the sink struct name as (arg 0); inside the
+;; service program it is derived from the root node's methods:
+;; "<Svc>ServerSink" for a single response type, else
+;; "<Svc><Resp>ServerSink".
+;; ---------------------------------------------------------------------------
+
+(define wasm-go-client-method-program
+  '((kind-case
+     (unary (fmt "func (c *~aClient) ~a(req *echo.~a) (*echo.~a, error) {\n\tpayload, err := callUnary(c.bridge, ~s, req.MarshalDC())\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tresp := new(echo.~a)\n\tif err := resp.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n"
+                 (svc) (ref name) (ref input) (ref output) (ref path) (ref output)))
+     (server-streaming (fmt "func (c *~aClient) ~a(req *echo.~a, onResp func(*echo.~a) error) error {\n\treturn callStream(c.bridge, \"serverStream\", ~s, req.MarshalDC(), func(payload []byte) error {\n\t\tresp := new(echo.~a)\n\t\tif err := resp.UnmarshalDC(payload); err != nil {\n\t\t\treturn err\n\t\t}\n\t\treturn onResp(resp)\n\t})\n}\n"
+                            (svc) (ref name) (ref input) (ref output) (ref path) (ref output)))
+     (client-streaming (fmt "func (c *~aClient) ~a(reqs ...*echo.~a) (*echo.~a, error) {\n\tpayloads := make([][]byte, len(reqs))\n\tfor i, r := range reqs {\n\t\tpayloads[i] = r.MarshalDC()\n\t}\n\tpayload, err := callClientStream(c.bridge, ~s, payloads)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tresp := new(echo.~a)\n\tif err := resp.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n\treturn resp, nil\n}\n"
+                            (svc) (ref name) (ref input) (ref output) (ref path) (ref output)))
+     (bidi (fmt "func (c *~aClient) ~a(reqs []*echo.~a, onResp func(*echo.~a) error) error {\n\tpayloads := make([][]byte, len(reqs))\n\tfor i, r := range reqs {\n\t\tpayloads[i] = r.MarshalDC()\n\t}\n\treturn callStreamPayloads(c.bridge, \"bidi\", ~s, payloads, func(payload []byte) error {\n\t\tresp := new(echo.~a)\n\t\tif err := resp.UnmarshalDC(payload); err != nil {\n\t\t\treturn err\n\t\t}\n\t\treturn onResp(resp)\n\t})\n}\n"
+                (svc) (ref name) (ref input) (ref output) (ref path) (ref output))))))
+
+(define wasm-go-server-iface-method-program
+  '((kind-case
+     (unary (fmt "\t~a(req *echo.~a, metadata [][2]string) (*echo.~a, error)\n"
+                 (ref name) (ref input) (ref output)))
+     (server-streaming (fmt "\t~a(req *echo.~a, metadata [][2]string, sink *~a) error\n"
+                            (ref name) (ref input) (arg 0)))
+     (client-streaming (fmt "\t~a(reqs []*echo.~a, metadata [][2]string) (*echo.~a, error)\n"
+                            (ref name) (ref input) (ref output)))
+     (bidi (fmt "\t~a(reqs []*echo.~a, metadata [][2]string, sink *~a) error\n"
+                (ref name) (ref input) (arg 0))))))
+
+(define wasm-go-register-method-program
+  '((kind-case
+     (unary (fmt "\tregisterUnaryHandler(bridge, ~s, func(payload []byte, metadata [][2]string) ([]byte, error) {\n\t\treq := new(echo.~a)\n\t\tif err := req.UnmarshalDC(payload); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tresp, err := impl.~a(req, metadata)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\treturn resp.MarshalDC(), nil\n\t})\n"
+                 (ref path) (ref input) (ref name)))
+     (server-streaming (fmt "\tregisterServerStreamHandler(bridge, ~s, func(payload []byte, metadata [][2]string, sink *ServerSink) error {\n\t\treq := new(echo.~a)\n\t\tif err := req.UnmarshalDC(payload); err != nil {\n\t\t\treturn err\n\t\t}\n\t\treturn impl.~a(req, metadata, &~a{sink: sink})\n\t})\n"
+                            (ref path) (ref input) (ref name) (arg 0)))
+     (client-streaming (fmt "\tregisterClientStreamHandler(bridge, ~s, func(payloads [][]byte, metadata [][2]string) ([]byte, error) {\n\t\treqs := make([]*echo.~a, len(payloads))\n\t\tfor i, payload := range payloads {\n\t\t\treqs[i] = new(echo.~a)\n\t\t\tif err := reqs[i].UnmarshalDC(payload); err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t}\n\t\tresp, err := impl.~a(reqs, metadata)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\treturn resp.MarshalDC(), nil\n\t})\n"
+                            (ref path) (ref input) (ref input) (ref name)))
+     (bidi (fmt "\tregisterBidiHandler(bridge, ~s, func(payloads [][]byte, metadata [][2]string, sink *ServerSink) error {\n\t\treqs := make([]*echo.~a, len(payloads))\n\t\tfor i, payload := range payloads {\n\t\t\treqs[i] = new(echo.~a)\n\t\t\tif err := reqs[i].UnmarshalDC(payload); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n\t\treturn impl.~a(reqs, metadata, &~a{sink: sink})\n\t})\n"
+                (ref path) (ref input) (ref input) (ref name) (arg 0))))))
+
+(define wasm-go-stream-iface-method-program
+  '((kind-case
+     (client-streaming (fmt "\t~a(source *~aSource, metadata [][2]string) (*echo.~a, error)\n"
+                            (ref name) (ref input) (ref output)))
+     (bidi (fmt "\t~a(source *~aSource, metadata [][2]string, sink *~a) error\n"
+                (ref name) (ref input) (arg 0)))
+     (else ""))))
+
+(define wasm-go-stream-register-method-program
+  '((kind-case
+     (client-streaming (fmt "\tregisterClientStreamIncHandler(bridge, ~s, func(source *RequestSource, metadata [][2]string) ([]byte, error) {\n\t\tresp, err := impl.~a(&~aSource{raw: source}, metadata)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\treturn resp.MarshalDC(), nil\n\t})\n"
+                            (ref path) (ref name) (ref input)))
+     (bidi (fmt "\tregisterBidiIncHandler(bridge, ~s, func(source *RequestSource, metadata [][2]string, sink *ServerSink) error {\n\t\treturn impl.~a(&~aSource{raw: source}, metadata, &~a{sink: sink})\n\t})\n"
+                (ref path) (ref name) (ref input) (arg 0)))
+     (else ""))))
+
+(define wasm-go-service-program
+  '((fmt "type ~aClient struct {\n\tbridge js.Value\n}\n\nfunc New~aClient(bridge js.Value) *~aClient {\n\treturn &~aClient{bridge: bridge}\n}\n\n" (svc) (svc) (svc) (svc))
+    (each methods (call wasmGoClientMethod))
+    (fmt "\n// ~aServer is the service implementation for ~a.\ntype ~aServer interface {\n" (svc) (ref full-name) (svc))
+    (each methods (call wasmGoServerIfaceMethod
+                        (case-on (distinct-count (get (root) methods) output)
+                          (1 (fmt "~aServerSink" (svc)))
+                          (else (fmt "~a~aServerSink" (svc) (ref output))))))
+    "}\n\n"
+    (each-unique methods output
+                  (fmt "// ~a sends responses on streaming calls.\ntype ~a struct {\n\tsink *ServerSink\n}\n\n// Send marshals and forwards one response.\nfunc (s *~a) Send(resp *echo.~a) error {\n\ts.sink.Send(resp.MarshalDC())\n\treturn nil\n}\n\n"
+                       (case-on (distinct-count (get (root) methods) output)
+                         (1 (fmt "~aServerSink" (svc)))
+                         (else (fmt "~a~aServerSink" (svc) (ref output))))
+                       (case-on (distinct-count (get (root) methods) output)
+                         (1 (fmt "~aServerSink" (svc)))
+                         (else (fmt "~a~aServerSink" (svc) (ref output))))
+                       (case-on (distinct-count (get (root) methods) output)
+                         (1 (fmt "~aServerSink" (svc)))
+                         (else (fmt "~a~aServerSink" (svc) (ref output))))
+                       (ref output)))
+    (fmt "// Register~aServer registers impl on the JS server bridge and starts serving.\nfunc Register~aServer(bridge js.Value, impl ~aServer) {\n" (svc) (svc) (svc))
+    (each methods (call wasmGoRegisterMethod
+                        (case-on (distinct-count (get (root) methods) output)
+                          (1 (fmt "~aServerSink" (svc)))
+                          (else (fmt "~a~aServerSink" (svc) (ref output))))))
+    (fmt "\tbridge.Call(\"start\", ~s)\n}\n" (ref full-name))
+    (each-unique methods input (kinds client-streaming bidi)
+                  (fmt "\n// ~aSource pulls typed requests one at a time for incremental handlers.\ntype ~aSource struct {\n\traw *RequestSource\n}\n\n// Next returns the next request, or (nil, nil) at end of stream.\nfunc (s *~aSource) Next() (*echo.~a, error) {\n\tpayload, err := s.raw.Next()\n\tif err != nil || payload == nil {\n\t\treturn nil, err\n\t}\n\treq := new(echo.~a)\n\tif err := req.UnmarshalDC(payload); err != nil {\n\t\treturn nil, err\n\t}\n\treturn req, nil\n}\n\n"
+                       (ref input) (ref input) (ref input) (ref input) (ref input)))
+    (fmt "// ~aStreamServer is the incremental implementation for ~a: requests arrive one at a time.\ntype ~aStreamServer interface {\n" (svc) (ref full-name) (svc))
+    (each methods (call wasmGoStreamIfaceMethod
+                        (case-on (distinct-count (get (root) methods) output)
+                          (1 (fmt "~aServerSink" (svc)))
+                          (else (fmt "~a~aServerSink" (svc) (ref output))))))
+    "}\n\n"
+    (fmt "// Register~aStreamServer registers an incremental impl; call bridge start after all registrations.\nfunc Register~aStreamServer(bridge js.Value, impl ~aStreamServer) {\n" (svc) (svc) (svc))
+    (each methods (call wasmGoStreamRegisterMethod
+                        (case-on (distinct-count (get (root) methods) output)
+                          (1 (fmt "~aServerSink" (svc)))
+                          (else (fmt "~a~aServerSink" (svc) (ref output))))))
+    "}\n"))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -773,7 +876,13 @@
           'wasmSwiftServeExport wasm-swift-serve-export-program
           'wasmSwiftStreamIfaceMethod wasm-swift-stream-iface-method-program
           'wasmSwiftStreamFeedExport wasm-swift-stream-feed-export-program
-          'wasmSwiftService wasm-swift-service-program))
+          'wasmSwiftService wasm-swift-service-program
+          'wasmGoClientMethod wasm-go-client-method-program
+          'wasmGoServerIfaceMethod wasm-go-server-iface-method-program
+          'wasmGoRegisterMethod wasm-go-register-method-program
+          'wasmGoStreamIfaceMethod wasm-go-stream-iface-method-program
+          'wasmGoStreamRegisterMethod wasm-go-stream-register-method-program
+          'wasmGoService wasm-go-service-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -788,7 +897,7 @@
       (hash-ref node key #f)))
 
 (define (run-segments program node svc [model #f] [args '()] [err "return err"])
-  (run-env program (list model node svc args err)))
+  (run-env program (list model node svc args err node)))
 
 (define (run-env program env)
   (apply string-append
@@ -800,9 +909,11 @@
 (define (env-svc env) (third env))
 (define (env-args env) (fourth env))
 (define (env-err env) (fifth env))
+(define (env-root env) (sixth env))
 (define (env-with env #:model [model (env-model env)] #:node [node (env-node env)]
-                  #:args [args (env-args env)] #:err [err (env-err env)])
-  (list model node (env-svc env) args err))
+                  #:args [args (env-args env)] #:err [err (env-err env)]
+                  #:root [root (env-root env)])
+  (list model node (env-svc env) args err root))
 
 (define (seg-truthy? v)
   (not (or (not v) (equal? v "") (equal? v 0))))
@@ -937,6 +1048,11 @@
     [(eq? (car seg) 'arg) (list-ref (env-args env) (second seg))]
     [(eq? (car seg) 'err-stmt) (env-err env)]
     [(eq? (car seg) 'self) node]
+    [(eq? (car seg) 'root) (env-root env)]
+    [(eq? (car seg) 'distinct-count)
+     (length (remove-duplicates
+              (map (lambda (el) (hash-ref el (third seg)))
+                   (seg-eval (second seg) env))))]
     [(memq (car seg) '(if case-on when guarded kind-case each each+ each-siblings each-sep each-unique))
      (run-segment seg env)]
     [(eq? (car seg) 'pascal) (seg-pascal (seg-eval (second seg) env))]
@@ -1082,13 +1198,19 @@
             (for/list ([sib (in-list (oneof-siblings (env-model env) node))])
               (run-env (cdr seg) (env-with env #:node sib))))]
     [(eq? (car seg) 'each-unique)
+     (define kinds-part (and (pair? (cdddr seg)) (list? (fourth seg))
+                             (eq? (car (fourth seg)) 'kinds)
+                             (cdr (fourth seg))))
+     (define body (if kinds-part (cddddr seg) (cdddr seg)))
      (define seen (mutable-set))
      (apply string-append
             (for/list ([el (in-list (hash-ref node (second seg)))]
-                       #:when (let ([v (hash-ref el (third seg))])
-                                (and (not (set-member? seen v))
-                                     (set-add! seen v))))
-              (run-env (cdddr seg) (env-with env #:node el))))]
+                       #:when (and (or (not kinds-part)
+                                       (memq (hash-ref el 'kind) kinds-part))
+                                   (let ([v (hash-ref el (third seg))])
+                                     (and (not (set-member? seen v))
+                                          (set-add! seen v)))))
+              (run-env body (env-with env #:node el))))]
     [(eq? (car seg) 'each-sep)
      (define-values (keys segs) (splitf-at (cddr seg) symbol?))
      (define items
