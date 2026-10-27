@@ -218,6 +218,22 @@
          kt-pb-map-val-init-program kt-pb-map-key-decode-program
          kt-pb-map-val-decode-program kt-pb-map-helpers-program
          kt-pb-nested-enum-program kt-pb-message-program
+         cs-service-program cs-client-method-program
+         cs-client-stream-class-program cs-server-iface-method-program
+         cs-server-stream-ifaces-program cs-register-method-program
+         cs-stream-impls-program cs-client-async-method-program
+         cs-server-async-iface-method-program
+         cs-server-async-adapter-method-program
+         cs-pb-type-program cs-pb-explicit-literal-program
+         cs-pb-default-program cs-pb-varint-expr-program
+         cs-pb-varint-decode-program cs-pb-nonzero-program
+         cs-pb-fixed-bits-program cs-pb-encode-singular-program
+         cs-pb-set-expr-program cs-pb-encode-guard-program
+         cs-pb-encode-field-program cs-pb-decode-singular-program
+         cs-pb-clearing-program cs-pb-enum-conv-program
+         cs-pb-decode-case-program cs-pb-map-decode-line-program
+         cs-pb-map-helpers-program cs-pb-nested-enum-program
+         cs-pb-message-program
          lua-pb-enum-program)
 
 ;; ---------------------------------------------------------------------------
@@ -5131,6 +5147,417 @@
     (each enums (call ktPbNestedEnum (fmt "~a    " (arg 1))))
     (fmt "~a}\n" (arg 1))))
 
+;;; ---------------------------------------------------------------------------
+;;; C# (template-csharp.rkt mirrors, option 1). Message classes
+;;; take (support, indent, decl).
+
+(define cs-deprecated-program
+  '((if (ref deprecated)
+        (then (fmt "~a[Obsolete(\"deprecated in the proto schema\")]\n" (arg 0)))
+        (else ""))))
+
+(define cs-client-method-raw-program
+  '((kind-case
+     (unary
+      (fmt "        public ~a ~a(~a req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)\n        {\n            var resp = new ~a();\n            _channel.Unary(~s, req, resp, metadata, timeout);\n            return resp;\n        }\n\n" (ref output) (ref name) (ref input) (ref output) (ref path)))
+     (server-streaming
+      (fmt "        public ~a~aStream ~a(~a req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)\n        {\n            return new ~a~aStream(_channel.ServerStream(~s, req, metadata, timeout));\n        }\n\n" (svc) (ref name) (ref name) (ref input) (svc) (ref name) (ref path)))
+     (client-streaming
+      (fmt "        public ~a ~a(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)\n        {\n            var resp = new ~a();\n            _channel.ClientStreamCall(~s, reqs, resp, metadata, timeout);\n            return resp;\n        }\n\n" (ref output) (ref name) (ref input) (ref output) (ref path)))
+     (bidi
+      (fmt "        public ~a~aStream ~a(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)\n        {\n            return new ~a~aStream(_channel.Bidi(~s, reqs, metadata, timeout));\n        }\n\n" (svc) (ref name) (ref name) (ref input) (svc) (ref name) (ref path))))))
+
+(define cs-client-method-program
+  (append cs-deprecated-program cs-client-method-raw-program))
+
+(define cs-client-stream-class-program
+  '((kind-case
+     ((server-streaming bidi)
+      (fmt "    /// <summary>Receiving stream for ~a.~a: Recv() throws EndOfStreamException at end. Dispose to abandon early (RST).</summary>\n    public sealed class ~a~aStream : IDisposable\n    {\n        private readonly Channel.ClientStream _stream;\n\n        internal ~a~aStream(Channel.ClientStream stream)\n        {\n            _stream = stream;\n        }\n\n        public ~a Recv()\n        {\n            var resp = new ~a();\n            _stream.Recv(resp);\n            return resp;\n        }\n\n        /// <summary>Initial metadata (response headers); null until they arrive.</summary>\n        public Dictionary<string, string> Headers => _stream.Headers?.Metadata;\n\n        /// <summary>Trailing metadata of the terminal status; null until it arrives.</summary>\n        public Dictionary<string, string> Trailers => _stream.Trailers;\n\n        /// <summary>Abort this stream (sends RST, wakes a pending Recv).</summary>\n        public void Cancel() => _stream.Cancel();\n\n        /// <summary>Abandon the call if still live (RST); no-op once terminated.</summary>\n        public void Dispose() => _stream.Dispose();\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref output)))
+     (else ""))))
+
+(define cs-server-iface-method-raw-program
+  '((kind-case
+     (unary (fmt "        ~a ~a(Endpoint.CallContext ctx, ~a req);\n" (ref output) (ref name) (ref input)))
+     (server-streaming (fmt "        void ~a(~a req, ~a~aServer stream);\n" (ref name) (ref input) (svc) (ref name)))
+     (client-streaming (fmt "        void ~a(~a~aServer stream);\n" (ref name) (svc) (ref name)))
+     (bidi (fmt "        void ~a(~a~aServer stream);\n" (ref name) (svc) (ref name))))))
+
+(define cs-server-iface-method-program
+  (append cs-deprecated-program cs-server-iface-method-raw-program))
+
+(define cs-server-stream-ifaces-program
+  '((kind-case
+     (unary "")
+     (server-streaming
+      (fmt "    /// <summary>Server-streaming sink passed to service implementations.</summary>\n    public interface ~a~aServer\n    {\n        void Send(~a resp);\n        Endpoint.CallContext Context { get; }\n    }\n\n" (svc) (ref name) (ref output)))
+     (client-streaming
+      (fmt "    /// <summary>Client-streaming stream passed to service implementations.</summary>\n    public interface ~a~aServer\n    {\n        ~a Recv();\n        void SendAndClose(~a resp);\n        Endpoint.CallContext Context { get; }\n    }\n\n" (svc) (ref name) (ref input) (ref output)))
+     (bidi
+      (fmt "    /// <summary>Bidi stream passed to service implementations.</summary>\n    public interface ~a~aServer\n    {\n        void Send(~a resp);\n        ~a Recv();\n        Endpoint.CallContext Context { get; }\n    }\n\n" (svc) (ref name) (ref output) (ref input))))))
+
+(define cs-register-method-program
+  '((kind-case
+     (unary
+      (fmt "                new Server.Method(~s, ~s, Server.KindUnary, (ctx, reqs, sink) =>\n                {\n                    var req = new ~a();\n                    reqs.RecvInto(req);\n                    sink(impl.~a(ctx, req).MarshalDc());\n                }),\n" (ref name) (ref path) (ref input) (ref impl-name)))
+     (server-streaming
+      (fmt "                new Server.Method(~s, ~s, Server.KindServerStreaming, (ctx, reqs, sink) =>\n                {\n                    var req = new ~a();\n                    reqs.RecvInto(req);\n                    impl.~a(req, new ~a~aServerImpl(ctx, sink));\n                }),\n" (ref name) (ref path) (ref input) (ref impl-name) (svc) (ref name)))
+     (client-streaming
+      (fmt "                new Server.Method(~s, ~s, Server.KindClientStreaming, (ctx, reqs, sink) =>\n                {\n                    var stream = new ~a~aServerImpl(ctx, reqs);\n                    impl.~a(stream);\n                    if (stream.Resp == null)\n                    {\n                        throw new StatusException(Wire.CodeInternal,\n                            \"client-streaming handler never called SendAndClose\");\n                    }\n                    sink(stream.Resp.MarshalDc());\n                }),\n" (ref name) (ref path) (svc) (ref name) (ref impl-name)))
+     (bidi
+      (fmt "                new Server.Method(~s, ~s, Server.KindBidi, (ctx, reqs, sink) =>\n                {\n                    impl.~a(new ~a~aServerImpl(ctx, reqs, sink));\n                }),\n" (ref name) (ref path) (ref impl-name) (svc) (ref name))))))
+
+(define cs-stream-impls-program
+  '((kind-case
+     (unary "")
+     (server-streaming
+      (fmt "    private sealed class ~a~aServerImpl : ~a~aServer\n    {\n        private readonly Server.ServerSink _sink;\n\n        internal ~a~aServerImpl(Endpoint.CallContext ctx, Server.ServerSink sink)\n        {\n            Context = ctx;\n            _sink = sink;\n        }\n\n        public Endpoint.CallContext Context { get; }\n\n        public void Send(~a resp) => _sink(resp.MarshalDc());\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output)))
+     (client-streaming
+      (fmt "    private sealed class ~a~aServerImpl : ~a~aServer\n    {\n        private readonly Server.RequestStream _reqs;\n\n        internal ~a~aServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs)\n        {\n            Context = ctx;\n            _reqs = reqs;\n        }\n\n        public Endpoint.CallContext Context { get; }\n        public ~a Resp { get; private set; }\n\n        public ~a Recv()\n        {\n            var req = new ~a();\n            _reqs.RecvInto(req);\n            return req;\n        }\n\n        public void SendAndClose(~a resp) => Resp = resp;\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input) (ref output)))
+     (bidi
+      (fmt "    private sealed class ~a~aServerImpl : ~a~aServer\n    {\n        private readonly Server.RequestStream _reqs;\n        private readonly Server.ServerSink _sink;\n\n        internal ~a~aServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs, Server.ServerSink sink)\n        {\n            Context = ctx;\n            _reqs = reqs;\n            _sink = sink;\n        }\n\n        public Endpoint.CallContext Context { get; }\n\n        public void Send(~a resp) => _sink(resp.MarshalDc());\n\n        public ~a Recv()\n        {\n            var req = new ~a();\n            _reqs.RecvInto(req);\n            return req;\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input))))))
+
+(define cs-client-async-method-program
+  '((kind-case
+     (unary
+      (fmt "        public Task<~a> ~aAsync(~a req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n            CancellationToken cancellationToken = default)\n        {\n            return AsyncPump.Run(() => ~a(req, metadata, timeout), cancellationToken);\n        }\n\n" (ref output) (ref name) (ref input) (ref name)))
+     ((server-streaming bidi)
+      (fmt "        public async IAsyncEnumerable<~a> ~aAsync(~a req~a, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n            [EnumeratorCancellation] CancellationToken cancellationToken = default)\n        {\n            var stream = ~a(req~a, metadata, timeout);\n            await foreach (var item in AsyncPump.Stream(stream.Recv, stream.Cancel, cancellationToken))\n            {\n                yield return item;\n            }\n        }\n\n"
+           (ref output) (ref name)
+           (kind-case (bidi (fmt "IEnumerable<~a>" (ref input))) (else (ref input)))
+           (kind-case (bidi "s") (else ""))
+           (ref name)
+           (kind-case (bidi "s") (else ""))))
+     (client-streaming
+      (fmt "        public Task<~a> ~aAsync(IEnumerable<~a> reqs, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,\n            CancellationToken cancellationToken = default)\n        {\n            return AsyncPump.Run(() => ~a(reqs, metadata, timeout), cancellationToken);\n        }\n\n" (ref output) (ref name) (ref input) (ref name))))))
+
+(define cs-server-async-iface-method-program
+  '((kind-case
+     (unary (fmt "        Task<~a> ~aAsync(Endpoint.CallContext ctx, ~a req);\n" (ref output) (ref name) (ref input)))
+     (server-streaming (fmt "        Task ~aAsync(~a req, ~a~aServer stream);\n" (ref name) (ref input) (svc) (ref name)))
+     (client-streaming (fmt "        Task ~aAsync(~a~aServer stream);\n" (ref name) (svc) (ref name)))
+     (bidi (fmt "        Task ~aAsync(~a~aServer stream);\n" (ref name) (svc) (ref name))))))
+
+(define cs-server-async-adapter-method-program
+  '((kind-case
+     (unary
+      (fmt "        public ~a ~a(Endpoint.CallContext ctx, ~a req)\n        {\n            return _impl.~aAsync(ctx, req).GetAwaiter().GetResult();\n        }\n\n" (ref output) (ref name) (ref input) (ref name)))
+     (server-streaming
+      (fmt "        public void ~a(~a req, ~a~aServer stream)\n        {\n            _impl.~aAsync(req, stream).GetAwaiter().GetResult();\n        }\n\n" (ref name) (ref input) (svc) (ref name) (ref name)))
+     (client-streaming
+      (fmt "        public void ~a(~a~aServer stream)\n        {\n            _impl.~aAsync(stream).GetAwaiter().GetResult();\n        }\n\n" (ref name) (svc) (ref name) (ref name)))
+     (bidi
+      (fmt "        public void ~a(~a~aServer stream)\n        {\n            _impl.~aAsync(stream).GetAwaiter().GetResult();\n        }\n\n" (ref name) (svc) (ref name) (ref name))))))
+
+(define cs-service-program
+  '((fmt "    /// <summary>Client for ~a.</summary>\n" (ref full-name))
+    (fmt "    public sealed class ~aClient\n    {\n" (ref name))
+    "        private readonly Channel _channel;\n\n"
+    (fmt "        public ~aClient(Channel channel)\n        {\n            _channel = channel;\n        }\n\n" (ref name))
+    (each+ methods client (call csClientMethod "        "))
+    (each+ methods client (call csClientAsyncMethod))
+    "    }\n\n"
+    (each methods (call csClientStreamClass))
+    (fmt "    /// <summary>Service implementation interface for ~a.</summary>\n" (ref full-name))
+    (fmt "    public interface ~aServer\n    {\n" (ref name))
+    (each methods (call csServerIfaceMethod "        "))
+    "    }\n\n"
+    (each methods (call csServerStreamIfaces))
+    (each methods (call csStreamImpls))
+    (fmt "    /// <summary>Async service implementation interface for ~a.</summary>\n" (ref full-name))
+    (fmt "    public interface ~aServerAsync\n    {\n" (ref name))
+    (each methods (call csServerAsyncIfaceMethod))
+    "    }\n\n"
+    (fmt "    private sealed class ~aServerAsyncAdapter : ~aServer\n    {\n" (ref name) (ref name))
+    (fmt "        private readonly ~aServerAsync _impl;\n\n" (ref name))
+    (fmt "        internal ~aServerAsyncAdapter(~aServerAsync impl)\n        {\n            _impl = impl;\n        }\n\n" (ref name) (ref name))
+    (each methods (call csServerAsyncAdapterMethod))
+    "    }\n\n"
+    (fmt "    /// <summary>Register an implementation of ~a on a Server.</summary>\n" (ref full-name))
+    (fmt "    public static void Register~aServer(Server server, ~aServer impl)\n    {\n" (ref name) (ref name))
+    (fmt "        server.RegisterService(new Server.ServiceDesc(\n            ~s,\n            new List<Server.Method>\n            {\n" (ref full-name))
+    (each+ methods server (call csRegisterMethod))
+    "            }));\n    }\n"
+    (fmt "    /// <summary>Register an async implementation of ~a on a Server.</summary>\n" (ref full-name))
+    (fmt "    public static void Register~aServerAsync(Server server, ~aServerAsync impl)\n    {\n" (ref name) (ref name))
+    (fmt "        Register~aServer(server, new ~aServerAsyncAdapter(impl));\n    }\n" (ref name) (ref name))))
+
+(define cs-pb-type-program
+  '((if (is-map)
+        (then (fmt "System.Collections.Generic.Dictionary<~a, ~a>"
+                   (call-on (key-field (resolved-entry)) csPbType)
+                   (call-on (val-field (resolved-entry)) csPbType)))
+        (else
+         (if (repeated)
+             (then (fmt "System.Collections.Generic.List<~a>"
+                        (call-on (with-label (self) 1) csPbType)))
+             (else (case-on (ref type)
+                     ((11) (cs-entry-ref))
+                     ((14) (cs-entry-ref))
+                     (else (cs-scalar-type)))))))))
+
+(define cs-pb-explicit-literal-program
+  '((if (has-default)
+        (then (fmt "~a"
+                   (case-on (ref type)
+                     ((9) (fmt "~s" (default-raw)))
+                     ((8) (default-raw))
+                     ((14) (fmt "~a.~a" (cs-entry-ref) (default-raw)))
+                     ((2) (fmt "~af" (default-raw)))
+                     (else (default-raw)))))
+        (else ""))))
+
+(define cs-pb-default-program
+  '((if (call csPbExplicitLiteral)
+        (then (call csPbExplicitLiteral))
+        (else (fmt "~a"
+                   (if (is-map)
+                       (then (fmt "new ~a()" (call csPbType)))
+                       (else (case-on (ref label)
+                               ((3) (fmt "new ~a()" (call csPbType)))
+                               (else (case-on (ref type)
+                                       ((11) "null")
+                                       ((14) (fmt "~a.~a" (cs-entry-ref) (enum-first-value-name)))
+                                       (else (cs-scalar-zero))))))))))))
+
+(define cs-pb-varint-expr-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (fmt "(~a ? 1 : 0)" (arg 0)))
+           ((17) (fmt "((~a << 1) ^ (~a >> 31))" (arg 0) (arg 0)))
+           ((18) (fmt "((~a << 1) ^ (~a >> 63))" (arg 0) (arg 0)))
+           ((14) (fmt "(int) ~a" (arg 0)))
+           ((4) (fmt "(long) ~a" (arg 0)))
+           (else (arg 0))))))
+
+(define cs-pb-varint-decode-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((5) (fmt "(int) ~a" (arg 0)))
+           ((13) (fmt "(uint) ~a" (arg 0)))
+           ((7) (fmt "(uint) ~a" (arg 0)))
+           ((6) (fmt "(ulong) ~a" (arg 0)))
+           ((4) (fmt "(ulong) ~a" (arg 0)))
+           ((3) (arg 0))
+           ((18) (fmt "((~a >> 1) ^ -(~a & 1))" (arg 0) (arg 0)))
+           ((17) (fmt "(int) ((~a >> 1) ^ -(~a & 1))" (arg 0) (arg 0)))
+           ((8) (fmt "~a != 0" (arg 0)))))))
+
+(define cs-pb-nonzero-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (arg 0))
+           ((14) (fmt "(int) ~a != 0" (arg 0)))
+           (else (fmt "~a != 0" (arg 0)))))))
+
+(define cs-pb-fixed-bits-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((7) (fmt "(int) ~a" (arg 0)))
+           ((6) (fmt "(long) ~a" (arg 0)))
+           (else (arg 0))))))
+
+(define cs-pb-encode-singular-program
+  '((case-on (category)
+      ("varint"
+       (if (proto2)
+           (then (fmt "~a{ w.Tag(~a, 0); w.Varint(~a); }\n" (arg 1) (ref number) (call csPbVarintExpr (arg 0))))
+           (else (fmt "~aif (~a) { w.Tag(~a, 0); w.Varint(~a); }\n" (arg 1) (call csPbNonzero (arg 0)) (ref number) (call csPbVarintExpr (arg 0))))))
+      ("fixed"
+       (if (proto2)
+           (then (fmt "~a{ w.Tag(~a, ~a); w.Fixed~a(~a); }\n" (arg 1) (ref number)
+                      (case-on (cs-fixed-size) ((8) "1") (else "5")) (cs-fixed-name) (call csPbFixedBits (arg 0))))
+           (else (fmt "~aif (~a) { w.Tag(~a, ~a); w.Fixed~a(~a); }\n" (arg 1) (call csPbNonzero (arg 0)) (ref number)
+                      (case-on (cs-fixed-size) ((8) "1") (else "5")) (cs-fixed-name) (call csPbFixedBits (arg 0))))))
+      ("string"
+       (if (proto2)
+           (then (fmt "~aif (~a != null) w.BytesField(~a, System.Text.Encoding.UTF8.GetBytes(~a));\n" (arg 1) (arg 0) (ref number) (arg 0)))
+           (else (fmt "~aw.StringField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))))
+      ("bytes"
+       (if (proto2)
+           (then (fmt "~aif (~a != null) w.BytesField(~a, ~a);\n" (arg 1) (arg 0) (ref number) (arg 0)))
+           (else (fmt "~aif (~a != null && ~a.Length > 0) w.BytesField(~a, ~a);\n" (arg 1) (arg 0) (arg 0) (ref number) (arg 0)))))
+      ("message"
+       (fmt "~aif (~a != null) w.BytesField(~a, ~a.MarshalDc());\n" (arg 1) (arg 0) (ref number) (arg 0)))
+      (else (fail)))))
+
+(define cs-pb-set-expr-program
+  '((case-on (ref type)
+      ((11 10) (fmt "~a != null" (cs-field-name)))
+      ((9 12) (fmt "(~a != null && ~a.Length > 0)" (cs-field-name) (cs-field-name)))
+      (else (call csPbNonzero (cs-field-name))))))
+
+(define cs-pb-encode-guard-program
+  '((guarded csPbSetExpr "        if (!(~a)) {\n" "        }\n" (call csPbEncodeField (arg 0)))))
+
+(define cs-pb-encode-field-program
+  '((if (is-map)
+        (then (fmt "        if (~a != null) foreach (var e in ~a) w.BytesField(~a, ~a(e.Key, e.Value));\n"
+                   (cs-field-name) (cs-field-name) (ref number)
+                   (fmt "~a.~aEncode" (arg 0) (cs-map-name))))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint"
+                 (fmt "        if (~a != null && ~a.Count > 0) {\n" (cs-field-name) (cs-field-name))
+                 (fmt "            var payload = new ~a.Writer();\n" (arg 0))
+                 (fmt "            foreach (var x in ~a) payload.Varint(~a);\n" (cs-field-name) (call csPbVarintExpr "x"))
+                 (fmt "            w.BytesField(~a, payload.ToBytes());\n        }\n" (ref number)))
+                ("fixed"
+                 (fmt "        if (~a != null && ~a.Count > 0) {\n" (cs-field-name) (cs-field-name))
+                 (fmt "            var payload = new ~a.Writer();\n" (arg 0))
+                 (fmt "            foreach (var x in ~a) payload.Fixed~a(~a);\n" (cs-field-name) (cs-fixed-name) (call csPbFixedBits "x"))
+                 (fmt "            w.BytesField(~a, payload.ToBytes());\n        }\n" (ref number)))
+                ("string" (fmt "        if (~a != null) foreach (var x in ~a) w.BytesField(~a, System.Text.Encoding.UTF8.GetBytes(x));\n" (cs-field-name) (cs-field-name) (ref number)))
+                ("bytes" (fmt "        if (~a != null) foreach (var x in ~a) w.BytesField(~a, x);\n" (cs-field-name) (cs-field-name) (ref number)))
+                ("message" (fmt "        if (~a != null) foreach (var x in ~a) w.BytesField(~a, x.MarshalDc());\n" (cs-field-name) (cs-field-name) (ref number)))
+                (else (fail))))
+             (else (call csPbEncodeSingular (cs-field-name) "        ")))))))
+
+(define cs-pb-decode-singular-program
+  '((case-on (category)
+      ("varint"
+       (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+            (case-on (ref type)
+              ((14) (fmt "(~a) ~a" (cs-entry-ref)
+                         (call-on (with-type (self) 5) csPbVarintDecode (arg 1))))
+              (else (call csPbVarintDecode (arg 1))))))
+      ("fixed"
+       (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+            (case-on (ref type)
+              ((2) (fmt "BitConverter.Int32BitsToSingle((int) ~a)" (arg 1)))
+              ((1) (fmt "BitConverter.Int64BitsToDouble(~a)" (arg 1)))
+              ((7) (fmt "(uint) ~a" (arg 1)))
+              ((15) (fmt "(int) ~a" (arg 1)))
+              ((6) (fmt "(ulong) ~a" (arg 1)))
+              (else (arg 1)))))
+      ("string" (fmt "~a~a = System.Text.Encoding.UTF8.GetString(~a);\n" (arg 2) (arg 0) (arg 1)))
+      ("bytes" (fmt "~a~a = ~a;\n" (arg 2) (arg 0) (arg 1)))
+      ("message"
+       (fmt "~a~a = new ~a();\n" (arg 2) (arg 0) (cs-entry-ref))
+       (fmt "~a~a.UnmarshalDc(~a);\n" (arg 2) (arg 0) (arg 1)))
+      (else (fail)))))
+
+(define cs-pb-clearing-program
+  '((each-siblings (fmt "                    ~a = ~a;\n" (cs-field-name) (call csPbDefault)))))
+
+(define cs-pb-enum-conv-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((14) (fmt "(~a) ~a" (cs-entry-ref)
+                      (call-on (with-type (self) 5) csPbVarintDecode (arg 0))))
+           (else (call csPbVarintDecode (arg 0)))))))
+
+(define cs-pb-decode-case-program
+  '((fmt "                case ~a: {\n" (ref number))
+    (if (is-map)
+        (then
+         (fmt "                    var kv = ~a(field.BytesValue);\n" (fmt "~a.~aDecode" (arg 0) (cs-map-name)))
+         (fmt "                    ~a[(~a) kv[0]] = (~a) kv[1];\n" (cs-field-name)
+              (call-on (key-field (resolved-entry)) csPbType)
+              (call-on (val-field (resolved-entry)) csPbType)))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint"
+                 "                    if (field.Wire == 2) {\n"
+                 (fmt "                        var sub = new ~a.Reader(field.BytesValue);\n" (arg 0))
+                 "                        while (!sub.Done) {\n"
+                 (fmt "                            ~a.Add(~a);\n" (cs-field-name) (call csPbEnumConv "sub.Varint()"))
+                 "                        }\n                    } else {\n"
+                 (fmt "                        ~a.Add(~a);\n" (cs-field-name) (call csPbEnumConv "field.VarintValue"))
+                 "                    }\n")
+                ("fixed"
+                 "                    if (field.Wire == 2) {\n"
+                 (fmt "                        var sub = new ~a.Reader(field.BytesValue);\n" (arg 0))
+                 (fmt "                        while (!sub.Done) ~a.Add(~a);\n" (cs-field-name)
+                      (case-on (ref type)
+                        ((2) "BitConverter.Int32BitsToSingle(sub.Fixed32())")
+                        ((1) "BitConverter.Int64BitsToDouble(sub.Fixed64())")
+                        ((7) "(uint) sub.Fixed32()")
+                        ((15) "sub.Fixed32()")
+                        (else "sub.Fixed64()")))
+                 "                    } else {\n"
+                 (fmt "                        ~a.Add(~a);\n" (cs-field-name)
+                      (case-on (ref type)
+                        ((2) "BitConverter.Int32BitsToSingle((int) field.FixedValue)")
+                        ((1) "BitConverter.Int64BitsToDouble(field.FixedValue)")
+                        ((7) "(uint) field.FixedValue")
+                        ((15) "(int) field.FixedValue")
+                        (else "field.FixedValue")))
+                 "                    }\n")
+                ("string" (fmt "                    ~a.Add(System.Text.Encoding.UTF8.GetString(field.BytesValue));\n" (cs-field-name)))
+                ("bytes" (fmt "                    ~a.Add(field.BytesValue);\n" (cs-field-name)))
+                ("message"
+                 (fmt "                    var item = new ~a();\n" (call-on (with-label (self) 1) csPbType))
+                 "                    item.UnmarshalDc(field.BytesValue);\n"
+                 (fmt "                    ~a.Add(item);\n" (cs-field-name)))
+                (else (fail))))
+             (else (call csPbClearing)
+                   (call csPbDecodeSingular (cs-field-name) (case-on (category) ("varint" "field.VarintValue") ("fixed" "field.FixedValue") (else "field.BytesValue")) "                    ")))))
+    "                    break;\n                }\n"))
+
+(define cs-pb-map-decode-line-program
+  '((fmt "                case ~a: ~a break;\n" (ref number)
+         (trim-end (call csPbDecodeSingular (arg 0) (case-on (category) ("varint" "field.VarintValue") ("fixed" "field.FixedValue") (else "field.BytesValue")) "")))))
+
+(define cs-pb-map-helpers-program
+  '((fmt "    internal static byte[] ~aEncode(~a key, ~a value) {\n"
+         (cs-map-name)
+         (call-on (key-field) csPbType)
+         (call-on (val-field) csPbType))
+    "        var w = new Writer();\n"
+    (call-on (key-field) csPbEncodeSingular "key" "        ")
+    (call-on (val-field) csPbEncodeSingular "value" "        ")
+    "        return w.ToBytes();\n    }\n\n"
+    (fmt "    internal static object[] ~aDecode(byte[] bytes) {\n" (cs-map-name))
+    (fmt "        ~a key = ~a;\n"
+         (call-on (key-field) csPbType)
+         (call-on (key-field) csPbDefault))
+    (fmt "        ~a value = ~a;\n"
+         (call-on (val-field) csPbType)
+         (call-on (val-field) csPbDefault))
+    "        var r = new Reader(bytes);\n        Field field;\n        while ((field = r.Next()) != null) {\n            switch (field.Number) {\n"
+    (call-on (key-field) csPbMapDecodeLine "key")
+    (call-on (val-field) csPbMapDecodeLine "value")
+    "                default: break;\n            }\n        }\n        return new object[] { key, value };\n    }\n\n"))
+
+(define cs-pb-nested-enum-program
+  '((fmt "~apublic enum ~a {\n" (arg 0) (ref name))
+    (each-sep ",\n" values (fmt "~a    ~a = ~a" (arg 0) (ref name) (ref number)))
+    (fmt "\n~a}\n" (arg 0))))
+
+(define cs-pb-message-program
+  '((fmt "~a~a class ~a : IMarshaler, IUnmarshaler {\n" (arg 1) (arg 2) (ref name))
+    (each fields (fmt "~a    public ~a ~a = ~a;\n" (arg 1) (call csPbType) (cs-field-name) (call csPbDefault)))
+    (fmt "~a    public byte[] UnknownFields = new byte[0];\n" (arg 1))
+    (fmt "~a    public ~a() {}\n" (arg 1) (ref name))
+    (if (no-fields)
+        (then "")
+        (else
+         (fmt "~a    public ~a(~a) {\n" (arg 1) (ref name)
+              (each-sep ", " fields (fmt "~a ~a" (call csPbType) (lower-first (cs-field-name)))))
+         (each fields (fmt "~a        ~a = ~a;\n" (arg 1) (cs-field-name) (lower-first (cs-field-name))))
+         (fmt "~a    }\n" (arg 1))))
+    (fmt "~a    public byte[] MarshalDc() {\n" (arg 1))
+    (fmt "~a        var w = new ~a.Writer();\n" (arg 1) (arg 0))
+    (each fields (call csPbEncodeGuard (arg 0)))
+    (fmt "~a        w.Raw(UnknownFields);\n" (arg 1))
+    (fmt "~a        return w.ToBytes();\n~a    }\n" (arg 1) (arg 1))
+    (fmt "~a    public void UnmarshalDc(byte[] data) {\n" (arg 1))
+    (fmt "~a        UnknownFields = new byte[0];\n" (arg 1))
+    (each fields (fmt "~a        ~a = ~a;\n" (arg 1) (cs-field-name) (call csPbDefault)))
+    (fmt "~a        var r = new ~a.Reader(data);\n" (arg 1) (arg 0))
+    (fmt "~a        ~a.Field field;\n" (arg 1) (arg 0))
+    (fmt "~a        while ((field = r.Next()) != null) {\n~a            switch (field.Number) {\n" (arg 1) (arg 1))
+    (each fields (call csPbDecodeCase (arg 0)))
+    (fmt "~a                default: UnknownFields = ~a.ConcatBytes(UnknownFields, field.RawValue); break;\n~a            }\n~a        }\n~a    }\n" (arg 1) (arg 0) (arg 1) (arg 1) (arg 1))
+    (each nested (call csPbMessage (arg 0) (fmt "~a    " (arg 1)) "public sealed"))
+    (each enums (call csPbNestedEnum (fmt "~a    " (arg 1))))
+    (fmt "~a}\n" (arg 1))))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -5497,7 +5924,36 @@
           'ktPbMapValDecode kt-pb-map-val-decode-program
           'ktPbMapHelpers kt-pb-map-helpers-program
           'ktPbNestedEnum kt-pb-nested-enum-program
-          'ktPbMessage kt-pb-message-program))
+          'ktPbMessage kt-pb-message-program
+          'csService cs-service-program
+          'csClientMethod cs-client-method-program
+          'csClientStreamClass cs-client-stream-class-program
+          'csServerIfaceMethod cs-server-iface-method-program
+          'csServerStreamIfaces cs-server-stream-ifaces-program
+          'csRegisterMethod cs-register-method-program
+          'csStreamImpls cs-stream-impls-program
+          'csClientAsyncMethod cs-client-async-method-program
+          'csServerAsyncIfaceMethod cs-server-async-iface-method-program
+          'csServerAsyncAdapterMethod cs-server-async-adapter-method-program
+          'csPbType cs-pb-type-program
+          'csPbExplicitLiteral cs-pb-explicit-literal-program
+          'csPbDefault cs-pb-default-program
+          'csPbVarintExpr cs-pb-varint-expr-program
+          'csPbVarintDecode cs-pb-varint-decode-program
+          'csPbNonzero cs-pb-nonzero-program
+          'csPbFixedBits cs-pb-fixed-bits-program
+          'csPbEncodeSingular cs-pb-encode-singular-program
+          'csPbSetExpr cs-pb-set-expr-program
+          'csPbEncodeGuard cs-pb-encode-guard-program
+          'csPbEncodeField cs-pb-encode-field-program
+          'csPbDecodeSingular cs-pb-decode-singular-program
+          'csPbClearing cs-pb-clearing-program
+          'csPbEnumConv cs-pb-enum-conv-program
+          'csPbDecodeCase cs-pb-decode-case-program
+          'csPbMapDecodeLine cs-pb-map-decode-line-program
+          'csPbMapHelpers cs-pb-map-helpers-program
+          'csPbNestedEnum cs-pb-nested-enum-program
+          'csPbMessage cs-pb-message-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -5890,6 +6346,56 @@
                     (format "~a.~a" (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'enum) 'name)))
                 (hash-ref (hash-ref entry 'msg) 'full-name))))
 
+(define (seg-cs-pascal s)
+  (string-join
+   (map (lambda (part)
+          (if (string=? part "") "" (string-append (string (char-upcase (string-ref part 0))) (substring part 1))))
+        (string-split s "_")) ""))
+
+(define (seg-cs-field-name model f)
+  (define n (seg-cs-pascal (hash-ref f 'name)))
+  (define owner (field-owner model f))
+  (if (and owner
+           (or (equal? n (hash-ref owner 'name))
+               (member n (map (lambda (m) (hash-ref m 'name)) (hash-ref owner 'nested)))
+               (member n (map (lambda (e) (hash-ref e 'name)) (hash-ref owner 'enums)))))
+      (string-append n "_")
+      n))
+
+(define (seg-cs-rel pkg full)
+  (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
+                  (substring full (add1 (string-length pkg)))
+                  full))
+  (string-join (string-split rel ".") "."))
+
+(define (seg-cs-entry-ref model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (define rel
+    (if (eq? (hash-ref entry 'kind) 'enum)
+        (let ([e (hash-ref entry 'enum)])
+          (if (hash-ref entry 'msg)
+              (string-append (seg-cs-rel (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)) "." (hash-ref e 'name))
+              (seg-cs-rel (hash-ref entry 'pkg) (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name)))))
+        (seg-cs-rel (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name))))
+  (if (equal? (hash-ref entry 'file) (hash-ref model 'name))
+      rel
+      (string-append (if (string=? (hash-ref entry 'pkg) "")
+                         "Proto"
+                         (let ([s (hash-ref entry 'pkg)])
+                           (string-append (string (char-upcase (string-ref s 0))) (substring s 1))))
+                     "." rel)))
+
+(define (seg-cs-map-name model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (string-join (string-split (seg-cs-rel (hash-ref entry 'pkg)
+                                         (hash-ref (hash-ref entry 'msg) 'full-name)) ".") ""))
+
 (define (seg-kt-rel pkg full)
   (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
                   (substring full (add1 (string-length pkg)))
@@ -6152,6 +6658,15 @@
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'dart)))]
     [(eq? (car seg) 'swift-field-name) (seg-dart-field-name node)]
     [(eq? (car seg) 'lua-field-name) (seg-dart-field-name node)]
+    [(eq? (car seg) 'cs-field-name) (seg-cs-field-name model node)]
+    [(eq? (car seg) 'cs-entry-ref) (seg-cs-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'cs-map-name) (seg-cs-map-name model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'cs-scalar-type) (first (scalar-type-entry 'csharp (hash-ref node 'type)))]
+    [(eq? (car seg) 'cs-scalar-zero) (second (scalar-type-entry 'csharp (hash-ref node 'type)))]
+    [(eq? (car seg) 'cs-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'csharp)))]
+    [(eq? (car seg) 'cs-fixed-name)
+     (third (assv (hash-ref node 'type) (fixed-scalar-table 'csharp)))]
     [(eq? (car seg) 'kotlin-wasm-mode) (seg-kotlin-wasm-mode)]
     [(eq? (car seg) 'first-value-name)
      (hash-ref (car (hash-ref node 'values)) 'name)]
