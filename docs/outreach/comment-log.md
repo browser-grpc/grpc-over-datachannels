@@ -1,5 +1,9 @@
 # Outreach comment log
 
+2026-10-26: refreshed awesome-grpc PR #273 body for v0.32.15
+(body-only edit, no ping). Status: v0.32.15 published — see
+CHANGELOG.md and the GitHub release.
+
 Threads where a grpc-over-datachannels comment has been posted
 or drafted. Check this before drafting/posting anywhere new —
 never comment twice on the same thread.

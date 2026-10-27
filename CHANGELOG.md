@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.32.15 — 2026-10-26
+## v0.32.15 — 2026-10-26 (published to GitHub/npm/PyPI/GHCR)
 
 - Interop case table extended everywhere: the generated
   tables now include `special_status_message`,
