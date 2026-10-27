@@ -6,11 +6,8 @@
 // grpc-dc codegen; the in-page interpreter is bdd_runner.mjs.
 
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
-import { fileURLToPath } from "node:url";
-import { chromium, firefox, webkit } from "playwright";
+import { join } from "node:path";
+import { launchBrowser, newPage, runEngines, startStaticServer } from "./harness.mjs";
 
 import { Peer } from "../webrtc/js/peer.js";
 import { Server, StatusCode, StatusError } from "../js/index.js";
@@ -18,23 +15,7 @@ import { EchoResponse } from "../js/examples/echo_pb.js";
 import { createEchoService } from "../js/examples/echo_grpc_dc.js";
 import { BDD_SCENARIOS } from "./bdd_scenarios.generated.mjs";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript" };
-
-const server = createServer(async (req, res) => {
-  try {
-    const path = normalize(join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname)));
-    if (!path.startsWith(ROOT)) throw new Error("outside root");
-    const body = await readFile(path);
-    res.writeHead(200, { "content-type": MIME[extname(path)] ?? "application/octet-stream" });
-    res.end(body);
-  } catch {
-    res.writeHead(404);
-    res.end("not found");
-  }
-});
-await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-const pageUrl = `http://127.0.0.1:${server.address().port}/browser-test/bdd_page.html`;
+const { server, pageUrl } = await startStaticServer("browser-test/bdd_page.html");
 
 // Canonical Echo semantics (the BDD specification): "fail" is
 // rejected in every method, delayMs delays unary, x-echo
@@ -84,16 +65,9 @@ function makeHandlers(state) {
   };
 }
 
-async function runBrowser(name, engine) {
+async function runBrowser(name) {
   const answerer = await Peer.create();
-  const launchOptions = { args: ["--no-sandbox", "--disable-dev-shm-usage"] };
-  if (name === "firefox") {
-    launchOptions.firefoxUserPrefs = {
-      "media.peerconnection.ice.obfuscate_host_addresses": false,
-    };
-  }
-  if (name === "webkit") delete launchOptions.args; // Chromium-only flags; MiniBrowser rejects them
-  const browser = await engine.launch(launchOptions);
+  const browser = await launchBrowser(name);
   try {
     const state = { produced: 0 };
     const grpcServer = new Server();
@@ -128,10 +102,7 @@ async function runBrowser(name, engine) {
   }
 }
 
-const which = process.argv[2] ?? "chromium";
-if (which === "chromium" || which === "all") await runBrowser("chromium", chromium);
-if (which === "firefox" || which === "all") await runBrowser("firefox", firefox);
-if (which === "webkit" || which === "all") await runBrowser("webkit", webkit);
+await runEngines(process.argv[2], runBrowser);
 
 server.close();
 console.log("browser BDD test passed");

@@ -14,36 +14,18 @@
 
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, existsSync, writeFileSync, renameSync } from "node:fs";
-import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { mkdtempSync, writeFileSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { extname, join, normalize } from "node:path";
-import { fileURLToPath } from "node:url";
-import { chromium, firefox, webkit } from "playwright";
+import { join } from "node:path";
+import { ROOT, launchBrowser, runEngines, startStaticServer, waitForFile } from "./harness.mjs";
 
 import { Peer } from "../webrtc/js/peer.js";
 import { Channel } from "../js/index.js";
 import { EchoRequest } from "../js/examples/echo_pb.js";
 import { EchoClient } from "../js/examples/echo_grpc_dc.js";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript" };
-
-const server = createServer(async (req, res) => {
-  try {
-    const path = normalize(join(ROOT, decodeURIComponent(new URL(req.url, "http://x").pathname)));
-    if (!path.startsWith(ROOT)) throw new Error("outside root");
-    const body = await readFile(path);
-    res.writeHead(200, { "content-type": MIME[extname(path)] ?? "application/octet-stream" });
-    res.end(body);
-  } catch {
-    res.writeHead(404);
-    res.end("not found");
-  }
-});
-await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-const base = `http://127.0.0.1:${server.address().port}/browser-test`;
+const { server, pageUrl } = await startStaticServer("browser-test");
+const base = pageUrl;
 const grpcPageUrl = `${base}/grpc_server_page.html`;
 const echoPageUrl = `${base}/dtls_echo_page.html`;
 
@@ -55,17 +37,6 @@ execFileSync("go", ["build", "-o", goHarness, "./cmd/grpc_webrtc_client"], {
 });
 const rustEcho = join(ROOT, "webrtc/rust/target/debug/examples/peer_echo");
 
-async function waitForFile(path, timeoutMs = 30000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (existsSync(path)) {
-      const content = readFileSync(path, "utf8");
-      if (content.trim()) return content;
-    }
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error(`timed out waiting for ${path}`);
-}
 
 async function newPage(browser, url) {
   const page = await browser.newPage();
@@ -178,19 +149,12 @@ async function runRustLeg(name, browser) {
   }
 }
 
-async function runBrowser(name, engine) {
+async function runBrowser(name) {
     // Playwright's Firefox answers no mDNS queries for its obfuscated
   // .local candidates and will not initiate checks to same-IP pairs,
   // so legs where our stack must reach it need raw IP candidates.
   // Chromium needs no equivalent (it answers mDNS queries itself).
-  const launchOptions = { args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-features=WebRtcHideLocalIpsWithMdns"] };
-  if (name === "firefox") {
-    launchOptions.firefoxUserPrefs = {
-      "media.peerconnection.ice.obfuscate_host_addresses": false,
-    };
-  }
-  if (name === "webkit") delete launchOptions.args; // Chromium-only flags; MiniBrowser rejects them
-  const browser = await engine.launch(launchOptions);
+  const browser = await launchBrowser(name, { extraArgs: ["--disable-features=WebRtcHideLocalIpsWithMdns"] });
   try {
     await runGoLeg(name, browser);
     await runJsLeg(name, browser);
@@ -200,10 +164,7 @@ async function runBrowser(name, engine) {
   }
 }
 
-const which = process.argv[2] ?? "chromium";
-if (which === "chromium" || which === "all") await runBrowser("chromium", chromium);
-if (which === "firefox" || which === "all") await runBrowser("firefox", firefox);
-if (which === "webkit" || which === "all") await runBrowser("webkit", webkit);
+await runEngines(process.argv[2], runBrowser);
 
 server.close();
 console.log("dtls server test passed");
