@@ -170,7 +170,21 @@
          swift-pb-clearing-program swift-pb-map-helpers-program
          swift-pb-type-or-ref-program swift-pb-map-val-encode-program
          swift-pb-map-val-init-program swift-pb-map-val-decode-case-program
-         swift-pb-map-key-decode-case-program)
+         swift-pb-map-key-decode-case-program
+         lua-service-program lua-client-method-program
+         lua-coro-client-method-program lua-client-stream-class-program
+         lua-coro-client-stream-class-program lua-server-stream-class-program
+         lua-register-method-program
+         lua-pb-explicit-literal-program lua-pb-default-program
+         lua-pb-varint-expr-program lua-pb-varint-decode-program
+         lua-pb-nonzero-program lua-pb-encode-singular-program
+         lua-pb-set-expr-program lua-pb-encode-guard-program
+         lua-pb-encode-field-program lua-pb-decode-singular-program
+         lua-pb-clearing-program lua-pb-decode-case-program
+         lua-pb-map-helpers-program lua-pb-message-program
+         lua-pb-map-val-decode-program lua-pb-map-key-head-program lua-pb-map-key-decode-program
+         lua-pb-map-val-head-program
+         lua-pb-enum-program)
 
 ;; ---------------------------------------------------------------------------
 ;; Go stub: RegisterMethod handler table entries (one per method).
@@ -3904,6 +3918,327 @@
     (each enums (call swiftPbNestedEnum (fmt "~a    " (arg 1))))
     (fmt "~a}\n" (arg 1))))
 
+;;; ---------------------------------------------------------------------------
+;;; Lua (template-lua.rkt mirrors, option 1). Stub method programs
+;;; thread the service via (svc); pb programs are untyped.
+
+(define lua-deprecated-program
+  '((when (ref deprecated) "--- Deprecated in the proto schema.\n")))
+
+(define lua-client-method-raw-program
+  '((kind-case
+     (unary
+      (fmt "function ~aClient:~a(req, metadata, timeout)\n  local resp = ~a.new()\n  self.channel:unary(~s, req, resp, metadata, timeout)\n  return resp\nend\n\n" (svc) (lower-first (ref name)) (ref output) (ref path)))
+     (server-streaming
+      (fmt "function ~aClient:~a(req, metadata, timeout)\n  return ~a~aStream.new(\n    self.channel:serverStream(~s, req, metadata, timeout))\nend\n\n" (svc) (lower-first (ref name)) (svc) (ref name) (ref path)))
+     (client-streaming
+      (fmt "function ~aClient:~a(reqs, metadata, timeout)\n  local resp = ~a.new()\n  self.channel:clientStreamCall(~s, reqs, resp, metadata, timeout)\n  return resp\nend\n\n" (svc) (lower-first (ref name)) (ref output) (ref path)))
+     (bidi
+      (fmt "function ~aClient:~a(reqs, metadata, timeout)\n  return ~a~aStream.new(self.channel:bidi(~s, reqs, metadata, timeout))\nend\n\n" (svc) (lower-first (ref name)) (svc) (ref name) (ref path))))))
+
+(define lua-client-method-program
+  (append lua-deprecated-program lua-client-method-raw-program))
+
+(define lua-coro-client-stream-class-program
+  '((kind-case
+     ((server-streaming bidi)
+      (fmt "--- Coroutine receiving stream for ~a responses: a producer\n--- coroutine yields each response; next() returns nil at the\n--- end of the call and raises a Status on trailers errors.\nlocal ~a~aCoroStream = {}\n~a~aCoroStream.__index = ~a~aCoroStream\n\nfunction ~a~aCoroStream.new(stream)\n  local self = setmetatable({ stream = stream }, ~a~aCoroStream)\n  self.co = coroutine.create(function()\n    while true do\n      local resp = ~a.new()\n      stream:recv(resp)\n      coroutine.yield(resp)\n    end\n  end)\n  return self\nend\n\nfunction ~a~aCoroStream:next()\n  if coroutine.status(self.co) == \"dead\" then return nil end\n  local ok, value = coroutine.resume(self.co)\n  if not ok then\n    if value == EndOfStream then return nil end\n    error(value, 0)\n  end\n  return value\nend\n\nfunction ~a~aCoroStream:cancel()\n  self.stream:cancel()\nend\n\n--- Abandon the call early: RST so the server stops producing.\nfunction ~a~aCoroStream:close()\n  self.stream:close()\nend\n\n--- To-be-closed (<close>) and GC abandon the call the same way.\nfunction ~a~aCoroStream:__close()\n  self:close()\nend\n\nfunction ~a~aCoroStream:__gc()\n  self:close()\nend\n\n--- Generic-for iterator: for resp in stream:iter() do ... end\n--- Breaking the loop closes the closable stream, RST-ing\n--- the call unless it already terminated.\nfunction ~a~aCoroStream:iter()\n  return function() return self:next() end, nil, nil, self\nend\n\n"
+           (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name)
+           (svc) (ref name) (svc) (ref name) (ref output)
+           (svc) (ref name) (svc) (ref name) (svc) (ref name)
+           (svc) (ref name) (svc) (ref name) (svc) (ref name)))
+     (else ""))))
+
+(define lua-coro-client-method-raw-program
+  '((kind-case
+     (unary
+      (fmt "function ~aClientCoro:~a(req, metadata, timeout)\n  local resp = ~a.new()\n  self.channel:unary(~s, req, resp, metadata, timeout)\n  return resp\nend\n\n" (svc) (lower-first (ref name)) (ref output) (ref path)))
+     (server-streaming
+      (fmt "function ~aClientCoro:~a(req, metadata, timeout)\n  return ~a~aCoroStream.new(\n    self.channel:serverStream(~s, req, metadata, timeout))\nend\n\n" (svc) (lower-first (ref name)) (svc) (ref name) (ref path)))
+     (client-streaming
+      (fmt "function ~aClientCoro:~a(reqs, metadata, timeout)\n  local resp = ~a.new()\n  self.channel:clientStreamCall(~s, reqs, resp, metadata, timeout)\n  return resp\nend\n\n" (svc) (lower-first (ref name)) (ref output) (ref path)))
+     (bidi
+      (fmt "function ~aClientCoro:~a(reqs, metadata, timeout)\n  return ~a~aCoroStream.new(self.channel:bidi(~s, reqs, metadata, timeout))\nend\n\n" (svc) (lower-first (ref name)) (svc) (ref name) (ref path))))))
+
+(define lua-coro-client-method-program
+  (append lua-deprecated-program lua-coro-client-method-raw-program))
+
+(define lua-client-stream-class-program
+  '((kind-case
+     ((server-streaming bidi)
+      (fmt "--- Receiving stream for ~a responses.\nlocal ~a~aStream = {}\n~a~aStream.__index = ~a~aStream\n\nfunction ~a~aStream.new(stream)\n  return setmetatable({ stream = stream }, ~a~aStream)\nend\n\n--- Next response; raises EndOfStream at the end of the call.\nfunction ~a~aStream:recv()\n  local resp = ~a.new()\n  self.stream:recv(resp)\n  return resp\nend\n\n--- Response initial metadata (after the first recv).\nfunction ~a~aStream:headers()\n  return self.stream.headers and self.stream.headers.metadata\nend\n\n--- Response trailing metadata (after the call ends).\nfunction ~a~aStream:trailers()\n  return self.stream.trailers\nend\n\n--- Abandon the call early: RST so the server stops producing.\nfunction ~a~aStream:close()\n  self.stream:close()\nend\n\nfunction ~a~aStream:cancel()\n  self.stream:cancel()\nend\n\n--- To-be-closed (<close>) and GC abandon the call the same way.\nfunction ~a~aStream:__close()\n  self:close()\nend\n\nfunction ~a~aStream:__gc()\n  self:close()\nend\n\n"
+           (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name)
+           (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output)
+           (svc) (ref name) (svc) (ref name)
+           (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name)))
+     (else ""))))
+
+(define lua-server-stream-class-program
+  '((kind-case
+     (unary "")
+     (server-streaming
+      (fmt "--- Server-streaming sink passed to service implementations.\nlocal ~a~aServer = {}\n~a~aServer.__index = ~a~aServer\n\nfunction ~a~aServer.new(sink)\n  return setmetatable({ sink = sink }, ~a~aServer)\nend\n\nfunction ~a~aServer:send(resp)\n  self.sink(resp:marshalDc())\nend\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name)))
+     (client-streaming
+      (fmt "--- Client-streaming stream passed to service implementations.\nlocal ~a~aServer = {}\n~a~aServer.__index = ~a~aServer\n\nfunction ~a~aServer.new(reqs)\n  return setmetatable({ reqs = reqs, resp = nil }, ~a~aServer)\nend\n\nfunction ~a~aServer:recv()\n  local req = ~a.new()\n  self.reqs:recvInto(req)\n  return req\nend\n\nfunction ~a~aServer:sendAndClose(resp)\n  self.resp = resp\nend\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref input) (svc) (ref name)))
+     (bidi
+      (fmt "--- Bidi stream passed to service implementations.\nlocal ~a~aServer = {}\n~a~aServer.__index = ~a~aServer\n\nfunction ~a~aServer.new(reqs, sink)\n  return setmetatable({ reqs = reqs, sink = sink }, ~a~aServer)\nend\n\nfunction ~a~aServer:send(resp)\n  self.sink(resp:marshalDc())\nend\n\nfunction ~a~aServer:recv()\n  local req = ~a.new()\n  self.reqs:recvInto(req)\n  return req\nend\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref input))))))
+
+(define lua-register-method-program
+  (let ([kind-const '(case-on (ref kind)
+                       ((unary) "KIND_UNARY")
+                       ((server-streaming) "KIND_SERVER_STREAMING")
+                       ((client-streaming) "KIND_CLIENT_STREAMING")
+                       ((bidi) "KIND_BIDI"))])
+    (list
+     (list 'kind-case
+           (list 'unary
+                 (list 'fmt "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local req = ~a.new()\n          reqs:recvInto(req)\n          sink(impl:~a(ctx, req):marshalDc())\n        end,\n      },\n" '(ref name) '(ref path) kind-const '(ref input) (list 'lower-first '(ref impl-name))))
+           (list 'server-streaming
+                 (list 'fmt "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local req = ~a.new()\n          reqs:recvInto(req)\n          impl:~a(ctx, req, ~a~aServer.new(sink))\n        end,\n      },\n" '(ref name) '(ref path) kind-const '(ref input) (list 'lower-first '(ref impl-name)) '(svc) '(ref name)))
+           (list 'client-streaming
+                 (list 'fmt "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local stream = ~a~aServer.new(reqs)\n          impl:~a(ctx, stream)\n          local resp = stream.resp\n          if resp == nil then\n            error(Status.new(wire.CODE_INTERNAL,\n              \"client-streaming handler never called sendAndClose\"), 0)\n          end\n          sink(resp:marshalDc())\n        end,\n      },\n" '(ref name) '(ref path) kind-const '(svc) '(ref name) (list 'lower-first '(ref impl-name))))
+           (list 'bidi
+                 (list 'fmt "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          impl:~a(ctx, ~a~aServer.new(reqs, sink))\n        end,\n      },\n" '(ref name) '(ref path) kind-const (list 'lower-first '(ref impl-name)) '(svc) '(ref name)))))))
+
+(define lua-service-program
+  '((each methods (call luaClientStreamClass))
+    (each methods (call luaServerStreamClass))
+    (fmt "--- Client for ~a.\n" (ref full-name))
+    (fmt "local ~aClient = {}\n" (ref name))
+    (fmt "~aClient.__index = ~aClient\n\n" (ref name) (ref name))
+    (fmt "function ~aClient.new(channel)\n" (ref name))
+    (fmt "  return setmetatable({ channel = channel }, ~aClient)\n" (ref name))
+    "end\n\n"
+    (each+ methods client (call luaClientMethod))
+    (each methods (call luaCoroClientStreamClass))
+    (fmt "--- Coroutine client for ~a.\n" (ref full-name))
+    (fmt "local ~aClientCoro = {}\n" (ref name))
+    (fmt "~aClientCoro.__index = ~aClientCoro\n\n" (ref name) (ref name))
+    (fmt "function ~aClientCoro.new(channel)\n" (ref name))
+    (fmt "  return setmetatable({ channel = channelModule.CoroutineChannel.new(channel) }, ~aClientCoro)\n" (ref name))
+    "end\n\n"
+    (each+ methods client (call luaCoroClientMethod))))
+
+
+(define lua-pb-explicit-literal-program
+  '((if (has-default)
+        (then (fmt "~a"
+                   (case-on (ref type)
+                     ((9) (fmt "~s" (default-raw)))
+                     ((8) (default-raw))
+                     ((14) (fmt "~a" (enum-default-num)))
+                     ((2) (fmt "~a" (default-raw)))
+                     (else (default-raw)))))
+        (else ""))))
+
+(define lua-pb-default-program
+  '((if (call luaPbExplicitLiteral)
+        (then (call luaPbExplicitLiteral))
+        (else (fmt "~a"
+                   (if (is-map)
+                       (then "{}")
+                       (else (case-on (ref label)
+                               ((3) "{}")
+                               (else (case-on (ref type)
+                                       ((11) "nil")
+                                       ((9) "\"\"")
+                                       ((12) "\"\"")
+                                       ((8) "false")
+                                       ((14) (fmt "~a" (enum-first-value-num)))
+                                       (else "0")))))))))))
+
+(define lua-pb-varint-expr-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (fmt "(~a and 1 or 0)" (arg 0)))
+           ((17) (fmt "((bxor(~a << 1, ~a >> 31)) & 0xffffffff)" (arg 0) (arg 0)))
+           ((18) (fmt "(bxor(~a << 1, -(~a >> 63)))" (arg 0) (arg 0)))
+           (else (arg 0))))))
+
+(define lua-pb-varint-decode-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((5 14) (fmt "((~a & 0xffffffff) >= 0x80000000 and (~a & 0xffffffff) - 0x100000000 or (~a & 0xffffffff))" (arg 0) (arg 0) (arg 0)))
+           ((13 7) (fmt "(~a & 0xffffffff)" (arg 0)))
+           ((8) (fmt "(~a ~~= 0)" (arg 0)))
+           ((17) (fmt "(((bxor(~a >> 1, -(~a & 1))) & 0xffffffff) >= 0x80000000 and ((bxor(~a >> 1, -(~a & 1))) & 0xffffffff) - 0x100000000 or ((bxor(~a >> 1, -(~a & 1))) & 0xffffffff))" (arg 0) (arg 0) (arg 0) (arg 0) (arg 0) (arg 0)))
+           ((18) (fmt "(bxor(~a >> 1, -(~a & 1)))" (arg 0) (arg 0)))
+           (else (arg 0))))))
+
+(define lua-pb-nonzero-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (arg 0))
+           (else (fmt "~a ~~= 0" (arg 0)))))))
+
+(define lua-pb-encode-singular-program
+  '((case-on (category)
+      ("varint"
+       (if (proto2)
+           (then (fmt "~aw:tag(~a, 0) w:varint(~a)\n" (arg 1) (ref number) (call luaPbVarintExpr (arg 0))))
+           (else (fmt "~aif ~a then w:tag(~a, 0) w:varint(~a) end\n" (arg 1) (call luaPbNonzero (arg 0)) (ref number) (call luaPbVarintExpr (arg 0))))))
+      ("fixed"
+       (if (proto2)
+           (then (fmt "~aw:tag(~a, ~a) w:fixed(~s, ~a)\n" (arg 1) (ref number) (lua-fixed-wire) (lua-fixed-fmt) (arg 0)))
+           (else (fmt "~aif ~a ~~= 0 then w:tag(~a, ~a) w:fixed(~s, ~a) end\n" (arg 1) (arg 0) (ref number) (lua-fixed-wire) (lua-fixed-fmt) (arg 0)))))
+      ("string"
+       (if (proto2)
+           (then (fmt "~aw:bytesField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aw:stringField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))))
+      ("bytes"
+       (if (proto2)
+           (then (fmt "~aw:bytesField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aif #~a > 0 then w:bytesField(~a, ~a) end\n" (arg 1) (arg 0) (ref number) (arg 0)))))
+      ("message"
+       (fmt "~aif ~a ~~= nil then w:bytesField(~a, ~a:marshalDc()) end\n" (arg 1) (arg 0) (ref number) (arg 0)))
+      (else (fail)))))
+
+(define lua-pb-set-expr-program
+  '((case-on (ref type)
+      ((11 10) (fmt "self.~a ~~= nil" (lua-field-name)))
+      ((9 12) (fmt "#self.~a > 0" (lua-field-name)))
+      (else (call luaPbNonzero (fmt "self.~a" (lua-field-name)))))))
+
+(define lua-pb-encode-guard-program
+  '((guarded luaPbSetExpr "    if not (~a) then\n" "    end\n" (join " or ") (call luaPbEncodeField))))
+
+(define lua-pb-encode-field-program
+  '((if (is-map)
+        (then (fmt "    do\n      local keys = {}\n      for k in pairs(~a) do keys[#keys + 1] = k end\n      table.sort(keys)\n      for _, k in ipairs(keys) do w:bytesField(~a, ~aEncode(k, ~a[k])) end\n    end\n"
+                   (fmt "self.~a" (lua-field-name)) (ref number) (lua-entry-flat) (fmt "self.~a" (lua-field-name))))
+        (else
+         (if (repeated)
+             (then (fmt "~a"
+                        (case-on (category)
+                          ("varint"
+                           (fmt "~a~a~a"
+                                (fmt "    if #~a > 0 then\n      local payload = {}\n" (fmt "self.~a" (lua-field-name)))
+                                (fmt "      for _, x in ipairs(~a) do payload[#payload + 1] = varintBytes(~a) end\n" (fmt "self.~a" (lua-field-name)) (call luaPbVarintExpr "x"))
+                                (fmt "      w:bytesField(~a, table.concat(payload))\n    end\n" (ref number))))
+                          ("fixed"
+                           (fmt "~a~a~a"
+                                (fmt "    if #~a > 0 then\n      local payload = {}\n" (fmt "self.~a" (lua-field-name)))
+                                (fmt "      for _, x in ipairs(~a) do payload[#payload + 1] = string.pack(~s, x) end\n" (fmt "self.~a" (lua-field-name)) (lua-fixed-fmt))
+                                (fmt "      w:bytesField(~a, table.concat(payload))\n    end\n" (ref number))))
+                          ("string" (fmt "    for _, x in ipairs(~a) do w:bytesField(~a, x) end\n" (fmt "self.~a" (lua-field-name)) (ref number)))
+                          ("bytes" (fmt "    for _, x in ipairs(~a) do w:bytesField(~a, x) end\n" (fmt "self.~a" (lua-field-name)) (ref number)))
+                          ("message" (fmt "    for _, x in ipairs(~a) do w:bytesField(~a, x:marshalDc()) end\n" (fmt "self.~a" (lua-field-name)) (ref number)))
+                          (else (fail)))))
+             (else (call luaPbEncodeSingular (fmt "self.~a" (lua-field-name)) "    ")))))))
+
+(define lua-pb-decode-singular-program
+  '((case-on (category)
+      ("varint" (fmt "~a~a = ~a\n" (arg 2) (arg 0) (call luaPbVarintDecode (arg 1))))
+      ("fixed" (fmt "~a~a = string.unpack(~s, ~a)\n" (arg 2) (arg 0) (lua-fixed-fmt) (arg 1)))
+      ("string" (fmt "~a~a = ~a\n" (arg 2) (arg 0) (arg 1)))
+      ("bytes" (fmt "~a~a = ~a\n" (arg 2) (arg 0) (arg 1)))
+      ("message"
+       (fmt "~a~a = ~a.new()\n" (arg 2) (arg 0) (lua-entry-flat))
+       (fmt "~a~a:unmarshalDc(~a)\n" (arg 2) (arg 0) (arg 1)))
+      (else (fail)))))
+
+(define lua-pb-clearing-program
+  '((each-siblings (fmt "      self.~a = ~a\n" (lua-field-name) (call luaPbDefault)))))
+
+(define lua-pb-src-expr
+  '(case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")))
+
+(define lua-pb-decode-case-program
+  (list
+   (list 'if '(is-map)
+         (list 'then
+               (list 'fmt "    elseif field.number == ~a then\n" '(ref number))
+               (list 'fmt "      local kk, vv = ~aDecode(field.bytesValue)\n" '(lua-entry-flat))
+               (list 'fmt "      ~a[kk] = vv\n" (list 'fmt "self.~a" '(lua-field-name))))
+         (list 'else
+               (list 'fmt "    elseif field.number == ~a then\n" '(ref number))
+               (list 'if '(repeated)
+                     (list 'then
+                           (list 'case-on '(category)
+                                 (list "varint"
+                                       "      if field.wire == 2 then\n"
+                                       "        local sub = Reader.new(field.bytesValue)\n"
+                                       "        while not sub:done() do\n"
+                                       "          local raw = sub:varint()\n"
+                                       (list 'fmt "          ~a[#~a + 1] = ~a\n" (list 'fmt "self.~a" '(lua-field-name)) (list 'fmt "self.~a" '(lua-field-name)) (list 'call 'luaPbVarintDecode "raw"))
+                                       "        end\n      else\n"
+                                       (list 'fmt "        ~a[#~a + 1] = ~a\n" (list 'fmt "self.~a" '(lua-field-name)) (list 'fmt "self.~a" '(lua-field-name)) (list 'call 'luaPbVarintDecode "field.varintValue"))
+                                       "      end\n")
+                                 (list "fixed"
+                                       "      if field.wire == 2 then\n"
+                                       (list 'fmt "        local payload = field.bytesValue\n")
+                                       (list 'fmt "        for i = 1, #payload, ~a do\n" '(lua-fixed-size))
+                                       (list 'fmt "          ~a[#~a + 1] = string.unpack(~s, payload, i)\n" (list 'fmt "self.~a" '(lua-field-name)) (list 'fmt "self.~a" '(lua-field-name)) '(lua-fixed-fmt))
+                                       "        end\n      else\n"
+                                       (list 'fmt "        ~a[#~a + 1] = string.unpack(~s, field.fixedValue)\n" (list 'fmt "self.~a" '(lua-field-name)) (list 'fmt "self.~a" '(lua-field-name)) '(lua-fixed-fmt))
+                                       "      end\n")
+                                 (list "string" (list 'fmt "      ~a[#~a + 1] = field.bytesValue\n" (list 'fmt "self.~a" '(lua-field-name)) (list 'fmt "self.~a" '(lua-field-name))))
+                                 (list "bytes" (list 'fmt "      ~a[#~a + 1] = field.bytesValue\n" (list 'fmt "self.~a" '(lua-field-name)) (list 'fmt "self.~a" '(lua-field-name))))
+                                 (list "message"
+                                       (list 'fmt "      local item = ~a.new()\n" '(lua-entry-flat))
+                                       "      item:unmarshalDc(field.bytesValue)\n"
+                                       (list 'fmt "      ~a[#~a + 1] = item\n" (list 'fmt "self.~a" '(lua-field-name)) (list 'fmt "self.~a" '(lua-field-name))))
+                                 (list 'else '(fail))))
+                     (list 'else
+                           '(call luaPbClearing)
+                           (list 'call 'luaPbDecodeSingular (list 'fmt "self.~a" '(lua-field-name)) lua-pb-src-expr "      ")))))))
+
+(define lua-pb-map-val-decode-program
+  '((case-on (ref type)
+      ((11)
+       (fmt "      value = ~a.new()\n      value:unmarshalDc(field.bytesValue)\n" (lua-entry-flat)))
+      (else (call luaPbDecodeSingular "value" (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "      ")))))
+
+
+(define lua-pb-map-key-head-program
+  '((fmt "    if field.number == ~a then\n" (ref number))))
+
+(define lua-pb-map-val-head-program
+  '((fmt "    elseif field.number == ~a then\n" (ref number))))
+
+
+(define lua-pb-map-key-decode-program
+  '((call luaPbDecodeSingular "key" (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "      ")))
+
+(define lua-pb-map-helpers-program
+  '((fmt "~aEncode = function(key, value)\n  local w = Writer.new()\n" (lua-entry-flat))
+    (call-on (key-field) luaPbEncodeSingular "key" "  ")
+    (call-on (val-field) luaPbEncodeSingular "value" "  ")
+    "  return w:toBytes()\nend\n\n"
+    (fmt "~aDecode = function(data)\n" (lua-entry-flat))
+    (fmt "  local key = ~a\n  local value = ~a\n"
+         (call-on (key-field) luaPbDefault)
+         (call-on (val-field) luaPbDefault))
+    "  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n"
+    (call-on (key-field) luaPbMapKeyHead)
+    (call-on (key-field) luaPbMapKeyDecode)
+    (call-on (val-field) luaPbMapValHead)
+    (call-on (val-field) luaPbMapValDecode)
+    "    end\n  end\n  return key, value\nend\n\n"))
+
+(define lua-pb-message-program
+  '((fmt "~a = {}\n~a.__index = ~a\n\n" (flat) (flat) (flat))
+    (fmt "function ~a.new(~a)\n  return setmetatable({ ~a~aunknownFields = \"\" }, ~a)\nend\n\n"
+         (flat)
+         (each-sep ", " fields (lua-field-name))
+         (each-sep ", " fields (fmt "~a = ~a or ~a" (lua-field-name) (lua-field-name) (call luaPbDefault)))
+         (if (no-fields) (then "") (else ", "))
+         (flat))
+    (fmt "function ~a:marshalDc()\n  local w = Writer.new()\n" (flat))
+    (each fields (call luaPbEncodeGuard))
+    "  w:raw(self.unknownFields)\n  return w:toBytes()\nend\n\n"
+    (fmt "function ~a:unmarshalDc(data)\n" (flat))
+    "  self.unknownFields = \"\"\n"
+    (each fields (fmt "  self.~a = ~a\n" (lua-field-name) (call luaPbDefault)))
+    "  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n    if false then\n"
+    (each fields (call luaPbDecodeCase))
+    "    else\n      self.unknownFields = self.unknownFields .. field.rawValue\n    end\n  end\nend\n\n"
+    (each nested (call luaPbMessage))))
+
+(define lua-pb-enum-program
+  '((fmt "local ~a = { ~a }\n\n" (lua-enum-flat)
+         (each-sep ", " values (fmt "~a = ~a" (ref name) (ref number))))))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -4180,7 +4515,33 @@
           'swiftPbMapValDecodeCase swift-pb-map-val-decode-case-program
           'swiftPbMapKeyDecodeCase swift-pb-map-key-decode-case-program
           'swiftPbMessage swift-pb-message-program
-          'swiftPbNestedEnum swift-pb-nested-enum-program))
+          'swiftPbNestedEnum swift-pb-nested-enum-program
+          'luaService lua-service-program
+          'luaClientMethod lua-client-method-program
+          'luaCoroClientMethod lua-coro-client-method-program
+          'luaClientStreamClass lua-client-stream-class-program
+          'luaCoroClientStreamClass lua-coro-client-stream-class-program
+          'luaServerStreamClass lua-server-stream-class-program
+          'luaRegisterMethod lua-register-method-program
+          'luaPbExplicitLiteral lua-pb-explicit-literal-program
+          'luaPbDefault lua-pb-default-program
+          'luaPbVarintExpr lua-pb-varint-expr-program
+          'luaPbVarintDecode lua-pb-varint-decode-program
+          'luaPbNonzero lua-pb-nonzero-program
+          'luaPbEncodeSingular lua-pb-encode-singular-program
+          'luaPbSetExpr lua-pb-set-expr-program
+          'luaPbEncodeGuard lua-pb-encode-guard-program
+          'luaPbEncodeField lua-pb-encode-field-program
+          'luaPbDecodeSingular lua-pb-decode-singular-program
+          'luaPbClearing lua-pb-clearing-program
+          'luaPbDecodeCase lua-pb-decode-case-program
+          'luaPbMapHelpers lua-pb-map-helpers-program
+          'luaPbMapValDecode lua-pb-map-val-decode-program
+          'luaPbMapKeyHead lua-pb-map-key-head-program
+          'luaPbMapKeyDecode lua-pb-map-key-decode-program
+          'luaPbMapValHead lua-pb-map-val-head-program
+          'luaPbMessage lua-pb-message-program
+          'luaPbEnum lua-pb-enum-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -4572,6 +4933,36 @@
                     (format "~a.~a" (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'enum) 'name)))
                 (hash-ref (hash-ref entry 'msg) 'full-name))))
 
+(define (seg-lua-entry-flat model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (define local
+    (seg-flat (hash-ref entry 'pkg)
+              (if (eq? (hash-ref entry 'kind) 'enum)
+                  (let ([e (hash-ref entry 'enum)])
+                    (if (hash-ref entry 'msg)
+                        (format "~a.~a" (hash-ref (hash-ref entry 'msg) 'full-name) (hash-ref e 'name))
+                        (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name))))
+                  (hash-ref (hash-ref entry 'msg) 'full-name))))
+  (if (or (eq? (hash-ref entry 'kind) 'map)
+          (equal? (hash-ref entry 'file) (hash-ref model 'name)))
+      local
+      (format "~a_messagesMessages.~a"
+              (path->string (path-replace-extension
+                             (file-name-from-path (hash-ref entry 'file)) ""))
+              (if (eq? (hash-ref entry 'kind) 'enum)
+                  (hash-ref (hash-ref entry 'enum) 'name)
+                  (hash-ref (hash-ref entry 'msg) 'name)))))
+
+(define (seg-lua-enum-flat model node)
+  (define pkg (hash-ref model 'package))
+  (seg-flat pkg
+            (if (string=? pkg "")
+                (hash-ref node 'name)
+                (format "~a.~a" pkg (hash-ref node 'name)))))
+
 (define (seg-swift-rel pkg full)
   (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
                   (substring full (add1 (string-length pkg)))
@@ -4749,6 +5140,15 @@
     [(eq? (car seg) 'dart-fixed-name)
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'dart)))]
     [(eq? (car seg) 'swift-field-name) (seg-dart-field-name node)]
+    [(eq? (car seg) 'lua-field-name) (seg-dart-field-name node)]
+    [(eq? (car seg) 'lua-entry-flat) (seg-lua-entry-flat model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'lua-enum-flat) (seg-lua-enum-flat model node)]
+    [(eq? (car seg) 'lua-fixed-fmt)
+     (string-append "<" (third (assv (hash-ref node 'type) (fixed-scalar-table 'lua))))]
+    [(eq? (car seg) 'lua-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'lua)))]
+    [(eq? (car seg) 'lua-fixed-wire)
+     (if (= (second (assv (hash-ref node 'type) (fixed-scalar-table 'lua))) 8) 1 5)]
     [(eq? (car seg) 'swift-entry-ref) (seg-swift-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
     [(eq? (car seg) 'swift-map-name) (seg-swift-map-name model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
     [(eq? (car seg) 'swift-scalar-type) (first (scalar-type-entry 'swift (hash-ref node 'type)))]
@@ -4859,14 +5259,21 @@
          "")]
     [(eq? (car seg) 'guarded)
      ;; (guarded SetExprProgram "open ~a template" "close" body...)
-     (define text (run-env (cddddr seg) env))
+     ;; An optional (join " or ") element before the body picks
+     ;; the sibling-condition separator (default " || ").
+     (define-values (joiner body-segs)
+       (if (and (pair? (cddddr seg)) (pair? (car (cddddr seg)))
+                (eq? (car (car (cddddr seg))) 'join))
+           (values (second (car (cddddr seg))) (cdr (cddddr seg)))
+           (values " || " (cddddr seg))))
+     (define text (run-env body-segs env))
      (define cond-str
        (string-join
         (map (lambda (sib)
                (run-env (hash-ref segment-programs (second seg))
                         (env-with env #:node sib)))
              (oneof-later-siblings (env-model env) node))
-        " || "))
+        joiner))
      (if (equal? cond-str "")
          text
          (string-append (format (third seg) cond-str)

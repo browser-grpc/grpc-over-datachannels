@@ -7,7 +7,7 @@
 ;;; (grpcdc.status), so generated stubs mirror the exception-shaped
 ;;; runtimes. The service implementation is a duck-typed table.
 
-(require "spec.rkt" "desc.rkt")
+(require "spec.rkt" "desc.rkt" "segments.rkt")
 (provide emit-lua-file)
 
 (define current-service (make-parameter ""))
@@ -25,343 +25,32 @@
       s
       (string-append (string (char-downcase (string-ref s 0))) (substring s 1))))
 
-(define (lua-deprecated m)
-  (if (hash-ref m 'deprecated #f)
-      "--- Deprecated in the proto schema.\n"
-      ""))
 
-(define (lua-client-method/raw m)
-  (define name (lower-first (hash-ref m 'name)))
-  (define orig-name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define path (hash-ref m 'path))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "function ~aClient:~a(req, metadata, timeout)\n"
-              "  local resp = ~a.new()\n"
-              "  self.channel:unary(~s, req, resp, metadata, timeout)\n"
-              "  return resp\n"
-              "end\n\n")
-             svc name resp path)]
-    [(server-streaming)
-     (format (string-append
-              "function ~aClient:~a(req, metadata, timeout)\n"
-              "  return ~a~aStream.new(\n"
-              "    self.channel:serverStream(~s, req, metadata, timeout))\n"
-              "end\n\n")
-             svc name svc orig-name path)]
-    [(client-streaming)
-     (format (string-append
-              "function ~aClient:~a(reqs, metadata, timeout)\n"
-              "  local resp = ~a.new()\n"
-              "  self.channel:clientStreamCall(~s, reqs, resp, metadata, timeout)\n"
-              "  return resp\n"
-              "end\n\n")
-             svc name resp path)]
-    [(bidi)
-     (format (string-append
-              "function ~aClient:~a(reqs, metadata, timeout)\n"
-              "  return ~a~aStream.new(self.channel:bidi(~s, reqs, metadata, timeout))\n"
-              "end\n\n")
-             svc name svc orig-name path)]))
+
+
 
 (define (lua-client-method m)
-  (string-append (lua-deprecated m) (lua-client-method/raw m)))
+  (run-segments lua-client-method-program m (current-service)))
 
 (define (lua-coro-client-stream-class m)
-  (define orig-name (hash-ref m 'name))
-  (define resp (hash-ref m 'output))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(server-streaming bidi)
-     (format (string-append
-              "--- Coroutine receiving stream for ~a responses: a producer\n"
-              "--- coroutine yields each response; next() returns nil at the\n"
-              "--- end of the call and raises a Status on trailers errors.\n"
-              "local ~a~aCoroStream = {}\n"
-              "~a~aCoroStream.__index = ~a~aCoroStream\n\n"
-              "function ~a~aCoroStream.new(stream)\n"
-              "  local self = setmetatable({ stream = stream }, ~a~aCoroStream)\n"
-              "  self.co = coroutine.create(function()\n"
-              "    while true do\n"
-              "      local resp = ~a.new()\n"
-              "      stream:recv(resp)\n"
-              "      coroutine.yield(resp)\n"
-              "    end\n"
-              "  end)\n"
-              "  return self\n"
-              "end\n\n"
-              "function ~a~aCoroStream:next()\n"
-              "  if coroutine.status(self.co) == \"dead\" then return nil end\n"
-              "  local ok, value = coroutine.resume(self.co)\n"
-              "  if not ok then\n"
-              "    if value == EndOfStream then return nil end\n"
-              "    error(value, 0)\n"
-              "  end\n"
-              "  return value\n"
-              "end\n\n"
-              "function ~a~aCoroStream:cancel()\n"
-              "  self.stream:cancel()\n"
-              "end\n\n"
-              "--- Abandon the call early: RST so the server stops producing.\n"
-              "function ~a~aCoroStream:close()\n"
-              "  self.stream:close()\n"
-              "end\n\n"
-              "--- To-be-closed (<close>) and GC abandon the call the same way.\n"
-              "function ~a~aCoroStream:__close()\n"
-              "  self:close()\n"
-              "end\n\n"
-              "function ~a~aCoroStream:__gc()\n"
-              "  self:close()\n"
-              "end\n\n"
-              "--- Generic-for iterator: for resp in stream:iter() do ... end\n"
-              "--- Breaking the loop closes the closable stream, RST-ing\n"
-              "--- the call unless it already terminated.\n"
-              "function ~a~aCoroStream:iter()\n"
-              "  return function() return self:next() end, nil, nil, self\n"
-              "end\n\n")
-             orig-name svc orig-name svc orig-name svc orig-name
-             svc orig-name svc orig-name resp
-             svc orig-name svc orig-name svc orig-name
-             svc orig-name svc orig-name svc orig-name)]
-    [else ""]))
+  (run-segments lua-coro-client-stream-class-program m (current-service)))
+
+
 
 (define (lua-coro-client-method m)
-  (define name (lower-first (hash-ref m 'name)))
-  (define orig-name (hash-ref m 'name))
-  (define resp (hash-ref m 'output))
-  (define path (hash-ref m 'path))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "function ~aClientCoro:~a(req, metadata, timeout)\n"
-              "  local resp = ~a.new()\n"
-              "  self.channel:unary(~s, req, resp, metadata, timeout)\n"
-              "  return resp\n"
-              "end\n\n")
-             svc name resp path)]
-    [(server-streaming)
-     (format (string-append
-              "function ~aClientCoro:~a(req, metadata, timeout)\n"
-              "  return ~a~aCoroStream.new(\n"
-              "    self.channel:serverStream(~s, req, metadata, timeout))\n"
-              "end\n\n")
-             svc name svc orig-name path)]
-    [(client-streaming)
-     (format (string-append
-              "function ~aClientCoro:~a(reqs, metadata, timeout)\n"
-              "  local resp = ~a.new()\n"
-              "  self.channel:clientStreamCall(~s, reqs, resp, metadata, timeout)\n"
-              "  return resp\n"
-              "end\n\n")
-             svc name resp path)]
-    [(bidi)
-     (format (string-append
-              "function ~aClientCoro:~a(reqs, metadata, timeout)\n"
-              "  return ~a~aCoroStream.new(self.channel:bidi(~s, reqs, metadata, timeout))\n"
-              "end\n\n")
-             svc name svc orig-name path)]))
+  (run-segments lua-coro-client-method-program m (current-service)))
 
 (define (lua-client-stream-class m)
-  (define orig-name (hash-ref m 'name))
-  (define resp (hash-ref m 'output))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(server-streaming bidi)
-     (format (string-append
-              "--- Receiving stream for ~a responses.\n"
-              "local ~a~aStream = {}\n"
-              "~a~aStream.__index = ~a~aStream\n\n"
-              "function ~a~aStream.new(stream)\n"
-              "  return setmetatable({ stream = stream }, ~a~aStream)\n"
-              "end\n\n"
-              "--- Next response; raises EndOfStream at the end of the call.\n"
-              "function ~a~aStream:recv()\n"
-              "  local resp = ~a.new()\n"
-              "  self.stream:recv(resp)\n"
-              "  return resp\n"
-              "end\n\n"
-              "--- Response initial metadata (after the first recv).\n"
-              "function ~a~aStream:headers()\n"
-              "  return self.stream.headers and self.stream.headers.metadata\n"
-              "end\n\n"
-              "--- Response trailing metadata (after the call ends).\n"
-              "function ~a~aStream:trailers()\n"
-              "  return self.stream.trailers\n"
-              "end\n\n"
-              "--- Abandon the call early: RST so the server stops producing.\n"
-              "function ~a~aStream:close()\n"
-              "  self.stream:close()\n"
-              "end\n\n"
-              "function ~a~aStream:cancel()\n"
-              "  self.stream:cancel()\n"
-              "end\n\n"
-              "--- To-be-closed (<close>) and GC abandon the call the same way.\n"
-              "function ~a~aStream:__close()\n"
-              "  self:close()\n"
-              "end\n\n"
-              "function ~a~aStream:__gc()\n"
-              "  self:close()\n"
-              "end\n\n")
-             orig-name svc orig-name svc orig-name svc orig-name
-             svc orig-name svc orig-name svc orig-name resp
-             svc orig-name svc orig-name
-             svc orig-name svc orig-name svc orig-name svc orig-name)]
-    [else ""]))
+  (run-segments lua-client-stream-class-program m (current-service)))
 
 (define (lua-server-stream-class m)
-  (define orig-name (hash-ref m 'name))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define svc (current-service))
-  (case (hash-ref m 'kind)
-    [(unary) ""]
-    [(server-streaming)
-     (format (string-append
-              "--- Server-streaming sink passed to service implementations.\n"
-              "local ~a~aServer = {}\n"
-              "~a~aServer.__index = ~a~aServer\n\n"
-              "function ~a~aServer.new(sink)\n"
-              "  return setmetatable({ sink = sink }, ~a~aServer)\n"
-              "end\n\n"
-              "function ~a~aServer:send(resp)\n"
-              "  self.sink(resp:marshalDc())\n"
-              "end\n\n")
-             svc orig-name svc orig-name svc orig-name svc orig-name
-             svc orig-name svc orig-name)]
-    [(client-streaming)
-     (format (string-append
-              "--- Client-streaming stream passed to service implementations.\n"
-              "local ~a~aServer = {}\n"
-              "~a~aServer.__index = ~a~aServer\n\n"
-              "function ~a~aServer.new(reqs)\n"
-              "  return setmetatable({ reqs = reqs, resp = nil }, ~a~aServer)\n"
-              "end\n\n"
-              "function ~a~aServer:recv()\n"
-              "  local req = ~a.new()\n"
-              "  self.reqs:recvInto(req)\n"
-              "  return req\n"
-              "end\n\n"
-              "function ~a~aServer:sendAndClose(resp)\n"
-              "  self.resp = resp\n"
-              "end\n\n")
-             svc orig-name svc orig-name svc orig-name svc orig-name
-             svc orig-name svc orig-name req svc orig-name)]
-    [(bidi)
-     (format (string-append
-              "--- Bidi stream passed to service implementations.\n"
-              "local ~a~aServer = {}\n"
-              "~a~aServer.__index = ~a~aServer\n\n"
-              "function ~a~aServer.new(reqs, sink)\n"
-              "  return setmetatable({ reqs = reqs, sink = sink }, ~a~aServer)\n"
-              "end\n\n"
-              "function ~a~aServer:send(resp)\n"
-              "  self.sink(resp:marshalDc())\n"
-              "end\n\n"
-              "function ~a~aServer:recv()\n"
-              "  local req = ~a.new()\n"
-              "  self.reqs:recvInto(req)\n"
-              "  return req\n"
-              "end\n\n")
-             svc orig-name svc orig-name svc orig-name svc orig-name
-             svc orig-name svc orig-name svc orig-name req)]))
+  (run-segments lua-server-stream-class-program m (current-service)))
 
 (define (lua-register-method m)
-  (define name (hash-ref m 'name))
-  (define impl-name (lower-first (method-impl-name m)))
-  (define req (hash-ref m 'input))
-  (define svc (current-service))
-  (define kind-const
-    (case (hash-ref m 'kind)
-      [(unary) "KIND_UNARY"]
-      [(server-streaming) "KIND_SERVER_STREAMING"]
-      [(client-streaming) "KIND_CLIENT_STREAMING"]
-      [(bidi) "KIND_BIDI"]))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format (string-append
-              "      {\n"
-              "        name = ~s,\n"
-              "        path = ~s,\n"
-              "        kind = Server.~a,\n"
-              "        handler = function(ctx, reqs, sink)\n"
-              "          local req = ~a.new()\n"
-              "          reqs:recvInto(req)\n"
-              "          sink(impl:~a(ctx, req):marshalDc())\n"
-              "        end,\n"
-              "      },\n")
-             name (hash-ref m 'path) kind-const req impl-name)]
-    [(server-streaming)
-     (format (string-append
-              "      {\n"
-              "        name = ~s,\n"
-              "        path = ~s,\n"
-              "        kind = Server.~a,\n"
-              "        handler = function(ctx, reqs, sink)\n"
-              "          local req = ~a.new()\n"
-              "          reqs:recvInto(req)\n"
-              "          impl:~a(ctx, req, ~a~aServer.new(sink))\n"
-              "        end,\n"
-              "      },\n")
-             name (hash-ref m 'path) kind-const req impl-name svc name)]
-    [(client-streaming)
-     (format (string-append
-              "      {\n"
-              "        name = ~s,\n"
-              "        path = ~s,\n"
-              "        kind = Server.~a,\n"
-              "        handler = function(ctx, reqs, sink)\n"
-              "          local stream = ~a~aServer.new(reqs)\n"
-              "          impl:~a(ctx, stream)\n"
-              "          local resp = stream.resp\n"
-              "          if resp == nil then\n"
-              "            error(Status.new(wire.CODE_INTERNAL,\n"
-              "              \"client-streaming handler never called sendAndClose\"), 0)\n"
-              "          end\n"
-              "          sink(resp:marshalDc())\n"
-              "        end,\n"
-              "      },\n")
-             name (hash-ref m 'path) kind-const svc name impl-name)]
-    [(bidi)
-     (format (string-append
-              "      {\n"
-              "        name = ~s,\n"
-              "        path = ~s,\n"
-              "        kind = Server.~a,\n"
-              "        handler = function(ctx, reqs, sink)\n"
-              "          impl:~a(ctx, ~a~aServer.new(reqs, sink))\n"
-              "        end,\n"
-              "      },\n")
-             name (hash-ref m 'path) kind-const impl-name svc name)]))
+  (run-segments lua-register-method-program m (current-service)))
 
 (define (lua-service svc)
-  (define sname (hash-ref svc 'name))
-  (define methods (hash-ref svc 'methods))
-  (parameterize ([current-service sname])
-    (string-append
-     (apply string-append (map lua-client-stream-class methods))
-     (apply string-append (map lua-server-stream-class methods))
-     (format "--- Client for ~a.\n" (hash-ref svc 'full-name))
-     (format "local ~aClient = {}\n" sname)
-     (format "~aClient.__index = ~aClient\n\n" sname sname)
-     (format "function ~aClient.new(channel)\n" sname)
-     "  return setmetatable({ channel = channel }, "
-     (format "~aClient)\n" sname)
-     "end\n\n"
-     (apply string-append (map lua-client-method (append methods (alias-client-methods svc))))
-     (apply string-append (map lua-coro-client-stream-class methods))
-     (format "--- Coroutine client for ~a.\n" (hash-ref svc 'full-name))
-     (format "local ~aClientCoro = {}\n" sname)
-     (format "~aClientCoro.__index = ~aClientCoro\n\n" sname sname)
-     (format "function ~aClientCoro.new(channel)\n" sname)
-     "  return setmetatable({ channel = channelModule.CoroutineChannel.new(channel) }, "
-     (format "~aClientCoro)\n" sname)
-     "end\n\n"
-     (apply string-append (map (lambda (m) (string-append (lua-deprecated m) (lua-coro-client-method m))) (append methods (alias-client-methods svc)))))))
+  (run-segments lua-service-program svc (hash-ref svc 'name)))
 
 ;; (display-name . origin-file) for every method input/output
 ;; type, first-use order: the stub requires each origin file's
@@ -434,17 +123,9 @@
 (define lua-pb-varint-types varint-scalar-types)
 (define lua-pb-fixed (fixed-scalar-table 'lua))
 
-(define (lua-pb-camel s)
-  (define parts (string-split s "_"))
-  (if (null? parts)
-      s
-      (apply string-append (car parts)
-             (map (lambda (p) (if (string=? p "") "" (string-append (string (char-upcase (string-ref p 0))) (substring p 1))))
-                  (cdr parts)))))
 
-(define (lua-pb-field-name f)
-  (define jn (hash-ref f 'json-name ""))
-  (if (and jn (not (string=? jn ""))) jn (lua-pb-camel (hash-ref f 'name))))
+
+
 
 (define (lua-pb-resolve model type-name)
   (hash-ref (hash-ref model 'types) type-name
@@ -476,225 +157,48 @@
                   (hash-ref (hash-ref entry 'msg) 'name)))))
 
 (define (lua-pb-explicit-literal model f)
-  (define d (field-explicit-default f))
-  (and d
-       (case (hash-ref f 'type)
-         [(9) (format "~s" d)]
-         [(8) d]
-         [(14) (format "~a" (enum-default-number model f))]
-         [(2) (format "~a" d)]
-         [else d])))
+  (run-segments lua-pb-explicit-literal-program f #f model))
 
 (define (lua-pb-default model f)
-  (cond [(lua-pb-explicit-literal model f) => (lambda (lit) lit)]
-        [(and (= (hash-ref f 'type) 11)
-              (eq? (hash-ref (lua-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         "{}"]
-        [(= (hash-ref f 'label) 3) "{}"]
-        [(= (hash-ref f 'type) 11) "nil"]
-        [(= (hash-ref f 'type) 9) "\"\""]
-        [(= (hash-ref f 'type) 12) "\"\""]
-        [(= (hash-ref f 'type) 8) "false"]
-        [(= (hash-ref f 'type) 14)
-         (define entry (lua-pb-resolve model (hash-ref f 'type-name)))
-         (format "~a" (hash-ref (car (hash-ref (hash-ref entry 'enum) 'values)) 'number))]
-        [else "0"]))
+  (run-segments lua-pb-default-program f #f model))
 
 (define (lua-pb-varint-expr f v)
-  (case (hash-ref f 'type)
-    [(8) (format "(~a and 1 or 0)" v)]
-    [(17) (format "((bxor(~a << 1, ~a >> 31)) & 0xffffffff)" v v)]
-    [(18) (format "(bxor(~a << 1, -(~a >> 63)))" v v)]
-    [else v]))
+  (run-segments lua-pb-varint-expr-program f #f #f (list v)))
 
 (define (lua-pb-varint-decode f v)
-  (case (hash-ref f 'type)
-    [(5 14) (format "((~a & 0xffffffff) >= 0x80000000 and (~a & 0xffffffff) - 0x100000000 or (~a & 0xffffffff))" v v v)]
-    [(13 7) (format "(~a & 0xffffffff)" v)]
-    [(8) (string-append "(" v " ~= 0)")]
-    [(17) (format "(((bxor(~a >> 1, -(~a & 1))) & 0xffffffff) >= 0x80000000 and ((bxor(~a >> 1, -(~a & 1))) & 0xffffffff) - 0x100000000 or ((bxor(~a >> 1, -(~a & 1))) & 0xffffffff))" v v v v v v)]
-    [(18) (format "(bxor(~a >> 1, -(~a & 1)))" v v)]
-    [else v]))
+  (run-segments lua-pb-varint-decode-program f #f #f (list v)))
 
-(define (lua-pb-fixed-fmt f)
-  (string-append "<" (third (assv (hash-ref f 'type) lua-pb-fixed))))
 
-(define (lua-pb-wire f)
-  (if (= (second (assv (hash-ref f 'type) lua-pb-fixed)) 8) 1 5))
+
+
 
 (define (lua-pb-nonzero f v)
-  (case (hash-ref f 'type)
-    [(8) v]
-    [else (string-append v " ~= 0")]))
+  (run-segments lua-pb-nonzero-program f #f #f (list v)))
 
 (define (lua-pb-encode-singular model f v indent)
-  (define n (hash-ref f 'number))
-  (define type (hash-ref f 'type))
-  ;; Proto2 optional/required fields have explicit presence.
-  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
-  (cond [(memv type lua-pb-varint-types)
-         (if proto2?
-             (format "~aw:tag(~a, 0) w:varint(~a)\n" indent n (lua-pb-varint-expr f v))
-             (format "~aif ~a then w:tag(~a, 0) w:varint(~a) end\n" indent (lua-pb-nonzero f v) n (lua-pb-varint-expr f v)))]
-        [(assv type lua-pb-fixed)
-         => (lambda (info)
-              (if proto2?
-                  (string-append indent "w:tag(" (number->string n) ", " (number->string (lua-pb-wire f)) ") w:fixed(" (format "~s" (lua-pb-fixed-fmt f)) ", " v ")\n")
-                  (string-append indent "if " v " ~= 0 then w:tag(" (number->string n) ", " (number->string (lua-pb-wire f)) ") w:fixed(" (format "~s" (lua-pb-fixed-fmt f)) ", " v ") end\n")))]
-        [(= type 9)
-         (if proto2?
-             (format "~aw:bytesField(~a, ~a)\n" indent n v)
-             (format "~aw:stringField(~a, ~a)\n" indent n v))]
-        [(= type 12)
-         (if proto2?
-             (format "~aw:bytesField(~a, ~a)\n" indent n v)
-             (format "~aif #~a > 0 then w:bytesField(~a, ~a) end\n" indent v n v))]
-        [(= type 11) (string-append indent "if " v " ~= nil then w:bytesField(" (number->string n) ", " v ":marshalDc()) end\n")]
-        [else (error 'emit-lua-pb-file "unsupported field type ~a (groups)" type)]))
+  (run-segments lua-pb-encode-singular-program f #f model (list v indent)))
 
 (define (lua-pb-set-expr sib)
-  (define v (format "self.~a" (lua-pb-field-name sib)))
-  (case (hash-ref sib 'type)
-    [(11 10) (string-append v " ~= nil")]
-    [(9 12) (string-append "#" v " > 0")]
-    [else (lua-pb-nonzero sib v)]))
+  (run-segments lua-pb-set-expr-program sib #f))
 
 ;; Encode-side oneof clearing: suppress f when a later sibling is
 ;; set, so only the winning member is written.
-(define (lua-pb-encode-guard model f code)
-  (define later (oneof-later-siblings model f))
-  (if (null? later)
-      code
-      (string-append
-       "    if not (" (string-join (map lua-pb-set-expr later) " or ") ") then\n"
-       (if (string-suffix? code "\n") code (string-append code "\n"))
-       "    end\n")))
+
 
 (define (lua-pb-encode-field model f)
-  (define v (format "self.~a" (lua-pb-field-name f)))
-  (define n (hash-ref f 'number))
-  (define type (hash-ref f 'type))
-  (cond [(and (= type 11)
-              (eq? (hash-ref (lua-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         (define entry (lua-pb-resolve model (hash-ref f 'type-name)))
-         (define helper (format "~aEncode" (lua-pb-entry-flat model entry)))
-         (format "    do\n      local keys = {}\n      for k in pairs(~a) do keys[#keys + 1] = k end\n      table.sort(keys)\n      for _, k in ipairs(keys) do w:bytesField(~a, ~a(k, ~a[k])) end\n    end\n" v n helper v)]
-        [(not (= (hash-ref f 'label) 3)) (lua-pb-encode-singular model f v "    ")]
-        [(memv type lua-pb-varint-types)
-         (string-append
-          (format "    if #~a > 0 then\n      local payload = {}\n" v)
-          (format "      for _, x in ipairs(~a) do payload[#payload + 1] = varintBytes(~a) end\n" v (lua-pb-varint-expr f "x"))
-          (format "      w:bytesField(~a, table.concat(payload))\n    end\n" n))]
-        [(assv type lua-pb-fixed)
-         => (lambda (info)
-              (string-append
-               (format "    if #~a > 0 then\n      local payload = {}\n" v)
-               (format "      for _, x in ipairs(~a) do payload[#payload + 1] = string.pack(~s, x) end\n" v (string-append "<" (third info)))
-               (format "      w:bytesField(~a, table.concat(payload))\n    end\n" n)))]
-        [(= type 9) (format "    for _, x in ipairs(~a) do w:bytesField(~a, x) end\n" v n)]
-        [(= type 12) (format "    for _, x in ipairs(~a) do w:bytesField(~a, x) end\n" v n)]
-        [(= type 11) (format "    for _, x in ipairs(~a) do w:bytesField(~a, x:marshalDc()) end\n" v n)]
-        [else (error 'emit-lua-pb-file "unsupported repeated field type ~a" type)]))
+  (run-segments lua-pb-encode-field-program f #f model))
 
 (define (lua-pb-decode-singular model f target src indent)
-  (define type (hash-ref f 'type))
-  (cond [(memv type lua-pb-varint-types)
-         (format "~a~a = ~a\n" indent target (lua-pb-varint-decode f src))]
-        [(assv type lua-pb-fixed)
-         => (lambda (info)
-              (format "~a~a = string.unpack(~s, ~a)\n" indent target (string-append "<" (third info)) src))]
-        [(= type 9) (format "~a~a = ~a\n" indent target src)]
-        [(= type 12) (format "~a~a = ~a\n" indent target src)]
-        [(= type 11)
-         (define ref (lua-pb-entry-flat model (lua-pb-resolve model (hash-ref f 'type-name))))
-         (string-append
-          (format "~a~a = ~a.new()\n" indent target ref)
-          (format "~a~a:unmarshalDc(~a)\n" indent target src))]
-        [else (error 'emit-lua-pb-file "unsupported field type ~a" type)]))
+  (run-segments lua-pb-decode-singular-program f #f model (list target src indent)))
 
 (define (lua-pb-oneof-clearing model f)
-  (apply string-append
-         (map (lambda (sib)
-                (format "      self.~a = ~a\n" (lua-pb-field-name sib) (lua-pb-default model sib)))
-              (oneof-siblings model f))))
+  (run-segments lua-pb-clearing-program f #f model))
 
 (define (lua-pb-decode-case model f)
-  (define v (format "self.~a" (lua-pb-field-name f)))
-  (define type (hash-ref f 'type))
-  (define head (format "    elseif field.number == ~a then\n" (hash-ref f 'number)))
-  (define clearing (lua-pb-oneof-clearing model f))
-  (cond [(and (= type 11)
-              (eq? (hash-ref (lua-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         (define entry (lua-pb-resolve model (hash-ref f 'type-name)))
-         (define helper (format "~aDecode" (lua-pb-entry-flat model entry)))
-         (string-append head
-                        (format "      local kk, vv = ~a(field.bytesValue)\n" helper)
-                        (format "      ~a[kk] = vv\n" v))]
-        [(not (= (hash-ref f 'label) 3))
-         (string-append head
-                        clearing
-                        (lua-pb-decode-singular model f v
-                                                (cond [(memv type lua-pb-varint-types) "field.varintValue"]
-                                                      [(assv type lua-pb-fixed) "field.fixedValue"]
-                                                      [else "field.bytesValue"])
-                                                "      "))]
-        [(memv type lua-pb-varint-types)
-         (string-append head
-                        "      if field.wire == 2 then\n"
-                        "        local sub = Reader.new(field.bytesValue)\n"
-                        "        while not sub:done() do\n"
-                        "          local raw = sub:varint()\n"
-                        (format "          ~a[#~a + 1] = ~a\n" v v (lua-pb-varint-decode f "raw"))
-                        "        end\n      else\n"
-                        (format "        ~a[#~a + 1] = ~a\n" v v (lua-pb-varint-decode f "field.varintValue"))
-                        "      end\n")]
-        [(assv type lua-pb-fixed)
-         => (lambda (info)
-              (string-append head
-                             "      if field.wire == 2 then\n"
-                             (format "        local payload = field.bytesValue\n")
-                             (format "        for i = 1, #payload, ~a do\n" (second info))
-                             (format "          ~a[#~a + 1] = string.unpack(~s, payload, i)\n" v v (string-append "<" (third info)))
-                             "        end\n      else\n"
-                             (format "        ~a[#~a + 1] = string.unpack(~s, field.fixedValue)\n" v v (string-append "<" (third info)))
-                             "      end\n"))]
-        [(= type 9) (string-append head (format "      ~a[#~a + 1] = field.bytesValue\n" v v))]
-        [(= type 12) (string-append head (format "      ~a[#~a + 1] = field.bytesValue\n" v v))]
-        [(= type 11)
-         (string-append head
-                        (format "      local item = ~a.new()\n" (lua-pb-entry-flat model (lua-pb-resolve model (hash-ref f 'type-name))))
-                        "      item:unmarshalDc(field.bytesValue)\n"
-                        (format "      ~a[#~a + 1] = item\n" v v))]
-        [else (error 'emit-lua-pb-file "unsupported repeated field type ~a" type)]))
+  (run-segments lua-pb-decode-case-program f #f model))
 
 (define (lua-pb-map-helpers model entry)
-  (define msg (hash-ref entry 'msg))
-  (define base (lua-pb-entry-flat model entry))
-  (define key-f (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref msg 'fields)))
-  (define val-f (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref msg 'fields)))
-  (unless (and key-f val-f) (error 'emit-lua-pb-file "map entry ~a lacks key/value" (hash-ref msg 'full-name)))
-  (string-append
-   (format "~aEncode = function(key, value)\n  local w = Writer.new()\n" base)
-   (lua-pb-encode-singular model (hash-set key-f 'label 1) "key" "  ")
-   (lua-pb-encode-singular model (hash-set val-f 'label 1) "value" "  ")
-   "  return w:toBytes()\nend\n\n"
-   (format "~aDecode = function(data)\n" base)
-   (format "  local key = ~a\n  local value = ~a\n" (lua-pb-default model (hash-set key-f 'label 1)) (lua-pb-default model (hash-set val-f 'label 1)))
-   "  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n"
-   (format "    if field.number == ~a then\n~a" (hash-ref key-f 'number)
-           (lua-pb-decode-singular model (hash-set key-f 'label 1) "key"
-                                   (cond [(memv (hash-ref key-f 'type) lua-pb-varint-types) "field.varintValue"]
-                                         [(assv (hash-ref key-f 'type) lua-pb-fixed) "field.fixedValue"]
-                                         [else "field.bytesValue"]) "      "))
-   (format "    elseif field.number == ~a then\n~a" (hash-ref val-f 'number)
-           (if (= (hash-ref val-f 'type) 11)
-               (format "      value = ~a.new()\n      value:unmarshalDc(field.bytesValue)\n"
-                       (lua-pb-entry-flat model (lua-pb-resolve model (hash-ref val-f 'type-name))))
-               (lua-pb-decode-singular model (hash-set val-f 'label 1) "value"
-                                       (cond [(memv (hash-ref val-f 'type) lua-pb-varint-types) "field.varintValue"]
-                                             [(assv (hash-ref val-f 'type) lua-pb-fixed) "field.fixedValue"]
-                                             [else "field.bytesValue"]) "      ")))
-   "    end\n  end\n  return key, value\nend\n\n"))
+  (run-segments lua-pb-map-helpers-program entry #f model))
 
 (define lua-pb-support
   (string-append
@@ -718,41 +222,10 @@
    "function Reader:next()\n  if self.pos > #self.buf then return nil end\n  local start = self.pos\n  local tag = self:varint()\n  local number = tag >> 3\n  local wire = tag & 7\n  if wire == 0 then\n    local v = self:varint()\n    return { number = number, wire = wire, varintValue = v, bytesValue = \"\", fixedValue = \"\", rawValue = self.buf:sub(start, self.pos - 1) }\n  elseif wire == 2 then\n    local n = self:varint()\n    local b = self:take(n)\n    return { number = number, wire = wire, varintValue = 0, bytesValue = b, fixedValue = \"\", rawValue = self.buf:sub(start, self.pos - 1) }\n  elseif wire == 1 then\n    local b = self:take(8)\n    return { number = number, wire = wire, varintValue = 0, bytesValue = \"\", fixedValue = b, rawValue = self.buf:sub(start, self.pos - 1) }\n  elseif wire == 5 then\n    local b = self:take(4)\n    return { number = number, wire = wire, varintValue = 0, bytesValue = \"\", fixedValue = b, rawValue = self.buf:sub(start, self.pos - 1) }\n  end\n  error(\"bad wire type\")\nend\n\n"))
 
 (define (lua-pb-message-class model msg)
-  (define name (lua-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
-  (define fields (hash-ref msg 'fields))
-  (string-append
-   ;; The class local is forward-declared at the top of the file
-   ;; (see emit-lua-pb-file/inner): parent classes reference their
-   ;; nested classes, which are defined after them.
-   (format "~a = {}\n~a.__index = ~a\n\n" name name name)
-   (format "function ~a.new(~a)\n  return setmetatable({ ~a }, ~a)\nend\n\n" name
-           (string-join (map lua-pb-field-name fields) ", ")
-           (let ([parts (map (lambda (f) (format "~a = ~a or ~a" (lua-pb-field-name f) (lua-pb-field-name f) (lua-pb-default model f))) fields)])
-             (string-join (append parts (list "unknownFields = \"\"")) ", "))
-           name)
-   (format "function ~a:marshalDc()\n  local w = Writer.new()\n" name)
-   (apply string-append (map (lambda (f) (lua-pb-encode-guard model f (lua-pb-encode-field model f))) fields))
-   "  w:raw(self.unknownFields)\n"
-   "  return w:toBytes()\nend\n\n"
-   (format "function ~a:unmarshalDc(data)\n" name)
-   "  self.unknownFields = \"\"\n"
-   (apply string-append
-          (map (lambda (f) (format "  self.~a = ~a\n" (lua-pb-field-name f) (lua-pb-default model f))) fields))
-   "  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n"
-   "    if false then\n"
-   (apply string-append (map (lambda (f) (lua-pb-decode-case model f)) fields))
-   "    else\n      self.unknownFields = self.unknownFields .. field.rawValue\n    end\n  end\nend\n\n"
-   (apply string-append (map (lambda (n) (lua-pb-message-class model n)) (hash-ref msg 'nested)))))
+  (run-segments lua-pb-message-program msg #f model))
 
 (define (lua-pb-enum model e)
-  (define name (lua-pb-flat (hash-ref model 'package)
-                            (if (string=? (hash-ref model 'package) "")
-                                (hash-ref e 'name)
-                                (format "~a.~a" (hash-ref model 'package) (hash-ref e 'name)))))
-  (string-append
-   (format "local ~a = { ~a }\n\n" name
-           (string-join (map (lambda (v) (format "~a = ~a" (hash-ref v 'name) (hash-ref v 'number)))
-                             (hash-ref e 'values)) ", "))))
+  (run-segments lua-pb-enum-program e #f model))
 
 (define (emit-lua-pb-file file-model)
   (and (hash-has-key? file-model 'messages)
