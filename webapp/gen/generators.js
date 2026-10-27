@@ -514,37 +514,17 @@ function runSegment(seg, env) {
 // ---------------------------------------------------------------------------
 
 function jsDeprecated(m, indent) {
-  return m.deprecated ? indent + '/** @deprecated deprecated in the proto schema */\n' : '';
+  return runSegments(SEGMENT_PROGRAMS.jsDeprecated, m, '', null, [indent]);
 }
-
 function jsClientMethod(m) {
-  const fn = lowerFirst(m.name);
-  const depr = jsDeprecated(m, '  ');
-  switch (m.kind) {
-    case 'unary':
-      return depr + '  async ' + fn + '(request, options) {\n    return this.#channel.unary(' + q(m.path) + ', request, ' + m.input + ', ' + m.output + ', options);\n  }\n';
-    case 'server-streaming':
-      return depr + '  ' + fn + '(request, options) {\n    return this.#channel.serverStream(' + q(m.path) + ', request, ' + m.input + ', ' + m.output + ', options);\n  }\n';
-    case 'client-streaming':
-      return depr + '  async ' + fn + '(requests, options) {\n    return this.#channel.clientStream(' + q(m.path) + ', requests, ' + m.input + ', ' + m.output + ', options);\n  }\n';
-    default:
-      return depr + '  ' + fn + '(requests, options) {\n    return this.#channel.bidi(' + q(m.path) + ', requests, ' + m.input + ', ' + m.output + ', options);\n  }\n';
-  }
+  return runSegments(SEGMENT_PROGRAMS.jsClientMethod, m, '');
 }
-
 function jsMethodTableEntry(m) {
-  return '    ' + m.name + ': { path: ' + q(m.path) + ', kind: ' + q(m.kind) + ', requestType: ' + m.input + ', responseType: ' + m.output + ', handler: handlers.' + lowerFirst(m.implName) + ' },\n';
+  return runSegments(SEGMENT_PROGRAMS.jsMethodTableEntry, m, '');
 }
-
 function jsService(svc) {
-  return 'export class ' + svc.name + 'Client {\n  #channel;\n  constructor(channel) { this.#channel = channel; }\n'
-    + svc.methods.concat(aliasClientMethods(svc)).map(jsClientMethod).join('')
-    + '}\n\n'
-    + 'export function create' + svc.name + 'Service(handlers) {\n  return {\n    name: ' + q(svc.fullName) + ',\n    methods: {\n'
-    + svc.methods.concat(aliasServerMethods(svc)).map(jsMethodTableEntry).join('')
-    + '    },\n  };\n}\n';
+  return runSegments(SEGMENT_PROGRAMS.jsService, svc, svc.name);
 }
-
 function emitJsFile(model, params) {
   const base = baseName(model.name);
   const pbImport = params.pb_import || './' + base + '_pb.js';
@@ -714,56 +694,18 @@ const PB_FIXED = FIXED_TABLES.js;
 const PB_BIGINT = new Set([FT.INT64, FT.UINT64, FT.SINT64, FT.FIXED64, FT.SFIXED64]);
 
 function pbVarintExpr(f, v) {
-  switch (f.type) {
-    case FT.BOOL: return '(' + v + ' ? 1n : 0n)';
-    case FT.SINT32: return 'BigInt(((' + v + ' << 1) ^ (' + v + ' >> 31)) >>> 0)';
-    case FT.SINT64: return 'zz64(' + v + ')';
-    default: return 'BigInt(' + v + ')';
-  }
+  return runSegments(SEGMENT_PROGRAMS.jsPbVarintExpr, f, '', null, [v]);
 }
-
 function pbVarintDecode(f, v) {
-  switch (f.type) {
-    case FT.INT32: case FT.ENUM: return 'Number(BigInt.asIntN(32, ' + v + '))';
-    case FT.UINT32: return 'Number(BigInt.asUintN(32, ' + v + '))';
-    case FT.INT64: return 'BigInt.asIntN(64, ' + v + ')';
-    case FT.UINT64: return 'BigInt.asUintN(64, ' + v + ')';
-    case FT.BOOL: return v + ' !== 0n';
-    case FT.SINT32: return 'Number(unzz64(BigInt.asUintN(32, ' + v + ')))';
-    case FT.SINT64: return 'unzz64(' + v + ')';
-    default: throw new Error('not a varint type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.jsPbVarintDecode, f, '', null, [v]);
 }
-
 function pbExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case FT.STRING: return JSON.stringify(d);
-    case FT.ENUM: return String(enumDefaultNumber(model, f));
-    default: return d;
-  }
+  const lit = runSegments(SEGMENT_PROGRAMS.jsPbExplicitLiteral, f, '', model);
+  return lit === '' ? null : lit;
 }
-
 function pbDefault(f, model) {
-  const lit = pbExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.label === 3) {
-    const t = model.types.get(f.typeName);
-    if (f.type === FT.MESSAGE && t && t.kind === 'map') return 'new Map()';
-    return '[]';
-  }
-  switch (f.type) {
-    case FT.STRING: return '""';
-    case FT.BYTES: return 'new Uint8Array(0)';
-    case FT.BOOL: return 'false';
-    case FT.MESSAGE: case FT.GROUP: return 'undefined';
-    default: return PB_BIGINT.has(f.type) ? '0n' : '0';
-  }
+  return runSegments(SEGMENT_PROGRAMS.jsPbDefault, f, '', model);
 }
-
-// Resolve a field's message/enum type through the registry.
-// Returns {entry, ref, external} where ref is the JS identifier.
 function pbResolve(model, typeName) {
   const entry = model.types.get(typeName);
   if (!entry) throw new Error('unresolved type ' + typeName + ' (not in descriptor set)');
@@ -772,185 +714,29 @@ function pbResolve(model, typeName) {
 
 // Statements encoding one singular field value expr into `out`.
 function pbEncodeSingular(model, f, v, indent) {
-  const n = f.number;
-  // Proto2 optional/required fields have explicit presence: they
-  // are written even when equal to the default.
-  const proto2 = model.syntax === 'proto2';
-  if (PB_VARINT.has(f.type)) {
-    return proto2
-      ? indent + 'putTag(out, ' + n + ', 0); out.push(...varintBytes(' + pbVarintExpr(f, v) + '));\n'
-      : indent + 'putVarintField(out, ' + n + ', ' + pbVarintExpr(f, v) + ');\n';
-  }
-  if (PB_FIXED[f.type]) {
-    const [size, op] = PB_FIXED[f.type];
-    return proto2
-      ? indent + 'putFixedField(out, ' + n + ', fixedBytes(' + v + ', ' + size + ', (dv, x) => dv.set' + op + '(0, x, true)));\n'
-      : indent + 'if (' + v + ') putFixedField(out, ' + n + ', fixedBytes(' + v + ', ' + size + ', (dv, x) => dv.set' + op + '(0, x, true)));\n';
-  }
-  switch (f.type) {
-    case FT.STRING: return proto2
-      ? indent + 'putBytesField(out, ' + n + ', new TextEncoder().encode(' + v + '));\n'
-      : indent + 'putStringField(out, ' + n + ', ' + v + ');\n';
-    case FT.BYTES: return proto2
-      ? indent + 'putBytesField(out, ' + n + ', ' + v + ');\n'
-      : indent + 'if (' + v + ' && ' + v + '.length) putBytesField(out, ' + n + ', ' + v + ');\n';
-    case FT.MESSAGE: {
-      const entry = pbResolve(model, f.typeName);
-      const ref = pbFlatName(entry.pkg, entry.msg.fullName);
-      return indent + 'if (' + v + ') putBytesField(out, ' + n + ', ' + ref + '.encode(' + v + '));\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type + ' (groups are not supported)');
-  }
+  return runSegments(SEGMENT_PROGRAMS.jsPbEncodeSingular, f, '', model, [v, indent]);
 }
-
 function pbOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => 'msg.' + pbJsName(sib) + ' = ' + pbDefault(sib, model) + '; ').join('');
+  return runSegments(SEGMENT_PROGRAMS.jsPbOneofClearing, f, '', model);
 }
-
-function pbSetExpr(sib) {
-  const v = 'msg.' + pbJsName(sib);
-  switch (sib.type) {
-    case FT.MESSAGE: case FT.GROUP: return v;
-    case FT.STRING: return v + ' !== ""';
-    case FT.BYTES: return '(' + v + ' && ' + v + '.length > 0)';
-    case FT.BOOL: return v;
-    default: return PB_BIGINT.has(sib.type) ? v + ' !== 0n' : v + ' !== 0';
-  }
-}
-
-// Encode-side oneof clearing: suppress f when a later sibling is
-// set, so only the winning member is written.
-function pbEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '    if (!(' + later.map(pbSetExpr).join(' || ') + ')) {\n' + code + '    }\n';
-}
-
 function pbEncodeField(model, f) {
-  const jn = pbJsName(f);
-  const v = 'msg.' + jn;
-  const n = f.number;
-  if (f.type === FT.MESSAGE) {
-    const entry = pbResolve(model, f.typeName);
-    if (entry.kind === 'map') {
-      const helper = pbFlatName(entry.pkg, entry.msg.fullName) + 'Encode';
-      return '    if (' + v + ') for (const [k, val] of ' + v + ') putBytesField(out, ' + n + ', ' + helper + '(k, val));\n';
-    }
-  }
-  if (f.label !== 3) return pbEncodeSingular(model, f, v, '    ');
-  if (PB_VARINT.has(f.type)) {
-    return '    if (' + v + ' && ' + v + '.length) {\n'
-      + '      const payload = [];\n'
-      + '      for (const x of ' + v + ') payload.push(...varintBytes(' + pbVarintExpr(f, 'x') + '));\n'
-      + '      putBytesField(out, ' + n + ', payload);\n    }\n';
-  }
-  if (PB_FIXED[f.type]) {
-    const [size, op] = PB_FIXED[f.type];
-    return '    if (' + v + ' && ' + v + '.length) {\n'
-      + '      const payload = new Uint8Array(' + v + '.length * ' + size + ');\n'
-      + '      const dv = new DataView(payload.buffer);\n'
-      + '      ' + v + '.forEach((x, i) => dv.set' + op + '(i * ' + size + ', x, true));\n'
-      + '      putBytesField(out, ' + n + ', payload);\n    }\n';
-  }
-  switch (f.type) {
-    case FT.STRING:
-      return '    if (' + v + ') for (const v of ' + v + ') putBytesField(out, ' + n + ', new TextEncoder().encode(v));\n';
-    case FT.BYTES:
-      return '    if (' + v + ') for (const v of ' + v + ') putBytesField(out, ' + n + ', v);\n';
-    case FT.MESSAGE: {
-      const entry = pbResolve(model, f.typeName);
-      const ref = pbFlatName(entry.pkg, entry.msg.fullName);
-      return '    if (' + v + ') for (const v of ' + v + ') putBytesField(out, ' + n + ', ' + ref + '.encode(v));\n';
-    }
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.jsPbEncodeField, f, '', model);
 }
-
 function pbDecodeSingular(model, f, target, src) {
-  const value = src || 'value';
-  if (PB_VARINT.has(f.type)) return target + ' = ' + pbVarintDecode(f, value) + ';';
-  if (PB_FIXED[f.type]) {
-    const [, op] = PB_FIXED[f.type];
-    return target + ' = readFixed(' + value + ', (dv) => dv.get' + op + '(0, true));';
-  }
-  switch (f.type) {
-    case FT.STRING: return target + ' = new TextDecoder().decode(' + value + ');';
-    case FT.BYTES: return target + ' = ' + value + ';';
-    case FT.MESSAGE: {
-      const entry = pbResolve(model, f.typeName);
-      return target + ' = ' + pbFlatName(entry.pkg, entry.msg.fullName) + '.decode(' + value + ');';
-    }
-    default: throw new Error('unsupported field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.jsPbDecodeSingular, f, '', model, [target, src || 'value']);
 }
-
 function pbDecodeCase(model, f) {
-  const jn = pbJsName(f);
-  const target = 'msg.' + jn;
-  const head = '      case ' + f.number + ': ';
-  if (f.type === FT.MESSAGE) {
-    const entry = pbResolve(model, f.typeName);
-    if (entry.kind === 'map') {
-      const helper = pbFlatName(entry.pkg, entry.msg.fullName) + 'Decode';
-      return head + '{ const [k, val] = ' + helper + '(value); ' + target + '.set(k, val); break; }\n';
-    }
-  }
-  if (f.label !== 3) return head + pbOneofClearing(model, f) + pbDecodeSingular(model, f, target) + ' break;\n';
-  if (PB_VARINT.has(f.type)) {
-    return head + 'if (wire === 2) { const r = new Reader(value); while (!r.done) ' + target + '.push(' + pbVarintDecode(f, 'r.varint()') + '); } else ' + target + '.push(' + pbVarintDecode(f, 'value') + '); break;\n';
-  }
-  if (PB_FIXED[f.type]) {
-    const [size, op] = PB_FIXED[f.type];
-    return head + 'if (wire === 2) { const r = new Reader(value); while (!r.done) ' + target + '.push(readFixed(r.take(' + size + '), (dv) => dv.get' + op + '(0, true))); } else ' + target + '.push(readFixed(value, (dv) => dv.get' + op + '(0, true))); break;\n';
-  }
-  return head + target + '.push(' + (f.type === FT.STRING ? 'new TextDecoder().decode(value)' : f.type === FT.BYTES ? 'value' : pbFlatName(pbResolve(model, f.typeName).pkg, pbResolve(model, f.typeName).msg.fullName) + '.decode(value)') + '); break;\n';
+  return runSegments(SEGMENT_PROGRAMS.jsPbDecodeCase, f, '', model);
 }
-
 function pbMapHelpers(model, entry) {
-  const msg = entry.msg;
-  const base = pbFlatName(entry.pkg, msg.fullName);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry ' + msg.fullName + ' lacks key/value fields');
-  const encBody = pbEncodeSingular(model, keyF, 'key', '  ') + pbEncodeSingular(model, valF, 'value', '  ');
-  const decCases = [keyF, valF].map((fld) => {
-    const target = fld.number === 1 ? 'key' : 'value';
-    return '      case ' + fld.number + ': ' + pbDecodeSingular(model, fld, target, 'raw') + ' break;\n';
-  }).join('');
-  return 'function ' + base + 'Encode(key, value) {\n  const out = [];\n' + encBody + '  return new Uint8Array(out);\n}\n\n'
-    + 'function ' + base + 'Decode(bytes) {\n'
-    + '  let key = ' + pbDefault(keyF, model) + ';\n  let value = ' + pbDefault(valF, model) + ';\n'
-    + '  const reader = new Reader(bytes);\n  let f;\n'
-    + '  while ((f = reader.field()) !== null) {\n    const [num, wire, raw] = f;\n    switch (num) {\n'
-    + decCases
-    + '    }\n  }\n  return [key, value];\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.jsPbMapHelpers, entry, '', model);
 }
-
 function pbEnumConst(entry) {
-  const e = entry.kind === 'enum' ? entry.enum : null;
-  if (!e) return '';
-  const full = entry.full;
-  const name = pbFlatName(entry.pkg, full);
-  return 'export const ' + name + ' = { ' + e.values.map((v) => v.name + ': ' + v.number).join(', ') + ' };\n\n';
+  return runSegments(SEGMENT_PROGRAMS.jsPbEnumConst, entry, '', null);
 }
-
 function pbMessageClass(model, msg) {
-  const name = pbFlatName(model.package, msg.fullName);
-  const params = msg.fields.map((f) => pbJsName(f) + ' = ' + pbDefault(f, model)).join(', ');
-  const assigns = msg.fields.map((f) => '    this.' + pbJsName(f) + ' = ' + pbJsName(f) + ';\n').join('');
-  const enc = msg.fields.map((f) => pbEncodeGuard(model, f, pbEncodeField(model, f))).join('');
-  const dec = msg.fields.map((f) => pbDecodeCase(model, f)).join('');
-  return 'export class ' + name + ' {\n'
-    + '  constructor({ ' + params + ' } = {}) {\n' + assigns + '    this.unknownFields = new Uint8Array(0);\n  }\n'
-    + '  static encode(msg) {\n    const out = [];\n' + enc + '    putRaw(out, msg.unknownFields);\n    return new Uint8Array(out);\n  }\n'
-    + '  static decode(bytes) {\n    const msg = new ' + name + '();\n'
-    + '    const reader = new Reader(bytes);\n    let f;\n'
-    + '    while ((f = reader.field()) !== null) {\n      const [num, wire, value, raw] = f;\n      switch (num) {\n'
-    + dec
-    + '        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n'
-    + '      }\n    }\n    return msg;\n  }\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.jsPbMessage, msg, '', model);
 }
-
 function emitJsPbFile(model) {
   const hasMessages = model.messages.length > 0;
   // Types the stubs import from this file's pb module: re-export
