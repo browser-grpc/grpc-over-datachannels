@@ -1732,6 +1732,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "lua/tests" "oracle-gen.rkt" (list (emit-lua-oracle-driver)))
   (write-runtime-files "lua/tests" "bdd-gen.rkt" (list (emit-lua-bdd) (emit-bdd-schemas 'lua)))
   (write-runtime-files "lua/tests" "interop-gen.rkt" (list (emit-lua-interop-cases)))
+  (write-runtime-files "lua/examples" "interop-service-gen.rkt" (list (emit-lua-interop-service)))
   (make-directory* (build-path root "ruby" "grpcdc"))
   (call-with-output-file (build-path root "ruby" "grpcdc" "wire_gen.rb") #:exists 'replace
     (lambda (out) (display (emit-ruby-wire) out)))
