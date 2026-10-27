@@ -1,11 +1,12 @@
 #lang racket
 
 ;;; interop-service-gen.rkt -- generated grpc.testing TestService
-;;; implementations (INTEROP-GEN-SPEC.md rollout step 1: JS and
-;;; Python). The behavior spec lives in interop-spec.rkt
+;;; implementations for all nine server languages (JS, Python,
+;;; C, C++, Dart, Zig, Lua, PHP, Ruby; INTEROP-GEN-SPEC.md).
+;;; The behavior spec lives in interop-spec.rkt
 ;;; (interop-service-methods); each emitter stamps the shared
 ;;; semantics in the target language's generated-stub idiom.
-;;; The two bodies mirror each other method for method; drift
+;;; The bodies mirror each other method for method; drift
 ;;; between them is what this file exists to prevent -- edit
 ;;; here, never in the generated outputs.
 
