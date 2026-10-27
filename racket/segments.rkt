@@ -115,7 +115,19 @@
          py-pb-encode-field-program py-pb-decode-singular-program
          py-pb-decode-case-program py-pb-map-helpers-program
          py-pb-init-line-program py-pb-message-program
-         py-pb-enum-program)
+         py-pb-enum-program
+         c-pb-varint-expr-program c-pb-varint-decode-program
+         c-pb-nonzero-program c-pb-explicit-literal-program
+         c-pb-default-program c-pb-type-program
+         c-pb-encode-singular-program c-pb-set-expr-program
+         c-pb-oneof-clearing-program c-pb-encode-field-program
+         c-pb-decode-singular-program c-pb-grow-program
+         c-pb-decode-case-program c-pb-map-helpers-program
+         c-pb-enum-decl-program c-pb-field-decls-program
+         c-pb-message-program c-deprecated-program
+         c-client-method-program c-server-types-program
+         c-server-impl-field-program c-server-adapter-program
+         c-method-desc-entry-program c-service-program)
 
 ;; ---------------------------------------------------------------------------
 ;; Go stub: RegisterMethod handler table entries (one per method).
@@ -2313,6 +2325,369 @@
     (each enum values (fmt "    ~a = ~a\n" (ref name) (ref number)))
     "\n\n"))
 
+;; ---------------------------------------------------------------------------
+;; C pb emitter (mirrors template-c.rkt's c-pb-* functions).
+;; Most programs take the support prefix as an argument.
+;; ---------------------------------------------------------------------------
+
+(define c-pb-varint-expr-program
+  '((case-on (type)
+      (8 (fmt "(~a ? 1 : 0)" (arg 0)))
+      (17 (fmt "((uint64_t)(uint32_t)((~a << 1) ^ (~a >> 31)))" (arg 0) (arg 0)))
+      (18 (fmt "((uint64_t)((~a << 1) ^ (~a >> 63)))" (arg 0) (arg 0)))
+      ((14 5) (fmt "((uint64_t)(int64_t)~a)" (arg 0)))
+      (else (fmt "((uint64_t)~a)" (arg 0))))))
+
+(define c-pb-varint-decode-program
+  '((case-on (type)
+      (5 (fmt "((int32_t)(uint32_t)~a)" (arg 0)))
+      ((13 7) (fmt "((uint32_t)~a)" (arg 0)))
+      (3 (fmt "((int64_t)~a)" (arg 0)))
+      ((4 6) (arg 0))
+      (8 (fmt "(~a != 0)" (arg 0)))
+      (17 (fmt "((int32_t)(((uint32_t)~a >> 1) ^ (uint32_t)-(int32_t)((uint32_t)~a & 1)))" (arg 0) (arg 0)))
+      (18 (fmt "(((int64_t)((uint64_t)~a >> 1)) ^ -(int64_t)((uint64_t)~a & 1))" (arg 0) (arg 0))))))
+
+(define c-pb-nonzero-program
+  '((case-on (type) (8 (arg 0)) (else (fmt "(~a != 0)" (arg 0))))))
+
+(define c-pb-explicit-literal-program
+  '((if (has-default)
+        (then (case-on (type)
+                (9 (fmt "~s" (default-raw)))
+                (14 (fmt "~a_~a" (c-entry-ref) (default-raw)))
+                (else (default-raw))))
+        (else ""))))
+
+(define c-pb-default-program
+  '((if (call cPbExplicitLiteral)
+        (then (call cPbExplicitLiteral))
+        (else
+         (if (is-map)
+             (then "NULL")
+             (else
+              (if (repeated)
+                  (then "NULL")
+                  (else
+                   (case-on (type)
+                     (11 "NULL")
+                     (12 (fmt "~a_bytes_empty()" (arg 0)))
+                     (14 (fmt "~a_~a" (c-entry-ref) (enum-first-value-name)))
+                     (else (c-scalar-zero)))))))))))
+
+(define c-pb-type-program
+  '((if (is-map)
+        (then (fmt "~a *" (c-entry-ref)))
+        (else
+         (if (repeated)
+             (then (if (type-is 11)
+                       (then (fmt "~a *" (c-entry-ref)))
+                       (else (fmt "~a *" (call-on (with-label (self) 1) cPbType (arg 0))))))
+             (else
+              (case-on (type)
+                (11 (fmt "~a *" (c-entry-ref)))
+                (14 (c-entry-ref))
+                (12 (fmt "~aBytes" (arg 0)))
+                (else (c-scalar-type)))))))))
+
+(define c-pb-encode-singular-program
+  '((case-on (category)
+      ("varint"
+       (if (proto2)
+           (then (fmt "~a{ ~a_writer_tag(&w, ~a, 0); ~a_writer_varint(&w, ~a); }\n" (arg 1) (arg 2) (ref number) (arg 2) (call cPbVarintExpr (arg 0))))
+           (else (fmt "~aif (~a) { ~a_writer_tag(&w, ~a, 0); ~a_writer_varint(&w, ~a); }\n" (arg 1) (call cPbNonzero (arg 0)) (arg 2) (ref number) (arg 2) (call cPbVarintExpr (arg 0))))))
+      ("fixed"
+       (if (proto2)
+           (then (fmt "~a{ ~a_writer_tag(&w, ~a, ~a); ~a_writer_fixed_~a(&w, ~a); }\n" (arg 1) (arg 2) (ref number) (case-on (c-fixed-size) (8 "1") (else "5")) (arg 2) (c-fixed-name) (arg 0)))
+           (else (fmt "~aif (~a) { ~a_writer_tag(&w, ~a, ~a); ~a_writer_fixed_~a(&w, ~a); }\n" (arg 1) (call cPbNonzero (arg 0)) (arg 2) (ref number) (case-on (c-fixed-size) (8 "1") (else "5")) (arg 2) (c-fixed-name) (arg 0)))))
+      ("string"
+       (if (proto2)
+           (then (fmt "~a~a_writer_bytes_field(&w, ~a, (const uint8_t *)~a, strlen(~a));\n" (arg 1) (arg 2) (ref number) (arg 0) (arg 0)))
+           (else (fmt "~a~a_writer_string_field(&w, ~a, ~a);\n" (arg 1) (arg 2) (ref number) (arg 0)))))
+      ("bytes"
+       (if (proto2)
+           (then (fmt "~a~a_writer_bytes_field(&w, ~a, ~a.data, ~a.len);\n" (arg 1) (arg 2) (ref number) (arg 0) (arg 0)))
+           (else (fmt "~aif (~a.len > 0) ~a_writer_bytes_field(&w, ~a, ~a.data, ~a.len);\n" (arg 1) (arg 0) (arg 2) (ref number) (arg 0) (arg 0)))))
+      ("message"
+       (fmt "~aif (~a) { ~aBytes b = ~a_marshal(~a); ~a_writer_bytes_field(&w, ~a, b.data, b.len); free(b.data); }\n"
+            (arg 1) (arg 0) (c-entry-support) (c-entry-ref) (arg 0) (arg 2) (ref number)))
+      (else (fail)))))
+
+(define c-pb-set-expr-program
+  '((case-on (type)
+      ((11 10) (fmt "(m->~a != NULL)" (ref name)))
+      (9 (fmt "(m->~a != NULL && m->~a[0] != 0)" (ref name) (ref name)))
+      (12 (fmt "(m->~a.len > 0)" (ref name)))
+      (else (call cPbNonzero (fmt "m->~a" (ref name)))))))
+
+(define c-pb-oneof-clearing-program
+  '((each-siblings (fmt "                    m->~a = ~a;\n" (ref name) (call cPbDefault (arg 0))))))
+
+(define c-pb-encode-field-program
+  '((if (is-map)
+        (then (fmt "    for (size_t i = 0; i < m->~a_count; i++) { ~aBytes b = encode_~a(m->~a[i].key, m->~a[i].value); ~a_writer_bytes_field(&w, ~a, b.data, b.len); free(b.data); }\n"
+                   (ref name) (arg 0) (c-entry-ref) (ref name) (ref name) (arg 0) (ref number)))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint" (fmt "    if (m->~a_count > 0) {\n        ~aWriter payload; ~a_writer_init(&payload);\n        for (size_t i = 0; i < m->~a_count; i++) ~a_writer_varint(&payload, ~a);\n        ~a_writer_bytes_field(&w, ~a, payload.data, payload.len); ~a_writer_free(&payload);\n    }\n"
+                               (ref name) (arg 0) (arg 0) (ref name) (arg 0) (call cPbVarintExpr (fmt "m->~a[i]" (ref name))) (arg 0) (ref number) (arg 0)))
+                ("fixed" (fmt "    if (m->~a_count > 0) {\n        ~aWriter payload; ~a_writer_init(&payload);\n        for (size_t i = 0; i < m->~a_count; i++) ~a_writer_fixed_~a(&payload, m->~a[i]);\n        ~a_writer_bytes_field(&w, ~a, payload.data, payload.len); ~a_writer_free(&payload);\n    }\n"
+                              (ref name) (arg 0) (arg 0) (ref name) (arg 0) (c-fixed-name) (ref name) (arg 0) (ref number) (arg 0)))
+                ("string" (fmt "    for (size_t i = 0; i < m->~a_count; i++) ~a_writer_bytes_field(&w, ~a, (const uint8_t *)m->~a[i], strlen(m->~a[i]));\n" (ref name) (arg 0) (ref number) (ref name) (ref name)))
+                ("bytes" (fmt "    for (size_t i = 0; i < m->~a_count; i++) ~a_writer_bytes_field(&w, ~a, m->~a[i].data, m->~a[i].len);\n" (ref name) (arg 0) (ref number) (ref name) (ref name)))
+                ("message" (fmt "    for (size_t i = 0; i < m->~a_count; i++) { ~aBytes b = ~a_marshal(&m->~a[i]); ~a_writer_bytes_field(&w, ~a, b.data, b.len); free(b.data); }\n"
+                                (ref name) (c-entry-support) (c-entry-ref) (ref name) (arg 0) (ref number)))
+                (else (fail))))
+             (else (call cPbEncodeSingular (fmt "m->~a" (ref name)) "    " (arg 0))))))))
+
+(define c-pb-decode-singular-program
+  '((case-on (category)
+      ("varint" (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+                     (if (type-is 14)
+                         (then (fmt "((~a)~a)" (c-entry-ref) (call-on (with-type (self) 5) cPbVarintDecode (arg 1))))
+                         (else (call cPbVarintDecode (arg 1))))))
+      ("fixed" (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+                    (case-on (type)
+                      (2 (fmt "~a_fixed_to_f32((uint32_t)~a)" (arg 3) (arg 1)))
+                      (1 (fmt "~a_fixed_to_f64(~a)" (arg 3) (arg 1)))
+                      (7 (fmt "((uint32_t)~a)" (arg 1)))
+                      (15 (fmt "((int32_t)(uint32_t)~a)" (arg 1)))
+                      (else (arg 1)))))
+      ("string" (fmt "~a~a = ~a_strdup_bytes(~a.data, ~a.len);\n" (arg 2) (arg 0) (arg 3) (arg 1) (arg 1)))
+      ("bytes" (fmt "~a~a = ~a_bytes_copy(~a.data, ~a.len);\n" (arg 2) (arg 0) (arg 3) (arg 1) (arg 1)))
+      ("message" (fmt "~a~a = (~a *)calloc(1, sizeof(~a));\n~a~a_unmarshal(~a, ~a.data, ~a.len);\n"
+                      (arg 2) (arg 0) (c-entry-ref) (c-entry-ref) (arg 2) (c-entry-ref) (arg 0) (arg 1) (arg 1)))
+      (else (fail)))))
+
+(define c-pb-grow-program
+  '((fmt "~a~a = (~a *)realloc(~a, sizeof(~a) * (~a_count + 1));\n~a~a[~a_count++] = ~a;\n"
+         (arg 2) (arg 0)
+         (if (type-is 11) (then (c-entry-ref)) (else (call-on (with-label (self) 1) cPbType (arg 3))))
+         (arg 0)
+         (if (type-is 11) (then (c-entry-ref)) (else (call-on (with-label (self) 1) cPbType (arg 3))))
+         (arg 0) (arg 2) (arg 0) (arg 0) (arg 1))))
+
+(define c-pb-decode-case-program
+  '((fmt "                case ~a: {\n" (ref number))
+    (if (is-map)
+        (then (fmt "                    ~a kv = decode_~a(field.bytes_value.data, field.bytes_value.len);\n" (c-entry-ref) (c-entry-ref))
+              (call cPbGrow (fmt "m->~a" (ref name)) "kv" "                    " (arg 0)))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint"
+                 (fmt "                    if (field.wire == 2) {\n                        ~aReader sub; ~a_reader_init(&sub, field.bytes_value.data, field.bytes_value.len);\n                        while (!~a_reader_done(&sub)) {\n                            uint64_t raw = ~a_reader_varint(&sub);\n" (arg 0) (arg 0) (arg 0) (arg 0))
+                 (call cPbGrow (fmt "m->~a" (ref name))
+                       (if (type-is 14)
+                           (then (fmt "((~a)~a)" (c-entry-ref) (call-on (with-type (self) 5) cPbVarintDecode "raw")))
+                           (else (call cPbVarintDecode "raw")))
+                       "                            " (arg 0))
+                 "                        }\n                    } else {\n"
+                 (call cPbGrow (fmt "m->~a" (ref name))
+                       (if (type-is 14)
+                           (then (fmt "((~a)~a)" (c-entry-ref) (call-on (with-type (self) 5) cPbVarintDecode "field.varint_value")))
+                           (else (call cPbVarintDecode "field.varint_value")))
+                       "                        " (arg 0))
+                 "                    }\n")
+                ("fixed"
+                 "                    if (field.wire == 2) {\n"
+                 (fmt "                        ~aReader sub; ~a_reader_init(&sub, field.bytes_value.data, field.bytes_value.len);\n                        while (!~a_reader_done(&sub)) {\n" (arg 0) (arg 0) (arg 0))
+                 (call cPbGrow (fmt "m->~a" (ref name))
+                       (case-on (type)
+                         (2 (fmt "~a_fixed_to_f32(~a_reader_fixed_u32(&sub))" (arg 0) (arg 0)))
+                         (1 (fmt "~a_fixed_to_f64(~a_reader_fixed_u64(&sub))" (arg 0) (arg 0)))
+                         (7 (fmt "~a_reader_fixed_u32(&sub)" (arg 0)))
+                         (15 (fmt "((int32_t)~a_reader_fixed_u32(&sub))" (arg 0)))
+                         (else (fmt "~a_reader_fixed_u64(&sub)" (arg 0))))
+                       "                            " (arg 0))
+                 "                        }\n                    } else {\n"
+                 (call cPbGrow (fmt "m->~a" (ref name))
+                       (case-on (type)
+                         (2 (fmt "~a_fixed_to_f32((uint32_t)field.fixed_value)" (arg 0)))
+                         (1 (fmt "~a_fixed_to_f64(field.fixed_value)" (arg 0)))
+                         (7 "((uint32_t)field.fixed_value)")
+                         (15 "((int32_t)(uint32_t)field.fixed_value)")
+                         (else "field.fixed_value"))
+                       "                        " (arg 0))
+                 "                    }\n")
+                ("string" (call cPbGrow (fmt "m->~a" (ref name)) (fmt "~a_strdup_bytes(field.bytes_value.data, field.bytes_value.len)" (arg 0)) "                    " (arg 0)))
+                ("bytes" (call cPbGrow (fmt "m->~a" (ref name)) (fmt "~a_bytes_copy(field.bytes_value.data, field.bytes_value.len)" (arg 0)) "                    " (arg 0)))
+                ("message"
+                 (fmt "                    ~a item; memset(&item, 0, sizeof(item));\n                    ~a_unmarshal(&item, field.bytes_value.data, field.bytes_value.len);\n" (c-entry-ref) (c-entry-ref))
+                 (call cPbGrow (fmt "m->~a" (ref name)) "item" "                    " (arg 0)))
+                (else (fail))))
+             (else (call cPbOneofClearing (arg 0))
+                   (call cPbDecodeSingular
+                         (fmt "m->~a" (ref name))
+                         (case-on (category)
+                           ("varint" "field.varint_value")
+                           ("fixed" "field.fixed_value")
+                           (else "field.bytes_value"))
+                         "                    " (arg 0))))))
+    "                    break;\n                }\n"))
+
+(define c-pb-map-helpers-program
+  '((fmt "static inline ~aBytes encode_~a(~a key, ~a value) {\n"
+         (arg 0) (c-entry-ref)
+         (call-on (with-label (key-field) 1) cPbType (arg 0))
+         (case-on (get (val-field) type)
+           (11 (case-on (category-of (val-field))
+                 ("map" (call-on (with-label (val-field) 1) cPbType (arg 0)))
+                 (else (c-entry-ref (val-field)))))
+           (else (call-on (with-label (val-field) 1) cPbType (arg 0)))))
+    (fmt "    ~aWriter w; ~a_writer_init(&w);\n" (arg 0) (arg 0))
+    (call-on (with-label (key-field) 1) cPbEncodeSingular "key" "    " (arg 0))
+    (case-on (get (val-field) type)
+      (11 (fmt "    { ~aBytes b = ~a_marshal(&value); ~a_writer_bytes_field(&w, ~a, b.data, b.len); free(b.data); }\n"
+               (c-entry-support (val-field)) (c-entry-ref (val-field)) (arg 0) (get (val-field) number)))
+      (else (call-on (with-label (val-field) 1) cPbEncodeSingular "value" "    " (arg 0))))
+    (fmt "    return ~a_writer_to_bytes(&w);\n}\n\n" (arg 0))
+    (fmt "static inline ~a decode_~a(const uint8_t *data, size_t len) {\n" (c-entry-ref) (c-entry-ref))
+    (fmt "    ~a result; memset(&result, 0, sizeof(result));\n" (c-entry-ref))
+    (fmt "    result.key = ~a;\n" (call-on (with-label (key-field) 1) cPbDefault (arg 0)))
+    (case-on (get (val-field) type)
+      (11 "    /* result.value zero-initialized */\n")
+      (else (fmt "    result.value = ~a;\n" (call-on (with-label (val-field) 1) cPbDefault (arg 0)))))
+    (fmt "    ~aReader r; ~a_reader_init(&r, data, len);\n    ~aField field;\n    while (~a_reader_next(&r, &field)) {\n        switch (field.number) {\n" (arg 0) (arg 0) (arg 0) (arg 0))
+    (fmt "            case ~a: ~a break;\n" (get (key-field) number)
+         (trim-end (call-on (with-label (key-field) 1) cPbDecodeSingular "result.key"
+                            (case-on (category-of (key-field)) ("varint" "field.varint_value") ("fixed" "field.fixed_value") (else "field.bytes_value"))
+                            "" (arg 0))))
+    (fmt "            case ~a: ~a break;\n" (get (val-field) number)
+         (case-on (get (val-field) type)
+           (11 (fmt "~a_unmarshal(&result.value, field.bytes_value.data, field.bytes_value.len);" (c-entry-ref (val-field))))
+           (else (trim-end (call-on (with-label (val-field) 1) cPbDecodeSingular "result.value"
+                                    (case-on (category-of (val-field)) ("varint" "field.varint_value") ("fixed" "field.fixed_value") (else "field.bytes_value"))
+                                    "" (arg 0))))))
+    "            default: break;\n        }\n    }\n    return result;\n}\n\n"))
+
+(define c-pb-enum-decl-program
+  '((fmt "typedef enum ~a {\n" (arg 0))
+    (each-sep ",\n" values (fmt "    ~a_~a = ~a" (arg 0) (ref name) (ref number)))
+    (fmt "\n} ~a;\n\n" (arg 0))))
+
+(define c-pb-field-decls-program
+  '((each fields
+          (fmt "    ~a ~a;\n" (call cPbType (arg 0)) (ref name))
+          (if (repeated)
+              (then (fmt "    size_t ~a_count;\n" (ref name)))
+              (else (if (is-map)
+                        (then (fmt "    size_t ~a_count;\n" (ref name)))
+                        (else "")))))))
+
+(define c-pb-message-program
+  '((fmt "static inline void ~a_init(~a *m) {\n    memset(m, 0, sizeof(*m));\n" (flat) (flat))
+    (each fields
+          (if (case-on (type) ((9 14) "y") (else (if (call cPbExplicitLiteral) (then "y") (else ""))))
+              (then (fmt "    m->~a = ~a;\n" (ref name) (call cPbDefault (arg 0))))
+              (else "")))
+    "}\n\n"
+    (fmt "static inline ~aBytes ~a_marshal(const ~a *m) {\n    ~aWriter w; ~a_writer_init(&w);\n" (arg 0) (flat) (flat) (arg 0) (arg 0))
+    (each fields (guarded cPbSetExpr "    if (!(~a)) {\n" "    }\n" (call cPbEncodeField (arg 0))))
+    (fmt "    ~a_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);\n    return ~a_writer_to_bytes(&w);\n}\n\n" (arg 0) (arg 0))
+    (fmt "static inline void ~a_unmarshal(~a *m, const uint8_t *data, size_t len) {\n    ~a_init(m);\n    ~aReader r; ~a_reader_init(&r, data, len);\n    ~aField field;\n    while (~a_reader_next(&r, &field)) {\n        switch (field.number) {\n"
+         (flat) (flat) (flat) (arg 0) (arg 0) (arg 0) (arg 0))
+    (each fields (call cPbDecodeCase (arg 0)))
+    (fmt "            default: {\n                ~aBytes raw = ~a_bytes_copy(field.raw_value.data, field.raw_value.len);\n" (arg 0) (arg 0))
+    "                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);\n                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);\n                m->unknown_fields.len += raw.len; free(raw.data);\n                break;\n            }\n        }\n    }\n}\n\n"))
+
+;; ---------------------------------------------------------------------------
+;; C stub emitter (mirrors template-c.rkt). Programs take the
+;; support prefix as (arg 0).
+;; ---------------------------------------------------------------------------
+
+(define c-deprecated-program
+  '((when (ref deprecated) (fmt "~a/* Deprecated in the proto schema. */\n" (arg 0)))))
+
+(define c-client-method-program
+  '((call cDeprecated "")
+    (kind-case
+     (unary (fmt "static inline grpcdc_status ~aClient_~a(~aClient *c, const ~a *req, ~a *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {\n    ~aBytes rb = ~a_marshal(req);\n    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, ~s, rb.data, rb.len, md, md_count, deadline_ms, &out);\n    free(rb.data);\n    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); ~a_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }\n    return st;\n}\n\n"
+                 (svc) (snake-case (ref name)) (svc) (c-type-ref input-full) (c-type-ref output-full)
+                 (c-support-of input-full) (c-type-ref input-full) (ref path) (c-type-ref output-full)))
+     (server-streaming
+      (fmt "typedef struct { grpcdc_stream *raw; } ~a~aClient;\n\n" (svc) (ref name))
+      (fmt "static inline grpcdc_status ~aClient_~a(~aClient *c, const ~a *req, ~a~aClient *out_stream, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {\n    ~aBytes rb = ~a_marshal(req);\n    grpcdc_status st = grpcdc_channel_open(c->channel, ~s, rb.data, rb.len, 1, md, md_count, deadline_ms, &out_stream->raw);\n    free(rb.data);\n    return st;\n}\n\n"
+           (svc) (snake-case (ref name)) (svc) (c-type-ref input-full) (svc) (ref name)
+           (c-support-of input-full) (c-type-ref input-full) (ref path))
+      (fmt "static inline int ~a~aClient_recv(~a~aClient *s, ~a *resp, grpcdc_status *st) {\n    grpcdc_bytes out; int r = grpcdc_stream_recv(s->raw, &out, st);\n    if (r == 1) { memset(resp, 0, sizeof(*resp)); ~a_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }\n    return r;\n}\n\n"
+           (svc) (ref name) (svc) (ref name) (c-type-ref output-full) (c-type-ref output-full))
+      (fmt "static inline void ~a~aClient_close(~a~aClient *s) { grpcdc_stream_free(s->raw); }\n\n" (svc) (ref name) (svc) (ref name))
+      (fmt "static inline void ~a~aClient_cancel(~a~aClient *s) { grpcdc_stream_cancel(s->raw); }\n\n" (svc) (ref name) (svc) (ref name)))
+     (client-streaming
+      (fmt "static inline grpcdc_status ~aClient_~a(~aClient *c, const ~a *reqs, size_t req_count, ~a *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {\n    grpcdc_stream *raw; grpcdc_status st;\n    st = grpcdc_channel_open(c->channel, ~s, NULL, 0, 0, md, md_count, deadline_ms, &raw);\n    if (st.code != 0) return st;\n    for (size_t i = 0; i < req_count; i++) {\n        ~aBytes rb = ~a_marshal(&reqs[i]);\n        st = grpcdc_stream_send(raw, rb.data, rb.len); free(rb.data);\n        if (st.code != 0) { grpcdc_stream_free(raw); return st; }\n    }\n    st = grpcdc_stream_close_send(raw);\n    if (st.code != 0) { grpcdc_stream_free(raw); return st; }\n    grpcdc_bytes out; int r = grpcdc_stream_recv(raw, &out, &st);\n    if (r == 1) { memset(resp, 0, sizeof(*resp)); ~a_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }\n    grpcdc_stream_free(raw);\n    if (r == 0) return grpcdc_status_make(2, \"missing response\");\n    return st;\n}\n\n"
+           (svc) (snake-case (ref name)) (svc) (c-type-ref input-full) (c-type-ref output-full)
+           (ref path) (c-support-of input-full) (c-type-ref input-full) (c-type-ref output-full)))
+     (bidi
+      (fmt "typedef struct { grpcdc_stream *raw; } ~a~aClient;\n\n" (svc) (ref name))
+      (fmt "static inline grpcdc_status ~aClient_~a(~aClient *c, const ~a *reqs, size_t req_count, ~a~aClient *out_stream, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {\n    grpcdc_status st;\n    st = grpcdc_channel_open(c->channel, ~s, NULL, 0, 0, md, md_count, deadline_ms, &out_stream->raw);\n    if (st.code != 0) return st;\n    for (size_t i = 0; i < req_count; i++) {\n        ~aBytes rb = ~a_marshal(&reqs[i]);\n        st = grpcdc_stream_send(out_stream->raw, rb.data, rb.len); free(rb.data);\n        if (st.code != 0) { grpcdc_stream_free(out_stream->raw); return st; }\n    }\n    return grpcdc_stream_close_send(out_stream->raw);\n}\n\n"
+           (svc) (snake-case (ref name)) (svc) (c-type-ref input-full) (svc) (ref name)
+           (ref path) (c-support-of input-full) (c-type-ref input-full))
+      (fmt "static inline int ~a~aClient_recv(~a~aClient *s, ~a *resp, grpcdc_status *st) {\n    grpcdc_bytes out; int r = grpcdc_stream_recv(s->raw, &out, st);\n    if (r == 1) { memset(resp, 0, sizeof(*resp)); ~a_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }\n    return r;\n}\n\n"
+           (svc) (ref name) (svc) (ref name) (c-type-ref output-full) (c-type-ref output-full))
+      (fmt "static inline void ~a~aClient_close(~a~aClient *s) { grpcdc_stream_free(s->raw); }\n\n" (svc) (ref name) (svc) (ref name))
+      (fmt "static inline void ~a~aClient_cancel(~a~aClient *s) { grpcdc_stream_cancel(s->raw); }\n\n" (svc) (ref name) (svc) (ref name))))))
+
+(define c-server-types-program
+  '((kind-case
+     (server-streaming
+      (fmt "typedef struct { grpcdc_server_stream *raw; } ~a~aStream;\n" (svc) (ref name))
+      (fmt "static inline grpcdc_status ~a~aStream_send(~a~aStream *s, const ~a *resp) { ~aBytes rb = ~a_marshal(resp); grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }\n\n"
+           (svc) (ref name) (svc) (ref name) (c-type-ref output-full) (c-support-of output-full) (c-type-ref output-full)))
+     (client-streaming
+      (fmt "typedef struct { grpcdc_server_stream *raw; } ~a~aStream;\n" (svc) (ref name))
+      (fmt "static inline int ~a~aStream_recv(~a~aStream *s, ~a *req, grpcdc_status *st) { grpcdc_bytes out; int r = grpcdc_server_stream_recv(s->raw, &out, st); if (r == 1) { memset(req, 0, sizeof(*req)); ~a_unmarshal(req, out.data, out.len); grpcdc_bytes_free(&out); } return r; }\n\n"
+           (svc) (ref name) (svc) (ref name) (c-type-ref input-full) (c-type-ref input-full)))
+     (bidi
+      (fmt "typedef struct { grpcdc_server_stream *raw; } ~a~aStream;\n" (svc) (ref name))
+      (fmt "static inline grpcdc_status ~a~aStream_send(~a~aStream *s, const ~a *resp) { ~aBytes rb = ~a_marshal(resp); grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }\n"
+           (svc) (ref name) (svc) (ref name) (c-type-ref output-full) (c-support-of output-full) (c-type-ref output-full))
+      (fmt "static inline int ~a~aStream_recv(~a~aStream *s, ~a *req, grpcdc_status *st) { grpcdc_bytes out; int r = grpcdc_server_stream_recv(s->raw, &out, st); if (r == 1) { memset(req, 0, sizeof(*req)); ~a_unmarshal(req, out.data, out.len); grpcdc_bytes_free(&out); } return r; }\n\n"
+           (svc) (ref name) (svc) (ref name) (c-type-ref input-full) (c-type-ref input-full)))
+     (else ""))))
+
+(define c-server-impl-field-program
+  '((kind-case
+     (unary (fmt "    grpcdc_status (*~a)(void *ctx, const grpcdc_kv *md, size_t md_count, const ~a *req, ~a *resp);\n" (snake-case (ref name)) (c-type-ref input-full) (c-type-ref output-full)))
+     (server-streaming (fmt "    grpcdc_status (*~a)(void *ctx, const grpcdc_kv *md, size_t md_count, const ~a *req, ~a~aStream *stream);\n" (snake-case (ref name)) (c-type-ref input-full) (svc) (ref name)))
+     (client-streaming (fmt "    grpcdc_status (*~a)(void *ctx, ~a~aStream *stream, ~a *resp);\n" (snake-case (ref name)) (svc) (ref name) (c-type-ref output-full)))
+     (bidi (fmt "    grpcdc_status (*~a)(void *ctx, ~a~aStream *stream);\n" (snake-case (ref name)) (svc) (ref name))))))
+
+(define c-server-adapter-program
+  '((kind-case
+     (unary (fmt "static grpcdc_status ~a_~a_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {\n    ~aServerImpl *impl_ = (~aServerImpl *)impl;\n    ~a req; memset(&req, 0, sizeof(req)); ~a_unmarshal(&req, reqb.data, reqb.len);\n    ~a resp; memset(&resp, 0, sizeof(resp));\n    grpcdc_status st = impl_->~a(impl_->ctx, md, md_count, &req, &resp);\n    if (st.code == 0) { ~aBytes rb = ~a_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }\n    return st;\n}\n\n"
+                 (svc) (snake-case (ref name)) (svc) (svc) (c-type-ref input-full) (c-type-ref input-full)
+                 (c-type-ref output-full) (snake-case (ref name)) (c-support-of output-full) (c-type-ref output-full)))
+     (server-streaming (fmt "static grpcdc_status ~a_~a_sstream_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_server_stream *raw) {\n    ~aServerImpl *impl_ = (~aServerImpl *)impl;\n    ~a req; memset(&req, 0, sizeof(req)); ~a_unmarshal(&req, reqb.data, reqb.len);\n    ~a~aStream stream; stream.raw = raw;\n    return impl_->~a(impl_->ctx, md, md_count, &req, &stream);\n}\n\n"
+                            (svc) (snake-case (ref name)) (svc) (svc) (c-type-ref input-full) (c-type-ref input-full) (svc) (ref name) (snake-case (ref name))))
+     (client-streaming (fmt "static grpcdc_status ~a_~a_cstream_adapter(void *impl, grpcdc_server_stream *raw, grpcdc_bytes *respb) {\n    ~aServerImpl *impl_ = (~aServerImpl *)impl;\n    ~a~aStream stream; stream.raw = raw;\n    ~a resp; memset(&resp, 0, sizeof(resp));\n    grpcdc_status st = impl_->~a(impl_->ctx, &stream, &resp);\n    if (st.code == 0) { ~aBytes rb = ~a_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }\n    return st;\n}\n\n"
+                            (svc) (snake-case (ref name)) (svc) (svc) (svc) (ref name) (c-type-ref output-full) (snake-case (ref name)) (c-support-of output-full) (c-type-ref output-full)))
+     (bidi (fmt "static grpcdc_status ~a_~a_bidi_adapter(void *impl, grpcdc_server_stream *raw) {\n    ~aServerImpl *impl_ = (~aServerImpl *)impl;\n    ~a~aStream stream; stream.raw = raw;\n    return impl_->~a(impl_->ctx, &stream);\n}\n\n"
+                (svc) (snake-case (ref name)) (svc) (svc) (svc) (ref name) (snake-case (ref name)))))))
+
+(define c-method-desc-entry-program
+  '((kind-case
+     (unary (fmt "        { ~s, 0, ~a_~a_unary_adapter, 0, 0, 0 },\n" (ref name) (svc) (snake-case (ref name))))
+     (server-streaming (fmt "        { ~s, 1, 0, ~a_~a_sstream_adapter, 0, 0 },\n" (ref name) (svc) (snake-case (ref name))))
+     (client-streaming (fmt "        { ~s, 2, 0, 0, ~a_~a_cstream_adapter, 0 },\n" (ref name) (svc) (snake-case (ref name))))
+     (bidi (fmt "        { ~s, 3, 0, 0, 0, ~a_~a_bidi_adapter },\n" (ref name) (svc) (snake-case (ref name)))))))
+
+(define c-service-program
+  '((fmt "/* Service ~a (~a). */\ntypedef struct { grpcdc_channel *channel; } ~aClient;\n\n" (svc) (ref full-name) (svc))
+    (each+ methods client (call cClientMethod (arg 0)))
+    (each methods (call cServerTypes (arg 0)))
+    "typedef struct {\n    void *ctx;\n"
+    (each methods (call cServerImplField))
+    (fmt "} ~aServerImpl;\n\n" (svc))
+    (each methods (call cServerAdapter (arg 0)))
+    (fmt "static inline void ~aServer_register(grpcdc_server *srv, ~aServerImpl *impl) {\n    static const grpcdc_method_desc methods[] = {\n" (svc) (svc))
+    (each methods (call cMethodDescEntry))
+    "    };\n"
+    (fmt "    grpcdc_server_add_service(srv, ~s, methods, sizeof(methods) / sizeof(methods[0]), impl);\n}\n\n" (ref full-name))))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -2483,7 +2858,31 @@
           'pyPbMapHelpers py-pb-map-helpers-program
           'pyPbInitLine py-pb-init-line-program
           'pyPbMessage py-pb-message-program
-          'pyPbEnum py-pb-enum-program))
+          'pyPbEnum py-pb-enum-program
+          'cPbVarintExpr c-pb-varint-expr-program
+          'cPbVarintDecode c-pb-varint-decode-program
+          'cPbNonzero c-pb-nonzero-program
+          'cPbExplicitLiteral c-pb-explicit-literal-program
+          'cPbDefault c-pb-default-program
+          'cPbType c-pb-type-program
+          'cPbEncodeSingular c-pb-encode-singular-program
+          'cPbSetExpr c-pb-set-expr-program
+          'cPbOneofClearing c-pb-oneof-clearing-program
+          'cPbEncodeField c-pb-encode-field-program
+          'cPbDecodeSingular c-pb-decode-singular-program
+          'cPbGrow c-pb-grow-program
+          'cPbDecodeCase c-pb-decode-case-program
+          'cPbMapHelpers c-pb-map-helpers-program
+          'cPbEnumDecl c-pb-enum-decl-program
+          'cPbFieldDecls c-pb-field-decls-program
+          'cPbMessage c-pb-message-program
+          'cDeprecated c-deprecated-program
+          'cClientMethod c-client-method-program
+          'cServerTypes c-server-types-program
+          'cServerImplField c-server-impl-field-program
+          'cServerAdapter c-server-adapter-program
+          'cMethodDescEntry c-method-desc-entry-program
+          'cService c-service-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -2807,6 +3206,16 @@
                                         (file-name-from-path (hash-ref entry 'file)) ""))
               flat)))
 
+(define (seg-c-entry-ref model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (seg-flat (hash-ref entry 'pkg)
+            (if (eq? (hash-ref entry 'kind) 'enum)
+                (hash-ref entry 'full)
+                (hash-ref (hash-ref entry 'msg) 'full-name))))
+
 (define (seg-later-oneof-cond model node)
   (define later (oneof-later-siblings model node))
   (if (null? later)
@@ -2905,6 +3314,23 @@
      (second (assv (hash-ref node 'type) (fixed-scalar-table 'python)))]
     [(eq? (car seg) 'py-fixed-fmt)
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'python)))]
+    [(eq? (car seg) 'with-type)
+     (hash-set (seg-eval (second seg) env) 'type (third seg))]
+    [(eq? (car seg) 'trim-end)
+     (regexp-replace #rx"\n+$" (seg-eval (second seg) env) "")]
+    [(eq? (car seg) 'c-entry-ref) (seg-c-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'c-entry-support)
+     (define e (if (null? (cdr seg)) node (seg-eval (second seg) env)))
+     (seg-rb-module-name (if (hash-has-key? e 'type-name) (seg-resolve model (hash-ref e 'type-name)) e))]
+    [(eq? (car seg) 'c-type-ref) (seg-c-entry-ref model (seg-resolve model (hash-ref node (second seg))))]
+    [(eq? (car seg) 'c-support-of)
+     (seg-rb-module-name (seg-resolve model (hash-ref node (second seg))))]
+    [(eq? (car seg) 'c-scalar-type) (first (scalar-type-entry 'c (hash-ref node 'type)))]
+    [(eq? (car seg) 'c-scalar-zero) (second (scalar-type-entry 'c (hash-ref node 'type)))]
+    [(eq? (car seg) 'c-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'c)))]
+    [(eq? (car seg) 'c-fixed-name)
+     (third (assv (hash-ref node 'type) (fixed-scalar-table 'c)))]
     [(eq? (car seg) 'flat)
      (seg-flat (hash-ref model 'package) (hash-ref node 'full-name))]
     [(eq? (car seg) 'entry-type) (seg-entry-type-of model node)]
