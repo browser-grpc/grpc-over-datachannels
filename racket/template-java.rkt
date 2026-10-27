@@ -599,15 +599,7 @@
                   full))
   (string-join (string-split rel ".") "."))
 
-(define (java-pb-scalar f)
-  (case (hash-ref f 'type)
-    [(1) '("double" "Double" "0")] [(2) '("float" "Float" "0")]
-    [(3) '("long" "Long" "0L")] [(4) '("long" "Long" "0L")] [(5) '("int" "Integer" "0")]
-    [(6) '("long" "Long" "0L")] [(7) '("int" "Integer" "0")] [(8) '("boolean" "Boolean" "false")]
-    [(9) '("String" "String" "\"\"")] [(12) '("byte[]" "byte[]" "new byte[0]")]
-    [(13) '("int" "Integer" "0")] [(15) '("int" "Integer" "0")] [(16) '("long" "Long" "0L")]
-    [(17) '("int" "Integer" "0")] [(18) '("long" "Long" "0L")]
-    [else #f]))
+(define (java-pb-scalar f) (scalar-type-entry 'java (hash-ref f 'type)))
 
 (define (java-pb-type model f boxed?)
   (define type (hash-ref f 'type))

@@ -69,13 +69,7 @@
   ;; Support prefix of the file defining entry (its <Base>Pb).
   (string-append (pascal (string->symbol (path->string (path-replace-extension (file-name-from-path (hash-ref entry 'file)) "")))) "Pb"))
 
-(define (c-pb-scalar f)
-  (case (hash-ref f 'type)
-    [(1) '("double" "0")] [(2) '("float" "0")] [(3) '("int64_t" "0")] [(4) '("uint64_t" "0")]
-    [(5) '("int32_t" "0")] [(6) '("uint64_t" "0")] [(7) '("uint32_t" "0")] [(8) '("bool" "false")]
-    [(9) '("char *" "\"\"")] [(12) '("~aBytes" "\"\"")] [(13) '("uint32_t" "0")]
-    [(15) '("int32_t" "0")] [(16) '("int64_t" "0")] [(17) '("int32_t" "0")] [(18) '("int64_t" "0")]
-    [else #f]))
+(define (c-pb-scalar f) (scalar-type-entry 'c (hash-ref f 'type)))
 
 (define (c-pb-msg-name model msg)
   (c-pb-rel (hash-ref model 'package) (hash-ref msg 'full-name)))

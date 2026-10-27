@@ -372,13 +372,7 @@
 (define (dart-pb-type-ref model entry)
   (string-replace (dart-pb-entry-ref model entry) "." "_"))
 
-(define (dart-pb-scalar f)
-  (case (hash-ref f 'type)
-    [(1) '("double" "0")] [(2) '("double" "0")] [(3) '("int" "0")] [(4) '("int" "0")]
-    [(5) '("int" "0")] [(6) '("int" "0")] [(7) '("int" "0")] [(8) '("bool" "false")]
-    [(9) '("String" "''")] [(12) '("Uint8List" "Uint8List(0)")] [(13) '("int" "0")]
-    [(15) '("int" "0")] [(16) '("int" "0")] [(17) '("int" "0")] [(18) '("int" "0")]
-    [else #f]))
+(define (dart-pb-scalar f) (scalar-type-entry 'dart (hash-ref f 'type)))
 
 (define (dart-pb-type model f)
   (define type (hash-ref f 'type))

@@ -187,15 +187,7 @@
                   (hash-ref (hash-ref entry 'enum) 'name)
                   flat))))
 
-(define (rs-pb-scalar-type f)
-  (case (hash-ref f 'type)
-    [(1) "f64"]
-    [(2) "f32"]
-    [(3 4 6 16 18) "i64-or-u64"]
-    [(8) "bool"]
-    [(9) "String"]
-    [(12) "Vec<u8>"]
-    [else "i32"]))
+(define (rs-pb-scalar-type f) (scalar-type-entry 'rust (hash-ref f 'type)))
 
 (define (rs-pb-elem-type model f)
   (define type (hash-ref f 'type))

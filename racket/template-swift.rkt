@@ -437,13 +437,7 @@
                           (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name))))
                     (hash-ref (hash-ref entry 'msg) 'full-name))))
 
-(define (swift-pb-scalar f)
-  (case (hash-ref f 'type)
-    [(1) '("Double" "0")] [(2) '("Float" "0")] [(3) '("Int64" "0")] [(4) '("UInt64" "0")]
-    [(5) '("Int32" "0")] [(6) '("UInt64" "0")] [(7) '("UInt32" "0")] [(8) '("Bool" "false")]
-    [(9) '("String" "\"\"")] [(12) '("[UInt8]" "[]")] [(13) '("UInt32" "0")]
-    [(15) '("Int32" "0")] [(16) '("Int64" "0")] [(17) '("Int32" "0")] [(18) '("Int64" "0")]
-    [else #f]))
+(define (swift-pb-scalar f) (scalar-type-entry 'swift (hash-ref f 'type)))
 
 (define (swift-pb-type model f)
   (define type (hash-ref f 'type))

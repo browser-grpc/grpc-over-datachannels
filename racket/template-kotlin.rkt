@@ -472,13 +472,7 @@
       rel
       (if (string=? (hash-ref entry 'pkg) "") rel (string-append (hash-ref entry 'pkg) "." rel))))
 
-(define (kt-pb-scalar f)
-  (case (hash-ref f 'type)
-    [(1) '("Double" "0.0")] [(2) '("Float" "0f")] [(3) '("Long" "0L")] [(4) '("ULong" "0uL")]
-    [(5) '("Int" "0")] [(6) '("ULong" "0uL")] [(7) '("UInt" "0u")] [(8) '("Boolean" "false")]
-    [(9) '("String" "\"\"")] [(12) '("ByteArray" "ByteArray(0)")] [(13) '("UInt" "0u")]
-    [(15) '("Int" "0")] [(16) '("Long" "0L")] [(17) '("Int" "0")] [(18) '("Long" "0L")]
-    [else #f]))
+(define (kt-pb-scalar f) (scalar-type-entry 'kotlin (hash-ref f 'type)))
 
 (define (kt-pb-type model f)
   (define type (hash-ref f 'type))

@@ -488,13 +488,7 @@
       rel
       (string-append (cs-pb-ns (hash-ref entry 'pkg)) "." rel)))
 
-(define (cs-pb-scalar f)
-  (case (hash-ref f 'type)
-    [(1) '("double" "0")] [(2) '("float" "0")] [(3) '("long" "0")] [(4) '("ulong" "0")]
-    [(5) '("int" "0")] [(6) '("ulong" "0")] [(7) '("uint" "0")] [(8) '("bool" "false")]
-    [(9) '("string" "\"\"")] [(12) '("byte[]" "new byte[0]")] [(13) '("uint" "0")]
-    [(15) '("int" "0")] [(16) '("long" "0")] [(17) '("int" "0")] [(18) '("long" "0")]
-    [else #f]))
+(define (cs-pb-scalar f) (scalar-type-entry 'csharp (hash-ref f 'type)))
 
 (define (cs-pb-type model f)
   (define type (hash-ref f 'type))

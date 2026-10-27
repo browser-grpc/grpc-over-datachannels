@@ -586,14 +586,7 @@
       rel
       (string-append "::" (cpp-pb-ns (hash-ref entry 'pkg)) "::" rel)))
 
-(define (cpp-pb-scalar f)
-  (case (hash-ref f 'type)
-    [(1) '("double" "0")] [(2) '("float" "0")] [(3) '("std::int64_t" "0")] [(4) '("std::uint64_t" "0")]
-    [(5) '("std::int32_t" "0")] [(6) '("std::uint64_t" "0")] [(7) '("std::uint32_t" "0")]
-    [(8) '("bool" "false")] [(9) '("std::string" "\"\"")] [(12) '("std::vector<std::uint8_t>" "{}")]
-    [(13) '("std::uint32_t" "0")] [(15) '("std::int32_t" "0")] [(16) '("std::int64_t" "0")]
-    [(17) '("std::int32_t" "0")] [(18) '("std::int64_t" "0")]
-    [else #f]))
+(define (cpp-pb-scalar f) (scalar-type-entry 'cpp (hash-ref f 'type)))
 
 (define (cpp-pb-type model f)
   (define type (hash-ref f 'type))

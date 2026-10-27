@@ -462,15 +462,7 @@
           flat)
       (format "~a.~a" (hash-ref entry 'pkg) simple)))
 
-(define (sc-pb-scalar-type f)
-  (case (hash-ref f 'type)
-    [(1) "Double"]
-    [(2) "Float"]
-    [(3 4 6 16 18) "Long"]
-    [(8) "Boolean"]
-    [(9) "String"]
-    [(12) "Array[Byte]"]
-    [else "Int"]))
+(define (sc-pb-scalar-type f) (scalar-type-entry 'scala (hash-ref f 'type)))
 
 (define (sc-pb-elem-type model f)
   (if (= (hash-ref f 'type) 11)

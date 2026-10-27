@@ -331,12 +331,7 @@
                   (hash-ref entry 'full)
                   (hash-ref (hash-ref entry 'msg) 'full-name))))
 
-(define (go-pb-scalar-type f)
-  (case (hash-ref f 'type)
-    [(1) "float64"] [(2) "float32"] [(3) "int64"] [(4) "uint64"] [(5) "int32"]
-    [(6) "uint64"] [(7) "uint32"] [(8) "bool"] [(9) "string"] [(12) "[]byte"]
-    [(13) "uint32"] [(15) "int32"] [(16) "int64"] [(17) "int32"] [(18) "int64"]
-    [else #f]))
+(define (go-pb-scalar-type f) (scalar-type-entry 'go (hash-ref f 'type)))
 
 (define (go-pb-field-type model f)
   (define type (hash-ref f 'type))

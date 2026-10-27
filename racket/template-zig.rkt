@@ -414,13 +414,7 @@
               (path->string (path-replace-extension (file-name-from-path (hash-ref entry 'file)) ""))
               rel)))
 
-(define (zig-pb-scalar f)
-  (case (hash-ref f 'type)
-    [(1) '("f64" "0")] [(2) '("f32" "0")] [(3) '("i64" "0")] [(4) '("u64" "0")]
-    [(5) '("i32" "0")] [(6) '("u64" "0")] [(7) '("u32" "0")] [(8) '("bool" "false")]
-    [(9) '("[]const u8" "\"\"")] [(12) '("[]const u8" "\"\"")] [(13) '("u32" "0")]
-    [(15) '("i32" "0")] [(16) '("i64" "0")] [(17) '("i32" "0")] [(18) '("i64" "0")]
-    [else #f]))
+(define (zig-pb-scalar f) (scalar-type-entry 'zig (hash-ref f 'type)))
 
 (define (zig-pb-entry-struct-name model entry)
   (string-replace (zig-pb-entry-ref model entry) "." "_"))
