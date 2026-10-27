@@ -66,4 +66,5 @@
     (lua "lua/grpcdc/eventbus.lua" "lua/grpcdc/eventbus_git.lua")
     (java "java/grpcdc/events/v1/Eventbus.java" "java/grpcdc/events/v1/EventbusGit.java")
     (csharp "csharp/grpcdc/events/v1/Eventbus.cs" "csharp/grpcdc/events/v1/EventbusGit.cs")
-    (kotlin "kotlin/grpcdc/Eventbus.kt" "kotlin/grpcdc/EventbusGit.kt")))
+    (kotlin "kotlin/grpcdc/Eventbus.kt" "kotlin/grpcdc/EventbusGit.kt")
+    (scala "scala/grpcdc/Eventbus.scala" "scala/grpcdc/EventbusGit.scala")))

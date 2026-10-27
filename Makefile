@@ -195,6 +195,8 @@ eventbus-stubs:
 		--grpc-dc-csharp_out=csharp/grpcdc/events/v1 -I proto proto/events.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-kotlin=bin/protoc-gen-grpc-dc-kotlin \
 		--grpc-dc-kotlin_out=kotlin/grpcdc -I proto proto/events.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-scala=bin/protoc-gen-grpc-dc-scala \
+		--grpc-dc-scala_out=scala/grpcdc -I proto proto/events.proto
 
 generate: plugins stubs
 
@@ -543,6 +545,7 @@ test-scala:
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestHttp2Oracle \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestOracle \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDynamic \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestEventBus \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestBdd \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDeadline \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestSidecar \
