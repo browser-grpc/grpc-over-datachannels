@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.32.16 — 2026-10-27
+## v0.32.16 — 2026-10-27 (published to GitHub/npm/PyPI/GHCR)
 
 - Event bus (`grpcdc.events.v1`): generated publish/subscribe
   with shallow tag-value filtering (enum tags extensible in
