@@ -4,6 +4,8 @@
 # three publishes over one in-memory data channel.
 # `ruby ruby/examples/eventbus_demo.rb` from the repo root.
 
+$LOAD_PATH.unshift(File.expand_path("..", __dir__))
+
 require "grpcdc"
 require "grpcdc/eventbus"
 
