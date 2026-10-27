@@ -99,20 +99,30 @@ the browser generators (`SEGMENT_PROGRAMS`) with a JS
 interpreter (`runSegments`). A converted function therefore
 exists exactly once.
 
-Status: the whole Go stub emitter is converted —
-`goRegisterMethod` plus `goDeprecated`, `goClientMethod`,
+Status: the whole Go emitter is converted — the Go stub
+emitter (`goRegisterMethod`, `goDeprecated`, `goClientMethod`,
 `goServerIfaceMethod`(+Deprecated), `goStreamIfaces`,
-`goStreamImpls`, and the `goService` assembly — byte-identical
-on both sides (check-generated; parity green in Chromium,
-Firefox, WebKit). The grammar grew by need: `(when (ref key)
-...)`, `(call Name)`, `(each field ...)`, `(each+ field
-client|server ...)` (alias methods appended), and hyphen ->
-camelCase key translation in the JS interpreter's `ref`.
-Remaining rollout: the Go pb emitter (needs nested-message
-recursion and map-helper segments), then the other languages
-by template size. Unconverted functions stay hand-mirrored
-and parity-pinned; the grammar grows only as a real function
-demands a node.
+`goStreamImpls`, `goService`) and the Go pb emitter
+(`goPbVarintExpr`/`Decode`, fixed encode/decode via category
+dispatch, `goPbZero`, `goPbEncodeSingular`/`Field` (with the
+oneof `guarded` node), `goPbDecodeSingular`/`Case`,
+`goPbMapHelpers`, `goPbEnum`, `goPbDefaultLiteral`,
+`goPbConstructor`, `goPbMessage`) — byte-identical on both
+sides (check-generated; parity green in Chromium, Firefox,
+WebKit). The grammar grew by need: `(when cond ...)`,
+`(call Name arg ...)`, `(call-on expr Name arg ...)` (node
+switch), `(each field ...)`, `(each+ field client|server ...)`
+(alias methods appended), hyphen -> camelCase key translation,
+program arguments (`(arg i)`), an error-statement slot
+(`(err-stmt)`), environment expressions (`(category)`,
+`(fixed-name/size/wire)`, `(field-type)`, `(entry-type)`,
+`(flat)`, `(proto2)`, `(has-default)` ...), statement nodes
+`if`/`case-on`/`when`/`guarded`/`fail`, and child-node
+construction (`(with-label expr label)`, `(key-field e)` /
+`(val-field e)`). Remaining rollout: the other languages by
+template size (JS template next, 472 lines). Unconverted
+functions stay hand-mirrored and parity-pinned; the grammar
+grows only as a real function demands a node.
 
 ## First concrete step
 
