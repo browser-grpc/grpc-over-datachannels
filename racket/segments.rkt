@@ -39,7 +39,7 @@
          go-client-method-program go-server-iface-method-program
          go-server-iface-method-deprecated-program
          go-stream-ifaces-program go-stream-impls-program
-         go-service-program segment-programs run-segments
+         go-service-program segment-programs run-segments seg-kotlin-wasm-mode
          js-deprecated-program js-client-method-program
          js-method-table-entry-program js-service-program
          js-pb-varint-expr-program js-pb-varint-decode-program
@@ -201,6 +201,23 @@
          zig-pb-list-decl-program zig-pb-list-assign-program
          zig-pb-message-program zig-pb-type-or-ref-program
          zig-pb-alloc-unused-program
+         kotlin-service-program kotlin-client-method-program
+         kotlin-client-stream-class-program kotlin-client-async-method-program
+         kotlin-server-stream-iface-program kotlin-server-iface-method-program
+         kotlin-server-async-iface-method-program
+         kotlin-server-async-adapter-method-program
+         kotlin-stream-impl-program kotlin-register-method-program
+         kt-pb-type-program kt-pb-type-or-ref-program
+         kt-pb-explicit-literal-program kt-pb-default-program
+         kt-pb-varint-expr-program kt-pb-varint-decode-program
+         kt-pb-nonzero-program kt-pb-encode-singular-program
+         kt-pb-set-expr-program kt-pb-encode-guard-program
+         kt-pb-encode-field-program kt-pb-decode-singular-program
+         kt-pb-clearing-program kt-pb-enum-conv-program
+         kt-pb-decode-case-program kt-pb-map-val-encode-program
+         kt-pb-map-val-init-program kt-pb-map-key-decode-program
+         kt-pb-map-val-decode-program kt-pb-map-helpers-program
+         kt-pb-nested-enum-program kt-pb-message-program
          lua-pb-enum-program)
 
 ;; ---------------------------------------------------------------------------
@@ -4662,6 +4679,458 @@
     (each enums (call zigPbNestedEnum (fmt "~a    " (arg 0))))
     (fmt "~a};\n" (arg 0))))
 
+;;; ---------------------------------------------------------------------------
+;;; Kotlin + Kotlin/Wasm-native (template-kotlin.rkt mirrors,
+;;; option 1). The async surface branches on (kotlin-wasm-mode);
+;;; message classes take (support, indent, decl).
+
+(define kotlin-deprecated-program
+  '((if (ref deprecated)
+        (then (fmt "~a@Deprecated(\"deprecated in the proto schema\")\n" (arg 0)))
+        (else ""))))
+
+(define kotlin-client-method-raw-program
+  '((kind-case
+     (unary
+      (fmt "        fun ~a(req: ~a, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ~a {\n            val resp = ~a()\n            channel.unary(~s, req, resp, metadata, timeout)\n            return resp\n        }\n\n" (ref name) (ref input) (ref output) (ref output) (ref path)))
+     (server-streaming
+      (fmt "        fun ~a(req: ~a, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ~a~aStream {\n            return ~a~aStream(channel.serverStream(~s, req, metadata, timeout))\n        }\n\n" (ref name) (ref input) (svc) (ref name) (svc) (ref name) (ref path)))
+     (client-streaming
+      (fmt "        fun ~a(reqs: List<~a>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ~a {\n            val resp = ~a()\n            channel.clientStreamCall(~s, reqs, resp, metadata, timeout)\n            return resp\n        }\n\n" (ref name) (ref input) (ref output) (ref output) (ref path)))
+     (bidi
+      (fmt "        fun ~a(reqs: List<~a>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ~a~aStream {\n            return ~a~aStream(channel.bidi(~s, reqs, metadata, timeout))\n        }\n\n" (ref name) (ref input) (svc) (ref name) (svc) (ref name) (ref path))))))
+
+(define kotlin-client-method-program
+  (append kotlin-deprecated-program kotlin-client-method-raw-program))
+
+(define kotlin-client-stream-class-program
+  '((kind-case
+     ((server-streaming bidi)
+      (fmt "        class ~a~aStream(private val stream: Channel.ClientStream) : AutoCloseable {\n            fun recv(): ~a {\n                val resp = ~a()\n                stream.recv(resp)\n                return resp\n            }\n\n            /** Initial metadata (response headers); null until they arrive. */\n            fun headers(): Map<String, String>? = stream.headers?.metadata\n\n            /** Trailing metadata of the terminal status; null until it arrives. */\n            fun trailers(): Map<String, String>? = stream.trailers\n\n            /** Abort this stream (sends RST, wakes a pending recv). */\n            fun cancel() = stream.cancel()\n\n            /** Abandon the call if still live (RST); no-op once terminated. */\n            override fun close() = stream.close()\n        }\n\n" (svc) (ref name) (ref output) (ref output)))
+     (else ""))))
+
+(define kotlin-client-async-method-program
+  '((kind-case
+     (unary
+      (fmt "        suspend fun ~aAsync(req: ~a, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ~a {\n            return AsyncPump.await(~aFuture(req, metadata, timeout))\n        }\n\n        fun ~aFuture(req: ~a, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<~a> {\n            return AsyncPump.future { ~a(req, metadata, timeout) }\n        }\n\n" (ref name) (ref input) (ref output) (ref name) (ref name) (ref input) (ref output) (ref name)))
+     ((server-streaming bidi)
+      (fmt "        suspend fun ~aAsync(req~a: ~a, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): List<~a> {\n            return AsyncPump.await(~aFuture(req~a, metadata, timeout))\n        }\n\n        fun ~aFuture(req~a: ~a, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<List<~a>> {\n            val stream = ~a(req~a, metadata, timeout)\n            return AsyncPump.future(onCancel = { stream.cancel() }) {\n                val out = ArrayList<~a>()\n                while (true) {\n                    try {\n                        out.add(stream.recv())\n                    } catch (e: EOFException) {\n                        break\n                    }\n                }\n                out\n            }\n        }\n\n"
+           (ref name)
+           (kind-case (bidi "s") (else ""))
+           (kind-case (bidi (fmt "List<~a>" (ref input))) (else (ref input)))
+           (ref output) (ref name)
+           (kind-case (bidi "s") (else ""))
+           (ref name)
+           (kind-case (bidi "s") (else ""))
+           (kind-case (bidi (fmt "List<~a>" (ref input))) (else (ref input)))
+           (ref output) (ref name)
+           (kind-case (bidi "s") (else ""))
+           (ref output)))
+     (client-streaming
+      (fmt "        suspend fun ~aAsync(reqs: List<~a>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ~a {\n            return AsyncPump.await(~aFuture(reqs, metadata, timeout))\n        }\n\n        fun ~aFuture(reqs: List<~a>, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<~a> {\n            return AsyncPump.future { ~a(reqs, metadata, timeout) }\n        }\n\n" (ref name) (ref input) (ref output) (ref name) (ref name) (ref input) (ref output) (ref name))))))
+
+(define kotlin-server-stream-iface-program
+  '((kind-case
+     (unary "")
+     (server-streaming
+      (fmt "    /** Server-streaming sink passed to service implementations. */\n    interface ~a~aServer {\n        fun send(resp: ~a)\n        val context: Endpoint.CallContext\n    }\n\n" (svc) (ref name) (ref output)))
+     (client-streaming
+      (fmt "    /** Client-streaming stream passed to service implementations. */\n    interface ~a~aServer {\n        fun recv(): ~a\n        fun sendAndClose(resp: ~a)\n        val context: Endpoint.CallContext\n    }\n\n" (svc) (ref name) (ref input) (ref output)))
+     (bidi
+      (fmt "    /** Bidi stream passed to service implementations. */\n    interface ~a~aServer {\n        fun send(resp: ~a)\n        fun recv(): ~a\n        val context: Endpoint.CallContext\n    }\n\n" (svc) (ref name) (ref output) (ref input))))))
+
+(define kotlin-server-iface-method-raw-program
+  '((kind-case
+     (unary (fmt "        fun ~a(ctx: Endpoint.CallContext, req: ~a): ~a\n" (ref name) (ref input) (ref output)))
+     (server-streaming (fmt "        fun ~a(req: ~a, stream: ~a~aServer)\n" (ref name) (ref input) (svc) (ref name)))
+     (client-streaming (fmt "        fun ~a(stream: ~a~aServer)\n" (ref name) (svc) (ref name)))
+     (bidi (fmt "        fun ~a(stream: ~a~aServer)\n" (ref name) (svc) (ref name))))))
+
+(define kotlin-server-iface-method-program
+  (append kotlin-deprecated-program kotlin-server-iface-method-raw-program))
+
+(define kotlin-server-async-iface-method-program
+  '((kind-case
+     (unary (fmt "        suspend fun ~aAsync(ctx: Endpoint.CallContext, req: ~a): ~a\n" (ref name) (ref input) (ref output)))
+     (server-streaming (fmt "        suspend fun ~aAsync(req: ~a, stream: ~a~aServer)\n" (ref name) (ref input) (svc) (ref name)))
+     (client-streaming (fmt "        suspend fun ~aAsync(stream: ~a~aServer)\n" (ref name) (svc) (ref name)))
+     (bidi (fmt "        suspend fun ~aAsync(stream: ~a~aServer)\n" (ref name) (svc) (ref name))))))
+
+(define kotlin-server-async-adapter-method-program
+  '((kind-case
+     (unary
+      (fmt "        override fun ~a(ctx: Endpoint.CallContext, req: ~a): ~a {\n            return AsyncPump.runSuspend { impl.~aAsync(ctx, req) }\n        }\n\n" (ref name) (ref input) (ref output) (ref name)))
+     (server-streaming
+      (fmt "        override fun ~a(req: ~a, stream: ~a~aServer) {\n            AsyncPump.runSuspend { impl.~aAsync(req, stream) }\n        }\n\n" (ref name) (ref input) (svc) (ref name) (ref name)))
+     (client-streaming
+      (fmt "        override fun ~a(stream: ~a~aServer) {\n            AsyncPump.runSuspend { impl.~aAsync(stream) }\n        }\n\n" (ref name) (svc) (ref name) (ref name)))
+     (bidi
+      (fmt "        override fun ~a(stream: ~a~aServer) {\n            AsyncPump.runSuspend { impl.~aAsync(stream) }\n        }\n\n" (ref name) (svc) (ref name) (ref name))))))
+
+(define kotlin-stream-impl-program
+  '((kind-case
+     (unary "")
+     (server-streaming
+      (fmt "    private class ~a~aServerImpl(\n        override val context: Endpoint.CallContext,\n        private val sink: Server.ServerSink\n    ) : ~a~aServer {\n        override fun send(resp: ~a) {\n            sink.send(resp.marshalDc())\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output)))
+     (client-streaming
+      (fmt "    private class ~a~aServerImpl(\n        override val context: Endpoint.CallContext,\n        private val reqs: Server.RequestStream\n    ) : ~a~aServer {\n        var resp: ~a? = null\n            private set\n\n        override fun recv(): ~a {\n            val req = ~a()\n            reqs.recvInto(req)\n            return req\n        }\n\n        override fun sendAndClose(resp: ~a) {\n            this.resp = resp\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input) (ref output)))
+     (bidi
+      (fmt "    private class ~a~aServerImpl(\n        override val context: Endpoint.CallContext,\n        private val reqs: Server.RequestStream,\n        private val sink: Server.ServerSink\n    ) : ~a~aServer {\n        override fun send(resp: ~a) {\n            sink.send(resp.marshalDc())\n        }\n\n        override fun recv(): ~a {\n            val req = ~a()\n            reqs.recvInto(req)\n            return req\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input))))))
+
+(define kotlin-register-method-program
+  '((kind-case
+     (unary
+      (fmt "                    Server.Method(~s, ~s, Server.KIND_UNARY) { ctx, reqs, sink ->\n                        val req = ~a()\n                        reqs.recvInto(req)\n                        sink.send(impl.~a(ctx, req).marshalDc())\n                    },\n" (ref name) (ref path) (ref input) (ref impl-name)))
+     (server-streaming
+      (fmt "                    Server.Method(~s, ~s, Server.KIND_SERVER_STREAMING) { ctx, reqs, sink ->\n                        val req = ~a()\n                        reqs.recvInto(req)\n                        impl.~a(req, ~a~aServerImpl(ctx, sink))\n                    },\n" (ref name) (ref path) (ref input) (ref impl-name) (svc) (ref name)))
+     (client-streaming
+      (fmt "                    Server.Method(~s, ~s, Server.KIND_CLIENT_STREAMING) { ctx, reqs, sink ->\n                        val stream = ~a~aServerImpl(ctx, reqs)\n                        impl.~a(stream)\n                        val resp = stream.resp\n                            ?: throw StatusException(\n                                Wire.CODE_INTERNAL,\n                                \"client-streaming handler never called sendAndClose\"\n                            )\n                        sink.send(resp.marshalDc())\n                    },\n" (ref name) (ref path) (svc) (ref name) (ref impl-name)))
+     (bidi
+      (fmt "                    Server.Method(~s, ~s, Server.KIND_BIDI) { ctx, reqs, sink ->\n                        impl.~a(~a~aServerImpl(ctx, reqs, sink))\n                    },\n" (ref name) (ref path) (ref impl-name) (svc) (ref name))))))
+
+(define kotlin-service-program
+  '((fmt "    /** Client for ~a. */\n" (ref full-name))
+    (fmt "    class ~aClient(private val channel: Channel) {\n" (ref name))
+    (each methods (call kotlinClientStreamClass))
+    (each+ methods client (call kotlinClientMethod "        "))
+    (if (kotlin-wasm-mode)
+        (then "")
+        (else "        // -- async (coroutine / CompletableFuture) surface ---------------\n\n"
+              (each+ methods client (call kotlinClientAsyncMethod))))
+    "    }\n\n"
+    (each methods (call kotlinServerStreamIface))
+    (fmt "    /** Service implementation interface for ~a. */\n" (ref full-name))
+    (fmt "    interface ~aServer {\n" (ref name))
+    (each methods (call kotlinServerIfaceMethod "        "))
+    "    }\n\n"
+    (if (kotlin-wasm-mode)
+        (then "")
+        (else (fmt "    /** Async service implementation interface for ~a. */\n" (ref full-name))
+              (fmt "    interface ~aServerAsync {\n" (ref name))
+              (each methods (call kotlinServerAsyncIfaceMethod))
+              "    }\n\n"))
+    (each methods (call kotlinStreamImpl))
+    (if (kotlin-wasm-mode)
+        (then "")
+        (else (fmt "    private class ~aServerAsyncAdapter(private val impl: ~aServerAsync) : ~aServer {\n" (ref name) (ref name) (ref name))
+              (each methods (call kotlinServerAsyncAdapterMethod))
+              "    }\n\n"))
+    (fmt "    /** Register an implementation of ~a on a Server. */\n" (ref full-name))
+    (fmt "    fun register~aServer(server: Server, impl: ~aServer) {\n" (ref name) (ref name))
+    "        server.registerService(\n"
+    "            Server.ServiceDesc(\n"
+    (fmt "                ~s,\n" (ref full-name))
+    "                listOf(\n"
+    (trim-suffix ",\n" "\n" (each+ methods server (call kotlinRegisterMethod)))
+    "                )\n"
+    "            )\n"
+    "        )\n"
+    "    }\n\n"
+    (if (kotlin-wasm-mode)
+        (then "")
+        (else (fmt "    /** Register an async implementation of ~a on a Server. */\n" (ref full-name))
+              (fmt "    fun register~aServerAsync(server: Server, impl: ~aServerAsync) {\n" (ref name) (ref name))
+              "        // Adapters are retained for the process lifetime: registration is\n"
+              "        // once-per-process and bounded by service count.\n"
+              (fmt "        val adapter = ~aServerAsyncAdapter(impl)\n" (ref name))
+              (fmt "        ~aAdapters.add(adapter)\n" (lower-first (svc)))
+              (fmt "        register~aServer(server, adapter)\n    }\n\n" (ref name))
+              (fmt "    private val ~aAdapters = ArrayList<~aServerAsyncAdapter>()\n" (lower-first (svc)) (ref name))))))
+
+(define kt-pb-type-program
+  '((if (is-map)
+        (then (fmt "MutableMap<~a, ~a>"
+                   (call-on (key-field (resolved-entry)) ktPbType)
+                   (call-on (val-field (resolved-entry)) ktPbTypeOrRef)))
+        (else
+         (if (repeated)
+             (then (fmt "MutableList<~a>"
+                        (case-on (ref type)
+                          ((11) (kt-entry-ref))
+                          (else (call-on (with-label (self) 1) ktPbType)))))
+             (else (case-on (ref type)
+                     ((11) (fmt "~a?" (kt-entry-ref)))
+                     ((14) (kt-entry-ref))
+                     (else (kt-scalar-type)))))))))
+
+(define kt-pb-type-or-ref-program
+  '((if (is-map)
+        (then (call ktPbType))
+        (else (case-on (ref type)
+                ((11) (kt-entry-ref))
+                (else (call ktPbType)))))))
+
+(define kt-pb-explicit-literal-program
+  '((if (has-default)
+        (then (fmt "~a"
+                   (case-on (ref type)
+                     ((9) (fmt "~s" (default-raw)))
+                     ((8) (default-raw))
+                     ((14) (fmt "~a.~a" (kt-entry-ref) (default-raw)))
+                     ((2) (fmt "~af" (default-raw)))
+                     (else (default-raw)))))
+        (else ""))))
+
+(define kt-pb-default-program
+  '((if (call ktPbExplicitLiteral)
+        (then (call ktPbExplicitLiteral))
+        (else (fmt "~a"
+                   (if (is-map)
+                       (then "mutableMapOf()")
+                       (else (case-on (ref label)
+                               ((3) "mutableListOf()")
+                               (else (case-on (ref type)
+                                       ((11) "null")
+                                       ((14) (fmt "~a.~a" (kt-entry-ref) (enum-first-value-name)))
+                                       (else (kt-scalar-zero))))))))))))
+
+(define kt-pb-varint-expr-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (fmt "if (~a) 1L else 0L" (arg 0)))
+           ((17) (fmt "(((~a shl 1) xor (~a shr 31)).toLong() and 0xffffffffL)" (arg 0) (arg 0)))
+           ((18) (fmt "((~a shl 1) xor (~a shr 63))" (arg 0) (arg 0)))
+           ((14) (fmt "~a.number.toLong()" (arg 0)))
+           ((5) (fmt "~a.toLong()" (arg 0)))
+           ((13 7) (fmt "~a.toLong()" (arg 0)))
+           ((3) (arg 0))
+           (else (fmt "~a.toLong()" (arg 0)))))))
+
+(define kt-pb-varint-decode-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((5) (fmt "~a.toInt()" (arg 0)))
+           ((13 7) (fmt "~a.toUInt()" (arg 0)))
+           ((3) (arg 0))
+           ((4 6) (fmt "~a.toULong()" (arg 0)))
+           ((8) (fmt "~a != 0L" (arg 0)))
+           ((17) (fmt "(((~a shr 1) xor -(~a and 1L)).toInt())" (arg 0) (arg 0)))
+           ((18) (fmt "((~a shr 1) xor -(~a and 1L))" (arg 0) (arg 0)))))))
+
+(define kt-pb-nonzero-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((8) (arg 0))
+           ((14) (fmt "~a.number != 0" (arg 0)))
+           (else (fmt "~a != ~a" (arg 0) (kt-scalar-zero)))))))
+
+(define kt-pb-encode-singular-program
+  '((case-on (category)
+      ("varint"
+       (if (proto2)
+           (then (fmt "~a{ w.tag(~a, 0); w.varint(~a) }\n" (arg 1) (ref number) (call ktPbVarintExpr (arg 0))))
+           (else (fmt "~aif (~a) { w.tag(~a, 0); w.varint(~a) }\n" (arg 1) (call ktPbNonzero (arg 0)) (ref number) (call ktPbVarintExpr (arg 0))))))
+      ("fixed"
+       (if (proto2)
+           (then (fmt "~a{ w.tag(~a, ~a); w.fixed~a(~a) }\n" (arg 1) (ref number)
+                      (case-on (kt-fixed-size) ((8) "1") (else "5")) (kt-fixed-name) (arg 0)))
+           (else (fmt "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a) }\n" (arg 1) (call ktPbNonzero (arg 0)) (ref number)
+                      (case-on (kt-fixed-size) ((8) "1") (else "5")) (kt-fixed-name) (arg 0)))))
+      ("string"
+       (if (proto2)
+           (then (fmt "~aw.bytesField(~a, ~a.toByteArray(Charsets.UTF_8))\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aw.stringField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))))
+      ("bytes"
+       (if (proto2)
+           (then (fmt "~aw.bytesField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aif (~a.isNotEmpty()) w.bytesField(~a, ~a)\n" (arg 1) (arg 0) (ref number) (arg 0)))))
+      ("message"
+       (fmt "~a~a?.let { w.bytesField(~a, it.marshalDc()) }\n" (arg 1) (arg 0) (ref number)))
+      (else (fail)))))
+
+(define kt-pb-set-expr-program
+  '((case-on (ref type)
+      ((11 10) (fmt "~a != null" (kt-field-name)))
+      ((9 12) (fmt "~a.isNotEmpty()" (kt-field-name)))
+      (else (call ktPbNonzero (kt-field-name))))))
+
+(define kt-pb-encode-guard-program
+  '((guarded ktPbSetExpr "        if (!(~a)) {\n" "        }\n" (call ktPbEncodeField (arg 0)))))
+
+(define kt-pb-encode-field-program
+  '((if (is-map)
+        (then (fmt "        for (e in ~a) w.bytesField(~a, ~a.~aEncode(e.key, e.value))\n"
+                   (kt-field-name) (ref number) (arg 0) (kt-map-name)))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint"
+                 (fmt "        if (~a.isNotEmpty()) {\n" (kt-field-name))
+                 (fmt "            val payload = ~a.Writer()\n" (arg 0))
+                 (fmt "            for (x in ~a) payload.varint(~a)\n" (kt-field-name) (call ktPbVarintExpr "x"))
+                 (fmt "            w.bytesField(~a, payload.toBytes())\n        }\n" (ref number)))
+                ("fixed"
+                 (fmt "        if (~a.isNotEmpty()) {\n" (kt-field-name))
+                 (fmt "            val payload = ~a.Writer()\n" (arg 0))
+                 (fmt "            for (x in ~a) payload.fixed~a(x)\n" (kt-field-name) (kt-fixed-name))
+                 (fmt "            w.bytesField(~a, payload.toBytes())\n        }\n" (ref number)))
+                ("string" (fmt "        for (x in ~a) w.bytesField(~a, x.toByteArray(Charsets.UTF_8))\n" (kt-field-name) (ref number)))
+                ("bytes" (fmt "        for (x in ~a) w.bytesField(~a, x)\n" (kt-field-name) (ref number)))
+                ("message" (fmt "        for (x in ~a) w.bytesField(~a, x.marshalDc())\n" (kt-field-name) (ref number)))
+                (else (fail))))
+             (else (call ktPbEncodeSingular (kt-field-name) "        ")))))))
+
+(define kt-pb-decode-singular-program
+  '((case-on (category)
+      ("varint"
+       (fmt "~a~a = ~a\n" (arg 2) (arg 0)
+            (case-on (ref type)
+              ((14) (fmt "~a.fromNumber(~a)" (kt-entry-ref)
+                         (call-on (with-type (self) 5) ktPbVarintDecode (arg 1))))
+              (else (call ktPbVarintDecode (arg 1))))))
+      ("fixed"
+       (fmt "~a~a = ~a\n" (arg 2) (arg 0)
+            (case-on (ref type)
+              ((2) (fmt "~a.bitsToFloat(~a.toUInt())" (arg 3) (arg 1)))
+              ((1) (fmt "~a.bitsToDouble(~a.toULong())" (arg 3) (arg 1)))
+              ((7) (fmt "~a.toUInt()" (arg 1)))
+              ((15) (fmt "~a.toInt()" (arg 1)))
+              ((6) (fmt "~a.toULong()" (arg 1)))
+              (else (arg 1)))))
+      ("string" (fmt "~a~a = String(~a, Charsets.UTF_8)\n" (arg 2) (arg 0) (arg 1)))
+      ("bytes" (fmt "~a~a = ~a\n" (arg 2) (arg 0) (arg 1)))
+      ("message"
+       (fmt "~a~a = ~a()\n" (arg 2) (arg 0) (kt-entry-ref))
+       (fmt "~a~a!!.unmarshalDc(~a)\n" (arg 2) (arg 0) (arg 1)))
+      (else (fail)))))
+
+(define kt-pb-clearing-program
+  '((each-siblings (fmt "                    ~a = ~a\n" (kt-field-name) (call ktPbDefault)))))
+
+(define kt-pb-enum-conv-program
+  '((fmt "~a"
+         (case-on (ref type)
+           ((14) (fmt "~a.fromNumber(~a)" (kt-entry-ref)
+                      (call-on (with-type (self) 5) ktPbVarintDecode (arg 0))))
+           (else (call ktPbVarintDecode (arg 0)))))))
+
+(define kt-pb-decode-case-program
+  '((fmt "                ~a -> {\n" (ref number))
+    (if (is-map)
+        (then
+         (fmt "                    val kv = ~a.~aDecode(field.bytesValue)\n" (arg 0) (kt-map-name))
+         (fmt "                    ~a[kv.first] = kv.second\n" (kt-field-name)))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint"
+                 "                    if (field.wire == 2) {\n"
+                 (fmt "                        val sub = ~a.Reader(field.bytesValue)\n" (arg 0))
+                 "                        while (!sub.done()) {\n"
+                 (fmt "                            ~a.add(~a)\n" (kt-field-name) (call ktPbEnumConv "sub.varint()"))
+                 "                        }\n                    } else {\n"
+                 (fmt "                        ~a.add(~a)\n" (kt-field-name) (call ktPbEnumConv "field.varintValue"))
+                 "                    }\n")
+                ("fixed"
+                 "                    if (field.wire == 2) {\n"
+                 (fmt "                        val sub = ~a.Reader(field.bytesValue)\n" (arg 0))
+                 (fmt "                        while (!sub.done()) ~a.add(~a)\n" (kt-field-name)
+                      (case-on (ref type)
+                        ((2) (fmt "~a.bitsToFloat(sub.fixed32())" (arg 0)))
+                        ((1) (fmt "~a.bitsToDouble(sub.fixed64())" (arg 0)))
+                        ((7) "sub.fixed32()")
+                        ((15) "sub.fixed32().toInt()")
+                        (else "sub.fixed64()")))
+                 "                    } else {\n"
+                 (fmt "                        ~a.add(~a)\n" (kt-field-name)
+                      (case-on (ref type)
+                        ((2) (fmt "~a.bitsToFloat(field.fixedValue.toUInt())" (arg 0)))
+                        ((1) (fmt "~a.bitsToDouble(field.fixedValue.toULong())" (arg 0)))
+                        ((7) "field.fixedValue.toUInt()")
+                        ((15) "field.fixedValue.toInt()")
+                        ((6) "field.fixedValue.toULong()")
+                        (else "field.fixedValue")))
+                 "                    }\n")
+                ("string" (fmt "                    ~a.add(String(field.bytesValue, Charsets.UTF_8))\n" (kt-field-name)))
+                ("bytes" (fmt "                    ~a.add(field.bytesValue)\n" (kt-field-name)))
+                ("message"
+                 (fmt "                    val item = ~a()\n" (kt-entry-ref))
+                 "                    item.unmarshalDc(field.bytesValue)\n"
+                 (fmt "                    ~a.add(item)\n" (kt-field-name)))
+                (else (fail))))
+             (else (call ktPbClearing)
+                   (call ktPbDecodeSingular (kt-field-name) (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "                    " (arg 0))))))
+    "                }\n"))
+
+(define kt-pb-map-val-encode-program
+  '((case-on (ref type)
+      ((11) (fmt "        w.bytesField(~a, value.marshalDc())\n" (ref number)))
+      (else (call ktPbEncodeSingular "value" "        ")))))
+
+(define kt-pb-map-val-init-program
+  '((case-on (ref type)
+      ((11) (fmt "~a()" (kt-entry-ref)))
+      (else (call ktPbDefault)))))
+
+(define kt-pb-map-key-decode-program
+  '((fmt "                ~a -> ~a\n" (ref number)
+         (trim-end (call ktPbDecodeSingular "key" (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "" (arg 0))))))
+
+(define kt-pb-map-val-decode-program
+  '((case-on (ref type)
+      ((11) (fmt "                ~a -> value.unmarshalDc(field.bytesValue)\n" (ref number)))
+      (else (fmt "                ~a -> ~a\n" (ref number)
+                 (trim-end (call ktPbDecodeSingular "value" (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "" (arg 0))))))))
+
+(define kt-pb-map-helpers-program
+  '((fmt "    fun ~aEncode(key: ~a, value: ~a): ByteArray {\n"
+         (kt-map-name)
+         (call-on (key-field) ktPbType)
+         (call-on (val-field) ktPbTypeOrRef))
+    "        val w = Writer()\n"
+    (call-on (key-field) ktPbEncodeSingular "key" "        ")
+    (call-on (val-field) ktPbMapValEncode)
+    "        return w.toBytes()\n    }\n\n"
+    (fmt "    fun ~aDecode(bytes: ByteArray): Pair<~a, ~a> {\n"
+         (kt-map-name)
+         (call-on (key-field) ktPbType)
+         (call-on (val-field) ktPbTypeOrRef))
+    (fmt "        var key: ~a = ~a\n"
+         (call-on (key-field) ktPbType)
+         (call-on (key-field) ktPbDefault))
+    (fmt "        var value: ~a = ~a\n"
+         (call-on (val-field) ktPbTypeOrRef)
+         (call-on (val-field) ktPbMapValInit))
+    "        val r = Reader(bytes)\n        while (true) {\n            val field = r.next() ?: break\n            when (field.number) {\n"
+    (call-on (key-field) ktPbMapKeyDecode (arg 0))
+    (call-on (val-field) ktPbMapValDecode (arg 0))
+    "                else -> {}\n            }\n        }\n        return Pair(key, value)\n    }\n\n"))
+
+(define kt-pb-nested-enum-program
+  '((fmt "~aenum class ~a(val number: Int) {\n" (arg 0) (ref name))
+    (each-sep ",\n" values (fmt "~a    ~a(~a)" (arg 0) (ref name) (ref number)))
+    (fmt ";\n~a    companion object {\n" (arg 0))
+    (fmt "~a        fun fromNumber(number: Int): ~a =\n" (arg 0) (ref name))
+    (fmt "~a            when (number) {\n" (arg 0))
+    (each values (fmt "~a                ~a -> ~a\n" (arg 0) (ref number) (ref name)))
+    (fmt "~a                else -> ~a\n~a            }\n~a    }\n~a}\n" (arg 0) (first-value-name) (arg 0) (arg 0) (arg 0))))
+
+(define kt-pb-message-program
+  '((fmt "~a~a class ~a(\n" (arg 1) (arg 2) (ref name))
+    (each-sep ",\n" fields (fmt "~a    var ~a: ~a = ~a" (arg 1) (kt-field-name) (call ktPbType) (call ktPbDefault)))
+    (if (no-fields) (then "") (else ","))
+    (fmt "\n~a) : Marshaler, Unmarshaler {\n" (arg 1))
+    (fmt "~a    var unknownFields: ByteArray = ByteArray(0)\n" (arg 1))
+    (fmt "~a    override fun marshalDc(): ByteArray {\n" (arg 1))
+    (fmt "~a        val w = ~a.Writer()\n" (arg 1) (arg 0))
+    (each fields (call ktPbEncodeGuard (arg 0)))
+    (fmt "~a        w.raw(unknownFields)\n" (arg 1))
+    (fmt "~a        return w.toBytes()\n~a    }\n" (arg 1) (arg 1))
+    (fmt "~a    override fun unmarshalDc(data: ByteArray) {\n" (arg 1))
+    (fmt "~a        unknownFields = ByteArray(0)\n" (arg 1))
+    (each fields (fmt "~a        ~a = ~a\n" (arg 1) (kt-field-name) (call ktPbDefault)))
+    (fmt "~a        val r = ~a.Reader(data)\n" (arg 1) (arg 0))
+    (fmt "~a        while (true) {\n" (arg 1))
+    (fmt "~a            val field = r.next() ?: break\n" (arg 1))
+    (fmt "~a            when (field.number) {\n" (arg 1))
+    (each fields (call ktPbDecodeCase (arg 0)))
+    (fmt "~a                else -> { unknownFields = unknownFields + field.rawValue }\n~a            }\n~a        }\n~a    }\n" (arg 1) (arg 1) (arg 1) (arg 1))
+    (each nested (call ktPbMessage (arg 0) (fmt "~a    " (arg 1)) ""))
+    (each enums (call ktPbNestedEnum (fmt "~a    " (arg 1))))
+    (fmt "~a}\n" (arg 1))))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -4996,7 +5465,39 @@
           'zigPbListAssign zig-pb-list-assign-program
           'zigPbMessage zig-pb-message-program
           'zigPbTypeOrRef zig-pb-type-or-ref-program
-          'zigPbAllocUnused zig-pb-alloc-unused-program))
+          'zigPbAllocUnused zig-pb-alloc-unused-program
+          'kotlinService kotlin-service-program
+          'kotlinClientMethod kotlin-client-method-program
+          'kotlinClientStreamClass kotlin-client-stream-class-program
+          'kotlinClientAsyncMethod kotlin-client-async-method-program
+          'kotlinServerStreamIface kotlin-server-stream-iface-program
+          'kotlinServerIfaceMethod kotlin-server-iface-method-program
+          'kotlinServerAsyncIfaceMethod kotlin-server-async-iface-method-program
+          'kotlinServerAsyncAdapterMethod kotlin-server-async-adapter-method-program
+          'kotlinStreamImpl kotlin-stream-impl-program
+          'kotlinRegisterMethod kotlin-register-method-program
+          'ktPbType kt-pb-type-program
+          'ktPbTypeOrRef kt-pb-type-or-ref-program
+          'ktPbExplicitLiteral kt-pb-explicit-literal-program
+          'ktPbDefault kt-pb-default-program
+          'ktPbVarintExpr kt-pb-varint-expr-program
+          'ktPbVarintDecode kt-pb-varint-decode-program
+          'ktPbNonzero kt-pb-nonzero-program
+          'ktPbEncodeSingular kt-pb-encode-singular-program
+          'ktPbSetExpr kt-pb-set-expr-program
+          'ktPbEncodeGuard kt-pb-encode-guard-program
+          'ktPbEncodeField kt-pb-encode-field-program
+          'ktPbDecodeSingular kt-pb-decode-singular-program
+          'ktPbClearing kt-pb-clearing-program
+          'ktPbEnumConv kt-pb-enum-conv-program
+          'ktPbDecodeCase kt-pb-decode-case-program
+          'ktPbMapValEncode kt-pb-map-val-encode-program
+          'ktPbMapValInit kt-pb-map-val-init-program
+          'ktPbMapKeyDecode kt-pb-map-key-decode-program
+          'ktPbMapValDecode kt-pb-map-val-decode-program
+          'ktPbMapHelpers kt-pb-map-helpers-program
+          'ktPbNestedEnum kt-pb-nested-enum-program
+          'ktPbMessage kt-pb-message-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -5036,6 +5537,7 @@
 ;; Set by template-rust.rkt alongside its own no_std parameter;
 ;; read by the (rs-map-type) builtin.
 (define seg-rust-no-std (make-parameter #f))
+(define seg-kotlin-wasm-mode (make-parameter #f))
 
 (define (seg-truthy? v)
   (not (or (not v) (equal? v "") (equal? v 0))))
@@ -5388,6 +5890,38 @@
                     (format "~a.~a" (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'enum) 'name)))
                 (hash-ref (hash-ref entry 'msg) 'full-name))))
 
+(define (seg-kt-rel pkg full)
+  (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
+                  (substring full (add1 (string-length pkg)))
+                  full))
+  (string-join (string-split rel ".") "."))
+
+(define (seg-kt-full entry)
+  (if (eq? (hash-ref entry 'kind) 'enum)
+      (let ([e (hash-ref entry 'enum)])
+        (if (hash-ref entry 'msg)
+            (format "~a.~a" (hash-ref (hash-ref entry 'msg) 'full-name) (hash-ref e 'name))
+            (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name))))
+      (hash-ref (hash-ref entry 'msg) 'full-name)))
+
+(define (seg-kt-entry-ref model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (define rel (seg-kt-rel (hash-ref entry 'pkg) (seg-kt-full entry)))
+  (if (equal? (hash-ref entry 'file) (hash-ref model 'name))
+      rel
+      (if (string=? (hash-ref entry 'pkg) "") rel (string-append (hash-ref entry 'pkg) "." rel))))
+
+(define (seg-kt-map-name model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (string-join (string-split (seg-kt-rel (hash-ref entry 'pkg)
+                                         (hash-ref (hash-ref entry 'msg) 'full-name)) ".") ""))
+
 (define (seg-zig-entry-ref model node)
   (define entry
     (if (hash-has-key? node 'type-name)
@@ -5618,6 +6152,18 @@
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'dart)))]
     [(eq? (car seg) 'swift-field-name) (seg-dart-field-name node)]
     [(eq? (car seg) 'lua-field-name) (seg-dart-field-name node)]
+    [(eq? (car seg) 'kotlin-wasm-mode) (seg-kotlin-wasm-mode)]
+    [(eq? (car seg) 'first-value-name)
+     (hash-ref (car (hash-ref node 'values)) 'name)]
+    [(eq? (car seg) 'kt-field-name) (seg-dart-field-name node)]
+    [(eq? (car seg) 'kt-entry-ref) (seg-kt-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'kt-map-name) (seg-kt-map-name model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
+    [(eq? (car seg) 'kt-scalar-type) (first (scalar-type-entry 'kotlin (hash-ref node 'type)))]
+    [(eq? (car seg) 'kt-scalar-zero) (second (scalar-type-entry 'kotlin (hash-ref node 'type)))]
+    [(eq? (car seg) 'kt-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'kotlin)))]
+    [(eq? (car seg) 'kt-fixed-name)
+     (third (assv (hash-ref node 'type) (fixed-scalar-table 'kotlin)))]
     [(eq? (car seg) 'zig-entry-ref) (seg-zig-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
     [(eq? (car seg) 'zig-struct-name)
      (string-replace (seg-zig-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env))) "." "_")]
@@ -5743,6 +6289,14 @@
      (if (seg-truthy? (seg-eval (second seg) env))
          (run-env (cddr seg) env)
          "")]
+    [(eq? (car seg) 'trim-suffix)
+     ;; (trim-suffix "suffix" "replacement" body...): if the
+     ;; rendered body ends with suffix, swap it for replacement.
+     (define text (run-env (cdddr seg) env))
+     (if (string-suffix? text (second seg))
+         (string-append (substring text 0 (- (string-length text) (string-length (second seg))))
+                        (third seg))
+         text)]
     [(eq? (car seg) 'guarded)
      ;; (guarded SetExprProgram "open ~a template" "close" body...)
      ;; An optional (join " or ") element before the body picks
