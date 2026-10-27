@@ -1622,293 +1622,46 @@ function cbMsgName(model, msg) {
 }
 
 function cbType(model, f, support) {
-  let singular;
-  if (f.type === FT.MESSAGE) {
-    singular = cbEntryRef(model, cbResolve(model, f.typeName)) + ' *';
-  } else if (f.type === FT.ENUM) {
-    singular = cbEntryRef(model, cbResolve(model, f.typeName));
-  } else if (f.type === FT.BYTES) {
-    singular = support + 'Bytes';
-  } else {
-    singular = cbScalar(f)[0];
-  }
-  if (f.type === FT.MESSAGE && cbResolve(model, f.typeName).kind === 'map') return singular;
-  if (f.label === 3) {
-    return (f.type === FT.MESSAGE
-      ? cbEntryRef(model, cbResolve(model, f.typeName))
-      : cbType(model, { ...f, label: 1 }, support)) + ' *';
-  }
-  return singular;
+  return runSegments(SEGMENT_PROGRAMS.cPbType, f, '', model, [support]);
 }
-
 function cbExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case 9: return JSON.stringify(d);
-    case 8: return d;
-    case 14: return cbEntryRef(model, cbResolve(model, f.typeName)) + '_' + d;
-    default: return d;
-  }
+  const lit = runSegments(SEGMENT_PROGRAMS.cPbExplicitLiteral, f, '', model);
+  return lit === '' ? null : lit;
 }
-
 function cbDefault(model, f, support) {
-  const lit = cbExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.type === FT.MESSAGE && cbResolve(model, f.typeName).kind === 'map') return 'NULL';
-  if (f.label === 3) return 'NULL';
-  if (f.type === FT.MESSAGE) return 'NULL';
-  if (f.type === FT.BYTES) return support + '_bytes_empty()';
-  if (f.type === FT.ENUM) {
-    const entry = cbResolve(model, f.typeName);
-    return cbEntryRef(model, entry) + '_' + entry.enum.values[0].name;
-  }
-  return cbScalar(f)[1];
+  return runSegments(SEGMENT_PROGRAMS.cPbDefault, f, '', model, [support]);
 }
-
 function cbVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return '(' + v + ' ? 1 : 0)';
-    case 17: return '((uint64_t)(uint32_t)((' + v + ' << 1) ^ (' + v + ' >> 31)))';
-    case 18: return '((uint64_t)((' + v + ' << 1) ^ (' + v + ' >> 63)))';
-    case 14: case 5: return '((uint64_t)(int64_t)' + v + ')';
-    case 3: return '((uint64_t)' + v + ')';
-    default: return '((uint64_t)' + v + ')';
-  }
+  return runSegments(SEGMENT_PROGRAMS.cPbVarintExpr, f, '', null, [v]);
 }
-
 function cbVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: return '((int32_t)(uint32_t)' + v + ')';
-    case 13: case 7: return '((uint32_t)' + v + ')';
-    case 3: return '((int64_t)' + v + ')';
-    case 4: case 6: return v;
-    case 8: return '(' + v + ' != 0)';
-    case 17: return '((int32_t)(((uint32_t)' + v + ' >> 1) ^ (uint32_t)-(int32_t)((uint32_t)' + v + ' & 1)))';
-    case 18: return '(((int64_t)((uint64_t)' + v + ' >> 1)) ^ -(int64_t)((uint64_t)' + v + ' & 1))';
-    default: throw new Error('not a varint type');
-  }
+  return runSegments(SEGMENT_PROGRAMS.cPbVarintDecode, f, '', null, [v]);
 }
-
 function cbNonzero(f, v) {
-  return f.type === 8 ? v : '(' + v + ' != 0)';
+  return runSegments(SEGMENT_PROGRAMS.cPbNonzero, f, '', null, [v]);
 }
-
 function cbEncodeSingular(model, f, v, indent, support) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (CB_VARINT.has(f.type)) {
-    return proto2
-      ? indent + '{ ' + support + '_writer_tag(&w, ' + n + ', 0); ' + support + '_writer_varint(&w, ' + cbVarintExpr(f, v) + '); }\n'
-      : indent + 'if (' + cbNonzero(f, v) + ') { ' + support + '_writer_tag(&w, ' + n + ', 0); ' + support + '_writer_varint(&w, ' + cbVarintExpr(f, v) + '); }\n';
-  }
-  const fixed = CB_FIXED[f.type];
-  if (fixed) {
-    const wire = fixed[0] === 8 ? 1 : 5;
-    return proto2
-      ? indent + '{ ' + support + '_writer_tag(&w, ' + n + ', ' + wire + '); ' + support + '_writer_fixed_' + fixed[1] + '(&w, ' + v + '); }\n'
-      : indent + 'if (' + cbNonzero(f, v) + ') { ' + support + '_writer_tag(&w, ' + n + ', ' + wire + '); ' + support + '_writer_fixed_' + fixed[1] + '(&w, ' + v + '); }\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + support + '_writer_bytes_field(&w, ' + n + ', (const uint8_t *)' + v + ', strlen(' + v + '));\n'
-      : indent + support + '_writer_string_field(&w, ' + n + ', ' + v + ');\n';
-    case 12: return proto2
-      ? indent + support + '_writer_bytes_field(&w, ' + n + ', ' + v + '.data, ' + v + '.len);\n'
-      : indent + 'if (' + v + '.len > 0) ' + support + '_writer_bytes_field(&w, ' + n + ', ' + v + '.data, ' + v + '.len);\n';
-    case 11: {
-      const entry = cbResolve(model, f.typeName);
-      return indent + 'if (' + v + ') { ' + cbEntrySupport(entry) + 'Bytes b = ' + cbEntryRef(model, entry) + '_marshal(' + v + '); ' + support + '_writer_bytes_field(&w, ' + n + ', b.data, b.len); free(b.data); }\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
+  return runSegments(SEGMENT_PROGRAMS.cPbEncodeSingular, f, '', model, [v, indent, support]);
 }
-
-function cbSetExpr(sib) {
-  const v = 'm->' + sib.name;
-  switch (sib.type) {
-    case 11: case 10: return '(' + v + ' != NULL)';
-    case 9: return '(' + v + ' != NULL && ' + v + '[0] != 0)';
-    case 12: return '(' + v + '.len > 0)';
-    default: return cbNonzero(sib, v);
-  }
-}
-
-function cbEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '    if (!(' + later.map(cbSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '    }\n';
-}
-
 function cbEncodeField(model, f, support) {
-  const v = 'm->' + f.name;
-  const n = f.number;
-  if (f.type === FT.MESSAGE && cbResolve(model, f.typeName).kind === 'map') {
-    const entry = cbResolve(model, f.typeName);
-    return '    for (size_t i = 0; i < ' + v + '_count; i++) { ' + support + 'Bytes b = encode_' + cbEntryRef(model, entry) + '(' + v + '[i].key, ' + v + '[i].value); ' + support + '_writer_bytes_field(&w, ' + n + ', b.data, b.len); free(b.data); }\n';
-  }
-  if (f.label !== 3) return cbEncodeSingular(model, f, v, '    ', support);
-  if (CB_VARINT.has(f.type)) {
-    return '    if (' + v + '_count > 0) {\n        ' + support + 'Writer payload; ' + support + '_writer_init(&payload);\n'
-      + '        for (size_t i = 0; i < ' + v + '_count; i++) ' + support + '_writer_varint(&payload, ' + cbVarintExpr(f, v + '[i]') + ');\n'
-      + '        ' + support + '_writer_bytes_field(&w, ' + n + ', payload.data, payload.len); ' + support + '_writer_free(&payload);\n    }\n';
-  }
-  const fixed = CB_FIXED[f.type];
-  if (fixed) {
-    return '    if (' + v + '_count > 0) {\n        ' + support + 'Writer payload; ' + support + '_writer_init(&payload);\n'
-      + '        for (size_t i = 0; i < ' + v + '_count; i++) ' + support + '_writer_fixed_' + fixed[1] + '(&payload, ' + v + '[i]);\n'
-      + '        ' + support + '_writer_bytes_field(&w, ' + n + ', payload.data, payload.len); ' + support + '_writer_free(&payload);\n    }\n';
-  }
-  switch (f.type) {
-    case 9: return '    for (size_t i = 0; i < ' + v + '_count; i++) ' + support + '_writer_bytes_field(&w, ' + n + ', (const uint8_t *)' + v + '[i], strlen(' + v + '[i]));\n';
-    case 12: return '    for (size_t i = 0; i < ' + v + '_count; i++) ' + support + '_writer_bytes_field(&w, ' + n + ', ' + v + '[i].data, ' + v + '[i].len);\n';
-    case 11: {
-      const entry = cbResolve(model, f.typeName);
-      return '    for (size_t i = 0; i < ' + v + '_count; i++) { ' + cbEntrySupport(entry) + 'Bytes b = ' + cbEntryRef(model, entry) + '_marshal(&' + v + '[i]); ' + support + '_writer_bytes_field(&w, ' + n + ', b.data, b.len); free(b.data); }\n';
-    }
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.cPbEncodeField, f, '', model, [support]);
 }
-
 function cbDecodeSingular(model, f, target, src, indent, support) {
-  if (CB_VARINT.has(f.type)) {
-    return indent + target + ' = ' + (f.type === 14
-      ? '((' + cbEntryRef(model, cbResolve(model, f.typeName)) + ')' + cbVarintDecode({ ...f, type: 5 }, src) + ')'
-      : cbVarintDecode(f, src)) + ';\n';
-  }
-  if (CB_FIXED[f.type]) {
-    let conv;
-    switch (f.type) {
-      case 2: conv = support + '_fixed_to_f32((uint32_t)' + src + ')'; break;
-      case 1: conv = support + '_fixed_to_f64(' + src + ')'; break;
-      case 7: conv = '((uint32_t)' + src + ')'; break;
-      case 15: conv = '((int32_t)(uint32_t)' + src + ')'; break;
-      default: conv = src;
-    }
-    return indent + target + ' = ' + conv + ';\n';
-  }
-  switch (f.type) {
-    case 9: return indent + target + ' = ' + support + '_strdup_bytes(' + src + '.data, ' + src + '.len);\n';
-    case 12: return indent + target + ' = ' + support + '_bytes_copy(' + src + '.data, ' + src + '.len);\n';
-    case 11: {
-      const ref = cbEntryRef(model, cbResolve(model, f.typeName));
-      return indent + target + ' = (' + ref + ' *)calloc(1, sizeof(' + ref + '));\n'
-        + indent + ref + '_unmarshal(' + target + ', ' + src + '.data, ' + src + '.len);\n';
-    }
-    default: throw new Error('unsupported field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.cPbDecodeSingular, f, '', model, [target, src, indent, support]);
 }
-
 function cbSrc(f) {
   return CB_VARINT.has(f.type) ? 'field.varint_value' : (CB_FIXED[f.type] ? 'field.fixed_value' : 'field.bytes_value');
 }
 
 function cbGrowStmt(model, f, v, expr, indent, support) {
-  const elem = f.type === FT.MESSAGE
-    ? cbEntryRef(model, cbResolve(model, f.typeName))
-    : cbType(model, { ...f, label: 1 }, support);
-  return indent + v + ' = (' + elem + ' *)realloc(' + v + ', sizeof(' + elem + ') * (' + v + '_count + 1));\n'
-    + indent + v + '[' + v + '_count++] = ' + expr + ';\n';
+  return runSegments(SEGMENT_PROGRAMS.cPbGrow, f, '', model, [v, expr, indent ?? '', support ?? '']);
 }
-
 function cbDecodeCase(model, f, support) {
-  const v = 'm->' + f.name;
-  const head = '                case ' + f.number + ': {\n';
-  const tail = '                    break;\n                }\n';
-  if (f.type === FT.MESSAGE && cbResolve(model, f.typeName).kind === 'map') {
-    const entry = cbResolve(model, f.typeName);
-    const ename = cbEntryRef(model, entry);
-    return head
-      + '                    ' + ename + ' kv = decode_' + ename + '(field.bytes_value.data, field.bytes_value.len);\n'
-      + cbGrowStmt(model, f, v, 'kv', '                    ', support)
-      + tail;
-  }
-  if (f.label !== 3) {
-    const clearing = oneofSiblings(model, f).map((sib) => '                    m->' + sib.name + ' = ' + cbDefault(model, sib, support) + ';\n').join('');
-    return head + clearing + cbDecodeSingular(model, f, v, cbSrc(f), '                    ', support) + tail;
-  }
-  if (CB_VARINT.has(f.type)) {
-    const conv = (src) => f.type === 14
-      ? '((' + cbEntryRef(model, cbResolve(model, f.typeName)) + ')' + cbVarintDecode({ ...f, type: 5 }, src) + ')'
-      : cbVarintDecode(f, src);
-    return head
-      + '                    if (field.wire == 2) {\n'
-      + '                        ' + support + 'Reader sub; ' + support + '_reader_init(&sub, field.bytes_value.data, field.bytes_value.len);\n'
-      + '                        while (!' + support + '_reader_done(&sub)) {\n'
-      + '                            uint64_t raw = ' + support + '_reader_varint(&sub);\n'
-      + cbGrowStmt(model, f, v, conv('raw'), '                            ', support)
-      + '                        }\n                    } else {\n'
-      + cbGrowStmt(model, f, v, conv('field.varint_value'), '                        ', support)
-      + '                    }\n' + tail;
-  }
-  if (CB_FIXED[f.type]) {
-    const subConv = f.type === 2 ? support + '_fixed_to_f32(' + support + '_reader_fixed_u32(&sub))'
-      : f.type === 1 ? support + '_fixed_to_f64(' + support + '_reader_fixed_u64(&sub))'
-      : f.type === 7 ? support + '_reader_fixed_u32(&sub)'
-      : f.type === 15 ? '((int32_t)' + support + '_reader_fixed_u32(&sub))'
-      : support + '_reader_fixed_u64(&sub)';
-    const oneConv = f.type === 2 ? support + '_fixed_to_f32((uint32_t)field.fixed_value)'
-      : f.type === 1 ? support + '_fixed_to_f64(field.fixed_value)'
-      : f.type === 7 ? '((uint32_t)field.fixed_value)'
-      : f.type === 15 ? '((int32_t)(uint32_t)field.fixed_value)' : 'field.fixed_value';
-    return head
-      + '                    if (field.wire == 2) {\n'
-      + '                        ' + support + 'Reader sub; ' + support + '_reader_init(&sub, field.bytes_value.data, field.bytes_value.len);\n'
-      + '                        while (!' + support + '_reader_done(&sub)) {\n'
-      + cbGrowStmt(model, f, v, subConv, '                            ', support)
-      + '                        }\n                    } else {\n'
-      + cbGrowStmt(model, f, v, oneConv, '                        ', support)
-      + '                    }\n' + tail;
-  }
-  switch (f.type) {
-    case 9: return head + cbGrowStmt(model, f, v, support + '_strdup_bytes(field.bytes_value.data, field.bytes_value.len)', '                    ', support) + tail;
-    case 12: return head + cbGrowStmt(model, f, v, support + '_bytes_copy(field.bytes_value.data, field.bytes_value.len)', '                    ', support) + tail;
-    case 11: {
-      const ref = cbEntryRef(model, cbResolve(model, f.typeName));
-      return head
-        + '                    ' + ref + ' item; memset(&item, 0, sizeof(item));\n'
-        + '                    ' + ref + '_unmarshal(&item, field.bytes_value.data, field.bytes_value.len);\n'
-        + cbGrowStmt(model, f, v, 'item', '                    ', support)
-        + tail;
-    }
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
+  return runSegments(SEGMENT_PROGRAMS.cPbDecodeCase, f, '', model, [support]);
 }
-
 function cbMapHelpers(model, entry, support) {
-  const msg = entry.msg;
-  const ename = cbEntryRef(model, entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry lacks key/value');
-  const kt = cbType(model, { ...keyF, label: 1 }, support);
-  const vt = cbType(model, { ...valF, label: 1 }, support);
-  const vtPlain = (valF.type === FT.MESSAGE && cbResolve(model, valF.typeName).kind !== 'map')
-    ? cbEntryRef(model, cbResolve(model, valF.typeName))
-    : vt;
-  return 'static inline ' + support + 'Bytes encode_' + ename + '(' + kt + ' key, ' + vtPlain + ' value) {\n'
-    + '    ' + support + 'Writer w; ' + support + '_writer_init(&w);\n'
-    + cbEncodeSingular(model, { ...keyF, label: 1 }, 'key', '    ', support)
-    + (valF.type === FT.MESSAGE
-      ? '    { ' + cbEntrySupport(cbResolve(model, valF.typeName)) + 'Bytes b = ' + vtPlain + '_marshal(&value); ' + support + '_writer_bytes_field(&w, ' + valF.number + ', b.data, b.len); free(b.data); }\n'
-      : cbEncodeSingular(model, { ...valF, label: 1 }, 'value', '    ', support))
-    + '    return ' + support + '_writer_to_bytes(&w);\n}\n\n'
-    + 'static inline ' + ename + ' decode_' + ename + '(const uint8_t *data, size_t len) {\n'
-    + '    ' + ename + ' result; memset(&result, 0, sizeof(result));\n'
-    + '    result.key = ' + cbDefault(model, { ...keyF, label: 1 }, support) + ';\n'
-    + (valF.type === FT.MESSAGE
-      ? '    /* result.value zero-initialized */\n'
-      : '    result.value = ' + cbDefault(model, { ...valF, label: 1 }, support) + ';\n')
-    + '    ' + support + 'Reader r; ' + support + '_reader_init(&r, data, len);\n'
-    + '    ' + support + 'Field field;\n'
-    + '    while (' + support + '_reader_next(&r, &field)) {\n        switch (field.number) {\n'
-    + '            case ' + keyF.number + ': ' + cbDecodeSingular(model, { ...keyF, label: 1 }, 'result.key', cbSrc(keyF), '', support).replace(/\s+$/, '') + ' break;\n'
-    + '            case ' + valF.number + ': ' + (valF.type === FT.MESSAGE
-      ? vtPlain + '_unmarshal(&result.value, field.bytes_value.data, field.bytes_value.len);'
-      : cbDecodeSingular(model, { ...valF, label: 1 }, 'result.value', cbSrc(valF), '', support).replace(/\s+$/, '')) + ' break;\n'
-    + '            default: break;\n        }\n    }\n    return result;\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.cPbMapHelpers, entry, '', model, [support]);
 }
-
 function cbSupportBlock(support, guard) {
   const P = support;
   return '#ifndef ' + guard + '\n#define ' + guard + '\n\n'
@@ -1960,30 +1713,8 @@ function cbSupportBlock(support, guard) {
 }
 
 function cbMessageFns(model, msg, support) {
-  const name = cbMsgName(model, msg);
-  return 'static inline void ' + name + '_init(' + name + ' *m) {\n    memset(m, 0, sizeof(*m));\n'
-    + msg.fields.map((f) => (f.type === FT.STRING || f.type === FT.ENUM || cbExplicitLiteral(model, f) !== null)
-      ? '    m->' + f.name + ' = ' + cbDefault(model, f, support) + ';\n' : '').join('')
-    + '}\n\n'
-    + 'static inline ' + support + 'Bytes ' + name + '_marshal(const ' + name + ' *m) {\n'
-    + '    ' + support + 'Writer w; ' + support + '_writer_init(&w);\n'
-    + msg.fields.map((f) => cbEncodeGuard(model, f, cbEncodeField(model, f, support))).join('')
-    + '    ' + support + '_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);\n'
-    + '    return ' + support + '_writer_to_bytes(&w);\n}\n\n'
-    + 'static inline void ' + name + '_unmarshal(' + name + ' *m, const uint8_t *data, size_t len) {\n'
-    + '    ' + name + '_init(m);\n'
-    + '    ' + support + 'Reader r; ' + support + '_reader_init(&r, data, len);\n'
-    + '    ' + support + 'Field field;\n'
-    + '    while (' + support + '_reader_next(&r, &field)) {\n        switch (field.number) {\n'
-    + msg.fields.map((f) => cbDecodeCase(model, f, support)).join('')
-    + '            default: {\n'
-    + '                ' + support + 'Bytes raw = ' + support + '_bytes_copy(field.raw_value.data, field.raw_value.len);\n'
-    + '                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);\n'
-    + '                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);\n'
-    + '                m->unknown_fields.len += raw.len; free(raw.data);\n'
-    + '                break;\n            }\n        }\n    }\n}\n\n';
+  return runSegments(SEGMENT_PROGRAMS.cPbMessage, msg, '', model, [support]);
 }
-
 function emitCPbFiles(model) {
   if (!model.messages.length && !model.enums.length) return [];
   const base = baseName(model.name);
