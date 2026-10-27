@@ -33,7 +33,7 @@
 ;;; emitter function at a time; unconverted functions stay
 ;;; hand-mirrored and parity-pinned.
 
-(require "spec.rkt" "desc.rkt")
+(require "spec.rkt" "desc.rkt" racket/path)
 
 (provide go-register-method-program go-deprecated-program
          go-client-method-program go-server-iface-method-program
@@ -66,10 +66,24 @@
          wasm-cpp-server-export-program wasm-cpp-server-iface-method-program
          wasm-cpp-stream-iface-method-program wasm-cpp-stream-feed-export-program
          wasm-cpp-service-program
+         seg-rust-no-std
          wasm-zig-client-method-program wasm-zig-pending-structs-program
          wasm-zig-server-serve-export-program wasm-zig-server-iface-field-program
          wasm-zig-stream-iface-field-program wasm-zig-stream-feed-export-program
-         wasm-zig-service-program)
+         wasm-zig-service-program
+         rust-deprecated-program rust-client-method-program
+         rust-client-options-method-program rust-trait-method-program
+         rust-trait-method-deprecated-program rust-register-method-program
+         rust-service-program
+         rs-pb-varint-expr-program rs-pb-varint-decode-program
+         rs-pb-fixed-encode-program rs-pb-fixed-decode-program
+         rs-pb-fixed-decode32-program rs-pb-fixed-encode-payload-program
+         rs-pb-elem-type-program rs-pb-type-program rs-pb-default-program
+         rs-pb-encode-singular-program rs-pb-set-expr-program
+         rs-pb-oneof-clearing-program rs-pb-encode-field-program
+         rs-pb-decode-singular-program rs-pb-decode-singular-kv-program
+         rs-pb-decode-case-program rs-pb-map-helpers-program
+         rs-pb-enum-named-program rs-pb-message-program)
 
 ;; ---------------------------------------------------------------------------
 ;; Go stub: RegisterMethod handler table entries (one per method).
@@ -1186,6 +1200,361 @@
     (fmt "var g_stream_impl: ?*~aStreamServer = null;\n\n/// Register the incremental implementation used by the serve_*Start/Feed/End exports.\npub fn register~aStreamServer(impl: *~aStreamServer) void {\n    g_stream_impl = impl;\n}\n\n" (svc) (svc) (svc))
     (each methods (call wasmZigStreamFeedExport))))
 
+;; ---------------------------------------------------------------------------
+;; Rust stub emitter (mirrors template-rust.rkt). Client/trait
+;; programs take the message module as (arg 0); the register
+;; program takes the service variable as (arg 0).
+;; ---------------------------------------------------------------------------
+
+(define rust-deprecated-program
+  '((when (ref deprecated)
+      (fmt "~a#[deprecated = \"deprecated in the proto schema\"]\n" (arg 0)))))
+
+(define rust-client-method-program
+  '((call rustDeprecated "    ")
+    (kind-case
+     (unary (fmt "    pub async fn ~a(&self, req: ~a::~a) -> Result<~a::~a, ::grpc_dc::Status> {\n        self.channel.unary(~s, req).await\n    }\n"
+                 (snake-case (ref name)) (arg 0) (ref input) (arg 0) (ref output) (ref path)))
+     (server-streaming (fmt "    pub async fn ~a(&self, req: ~a::~a) -> Result<::grpc_dc::ResponseStream<~a::~a>, ::grpc_dc::Status> {\n        self.channel.server_stream(~s, req).await\n    }\n"
+                            (snake-case (ref name)) (arg 0) (ref input) (arg 0) (ref output) (ref path)))
+     (client-streaming (fmt "    pub async fn ~a<S>(&self, reqs: S) -> Result<~a::~a, ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ~a::~a> + Send + 'static {\n        self.channel.client_stream(~s, reqs).await\n    }\n"
+                            (snake-case (ref name)) (arg 0) (ref output) (arg 0) (ref input) (ref path)))
+     (bidi (fmt "    pub async fn ~a<S>(&self, reqs: S) -> Result<::grpc_dc::ResponseStream<~a::~a>, ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ~a::~a> + Send + 'static {\n        self.channel.bidi(~s, reqs).await\n    }\n"
+                (snake-case (ref name)) (arg 0) (ref output) (arg 0) (ref input) (ref path))))))
+
+(define rust-client-options-method-program
+  '((call rustDeprecated "    ")
+    (kind-case
+     (unary (fmt "    pub async fn ~a_with_options(&self, req: ~a::~a, options: ::grpc_dc::CallOptions) -> Result<~a::~a, ::grpc_dc::Status> {\n        self.channel.unary_with_options(~s, req, options).await\n    }\n"
+                 (snake-case (ref name)) (arg 0) (ref input) (arg 0) (ref output) (ref path)))
+     (server-streaming (fmt "    pub async fn ~a_with_options(&self, req: ~a::~a, options: ::grpc_dc::CallOptions) -> Result<::grpc_dc::ResponseStream<~a::~a>, ::grpc_dc::Status> {\n        self.channel.server_stream_with_options(~s, req, options).await\n    }\n"
+                            (snake-case (ref name)) (arg 0) (ref input) (arg 0) (ref output) (ref path)))
+     (client-streaming (fmt "    pub async fn ~a_with_options<S>(&self, reqs: S, options: ::grpc_dc::CallOptions) -> Result<~a::~a, ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ~a::~a> + Send + 'static {\n        self.channel.client_stream_with_options(~s, reqs, options).await\n    }\n"
+                            (snake-case (ref name)) (arg 0) (ref output) (arg 0) (ref input) (ref path)))
+     (bidi (fmt "    pub async fn ~a_with_options<S>(&self, reqs: S, options: ::grpc_dc::CallOptions) -> Result<::grpc_dc::ResponseStream<~a::~a>, ::grpc_dc::Status>\n    where S: ::grpc_dc::futures_core::Stream<Item = ~a::~a> + Send + 'static {\n        self.channel.bidi_with_options(~s, reqs, options).await\n    }\n"
+                (snake-case (ref name)) (arg 0) (ref output) (arg 0) (ref input) (ref path))))))
+
+(define rust-trait-method-program
+  '((kind-case
+     (unary (fmt "    async fn ~a(&self, req: ~a::~a, ctx: ::grpc_dc::CallCtx) -> Result<~a::~a, ::grpc_dc::Status>;\n"
+                 (snake-case (ref name)) (arg 0) (ref input) (arg 0) (ref output)))
+     (server-streaming (fmt "    async fn ~a(&self, req: ~a::~a, ctx: ::grpc_dc::CallCtx) -> Result<::grpc_dc::ResponseStream<~a::~a>, ::grpc_dc::Status>;\n"
+                            (snake-case (ref name)) (arg 0) (ref input) (arg 0) (ref output)))
+     (client-streaming (fmt "    async fn ~a(&self, reqs: ::grpc_dc::RequestStream<~a::~a>, ctx: ::grpc_dc::CallCtx) -> Result<~a::~a, ::grpc_dc::Status>;\n"
+                            (snake-case (ref name)) (arg 0) (ref input) (arg 0) (ref output)))
+     (bidi (fmt "    async fn ~a(&self, reqs: ::grpc_dc::RequestStream<~a::~a>, ctx: ::grpc_dc::CallCtx) -> Result<::grpc_dc::ResponseStream<~a::~a>, ::grpc_dc::Status>;\n"
+                (snake-case (ref name)) (arg 0) (ref input) (arg 0) (ref output))))))
+
+(define rust-trait-method-deprecated-program
+  '((call rustDeprecated "    ") (call rustTraitMethod (arg 0))))
+
+(define rust-register-method-program
+  '((fmt "        ::grpc_dc::~a(~s, { let svc = ~a.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.~a(req, ctx).await } } }),\n"
+         (kind-case (unary "unary_method") (server-streaming "server_stream_method")
+                    (client-streaming "client_stream_method") (bidi "bidi_method"))
+         (ref name) (arg 0) (snake-case (ref impl-name)))))
+
+(define rust-service-program
+  '((fmt "pub struct ~aClient { channel: ::grpc_dc::Channel }\n\nimpl ~aClient {\n    pub fn new(channel: ::grpc_dc::Channel) -> Self { Self { channel } }\n" (svc) (svc))
+    (each+ methods client (call rustClientMethod (arg 0)))
+    (each+ methods client (call rustClientOptionsMethod (arg 0)))
+    "}\n\n"
+    (fmt "#[::grpc_dc::async_trait]\npub trait ~a: Send + Sync + 'static {\n" (svc))
+    (each methods (call rustTraitMethodDeprecated (arg 0)))
+    "}\n\n"
+    (fmt "pub fn ~a_service<S: ~a>(svc: std::sync::Arc<S>) -> ::grpc_dc::ServiceDef {\n    ::grpc_dc::ServiceDef::new(~s, vec![\n"
+         (snake-case (svc)) (svc) (ref full-name))
+    (each+ methods server (call rustRegisterMethod "svc"))
+    "    ])\n}\n"))
+
+;; ---------------------------------------------------------------------------
+;; Rust pb emitter (mirrors template-rust.rkt's rs-pb-* functions).
+;; ---------------------------------------------------------------------------
+
+(define rs-pb-varint-expr-program
+  '((case-on (type)
+      (8 (fmt "(if ~a { 1u64 } else { 0u64 })" (arg 0)))
+      (17 (fmt "((((~a << 1) ^ (~a >> 31)) as u32) as u64)" (arg 0) (arg 0)))
+      (18 (fmt "(((~a << 1) ^ (~a >> 63)) as u64)" (arg 0) (arg 0)))
+      (else (fmt "(~a as u64)" (arg 0))))))
+
+(define rs-pb-varint-decode-program
+  '((case-on (type)
+      ((5 15) (fmt "(~a as u32 as i32)" (arg 0)))
+      (14 (fmt "~a.to_i32()" (arg 0)))
+      ((13 7) (fmt "(~a as u32)" (arg 0)))
+      (8 (fmt "(~a != 0)" (arg 0)))
+      (17 (fmt "(((~a as u32 >> 1) as i32) ^ (-(((~a as u32) & 1) as i32)))" (arg 0) (arg 0)))
+      (18 (fmt "(((~a >> 1) as i64) ^ (-((~a & 1) as i64)))" (arg 0) (arg 0)))
+      ((4 6) (fmt "(~a as u64)" (arg 0)))
+      (else (fmt "(~a as i64)" (arg 0))))))
+
+(define rs-pb-fixed-encode-program
+  '((case-on (rs-fixed-name)
+      ("f64" (fmt "pb_append_fixed64(&mut out, ~a.to_bits());" (arg 0)))
+      ("f32" (fmt "pb_append_fixed32(&mut out, ~a.to_bits());" (arg 0)))
+      ("u64" (fmt "pb_append_fixed64(&mut out, ~a);" (arg 0)))
+      ("i64" (fmt "pb_append_fixed64(&mut out, ~a as u64);" (arg 0)))
+      ("u32" (fmt "pb_append_fixed32(&mut out, ~a);" (arg 0)))
+      ("i32" (fmt "pb_append_fixed32(&mut out, ~a as u32);" (arg 0))))))
+
+(define rs-pb-fixed-decode-program
+  '((case-on (rs-fixed-name)
+      ("f64" (fmt "f64::from_bits(~a)" (arg 0)))
+      ("f32" (fmt "f32::from_bits(~a as u32)" (arg 0)))
+      ("u64" (fmt "(~a as u64)" (arg 0)))
+      ("i64" (fmt "(~a as u64 as i64)" (arg 0)))
+      ("u32" (fmt "(~a as u32)" (arg 0)))
+      ("i32" (fmt "(~a as u32 as i32)" (arg 0))))))
+
+(define rs-pb-fixed-decode32-program
+  '((case-on (rs-fixed-name)
+      ("f32" (fmt "f32::from_bits(~a as u32)" (arg 0)))
+      ("u32" (fmt "(~a as u32)" (arg 0)))
+      ("i32" (fmt "(~a as u32 as i32)" (arg 0)))
+      (else (call rsPbFixedDecode (arg 0))))))
+
+(define rs-pb-fixed-encode-payload-program
+  '((case-on (rs-fixed-name)
+      (("f64" "f32") (fmt "payload.extend_from_slice(&~a.to_bits().to_le_bytes());" (arg 0)))
+      ("u64" (fmt "payload.extend_from_slice(&~a.to_le_bytes());" (arg 0)))
+      ("i64" (fmt "payload.extend_from_slice(&~a.to_le_bytes());" (fmt "(~a as u64)" (arg 0))))
+      ("u32" (fmt "payload.extend_from_slice(&~a.to_le_bytes());" (arg 0)))
+      ("i32" (fmt "payload.extend_from_slice(&~a.to_le_bytes());" (fmt "(~a as u32)" (arg 0)))))))
+
+(define rs-pb-elem-type-program
+  '((case-on (type)
+      (11 (rs-entry-ref))
+      (14 (rs-entry-ref))
+      ((4 6) "u64")
+      ((3 16 18) "i64")
+      (13 "u32")
+      (7 "u32")
+      (else (rs-scalar-type)))))
+
+(define rs-pb-type-program
+  '((if (is-map)
+        (then (fmt "~a<~a, ~a>" (rs-map-type)
+                   (call-on (key-field (resolved-entry)) rsPbElemType)
+                   (call-on (val-field (resolved-entry)) rsPbElemType)))
+        (else
+         (if (repeated)
+             (then (fmt "Vec<~a>" (call rsPbElemType)))
+             (else
+              (if (type-is 11)
+                  (then (fmt "Option<Box<~a>>" (call rsPbElemType)))
+                  (else (call rsPbElemType)))))))))
+
+(define rs-pb-default-program
+  '((if (is-map)
+        (then (fmt "~a::new()" (rs-map-type)))
+        (else
+         (if (repeated)
+             (then "Vec::new()")
+             (else
+              (case-on (type)
+                (11 "None")
+                (9 "String::new()")
+                (12 "Vec::new()")
+                (8 "false")
+                ((1 2) "0.0")
+                (14 (if (has-default)
+                        (then (fmt "~a::~a" (rs-entry-ref) (rs-camel (default-raw))))
+                        (else (fmt "~a::~a" (rs-entry-ref) (rs-camel (enum-first-value-name))))))
+                (else (if (has-default) (then (default-raw)) (else "0"))))))))))
+
+(define rs-pb-encode-singular-program
+  '((case-on (category)
+      ("varint"
+       (if (proto2)
+           (then (fmt "~a{ pb_append_tag(&mut out, ~a, 0); pb_append_varint(&mut out, ~a); }\n"
+                      (arg 1) (ref number)
+                      (if (type-is 14)
+                          (then (fmt "(~a.to_i32() as u64)" (arg 0)))
+                          (else (call rsPbVarintExpr (arg 0))))))
+           (else (fmt "~aif ~a { pb_append_tag(&mut out, ~a, 0); pb_append_varint(&mut out, ~a); }\n"
+                      (arg 1)
+                      (if (type-is 8)
+                          (then (arg 0))
+                          (else (fmt "~a != ~a" (arg 0) (call-on (with-label (self) 1) rsPbDefault))))
+                      (ref number)
+                      (if (type-is 14)
+                          (then (fmt "(~a.to_i32() as u64)" (arg 0)))
+                          (else (call rsPbVarintExpr (arg 0))))))))
+      ("fixed"
+       (if (proto2)
+           (then (fmt "~a{ pb_append_tag(&mut out, ~a, ~a); ~a }\n"
+                      (arg 1) (ref number)
+                      (case-on (rs-fixed-size) (8 "1") (else "5"))
+                      (call rsPbFixedEncode (arg 0))))
+           (else (fmt "~aif ~a != ~a { pb_append_tag(&mut out, ~a, ~a); ~a }\n"
+                      (arg 1) (arg 0) (call-on (with-label (self) 1) rsPbDefault)
+                      (ref number)
+                      (case-on (rs-fixed-size) (8 "1") (else "5"))
+                      (call rsPbFixedEncode (arg 0))))))
+      ("string"
+       (if (proto2)
+           (then (fmt "~apb_append_bytes_field(&mut out, ~a, ~a.as_bytes());\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~apb_append_string_field(&mut out, ~a, &~a);\n" (arg 1) (ref number) (arg 0)))))
+      ("bytes"
+       (if (proto2)
+           (then (fmt "~apb_append_bytes_field(&mut out, ~a, &~a);\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aif !~a.is_empty() { pb_append_bytes_field(&mut out, ~a, &~a); }\n" (arg 1) (arg 0) (ref number) (arg 0)))))
+      ("message"
+       (fmt "~aif let Some(v) = &~a { pb_append_bytes_field(&mut out, ~a, &v.encode()); }\n" (arg 1) (arg 0) (ref number)))
+      (else (fail)))))
+
+(define rs-pb-set-expr-program
+  '((case-on (type)
+      ((11 10) (fmt "self.~a.is_some()" (rs-field-name)))
+      ((9 12) (fmt "!self.~a.is_empty()" (rs-field-name)))
+      (8 (fmt "self.~a" (rs-field-name)))
+      (14 (fmt "self.~a.to_i32() != 0" (rs-field-name)))
+      ((1 2) (fmt "self.~a != 0.0" (rs-field-name)))
+      (else (fmt "self.~a != 0" (rs-field-name))))))
+
+(define rs-pb-oneof-clearing-program
+  '((each-siblings (fmt "                    msg.~a = ~a;\n" (rs-field-name) (call rsPbDefault)))))
+
+(define rs-pb-encode-field-program
+  '((if (is-map)
+        (then (fmt "        { let mut keys: Vec<&_> = self.~a.keys().collect(); keys.sort(); for k in keys { let val = &self.~a[k]; pb_append_bytes_field(&mut out, ~a, &~a(k, val)); } }\n"
+                   (rs-field-name) (rs-field-name) (ref number) (fmt "pb_encode_~a" (rs-entry-ref))))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint" (fmt "        if !self.~a.is_empty() {\n            let mut payload = Vec::new();\n            for x in &self.~a { pb_append_varint(&mut payload, ~a); }\n            pb_append_bytes_field(&mut out, ~a, &payload);\n        }\n"
+                               (rs-field-name) (rs-field-name)
+                               (if (type-is 14)
+                                   (then "((*x).to_i32() as u64)")
+                                   (else (call rsPbVarintExpr "(*x)")))
+                               (ref number)))
+                ("fixed" (fmt "        if !self.~a.is_empty() {\n            let mut payload = Vec::new();\n            for x in &self.~a { ~a }\n            pb_append_bytes_field(&mut out, ~a, &payload);\n        }\n"
+                              (rs-field-name) (rs-field-name) (call rsPbFixedEncodePayload "(*x)") (ref number)))
+                ("string" (fmt "        for x in &self.~a { pb_append_bytes_field(&mut out, ~a, x.as_bytes()); }\n" (rs-field-name) (ref number)))
+                ("bytes" (fmt "        for x in &self.~a { pb_append_bytes_field(&mut out, ~a, x); }\n" (rs-field-name) (ref number)))
+                ("message" (fmt "        for x in &self.~a { pb_append_bytes_field(&mut out, ~a, &x.encode()); }\n" (rs-field-name) (ref number)))
+                (else (fail))))
+             (else (call rsPbEncodeSingular (fmt "self.~a" (rs-field-name)) "        ")))))))
+
+(define rs-pb-decode-singular-program
+  '((case-on (category)
+      ("varint" (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+                     (if (type-is 14)
+                         (then (fmt "~a::from_i32(~a as i32)" (rs-entry-ref) (arg 1)))
+                         (else (call rsPbVarintDecode (arg 1))))))
+      ("fixed" (fmt "~a~a = ~a;\n" (arg 2) (arg 0) (call rsPbFixedDecode (arg 1))))
+      ("string" (fmt "~a~a = String::from_utf8_lossy(&~a).into_owned();\n" (arg 2) (arg 0) (arg 1)))
+      ("bytes" (fmt "~a~a = ~a;\n" (arg 2) (arg 0) (arg 1)))
+      ("message" (fmt "~a~a = Some(Box::new(~a::decode(&~a)?));\n" (arg 2) (arg 0) (rs-entry-ref) (arg 1)))
+      (else (fail)))))
+
+(define rs-pb-decode-singular-kv-program
+  '((case-on (category)
+      ("varint" (fmt "~a~a = ~a;\n" (arg 2) (arg 0)
+                     (if (type-is 14)
+                         (then (fmt "~a::from_i32(~a as i32)" (rs-entry-ref) (fmt "~a.varint_value" (arg 1))))
+                         (else (call rsPbVarintDecode (fmt "~a.varint_value" (arg 1)))))))
+      ("fixed" (fmt "~a~a = ~a;\n" (arg 2) (arg 0) (call rsPbFixedDecode (fmt "~a.fixed_value" (arg 1)))))
+      ("string" (fmt "~a~a = String::from_utf8_lossy(&~a).into_owned();\n" (arg 2) (arg 0) (fmt "~a.bytes_value" (arg 1))))
+      ("bytes" (fmt "~a~a = ~a.clone();\n" (arg 2) (arg 0) (fmt "~a.bytes_value" (arg 1))))
+      ("message" (fmt "~a~a = ~a::decode(&~a)?;\n" (arg 2) (arg 0) (rs-entry-ref) (fmt "~a.bytes_value" (arg 1))))
+      (else (fail)))))
+
+(define rs-pb-decode-case-program
+  '((if (is-map)
+        (then (fmt "                ~a => {\n                    let (kk, vv) = ~a(&field.bytes_value)?;\n                    msg.~a.insert(kk, vv);\n                }\n"
+                   (ref number) (fmt "pb_decode_~a" (rs-entry-ref)) (rs-field-name)))
+        (else
+         (if (repeated)
+             (then
+              (case-on (category)
+                ("varint"
+                 (fmt "                ~a => {\n                    if field.wire == 2 {\n                        let mut sub = PbReader::new(&field.bytes_value);\n                        while !sub.done() {\n                            let raw = sub.varint()?;\n                            msg.~a.push(~a);\n                        }\n                    } else {\n                        msg.~a.push(~a);\n                    }\n                }\n"
+                      (ref number) (rs-field-name)
+                      (if (type-is 14)
+                          (then (fmt "~a::from_i32(raw as i32)" (rs-entry-ref)))
+                          (else (call rsPbVarintDecode "raw")))
+                      (rs-field-name)
+                      (if (type-is 14)
+                          (then (fmt "~a::from_i32(field.varint_value as i32)" (rs-entry-ref)))
+                          (else (call rsPbVarintDecode "field.varint_value")))))
+                ("fixed"
+                 (fmt "                ~a => {\n                    if field.wire == 2 {\n                        let mut i = 0;\n                        while i < field.bytes_value.len() {\n                            let mut padded = [0u8; 8];\n                            padded[..~a].copy_from_slice(&field.bytes_value[i..i + ~a]);\n                            let chunk = u64::from_le_bytes(padded);\n                            msg.~a.push(~a);\n                            i += ~a;\n                        }\n                    } else {\n                        msg.~a.push(~a);\n                    }\n                }\n"
+                      (ref number) (rs-fixed-size) (rs-fixed-size) (rs-field-name)
+                      (case-on (rs-fixed-size)
+                        (4 (call rsPbFixedDecode32 "chunk"))
+                        (else (call rsPbFixedDecode "chunk")))
+                      (rs-fixed-size) (rs-field-name)
+                      (call rsPbFixedDecode "field.fixed_value")))
+                ("string" (fmt "                ~a => {\n                    msg.~a.push(String::from_utf8_lossy(&field.bytes_value).into_owned());\n                }\n" (ref number) (rs-field-name)))
+                ("bytes" (fmt "                ~a => {\n                    msg.~a.push(field.bytes_value.clone());\n                }\n" (ref number) (rs-field-name)))
+                ("message" (fmt "                ~a => {\n                    msg.~a.push(~a::decode(&field.bytes_value)?);\n                }\n" (ref number) (rs-field-name) (rs-entry-ref)))
+                (else (fail))))
+             (else
+              (fmt "                ~a => {\n~a~a                }\n"
+                   (ref number) (call rsPbOneofClearing)
+                   (call rsPbDecodeSingular
+                         (fmt "msg.~a" (rs-field-name))
+                         (case-on (category)
+                           ("varint" "field.varint_value")
+                           ("fixed" "field.fixed_value")
+                           (else "field.bytes_value"))
+                         "                    "))))))))
+
+(define rs-pb-map-helpers-program
+  '((fmt "fn pb_encode_~a(key: &~a, value: &~a) -> Vec<u8> {\n    let mut out = Vec::new();\n"
+         (rs-entry-ref) (call-on (key-field) rsPbElemType) (call-on (val-field) rsPbElemType))
+    (call-on (with-label (key-field) 1) rsPbEncodeSingular "(*key)" "    ")
+    (case-on (get (val-field) type)
+      (11 (fmt "    pb_append_bytes_field(&mut out, ~a, &value.encode());\n" (get (val-field) number)))
+      (else (call-on (with-label (val-field) 1) rsPbEncodeSingular "(*value)" "    ")))
+    "    out\n}\n\n"
+    (fmt "fn pb_decode_~a(data: &[u8]) -> Result<(~a, ~a), String> {\n"
+         (rs-entry-ref) (call-on (key-field) rsPbElemType) (call-on (val-field) rsPbElemType))
+    (fmt "    let mut key: ~a = ~a;\n    let mut value: ~a = ~a;\n"
+         (call-on (key-field) rsPbElemType)
+         (call-on (with-label (key-field) 1) rsPbDefault)
+         (call-on (val-field) rsPbElemType)
+         (case-on (get (val-field) type)
+           (11 (fmt "~a::default()" (call-on (val-field) rsPbElemType)))
+           (else (call-on (with-label (val-field) 1) rsPbDefault))))
+    "    let mut r = PbReader::new(data);\n    while let Some(field) = r.next()? {\n        match field.number {\n"
+    (fmt "            ~a => {\n~a            }\n" (get (key-field) number)
+         (call-on (with-label (key-field) 1) rsPbDecodeSingularKv "key" "field" "                "))
+    (fmt "            ~a => {\n~a            }\n" (get (val-field) number)
+         (call-on (with-label (val-field) 1) rsPbDecodeSingularKv "value" "field" "                "))
+    "            _ => {}\n        }\n    }\n    Ok((key, value))\n}\n\n"))
+
+(define rs-pb-enum-named-program
+  '((fmt (rust-enum-fragment header) (flat-of (arg 0)))
+    (each values (fmt (rust-enum-fragment value)
+                      (case-on (index) (0 (rust-enum-fragment defaultMark)) (else ""))
+                      (rs-camel (ref name)) (ref number)))
+    (rust-enum-fragment unknownVariant)
+    (fmt (rust-enum-fragment implOpen) (flat-of (arg 0)))
+    (each values (fmt (rust-enum-fragment fromArm) (ref number) (flat-of (arg 0)) (rs-camel (ref name))))
+    (fmt (rust-enum-fragment unknownFromArm) (flat-of (arg 0)))
+    (rust-enum-fragment toOpen)
+    (each values (fmt (rust-enum-fragment toArm) (flat-of (arg 0)) (rs-camel (ref name)) (ref number)))
+    (fmt (rust-enum-fragment unknownToArm) (flat-of (arg 0)))))
+
+(define rs-pb-message-program
+  '((each enums (call rsPbEnumNamed (fmt "~a.~a" (get (root) full-name) (ref name))))
+    (fmt "#[derive(Clone, Debug, PartialEq)]\npub struct ~a {\n" (flat))
+    (each fields (fmt "    pub ~a: ~a,\n" (rs-field-name) (call rsPbType)))
+    "    pub unknown_fields: Vec<u8>,\n}\n\n"
+    (fmt "impl Default for ~a {\n    fn default() -> Self {\n        Self {\n" (flat))
+    (each fields (fmt "            ~a: ~a,\n" (rs-field-name) (call rsPbDefault)))
+    "            unknown_fields: Vec::new(),\n        }\n    }\n}\n\n"
+    (fmt "impl ~a {\n    pub fn encode(&self) -> Vec<u8> {\n        let mut out = Vec::new();\n" (flat))
+    (each fields (guarded rsPbSetExpr "        if !(~a) {\n" "        }\n" (call rsPbEncodeField)))
+    "        out.extend_from_slice(&self.unknown_fields);\n        out\n    }\n\n    pub fn decode(bytes: &[u8]) -> Result<Self, String> {\n        let mut msg = Self::default();\n        let mut reader = PbReader::new(bytes);\n        while let Some(field) = reader.next()? {\n            match field.number {\n"
+    (each fields (call rsPbDecodeCase))
+    "                _ => {\n                    msg.unknown_fields.extend_from_slice(&field.raw_value);\n                }\n            }\n        }\n        Ok(msg)\n    }\n}\n\n"
+    (each nested (call rsPbMessage))))
+
 (define segment-programs
   (hasheq 'goRegisterMethod go-register-method-program
           'goDeprecated go-deprecated-program
@@ -1267,7 +1636,33 @@
           'wasmZigServerIfaceField wasm-zig-server-iface-field-program
           'wasmZigStreamIfaceField wasm-zig-stream-iface-field-program
           'wasmZigStreamFeedExport wasm-zig-stream-feed-export-program
-          'wasmZigService wasm-zig-service-program))
+          'wasmZigService wasm-zig-service-program
+          'rustDeprecated rust-deprecated-program
+          'rustClientMethod rust-client-method-program
+          'rustClientOptionsMethod rust-client-options-method-program
+          'rustTraitMethod rust-trait-method-program
+          'rustTraitMethodDeprecated rust-trait-method-deprecated-program
+          'rustRegisterMethod rust-register-method-program
+          'rustService rust-service-program
+          'rsPbVarintExpr rs-pb-varint-expr-program
+          'rsPbVarintDecode rs-pb-varint-decode-program
+          'rsPbFixedEncode rs-pb-fixed-encode-program
+          'rsPbFixedDecode rs-pb-fixed-decode-program
+          'rsPbFixedDecode32 rs-pb-fixed-decode32-program
+          'rsPbFixedEncodePayload rs-pb-fixed-encode-payload-program
+          'rsPbElemType rs-pb-elem-type-program
+          'rsPbType rs-pb-type-program
+          'rsPbDefault rs-pb-default-program
+          'rsPbEncodeSingular rs-pb-encode-singular-program
+          'rsPbSetExpr rs-pb-set-expr-program
+          'rsPbOneofClearing rs-pb-oneof-clearing-program
+          'rsPbEncodeField rs-pb-encode-field-program
+          'rsPbDecodeSingular rs-pb-decode-singular-program
+          'rsPbDecodeSingularKv rs-pb-decode-singular-kv-program
+          'rsPbDecodeCase rs-pb-decode-case-program
+          'rsPbMapHelpers rs-pb-map-helpers-program
+          'rsPbEnumNamed rs-pb-enum-named-program
+          'rsPbMessage rs-pb-message-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Racket interpreter. An env is (model node svc args err):
@@ -1282,7 +1677,7 @@
       (hash-ref node key #f)))
 
 (define (run-segments program node svc [model #f] [args '()] [err "return err"])
-  (run-env program (list model node svc args err node)))
+  (run-env program (list model node svc args err node 0)))
 
 (define (run-env program env)
   (apply string-append
@@ -1295,10 +1690,15 @@
 (define (env-args env) (fourth env))
 (define (env-err env) (fifth env))
 (define (env-root env) (sixth env))
+(define (env-index env) (seventh env))
 (define (env-with env #:model [model (env-model env)] #:node [node (env-node env)]
                   #:args [args (env-args env)] #:err [err (env-err env)]
-                  #:root [root (env-root env)])
-  (list model node (env-svc env) args err root))
+                  #:root [root (env-root env)] #:index [index (env-index env)])
+  (list model node (env-svc env) args err root index))
+
+;; Set by template-rust.rkt alongside its own no_std parameter;
+;; read by the (rs-map-type) builtin.
+(define seg-rust-no-std (make-parameter #f))
 
 (define (seg-truthy? v)
   (not (or (not v) (equal? v "") (equal? v 0))))
@@ -1405,6 +1805,62 @@
       (regexp-replace* #rx"_([a-zA-Z0-9])" (hash-ref f 'name)
                        (lambda (all c) (string-upcase c)))))
 
+(define (seg-snake-case s0)
+  (define s (if (symbol? s0) (symbol->string s0) s0))
+  (list->string
+   (for/fold ([out '()] [prev-lower? #f] #:result (reverse out))
+             ([c (in-string s)])
+     (cond [(char-upper-case? c)
+            (values (cons (char-downcase c)
+                          (if (and prev-lower? (not (null? out))) (cons #\_ out) out))
+                    #f)]
+           [else (values (cons c out) #t)]))))
+
+(define (seg-rs-camel s0)
+  (define s (if (symbol? s0) (symbol->string s0) s0))
+  (apply string-append
+         (map (lambda (p)
+                (if (string=? p "")
+                    ""
+                    (string-append (string (char-upcase (string-ref p 0)))
+                                   (string-downcase (substring p 1)))))
+              (string-split s "_"))))
+
+(define seg-rs-keywords
+  '("type" "ref" "box" "self" "Self" "crate" "super" "move" "static"
+    "mut" "fn" "struct" "enum" "impl" "trait" "loop" "match" "mod"
+    "pub" "use" "where" "async" "await" "dyn" "abstract" "become"
+    "do" "final" "macro" "override" "priv" "typeof" "unsized"
+    "virtual" "yield" "try" "gen"))
+
+(define (seg-rs-field-name f)
+  (define name (string-join (map string-downcase (string-split (hash-ref f 'name) "_")) "_"))
+  (if (member name seg-rs-keywords) (string-append "r#" name) name))
+
+(define (seg-rs-entry-ref model node)
+  (define entry
+    (if (hash-has-key? node 'type-name)
+        (seg-resolve model (hash-ref node 'type-name))
+        node))
+  (define flat
+    (seg-flat (hash-ref entry 'pkg)
+              (or (hash-ref entry 'full #f)
+                  (if (eq? (hash-ref entry 'kind) 'enum)
+                      (let ([e (hash-ref entry 'enum)])
+                        (if (hash-ref entry 'msg)
+                            (format "~a.~a" (hash-ref (hash-ref entry 'msg) 'full-name) (hash-ref e 'name))
+                            (format "~a.~a" (hash-ref entry 'pkg) (hash-ref e 'name))))
+                      (hash-ref (hash-ref entry 'msg) 'full-name)))))
+  (if (or (eq? (hash-ref entry 'kind) 'map)
+          (equal? (hash-ref entry 'file) (hash-ref model 'name)))
+      flat
+      (format "crate::~a_pb::~a"
+              (path->string (path-replace-extension
+                             (file-name-from-path (hash-ref entry 'file)) ""))
+              (if (eq? (hash-ref entry 'kind) 'enum)
+                  (hash-ref (hash-ref entry 'enum) 'name)
+                  flat))))
+
 (define (seg-later-oneof-cond model node)
   (define later (oneof-later-siblings model node))
   (if (null? later)
@@ -1420,7 +1876,7 @@
     [(string? seg) seg]
     [(number? seg) seg]
     [(eq? (car seg) 'fmt)
-     (apply format (second seg)
+     (apply format (if (list? (second seg)) (seg-eval (second seg) env) (second seg))
             (map (lambda (e)
                    (define v (seg-eval e env))
                    (if (symbol? v) (symbol->string v) v))
@@ -1458,6 +1914,22 @@
     [(eq? (car seg) 'entry-flat) (seg-entry-type node)]
     [(eq? (car seg) 'resolved-flat)
      (seg-entry-type (seg-resolve model (hash-ref node 'type-name)))]
+    [(eq? (car seg) 'index) (env-index env)]
+    [(eq? (car seg) 'snake-case) (seg-snake-case (seg-eval (second seg) env))]
+    [(eq? (car seg) 'rs-camel) (seg-rs-camel (seg-eval (second seg) env))]
+    [(eq? (car seg) 'rs-field-name) (seg-rs-field-name node)]
+    [(eq? (car seg) 'rs-map-type) (if (seg-rust-no-std) "BTreeMap" "std::collections::HashMap")]
+    [(eq? (car seg) 'rs-entry-ref) (seg-rs-entry-ref model node)]
+    [(eq? (car seg) 'rs-scalar-type) (scalar-type-entry 'rust (hash-ref node 'type))]
+    [(eq? (car seg) 'rs-fixed-size)
+     (second (assv (hash-ref node 'type) (fixed-scalar-table 'rust)))]
+    [(eq? (car seg) 'rs-fixed-name)
+     (third (assv (hash-ref node 'type) (fixed-scalar-table 'rust)))]
+    [(eq? (car seg) 'flat-of)
+     (seg-flat (hash-ref model 'package) (seg-eval (second seg) env))]
+    [(eq? (car seg) 'rust-enum-fragment) (rust-enum-fragment (second seg))]
+    [(eq? (car seg) 'enum-first-value-name)
+     (hash-ref (car (hash-ref (hash-ref (seg-resolve model (hash-ref node 'type-name)) 'enum) 'values)) 'name)]
     [(eq? (car seg) 'flat)
      (seg-flat (hash-ref model 'package) (hash-ref node 'full-name))]
     [(eq? (car seg) 'entry-type) (seg-entry-type-of model node)]
@@ -1580,19 +2052,19 @@
      (define items
        (foldl (lambda (k acc) (hash-ref acc k)) node keys))
      (apply string-append
-            (for/list ([el (in-list items)])
-              (run-env segs (env-with env #:node el))))]
+            (for/list ([el (in-list items)] [i (in-naturals)])
+              (run-env segs (env-with env #:node el #:index i))))]
     [(eq? (car seg) 'each+)
      (define aliases (if (eq? (third seg) 'client)
                          (alias-client-methods node)
                          (alias-server-methods node)))
      (apply string-append
-            (for/list ([el (in-list (append (hash-ref node (second seg)) aliases))])
-              (run-env (cdddr seg) (env-with env #:node el))))]
+            (for/list ([el (in-list (append (hash-ref node (second seg)) aliases))] [i (in-naturals)])
+              (run-env (cdddr seg) (env-with env #:node el #:index i))))]
     [(eq? (car seg) 'each-siblings)
      (apply string-append
-            (for/list ([sib (in-list (oneof-siblings (env-model env) node))])
-              (run-env (cdr seg) (env-with env #:node sib))))]
+            (for/list ([sib (in-list (oneof-siblings (env-model env) node))] [i (in-naturals)])
+              (run-env (cdr seg) (env-with env #:node sib #:index i))))]
     [(eq? (car seg) 'each-unique)
      (define rest (cdddr seg))
      (define kinds-part (and (pair? rest) (list? (car rest))
@@ -1616,14 +2088,15 @@
      (apply string-append
             (for/list ([el (in-list (if (and or-first? (null? uniq))
                                         (list (car all))
-                                        uniq))])
-              (run-env rest (env-with env #:node el))))]
+                                        uniq))]
+                       [i (in-naturals)])
+              (run-env rest (env-with env #:node el #:index i))))]
     [(eq? (car seg) 'each-sep)
      (define-values (keys segs) (splitf-at (cddr seg) symbol?))
      (define items
        (foldl (lambda (k acc) (hash-ref acc k)) node keys))
      (string-join
-      (for/list ([el (in-list items)])
-        (run-env segs (env-with env #:node el)))
+      (for/list ([el (in-list items)] [i (in-naturals)])
+        (run-env segs (env-with env #:node el #:index i)))
       (second seg))]
     [else (seg-eval seg env)]))
