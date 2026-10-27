@@ -6,71 +6,17 @@
 ;;; with the protoc plugin parameter `pb_import`).  A message class must
 ;;; expose `static encode(msg) -> Uint8Array` and `static decode(bytes)`.
 
-(require "spec.rkt" "desc.rkt")
+(require "spec.rkt" "desc.rkt" "segments.rkt")
 (provide emit-js-file)
 
-(define (lower-first s)
-  (if (string=? s "")
-      s
-      (string-append (string (char-downcase (string-ref s 0))) (substring s 1))))
-
 (define (js-deprecated m indent)
-  (if (hash-ref m 'deprecated #f)
-      (format "~a/** @deprecated deprecated in the proto schema */\n" indent)
-      ""))
-
+  (run-segments js-deprecated-program m "" #f (list indent)))
 (define (js-client-method m)
-  (define fn-name (lower-first (hash-ref m 'name)))
-  (define req (hash-ref m 'input))
-  (define resp (hash-ref m 'output))
-  (define path (hash-ref m 'path))
-  (define depr (js-deprecated m "  "))
-  (case (hash-ref m 'kind)
-    [(unary)
-     (format "~a  async ~a(request, options) {\n    return this.#channel.unary(~s, request, ~a, ~a, options);\n  }\n"
-             depr fn-name path req resp)]
-    [(server-streaming)
-     (format "~a  ~a(request, options) {\n    return this.#channel.serverStream(~s, request, ~a, ~a, options);\n  }\n"
-             depr fn-name path req resp)]
-    [(client-streaming)
-     (format "~a  async ~a(requests, options) {\n    return this.#channel.clientStream(~s, requests, ~a, ~a, options);\n  }\n"
-             depr fn-name path req resp)]
-    [(bidi)
-     (format "~a  ~a(requests, options) {\n    return this.#channel.bidi(~s, requests, ~a, ~a, options);\n  }\n"
-             depr fn-name path req resp)]))
-
+  (run-segments js-client-method-program m ""))
 (define (js-method-table-entry m)
-  (format "    ~a: { path: ~s, kind: ~s, requestType: ~a, responseType: ~a, handler: handlers.~a },\n"
-          (hash-ref m 'name) (hash-ref m 'path)
-          (symbol->string (hash-ref m 'kind))
-          (hash-ref m 'input) (hash-ref m 'output)
-          (lower-first (method-impl-name m))))
-
+  (run-segments js-method-table-entry-program m ""))
 (define (js-service svc)
-  (define sname (hash-ref svc 'name))
-  (define methods (hash-ref svc 'methods))
-  (string-append
-   (format "export class ~aClient {\n  #channel;\n  constructor(channel) { this.#channel = channel; }\n" sname)
-   (apply string-append (map js-client-method (append methods (alias-client-methods svc))))
-   "}\n\n"
-   (format "export function create~aService(handlers) {\n  return {\n    name: ~s,\n    methods: {\n"
-           sname (hash-ref svc 'full-name))
-   (apply string-append (map js-method-table-entry (append methods (alias-server-methods svc))))
-   "    },\n  };\n}\n"))
-
-;; ---------------------------------------------------------------------------
-;; JS message classes (<base>_pb.js), mirroring the Python emitter
-;; (template-python.rkt) and the web generator's emitJsPbFile:
-;; dependency-free classes with static encode/decode. Wire format
-;; is genuine protobuf (proto3 semantics; oneof fields are plain
-;; fields). Returns (cons name content) or #f when the model has
-;; no message metadata or nothing to emit.
-;; ---------------------------------------------------------------------------
-
-(define js-pb-varint-types varint-scalar-types)
-(define js-pb-fixed (fixed-scalar-table 'js))
-(define js-pb-bigint-types '(3 4 18 6 16))
-
+  (run-segments js-service-program svc (hash-ref svc 'name)))
 (define js-pb-preamble
   (string-append
    "function varintBytes(value) {\n  let n = BigInt.asUintN(64, BigInt(value));\n  const out = [];\n  while (n > 0x7fn) {\n    out.push(Number((n & 0x7fn) | 0x80n));\n    n >>= 7n;\n  }\n  out.push(Number(n));\n  return out;\n}\n\n"
@@ -96,57 +42,15 @@
                   full))
   (string-join (string-split rel ".") "_"))
 
-(define (js-pb-name f)
-  (define jn (hash-ref f 'json-name ""))
-  (if (and jn (not (string=? jn "")))
-      jn
-      (regexp-replace* #rx"_([a-zA-Z0-9])" (hash-ref f 'name)
-                       (lambda (all c) (string-upcase c)))))
-
-(define (js-pb-fixed-info type)
-  (assv type js-pb-fixed))
-
 (define (js-pb-varint-expr f v)
-  (case (hash-ref f 'type)
-    [(8) (format "(~a ? 1n : 0n)" v)]
-    [(17) (format "BigInt(((~a << 1) ^ (~a >> 31)) >>> 0)" v v)]
-    [(18) (format "zz64(~a)" v)]
-    [else (format "BigInt(~a)" v)]))
-
+  (run-segments js-pb-varint-expr-program f "" #f (list v)))
 (define (js-pb-varint-decode f v)
-  (case (hash-ref f 'type)
-    [(5 14) (format "Number(BigInt.asIntN(32, ~a))" v)]
-    [(13) (format "Number(BigInt.asUintN(32, ~a))" v)]
-    [(3) (format "BigInt.asIntN(64, ~a)" v)]
-    [(4) (format "BigInt.asUintN(64, ~a)" v)]
-    [(8) (format "~a !== 0n" v)]
-    [(17) (format "Number(unzz64(BigInt.asUintN(32, ~a)))" v)]
-    [(18) (format "unzz64(~a)" v)]))
-
+  (run-segments js-pb-varint-decode-program f "" #f (list v)))
 (define (js-pb-explicit-literal model f)
-  (define d (field-explicit-default f))
-  (and d
-       (case (hash-ref f 'type)
-         [(9) (format "~s" d)]
-         [(8) d]
-         [(14) (format "~a" (enum-default-number model f))]
-         [(2) (format "~a" d)]
-         [else d])))
-
+  (define lit (run-segments js-pb-explicit-literal-program f "" model))
+  (and (not (string=? lit "")) lit))
 (define (js-pb-default f model)
-  (cond [(js-pb-explicit-literal model f) => (lambda (lit) lit)]
-        [(= (hash-ref f 'label) 3)
-         (define t (and (= (hash-ref f 'type) 11)
-                        (hash-ref (hash-ref model 'types) (hash-ref f 'type-name) #f)))
-         (if (and t (eq? (hash-ref t 'kind) 'map)) "new Map()" "[]")]
-        [else
-         (case (hash-ref f 'type)
-           [(9) "\"\""]
-           [(12) "new Uint8Array(0)"]
-           [(8) "false"]
-           [(11 10) "undefined"]
-           [else (if (memv (hash-ref f 'type) js-pb-bigint-types) "0n" "0")])]))
-
+  (run-segments js-pb-default-program f "" model))
 (define (js-pb-resolve model type-name)
   (hash-ref (hash-ref model 'types) type-name
             (lambda () (error 'emit-js-pb-file "unresolved type ~a" type-name))))
@@ -160,188 +64,21 @@
                   (hash-ref (hash-ref entry 'msg) 'full-name))))
 
 (define (js-pb-encode-singular model f v indent)
-  (define n (hash-ref f 'number))
-  (define type (hash-ref f 'type))
-  ;; Proto2 optional/required fields have explicit presence: they
-  ;; are written even when equal to the default.
-  (define proto2? (equal? (hash-ref model 'syntax "") "proto2"))
-  (cond [(memv type js-pb-varint-types)
-         (if proto2?
-             (format "~aputTag(out, ~a, 0); out.push(...varintBytes(~a));\n" indent n (js-pb-varint-expr f v))
-             (format "~aputVarintField(out, ~a, ~a);\n" indent n (js-pb-varint-expr f v)))]
-        [(js-pb-fixed-info type)
-         => (lambda (info)
-              (if proto2?
-                  (format "~aputFixedField(out, ~a, fixedBytes(~a, ~a, (dv, x) => dv.set~a(0, x, true)));\n"
-                          indent n v (second info) (third info))
-                  (format "~aif (~a) putFixedField(out, ~a, fixedBytes(~a, ~a, (dv, x) => dv.set~a(0, x, true)));\n"
-                          indent v n v (second info) (third info))))]
-        [(= type 9)
-         (if proto2?
-             (format "~aputBytesField(out, ~a, new TextEncoder().encode(~a));\n" indent n v)
-             (format "~aputStringField(out, ~a, ~a);\n" indent n v))]
-        [(= type 12)
-         (if proto2?
-             (format "~aputBytesField(out, ~a, ~a);\n" indent n v)
-             (format "~aif (~a && ~a.length) putBytesField(out, ~a, ~a);\n" indent v v n v))]
-        [(= type 11)
-         (define entry (js-pb-resolve model (hash-ref f 'type-name)))
-         (define ref (js-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)))
-         (format "~aif (~a) putBytesField(out, ~a, ~a.encode(~a));\n" indent v n ref v)]
-        [else (error 'emit-js-pb-file "unsupported field type ~a (groups)" type)]))
-
+  (run-segments js-pb-encode-singular-program f "" model (list v indent)))
 (define (js-pb-encode-field model f)
-  (define v (format "msg.~a" (js-pb-name f)))
-  (define n (hash-ref f 'number))
-  (define type (hash-ref f 'type))
-  (cond [(and (= type 11)
-              (eq? (hash-ref (js-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         (define entry (js-pb-resolve model (hash-ref f 'type-name)))
-         (define helper (string-append (js-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)) "Encode"))
-         (format "    if (~a) for (const [k, val] of ~a) putBytesField(out, ~a, ~a(k, val));\n" v v n helper)]
-        [(not (= (hash-ref f 'label) 3)) (js-pb-encode-singular model f v "    ")]
-        [(memv type js-pb-varint-types)
-         (string-append
-          (format "    if (~a && ~a.length) {\n      const payload = [];\n" v v)
-          (format "      for (const x of ~a) payload.push(...varintBytes(~a));\n" v (js-pb-varint-expr f "x"))
-          (format "      putBytesField(out, ~a, payload);\n    }\n" n))]
-        [(js-pb-fixed-info type)
-         => (lambda (info)
-              (string-append
-               (format "    if (~a && ~a.length) {\n" v v)
-               (format "      const payload = new Uint8Array(~a.length * ~a);\n" v (second info))
-               "      const dv = new DataView(payload.buffer);\n"
-               (format "      ~a.forEach((x, i) => dv.set~a(i * ~a, x, true));\n" v (third info) (second info))
-               (format "      putBytesField(out, ~a, payload);\n    }\n" n)))]
-        [(= type 9)
-         (format "    if (~a) for (const v of ~a) putBytesField(out, ~a, new TextEncoder().encode(v));\n" v v n)]
-        [(= type 12)
-         (format "    if (~a) for (const v of ~a) putBytesField(out, ~a, v);\n" v v n)]
-        [(= type 11)
-         (define entry (js-pb-resolve model (hash-ref f 'type-name)))
-         (define ref (js-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)))
-         (format "    if (~a) for (const v of ~a) putBytesField(out, ~a, ~a.encode(v));\n" v v n ref)]
-        [else (error 'emit-js-pb-file "unsupported repeated field type ~a" type)]))
-
+  (run-segments js-pb-encode-field-program f "" model))
 (define (js-pb-decode-singular model f target src)
-  (define type (hash-ref f 'type))
-  (define value (or src "value"))
-  (cond [(memv type js-pb-varint-types)
-         (format "~a = ~a;" target (js-pb-varint-decode f value))]
-        [(js-pb-fixed-info type)
-         => (lambda (info)
-              (format "~a = readFixed(~a, (dv) => dv.get~a(0, true));" target value (third info)))]
-        [(= type 9) (format "~a = new TextDecoder().decode(~a);" target value)]
-        [(= type 12) (format "~a = ~a;" target value)]
-        [(= type 11)
-         (define entry (js-pb-resolve model (hash-ref f 'type-name)))
-         (format "~a = ~a.decode(~a);" target
-                 (js-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)) value)]
-        [else (error 'emit-js-pb-file "unsupported field type ~a" type)]))
-
+  (run-segments js-pb-decode-singular-program f "" model (list target (or src "value"))))
 (define (js-pb-oneof-clearing model f)
-  (apply string-append
-         (map (lambda (sib)
-                (format "msg.~a = ~a; " (js-pb-name sib) (js-pb-default sib model)))
-              (oneof-siblings model f))))
-
-(define (js-pb-set-expr sib)
-  (define v (format "msg.~a" (js-pb-name sib)))
-  (case (hash-ref sib 'type)
-    [(11 10) v]
-    [(9) (format "~a !== \"\"" v)]
-    [(12) (format "(~a && ~a.length > 0)" v v)]
-    [(8) v]
-    [else (if (memv (hash-ref sib 'type) js-pb-bigint-types)
-              (format "~a !== 0n" v)
-              (format "~a !== 0" v))]))
-
-;; Encode-side oneof clearing: suppress f when a later sibling is
-;; set, so only the winning member is written.
-(define (js-pb-encode-guard model f code)
-  (define later (oneof-later-siblings model f))
-  (if (null? later)
-      code
-      (format "    if (!(~a)) {\n~a    }\n"
-              (string-join (map js-pb-set-expr later) " || ")
-              (if (string-suffix? code "\n") code (string-append code "\n")))))
-
+  (run-segments js-pb-oneof-clearing-program f "" model))
 (define (js-pb-decode-case model f)
-  (define target (format "msg.~a" (js-pb-name f)))
-  (define head (format "      case ~a: " (hash-ref f 'number)))
-  (define clearing (js-pb-oneof-clearing model f))
-  (define type (hash-ref f 'type))
-  (cond [(and (= type 11)
-              (eq? (hash-ref (js-pb-resolve model (hash-ref f 'type-name)) 'kind) 'map))
-         (define entry (js-pb-resolve model (hash-ref f 'type-name)))
-         (define helper (string-append (js-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)) "Decode"))
-         (format "~a{ const [k, val] = ~a(value); ~a.set(k, val); break; }\n" head helper target)]
-        [(not (= (hash-ref f 'label) 3))
-         (format "~a~a~a break;\n" head clearing (js-pb-decode-singular model f target #f))]
-        [(memv type js-pb-varint-types)
-         (format "~a~aif (wire === 2) { const r = new Reader(value); while (!r.done) ~a.push(~a); } else ~a.push(~a); break;\n"
-                 head clearing target (js-pb-varint-decode f "r.varint()") target (js-pb-varint-decode f "value"))]
-        [(js-pb-fixed-info type)
-         => (lambda (info)
-              (format "~aif (wire === 2) { const r = new Reader(value); while (!r.done) ~a.push(readFixed(r.take(~a), (dv) => dv.get~a(0, true))); } else ~a.push(readFixed(value, (dv) => dv.get~a(0, true))); break;\n"
-                      head target (second info) (third info) target (third info)))]
-        [else
-         (format "~a~a.push(~a); break;\n" head target
-                 (cond [(= type 9) "new TextDecoder().decode(value)"]
-                       [(= type 12) "value"]
-                       [else
-                        (define entry (js-pb-resolve model (hash-ref f 'type-name)))
-                        (format "~a.decode(value)" (js-pb-flat (hash-ref entry 'pkg) (hash-ref (hash-ref entry 'msg) 'full-name)))]))]))
-
+  (run-segments js-pb-decode-case-program f "" model))
 (define (js-pb-map-helpers model entry)
-  (define msg (hash-ref entry 'msg))
-  (define base (js-pb-flat (hash-ref entry 'pkg) (hash-ref msg 'full-name)))
-  (define key-f (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref msg 'fields)))
-  (define val-f (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref msg 'fields)))
-  (unless (and key-f val-f) (error 'emit-js-pb-file "map entry ~a lacks key/value fields" (hash-ref msg 'full-name)))
-  (string-append
-   (format "function ~aEncode(key, value) {\n  const out = [];\n" base)
-   (js-pb-encode-singular model key-f "key" "  ")
-   (js-pb-encode-singular model val-f "value" "  ")
-   "  return new Uint8Array(out);\n}\n\n"
-   (format "function ~aDecode(bytes) {\n" base)
-   (format "  let key = ~a;\n  let value = ~a;\n" (js-pb-default key-f model) (js-pb-default val-f model))
-   "  const reader = new Reader(bytes);\n  let f;\n  while ((f = reader.field()) !== null) {\n    const [num, wire, raw] = f;\n    switch (num) {\n"
-   (format "      case ~a: ~a break;\n" (hash-ref key-f 'number) (js-pb-decode-singular model key-f "key" "raw"))
-   (format "      case ~a: ~a break;\n" (hash-ref val-f 'number) (js-pb-decode-singular model val-f "value" "raw"))
-   "    }\n  }\n  return [key, value];\n}\n\n"))
-
+  (run-segments js-pb-map-helpers-program entry "" model))
 (define (js-pb-enum-const entry)
-  (define e (hash-ref entry 'enum))
-  (unless e (error 'emit-js-pb-file "enum entry without enum"))
-  ;; 'full includes the parent message: nested enums must not
-  ;; collide on their simple name.
-  (define full (hash-ref entry 'full))
-  (format "export const ~a = { ~a };\n\n"
-          (js-pb-flat (hash-ref entry 'pkg) full)
-          (string-join (map (lambda (v) (format "~a: ~a" (hash-ref v 'name) (hash-ref v 'number)))
-                            (hash-ref e 'values)) ", ")))
-
+  (run-segments js-pb-enum-const-program entry ""))
 (define (js-pb-message-class model msg)
-  (define name (js-pb-flat (hash-ref model 'package) (hash-ref msg 'full-name)))
-  (define params (string-join (map (lambda (f) (format "~a = ~a" (js-pb-name f) (js-pb-default f model)))
-                                   (hash-ref msg 'fields)) ", "))
-  (string-append
-   (format "export class ~a {\n" name)
-   (format "  constructor({ ~a } = {}) {\n" params)
-   (apply string-append (map (lambda (f) (format "    this.~a = ~a;\n" (js-pb-name f) (js-pb-name f))) (hash-ref msg 'fields)))
-   "    this.unknownFields = new Uint8Array(0);\n"
-   "  }\n"
-   "  static encode(msg) {\n    const out = [];\n"
-   (apply string-append (map (lambda (f) (js-pb-encode-guard model f (js-pb-encode-field model f))) (hash-ref msg 'fields)))
-   "    putRaw(out, msg.unknownFields);\n"
-   "    return new Uint8Array(out);\n  }\n"
-   (format "  static decode(bytes) {\n    const msg = new ~a();\n" name)
-   "    const reader = new Reader(bytes);\n    let f;\n    while ((f = reader.field()) !== null) {\n      const [num, wire, value, raw] = f;\n      switch (num) {\n"
-   (apply string-append (map (lambda (f) (js-pb-decode-case model f)) (hash-ref msg 'fields)))
-   "        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n"
-   "      }\n    }\n    return msg;\n  }\n}\n\n"))
-
+  (run-segments js-pb-message-program msg "" model))
 (define (emit-js-pb-file file-model)
   (and (hash-has-key? file-model 'messages)
        (hash-has-key? file-model 'types)

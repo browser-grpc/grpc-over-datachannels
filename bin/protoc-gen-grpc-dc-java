@@ -1605,6 +1605,362 @@
     (each fields (call goPbDecodeCase))
     "\t\tdefault:\n\t\t\tm.UnknownFields = append(m.UnknownFields, raw...)\n\t\t}\n\t}\n}\n\n"))
 
+(define js-deprecated-program
+  '((when (ref deprecated)
+      (fmt "~a/** @deprecated deprecated in the proto schema */\n" (arg 0)))))
+
+(define js-client-method-program
+  '((call jsDeprecated "  ")
+    (kind-case
+     (unary
+      (fmt
+       "  async ~a(request, options) {\n    return this.#channel.unary(~s, request, ~a, ~a, options);\n  }\n"
+       (lower-first (ref name))
+       (ref path)
+       (ref input)
+       (ref output)))
+     (server-streaming
+      (fmt
+       "  ~a(request, options) {\n    return this.#channel.serverStream(~s, request, ~a, ~a, options);\n  }\n"
+       (lower-first (ref name))
+       (ref path)
+       (ref input)
+       (ref output)))
+     (client-streaming
+      (fmt
+       "  async ~a(requests, options) {\n    return this.#channel.clientStream(~s, requests, ~a, ~a, options);\n  }\n"
+       (lower-first (ref name))
+       (ref path)
+       (ref input)
+       (ref output)))
+     (bidi
+      (fmt
+       "  ~a(requests, options) {\n    return this.#channel.bidi(~s, requests, ~a, ~a, options);\n  }\n"
+       (lower-first (ref name))
+       (ref path)
+       (ref input)
+       (ref output))))))
+
+(define js-method-table-entry-program
+  '((fmt
+     "    ~a: { path: ~s, kind: ~s, requestType: ~a, responseType: ~a, handler: handlers.~a },\n"
+     (ref name)
+     (ref path)
+     (ref kind)
+     (ref input)
+     (ref output)
+     (lower-first (ref impl-name)))))
+
+(define js-service-program
+  '((fmt
+     "export class ~aClient {\n  #channel;\n  constructor(channel) { this.#channel = channel; }\n"
+     (svc))
+    (each+ methods client (call jsClientMethod))
+    "}\n\n"
+    (fmt
+     "export function create~aService(handlers) {\n  return {\n    name: ~s,\n    methods: {\n"
+     (svc)
+     (ref full-name))
+    (each+ methods server (call jsMethodTableEntry))
+    "    },\n  };\n}\n"))
+
+(define js-pb-varint-expr-program
+  '((case-on
+     (type)
+     (8 (fmt "(~a ? 1n : 0n)" (arg 0)))
+     (17 (fmt "BigInt(((~a << 1) ^ (~a >> 31)) >>> 0)" (arg 0) (arg 0)))
+     (18 (fmt "zz64(~a)" (arg 0)))
+     (else (fmt "BigInt(~a)" (arg 0))))))
+
+(define js-pb-varint-decode-program
+  '((case-on
+     (type)
+     ((5 14) (fmt "Number(BigInt.asIntN(32, ~a))" (arg 0)))
+     (13 (fmt "Number(BigInt.asUintN(32, ~a))" (arg 0)))
+     (3 (fmt "BigInt.asIntN(64, ~a)" (arg 0)))
+     (4 (fmt "BigInt.asUintN(64, ~a)" (arg 0)))
+     (8 (fmt "~a !== 0n" (arg 0)))
+     (17 (fmt "Number(unzz64(BigInt.asUintN(32, ~a)))" (arg 0)))
+     (18 (fmt "unzz64(~a)" (arg 0))))))
+
+(define js-pb-explicit-literal-program
+  '((if (has-default)
+      (then
+       (case-on
+        (type)
+        (9 (fmt "~s" (default-raw)))
+        (14 (fmt "~a" (enum-default-num)))
+        (else (default-raw))))
+      (else ""))))
+
+(define js-pb-default-program
+  '((if (call jsPbExplicitLiteral)
+      (then (call jsPbExplicitLiteral))
+      (else
+       (if (repeated)
+         (then (if (is-map) (then "new Map()") (else "[]")))
+         (else
+          (case-on
+           (type)
+           (9 "\"\"")
+           (12 "new Uint8Array(0)")
+           (8 "false")
+           ((11 10) "undefined")
+           (else (if (bigint-type) (then "0n") (else "0"))))))))))
+
+(define js-pb-set-expr-program
+  '((case-on
+     (type)
+     ((11 10) (fmt "msg.~a" (js-name)))
+     (9 (fmt "msg.~a !== \"\"" (js-name)))
+     (12 (fmt "(msg.~a && msg.~a.length > 0)" (js-name) (js-name)))
+     (8 (fmt "msg.~a" (js-name)))
+     (else
+      (fmt
+       "msg.~a !== ~a"
+       (js-name)
+       (if (bigint-type) (then "0n") (else "0")))))))
+
+(define js-pb-oneof-clearing-program
+  '((each-siblings (fmt "msg.~a = ~a; " (js-name) (call jsPbDefault)))))
+
+(define js-pb-encode-singular-program
+  '((case-on
+     (category)
+     ("varint"
+      (if (proto2)
+        (then
+         (fmt
+          "~aputTag(out, ~a, 0); out.push(...varintBytes(~a));\n"
+          (arg 1)
+          (ref number)
+          (call jsPbVarintExpr (arg 0))))
+        (else
+         (fmt
+          "~aputVarintField(out, ~a, ~a);\n"
+          (arg 1)
+          (ref number)
+          (call jsPbVarintExpr (arg 0))))))
+     ("fixed"
+      (if (proto2)
+        (then
+         (fmt
+          "~aputFixedField(out, ~a, fixedBytes(~a, ~a, (dv, x) => dv.set~a(0, x, true)));\n"
+          (arg 1)
+          (ref number)
+          (arg 0)
+          (js-fixed-size)
+          (js-fixed-name)))
+        (else
+         (fmt
+          "~aif (~a) putFixedField(out, ~a, fixedBytes(~a, ~a, (dv, x) => dv.set~a(0, x, true)));\n"
+          (arg 1)
+          (arg 0)
+          (ref number)
+          (arg 0)
+          (js-fixed-size)
+          (js-fixed-name)))))
+     ("string"
+      (if (proto2)
+        (then
+         (fmt
+          "~aputBytesField(out, ~a, new TextEncoder().encode(~a));\n"
+          (arg 1)
+          (ref number)
+          (arg 0)))
+        (else
+         (fmt
+          "~aputStringField(out, ~a, ~a);\n"
+          (arg 1)
+          (ref number)
+          (arg 0)))))
+     ("bytes"
+      (if (proto2)
+        (then
+         (fmt "~aputBytesField(out, ~a, ~a);\n" (arg 1) (ref number) (arg 0)))
+        (else
+         (fmt
+          "~aif (~a && ~a.length) putBytesField(out, ~a, ~a);\n"
+          (arg 1)
+          (arg 0)
+          (arg 0)
+          (ref number)
+          (arg 0)))))
+     ("message"
+      (fmt
+       "~aif (~a) putBytesField(out, ~a, ~a.encode(~a));\n"
+       (arg 1)
+       (arg 0)
+       (ref number)
+       (resolved-flat)
+       (arg 0)))
+     (else (fail)))))
+
+(define js-pb-encode-field-program
+  '((if (is-map)
+      (then
+       (fmt
+        "    if (msg.~a) for (const [k, val] of msg.~a) putBytesField(out, ~a, ~aEncode(k, val));\n"
+        (js-name)
+        (js-name)
+        (ref number)
+        (resolved-flat)))
+      (else
+       (if (repeated)
+         (then
+          (case-on
+           (category)
+           ("varint"
+            (fmt
+             "    if (msg.~a && msg.~a.length) {\n      const payload = [];\n      for (const x of msg.~a) payload.push(...varintBytes(~a));\n      putBytesField(out, ~a, payload);\n    }\n"
+             (js-name)
+             (js-name)
+             (js-name)
+             (call jsPbVarintExpr "x")
+             (ref number)))
+           ("fixed"
+            (fmt
+             "    if (msg.~a && msg.~a.length) {\n      const payload = new Uint8Array(msg.~a.length * ~a);\n      const dv = new DataView(payload.buffer);\n      msg.~a.forEach((x, i) => dv.set~a(i * ~a, x, true));\n      putBytesField(out, ~a, payload);\n    }\n"
+             (js-name)
+             (js-name)
+             (js-name)
+             (js-fixed-size)
+             (js-name)
+             (js-fixed-name)
+             (js-fixed-size)
+             (ref number)))
+           ("string"
+            (fmt
+             "    if (msg.~a) for (const v of msg.~a) putBytesField(out, ~a, new TextEncoder().encode(v));\n"
+             (js-name)
+             (js-name)
+             (ref number)))
+           ("bytes"
+            (fmt
+             "    if (msg.~a) for (const v of msg.~a) putBytesField(out, ~a, v);\n"
+             (js-name)
+             (js-name)
+             (ref number)))
+           ("message"
+            (fmt
+             "    if (msg.~a) for (const v of msg.~a) putBytesField(out, ~a, ~a.encode(v));\n"
+             (js-name)
+             (js-name)
+             (ref number)
+             (resolved-flat)))
+           (else (fail))))
+         (else (call jsPbEncodeSingular (fmt "msg.~a" (js-name)) "    ")))))))
+
+(define js-pb-decode-singular-program
+  '((case-on
+     (category)
+     ("varint" (fmt "~a = ~a;" (arg 0) (call jsPbVarintDecode (arg 1))))
+     ("fixed"
+      (fmt
+       "~a = readFixed(~a, (dv) => dv.get~a(0, true));"
+       (arg 0)
+       (arg 1)
+       (js-fixed-name)))
+     ("string" (fmt "~a = new TextDecoder().decode(~a);" (arg 0) (arg 1)))
+     ("bytes" (fmt "~a = ~a;" (arg 0) (arg 1)))
+     ("message" (fmt "~a = ~a.decode(~a);" (arg 0) (resolved-flat) (arg 1)))
+     (else (fail)))))
+
+(define js-pb-decode-case-program
+  '((if (is-map)
+      (then
+       (fmt
+        "      case ~a: { const [k, val] = ~aDecode(value); msg.~a.set(k, val); break; }\n"
+        (ref number)
+        (resolved-flat)
+        (js-name)))
+      (else
+       (if (repeated)
+         (then
+          (case-on
+           (category)
+           ("varint"
+            (fmt
+             "      case ~a: ~aif (wire === 2) { const r = new Reader(value); while (!r.done) msg.~a.push(~a); } else msg.~a.push(~a); break;\n"
+             (ref number)
+             (call jsPbOneofClearing)
+             (js-name)
+             (call jsPbVarintDecode "r.varint()")
+             (js-name)
+             (call jsPbVarintDecode "value")))
+           ("fixed"
+            (fmt
+             "      case ~a: if (wire === 2) { const r = new Reader(value); while (!r.done) msg.~a.push(readFixed(r.take(~a), (dv) => dv.get~a(0, true))); } else msg.~a.push(readFixed(value, (dv) => dv.get~a(0, true))); break;\n"
+             (ref number)
+             (js-name)
+             (js-fixed-size)
+             (js-fixed-name)
+             (js-name)
+             (js-fixed-name)))
+           (else
+            (fmt
+             "      case ~a: msg.~a.push(~a); break;\n"
+             (ref number)
+             (js-name)
+             (case-on
+              (category)
+              ("string" "new TextDecoder().decode(value)")
+              ("bytes" "value")
+              (else (fmt "~a.decode(value)" (resolved-flat))))))))
+         (else
+          (fmt
+           "      case ~a: ~a~a break;\n"
+           (ref number)
+           (call jsPbOneofClearing)
+           (call jsPbDecodeSingular (fmt "msg.~a" (js-name)) "value"))))))))
+
+(define js-pb-map-helpers-program
+  '((fmt "function ~aEncode(key, value) {\n  const out = [];\n" (entry-flat))
+    (call-on (key-field) jsPbEncodeSingular "key" "  ")
+    (call-on (val-field) jsPbEncodeSingular "value" "  ")
+    "  return new Uint8Array(out);\n}\n\n"
+    (fmt "function ~aDecode(bytes) {\n" (entry-flat))
+    (fmt
+     "  let key = ~a;\n  let value = ~a;\n"
+     (call-on (key-field) jsPbDefault)
+     (call-on (val-field) jsPbDefault))
+    "  const reader = new Reader(bytes);\n  let f;\n  while ((f = reader.field()) !== null) {\n    const [num, wire, raw] = f;\n    switch (num) {\n"
+    (fmt
+     "      case ~a: ~a break;\n"
+     (get (key-field) number)
+     (call-on (key-field) jsPbDecodeSingular "key" "raw"))
+    (fmt
+     "      case ~a: ~a break;\n"
+     (get (val-field) number)
+     (call-on (val-field) jsPbDecodeSingular "value" "raw"))
+    "    }\n  }\n  return [key, value];\n}\n\n"))
+
+(define js-pb-enum-const-program
+  '((fmt
+     "export const ~a = { ~a };\n\n"
+     (entry-flat)
+     (each-sep ", " enum values (fmt "~a: ~a" (ref name) (ref number))))))
+
+(define js-pb-message-program
+  '((fmt "export class ~a {\n" (flat))
+    (fmt
+     "  constructor({ ~a } = {}) {\n"
+     (each-sep ", " fields (fmt "~a = ~a" (js-name) (call jsPbDefault))))
+    (each fields (fmt "    this.~a = ~a;\n" (js-name) (js-name)))
+    "    this.unknownFields = new Uint8Array(0);\n  }\n  static encode(msg) {\n    const out = [];\n"
+    (each
+     fields
+     (guarded
+      jsPbSetExpr
+      "    if (!(~a)) {\n"
+      "    }\n"
+      (call jsPbEncodeField)))
+    "    putRaw(out, msg.unknownFields);\n    return new Uint8Array(out);\n  }\n"
+    (fmt "  static decode(bytes) {\n    const msg = new ~a();\n" (flat))
+    "    const reader = new Reader(bytes);\n    let f;\n    while ((f = reader.field()) !== null) {\n      const [num, wire, value, raw] = f;\n      switch (num) {\n"
+    (each fields (call jsPbDecodeCase))
+    "        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n      }\n    }\n    return msg;\n  }\n}\n\n"))
+
 (define segment-programs
   (hasheq
    'goRegisterMethod
@@ -1654,7 +2010,41 @@
    'goPbSetExpr
    go-pb-set-expr-program
    'goPbMessage
-   go-pb-message-program))
+   go-pb-message-program
+   'jsDeprecated
+   js-deprecated-program
+   'jsClientMethod
+   js-client-method-program
+   'jsMethodTableEntry
+   js-method-table-entry-program
+   'jsService
+   js-service-program
+   'jsPbVarintExpr
+   js-pb-varint-expr-program
+   'jsPbVarintDecode
+   js-pb-varint-decode-program
+   'jsPbExplicitLiteral
+   js-pb-explicit-literal-program
+   'jsPbDefault
+   js-pb-default-program
+   'jsPbSetExpr
+   js-pb-set-expr-program
+   'jsPbOneofClearing
+   js-pb-oneof-clearing-program
+   'jsPbEncodeSingular
+   js-pb-encode-singular-program
+   'jsPbEncodeField
+   js-pb-encode-field-program
+   'jsPbDecodeSingular
+   js-pb-decode-singular-program
+   'jsPbDecodeCase
+   js-pb-decode-case-program
+   'jsPbMapHelpers
+   js-pb-map-helpers-program
+   'jsPbEnumConst
+   js-pb-enum-const-program
+   'jsPbMessage
+   js-pb-message-program))
 
 (define (seg-ref node key)
   (if (eq? key 'impl-name)
@@ -1856,7 +2246,9 @@
    ((eq? (car seg) 'arg) (list-ref (env-args env) (second seg)))
    ((eq? (car seg) 'err-stmt) (env-err env))
    ((eq? (car seg) 'self) node)
-   ((memq (car seg) '(if case-on when guarded kind-case))
+   ((memq
+     (car seg)
+     '(if case-on when guarded kind-case each each+ each-siblings each-sep))
     (run-segment seg env))
    ((eq? (car seg) 'pascal) (seg-pascal (seg-eval (second seg) env)))
    ((eq? (car seg) 'lower-first) (seg-lower-first (seg-eval (second seg) env)))
