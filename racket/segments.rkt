@@ -1740,7 +1740,7 @@
     (fmt (rust-enum-fragment unknownToArm) (flat-of (arg 0)))))
 
 (define rs-pb-message-program
-  '((each enums (call rsPbEnumNamed (fmt "~a.~a" (get (root) full-name) (ref name))))
+  '((each enums (call rsPbEnumNamed (fmt "~a.~a" (get (parent) full-name) (ref name))))
     (fmt "#[derive(Clone, Debug, PartialEq)]\npub struct ~a {\n" (flat))
     (each fields (fmt "    pub ~a: ~a,\n" (rs-field-name) (call rsPbType)))
     "    pub unknown_fields: Vec<u8>,\n}\n\n"
