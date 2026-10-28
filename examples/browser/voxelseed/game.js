@@ -351,6 +351,11 @@ async function startThree() {
   const { createThreeEngine } = await import("./engine-three.js");
   return createThreeEngine($("view"));
 }
+function showEngineWarn(text) {
+  $("engine-warn-text").textContent = text;
+  $("engine-warn").hidden = false;
+}
+$("engine-warn-close").addEventListener("click", () => { $("engine-warn").hidden = true; });
 async function boot() {
   const forceThree = new URLSearchParams(location.search).get("engine") === "three";
   if (!forceThree) {
@@ -362,14 +367,17 @@ async function boot() {
           engine = await startThree();
           for (const [k, c] of chunks) engine.addChunk(k, c.solid, c.water);
           $("st-engine").textContent = engine.name + " (after WebGPU error)";
+          showEngineWarn(`WebGPU hit an error (${why}) — switched to the WebGL fallback engine. The world still works; rendering may be slower.`);
         },
       });
     } catch (e) {
       console.warn("WebGPU unavailable, using fallback:", e.message);
       engine = null;
+      showEngineWarn(`WebGPU is not available in this browser (${e.message}) — running the WebGL fallback engine. Try a current Chrome/Edge for the hand-rolled WebGPU renderer.`);
     }
   }
   if (!engine) engine = await startThree();
+  if (forceThree) showEngineWarn("WebGL engine forced with ?engine=three — remove the parameter to use the WebGPU engine.");
   $("st-engine").textContent = engine.name;
   regen();
   let last = performance.now();

@@ -43,6 +43,17 @@ button.secondary { background: #2b3540; }
   letter-spacing: 1.6px; font-weight: 650; pointer-events: none;
 }
 #badge.manual { color: #f0b35e; }
+#engine-warn {
+  position: absolute; top: 14px; left: 14px; max-width: min(430px, 80%);
+  display: flex; gap: 10px; align-items: baseline;
+  background: rgba(46, 32, 4, 0.88); color: #f5c86e; border: 1px solid #8a6d1f;
+  border-radius: 4px; padding: 8px 10px; font-size: 12.5px; line-height: 1.45;
+}
+#engine-warn[hidden] { display: none; }
+#engine-warn button {
+  flex: 0 0 auto; margin: 0; padding: 3px 8px; font-size: 12px;
+  background: #8a6d1f; color: #fff;
+}
 @media (max-width: 760px) {
   body { flex-direction: column; }
   #panel { width: 100%; flex: none; border-right: 0; border-bottom: 1px solid #232b33; }
