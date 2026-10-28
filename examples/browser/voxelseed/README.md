@@ -8,6 +8,19 @@ over one WebRTC `RTCDataChannel` labelled `grpc`
 
 Play it: <https://voxelseed.lunchgamer.com/>
 
+## World types (procgen modes)
+
+The host picks a world type in the lobby; it travels with the
+seed in `JoinResponse.mode`, so every guest generates the
+identical world locally:
+
+- **Easy (0)** — gentle plains (heights 3–5, rare trees):
+  effortless to walk across and build on.
+- **Complex (1, default)** — Mojang-style voxel procgen:
+  multi-octave mountains with ridged crests (heights 1–12),
+  exposed stone on steep faces, sand lowlands, caves carved by
+  3D value noise below the surface, and denser forests.
+
 ## How joining works (manual WebRTC signaling)
 
 1. Host clicks **Host a session** → the page creates an

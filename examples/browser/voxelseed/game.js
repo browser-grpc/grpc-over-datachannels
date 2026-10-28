@@ -61,9 +61,16 @@ async function* merged(a, b) {
 // world: deterministic terrain from a seed + an edits overlay
 // ---------------------------------------------------------------------------
 const SIZE = 48, MAXY = 15;
-const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, WOOD = 4, LEAF = 5, PLANK = 6;
-const BLOCK_COLORS = { [GRASS]: 0x58a83c, [DIRT]: 0x8a5a2b, [STONE]: 0x7d7d7d, [WOOD]: 0x6b4423, [LEAF]: 0x2f7a2e, [PLANK]: 0xb08d57 };
+const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, WOOD = 4, LEAF = 5, PLANK = 6, SAND = 7;
+const BLOCK_COLORS = { [GRASS]: 0x58a83c, [DIRT]: 0x8a5a2b, [STONE]: 0x7d7d7d, [WOOD]: 0x6b4423, [LEAF]: 0x2f7a2e, [PLANK]: 0xb08d57, [SAND]: 0xe0d29a };
 const HOTBAR = [GRASS, DIRT, STONE, PLANK];
+
+// Terrain generation modes (the value travels in JoinResponse.mode):
+//   0 "easy"    gentle plains, effortless to walk and build on
+//   1 "complex" Mojang-style procgen: mountains, stone slopes,
+//               sand lowlands, caves, denser forests
+const MODE_EASY = 0, MODE_COMPLEX = 1;
+let genMode = MODE_COMPLEX;
 
 let seed = 1337;
 const edits = new Map(); // "x,y,z" -> block (AIR removes)
@@ -82,31 +89,72 @@ function smoothNoise(x, z, cell, s) {
   const a = hash2(x0, z0, s), b = hash2(x0 + 1, z0, s), c = hash2(x0, z0 + 1, s), d = hash2(x0 + 1, z0 + 1, s);
   return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
 }
+function hash3(x, y, z, s) {
+  let h = (x * 374761393 + y * 1103515245 + z * 668265263 + s * 974634211) | 0;
+  h = Math.imul(h ^ (h >> 13), 1274126177);
+  return ((h ^ (h >> 16)) >>> 0) / 4294967296;
+}
+// trilinear value noise for cave carving (complex mode)
+function noise3(x, y, z, cell, s) {
+  const gx = x / cell, gy = y / cell, gz = z / cell;
+  const x0 = Math.floor(gx), y0 = Math.floor(gy), z0 = Math.floor(gz);
+  const fx = gx - x0, fy = gy - y0, fz = gz - z0;
+  const sm = (t) => t * t * (3 - 2 * t);
+  const sx = sm(fx), sy = sm(fy), sz = sm(fz);
+  const L = (a, b, t) => a + (b - a) * t;
+  return L(
+    L(L(hash3(x0, y0, z0, s), hash3(x0 + 1, y0, z0, s), sx), L(hash3(x0, y0 + 1, z0, s), hash3(x0 + 1, y0 + 1, z0, s), sx), sy),
+    L(L(hash3(x0, y0, z0 + 1, s), hash3(x0 + 1, y0, z0 + 1, s), sx), L(hash3(x0, y0 + 1, z0 + 1, s), hash3(x0 + 1, y0 + 1, z0 + 1, s), sx), sy),
+    sz);
+}
 function heightAt(x, z) {
-  const n = smoothNoise(x, z, 9, seed) * 0.7 + smoothNoise(x, z, 4, seed + 7) * 0.3;
-  return 2 + Math.floor(n * 5); // 2..6
+  if (genMode === MODE_EASY) {
+    // gentle: +/-1 around a flat plain — walk anywhere, build anywhere
+    const n = smoothNoise(x, z, 14, seed) * 0.65 + smoothNoise(x, z, 6, seed + 7) * 0.35;
+    return 3 + Math.floor(n * 2.2); // 3..5
+  }
+  // complex: broad mountains + ridged detail, 1..12
+  const base = smoothNoise(x, z, 17, seed) * 0.55 + smoothNoise(x, z, 8, seed + 7) * 0.25;
+  const ridge = 1 - Math.abs(smoothNoise(x, z, 6, seed + 31) * 2 - 1); // sharp crests
+  return 1 + Math.floor(Math.min(1, base + ridge * ridge * 0.3) * 11);
+}
+function treeAt(x, z) {
+  if (x < 2 || z < 2 || x >= SIZE - 2 || z >= SIZE - 2) return false;
+  const density = genMode === MODE_EASY ? 0.995 : 0.978;
+  return hash2(x, z, seed + 99) > density && heightAt(x, z) + 4 <= MAXY;
 }
 function terrainBlock(x, y, z) {
   if (x < 0 || z < 0 || x >= SIZE || z >= SIZE || y < 0) return AIR;
   if (y === 0) return STONE;
   const h = heightAt(x, z);
+  // caves (complex): carve mid-depth pockets, never the surface or floor
+  if (genMode === MODE_COMPLEX && y >= 2 && y <= h - 3 && noise3(x, y, z, 5, seed + 77) > 0.68) return AIR;
   if (y < h - 2) return STONE;
   if (y < h) return DIRT;
-  if (y === h) return GRASS;
-  // sparse deterministic trees
-  if (hash2(x, z, seed + 99) > 0.985 && x > 1 && z > 1 && x < SIZE - 2 && z < SIZE - 2) {
+  if (y === h) {
+    if (genMode === MODE_COMPLEX) {
+      if (h <= 3) return SAND; // lowland beaches
+      // steep faces shed their grass: exposed stone on cliffs
+      const steep = Math.max(
+        Math.abs(h - heightAt(x + 1, z)), Math.abs(h - heightAt(x - 1, z)),
+        Math.abs(h - heightAt(x, z + 1)), Math.abs(h - heightAt(x, z - 1)));
+      if (steep >= 2) return STONE;
+    }
+    return GRASS;
+  }
+  if (treeAt(x, z)) {
     if (y > h && y <= h + 3) return WOOD;
     if (y === h + 4) return LEAF;
   }
   if (y === h + 3) {
     // leaf canopy ring around any trunk top within reach
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-      const tx = x + dx, tz = z + dz;
-      if (hash2(tx, tz, seed + 99) > 0.985) return LEAF;
+      if (treeAt(x + dx, z + dz)) return LEAF;
     }
   }
   return AIR;
 }
+function spawnY() { return heightAt(SIZE / 2, SIZE / 2) + 3; }
 function blockAt(x, y, z) {
   const e = edits.get(key(x, y, z));
   return e !== undefined ? e : terrainBlock(x, y, z);
@@ -173,7 +221,7 @@ function rebuildMesh() {
 // local player: AABB physics against the voxel grid
 // ---------------------------------------------------------------------------
 const player = {
-  pos: new THREE.Vector3(SIZE / 2, 10, SIZE / 2), // feet
+  pos: new THREE.Vector3(SIZE / 2, 12, SIZE / 2), // feet (snapped to terrain in startGame)
   vel: new THREE.Vector3(),
   yaw: 0, pitch: 0, onGround: false,
 };
@@ -221,7 +269,7 @@ function stepPlayer(dt) {
   player.vel.y -= 22 * dt;
   if (keys.has("Space") && player.onGround) { player.vel.y = 8; player.onGround = false; }
   moveAxis("y", player.vel.y * dt);
-  if (player.pos.y < -10) { player.pos.set(SIZE / 2, 12, SIZE / 2); player.vel.set(0, 0, 0); }
+  if (player.pos.y < -10) { player.pos.set(SIZE / 2, spawnY(), SIZE / 2); player.vel.set(0, 0, 0); }
   camera.position.set(player.pos.x, player.pos.y + 1.62, player.pos.z);
   camera.rotation.set(0, 0, 0);
   camera.rotateY(player.yaw);
@@ -317,11 +365,12 @@ function hostService() {
   return createGameService({
     async join(req) {
       const id = nextPlayerId++;
-      players.set(id, { name: req.name || `player ${id}`, pos: new THREE.Vector3(SIZE / 2, 10, SIZE / 2), yaw: 0 });
+      players.set(id, { name: req.name || `player ${id}`, pos: new THREE.Vector3(SIZE / 2, spawnY(), SIZE / 2), yaw: 0 });
       log(`guest joined: ${req.name} (#${id})`);
       return new JoinResponse({
         playerId: id,
         seed,
+        mode: genMode,
         edits: [...edits.entries()].map(([k, block]) => {
           const [x, y, z] = k.split(",").map(Number);
           return new BlockEdit({ x, y, z, block });
@@ -375,10 +424,11 @@ async function guestJoinAndPlay(channel) {
   const resp = await guestClient.join(new JoinRequest({ name }));
   myId = resp.playerId;
   seed = resp.seed;
+  genMode = resp.mode;
   edits.clear();
   for (const e of resp.edits) edits.set(key(e.x, e.y, e.z), e.block);
   rebuildMesh();
-  log(`joined session as #${myId} (seed ${seed}, ${resp.edits.length} edits)`);
+  log(`joined session as #${myId} (seed ${seed}, ${resp.mode === MODE_EASY ? "easy" : "complex"} terrain, ${resp.edits.length} edits)`);
   guestOut = new Queue();
   const stream = await guestClient.play(guestOut);
   guestConn = stream;
@@ -509,6 +559,7 @@ async function guestAnswer(invite) {
 function startGame() {
   if (started) return;
   started = true;
+  player.pos.y = spawnY();
   initThree();
   rebuildMesh();
   $("stage").scrollIntoView({ behavior: "smooth" });
@@ -574,14 +625,15 @@ function renderHotbar() {
 $("host-btn").onclick = async () => {
   isHost = true;
   myId = 0;
+  genMode = Number($("gen-mode").value);
   seed = (Math.random() * 1e9) | 0;
   startGame();
-  log(`hosting with seed ${seed}`);
+  log(`hosting with seed ${seed} (${genMode === MODE_EASY ? "easy" : "complex"} terrain)`);
   await hostCreateInvite();
 };
 $("more-btn").onclick = () => hostCreateInvite();
 $("accept-btn").onclick = () => hostAcceptAnswer();
-$("solo-btn").onclick = () => { seed = (Math.random() * 1e9) | 0; startGame(); log("solo world — invite a friend any time with Host"); };
+$("solo-btn").onclick = () => { genMode = Number($("gen-mode").value); seed = (Math.random() * 1e9) | 0; startGame(); log(`solo world (${genMode === MODE_EASY ? "easy" : "complex"} terrain) — invite a friend any time with Host`); };
 $("copy-invite").onclick = () => { $("invite-out").select(); navigator.clipboard.writeText($("invite-out").value); };
 $("copy-answer").onclick = () => { $("answer-out").select(); navigator.clipboard.writeText($("answer-out").value); };
 

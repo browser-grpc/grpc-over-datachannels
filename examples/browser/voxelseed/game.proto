@@ -12,6 +12,7 @@ message JoinResponse {
   int32 player_id = 1;
   int32 seed = 2; // terrain seed; edits below override it
   repeated BlockEdit edits = 3;
+  int32 mode = 4; // terrain generation mode: 0 = easy, 1 = complex
 }
 
 message BlockEdit {

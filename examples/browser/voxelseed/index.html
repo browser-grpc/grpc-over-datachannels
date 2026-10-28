@@ -30,6 +30,12 @@
 <main>
   <section id="lobby" class="pane">
     <label>Your name <input id="name" value="player" maxlength="16"></label>
+    <label>World type
+      <select id="gen-mode">
+        <option value="1" selected>Complex — mountains, caves, forests (procgen)</option>
+        <option value="0">Easy — gentle flatlands, easy to move and build</option>
+      </select>
+    </label>
     <div class="row">
       <button id="host-btn" type="button">Host a session</button>
       <button id="solo-btn" type="button">Play solo</button>

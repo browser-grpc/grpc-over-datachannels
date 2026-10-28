@@ -150,10 +150,11 @@ export class JoinRequest {
 }
 
 export class JoinResponse {
-  constructor({ playerId = 0, seed = 0, edits = [] } = {}) {
+  constructor({ playerId = 0, seed = 0, edits = [], mode = 0 } = {}) {
     this.playerId = playerId;
     this.seed = seed;
     this.edits = edits;
+    this.mode = mode;
     this.unknownFields = new Uint8Array(0);
   }
   static encode(msg) {
@@ -161,6 +162,7 @@ export class JoinResponse {
     putVarintField(out, 1, BigInt(msg.playerId));
     putVarintField(out, 2, BigInt(msg.seed));
     if (msg.edits) for (const v of msg.edits) putBytesField(out, 3, BlockEdit.encode(v));
+    putVarintField(out, 4, BigInt(msg.mode));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -174,6 +176,7 @@ export class JoinResponse {
       case 1: msg.playerId = Number(BigInt.asIntN(32, value)); break;
       case 2: msg.seed = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.edits.push(BlockEdit.decode(value)); break;
+      case 4: msg.mode = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
