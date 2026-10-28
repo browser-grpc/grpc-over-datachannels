@@ -61,15 +61,19 @@ async function* merged(a, b) {
 // world: deterministic terrain from a seed + an edits overlay
 // ---------------------------------------------------------------------------
 const SIZE = 48, MAXY = 15;
-const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, WOOD = 4, LEAF = 5, PLANK = 6, SAND = 7;
-const BLOCK_COLORS = { [GRASS]: 0x58a83c, [DIRT]: 0x8a5a2b, [STONE]: 0x7d7d7d, [WOOD]: 0x6b4423, [LEAF]: 0x2f7a2e, [PLANK]: 0xb08d57, [SAND]: 0xe0d29a };
+const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, WOOD = 4, LEAF = 5, PLANK = 6, SAND = 7, SNOW = 8, WATER = 9;
+const BLOCK_COLORS = { [GRASS]: 0x58a83c, [DIRT]: 0x8a5a2b, [STONE]: 0x7d7d7d, [WOOD]: 0x6b4423, [LEAF]: 0x2f7a2e, [PLANK]: 0xb08d57, [SAND]: 0xe0d29a, [SNOW]: 0xf2f7f7, [WATER]: 0x2f6fd0 };
 const HOTBAR = [GRASS, DIRT, STONE, PLANK];
 
 // Terrain generation modes (the value travels in JoinResponse.mode):
 //   0 "easy"    gentle plains, effortless to walk and build on
 //   1 "complex" Mojang-style procgen: mountains, stone slopes,
 //               sand lowlands, caves, denser forests
-const MODE_EASY = 0, MODE_COMPLEX = 1;
+//   2 "biomes"  complex + biome map (plains/desert/forest/snow),
+//               lakes with swimmable water, per-biome palettes
+const MODE_EASY = 0, MODE_COMPLEX = 1, MODE_BIOMES = 2;
+const MODE_NAMES = ["easy", "complex", "biomes"];
+const SEA = 3; // lake level in biomes mode
 let genMode = MODE_COMPLEX;
 
 let seed = 1337;
@@ -118,22 +122,37 @@ function heightAt(x, z) {
   const ridge = 1 - Math.abs(smoothNoise(x, z, 6, seed + 31) * 2 - 1); // sharp crests
   return 1 + Math.floor(Math.min(1, base + ridge * ridge * 0.3) * 11);
 }
+function biomeAt(x, z) {
+  const n = smoothNoise(x, z, 22, seed + 555);
+  return n < 0.32 ? "desert" : n < 0.56 ? "plains" : n < 0.79 ? "forest" : "snow";
+}
 function treeAt(x, z) {
   if (x < 2 || z < 2 || x >= SIZE - 2 || z >= SIZE - 2) return false;
-  const density = genMode === MODE_EASY ? 0.995 : 0.978;
+  let density = genMode === MODE_EASY ? 0.995 : 0.978;
+  if (genMode === MODE_BIOMES) {
+    const b = biomeAt(x, z);
+    density = b === "forest" ? 0.93 : b === "plains" ? 0.98 : b === "snow" ? 0.99 : 1; // no trees in desert
+  }
   return hash2(x, z, seed + 99) > density && heightAt(x, z) + 4 <= MAXY;
 }
 function terrainBlock(x, y, z) {
   if (x < 0 || z < 0 || x >= SIZE || z >= SIZE || y < 0) return AIR;
   if (y === 0) return STONE;
   const h = heightAt(x, z);
-  // caves (complex): carve mid-depth pockets, never the surface or floor
-  if (genMode === MODE_COMPLEX && y >= 2 && y <= h - 3 && noise3(x, y, z, 5, seed + 77) > 0.68) return AIR;
+  // lakes (biomes): fill below sea level with water
+  if (genMode === MODE_BIOMES && y > h && y <= SEA) return WATER;
+  // caves (complex+): carve mid-depth pockets, never the surface or floor
+  if (genMode !== MODE_EASY && y >= 2 && y <= h - 3 && noise3(x, y, z, 5, seed + 77) > 0.68) return AIR;
   if (y < h - 2) return STONE;
-  if (y < h) return DIRT;
+  if (y < h) return genMode === MODE_BIOMES && biomeAt(x, z) === "desert" ? SAND : DIRT;
   if (y === h) {
-    if (genMode === MODE_COMPLEX) {
-      if (h <= 3) return SAND; // lowland beaches
+    if (genMode !== MODE_EASY) {
+      if (genMode === MODE_BIOMES) {
+        const b = biomeAt(x, z);
+        if (b === "desert") return SAND;
+        if (b === "snow") return SNOW;
+        if (h <= SEA + 1) return SAND; // shorelines
+      } else if (h <= 3) return SAND; // lowland beaches
       // steep faces shed their grass: exposed stone on cliffs
       const steep = Math.max(
         Math.abs(h - heightAt(x + 1, z)), Math.abs(h - heightAt(x - 1, z)),
@@ -141,6 +160,10 @@ function terrainBlock(x, y, z) {
       if (steep >= 2) return STONE;
     }
     return GRASS;
+  }
+  if (genMode === MODE_BIOMES && biomeAt(x, z) === "desert") {
+    if (y === h + 1 && hash2(x, z, seed + 55) > 0.985) return WOOD; // cactus stub
+    return AIR;
   }
   if (treeAt(x, z)) {
     if (y > h && y <= h + 3) return WOOD;
@@ -188,7 +211,10 @@ function initThree() {
   scene.add(worldGroup);
   const geo = new THREE.BoxGeometry(1, 1, 1);
   for (const [type, color] of Object.entries(BLOCK_COLORS)) {
-    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color }), 20000);
+    const mat = Number(type) === WATER
+      ? new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.65 })
+      : new THREE.MeshLambertMaterial({ color });
+    const mesh = new THREE.InstancedMesh(geo, mat, 20000);
     mesh.count = 0;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     worldGroup.add(mesh);
@@ -204,9 +230,14 @@ function rebuildMesh() {
     for (let y = 0; y <= MAXY; y++) {
       const b = blockAt(x, y, z);
       if (b === AIR) continue;
-      if (blockAt(x + 1, y, z) && blockAt(x - 1, y, z) && blockAt(x, y + 1, z) &&
-          blockAt(x, y - 1, z) && blockAt(x, y, z + 1) && blockAt(x, y, z - 1)) continue;
-      lists.get(b)?.push([x, y, z]);
+      const exposed = (nx, ny, nz) => {
+        const nb = blockAt(nx, ny, nz);
+        return b === WATER ? nb === AIR : nb === AIR || nb === WATER;
+      };
+      if (exposed(x + 1, y, z) || exposed(x - 1, y, z) || exposed(x, y + 1, z) ||
+          exposed(x, y - 1, z) || exposed(x, y, z + 1) || exposed(x, y, z - 1)) {
+        lists.get(b)?.push([x, y, z]);
+      }
     }
   }
   for (const [type, mesh] of typeMeshes) {
@@ -233,8 +264,10 @@ function collides(p) {
   const r = 0.3, h = 1.8;
   for (let x = Math.floor(p.x - r); x <= Math.floor(p.x + r); x++)
     for (let y = Math.floor(p.y); y <= Math.floor(p.y + h); y++)
-      for (let z = Math.floor(p.z - r); z <= Math.floor(p.z + r); z++)
-        if (blockAt(x, y, z) !== AIR) return true;
+      for (let z = Math.floor(p.z - r); z <= Math.floor(p.z + r); z++) {
+        const b = blockAt(x, y, z);
+        if (b !== AIR && b !== WATER) return true;
+      }
   return false;
 }
 function moveAxis(axis, amount) {
@@ -266,8 +299,15 @@ function stepPlayer(dt) {
   if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(speed * dt);
   moveAxis("x", wish.x);
   moveAxis("z", wish.z);
-  player.vel.y -= 22 * dt;
-  if (keys.has("Space") && player.onGround) { player.vel.y = 8; player.onGround = false; }
+  const inWater = blockAt(Math.floor(player.pos.x), Math.floor(player.pos.y + 0.4), Math.floor(player.pos.z)) === WATER;
+  if (inWater) {
+    player.vel.y -= 6 * dt;
+    player.vel.y = Math.max(player.vel.y, -2.5);
+    if (keys.has("Space")) player.vel.y = 3.2;
+  } else {
+    player.vel.y -= 22 * dt;
+    if (keys.has("Space") && player.onGround) { player.vel.y = 8; player.onGround = false; }
+  }
   moveAxis("y", player.vel.y * dt);
   if (player.pos.y < -10) { player.pos.set(SIZE / 2, spawnY(), SIZE / 2); player.vel.set(0, 0, 0); }
   camera.position.set(player.pos.x, player.pos.y + 1.62, player.pos.z);
@@ -428,7 +468,7 @@ async function guestJoinAndPlay(channel) {
   edits.clear();
   for (const e of resp.edits) edits.set(key(e.x, e.y, e.z), e.block);
   rebuildMesh();
-  log(`joined session as #${myId} (seed ${seed}, ${resp.mode === MODE_EASY ? "easy" : "complex"} terrain, ${resp.edits.length} edits)`);
+  log(`joined session as #${myId} (seed ${seed}, ${MODE_NAMES[resp.mode]} terrain, ${resp.edits.length} edits)`);
   guestOut = new Queue();
   const stream = await guestClient.play(guestOut);
   guestConn = stream;
@@ -628,12 +668,12 @@ $("host-btn").onclick = async () => {
   genMode = Number($("gen-mode").value);
   seed = (Math.random() * 1e9) | 0;
   startGame();
-  log(`hosting with seed ${seed} (${genMode === MODE_EASY ? "easy" : "complex"} terrain)`);
+  log(`hosting with seed ${seed} (${MODE_NAMES[genMode]} terrain)`);
   await hostCreateInvite();
 };
 $("more-btn").onclick = () => hostCreateInvite();
 $("accept-btn").onclick = () => hostAcceptAnswer();
-$("solo-btn").onclick = () => { genMode = Number($("gen-mode").value); seed = (Math.random() * 1e9) | 0; startGame(); log(`solo world (${genMode === MODE_EASY ? "easy" : "complex"} terrain) — invite a friend any time with Host`); };
+$("solo-btn").onclick = () => { genMode = Number($("gen-mode").value); seed = (Math.random() * 1e9) | 0; startGame(); log(`solo world (${MODE_NAMES[genMode]} terrain) — invite a friend any time with Host`); };
 $("copy-invite").onclick = () => { $("invite-out").select(); navigator.clipboard.writeText($("invite-out").value); };
 $("copy-answer").onclick = () => { $("answer-out").select(); navigator.clipboard.writeText($("answer-out").value); };
 

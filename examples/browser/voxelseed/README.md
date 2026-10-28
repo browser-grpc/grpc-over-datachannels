@@ -20,6 +20,10 @@ identical world locally:
   multi-octave mountains with ridged crests (heights 1–12),
   exposed stone on steep faces, sand lowlands, caves carved by
   3D value noise below the surface, and denser forests.
+- **Biomes (2)** — complex terrain plus a low-frequency biome
+  map: desert (sand, cactus stubs), plains, forest (dense
+  trees), snow (white caps), with lakes below sea level —
+  translucent, swimmable water (sink slowly, Space to rise).
 
 ## How joining works (manual WebRTC signaling)
 
