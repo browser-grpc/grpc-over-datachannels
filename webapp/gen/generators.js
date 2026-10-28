@@ -1035,8 +1035,8 @@ function goStreamIfaces(m, svc) {
 }
 
 function goRegisterMethod(m, svc) {
-  // Emission single-sourced as segments (SEGMENT_PROGRAMS.goRegisterMethod,
-  // from racket/segments.rkt); edit the program there.
+  // Emission single-sourced as segments (SEGMENT_PROGRAMS.goRegisterMethod);
+  // edit the segment program, not this output.
   return runSegments(SEGMENT_PROGRAMS.goRegisterMethod, m, svc);
 }
 
@@ -1046,7 +1046,7 @@ function goStreamImpls(m, svc) {
 
 function goService(svc) {
   // Emission single-sourced as segments (SEGMENT_PROGRAMS.goService
-  // and the per-method programs it calls, from racket/segments.rkt).
+  // and the per-method programs it calls); edit the segment programs.
   return runSegments(SEGMENT_PROGRAMS.goService, svc, svc.name);
 }
 
