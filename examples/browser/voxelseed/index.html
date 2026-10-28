@@ -1,13 +1,13 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VoxelSeed — multiplayer voxel worlds over WebRTC (grpc-dc demo)</title>
-<meta name="description" content="VoxelSeed: a tiny multiplayer voxel game. The host's browser runs the game server with grpc-dc (gRPC over a WebRTC DataChannel); friends join from a link — no game server, no sign-up.">
+<title>VoxelSeed — procgen terrain dashboard &amp; autopilot flythrough</title>
+<meta name="description" content="VoxelSeed: a procedural voxel terrain dashboard. Tune the generator (seed, biomes, mountains, caves, lakes) and watch an autopilot fly through infinite generated worlds.">
 <link rel="stylesheet" href="style.css">
 <script>
   // AdSense Auto ads: injected only on the public hosts and only
   // after the page has fully loaded, so ad-network latency can
-  // never delay (or break) the game itself.
+  // never delay (or break) the page itself.
   window.addEventListener("load", function () {
     if (!/(^|\.)(github\.io|lunchgamer\.com)$/.test(location.hostname)) return;
     var s = document.createElement("script");
@@ -21,60 +21,72 @@
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
 <body>
-<header>
+<aside id="panel">
   <h1>VoxelSeed</h1>
-  <p>A tiny Minecraft-style voxel world, procedurally generated from a seed and multiplayer over <strong>grpc-dc</strong>:
-     gRPC on a WebRTC DataChannel. The session host's browser <em>is</em> the
-     server — friends join from a link, no game server anywhere.</p>
-</header>
-<main>
-  <section id="lobby" class="pane">
-    <label>Your name <input id="name" value="player" maxlength="16"></label>
-    <label>World type
+  <p class="sub">Procgen terrain dashboard — infinite voxel worlds,
+     generated in your browser. The autopilot is flying; take over any time.</p>
+
+  <section>
+    <h2>World</h2>
+    <label>Seed
+      <span class="row"><input id="seed" type="number" value="1337"><button id="dice" type="button" title="Random seed">Random</button></span>
+    </label>
+    <label>Generator
       <select id="gen-mode">
-        <option value="1" selected>Complex — mountains, caves, forests (procgen)</option>
-        <option value="2">Biomes — plains, desert, forest, snow + lakes</option>
-        <option value="0">Easy — gentle flatlands, easy to move and build</option>
+        <option value="0">Easy — gentle flatlands</option>
+        <option value="1" selected>Complex — mountains &amp; caves</option>
+        <option value="2">Biomes — desert/plains/forest/snow + lakes</option>
       </select>
     </label>
+    <label>Terrain height <output id="amp-out"></output>
+      <input id="amp" type="range" min="0.4" max="1.6" step="0.05" value="1">
+    </label>
+    <label>Sea level <output id="sea-out"></output>
+      <input id="sea" type="range" min="0" max="8" step="1" value="3">
+    </label>
+    <label>Tree density <output id="trees-out"></output>
+      <input id="trees" type="range" min="0" max="3" step="0.25" value="1">
+    </label>
+    <label>Biome size <output id="biome-out"></output>
+      <input id="biome" type="range" min="10" max="48" step="2" value="22">
+    </label>
+    <label class="check"><input id="caves" type="checkbox" checked> Caves (3D noise)</label>
+    <button id="regen" type="button">Regenerate world</button>
+  </section>
+
+  <section>
+    <h2>Flight</h2>
     <div class="row">
-      <button id="host-btn" type="button">Host a session</button>
-      <button id="solo-btn" type="button">Play solo</button>
+      <button id="fly-toggle" type="button">Pause autopilot</button>
+      <button id="manual" type="button">Free-fly</button>
     </div>
-    <div id="host-ui" hidden>
-      <p>1. Send this invite link to a friend:</p>
-      <textarea id="invite-out" readonly rows="3"></textarea>
-      <button id="copy-invite" type="button">Copy invite link</button>
-      <p>2. They send back an answer link — paste it here:</p>
-      <textarea id="answer-in" rows="3" placeholder="paste the answer link (or its #a=… code)"></textarea>
-      <button id="accept-btn" type="button">Accept answer</button>
-      <button id="more-btn" type="button">Invite another player</button>
-    </div>
-    <div id="guest-ui" hidden>
-      <p>You opened an invite link. Send this answer link back to the host:</p>
-      <textarea id="answer-out" readonly rows="3"></textarea>
-      <button id="copy-answer" type="button">Copy answer link</button>
-    </div>
-    <details>
-      <summary>Connection options (STUN / TURN)</summary>
-      <label>STUN <input id="stun" value="stun:stun.l.google.com:19302"></label>
-      <label>TURN URL <input id="turn-url" placeholder="turn:your-coturn.example:3478"></label>
-      <label>TURN username <input id="turn-user"></label>
-      <label>TURN password <input id="turn-pass" type="password"></label>
-      <p class="hint">STUN alone connects most home networks. If a friend is
-         behind a strict/symmetric NAT and cannot join, add a TURN server
-         (e.g. your own coturn) — traffic then relays through it.</p>
-    </details>
-    <pre id="log"></pre>
+    <label>Fly speed <output id="speed-out"></output>
+      <input id="speed" type="range" min="4" max="40" step="1" value="14">
+    </label>
+    <label>Altitude clearance <output id="alt-out"></output>
+      <input id="alt" type="range" min="3" max="26" step="1" value="9">
+    </label>
+    <label>View distance (chunks) <output id="radius-out"></output>
+      <input id="radius" type="range" min="3" max="8" step="1" value="4">
+    </label>
+    <p class="hint" id="manual-hint" hidden>Click the view to lock the mouse.
+       WASD move · Space/Ctrl up/down · arrows or mouse look · Esc release.</p>
   </section>
-  <section id="stage" class="pane">
-    <div id="view"></div>
-    <div id="hud">
-      <span id="status">not connected</span>
-      <span id="hotbar"></span>
-      <span class="hint">Click the world to lock the mouse · WASD move · Space jump · Left click break · Right click place · 1–4 pick block · Arrow keys look · F break · R place · Esc release</span>
-    </div>
+
+  <section>
+    <h2>Telemetry</h2>
+    <dl id="stats">
+      <div><dt>FPS</dt><dd id="st-fps">–</dd></div>
+      <div><dt>Chunks</dt><dd id="st-chunks">–</dd></div>
+      <div><dt>Position</dt><dd id="st-pos">–</dd></div>
+      <div><dt>Biome</dt><dd id="st-biome">–</dd></div>
+      <div><dt>Ground</dt><dd id="st-ground">–</dd></div>
+    </dl>
   </section>
+</aside>
+<main id="stage">
+  <div id="view"></div>
+  <div id="badge">AUTOPILOT</div>
 </main>
 <script type="module" src="game.js"></script>
 </body>

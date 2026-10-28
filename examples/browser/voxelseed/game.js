@@ -1,87 +1,44 @@
-// grpc-dc voxel demo: a Minecraft-style world where the session
-// host's browser runs the generated Game service (grpc-dc Server)
-// and guests run the generated GameClient — both over one
-// RTCDataChannel ("grpc"). Signaling is manual: SDP+ICE payloads
-// travel as base64url codes inside links, so no signaling server
-// exists anywhere. STUN finds the NAT mapping; an optional TURN
-// server (bring your own coturn) relays pairs STUN cannot punch.
+// VoxelSeed dashboard: a procgen terrain explorer. Infinite
+// voxel worlds are generated chunk-by-chunk around the camera
+// from a seed + generator parameters; an autopilot flies through
+// them, and every dashboard control re-shapes the world live.
+// No server, no multiplayer — this page is the whole instrument.
 import * as THREE from "three";
-import { createPeer } from "../../../js/index.js";
-import { GameClient, createGameService } from "./gen/game_grpc_dc.js";
-import { JoinRequest, JoinResponse, ClientMsg, Pos, BlockEdit, ServerMsg, PlayerState } from "./gen/game_pb.js";
 
 const $ = (id) => document.getElementById(id);
-const logEl = $("log");
-function log(msg) {
-  logEl.textContent += msg + "\n";
-  logEl.scrollTop = logEl.scrollHeight;
-  $("status").textContent = msg;
-}
 
 // ---------------------------------------------------------------------------
-// tiny async queue + two-source merge (host Play stream plumbing)
+// generator parameters (the dashboard edits these)
 // ---------------------------------------------------------------------------
-class Queue {
-  constructor() { this.items = []; this.waiters = []; this.closed = false; }
-  push(v) {
-    if (this.closed) return;
-    const w = this.waiters.shift();
-    if (w) w({ value: v, done: false }); else this.items.push(v);
-  }
-  close() {
-    this.closed = true;
-    for (const w of this.waiters.splice(0)) w({ value: undefined, done: true });
-  }
-  [Symbol.asyncIterator]() {
-    return {
-      next: () => {
-        if (this.items.length) return Promise.resolve({ value: this.items.shift(), done: false });
-        if (this.closed) return Promise.resolve({ value: undefined, done: true });
-        return new Promise((r) => this.waiters.push(r));
-      },
-    };
-  }
-}
-
-async function* merged(a, b) {
-  const ia = a[Symbol.asyncIterator](), ib = b[Symbol.asyncIterator]();
-  let pa = ia.next(), pb = ib.next();
-  for (;;) {
-    const r = await Promise.race([
-      pa.then((v) => ({ src: "a", v })),
-      pb.then((v) => ({ src: "b", v })),
-    ]);
-    if (r.v.done) return;
-    yield { src: r.src, v: r.v.value };
-    if (r.src === "a") pa = ia.next(); else pb = ib.next();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// world: deterministic terrain from a seed + an edits overlay
-// ---------------------------------------------------------------------------
-const SIZE = 48, MAXY = 15;
-const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, WOOD = 4, LEAF = 5, PLANK = 6, SAND = 7, SNOW = 8, WATER = 9;
-const BLOCK_COLORS = { [GRASS]: 0x58a83c, [DIRT]: 0x8a5a2b, [STONE]: 0x7d7d7d, [WOOD]: 0x6b4423, [LEAF]: 0x2f7a2e, [PLANK]: 0xb08d57, [SAND]: 0xe0d29a, [SNOW]: 0xf2f7f7, [WATER]: 0x2f6fd0 };
-const HOTBAR = [GRASS, DIRT, STONE, PLANK];
-
-// Terrain generation modes (the value travels in JoinResponse.mode):
-//   0 "easy"    gentle plains, effortless to walk and build on
-//   1 "complex" Mojang-style procgen: mountains, stone slopes,
-//               sand lowlands, caves, denser forests
-//   2 "biomes"  complex + biome map (plains/desert/forest/snow),
-//               lakes with swimmable water, per-biome palettes
 const MODE_EASY = 0, MODE_COMPLEX = 1, MODE_BIOMES = 2;
 const MODE_NAMES = ["easy", "complex", "biomes"];
-const SEA = 3; // lake level in biomes mode
-let genMode = MODE_COMPLEX;
+const P = {
+  seed: 1337,
+  mode: MODE_COMPLEX,
+  amp: 1.0,        // terrain height scale
+  sea: 3,          // lake level (biomes mode)
+  treeMul: 1,      // tree density multiplier
+  biomeScale: 22,  // biome noise cell size
+  caves: true,
+  speed: 14,       // autopilot m/s
+  altitude: 9,     // autopilot clearance above terrain
+  radius: 5,       // view distance in chunks
+};
 
-let seed = 1337;
-const edits = new Map(); // "x,y,z" -> block (AIR removes)
-const key = (x, y, z) => `${x},${y},${z}`;
+// ---------------------------------------------------------------------------
+// noise + terrain (pure functions of world coordinates => infinite)
+// ---------------------------------------------------------------------------
+const MAXY = 15;
+const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, WOOD = 4, LEAF = 5, PLANK = 6, SAND = 7, SNOW = 8, WATER = 9;
+const BLOCK_COLORS = { [GRASS]: 0x58a83c, [DIRT]: 0x8a5a2b, [STONE]: 0x7d7d7d, [WOOD]: 0x6b4423, [LEAF]: 0x2f7a2e, [PLANK]: 0xb08d57, [SAND]: 0xe0d29a, [SNOW]: 0xf2f7f7, [WATER]: 0x2f6fd0 };
 
 function hash2(x, z, s) {
   let h = (x * 374761393 + z * 668265263 + s * 974634211) | 0;
+  h = Math.imul(h ^ (h >> 13), 1274126177);
+  return ((h ^ (h >> 16)) >>> 0) / 4294967296;
+}
+function hash3(x, y, z, s) {
+  let h = (x * 374761393 + y * 1103515245 + z * 668265263 + s * 974634211) | 0;
   h = Math.imul(h ^ (h >> 13), 1274126177);
   return ((h ^ (h >> 16)) >>> 0) / 4294967296;
 }
@@ -93,12 +50,6 @@ function smoothNoise(x, z, cell, s) {
   const a = hash2(x0, z0, s), b = hash2(x0 + 1, z0, s), c = hash2(x0, z0 + 1, s), d = hash2(x0 + 1, z0 + 1, s);
   return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
 }
-function hash3(x, y, z, s) {
-  let h = (x * 374761393 + y * 1103515245 + z * 668265263 + s * 974634211) | 0;
-  h = Math.imul(h ^ (h >> 13), 1274126177);
-  return ((h ^ (h >> 16)) >>> 0) / 4294967296;
-}
-// trilinear value noise for cave carving (complex mode)
 function noise3(x, y, z, cell, s) {
   const gx = x / cell, gy = y / cell, gz = z / cell;
   const x0 = Math.floor(gx), y0 = Math.floor(gy), z0 = Math.floor(gz);
@@ -112,87 +63,87 @@ function noise3(x, y, z, cell, s) {
     sz);
 }
 function heightAt(x, z) {
-  if (genMode === MODE_EASY) {
-    // gentle: +/-1 around a flat plain — walk anywhere, build anywhere
-    const n = smoothNoise(x, z, 14, seed) * 0.65 + smoothNoise(x, z, 6, seed + 7) * 0.35;
-    return 3 + Math.floor(n * 2.2); // 3..5
+  if (P.mode === MODE_EASY) {
+    const n = smoothNoise(x, z, 14, P.seed) * 0.65 + smoothNoise(x, z, 6, P.seed + 7) * 0.35;
+    return 3 + Math.floor(n * 2.2 * P.amp); // 3..5 at amp 1
   }
-  // complex: broad mountains + ridged detail, 1..12
-  const base = smoothNoise(x, z, 17, seed) * 0.55 + smoothNoise(x, z, 8, seed + 7) * 0.25;
-  const ridge = 1 - Math.abs(smoothNoise(x, z, 6, seed + 31) * 2 - 1); // sharp crests
-  return 1 + Math.floor(Math.min(1, base + ridge * ridge * 0.3) * 11);
+  const base = smoothNoise(x, z, 17, P.seed) * 0.55 + smoothNoise(x, z, 8, P.seed + 7) * 0.25;
+  const ridge = 1 - Math.abs(smoothNoise(x, z, 6, P.seed + 31) * 2 - 1);
+  const n = Math.min(1, base + ridge * ridge * 0.3);
+  return Math.min(12, 1 + Math.floor(n * (4 + 8 * P.amp)));
 }
+const biomeCache = new Map();
 function biomeAt(x, z) {
-  const n = smoothNoise(x, z, 22, seed + 555);
-  return n < 0.32 ? "desert" : n < 0.56 ? "plains" : n < 0.79 ? "forest" : "snow";
-}
-function treeAt(x, z) {
-  if (x < 2 || z < 2 || x >= SIZE - 2 || z >= SIZE - 2) return false;
-  let density = genMode === MODE_EASY ? 0.995 : 0.978;
-  if (genMode === MODE_BIOMES) {
-    const b = biomeAt(x, z);
-    density = b === "forest" ? 0.93 : b === "plains" ? 0.98 : b === "snow" ? 0.99 : 1; // no trees in desert
+  const k = x + "," + z;
+  let b = biomeCache.get(k);
+  if (b === undefined) {
+    const n = smoothNoise(x, z, P.biomeScale, P.seed + 555);
+    b = n < 0.32 ? "desert" : n < 0.56 ? "plains" : n < 0.79 ? "forest" : "snow";
+    if (biomeCache.size > 20000) biomeCache.clear();
+    biomeCache.set(k, b);
   }
-  return hash2(x, z, seed + 99) > density && heightAt(x, z) + 4 <= MAXY;
+  return b;
 }
-function terrainBlock(x, y, z) {
-  if (x < 0 || z < 0 || x >= SIZE || z >= SIZE || y < 0) return AIR;
+function treeProb(x, z) {
+  if (P.mode === MODE_EASY) return 0.005;
+  if (P.mode === MODE_BIOMES) {
+    const b = biomeAt(x, z);
+    return b === "forest" ? 0.07 : b === "plains" ? 0.02 : b === "snow" ? 0.01 : 0;
+  }
+  return 0.022;
+}
+function treeAt(x, z, H) {
+  return hash2(x, z, P.seed + 99) < treeProb(x, z) * P.treeMul && H(x, z) + 4 <= MAXY;
+}
+// H is a height function so chunk builders can pass a cached one.
+function terrainBlock(x, y, z, H) {
+  if (y < 0) return AIR;
   if (y === 0) return STONE;
-  const h = heightAt(x, z);
-  // lakes (biomes): fill below sea level with water
-  if (genMode === MODE_BIOMES && y > h && y <= SEA) return WATER;
-  // caves (complex+): carve mid-depth pockets, never the surface or floor
-  if (genMode !== MODE_EASY && y >= 2 && y <= h - 3 && noise3(x, y, z, 5, seed + 77) > 0.68) return AIR;
+  const h = H(x, z);
+  if (P.mode === MODE_BIOMES && y > h && y <= P.sea) return WATER;
+  if (P.caves && P.mode !== MODE_EASY && y >= 2 && y <= h - 3 && noise3(x, y, z, 5, P.seed + 77) > 0.68) return AIR;
   if (y < h - 2) return STONE;
-  if (y < h) return genMode === MODE_BIOMES && biomeAt(x, z) === "desert" ? SAND : DIRT;
+  if (y < h) return P.mode === MODE_BIOMES && biomeAt(x, z) === "desert" ? SAND : DIRT;
   if (y === h) {
-    if (genMode !== MODE_EASY) {
-      if (genMode === MODE_BIOMES) {
+    if (P.mode !== MODE_EASY) {
+      if (P.mode === MODE_BIOMES) {
         const b = biomeAt(x, z);
         if (b === "desert") return SAND;
         if (b === "snow") return SNOW;
-        if (h <= SEA + 1) return SAND; // shorelines
-      } else if (h <= 3) return SAND; // lowland beaches
-      // steep faces shed their grass: exposed stone on cliffs
+        if (h <= P.sea + 1) return SAND; // shorelines
+      } else if (h <= 3) return SAND;
       const steep = Math.max(
-        Math.abs(h - heightAt(x + 1, z)), Math.abs(h - heightAt(x - 1, z)),
-        Math.abs(h - heightAt(x, z + 1)), Math.abs(h - heightAt(x, z - 1)));
+        Math.abs(h - H(x + 1, z)), Math.abs(h - H(x - 1, z)),
+        Math.abs(h - H(x, z + 1)), Math.abs(h - H(x, z - 1)));
       if (steep >= 2) return STONE;
     }
     return GRASS;
   }
-  if (genMode === MODE_BIOMES && biomeAt(x, z) === "desert") {
-    if (y === h + 1 && hash2(x, z, seed + 55) > 0.985) return WOOD; // cactus stub
-    return AIR;
+  if (P.mode === MODE_BIOMES && biomeAt(x, z) === "desert") {
+    return y === h + 1 && hash2(x, z, P.seed + 55) < 0.015 ? WOOD : AIR; // cactus stub
   }
-  if (treeAt(x, z)) {
+  if (treeAt(x, z, H)) {
     if (y > h && y <= h + 3) return WOOD;
     if (y === h + 4) return LEAF;
   }
   if (y === h + 3) {
-    // leaf canopy ring around any trunk top within reach
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-      if (treeAt(x + dx, z + dz)) return LEAF;
+      if (treeAt(x + dx, z + dz, H)) return LEAF;
     }
   }
   return AIR;
 }
-function spawnY() { return heightAt(SIZE / 2, SIZE / 2) + 3; }
-function blockAt(x, y, z) {
-  const e = edits.get(key(x, y, z));
-  return e !== undefined ? e : terrainBlock(x, y, z);
-}
-function applyEdit(edit, rebuild = true) {
-  edits.set(key(edit.x, edit.y, edit.z), edit.block);
-  if (rebuild) rebuildMesh();
-}
+const blockAt = (x, y, z) => terrainBlock(x, y, z, heightAt);
 
 // ---------------------------------------------------------------------------
-// three.js scene
+// scene + infinite chunk streaming (one InstancedMesh per chunk per
+// material class; per-instance colors carry the block palette)
 // ---------------------------------------------------------------------------
-let renderer, scene, camera, worldGroup, started = false;
-const typeMeshes = new Map();
-const avatars = new Map(); // playerId -> THREE.Group
+const CHUNK = 16;
+let renderer, scene, camera;
+const chunks = new Map(); // "cx,cz" -> {group, meshes:[...]}
+const buildQueue = [];
+let boxGeo, solidMat, waterMat;
 
 function initThree() {
   renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -201,488 +152,262 @@ function initThree() {
   $("view").appendChild(renderer.domElement);
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87ceeb);
-  scene.fog = new THREE.Fog(0x87ceeb, 30, 90);
-  camera = new THREE.PerspectiveCamera(75, $("view").clientWidth / $("view").clientHeight, 0.1, 200);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-  sun.position.set(30, 50, 20);
+  camera = new THREE.PerspectiveCamera(72, $("view").clientWidth / $("view").clientHeight, 0.1, 900);
+  camera.position.set(8, 16, 8);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+  sun.position.set(60, 90, 30);
   scene.add(sun);
-  worldGroup = new THREE.Group();
-  scene.add(worldGroup);
-  const geo = new THREE.BoxGeometry(1, 1, 1);
-  for (const [type, color] of Object.entries(BLOCK_COLORS)) {
-    const mat = Number(type) === WATER
-      ? new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.65 })
-      : new THREE.MeshLambertMaterial({ color });
-    const mesh = new THREE.InstancedMesh(geo, mat, 20000);
-    mesh.count = 0;
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    worldGroup.add(mesh);
-    typeMeshes.set(Number(type), mesh);
-  }
+  boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  solidMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  waterMat = new THREE.MeshLambertMaterial({ color: BLOCK_COLORS[WATER], transparent: true, opacity: 0.65, depthWrite: false });
+  updateFog();
+  addEventListener("resize", () => {
+    camera.aspect = $("view").clientWidth / $("view").clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize($("view").clientWidth, $("view").clientHeight);
+  });
+}
+function updateFog() {
+  if (!scene) return;
+  const far = P.radius * CHUNK;
+  scene.fog = new THREE.Fog(0x87ceeb, far * 0.5, far * 0.98);
+  camera.far = far * 1.6;
+  camera.updateProjectionMatrix();
 }
 
-function rebuildMesh() {
-  if (!started) return;
-  const lists = new Map([...typeMeshes.keys()].map((t) => [t, []]));
+function buildChunk(cx, cz) {
+  // local height cache: terrain queries dominate chunk cost
+  const hcache = new Map();
+  const H = (x, z) => {
+    const k = x + "," + z;
+    let v = hcache.get(k);
+    if (v === undefined) { v = heightAt(x, z); hcache.set(k, v); }
+    return v;
+  };
+  const B = (x, y, z) => terrainBlock(x, y, z, H);
+  const solid = [], water = [];
   const m = new THREE.Matrix4();
-  for (let x = 0; x < SIZE; x++) for (let z = 0; z < SIZE; z++) {
-    for (let y = 0; y <= MAXY; y++) {
-      const b = blockAt(x, y, z);
-      if (b === AIR) continue;
-      const exposed = (nx, ny, nz) => {
-        const nb = blockAt(nx, ny, nz);
-        return b === WATER ? nb === AIR : nb === AIR || nb === WATER;
-      };
-      if (exposed(x + 1, y, z) || exposed(x - 1, y, z) || exposed(x, y + 1, z) ||
-          exposed(x, y - 1, z) || exposed(x, y, z + 1) || exposed(x, y, z - 1)) {
-        lists.get(b)?.push([x, y, z]);
+  const color = new THREE.Color();
+  for (let x = cx * CHUNK; x < cx * CHUNK + CHUNK; x++)
+    for (let z = cz * CHUNK; z < cz * CHUNK + CHUNK; z++)
+      for (let y = 0; y <= MAXY; y++) {
+        const b = B(x, y, z);
+        if (b === AIR) continue;
+        const exposed = (nx, ny, nz) => {
+          const nb = B(nx, ny, nz);
+          return b === WATER ? nb === AIR : nb === AIR || nb === WATER;
+        };
+        if (!(exposed(x + 1, y, z) || exposed(x - 1, y, z) || exposed(x, y + 1, z) ||
+              exposed(x, y - 1, z) || exposed(x, y, z + 1) || exposed(x, y, z - 1))) continue;
+        (b === WATER ? water : solid).push([x, y, z, b]);
       }
-    }
-  }
-  for (const [type, mesh] of typeMeshes) {
-    const cells = lists.get(type) || [];
-    cells.forEach(([x, y, z], i) => mesh.setMatrixAt(i, m.makeTranslation(x + 0.5, y + 0.5, z + 0.5)));
-    mesh.count = cells.length;
+  const group = new THREE.Group();
+  const meshes = [];
+  const fill = (cells, mat, cap) => {
+    if (!cells.length) return;
+    const mesh = new THREE.InstancedMesh(boxGeo, mat, Math.min(cells.length, cap));
+    cells.slice(0, cap).forEach(([x, y, z, b], i) => {
+      mesh.setMatrixAt(i, m.makeTranslation(x + 0.5, y + 0.5, z + 0.5));
+      if (mat === solidMat) mesh.setColorAt(i, color.setHex(BLOCK_COLORS[b]));
+    });
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    group.add(mesh);
+    meshes.push(mesh);
+  };
+  fill(solid, solidMat, 8192);
+  fill(water, waterMat, 2048);
+  scene.add(group);
+  chunks.set(cx + "," + cz, { group, meshes });
+}
+function dropChunk(k) {
+  const c = chunks.get(k);
+  if (!c) return;
+  for (const mesh of c.meshes) { scene.remove(mesh); mesh.dispose(); }
+  scene.remove(c.group);
+  chunks.delete(k);
+}
+function clearChunks() {
+  for (const k of [...chunks.keys()]) dropChunk(k);
+  buildQueue.length = 0;
+}
+// keep the ring of chunks around the camera; build nearest-first,
+// a few per frame so flight never hitches on generation
+function updateChunks() {
+  const ccx = Math.floor(camera.position.x / CHUNK);
+  const ccz = Math.floor(camera.position.z / CHUNK);
+  const R = P.radius;
+  for (const k of [...chunks.keys()]) {
+    const [cx, cz] = k.split(",").map(Number);
+    if (Math.max(Math.abs(cx - ccx), Math.abs(cz - ccz)) > R + 1) dropChunk(k);
+  }
+  const wanted = [];
+  for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
+    const k = (ccx + dx) + "," + (ccz + dz);
+    if (!chunks.has(k) && !buildQueue.includes(k)) wanted.push([Math.max(Math.abs(dx), Math.abs(dz)), k]);
+  }
+  wanted.sort((a, b) => a[0] - b[0]);
+  for (const [, k] of wanted) buildQueue.push(k);
+  // build by time budget (always at least one) so flight stays smooth
+  const t0 = performance.now();
+  let built = 0;
+  while (buildQueue.length && (built === 0 || performance.now() - t0 < 7)) {
+    const k = buildQueue.shift();
+    if (chunks.has(k)) continue;
+    const [cx, cz] = k.split(",").map(Number);
+    if (Math.max(Math.abs(cx - ccx), Math.abs(cz - ccz)) > R + 1) continue;
+    buildChunk(cx, cz);
+    built++;
   }
 }
 
 // ---------------------------------------------------------------------------
-// local player: AABB physics against the voxel grid
+// camera: autopilot wander + manual free-fly
 // ---------------------------------------------------------------------------
-const player = {
-  pos: new THREE.Vector3(SIZE / 2, 12, SIZE / 2), // feet (snapped to terrain in startGame)
-  vel: new THREE.Vector3(),
-  yaw: 0, pitch: 0, onGround: false,
+const cam = {
+  pos: new THREE.Vector3(8, 18, 24),
+  yaw: Math.PI, pitch: -0.12, // start looking north-ish, slightly down
+  autopilot: true, t: 0, heading: Math.PI,
 };
 const keys = new Set();
-let selectedBlock = GRASS;
 
-function solidAt(x, y, z) { return blockAt(Math.floor(x), Math.floor(y), Math.floor(z)) !== AIR; }
-function collides(p) {
-  const r = 0.3, h = 1.8;
-  for (let x = Math.floor(p.x - r); x <= Math.floor(p.x + r); x++)
-    for (let y = Math.floor(p.y); y <= Math.floor(p.y + h); y++)
-      for (let z = Math.floor(p.z - r); z <= Math.floor(p.z + r); z++) {
-        const b = blockAt(x, y, z);
-        if (b !== AIR && b !== WATER) return true;
-      }
-  return false;
+function groundAhead(dist) {
+  const fx = -Math.sin(cam.heading), fz = -Math.cos(cam.heading);
+  let g = 0;
+  for (const d of [dist * 0.4, dist * 0.7, dist]) {
+    const x = Math.floor(cam.pos.x + fx * d), z = Math.floor(cam.pos.z + fz * d);
+    g = Math.max(g, heightAt(x, z));
+  }
+  return g;
 }
-function moveAxis(axis, amount) {
-  if (amount === 0) return;
-  player.pos[axis] += amount;
-  if (collides(player.pos)) {
-    // step back to the boundary of the offending cell
-    const step = Math.sign(amount) * 0.01;
-    while (collides(player.pos)) player.pos[axis] -= step;
-    player.pos[axis] -= step * 2;
-    if (axis === "y") { if (amount < 0) player.onGround = true; player.vel.y = 0; }
-  } else if (axis === "y") player.onGround = false;
-}
-function stepPlayer(dt) {
-  // arrow keys look around (trackpads / accessibility / no mouse)
-  const look = 2.4 * dt;
-  if (keys.has("ArrowLeft")) player.yaw += look;
-  if (keys.has("ArrowRight")) player.yaw -= look;
-  if (keys.has("ArrowUp")) player.pitch = Math.min(1.5, player.pitch + look);
-  if (keys.has("ArrowDown")) player.pitch = Math.max(-1.5, player.pitch - look);
-  const speed = 6;
-  const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
-  const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
-  const wish = new THREE.Vector3();
-  if (keys.has("KeyW")) wish.add(fwd);
-  if (keys.has("KeyS")) wish.sub(fwd);
-  if (keys.has("KeyD")) wish.add(right);
-  if (keys.has("KeyA")) wish.sub(right);
-  if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(speed * dt);
-  moveAxis("x", wish.x);
-  moveAxis("z", wish.z);
-  const inWater = blockAt(Math.floor(player.pos.x), Math.floor(player.pos.y + 0.4), Math.floor(player.pos.z)) === WATER;
-  if (inWater) {
-    player.vel.y -= 6 * dt;
-    player.vel.y = Math.max(player.vel.y, -2.5);
-    if (keys.has("Space")) player.vel.y = 3.2;
+function stepCamera(dt) {
+  if (cam.autopilot) {
+    cam.t += dt;
+    // gentle sinusoidal wander: the world scrolls by forever
+    cam.heading += Math.sin(cam.t * 0.13) * 0.22 * dt + Math.sin(cam.t * 0.041) * 0.1 * dt;
+    const fx = -Math.sin(cam.heading), fz = -Math.cos(cam.heading);
+    cam.pos.x += fx * P.speed * dt;
+    cam.pos.z += fz * P.speed * dt;
+    const targetY = groundAhead(26) + P.altitude;
+    cam.pos.y += (targetY - cam.pos.y) * Math.min(1, dt * 1.6);
+    cam.yaw = cam.heading;
+    // look a little below the horizon line of travel
+    const lookY = groundAhead(30) + P.altitude * 0.35;
+    cam.pitch = Math.atan2(cam.pos.y - lookY, 30);
   } else {
-    player.vel.y -= 22 * dt;
-    if (keys.has("Space") && player.onGround) { player.vel.y = 8; player.onGround = false; }
+    // cam.pitch measures downward tilt (see rotateX(-pitch) below)
+    const look = 2.2 * dt;
+    if (keys.has("ArrowLeft")) cam.yaw += look;
+    if (keys.has("ArrowRight")) cam.yaw -= look;
+    if (keys.has("ArrowUp")) cam.pitch = Math.max(-1.5, cam.pitch - look);
+    if (keys.has("ArrowDown")) cam.pitch = Math.min(1.5, cam.pitch + look);
+    const fwd = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(-cam.pitch, cam.yaw, 0, "YXZ"));
+    const right = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, cam.yaw, 0));
+    const move = new THREE.Vector3();
+    const sp = (keys.has("ShiftLeft") ? 26 : 11) * dt;
+    if (keys.has("KeyW")) move.add(fwd);
+    if (keys.has("KeyS")) move.sub(fwd);
+    if (keys.has("KeyD")) move.add(right);
+    if (keys.has("KeyA")) move.sub(right);
+    if (keys.has("Space")) move.y += 1;
+    if (keys.has("KeyC")) move.y -= 1;
+    if (move.lengthSq() > 0) cam.pos.addScaledVector(move.normalize(), sp);
+    if (cam.pos.y < 1.5) cam.pos.y = 1.5;
   }
-  moveAxis("y", player.vel.y * dt);
-  if (player.pos.y < -10) { player.pos.set(SIZE / 2, spawnY(), SIZE / 2); player.vel.set(0, 0, 0); }
-  camera.position.set(player.pos.x, player.pos.y + 1.62, player.pos.z);
+  camera.position.copy(cam.pos);
   camera.rotation.set(0, 0, 0);
-  camera.rotateY(player.yaw);
-  camera.rotateX(player.pitch);
-}
-
-// voxel raycast (Amanatides & Woo DDA), up to 6 m
-function raycastVoxel() {
-  const dir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(player.pitch, player.yaw, 0, "YXZ"));
-  const o = camera.position.clone();
-  let x = Math.floor(o.x), y = Math.floor(o.y), z = Math.floor(o.z);
-  const stepX = Math.sign(dir.x), stepY = Math.sign(dir.y), stepZ = Math.sign(dir.z);
-  const td = (s, c, d) => (d === 0 ? Infinity : Math.abs(1 / d) * (s > 0 ? Math.ceil(c) - c || 1 : c - Math.floor(c) || 1));
-  let tmx = td(stepX, o.x, dir.x), tmy = td(stepY, o.y, dir.y), tmz = td(stepZ, o.z, dir.z);
-  const dtx = dir.x === 0 ? Infinity : Math.abs(1 / dir.x);
-  const dty = dir.y === 0 ? Infinity : Math.abs(1 / dir.y);
-  const dtz = dir.z === 0 ? Infinity : Math.abs(1 / dir.z);
-  let nx = 0, ny = 0, nz = 0, t = 0;
-  for (let i = 0; i < 128; i++) {
-    if (blockAt(x, y, z) !== AIR && t > 0) return { x, y, z, nx, ny, nz };
-    if (tmx < tmy && tmx < tmz) { x += stepX; t = tmx; tmx += dtx; nx = -stepX; ny = 0; nz = 0; }
-    else if (tmy < tmz) { y += stepY; t = tmy; tmy += dty; nx = 0; ny = -stepY; nz = 0; }
-    else { z += stepZ; t = tmz; tmz += dtz; nx = 0; ny = 0; nz = -stepZ; }
-    if (t > 6) return null;
-  }
-  return null;
+  camera.rotateY(cam.yaw);
+  camera.rotateX(-cam.pitch);
 }
 
 // ---------------------------------------------------------------------------
-// remote player avatars
+// telemetry
 // ---------------------------------------------------------------------------
-function nameSprite(name, color) {
-  const c = document.createElement("canvas");
-  c.width = 256; c.height = 64;
-  const g = c.getContext("2d");
-  g.font = "bold 36px sans-serif";
-  g.textAlign = "center";
-  g.fillStyle = "rgba(0,0,0,0.45)";
-  g.fillRect(0, 6, 256, 50);
-  g.fillStyle = color;
-  g.fillText(name.slice(0, 16), 128, 44);
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c) }));
-  sp.scale.set(1.6, 0.4, 1);
-  sp.position.y = 2.15;
-  return sp;
-}
-function ensureAvatar(id, name) {
-  if (avatars.has(id)) return avatars.get(id);
-  const hue = (id * 0.37) % 1;
-  const color = new THREE.Color().setHSL(hue, 0.65, 0.55);
-  const grp = new THREE.Group();
-  const mat = new THREE.MeshLambertMaterial({ color });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.1, 0.35), mat);
-  body.position.y = 0.85;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), new THREE.MeshLambertMaterial({ color: 0xe8c39e }));
-  head.position.y = 1.62;
-  grp.add(body, head, nameSprite(name || `player ${id}`, `#${color.getHexString()}`));
-  scene.add(grp);
-  avatars.set(id, grp);
-  return grp;
-}
-function dropAvatar(id) {
-  const grp = avatars.get(id);
-  if (grp) { scene.remove(grp); avatars.delete(id); }
-}
-
-// ---------------------------------------------------------------------------
-// networking: host service + guest client over one RTCDataChannel
-// ---------------------------------------------------------------------------
-const players = new Map(); // id -> {name, pos:Vector3, yaw} (host: all; guest: remotes)
-let myId = 0;
-let guestOut = null; // guest -> Queue<ClientMsg>
-let guestClient = null;
-let guestConn = null; // {sendPos...} markers for loop
-
-function myPosMsg() {
-  return new Pos({ x: player.pos.x, y: player.pos.y, z: player.pos.z, yaw: player.yaw });
-}
-function myEditMsg(edit) {
-  return new BlockEdit({ x: edit.x, y: edit.y, z: edit.z, block: edit.block });
-}
-
-// ---- host side: authoritative world; guests are thin callers ----
-const hostConns = new Set(); // {playerId, out:Queue<ServerMsg>}
-let nextPlayerId = 1;
-
-function broadcast(msg, exceptConn = null) {
-  for (const c of hostConns) if (c !== exceptConn) c.out.push(msg);
-}
-const stateMsg = (id, name, pos) => new ServerMsg({ player: new PlayerState({ id, name, pos }) });
-
-function hostService() {
-  return createGameService({
-    async join(req) {
-      const id = nextPlayerId++;
-      players.set(id, { name: req.name || `player ${id}`, pos: new THREE.Vector3(SIZE / 2, spawnY(), SIZE / 2), yaw: 0 });
-      log(`guest joined: ${req.name} (#${id})`);
-      return new JoinResponse({
-        playerId: id,
-        seed,
-        mode: genMode,
-        edits: [...edits.entries()].map(([k, block]) => {
-          const [x, y, z] = k.split(",").map(Number);
-          return new BlockEdit({ x, y, z, block });
-        }),
-      });
-    },
-    async *play(requests) {
-      const conn = { playerId: 0, out: new Queue() };
-      hostConns.add(conn);
-      try {
-        for await (const { src, v } of merged(requests, conn.out)) {
-          if (src === "b") { yield v; continue; }
-          if (!conn.playerId && v.playerId) {
-            conn.playerId = v.playerId;
-            players.get(conn.playerId) && (players.get(conn.playerId).conn = conn);
-          }
-          if (v.pos) {
-            const p = players.get(conn.playerId);
-            if (p) { p.pos.set(v.pos.x, v.pos.y, v.pos.z); p.yaw = v.pos.yaw; }
-            broadcast(stateMsg(conn.playerId, p?.name || "", v.pos), conn);
-          } else if (v.edit) {
-            applyEdit(v.edit);
-            broadcast(new ServerMsg({ edit: v.edit }), null); // authoritative echo to everyone
-          }
-        }
-      } finally {
-        hostConns.delete(conn);
-        if (conn.playerId) {
-          players.delete(conn.playerId);
-          dropAvatar(conn.playerId);
-          broadcast(new ServerMsg({ left: conn.playerId }), null);
-          log(`player #${conn.playerId} left`);
-        }
-      }
-    },
-  });
-}
-
-// host position ticker: guests learn about player 0 (the host) here;
-// guest->guest positions ride the relay in play() above.
+let frames = 0, fpsShown = 0, lastFpsT = performance.now();
 setInterval(() => {
-  if (!hostConns.size) return;
-  const state = stateMsg(0, $("name").value || "host", myPosMsg());
-  broadcast(state, null);
-}, 150);
-
-// ---- guest side ----
-async function guestJoinAndPlay(channel) {
-  guestClient = new GameClient(channel);
-  const name = $("name").value || "player";
-  const resp = await guestClient.join(new JoinRequest({ name }));
-  myId = resp.playerId;
-  seed = resp.seed;
-  genMode = resp.mode;
-  edits.clear();
-  for (const e of resp.edits) edits.set(key(e.x, e.y, e.z), e.block);
-  rebuildMesh();
-  log(`joined session as #${myId} (seed ${seed}, ${MODE_NAMES[resp.mode]} terrain, ${resp.edits.length} edits)`);
-  guestOut = new Queue();
-  const stream = await guestClient.play(guestOut);
-  guestConn = stream;
-  (async () => {
-    try {
-      for await (const msg of stream) {
-        if (msg.player) {
-          if (msg.player.id === myId) continue;
-          const p = players.get(msg.player.id) || { name: msg.player.name, pos: new THREE.Vector3(), yaw: 0 };
-          p.name = msg.player.name || p.name;
-          if (msg.player.pos) p.pos.set(msg.player.pos.x, msg.player.pos.y, msg.player.pos.z);
-          p.yaw = msg.player.pos?.yaw || 0;
-          players.set(msg.player.id, p);
-        } else if (msg.edit) {
-          applyEdit(msg.edit);
-        } else if (msg.left) {
-          players.delete(msg.left);
-          dropAvatar(msg.left);
-          log(`player #${msg.left} left`);
-        }
-      }
-    } catch (e) { log(`play stream ended: ${e.message || e}`); }
-  })();
-  setInterval(() => {
-    guestOut?.push(new ClientMsg({ playerId: myId, pos: myPosMsg() }));
-  }, 100);
-}
-
-function localEdit(edit) {
-  applyEdit(edit);
-  if (guestOut) guestOut.push(new ClientMsg({ playerId: myId, edit: myEditMsg(edit) }));
-  else if (hostConns.size || isHost) broadcast(new ServerMsg({ edit: myEditMsg(edit) }), null);
-}
+  const now = performance.now();
+  fpsShown = Math.round(frames * 1000 / (now - lastFpsT));
+  frames = 0; lastFpsT = now;
+  $("st-fps").textContent = fpsShown;
+  $("st-chunks").textContent = chunks.size + (buildQueue.length ? ` (+${buildQueue.length} queued)` : "");
+  $("st-pos").textContent = `${cam.pos.x.toFixed(0)}, ${cam.pos.y.toFixed(0)}, ${cam.pos.z.toFixed(0)}`;
+  $("st-biome").textContent = P.mode === MODE_BIOMES
+    ? biomeAt(Math.floor(cam.pos.x), Math.floor(cam.pos.z))
+    : MODE_NAMES[P.mode];
+  $("st-ground").textContent = heightAt(Math.floor(cam.pos.x), Math.floor(cam.pos.z)) + " m";
+}, 400);
 
 // ---------------------------------------------------------------------------
-// manual signaling: base64url(JSON{sdp}) codes in URL fragments
+// dashboard wiring
 // ---------------------------------------------------------------------------
-const encCode = (obj) => {
-  const bytes = new TextEncoder().encode(JSON.stringify(obj));
-  let bin = "";
-  bytes.forEach((b) => (bin += String.fromCharCode(b)));
-  return btoa(bin).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-};
-const decCode = (code) => {
-  const bin = atob(code.replaceAll("-", "+").replaceAll("_", "/"));
-  return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))));
-};
-function extractCode(text, marker) {
-  const t = (text || "").trim();
-  const i = t.indexOf(marker);
-  return decCode(i >= 0 ? t.slice(i + marker.length).split(/[\s#]/)[0] : t);
+function regen() {
+  biomeCache.clear();
+  clearChunks();
+  cam.pos.set(8, heightAt(8, 8) + P.altitude + 4, 24);
+  cam.t = 0;
 }
-function iceServers() {
-  const out = [];
-  const stun = $("stun").value.trim();
-  if (stun) out.push({ urls: stun });
-  const turn = $("turn-url").value.trim();
-  if (turn) out.push({ urls: turn, username: $("turn-user").value, credential: $("turn-pass").value });
-  return out;
+function bindRange(id, out, fmt, apply, structural) {
+  const el = $(id);
+  const show = () => { $(out).textContent = fmt(Number(el.value)); };
+  el.addEventListener("input", () => { apply(Number(el.value)); show(); });
+  el.addEventListener("change", () => { if (structural) regen(); });
+  apply(Number(el.value)); show();
 }
-function waitIce(pc) {
-  if (pc.iceGatheringState === "complete") return Promise.resolve();
-  return new Promise((r) => {
-    const t = setTimeout(r, 3000);
-    pc.addEventListener("icegatheringstatechange", () => {
-      if (pc.iceGatheringState === "complete") { clearTimeout(t); r(); }
-    });
-  });
+bindRange("amp", "amp-out", (v) => v.toFixed(2) + "×", (v) => (P.amp = v), true);
+bindRange("sea", "sea-out", (v) => "y=" + v, (v) => (P.sea = v), true);
+bindRange("trees", "trees-out", (v) => v.toFixed(2) + "×", (v) => (P.treeMul = v), true);
+bindRange("biome", "biome-out", (v) => v + " m", (v) => (P.biomeScale = v), true);
+bindRange("speed", "speed-out", (v) => v + " m/s", (v) => (P.speed = v), false);
+bindRange("alt", "alt-out", (v) => "+" + v + " m", (v) => (P.altitude = v), false);
+bindRange("radius", "radius-out", (v) => v + "", (v) => { P.radius = v; updateFog(); }, false);
+$("caves").addEventListener("change", (e) => { P.caves = e.target.checked; regen(); });
+$("gen-mode").addEventListener("change", (e) => { P.mode = Number(e.target.value); regen(); });
+$("seed").addEventListener("change", (e) => { P.seed = Number(e.target.value) | 0; regen(); });
+$("dice").addEventListener("click", () => {
+  P.seed = (Math.random() * 1e9) | 0;
+  $("seed").value = P.seed;
+  regen();
+});
+$("regen").addEventListener("click", regen);
+function setAutopilot(on) {
+  cam.autopilot = on;
+  if (on) { cam.heading = cam.yaw; document.exitPointerLock?.(); }
+  $("fly-toggle").textContent = on ? "Pause autopilot" : "Resume autopilot";
+  $("badge").textContent = on ? "AUTOPILOT" : "MANUAL";
+  $("badge").classList.toggle("manual", !on);
+  $("manual-hint").hidden = on;
 }
-
-let isHost = false;
-let pendingHostPc = null;
-
-async function hostCreateInvite() {
-  const pc = new RTCPeerConnection({ iceServers: iceServers() });
-  pendingHostPc = pc;
-  const dc = pc.createDataChannel("grpc");
-  dc.onopen = () => {
-    const peer = createPeer(dc); // host created the channel: odd stream ids
-    peer.server.addService(hostService());
-    log("guest connected — grpc-dc server live on this browser");
-  };
-  dc.onclose = () => log("guest data channel closed");
-  pc.onconnectionstatechange = () => log(`host peer: ${pc.connectionState}`);
-  await pc.setLocalDescription(await pc.createOffer());
-  await waitIce(pc);
-  const link = `${location.origin}${location.pathname}#i=${encCode({ t: pc.localDescription.type, s: pc.localDescription.sdp })}`;
-  $("invite-out").value = link;
-  $("host-ui").hidden = false;
-  log("invite ready — send the link, then paste the answer below");
-}
-
-async function hostAcceptAnswer() {
-  if (!pendingHostPc) return log("create an invite first");
-  try {
-    const ans = extractCode($("answer-in").value, "#a=");
-    await pendingHostPc.setRemoteDescription({ type: ans.t, sdp: ans.s });
-    log("answer accepted — connecting…");
-  } catch (e) { log(`bad answer code: ${e.message}`); }
-}
-
-async function guestAnswer(invite) {
-  const pc = new RTCPeerConnection({ iceServers: iceServers() });
-  pc.ondatachannel = (ev) => {
-    const dc = ev.channel;
-    dc.onopen = async () => {
-      log("connected to host — joining game…");
-      try {
-        const peer = createPeer(dc, { parity: "even" }); // answering peer
-        await guestJoinAndPlay(peer.channel);
-        startGame();
-      } catch (e) { log(`join failed: ${e.message || e}`); }
-    };
-    dc.onclose = () => log("data channel closed");
-  };
-  pc.onconnectionstatechange = () => log(`guest peer: ${pc.connectionState}`);
-  await pc.setRemoteDescription({ type: invite.t, sdp: invite.s });
-  await pc.setLocalDescription(await pc.createAnswer());
-  await waitIce(pc);
-  $("answer-out").value = `${location.origin}${location.pathname}#a=${encCode({ t: pc.localDescription.type, s: pc.localDescription.sdp })}`;
-  $("guest-ui").hidden = false;
-  log("answer ready — send the link back to the host");
-}
+$("fly-toggle").addEventListener("click", () => setAutopilot(!cam.autopilot));
+$("manual").addEventListener("click", () => {
+  setAutopilot(false);
+  renderer.domElement.requestPointerLock();
+});
+$("view").addEventListener("click", () => {
+  if (!cam.autopilot && !document.pointerLockElement) renderer.domElement.requestPointerLock();
+});
+document.addEventListener("mousemove", (e) => {
+  if (!document.pointerLockElement || cam.autopilot) return;
+  cam.yaw -= e.movementX * 0.0024;
+  cam.pitch = Math.max(-1.5, Math.min(1.5, cam.pitch + e.movementY * 0.0024));
+});
+document.addEventListener("keydown", (e) => {
+  keys.add(e.code);
+  if (e.code.startsWith("Arrow")) e.preventDefault();
+  if (e.code === "KeyP") setAutopilot(!cam.autopilot);
+});
+document.addEventListener("keyup", (e) => keys.delete(e.code));
 
 // ---------------------------------------------------------------------------
-// game bootstrap + loop + input
+// go
 // ---------------------------------------------------------------------------
-function startGame() {
-  if (started) return;
-  started = true;
-  player.pos.y = spawnY();
-  initThree();
-  rebuildMesh();
-  $("stage").scrollIntoView({ behavior: "smooth" });
-  const clock = new THREE.Clock();
-  renderer.setAnimationLoop(() => {
-    const dt = Math.min(clock.getDelta(), 0.05);
-    stepPlayer(dt);
-    for (const [id, p] of players) {
-      if (id === myId || id === 0 && isHost) continue;
-      const a = ensureAvatar(id, p.name);
-      a.position.lerp(new THREE.Vector3(p.pos.x, p.pos.y, p.pos.z), 0.5);
-      a.rotation.y = -(p.yaw || 0);
-    }
-    renderer.render(scene, camera);
-  });
-  const view = $("view");
-  view.addEventListener("click", () => renderer.domElement.requestPointerLock());
-  document.addEventListener("pointerlockchange", () => {
-    log(document.pointerLockElement ? "mouse locked — play! (Esc to release)" : "mouse released");
-  });
-  document.addEventListener("mousemove", (e) => {
-    if (!document.pointerLockElement) return;
-    player.yaw -= e.movementX * 0.0025;
-    player.pitch = Math.max(-1.5, Math.min(1.5, player.pitch - e.movementY * 0.0025));
-  });
-  document.addEventListener("keydown", (e) => {
-    keys.add(e.code);
-    if (e.code.startsWith("Arrow")) e.preventDefault();
-    const n = ["Digit1", "Digit2", "Digit3", "Digit4"].indexOf(e.code);
-    if (n >= 0) { selectedBlock = HOTBAR[n]; renderHotbar(); }
-  });
-  document.addEventListener("keyup", (e) => keys.delete(e.code));
-  const doBreak = () => {
-    const hit = raycastVoxel();
-    if (hit && hit.y > 0) localEdit({ ...hit, block: AIR });
-  };
-  const doPlace = () => {
-    const hit = raycastVoxel();
-    if (!hit) return;
-    const t = { x: hit.x + hit.nx, y: hit.y + hit.ny, z: hit.z + hit.nz, block: selectedBlock };
-    if (t.y <= MAXY) localEdit(t);
-  };
-  renderer.domElement.addEventListener("mousedown", (e) => {
-    if (!document.pointerLockElement) return;
-    if (e.button === 0) doBreak();
-    else if (e.button === 2) doPlace();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.code === "KeyF") doBreak(); // keyboard-only play (no pointer lock needed)
-    if (e.code === "KeyR") doPlace();
-  });
-  renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
-  renderHotbar();
-}
-function renderHotbar() {
-  const names = { [GRASS]: "grass", [DIRT]: "dirt", [STONE]: "stone", [PLANK]: "plank" };
-  $("hotbar").textContent = " block: " + HOTBAR.map((b, i) => `${i + 1}:${names[b]}${b === selectedBlock ? "*" : ""}`).join(" ");
-}
-
-// ---------------------------------------------------------------------------
-// lobby wiring
-// ---------------------------------------------------------------------------
-$("host-btn").onclick = async () => {
-  isHost = true;
-  myId = 0;
-  genMode = Number($("gen-mode").value);
-  seed = (Math.random() * 1e9) | 0;
-  startGame();
-  log(`hosting with seed ${seed} (${MODE_NAMES[genMode]} terrain)`);
-  await hostCreateInvite();
-};
-$("more-btn").onclick = () => hostCreateInvite();
-$("accept-btn").onclick = () => hostAcceptAnswer();
-$("solo-btn").onclick = () => { genMode = Number($("gen-mode").value); seed = (Math.random() * 1e9) | 0; startGame(); log(`solo world (${MODE_NAMES[genMode]} terrain) — invite a friend any time with Host`); };
-$("copy-invite").onclick = () => { $("invite-out").select(); navigator.clipboard.writeText($("invite-out").value); };
-$("copy-answer").onclick = () => { $("answer-out").select(); navigator.clipboard.writeText($("answer-out").value); };
-
-if (location.hash.startsWith("#i=")) {
-  try {
-    const invite = decCode(location.hash.slice(3));
-    log("invite link detected — building your answer…");
-    guestAnswer(invite);
-  } catch (e) { log(`could not read invite link: ${e.message}`); }
-} else {
-  log("host a session, join from an invite link, or play solo");
-}
+initThree();
+regen();
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  stepCamera(dt);
+  updateChunks();
+  renderer.render(scene, camera);
+  frames++;
+});

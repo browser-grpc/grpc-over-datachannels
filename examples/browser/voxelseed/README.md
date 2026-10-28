@@ -1,84 +1,66 @@
-# VoxelSeed (multiplayer voxel demo, browser-hosted)
+# VoxelSeed — procgen terrain dashboard
 
-A tiny Minecraft-style voxel world. The session host's browser runs
-the generated `demo.game.Game` service (`createGameService` via grpc-dc's
-`Server`); guests run the generated `GameClient`. Both speak gRPC
-over one WebRTC `RTCDataChannel` labelled `grpc`
-(`js/index.js` `createPeer`). No game server, no signaling server.
+An infinite voxel-world generator that runs entirely in your
+browser, with a settings dashboard and an autopilot that flies
+through the worlds it makes. Tune the generator and the world
+re-shapes around you, chunk by chunk, forever.
 
 Play it: <https://voxelseed.lunchgamer.com/>
 
-## World types (procgen modes)
+## The instrument
 
-The host picks a world type in the lobby; it travels with the
-seed in `JoinResponse.mode`, so every guest generates the
-identical world locally:
+- **Seed** — every world is a pure function of its seed
+  (plus the knobs below). Type one, or roll the dice.
+- **Generator** — three terrain programs:
+  - *Easy*: gentle plains (heights 3–5, rare trees).
+  - *Complex*: multi-octave ridged mountains (1–12), exposed
+    stone on steep faces, sand lowlands, 3D-noise caves.
+  - *Biomes*: complex + a low-frequency biome map (desert with
+    cacti, plains, dense forest, snow caps) and lakes below
+    sea level.
+- **Sliders** — terrain height, sea level, tree density,
+  biome size, and a caves toggle. Structural changes
+  regenerate the world in place.
+- **Flight** — autopilot on/off (or `P`), fly speed, altitude
+  clearance, and view distance in chunks. *Free-fly* hands you
+  the camera: WASD + Space/C to move, mouse (pointer lock) or
+  arrow keys to look, Shift for speed.
+- **Telemetry** — FPS, loaded chunk count, camera position,
+  biome under the camera, ground height.
 
-- **Easy (0)** — gentle plains (heights 3–5, rare trees):
-  effortless to walk across and build on.
-- **Complex (1, default)** — Mojang-style voxel procgen:
-  multi-octave mountains with ridged crests (heights 1–12),
-  exposed stone on steep faces, sand lowlands, caves carved by
-  3D value noise below the surface, and denser forests.
-- **Biomes (2)** — complex terrain plus a low-frequency biome
-  map: desert (sand, cactus stubs), plains, forest (dense
-  trees), snow (white caps), with lakes below sea level —
-  translucent, swimmable water (sink slowly, Space to rise).
+## How it works
 
-## How joining works (manual WebRTC signaling)
+Terrain is a pure function of world coordinates (seeded value
+noise, trilinear 3D noise for caves), so the world is
+infinite: 16×16 chunks stream in around the camera
+(nearest-first, built within a per-frame time budget) and
+drop behind it. Each chunk is one `InstancedMesh` with
+per-instance colors for solid blocks plus one for translucent
+water — a few hundred draw calls at any view distance, no
+assets, no server.
 
-1. Host clicks **Host a session** → the page creates an
-   `RTCPeerConnection`, gathers ICE, and shows an **invite link**:
-   the page URL plus `#i=<base64url(JSON{type,sdp})>`.
-2. A guest opens the link → the page builds the matching answer and
-   shows an **answer link** (`#a=…`) to send back (chat, email, …).
-3. Host pastes the answer → ICE connects, the DataChannel opens,
-   and the guest calls `Join` (gets its player id, the terrain
-   seed, and the host's block-edit log) then opens the `Play`
-   bidi stream: positions up, player states + edits down.
-   The host is authoritative for block edits; positions are
-   relayed through it. More guests: **Invite another player**
-   mints a fresh invite (one peer connection per guest).
-
-## NATs, STUN, TURN
-
-Browser-to-browser ICE does the traversal; the page defaults to
-Google's public STUN server. Most residential NAT pairs connect
-directly (cone NATs, UPnP-less home routers included). A pair of
-symmetric NATs cannot hole-punch — for those, paste a TURN server
-(your own coturn) into *Connection options*: traffic then relays
-through it and always connects, at the cost of relay bandwidth.
-TURN needs credentials because relay bandwidth is abusable; the
-demo deliberately ships none. The grpc-dc native stacks implement
-the same model (`SPEC-WEBRTC.md`: STUN srflx + RFC 5766 TURN
-relay candidates, allocation refresh, `direct_dial_turn`), and
-the browser relay-only path is covered by
-`browser-test/direct_turn.test.mjs`.
-
-If the host's tab closes, the session ends — the host *is* the
-server.
-
-## Files
-
-- `game.proto` — the service/messages; stubs in `gen/` come from
-  `bin/protoc-gen-grpc-dc-js` (do not edit; regenerate with
-  `protoc --plugin=protoc-gen-grpc-dc-js=bin/protoc-gen-grpc-dc-js --grpc-dc-js_out=examples/browser/voxelseed/gen -I examples/browser/voxelseed game.proto`).
-- `game.js` — voxel world (three.js), AABB physics, DDA block
-  raycast, host/guest netcode, manual-signaling UI.
-- `index.html` — page + lobby; Auto ads is injected after page
-  load on the public lunchgamer host only (same pattern as the
-  generator SPA), so ad latency can never stall the game.
+`game.js` is the whole engine (noise, chunker, autopilot,
+dashboard). `index.html` carries the panel and the AdSense
+loader, injected after page load on the public lunchgamer host
+only, so ad latency can never stall the page.
 
 ## Deploy (Cloudflare Pages, lunchgamer)
 
-Staged bundle (game files + `js/` runtime copied to `grpcdc/`,
-import rewritten) deployed with:
+The page is three static files (three.js comes from a CDN):
 
 ```
-wrangler pages deploy <stage-dir> --project-name lunchgamer-minecraft
+wrangler pages deploy <dir with index.html, style.css, game.js> \
+  --project-name lunchgamer-minecraft
 ```
 
 Custom domain `voxelseed.lunchgamer.com` (CNAME to
-`lunchgamer-minecraft.pages.dev`) is attached to that project.
-The old `minecraft.lunchgamer.com` subdomain 301-redirects to it
-(zone-level proxied AAAA `100::` + Single Redirect rule).
+`lunchgamer-minecraft.pages.dev`) is attached to that project;
+the old `minecraft.lunchgamer.com` subdomain 301-redirects to
+it (zone-level proxied AAAA `100::` + Single Redirect rule).
+
+## History
+
+VoxelSeed began as a multiplayer grpc-dc demo (browser-hosted
+gRPC game server, base64 invite links). The generator outgrew
+the game, so the page became the dashboard above; the
+multiplayer version lives in git history (`bce2c45`).
