@@ -12,7 +12,7 @@ import (
 	"syscall/js"
 
 	echowasm "wasmecho"
-	echo "grpcdc/examples"
+	echo "github.com/browser-grpc/grpc-over-datachannels/go/examples"
 )
 
 type slowEchoStream struct{}

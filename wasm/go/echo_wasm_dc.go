@@ -9,7 +9,7 @@ package echowasm
 import (
 	"syscall/js"
 
-	echo "grpcdc/examples"
+	echo "github.com/browser-grpc/grpc-over-datachannels/go/examples"
 )
 
 type EchoClient struct {

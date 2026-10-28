@@ -16594,7 +16594,11 @@
       (file-name-from-path (hash-ref file-model 'name))
       "")))
   (define pkg (hash-ref params 'go_package "echowasm"))
-  (define messages-import (hash-ref params 'messages_import "grpcdc/examples"))
+  (define messages-import
+    (hash-ref
+     params
+     'messages_import
+     (string-append go-module-path "/examples")))
   (cons
    (string-append base "_wasm_dc.go")
    (string-append
