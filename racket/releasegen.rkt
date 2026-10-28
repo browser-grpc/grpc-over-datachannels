@@ -723,6 +723,7 @@
    "first browser RPC in about five lines, a Docker client/server\n"
    "pair, and stubs for your own `.proto`. Or open the\n"
    "[live generator](https://browser-grpc.github.io/grpc-over-datachannels/app/)\n"
+   "(also at [grpc-dc.lunchgamer.com](https://grpc-dc.lunchgamer.com/))\n"
    "and press **Run your first RPC**.\n\n"
    "**Run gRPC in the browser.** grpc-over-datachannels speaks the\n"
    "gRPC wire protocol directly over WebRTC DataChannels, so a\n"
