@@ -134,12 +134,14 @@ parameterized `guarded`, multi-key `case-on`/`kind-case`
 branches, and the `~~` fmt escape. Since then the native
 emitters have been converted in template-size order: Rust,
 Ruby, PHP, Python, C (pb; the C stub JS remains inline in
-`emitCFile`, parity-pinned), Scala, Dart, and Swift, each
-byte-identical on both sides with parity green in Chromium,
-Firefox, and WebKit. Remaining rollout: Lua, Zig, Kotlin
-(plus kotlin-native), C#, Java, C++. Unconverted functions
-stay hand-mirrored and parity-pinned; the grammar grows
-only as a real function demands a node.
+`emitCFile`, parity-pinned), Scala, Dart, Swift, Lua, Zig,
+Kotlin (including the wasm-mode variant and kotlin-native),
+C#, Java, and C++ — the rollout is complete: every language
+emitter now exists exactly once as a segment program, byte-
+identical on both sides with parity green in Chromium,
+Firefox, and WebKit. Unconverted functions stay hand-
+mirrored and parity-pinned; the grammar grows only as a
+real function demands a node.
 
 ## First concrete step
 
