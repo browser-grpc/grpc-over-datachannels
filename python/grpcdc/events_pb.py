@@ -133,12 +133,16 @@ class TagValue:
         out = _append_varint_field(out, 1, self.tag)
         if not (self.int_value or self.double_value or self.bool_value or self.enum_value):
             out = _append_string_field(out, 2, self.string_value)
+
         if not (self.double_value or self.bool_value or self.enum_value):
             out = _append_varint_field(out, 3, self.int_value)
+
         if not (self.bool_value or self.enum_value):
             if self.double_value: out = _append_fixed_field(out, 4, _struct.pack("<d", self.double_value))
+
         if not (self.enum_value):
             out = _append_varint_field(out, 5, (1 if self.bool_value else 0))
+
         out = _append_varint_field(out, 6, self.enum_value)
         out += self.unknown_fields
         return bytes(out)

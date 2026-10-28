@@ -15,6 +15,7 @@
 first browser RPC in about five lines, a Docker client/server
 pair, and stubs for your own `.proto`. Or open the
 [live generator](https://browser-grpc.github.io/grpc-over-datachannels/app/)
+(also at [grpc-dc.lunchgamer.com](https://grpc-dc.lunchgamer.com/))
 and press **Run your first RPC**.
 
 **Run gRPC in the browser.** grpc-over-datachannels speaks the
@@ -35,7 +36,7 @@ paste a `.proto`, get protoc stubs for every language. Keywords:
 `rtcdatachannel`, `protobuf`, `protoc plugin`, `wasm`,
 `browser rpc`, `peer-to-peer`.
 
-This repository is a generated public export (version v0.33.0)
+This repository is a generated public export (version v0.34.0)
 of the grpc-over-datachannels project. Generated code may be used
 without restriction (see GENERATED-CODE-LICENSE.md); everything
 else is Apache-2.0 (see LICENSE).
@@ -189,7 +190,7 @@ table runs natively in every language above and in real browsers.
 
 ## Provenance
 
-Exported from source commit `b0bc86fd67c9d4af84fbf1366b91e0bd271849b7` by the project's
+Exported from source commit `3d7c15ff542ad750a008ddab64db7378d3ba87ce` by the project's
 code generator. This tree contains no build system: each language
 directory carries its runtime, generated stubs, examples, and
 tests in that language's usual layout.

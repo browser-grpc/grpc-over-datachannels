@@ -3,7 +3,20 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.33.0 — 2026-10-27
+## v0.34.0 — 2026-10-28
+
+- The generator webapp now bundles starter projects for
+  arbitrary schemas (web, Node, Python, Go) in its starter
+  kit, and can save/open schema files in Google Drive
+  (client-side only, `drive.file` scope — any Google account
+  can sign in and keep schemas in its own Drive).
+- The generator page is also reachable at
+  [grpc-dc.lunchgamer.com](https://grpc-dc.lunchgamer.com/)
+  (a redirect to the live app), referenced from the app
+  footer and the public README; the page carries the
+  AdSense Auto ads script.
+
+## v0.33.0 — 2026-10-27 (published to GitHub/npm/PyPI/GHCR)
 
 - **Breaking (Go):** the Go modules are renamed so they
   resolve on pkg.go.dev: `grpcdc` →

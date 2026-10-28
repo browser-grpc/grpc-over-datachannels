@@ -10,6 +10,7 @@
 // dependency-free store-only zip writer packs it all up.
 
 import { generateFiles, describeFiles, buildPluginRequest, parsePluginResponse } from "./gen/generators.js";
+import { starterProjectFiles } from "./starters.mjs";
 
 const ACTIVE_LANGS = [
   ["js", "JavaScript"],
@@ -43,7 +44,7 @@ const PLANNED_LANGS = [];
 const RUNTIME_FILES = {
   js: ["codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js"],
   go: ["channel.go", "codec.go", "dynamic.go", "endpoint.go", "loopback.go", "server.go", "wire_gen.go", "webrtc_transport.go"],
-  python: ["__init__.py", "channel.py", "codec.py", "dynamic.py", "endpoint.py", "loopback.py", "server.py", "wire_gen.py"],
+  python: ["__init__.py", "channel.py", "codec.py", "dynamic.py", "endpoint.py", "http2.py", "loopback.py", "server.py", "sidecar.py", "wire_gen.py"],
   rust: ["Cargo.toml", "src/channel.rs", "src/codec.rs", "src/dynamic.rs", "src/endpoint.rs", "src/lib.rs", "src/message.rs", "src/server.rs", "src/status.rs", "src/transport.rs", "src/webrtc_transport.rs", "src/wire_gen.rs"],
   java: ["Channel.java", "Codec.java", "Dynamic.java", "Endpoint.java", "Marshaler.java", "MemoryTransport.java", "Server.java", "StatusException.java", "Transport.java", "Unmarshaler.java", "Wire.java"],
   csharp: ["AsyncPump.cs", "Channel.cs", "Codec.cs", "Dynamic.cs", "Endpoint.cs", "Grpcdc.csproj", "MemoryTransport.cs", "Server.cs", "StatusException.cs", "Transport.cs", "Wire.cs"],
@@ -133,6 +134,7 @@ const files = new Map(); // name -> source text
 let active = null;
 let compileTimer = 0;
 let lastSetBytes = null;
+let lastModels = [];
 let errorMark = null; // {file, line} parsed from the compiler error
 
 const $ = (id) => document.getElementById(id);
@@ -264,6 +266,7 @@ function compile() {
   renderHighlight();
   lastSetBytes = Uint8Array.from(atob(out.set), (c) => c.charCodeAt(0));
   const models = describeFiles(lastSetBytes, names);
+  lastModels = models;
   const lines = [];
   for (const f of models) {
     lines.push(f.name + (f.package ? "  (package " + f.package + ")" : ""));
@@ -732,6 +735,15 @@ $("starter-kit").addEventListener("click", async () => {
   if (!langs.length) return;
   const { entries } = await buildBundle(langs);
   const enc = new TextEncoder();
+  // Runnable starter projects for this schema (web/node/python/go),
+  // vendoring the generated go/python files they import.
+  const vendored = (lang) => entries
+    .filter((e) => e.name.startsWith("gen/" + lang + "/"))
+    .map((e) => ({ name: e.name.split("/").pop(), content: e.data }));
+  entries.push(...starterProjectFiles(
+    lastModels,
+    langs.includes("go") ? vendored("go") : [],
+    langs.includes("python") ? vendored("python") : []));
   if (starterSchemaId && browse.manifest) {
     for (const lang of langs) {
       const entry = browse.manifest.languages[lang];
@@ -1293,6 +1305,208 @@ async function applyBrowseHash() {
     await openBrowseFile(parts[3], parts.slice(4).join("/"));
   }
   return true;
+}
+
+// --- Google Drive (schemas in the user's own Drive) --------------
+// Client-side only: Google Identity Services issues a short-lived
+// access token for the drive.file scope in this tab; Drive API v3
+// calls go straight from the browser. This app's OAuth client ID
+// is public config (registered for this site's origin) — set it
+// per webapp/GOOGLE-DRIVE-SETUP.md. Until then the buttons stay
+// disabled with an explanation.
+
+const GOOGLE_OAUTH_CLIENT_ID = "625393345785-6729tob3nsdgsdkuu08f388favs13kld.apps.googleusercontent.com";
+let driveToken = null;
+let driveTokenClient = null;
+
+function driveStatus(text, cls) {
+  const el = $("drive-status");
+  if (el) { el.textContent = text; el.className = "status " + (cls || ""); }
+}
+
+function loadGis() {
+  return new Promise((resolve, reject) => {
+    if (window.google && window.google.accounts) return resolve();
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.onload = resolve;
+    s.onerror = () => reject(new Error("failed to load Google Identity Services"));
+    document.head.appendChild(s);
+  });
+}
+
+function driveSetToken(token, expiresInSec) {
+  driveToken = token;
+  driveExpiresAt = Date.now() + (Number(expiresInSec) || 3600) * 1000;
+  try {
+    sessionStorage.setItem("grpcdc.drive.token", token);
+    sessionStorage.setItem("grpcdc.drive.expires", String(driveExpiresAt));
+  } catch { /* private mode */ }
+  $("drive-save").disabled = false;
+  $("drive-open").disabled = false;
+  $("drive-connect").textContent = "Drive connected";
+  driveStatus("connected to Google Drive", "ok");
+}
+
+let driveExpiresAt = 0;
+
+// COOP-proof flow (cross-origin-isolated serving, e.g. the local
+// Wasm-plugin server, severs popup openers): full-tab OAuth
+// redirect; the returning tab hands the token to other tabs of
+// this origin through localStorage, and keeps it in
+// sessionStorage for itself.
+function driveRedirectConnect() {
+  const redirectUri = location.origin + location.pathname;
+  const url = "https://accounts.google.com/o/oauth2/v2/auth"
+    + "?client_id=" + encodeURIComponent(GOOGLE_OAUTH_CLIENT_ID)
+    + "&redirect_uri=" + encodeURIComponent(redirectUri)
+    + "&response_type=token"
+    + "&scope=" + encodeURIComponent("https://www.googleapis.com/auth/drive.file")
+    + "&include_granted_scopes=true"
+    + "&state=grpcdc-drive";
+  window.open(url, "_blank");
+  driveStatus("complete sign-in in the new tab; this tab connects automatically…", "");
+}
+
+function driveInit() {
+  // Returning from the redirect flow?
+  if (location.hash.includes("state=grpcdc-drive")) {
+    const params = new URLSearchParams(location.hash.slice(1));
+    history.replaceState(null, "", location.pathname + location.search);
+    const token = params.get("access_token");
+    if (token) {
+      try { localStorage.setItem("grpcdc.drive.handoff", token + " " + (params.get("expires_in") || "3600")); } catch { /* ignore */ }
+      driveSetToken(token, params.get("expires_in"));
+      driveStatus("connected to Google Drive — you can return to the other tab (or keep working here)", "ok");
+      return;
+    }
+    if (params.get("error")) driveStatus("Drive sign-in failed: " + params.get("error"), "err");
+  }
+  // Token handed off from another tab?
+  try {
+    const saved = sessionStorage.getItem("grpcdc.drive.token");
+    if (saved && Number(sessionStorage.getItem("grpcdc.drive.expires") || 0) > Date.now()) {
+      driveSetToken(saved, Math.max(1, (Number(sessionStorage.getItem("grpcdc.drive.expires")) - Date.now()) / 1000));
+    }
+  } catch { /* ignore */ }
+  window.addEventListener("storage", (e) => {
+    if (e.key === "grpcdc.drive.handoff" && e.newValue) {
+      const [token, exp] = e.newValue.split(" ");
+      try { localStorage.removeItem("grpcdc.drive.handoff"); } catch { /* ignore */ }
+      driveSetToken(token, exp);
+    }
+  });
+}
+
+async function driveConnect() {
+  if (!GOOGLE_OAUTH_CLIENT_ID) {
+    driveStatus("Drive is not configured for this deployment yet (no OAuth client ID). See webapp/GOOGLE-DRIVE-SETUP.md.", "err");
+    return;
+  }
+  if (window.crossOriginIsolated) {
+    driveRedirectConnect();
+    return;
+  }
+  await loadGis();
+  if (!driveTokenClient) {
+    driveTokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_OAUTH_CLIENT_ID,
+      scope: "https://www.googleapis.com/auth/drive.file",
+      callback: (resp) => {
+        if (resp.error) { driveStatus("Drive sign-in failed: " + resp.error, "err"); return; }
+        driveSetToken(resp.access_token, resp.expires_in);
+      },
+    });
+  }
+  driveTokenClient.requestAccessToken({ prompt: driveToken ? "" : "consent" });
+}
+
+async function driveFetch(url, options) {
+  const resp = await fetch(url, {
+    ...(options || {}),
+    headers: { ...((options && options.headers) || {}), Authorization: "Bearer " + driveToken },
+  });
+  if (!resp.ok) throw new Error("Drive API " + resp.status + ": " + (await resp.text()).slice(0, 200));
+  return resp;
+}
+
+async function driveSave() {
+  if (!driveToken) return;
+  saveEditor();
+  try {
+    // One Drive file per schema file; update in place when a file
+    // with the same name already exists (drive.file sees only
+    // files this app created or the user opened through it).
+    const list = await (await driveFetch(
+      "https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name)&q=trashed%3Dfalse")).json();
+    const byName = new Map((list.files || []).map((f) => [f.name, f.id]));
+    for (const [name, text] of files) {
+      const existing = byName.get(name);
+      if (existing) {
+        await driveFetch("https://www.googleapis.com/upload/drive/v3/files/" + existing + "?uploadType=media", {
+          method: "PATCH", headers: { "Content-Type": "text/plain" }, body: text,
+        });
+      } else {
+        const meta = await (await driveFetch("https://www.googleapis.com/drive/v3/files?fields=id", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, mimeType: "text/plain" }),
+        })).json();
+        await driveFetch("https://www.googleapis.com/upload/drive/v3/files/" + meta.id + "?uploadType=media", {
+          method: "PATCH", headers: { "Content-Type": "text/plain" }, body: text,
+        });
+      }
+    }
+    driveStatus("saved " + files.size + " schema file(s) to Drive", "ok");
+  } catch (e) {
+    driveStatus("Drive save failed: " + e.message, "err");
+  }
+}
+
+async function driveOpen() {
+  if (!driveToken) return;
+  try {
+    const list = await (await driveFetch(
+      "https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name,modifiedTime)&orderBy=modifiedTime%20desc&q=trashed%3Dfalse")).json();
+    const protos = (list.files || []).filter((f) => f.name.endsWith(".proto"));
+    const box = $("drive-list");
+    box.innerHTML = "";
+    if (!protos.length) {
+      box.textContent = "(no .proto files this app can see in your Drive yet — save some first)";
+    }
+    for (const f of protos) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = f.name;
+      btn.addEventListener("click", async () => {
+        try {
+          const text = await (await driveFetch(
+            "https://www.googleapis.com/drive/v3/files/" + f.id + "?alt=media")).text();
+          files.set(f.name, text);
+          if (active === null) active = f.name;
+          editor.value = files.get(active);
+          renderTabs();
+          renderHighlight();
+          scheduleCompile();
+          box.hidden = true;
+          driveStatus("opened " + f.name + " from Drive", "ok");
+        } catch (e) {
+          driveStatus("Drive open failed: " + e.message, "err");
+        }
+      });
+      box.appendChild(btn);
+    }
+    box.hidden = false;
+  } catch (e) {
+    driveStatus("Drive list failed: " + e.message, "err");
+  }
+}
+
+$("drive-connect").addEventListener("click", () => driveConnect().catch((e) => driveStatus(e.message, "err")));
+$("drive-save").addEventListener("click", driveSave);
+$("drive-open").addEventListener("click", driveOpen);
+driveInit();
+if (!GOOGLE_OAUTH_CLIENT_ID) {
+  driveStatus("Drive not configured for this deployment (no OAuth client ID) — schemas still work locally.", "");
 }
 
 // --- boot --------------------------------------------------------

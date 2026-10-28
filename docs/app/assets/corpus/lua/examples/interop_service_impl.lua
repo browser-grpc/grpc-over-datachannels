@@ -205,8 +205,13 @@ end
 function InteropServiceImpl:streamCoreMetrics(ctx, req, stream)
   while true do
     stream:send(oobReport or OrcaLoadReport.new())
-    sleepUs(200 * 1000)
-    if self.pumpFn ~= nil then self.pumpFn() end
+    -- Pump in 10ms slices: a single 200ms busy-wait starves
+    -- concurrent streams long enough to miss client deadlines
+    -- on a loaded host.
+    for _ = 1, 20 do
+      sleepUs(10 * 1000)
+      if self.pumpFn ~= nil then self.pumpFn() end
+    end
   end
 end
 
