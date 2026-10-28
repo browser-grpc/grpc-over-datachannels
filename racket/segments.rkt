@@ -7276,6 +7276,18 @@
                   (string-append (if (> i 0) "_" "") (string (char-downcase c)))]
                  [else (string c)]))))
 
+;; C support prefix of the file defining entry (its <Base>Pb);
+;; <Base> is capitalize-first of the file base, underscores kept
+;; (template-c.rkt's pascal with a literal separator quirk).
+(define (seg-c-support entry)
+  (define base (path->string (path-replace-extension
+                              (file-name-from-path (hash-ref entry 'file)) "")))
+  (string-append (if (string=? base "")
+                     ""
+                     (string-append (string (char-upcase (string-ref base 0)))
+                                    (substring base 1)))
+                 "Pb"))
+
 (define (seg-rb-module-name entry)
   (string-append (seg-pascal (path->string (path-replace-extension
                                             (file-name-from-path (hash-ref entry 'file)) ""))) "Pb"))
@@ -7774,10 +7786,10 @@
     [(eq? (car seg) 'c-entry-ref) (seg-c-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
     [(eq? (car seg) 'c-entry-support)
      (define e (if (null? (cdr seg)) node (seg-eval (second seg) env)))
-     (seg-rb-module-name (if (hash-has-key? e 'type-name) (seg-resolve model (hash-ref e 'type-name)) e))]
+     (seg-c-support (if (hash-has-key? e 'type-name) (seg-resolve model (hash-ref e 'type-name)) e))]
     [(eq? (car seg) 'c-type-ref) (seg-c-entry-ref model (seg-resolve model (hash-ref node (second seg))))]
     [(eq? (car seg) 'c-support-of)
-     (seg-rb-module-name (seg-resolve model (hash-ref node (second seg))))]
+     (seg-c-support (seg-resolve model (hash-ref node (second seg))))]
     [(eq? (car seg) 'c-scalar-type) (first (scalar-type-entry 'c (hash-ref node 'type)))]
     [(eq? (car seg) 'c-scalar-zero) (second (scalar-type-entry 'c (hash-ref node 'type)))]
     [(eq? (car seg) 'c-fixed-size)

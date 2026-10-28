@@ -1588,7 +1588,7 @@ function cbEntryRef(model, entry) {
 }
 
 function cbEntrySupport(entry) {
-  return cbPascal(baseName(entry.file)) + 'Pb';
+  return pascalName(baseName(entry.file)) + 'Pb';
 }
 
 function cbScalar(f) {
