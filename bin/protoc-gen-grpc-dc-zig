@@ -15909,14 +15909,16 @@
            (list? (fourth seg))
            (eq? (car (fourth seg)) 'kinds)
            (cdr (fourth seg))))
-    (length
-     (remove-duplicates
-      (map
-       (lambda (el) (hash-ref el (third seg)))
-       (filter
-        (lambda (el)
-          (or (not kinds-part) (memq (hash-ref el 'kind) kinds-part)))
-        (seg-eval (second seg) env))))))
+    (max
+     1
+     (length
+      (remove-duplicates
+       (map
+        (lambda (el) (hash-ref el (third seg)))
+        (filter
+         (lambda (el)
+           (or (not kinds-part) (memq (hash-ref el 'kind) kinds-part)))
+         (seg-eval (second seg) env)))))))
    ((memq
      (car seg)
      '(if case-on
@@ -16058,14 +16060,16 @@
            (list? (third seg))
            (eq? (car (third seg)) 'kinds)
            (cdr (third seg))))
-    (length
-     (remove-duplicates
-      (map
-       (lambda (el) (cons (hash-ref el 'input) (hash-ref el 'output)))
-       (filter
-        (lambda (el)
-          (or (not kinds-part) (memq (hash-ref el 'kind) kinds-part)))
-        (seg-eval (second seg) env))))))
+    (max
+     1
+     (length
+      (remove-duplicates
+       (map
+        (lambda (el) (cons (hash-ref el 'input) (hash-ref el 'output)))
+        (filter
+         (lambda (el)
+           (or (not kinds-part) (memq (hash-ref el 'kind) kinds-part)))
+         (seg-eval (second seg) env)))))))
    ((eq? (car seg) 'sc-field-name) (seg-sc-field-name node))
    ((eq? (car seg) 'sc-entry-ref)
     (seg-sc-entry-ref

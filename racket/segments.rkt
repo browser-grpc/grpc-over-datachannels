@@ -7706,12 +7706,16 @@
      (define kinds-part (and (pair? (cdddr seg)) (list? (fourth seg))
                              (eq? (car (fourth seg)) 'kinds)
                              (cdr (fourth seg))))
-     (length (remove-duplicates
-              (map (lambda (el) (hash-ref el (third seg)))
-                   (filter (lambda (el)
-                             (or (not kinds-part)
-                                 (memq (hash-ref el 'kind) kinds-part)))
-                           (seg-eval (second seg) env)))))]
+     ;; Clamped to >= 1: every caller dispatches (1 <shared-name>)
+     ;; vs (else <per-type-name>), matching the templates'
+     ;; original (<= count 1) tests — zero matching methods
+     ;; (or-first fallback classes) take the shared name too.
+     (max 1 (length (remove-duplicates
+                     (map (lambda (el) (hash-ref el (third seg)))
+                          (filter (lambda (el)
+                                    (or (not kinds-part)
+                                        (memq (hash-ref el 'kind) kinds-part)))
+                                  (seg-eval (second seg) env))))))]
     [(memq (car seg) '(if case-on when guarded guarded-indent kind-case each each+ each-sep+ each-siblings each-sep each-unique each-unique-pair each-where each-sep-where))
      (run-segment seg env)]
     [(eq? (car seg) 'pascal) (seg-pascal (seg-eval (second seg) env))]
@@ -7800,12 +7804,12 @@
      (define kinds-part (and (pair? (cddr seg)) (list? (third seg))
                              (eq? (car (third seg)) 'kinds)
                              (cdr (third seg))))
-     (length (remove-duplicates
-              (map (lambda (el) (cons (hash-ref el 'input) (hash-ref el 'output)))
-                   (filter (lambda (el)
-                             (or (not kinds-part)
-                                 (memq (hash-ref el 'kind) kinds-part)))
-                           (seg-eval (second seg) env)))))]
+     (max 1 (length (remove-duplicates
+                     (map (lambda (el) (cons (hash-ref el 'input) (hash-ref el 'output)))
+                          (filter (lambda (el)
+                                    (or (not kinds-part)
+                                        (memq (hash-ref el 'kind) kinds-part)))
+                                  (seg-eval (second seg) env))))))]
     [(eq? (car seg) 'sc-field-name) (seg-sc-field-name node)]
     [(eq? (car seg) 'sc-entry-ref) (seg-sc-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
     [(eq? (car seg) 'sc-scalar-type) (scalar-type-entry 'scala (hash-ref node 'type))]

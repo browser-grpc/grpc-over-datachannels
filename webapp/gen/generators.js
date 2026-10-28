@@ -400,7 +400,7 @@ function segEval(seg, env) {
     case 'err-stmt': return env.err;
     case 'self': return node;
     case 'root': return env.root;
-    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }
+    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return Math.max(1, new Set(els.map((el) => el[segKey(seg[2])])).size); }
     case 'if': case 'case-on': case 'when': case 'guarded': case 'trim-suffix': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-sep+': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':
       return runSegment(seg, env);
     case 'pascal': return gpPascal(segEval(seg[1], env));
@@ -455,7 +455,7 @@ function segEval(seg, env) {
     case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];
     case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];
     case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];
-    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + ' ' + el.output)).size; }
+    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return Math.max(1, new Set(els.map((el) => el.input + ' ' + el.output)).size); }
     case 'sc-field-name': return scpFieldName(node);
     case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }
     case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;

@@ -39,7 +39,7 @@ object OrcaGrpcDc {
             def trailers: Map[String, String] = stream.trailers
         }
 
-        class OpenRcaServicexds.data.orca.v3.OrcaLoadReportBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[xds.data.orca.v3.OrcaLoadReport] with AutoCloseable {
+        class OpenRcaServiceBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[xds.data.orca.v3.OrcaLoadReport] with AutoCloseable {
             def recv(): xds.data.orca.v3.OrcaLoadReport = {
                 val resp = new xds.data.orca.v3.OrcaLoadReport()
                 stream.recv(resp)
@@ -106,14 +106,14 @@ object OrcaGrpcDc {
     }
 
     /** Client-streaming stream passed to service implementations. */
-    trait OpenRcaServiceOrcaLoadReportRequestxds.data.orca.v3.OrcaLoadReportClientStreamServer {
+    trait OpenRcaServiceClientStreamServer {
         def recv(): OrcaLoadReportRequest
         def sendAndClose(resp: xds.data.orca.v3.OrcaLoadReport): Unit
         val context: grpcdc.Endpoint#CallContext
     }
 
     /** Bidi stream passed to service implementations. */
-    trait OpenRcaServiceOrcaLoadReportRequestxds.data.orca.v3.OrcaLoadReportBidiServer {
+    trait OpenRcaServiceBidiServer {
         def send(resp: xds.data.orca.v3.OrcaLoadReport): Unit
         def recv(): OrcaLoadReportRequest
         val context: grpcdc.Endpoint#CallContext

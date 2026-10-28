@@ -348,7 +348,7 @@ object TestGrpcDc {
     }
     /** Client for grpc.testing.UnimplementedService. */
     class UnimplementedServiceClient(private val channel: grpcdc.Channel) {
-        class UnimplementedServiceEmptyServerStreamStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[Empty] with AutoCloseable {
+        class UnimplementedServiceServerStreamStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[Empty] with AutoCloseable {
             def recv(): Empty = {
                 val resp = new Empty()
                 stream.recv(resp)
@@ -380,7 +380,7 @@ object TestGrpcDc {
             def trailers: Map[String, String] = stream.trailers
         }
 
-        class UnimplementedServiceEmptyBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[Empty] with AutoCloseable {
+        class UnimplementedServiceBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[Empty] with AutoCloseable {
             def recv(): Empty = {
                 val resp = new Empty()
                 stream.recv(resp)
@@ -427,20 +427,20 @@ object TestGrpcDc {
     }
 
     /** Server-streaming sink passed to service implementations. */
-    trait UnimplementedServiceEmptyServerStreamServer {
+    trait UnimplementedServiceServerStreamServer {
         def send(resp: Empty): Unit
         val context: grpcdc.Endpoint#CallContext
     }
 
     /** Client-streaming stream passed to service implementations. */
-    trait UnimplementedServiceEmptyEmptyClientStreamServer {
+    trait UnimplementedServiceClientStreamServer {
         def recv(): Empty
         def sendAndClose(resp: Empty): Unit
         val context: grpcdc.Endpoint#CallContext
     }
 
     /** Bidi stream passed to service implementations. */
-    trait UnimplementedServiceEmptyEmptyBidiServer {
+    trait UnimplementedServiceBidiServer {
         def send(resp: Empty): Unit
         def recv(): Empty
         val context: grpcdc.Endpoint#CallContext
@@ -478,7 +478,7 @@ object TestGrpcDc {
     }
     /** Client for grpc.testing.ReconnectService. */
     class ReconnectServiceClient(private val channel: grpcdc.Channel) {
-        class ReconnectServiceEmptyServerStreamStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[Empty] with AutoCloseable {
+        class ReconnectServiceServerStreamStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[Empty] with AutoCloseable {
             def recv(): Empty = {
                 val resp = new Empty()
                 stream.recv(resp)
@@ -510,7 +510,7 @@ object TestGrpcDc {
             def trailers: Map[String, String] = stream.trailers
         }
 
-        class ReconnectServiceEmptyBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[Empty] with AutoCloseable {
+        class ReconnectServiceBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[Empty] with AutoCloseable {
             def recv(): Empty = {
                 val resp = new Empty()
                 stream.recv(resp)
@@ -567,20 +567,20 @@ object TestGrpcDc {
     }
 
     /** Server-streaming sink passed to service implementations. */
-    trait ReconnectServiceEmptyServerStreamServer {
+    trait ReconnectServiceServerStreamServer {
         def send(resp: Empty): Unit
         val context: grpcdc.Endpoint#CallContext
     }
 
     /** Client-streaming stream passed to service implementations. */
-    trait ReconnectServiceReconnectParamsEmptyClientStreamServer {
+    trait ReconnectServiceClientStreamServer {
         def recv(): ReconnectParams
         def sendAndClose(resp: Empty): Unit
         val context: grpcdc.Endpoint#CallContext
     }
 
     /** Bidi stream passed to service implementations. */
-    trait ReconnectServiceReconnectParamsEmptyBidiServer {
+    trait ReconnectServiceBidiServer {
         def send(resp: Empty): Unit
         def recv(): ReconnectParams
         val context: grpcdc.Endpoint#CallContext
@@ -629,7 +629,7 @@ object TestGrpcDc {
     }
     /** Client for grpc.testing.LoadBalancerStatsService. */
     class LoadBalancerStatsServiceClient(private val channel: grpcdc.Channel) {
-        class LoadBalancerStatsServiceLoadBalancerStatsResponseServerStreamStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[LoadBalancerStatsResponse] with AutoCloseable {
+        class LoadBalancerStatsServiceServerStreamStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[LoadBalancerStatsResponse] with AutoCloseable {
             def recv(): LoadBalancerStatsResponse = {
                 val resp = new LoadBalancerStatsResponse()
                 stream.recv(resp)
@@ -661,7 +661,7 @@ object TestGrpcDc {
             def trailers: Map[String, String] = stream.trailers
         }
 
-        class LoadBalancerStatsServiceLoadBalancerStatsResponseBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[LoadBalancerStatsResponse] with AutoCloseable {
+        class LoadBalancerStatsServiceBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[LoadBalancerStatsResponse] with AutoCloseable {
             def recv(): LoadBalancerStatsResponse = {
                 val resp = new LoadBalancerStatsResponse()
                 stream.recv(resp)
@@ -718,20 +718,20 @@ object TestGrpcDc {
     }
 
     /** Server-streaming sink passed to service implementations. */
-    trait LoadBalancerStatsServiceLoadBalancerStatsResponseServerStreamServer {
+    trait LoadBalancerStatsServiceServerStreamServer {
         def send(resp: LoadBalancerStatsResponse): Unit
         val context: grpcdc.Endpoint#CallContext
     }
 
     /** Client-streaming stream passed to service implementations. */
-    trait LoadBalancerStatsServiceLoadBalancerStatsRequestLoadBalancerStatsResponseClientStreamServer {
+    trait LoadBalancerStatsServiceClientStreamServer {
         def recv(): LoadBalancerStatsRequest
         def sendAndClose(resp: LoadBalancerStatsResponse): Unit
         val context: grpcdc.Endpoint#CallContext
     }
 
     /** Bidi stream passed to service implementations. */
-    trait LoadBalancerStatsServiceLoadBalancerStatsRequestLoadBalancerStatsResponseBidiServer {
+    trait LoadBalancerStatsServiceBidiServer {
         def send(resp: LoadBalancerStatsResponse): Unit
         def recv(): LoadBalancerStatsRequest
         val context: grpcdc.Endpoint#CallContext
@@ -780,7 +780,7 @@ object TestGrpcDc {
     }
     /** Client for grpc.testing.XdsUpdateHealthService. */
     class XdsUpdateHealthServiceClient(private val channel: grpcdc.Channel) {
-        class XdsUpdateHealthServiceEmptyServerStreamStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[Empty] with AutoCloseable {
+        class XdsUpdateHealthServiceServerStreamStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[Empty] with AutoCloseable {
             def recv(): Empty = {
                 val resp = new Empty()
                 stream.recv(resp)
@@ -812,7 +812,7 @@ object TestGrpcDc {
             def trailers: Map[String, String] = stream.trailers
         }
 
-        class XdsUpdateHealthServiceEmptyBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[Empty] with AutoCloseable {
+        class XdsUpdateHealthServiceBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[Empty] with AutoCloseable {
             def recv(): Empty = {
                 val resp = new Empty()
                 stream.recv(resp)
@@ -869,20 +869,20 @@ object TestGrpcDc {
     }
 
     /** Server-streaming sink passed to service implementations. */
-    trait XdsUpdateHealthServiceEmptyServerStreamServer {
+    trait XdsUpdateHealthServiceServerStreamServer {
         def send(resp: Empty): Unit
         val context: grpcdc.Endpoint#CallContext
     }
 
     /** Client-streaming stream passed to service implementations. */
-    trait XdsUpdateHealthServiceEmptyEmptyClientStreamServer {
+    trait XdsUpdateHealthServiceClientStreamServer {
         def recv(): Empty
         def sendAndClose(resp: Empty): Unit
         val context: grpcdc.Endpoint#CallContext
     }
 
     /** Bidi stream passed to service implementations. */
-    trait XdsUpdateHealthServiceEmptyEmptyBidiServer {
+    trait XdsUpdateHealthServiceBidiServer {
         def send(resp: Empty): Unit
         def recv(): Empty
         val context: grpcdc.Endpoint#CallContext
@@ -931,7 +931,7 @@ object TestGrpcDc {
     }
     /** Client for grpc.testing.XdsUpdateClientConfigureService. */
     class XdsUpdateClientConfigureServiceClient(private val channel: grpcdc.Channel) {
-        class XdsUpdateClientConfigureServiceClientConfigureResponseServerStreamStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[ClientConfigureResponse] with AutoCloseable {
+        class XdsUpdateClientConfigureServiceServerStreamStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[ClientConfigureResponse] with AutoCloseable {
             def recv(): ClientConfigureResponse = {
                 val resp = new ClientConfigureResponse()
                 stream.recv(resp)
@@ -963,7 +963,7 @@ object TestGrpcDc {
             def trailers: Map[String, String] = stream.trailers
         }
 
-        class XdsUpdateClientConfigureServiceClientConfigureResponseBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[ClientConfigureResponse] with AutoCloseable {
+        class XdsUpdateClientConfigureServiceBidiStream(private val stream: grpcdc.Channel#ClientStream) extends scala.collection.Iterator[ClientConfigureResponse] with AutoCloseable {
             def recv(): ClientConfigureResponse = {
                 val resp = new ClientConfigureResponse()
                 stream.recv(resp)
@@ -1010,20 +1010,20 @@ object TestGrpcDc {
     }
 
     /** Server-streaming sink passed to service implementations. */
-    trait XdsUpdateClientConfigureServiceClientConfigureResponseServerStreamServer {
+    trait XdsUpdateClientConfigureServiceServerStreamServer {
         def send(resp: ClientConfigureResponse): Unit
         val context: grpcdc.Endpoint#CallContext
     }
 
     /** Client-streaming stream passed to service implementations. */
-    trait XdsUpdateClientConfigureServiceClientConfigureRequestClientConfigureResponseClientStreamServer {
+    trait XdsUpdateClientConfigureServiceClientStreamServer {
         def recv(): ClientConfigureRequest
         def sendAndClose(resp: ClientConfigureResponse): Unit
         val context: grpcdc.Endpoint#CallContext
     }
 
     /** Bidi stream passed to service implementations. */
-    trait XdsUpdateClientConfigureServiceClientConfigureRequestClientConfigureResponseBidiServer {
+    trait XdsUpdateClientConfigureServiceBidiServer {
         def send(resp: ClientConfigureResponse): Unit
         def recv(): ClientConfigureRequest
         val context: grpcdc.Endpoint#CallContext
