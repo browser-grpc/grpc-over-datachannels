@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.33.0 — 2026-10-27
+## v0.33.0 — 2026-10-27 (published to GitHub/npm/PyPI/GHCR)
 
 - **Breaking (Go):** the Go modules are renamed so they
   resolve on pkg.go.dev: `grpcdc` →
