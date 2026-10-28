@@ -1315,7 +1315,7 @@ async function applyBrowseHash() {
 // per webapp/GOOGLE-DRIVE-SETUP.md. Until then the buttons stay
 // disabled with an explanation.
 
-const GOOGLE_OAUTH_CLIENT_ID = ""; // e.g. "1234567890-abc.apps.googleusercontent.com"
+const GOOGLE_OAUTH_CLIENT_ID = "625393345785-6729tob3nsdgsdkuu08f388favs13kld.apps.googleusercontent.com";
 let driveToken = null;
 let driveTokenClient = null;
 
@@ -1335,9 +1335,76 @@ function loadGis() {
   });
 }
 
+function driveSetToken(token, expiresInSec) {
+  driveToken = token;
+  driveExpiresAt = Date.now() + (Number(expiresInSec) || 3600) * 1000;
+  try {
+    sessionStorage.setItem("grpcdc.drive.token", token);
+    sessionStorage.setItem("grpcdc.drive.expires", String(driveExpiresAt));
+  } catch { /* private mode */ }
+  $("drive-save").disabled = false;
+  $("drive-open").disabled = false;
+  $("drive-connect").textContent = "Drive connected";
+  driveStatus("connected to Google Drive", "ok");
+}
+
+let driveExpiresAt = 0;
+
+// COOP-proof flow (cross-origin-isolated serving, e.g. the local
+// Wasm-plugin server, severs popup openers): full-tab OAuth
+// redirect; the returning tab hands the token to other tabs of
+// this origin through localStorage, and keeps it in
+// sessionStorage for itself.
+function driveRedirectConnect() {
+  const redirectUri = location.origin + location.pathname;
+  const url = "https://accounts.google.com/o/oauth2/v2/auth"
+    + "?client_id=" + encodeURIComponent(GOOGLE_OAUTH_CLIENT_ID)
+    + "&redirect_uri=" + encodeURIComponent(redirectUri)
+    + "&response_type=token"
+    + "&scope=" + encodeURIComponent("https://www.googleapis.com/auth/drive.file")
+    + "&include_granted_scopes=true"
+    + "&state=grpcdc-drive";
+  window.open(url, "_blank");
+  driveStatus("complete sign-in in the new tab; this tab connects automatically…", "");
+}
+
+function driveInit() {
+  // Returning from the redirect flow?
+  if (location.hash.includes("state=grpcdc-drive")) {
+    const params = new URLSearchParams(location.hash.slice(1));
+    history.replaceState(null, "", location.pathname + location.search);
+    const token = params.get("access_token");
+    if (token) {
+      try { localStorage.setItem("grpcdc.drive.handoff", token + " " + (params.get("expires_in") || "3600")); } catch { /* ignore */ }
+      driveSetToken(token, params.get("expires_in"));
+      driveStatus("connected to Google Drive — you can return to the other tab (or keep working here)", "ok");
+      return;
+    }
+    if (params.get("error")) driveStatus("Drive sign-in failed: " + params.get("error"), "err");
+  }
+  // Token handed off from another tab?
+  try {
+    const saved = sessionStorage.getItem("grpcdc.drive.token");
+    if (saved && Number(sessionStorage.getItem("grpcdc.drive.expires") || 0) > Date.now()) {
+      driveSetToken(saved, Math.max(1, (Number(sessionStorage.getItem("grpcdc.drive.expires")) - Date.now()) / 1000));
+    }
+  } catch { /* ignore */ }
+  window.addEventListener("storage", (e) => {
+    if (e.key === "grpcdc.drive.handoff" && e.newValue) {
+      const [token, exp] = e.newValue.split(" ");
+      try { localStorage.removeItem("grpcdc.drive.handoff"); } catch { /* ignore */ }
+      driveSetToken(token, exp);
+    }
+  });
+}
+
 async function driveConnect() {
   if (!GOOGLE_OAUTH_CLIENT_ID) {
     driveStatus("Drive is not configured for this deployment yet (no OAuth client ID). See webapp/GOOGLE-DRIVE-SETUP.md.", "err");
+    return;
+  }
+  if (window.crossOriginIsolated) {
+    driveRedirectConnect();
     return;
   }
   await loadGis();
@@ -1347,11 +1414,7 @@ async function driveConnect() {
       scope: "https://www.googleapis.com/auth/drive.file",
       callback: (resp) => {
         if (resp.error) { driveStatus("Drive sign-in failed: " + resp.error, "err"); return; }
-        driveToken = resp.access_token;
-        $("drive-save").disabled = false;
-        $("drive-open").disabled = false;
-        $("drive-connect").textContent = "Drive connected";
-        driveStatus("connected to Google Drive", "ok");
+        driveSetToken(resp.access_token, resp.expires_in);
       },
     });
   }
@@ -1441,6 +1504,7 @@ async function driveOpen() {
 $("drive-connect").addEventListener("click", () => driveConnect().catch((e) => driveStatus(e.message, "err")));
 $("drive-save").addEventListener("click", driveSave);
 $("drive-open").addEventListener("click", driveOpen);
+driveInit();
 if (!GOOGLE_OAUTH_CLIENT_ID) {
   driveStatus("Drive not configured for this deployment (no OAuth client ID) — schemas still work locally.", "");
 }

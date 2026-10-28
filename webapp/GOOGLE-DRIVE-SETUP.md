@@ -28,9 +28,16 @@ tab — there is no backend and nothing to rotate.
    `GOOGLE_OAUTH_CLIENT_ID` in `webapp/app.js`, regenerate the
    webapp bundle, and republish.
 
-Until step 5 lands, the Drive buttons explain that Drive is not
-configured for the deployment; local upload/edit/generate flows
-are unaffected.
+Status (2026-10-28): done for project `grpc-dc-webapp` — Drive
+API enabled, consent screen in production (honey-badger logo,
+home page https://lunchgamer.com, privacy/terms links,
+`drive.file` as the only scope), client ID wired into
+`webapp/app.js`, authorized JavaScript origins
+`https://browser-grpc.github.io` + `http://localhost:8006`, and
+authorized redirect URIs for the cross-origin-isolated flow.
+Note: because a logo is set, Google verification is required
+before the unverified-app warning disappears for new users;
+the app works before that (100-user unverified cap).
 
 ## Notes
 
