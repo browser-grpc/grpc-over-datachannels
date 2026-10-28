@@ -9,9 +9,9 @@
 package main
 
 import (
-	grpcdc "grpcdc"
-	bh "grpcdc/cmd/internal/browserharness"
-	echo "grpcdc/examples"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
+	bh "github.com/browser-grpc/grpc-over-datachannels/go/cmd/internal/browserharness"
+	echo "github.com/browser-grpc/grpc-over-datachannels/go/examples"
 )
 
 func main() {

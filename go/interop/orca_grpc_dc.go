@@ -7,7 +7,7 @@ package testing
 import (
 	"context"
 
-	grpcdc "grpcdc"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
 )
 
 type OpenRcaServiceClient struct {

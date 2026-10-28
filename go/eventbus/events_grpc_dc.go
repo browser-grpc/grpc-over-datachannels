@@ -7,7 +7,7 @@ package v1
 import (
 	"context"
 
-	grpcdc "grpcdc"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
 )
 
 type EventBusClient struct {

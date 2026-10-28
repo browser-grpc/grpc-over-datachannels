@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	dcwebrtc "dcwebrtc"
-	grpcdc "grpcdc"
-	echo "grpcdc/examples"
+	dcwebrtc "github.com/browser-grpc/grpc-over-datachannels/webrtc/go"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
+	echo "github.com/browser-grpc/grpc-over-datachannels/go/examples"
 )
 
 func TestGrpcOverGoWebRtc(t *testing.T) {

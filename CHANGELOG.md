@@ -3,7 +3,32 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.32.16 — 2026-10-27
+## v0.33.0 — 2026-10-27
+
+- **Breaking (Go):** the Go modules are renamed so they
+  resolve on pkg.go.dev: `grpcdc` →
+  `github.com/browser-grpc/grpc-over-datachannels/go` and
+  `dcwebrtc` →
+  `github.com/browser-grpc/grpc-over-datachannels/webrtc/go`.
+  Generated Go stubs now import the runtime by the new path
+  (regenerate your stubs), and hand-written imports need the
+  same mechanical rewrite — Go has no alias mechanism for a
+  renamed module. `go get
+  github.com/browser-grpc/grpc-over-datachannels/go` now works
+  against the public repository; the two modules are versioned
+  together (`go/v0.33.0` and `webrtc/go/v0.33.0` tags beside
+  `v0.33.0`).
+- Interop `TestService` server implementations are now
+  generated from the shared behavior spec in all nine server
+  languages (JavaScript, Python, C, C++, Dart, Zig, Lua, PHP,
+  Ruby); wire behavior is unchanged (full interop matrix
+  passes, 225/225 pairs).
+- The Rust enum emission shape is single-sourced between the
+  native plugin and the browser generators; unknown enum
+  values keep round-tripping (`Unknown(i32)`), now pinned by
+  an enum-corpus parity case in Chromium, Firefox, and WebKit.
+
+## v0.32.16 — 2026-10-27 (published to GitHub/npm/PyPI/GHCR)
 
 - Event bus (`grpcdc.events.v1`): generated publish/subscribe
   with shallow tag-value filtering (enum tags extensible in

@@ -12,7 +12,7 @@ the gRPC wire protocol over WebRTC DataChannels.
 
 ## Use it in your project
 
-Import path is the module in go/go.mod; copy the directory into your module tree or use a replace directive.
+Fetch it like any module: `go get github.com/browser-grpc/grpc-over-datachannels/go` (the WebRTC stack arrives as its sibling module `.../webrtc/go`) — or copy this directory into your module tree.
 
 ## Regenerate stubs for your schema
 

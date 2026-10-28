@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	dcwebrtc "dcwebrtc"
-	grpcdc "grpcdc"
+	dcwebrtc "github.com/browser-grpc/grpc-over-datachannels/webrtc/go"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
 )
 
 // WaitForFile polls until path exists with non-blank content and

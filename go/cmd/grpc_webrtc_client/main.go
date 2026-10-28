@@ -22,10 +22,10 @@ import (
 	"strings"
 	"time"
 
-	dcwebrtc "dcwebrtc"
-	grpcdc "grpcdc"
-	bh "grpcdc/cmd/internal/browserharness"
-	echo "grpcdc/examples"
+	dcwebrtc "github.com/browser-grpc/grpc-over-datachannels/webrtc/go"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
+	bh "github.com/browser-grpc/grpc-over-datachannels/go/cmd/internal/browserharness"
+	echo "github.com/browser-grpc/grpc-over-datachannels/go/examples"
 )
 
 func fatal(err error) {

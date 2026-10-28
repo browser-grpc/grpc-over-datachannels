@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 	"time"
 
-	dcwebrtc "dcwebrtc"
+	dcwebrtc "github.com/browser-grpc/grpc-over-datachannels/webrtc/go"
 )
 
 func waitForFile(path string) string {

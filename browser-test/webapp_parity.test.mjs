@@ -350,7 +350,43 @@ async function runCase(name, engine) {
     const fbManifest = JSON.parse(entries.get("manifest.json").toString());
     assert.match(fbManifest.fallbackNote ?? "", /stubs and generated message types for every selected language/, "fallback manifest explains the coverage");
     assert.deepEqual(fbManifest.missing, [], "fallback manifest reports nothing missing: " + fbManifest.missing.join(", "));
-    console.log(`${name}: webapp parity OK (echo + shop byte-identical via Racket/Wasm plugins, params, per-file download, error surfaced, JS fallback identical)`);
+
+    // Case 6: enum-bearing schemas through the built-in
+    // generators (the hand-mirrored emitters in webgen.rkt).
+    // Message files for every language are byte-compared
+    // against the native plugins; this is the case that pins
+    // enum emission — e.g. the Rust Unknown(i32) round-trip
+    // shape, now single-sourced via rust-enum-shape in
+    // spec.rkt — against drift between template-*.rkt and
+    // their browser mirrors.
+    await page.setInputFiles("#upload", [join(ROOT, "webapp/testdata/common.proto"), join(ROOT, "webapp/testdata/kitchen.proto"), join(ROOT, "webapp/testdata/features.proto")]);
+    await page.waitForFunction(
+      () => {
+        const t = document.querySelector("#tree").textContent;
+        return t.includes("kitchen.v1") && t.includes("feat.v1");
+      },
+      null,
+      { timeout: 30000 },
+    );
+    entries = await downloadZip(page);
+    assert.equal(await page.evaluate(() => window.__generatedVia), "built-in generators");
+    refs = await nativeReference(join(ROOT, "webapp/testdata"), ["common.proto", "kitchen.proto", "features.proto"]);
+    for (const lang of LANGS) {
+      for (const base of ["kitchen", "features"]) {
+        const stub = LANG_CONFIG[lang].stub(base);
+        const expected = await readFile(join(refs[lang], stub));
+        const actual = entries.get(`gen/${lang}/${stub}`);
+        assert.ok(actual && actual.equals(expected), `${name}: enum-corpus ${lang} ${base} stub differs from native plugin`);
+        const mf = MESSAGE_FILES[lang];
+        if (!mf) continue;
+        const mfName = mf(base);
+        const expectedMsg = await readFile(join(refs[lang], mfName));
+        const actualMsg = entries.get(`gen/${lang}/${mfName}`);
+        assert.ok(actualMsg, `enum-corpus zip missing gen/${lang}/${mfName}`);
+        assert.ok(actualMsg.equals(expectedMsg), `${name}: enum-corpus ${lang} ${base} messages differ from native plugin`);
+      }
+    }
+    console.log(`${name}: webapp parity OK (echo + shop byte-identical via Racket/Wasm plugins, params, per-file download, error surfaced, JS fallback identical, enum corpus identical)`);
   } finally {
     await browser.close();
   }

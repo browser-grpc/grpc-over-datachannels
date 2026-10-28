@@ -7,8 +7,8 @@
 package main
 
 import (
-	bh "grpcdc/cmd/internal/browserharness"
-	busv1 "grpcdc/eventbus"
+	bh "github.com/browser-grpc/grpc-over-datachannels/go/cmd/internal/browserharness"
+	busv1 "github.com/browser-grpc/grpc-over-datachannels/go/eventbus"
 )
 
 func main() {

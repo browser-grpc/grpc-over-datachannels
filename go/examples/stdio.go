@@ -5,7 +5,7 @@ import (
 	"io"
 	"sync"
 
-	grpcdc "grpcdc"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
 )
 
 // StdioTransport frames DataChannel messages over a byte stream with

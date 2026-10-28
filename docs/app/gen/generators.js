@@ -1525,7 +1525,7 @@ function emitGoFile(model, params) {
       + 'package ' + goPackage(model, params) + '\n\n'
       + (model.services.length === 0
         ? ''
-        : 'import (\n\t"context"\n\n\tgrpcdc "grpcdc"\n)\n\n')
+        : 'import (\n\t"context"\n\n\tgrpcdc "' + GO_MODULE_PATH + '"\n)\n\n')
       + model.services.map(goService).join(''),
   };
   const pb = emitGoPbFile(model, params);
@@ -2990,7 +2990,15 @@ export function generateFiles(lang, setBytes, entries, parameter) {
     for (const f of Array.isArray(produced) ? produced : [produced]) if (f) files.push(f);
   }
   return files.map(stampGeneratedHeader);
-}// ---------------------------------------------------------------------------
+}const RP_ENUM_SHAPE = {"defaultMark":"#[default]\n    ","fromArm":"            ~a => ~a::~a,\n","header":"#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\n#[repr(i32)]\npub enum ~a {\n","implOpen":"impl ~a {\n    pub fn from_i32(v: i32) -> Self {\n        match v {\n","toArm":"            ~a::~a => ~a,\n","toOpen":"    pub fn to_i32(self) -> i32 {\n        match self {\n","unknownFromArm":"            _ => ~a::Unknown(v),\n        }\n    }\n","unknownToArm":"            ~a::Unknown(v) => v,\n        }\n    }\n}\n\n","unknownVariant":"    Unknown(i32),\n}\n\n","value":"    ~a~a = ~a,\n"};
+const GO_MODULE_PATH = "github.com/browser-grpc/grpc-over-datachannels/go";
+
+function rpFmt(template, ...args) {
+  let i = 0;
+  return template.replace(/~a/g, () => String(args[i++]));
+}
+
+// ---------------------------------------------------------------------------
 // Rust emitter (mirrors the native rust template).
 // ---------------------------------------------------------------------------
 
@@ -3460,15 +3468,19 @@ function rpMapHelpers(model, entry) {
 
 function rpEnumNamed(model, full, e) {
   const name = rpFlat(model.package, full);
-  return '#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]\n#[repr(i32)]\npub enum ' + name + ' {\n'
-    + e.values.map((v, i) => '    ' + (i === 0 ? '#[default]\n    ' : '') + rpCamel(v.name) + ' = ' + v.number + ',\n').join('')
-    + '    Unknown(i32),\n}\n\n'
-    + 'impl ' + name + ' {\n    pub fn from_i32(v: i32) -> Self {\n        match v {\n'
-    + e.values.map((v) => '            ' + v.number + ' => ' + name + '::' + rpCamel(v.name) + ',\n').join('')
-    + '            _ => ' + name + '::Unknown(v),\n        }\n    }\n'
-    + '    pub fn to_i32(self) -> i32 {\n        match self {\n'
-    + e.values.map((v) => '            ' + name + '::' + rpCamel(v.name) + ' => ' + v.number + ',\n').join('')
-    + '            ' + name + '::Unknown(v) => v,\n        }\n    }\n}\n\n';
+  // Static text comes from RP_ENUM_SHAPE, serialized from the
+  // shared rust-enum-shape table in spec.rkt (same source the
+  // native template formats) — edit the table, not this code.
+  const S = RP_ENUM_SHAPE;
+  return rpFmt(S.header, name)
+    + e.values.map((v, i) => rpFmt(S.value, i === 0 ? S.defaultMark : '', rpCamel(v.name), v.number)).join('')
+    + S.unknownVariant
+    + rpFmt(S.implOpen, name)
+    + e.values.map((v) => rpFmt(S.fromArm, v.number, name, rpCamel(v.name))).join('')
+    + rpFmt(S.unknownFromArm, name)
+    + S.toOpen
+    + e.values.map((v) => rpFmt(S.toArm, name, rpCamel(v.name), v.number)).join('')
+    + rpFmt(S.unknownToArm, name);
 }
 
 function rpMessageStruct(model, msg) {

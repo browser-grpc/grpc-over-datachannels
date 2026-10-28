@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"grpcdc"
+	"github.com/browser-grpc/grpc-over-datachannels/go"
 )
 
 // SubscriberQueueCapacity is the per-subscriber queue bound:

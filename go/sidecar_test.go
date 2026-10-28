@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	grpcdc "grpcdc"
-	echo "grpcdc/examples"
+	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
+	echo "github.com/browser-grpc/grpc-over-datachannels/go/examples"
 )
 
 func sidecarBinary(t *testing.T) string {

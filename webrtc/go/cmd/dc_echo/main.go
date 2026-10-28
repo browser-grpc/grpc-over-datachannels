@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	dcwebrtc "dcwebrtc"
+	dcwebrtc "github.com/browser-grpc/grpc-over-datachannels/webrtc/go"
 )
 
 type serverIO struct {
