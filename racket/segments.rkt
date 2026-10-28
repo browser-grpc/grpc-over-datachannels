@@ -39,7 +39,17 @@
          go-client-method-program go-server-iface-method-program
          go-server-iface-method-deprecated-program
          go-stream-ifaces-program go-stream-impls-program
-         go-service-program segment-programs run-segments seg-kotlin-wasm-mode seg-cpp-pkg
+         go-service-program
+         go-pb-varint-expr-program go-pb-varint-decode-program
+         go-pb-fixed-encode-program go-pb-fixed-decode-program
+         go-pb-zero-program go-pb-encode-singular-program
+         go-pb-set-expr-program go-pb-encode-field-program
+         go-pb-encode-field-guarded-program
+         go-pb-decode-singular-program go-pb-decode-case-program
+         go-pb-map-helpers-program go-pb-enum-program
+         go-pb-default-literal-program go-pb-constructor-program
+         go-pb-message-program
+         segment-programs run-segments seg-kotlin-wasm-mode seg-cpp-pkg
          js-deprecated-program js-client-method-program
          js-method-table-entry-program js-service-program
          js-pb-varint-expr-program js-pb-varint-decode-program

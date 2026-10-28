@@ -7,7 +7,7 @@
 ;;; implement grpcdc.Marshaler / grpcdc.Unmarshaler (MarshalDC /
 ;;; UnmarshalDC), and imports the runtime as grpcdc.
 
-(require "spec.rkt" "desc.rkt")
+(require "spec.rkt" "desc.rkt" "segments.rkt")
 (provide emit-go-file)
 
 (define (go-package file-model params)
