@@ -3,7 +3,7 @@
 // from a seed + generator parameters; an autopilot flies through
 // them, and every dashboard control re-shapes the world live.
 // No server, no multiplayer — this page is the whole instrument.
-import * as THREE from "three";
+import { createWebGPUEngine } from "./engine-webgpu.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -136,45 +136,13 @@ function terrainBlock(x, y, z, H) {
 const blockAt = (x, y, z) => terrainBlock(x, y, z, heightAt);
 
 // ---------------------------------------------------------------------------
-// scene + infinite chunk streaming (one InstancedMesh per chunk per
-// material class; per-instance colors carry the block palette)
+// infinite chunk streaming: cells are computed here; an engine
+// (engine-webgpu.js, or engine-three.js as fallback) owns the GPU
 // ---------------------------------------------------------------------------
 const CHUNK = 16;
-let renderer, scene, camera;
-const chunks = new Map(); // "cx,cz" -> {group, meshes:[...]}
+let engine = null;
+const chunks = new Map(); // "cx,cz" -> {solid, water} cell lists (kept for engine swaps)
 const buildQueue = [];
-let boxGeo, solidMat, waterMat;
-
-function initThree() {
-  renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.setSize($("view").clientWidth, $("view").clientHeight);
-  $("view").appendChild(renderer.domElement);
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87ceeb);
-  camera = new THREE.PerspectiveCamera(72, $("view").clientWidth / $("view").clientHeight, 0.1, 900);
-  camera.position.set(8, 16, 8);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-  sun.position.set(60, 90, 30);
-  scene.add(sun);
-  boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  solidMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-  waterMat = new THREE.MeshLambertMaterial({ color: BLOCK_COLORS[WATER], transparent: true, opacity: 0.65, depthWrite: false });
-  updateFog();
-  addEventListener("resize", () => {
-    camera.aspect = $("view").clientWidth / $("view").clientHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize($("view").clientWidth, $("view").clientHeight);
-  });
-}
-function updateFog() {
-  if (!scene) return;
-  const far = P.radius * CHUNK;
-  scene.fog = new THREE.Fog(0x87ceeb, far * 0.5, far * 0.98);
-  camera.far = far * 1.6;
-  camera.updateProjectionMatrix();
-}
 
 function buildChunk(cx, cz) {
   // local height cache: terrain queries dominate chunk cost
@@ -187,8 +155,6 @@ function buildChunk(cx, cz) {
   };
   const B = (x, y, z) => terrainBlock(x, y, z, H);
   const solid = [], water = [];
-  const m = new THREE.Matrix4();
-  const color = new THREE.Color();
   for (let x = cx * CHUNK; x < cx * CHUNK + CHUNK; x++)
     for (let z = cz * CHUNK; z < cz * CHUNK + CHUNK; z++)
       for (let y = 0; y <= MAXY; y++) {
@@ -200,43 +166,25 @@ function buildChunk(cx, cz) {
         };
         if (!(exposed(x + 1, y, z) || exposed(x - 1, y, z) || exposed(x, y + 1, z) ||
               exposed(x, y - 1, z) || exposed(x, y, z + 1) || exposed(x, y, z - 1))) continue;
-        (b === WATER ? water : solid).push([x, y, z, b]);
+        (b === WATER ? water : solid).push([x, y, z, BLOCK_COLORS[b]]);
       }
-  const group = new THREE.Group();
-  const meshes = [];
-  const fill = (cells, mat, cap) => {
-    if (!cells.length) return;
-    const mesh = new THREE.InstancedMesh(boxGeo, mat, Math.min(cells.length, cap));
-    cells.slice(0, cap).forEach(([x, y, z, b], i) => {
-      mesh.setMatrixAt(i, m.makeTranslation(x + 0.5, y + 0.5, z + 0.5));
-      if (mat === solidMat) mesh.setColorAt(i, color.setHex(BLOCK_COLORS[b]));
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    group.add(mesh);
-    meshes.push(mesh);
-  };
-  fill(solid, solidMat, 8192);
-  fill(water, waterMat, 2048);
-  scene.add(group);
-  chunks.set(cx + "," + cz, { group, meshes });
+  const key = cx + "," + cz;
+  chunks.set(key, { solid, water });
+  engine?.addChunk(key, solid, water);
 }
 function dropChunk(k) {
-  const c = chunks.get(k);
-  if (!c) return;
-  for (const mesh of c.meshes) { scene.remove(mesh); mesh.dispose(); }
-  scene.remove(c.group);
-  chunks.delete(k);
+  if (!chunks.delete(k)) return;
+  engine?.removeChunk(k);
 }
 function clearChunks() {
   for (const k of [...chunks.keys()]) dropChunk(k);
   buildQueue.length = 0;
 }
 // keep the ring of chunks around the camera; build nearest-first,
-// a few per frame so flight never hitches on generation
+// inside a per-frame time budget so flight never hitches
 function updateChunks() {
-  const ccx = Math.floor(camera.position.x / CHUNK);
-  const ccz = Math.floor(camera.position.z / CHUNK);
+  const ccx = Math.floor(cam.pos.x / CHUNK);
+  const ccz = Math.floor(cam.pos.z / CHUNK);
   const R = P.radius;
   for (const k of [...chunks.keys()]) {
     const [cx, cz] = k.split(",").map(Number);
@@ -266,8 +214,8 @@ function updateChunks() {
 // camera: autopilot wander + manual free-fly
 // ---------------------------------------------------------------------------
 const cam = {
-  pos: new THREE.Vector3(8, 18, 24),
-  yaw: Math.PI, pitch: -0.12, // start looking north-ish, slightly down
+  pos: { x: 8, y: 18, z: 24 },
+  yaw: Math.PI, pitch: 0.12, // pitch = downward tilt
   autopilot: true, t: 0, heading: Math.PI,
 };
 const keys = new Set();
@@ -276,8 +224,7 @@ function groundAhead(dist) {
   const fx = -Math.sin(cam.heading), fz = -Math.cos(cam.heading);
   let g = 0;
   for (const d of [dist * 0.4, dist * 0.7, dist]) {
-    const x = Math.floor(cam.pos.x + fx * d), z = Math.floor(cam.pos.z + fz * d);
-    g = Math.max(g, heightAt(x, z));
+    g = Math.max(g, heightAt(Math.floor(cam.pos.x + fx * d), Math.floor(cam.pos.z + fz * d)));
   }
   return g;
 }
@@ -286,9 +233,8 @@ function stepCamera(dt) {
     cam.t += dt;
     // gentle sinusoidal wander: the world scrolls by forever
     cam.heading += Math.sin(cam.t * 0.13) * 0.22 * dt + Math.sin(cam.t * 0.041) * 0.1 * dt;
-    const fx = -Math.sin(cam.heading), fz = -Math.cos(cam.heading);
-    cam.pos.x += fx * P.speed * dt;
-    cam.pos.z += fz * P.speed * dt;
+    cam.pos.x += -Math.sin(cam.heading) * P.speed * dt;
+    cam.pos.z += -Math.cos(cam.heading) * P.speed * dt;
     const targetY = groundAhead(26) + P.altitude;
     cam.pos.y += (targetY - cam.pos.y) * Math.min(1, dt * 1.6);
     cam.yaw = cam.heading;
@@ -296,29 +242,29 @@ function stepCamera(dt) {
     const lookY = groundAhead(30) + P.altitude * 0.35;
     cam.pitch = Math.atan2(cam.pos.y - lookY, 30);
   } else {
-    // cam.pitch measures downward tilt (see rotateX(-pitch) below)
     const look = 2.2 * dt;
     if (keys.has("ArrowLeft")) cam.yaw += look;
     if (keys.has("ArrowRight")) cam.yaw -= look;
     if (keys.has("ArrowUp")) cam.pitch = Math.max(-1.5, cam.pitch - look);
     if (keys.has("ArrowDown")) cam.pitch = Math.min(1.5, cam.pitch + look);
-    const fwd = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(-cam.pitch, cam.yaw, 0, "YXZ"));
-    const right = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, cam.yaw, 0));
-    const move = new THREE.Vector3();
-    const sp = (keys.has("ShiftLeft") ? 26 : 11) * dt;
-    if (keys.has("KeyW")) move.add(fwd);
-    if (keys.has("KeyS")) move.sub(fwd);
-    if (keys.has("KeyD")) move.add(right);
-    if (keys.has("KeyA")) move.sub(right);
+    const cp = Math.cos(cam.pitch);
+    const fwd = { x: -Math.sin(cam.yaw) * cp, y: -Math.sin(cam.pitch), z: -Math.cos(cam.yaw) * cp };
+    const right = { x: Math.cos(cam.yaw), y: 0, z: -Math.sin(cam.yaw) };
+    const move = { x: 0, y: 0, z: 0 };
+    const add = (v, s) => { move.x += v.x * s; move.y += v.y * s; move.z += v.z * s; };
+    if (keys.has("KeyW")) add(fwd, 1);
+    if (keys.has("KeyS")) add(fwd, -1);
+    if (keys.has("KeyD")) add(right, 1);
+    if (keys.has("KeyA")) add(right, -1);
     if (keys.has("Space")) move.y += 1;
     if (keys.has("KeyC")) move.y -= 1;
-    if (move.lengthSq() > 0) cam.pos.addScaledVector(move.normalize(), sp);
+    const len = Math.hypot(move.x, move.y, move.z);
+    if (len > 0) {
+      const sp = (keys.has("ShiftLeft") ? 26 : 11) * dt / len;
+      cam.pos.x += move.x * sp; cam.pos.y += move.y * sp; cam.pos.z += move.z * sp;
+    }
     if (cam.pos.y < 1.5) cam.pos.y = 1.5;
   }
-  camera.position.copy(cam.pos);
-  camera.rotation.set(0, 0, 0);
-  camera.rotateY(cam.yaw);
-  camera.rotateX(-cam.pitch);
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +290,7 @@ setInterval(() => {
 function regen() {
   biomeCache.clear();
   clearChunks();
-  cam.pos.set(8, heightAt(8, 8) + P.altitude + 4, 24);
+  cam.pos = { x: 8, y: heightAt(8, 8) + P.altitude + 4, z: 24 };
   cam.t = 0;
 }
 function bindRange(id, out, fmt, apply, structural) {
@@ -360,7 +306,7 @@ bindRange("trees", "trees-out", (v) => v.toFixed(2) + "×", (v) => (P.treeMul = 
 bindRange("biome", "biome-out", (v) => v + " m", (v) => (P.biomeScale = v), true);
 bindRange("speed", "speed-out", (v) => v + " m/s", (v) => (P.speed = v), false);
 bindRange("alt", "alt-out", (v) => "+" + v + " m", (v) => (P.altitude = v), false);
-bindRange("radius", "radius-out", (v) => v + "", (v) => { P.radius = v; updateFog(); }, false);
+bindRange("radius", "radius-out", (v) => v + "", (v) => (P.radius = v), false);
 $("caves").addEventListener("change", (e) => { P.caves = e.target.checked; regen(); });
 $("gen-mode").addEventListener("change", (e) => { P.mode = Number(e.target.value); regen(); });
 $("seed").addEventListener("change", (e) => { P.seed = Number(e.target.value) | 0; regen(); });
@@ -381,10 +327,10 @@ function setAutopilot(on) {
 $("fly-toggle").addEventListener("click", () => setAutopilot(!cam.autopilot));
 $("manual").addEventListener("click", () => {
   setAutopilot(false);
-  renderer.domElement.requestPointerLock();
+  engine.canvas.requestPointerLock();
 });
 $("view").addEventListener("click", () => {
-  if (!cam.autopilot && !document.pointerLockElement) renderer.domElement.requestPointerLock();
+  if (!cam.autopilot && !document.pointerLockElement) engine.canvas.requestPointerLock();
 });
 document.addEventListener("mousemove", (e) => {
   if (!document.pointerLockElement || cam.autopilot) return;
@@ -399,15 +345,44 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("keyup", (e) => keys.delete(e.code));
 
 // ---------------------------------------------------------------------------
-// go
+// engine boot: our WebGPU engine first, three.js fallback
 // ---------------------------------------------------------------------------
-initThree();
-regen();
-const clock = new THREE.Clock();
-renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.05);
-  stepCamera(dt);
-  updateChunks();
-  renderer.render(scene, camera);
-  frames++;
-});
+async function startThree() {
+  const { createThreeEngine } = await import("./engine-three.js");
+  return createThreeEngine($("view"));
+}
+async function boot() {
+  const forceThree = new URLSearchParams(location.search).get("engine") === "three";
+  if (!forceThree) {
+    try {
+      engine = await createWebGPUEngine($("view"), {
+        onError: async (why) => {
+          console.warn("WebGPU engine failed, switching to fallback:", why);
+          engine?.destroy();
+          engine = await startThree();
+          for (const [k, c] of chunks) engine.addChunk(k, c.solid, c.water);
+          $("st-engine").textContent = engine.name + " (after WebGPU error)";
+        },
+      });
+    } catch (e) {
+      console.warn("WebGPU unavailable, using fallback:", e.message);
+      engine = null;
+    }
+  }
+  if (!engine) engine = await startThree();
+  $("st-engine").textContent = engine.name;
+  regen();
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    stepCamera(dt);
+    updateChunks();
+    engine.setView(cam.pos, cam.yaw, cam.pitch, P.radius);
+    engine.render();
+    frames++;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+boot();

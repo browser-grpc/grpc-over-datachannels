@@ -39,14 +39,29 @@ per-instance colors for solid blocks plus one for translucent
 water — a few hundred draw calls at any view distance, no
 assets, no server.
 
-`game.js` is the whole engine (noise, chunker, autopilot,
+## Rendering engines
+
+Two engines sit behind one interface (`addChunk`,
+`removeChunk`, `setView`, `render`); Telemetry names the one
+in use:
+
+- **`engine-webgpu.js`** — our own hand-rolled WebGPU engine:
+  WGSL pipelines (opaque + translucent water), instanced cube
+  rendering from per-chunk GPU buffers, zero dependencies.
+  This is the default where WebGPU exists.
+- **`engine-three.js`** — the three.js WebGL build, loaded
+  only as a fallback (no WebGPU, adapter failure, or a
+  runtime GPU error — the swap re-uploads every chunk).
+  Force it with `?engine=three`.
+
+`game.js` is the world engine (noise, chunker, autopilot,
 dashboard). `index.html` carries the panel and the AdSense
 loader, injected after page load on the public lunchgamer host
 only, so ad latency can never stall the page.
 
 ## Deploy (Cloudflare Pages, lunchgamer)
 
-The page is three static files (three.js comes from a CDN):
+The page is five static files (the fallback's three.js comes from a CDN):
 
 ```
 wrangler pages deploy <dir with index.html, style.css, game.js> \
