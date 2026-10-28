@@ -1,0 +1,73 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>grpc-dc Minecraft demo — multiplayer voxels over WebRTC</title>
+<meta name="description" content="A tiny multiplayer voxel game. The host's browser runs the game server with grpc-dc (gRPC over a WebRTC DataChannel); friends join from a link — no game server, no sign-up.">
+<link rel="stylesheet" href="style.css">
+<script>
+  // AdSense Auto ads: injected only on the public hosts and only
+  // after the page has fully loaded, so ad-network latency can
+  // never delay (or break) the game itself.
+  window.addEventListener("load", function () {
+    if (!/(^|\.)(github\.io|lunchgamer\.com)$/.test(location.hostname)) return;
+    var s = document.createElement("script");
+    s.async = true;
+    s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8450460284227575";
+    s.crossOrigin = "anonymous";
+    document.head.appendChild(s);
+  });
+</script>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<body>
+<header>
+  <h1>grpc-dc voxel demo</h1>
+  <p>A tiny Minecraft-style world, multiplayer over <strong>grpc-dc</strong>:
+     gRPC on a WebRTC DataChannel. The session host's browser <em>is</em> the
+     server — friends join from a link, no game server anywhere.</p>
+</header>
+<main>
+  <section id="lobby" class="pane">
+    <label>Your name <input id="name" value="player" maxlength="16"></label>
+    <div class="row">
+      <button id="host-btn" type="button">Host a session</button>
+      <button id="solo-btn" type="button">Play solo</button>
+    </div>
+    <div id="host-ui" hidden>
+      <p>1. Send this invite link to a friend:</p>
+      <textarea id="invite-out" readonly rows="3"></textarea>
+      <button id="copy-invite" type="button">Copy invite link</button>
+      <p>2. They send back an answer link — paste it here:</p>
+      <textarea id="answer-in" rows="3" placeholder="paste the answer link (or its #a=… code)"></textarea>
+      <button id="accept-btn" type="button">Accept answer</button>
+      <button id="more-btn" type="button">Invite another player</button>
+    </div>
+    <div id="guest-ui" hidden>
+      <p>You opened an invite link. Send this answer link back to the host:</p>
+      <textarea id="answer-out" readonly rows="3"></textarea>
+      <button id="copy-answer" type="button">Copy answer link</button>
+    </div>
+    <details>
+      <summary>Connection options (STUN / TURN)</summary>
+      <label>STUN <input id="stun" value="stun:stun.l.google.com:19302"></label>
+      <label>TURN URL <input id="turn-url" placeholder="turn:your-coturn.example:3478"></label>
+      <label>TURN username <input id="turn-user"></label>
+      <label>TURN password <input id="turn-pass" type="password"></label>
+      <p class="hint">STUN alone connects most home networks. If a friend is
+         behind a strict/symmetric NAT and cannot join, add a TURN server
+         (e.g. your own coturn) — traffic then relays through it.</p>
+    </details>
+    <pre id="log"></pre>
+  </section>
+  <section id="stage" class="pane">
+    <div id="view"></div>
+    <div id="hud">
+      <span id="status">not connected</span>
+      <span id="hotbar"></span>
+      <span class="hint">Click the world to lock the mouse · WASD move · Space jump · Left click break · Right click place · 1–4 pick block · Esc release</span>
+    </div>
+  </section>
+</main>
+<script type="module" src="game.js"></script>
+</body>
