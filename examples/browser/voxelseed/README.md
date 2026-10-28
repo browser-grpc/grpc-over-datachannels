@@ -1,4 +1,4 @@
-# grpc-dc voxel demo (multiplayer, browser-hosted)
+# VoxelSeed (multiplayer voxel demo, browser-hosted)
 
 A tiny Minecraft-style voxel world. The session host's browser runs
 the generated `demo.game.Game` service (`createGameService` via grpc-dc's
@@ -6,7 +6,7 @@ the generated `demo.game.Game` service (`createGameService` via grpc-dc's
 over one WebRTC `RTCDataChannel` labelled `grpc`
 (`js/index.js` `createPeer`). No game server, no signaling server.
 
-Play it: <https://minecraft.lunchgamer.com/>
+Play it: <https://voxelseed.lunchgamer.com/>
 
 ## How joining works (manual WebRTC signaling)
 
@@ -45,7 +45,7 @@ server.
 
 - `game.proto` — the service/messages; stubs in `gen/` come from
   `bin/protoc-gen-grpc-dc-js` (do not edit; regenerate with
-  `protoc --plugin=protoc-gen-grpc-dc-js=bin/protoc-gen-grpc-dc-js --grpc-dc-js_out=examples/browser/minecraft/gen -I examples/browser/minecraft game.proto`).
+  `protoc --plugin=protoc-gen-grpc-dc-js=bin/protoc-gen-grpc-dc-js --grpc-dc-js_out=examples/browser/voxelseed/gen -I examples/browser/voxelseed game.proto`).
 - `game.js` — voxel world (three.js), AABB physics, DDA block
   raycast, host/guest netcode, manual-signaling UI.
 - `index.html` — page + lobby; Auto ads is injected after page
@@ -61,5 +61,7 @@ import rewritten) deployed with:
 wrangler pages deploy <stage-dir> --project-name lunchgamer-minecraft
 ```
 
-Custom domain `minecraft.lunchgamer.com` (CNAME to
+Custom domain `voxelseed.lunchgamer.com` (CNAME to
 `lunchgamer-minecraft.pages.dev`) is attached to that project.
+The old `minecraft.lunchgamer.com` subdomain 301-redirects to it
+(zone-level proxied AAAA `100::` + Single Redirect rule).
