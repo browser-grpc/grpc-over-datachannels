@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.34.0 — 2026-10-28
+## v0.34.0 — 2026-10-28 (published to GitHub/npm/PyPI/GHCR)
 
 - The generator webapp now bundles starter projects for
   arbitrary schemas (web, Node, Python, Go) in its starter
