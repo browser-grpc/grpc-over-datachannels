@@ -2794,267 +2794,32 @@ JS
 // C++ emitter (mirrors the native cpp template).
 // ---------------------------------------------------------------------------
 
-function cppDeprecated(m, indent) {
-  return m.deprecated ? indent + '[[deprecated("deprecated in the proto schema")]]\n' : '';
-}
+let cppCurrentPkg = '';
 
-function cppClientMethodRaw(m, svc) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '    ' + m.output + ' ' + m.name + '(' + m.input + ' req,\n'
-        + '                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
-        + '      ' + m.output + ' resp;\n'
-        + '      channel_->Unary(' + path + ', req, resp, metadata, timeout);\n'
-        + '      return resp;\n    }\n\n';
-    case 'server-streaming':
-      return '    ' + svc + m.name + 'Stream ' + m.name + '(\n'
-        + '        ' + m.input + ' req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
-        + '      return ' + svc + m.name + 'Stream(\n'
-        + '          channel_->ServerStream(' + path + ', req, metadata, timeout));\n    }\n\n';
-    case 'client-streaming':
-      return '    ' + m.output + ' ' + m.name + '(std::vector<' + m.input + '> reqs,\n'
-        + '                              const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
-        + '      std::vector<const grpcdc::Marshaler*> ptrs;\n'
-        + '      for (auto& r : reqs) ptrs.push_back(&r);\n'
-        + '      ' + m.output + ' resp;\n'
-        + '      channel_->ClientStreamCall(' + path + ', ptrs, resp, metadata, timeout);\n'
-        + '      return resp;\n    }\n\n';
-    default:
-      return '    ' + svc + m.name + 'Stream ' + m.name + '(std::vector<' + m.input + '> reqs,\n'
-        + '                        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
-        + '      std::vector<const grpcdc::Marshaler*> ptrs;\n'
-        + '      for (auto& r : reqs) ptrs.push_back(&r);\n'
-        + '      return ' + svc + m.name + 'Stream(channel_->Bidi(' + path + ', ptrs, metadata, timeout));\n    }\n\n';
-  }
-}
 
-function cppClientStreamClass(m, svc) {
-  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
-  return '    class ' + svc + m.name + 'Stream {\n'
-    + '     public:\n'
-    + '      explicit ' + svc + m.name + 'Stream(grpcdc::Channel::ClientStream stream)\n'
-    + '          : stream_(std::move(stream)) {}\n'
-    + '      ' + m.output + ' Recv() {\n'
-    + '        ' + m.output + ' resp;\n'
-    + '        stream_.Recv(resp);\n        return resp;\n      }\n\n'
-    + '      /// Initial metadata (response headers).\n'
-    + '      const grpcdc::Metadata& Headers() const { return stream_.headers().metadata; }\n\n'
-    + '      /// Trailing metadata of the terminal status.\n'
-    + '      const grpcdc::Metadata& Trailers() const { return stream_.trailers(); }\n\n'
-    + '      /// Abort this stream (sends RST, wakes a pending Recv).\n'
-    + '      void Cancel() { stream_.Cancel(); }\n\n'
-    + '     private:\n'
-    + '      grpcdc::Channel::ClientStream stream_;\n    };\n\n';
-}
+
+
+
+
 
 const CPP_ASYNC_COLLECT = (capture) =>
   '      return std::async(std::launch::async, [this, ' + capture + ', metadata, timeout] {\n';
 
-function cppClientAsyncMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '    std::future<' + m.output + '> ' + m.name + 'Async(\n'
-        + '        ' + m.input + ' req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
-        + '      return std::async(std::launch::async,\n'
-        + '                        [this, req, metadata, timeout] { return ' + m.name + '(req, metadata, timeout); });\n    }\n\n';
-    case 'server-streaming':
-      return '    std::future<std::vector<' + m.output + '>> ' + m.name + 'Async(\n'
-        + '        ' + m.input + ' req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
-        + CPP_ASYNC_COLLECT('req')
-        + '        auto stream = ' + m.name + '(req, metadata, timeout);\n'
-        + '        std::vector<' + m.output + '> out;\n'
-        + '        while (true) {\n          try {\n            out.push_back(stream.Recv());\n'
-        + '          } catch (const grpcdc::EndOfStream&) {\n            break;\n          }\n        }\n'
-        + '        return out;\n      });\n    }\n\n';
-    case 'client-streaming':
-      return '    std::future<' + m.output + '> ' + m.name + 'Async(\n'
-        + '        std::vector<' + m.input + '> reqs,\n'
-        + '        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
-        + '      return std::async(\n'
-        + '          std::launch::async,\n'
-        + '          [this, reqs, metadata, timeout] { return ' + m.name + '(reqs, metadata, timeout); });\n    }\n\n';
-    default:
-      return '    std::future<std::vector<' + m.output + '>> ' + m.name + 'Async(\n'
-        + '        std::vector<' + m.input + '> reqs,\n'
-        + '        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
-        + CPP_ASYNC_COLLECT('reqs')
-        + '        auto stream = ' + m.name + '(reqs, metadata, timeout);\n'
-        + '        std::vector<' + m.output + '> out;\n'
-        + '        while (true) {\n          try {\n            out.push_back(stream.Recv());\n'
-        + '          } catch (const grpcdc::EndOfStream&) {\n            break;\n          }\n        }\n'
-        + '        return out;\n      });\n    }\n\n';
-  }
-}
 
-function cppClientCoroStreamClass(m, svc) {
-  if (m.kind !== 'server-streaming' && m.kind !== 'bidi') return '';
-  return '    class ' + svc + m.name + 'Stream {\n'
-    + '     public:\n'
-    + '      explicit ' + svc + m.name + 'Stream(grpcdc::AsyncClientStream stream)\n'
-    + '          : stream_(std::move(stream)) {}\n'
-    + '      /// Next response, or std::nullopt when the call completed OK.\n'
-    + '      grpcdc::Task<std::optional<' + m.output + '>> Recv() {\n'
-    + '        ' + m.output + ' resp;\n'
-    + '        try {\n          co_await stream_.Recv(resp);\n'
-    + '        } catch (const grpcdc::EndOfStream&) {\n          co_return std::nullopt;\n        }\n'
-    + '        co_return resp;\n      }\n'
-    + '      void Cancel() { stream_.Cancel(); }\n\n'
-    + '     private:\n'
-    + '      grpcdc::AsyncClientStream stream_;\n    };\n\n';
-}
 
-function cppClientCoroMethod(m, svc) {
-  const path = q(m.path);
-  switch (m.kind) {
-    case 'unary':
-      return '    grpcdc::Task<' + m.output + '> ' + m.name + '(' + m.input + ' req,\n'
-        + '                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
-        + '      ' + m.output + ' resp;\n'
-        + '      co_await channel_->Unary(' + path + ', req, resp, metadata, timeout);\n'
-        + '      co_return resp;\n    }\n\n';
-    case 'server-streaming':
-      return '    grpcdc::Task<' + svc + m.name + 'Stream> ' + m.name + '(\n'
-        + '        ' + m.input + ' req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
-        + '      co_return ' + svc + m.name + 'Stream(\n'
-        + '          co_await channel_->ServerStream(' + path + ', req, metadata, timeout));\n    }\n\n';
-    case 'client-streaming':
-      return '    grpcdc::Task<' + m.output + '> ' + m.name + '(std::vector<' + m.input + '> reqs,\n'
-        + '                              const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
-        + '      std::vector<const grpcdc::Marshaler*> ptrs;\n'
-        + '      for (auto& r : reqs) ptrs.push_back(&r);\n'
-        + '      ' + m.output + ' resp;\n'
-        + '      co_await channel_->ClientStreamCall(' + path + ', ptrs, resp, metadata, timeout);\n'
-        + '      co_return resp;\n    }\n\n';
-    default:
-      return '    grpcdc::Task<' + svc + m.name + 'Stream> ' + m.name + '(std::vector<' + m.input + '> reqs,\n'
-        + '                        const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {\n'
-        + '      std::vector<const grpcdc::Marshaler*> ptrs;\n'
-        + '      for (auto& r : reqs) ptrs.push_back(&r);\n'
-        + '      co_return ' + svc + m.name + 'Stream(\n'
-        + '          co_await channel_->Bidi(' + path + ', ptrs, metadata, timeout));\n    }\n\n';
-  }
-}
 
-function cppServerStreamIface(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return '  /// Server-streaming sink passed to service implementations.\n'
-        + '  struct ' + svc + m.name + 'Server {\n'
-        + '    virtual ~' + svc + m.name + 'Server() = default;\n'
-        + '    virtual void Send(' + m.output + '& resp) = 0;\n'
-        + '    virtual grpcdc::Endpoint::CallContext& Context() = 0;\n  };\n\n';
-    case 'client-streaming':
-      return '  /// Client-streaming stream passed to service implementations.\n'
-        + '  struct ' + svc + m.name + 'Server {\n'
-        + '    virtual ~' + svc + m.name + 'Server() = default;\n'
-        + '    virtual ' + m.input + ' Recv() = 0;\n'
-        + '    virtual void SendAndClose(' + m.output + '& resp) = 0;\n'
-        + '    virtual grpcdc::Endpoint::CallContext& Context() = 0;\n  };\n\n';
-    default:
-      return '  /// Bidi stream passed to service implementations.\n'
-        + '  struct ' + svc + m.name + 'Server {\n'
-        + '    virtual ~' + svc + m.name + 'Server() = default;\n'
-        + '    virtual void Send(' + m.output + '& resp) = 0;\n'
-        + '    virtual ' + m.input + ' Recv() = 0;\n'
-        + '    virtual grpcdc::Endpoint::CallContext& Context() = 0;\n  };\n\n';
-  }
-}
 
-function cppServerIfaceMethodRaw(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '    virtual ' + m.output + ' ' + m.name + '(grpcdc::Endpoint::CallContext& ctx,\n                               ' + m.input + '& req) = 0;\n';
-    case 'server-streaming':
-      return '    virtual void ' + m.name + '(' + m.input + '& req,\n                              ' + svc + m.name + 'Server& stream) = 0;\n';
-    default:
-      return '    virtual void ' + m.name + '(' + svc + m.name + 'Server& stream) = 0;\n';
-  }
-}
 
-function cppServerAsyncIfaceMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '    virtual std::future<' + m.output + '> ' + m.name + 'Async(\n        grpcdc::Endpoint::CallContext& ctx, ' + m.input + '& req) = 0;\n';
-    case 'server-streaming':
-      return '    virtual std::future<void> ' + m.name + 'Async(\n        ' + m.input + '& req, ' + svc + m.name + 'Server& stream) = 0;\n';
-    case 'client-streaming':
-      return '    virtual std::future<void> ' + m.name + 'Async(\n        ' + svc + m.name + 'Server& stream) = 0;\n';
-    default:
-      return '    virtual std::future<void> ' + m.name + 'Async(' + svc + m.name + 'Server& stream) = 0;\n';
-  }
-}
 
-function cppServerAsyncAdapterMethod(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '    ' + m.output + ' ' + m.name + '(grpcdc::Endpoint::CallContext& ctx,\n'
-        + '                       ' + m.input + '& req) override {\n'
-        + '      return impl_->' + m.name + 'Async(ctx, req).get();\n    }\n';
-    case 'server-streaming':
-      return '    void ' + m.name + '(' + m.input + '& req,\n'
-        + '                      ' + svc + m.name + 'Server& stream) override {\n'
-        + '      impl_->' + m.name + 'Async(req, stream).get();\n    }\n';
-    case 'client-streaming':
-      return '    void ' + m.name + '(' + svc + m.name + 'Server& stream) override {\n'
-        + '      impl_->' + m.name + 'Async(stream).get();\n    }\n';
-    default:
-      return '    void ' + m.name + '(' + svc + m.name + 'Server& stream) override { impl_->' + m.name + 'Async(stream).get(); }\n';
-  }
-}
 
-function cppStreamImpl(m, svc) {
-  switch (m.kind) {
-    case 'unary':
-      return '';
-    case 'server-streaming':
-      return '  class ' + svc + m.name + 'ServerImpl : public ' + svc + m.name + 'Server {\n'
-        + '   public:\n'
-        + '    ' + svc + m.name + 'ServerImpl(grpcdc::Endpoint::CallContext& ctx,\n'
-        + '                               grpcdc::Server::ServerSink& sink)\n'
-        + '        : ctx_(ctx), sink_(sink) {}\n'
-        + '    void Send(' + m.output + '& resp) override { sink_(resp.MarshalDc()); }\n'
-        + '    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n\n'
-        + '   private:\n'
-        + '    grpcdc::Endpoint::CallContext& ctx_;\n'
-        + '    grpcdc::Server::ServerSink& sink_;\n  };\n\n';
-    case 'client-streaming':
-      return '  class ' + svc + m.name + 'ServerImpl : public ' + svc + m.name + 'Server {\n'
-        + '   public:\n'
-        + '    ' + svc + m.name + 'ServerImpl(grpcdc::Endpoint::CallContext& ctx,\n'
-        + '                               grpcdc::Server::RequestStream& reqs)\n'
-        + '        : ctx_(ctx), reqs_(reqs) {}\n'
-        + '    ' + m.input + ' Recv() override {\n'
-        + '      ' + m.input + ' req;\n      reqs_.RecvInto(req);\n      return req;\n    }\n'
-        + '    void SendAndClose(' + m.output + '& resp) override {\n'
-        + '      resp_ = resp;\n      has_resp_ = true;\n    }\n'
-        + '    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n'
-        + '    ' + m.output + ' Resp() const { return resp_; }\n'
-        + '    bool HasResp() const { return has_resp_; }\n\n'
-        + '   private:\n'
-        + '    grpcdc::Endpoint::CallContext& ctx_;\n'
-        + '    grpcdc::Server::RequestStream& reqs_;\n'
-        + '    ' + m.output + ' resp_;\n'
-        + '    bool has_resp_ = false;\n  };\n\n';
-    default:
-      return '  class ' + svc + m.name + 'ServerImpl : public ' + svc + m.name + 'Server {\n'
-        + '   public:\n'
-        + '    ' + svc + m.name + 'ServerImpl(grpcdc::Endpoint::CallContext& ctx,\n'
-        + '                       grpcdc::Server::RequestStream& reqs,\n'
-        + '                       grpcdc::Server::ServerSink& sink)\n'
-        + '        : ctx_(ctx), reqs_(reqs), sink_(sink) {}\n'
-        + '    void Send(' + m.output + '& resp) override { sink_(resp.MarshalDc()); }\n'
-        + '    ' + m.input + ' Recv() override {\n'
-        + '      ' + m.input + ' req;\n      reqs_.RecvInto(req);\n      return req;\n    }\n'
-        + '    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n\n'
-        + '   private:\n'
-        + '    grpcdc::Endpoint::CallContext& ctx_;\n'
-        + '    grpcdc::Server::RequestStream& reqs_;\n'
-        + '    grpcdc::Server::ServerSink& sink_;\n  };\n\n';
-  }
-}
+
+
+
+
+
+
+
+
 
 const CPP_KIND_CONSTS = {
   unary: 'kKindUnary',
@@ -3063,107 +2828,10 @@ const CPP_KIND_CONSTS = {
   bidi: 'kKindBidi',
 };
 
-function cppRegisterMethod(m, svc) {
-  const impl = m.implName;
-  const kind = CPP_KIND_CONSTS[m.kind];
-  switch (m.kind) {
-    case 'unary':
-      return '            {' + q(m.name) + ', ' + q(m.path) + ', grpcdc::Server::' + kind + ',\n'
-        + '             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n'
-        + '                     grpcdc::Server::RequestStream& reqs,\n'
-        + '                     grpcdc::Server::ServerSink& sink) {\n'
-        + '               ' + m.input + ' req;\n               reqs.RecvInto(req);\n'
-        + '               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);\n'
-        + '               ' + m.output + ' resp = impl.' + impl + '(mutable_ctx, req);\n'
-        + '               sink(resp.MarshalDc());\n             }},\n';
-    case 'server-streaming':
-      return '            {' + q(m.name) + ', ' + q(m.path) + ',\n'
-        + '             grpcdc::Server::' + kind + ',\n'
-        + '             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n'
-        + '                     grpcdc::Server::RequestStream& reqs,\n'
-        + '                     grpcdc::Server::ServerSink& sink) {\n'
-        + '               ' + m.input + ' req;\n               reqs.RecvInto(req);\n'
-        + '               ' + svc + m.name + 'ServerImpl stream(\n'
-        + '                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), sink);\n'
-        + '               impl.' + impl + '(req, stream);\n             }},\n';
-    case 'client-streaming':
-      return '            {' + q(m.name) + ', ' + q(m.path) + ',\n'
-        + '             grpcdc::Server::' + kind + ',\n'
-        + '             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n'
-        + '                     grpcdc::Server::RequestStream& reqs,\n'
-        + '                     grpcdc::Server::ServerSink& sink) {\n'
-        + '               ' + svc + m.name + 'ServerImpl stream(\n'
-        + '                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), reqs);\n'
-        + '               impl.' + impl + '(stream);\n'
-        + '               if (!stream.HasResp()) {\n'
-        + '                 throw grpcdc::StatusException(\n'
-        + '                     grpcdc::wire::kCodeInternal,\n'
-        + '                     "client-streaming handler never called SendAndClose");\n'
-        + '               }\n'
-        + '               ' + m.output + ' resp = stream.Resp();\n'
-        + '               sink(resp.MarshalDc());\n             }},\n';
-    default:
-      return '            {' + q(m.name) + ', ' + q(m.path) + ', grpcdc::Server::' + kind + ',\n'
-        + '             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n'
-        + '                     grpcdc::Server::RequestStream& reqs,\n'
-        + '                     grpcdc::Server::ServerSink& sink) {\n'
-        + '               ' + svc + m.name + 'ServerImpl stream(\n'
-        + '                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), reqs, sink);\n'
-        + '               impl.' + impl + '(stream);\n             }},\n';
-  }
-}
+
 
 function cppService(svc) {
-  const sname = svc.name;
-  const all = svc.methods.concat(aliasClientMethods(svc));
-  return '  /// Client for ' + svc.fullName + '.\n'
-    + '  class ' + sname + 'Client {\n'
-    + '   public:\n'
-    + '    explicit ' + sname + 'Client(std::shared_ptr<grpcdc::Channel> channel)\n        : channel_(std::move(channel)) {}\n\n'
-    + svc.methods.map((m) => cppClientStreamClass(m, sname)).join('')
-    + all.map((m) => cppDeprecated(m, '    ') + cppClientMethodRaw(m, sname)).join('')
-    + '    // -- async (std::future) surface -------------------------------------\n\n'
-    + all.map((m) => cppClientAsyncMethod(m, sname)).join('')
-    + '   private:\n    std::shared_ptr<grpcdc::Channel> channel_;\n  };\n\n'
-    + '#if __cplusplus >= 202002L\n'
-    + '  /// C++20 coroutine client for ' + svc.fullName + ' (co_await / grpcdc::Task).\n'
-    + '  class ' + sname + 'ClientCoro {\n'
-    + '   public:\n'
-    + '    explicit ' + sname + 'ClientCoro(std::shared_ptr<grpcdc::AsyncChannel> channel)\n        : channel_(std::move(channel)) {}\n'
-    + '    explicit ' + sname + 'ClientCoro(std::shared_ptr<grpcdc::Channel> channel)\n        : channel_(std::make_shared<grpcdc::AsyncChannel>(std::move(channel))) {}\n\n'
-    + all.map((m) => cppClientCoroStreamClass(m, sname)).join('')
-    + all.map((m) => cppClientCoroMethod(m, sname)).join('')
-    + '   private:\n    std::shared_ptr<grpcdc::AsyncChannel> channel_;\n  };\n'
-    + '#endif  // __cplusplus >= 202002L\n\n'
-    + svc.methods.map((m) => cppServerStreamIface(m, sname)).join('')
-    + '  /// Service implementation interface for ' + svc.fullName + '.\n'
-    + '  struct ' + sname + 'Server {\n    virtual ~' + sname + 'Server() = default;\n'
-    + svc.methods.map((m) => cppDeprecated(m, '    ') + cppServerIfaceMethodRaw(m, sname)).join('')
-    + '  };\n\n'
-    + '  /// Async service implementation interface for ' + svc.fullName + '.\n'
-    + '  struct ' + sname + 'ServerAsync {\n    virtual ~' + sname + 'ServerAsync() = default;\n'
-    + svc.methods.map((m) => cppServerAsyncIfaceMethod(m, sname)).join('')
-    + '  };\n\n'
-    + ' private:\n'
-    + svc.methods.map((m) => cppStreamImpl(m, sname)).join('')
-    + '  class ' + sname + 'ServerAsyncAdapter : public ' + sname + 'Server {\n'
-    + '   public:\n    explicit ' + sname + 'ServerAsyncAdapter(' + sname + 'ServerAsync* impl) : impl_(impl) {}\n'
-    + svc.methods.map((m) => cppServerAsyncAdapterMethod(m, sname)).join('')
-    + '\n   private:\n    ' + sname + 'ServerAsync* impl_;\n  };\n\n'
-    + ' public:\n'
-    + '  /// Register an implementation of ' + svc.fullName + ' on a Server.\n'
-    + '  static void Register' + sname + 'Server(grpcdc::Server& server, ' + sname + 'Server& impl) {\n'
-    + '    server.RegisterService(grpcdc::Server::ServiceDesc{\n        ' + q(svc.fullName) + ',\n        {\n'
-    + svc.methods.concat(aliasServerMethods(svc)).map((m) => cppRegisterMethod(m, sname)).join('')
-    + '        }});\n  }\n\n'
-    + '  /// Register an async implementation of ' + svc.fullName + ' on a Server.\n'
-    + '  static void Register' + sname + 'ServerAsync(grpcdc::Server& server,\n                                      ' + sname + 'ServerAsync& impl) {\n'
-    + '    // Adapters are retained for the process lifetime: registration is\n'
-    + '    // once-per-process and bounded by service count.\n'
-    + '    static std::vector<std::shared_ptr<' + sname + 'ServerAsyncAdapter>> adapters;\n'
-    + '    auto adapter = std::make_shared<' + sname + 'ServerAsyncAdapter>(&impl);\n'
-    + '    adapters.push_back(adapter);\n'
-    + '    Register' + sname + 'Server(server, *adapter);\n  }\n';
+  return runSegments(SEGMENT_PROGRAMS.cppService, svc, svc.name);
 }
 
 
@@ -3203,297 +2871,47 @@ function xppEntryRef(model, entry) {
   return '::' + xppNs(entry.pkg) + '::' + rel;
 }
 
-function xppScalar(f) {
-  // Leaf payloads single-sourced from scalar-type-tables
-  // in spec.rkt (SCALAR_TABLES), same table the native
-  // template derives from.
-  return SCALAR_TABLES.cpp.types[f.type] ?? SCALAR_TABLES.cpp.default;
-}
+
 
 function xppType(model, f) {
-  let singular;
-  if (f.type === FT.MESSAGE) {
-    const entry = xppResolve(model, f.typeName);
-    if (entry.kind === 'map') {
-      const kf = entry.msg.fields.find((x) => x.number === 1);
-      const vf = entry.msg.fields.find((x) => x.number === 2);
-      singular = 'std::map<' + xppType(model, { ...kf, label: 1 }) + ', '
-        + (vf.type === FT.MESSAGE
-          ? xppEntryRef(model, xppResolve(model, vf.typeName))
-          : xppType(model, { ...vf, label: 1 })) + '>';
-    } else {
-      singular = 'std::optional<' + xppEntryRef(model, entry) + '>';
-    }
-  } else if (f.type === FT.ENUM) {
-    singular = xppEntryRef(model, xppResolve(model, f.typeName));
-  } else {
-    singular = xppScalar(f)[0];
-  }
-  if (f.type === FT.MESSAGE && xppResolve(model, f.typeName).kind === 'map') return singular;
-  if (f.label === 3) {
-    return 'std::vector<' + (f.type === FT.MESSAGE
-      ? xppEntryRef(model, xppResolve(model, f.typeName))
-      : xppType(model, { ...f, label: 1 })) + '>';
-  }
-  return singular;
+  return runSegments(SEGMENT_PROGRAMS.cppPbType, f, null, model);
 }
 
-function xppExplicitLiteral(model, f) {
-  const d = fieldExplicitDefault(f);
-  if (d === null) return null;
-  switch (f.type) {
-    case 9: return JSON.stringify(d);
-    case 8: return d;
-    case 14: return xppEntryRef(model, xppResolve(model, f.typeName)) + '::' + d;
-    default: return d;
-  }
-}
 
-function xppDefault(model, f) {
-  const lit = xppExplicitLiteral(model, f);
-  if (lit !== null) return lit;
-  if (f.type === FT.MESSAGE && xppResolve(model, f.typeName).kind === 'map') return '{}';
-  if (f.label === 3) return '{}';
-  if (f.type === FT.MESSAGE) return 'std::nullopt';
-  if (f.type === FT.ENUM) {
-    const entry = xppResolve(model, f.typeName);
-    return xppEntryRef(model, entry) + '::' + entry.enum.values[0].name;
-  }
-  return xppScalar(f)[1];
-}
 
-function xppVarintExpr(f, v) {
-  switch (f.type) {
-    case 8: return '(' + v + ' ? 1 : 0)';
-    case 17: return 'static_cast<std::uint64_t>((' + v + ' << 1) ^ (' + v + ' >> 31))';
-    case 18: return 'static_cast<std::uint64_t>((' + v + ' << 1) ^ (' + v + ' >> 63))';
-    case 14: return 'static_cast<std::int32_t>(' + v + ')';
-    case 5: return 'static_cast<std::int64_t>(' + v + ')';
-    default: return 'static_cast<std::uint64_t>(' + v + ')';
-  }
-}
 
-function xppVarintDecode(f, v) {
-  switch (f.type) {
-    case 5: return 'static_cast<std::int32_t>(' + v + ')';
-    case 13: case 7: return 'static_cast<std::uint32_t>(' + v + ')';
-    case 3: return 'static_cast<std::int64_t>(' + v + ')';
-    case 4: case 6: return v;
-    case 8: return v + ' != 0';
-    case 17: return 'static_cast<std::int32_t>((' + v + ' >> 1) ^ -static_cast<std::int64_t>(' + v + ' & 1))';
-    case 18: return 'static_cast<std::int64_t>((' + v + ' >> 1) ^ -static_cast<std::int64_t>(' + v + ' & 1))';
-    default: throw new Error('not a varint type');
-  }
-}
 
-function xppNonzero(f, v) {
-  switch (f.type) {
-    case 8: return v;
-    case 14: return 'static_cast<std::int32_t>(' + v + ') != 0';
-    default: return v + ' != 0';
-  }
-}
 
-function xppEncodeSingular(model, f, v, indent, support) {
-  const n = f.number;
-  const proto2 = model.syntax === 'proto2';
-  if (XPP_VARINT.has(f.type)) {
-    return proto2
-      ? indent + '{ w.Tag(' + n + ', 0); w.Varint(' + xppVarintExpr(f, v) + '); }\n'
-      : indent + 'if (' + xppNonzero(f, v) + ') { w.Tag(' + n + ', 0); w.Varint(' + xppVarintExpr(f, v) + '); }\n';
-  }
-  const fixed = XPP_FIXED[f.type];
-  if (fixed) {
-    const wire = fixed[0] === 8 ? 1 : 5;
-    return proto2
-      ? indent + '{ w.Tag(' + n + ', ' + wire + '); w.Fixed' + fixed[1] + '(' + v + '); }\n'
-      : indent + 'if (' + xppNonzero(f, v) + ') { w.Tag(' + n + ', ' + wire + '); w.Fixed' + fixed[1] + '(' + v + '); }\n';
-  }
-  switch (f.type) {
-    case 9: return proto2
-      ? indent + 'w.BytesField(' + n + ', grpcdc::Bytes(' + v + '.begin(), ' + v + '.end()));\n'
-      : indent + 'w.StringField(' + n + ', ' + v + ');\n';
-    case 12: return proto2
-      ? indent + 'w.BytesField(' + n + ', ' + v + ');\n'
-      : indent + 'if (!' + v + '.empty()) w.BytesField(' + n + ', ' + v + ');\n';
-    case 11: return indent + 'if (' + v + ') w.BytesField(' + n + ', ' + v + '->MarshalDc());\n';
-    default: throw new Error('unsupported field type ' + f.type + ' (groups)');
-  }
-}
 
-function xppSetExpr(sib) {
-  const v = sib.name;
-  switch (sib.type) {
-    case 11: case 10: return v + '.has_value()';
-    case 9: case 12: return '!' + v + '.empty()';
-    default: return xppNonzero(sib, v);
-  }
-}
 
-function xppEncodeGuard(model, f, code) {
-  const later = oneofLaterSiblings(model, f);
-  if (!later.length) return code;
-  return '    if (!(' + later.map(xppSetExpr).join(' || ') + ')) {\n' + (code.endsWith('\n') ? code : code + '\n') + '    }\n';
-}
 
-function xppEncodeField(model, f, support) {
-  const v = f.name;
-  const n = f.number;
-  if (f.type === FT.MESSAGE && xppResolve(model, f.typeName).kind === 'map') {
-    const entry = xppResolve(model, f.typeName);
-    const helper = support + '::' + xppMapHelperName(model, entry) + 'Encode';
-    return '    if (!' + v + '.empty()) for (const auto& e : ' + v + ') w.BytesField(' + n + ', ' + helper + '(e.first, e.second));\n';
-  }
-  if (f.label !== 3) return xppEncodeSingular(model, f, v, '    ', support);
-  if (XPP_VARINT.has(f.type)) {
-    return '    if (!' + v + '.empty()) {\n'
-      + '        ' + support + '::Writer payload;\n'
-      + '        for (auto x : ' + v + ') payload.Varint(' + xppVarintExpr(f, 'x') + ');\n'
-      + '        w.BytesField(' + n + ', payload.ToBytes());\n    }\n';
-  }
-  const fixed = XPP_FIXED[f.type];
-  if (fixed) {
-    return '    if (!' + v + '.empty()) {\n'
-      + '        ' + support + '::Writer payload;\n'
-      + '        for (auto x : ' + v + ') payload.Fixed' + fixed[1] + '(x);\n'
-      + '        w.BytesField(' + n + ', payload.ToBytes());\n    }\n';
-  }
-  switch (f.type) {
-    case 9: return '    for (const auto& x : ' + v + ') w.BytesField(' + n + ', grpcdc::Bytes(x.begin(), x.end()));\n';
-    case 12: return '    for (const auto& x : ' + v + ') w.BytesField(' + n + ', x);\n';
-    case 11: return '    for (const auto& x : ' + v + ') w.BytesField(' + n + ', x.MarshalDc());\n';
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
-}
 
-function xppDecodeSingular(model, f, target, src, indent, support) {
-  if (XPP_VARINT.has(f.type)) {
-    return indent + target + ' = ' + (f.type === 14
-      ? 'static_cast<' + xppEntryRef(model, xppResolve(model, f.typeName)) + '>(' + xppVarintDecode({ ...f, type: 5 }, src) + ')'
-      : xppVarintDecode(f, src)) + ';\n';
-  }
-  if (XPP_FIXED[f.type]) {
-    let conv;
-    switch (f.type) {
-      case 2: conv = support + '::BitsToFloat(static_cast<std::uint32_t>(' + src + '))'; break;
-      case 1: conv = support + '::BitsToDouble(' + src + ')'; break;
-      case 7: conv = 'static_cast<std::uint32_t>(' + src + ')'; break;
-      case 15: conv = 'static_cast<std::int32_t>(' + src + ')'; break;
-      default: conv = src;
-    }
-    return indent + target + ' = ' + conv + ';\n';
-  }
-  switch (f.type) {
-    case 9: return indent + target + ' = std::string(' + src + '.begin(), ' + src + '.end());\n';
-    case 12: return indent + target + ' = ' + src + ';\n';
-    case 11: return indent + target + '.emplace();\n' + indent + target + '->UnmarshalDc(' + src + ');\n';
-    default: throw new Error('unsupported field type ' + f.type);
-  }
-}
 
-function xppOneofClearing(model, f) {
-  return oneofSiblings(model, f).map((sib) => '            ' + sib.name + ' = ' + xppDefault(model, sib) + ';\n').join('');
-}
 
-function xppSrc(f) {
-  return XPP_VARINT.has(f.type) ? 'field.varint' : (XPP_FIXED[f.type] ? 'field.fixed' : 'field.bytes');
-}
 
-function xppDecodeCase(model, f, support) {
-  const v = f.name;
-  const head = '        case ' + f.number + ': {\n';
-  const tail = '            break;\n        }\n';
-  const clearing = xppOneofClearing(model, f);
-  if (f.type === FT.MESSAGE && xppResolve(model, f.typeName).kind === 'map') {
-    const entry = xppResolve(model, f.typeName);
-    const helper = support + '::' + xppMapHelperName(model, entry) + 'Decode';
-    return head
-      + '            auto kv = ' + helper + '(field.bytes);\n'
-      + '            ' + v + '[kv.first] = kv.second;\n'
-      + tail;
-  }
-  if (f.label !== 3) {
-    return head + clearing + xppDecodeSingular(model, f, v, xppSrc(f), '            ', support) + tail;
-  }
-  if (XPP_VARINT.has(f.type)) {
-    const conv = (src) => f.type === 14
-      ? 'static_cast<' + xppEntryRef(model, xppResolve(model, f.typeName)) + '>(' + xppVarintDecode({ ...f, type: 5 }, src) + ')'
-      : xppVarintDecode(f, src);
-    return head
-      + '            if (field.wire == 2) {\n'
-      + '                ' + support + '::Reader sub(field.bytes);\n'
-      + '                while (!sub.Done()) {\n'
-      + '                    ' + v + '.push_back(' + conv('sub.Varint()') + ');\n'
-      + '                }\n            } else {\n'
-      + '                ' + v + '.push_back(' + conv('field.varint') + ');\n'
-      + '            }\n'
-      + tail;
-  }
-  const fixed = XPP_FIXED[f.type];
-  if (fixed) {
-    const subConv = f.type === 2 ? support + '::BitsToFloat(sub.Fixed32())'
-      : f.type === 1 ? support + '::BitsToDouble(sub.Fixed64())'
-      : f.type === 7 ? 'static_cast<std::uint32_t>(sub.Fixed32())'
-      : f.type === 15 ? 'sub.Fixed32()' : 'sub.Fixed64()';
-    const oneConv = f.type === 2 ? support + '::BitsToFloat(static_cast<std::uint32_t>(field.fixed))'
-      : f.type === 1 ? support + '::BitsToDouble(field.fixed)'
-      : f.type === 7 ? 'static_cast<std::uint32_t>(field.fixed)'
-      : f.type === 15 ? 'static_cast<std::int32_t>(field.fixed)' : 'field.fixed';
-    return head
-      + '            if (field.wire == 2) {\n'
-      + '                ' + support + '::Reader sub(field.bytes);\n'
-      + '                while (!sub.Done()) ' + v + '.push_back(' + subConv + ');\n'
-      + '            } else {\n'
-      + '                ' + v + '.push_back(' + oneConv + ');\n'
-      + '            }\n'
-      + tail;
-  }
-  switch (f.type) {
-    case 9: return head + '            ' + v + '.push_back(std::string(field.bytes.begin(), field.bytes.end()));\n' + tail;
-    case 12: return head + '            ' + v + '.push_back(field.bytes);\n' + tail;
-    case 11: return head
-      + '            ' + xppEntryRef(model, xppResolve(model, f.typeName)) + ' item;\n'
-      + '            item.UnmarshalDc(field.bytes);\n'
-      + '            ' + v + '.push_back(item);\n'
-      + tail;
-    default: throw new Error('unsupported repeated field type ' + f.type);
-  }
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function xppMapHelperName(model, entry) {
   return xppRel(entry.pkg, entry.msg.fullName).split('::').join('');
 }
 
 function xppMapHelpers(model, entry, support) {
-  const msg = entry.msg;
-  const base = xppMapHelperName(model, entry);
-  const keyF = msg.fields.find((x) => x.number === 1);
-  const valF = msg.fields.find((x) => x.number === 2);
-  if (!keyF || !valF) throw new Error('map entry lacks key/value');
-  const kt = xppType(model, { ...keyF, label: 1 });
-  const vt = xppType(model, { ...valF, label: 1 });
-  const vtPlain = (valF.type === FT.MESSAGE && xppResolve(model, valF.typeName).kind !== 'map')
-    ? xppEntryRef(model, xppResolve(model, valF.typeName))
-    : vt;
-  const decls = 'inline grpcdc::Bytes ' + base + 'Encode(const ' + kt + '& key, const ' + vtPlain + '& value);\n'
-    + 'inline std::pair<' + kt + ', ' + vtPlain + '> ' + base + 'Decode(const grpcdc::Bytes& bytes);\n';
-  const defs = 'inline grpcdc::Bytes ' + base + 'Encode(const ' + kt + '& key, const ' + vtPlain + '& value) {\n'
-    + '    Writer w;\n'
-    + xppEncodeSingular(model, { ...keyF, label: 1 }, 'key', '    ', support)
-    + (valF.type === FT.MESSAGE
-      ? '    w.BytesField(' + valF.number + ', value.MarshalDc());\n'
-      : xppEncodeSingular(model, { ...valF, label: 1 }, 'value', '    ', support))
-    + '    return w.ToBytes();\n}\n\n'
-    + 'inline std::pair<' + kt + ', ' + vtPlain + '> ' + base + 'Decode(const grpcdc::Bytes& bytes) {\n'
-    + '    ' + kt + ' key = ' + xppDefault(model, { ...keyF, label: 1 }) + ';\n'
-    + '    ' + vtPlain + ' value' + (valF.type === FT.MESSAGE ? '' : ' = ' + xppDefault(model, { ...valF, label: 1 })) + ';\n'
-    + '    Reader r(bytes);\n    Field field;\n    while (r.Next(field)) {\n        switch (field.number) {\n'
-    + '            case ' + keyF.number + ': ' + xppDecodeSingular(model, { ...keyF, label: 1 }, 'key', xppSrc(keyF), '', support).replace(/\s+$/, '') + ' break;\n'
-    + '            case ' + valF.number + ': ' + (valF.type === FT.MESSAGE
-      ? 'value.UnmarshalDc(field.bytes);'
-      : xppDecodeSingular(model, { ...valF, label: 1 }, 'value', xppSrc(valF), '', support).replace(/\s+$/, '')) + ' break;\n'
-    + '            default: break;\n        }\n    }\n    return {key, value};\n}\n\n';
-  return { decls, defs };
+  return [
+    runSegments(SEGMENT_PROGRAMS.cppPbMapHelpersDecl, entry, null, model),
+    runSegments(SEGMENT_PROGRAMS.cppPbMapHelpersImpl, entry, null, model, [support]),
+  ];
 }
 
 const XPP_SUPPORT_BODY = 'class Writer {\n'
@@ -3538,44 +2956,14 @@ const XPP_SUPPORT_BODY = 'class Writer {\n'
   + '    }\n'
   + '};\n\n';
 
-function xppNestedEnum(e, indent) {
-  return indent + 'enum class ' + e.name + ' : std::int32_t {\n'
-    + e.values.map((v) => indent + '  ' + v.name + ' = ' + v.number).join(',\n')
-    + '\n' + indent + '};\n';
-}
+
 
 function xppMessageClass(model, msg, support, indent) {
-  const pad = indent;
-  const name = msg.name;
-  return pad + 'class ' + name + ' : public grpcdc::Marshaler, public grpcdc::Unmarshaler {\n'
-    + pad + ' public:\n'
-    + msg.enums.map((e) => xppNestedEnum(e, indent + '  ')).join('')
-    + msg.nested.map((n) => xppMessageClass(model, n, support, indent + '  ')).join('')
-    + msg.fields.map((f) => pad + '  ' + xppType(model, f) + ' ' + f.name + ' = ' + xppDefault(model, f) + ';\n').join('')
-    + pad + '  grpcdc::Bytes unknown_fields;\n'
-    + pad + '  ' + name + '() = default;\n'
-    + pad + '  grpcdc::Bytes MarshalDc() const override;\n'
-    + pad + '  void UnmarshalDc(const grpcdc::Bytes& data) override;\n'
-    + pad + '};\n';
+  return runSegments(SEGMENT_PROGRAMS.cppPbMessage, msg, null, model, [support, indent]);
 }
 
 function xppMessageImpls(model, msg, support, qual) {
-  const q = qual ? qual + '::' + msg.name : msg.name;
-  return 'inline grpcdc::Bytes ' + q + '::MarshalDc() const {\n'
-    + '    ' + support + '::Writer w;\n'
-    + msg.fields.map((f) => xppEncodeGuard(model, f, xppEncodeField(model, f, support))).join('')
-    + '    w.Raw(unknown_fields);\n'
-    + '    return w.ToBytes();\n}\n\n'
-    + 'inline void ' + q + '::UnmarshalDc(const grpcdc::Bytes& data) {\n'
-    + '    unknown_fields.clear();\n'
-    + msg.fields.map((f) => '    ' + f.name + ' = ' + xppDefault(model, f) + ';\n').join('')
-    + '    ' + support + '::Reader r(data);\n'
-    + '    ' + support + '::Field field;\n'
-    + '    while (r.Next(field)) {\n      switch (field.number) {\n'
-    + msg.fields.map((f) => xppDecodeCase(model, f, support)).join('')
-    + '        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;\n'
-    + '      }\n    }\n}\n\n'
-    + msg.nested.filter((n) => !n.mapEntry).map((n) => xppMessageImpls(model, n, support, q)).join('');
+  return runSegments(SEGMENT_PROGRAMS.cppPbMessageImpls, msg, null, model, [support, qual]);
 }
 
 function xppOrderedMessages(model) {
@@ -3657,11 +3045,11 @@ function emitCppPbFile(model) {
     + '}  // namespace pb_' + base + '\n\n'
     + ordered.map((m) => xppMessageClass(model, m, support, '')).join('')
     + (helpers.length
-      ? 'namespace pb_' + base + ' {\n\n' + helpers.map((h) => h.decls).join('') + '}  // namespace pb_' + base + '\n\n'
+      ? 'namespace pb_' + base + ' {\n\n' + helpers.map((h) => h[0]).join('') + '}  // namespace pb_' + base + '\n\n'
       : '')
     + ordered.map((m) => xppMessageImpls(model, m, support, '')).join('')
     + (helpers.length
-      ? 'namespace pb_' + base + ' {\n\n' + helpers.map((h) => h.defs).join('') + '}  // namespace pb_' + base + '\n\n'
+      ? 'namespace pb_' + base + ' {\n\n' + helpers.map((h) => h[1]).join('') + '}  // namespace pb_' + base + '\n\n'
       : '')
     + '}  // namespace ' + xppNs(pkg) + '\n';
   return { name: base + '_messages.hpp', content };
@@ -3685,6 +3073,7 @@ function emitCppFile(model, params) {
   const ns = xppNs(model.package);
   // Qualify cross-package method types (::pkg::...::Type) so stub
   // code resolves message types from other proto files.
+  cppCurrentPkg = model.package;
   const qual = (full, plain) =>
     (!model.package || !full.includes('.') || full.startsWith(model.package + '.'))
       ? plain
@@ -6409,7 +5798,7 @@ JS
                        "function segTruthy(v) { return !(v === false || v === null || v === undefined || v === '' || v === 0); }\n\n"
                        "function segKey(k) {\n  return k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());\n}\n\n"
                        "function segCategory(model, node) {\n  const t = node.type;\n  if (t === 11 && gpResolve(model, node.typeName).kind === 'map') return 'map';\n  if (t === 11) return 'message';\n  if (VARINT_TYPES.includes(t)) return 'varint';\n  if (FIXED_TABLES.go[t]) return 'fixed';\n  if (t === 9) return 'string';\n  if (t === 12) return 'bytes';\n  return 'other';\n}\n\n"
-                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      const tmpl = Array.isArray(seg[1]) ? segEval(seg[1], env) : seg[1];\n      return tmpl.replace(/~~|~[as]/g, (tok) => {\n        if (tok === '~~') return '~';\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'root': return env.root;\n    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'trim-suffix': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-sep+': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'lower-first': return lowerFirst(segEval(seg[1], env));\n    case 'js-name': return pbJsName(node);\n    case 'js-fixed-size': return FIXED_TABLES.js[node.type][0];\n    case 'js-fixed-name': return FIXED_TABLES.js[node.type][1];\n    case 'bigint-type': return PB_BIGINT.has(node.type);\n    case 'entry-flat': return node.kind === 'enum' ? pbFlatName(node.pkg, node.full) : pbFlatName(node.pkg, node.msg.fullName);\n    case 'resolved-flat': { const e = pbResolve(model, node.typeName); return pbFlatName(e.pkg, e.msg.fullName); }\n    case 'index': return env.index;\n    case 'parent': return env.parent;\n    case 'and': return seg.slice(1).every((e) => segTruthy(segEval(e, env)));\n    case 'or': return seg.slice(1).some((e) => segTruthy(segEval(e, env)));\n    case 'not': return !segTruthy(segEval(seg[1], env));\n    case 'any-where': { const keys = Array.isArray(seg[1]) ? seg[1] : [seg[1]]; let items = node; for (const k of keys) items = items[segKey(k)]; return items.some((el) => segTruthy(segEval(seg[2], envWith(env, { node: el })))); }\n    case 'snake-case': return snakeCase(segEval(seg[1], env));\n    case 'rs-camel': return rpCamel(segEval(seg[1], env));\n    case 'rs-field-name': return rpFieldName(node);\n    case 'rs-map-type': return rpMapType();\n    case 'rs-entry-ref': { const e = node.typeName !== undefined ? rpResolve(model, node.typeName) : node; return rpEntryRef(model, e); }\n    case 'rs-scalar-type': return SCALAR_TABLES.rust.types[node.type] ?? SCALAR_TABLES.rust.default;\n    case 'rs-fixed-size': return FIXED_TABLES.rust[node.type][0];\n    case 'rs-fixed-name': return FIXED_TABLES.rust[node.type][1];\n    case 'flat-of': return rpFlat(model.package, segEval(seg[1], env));\n    case 'rust-enum-fragment': return RP_ENUM_SHAPE[seg[1]];\n    case 'enum-first-value-name': return rpResolve(model, node.typeName).enum.values[0].name;\n    case 'enum-first-value-num': return rpResolve(model, node.typeName).enum.values[0].number;\n    case 'rb-snake': return String(segEval(seg[1], env)).replace(/[A-Z]/g, (c, i) => (i > 0 ? '_' : '') + c.toLowerCase());\n    case 'stub-ref': return rbStubRef(model, node[segKey(seg[1])]);\n    case 'rb-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? rbpResolve(model, n.typeName) : n; return rbpEntryRef(model, e); }\n    case 'rb-model-module': return rbpModuleName({ file: model.name });\n    case 'rb-fixed-size': return FIXED_TABLES.ruby[node.type][0];\n    case 'rb-fixed-fmt': return FIXED_TABLES.ruby[node.type][1];\n    case 'php-camel': return phpbCamel(segEval(seg[1], env));\n    case 'php-field-name': return phpbFieldName(node);\n    case 'php-flat-of': return phpbFlat(model.package, segEval(seg[1], env));\n    case 'php-stub-ref': return phpStubRef(model, node[segKey(seg[1])]);\n    case 'php-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? phpbResolve(model, n.typeName) : n; return phpbEntryRef(model, e); }\n    case 'php-fixed-size': return FIXED_TABLES.php[node.type][0];\n    case 'php-fixed-fmt': return FIXED_TABLES.php[node.type][1];\n    case 'py-ref': { const e = node.typeName !== undefined ? pyPbResolve(model, node.typeName) : node; return pyPbRef(model, e); }\n    case 'py-fixed-size': return FIXED_TABLES.python[node.type][0];\n    case 'py-fixed-fmt': return FIXED_TABLES.python[node.type][1];\n    case 'with-type': return Object.assign({}, segEval(seg[1], env), { type: seg[2] });\n    case 'trim-end': return String(segEval(seg[1], env)).replace(/\\n+$/, '');\n    case 'c-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntryRef(model, e); }\n    case 'c-entry-support': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntrySupport(e); }\n    case 'c-type-ref': return cbTypeRef(model, node[segKey(seg[1])]);\n    case 'c-support-of': return cbEntrySupport(cbResolve(model, node[segKey(seg[1])]));\n    case 'c-scalar-type': return SCALAR_TABLES.c.types[node.type][0];\n    case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];\n    case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];\n    case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];\n    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + '\u0000' + el.output)).size; }\n    case 'sc-field-name': return scpFieldName(node);\n    case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }\n    case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;\n    case 'sc-fixed-size': return FIXED_TABLES.scala[node.type][0];\n    case 'sc-fixed-kind': return FIXED_TABLES.scala[node.type][1];\n    case 'dart-field-name': return dtpFieldName(node);\n    case 'dart-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpEntryRef(model, e); }\n    case 'dart-type-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpTypeRef(model, e); }\n    case 'dart-scalar-type': return SCALAR_TABLES.dart.types[node.type][0];\n    case 'dart-scalar-zero': return SCALAR_TABLES.dart.types[node.type][1];\n    case 'dart-fixed-size': return FIXED_TABLES.dart[node.type][0];\n    case 'dart-fixed-name': return FIXED_TABLES.dart[node.type][1];\n    case 'swift-field-name': return swpFieldName(node);\n    case 'swift-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpEntryRef(model, e); }\n    case 'swift-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpMapHelperName(model, e); }\n    case 'swift-scalar-type': return SCALAR_TABLES.swift.types[node.type][0];\n    case 'swift-scalar-zero': return SCALAR_TABLES.swift.types[node.type][1];\n    case 'swift-fixed-size': return FIXED_TABLES.swift[node.type][0];\n    case 'swift-fixed-name': return FIXED_TABLES.swift[node.type][1];\n    case 'lua-field-name': return lpFieldName(node);\n    case 'java-field-name': return jpFieldName(node);\n    case 'java-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? jpResolve(model, n.typeName) : n; return jpEntryRef(model, e); }\n    case 'java-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? jpResolve(model, n.typeName) : n; return jpMapHelperName(model, e); }\n    case 'java-scalar-type': return SCALAR_TABLES.java.types[node.type][0];\n    case 'java-scalar-boxed': return SCALAR_TABLES.java.types[node.type][1];\n    case 'java-scalar-default': return SCALAR_TABLES.java.types[node.type][2];\n    case 'java-fixed-size': return FIXED_TABLES.java[node.type][0];\n    case 'java-fixed-name': return FIXED_TABLES.java[node.type][1];\n    case 'cs-field-name': return cspFieldName(model, node);\n    case 'cs-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cspResolve(model, n.typeName) : n; return cspEntryRef(model, e); }\n    case 'cs-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cspResolve(model, n.typeName) : n; return cspMapHelperName(model, e); }\n    case 'cs-scalar-type': return SCALAR_TABLES.csharp.types[node.type][0];\n    case 'cs-scalar-zero': return SCALAR_TABLES.csharp.types[node.type][1];\n    case 'cs-fixed-size': return FIXED_TABLES.csharp[node.type][0];\n    case 'cs-fixed-name': return FIXED_TABLES.csharp[node.type][1];\n    case 'kotlin-wasm-mode': return kotlinWasmMode;\n    case 'first-value-name': return node.values[0].name;\n    case 'kt-field-name': return kpFieldName(node);\n    case 'kt-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? kpResolve(model, n.typeName) : n; return kpEntryRef(model, e); }\n    case 'kt-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? kpResolve(model, n.typeName) : n; return kpMapHelperName(model, e); }\n    case 'kt-scalar-type': return SCALAR_TABLES.kotlin.types[node.type][0];\n    case 'kt-scalar-zero': return SCALAR_TABLES.kotlin.types[node.type][1];\n    case 'kt-fixed-size': return FIXED_TABLES.kotlin[node.type][0];\n    case 'kt-fixed-name': return FIXED_TABLES.kotlin[node.type][1];\n    case 'zig-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e); }\n    case 'zig-struct-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e).replace(/\\./g, '_'); }\n    case 'zig-scalar-type': return SCALAR_TABLES.zig.types[node.type][0];\n    case 'zig-scalar-zero': return SCALAR_TABLES.zig.types[node.type][1];\n    case 'zig-fixed-size': return FIXED_TABLES.zig[node.type][0];\n    case 'zig-fixed-name': return FIXED_TABLES.zig[node.type][1];\n    case 'lua-entry-flat': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? lpResolve(model, n.typeName) : n; return lpEntryFlat(model, e); }\n    case 'lua-enum-flat': return lpFlat(model.package, model.package === '' ? node.name : model.package + '.' + node.name);\n    case 'lua-fixed-fmt': return '<' + FIXED_TABLES.lua[node.type][1];\n    case 'lua-fixed-size': return FIXED_TABLES.lua[node.type][0];\n    case 'lua-fixed-wire': return FIXED_TABLES.lua[node.type][0] === 8 ? 1 : 5;\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
+                       "function segEval(seg, env) {\n  const node = env.node; const model = env.model;\n  if (typeof seg === 'string') return seg;\n  if (typeof seg === 'number') return seg;\n  switch (seg[0]) {\n    case 'fmt': {\n      let i = 1;\n      const tmpl = Array.isArray(seg[1]) ? segEval(seg[1], env) : seg[1];\n      return tmpl.replace(/~~|~[as]/g, (tok) => {\n        if (tok === '~~') return '~';\n        const v = segEval(seg[++i], env);\n        return tok === '~s' ? JSON.stringify(String(v)) : String(v);\n      });\n    }\n    case 'ref': {\n      if (seg.length === 2) return seg[1] === 'impl-name' ? (node.implName ?? node.name) : node[segKey(seg[1])];\n      let acc = node;\n      for (let i = 1; i < seg.length; i++) acc = acc[segKey(seg[i])];\n      return acc;\n    }\n    case 'svc': return env.svc;\n    case 'arg': return env.args[seg[1]];\n    case 'err-stmt': return env.err;\n    case 'self': return node;\n    case 'root': return env.root;\n    case 'distinct-count': { const kindsPart = Array.isArray(seg[3]) && seg[3][0] === 'kinds' ? seg[3].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el[segKey(seg[2])])).size; }\n    case 'if': case 'case-on': case 'when': case 'guarded': case 'trim-suffix': case 'kind-case': case 'each': case 'each+': case 'each-siblings': case 'each-sep': case 'each-sep+': case 'each-unique': case 'each-unique-pair': case 'each-where': case 'each-sep-where': case 'guarded-indent':\n      return runSegment(seg, env);\n    case 'pascal': return gpPascal(segEval(seg[1], env));\n    case 'lower-first': return lowerFirst(segEval(seg[1], env));\n    case 'js-name': return pbJsName(node);\n    case 'js-fixed-size': return FIXED_TABLES.js[node.type][0];\n    case 'js-fixed-name': return FIXED_TABLES.js[node.type][1];\n    case 'bigint-type': return PB_BIGINT.has(node.type);\n    case 'entry-flat': return node.kind === 'enum' ? pbFlatName(node.pkg, node.full) : pbFlatName(node.pkg, node.msg.fullName);\n    case 'resolved-flat': { const e = pbResolve(model, node.typeName); return pbFlatName(e.pkg, e.msg.fullName); }\n    case 'index': return env.index;\n    case 'parent': return env.parent;\n    case 'and': return seg.slice(1).every((e) => segTruthy(segEval(e, env)));\n    case 'or': return seg.slice(1).some((e) => segTruthy(segEval(e, env)));\n    case 'not': return !segTruthy(segEval(seg[1], env));\n    case 'any-where': { const keys = Array.isArray(seg[1]) ? seg[1] : [seg[1]]; let items = node; for (const k of keys) items = items[segKey(k)]; return items.some((el) => segTruthy(segEval(seg[2], envWith(env, { node: el })))); }\n    case 'snake-case': return snakeCase(segEval(seg[1], env));\n    case 'rs-camel': return rpCamel(segEval(seg[1], env));\n    case 'rs-field-name': return rpFieldName(node);\n    case 'rs-map-type': return rpMapType();\n    case 'rs-entry-ref': { const e = node.typeName !== undefined ? rpResolve(model, node.typeName) : node; return rpEntryRef(model, e); }\n    case 'rs-scalar-type': return SCALAR_TABLES.rust.types[node.type] ?? SCALAR_TABLES.rust.default;\n    case 'rs-fixed-size': return FIXED_TABLES.rust[node.type][0];\n    case 'rs-fixed-name': return FIXED_TABLES.rust[node.type][1];\n    case 'flat-of': return rpFlat(model.package, segEval(seg[1], env));\n    case 'rust-enum-fragment': return RP_ENUM_SHAPE[seg[1]];\n    case 'enum-first-value-name': return rpResolve(model, node.typeName).enum.values[0].name;\n    case 'enum-first-value-num': return rpResolve(model, node.typeName).enum.values[0].number;\n    case 'rb-snake': return String(segEval(seg[1], env)).replace(/[A-Z]/g, (c, i) => (i > 0 ? '_' : '') + c.toLowerCase());\n    case 'stub-ref': return rbStubRef(model, node[segKey(seg[1])]);\n    case 'rb-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? rbpResolve(model, n.typeName) : n; return rbpEntryRef(model, e); }\n    case 'rb-model-module': return rbpModuleName({ file: model.name });\n    case 'rb-fixed-size': return FIXED_TABLES.ruby[node.type][0];\n    case 'rb-fixed-fmt': return FIXED_TABLES.ruby[node.type][1];\n    case 'php-camel': return phpbCamel(segEval(seg[1], env));\n    case 'php-field-name': return phpbFieldName(node);\n    case 'php-flat-of': return phpbFlat(model.package, segEval(seg[1], env));\n    case 'php-stub-ref': return phpStubRef(model, node[segKey(seg[1])]);\n    case 'php-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? phpbResolve(model, n.typeName) : n; return phpbEntryRef(model, e); }\n    case 'php-fixed-size': return FIXED_TABLES.php[node.type][0];\n    case 'php-fixed-fmt': return FIXED_TABLES.php[node.type][1];\n    case 'py-ref': { const e = node.typeName !== undefined ? pyPbResolve(model, node.typeName) : node; return pyPbRef(model, e); }\n    case 'py-fixed-size': return FIXED_TABLES.python[node.type][0];\n    case 'py-fixed-fmt': return FIXED_TABLES.python[node.type][1];\n    case 'with-type': return Object.assign({}, segEval(seg[1], env), { type: seg[2] });\n    case 'trim-end': return String(segEval(seg[1], env)).replace(/\\n+$/, '');\n    case 'c-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntryRef(model, e); }\n    case 'c-entry-support': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cbResolve(model, n.typeName) : n; return cbEntrySupport(e); }\n    case 'c-type-ref': return cbTypeRef(model, node[segKey(seg[1])]);\n    case 'c-support-of': return cbEntrySupport(cbResolve(model, node[segKey(seg[1])]));\n    case 'c-scalar-type': return SCALAR_TABLES.c.types[node.type][0];\n    case 'c-scalar-zero': return SCALAR_TABLES.c.types[node.type][1];\n    case 'c-fixed-size': return FIXED_TABLES.c[node.type][0];\n    case 'c-fixed-name': return FIXED_TABLES.c[node.type][1];\n    case 'distinct-pair-count': { const kindsPart = Array.isArray(seg[2]) && seg[2][0] === 'kinds' ? seg[2].slice(1) : null; const els = segEval(seg[1], env).filter((el) => !kindsPart || kindsPart.includes(el.kind)); return new Set(els.map((el) => el.input + '\u0000' + el.output)).size; }\n    case 'sc-field-name': return scpFieldName(node);\n    case 'sc-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? scpResolve(model, n.typeName) : n; return scpEntryRef(model, e); }\n    case 'sc-scalar-type': return SCALAR_TABLES.scala.types[node.type] ?? SCALAR_TABLES.scala.default;\n    case 'sc-fixed-size': return FIXED_TABLES.scala[node.type][0];\n    case 'sc-fixed-kind': return FIXED_TABLES.scala[node.type][1];\n    case 'dart-field-name': return dtpFieldName(node);\n    case 'dart-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpEntryRef(model, e); }\n    case 'dart-type-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? dtpResolve(model, n.typeName) : n; return dtpTypeRef(model, e); }\n    case 'dart-scalar-type': return SCALAR_TABLES.dart.types[node.type][0];\n    case 'dart-scalar-zero': return SCALAR_TABLES.dart.types[node.type][1];\n    case 'dart-fixed-size': return FIXED_TABLES.dart[node.type][0];\n    case 'dart-fixed-name': return FIXED_TABLES.dart[node.type][1];\n    case 'swift-field-name': return swpFieldName(node);\n    case 'swift-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpEntryRef(model, e); }\n    case 'swift-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? swpResolve(model, n.typeName) : n; return swpMapHelperName(model, e); }\n    case 'swift-scalar-type': return SCALAR_TABLES.swift.types[node.type][0];\n    case 'swift-scalar-zero': return SCALAR_TABLES.swift.types[node.type][1];\n    case 'swift-fixed-size': return FIXED_TABLES.swift[node.type][0];\n    case 'swift-fixed-name': return FIXED_TABLES.swift[node.type][1];\n    case 'lua-field-name': return lpFieldName(node);\n    case 'cpp-stub-type': { const kind = Array.isArray(seg[1]) ? seg[1][1] : seg[1]; const full = kind === 'input-full' ? node.inputFull : node.outputFull; const pkg = cppCurrentPkg; return (!pkg || !full.includes('.') || full.startsWith(pkg + '.')) ? (kind === 'input-full' ? node.input : node.output) : '::' + full.split('.').join('::'); }\n    case 'cpp-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? xppResolve(model, n.typeName) : n; return xppEntryRef(model, e); }\n    case 'cpp-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? xppResolve(model, n.typeName) : n; return xppMapHelperName(model, e); }\n    case 'cpp-scalar-type': return SCALAR_TABLES.cpp.types[node.type][0];\n    case 'cpp-scalar-zero': return SCALAR_TABLES.cpp.types[node.type][1];\n    case 'cpp-fixed-size': return FIXED_TABLES.cpp[node.type][0];\n    case 'cpp-fixed-name': return FIXED_TABLES.cpp[node.type][1];\n    case 'java-field-name': return jpFieldName(node);\n    case 'java-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? jpResolve(model, n.typeName) : n; return jpEntryRef(model, e); }\n    case 'java-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? jpResolve(model, n.typeName) : n; return jpMapHelperName(model, e); }\n    case 'java-scalar-type': return SCALAR_TABLES.java.types[node.type][0];\n    case 'java-scalar-boxed': return SCALAR_TABLES.java.types[node.type][1];\n    case 'java-scalar-default': return SCALAR_TABLES.java.types[node.type][2];\n    case 'java-fixed-size': return FIXED_TABLES.java[node.type][0];\n    case 'java-fixed-name': return FIXED_TABLES.java[node.type][1];\n    case 'cs-field-name': return cspFieldName(model, node);\n    case 'cs-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cspResolve(model, n.typeName) : n; return cspEntryRef(model, e); }\n    case 'cs-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cspResolve(model, n.typeName) : n; return cspMapHelperName(model, e); }\n    case 'cs-scalar-type': return SCALAR_TABLES.csharp.types[node.type][0];\n    case 'cs-scalar-zero': return SCALAR_TABLES.csharp.types[node.type][1];\n    case 'cs-fixed-size': return FIXED_TABLES.csharp[node.type][0];\n    case 'cs-fixed-name': return FIXED_TABLES.csharp[node.type][1];\n    case 'kotlin-wasm-mode': return kotlinWasmMode;\n    case 'first-value-name': return node.values[0].name;\n    case 'kt-field-name': return kpFieldName(node);\n    case 'kt-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? kpResolve(model, n.typeName) : n; return kpEntryRef(model, e); }\n    case 'kt-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? kpResolve(model, n.typeName) : n; return kpMapHelperName(model, e); }\n    case 'kt-scalar-type': return SCALAR_TABLES.kotlin.types[node.type][0];\n    case 'kt-scalar-zero': return SCALAR_TABLES.kotlin.types[node.type][1];\n    case 'kt-fixed-size': return FIXED_TABLES.kotlin[node.type][0];\n    case 'kt-fixed-name': return FIXED_TABLES.kotlin[node.type][1];\n    case 'zig-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e); }\n    case 'zig-struct-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? zgpResolve(model, n.typeName) : n; return zgpEntryRef(model, e).replace(/\\./g, '_'); }\n    case 'zig-scalar-type': return SCALAR_TABLES.zig.types[node.type][0];\n    case 'zig-scalar-zero': return SCALAR_TABLES.zig.types[node.type][1];\n    case 'zig-fixed-size': return FIXED_TABLES.zig[node.type][0];\n    case 'zig-fixed-name': return FIXED_TABLES.zig[node.type][1];\n    case 'lua-entry-flat': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? lpResolve(model, n.typeName) : n; return lpEntryFlat(model, e); }\n    case 'lua-enum-flat': return lpFlat(model.package, model.package === '' ? node.name : model.package + '.' + node.name);\n    case 'lua-fixed-fmt': return '<' + FIXED_TABLES.lua[node.type][1];\n    case 'lua-fixed-size': return FIXED_TABLES.lua[node.type][0];\n    case 'lua-fixed-wire': return FIXED_TABLES.lua[node.type][0] === 8 ? 1 : 5;\n    case 'flat': return gpFlat(model.package, node.fullName);\n    case 'entry-type': return node.typeName !== undefined ? gpEntryType(gpResolve(model, node.typeName)) : gpEntryType(node);\n    case 'field-type': return gpFieldType(model, node);\n    case 'field-type-of': return gpFieldType(model, segEval(seg[1], env));\n    case 'resolved-entry': return gpResolve(model, node.typeName);\n    case 'key-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 1); }\n    case 'val-field': { const e = seg.length > 1 ? segEval(seg[1], env) : node; return e.msg.fields.find((x) => x.number === 2); }\n    case 'with-label': return Object.assign({}, segEval(seg[1], env), { label: seg[2] });\n    case 'get': return segEval(seg[1], env)[segKey(seg[2])];\n    case 'fixed-name': return FIXED_TABLES.go[node.type][1];\n    case 'fixed-size': return FIXED_TABLES.go[node.type][0];\n    case 'fixed-wire': return FIXED_TABLES.go[node.type][0] === 8 ? 1 : 5;\n    case 'type': return node.type;\n    case 'category': return segCategory(model, node);\n    case 'category-of': return segCategory(model, segEval(seg[1], env));\n    case 'proto2': return model.syntax === 'proto2';\n    case 'type-is': return node.type === seg[1];\n    case 'is-varint': return VARINT_TYPES.includes(node.type);\n    case 'is-fixed': return FIXED_TABLES.go[node.type] !== undefined;\n    case 'is-map': return node.type === 11 && gpResolve(model, node.typeName).kind === 'map';\n    case 'repeated': return node.label === 3;\n    case 'has-default': return fieldExplicitDefault(node) != null;\n    case 'any-default': return node.fields.some((f) => fieldExplicitDefault(f) != null);\n    case 'no-fields': return node.fields.length === 0;\n    case 'default-raw': return fieldExplicitDefault(node);\n    case 'enum-default-num': return enumDefaultNumber(model, node);\n    case 'oneof-clearing': return gpOneofClearing(model, node);\n    case 'later-oneof-cond': return oneofLaterSiblings(model, node).map(gpSetExpr).join(' || ');\n    case 'call': return runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { args: seg.slice(2).map((e) => segEval(e, env)) }));\n    case 'call-on': return runEnv(SEGMENT_PROGRAMS[seg[2]], envWith(env, { node: segEval(seg[1], env), args: seg.slice(3).map((e) => segEval(e, env)) }));\n    default: throw new Error('bad expression: ' + JSON.stringify(seg));\n  }\n}\n\n"
                        "function runSegment(seg, env) {\n  const node = env.node;\n  if (typeof seg === 'string') return seg;\n  switch (seg[0]) {\n    case 'if': {\n      const thenPart = seg.slice(2).find((g) => g[0] === 'then');\n      const elsePart = seg.slice(2).find((g) => g[0] === 'else');\n      if (segTruthy(segEval(seg[1], env))) return runEnv(thenPart.slice(1), env);\n      return elsePart ? runEnv(elsePart.slice(1), env) : '';\n    }\n    case 'kind-case': {\n      const branch = seg.slice(1).find((b) => b[0] === node.kind || (Array.isArray(b[0]) && b[0].includes(node.kind))) || seg.slice(1).find((b) => b[0] === 'else');\n      if (!branch) throw new Error('no kind branch for ' + node.kind);\n      return runEnv(branch.slice(1), env);\n    }\n    case 'case-on': {\n      const val = segEval(seg[1], env);\n      const raw = seg.slice(2);\n      const isKey = (b) => Array.isArray(b) && (Array.isArray(b[0]) || typeof b[0] === 'number' || typeof b[0] === 'string');\n      let branches;\n      if (raw.length === 1 && Array.isArray(raw[0]) && raw[0].every(isKey)) branches = raw[0];\n      else branches = raw.map((b) => (Array.isArray(b) && b.length === 1 && Array.isArray(b[0])) ? b[0] : b);\n      const keysOf = (b) => (Array.isArray(b[0]) ? b[0] : [b[0]]);\n      const branch = branches.find((b) => keysOf(b).includes('else') || keysOf(b).map(String).includes(String(val)));\n      return branch ? runEnv(branch.slice(1), env) : '';\n    }\n    case 'when':\n      return segTruthy(segEval(seg[1], env)) ? runEnv(seg.slice(2), env) : '';\n    case 'trim-suffix': {\n      const text = runEnv(seg.slice(3), env);\n      return text.endsWith(seg[1]) ? text.slice(0, text.length - seg[1].length) + seg[2] : text;\n    }\n    case 'guarded': {\n      const hasJoin = Array.isArray(seg[4]) && seg[4][0] === 'join';\n      const joiner = hasJoin ? seg[4][1] : ' || ';\n      const text = runEnv(seg.slice(hasJoin ? 5 : 4), env);\n      const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(joiner);\n      if (!cond) return text;\n      return seg[2].split('~a').join(cond) + (text.endsWith('\\n') ? text : text + '\\n') + seg[3];\n    }\n    case 'fail':\n      throw new Error('unsupported field type ' + node.type);\n    case 'each': {\n      let i = 1; const keys = [];\n      while (typeof seg[i] === 'string') { keys.push(seg[i]); i++; }\n      let items = node;\n      for (const k of keys) items = items[segKey(k)];\n      let out = '';\n      items.forEach((el, ix) => { out += runEnv(seg.slice(i), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'each-sep+': {\n      const all = node[seg[2]].concat(seg[3] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      return all.map((child) => runEnv(seg.slice(4), envWith(env, { node: child }))).join(seg[1]);\n    }\n\n    case 'each+': {\n      const all = node.methods.concat(seg[2] === 'client' ? aliasClientMethods(node) : aliasServerMethods(node));\n      let out = '';\n      all.forEach((el, ix) => { out += runEnv(seg.slice(3), envWith(env, { node: el, index: ix })); });\n      return out;\n    }\n    case 'guarded-indent': {
       const text = runEnv(seg.slice(4), env);
       const cond = oneofLaterSiblings(env.model, node).map((sib) => runEnv(SEGMENT_PROGRAMS[seg[1]], envWith(env, { node: sib }))).join(' or ');
