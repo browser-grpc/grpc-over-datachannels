@@ -201,6 +201,12 @@ function moveAxis(axis, amount) {
   } else if (axis === "y") player.onGround = false;
 }
 function stepPlayer(dt) {
+  // arrow keys look around (trackpads / accessibility / no mouse)
+  const look = 2.4 * dt;
+  if (keys.has("ArrowLeft")) player.yaw += look;
+  if (keys.has("ArrowRight")) player.yaw -= look;
+  if (keys.has("ArrowUp")) player.pitch = Math.min(1.5, player.pitch + look);
+  if (keys.has("ArrowDown")) player.pitch = Math.max(-1.5, player.pitch - look);
   const speed = 6;
   const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
   const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
@@ -530,20 +536,29 @@ function startGame() {
   });
   document.addEventListener("keydown", (e) => {
     keys.add(e.code);
+    if (e.code.startsWith("Arrow")) e.preventDefault();
     const n = ["Digit1", "Digit2", "Digit3", "Digit4"].indexOf(e.code);
     if (n >= 0) { selectedBlock = HOTBAR[n]; renderHotbar(); }
   });
   document.addEventListener("keyup", (e) => keys.delete(e.code));
-  renderer.domElement.addEventListener("mousedown", (e) => {
-    if (!document.pointerLockElement) return;
+  const doBreak = () => {
+    const hit = raycastVoxel();
+    if (hit && hit.y > 0) localEdit({ ...hit, block: AIR });
+  };
+  const doPlace = () => {
     const hit = raycastVoxel();
     if (!hit) return;
-    if (e.button === 0) {
-      if (hit.y > 0) localEdit({ ...hit, block: AIR });
-    } else if (e.button === 2) {
-      const t = { x: hit.x + hit.nx, y: hit.y + hit.ny, z: hit.z + hit.nz, block: selectedBlock };
-      if (t.y <= MAXY) localEdit(t);
-    }
+    const t = { x: hit.x + hit.nx, y: hit.y + hit.ny, z: hit.z + hit.nz, block: selectedBlock };
+    if (t.y <= MAXY) localEdit(t);
+  };
+  renderer.domElement.addEventListener("mousedown", (e) => {
+    if (!document.pointerLockElement) return;
+    if (e.button === 0) doBreak();
+    else if (e.button === 2) doPlace();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.code === "KeyF") doBreak(); // keyboard-only play (no pointer lock needed)
+    if (e.code === "KeyR") doPlace();
   });
   renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
   renderHotbar();
