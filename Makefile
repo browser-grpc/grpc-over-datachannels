@@ -910,7 +910,7 @@ webapp-assets:
 	cp js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/js/
 	cp js/wire_gen.js webapp/assets/runtime/wire_gen.js
 	cp go/channel.go go/codec.go go/dynamic.go go/endpoint.go go/loopback.go go/server.go go/wire_gen.go go/webrtc_transport.go webapp/assets/runtime/go/
-	cp python/grpcdc/__init__.py python/grpcdc/channel.py python/grpcdc/codec.py python/grpcdc/dynamic.py python/grpcdc/endpoint.py python/grpcdc/loopback.py python/grpcdc/server.py python/grpcdc/wire_gen.py webapp/assets/runtime/python/
+	cp python/grpcdc/__init__.py python/grpcdc/channel.py python/grpcdc/codec.py python/grpcdc/dynamic.py python/grpcdc/endpoint.py python/grpcdc/http2.py python/grpcdc/loopback.py python/grpcdc/server.py python/grpcdc/sidecar.py python/grpcdc/wire_gen.py webapp/assets/runtime/python/
 	mkdir -p webapp/assets/runtime/rust/src
 	cp rust/Cargo.toml webapp/assets/runtime/rust/Cargo.toml
 	cp rust/src/channel.rs rust/src/codec.rs rust/src/dynamic.rs rust/src/endpoint.rs rust/src/lib.rs rust/src/message.rs rust/src/server.rs rust/src/status.rs rust/src/transport.rs rust/src/webrtc_transport.rs rust/src/wire_gen.rs webapp/assets/runtime/rust/src/
@@ -962,7 +962,7 @@ webapp-assets:
 webapp-dist: webapp-assets
 	rm -rf webapp/dist
 	mkdir -p webapp/dist
-	cp webapp/index.html webapp/app.js webapp/style.css webapp/dist/
+	cp webapp/index.html webapp/app.js webapp/starters.mjs webapp/style.css webapp/dist/
 	cp -r webapp/gen webapp/dist/gen
 	cp -r webapp/assets webapp/dist/assets
 

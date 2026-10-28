@@ -122,7 +122,7 @@
 ;; ---------------------------------------------------------------------------
 
 (define app-files
-  '("index.html" "app.js" "style.css" "protoc-gen-grpc-dc.mjs"
+  '("index.html" "app.js" "starters.mjs" "style.css" "protoc-gen-grpc-dc.mjs"
     "favicon.ico" "favicon-32.png" "favicon-16.png"
     "apple-touch-icon.png"))
 

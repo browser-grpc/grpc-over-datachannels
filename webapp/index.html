@@ -61,6 +61,17 @@
       <textarea id="editor" spellcheck="false"></textarea>
     </div>
     <div id="status" class="status">loading compiler…</div>
+    <h2>Google Drive</h2>
+    <p class="hint">Save and open <code>.proto</code> schemas in your own
+       Google Drive (<code>drive.file</code> scope: this app only sees
+       files it created or you open here). Tokens stay in this tab.</p>
+    <div class="drive-row">
+      <button id="drive-connect" type="button">Connect Drive</button>
+      <button id="drive-save" type="button" disabled>Save .proto files to Drive</button>
+      <button id="drive-open" type="button" disabled>Open from Drive…</button>
+      <span id="drive-status" class="status"></span>
+    </div>
+    <div id="drive-list" class="drive-list" hidden></div>
   </section>
   <section class="pane side-pane">
     <h2>Services</h2>

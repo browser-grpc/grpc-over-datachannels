@@ -79,3 +79,6 @@ main[hidden] { display: none; }
 .browse-layout > * { min-width: 0; }
 .browse-viewer { min-width: 0; }
 #browse-view { display: block; }
+.drive-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+.drive-list { margin: 6px 0; }
+.drive-list button { display: block; margin: 2px 0; }
