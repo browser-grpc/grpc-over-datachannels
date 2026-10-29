@@ -32,15 +32,37 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Spawn coturn with args built from a probe-close port;
 // retry up to 3 times if the child dies at startup (the
-// probed port was taken before coturn bound it).
-async function startCoturn(buildArgs) {
+// probed port was taken before coturn bound it). With
+// `verifyTcp`, also confirm the port accepts a TCP
+// connection: coturn's NS_ERROR path can return success
+// without ever listening when its default plain port
+// collides with a TURN service already on the host
+// network, so child liveness alone is not proof.
+import net from "node:net";
+
+async function tcpAccepts(port) {
+  return new Promise((resolve) => {
+    const sock = net.connect(port, "127.0.0.1");
+    sock.once("connect", () => { sock.destroy(); resolve(true); });
+    sock.once("error", () => resolve(false));
+    setTimeout(() => { sock.destroy(); resolve(false); }, 2000);
+  });
+}
+
+async function startCoturn(buildArgs, { verifyTcp = false } = {}) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const port = await freePort();
-    const turn = spawn("turnserver", ["-n", ...buildArgs(port)], { stdio: "ignore" });
+    const plainPort = await freePort();
+    const turn = spawn("turnserver", ["-n", ...buildArgs(port, plainPort)], { stdio: "ignore" });
     await sleep(800);
-    if (turn.exitCode === null) return { turn, port };
+    if (turn.exitCode !== null) continue;
+    if (verifyTcp && !(await tcpAccepts(port))) {
+      turn.kill();
+      continue;
+    }
+    return { turn, port };
   }
-  throw new Error("turnserver did not survive startup after 3 attempts");
+  return null;
 }
 
 test("direct over real TURN (coturn) echo", { skip: !hasCoturn, timeout: 60000 }, async () => {
@@ -101,7 +123,16 @@ test("direct over real TURN (coturn) echo", { skip: !hasCoturn, timeout: 60000 }
 });
 
 async function echoViaCoturn({ turnArgs, turnAddress, listenerOpts, turnOpts }) {
-  const { turn, port } = await startCoturn(turnArgs);
+  // TURNS legs (TLS transport) pass the probed port as the
+  // TLS port: verify it truly accepts before dialing, and
+  // skip with the shared warning if coturn never listens.
+  const isTls = turnOpts && turnOpts.transport === "tls";
+  const started = await startCoturn(turnArgs, { verifyTcp: isTls });
+  if (!started) {
+    console.log("warning: coturn did not come up; skipping TURNS coturn leg");
+    return;
+  }
+  const { turn, port } = started;
   try {
     const listener = await DirectListener.bind(listenerOpts);
     const accepted = listener.accept();
@@ -160,9 +191,13 @@ test("direct over TURNS (coturn TLS) echo", { skip: !hasCoturn, timeout: 60000 }
     return; // openssl unavailable: skip
   }
   await echoViaCoturn({
-    turnArgs: (tlsPort) => [
+    turnArgs: (tlsPort, plainPort) => [
       "--listening-ip=127.0.0.1",
       "--relay-ip=127.0.0.1",
+      // Pin the plain port too: at the 3478 default it
+      // collides with host TURN services and coturn then
+      // silently never opens the TLS listener.
+      `--listening-port=${plainPort}`,
       `--tls-listening-port=${tlsPort}`,
       `--cert=${cert}`,
       `--pkey=${key}`,
