@@ -2042,8 +2042,18 @@ static void run_interop_client(char *const argv[], const char *marker) {
     if (!have_out) drain_fd(ch.stdout_fd, out_buf, sizeof(out_buf));
     if (!have_err) drain_fd(ch.stderr_fd, err_buf, sizeof(err_buf));
     int code = wait_exit(&ch, 120000);
+    if (code != 0) {
+        // Keep the pipe ends open so the capture below shows
+        // what the client actually said.
+        fprintf(stderr, "interop client %s exited %d; output follows\n",
+                argv[0], code);
+    }
     if (have_out) pthread_join(out_thread, NULL);
     if (have_err) pthread_join(err_thread, NULL);
+    if (code != 0) {
+        fprintf(stderr, "--- client stdout ---\n%s\n--- client stderr ---\n%s\n",
+                out_buf, err_buf);
+    }
     check(code == 0, "interop client exit");
     if (marker) check(strstr(out_buf, marker) || strstr(err_buf, marker),
                       "interop client marker");
@@ -2123,19 +2133,6 @@ static void test_interop_server_oracle(void) {
             const char *test_case = ci < sizeof(cases) / sizeof(cases[0])
                                         ? cases[ci]
                                         : go_only[ci - sizeof(cases) / sizeof(cases[0])];
-            if (strncmp(test_case, "orca", 4) == 0) {
-                char *argv[] = {go_client, "-server_host", "127.0.0.1",
-                                "-server_port", port_str, "-test_case",
-                                (char *)test_case, "-service_config_json",
-                                "{ \"loadBalancingConfig\": [{ \"test_backend_metrics_load_balancer\": {} }]}",
-                                NULL};
-                run_interop_client(argv, NULL);
-            } else {
-                char *argv[] = {go_client, "-server_host", "127.0.0.1",
-                                "-server_port", port_str, "-test_case",
-                                (char *)test_case, NULL};
-                run_interop_client(argv, NULL);
-            }
             if (strcmp(test_case, "orca_per_rpc") == 0) {
                 /* The ORCA cases run under the
                    test_backend_metrics_load_balancer policy, which
@@ -2148,6 +2145,19 @@ static void test_interop_server_oracle(void) {
                    TestInteropOracle against the Java server. */
                 printf("interop B case SKIP: orca_per_rpc (go client; generated C server is single-stream, ORCA load balancer needs a concurrent OOB watch stream)\n");
                 continue;
+            }
+            if (strncmp(test_case, "orca", 4) == 0) {
+                char *argv[] = {go_client, "-server_host", "127.0.0.1",
+                                "-server_port", port_str, "-test_case",
+                                (char *)test_case, "-service_config_json",
+                                "{ \"loadBalancingConfig\": [{ \"test_backend_metrics_load_balancer\": {} }]}",
+                                NULL};
+                run_interop_client(argv, NULL);
+            } else {
+                char *argv[] = {go_client, "-server_host", "127.0.0.1",
+                                "-server_port", port_str, "-test_case",
+                                (char *)test_case, NULL};
+                run_interop_client(argv, NULL);
             }
             printf("interop B case ok: %s (go client)\n", test_case);
         }
