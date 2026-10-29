@@ -657,7 +657,7 @@ fn direct_over_turns_coturn() {
         return;
     }
     let Some((mut turn, port)) = spawn_coturn_turns(&cert, &key) else {
-        eprintln!("turnserver not on PATH; skipping TURNS coturn leg");
+        eprintln!("warning: coturn did not come up; skipping TURNS coturn leg");
         return;
     };
     let result = std::panic::catch_unwind(|| {
