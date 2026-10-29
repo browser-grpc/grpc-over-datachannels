@@ -23,6 +23,7 @@ do {
     case "TestPbMessages": try TestPbMessages()
     case "TestBddSchemas": try TestBddSchemas()
     case "TestSidecar": try TestSidecar()
+    case "TestKafkaE2E": try TestKafkaE2E()
     default:
         FileHandle.standardError.write("unknown test: \(args[1])\n".data(using: .utf8)!)
         exit(2)

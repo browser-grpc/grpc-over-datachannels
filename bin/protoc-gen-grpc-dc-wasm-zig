@@ -9547,7 +9547,7 @@
   '((kind-case
      (unary
       (fmt
-       "    pub fn ~a(self: *~aClient, req: *const ~a, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a) {\n        var resp = ~a{};\n        const st = self.channel.unary(~s, req, &resp, metadata, timeout_ms);\n        if (!st.isOk()) return .{ .status = st };\n        return .{ .ok = resp };\n    }\n\n"
+       "    pub fn ~a(self: *~aClient, req: *const ~a, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a) {\n        var resp = ~a{};\n        const st = self.channel.unary(~s, req, &resp, call_metadata, timeout_ms);\n        if (!st.isOk()) return .{ .status = st };\n        return .{ .ok = resp };\n    }\n\n"
        (lower-first (ref name))
        (svc)
        (ref input)
@@ -9556,7 +9556,7 @@
        (ref path)))
      (server-streaming
       (fmt
-       "    pub fn ~a(self: *~aClient, req: *const ~a, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a~aClient) {\n        switch (self.channel.serverStream(~s, req, metadata, timeout_ms)) {\n            .ok => |stream| return .{ .ok = .{ .stream = stream } },\n            .status => |st| return .{ .status = st },\n        }\n    }\n\n"
+       "    pub fn ~a(self: *~aClient, req: *const ~a, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a~aClient) {\n        switch (self.channel.serverStream(~s, req, call_metadata, timeout_ms)) {\n            .ok => |stream| return .{ .ok = .{ .stream = stream } },\n            .status => |st| return .{ .status = st },\n        }\n    }\n\n"
        (lower-first (ref name))
        (svc)
        (ref input)
@@ -9565,7 +9565,7 @@
        (ref path)))
      (client-streaming
       (fmt
-       "    pub fn ~a(self: *~aClient, reqs: []const ~a, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a) {\n        var resp = ~a{};\n        const st = self.channel.clientStreamCall(~s, reqs, &resp, metadata, timeout_ms);\n        if (!st.isOk()) return .{ .status = st };\n        return .{ .ok = resp };\n    }\n\n"
+       "    pub fn ~a(self: *~aClient, reqs: []const ~a, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a) {\n        var resp = ~a{};\n        const st = self.channel.clientStreamCall(~s, reqs, &resp, call_metadata, timeout_ms);\n        if (!st.isOk()) return .{ .status = st };\n        return .{ .ok = resp };\n    }\n\n"
        (lower-first (ref name))
        (svc)
        (ref input)
@@ -9574,7 +9574,7 @@
        (ref path)))
      (bidi
       (fmt
-       "    pub fn ~a(self: *~aClient, reqs: []const ~a, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a~aClient) {\n        switch (self.channel.bidi(~s, reqs, metadata, timeout_ms)) {\n            .ok => |stream| return .{ .ok = .{ .stream = stream } },\n            .status => |st| return .{ .status = st },\n        }\n    }\n\n"
+       "    pub fn ~a(self: *~aClient, reqs: []const ~a, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(~a~aClient) {\n        switch (self.channel.bidi(~s, reqs, call_metadata, timeout_ms)) {\n            .ok => |stream| return .{ .ok = .{ .stream = stream } },\n            .status => |st| return .{ .status = st },\n        }\n    }\n\n"
        (lower-first (ref name))
        (svc)
        (ref input)

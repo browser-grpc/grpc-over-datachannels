@@ -28,29 +28,29 @@ pub const EchoClient = struct {
         return .{ .channel = channel };
     }
 
-    pub fn unary(self: *EchoClient, req: *const EchoRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(EchoResponse) {
+    pub fn unary(self: *EchoClient, req: *const EchoRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(EchoResponse) {
         var resp = EchoResponse{};
-        const st = self.channel.unary("/echo.Echo/Unary", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/echo.Echo/Unary", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
 
-    pub fn serverStream(self: *EchoClient, req: *const EchoRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(EchoServerStreamClient) {
-        switch (self.channel.serverStream("/echo.Echo/ServerStream", req, metadata, timeout_ms)) {
+    pub fn serverStream(self: *EchoClient, req: *const EchoRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(EchoServerStreamClient) {
+        switch (self.channel.serverStream("/echo.Echo/ServerStream", req, call_metadata, timeout_ms)) {
             .ok => |stream| return .{ .ok = .{ .stream = stream } },
             .status => |st| return .{ .status = st },
         }
     }
 
-    pub fn clientStream(self: *EchoClient, reqs: []const EchoRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(EchoResponse) {
+    pub fn clientStream(self: *EchoClient, reqs: []const EchoRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(EchoResponse) {
         var resp = EchoResponse{};
-        const st = self.channel.clientStreamCall("/echo.Echo/ClientStream", reqs, &resp, metadata, timeout_ms);
+        const st = self.channel.clientStreamCall("/echo.Echo/ClientStream", reqs, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
 
-    pub fn bidi(self: *EchoClient, reqs: []const EchoRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(EchoBidiClient) {
-        switch (self.channel.bidi("/echo.Echo/Bidi", reqs, metadata, timeout_ms)) {
+    pub fn bidi(self: *EchoClient, reqs: []const EchoRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(EchoBidiClient) {
+        switch (self.channel.bidi("/echo.Echo/Bidi", reqs, call_metadata, timeout_ms)) {
             .ok => |stream| return .{ .ok = .{ .stream = stream } },
             .status => |st| return .{ .status = st },
         }

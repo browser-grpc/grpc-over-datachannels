@@ -29,8 +29,8 @@ pub const OpenRcaServiceClient = struct {
         return .{ .channel = channel };
     }
 
-    pub fn streamCoreMetrics(self: *OpenRcaServiceClient, req: *const OrcaLoadReportRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(OpenRcaServiceStreamCoreMetricsClient) {
-        switch (self.channel.serverStream("/xds.service.orca.v3.OpenRcaService/StreamCoreMetrics", req, metadata, timeout_ms)) {
+    pub fn streamCoreMetrics(self: *OpenRcaServiceClient, req: *const OrcaLoadReportRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(OpenRcaServiceStreamCoreMetricsClient) {
+        switch (self.channel.serverStream("/xds.service.orca.v3.OpenRcaService/StreamCoreMetrics", req, call_metadata, timeout_ms)) {
             .ok => |stream| return .{ .ok = .{ .stream = stream } },
             .status => |st| return .{ .status = st },
         }

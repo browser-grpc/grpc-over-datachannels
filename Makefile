@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go eventbus-stubs test-live-stun test-live-stun-ci test-nat-e2e test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen soak
+.PHONY: generate plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go eventbus-stubs kafka-stubs test-kafka test-live-stun test-live-stun-ci test-nat-e2e test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen soak
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -18,7 +18,7 @@ plugins:
 	$(PROTOC) --descriptor_set_out=fixtures/echo_descriptor_set.bin -I proto proto/echo.proto
 
 ## Regenerate service stubs for proto/echo.proto
-stubs: eventbus-stubs
+stubs: eventbus-stubs kafka-stubs
 	mkdir -p rust/gen js/examples go/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-rust=bin/protoc-gen-grpc-dc-rust \
 		--grpc-dc-rust_out=rust/gen -I proto proto/echo.proto
@@ -206,6 +206,47 @@ eventbus-stubs:
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
 		--grpc-dc-c_out=c/grpcdc -I proto proto/events.proto
 
+## Kafka facade stubs (proto/kafka.proto), stamped into the
+## same per-language trees as the event bus stubs. Served by
+## the Rust kafka proxy (rust/examples/kafka_proxy).
+kafka-stubs:
+	mkdir -p rust/gen go/kafka js/src python/grpcdc
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-rust=bin/protoc-gen-grpc-dc-rust \
+		--grpc-dc-rust_out=rust/gen -I proto proto/kafka.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-js=bin/protoc-gen-grpc-dc-js \
+		--grpc-dc-js_out=js/src -I proto proto/kafka.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-go=bin/protoc-gen-grpc-dc-go \
+		--grpc-dc-go_out=go/kafka -I proto proto/kafka.proto
+	gofmt -w go/kafka/kafka_grpc_dc.go go/kafka/kafka_pb.go
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-python=bin/protoc-gen-grpc-dc-python \
+		--grpc-dc-python_out=python/grpcdc -I proto proto/kafka.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-ruby=bin/protoc-gen-grpc-dc-ruby \
+		--grpc-dc-ruby_out=ruby/grpcdc -I proto proto/kafka.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-php=bin/protoc-gen-grpc-dc-php \
+		--grpc-dc-php_out=php/grpcdc -I proto proto/kafka.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-dart=bin/protoc-gen-grpc-dc-dart \
+		--grpc-dc-dart_out=dart/grpcdc -I proto proto/kafka.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-lua=bin/protoc-gen-grpc-dc-lua \
+		--grpc-dc-lua_out=lua/examples -I proto proto/kafka.proto
+	mkdir -p java/grpcdc/kafka/v1
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-java=bin/protoc-gen-grpc-dc-java \
+		--grpc-dc-java_out=java/grpcdc/kafka/v1 -I proto proto/kafka.proto
+	mkdir -p csharp/grpcdc/kafka/v1
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-csharp=bin/protoc-gen-grpc-dc-csharp \
+		--grpc-dc-csharp_out=csharp/grpcdc/kafka/v1 -I proto proto/kafka.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-kotlin=bin/protoc-gen-grpc-dc-kotlin \
+		--grpc-dc-kotlin_out=kotlin/grpcdc -I proto proto/kafka.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-scala=bin/protoc-gen-grpc-dc-scala \
+		--grpc-dc-scala_out=scala/grpcdc -I proto proto/kafka.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-swift=bin/protoc-gen-grpc-dc-swift \
+		--grpc-dc-swift_out=swift/grpcdc -I proto proto/kafka.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-cpp=bin/protoc-gen-grpc-dc-cpp \
+		--grpc-dc-cpp_out=cpp/examples -I proto proto/kafka.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-zig=bin/protoc-gen-grpc-dc-zig \
+		--grpc-dc-zig_out=zig/examples -I proto proto/kafka.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
+		--grpc-dc-c_out=c/grpcdc -I proto proto/kafka.proto
+
 generate: plugins stubs
 
 ## Descriptor compatibility gate (racket/compat.rkt): fails on
@@ -322,6 +363,7 @@ test-java:
 		&& java -cp build tests.TestInterop && java -cp build tests.TestInteropOracle && java -cp build tests.TestInteropServerOracle && java -cp build tests.TestOracle && java -cp build tests.TestHttp2Oracle \
 		&& java -cp build tests.TestDynamic && java -cp build tests.TestBdd && java -cp build tests.TestDeadline \
 		&& java -cp build tests.TestSidecar \
+		&& java -cp build tests.TestKafkaE2E \
 		&& java -cp build tests.TestEventBus \
 		&& java -cp build tests.TestPbMessages && java -cp build tests.TestBddSchemas
 
@@ -343,14 +385,15 @@ test-csharp:
 		&& dotnet run --project tests --no-build -- TestBdd && dotnet run --project tests --no-build -- TestDeadline \
 		&& dotnet run --project tests --no-build -- TestPbMessages \
 		&& dotnet run --project tests --no-build -- TestBddSchemas \
-		&& dotnet run --project tests --no-build -- TestSidecar
+		&& dotnet run --project tests --no-build -- TestSidecar \
+		&& dotnet run --project tests --no-build -- TestKafkaE2E
 
 CXX ?= g++
 CXXFLAGS ?= -std=c++17 -pthread -O1 -Icpp -I.
 
 test-cpp:
 	mkdir -p cpp/build
-	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_interop_oracle.cpp cpp/tests/test_interop_server_oracle.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp cpp/tests/test_eventbus.cpp -o cpp/build/tests
+	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_interop_oracle.cpp cpp/tests/test_interop_server_oracle.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp cpp/tests/test_eventbus.cpp cpp/tests/test_kafka_e2e.cpp -o cpp/build/tests
 	$(CXX) $(CXXFLAGS) cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/dynamic_echo_server_stdio.cpp -o cpp/build/dynamic_echo_server_stdio
@@ -359,7 +402,7 @@ test-cpp:
 		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
 		&& ./build/tests TestEventBus \
-		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar && ./build/tests TestBddSidecar
+		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar && ./build/tests TestBddSidecar && ./build/tests TestKafkaE2E
 	# C++20 coroutine surface test: built with zig's clang because
 	# GCC 13 hits an ICE (build_special_member_call) on this file.
 	$(ZIG) c++ -std=c++20 -pthread -O1 -Icpp -I. cpp/tests/test_async.cpp -o cpp/build/test_async
@@ -379,7 +422,7 @@ test-swift:
 		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestHttp2Oracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
 		&& ./build/tests TestEventBus \
-		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar
+		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar && ./build/tests TestKafkaE2E
 
 KOTLINC ?= kotlinc
 
@@ -393,7 +436,7 @@ test-kotlin:
 	java -jar kotlin/build/tests.jar TestCodec && java -jar kotlin/build/tests.jar TestEcho \
 		&& java -jar kotlin/build/tests.jar TestInterop && java -jar kotlin/build/tests.jar TestInteropOracle && java -jar kotlin/build/tests.jar TestInteropServerOracle && java -jar kotlin/build/tests.jar TestHttp2Oracle && java -jar kotlin/build/tests.jar TestOracle \
 		&& java -jar kotlin/build/tests.jar TestDynamic && java -jar kotlin/build/tests.jar TestBdd && java -jar kotlin/build/tests.jar TestDeadline \
-		&& java -jar kotlin/build/tests.jar TestSidecar && java -jar kotlin/build/tests.jar TestBddSchemas \
+		&& java -jar kotlin/build/tests.jar TestSidecar && java -jar kotlin/build/tests.jar TestKafkaE2E && java -jar kotlin/build/tests.jar TestBddSchemas \
 		&& java -jar kotlin/build/tests.jar TestEventBus \
 		&& java -jar kotlin/build/tests.jar TestInlinePump && java -jar kotlin/build/tests.jar TestPbMessages
 
@@ -410,7 +453,7 @@ test-dart:
 		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestHttp2Oracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
 		&& ./build/tests TestEventBus \
-		&& ./build/tests TestSidecar && ./build/tests TestPbMessages && ./build/tests TestBddSchemas
+		&& ./build/tests TestSidecar && ./build/tests TestKafkaE2E && ./build/tests TestPbMessages && ./build/tests TestBddSchemas
 
 ZIG ?= zig
 
@@ -420,7 +463,7 @@ test-zig:
 		&& ./build/bin/tests TestInterop && ./build/bin/tests TestInteropOracle && ./build/bin/tests TestInteropServerOracle && ./build/bin/tests TestHttp2Oracle && ./build/bin/tests TestOracle \
 		&& ./build/bin/tests TestDynamic && ./build/bin/tests TestBdd && ./build/bin/tests TestDeadline \
 		&& ./build/bin/tests TestPbMessages && ./build/bin/tests TestBddSchemas && ./build/bin/tests TestSidecar \
-		&& ./build/bin/tests TestEventBus
+		&& ./build/bin/tests TestKafkaE2E && ./build/bin/tests TestEventBus
 
 CC ?= gcc
 CFLAGS_C ?= -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests
@@ -433,7 +476,7 @@ test-c:
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -o c/build/echo_server_stdio
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -o c/build/echo_client_stdio
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/interop_server_stdio.c -o c/build/interop_server_stdio
-	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestBddSchemas && ./c/build/tests TestOracle && ./c/build/tests TestInteropOracle && ./c/build/tests TestInteropServerOracle && ./c/build/tests TestDynamic && ./c/build/tests TestSidecar && ./c/build/tests TestEventBus
+	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestBddSchemas && ./c/build/tests TestOracle && ./c/build/tests TestInteropOracle && ./c/build/tests TestInteropServerOracle && ./c/build/tests TestDynamic && ./c/build/tests TestSidecar && ./c/build/tests TestKafkaE2E && ./c/build/tests TestEventBus
 
 LUA ?= lua
 
@@ -451,6 +494,7 @@ test-lua:
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDeadline \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestPbMessages \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestSidecar \
+		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestKafkaE2E \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestBddSchemas
 
 LUA_SRC ?= $(HOME)/.local/lua-build/src
@@ -514,6 +558,7 @@ test-ruby:
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestFiber \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestDeadline \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestSidecar \
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestKafkaE2E \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestPbMessages \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestBddSchemas
 
@@ -532,6 +577,7 @@ test-php:
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestFiber \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDeadline \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestSidecar \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestKafkaE2E \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestPbMessages \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestBddSchemas
 
@@ -558,6 +604,7 @@ test-scala:
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestBdd \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDeadline \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestSidecar \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestKafkaE2E \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestPbMessages && java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestBddSchemas
 
 test-grpc-webrtc:
@@ -1058,7 +1105,15 @@ test-webrtc-matrix:
 test-stress-ports:
 	python3 scripts/stress_ports.py
 
-test: check-generated test-racket compat test-schema-shapes test-rust test-rust-nostd test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-c test-c-cross test-lua test-ruby test-php test-scala test-webrtc-rust test-iot test-webrtc-js test-proxy test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-live-stun-ci
+test: check-generated test-racket compat test-schema-shapes test-rust test-rust-nostd test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-c test-c-cross test-lua test-ruby test-php test-scala test-webrtc-rust test-iot test-webrtc-js test-proxy test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-live-stun-ci test-kafka
+
+## Kafka proxy end-to-end (rust/python/js/go clients through the
+## Rust kafka_proxy against Apache Kafka + Redpanda fixtures;
+## brokers come from Dockerfile.ci, or already-running local
+## brokers on the same ports are reused). See
+## scripts/kafka-e2e.sh.
+test-kafka:
+	bash scripts/kafka-e2e.sh
 
 test-schema-shapes:
 	python3 scripts/test-schema-shapes.py

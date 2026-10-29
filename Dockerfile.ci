@@ -75,7 +75,7 @@ ARG TARGETARCH
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl binutils libc6-dev \
      libcurl4-openssl-dev libedit2 libgcc-12-dev libpython3-dev \
-     libsqlite3-0 libstdc++-12-dev libxml2-dev libz3-dev pkg-config \
+     libsqlite3-0 libstdc++-12-dev libxml2-dev libz3-dev openssl pkg-config \
      tzdata unzip zlib1g-dev \
   && case "$TARGETARCH" in arm64) SWIFT_PLATFORM=debian12-aarch64 ;; *) SWIFT_PLATFORM=debian12 ;; esac \
   && curl -fsSL "https://download.swift.org/swift-6.4.0-release/${SWIFT_PLATFORM}/swift-6.4.0-RELEASE/swift-6.4.0-RELEASE-${SWIFT_PLATFORM}.tar.gz" \
@@ -241,6 +241,21 @@ RUN scala-cli --power package --force --js --js-module-kind esmodule --scala-ver
 # grpc-java oracle dependencies (Maven downloads).
 COPY oracle/java ./oracle/java
 RUN cd oracle/java && mvn -q package -DskipTests
+
+# Apache Kafka + Redpanda fixtures for the Kafka proxy end-to-end
+# tests (`make test-kafka`, scripts/kafka-e2e.sh). Kafka is the
+# stock binary tarball (runs on the JDK above); Redpanda comes
+# from the official apt repository. These are the broker versions
+# the proxy is developed against (Kafka 4.3.1; Redpanda latest
+# stable from its repo).
+RUN curl -fsSL https://downloads.apache.org/kafka/4.3.1/kafka_2.13-4.3.1.tgz -o /tmp/kafka.tgz \
+  && mkdir -p /opt/kafka \
+  && tar -xzf /tmp/kafka.tgz -C /opt/kafka --strip-components=1 \
+  && rm /tmp/kafka.tgz
+RUN curl -fsSL https://linux.pkg.redpanda.com/setup-redpanda.deb.sh | bash \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends redpanda \
+  && rm -rf /var/lib/apt/lists/*
 
 # Webapp schema compiler module cache.
 COPY webapp/compiler ./webapp/compiler

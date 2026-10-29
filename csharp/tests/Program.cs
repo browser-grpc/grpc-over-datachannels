@@ -28,6 +28,7 @@ public static class Program
                 case "TestPbMessages": TestPbMessages.Run(); break;
                 case "TestBddSchemas": TestBddSchemas.Run(); break;
                 case "TestSidecar": TestSidecar.Run(); break;
+                case "TestKafkaE2E": TestKafkaE2E.Run(); break;
                 default:
                     Console.Error.WriteLine($"unknown test: {args[0]}");
                     return 2;

@@ -20,6 +20,7 @@ object Main {
         case "TestPbMessages" => testPbMessages()
         case "TestBddSchemas" => testBddSchemas()
         case "TestSidecar" => testSidecar()
+        case "TestKafkaE2E" => testKafkaE2E()
         case "TestInteropOracle" => testInteropOracle()
         case "TestInteropServerOracle" => testInteropServerOracle()
         case "TestHttp2Oracle" => testHttp2Oracle()

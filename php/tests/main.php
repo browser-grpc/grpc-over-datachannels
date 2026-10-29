@@ -59,6 +59,10 @@ try {
             require_once __DIR__ . "/test_sidecar.php";
             TestSidecar::run();
             break;
+        case "TestKafkaE2E":
+            require_once __DIR__ . "/test_kafka_e2e.php";
+            TestKafkaE2E::run();
+            break;
         case "TestPbMessages":
             require_once __DIR__ . "/test_pb_messages.php";
             TestPbMessages::run();

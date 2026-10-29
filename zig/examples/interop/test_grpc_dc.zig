@@ -42,58 +42,58 @@ pub const TestServiceClient = struct {
         return .{ .channel = channel };
     }
 
-    pub fn emptyCall(self: *TestServiceClient, req: *const Empty, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(Empty) {
+    pub fn emptyCall(self: *TestServiceClient, req: *const Empty, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(Empty) {
         var resp = Empty{};
-        const st = self.channel.unary("/grpc.testing.TestService/EmptyCall", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpc.testing.TestService/EmptyCall", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
 
-    pub fn unaryCall(self: *TestServiceClient, req: *const SimpleRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(SimpleResponse) {
+    pub fn unaryCall(self: *TestServiceClient, req: *const SimpleRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(SimpleResponse) {
         var resp = SimpleResponse{};
-        const st = self.channel.unary("/grpc.testing.TestService/UnaryCall", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpc.testing.TestService/UnaryCall", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
 
-    pub fn cacheableUnaryCall(self: *TestServiceClient, req: *const SimpleRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(SimpleResponse) {
+    pub fn cacheableUnaryCall(self: *TestServiceClient, req: *const SimpleRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(SimpleResponse) {
         var resp = SimpleResponse{};
-        const st = self.channel.unary("/grpc.testing.TestService/CacheableUnaryCall", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpc.testing.TestService/CacheableUnaryCall", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
 
-    pub fn streamingOutputCall(self: *TestServiceClient, req: *const StreamingOutputCallRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(TestServiceStreamingOutputCallClient) {
-        switch (self.channel.serverStream("/grpc.testing.TestService/StreamingOutputCall", req, metadata, timeout_ms)) {
+    pub fn streamingOutputCall(self: *TestServiceClient, req: *const StreamingOutputCallRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(TestServiceStreamingOutputCallClient) {
+        switch (self.channel.serverStream("/grpc.testing.TestService/StreamingOutputCall", req, call_metadata, timeout_ms)) {
             .ok => |stream| return .{ .ok = .{ .stream = stream } },
             .status => |st| return .{ .status = st },
         }
     }
 
-    pub fn streamingInputCall(self: *TestServiceClient, reqs: []const StreamingInputCallRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(StreamingInputCallResponse) {
+    pub fn streamingInputCall(self: *TestServiceClient, reqs: []const StreamingInputCallRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(StreamingInputCallResponse) {
         var resp = StreamingInputCallResponse{};
-        const st = self.channel.clientStreamCall("/grpc.testing.TestService/StreamingInputCall", reqs, &resp, metadata, timeout_ms);
+        const st = self.channel.clientStreamCall("/grpc.testing.TestService/StreamingInputCall", reqs, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
 
-    pub fn fullDuplexCall(self: *TestServiceClient, reqs: []const StreamingOutputCallRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(TestServiceFullDuplexCallClient) {
-        switch (self.channel.bidi("/grpc.testing.TestService/FullDuplexCall", reqs, metadata, timeout_ms)) {
+    pub fn fullDuplexCall(self: *TestServiceClient, reqs: []const StreamingOutputCallRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(TestServiceFullDuplexCallClient) {
+        switch (self.channel.bidi("/grpc.testing.TestService/FullDuplexCall", reqs, call_metadata, timeout_ms)) {
             .ok => |stream| return .{ .ok = .{ .stream = stream } },
             .status => |st| return .{ .status = st },
         }
     }
 
-    pub fn halfDuplexCall(self: *TestServiceClient, reqs: []const StreamingOutputCallRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(TestServiceHalfDuplexCallClient) {
-        switch (self.channel.bidi("/grpc.testing.TestService/HalfDuplexCall", reqs, metadata, timeout_ms)) {
+    pub fn halfDuplexCall(self: *TestServiceClient, reqs: []const StreamingOutputCallRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(TestServiceHalfDuplexCallClient) {
+        switch (self.channel.bidi("/grpc.testing.TestService/HalfDuplexCall", reqs, call_metadata, timeout_ms)) {
             .ok => |stream| return .{ .ok = .{ .stream = stream } },
             .status => |st| return .{ .status = st },
         }
     }
 
-    pub fn unimplementedCall(self: *TestServiceClient, req: *const Empty, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(Empty) {
+    pub fn unimplementedCall(self: *TestServiceClient, req: *const Empty, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(Empty) {
         var resp = Empty{};
-        const st = self.channel.unary("/grpc.testing.TestService/UnimplementedCall", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpc.testing.TestService/UnimplementedCall", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
@@ -407,9 +407,9 @@ pub const UnimplementedServiceClient = struct {
         return .{ .channel = channel };
     }
 
-    pub fn unimplementedCall(self: *UnimplementedServiceClient, req: *const Empty, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(Empty) {
+    pub fn unimplementedCall(self: *UnimplementedServiceClient, req: *const Empty, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(Empty) {
         var resp = Empty{};
-        const st = self.channel.unary("/grpc.testing.UnimplementedService/UnimplementedCall", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpc.testing.UnimplementedService/UnimplementedCall", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
@@ -449,16 +449,16 @@ pub const ReconnectServiceClient = struct {
         return .{ .channel = channel };
     }
 
-    pub fn start(self: *ReconnectServiceClient, req: *const ReconnectParams, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(Empty) {
+    pub fn start(self: *ReconnectServiceClient, req: *const ReconnectParams, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(Empty) {
         var resp = Empty{};
-        const st = self.channel.unary("/grpc.testing.ReconnectService/Start", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpc.testing.ReconnectService/Start", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
 
-    pub fn stop(self: *ReconnectServiceClient, req: *const Empty, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(ReconnectInfo) {
+    pub fn stop(self: *ReconnectServiceClient, req: *const Empty, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(ReconnectInfo) {
         var resp = ReconnectInfo{};
-        const st = self.channel.unary("/grpc.testing.ReconnectService/Stop", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpc.testing.ReconnectService/Stop", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
@@ -517,16 +517,16 @@ pub const LoadBalancerStatsServiceClient = struct {
         return .{ .channel = channel };
     }
 
-    pub fn getClientStats(self: *LoadBalancerStatsServiceClient, req: *const LoadBalancerStatsRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(LoadBalancerStatsResponse) {
+    pub fn getClientStats(self: *LoadBalancerStatsServiceClient, req: *const LoadBalancerStatsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(LoadBalancerStatsResponse) {
         var resp = LoadBalancerStatsResponse{};
-        const st = self.channel.unary("/grpc.testing.LoadBalancerStatsService/GetClientStats", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpc.testing.LoadBalancerStatsService/GetClientStats", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
 
-    pub fn getClientAccumulatedStats(self: *LoadBalancerStatsServiceClient, req: *const LoadBalancerAccumulatedStatsRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(LoadBalancerAccumulatedStatsResponse) {
+    pub fn getClientAccumulatedStats(self: *LoadBalancerStatsServiceClient, req: *const LoadBalancerAccumulatedStatsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(LoadBalancerAccumulatedStatsResponse) {
         var resp = LoadBalancerAccumulatedStatsResponse{};
-        const st = self.channel.unary("/grpc.testing.LoadBalancerStatsService/GetClientAccumulatedStats", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpc.testing.LoadBalancerStatsService/GetClientAccumulatedStats", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
@@ -585,16 +585,16 @@ pub const XdsUpdateHealthServiceClient = struct {
         return .{ .channel = channel };
     }
 
-    pub fn setServing(self: *XdsUpdateHealthServiceClient, req: *const Empty, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(Empty) {
+    pub fn setServing(self: *XdsUpdateHealthServiceClient, req: *const Empty, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(Empty) {
         var resp = Empty{};
-        const st = self.channel.unary("/grpc.testing.XdsUpdateHealthService/SetServing", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpc.testing.XdsUpdateHealthService/SetServing", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
 
-    pub fn setNotServing(self: *XdsUpdateHealthServiceClient, req: *const Empty, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(Empty) {
+    pub fn setNotServing(self: *XdsUpdateHealthServiceClient, req: *const Empty, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(Empty) {
         var resp = Empty{};
-        const st = self.channel.unary("/grpc.testing.XdsUpdateHealthService/SetNotServing", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpc.testing.XdsUpdateHealthService/SetNotServing", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
@@ -653,9 +653,9 @@ pub const XdsUpdateClientConfigureServiceClient = struct {
         return .{ .channel = channel };
     }
 
-    pub fn configure(self: *XdsUpdateClientConfigureServiceClient, req: *const ClientConfigureRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(ClientConfigureResponse) {
+    pub fn configure(self: *XdsUpdateClientConfigureServiceClient, req: *const ClientConfigureRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(ClientConfigureResponse) {
         var resp = ClientConfigureResponse{};
-        const st = self.channel.unary("/grpc.testing.XdsUpdateClientConfigureService/Configure", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpc.testing.XdsUpdateClientConfigureService/Configure", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }

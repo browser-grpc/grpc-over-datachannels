@@ -30,15 +30,15 @@ pub const EventBusClient = struct {
         return .{ .channel = channel };
     }
 
-    pub fn publish(self: *EventBusClient, req: *const PublishRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(PublishReply) {
+    pub fn publish(self: *EventBusClient, req: *const PublishRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(PublishReply) {
         var resp = PublishReply{};
-        const st = self.channel.unary("/grpcdc.events.v1.EventBus/Publish", req, &resp, metadata, timeout_ms);
+        const st = self.channel.unary("/grpcdc.events.v1.EventBus/Publish", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
 
-    pub fn subscribe(self: *EventBusClient, req: *const SubscribeRequest, metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(EventBusSubscribeClient) {
-        switch (self.channel.serverStream("/grpcdc.events.v1.EventBus/Subscribe", req, metadata, timeout_ms)) {
+    pub fn subscribe(self: *EventBusClient, req: *const SubscribeRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(EventBusSubscribeClient) {
+        switch (self.channel.serverStream("/grpcdc.events.v1.EventBus/Subscribe", req, call_metadata, timeout_ms)) {
             .ok => |stream| return .{ .ok = .{ .stream = stream } },
             .status => |st| return .{ .status = st },
         }

@@ -35,6 +35,8 @@ local ok, err = pcall(function()
     require("test_pb_messages")()
   elseif name == "TestSidecar" then
     require("test_sidecar")()
+  elseif name == "TestKafkaE2E" then
+    require("test_kafka_e2e")()
   elseif name == "TestBddSchemas" then
     require("test_bdd_schemas")()
   else

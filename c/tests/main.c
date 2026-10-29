@@ -2301,6 +2301,199 @@ static void test_sidecar(void) {
 }
 #endif /* GRPCDC_POSIX */
 
+/* Kafka proxy end-to-end: generated C client -> Rust
+ * kafka_proxy (--tcp) -> Apache Kafka / Redpanda.
+ *
+ * Env-gated: set KAFKA_E2E_PROXY_ADDR=host:port of a running
+ * kafka_proxy (see scripts/kafka-e2e.sh / `make test-kafka`).
+ * Skipped otherwise, so the plain `make test-c` run stays
+ * broker-free. */
+#ifdef GRPCDC_POSIX
+#include "grpcdc/kafka_grpc_dc.h"
+
+static char *kafka_create_topic(KafkaClient *client, char *topic, size_t cap) {
+    snprintf(topic, cap, "c-kafka-e2e-%lx-%x",
+             (unsigned long)time(NULL), (unsigned int)getpid());
+    NewTopic spec;
+    NewTopic_init(&spec);
+    spec.name = topic;
+    spec.num_partitions = 1;
+    spec.replication_factor = 1;
+    CreateTopicsRequest req;
+    CreateTopicsRequest_init(&req);
+    req.topics = &spec;
+    req.topics_count = 1;
+    req.timeout_ms = 15000;
+    CreateTopicsResponse created;
+    grpcdc_status st = KafkaClient_create_topics(client, &req, &created, NULL, 0, 0);
+    check(grpcdc_status_is_ok(st), "create topics rpc");
+    check(created.results_count == 1 && created.results[0].error_code == 0,
+          "create topic");
+    for (int waited = 0;; waited += 250) {
+        ListOffsetsRequest latest_req;
+        ListOffsetsRequest_init(&latest_req);
+        latest_req.topic = topic;
+        latest_req.partition = 0;
+        latest_req.timestamp = -1;
+        ListOffsetsResponse latest;
+        st = KafkaClient_list_offsets(client, &latest_req, &latest, NULL, 0, 0);
+        check(grpcdc_status_is_ok(st), "list offsets rpc");
+        if (latest.error_code == 0) return topic;
+        check(waited < 15000, "topic not visible");
+        usleep(250000);
+    }
+}
+
+static void kafka_produce(KafkaClient *client, const char *topic,
+                          const char **values, size_t count, int64_t *offsets) {
+    for (size_t i = 0; i < count; i++) {
+        char keybuf[64];
+        snprintf(keybuf, sizeof(keybuf), "k-%s", values[i]);
+        Record rec;
+        Record_init(&rec);
+        rec.key = KafkaPb_bytes_copy((const uint8_t *)keybuf, strlen(keybuf));
+        rec.value = KafkaPb_bytes_copy((const uint8_t *)values[i], strlen(values[i]));
+        ProduceRequest req;
+        ProduceRequest_init(&req);
+        req.topic = (char *)topic;
+        req.partition = 0;
+        req.records = &rec;
+        req.records_count = 1;
+        ProduceResponse resp;
+        grpcdc_status st = KafkaClient_produce(client, &req, &resp, NULL, 0, 0);
+        check(grpcdc_status_is_ok(st), "produce rpc");
+        check(resp.error_code == 0, "produce error");
+        offsets[i] = resp.base_offset;
+        free(rec.key.data);
+        free(rec.value.data);
+    }
+}
+
+static size_t kafka_consume(KafkaClient *client, const char *topic,
+                            int64_t offset, int32_t count,
+                            FetchedRecord *out, size_t cap) {
+    ConsumeRequest req;
+    ConsumeRequest_init(&req);
+    req.topic = (char *)topic;
+    req.partition = 0;
+    req.offset = offset;
+    req.max_records = count;
+    KafkaConsumeClient stream;
+    grpcdc_status st = KafkaClient_consume(client, &req, &stream, NULL, 0, 0);
+    check(grpcdc_status_is_ok(st), "consume rpc");
+    size_t got = 0;
+    while (got < (size_t)count) {
+        ConsumeResponse chunk;
+        grpcdc_status rst;
+        int r = KafkaConsumeClient_recv(&stream, &chunk, &rst);
+        check(r == 1, "consume recv");
+        check(chunk.error_code == 0, "consume error");
+        for (size_t i = 0; i < chunk.records_count && got < cap; i++) {
+            out[got++] = chunk.records[i];
+        }
+    }
+    KafkaConsumeClient_close(&stream);
+    return got;
+}
+
+static void kafka_delete_topic(KafkaClient *client, char *topic) {
+    char *topics[1] = { topic };
+    DeleteTopicsRequest req;
+    DeleteTopicsRequest_init(&req);
+    req.topics = topics;
+    req.topics_count = 1;
+    DeleteTopicsResponse resp;
+    KafkaClient_delete_topics(client, &req, &resp, NULL, 0, 0);
+}
+
+static void test_kafka_e2e(void) {
+    const char *addr = getenv("KAFKA_E2E_PROXY_ADDR");
+    if (addr == NULL || addr[0] == '\0') {
+        printf("TestKafkaE2E SKIP (KAFKA_E2E_PROXY_ADDR not set)\n");
+        return;
+    }
+    const char *sep = strrchr(addr, ':');
+    check(sep != NULL, "proxy addr");
+    char host[128];
+    size_t host_len = (size_t)(sep - addr);
+    check(host_len < sizeof(host), "proxy host");
+    memcpy(host, addr, host_len);
+    host[host_len] = '\0';
+    uint16_t port = (uint16_t)atoi(sep + 1);
+
+    grpcdc_sidecar *sidecar = grpcdc_sidecar_connect(host, port);
+    check(sidecar != NULL, "sidecar connect");
+    grpcdc_transport transport;
+    grpcdc_sidecar_transport(sidecar, &transport);
+    grpcdc_channel channel;
+    grpcdc_channel_init(&channel, &transport);
+    KafkaClient client;
+    client.channel = &channel;
+
+    char topic[96];
+    {
+        kafka_create_topic(&client, topic, sizeof(topic));
+        const char *values[] = {"v0", "v1", "v2"};
+        int64_t offsets[3];
+        kafka_produce(&client, topic, values, 3, offsets);
+        check(offsets[0] == 0 && offsets[1] == 1 && offsets[2] == 2,
+              "roundtrip offsets");
+        ListOffsetsRequest latest_req;
+        ListOffsetsRequest_init(&latest_req);
+        latest_req.topic = topic;
+        latest_req.partition = 0;
+        latest_req.timestamp = -1;
+        ListOffsetsResponse latest;
+        grpcdc_status st = KafkaClient_list_offsets(&client, &latest_req, &latest, NULL, 0, 0);
+        check(grpcdc_status_is_ok(st) && latest.offset == 3 && latest.error_code == 0,
+              "latest offset");
+        FetchedRecord got[3];
+        check(kafka_consume(&client, topic, 0, 3, got, 3) == 3, "roundtrip count");
+        check(got[0].value.len == 2 && memcmp(got[0].value.data, "v0", 2) == 0 &&
+              got[1].value.len == 2 && memcmp(got[1].value.data, "v1", 2) == 0 &&
+              got[2].value.len == 2 && memcmp(got[2].value.data, "v2", 2) == 0,
+              "roundtrip values");
+        check(got[0].key.len == 4 && memcmp(got[0].key.data, "k-v0", 4) == 0,
+              "roundtrip keys");
+        kafka_delete_topic(&client, topic);
+    }
+    {
+        kafka_create_topic(&client, topic, sizeof(topic));
+        const char *values[] = {"seq-00", "seq-01", "seq-02", "seq-03", "seq-04",
+                                "seq-05", "seq-06", "seq-07", "seq-08", "seq-09"};
+        int64_t offsets[10];
+        kafka_produce(&client, topic, values, 10, offsets);
+        for (int i = 0; i < 10; i++) check(offsets[i] == i, "ordering offsets");
+        FetchedRecord got[10];
+        check(kafka_consume(&client, topic, 0, 10, got, 10) == 10, "ordering count");
+        for (int i = 0; i < 10; i++) {
+            check(got[i].value.len == strlen(values[i]) &&
+                  memcmp(got[i].value.data, values[i], got[i].value.len) == 0,
+                  "ordering values");
+        }
+        kafka_delete_topic(&client, topic);
+    }
+    {
+        kafka_create_topic(&client, topic, sizeof(topic));
+        const char *values[] = {"a", "b", "c", "d"};
+        int64_t offsets[4];
+        kafka_produce(&client, topic, values, 4, offsets);
+        FetchedRecord first[2];
+        check(kafka_consume(&client, topic, 0, 2, first, 2) == 2, "resume first count");
+        check(first[0].value.len == 1 && first[0].value.data[0] == 'a' &&
+              first[1].value.len == 1 && first[1].value.data[0] == 'b',
+              "resume first");
+        FetchedRecord rest[2];
+        check(kafka_consume(&client, topic, 2, 2, rest, 2) == 2, "resume rest count");
+        check(rest[0].value.len == 1 && rest[0].value.data[0] == 'c' &&
+              rest[1].value.len == 1 && rest[1].value.data[0] == 'd',
+              "resume rest");
+        kafka_delete_topic(&client, topic);
+    }
+    printf("TestKafkaE2E OK\n");
+}
+#endif /* GRPCDC_POSIX */
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr,
@@ -2326,6 +2519,13 @@ int main(int argc, char **argv) {
         test_sidecar();
 #else
         printf("TestSidecar SKIP (POSIX only)\n");
+#endif
+    }
+    else if (strcmp(argv[1], "TestKafkaE2E") == 0) {
+#ifdef GRPCDC_POSIX
+        test_kafka_e2e();
+#else
+        printf("TestKafkaE2E SKIP (POSIX only)\n");
 #endif
     }
     else if (strcmp(argv[1], "TestInteropOracle") == 0) {

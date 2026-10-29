@@ -272,6 +272,20 @@ generated tests ship per language
 (`eventbus_demo` / `TestEventBus`); the browser exercises it
 end-to-end against a native Go broker.
 
+### Kafka
+
+`grpcdc.kafka.v1.Kafka` (`proto/kafka.proto`) exposes a Kafka
+cluster — Metadata, Produce, streaming Consume/Subscribe,
+producer sessions with idempotence and transactions, consumer
+groups, offsets, topic admin — through the generated clients
+of every language. The Rust `kafka_proxy` example terminates
+the service (stdio, length-prefixed TCP, or WebRTC-Direct) and
+speaks the Kafka binary protocol, with ApiVersions
+negotiation, compression (gzip/snappy/LZ4/zstd), SASL
+(PLAIN/SCRAM), and optional TLS, against Apache Kafka and
+Redpanda. Per-language e2e suites run in CI against both
+brokers (`make test-kafka`). See [KAFKA.md](KAFKA.md).
+
 Signaling/ICE stay with your app: hand an *open* channel to these APIs.
 Rust plugs a real `RTCDataChannel` in through the `DcTransport` trait
 (`InboxDc` adapts callback-style stacks such as the `webrtc` crate); JS
