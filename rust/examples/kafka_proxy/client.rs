@@ -599,7 +599,7 @@ impl Broker {
                     addr = Some(a);
                     break;
                 }
-                None if matches!(last_err, 14 | 15) && attempt < 19 => {
+                None if matches!(last_err, 14 | 15 | 16) && attempt < 19 => {
                     drop(conn);
                     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                 }
@@ -624,6 +624,43 @@ impl Broker {
                 // of a single-node cluster is the coordinator.
                 self.bootstrap().await
             }
+        }
+    }
+
+    /// Connection to the partition leader, discovered through
+    /// metadata. Falls back to the bootstrap broker when the
+    /// leader is unknown or its advertised address is unreachable
+    /// (single-broker clusters and container-internal names).
+    pub async fn leader_conn(
+        &self,
+        topic: &str,
+        partition: i32,
+    ) -> Result<Arc<Mutex<Conn>>, Status> {
+        let boot = self.bootstrap().await?;
+        if partition < 0 {
+            return Ok(boot);
+        }
+        let meta = self.metadata(vec![topic.to_string()], false).await?;
+        let leader_id = meta
+            .topics
+            .iter()
+            .find(|t| t.name == topic)
+            .and_then(|t| t.partitions.iter().find(|p| p.id == partition))
+            .map(|p| p.leader_id)
+            .unwrap_or(-1);
+        if leader_id < 0 {
+            return Ok(boot);
+        }
+        let Some(broker) = meta.brokers.iter().find(|b| b.node_id == leader_id) else {
+            return Ok(boot);
+        };
+        let addr = format!("{}:{}", broker.host, broker.port);
+        if addr == self.cfg.broker {
+            return Ok(boot);
+        }
+        match self.conn_for(&addr).await {
+            Ok(conn) => Ok(conn),
+            Err(_) => Ok(boot),
         }
     }
 
@@ -780,8 +817,75 @@ pub struct ProduceOutcome {
 
 pub struct FetchOutcome {
     pub high_watermark: i64,
+    /// Last stable offset (read_committed visibility bound).
+    pub last_stable_offset: i64,
+    /// Aborted transactions as (producer_id, first_offset).
+    pub aborted: Vec<(i64, i64)>,
     pub error_code: i32,
     pub records: Vec<crate::pb::FetchedRecord>,
+}
+
+/// Build one control (transaction marker) batch. The marker
+/// is never returned to consumers, but its presence in the log
+/// distinguishes an aborted transaction's data batches: with
+/// read_committed the broker reports them in the aborted list.
+pub fn build_control_batch(
+    producer_id: i64,
+    producer_epoch: i16,
+    commit: bool,
+) -> Vec<u8> {
+    // Control record: version i16(0), type i16(0=ABORT,1=COMMIT),
+    // coordinator epoch i32(-1).
+    let mut rec_val = W::new();
+    rec_val.i16(0);
+    rec_val.i16(if commit { 1 } else { 0 });
+    rec_val.i32(-1);
+    // Empty (null-ish) key: control batches carry no key.
+    let mut rec = W::new();
+    rec.i8(0); // attributes
+    rec.varlong(0); // timestamp delta
+    rec.varint(0); // offset delta
+    // Control record key: i16 version(0) + i16 type(0=ABORT,1=COMMIT).
+    let mut rec_key = W::new();
+    rec_key.i16(0);
+    rec_key.i16(if commit { 1 } else { 0 });
+    rec.varint(rec_key.0.len() as i64);
+    rec.bytes(&rec_key.0);
+    rec.varint(rec_val.0.len() as i64);
+    rec.bytes(&rec_val.0);
+    rec.varint(0); // no headers
+    let mut payload = W::new();
+    payload.varint(rec.0.len() as i64);
+    payload.bytes(&rec.0);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let mut attrs: i16 = 0;
+    attrs |= 1 << 5; // control flag
+    attrs |= 1 << 4; // transactional flag
+    let mut batch = W::new();
+    batch.i64(0); // base_offset (broker assigns)
+    let body_start = batch.0.len();
+    batch.i32(0); // batch_length placeholder
+    batch.i32(-1); // partition_leader_epoch
+    batch.i8(2); // magic v2
+    let crc_pos = batch.0.len();
+    batch.u32(0); // crc placeholder
+    batch.i16(attrs);
+    batch.i32(0); // last_offset_delta
+    batch.i64(now_ms);
+    batch.i64(now_ms);
+    batch.i64(producer_id);
+    batch.i16(producer_epoch);
+    batch.i32(-1); // base_sequence: none for control batches
+    batch.i32(1); // record count
+    batch.bytes(&payload.0);
+    let batch_len = (batch.0.len() - body_start - 4) as i32;
+    batch.0[body_start..body_start + 4].copy_from_slice(&batch_len.to_be_bytes());
+    let crc = crc32c(&batch.0[crc_pos + 4..]);
+    batch.0[crc_pos..crc_pos + 4].copy_from_slice(&crc.to_be_bytes());
+    batch.0
 }
 
 /// Build one v2 record batch. `base_sequence` is -1 for
@@ -886,8 +990,33 @@ impl Broker {
             transactional_id.is_some(),
         )
         .map_err(bad)?;
-        let boot = self.bootstrap().await?;
-        let mut conn = boot.lock().await;
+        // Route to the partition leader. On a stale-leader error
+        // (5/6), refresh through the bootstrap broker once, as
+        // ordinary Kafka clients do after metadata changes.
+        for attempt in 0..2 {
+            let leader = self.leader_conn(topic, partition).await?;
+            let outcome = self
+                .produce_on(&leader, topic, partition, &batch, acks, timeout_ms, transactional_id)
+                .await?;
+            if !matches!(outcome.error_code, 5 | 6) || attempt == 1 {
+                return Ok(outcome);
+            }
+        }
+        unreachable!("produce retry loop returns")
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn produce_on(
+        &self,
+        conn: &Arc<Mutex<Conn>>,
+        topic: &str,
+        partition: i32,
+        batch: &[u8],
+        acks: i16,
+        timeout_ms: i32,
+        transactional_id: Option<&str>,
+    ) -> Result<ProduceOutcome, Status> {
+        let mut conn = conn.lock().await;
         let (ver, flexible) = conn.pick(API_PRODUCE, 9, 7)?;
         let mut body = W::new();
         if flexible {
@@ -964,6 +1093,7 @@ impl Broker {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch_on(
         &self,
         conn: &Arc<Mutex<Conn>>,
@@ -973,6 +1103,7 @@ impl Broker {
         max_wait_ms: i32,
         min_bytes: i32,
         max_bytes: i32,
+        read_committed: bool,
     ) -> Result<FetchOutcome, Status> {
         let mut c = conn.lock().await;
         let ver = c.supports(API_FETCH, 12)?;
@@ -981,7 +1112,7 @@ impl Broker {
         body.i32(max_wait_ms);
         body.i32(min_bytes);
         body.i32(max_bytes);
-        body.i8(0); // isolation: read_uncommitted
+        body.i8(if read_committed { 1 } else { 0 }); // isolation
         body.i32(0); // session_id
         body.i32(-1); // session_epoch
         body.carr(1);
@@ -1011,33 +1142,62 @@ impl Broker {
                 let _part = r.i32().map_err(bad)?;
                 let err = r.i16().map_err(bad)? as i32;
                 let hw = r.i64().map_err(bad)?;
-                let _lso = r.i64().map_err(bad)?;
+                let lso = r.i64().map_err(bad)?;
                 let _log_start = r.i64().map_err(bad)?;
                 // v12: no diverging-epoch/current-leader/snapshot
                 // fields (those arrive in later versions).
-                let _aborted = r.carr().map_err(bad)?;
-                if let Some(count) = _aborted {
+                let mut aborted: Vec<(i64, i64)> = Vec::new();
+                if let Some(count) = r.carr().map_err(bad)? {
                     for _ in 0..count {
-                        let _pid = r.i64().map_err(bad)?;
-                        let _first_offset = r.i64().map_err(bad)?;
+                        let pid = r.i64().map_err(bad)?;
+                        let first = r.i64().map_err(bad)?;
                         r.skip_tagged().map_err(bad)?;
+                        aborted.push((pid, first));
                     }
                 }
                 let _preferred = r.i32().map_err(bad)?;
                 let records_bytes = r.cbytes_opt().map_err(bad)?.unwrap_or_default();
                 r.skip_tagged().map_err(bad)?;
-                let records = if err == 0 && !records_bytes.is_empty() {
-                    parse_record_batches(&records_bytes).map_err(bad)?
+                let mut records = if err == 0 && !records_bytes.is_empty() {
+                    parse_record_batches_tagged(&records_bytes).map_err(bad)?
                 } else {
                     Vec::new()
                 };
-                return Ok(FetchOutcome { high_watermark: hw, error_code: err, records });
+                if read_committed {
+                    // Belt-and-braces isolation: some brokers
+                    // return open/aborted transactional batches
+                    // under read_committed without listing them
+                    // as aborted. Drop anything at/after the last
+                    // stable offset and anything from an aborted
+                    // producer (tagged at parse time). Control
+                    // records themselves are filtered separately
+                    // below, on both paths.
+                    records.retain(|rec| {
+                        rec.offset < lso
+                            && !aborted.iter().any(|(pid, first)| {
+                                rec.producer_id == *pid && rec.offset >= *first
+                            })
+                    });
+                }
+                // Control batches are transaction markers, never
+                // user data, under either isolation level.
+                records.retain(|rec| !rec.control);
+                let records: Vec<crate::pb::FetchedRecord> =
+                    records.into_iter().map(|t| t.record).collect();
+                return Ok(FetchOutcome {
+                    high_watermark: hw,
+                    last_stable_offset: lso,
+                    aborted,
+                    error_code: err,
+                    records,
+                });
             }
             r.skip_tagged().map_err(bad)?;
         }
         Err(bad("kafka: fetch response missing partition"))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch(
         &self,
         topic: &str,
@@ -1046,18 +1206,53 @@ impl Broker {
         max_wait_ms: i32,
         min_bytes: i32,
         max_bytes: i32,
+        read_committed: bool,
     ) -> Result<FetchOutcome, Status> {
-        let conn = self.bootstrap().await?;
-        self.fetch_on(&conn, topic, partition, offset, max_wait_ms, min_bytes, max_bytes).await
+        let conn = self.leader_conn(topic, partition).await?;
+        match self
+            .fetch_on(
+                &conn,
+                topic,
+                partition,
+                offset,
+                max_wait_ms,
+                min_bytes,
+                max_bytes,
+                read_committed,
+            )
+            .await
+        {
+            Ok(outcome) if matches!(outcome.error_code, 5 | 6) => {
+                let boot = self.bootstrap().await?;
+                self.fetch_on(
+                    &boot,
+                    topic,
+                    partition,
+                    offset,
+                    max_wait_ms,
+                    min_bytes,
+                    max_bytes,
+                    read_committed,
+                )
+                .await
+            }
+            other => other,
+        }
     }
 
-    pub async fn list_offsets(&self, topic: &str, partition: i32, timestamp: i64) -> Result<(i64, i64, i32), Status> {
-        let boot = self.bootstrap().await?;
+    pub async fn list_offsets(
+        &self,
+        topic: &str,
+        partition: i32,
+        timestamp: i64,
+        read_committed: bool,
+    ) -> Result<(i64, i64, i32), Status> {
+        let boot = self.leader_conn(topic, partition).await?;
         let mut conn = boot.lock().await;
         let ver = conn.supports(API_LIST_OFFSETS, 6)?;
         let mut body = W::new();
         body.i32(-1); // replica_id
-        body.i8(0); // isolation
+        body.i8(if read_committed { 1 } else { 0 }); // isolation
         body.carr(1);
         body.cstr(topic);
         body.carr(1);
@@ -1173,7 +1368,29 @@ impl Broker {
 }
 
 /// Parse record batches out of a Fetch response payload.
+/// A fetched record plus the batch-level provenance needed
+/// for read_committed filtering (not part of the wire proto).
+pub struct TaggedRecord {
+    pub record: crate::pb::FetchedRecord,
+    /// Offset of this record in the partition log.
+    pub offset: i64,
+    /// Producer id of the batch (-1 for plain producers).
+    pub producer_id: i64,
+    /// Records from control (marker) batches; never data.
+    pub control: bool,
+    /// Batch carried the transactional flag.
+    pub transactional: bool,
+}
+
 pub fn parse_record_batches(data: &[u8]) -> Result<Vec<crate::pb::FetchedRecord>, String> {
+    Ok(parse_record_batches_tagged(data)?
+        .into_iter()
+        .filter(|t| !t.control)
+        .map(|t| t.record)
+        .collect())
+}
+
+pub fn parse_record_batches_tagged(data: &[u8]) -> Result<Vec<TaggedRecord>, String> {
     let mut out = Vec::new();
     let mut pos = 0usize;
     while pos + 61 <= data.len() {
@@ -1190,7 +1407,7 @@ pub fn parse_record_batches(data: &[u8]) -> Result<Vec<crate::pb::FetchedRecord>
         let _last_delta = r.i32()?;
         let base_ts = r.i64()?;
         let _max_ts = r.i64()?;
-        let _pid = r.i64()?;
+        let batch_pid = r.i64()?;
         let _pepoch = r.i16()?;
         let _seq = r.i32()?;
         let count = r.i32()?;
@@ -1211,7 +1428,7 @@ pub fn parse_record_batches(data: &[u8]) -> Result<Vec<crate::pb::FetchedRecord>
         } else {
             raw
         };
-        if !control {
+        {
             let mut rr = R::new(payload_ref);
             for _ in 0..count {
                 let _len = rr.varint()?;
@@ -1235,13 +1452,19 @@ pub fn parse_record_batches(data: &[u8]) -> Result<Vec<crate::pb::FetchedRecord>
                         ..Default::default()
                     });
                 }
-                out.push(crate::pb::FetchedRecord {
+                out.push(TaggedRecord {
                     offset: base_offset + off_delta,
-                    timestamp_ms: base_ts + ts_delta,
-                    key,
-                    value,
-                    headers,
-                    ..Default::default()
+                    producer_id: batch_pid,
+                    control,
+                    transactional: attrs & (1 << 4) != 0,
+                    record: crate::pb::FetchedRecord {
+                        offset: base_offset + off_delta,
+                        timestamp_ms: base_ts + ts_delta,
+                        key,
+                        value,
+                        headers,
+                        ..Default::default()
+                    },
                 });
             }
         }
@@ -1267,35 +1490,37 @@ impl Broker {
         transactional_id: Option<&str>,
         transaction_timeout_ms: i32,
     ) -> Result<(i64, i16, i32), Status> {
-        let conn = match transactional_id {
-            Some(tid) => self.coordinator(tid, 1).await?,
-            None => self.bootstrap().await?,
-        };
-        let mut c = conn.lock().await;
-        // InitProducerId is flexible from v3; v4 adds the
-        // producer id/epoch fields for epoch bumps.
-        let max = c
-            .versions
-            .get(&API_INIT_PRODUCER_ID)
-            .map(|&(_, mx)| mx)
-            .ok_or_else(|| bad("kafka: InitProducerId not advertised"))?;
-        if max < 3 {
-            return Err(bad(format!(
-                "kafka: InitProducerId version too old (broker max {max})"
-            )));
-        }
-        let ver = max.min(4);
-        let flexible = true;
-        let mut body = W::new();
-        body.cstr_opt(transactional_id);
-        body.i32(transaction_timeout_ms);
-        // v4 fields; Redpanda (max v3) expects them at v3 too.
-        body.i64(-1); // producer_id (new)
-        body.i16(-1); // producer_epoch
-        body.tagged_none();
-        // Retry while the transaction coordinator loads (14/15).
+        // Retry while the transaction coordinator loads or moves
+        // (14/15, plus NOT_COORDINATOR 16): rediscover it each
+        // attempt, matching ordinary Kafka client behavior.
         let mut last = (0i64, 0i16, 0i32);
         for attempt in 0..20 {
+            let conn = match transactional_id {
+                Some(tid) => self.coordinator(tid, 1).await?,
+                None => self.bootstrap().await?,
+            };
+            let mut c = conn.lock().await;
+            // InitProducerId is flexible from v3; v4 adds the
+            // producer id/epoch fields for epoch bumps.
+            let max = c
+                .versions
+                .get(&API_INIT_PRODUCER_ID)
+                .map(|&(_, mx)| mx)
+                .ok_or_else(|| bad("kafka: InitProducerId not advertised"))?;
+            if max < 3 {
+                return Err(bad(format!(
+                    "kafka: InitProducerId version too old (broker max {max})"
+                )));
+            }
+            let ver = max.min(4);
+            let flexible = true;
+            let mut body = W::new();
+            body.cstr_opt(transactional_id);
+            body.i32(transaction_timeout_ms);
+            // v4 fields; Redpanda (max v3) expects them at v3 too.
+            body.i64(-1); // producer_id (new)
+            body.i16(-1); // producer_epoch
+            body.tagged_none();
             let resp = c.request(API_INIT_PRODUCER_ID, ver, body.clone(), flexible).await?;
             let mut r = R::new(&resp);
             let _throttle = r.i32().map_err(bad)?;
@@ -1303,9 +1528,10 @@ impl Broker {
             let pid = r.i64().map_err(bad)?;
             let epoch = r.i16().map_err(bad)?;
             last = (pid, epoch, err);
-            if !matches!(err, 14 | 15) || attempt == 19 {
+            if !matches!(err, 14 | 15 | 16) || attempt == 19 {
                 break;
             }
+            drop(c);
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         }
         Ok(last)
@@ -1405,6 +1631,12 @@ impl Broker {
         body.cstr(group_id);
         body.i64(producer_id);
         body.i16(producer_epoch);
+        // v3 (KIP-447, first flexible version): generation_id,
+        // member_id, group_instance_id precede topics. Defaults
+        // (-1, "", null) tell the broker to skip zombie fencing.
+        body.i32(-1);
+        body.cstr("");
+        body.cstr_opt(None);
         body.carr(1);
         body.cstr(topic);
         body.carr(1);
@@ -1431,6 +1663,37 @@ impl Broker {
             r.skip_tagged().map_err(bad)?;
         }
         Err(bad("kafka: txn_offset_commit response missing partition"))
+    }
+
+    /// Write an ABORT/COMMIT control batch to each partition the
+    /// transaction touched. Brokers normally append these markers
+    /// themselves when EndTxn completes; Redpanda opens the txn
+    /// without markers, so the proxy appends them (idempotent on
+    /// Kafka: a duplicate abort marker hits the aborted list and
+    /// stays invisible either way) so read_committed hides
+    /// aborted data on both brokers.
+    pub async fn write_txn_markers(
+        &self,
+        partitions: &[(String, i32)],
+        producer_id: i64,
+        producer_epoch: i16,
+        commit: bool,
+        transactional_id: &str,
+    ) -> Result<(), Status> {
+        let batch = build_control_batch(producer_id, producer_epoch, commit);
+        for (topic, partition) in partitions {
+            let conn = self.leader_conn(topic, *partition).await?;
+            let outcome = self
+                .produce_on(&conn, topic, *partition, &batch, -1, 30_000, Some(transactional_id))
+                .await?;
+            if outcome.error_code != 0 {
+                eprintln!(
+                    "kafka: txn marker write to {topic}:{partition} returned {}",
+                    outcome.error_code
+                );
+            }
+        }
+        Ok(())
     }
 
     pub async fn end_txn(

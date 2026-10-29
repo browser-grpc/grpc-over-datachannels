@@ -1141,6 +1141,7 @@ pub struct ConsumeRequest {
     pub max_records: i32,
     pub max_wait_ms: i32,
     pub min_bytes: i32,
+    pub read_committed: bool,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -1153,6 +1154,7 @@ impl Default for ConsumeRequest {
             max_records: 0,
             max_wait_ms: 0,
             min_bytes: 0,
+            read_committed: false,
             unknown_fields: Vec::new(),
         }
     }
@@ -1167,6 +1169,7 @@ impl ConsumeRequest {
         if self.max_records != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.max_records as u64)); }
         if self.max_wait_ms != 0 { pb_append_tag(&mut out, 5, 0); pb_append_varint(&mut out, (self.max_wait_ms as u64)); }
         if self.min_bytes != 0 { pb_append_tag(&mut out, 6, 0); pb_append_varint(&mut out, (self.min_bytes as u64)); }
+        if self.read_committed { pb_append_tag(&mut out, 7, 0); pb_append_varint(&mut out, (if self.read_committed { 1u64 } else { 0u64 })); }
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -1193,6 +1196,9 @@ impl ConsumeRequest {
                 }
                 6 => {
                     msg.min_bytes = (field.varint_value as u32 as i32);
+                }
+                7 => {
+                    msg.read_committed = (field.varint_value != 0);
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);
@@ -1275,6 +1281,7 @@ pub struct GroupSubscribeRequest {
     pub session_timeout_ms: i32,
     pub max_poll_records: i32,
     pub auto_offset_reset: String,
+    pub read_committed: bool,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -1287,6 +1294,7 @@ impl Default for GroupSubscribeRequest {
             session_timeout_ms: 0,
             max_poll_records: 0,
             auto_offset_reset: String::new(),
+            read_committed: false,
             unknown_fields: Vec::new(),
         }
     }
@@ -1301,6 +1309,7 @@ impl GroupSubscribeRequest {
         if self.session_timeout_ms != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.session_timeout_ms as u64)); }
         if self.max_poll_records != 0 { pb_append_tag(&mut out, 5, 0); pb_append_varint(&mut out, (self.max_poll_records as u64)); }
         pb_append_string_field(&mut out, 6, &self.auto_offset_reset);
+        if self.read_committed { pb_append_tag(&mut out, 7, 0); pb_append_varint(&mut out, (if self.read_committed { 1u64 } else { 0u64 })); }
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -1327,6 +1336,9 @@ impl GroupSubscribeRequest {
                 }
                 6 => {
                     msg.auto_offset_reset = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                7 => {
+                    msg.read_committed = (field.varint_value != 0);
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);
@@ -1560,6 +1572,7 @@ pub struct ListOffsetsRequest {
     pub topic: String,
     pub partition: i32,
     pub timestamp: i64,
+    pub read_committed: bool,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -1569,6 +1582,7 @@ impl Default for ListOffsetsRequest {
             topic: String::new(),
             partition: 0,
             timestamp: 0,
+            read_committed: false,
             unknown_fields: Vec::new(),
         }
     }
@@ -1580,6 +1594,7 @@ impl ListOffsetsRequest {
         pb_append_string_field(&mut out, 1, &self.topic);
         if self.partition != 0 { pb_append_tag(&mut out, 2, 0); pb_append_varint(&mut out, (self.partition as u64)); }
         if self.timestamp != 0 { pb_append_tag(&mut out, 3, 0); pb_append_varint(&mut out, (self.timestamp as u64)); }
+        if self.read_committed { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (if self.read_committed { 1u64 } else { 0u64 })); }
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -1597,6 +1612,9 @@ impl ListOffsetsRequest {
                 }
                 3 => {
                     msg.timestamp = (field.varint_value as i64);
+                }
+                4 => {
+                    msg.read_committed = (field.varint_value != 0);
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);
@@ -1666,6 +1684,7 @@ pub struct CommitOffsetRequest {
     pub partition: i32,
     pub committed_offset: i64,
     pub metadata: String,
+    pub session_id: String,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -1677,6 +1696,7 @@ impl Default for CommitOffsetRequest {
             partition: 0,
             committed_offset: 0,
             metadata: String::new(),
+            session_id: String::new(),
             unknown_fields: Vec::new(),
         }
     }
@@ -1690,6 +1710,7 @@ impl CommitOffsetRequest {
         if self.partition != 0 { pb_append_tag(&mut out, 3, 0); pb_append_varint(&mut out, (self.partition as u64)); }
         if self.committed_offset != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.committed_offset as u64)); }
         pb_append_string_field(&mut out, 5, &self.metadata);
+        pb_append_string_field(&mut out, 6, &self.session_id);
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -1713,6 +1734,9 @@ impl CommitOffsetRequest {
                 }
                 5 => {
                     msg.metadata = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                6 => {
+                    msg.session_id = String::from_utf8_lossy(&field.bytes_value).into_owned();
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);

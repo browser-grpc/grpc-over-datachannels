@@ -793,6 +793,7 @@ enum class Acks(val number: Int) {
     var maxRecords: Int = 0,
     var maxWaitMs: Int = 0,
     var minBytes: Int = 0,
+    var readCommitted: Boolean = false,
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -803,6 +804,7 @@ enum class Acks(val number: Int) {
         if (maxRecords != 0) { w.tag(4, 0); w.varint(maxRecords.toLong()) }
         if (maxWaitMs != 0) { w.tag(5, 0); w.varint(maxWaitMs.toLong()) }
         if (minBytes != 0) { w.tag(6, 0); w.varint(minBytes.toLong()) }
+        if (readCommitted) { w.tag(7, 0); w.varint(if (readCommitted) 1L else 0L) }
         w.raw(unknownFields)
         return w.toBytes()
     }
@@ -814,6 +816,7 @@ enum class Acks(val number: Int) {
         maxRecords = 0
         maxWaitMs = 0
         minBytes = 0
+        readCommitted = false
         val r = KafkaPb.Reader(data)
         while (true) {
             val field = r.next() ?: break
@@ -835,6 +838,9 @@ enum class Acks(val number: Int) {
                 }
                 6 -> {
                     minBytes = field.varintValue.toInt()
+                }
+                7 -> {
+                    readCommitted = field.varintValue != 0L
                 }
                 else -> { unknownFields = unknownFields + field.rawValue }
             }
@@ -899,6 +905,7 @@ enum class Acks(val number: Int) {
     var sessionTimeoutMs: Int = 0,
     var maxPollRecords: Int = 0,
     var autoOffsetReset: String = "",
+    var readCommitted: Boolean = false,
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -909,6 +916,7 @@ enum class Acks(val number: Int) {
         if (sessionTimeoutMs != 0) { w.tag(4, 0); w.varint(sessionTimeoutMs.toLong()) }
         if (maxPollRecords != 0) { w.tag(5, 0); w.varint(maxPollRecords.toLong()) }
         w.stringField(6, autoOffsetReset)
+        if (readCommitted) { w.tag(7, 0); w.varint(if (readCommitted) 1L else 0L) }
         w.raw(unknownFields)
         return w.toBytes()
     }
@@ -920,6 +928,7 @@ enum class Acks(val number: Int) {
         sessionTimeoutMs = 0
         maxPollRecords = 0
         autoOffsetReset = ""
+        readCommitted = false
         val r = KafkaPb.Reader(data)
         while (true) {
             val field = r.next() ?: break
@@ -941,6 +950,9 @@ enum class Acks(val number: Int) {
                 }
                 6 -> {
                     autoOffsetReset = String(field.bytesValue, Charsets.UTF_8)
+                }
+                7 -> {
+                    readCommitted = field.varintValue != 0L
                 }
                 else -> { unknownFields = unknownFields + field.rawValue }
             }
@@ -1116,6 +1128,7 @@ enum class Acks(val number: Int) {
     var topic: String = "",
     var partition: Int = 0,
     var timestamp: Long = 0L,
+    var readCommitted: Boolean = false,
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -1123,6 +1136,7 @@ enum class Acks(val number: Int) {
         w.stringField(1, topic)
         if (partition != 0) { w.tag(2, 0); w.varint(partition.toLong()) }
         if (timestamp != 0L) { w.tag(3, 0); w.varint(timestamp) }
+        if (readCommitted) { w.tag(4, 0); w.varint(if (readCommitted) 1L else 0L) }
         w.raw(unknownFields)
         return w.toBytes()
     }
@@ -1131,6 +1145,7 @@ enum class Acks(val number: Int) {
         topic = ""
         partition = 0
         timestamp = 0L
+        readCommitted = false
         val r = KafkaPb.Reader(data)
         while (true) {
             val field = r.next() ?: break
@@ -1143,6 +1158,9 @@ enum class Acks(val number: Int) {
                 }
                 3 -> {
                     timestamp = field.varintValue
+                }
+                4 -> {
+                    readCommitted = field.varintValue != 0L
                 }
                 else -> { unknownFields = unknownFields + field.rawValue }
             }
@@ -1192,6 +1210,7 @@ enum class Acks(val number: Int) {
     var partition: Int = 0,
     var committedOffset: Long = 0L,
     var metadata: String = "",
+    var sessionId: String = "",
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -1201,6 +1220,7 @@ enum class Acks(val number: Int) {
         if (partition != 0) { w.tag(3, 0); w.varint(partition.toLong()) }
         if (committedOffset != 0L) { w.tag(4, 0); w.varint(committedOffset) }
         w.stringField(5, metadata)
+        w.stringField(6, sessionId)
         w.raw(unknownFields)
         return w.toBytes()
     }
@@ -1211,6 +1231,7 @@ enum class Acks(val number: Int) {
         partition = 0
         committedOffset = 0L
         metadata = ""
+        sessionId = ""
         val r = KafkaPb.Reader(data)
         while (true) {
             val field = r.next() ?: break
@@ -1229,6 +1250,9 @@ enum class Acks(val number: Int) {
                 }
                 5 -> {
                     metadata = String(field.bytesValue, Charsets.UTF_8)
+                }
+                6 -> {
+                    sessionId = String(field.bytesValue, Charsets.UTF_8)
                 }
                 else -> { unknownFields = unknownFields + field.rawValue }
             }

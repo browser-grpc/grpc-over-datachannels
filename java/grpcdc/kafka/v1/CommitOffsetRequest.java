@@ -8,14 +8,16 @@ public final class CommitOffsetRequest implements grpcdc.Marshaler, grpcdc.Unmar
     public int partition = 0;
     public long committedOffset = 0L;
     public String metadata = "";
+    public String sessionId = "";
     public byte[] unknownFields = new byte[0];
     public CommitOffsetRequest() {}
-    public CommitOffsetRequest(String groupId, String topic, int partition, long committedOffset, String metadata) {
+    public CommitOffsetRequest(String groupId, String topic, int partition, long committedOffset, String metadata, String sessionId) {
         this.groupId = groupId;
         this.topic = topic;
         this.partition = partition;
         this.committedOffset = committedOffset;
         this.metadata = metadata;
+        this.sessionId = sessionId;
     }
 
     @Override
@@ -26,6 +28,7 @@ public final class CommitOffsetRequest implements grpcdc.Marshaler, grpcdc.Unmar
         if (partition != 0) { w.tag(3, 0); w.varint(partition); }
         if (committedOffset != 0) { w.tag(4, 0); w.varint(committedOffset); }
         w.stringField(5, metadata);
+        w.stringField(6, sessionId);
         w.raw(unknownFields);
         return w.toBytes();
     }
@@ -38,6 +41,7 @@ public final class CommitOffsetRequest implements grpcdc.Marshaler, grpcdc.Unmar
         partition = 0;
         committedOffset = 0L;
         metadata = "";
+        sessionId = "";
         KafkaPb.Reader r = new KafkaPb.Reader(data);
         KafkaPb.Field field;
         while ((field = r.next()) != null) {
@@ -56,6 +60,9 @@ public final class CommitOffsetRequest implements grpcdc.Marshaler, grpcdc.Unmar
                 }
                 case 5 -> {
                     metadata = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                }
+                case 6 -> {
+                    sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
             }

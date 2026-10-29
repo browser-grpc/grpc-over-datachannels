@@ -850,6 +850,7 @@ pub const ConsumeRequest = struct {
     max_records: i32 = 0,
     max_wait_ms: i32 = 0,
     min_bytes: i32 = 0,
+    read_committed: bool = false,
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const ConsumeRequest, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -861,6 +862,7 @@ pub const ConsumeRequest = struct {
         if (self.max_records != 0) { w.tag(4, 0); w.varint(@as(u64, @bitCast(@as(i64, self.max_records)))); }
         if (self.max_wait_ms != 0) { w.tag(5, 0); w.varint(@as(u64, @bitCast(@as(i64, self.max_wait_ms)))); }
         if (self.min_bytes != 0) { w.tag(6, 0); w.varint(@as(u64, @bitCast(@as(i64, self.min_bytes)))); }
+        if (self.read_committed) { w.tag(7, 0); w.varint(@intFromBool(self.read_committed)); }
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -872,6 +874,7 @@ pub const ConsumeRequest = struct {
         self.max_records = 0;
         self.max_wait_ms = 0;
         self.min_bytes = 0;
+        self.read_committed = false;
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
         var r = PbReader.init(data);
@@ -894,6 +897,9 @@ pub const ConsumeRequest = struct {
                 },
                 6 => {
                     self.min_bytes = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                7 => {
+                    self.read_committed = field.varint_value != 0;
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }
@@ -964,6 +970,7 @@ pub const GroupSubscribeRequest = struct {
     session_timeout_ms: i32 = 0,
     max_poll_records: i32 = 0,
     auto_offset_reset: []const u8 = "",
+    read_committed: bool = false,
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const GroupSubscribeRequest, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -975,6 +982,7 @@ pub const GroupSubscribeRequest = struct {
         if (self.session_timeout_ms != 0) { w.tag(4, 0); w.varint(@as(u64, @bitCast(@as(i64, self.session_timeout_ms)))); }
         if (self.max_poll_records != 0) { w.tag(5, 0); w.varint(@as(u64, @bitCast(@as(i64, self.max_poll_records)))); }
         w.stringField(6, self.auto_offset_reset);
+        if (self.read_committed) { w.tag(7, 0); w.varint(@intFromBool(self.read_committed)); }
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -986,6 +994,7 @@ pub const GroupSubscribeRequest = struct {
         self.session_timeout_ms = 0;
         self.max_poll_records = 0;
         self.auto_offset_reset = "";
+        self.read_committed = false;
         var topics_list = std.ArrayList([]const u8).empty;
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
@@ -1009,6 +1018,9 @@ pub const GroupSubscribeRequest = struct {
                 },
                 6 => {
                     self.auto_offset_reset = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                7 => {
+                    self.read_committed = field.varint_value != 0;
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }
@@ -1205,6 +1217,7 @@ pub const ListOffsetsRequest = struct {
     topic: []const u8 = "",
     partition: i32 = 0,
     timestamp: i64 = 0,
+    read_committed: bool = false,
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const ListOffsetsRequest, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -1213,6 +1226,7 @@ pub const ListOffsetsRequest = struct {
         w.stringField(1, self.topic);
         if (self.partition != 0) { w.tag(2, 0); w.varint(@as(u64, @bitCast(@as(i64, self.partition)))); }
         if (self.timestamp != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(self.timestamp))); }
+        if (self.read_committed) { w.tag(4, 0); w.varint(@intFromBool(self.read_committed)); }
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -1221,6 +1235,7 @@ pub const ListOffsetsRequest = struct {
         self.topic = "";
         self.partition = 0;
         self.timestamp = 0;
+        self.read_committed = false;
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
         var r = PbReader.init(data);
@@ -1234,6 +1249,9 @@ pub const ListOffsetsRequest = struct {
                 },
                 3 => {
                     self.timestamp = @as(i64, @bitCast(field.varint_value));
+                },
+                4 => {
+                    self.read_committed = field.varint_value != 0;
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }
@@ -1287,6 +1305,7 @@ pub const CommitOffsetRequest = struct {
     partition: i32 = 0,
     committed_offset: i64 = 0,
     metadata: []const u8 = "",
+    session_id: []const u8 = "",
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const CommitOffsetRequest, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -1297,6 +1316,7 @@ pub const CommitOffsetRequest = struct {
         if (self.partition != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(@as(i64, self.partition)))); }
         if (self.committed_offset != 0) { w.tag(4, 0); w.varint(@as(u64, @bitCast(self.committed_offset))); }
         w.stringField(5, self.metadata);
+        w.stringField(6, self.session_id);
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -1307,6 +1327,7 @@ pub const CommitOffsetRequest = struct {
         self.partition = 0;
         self.committed_offset = 0;
         self.metadata = "";
+        self.session_id = "";
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
         var r = PbReader.init(data);
@@ -1326,6 +1347,9 @@ pub const CommitOffsetRequest = struct {
                 },
                 5 => {
                     self.metadata = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                6 => {
+                    self.session_id = alloc.dupe(u8, field.bytes_value) catch "";
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }

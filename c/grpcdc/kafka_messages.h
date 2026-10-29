@@ -252,6 +252,7 @@ struct ConsumeRequest {
     int32_t max_records;
     int32_t max_wait_ms;
     int32_t min_bytes;
+    bool read_committed;
     KafkaPbBytes unknown_fields;
 };
 
@@ -273,6 +274,7 @@ struct GroupSubscribeRequest {
     int32_t session_timeout_ms;
     int32_t max_poll_records;
     char * auto_offset_reset;
+    bool read_committed;
     KafkaPbBytes unknown_fields;
 };
 
@@ -310,6 +312,7 @@ struct ListOffsetsRequest {
     char * topic;
     int32_t partition;
     int64_t timestamp;
+    bool read_committed;
     KafkaPbBytes unknown_fields;
 };
 
@@ -326,6 +329,7 @@ struct CommitOffsetRequest {
     int32_t partition;
     int64_t committed_offset;
     char * metadata;
+    char * session_id;
     KafkaPbBytes unknown_fields;
 };
 
@@ -1317,6 +1321,7 @@ static inline KafkaPbBytes ConsumeRequest_marshal(const ConsumeRequest *m) {
     if ((m->max_records != 0)) { KafkaPb_writer_tag(&w, 4, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->max_records)); }
     if ((m->max_wait_ms != 0)) { KafkaPb_writer_tag(&w, 5, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->max_wait_ms)); }
     if ((m->min_bytes != 0)) { KafkaPb_writer_tag(&w, 6, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->min_bytes)); }
+    if (m->read_committed) { KafkaPb_writer_tag(&w, 7, 0); KafkaPb_writer_varint(&w, (m->read_committed ? 1 : 0)); }
     KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
     return KafkaPb_writer_to_bytes(&w);
 }
@@ -1349,6 +1354,10 @@ static inline void ConsumeRequest_unmarshal(ConsumeRequest *m, const uint8_t *da
                 }
                 case 6: {
                     m->min_bytes = ((int32_t)(uint32_t)field.varint_value);
+                    break;
+                }
+                case 7: {
+                    m->read_committed = (field.varint_value != 0);
                     break;
                 }
             default: {
@@ -1434,6 +1443,7 @@ static inline KafkaPbBytes GroupSubscribeRequest_marshal(const GroupSubscribeReq
     if ((m->session_timeout_ms != 0)) { KafkaPb_writer_tag(&w, 4, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->session_timeout_ms)); }
     if ((m->max_poll_records != 0)) { KafkaPb_writer_tag(&w, 5, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->max_poll_records)); }
     KafkaPb_writer_string_field(&w, 6, m->auto_offset_reset);
+    if (m->read_committed) { KafkaPb_writer_tag(&w, 7, 0); KafkaPb_writer_varint(&w, (m->read_committed ? 1 : 0)); }
     KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
     return KafkaPb_writer_to_bytes(&w);
 }
@@ -1467,6 +1477,10 @@ static inline void GroupSubscribeRequest_unmarshal(GroupSubscribeRequest *m, con
                 }
                 case 6: {
                     m->auto_offset_reset = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+                case 7: {
+                    m->read_committed = (field.varint_value != 0);
                     break;
                 }
             default: {
@@ -1680,6 +1694,7 @@ static inline KafkaPbBytes ListOffsetsRequest_marshal(const ListOffsetsRequest *
     KafkaPb_writer_string_field(&w, 1, m->topic);
     if ((m->partition != 0)) { KafkaPb_writer_tag(&w, 2, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->partition)); }
     if ((m->timestamp != 0)) { KafkaPb_writer_tag(&w, 3, 0); KafkaPb_writer_varint(&w, ((uint64_t)m->timestamp)); }
+    if (m->read_committed) { KafkaPb_writer_tag(&w, 4, 0); KafkaPb_writer_varint(&w, (m->read_committed ? 1 : 0)); }
     KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
     return KafkaPb_writer_to_bytes(&w);
 }
@@ -1700,6 +1715,10 @@ static inline void ListOffsetsRequest_unmarshal(ListOffsetsRequest *m, const uin
                 }
                 case 3: {
                     m->timestamp = ((int64_t)field.varint_value);
+                    break;
+                }
+                case 4: {
+                    m->read_committed = (field.varint_value != 0);
                     break;
                 }
             default: {
@@ -1760,6 +1779,7 @@ static inline void CommitOffsetRequest_init(CommitOffsetRequest *m) {
     m->group_id = "";
     m->topic = "";
     m->metadata = "";
+    m->session_id = "";
 }
 
 static inline KafkaPbBytes CommitOffsetRequest_marshal(const CommitOffsetRequest *m) {
@@ -1769,6 +1789,7 @@ static inline KafkaPbBytes CommitOffsetRequest_marshal(const CommitOffsetRequest
     if ((m->partition != 0)) { KafkaPb_writer_tag(&w, 3, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->partition)); }
     if ((m->committed_offset != 0)) { KafkaPb_writer_tag(&w, 4, 0); KafkaPb_writer_varint(&w, ((uint64_t)m->committed_offset)); }
     KafkaPb_writer_string_field(&w, 5, m->metadata);
+    KafkaPb_writer_string_field(&w, 6, m->session_id);
     KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
     return KafkaPb_writer_to_bytes(&w);
 }
@@ -1797,6 +1818,10 @@ static inline void CommitOffsetRequest_unmarshal(CommitOffsetRequest *m, const u
                 }
                 case 5: {
                     m->metadata = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+                case 6: {
+                    m->session_id = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
                     break;
                 }
             default: {

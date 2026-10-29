@@ -110,6 +110,15 @@ async fn produce_one(client: &KafkaClient, topic: &str, value: &str) -> pb::Prod
 }
 
 async fn consume_values(client: &KafkaClient, topic: &str, want: usize) -> Vec<String> {
+    consume_values_mode(client, topic, want, false).await
+}
+
+async fn consume_values_mode(
+    client: &KafkaClient,
+    topic: &str,
+    want: usize,
+    read_committed: bool,
+) -> Vec<String> {
     let mut stream = client
         .consume(pb::ConsumeRequest {
             topic: topic.to_string(),
@@ -117,6 +126,7 @@ async fn consume_values(client: &KafkaClient, topic: &str, want: usize) -> Vec<S
             offset: -2,
             max_records: 100,
             max_wait_ms: 2_000,
+            read_committed,
             ..Default::default()
         })
         .await
@@ -142,6 +152,44 @@ async fn consume_values(client: &KafkaClient, topic: &str, want: usize) -> Vec<S
     values
 }
 
+/// Drain whatever a read_committed consume returns within a
+/// short window; used to assert uncommitted/aborted records are
+/// invisible (an open-ended "wait for 1" would hang when the
+/// broker is behaving correctly).
+async fn drain_committed_window(client: &KafkaClient, topic: &str) -> Vec<String> {
+    let mut stream = client
+        .consume(pb::ConsumeRequest {
+            topic: topic.to_string(),
+            partition: 0,
+            offset: -2,
+            max_records: 100,
+            max_wait_ms: 500,
+            read_committed: true,
+            ..Default::default()
+        })
+        .await
+        .expect("consume rpc");
+    let mut values = Vec::new();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(4);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(std::time::Duration::from_millis(700), stream.next()).await {
+            Ok(Some(Ok(chunk))) => {
+                assert_eq!(chunk.error_code, 0, "consume error: {chunk:?}");
+                for rec in chunk.records {
+                    values.push(String::from_utf8(rec.value).expect("utf8"));
+                }
+                if !values.is_empty() {
+                    break;
+                }
+            }
+            Ok(Some(Err(e))) => panic!("consume stream error: {e:?}"),
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+    values
+}
+
 fn broker_or_skip() -> Option<String> {
     match std::env::var("KAFKA_PROXY_E2E_BROKER") {
         Ok(b) => Some(b),
@@ -149,6 +197,106 @@ fn broker_or_skip() -> Option<String> {
             eprintln!("KAFKA_PROXY_E2E_BROKER unset: skipping");
             None
         }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_multi_broker_leader_routing() {
+    if std::env::var("KAFKA_PROXY_E2E_CLUSTER").ok().as_deref() != Some("1") {
+        eprintln!("KAFKA_PROXY_E2E_CLUSTER != 1: skipping");
+        return;
+    }
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    let topic = unique_topic("grpc-dc-e2e-cluster");
+    let created = client
+        .create_topics(pb::CreateTopicsRequest {
+            topics: vec![pb::NewTopic {
+                name: topic.clone(),
+                num_partitions: 6,
+                replication_factor: 2,
+                ..Default::default()
+            }],
+            timeout_ms: 30_000,
+            ..Default::default()
+        })
+        .await
+        .expect("create cluster topic");
+    assert_eq!(created.results[0].error_code, 0, "{created:?}");
+    // Leaders must span more than this bootstrap broker.
+    let mut leaders = std::collections::HashSet::new();
+    let mut broker_count = 0;
+    for _ in 0..30 {
+        let meta = client
+            .metadata(pb::MetadataRequest {
+                topics: vec![topic.clone()],
+                ..Default::default()
+            })
+            .await
+            .expect("cluster metadata");
+        broker_count = meta.brokers.len();
+        leaders = meta
+            .topics
+            .iter()
+            .find(|t| t.name == topic)
+            .map(|t| t.partitions.iter().map(|p| p.leader_id).collect())
+            .unwrap_or_default();
+        if broker_count >= 2 && leaders.len() > 1 && !leaders.contains(&-1) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    assert!(broker_count >= 2, "expected >=2 brokers, got {broker_count}");
+    assert!(
+        leaders.len() > 1,
+        "partition leaders do not span brokers: {leaders:?}"
+    );
+    // Produce + consume one record on every partition through a
+    // client bootstrapped only to the first node; non-leader
+    // partitions only work if the proxy routes by leader.
+    for partition in 0..6 {
+        let value = format!("cluster-p{partition}");
+        let produced = client
+            .produce(pb::ProduceRequest {
+                topic: topic.clone(),
+                partition,
+                records: vec![record(&value)],
+                acks: pb::Acks::AcksAll,
+                ..Default::default()
+            })
+            .await
+            .expect("cluster produce");
+        assert_eq!(produced.error_code, 0, "p{partition}: {produced:?}");
+        let mut stream = client
+            .consume(pb::ConsumeRequest {
+                topic: topic.clone(),
+                partition,
+                offset: -2,
+                max_records: 10,
+                max_wait_ms: 2_000,
+                ..Default::default()
+            })
+            .await
+            .expect("cluster consume");
+        let mut got = Vec::new();
+        let collect = async {
+            while got.len() < 1 {
+                match stream.next().await {
+                    Some(Ok(chunk)) => {
+                        assert_eq!(chunk.error_code, 0, "p{partition}: {chunk:?}");
+                        for rec in chunk.records {
+                            got.push(String::from_utf8(rec.value).expect("utf8"));
+                        }
+                    }
+                    Some(Err(e)) => panic!("cluster consume error: {e:?}"),
+                    None => break,
+                }
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(30), collect)
+            .await
+            .expect("cluster consume timed out");
+        assert_eq!(got, vec![value], "partition {partition}");
     }
 }
 
@@ -440,6 +588,129 @@ async fn kafka_proxy_idempotent_and_transactions() {
         .await
         .expect("close producer");
     assert_eq!(closed.error_code, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_transactional_consume_produce() {
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    let source = unique_topic("grpc-dc-e2e-cp-src");
+    let sink = unique_topic("grpc-dc-e2e-cp-sink");
+    make_topic(&client, &source, 1).await;
+    make_topic(&client, &sink, 1).await;
+    for value in ["cp-1", "cp-2"] {
+        let produced = produce_one(&client, &source, value).await;
+        assert_eq!(produced.error_code, 0, "{produced:?}");
+    }
+    let seen = consume_values(&client, &source, 2).await;
+    assert_eq!(seen, vec!["cp-1", "cp-2"]);
+
+    let group = format!("{source}-cp-group");
+    async fn do_txn(
+        client: &KafkaClient,
+        source: &str,
+        sink: &str,
+        group: &str,
+    ) -> String {
+        let txn_id = unique_topic("grpc-dc-cp-txn");
+        let opened = client
+            .open_producer(pb::OpenProducerRequest {
+                transactional_id: txn_id,
+                transaction_timeout_ms: 60_000,
+                ..Default::default()
+            })
+            .await
+            .expect("open cp producer");
+        assert_eq!(opened.error_code, 0, "open cp txn failed: {opened:?}");
+        let session_id = opened.session_id.clone();
+        let produced = client
+            .produce(pb::ProduceRequest {
+                topic: sink.to_string(),
+                partition: 0,
+                records: vec![record("cp-out")],
+                acks: pb::Acks::AcksAll,
+                session_id: session_id.clone(),
+                ..Default::default()
+            })
+            .await
+            .expect("cp txn produce");
+        assert_eq!(produced.error_code, 0, "{produced:?}");
+        let staged = client
+            .commit_offset(pb::CommitOffsetRequest {
+                group_id: group.to_string(),
+                topic: source.to_string(),
+                partition: 0,
+                committed_offset: 2,
+                metadata: String::new(),
+                session_id: session_id.clone(),
+                ..Default::default()
+            })
+            .await
+            .expect("stage txn offset");
+        assert_eq!(staged.error_code, 0, "{staged:?}");
+        session_id
+    }
+
+    // Committed path: records + offset become visible at commit.
+    let session_id = do_txn(&client, &source, &sink, &group).await;
+    let committed_visible_before = drain_committed_window(&client, &sink).await;
+    let ended = client
+        .end_transaction(pb::EndTransactionRequest {
+            session_id,
+            commit: true,
+            ..Default::default()
+        })
+        .await
+        .expect("cp end transaction");
+    assert_eq!(ended.error_code, 0, "cp commit failed: {ended:?}");
+    assert!(
+        committed_visible_before.is_empty(),
+        "read_committed saw uncommitted records: {committed_visible_before:?}"
+    );
+    let visible = drain_committed_window(&client, &sink).await;
+    assert_eq!(visible, vec!["cp-out"]);
+    let fetched = client
+        .fetch_offset(pb::FetchOffsetRequest {
+            group_id: group.clone(),
+            topic: source.clone(),
+            partition: 0,
+            ..Default::default()
+        })
+        .await
+        .expect("fetch cp offset");
+    assert_eq!(fetched.error_code, 0);
+    assert_eq!(fetched.committed_offset, 2, "offset not committed with txn: {fetched:?}");
+
+    // Aborted path: staged offset must not persist.
+    let group2 = format!("{source}-cp-group-abort");
+    let session2 = do_txn(&client, &source, &sink, &group2).await;
+    let ended2 = client
+        .end_transaction(pb::EndTransactionRequest {
+            session_id: session2,
+            commit: false,
+            ..Default::default()
+        })
+        .await
+        .expect("cp abort transaction");
+    assert_eq!(ended2.error_code, 0, "cp abort failed: {ended2:?}");
+    let fetched2 = client
+        .fetch_offset(pb::FetchOffsetRequest {
+            group_id: group2.clone(),
+            topic: source.clone(),
+            partition: 0,
+            ..Default::default()
+        })
+        .await
+        .expect("fetch aborted offset");
+    assert_eq!(fetched2.error_code, 0);
+    assert_eq!(
+        fetched2.committed_offset, -1,
+        "aborted txn offset leaked: {fetched2:?}"
+    );
+    // Aborted cp-out must stay invisible to read_committed:
+    // only the first committed record is ever visible.
+    let still = drain_committed_window(&client, &sink).await;
+    assert_eq!(still, vec!["cp-out"], "read_committed saw aborted record");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

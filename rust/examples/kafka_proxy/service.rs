@@ -19,6 +19,8 @@ pub struct ProducerSession {
     pub transactional_id: String,
     pub sequences: Mutex<HashMap<(String, i32), i32>>,
     pub txn_partitions: Mutex<HashSet<(String, i32)>>,
+    pub txn_groups: Mutex<HashSet<String>>,
+    pub txn_offsets: Mutex<HashMap<(String, String, i32), (i64, String)>>,
 }
 
 #[derive(Clone)]
@@ -120,6 +122,8 @@ impl crate::stub::Kafka for KafkaService {
                     transactional_id: req.transactional_id.clone(),
                     sequences: Mutex::new(HashMap::new()),
                     txn_partitions: Mutex::new(HashSet::new()),
+                    txn_groups: Mutex::new(HashSet::new()),
+                    txn_offsets: Mutex::new(HashMap::new()),
                 }),
             );
         }
@@ -157,11 +161,95 @@ impl crate::stub::Kafka for KafkaService {
         if session.transactional_id.is_empty() {
             return Ok(crate::pb::EndTransactionResponse { error_code: -1, ..Default::default() });
         }
+        // Offsets staged through CommitOffset(session_id) are
+        // attached to this transaction first (AddOffsetsToTxn per
+        // group, then TxnOffsetCommit per partition) so they
+        // commit or abort atomically with the records.
+        if req.commit {
+            let offsets = session.txn_offsets.lock().await.clone();
+            if !offsets.is_empty() {
+                let mut groups: Vec<String> = Vec::new();
+                for (group, _, _) in offsets.keys() {
+                    if !groups.contains(group) {
+                        groups.push(group.clone());
+                    }
+                }
+                for group in &groups {
+                    let err = self
+                        .broker
+                        .add_offsets_to_txn(
+                            &session.transactional_id,
+                            group,
+                            session.producer_id,
+                            session.producer_epoch,
+                        )
+                        .await?;
+                    if err != 0 {
+                        return Ok(crate::pb::EndTransactionResponse {
+                            error_code: err,
+                            ..Default::default()
+                        });
+                    }
+                }
+                for ((group, topic, partition), (offset, metadata)) in &offsets {
+                    let err = self
+                        .broker
+                        .txn_offset_commit(
+                            &session.transactional_id,
+                            group,
+                            session.producer_id,
+                            session.producer_epoch,
+                            topic,
+                            *partition,
+                            *offset,
+                            metadata,
+                        )
+                        .await?;
+                    if err != 0 {
+                        return Ok(crate::pb::EndTransactionResponse {
+                            error_code: err,
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
         let err = self
             .broker
             .end_txn(&session.transactional_id, session.producer_id, session.producer_epoch, req.commit)
             .await?;
-        session.txn_partitions.lock().await.clear();
+        if err == 0 {
+            // Append the COMMIT/ABORT control batch to every
+            // partition this transaction wrote: some brokers
+            // (Redpanda) resolve the transaction in the
+            // coordinator without writing log markers, and
+            // without a marker read_committed cannot distinguish
+            // aborted data from committed data.
+            let partitions: Vec<(String, i32)> = session
+                .txn_partitions
+                .lock()
+                .await
+                .iter()
+                .cloned()
+                .collect();
+            if !partitions.is_empty() {
+                let _ = self
+                    .broker
+                    .write_txn_markers(
+                        &partitions,
+                        session.producer_id,
+                        session.producer_epoch,
+                        req.commit,
+                        &session.transactional_id,
+                    )
+                    .await;
+            }
+        }
+        if err == 0 {
+            session.txn_partitions.lock().await.clear();
+            session.txn_groups.lock().await.clear();
+            session.txn_offsets.lock().await.clear();
+        }
         Ok(crate::pb::EndTransactionResponse { error_code: err, ..Default::default() })
     }
 
@@ -286,7 +374,16 @@ impl crate::stub::Kafka for KafkaService {
                     let start = if st.req.offset >= 0 {
                         st.req.offset
                     } else {
-                        match st.broker.list_offsets(&st.req.topic, st.req.partition, st.req.offset).await {
+                        match st
+                            .broker
+                            .list_offsets(
+                                &st.req.topic,
+                                st.req.partition,
+                                st.req.offset,
+                                st.req.read_committed,
+                            )
+                            .await
+                        {
                             Ok((off, _, err)) => {
                                 if err != 0 {
                                     st.done = true;
@@ -314,7 +411,15 @@ impl crate::stub::Kafka for KafkaService {
                     let offset = st.offset.unwrap();
                     match st
                         .broker
-                        .fetch(&st.req.topic, st.req.partition, offset, st.max_wait, 1, 4 * 1024 * 1024)
+                        .fetch(
+                            &st.req.topic,
+                            st.req.partition,
+                            offset,
+                            st.max_wait,
+                            1,
+                            4 * 1024 * 1024,
+                            st.req.read_committed,
+                        )
                         .await
                     {
                         Ok(outcome) => {
@@ -394,7 +499,9 @@ impl crate::stub::Kafka for KafkaService {
         _ctx: CallCtx,
     ) -> Result<crate::pb::ListOffsetsResponse, Status> {
         let (offset, timestamp_ms, error_code) =
-            self.broker.list_offsets(&req.topic, req.partition, req.timestamp).await?;
+            self.broker
+                .list_offsets(&req.topic, req.partition, req.timestamp, req.read_committed)
+                .await?;
         Ok(crate::pb::ListOffsetsResponse {
             offset,
             timestamp_ms,
@@ -408,6 +515,31 @@ impl crate::stub::Kafka for KafkaService {
         req: crate::pb::CommitOffsetRequest,
         _ctx: CallCtx,
     ) -> Result<crate::pb::CommitOffsetResponse, Status> {
+        if !req.session_id.is_empty() {
+            // Transactional commit: stage the offset on the
+            // producer session. EndTransaction attaches it with
+            // AddOffsetsToTxn + TxnOffsetCommit so it becomes
+            // visible exactly when the transaction commits.
+            let session = self
+                .sessions
+                .lock()
+                .await
+                .get(&req.session_id)
+                .cloned()
+                .ok_or_else(|| Status::new(grpc_dc::Code::NotFound, "unknown producer session"))?;
+            if session.transactional_id.is_empty() {
+                return Ok(crate::pb::CommitOffsetResponse {
+                    error_code: -1,
+                    ..Default::default()
+                });
+            }
+            session.txn_groups.lock().await.insert(req.group_id.clone());
+            session.txn_offsets.lock().await.insert(
+                (req.group_id.clone(), req.topic.clone(), req.partition),
+                (req.committed_offset, req.metadata.clone()),
+            );
+            return Ok(crate::pb::CommitOffsetResponse { error_code: 0, ..Default::default() });
+        }
         let session = self.groups.lock().await.get(&req.group_id).cloned();
         let (generation_id, member_id, group_instance_id) = match session {
             Some(session) => (
@@ -675,6 +807,14 @@ async fn run_subscribe(
             member_id = join.member_id;
             continue 'membership;
         }
+        // Transient coordinator states on a fresh broker:
+        // COORDINATOR_LOAD_IN_PROGRESS (14),
+        // COORDINATOR_NOT_AVAILABLE (15), NOT_COORDINATOR (16).
+        // Rediscover and retry instead of failing the subscription.
+        if matches!(join.error_code, 14 | 15 | 16) {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            continue 'membership;
+        }
         if join.error_code != 0 {
             let _ = tx.send(Ok(group_error(
                 join.error_code,
@@ -797,7 +937,10 @@ async fn run_subscribe(
             let committed = broker.offset_fetch(&req.group_id, topic, *partition).await;
             let position = match committed {
                 Ok((offset, _, error_code)) if error_code == 0 && offset >= 0 => offset,
-                _ => match broker.list_offsets(topic, *partition, reset_timestamp).await {
+                _ => match broker
+                    .list_offsets(topic, *partition, reset_timestamp, req.read_committed)
+                    .await
+                {
                     Ok((offset, _, error_code)) if error_code == 0 => offset,
                     _ => 0,
                 },
@@ -856,7 +999,15 @@ async fn run_subscribe(
                 let key = (topic.clone(), *partition);
                 let position = *positions.get(&key).unwrap_or(&0);
                 let outcome = match broker
-                    .fetch(topic, *partition, position, 300, 1, 4 * 1024 * 1024)
+                    .fetch(
+                        topic,
+                        *partition,
+                        position,
+                        300,
+                        1,
+                        4 * 1024 * 1024,
+                        req.read_committed,
+                    )
                     .await
                 {
                     Ok(outcome) => outcome,
@@ -867,8 +1018,9 @@ async fn run_subscribe(
                 };
                 if outcome.error_code == 9 {
                     // OFFSET_OUT_OF_RANGE: apply the reset policy.
-                    if let Ok((offset, _, error_code)) =
-                        broker.list_offsets(topic, *partition, reset_timestamp).await
+                    if let Ok((offset, _, error_code)) = broker
+                        .list_offsets(topic, *partition, reset_timestamp, req.read_committed)
+                        .await
                     {
                         if error_code == 0 {
                             positions.insert(key, offset);

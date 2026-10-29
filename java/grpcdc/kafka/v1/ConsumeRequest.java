@@ -9,15 +9,17 @@ public final class ConsumeRequest implements grpcdc.Marshaler, grpcdc.Unmarshale
     public int maxRecords = 0;
     public int maxWaitMs = 0;
     public int minBytes = 0;
+    public boolean readCommitted = false;
     public byte[] unknownFields = new byte[0];
     public ConsumeRequest() {}
-    public ConsumeRequest(String topic, int partition, long offset, int maxRecords, int maxWaitMs, int minBytes) {
+    public ConsumeRequest(String topic, int partition, long offset, int maxRecords, int maxWaitMs, int minBytes, boolean readCommitted) {
         this.topic = topic;
         this.partition = partition;
         this.offset = offset;
         this.maxRecords = maxRecords;
         this.maxWaitMs = maxWaitMs;
         this.minBytes = minBytes;
+        this.readCommitted = readCommitted;
     }
 
     @Override
@@ -29,6 +31,7 @@ public final class ConsumeRequest implements grpcdc.Marshaler, grpcdc.Unmarshale
         if (maxRecords != 0) { w.tag(4, 0); w.varint(maxRecords); }
         if (maxWaitMs != 0) { w.tag(5, 0); w.varint(maxWaitMs); }
         if (minBytes != 0) { w.tag(6, 0); w.varint(minBytes); }
+        if (readCommitted) { w.tag(7, 0); w.varint((readCommitted ? 1 : 0)); }
         w.raw(unknownFields);
         return w.toBytes();
     }
@@ -42,6 +45,7 @@ public final class ConsumeRequest implements grpcdc.Marshaler, grpcdc.Unmarshale
         maxRecords = 0;
         maxWaitMs = 0;
         minBytes = 0;
+        readCommitted = false;
         KafkaPb.Reader r = new KafkaPb.Reader(data);
         KafkaPb.Field field;
         while ((field = r.next()) != null) {
@@ -63,6 +67,9 @@ public final class ConsumeRequest implements grpcdc.Marshaler, grpcdc.Unmarshale
                 }
                 case 6 -> {
                     minBytes = (int) field.varintValue;
+                }
+                case 7 -> {
+                    readCommitted = field.varintValue != 0;
                 }
                 default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
             }

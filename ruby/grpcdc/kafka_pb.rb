@@ -1125,15 +1125,16 @@ end
   end
 
   class ConsumeRequest
-    attr_accessor :topic, :partition, :offset, :max_records, :max_wait_ms, :min_bytes, :unknown_fields
+    attr_accessor :topic, :partition, :offset, :max_records, :max_wait_ms, :min_bytes, :read_committed, :unknown_fields
 
-    def initialize(topic: "", partition: 0, offset: 0, max_records: 0, max_wait_ms: 0, min_bytes: 0)
+    def initialize(topic: "", partition: 0, offset: 0, max_records: 0, max_wait_ms: 0, min_bytes: 0, read_committed: false)
       @topic = topic
       @partition = partition
       @offset = offset
       @max_records = max_records
       @max_wait_ms = max_wait_ms
       @min_bytes = min_bytes
+      @read_committed = read_committed
       @unknown_fields = "".b
     end
 
@@ -1160,6 +1161,10 @@ end
       w.tag(6, 0)
       w.varint(@min_bytes)
     end
+    if @read_committed
+      w.tag(7, 0)
+      w.varint((@read_committed ? 1 : 0))
+    end
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -1172,6 +1177,7 @@ end
       @max_records = 0
       @max_wait_ms = 0
       @min_bytes = 0
+      @read_committed = false
       r = Reader.new(data)
       loop do
         item = r.field
@@ -1191,6 +1197,8 @@ end
         @max_wait_ms = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
       when 6
         @min_bytes = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 7
+        @read_committed = (varint_value != 0)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -1199,7 +1207,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(ConsumeRequest) && @topic == other.topic && @partition == other.partition && @offset == other.offset && @max_records == other.max_records && @max_wait_ms == other.max_wait_ms && @min_bytes == other.min_bytes
+      other.is_a?(ConsumeRequest) && @topic == other.topic && @partition == other.partition && @offset == other.offset && @max_records == other.max_records && @max_wait_ms == other.max_wait_ms && @min_bytes == other.min_bytes && @read_committed == other.read_committed
     end
   end
 
@@ -1274,15 +1282,16 @@ end
   end
 
   class GroupSubscribeRequest
-    attr_accessor :group_id, :topics, :group_instance_id, :session_timeout_ms, :max_poll_records, :auto_offset_reset, :unknown_fields
+    attr_accessor :group_id, :topics, :group_instance_id, :session_timeout_ms, :max_poll_records, :auto_offset_reset, :read_committed, :unknown_fields
 
-    def initialize(group_id: "", topics: [], group_instance_id: "", session_timeout_ms: 0, max_poll_records: 0, auto_offset_reset: "")
+    def initialize(group_id: "", topics: [], group_instance_id: "", session_timeout_ms: 0, max_poll_records: 0, auto_offset_reset: "", read_committed: false)
       @group_id = group_id
       @topics = topics
       @group_instance_id = group_instance_id
       @session_timeout_ms = session_timeout_ms
       @max_poll_records = max_poll_records
       @auto_offset_reset = auto_offset_reset
+      @read_committed = read_committed
       @unknown_fields = "".b
     end
 
@@ -1300,6 +1309,10 @@ end
       w.varint(@max_poll_records)
     end
     w.string_field(6, @auto_offset_reset)
+    if @read_committed
+      w.tag(7, 0)
+      w.varint((@read_committed ? 1 : 0))
+    end
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -1312,6 +1325,7 @@ end
       @session_timeout_ms = 0
       @max_poll_records = 0
       @auto_offset_reset = ""
+      @read_committed = false
       r = Reader.new(data)
       loop do
         item = r.field
@@ -1331,6 +1345,8 @@ end
         @max_poll_records = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
       when 6
         @auto_offset_reset = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 7
+        @read_committed = (varint_value != 0)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -1339,7 +1355,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(GroupSubscribeRequest) && @group_id == other.group_id && @topics == other.topics && @group_instance_id == other.group_instance_id && @session_timeout_ms == other.session_timeout_ms && @max_poll_records == other.max_poll_records && @auto_offset_reset == other.auto_offset_reset
+      other.is_a?(GroupSubscribeRequest) && @group_id == other.group_id && @topics == other.topics && @group_instance_id == other.group_instance_id && @session_timeout_ms == other.session_timeout_ms && @max_poll_records == other.max_poll_records && @auto_offset_reset == other.auto_offset_reset && @read_committed == other.read_committed
     end
   end
 
@@ -1575,12 +1591,13 @@ end
   end
 
   class ListOffsetsRequest
-    attr_accessor :topic, :partition, :timestamp, :unknown_fields
+    attr_accessor :topic, :partition, :timestamp, :read_committed, :unknown_fields
 
-    def initialize(topic: "", partition: 0, timestamp: 0)
+    def initialize(topic: "", partition: 0, timestamp: 0, read_committed: false)
       @topic = topic
       @partition = partition
       @timestamp = timestamp
+      @read_committed = read_committed
       @unknown_fields = "".b
     end
 
@@ -1595,6 +1612,10 @@ end
       w.tag(3, 0)
       w.varint(@timestamp)
     end
+    if @read_committed
+      w.tag(4, 0)
+      w.varint((@read_committed ? 1 : 0))
+    end
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -1604,6 +1625,7 @@ end
       @topic = ""
       @partition = 0
       @timestamp = 0
+      @read_committed = false
       r = Reader.new(data)
       loop do
         item = r.field
@@ -1617,6 +1639,8 @@ end
         @partition = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
       when 3
         @timestamp = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 4
+        @read_committed = (varint_value != 0)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -1625,7 +1649,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(ListOffsetsRequest) && @topic == other.topic && @partition == other.partition && @timestamp == other.timestamp
+      other.is_a?(ListOffsetsRequest) && @topic == other.topic && @partition == other.partition && @timestamp == other.timestamp && @read_committed == other.read_committed
     end
   end
 
@@ -1688,14 +1712,15 @@ end
   end
 
   class CommitOffsetRequest
-    attr_accessor :group_id, :topic, :partition, :committed_offset, :metadata, :unknown_fields
+    attr_accessor :group_id, :topic, :partition, :committed_offset, :metadata, :session_id, :unknown_fields
 
-    def initialize(group_id: "", topic: "", partition: 0, committed_offset: 0, metadata: "")
+    def initialize(group_id: "", topic: "", partition: 0, committed_offset: 0, metadata: "", session_id: "")
       @group_id = group_id
       @topic = topic
       @partition = partition
       @committed_offset = committed_offset
       @metadata = metadata
+      @session_id = session_id
       @unknown_fields = "".b
     end
 
@@ -1712,6 +1737,7 @@ end
       w.varint(@committed_offset)
     end
     w.string_field(5, @metadata)
+    w.string_field(6, @session_id)
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -1723,6 +1749,7 @@ end
       @partition = 0
       @committed_offset = 0
       @metadata = ""
+      @session_id = ""
       r = Reader.new(data)
       loop do
         item = r.field
@@ -1740,6 +1767,8 @@ end
         @committed_offset = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
       when 5
         @metadata = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 6
+        @session_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -1748,7 +1777,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(CommitOffsetRequest) && @group_id == other.group_id && @topic == other.topic && @partition == other.partition && @committed_offset == other.committed_offset && @metadata == other.metadata
+      other.is_a?(CommitOffsetRequest) && @group_id == other.group_id && @topic == other.topic && @partition == other.partition && @committed_offset == other.committed_offset && @metadata == other.metadata && @session_id == other.session_id
     end
   end
 

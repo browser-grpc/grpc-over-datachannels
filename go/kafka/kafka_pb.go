@@ -1165,6 +1165,7 @@ type ConsumeRequest struct {
 	MaxRecords    int32
 	MaxWaitMs     int32
 	MinBytes      int32
+	ReadCommitted bool
 	UnknownFields []byte
 }
 
@@ -1190,6 +1191,10 @@ func (m *ConsumeRequest) MarshalDC() []byte {
 	if m.MinBytes != 0 {
 		out = KafkaPbAppendTag(out, 6, 0)
 		out = KafkaPbAppendVarint(out, uint64(int64(m.MinBytes)))
+	}
+	if m.ReadCommitted {
+		out = KafkaPbAppendTag(out, 7, 0)
+		out = KafkaPbAppendVarint(out, KafkaPbBoolToUint64(m.ReadCommitted))
 	}
 	out = append(out, m.UnknownFields...)
 	return out
@@ -1230,6 +1235,10 @@ func (m *ConsumeRequest) UnmarshalDC(data []byte) error {
 		case 6:
 			if v, ok := value.(uint64); ok {
 				m.MinBytes = int32(v)
+			}
+		case 7:
+			if v, ok := value.(uint64); ok {
+				m.ReadCommitted = v != 0
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)
@@ -1319,6 +1328,7 @@ type GroupSubscribeRequest struct {
 	SessionTimeoutMs int32
 	MaxPollRecords   int32
 	AutoOffsetReset  string
+	ReadCommitted    bool
 	UnknownFields    []byte
 }
 
@@ -1338,6 +1348,10 @@ func (m *GroupSubscribeRequest) MarshalDC() []byte {
 		out = KafkaPbAppendVarint(out, uint64(int64(m.MaxPollRecords)))
 	}
 	out = KafkaPbAppendStringField(out, 6, m.AutoOffsetReset)
+	if m.ReadCommitted {
+		out = KafkaPbAppendTag(out, 7, 0)
+		out = KafkaPbAppendVarint(out, KafkaPbBoolToUint64(m.ReadCommitted))
+	}
 	out = append(out, m.UnknownFields...)
 	return out
 }
@@ -1377,6 +1391,10 @@ func (m *GroupSubscribeRequest) UnmarshalDC(data []byte) error {
 		case 6:
 			if b, ok := value.([]byte); ok {
 				m.AutoOffsetReset = string(b)
+			}
+		case 7:
+			if v, ok := value.(uint64); ok {
+				m.ReadCommitted = v != 0
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)
@@ -1628,6 +1646,7 @@ type ListOffsetsRequest struct {
 	Topic         string
 	Partition     int32
 	Timestamp     int64
+	ReadCommitted bool
 	UnknownFields []byte
 }
 
@@ -1641,6 +1660,10 @@ func (m *ListOffsetsRequest) MarshalDC() []byte {
 	if m.Timestamp != 0 {
 		out = KafkaPbAppendTag(out, 3, 0)
 		out = KafkaPbAppendVarint(out, uint64(m.Timestamp))
+	}
+	if m.ReadCommitted {
+		out = KafkaPbAppendTag(out, 4, 0)
+		out = KafkaPbAppendVarint(out, KafkaPbBoolToUint64(m.ReadCommitted))
 	}
 	out = append(out, m.UnknownFields...)
 	return out
@@ -1669,6 +1692,10 @@ func (m *ListOffsetsRequest) UnmarshalDC(data []byte) error {
 		case 3:
 			if v, ok := value.(uint64); ok {
 				m.Timestamp = int64(v)
+			}
+		case 4:
+			if v, ok := value.(uint64); ok {
+				m.ReadCommitted = v != 0
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)
@@ -1737,6 +1764,7 @@ type CommitOffsetRequest struct {
 	Partition       int32
 	CommittedOffset int64
 	Metadata        string
+	SessionId       string
 	UnknownFields   []byte
 }
 
@@ -1753,6 +1781,7 @@ func (m *CommitOffsetRequest) MarshalDC() []byte {
 		out = KafkaPbAppendVarint(out, uint64(m.CommittedOffset))
 	}
 	out = KafkaPbAppendStringField(out, 5, m.Metadata)
+	out = KafkaPbAppendStringField(out, 6, m.SessionId)
 	out = append(out, m.UnknownFields...)
 	return out
 }
@@ -1788,6 +1817,10 @@ func (m *CommitOffsetRequest) UnmarshalDC(data []byte) error {
 		case 5:
 			if b, ok := value.([]byte); ok {
 				m.Metadata = string(b)
+			}
+		case 6:
+			if b, ok := value.([]byte); ok {
+				m.SessionId = string(b)
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)

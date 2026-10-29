@@ -27,6 +27,65 @@ TMP="$(mktemp -d)"
 PIDS=()
 STARTED_BROKERS=()
 
+# Redpanda v26 broker binary accepts YAML configuration only: it
+# dropped the legacy `redpanda start --kafka-addr ...` CLI flags.
+# Generate a per-fixture YAML with rpk, patch it with rpk config
+# set, and launch the broker ELF binary directly (the shell
+# wrapper's argv0 juggling also breaks the YAML-only binary).
+rp_broker_bin() {
+    local libexec
+    libexec="$(dirname "$REDPANDA_BIN")/../libexec/redpanda"
+    if [ -x "$libexec" ]; then
+        echo "$libexec"
+    else
+        echo "$REDPANDA_BIN"
+    fi
+}
+
+rp_rpk_bin() {
+    local rpk_bin
+    rpk_bin="$(dirname "$REDPANDA_BIN")/rpk"
+    [ -x "$rpk_bin" ] || rpk_bin="$(command -v rpk || true)"
+    echo "$rpk_bin"
+}
+
+# start_redpanda_instance NAME DATA_DIR RPC_ADDR ADMIN_PORT \
+#     KAFKA_API_YAML ADVERTISED_YAML [key=value ...]
+# KAFKA_API_YAML / ADVERTISED_YAML are YAML list fragments, e.g.
+# '[{address: 127.0.0.1, port: 19093}]' or named listeners with
+# '"name":"external"'. Extra key=value pairs go to rpk config set.
+start_redpanda_instance() {
+    local name="$1" data_dir="$2" rpc_addr="$3" admin_port="$4" \
+        kafka_yaml="$5" advertised_yaml="$6"
+    shift 6
+    local cfg="$TMP/$name.yaml" rpk_bin broker_bin kv
+    rpk_bin="$(rp_rpk_bin)"
+    [ -n "$rpk_bin" ] || { echo "FAIL: rpk not found next to redpanda" >&2; return 1; }
+    broker_bin="$(rp_broker_bin)"
+    mkdir -p "$data_dir"
+    "$rpk_bin" redpanda config bootstrap --config "$cfg" \
+        --self "${rpc_addr%:*}" >/dev/null || return 1
+    "$rpk_bin" redpanda config set --config "$cfg" \
+        redpanda.data_directory "$data_dir" >/dev/null || return 1
+    "$rpk_bin" redpanda config set --config "$cfg" \
+        redpanda.rpc_server "{address: ${rpc_addr%:*}, port: ${rpc_addr##*:}}" >/dev/null || return 1
+    "$rpk_bin" redpanda config set --config "$cfg" \
+        redpanda.advertised_rpc_api "{address: ${rpc_addr%:*}, port: ${rpc_addr##*:}}" >/dev/null || return 1
+    "$rpk_bin" redpanda config set --config "$cfg" \
+        redpanda.admin "[{address: 127.0.0.1, port: $admin_port}]" >/dev/null || return 1
+    "$rpk_bin" redpanda config set --config "$cfg" \
+        redpanda.kafka_api "$kafka_yaml" >/dev/null || return 1
+    "$rpk_bin" redpanda config set --config "$cfg" \
+        redpanda.advertised_kafka_api "$advertised_yaml" >/dev/null || return 1
+    for kv in "$@"; do
+        "$rpk_bin" redpanda config set --config "$cfg" \
+            "${kv%%=*}" "${kv#*=}" >/dev/null || return 1
+    done
+    "$broker_bin" --redpanda-cfg "$cfg" --smp 1 --memory 512M \
+        >"$TMP/$name.log" 2>&1 &
+    STARTED_BROKERS+=($!)
+}
+
 cleanup() {
     for pid in "${PIDS[@]:-}"; do
         [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
@@ -52,6 +111,129 @@ wait_port() { # addr seconds label
         sleep 1
     done
     echo "ok: $3 listening on $1"
+}
+
+KAFKA_SASL_ADDR=127.0.0.1:19197
+PROXY_KAFKA_SASL256_ADDR=127.0.0.1:50208
+PROXY_KAFKA_SASL512_ADDR=127.0.0.1:50209
+PROXY_KAFKA_SASLPLAIN_ADDR=127.0.0.1:50210
+
+# Apache Kafka SASL fixture: a second KRaft broker with one
+# SASL_PLAINTEXT listener advertising PLAIN + SCRAM-SHA-256 +
+# SCRAM-SHA-512 (test-only users rpadmin/proxy, provisioned
+# below). The Redpanda SASL fixture remains in place; this proves
+# the same proxy SASL paths against stock Apache Kafka.
+start_kafka_sasl() {
+    if port_open "$KAFKA_SASL_ADDR"; then
+        echo "ok: kafka (sasl) already listening on $KAFKA_SASL_ADDR (reusing)"
+        return 0
+    fi
+    local props="$TMP/kafka-sasl.properties"
+    cat > "$props" <<EOF
+process.roles=broker,controller
+node.id=2
+listeners=SASL_PLAINTEXT://0.0.0.0:19197,CONTROLLER://0.0.0.0:19194
+advertised.listeners=SASL_PLAINTEXT://localhost:19197
+controller.listener.names=CONTROLLER
+controller.quorum.voters=2@localhost:19194
+log.dirs=$TMP/kafka-sasl-logs
+offsets.topic.replication.factor=1
+transaction.state.log.replication.factor=1
+transaction.state.log.min.isr=1
+group.initial.rebalance.delay.ms=0
+num.partitions=1
+listener.security.protocol.map=CONTROLLER:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT
+inter.broker.listener.name=SASL_PLAINTEXT
+sasl.mechanism.inter.broker.protocol=PLAIN
+sasl.enabled.mechanisms=PLAIN,SCRAM-SHA-256,SCRAM-SHA-512
+authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
+# Combined broker+controller node: its own registration RPCs
+# arrive as User:ANONYMOUS on the CONTROLLER listener and need
+# CLUSTER_ACTION on CLUSTER, which StandardAuthorizer only
+# grants to super users or explicit ACLs. Test-only fixture
+# (listener not published outside the test host); real
+# clusters isolate controllers instead.
+super.users=User:admin;User:rpadmin;User:proxy;User:ANONYMOUS
+allow.everyone.if.no.acl.found=false
+listener.name.sasl_plaintext.plain.sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="admin-secret" user_rpadmin="rp-secret" user_proxy="proxy-secret";
+listener.name.sasl_plaintext.scram-sha-256.sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="admin" password="admin-secret";
+listener.name.sasl_plaintext.scram-sha-512.sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="admin" password="admin-secret";
+EOF
+    local cluster_id
+    cluster_id="$("$KAFKA_HOME/bin/kafka-storage.sh" random-uuid)" || return 1
+    "$KAFKA_HOME/bin/kafka-storage.sh" format -t "$cluster_id" -c "$props" \
+        --ignore-formatted >"$TMP/kafka-sasl-format.log" 2>&1 || return 1
+    "$KAFKA_HOME/bin/kafka-server-start.sh" "$props" >"$TMP/kafka-sasl.log" 2>&1 &
+    STARTED_BROKERS+=($!)
+    wait_port "$KAFKA_SASL_ADDR" 180 "kafka (sasl)" || { tail -20 "$TMP/kafka-sasl.log" >&2; return 1; }
+    local admin_cfg="$TMP/kafka-sasl-admin.properties"
+    cat > "$admin_cfg" <<EOF
+security.protocol=SASL_PLAINTEXT
+sasl.mechanism=PLAIN
+sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="rpadmin" password="rp-secret";
+EOF
+    "$KAFKA_HOME/bin/kafka-configs.sh" --bootstrap-server "$KAFKA_SASL_ADDR" \
+        --command-config "$admin_cfg" --alter --add-config 'SCRAM-SHA-256=[password=rp-secret]' \
+        --entity-type users --entity-name rpadmin >/dev/null || return 1
+    "$KAFKA_HOME/bin/kafka-configs.sh" --bootstrap-server "$KAFKA_SASL_ADDR" \
+        --command-config "$admin_cfg" --alter --add-config 'SCRAM-SHA-512=[password=proxy-secret]' \
+        --entity-type users --entity-name proxy >/dev/null || return 1
+    sleep 2
+}
+
+run_kafka_sasl_suites() {
+    run "sasl scram-sha-256 e2e (apache kafka)" env KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_SASL256_ADDR" \
+        bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_e2e"
+    run "sasl scram-sha-512 e2e (apache kafka)" env KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_SASL512_ADDR" \
+        bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_e2e"
+    run "sasl plain e2e (apache kafka)" env KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_SASLPLAIN_ADDR" \
+        bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_e2e"
+}
+
+KAFKA_CLUSTER_ADDR=127.0.0.1:19192
+KAFKA_CLUSTER_ADDR2=127.0.0.1:19292
+
+# Two-broker Apache Kafka cluster (separate from the single
+# broker above) for partition-leader routing proof: the Rust
+# suite bootstraps only to node 11 and must reach leaders on
+# both nodes. Formatted as one KRaft quorum of two.
+start_kafka_cluster() {
+    if port_open "$KAFKA_CLUSTER_ADDR" && port_open "$KAFKA_CLUSTER_ADDR2"; then
+        echo "ok: kafka cluster already listening on $KAFKA_CLUSTER_ADDR,$KAFKA_CLUSTER_ADDR2 (reusing)"
+        return 0
+    fi
+    local cluster_id node props
+    cluster_id="$("$KAFKA_HOME/bin/kafka-storage.sh" random-uuid)" || return 1
+    for node in 11 12; do
+        local client_port=$((19192 + (node - 11) * 100))
+        local controller_port=$((19193 + (node - 11) * 100))
+        props="$TMP/kafka-cluster-$node.properties"
+        cat > "$props" <<EOF
+process.roles=broker,controller
+node.id=$node
+listeners=PLAINTEXT://0.0.0.0:$client_port,CONTROLLER://0.0.0.0:$controller_port
+advertised.listeners=PLAINTEXT://localhost:$client_port
+controller.listener.names=CONTROLLER
+controller.quorum.voters=11@localhost:19193,12@localhost:19293
+log.dirs=$TMP/kafka-cluster-logs-$node
+offsets.topic.replication.factor=2
+offsets.topic.num.partitions=4
+transaction.state.log.replication.factor=2
+transaction.state.log.min.isr=1
+default.replication.factor=2
+min.insync.replicas=1
+group.initial.rebalance.delay.ms=0
+num.partitions=3
+EOF
+        "$KAFKA_HOME/bin/kafka-storage.sh" format -t "$cluster_id" -c "$props" \
+            --ignore-formatted >"$TMP/kafka-cluster-$node-format.log" 2>&1 || return 1
+        "$KAFKA_HOME/bin/kafka-server-start.sh" "$props" \
+            >"$TMP/kafka-cluster-$node.log" 2>&1 &
+        STARTED_BROKERS+=($!)
+    done
+    wait_port "$KAFKA_CLUSTER_ADDR" 180 "kafka cluster node 11" || { tail -20 "$TMP/kafka-cluster-11.log" >&2; return 1; }
+    wait_port "$KAFKA_CLUSTER_ADDR2" 180 "kafka cluster node 12" || { tail -20 "$TMP/kafka-cluster-12.log" >&2; return 1; }
+    sleep 5
 }
 
 start_kafka() {
@@ -102,16 +284,13 @@ start_redpanda_sasl() {
     [ -x "$rpk_bin" ] || rpk_bin="$(command -v rpk || true)"
     [ -n "$rpk_bin" ] || { echo "FAIL: rpk not found next to redpanda" >&2; return 1; }
     mkdir -p "$TMP/rp-sasl-data"
-    "$REDPANDA_BIN" start --overprovisioned --smp 1 --memory 512M \
-        --kafka-addr 0.0.0.0:19097 \
-        --advertise-kafka-addr localhost:19097 \
-        --rpc-addr 0.0.0.0:33146 \
-        --pandaproxy-addr 127.0.0.1:18082 \
-        --schema-registry-addr 127.0.0.1:18081 \
-        --data-directory "$TMP/rp-sasl-data" \
-        --set 'redpanda.admin=[{"address":"127.0.0.1","port":9645}]' \
-        >"$TMP/redpanda-sasl.log" 2>&1 &
-    STARTED_BROKERS+=($!)
+    start_redpanda_instance redpanda-sasl "$TMP/rp-sasl-data" \
+        127.0.0.1:33146 9645 \
+        '[{address: 0.0.0.0, port: 19097}]' \
+        '[{address: 127.0.0.1, port: 19097}]' \
+        'pandaproxy.pandaproxy_api=[{address: 127.0.0.1, port: 18082}]' \
+        'schema_registry.schema_registry_api=[{address: 127.0.0.1, port: 18081}]' \
+        || return 1
     wait_port "$SASL_REDPANDA_ADDR" 120 "redpanda (sasl)" || { tail -20 "$TMP/redpanda-sasl.log" >&2; return 1; }
     "$rpk_bin" cluster config set enable_sasl true --api-urls 127.0.0.1:9645 >/dev/null || return 1
     "$rpk_bin" cluster config set superusers '["rpadmin","proxy"]' --api-urls 127.0.0.1:9645 >/dev/null || return 1
@@ -149,17 +328,14 @@ start_redpanda_tls() {
         >/dev/null 2>&1 || return 1
     chmod 644 "$certs/broker.key"
     TLS_CA="$certs/ca.crt"
-    "$REDPANDA_BIN" start --overprovisioned --smp 1 --memory 512M \
-        --kafka-addr internal://0.0.0.0:19099,tls://0.0.0.0:19098 \
-        --advertise-kafka-addr internal://127.0.0.1:19099,tls://localhost:19098 \
-        --rpc-addr 0.0.0.0:33147 \
-        --pandaproxy-addr 127.0.0.1:18084 \
-        --schema-registry-addr 127.0.0.1:18083 \
-        --data-directory "$TMP/rp-tls-data" \
-        --set 'redpanda.admin=[{"address":"127.0.0.1","port":9646}]' \
-        --set "redpanda.kafka_api_tls=[{\"name\":\"tls\",\"enabled\":true,\"require_client_auth\":false,\"cert_file\":\"$certs/broker.crt\",\"key_file\":\"$certs/broker.key\",\"truststore_file\":\"$certs/ca.crt\"}]" \
-        >"$TMP/redpanda-tls.log" 2>&1 &
-    STARTED_BROKERS+=($!)
+    start_redpanda_instance redpanda-tls "$TMP/rp-tls-data" \
+        127.0.0.1:33147 9646 \
+        '[{name: internal, address: 0.0.0.0, port: 19099}, {name: tls, address: 0.0.0.0, port: 19098}]' \
+        '[{name: internal, address: 127.0.0.1, port: 19099}, {name: tls, address: 127.0.0.1, port: 19098}]' \
+        'pandaproxy.pandaproxy_api=[{address: 127.0.0.1, port: 18084}]' \
+        'schema_registry.schema_registry_api=[{address: 127.0.0.1, port: 18083}]' \
+        "redpanda.kafka_api_tls=[{\"name\":\"tls\",\"enabled\":true,\"require_client_auth\":false,\"cert_file\":\"$certs/broker.crt\",\"key_file\":\"$certs/broker.key\",\"truststore_file\":\"$certs/ca.crt\"}]" \
+        || return 1
     wait_port "$TLS_REDPANDA_ADDR" 120 "redpanda (tls)" || { tail -20 "$TMP/redpanda-tls.log" >&2; return 1; }
 }
 
@@ -214,12 +390,11 @@ start_redpanda() {
         return 0
     fi
     mkdir -p "$TMP/rp-data"
-    "$REDPANDA_BIN" start --overprovisioned --smp 1 --memory 512M \
-        --kafka-addr internal://127.0.0.1:19095,external://127.0.0.1:19093 \
-        --advertise-kafka-addr internal://127.0.0.1:19095,external://localhost:19093 \
-        --rpc-addr 127.0.0.1:33145 \
-        --data-directory "$TMP/rp-data" >"$TMP/redpanda.log" 2>&1 &
-    STARTED_BROKERS+=($!)
+    start_redpanda_instance redpanda "$TMP/rp-data" \
+        127.0.0.1:33145 9644 \
+        '[{name: internal, address: 127.0.0.1, port: 19095}, {name: external, address: 127.0.0.1, port: 19093}]' \
+        '[{name: internal, address: 127.0.0.1, port: 19095}, {name: external, address: 127.0.0.1, port: 19093}]' \
+        || return 1
     wait_port "$REDPANDA_ADDR" 120 "redpanda" || { tail -20 "$TMP/redpanda.log" >&2; return 1; }
 }
 
@@ -334,6 +509,24 @@ main() {
 
     run_suites "$KAFKA_ADDR" "$PROXY_KAFKA_ADDR" "apache kafka"
     run_suites "$REDPANDA_ADDR" "$PROXY_REDPANDA_ADDR" "redpanda"
+
+    start_kafka_cluster || exit 1
+    run "rust multi-broker leader routing (apache kafka)" env \
+        KAFKA_PROXY_E2E_BROKER="$KAFKA_CLUSTER_ADDR" KAFKA_PROXY_E2E_CLUSTER=1 \
+        bash -c "cd '$ROOT/rust' && cargo test --test kafka_proxy_e2e kafka_proxy_multi_broker_leader_routing"
+
+    start_kafka_sasl || exit 1
+    "$proxy_bin" --tcp "$PROXY_KAFKA_SASL256_ADDR" --broker "$KAFKA_SASL_ADDR" \
+        --sasl-scram-sha-256 rpadmin rp-secret >"$TMP/proxy-kafka-sasl256.log" 2>&1 &
+    PIDS+=($!)
+    "$proxy_bin" --tcp "$PROXY_KAFKA_SASL512_ADDR" --broker "$KAFKA_SASL_ADDR" \
+        --sasl-scram-sha-512 proxy proxy-secret >"$TMP/proxy-kafka-sasl512.log" 2>&1 &
+    PIDS+=($!)
+    "$proxy_bin" --tcp "$PROXY_KAFKA_SASLPLAIN_ADDR" --broker "$KAFKA_SASL_ADDR" \
+        --sasl-plain proxy proxy-secret >"$TMP/proxy-kafka-saslplain.log" 2>&1 &
+    PIDS+=($!)
+    wait_port "$PROXY_KAFKA_SASL256_ADDR" 30 "proxy (kafka sasl)" || exit 1
+    run_kafka_sasl_suites
 
     start_redpanda_sasl || exit 1
     "$proxy_bin" --tcp "$PROXY_SASL256_ADDR" --broker "$SASL_REDPANDA_ADDR" \

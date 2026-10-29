@@ -949,13 +949,14 @@ class ProduceResponse:
 class ConsumeRequest:
     """Message grpcdc.kafka.v1.ConsumeRequest."""
 
-    def __init__(self, topic="", partition=0, offset=0, max_records=0, max_wait_ms=0, min_bytes=0):
+    def __init__(self, topic="", partition=0, offset=0, max_records=0, max_wait_ms=0, min_bytes=0, read_committed=False):
         self.topic = topic
         self.partition = partition
         self.offset = offset
         self.max_records = max_records
         self.max_wait_ms = max_wait_ms
         self.min_bytes = min_bytes
+        self.read_committed = read_committed
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -966,6 +967,7 @@ class ConsumeRequest:
         out = _append_varint_field(out, 4, self.max_records)
         out = _append_varint_field(out, 5, self.max_wait_ms)
         out = _append_varint_field(out, 6, self.min_bytes)
+        out = _append_varint_field(out, 7, (1 if self.read_committed else 0))
         out += self.unknown_fields
         return bytes(out)
 
@@ -977,6 +979,7 @@ class ConsumeRequest:
         self.max_records = 0
         self.max_wait_ms = 0
         self.min_bytes = 0
+        self.read_committed = False
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -995,6 +998,8 @@ class ConsumeRequest:
                 self.max_wait_ms = _as_int32(value)
             elif num == 6:
                 self.min_bytes = _as_int32(value)
+            elif num == 7:
+                self.read_committed = (value != 0)
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -1002,7 +1007,7 @@ class ConsumeRequest:
         return isinstance(other, ConsumeRequest) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"ConsumeRequest(topic={self.topic!r}, partition={self.partition!r}, offset={self.offset!r}, max_records={self.max_records!r}, max_wait_ms={self.max_wait_ms!r}, min_bytes={self.min_bytes!r})"
+        return f"ConsumeRequest(topic={self.topic!r}, partition={self.partition!r}, offset={self.offset!r}, max_records={self.max_records!r}, max_wait_ms={self.max_wait_ms!r}, min_bytes={self.min_bytes!r}, read_committed={self.read_committed!r})"
 
 
 class ConsumeResponse:
@@ -1066,13 +1071,14 @@ class ConsumeResponse:
 class GroupSubscribeRequest:
     """Message grpcdc.kafka.v1.GroupSubscribeRequest."""
 
-    def __init__(self, group_id="", topics=None, group_instance_id="", session_timeout_ms=0, max_poll_records=0, auto_offset_reset=""):
+    def __init__(self, group_id="", topics=None, group_instance_id="", session_timeout_ms=0, max_poll_records=0, auto_offset_reset="", read_committed=False):
         self.group_id = group_id
         self.topics = list(topics) if topics is not None else []
         self.group_instance_id = group_instance_id
         self.session_timeout_ms = session_timeout_ms
         self.max_poll_records = max_poll_records
         self.auto_offset_reset = auto_offset_reset
+        self.read_committed = read_committed
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -1084,6 +1090,7 @@ class GroupSubscribeRequest:
         out = _append_varint_field(out, 4, self.session_timeout_ms)
         out = _append_varint_field(out, 5, self.max_poll_records)
         out = _append_string_field(out, 6, self.auto_offset_reset)
+        out = _append_varint_field(out, 7, (1 if self.read_committed else 0))
         out += self.unknown_fields
         return bytes(out)
 
@@ -1095,6 +1102,7 @@ class GroupSubscribeRequest:
         self.session_timeout_ms = 0
         self.max_poll_records = 0
         self.auto_offset_reset = ""
+        self.read_committed = False
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -1113,6 +1121,8 @@ class GroupSubscribeRequest:
                 self.max_poll_records = _as_int32(value)
             elif num == 6:
                 self.auto_offset_reset = value.decode("utf-8")
+            elif num == 7:
+                self.read_committed = (value != 0)
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -1120,7 +1130,7 @@ class GroupSubscribeRequest:
         return isinstance(other, GroupSubscribeRequest) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"GroupSubscribeRequest(group_id={self.group_id!r}, topics={self.topics!r}, group_instance_id={self.group_instance_id!r}, session_timeout_ms={self.session_timeout_ms!r}, max_poll_records={self.max_poll_records!r}, auto_offset_reset={self.auto_offset_reset!r})"
+        return f"GroupSubscribeRequest(group_id={self.group_id!r}, topics={self.topics!r}, group_instance_id={self.group_instance_id!r}, session_timeout_ms={self.session_timeout_ms!r}, max_poll_records={self.max_poll_records!r}, auto_offset_reset={self.auto_offset_reset!r}, read_committed={self.read_committed!r})"
 
 
 class GroupSubscribeResponse:
@@ -1326,10 +1336,11 @@ class GroupError:
 class ListOffsetsRequest:
     """Message grpcdc.kafka.v1.ListOffsetsRequest."""
 
-    def __init__(self, topic="", partition=0, timestamp=0):
+    def __init__(self, topic="", partition=0, timestamp=0, read_committed=False):
         self.topic = topic
         self.partition = partition
         self.timestamp = timestamp
+        self.read_committed = read_committed
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -1337,6 +1348,7 @@ class ListOffsetsRequest:
         out = _append_string_field(out, 1, self.topic)
         out = _append_varint_field(out, 2, self.partition)
         out = _append_varint_field(out, 3, self.timestamp)
+        out = _append_varint_field(out, 4, (1 if self.read_committed else 0))
         out += self.unknown_fields
         return bytes(out)
 
@@ -1345,6 +1357,7 @@ class ListOffsetsRequest:
         self.topic = ""
         self.partition = 0
         self.timestamp = 0
+        self.read_committed = False
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -1357,6 +1370,8 @@ class ListOffsetsRequest:
                 self.partition = _as_int32(value)
             elif num == 3:
                 self.timestamp = _as_int64(value)
+            elif num == 4:
+                self.read_committed = (value != 0)
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -1364,7 +1379,7 @@ class ListOffsetsRequest:
         return isinstance(other, ListOffsetsRequest) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"ListOffsetsRequest(topic={self.topic!r}, partition={self.partition!r}, timestamp={self.timestamp!r})"
+        return f"ListOffsetsRequest(topic={self.topic!r}, partition={self.partition!r}, timestamp={self.timestamp!r}, read_committed={self.read_committed!r})"
 
 
 class ListOffsetsResponse:
@@ -1414,12 +1429,13 @@ class ListOffsetsResponse:
 class CommitOffsetRequest:
     """Message grpcdc.kafka.v1.CommitOffsetRequest."""
 
-    def __init__(self, group_id="", topic="", partition=0, committed_offset=0, metadata=""):
+    def __init__(self, group_id="", topic="", partition=0, committed_offset=0, metadata="", session_id=""):
         self.group_id = group_id
         self.topic = topic
         self.partition = partition
         self.committed_offset = committed_offset
         self.metadata = metadata
+        self.session_id = session_id
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -1429,6 +1445,7 @@ class CommitOffsetRequest:
         out = _append_varint_field(out, 3, self.partition)
         out = _append_varint_field(out, 4, self.committed_offset)
         out = _append_string_field(out, 5, self.metadata)
+        out = _append_string_field(out, 6, self.session_id)
         out += self.unknown_fields
         return bytes(out)
 
@@ -1439,6 +1456,7 @@ class CommitOffsetRequest:
         self.partition = 0
         self.committed_offset = 0
         self.metadata = ""
+        self.session_id = ""
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -1455,6 +1473,8 @@ class CommitOffsetRequest:
                 self.committed_offset = _as_int64(value)
             elif num == 5:
                 self.metadata = value.decode("utf-8")
+            elif num == 6:
+                self.session_id = value.decode("utf-8")
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -1462,7 +1482,7 @@ class CommitOffsetRequest:
         return isinstance(other, CommitOffsetRequest) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"CommitOffsetRequest(group_id={self.group_id!r}, topic={self.topic!r}, partition={self.partition!r}, committed_offset={self.committed_offset!r}, metadata={self.metadata!r})"
+        return f"CommitOffsetRequest(group_id={self.group_id!r}, topic={self.topic!r}, partition={self.partition!r}, committed_offset={self.committed_offset!r}, metadata={self.metadata!r}, session_id={self.session_id!r})"
 
 
 class CommitOffsetResponse:

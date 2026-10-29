@@ -698,13 +698,14 @@ export class ProduceResponse {
 }
 
 export class ConsumeRequest {
-  constructor({ topic = "", partition = 0, offset = 0n, maxRecords = 0, maxWaitMs = 0, minBytes = 0 } = {}) {
+  constructor({ topic = "", partition = 0, offset = 0n, maxRecords = 0, maxWaitMs = 0, minBytes = 0, readCommitted = false } = {}) {
     this.topic = topic;
     this.partition = partition;
     this.offset = offset;
     this.maxRecords = maxRecords;
     this.maxWaitMs = maxWaitMs;
     this.minBytes = minBytes;
+    this.readCommitted = readCommitted;
     this.unknownFields = new Uint8Array(0);
   }
   static encode(msg) {
@@ -715,6 +716,7 @@ export class ConsumeRequest {
     putVarintField(out, 4, BigInt(msg.maxRecords));
     putVarintField(out, 5, BigInt(msg.maxWaitMs));
     putVarintField(out, 6, BigInt(msg.minBytes));
+    putVarintField(out, 7, (msg.readCommitted ? 1n : 0n));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -731,6 +733,7 @@ export class ConsumeRequest {
       case 4: msg.maxRecords = Number(BigInt.asIntN(32, value)); break;
       case 5: msg.maxWaitMs = Number(BigInt.asIntN(32, value)); break;
       case 6: msg.minBytes = Number(BigInt.asIntN(32, value)); break;
+      case 7: msg.readCommitted = value !== 0n; break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -777,13 +780,14 @@ export class ConsumeResponse {
 }
 
 export class GroupSubscribeRequest {
-  constructor({ groupId = "", topics = [], groupInstanceId = "", sessionTimeoutMs = 0, maxPollRecords = 0, autoOffsetReset = "" } = {}) {
+  constructor({ groupId = "", topics = [], groupInstanceId = "", sessionTimeoutMs = 0, maxPollRecords = 0, autoOffsetReset = "", readCommitted = false } = {}) {
     this.groupId = groupId;
     this.topics = topics;
     this.groupInstanceId = groupInstanceId;
     this.sessionTimeoutMs = sessionTimeoutMs;
     this.maxPollRecords = maxPollRecords;
     this.autoOffsetReset = autoOffsetReset;
+    this.readCommitted = readCommitted;
     this.unknownFields = new Uint8Array(0);
   }
   static encode(msg) {
@@ -794,6 +798,7 @@ export class GroupSubscribeRequest {
     putVarintField(out, 4, BigInt(msg.sessionTimeoutMs));
     putVarintField(out, 5, BigInt(msg.maxPollRecords));
     putStringField(out, 6, msg.autoOffsetReset);
+    putVarintField(out, 7, (msg.readCommitted ? 1n : 0n));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -810,6 +815,7 @@ export class GroupSubscribeRequest {
       case 4: msg.sessionTimeoutMs = Number(BigInt.asIntN(32, value)); break;
       case 5: msg.maxPollRecords = Number(BigInt.asIntN(32, value)); break;
       case 6: msg.autoOffsetReset = new TextDecoder().decode(value); break;
+      case 7: msg.readCommitted = value !== 0n; break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -950,10 +956,11 @@ export class GroupError {
 }
 
 export class ListOffsetsRequest {
-  constructor({ topic = "", partition = 0, timestamp = 0n } = {}) {
+  constructor({ topic = "", partition = 0, timestamp = 0n, readCommitted = false } = {}) {
     this.topic = topic;
     this.partition = partition;
     this.timestamp = timestamp;
+    this.readCommitted = readCommitted;
     this.unknownFields = new Uint8Array(0);
   }
   static encode(msg) {
@@ -961,6 +968,7 @@ export class ListOffsetsRequest {
     putStringField(out, 1, msg.topic);
     putVarintField(out, 2, BigInt(msg.partition));
     putVarintField(out, 3, BigInt(msg.timestamp));
+    putVarintField(out, 4, (msg.readCommitted ? 1n : 0n));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -974,6 +982,7 @@ export class ListOffsetsRequest {
       case 1: msg.topic = new TextDecoder().decode(value); break;
       case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.timestamp = BigInt.asIntN(64, value); break;
+      case 4: msg.readCommitted = value !== 0n; break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -1014,12 +1023,13 @@ export class ListOffsetsResponse {
 }
 
 export class CommitOffsetRequest {
-  constructor({ groupId = "", topic = "", partition = 0, committedOffset = 0n, metadata = "" } = {}) {
+  constructor({ groupId = "", topic = "", partition = 0, committedOffset = 0n, metadata = "", sessionId = "" } = {}) {
     this.groupId = groupId;
     this.topic = topic;
     this.partition = partition;
     this.committedOffset = committedOffset;
     this.metadata = metadata;
+    this.sessionId = sessionId;
     this.unknownFields = new Uint8Array(0);
   }
   static encode(msg) {
@@ -1029,6 +1039,7 @@ export class CommitOffsetRequest {
     putVarintField(out, 3, BigInt(msg.partition));
     putVarintField(out, 4, BigInt(msg.committedOffset));
     putStringField(out, 5, msg.metadata);
+    putStringField(out, 6, msg.sessionId);
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -1044,6 +1055,7 @@ export class CommitOffsetRequest {
       case 3: msg.partition = Number(BigInt.asIntN(32, value)); break;
       case 4: msg.committedOffset = BigInt.asIntN(64, value); break;
       case 5: msg.metadata = new TextDecoder().decode(value); break;
+      case 6: msg.sessionId = new TextDecoder().decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }

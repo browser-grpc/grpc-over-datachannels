@@ -856,8 +856,9 @@ class ConsumeRequest implements Marshaler, Unmarshaler {
   int maxRecords;
   int maxWaitMs;
   int minBytes;
+  bool readCommitted;
   Uint8List unknownFields = Uint8List(0);
-  ConsumeRequest([this.topic = '', this.partition = 0, this.offset = 0, this.maxRecords = 0, this.maxWaitMs = 0, this.minBytes = 0]);
+  ConsumeRequest([this.topic = '', this.partition = 0, this.offset = 0, this.maxRecords = 0, this.maxWaitMs = 0, this.minBytes = 0, this.readCommitted = false]);
   @override
   Uint8List marshalDc() {
     final w = KafkaPbWriter();
@@ -867,6 +868,7 @@ class ConsumeRequest implements Marshaler, Unmarshaler {
     if (maxRecords != 0) { w.tag(4, 0); w.varint(maxRecords); }
     if (maxWaitMs != 0) { w.tag(5, 0); w.varint(maxWaitMs); }
     if (minBytes != 0) { w.tag(6, 0); w.varint(minBytes); }
+    if (readCommitted) { w.tag(7, 0); w.varint((readCommitted ? 1 : 0)); }
     w.raw(unknownFields);
     return w.toBytes();
   }
@@ -879,6 +881,7 @@ class ConsumeRequest implements Marshaler, Unmarshaler {
     maxRecords = 0;
     maxWaitMs = 0;
     minBytes = 0;
+    readCommitted = false;
     final r = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
       final field = r.next();
@@ -901,6 +904,9 @@ class ConsumeRequest implements Marshaler, Unmarshaler {
           break;
         case 6:
           minBytes = (field.varintValue).toSigned(32);
+          break;
+        case 7:
+          readCommitted = field.varintValue != 0;
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
@@ -972,8 +978,9 @@ class GroupSubscribeRequest implements Marshaler, Unmarshaler {
   int sessionTimeoutMs;
   int maxPollRecords;
   String autoOffsetReset;
+  bool readCommitted;
   Uint8List unknownFields = Uint8List(0);
-  GroupSubscribeRequest([this.groupId = '', this.groupInstanceId = '', this.sessionTimeoutMs = 0, this.maxPollRecords = 0, this.autoOffsetReset = '']) : topics = [];
+  GroupSubscribeRequest([this.groupId = '', this.groupInstanceId = '', this.sessionTimeoutMs = 0, this.maxPollRecords = 0, this.autoOffsetReset = '', this.readCommitted = false]) : topics = [];
   @override
   Uint8List marshalDc() {
     final w = KafkaPbWriter();
@@ -983,6 +990,7 @@ class GroupSubscribeRequest implements Marshaler, Unmarshaler {
     if (sessionTimeoutMs != 0) { w.tag(4, 0); w.varint(sessionTimeoutMs); }
     if (maxPollRecords != 0) { w.tag(5, 0); w.varint(maxPollRecords); }
     w.stringField(6, autoOffsetReset);
+    if (readCommitted) { w.tag(7, 0); w.varint((readCommitted ? 1 : 0)); }
     w.raw(unknownFields);
     return w.toBytes();
   }
@@ -995,6 +1003,7 @@ class GroupSubscribeRequest implements Marshaler, Unmarshaler {
     sessionTimeoutMs = 0;
     maxPollRecords = 0;
     autoOffsetReset = '';
+    readCommitted = false;
     final r = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
       final field = r.next();
@@ -1017,6 +1026,9 @@ class GroupSubscribeRequest implements Marshaler, Unmarshaler {
           break;
         case 6:
           autoOffsetReset = utf8.decode(field.bytesValue);
+          break;
+        case 7:
+          readCommitted = field.varintValue != 0;
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
@@ -1214,14 +1226,16 @@ class ListOffsetsRequest implements Marshaler, Unmarshaler {
   String topic;
   int partition;
   int timestamp;
+  bool readCommitted;
   Uint8List unknownFields = Uint8List(0);
-  ListOffsetsRequest([this.topic = '', this.partition = 0, this.timestamp = 0]);
+  ListOffsetsRequest([this.topic = '', this.partition = 0, this.timestamp = 0, this.readCommitted = false]);
   @override
   Uint8List marshalDc() {
     final w = KafkaPbWriter();
     w.stringField(1, topic);
     if (partition != 0) { w.tag(2, 0); w.varint(partition); }
     if (timestamp != 0) { w.tag(3, 0); w.varint(timestamp); }
+    if (readCommitted) { w.tag(4, 0); w.varint((readCommitted ? 1 : 0)); }
     w.raw(unknownFields);
     return w.toBytes();
   }
@@ -1231,6 +1245,7 @@ class ListOffsetsRequest implements Marshaler, Unmarshaler {
     topic = '';
     partition = 0;
     timestamp = 0;
+    readCommitted = false;
     final r = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
       final field = r.next();
@@ -1244,6 +1259,9 @@ class ListOffsetsRequest implements Marshaler, Unmarshaler {
           break;
         case 3:
           timestamp = field.varintValue;
+          break;
+        case 4:
+          readCommitted = field.varintValue != 0;
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
@@ -1300,8 +1318,9 @@ class CommitOffsetRequest implements Marshaler, Unmarshaler {
   int partition;
   int committedOffset;
   String metadata;
+  String sessionId;
   Uint8List unknownFields = Uint8List(0);
-  CommitOffsetRequest([this.groupId = '', this.topic = '', this.partition = 0, this.committedOffset = 0, this.metadata = '']);
+  CommitOffsetRequest([this.groupId = '', this.topic = '', this.partition = 0, this.committedOffset = 0, this.metadata = '', this.sessionId = '']);
   @override
   Uint8List marshalDc() {
     final w = KafkaPbWriter();
@@ -1310,6 +1329,7 @@ class CommitOffsetRequest implements Marshaler, Unmarshaler {
     if (partition != 0) { w.tag(3, 0); w.varint(partition); }
     if (committedOffset != 0) { w.tag(4, 0); w.varint(committedOffset); }
     w.stringField(5, metadata);
+    w.stringField(6, sessionId);
     w.raw(unknownFields);
     return w.toBytes();
   }
@@ -1321,6 +1341,7 @@ class CommitOffsetRequest implements Marshaler, Unmarshaler {
     partition = 0;
     committedOffset = 0;
     metadata = '';
+    sessionId = '';
     final r = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
       final field = r.next();
@@ -1340,6 +1361,9 @@ class CommitOffsetRequest implements Marshaler, Unmarshaler {
           break;
         case 5:
           metadata = utf8.decode(field.bytesValue);
+          break;
+        case 6:
+          sessionId = utf8.decode(field.bytesValue);
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);

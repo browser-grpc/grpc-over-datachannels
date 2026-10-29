@@ -300,6 +300,7 @@ class ConsumeRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   std::int32_t max_records = 0;
   std::int32_t max_wait_ms = 0;
   std::int32_t min_bytes = 0;
+  bool read_committed = false;
   grpcdc::Bytes unknown_fields;
   ConsumeRequest() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -325,6 +326,7 @@ class GroupSubscribeRequest : public grpcdc::Marshaler, public grpcdc::Unmarshal
   std::int32_t session_timeout_ms = 0;
   std::int32_t max_poll_records = 0;
   std::string auto_offset_reset = "";
+  bool read_committed = false;
   grpcdc::Bytes unknown_fields;
   GroupSubscribeRequest() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -375,6 +377,7 @@ class ListOffsetsRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler 
   std::string topic = "";
   std::int32_t partition = 0;
   std::int64_t timestamp = 0;
+  bool read_committed = false;
   grpcdc::Bytes unknown_fields;
   ListOffsetsRequest() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -397,6 +400,7 @@ class CommitOffsetRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler
   std::int32_t partition = 0;
   std::int64_t committed_offset = 0;
   std::string metadata = "";
+  std::string session_id = "";
   grpcdc::Bytes unknown_fields;
   CommitOffsetRequest() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -1157,6 +1161,7 @@ inline grpcdc::Bytes ConsumeRequest::MarshalDc() const {
     if (max_records != 0) { w.Tag(4, 0); w.Varint(static_cast<std::int64_t>(max_records)); }
     if (max_wait_ms != 0) { w.Tag(5, 0); w.Varint(static_cast<std::int64_t>(max_wait_ms)); }
     if (min_bytes != 0) { w.Tag(6, 0); w.Varint(static_cast<std::int64_t>(min_bytes)); }
+    if (read_committed) { w.Tag(7, 0); w.Varint((read_committed ? 1 : 0)); }
     w.Raw(unknown_fields);
     return w.ToBytes();
 }
@@ -1169,6 +1174,7 @@ inline void ConsumeRequest::UnmarshalDc(const grpcdc::Bytes& data) {
     max_records = 0;
     max_wait_ms = 0;
     min_bytes = 0;
+    read_committed = false;
     pb_kafka::Reader r(data);
     pb_kafka::Field field;
     while (r.Next(field)) {
@@ -1195,6 +1201,10 @@ inline void ConsumeRequest::UnmarshalDc(const grpcdc::Bytes& data) {
         }
         case 6: {
             min_bytes = static_cast<std::int32_t>(field.varint);
+            break;
+        }
+        case 7: {
+            read_committed = field.varint != 0;
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
@@ -1259,6 +1269,7 @@ inline grpcdc::Bytes GroupSubscribeRequest::MarshalDc() const {
     if (session_timeout_ms != 0) { w.Tag(4, 0); w.Varint(static_cast<std::int64_t>(session_timeout_ms)); }
     if (max_poll_records != 0) { w.Tag(5, 0); w.Varint(static_cast<std::int64_t>(max_poll_records)); }
     w.StringField(6, auto_offset_reset);
+    if (read_committed) { w.Tag(7, 0); w.Varint((read_committed ? 1 : 0)); }
     w.Raw(unknown_fields);
     return w.ToBytes();
 }
@@ -1271,6 +1282,7 @@ inline void GroupSubscribeRequest::UnmarshalDc(const grpcdc::Bytes& data) {
     session_timeout_ms = 0;
     max_poll_records = 0;
     auto_offset_reset = "";
+    read_committed = false;
     pb_kafka::Reader r(data);
     pb_kafka::Field field;
     while (r.Next(field)) {
@@ -1297,6 +1309,10 @@ inline void GroupSubscribeRequest::UnmarshalDc(const grpcdc::Bytes& data) {
         }
         case 6: {
             auto_offset_reset = std::string(field.bytes.begin(), field.bytes.end());
+            break;
+        }
+        case 7: {
+            read_committed = field.varint != 0;
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
@@ -1466,6 +1482,7 @@ inline grpcdc::Bytes ListOffsetsRequest::MarshalDc() const {
     w.StringField(1, topic);
     if (partition != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(partition)); }
     if (timestamp != 0) { w.Tag(3, 0); w.Varint(static_cast<std::uint64_t>(timestamp)); }
+    if (read_committed) { w.Tag(4, 0); w.Varint((read_committed ? 1 : 0)); }
     w.Raw(unknown_fields);
     return w.ToBytes();
 }
@@ -1475,6 +1492,7 @@ inline void ListOffsetsRequest::UnmarshalDc(const grpcdc::Bytes& data) {
     topic = "";
     partition = 0;
     timestamp = 0;
+    read_committed = false;
     pb_kafka::Reader r(data);
     pb_kafka::Field field;
     while (r.Next(field)) {
@@ -1489,6 +1507,10 @@ inline void ListOffsetsRequest::UnmarshalDc(const grpcdc::Bytes& data) {
         }
         case 3: {
             timestamp = static_cast<std::int64_t>(field.varint);
+            break;
+        }
+        case 4: {
+            read_committed = field.varint != 0;
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
@@ -1538,6 +1560,7 @@ inline grpcdc::Bytes CommitOffsetRequest::MarshalDc() const {
     if (partition != 0) { w.Tag(3, 0); w.Varint(static_cast<std::int64_t>(partition)); }
     if (committed_offset != 0) { w.Tag(4, 0); w.Varint(static_cast<std::uint64_t>(committed_offset)); }
     w.StringField(5, metadata);
+    w.StringField(6, session_id);
     w.Raw(unknown_fields);
     return w.ToBytes();
 }
@@ -1549,6 +1572,7 @@ inline void CommitOffsetRequest::UnmarshalDc(const grpcdc::Bytes& data) {
     partition = 0;
     committed_offset = 0;
     metadata = "";
+    session_id = "";
     pb_kafka::Reader r(data);
     pb_kafka::Field field;
     while (r.Next(field)) {
@@ -1571,6 +1595,10 @@ inline void CommitOffsetRequest::UnmarshalDc(const grpcdc::Bytes& data) {
         }
         case 5: {
             metadata = std::string(field.bytes.begin(), field.bytes.end());
+            break;
+        }
+        case 6: {
+            session_id = std::string(field.bytes.begin(), field.bytes.end());
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;

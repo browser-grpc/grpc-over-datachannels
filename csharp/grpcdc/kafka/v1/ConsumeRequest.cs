@@ -12,15 +12,17 @@ public sealed class ConsumeRequest : IMarshaler, IUnmarshaler {
     public int MaxRecords = 0;
     public int MaxWaitMs = 0;
     public int MinBytes = 0;
+    public bool ReadCommitted = false;
     public byte[] UnknownFields = new byte[0];
     public ConsumeRequest() {}
-    public ConsumeRequest(string topic, int partition, long offset, int maxRecords, int maxWaitMs, int minBytes) {
+    public ConsumeRequest(string topic, int partition, long offset, int maxRecords, int maxWaitMs, int minBytes, bool readCommitted) {
         Topic = topic;
         Partition = partition;
         Offset = offset;
         MaxRecords = maxRecords;
         MaxWaitMs = maxWaitMs;
         MinBytes = minBytes;
+        ReadCommitted = readCommitted;
     }
     public byte[] MarshalDc() {
         var w = new KafkaPb.Writer();
@@ -30,6 +32,7 @@ public sealed class ConsumeRequest : IMarshaler, IUnmarshaler {
         if (MaxRecords != 0) { w.Tag(4, 0); w.Varint(MaxRecords); }
         if (MaxWaitMs != 0) { w.Tag(5, 0); w.Varint(MaxWaitMs); }
         if (MinBytes != 0) { w.Tag(6, 0); w.Varint(MinBytes); }
+        if (ReadCommitted) { w.Tag(7, 0); w.Varint((ReadCommitted ? 1 : 0)); }
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -41,6 +44,7 @@ public sealed class ConsumeRequest : IMarshaler, IUnmarshaler {
         MaxRecords = 0;
         MaxWaitMs = 0;
         MinBytes = 0;
+        ReadCommitted = false;
         var r = new KafkaPb.Reader(data);
         KafkaPb.Field field;
         while ((field = r.Next()) != null) {
@@ -67,6 +71,10 @@ public sealed class ConsumeRequest : IMarshaler, IUnmarshaler {
                 }
                 case 6: {
                     MinBytes = (int) field.VarintValue;
+                    break;
+                }
+                case 7: {
+                    ReadCommitted = field.VarintValue != 0;
                     break;
                 }
                 default: UnknownFields = KafkaPb.ConcatBytes(UnknownFields, field.RawValue); break;

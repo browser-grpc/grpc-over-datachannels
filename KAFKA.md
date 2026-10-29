@@ -33,15 +33,29 @@ generated client (any language)          kafka_proxy                broker
 
 Compression: gzip, snappy, LZ4, and zstd (dependency-free
 codecs in the proxy; zstd frames use raw blocks, and the
-decoder handles raw/RLE blocks — FSE/Huffman-compressed blocks
-from other clients are not decoded yet). SASL: PLAIN,
-SCRAM-SHA-256, SCRAM-SHA-512 (handshake runs before
-`ApiVersions`; some brokers reject `ApiVersions` on a SASL
-listener first). TLS to the broker via rustls
-(`--features kafka-tls` on the proxy build; `--tls-ca-cert PEM`
-or `--tls-insecure-skip-verify`). Not yet: multi-broker
-partition-leader routing (single-broker clusters are fully
-covered).
+decoder also handles FSE/Huffman-compressed blocks from other
+clients). SASL: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
+(handshake runs before `ApiVersions`; some brokers reject
+`ApiVersions` on a SASL listener first), verified against
+both Apache Kafka and Redpanda fixtures. TLS to the broker
+via rustls (`--features kafka-tls` on the proxy build;
+`--tls-ca-cert PEM` or `--tls-insecure-skip-verify`).
+
+Transactions support consume-produce: `CommitOffset` with a
+producer `session_id` stages the offset, and `EndTransaction`
+attaches it (`AddOffsetsToTxn` + `TxnOffsetCommit`) so records
+and offsets commit or abort atomically. `read_committed` on
+`Consume` / `GroupSubscribe` / `ListOffsets` maps to fetch
+isolation level 1 with last-stable-offset and aborted-producer
+filtering in the proxy; the proxy also appends COMMIT/ABORT
+control batches for brokers that resolve transactions in the
+coordinator without writing log markers.
+
+Multi-broker clusters: produce, fetch and list-offsets route
+to the partition leader discovered from metadata (bootstrap
+fallback when the advertised leader is unreachable), proven
+on a two-broker Apache Kafka cluster by
+`kafka_proxy_multi_broker_leader_routing`.
 
 ## Running the proxy
 
@@ -89,11 +103,14 @@ per-language runs skip them. `make test-kafka`
 proxies, then runs:
 
 - the Rust in-process suite (roundtrip, compression,
-  idempotence + transactions, consumer group) against the
-  broker directly, and
+  idempotence + transactions, transactional consume-produce
+  with `read_committed`, consumer group) against the broker
+  directly, and
 - every language suite through a `--tcp` proxy, against both
-  brokers, plus one suite per SASL mechanism and per TLS mode
-  (CA-verified, insecure-skip-verify) against Redpanda.
+  brokers, plus one suite per SASL mechanism against both
+  Apache Kafka and Redpanda, per TLS mode (CA-verified,
+  insecure-skip-verify) against Redpanda, and a two-broker
+  Apache Kafka cluster leg proving partition-leader routing.
 
 In CI the brokers come from `Dockerfile.ci` (Apache Kafka
 4.3.1 tarball, Redpanda from its apt repo), started by the

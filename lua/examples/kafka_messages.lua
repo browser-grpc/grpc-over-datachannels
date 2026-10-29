@@ -863,8 +863,8 @@ end
 ConsumeRequest = {}
 ConsumeRequest.__index = ConsumeRequest
 
-function ConsumeRequest.new(topic, partition, offset, maxRecords, maxWaitMs, minBytes)
-  return setmetatable({ topic = topic or "", partition = partition or 0, offset = offset or 0, maxRecords = maxRecords or 0, maxWaitMs = maxWaitMs or 0, minBytes = minBytes or 0, unknownFields = "" }, ConsumeRequest)
+function ConsumeRequest.new(topic, partition, offset, maxRecords, maxWaitMs, minBytes, readCommitted)
+  return setmetatable({ topic = topic or "", partition = partition or 0, offset = offset or 0, maxRecords = maxRecords or 0, maxWaitMs = maxWaitMs or 0, minBytes = minBytes or 0, readCommitted = readCommitted or false, unknownFields = "" }, ConsumeRequest)
 end
 
 function ConsumeRequest:marshalDc()
@@ -875,6 +875,7 @@ function ConsumeRequest:marshalDc()
     if self.maxRecords ~= 0 then w:tag(4, 0) w:varint(self.maxRecords) end
     if self.maxWaitMs ~= 0 then w:tag(5, 0) w:varint(self.maxWaitMs) end
     if self.minBytes ~= 0 then w:tag(6, 0) w:varint(self.minBytes) end
+    if self.readCommitted then w:tag(7, 0) w:varint((self.readCommitted and 1 or 0)) end
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -887,6 +888,7 @@ function ConsumeRequest:unmarshalDc(data)
   self.maxRecords = 0
   self.maxWaitMs = 0
   self.minBytes = 0
+  self.readCommitted = false
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -904,6 +906,8 @@ function ConsumeRequest:unmarshalDc(data)
       self.maxWaitMs = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
     elseif field.number == 6 then
       self.minBytes = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 7 then
+      self.readCommitted = (field.varintValue ~= 0)
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end
@@ -961,8 +965,8 @@ end
 GroupSubscribeRequest = {}
 GroupSubscribeRequest.__index = GroupSubscribeRequest
 
-function GroupSubscribeRequest.new(groupId, topics, groupInstanceId, sessionTimeoutMs, maxPollRecords, autoOffsetReset)
-  return setmetatable({ groupId = groupId or "", topics = topics or {}, groupInstanceId = groupInstanceId or "", sessionTimeoutMs = sessionTimeoutMs or 0, maxPollRecords = maxPollRecords or 0, autoOffsetReset = autoOffsetReset or "", unknownFields = "" }, GroupSubscribeRequest)
+function GroupSubscribeRequest.new(groupId, topics, groupInstanceId, sessionTimeoutMs, maxPollRecords, autoOffsetReset, readCommitted)
+  return setmetatable({ groupId = groupId or "", topics = topics or {}, groupInstanceId = groupInstanceId or "", sessionTimeoutMs = sessionTimeoutMs or 0, maxPollRecords = maxPollRecords or 0, autoOffsetReset = autoOffsetReset or "", readCommitted = readCommitted or false, unknownFields = "" }, GroupSubscribeRequest)
 end
 
 function GroupSubscribeRequest:marshalDc()
@@ -973,6 +977,7 @@ function GroupSubscribeRequest:marshalDc()
     if self.sessionTimeoutMs ~= 0 then w:tag(4, 0) w:varint(self.sessionTimeoutMs) end
     if self.maxPollRecords ~= 0 then w:tag(5, 0) w:varint(self.maxPollRecords) end
     w:stringField(6, self.autoOffsetReset)
+    if self.readCommitted then w:tag(7, 0) w:varint((self.readCommitted and 1 or 0)) end
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -985,6 +990,7 @@ function GroupSubscribeRequest:unmarshalDc(data)
   self.sessionTimeoutMs = 0
   self.maxPollRecords = 0
   self.autoOffsetReset = ""
+  self.readCommitted = false
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -1002,6 +1008,8 @@ function GroupSubscribeRequest:unmarshalDc(data)
       self.maxPollRecords = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
     elseif field.number == 6 then
       self.autoOffsetReset = field.bytesValue
+    elseif field.number == 7 then
+      self.readCommitted = (field.varintValue ~= 0)
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end
@@ -1180,8 +1188,8 @@ end
 ListOffsetsRequest = {}
 ListOffsetsRequest.__index = ListOffsetsRequest
 
-function ListOffsetsRequest.new(topic, partition, timestamp)
-  return setmetatable({ topic = topic or "", partition = partition or 0, timestamp = timestamp or 0, unknownFields = "" }, ListOffsetsRequest)
+function ListOffsetsRequest.new(topic, partition, timestamp, readCommitted)
+  return setmetatable({ topic = topic or "", partition = partition or 0, timestamp = timestamp or 0, readCommitted = readCommitted or false, unknownFields = "" }, ListOffsetsRequest)
 end
 
 function ListOffsetsRequest:marshalDc()
@@ -1189,6 +1197,7 @@ function ListOffsetsRequest:marshalDc()
     w:stringField(1, self.topic)
     if self.partition ~= 0 then w:tag(2, 0) w:varint(self.partition) end
     if self.timestamp ~= 0 then w:tag(3, 0) w:varint(self.timestamp) end
+    if self.readCommitted then w:tag(4, 0) w:varint((self.readCommitted and 1 or 0)) end
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -1198,6 +1207,7 @@ function ListOffsetsRequest:unmarshalDc(data)
   self.topic = ""
   self.partition = 0
   self.timestamp = 0
+  self.readCommitted = false
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -1209,6 +1219,8 @@ function ListOffsetsRequest:unmarshalDc(data)
       self.partition = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
     elseif field.number == 3 then
       self.timestamp = field.varintValue
+    elseif field.number == 4 then
+      self.readCommitted = (field.varintValue ~= 0)
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end
@@ -1256,8 +1268,8 @@ end
 CommitOffsetRequest = {}
 CommitOffsetRequest.__index = CommitOffsetRequest
 
-function CommitOffsetRequest.new(groupId, topic, partition, committedOffset, metadata)
-  return setmetatable({ groupId = groupId or "", topic = topic or "", partition = partition or 0, committedOffset = committedOffset or 0, metadata = metadata or "", unknownFields = "" }, CommitOffsetRequest)
+function CommitOffsetRequest.new(groupId, topic, partition, committedOffset, metadata, sessionId)
+  return setmetatable({ groupId = groupId or "", topic = topic or "", partition = partition or 0, committedOffset = committedOffset or 0, metadata = metadata or "", sessionId = sessionId or "", unknownFields = "" }, CommitOffsetRequest)
 end
 
 function CommitOffsetRequest:marshalDc()
@@ -1267,6 +1279,7 @@ function CommitOffsetRequest:marshalDc()
     if self.partition ~= 0 then w:tag(3, 0) w:varint(self.partition) end
     if self.committedOffset ~= 0 then w:tag(4, 0) w:varint(self.committedOffset) end
     w:stringField(5, self.metadata)
+    w:stringField(6, self.sessionId)
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -1278,6 +1291,7 @@ function CommitOffsetRequest:unmarshalDc(data)
   self.partition = 0
   self.committedOffset = 0
   self.metadata = ""
+  self.sessionId = ""
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -1293,6 +1307,8 @@ function CommitOffsetRequest:unmarshalDc(data)
       self.committedOffset = field.varintValue
     elseif field.number == 5 then
       self.metadata = field.bytesValue
+    elseif field.number == 6 then
+      self.sessionId = field.bytesValue
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end

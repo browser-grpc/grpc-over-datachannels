@@ -1390,9 +1390,10 @@ class ConsumeRequest
     public int $maxRecords = 0;
     public int $maxWaitMs = 0;
     public int $minBytes = 0;
+    public bool $readCommitted = false;
 
     public string $unknownFields = "";
-    public function __construct(string $topic = "", int $partition = 0, int $offset = 0, int $maxRecords = 0, int $maxWaitMs = 0, int $minBytes = 0)
+    public function __construct(string $topic = "", int $partition = 0, int $offset = 0, int $maxRecords = 0, int $maxWaitMs = 0, int $minBytes = 0, bool $readCommitted = false)
     {
         $this->topic = $topic;
         $this->partition = $partition;
@@ -1400,6 +1401,7 @@ class ConsumeRequest
         $this->maxRecords = $maxRecords;
         $this->maxWaitMs = $maxWaitMs;
         $this->minBytes = $minBytes;
+        $this->readCommitted = $readCommitted;
     }
 
     public function marshalDc(): string
@@ -1426,6 +1428,10 @@ class ConsumeRequest
             $w->tag(6, 0);
             $w->varint($this->minBytes);
         }
+        if ($this->readCommitted) {
+            $w->tag(7, 0);
+            $w->varint(($this->readCommitted ? 1 : 0));
+        }
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -1439,6 +1445,7 @@ class ConsumeRequest
         $this->maxRecords = 0;
         $this->maxWaitMs = 0;
         $this->minBytes = 0;
+        $this->readCommitted = false;
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -1461,6 +1468,9 @@ class ConsumeRequest
                 case 6:
                     $this->minBytes = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
                     break;
+                case 7:
+                    $this->readCommitted = ($varintValue !== 0);
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -1477,7 +1487,8 @@ class ConsumeRequest
             && $this->offset === $other->offset
             && $this->maxRecords === $other->maxRecords
             && $this->maxWaitMs === $other->maxWaitMs
-            && $this->minBytes === $other->minBytes;
+            && $this->minBytes === $other->minBytes
+            && $this->readCommitted === $other->readCommitted;
     }
 }
 
@@ -1578,9 +1589,10 @@ class GroupSubscribeRequest
     public int $sessionTimeoutMs = 0;
     public int $maxPollRecords = 0;
     public string $autoOffsetReset = "";
+    public bool $readCommitted = false;
 
     public string $unknownFields = "";
-    public function __construct(string $groupId = "", array $topics = [], string $groupInstanceId = "", int $sessionTimeoutMs = 0, int $maxPollRecords = 0, string $autoOffsetReset = "")
+    public function __construct(string $groupId = "", array $topics = [], string $groupInstanceId = "", int $sessionTimeoutMs = 0, int $maxPollRecords = 0, string $autoOffsetReset = "", bool $readCommitted = false)
     {
         $this->groupId = $groupId;
         $this->topics = $topics;
@@ -1588,6 +1600,7 @@ class GroupSubscribeRequest
         $this->sessionTimeoutMs = $sessionTimeoutMs;
         $this->maxPollRecords = $maxPollRecords;
         $this->autoOffsetReset = $autoOffsetReset;
+        $this->readCommitted = $readCommitted;
     }
 
     public function marshalDc(): string
@@ -1607,6 +1620,10 @@ class GroupSubscribeRequest
             $w->varint($this->maxPollRecords);
         }
         $w->stringField(6, $this->autoOffsetReset);
+        if ($this->readCommitted) {
+            $w->tag(7, 0);
+            $w->varint(($this->readCommitted ? 1 : 0));
+        }
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -1620,6 +1637,7 @@ class GroupSubscribeRequest
         $this->sessionTimeoutMs = 0;
         $this->maxPollRecords = 0;
         $this->autoOffsetReset = "";
+        $this->readCommitted = false;
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -1642,6 +1660,9 @@ class GroupSubscribeRequest
                 case 6:
                     $this->autoOffsetReset = $bytesValue;
                     break;
+                case 7:
+                    $this->readCommitted = ($varintValue !== 0);
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -1658,7 +1679,8 @@ class GroupSubscribeRequest
             && $this->groupInstanceId === $other->groupInstanceId
             && $this->sessionTimeoutMs === $other->sessionTimeoutMs
             && $this->maxPollRecords === $other->maxPollRecords
-            && $this->autoOffsetReset === $other->autoOffsetReset;
+            && $this->autoOffsetReset === $other->autoOffsetReset
+            && $this->readCommitted === $other->readCommitted;
     }
 }
 
@@ -1946,13 +1968,15 @@ class ListOffsetsRequest
     public string $topic = "";
     public int $partition = 0;
     public int $timestamp = 0;
+    public bool $readCommitted = false;
 
     public string $unknownFields = "";
-    public function __construct(string $topic = "", int $partition = 0, int $timestamp = 0)
+    public function __construct(string $topic = "", int $partition = 0, int $timestamp = 0, bool $readCommitted = false)
     {
         $this->topic = $topic;
         $this->partition = $partition;
         $this->timestamp = $timestamp;
+        $this->readCommitted = $readCommitted;
     }
 
     public function marshalDc(): string
@@ -1967,6 +1991,10 @@ class ListOffsetsRequest
             $w->tag(3, 0);
             $w->varint($this->timestamp);
         }
+        if ($this->readCommitted) {
+            $w->tag(4, 0);
+            $w->varint(($this->readCommitted ? 1 : 0));
+        }
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -1977,6 +2005,7 @@ class ListOffsetsRequest
         $this->topic = "";
         $this->partition = 0;
         $this->timestamp = 0;
+        $this->readCommitted = false;
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -1989,6 +2018,9 @@ class ListOffsetsRequest
                     break;
                 case 3:
                     $this->timestamp = $varintValue;
+                    break;
+                case 4:
+                    $this->readCommitted = ($varintValue !== 0);
                     break;
                 default:
                     $this->unknownFields .= $rawValue;
@@ -2003,7 +2035,8 @@ class ListOffsetsRequest
         return $other instanceof ListOffsetsRequest
             && $this->topic === $other->topic
             && $this->partition === $other->partition
-            && $this->timestamp === $other->timestamp;
+            && $this->timestamp === $other->timestamp
+            && $this->readCommitted === $other->readCommitted;
     }
 }
 
@@ -2083,15 +2116,17 @@ class CommitOffsetRequest
     public int $partition = 0;
     public int $committedOffset = 0;
     public string $metadata = "";
+    public string $sessionId = "";
 
     public string $unknownFields = "";
-    public function __construct(string $groupId = "", string $topic = "", int $partition = 0, int $committedOffset = 0, string $metadata = "")
+    public function __construct(string $groupId = "", string $topic = "", int $partition = 0, int $committedOffset = 0, string $metadata = "", string $sessionId = "")
     {
         $this->groupId = $groupId;
         $this->topic = $topic;
         $this->partition = $partition;
         $this->committedOffset = $committedOffset;
         $this->metadata = $metadata;
+        $this->sessionId = $sessionId;
     }
 
     public function marshalDc(): string
@@ -2108,6 +2143,7 @@ class CommitOffsetRequest
             $w->varint($this->committedOffset);
         }
         $w->stringField(5, $this->metadata);
+        $w->stringField(6, $this->sessionId);
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -2120,6 +2156,7 @@ class CommitOffsetRequest
         $this->partition = 0;
         $this->committedOffset = 0;
         $this->metadata = "";
+        $this->sessionId = "";
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -2139,6 +2176,9 @@ class CommitOffsetRequest
                 case 5:
                     $this->metadata = $bytesValue;
                     break;
+                case 6:
+                    $this->sessionId = $bytesValue;
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -2154,7 +2194,8 @@ class CommitOffsetRequest
             && $this->topic === $other->topic
             && $this->partition === $other->partition
             && $this->committedOffset === $other->committedOffset
-            && $this->metadata === $other->metadata;
+            && $this->metadata === $other->metadata
+            && $this->sessionId === $other->sessionId;
     }
 }
 

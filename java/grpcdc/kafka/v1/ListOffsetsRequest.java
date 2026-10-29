@@ -6,12 +6,14 @@ public final class ListOffsetsRequest implements grpcdc.Marshaler, grpcdc.Unmars
     public String topic = "";
     public int partition = 0;
     public long timestamp = 0L;
+    public boolean readCommitted = false;
     public byte[] unknownFields = new byte[0];
     public ListOffsetsRequest() {}
-    public ListOffsetsRequest(String topic, int partition, long timestamp) {
+    public ListOffsetsRequest(String topic, int partition, long timestamp, boolean readCommitted) {
         this.topic = topic;
         this.partition = partition;
         this.timestamp = timestamp;
+        this.readCommitted = readCommitted;
     }
 
     @Override
@@ -20,6 +22,7 @@ public final class ListOffsetsRequest implements grpcdc.Marshaler, grpcdc.Unmars
         w.stringField(1, topic);
         if (partition != 0) { w.tag(2, 0); w.varint(partition); }
         if (timestamp != 0) { w.tag(3, 0); w.varint(timestamp); }
+        if (readCommitted) { w.tag(4, 0); w.varint((readCommitted ? 1 : 0)); }
         w.raw(unknownFields);
         return w.toBytes();
     }
@@ -30,6 +33,7 @@ public final class ListOffsetsRequest implements grpcdc.Marshaler, grpcdc.Unmars
         topic = "";
         partition = 0;
         timestamp = 0L;
+        readCommitted = false;
         KafkaPb.Reader r = new KafkaPb.Reader(data);
         KafkaPb.Field field;
         while ((field = r.next()) != null) {
@@ -42,6 +46,9 @@ public final class ListOffsetsRequest implements grpcdc.Marshaler, grpcdc.Unmars
                 }
                 case 3 -> {
                     timestamp = field.varintValue;
+                }
+                case 4 -> {
+                    readCommitted = field.varintValue != 0;
                 }
                 default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
             }

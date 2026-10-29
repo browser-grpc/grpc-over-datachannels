@@ -9,18 +9,21 @@ public sealed class ListOffsetsRequest : IMarshaler, IUnmarshaler {
     public string Topic = "";
     public int Partition = 0;
     public long Timestamp = 0;
+    public bool ReadCommitted = false;
     public byte[] UnknownFields = new byte[0];
     public ListOffsetsRequest() {}
-    public ListOffsetsRequest(string topic, int partition, long timestamp) {
+    public ListOffsetsRequest(string topic, int partition, long timestamp, bool readCommitted) {
         Topic = topic;
         Partition = partition;
         Timestamp = timestamp;
+        ReadCommitted = readCommitted;
     }
     public byte[] MarshalDc() {
         var w = new KafkaPb.Writer();
         w.StringField(1, Topic);
         if (Partition != 0) { w.Tag(2, 0); w.Varint(Partition); }
         if (Timestamp != 0) { w.Tag(3, 0); w.Varint(Timestamp); }
+        if (ReadCommitted) { w.Tag(4, 0); w.Varint((ReadCommitted ? 1 : 0)); }
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -29,6 +32,7 @@ public sealed class ListOffsetsRequest : IMarshaler, IUnmarshaler {
         Topic = "";
         Partition = 0;
         Timestamp = 0;
+        ReadCommitted = false;
         var r = new KafkaPb.Reader(data);
         KafkaPb.Field field;
         while ((field = r.Next()) != null) {
@@ -43,6 +47,10 @@ public sealed class ListOffsetsRequest : IMarshaler, IUnmarshaler {
                 }
                 case 3: {
                     Timestamp = field.VarintValue;
+                    break;
+                }
+                case 4: {
+                    ReadCommitted = field.VarintValue != 0;
                     break;
                 }
                 default: UnknownFields = KafkaPb.ConcatBytes(UnknownFields, field.RawValue); break;

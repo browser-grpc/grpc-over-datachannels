@@ -11,14 +11,16 @@ public sealed class CommitOffsetRequest : IMarshaler, IUnmarshaler {
     public int Partition = 0;
     public long CommittedOffset = 0;
     public string Metadata = "";
+    public string SessionId = "";
     public byte[] UnknownFields = new byte[0];
     public CommitOffsetRequest() {}
-    public CommitOffsetRequest(string groupId, string topic, int partition, long committedOffset, string metadata) {
+    public CommitOffsetRequest(string groupId, string topic, int partition, long committedOffset, string metadata, string sessionId) {
         GroupId = groupId;
         Topic = topic;
         Partition = partition;
         CommittedOffset = committedOffset;
         Metadata = metadata;
+        SessionId = sessionId;
     }
     public byte[] MarshalDc() {
         var w = new KafkaPb.Writer();
@@ -27,6 +29,7 @@ public sealed class CommitOffsetRequest : IMarshaler, IUnmarshaler {
         if (Partition != 0) { w.Tag(3, 0); w.Varint(Partition); }
         if (CommittedOffset != 0) { w.Tag(4, 0); w.Varint(CommittedOffset); }
         w.StringField(5, Metadata);
+        w.StringField(6, SessionId);
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -37,6 +40,7 @@ public sealed class CommitOffsetRequest : IMarshaler, IUnmarshaler {
         Partition = 0;
         CommittedOffset = 0;
         Metadata = "";
+        SessionId = "";
         var r = new KafkaPb.Reader(data);
         KafkaPb.Field field;
         while ((field = r.Next()) != null) {
@@ -59,6 +63,10 @@ public sealed class CommitOffsetRequest : IMarshaler, IUnmarshaler {
                 }
                 case 5: {
                     Metadata = System.Text.Encoding.UTF8.GetString(field.BytesValue);
+                    break;
+                }
+                case 6: {
+                    SessionId = System.Text.Encoding.UTF8.GetString(field.BytesValue);
                     break;
                 }
                 default: UnknownFields = KafkaPb.ConcatBytes(UnknownFields, field.RawValue); break;

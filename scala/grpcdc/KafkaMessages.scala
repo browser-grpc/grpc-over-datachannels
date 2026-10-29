@@ -971,7 +971,8 @@ class ConsumeRequest(
     var offset: Long = 0L,
     var maxRecords: Int = 0,
     var maxWaitMs: Int = 0,
-    var minBytes: Int = 0
+    var minBytes: Int = 0,
+    var readCommitted: Boolean = false
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -997,6 +998,10 @@ class ConsumeRequest(
       w.tag(6, 0)
       w.varint((minBytes.toLong))
     }
+    if (readCommitted) {
+      w.tag(7, 0)
+      w.varint((if (readCommitted) 1L else 0L))
+    }
     w.raw(unknownFields)
     w.toBytes
   }
@@ -1009,6 +1014,7 @@ class ConsumeRequest(
     maxRecords = 0
     maxWaitMs = 0
     minBytes = 0
+    readCommitted = false
     val r = new KafkaPb.Reader(data)
     var field = r.next()
     while (field != null) {
@@ -1025,6 +1031,8 @@ class ConsumeRequest(
           maxWaitMs = field.varintValue.toInt
         case 6 =>
           minBytes = field.varintValue.toInt
+        case 7 =>
+          readCommitted = (field.varintValue != 0L)
         case _ => unknownFields = unknownFields ++ field.rawValue
       }
       field = r.next()
@@ -1098,7 +1106,8 @@ class GroupSubscribeRequest(
     var groupInstanceId: String = "",
     var sessionTimeoutMs: Int = 0,
     var maxPollRecords: Int = 0,
-    var autoOffsetReset: String = ""
+    var autoOffsetReset: String = "",
+    var readCommitted: Boolean = false
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -1117,6 +1126,10 @@ class GroupSubscribeRequest(
       w.varint((maxPollRecords.toLong))
     }
     w.stringField(6, autoOffsetReset)
+    if (readCommitted) {
+      w.tag(7, 0)
+      w.varint((if (readCommitted) 1L else 0L))
+    }
     w.raw(unknownFields)
     w.toBytes
   }
@@ -1129,6 +1142,7 @@ class GroupSubscribeRequest(
     sessionTimeoutMs = 0
     maxPollRecords = 0
     autoOffsetReset = ""
+    readCommitted = false
     val r = new KafkaPb.Reader(data)
     var field = r.next()
     while (field != null) {
@@ -1145,6 +1159,8 @@ class GroupSubscribeRequest(
           maxPollRecords = field.varintValue.toInt
         case 6 =>
           autoOffsetReset = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 7 =>
+          readCommitted = (field.varintValue != 0L)
         case _ => unknownFields = unknownFields ++ field.rawValue
       }
       field = r.next()
@@ -1342,7 +1358,8 @@ class GroupError(
 class ListOffsetsRequest(
     var topic: String = "",
     var partition: Int = 0,
-    var timestamp: Long = 0L
+    var timestamp: Long = 0L,
+    var readCommitted: Boolean = false
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -1356,6 +1373,10 @@ class ListOffsetsRequest(
       w.tag(3, 0)
       w.varint(timestamp.toLong)
     }
+    if (readCommitted) {
+      w.tag(4, 0)
+      w.varint((if (readCommitted) 1L else 0L))
+    }
     w.raw(unknownFields)
     w.toBytes
   }
@@ -1365,6 +1386,7 @@ class ListOffsetsRequest(
     topic = ""
     partition = 0
     timestamp = 0L
+    readCommitted = false
     val r = new KafkaPb.Reader(data)
     var field = r.next()
     while (field != null) {
@@ -1375,6 +1397,8 @@ class ListOffsetsRequest(
           partition = field.varintValue.toInt
         case 3 =>
           timestamp = field.varintValue
+        case 4 =>
+          readCommitted = (field.varintValue != 0L)
         case _ => unknownFields = unknownFields ++ field.rawValue
       }
       field = r.next()
@@ -1433,7 +1457,8 @@ class CommitOffsetRequest(
     var topic: String = "",
     var partition: Int = 0,
     var committedOffset: Long = 0L,
-    var metadata: String = ""
+    var metadata: String = "",
+    var sessionId: String = ""
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -1449,6 +1474,7 @@ class CommitOffsetRequest(
       w.varint(committedOffset.toLong)
     }
     w.stringField(5, metadata)
+    w.stringField(6, sessionId)
     w.raw(unknownFields)
     w.toBytes
   }
@@ -1460,6 +1486,7 @@ class CommitOffsetRequest(
     partition = 0
     committedOffset = 0L
     metadata = ""
+    sessionId = ""
     val r = new KafkaPb.Reader(data)
     var field = r.next()
     while (field != null) {
@@ -1474,6 +1501,8 @@ class CommitOffsetRequest(
           committedOffset = field.varintValue
         case 5 =>
           metadata = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 6 =>
+          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case _ => unknownFields = unknownFields ++ field.rawValue
       }
       field = r.next()

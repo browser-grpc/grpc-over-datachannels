@@ -26,7 +26,7 @@ public static class TestKafkaE2E
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (true)
         {
-            var latest = client.ListOffsets(new ListOffsetsRequest(topic, 0, -1));
+            var latest = client.ListOffsets(new ListOffsetsRequest(topic, 0, -1, false));
             if (latest.ErrorCode == 0)
             {
                 return topic;
@@ -58,7 +58,7 @@ public static class TestKafkaE2E
     private static List<FetchedRecord> Consume(KafkaGrpcDc.KafkaClient client, string topic, long offset, int count)
     {
         var got = new List<FetchedRecord>();
-        using (var stream = client.Consume(new ConsumeRequest(topic, 0, offset, count, 0, 0)))
+        using (var stream = client.Consume(new ConsumeRequest(topic, 0, offset, count, 0, 0, false)))
         {
             while (got.Count < count)
             {
@@ -90,7 +90,7 @@ public static class TestKafkaE2E
         {
             Program.Check(Produce(client, topic, new List<string> { "v0", "v1", "v2" })
                 .SequenceEqual(new List<long> { 0, 1, 2 }), "roundtrip offsets");
-            var latest = client.ListOffsets(new ListOffsetsRequest(topic, 0, -1));
+            var latest = client.ListOffsets(new ListOffsetsRequest(topic, 0, -1, false));
             Program.Check(latest.Offset == 3 && latest.ErrorCode == 0, "latest offset");
             var got = Consume(client, topic, 0, 3);
             Program.Check(Values(got).SequenceEqual(new[] { "v0", "v1", "v2" }), "roundtrip values");

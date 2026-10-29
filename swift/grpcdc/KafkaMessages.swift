@@ -843,15 +843,17 @@ final class ConsumeRequest: Marshaler, Unmarshaler {
     var maxRecords: Int32 = 0
     var maxWaitMs: Int32 = 0
     var minBytes: Int32 = 0
+    var readCommitted: Bool = false
     var unknownFields: [UInt8] = []
     init() {}
-    init(_ topic: String = "", _ partition: Int32 = 0, _ offset: Int64 = 0, _ maxRecords: Int32 = 0, _ maxWaitMs: Int32 = 0, _ minBytes: Int32 = 0) {
+    init(_ topic: String = "", _ partition: Int32 = 0, _ offset: Int64 = 0, _ maxRecords: Int32 = 0, _ maxWaitMs: Int32 = 0, _ minBytes: Int32 = 0, _ readCommitted: Bool = false) {
         self.topic = topic
         self.partition = partition
         self.offset = offset
         self.maxRecords = maxRecords
         self.maxWaitMs = maxWaitMs
         self.minBytes = minBytes
+        self.readCommitted = readCommitted
     }
     func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
@@ -861,6 +863,7 @@ final class ConsumeRequest: Marshaler, Unmarshaler {
         if maxRecords != 0 { w.Tag(4, 0); w.Varint(Int64(maxRecords)) }
         if maxWaitMs != 0 { w.Tag(5, 0); w.Varint(Int64(maxWaitMs)) }
         if minBytes != 0 { w.Tag(6, 0); w.Varint(Int64(minBytes)) }
+        if readCommitted { w.Tag(7, 0); w.Varint((readCommitted ? Int64(1) : Int64(0))) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
@@ -872,6 +875,7 @@ final class ConsumeRequest: Marshaler, Unmarshaler {
         maxRecords = 0
         maxWaitMs = 0
         minBytes = 0
+        readCommitted = false
         let r = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
@@ -890,6 +894,8 @@ final class ConsumeRequest: Marshaler, Unmarshaler {
                 maxWaitMs = Int32(truncatingIfNeeded: field.varintValue)
             case 6:
                 minBytes = Int32(truncatingIfNeeded: field.varintValue)
+            case 7:
+                readCommitted = field.varintValue != 0
             default: unknownFields += field.rawValue
             }
         }
@@ -957,15 +963,17 @@ final class GroupSubscribeRequest: Marshaler, Unmarshaler {
     var sessionTimeoutMs: Int32 = 0
     var maxPollRecords: Int32 = 0
     var autoOffsetReset: String = ""
+    var readCommitted: Bool = false
     var unknownFields: [UInt8] = []
     init() {}
-    init(_ groupId: String = "", _ topics: [String] = [], _ groupInstanceId: String = "", _ sessionTimeoutMs: Int32 = 0, _ maxPollRecords: Int32 = 0, _ autoOffsetReset: String = "") {
+    init(_ groupId: String = "", _ topics: [String] = [], _ groupInstanceId: String = "", _ sessionTimeoutMs: Int32 = 0, _ maxPollRecords: Int32 = 0, _ autoOffsetReset: String = "", _ readCommitted: Bool = false) {
         self.groupId = groupId
         self.topics = topics
         self.groupInstanceId = groupInstanceId
         self.sessionTimeoutMs = sessionTimeoutMs
         self.maxPollRecords = maxPollRecords
         self.autoOffsetReset = autoOffsetReset
+        self.readCommitted = readCommitted
     }
     func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
@@ -975,6 +983,7 @@ final class GroupSubscribeRequest: Marshaler, Unmarshaler {
         if sessionTimeoutMs != 0 { w.Tag(4, 0); w.Varint(Int64(sessionTimeoutMs)) }
         if maxPollRecords != 0 { w.Tag(5, 0); w.Varint(Int64(maxPollRecords)) }
         w.StringField(6, autoOffsetReset)
+        if readCommitted { w.Tag(7, 0); w.Varint((readCommitted ? Int64(1) : Int64(0))) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
@@ -986,6 +995,7 @@ final class GroupSubscribeRequest: Marshaler, Unmarshaler {
         sessionTimeoutMs = 0
         maxPollRecords = 0
         autoOffsetReset = ""
+        readCommitted = false
         let r = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
@@ -1004,6 +1014,8 @@ final class GroupSubscribeRequest: Marshaler, Unmarshaler {
                 maxPollRecords = Int32(truncatingIfNeeded: field.varintValue)
             case 6:
                 autoOffsetReset = String(decoding: field.bytesValue, as: UTF8.self)
+            case 7:
+                readCommitted = field.varintValue != 0
             default: unknownFields += field.rawValue
             }
         }
@@ -1194,18 +1206,21 @@ final class ListOffsetsRequest: Marshaler, Unmarshaler {
     var topic: String = ""
     var partition: Int32 = 0
     var timestamp: Int64 = 0
+    var readCommitted: Bool = false
     var unknownFields: [UInt8] = []
     init() {}
-    init(_ topic: String = "", _ partition: Int32 = 0, _ timestamp: Int64 = 0) {
+    init(_ topic: String = "", _ partition: Int32 = 0, _ timestamp: Int64 = 0, _ readCommitted: Bool = false) {
         self.topic = topic
         self.partition = partition
         self.timestamp = timestamp
+        self.readCommitted = readCommitted
     }
     func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, topic)
         if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
         if timestamp != 0 { w.Tag(3, 0); w.Varint(UInt64(bitPattern: timestamp)) }
+        if readCommitted { w.Tag(4, 0); w.Varint((readCommitted ? Int64(1) : Int64(0))) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
@@ -1214,6 +1229,7 @@ final class ListOffsetsRequest: Marshaler, Unmarshaler {
         topic = ""
         partition = 0
         timestamp = 0
+        readCommitted = false
         let r = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
@@ -1226,6 +1242,8 @@ final class ListOffsetsRequest: Marshaler, Unmarshaler {
                 partition = Int32(truncatingIfNeeded: field.varintValue)
             case 3:
                 timestamp = Int64(bitPattern: field.varintValue)
+            case 4:
+                readCommitted = field.varintValue != 0
             default: unknownFields += field.rawValue
             }
         }
@@ -1278,14 +1296,16 @@ final class CommitOffsetRequest: Marshaler, Unmarshaler {
     var partition: Int32 = 0
     var committedOffset: Int64 = 0
     var metadata: String = ""
+    var sessionId: String = ""
     var unknownFields: [UInt8] = []
     init() {}
-    init(_ groupId: String = "", _ topic: String = "", _ partition: Int32 = 0, _ committedOffset: Int64 = 0, _ metadata: String = "") {
+    init(_ groupId: String = "", _ topic: String = "", _ partition: Int32 = 0, _ committedOffset: Int64 = 0, _ metadata: String = "", _ sessionId: String = "") {
         self.groupId = groupId
         self.topic = topic
         self.partition = partition
         self.committedOffset = committedOffset
         self.metadata = metadata
+        self.sessionId = sessionId
     }
     func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
@@ -1294,6 +1314,7 @@ final class CommitOffsetRequest: Marshaler, Unmarshaler {
         if partition != 0 { w.Tag(3, 0); w.Varint(Int64(partition)) }
         if committedOffset != 0 { w.Tag(4, 0); w.Varint(UInt64(bitPattern: committedOffset)) }
         w.StringField(5, metadata)
+        w.StringField(6, sessionId)
         w.Raw(unknownFields)
         return w.ToBytes()
     }
@@ -1304,6 +1325,7 @@ final class CommitOffsetRequest: Marshaler, Unmarshaler {
         partition = 0
         committedOffset = 0
         metadata = ""
+        sessionId = ""
         let r = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
@@ -1320,6 +1342,8 @@ final class CommitOffsetRequest: Marshaler, Unmarshaler {
                 committedOffset = Int64(bitPattern: field.varintValue)
             case 5:
                 metadata = String(decoding: field.bytesValue, as: UTF8.self)
+            case 6:
+                sessionId = String(decoding: field.bytesValue, as: UTF8.self)
             default: unknownFields += field.rawValue
             }
         }

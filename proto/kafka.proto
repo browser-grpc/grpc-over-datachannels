@@ -150,6 +150,7 @@ message ConsumeRequest {
   int32 max_records = 4; // per response chunk; 0 = proxy default
   int32 max_wait_ms = 5; // long-poll budget per chunk
   int32 min_bytes = 6;
+  bool read_committed = 7; // only committed transactional records
 }
 
 message ConsumeResponse {
@@ -169,6 +170,7 @@ message GroupSubscribeRequest {
   int32 session_timeout_ms = 4;
   int32 max_poll_records = 5;
   string auto_offset_reset = 6; // "earliest" | "latest"
+  bool read_committed = 7; // only committed transactional records
 }
 
 message GroupSubscribeResponse {
@@ -203,6 +205,7 @@ message ListOffsetsRequest {
   string topic = 1;
   int32 partition = 2;
   int64 timestamp = 3; // -2 = earliest, -1 = latest, else ms since epoch
+  bool read_committed = 4; // latest = last stable offset
 }
 
 message ListOffsetsResponse {
@@ -217,6 +220,7 @@ message CommitOffsetRequest {
   int32 partition = 3;
   int64 committed_offset = 4; // next offset to consume
   string metadata = 5;
+  string session_id = 6; // from OpenProducer; commit inside that transaction
 }
 
 message CommitOffsetResponse {
