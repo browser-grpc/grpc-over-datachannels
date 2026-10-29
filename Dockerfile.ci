@@ -291,6 +291,7 @@ COPY webrtc/rust ./webrtc/rust
 COPY wasm/rust ./wasm/rust
 RUN cd rust && cargo test --locked --no-run \
   && cargo build --locked --examples \
+  && cargo test --locked --no-run --features kafka-tls --example kafka_proxy \
   && cd ../webrtc/rust && cargo test --locked --no-run
 
 COPY go ./go
