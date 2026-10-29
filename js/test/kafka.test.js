@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 
 import { Channel } from "../index.js";
+import { http2Channel } from "../src/http2.js";
 import { KafkaClient } from "../src/kafka_grpc_dc.js";
 import {
   ConsumeRequest,
@@ -24,6 +25,9 @@ import {
 } from "../src/kafka_pb.js";
 
 const PROXY_ADDR = process.env.KAFKA_E2E_PROXY_ADDR ?? "";
+// HTTP/2 ingress (stock gRPC transport -> grpc-dc-proxy ->
+// kafka_proxy --webrtc-direct): authority of the bridge.
+const HTTP2_ADDR = process.env.KAFKA_E2E_HTTP2_ADDR ?? "";
 const enc = (s) => new TextEncoder().encode(s);
 const dec = (b) => new TextDecoder().decode(b);
 
@@ -146,4 +150,28 @@ test("kafka offset resume", { skip: !PROXY_ADDR }, async (t) => {
   assert.deepEqual(first.map((r) => dec(r.value)), ["a", "b"]);
   const rest = await consume(client, topic, 2, 2);
   assert.deepEqual(rest.map((r) => dec(r.value)), ["c", "d"]);
+});
+
+test("kafka over HTTP/2 ingress", { skip: !HTTP2_ADDR }, async (t) => {
+  const channel = http2Channel(HTTP2_ADDR);
+  const client = new KafkaClient(channel);
+  const topic = `js-kafka-http2-${randomUUID().slice(0, 16)}`;
+  t.after(() => channel.endpoint.dataChannel.close());
+  t.after(async () => {
+    try {
+      await client.deleteTopics(new DeleteTopicsRequest({ topics: [topic] }));
+    } catch {
+      /* best effort */
+    }
+  });
+  const created = await client.createTopics(
+    new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }),
+  );
+  assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  assert.deepEqual(await produce(client, topic, ["v0", "v1", "v2"]), [0, 1, 2]);
+  const got = await consume(client, topic, 0, 3);
+  assert.deepEqual(got.map((r) => dec(r.value)), ["v0", "v1", "v2"]);
 });

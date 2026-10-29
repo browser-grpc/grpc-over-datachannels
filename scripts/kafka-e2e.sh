@@ -163,6 +163,32 @@ start_redpanda_tls() {
     wait_port "$TLS_REDPANDA_ADDR" 120 "redpanda (tls)" || { tail -20 "$TMP/redpanda-tls.log" >&2; return 1; }
 }
 
+# HTTP/2 ingress: kafka_proxy --webrtc-direct behind the
+# shipped grpc-dc-proxy (stock HTTP/2 -> DataChannel), driven
+# by the generated JS client over its HTTP/2 transport.
+run_http2_suite() {
+    echo "== building kafka_proxy (webrtc)"
+    (cd "$ROOT/rust" && cargo build --features webrtc,kafka-tls --example kafka_proxy) || return 1
+    local proxy_bin="$ROOT/rust/target/debug/examples/kafka_proxy"
+    "$proxy_bin" --webrtc-direct 127.0.0.1:40401 --broker "$KAFKA_ADDR" \
+        >"$TMP/proxy-webrtc.log" 2>&1 &
+    PIDS+=($!)
+    local ma=""
+    local i
+    for i in $(seq 1 30); do
+        ma=$(grep -o '/ip4[^ ]*' "$TMP/proxy-webrtc.log" 2>/dev/null | head -1 || true)
+        [ -n "$ma" ] && break
+        sleep 1
+    done
+    [ -n "$ma" ] || { echo "FAIL: kafka_proxy printed no webrtc multiaddr" >&2; return 1; }
+    (cd "$ROOT" && node proxy/grpc-dc-proxy.mjs --dc-dial "$ma" --http2 50551) \
+        >"$TMP/http2-bridge.log" 2>&1 &
+    PIDS+=($!)
+    wait_port "127.0.0.1:50551" 30 "http2 bridge" || return 1
+    run "js http2 e2e (kafka via webrtc-direct)" env KAFKA_E2E_HTTP2_ADDR="127.0.0.1:50551" \
+        bash -c "cd '$ROOT/js' && timeout 300 node --test test/kafka.test.js"
+}
+
 run_tls_suites() {
     run "tls ca-verified e2e (redpanda)" env KAFKA_E2E_PROXY_ADDR="$PROXY_TLS_ADDR" \
         bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_e2e"
@@ -331,6 +357,8 @@ main() {
     PIDS+=($!)
     wait_port "$PROXY_TLS_ADDR" 30 "proxy (tls)" || exit 1
     run_tls_suites
+
+    run_http2_suite || FAILED=1
 
     if [ "$FAILED" -ne 0 ]; then
         echo "kafka e2e: FAILURES (logs in run output above)" >&2

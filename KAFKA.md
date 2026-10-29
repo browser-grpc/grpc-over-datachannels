@@ -66,7 +66,11 @@ Modes:
   message, the `direct_sidecar` framing). Every generated
   client's `SidecarTransport` connects here directly.
 - `--webrtc-direct ADDR` (`--features webrtc`): real WebRTC
-  DataChannels for browser and native clients.
+  DataChannels for browser and native clients. Front it with
+  the shipped `proxy/grpc-dc-proxy.mjs --dc-dial <multiaddr>
+  --http2 PORT` and stock gRPC clients reach the Kafka service
+  over ordinary HTTP/2 over TCP — the same ingress composition
+  as every other grpc-dc service.
 
 SASL flags: `--sasl-plain USER PASS`,
 `--sasl-scram-sha-256 USER PASS`, `--sasl-scram-sha-512 USER PASS`.
