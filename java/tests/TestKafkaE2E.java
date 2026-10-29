@@ -46,7 +46,7 @@ public final class TestKafkaE2E {
                 "create topic");
         long deadline = System.currentTimeMillis() + 15000;
         while (true) {
-            ListOffsetsResponse latest = client.ListOffsets(new ListOffsetsRequest(topic, 0, -1));
+            ListOffsetsResponse latest = client.ListOffsets(new ListOffsetsRequest(topic, 0, -1, false));
             if (latest.errorCode == 0) {
                 return topic;
             }
@@ -76,7 +76,7 @@ public final class TestKafkaE2E {
             KafkaGrpcDc.KafkaClient client, String topic, long offset, int count)
             throws Exception {
         List<FetchedRecord> got = new ArrayList<>();
-        try (var stream = client.Consume(new ConsumeRequest(topic, 0, offset, count, 0, 0))) {
+        try (var stream = client.Consume(new ConsumeRequest(topic, 0, offset, count, 0, 0, false))) {
             while (got.size() < count) {
                 ConsumeResponse chunk = stream.recv();
                 check(chunk.errorCode == 0, "consume error " + chunk.errorCode);
@@ -107,7 +107,7 @@ public final class TestKafkaE2E {
         try {
             check(produce(client, topic, List.of("v0", "v1", "v2")).equals(List.of(0L, 1L, 2L)),
                     "roundtrip offsets");
-            ListOffsetsResponse latest = client.ListOffsets(new ListOffsetsRequest(topic, 0, -1));
+            ListOffsetsResponse latest = client.ListOffsets(new ListOffsetsRequest(topic, 0, -1, false));
             check(latest.offset == 3 && latest.errorCode == 0, "latest offset");
             List<FetchedRecord> got = consume(client, topic, 0, 3);
             check(values(got).equals(List.of("v0", "v1", "v2")), "roundtrip values");
