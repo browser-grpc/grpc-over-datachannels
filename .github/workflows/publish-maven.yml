@@ -1,5 +1,10 @@
 # Publish the Java runtime to Maven Central via the
-# Central Portal. Manual dispatch only. Requires repo
+# Central Portal API. Manual dispatch only. The
+# central-publishing plugin's own upload fails Portal
+# bundle validation while the identical bundle zip
+# validates via the API, so the workflow builds the
+# signed bundle with the plugin and uploads it by API.
+# Requires repo
 # secrets CENTRAL_USERNAME / CENTRAL_PASSWORD (portal
 # user token) and MAVEN_GPG_PRIVATE_KEY /
 # MAVEN_GPG_PASSPHRASE (artifact signing).
@@ -21,9 +26,32 @@ jobs:
           server-password: MAVEN_PASSWORD
           gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
-      - name: Deploy to Maven Central
-        run: mvn -B -f java/pom.xml deploy -Prelease
+      - name: Build signed bundle (plugin upload step is bypassed)
+        run: mvn -B -f java/pom.xml deploy -Prelease -DcentralBaseUrl=http://127.0.0.1:9/nope || test -f java/target/central-publishing/central-bundle.zip
         env:
           MAVEN_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+      - name: Upload + publish via Central Portal API
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN=$(printf '%s:%s' "${{ secrets.CENTRAL_USERNAME }}" "${{ secrets.CENTRAL_PASSWORD }}" | base64 -w0)
+          ID=$(curl -sf -X POST -H "Authorization: Bearer $TOKEN" -F "bundle=@java/target/central-publishing/central-bundle.zip" "https://central.sonatype.com/api/v1/publisher/upload?name=grpc-dc&publishingType=USER_MANAGED")
+          echo "deployment: $ID"
+          for i in $(seq 1 40); do
+            STATE=$(curl -sf -X POST -H "Authorization: Bearer $TOKEN" "https://central.sonatype.com/api/v1/publisher/status?id=$ID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["deploymentState"])')
+            echo "state: $STATE"
+            [ "$STATE" = VALIDATED ] && break
+            [ "$STATE" = FAILED ] && exit 1
+            sleep 15
+          done
+          curl -sf -X POST -H "Authorization: Bearer $TOKEN" "https://central.sonatype.com/api/v1/publisher/deployment/$ID"
+          for i in $(seq 1 120); do
+            STATE=$(curl -sf -X POST -H "Authorization: Bearer $TOKEN" "https://central.sonatype.com/api/v1/publisher/status?id=$ID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["deploymentState"])')
+            echo "state: $STATE"
+            [ "$STATE" = PUBLISHED ] && exit 0
+            [ "$STATE" = FAILED ] && exit 1
+            sleep 15
+          done
+          echo 'timed out waiting for PUBLISHED' >&2; exit 1

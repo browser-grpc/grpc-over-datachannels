@@ -3,6 +3,17 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.35.7 — 2026-10-30
+
+- Kafka proxy: `Produce` now retries stale-leader errors
+  (5/6) with backoff for up to ~5 s, so a produce landing
+  right after topic creation no longer fails while leaders
+  elect on a loaded broker.
+- The `publish-maven` workflow uploads the signed bundle
+  through the Central Portal API (the plugin's own upload
+  fails Portal bundle validation while the identical zip
+  validates via the API, now proven on 0.35.5/0.35.6).
+
 ## v0.35.6 — 2026-10-30
 
 - Public CI fixes from the first GitHub runs: the Kafka

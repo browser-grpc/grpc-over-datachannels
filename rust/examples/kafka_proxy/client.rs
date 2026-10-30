@@ -1040,16 +1040,20 @@ impl Broker {
         )
         .map_err(bad)?;
         // Route to the partition leader. On a stale-leader error
-        // (5/6), refresh through the bootstrap broker once, as
+        // (5/6), refresh through the bootstrap broker, as
         // ordinary Kafka clients do after metadata changes.
-        for attempt in 0..2 {
+        // A just-created topic can take seconds to elect
+        // leaders on a loaded broker, so retry with backoff
+        // instead of failing the produce.
+        for attempt in 0..10 {
             let leader = self.leader_conn(topic, partition).await?;
             let outcome = self
                 .produce_on(&leader, topic, partition, &batch, acks, timeout_ms, transactional_id)
                 .await?;
-            if !matches!(outcome.error_code, 5 | 6) || attempt == 1 {
+            if !matches!(outcome.error_code, 5 | 6) || attempt == 9 {
                 return Ok(outcome);
             }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
         unreachable!("produce retry loop returns")
     }
