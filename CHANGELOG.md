@@ -3,7 +3,18 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.9 — 2026-10-30
+## v0.35.10 — 2026-10-30
+
+- Releases are now one command: `release-push.sh` dispatches
+  and awaits the NuGet and Maven registry workflows and
+  writes the changelog “published to …” note itself.
+- Kafka: new e2e leg proves group resume across a *proxy*
+  restart (the whole service instance is replaced mid-group;
+  the new instance resumes exactly at the committed offset),
+  complementing the existing broker-restart leg. Rust suite
+  is now 21 tests per broker.
+
+## v0.35.9 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 
 - Public CI no longer runs 4× per release: both public
   workflows trigger on branch pushes and PRs only (release

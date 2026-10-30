@@ -749,32 +749,44 @@ async fn kafka_proxy_group_commit_after_rebalance() {
     // offset survived, and a second commit must use the NEW
     // generation (a stale generation would be fenced by the
     // broker with ILLEGAL_GENERATION/UNKNOWN_MEMBER).
-    let mut b = client.subscribe(subscribe_req(&group, &topic)).await.expect("subscribe B");
     // A's leave lands asynchronously; the first generation
     // may still give the partition to the departing A. Wait
-    // for the generation where B actually owns it.
-    let assign_b = collect_until_assignment(&mut b, |l| l == &vec![0], std::time::Duration::from_secs(45)).await;
-    assert_eq!(assign_b.last().cloned(), Some(vec![0]));
-    let fetched = client
-        .fetch_offset(pb::FetchOffsetRequest {
-            group_id: group.clone(),
-            topic: topic.clone(),
-            ..Default::default()
-        })
-        .await
-        .expect("fetch offset");
-    assert_eq!(fetched.committed_offset, 1, "{fetched:?}");
-    let c2 = client
-        .commit_offset(pb::CommitOffsetRequest {
-            group_id: group.clone(),
-            topic: topic.clone(),
-            committed_offset: 1,
-            metadata: "gen2".to_string(),
-            ..Default::default()
-        })
-        .await
-        .expect("commit via B");
-    assert_eq!(c2.error_code, 0, "commit with current generation failed (stale fencing?): {c2:?}");
+    // for the generation where B actually owns it, then commit
+    // through B's live session. Under load a member stream can
+    // die mid-race (the commit then fences with 22/25 forever
+    // because the session is gone); re-subscribe a fresh
+    // member and retry in that case.
+    let mut c2_error = -1;
+    for _round in 0..3 {
+        let mut b = client.subscribe(subscribe_req(&group, &topic)).await.expect("subscribe B");
+        let assign_b = collect_until_assignment(&mut b, |l| l == &vec![0], std::time::Duration::from_secs(45)).await;
+        assert_eq!(assign_b.last().cloned(), Some(vec![0]));
+        let fetched = client
+            .fetch_offset(pb::FetchOffsetRequest {
+                group_id: group.clone(),
+                topic: topic.clone(),
+                ..Default::default()
+            })
+            .await
+            .expect("fetch offset");
+        assert_eq!(fetched.committed_offset, 1, "{fetched:?}");
+        let c2 = client
+            .commit_offset(pb::CommitOffsetRequest {
+                group_id: group.clone(),
+                topic: topic.clone(),
+                committed_offset: 1,
+                metadata: "gen2".to_string(),
+                ..Default::default()
+            })
+            .await
+            .expect("commit via B");
+        c2_error = c2.error_code;
+        if c2_error == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    assert_eq!(c2_error, 0, "commit with current generation failed (stale fencing?)");
     let fetched2 = client
         .fetch_offset(pb::FetchOffsetRequest {
             group_id: group.clone(),
@@ -785,6 +797,63 @@ async fn kafka_proxy_group_commit_after_rebalance() {
         .expect("fetch offset 2");
     assert_eq!(fetched2.committed_offset, 1);
     assert_eq!(fetched2.metadata, "gen2");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_group_proxy_restart_resume() {
+    let Some(broker) = broker_or_skip() else { return };
+    let topic = unique_topic("grpc-dc-e2e-prestart");
+    let group = format!("{topic}-prestart");
+    // Proxy instance 1: consume two of three records and
+    // commit offset 2.
+    let proxy1 = setup(&broker).await;
+    make_topic(&proxy1, &topic, 1).await;
+    for v in ["pr-0", "pr-1", "pr-2"] {
+        assert_eq!(produce_one(&proxy1, &topic, v).await.error_code, 0);
+    }
+    let mut stream1 = proxy1.subscribe(subscribe_req(&group, &topic)).await.expect("subscribe p1");
+    let (_, _, values1) =
+        collect_group(&mut stream1, 1, 2, std::time::Duration::from_secs(45)).await;
+    // A fetch chunk may already carry pr-2 as well; only the
+    // first two records are asserted here (the commit below
+    // is by explicit offset, not by records seen).
+    assert_eq!(values1[..2], ["pr-0", "pr-1"]);
+    let committed = proxy1
+        .commit_offset(pb::CommitOffsetRequest {
+            group_id: group.clone(),
+            topic: topic.clone(),
+            committed_offset: 2,
+            ..Default::default()
+        })
+        .await
+        .expect("commit p1");
+    assert_eq!(committed.error_code, 0, "{committed:?}");
+    // Proxy restart: instance 1 goes away entirely (client,
+    // stream, and its in-memory group sessions); a fresh
+    // service instance — the restarted proxy — takes over.
+    drop(stream1);
+    drop(proxy1);
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    // Proxy instance 2: the committed offset must survive,
+    // and the group must resume exactly at it — pr-2 was
+    // never committed, so it is delivered first, then the
+    // newly produced pr-3. Nothing at or below offset 2 is
+    // redelivered.
+    let proxy2 = setup(&broker).await;
+    let fetched = proxy2
+        .fetch_offset(pb::FetchOffsetRequest {
+            group_id: group.clone(),
+            topic: topic.clone(),
+            ..Default::default()
+        })
+        .await
+        .expect("fetch offset p2");
+    assert_eq!(fetched.committed_offset, 2, "{fetched:?}");
+    assert_eq!(produce_one(&proxy2, &topic, "pr-3").await.error_code, 0);
+    let mut stream2 = proxy2.subscribe(subscribe_req(&group, &topic)).await.expect("subscribe p2");
+    let (_, _, values2) =
+        collect_group(&mut stream2, 1, 2, std::time::Duration::from_secs(45)).await;
+    assert_eq!(values2, vec!["pr-2", "pr-3"], "group did not resume at committed offset after proxy restart");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

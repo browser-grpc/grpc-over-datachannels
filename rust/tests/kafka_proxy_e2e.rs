@@ -800,6 +800,63 @@ async fn kafka_proxy_group_commit_after_rebalance() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_group_proxy_restart_resume() {
+    let Some(broker) = broker_or_skip() else { return };
+    let topic = unique_topic("grpc-dc-e2e-prestart");
+    let group = format!("{topic}-prestart");
+    // Proxy instance 1: consume two of three records and
+    // commit offset 2.
+    let proxy1 = setup(&broker).await;
+    make_topic(&proxy1, &topic, 1).await;
+    for v in ["pr-0", "pr-1", "pr-2"] {
+        assert_eq!(produce_one(&proxy1, &topic, v).await.error_code, 0);
+    }
+    let mut stream1 = proxy1.subscribe(subscribe_req(&group, &topic)).await.expect("subscribe p1");
+    let (_, _, values1) =
+        collect_group(&mut stream1, 1, 2, std::time::Duration::from_secs(45)).await;
+    // A fetch chunk may already carry pr-2 as well; only the
+    // first two records are asserted here (the commit below
+    // is by explicit offset, not by records seen).
+    assert_eq!(values1[..2], ["pr-0", "pr-1"]);
+    let committed = proxy1
+        .commit_offset(pb::CommitOffsetRequest {
+            group_id: group.clone(),
+            topic: topic.clone(),
+            committed_offset: 2,
+            ..Default::default()
+        })
+        .await
+        .expect("commit p1");
+    assert_eq!(committed.error_code, 0, "{committed:?}");
+    // Proxy restart: instance 1 goes away entirely (client,
+    // stream, and its in-memory group sessions); a fresh
+    // service instance — the restarted proxy — takes over.
+    drop(stream1);
+    drop(proxy1);
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    // Proxy instance 2: the committed offset must survive,
+    // and the group must resume exactly at it — pr-2 was
+    // never committed, so it is delivered first, then the
+    // newly produced pr-3. Nothing at or below offset 2 is
+    // redelivered.
+    let proxy2 = setup(&broker).await;
+    let fetched = proxy2
+        .fetch_offset(pb::FetchOffsetRequest {
+            group_id: group.clone(),
+            topic: topic.clone(),
+            ..Default::default()
+        })
+        .await
+        .expect("fetch offset p2");
+    assert_eq!(fetched.committed_offset, 2, "{fetched:?}");
+    assert_eq!(produce_one(&proxy2, &topic, "pr-3").await.error_code, 0);
+    let mut stream2 = proxy2.subscribe(subscribe_req(&group, &topic)).await.expect("subscribe p2");
+    let (_, _, values2) =
+        collect_group(&mut stream2, 1, 2, std::time::Duration::from_secs(45)).await;
+    assert_eq!(values2, vec!["pr-2", "pr-3"], "group did not resume at committed offset after proxy restart");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn kafka_proxy_group_multi_topic() {
     let Some(broker) = broker_or_skip() else { return };
     let client = setup(&broker).await;
