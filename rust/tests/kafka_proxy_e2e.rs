@@ -749,32 +749,44 @@ async fn kafka_proxy_group_commit_after_rebalance() {
     // offset survived, and a second commit must use the NEW
     // generation (a stale generation would be fenced by the
     // broker with ILLEGAL_GENERATION/UNKNOWN_MEMBER).
-    let mut b = client.subscribe(subscribe_req(&group, &topic)).await.expect("subscribe B");
     // A's leave lands asynchronously; the first generation
     // may still give the partition to the departing A. Wait
-    // for the generation where B actually owns it.
-    let assign_b = collect_until_assignment(&mut b, |l| l == &vec![0], std::time::Duration::from_secs(45)).await;
-    assert_eq!(assign_b.last().cloned(), Some(vec![0]));
-    let fetched = client
-        .fetch_offset(pb::FetchOffsetRequest {
-            group_id: group.clone(),
-            topic: topic.clone(),
-            ..Default::default()
-        })
-        .await
-        .expect("fetch offset");
-    assert_eq!(fetched.committed_offset, 1, "{fetched:?}");
-    let c2 = client
-        .commit_offset(pb::CommitOffsetRequest {
-            group_id: group.clone(),
-            topic: topic.clone(),
-            committed_offset: 1,
-            metadata: "gen2".to_string(),
-            ..Default::default()
-        })
-        .await
-        .expect("commit via B");
-    assert_eq!(c2.error_code, 0, "commit with current generation failed (stale fencing?): {c2:?}");
+    // for the generation where B actually owns it, then commit
+    // through B's live session. Under load a member stream can
+    // die mid-race (the commit then fences with 22/25 forever
+    // because the session is gone); re-subscribe a fresh
+    // member and retry in that case.
+    let mut c2_error = -1;
+    for _round in 0..3 {
+        let mut b = client.subscribe(subscribe_req(&group, &topic)).await.expect("subscribe B");
+        let assign_b = collect_until_assignment(&mut b, |l| l == &vec![0], std::time::Duration::from_secs(45)).await;
+        assert_eq!(assign_b.last().cloned(), Some(vec![0]));
+        let fetched = client
+            .fetch_offset(pb::FetchOffsetRequest {
+                group_id: group.clone(),
+                topic: topic.clone(),
+                ..Default::default()
+            })
+            .await
+            .expect("fetch offset");
+        assert_eq!(fetched.committed_offset, 1, "{fetched:?}");
+        let c2 = client
+            .commit_offset(pb::CommitOffsetRequest {
+                group_id: group.clone(),
+                topic: topic.clone(),
+                committed_offset: 1,
+                metadata: "gen2".to_string(),
+                ..Default::default()
+            })
+            .await
+            .expect("commit via B");
+        c2_error = c2.error_code;
+        if c2_error == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    assert_eq!(c2_error, 0, "commit with current generation failed (stale fencing?)");
     let fetched2 = client
         .fetch_offset(pb::FetchOffsetRequest {
             group_id: group.clone(),
