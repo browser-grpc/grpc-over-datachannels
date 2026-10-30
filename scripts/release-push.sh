@@ -168,6 +168,7 @@ if [ -d "$NPM_DIR" ] && command -v npm >/dev/null 2>&1; then
   (cd "$NPM_DIR" && npm publish --dry-run 2>&1 | tail -5) || true
   if npm whoami >/dev/null 2>&1; then
     if (cd "$NPM_DIR" && npm publish --access public); then
+      NPM_OK=1
       echo "npm: grpc-dc@$VERSION published"
     else
       echo "note: npm publish failed (version may already exist); continuing"
@@ -189,6 +190,7 @@ if [ -d "$PYPI_DIR" ] && command -v twine >/dev/null 2>&1; then
   (cd "$PYPI_DIR" && rm -rf dist && python3 -m build --outdir dist 2>&1 | tail -3 && twine check dist/*) || true
   if [ -n "${TWINE_PASSWORD:-}" ] || [ -f "$HOME/.pypirc" ]; then
     if (cd "$PYPI_DIR" && twine upload dist/*); then
+      PYPI_OK=1
       echo "pypi: grpc-dc $VERSION published"
     else
       echo "note: pypi upload failed (version may already exist); continuing"
@@ -328,6 +330,58 @@ ZIP="$WORK/grpc-dc-$VERSION.zip"
 gh release upload "$VERSION" --repo "$REPO" --clobber \
   "$ZIP" "$WORK/SHA256SUMS"
 echo "release asset: grpc-dc-$VERSION.zip + SHA256SUMS uploaded"
+
+# ------------------------------------------------------------------
+# 4b. Registry workflows (NuGet / Maven Central): the public
+#     repo's Trusted-Publishing / Portal-API workflows are the
+#     primary publish path, so dispatch and await them here —
+#     a release is not done until they report. Best-effort:
+#     failures are loud notes, never a failed release.
+# ------------------------------------------------------------------
+NPM_OK="${NPM_OK:-0}"; PYPI_OK="${PYPI_OK:-0}"
+NUGET_OK=0; MAVEN_OK=0
+for wf in publish-nuget publish-maven; do
+  if gh workflow run "$wf.yml" --repo "$REPO" >/dev/null 2>&1; then
+    sleep 5
+    RUN_ID="$(gh run list --repo "$REPO" --workflow "$wf.yml" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)"
+    if [ -n "$RUN_ID" ] && gh run watch "$RUN_ID" --repo "$REPO" --exit-status >/dev/null 2>&1; then
+      echo "registry workflow $wf: succeeded (run $RUN_ID)"
+      [ "$wf" = publish-nuget ] && NUGET_OK=1
+      [ "$wf" = publish-maven ] && MAVEN_OK=1
+    else
+      echo "note: registry workflow $wf did not succeed (run ${RUN_ID:-unknown}); continuing"
+    fi
+  else
+    echo "note: could not dispatch $wf workflow; continuing"
+  fi
+done
+
+# ------------------------------------------------------------------
+# 4c. Changelog bookkeeping: mark this version published in
+#     the private repo (the export already shipped without
+#     the note, as before). Best-effort; runs only from a
+#     private-repo checkout with the version header present.
+# ------------------------------------------------------------------
+if [ -f CHANGELOG.md ] && git rev-parse --git-dir >/dev/null 2>&1 \
+   && grep -q "^## $VERSION — " CHANGELOG.md \
+   && ! grep -q "^## $VERSION — .*published" CHANGELOG.md; then
+  CHANNELS="GitHub"
+  [ "$NPM_OK" = 1 ] && CHANNELS="$CHANNELS/npm"
+  [ "$PYPI_OK" = 1 ] && CHANNELS="$CHANNELS/PyPI"
+  CHANNELS="$CHANNELS/GHCR"
+  [ "$NUGET_OK" = 1 ] && CHANNELS="$CHANNELS/NuGet"
+  [ "$MAVEN_OK" = 1 ] && CHANNELS="$CHANNELS/Maven Central"
+  sed -i "s|^## $VERSION — \(.*\)|## $VERSION — \1 (published to $CHANNELS)|" CHANGELOG.md
+  git add CHANGELOG.md
+  if git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
+       commit -m "CHANGELOG: $VERSION published to $CHANNELS" >/dev/null 2>&1; then
+    git push origin HEAD >/dev/null 2>&1 \
+      && echo "changelog: $VERSION marked published ($CHANNELS) and pushed" \
+      || echo "note: changelog commit made but push failed; push manually"
+  else
+    echo "note: changelog update skipped (nothing to commit)"
+  fi
+fi
 
 # ------------------------------------------------------------------
 # 5. Verify the live site (Pages builds take a minute or so;

@@ -51,7 +51,10 @@ transparently after a transport failure, so a broker restart
 does not permanently break the proxy: committed offsets and
 group membership resume on the next calls (proven by a
 dedicated restart leg in `scripts/kafka-e2e.sh` that bounces
-Kafka between two consume phases).
+Kafka between two consume phases). A proxy restart is also
+covered: `kafka_proxy_group_proxy_restart_resume` replaces
+the whole service instance mid-group and asserts the new
+instance resumes exactly at the committed offset.
 
 Compression: gzip, snappy, LZ4, and zstd (dependency-free
 codecs in the proxy; zstd frames use raw blocks, and the
