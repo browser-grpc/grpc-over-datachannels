@@ -1345,6 +1345,9 @@
    "[live generator](https://browser-grpc.github.io/grpc-over-datachannels/app/)\n"
    "(also at [grpc-dc.lunchgamer.com](https://grpc-dc.lunchgamer.com/))\n"
    "and press **Run your first RPC**.\n\n"
+   "**Project blog:** [grpc-over-datachannels — gRPC over WebRTC, "
+   "Browser & Native](https://c100k.blogspot.com/) — launch notes, "
+   "design posts, and release write-ups.\n\n"
    "**Run gRPC in the browser.** grpc-over-datachannels speaks the\n"
    "gRPC wire protocol directly over WebRTC DataChannels, so a\n"
    "browser tab can call native services peer-to-peer — no grpc-web\n"
@@ -1746,7 +1749,9 @@
       "    docker build -f docker/go.Dockerfile -t grpc-dc-go .\n"
       "    docker run --rm grpc-dc-go\n\n"
       "Or generate stubs for your own schema in the browser:\n"
-      "https://browser-grpc.github.io/grpc-over-datachannels/app/#schema=echo&lang=go\n")
+      "https://browser-grpc.github.io/grpc-over-datachannels/app/#schema=echo&lang=go\n\n"
+      "Project blog (launch notes, design posts, releases): "
+      "https://c100k.blogspot.com/\n")
      out))
   #:exists 'replace)
 
@@ -1816,7 +1821,9 @@
    "(<a href=\"gallery.md\">Markdown</a>)</li>\n"
    "<li><a href=\"BDD.md\">Behavior specification (BDD)</a></li>\n"
    "<li><a href=\"https://github.com/browser-grpc/grpc-over-datachannels\">"
-   "Source, runtimes and examples on GitHub</a></li>\n</ul>\n"
+   "Source, runtimes and examples on GitHub</a></li>\n"
+   "<li><a href=\"https://c100k.blogspot.com/\">Project blog</a> — "
+   "launch notes, design posts, and release write-ups</li>\n</ul>\n"
    "<h2>Why DataChannels?</h2>\n"
    "<p>WebRTC DataChannels give browsers an encrypted, ordered or "
    "lossy/unordered, bidirectional message pipe to any peer — "
@@ -1875,6 +1882,7 @@
       "publish/subscribe with tag-value filtering and a "
       "git-backed event log) ships in all sixteen languages.\n\n"
       "Site: " site-url "\n"
+      "Blog: https://c100k.blogspot.com/\n"
       "Repository: https://github.com/browser-grpc/grpc-over-datachannels\n"
       "npm: https://www.npmjs.com/package/grpc-dc\n"
       "PyPI: https://pypi.org/project/grpc-dc/\n")
