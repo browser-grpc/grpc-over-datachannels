@@ -195,6 +195,7 @@
                   (not (string-contains? rel "node_modules"))))
   (copy-in rel))
 (for ([rel (in-list '("browser-test/package-lock.json"
+                      "browser-test/test.mjs"
                       "browser-test/bdd_runner.mjs"
                       "browser-test/bdd_scenarios.generated.mjs"
                       "browser-test/bdd_wasm_manifest.generated.mjs"))])
@@ -824,7 +825,10 @@
       "# One job per language Dockerfile in docker/; each job is\n"
       "# the same two commands a user runs from a local clone.\n"
       "name: CI\n"
-      "on: [push, pull_request]\n"
+      "on:\n"
+      "  push:\n"
+      "    branches: [main]\n"
+      "  pull_request:\n"
       "jobs:\n"
       "  lang:\n"
       "    runs-on: ubuntu-latest\n"
@@ -847,7 +851,30 @@
       "      - name: Build interop image\n"
       "        run: docker build -f docker/interop.Dockerfile -t grpc-dc-interop .\n"
       "      - name: Run interop demo\n"
-      "        run: docker run --rm grpc-dc-interop\n")
+      "        run: docker run --rm grpc-dc-interop\n"
+      "  browser:\n"
+      "    runs-on: ubuntu-latest\n"
+      "    timeout-minutes: 45\n"
+      "    steps:\n"
+      "      - uses: actions/checkout@v4\n"
+      "      - uses: actions/setup-node@v4\n"
+      "        with:\n"
+      "          node-version: 22\n"
+      "      - uses: actions/setup-go@v5\n"
+      "        with:\n"
+      "          go-version-file: go/go.mod\n"
+      "      - uses: dtolnay/rust-toolchain@stable\n"
+      "      - name: Install browser test deps\n"
+      "        working-directory: browser-test\n"
+      "        run: npm ci\n"
+      "      - name: Install browsers\n"
+      "        working-directory: browser-test\n"
+      "        run: npx playwright install --with-deps chromium firefox webkit\n"
+      "      - name: Build Rust peer for browser suites\n"
+      "        run: cargo build --manifest-path webrtc/rust/Cargo.toml --example peer_echo\n"
+      "      - name: Run browser suites (Chromium/Firefox/WebKit)\n"
+      "        working-directory: browser-test\n"
+      "        run: npm test\n")
      out)))
 
 ;; Cross-language interop demo: Python + JS clients against
@@ -1171,7 +1198,10 @@
    ".github/workflows/ci.yml"
    (string-append
     "name: CI\n"
-    "on: [push, pull_request]\n"
+    "on:\n"
+    "  push:\n"
+    "    branches: [main]\n"
+    "  pull_request:\n"
     "jobs:\n"
     "  e2e:\n"
     "    runs-on: ubuntu-latest\n"

@@ -3,6 +3,18 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.35.9 — 2026-10-30
+
+- Public CI no longer runs 4× per release: both public
+  workflows trigger on branch pushes and PRs only (release
+  tags previously re-ran identical trees).
+- The main public repo gains a browser CI job: Playwright
+  suites (Chromium/Firefox/WebKit) from the exported
+  `browser-test/` harness. This also fixes the exporter
+  dropping `browser-test/test.mjs` from the public tree
+  (its filename missed the `*.test.mjs` copy pattern), so
+  `npm test` in a public clone runs the full script again.
+
 ## v0.35.8 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 
 - `publish-maven` root-caused and fixed: GitHub-built
