@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.2 — 2026-10-30
+## v0.35.2 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR)
 
 - The Kafka proxy gets its own public repo,
   [browser-grpc/kafka-proxy](https://github.com/browser-grpc/kafka-proxy):
