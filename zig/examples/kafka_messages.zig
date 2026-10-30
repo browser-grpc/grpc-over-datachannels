@@ -112,6 +112,7 @@ pub const Record = struct {
     value: []const u8 = "",
     headers: []const Header = &.{},
     timestamp_ms: i64 = 0,
+    null_key: bool = false,
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const Record, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -121,6 +122,7 @@ pub const Record = struct {
         if (self.value.len > 0) w.bytesField(2, self.value);
         for (self.headers) |x| w.bytesField(3, x.marshalDc(alloc));
         if (self.timestamp_ms != 0) { w.tag(4, 0); w.varint(@as(u64, @bitCast(self.timestamp_ms))); }
+        if (self.null_key) { w.tag(5, 0); w.varint(@intFromBool(self.null_key)); }
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -130,6 +132,7 @@ pub const Record = struct {
         self.value = "";
         self.headers = &.{};
         self.timestamp_ms = 0;
+        self.null_key = false;
         var headers_list = std.ArrayList(Header).empty;
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
@@ -150,6 +153,9 @@ pub const Record = struct {
                 4 => {
                     self.timestamp_ms = @as(i64, @bitCast(field.varint_value));
                 },
+                5 => {
+                    self.null_key = field.varint_value != 0;
+                },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }
         }
@@ -163,6 +169,7 @@ pub const FetchedRecord = struct {
     key: []const u8 = "",
     value: []const u8 = "",
     headers: []const Header = &.{},
+    key_null: bool = false,
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const FetchedRecord, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -173,6 +180,7 @@ pub const FetchedRecord = struct {
         if (self.key.len > 0) w.bytesField(3, self.key);
         if (self.value.len > 0) w.bytesField(4, self.value);
         for (self.headers) |x| w.bytesField(5, x.marshalDc(alloc));
+        if (self.key_null) { w.tag(6, 0); w.varint(@intFromBool(self.key_null)); }
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -183,6 +191,7 @@ pub const FetchedRecord = struct {
         self.key = "";
         self.value = "";
         self.headers = &.{};
+        self.key_null = false;
         var headers_list = std.ArrayList(Header).empty;
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
@@ -205,6 +214,9 @@ pub const FetchedRecord = struct {
                     var item: Header = .{};
                     item.unmarshalDc(alloc, field.bytes_value);
                     headers_list.append(alloc, item) catch {};
+                },
+                6 => {
+                    self.key_null = field.varint_value != 0;
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }

@@ -11,14 +11,16 @@ public sealed class FetchedRecord : IMarshaler, IUnmarshaler {
     public byte[] Key = new byte[0];
     public byte[] Value = new byte[0];
     public System.Collections.Generic.List<Header> Headers = new System.Collections.Generic.List<Header>();
+    public bool KeyNull = false;
     public byte[] UnknownFields = new byte[0];
     public FetchedRecord() {}
-    public FetchedRecord(long offset, long timestampMs, byte[] key, byte[] value, System.Collections.Generic.List<Header> headers) {
+    public FetchedRecord(long offset, long timestampMs, byte[] key, byte[] value, System.Collections.Generic.List<Header> headers, bool keyNull) {
         Offset = offset;
         TimestampMs = timestampMs;
         Key = key;
         Value = value;
         Headers = headers;
+        KeyNull = keyNull;
     }
     public byte[] MarshalDc() {
         var w = new KafkaPb.Writer();
@@ -27,6 +29,7 @@ public sealed class FetchedRecord : IMarshaler, IUnmarshaler {
         if (Key != null && Key.Length > 0) w.BytesField(3, Key);
         if (Value != null && Value.Length > 0) w.BytesField(4, Value);
         if (Headers != null) foreach (var x in Headers) w.BytesField(5, x.MarshalDc());
+        if (KeyNull) { w.Tag(6, 0); w.Varint((KeyNull ? 1 : 0)); }
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -37,6 +40,7 @@ public sealed class FetchedRecord : IMarshaler, IUnmarshaler {
         Key = new byte[0];
         Value = new byte[0];
         Headers = new System.Collections.Generic.List<Header>();
+        KeyNull = false;
         var r = new KafkaPb.Reader(data);
         KafkaPb.Field field;
         while ((field = r.Next()) != null) {
@@ -61,6 +65,10 @@ public sealed class FetchedRecord : IMarshaler, IUnmarshaler {
                     var item = new Header();
                     item.UnmarshalDc(field.BytesValue);
                     Headers.Add(item);
+                    break;
+                }
+                case 6: {
+                    KeyNull = field.VarintValue != 0;
                     break;
                 }
                 default: UnknownFields = KafkaPb.ConcatBytes(UnknownFields, field.RawValue); break;

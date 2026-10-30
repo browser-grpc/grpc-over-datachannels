@@ -167,11 +167,12 @@ class Header:
 class Record:
     """Message grpcdc.kafka.v1.Record."""
 
-    def __init__(self, key=b"", value=b"", headers=None, timestamp_ms=0):
+    def __init__(self, key=b"", value=b"", headers=None, timestamp_ms=0, null_key=False):
         self.key = key
         self.value = value
         self.headers = list(headers) if headers is not None else []
         self.timestamp_ms = timestamp_ms
+        self.null_key = null_key
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -181,6 +182,7 @@ class Record:
         for v in self.headers:
             out = _append_bytes_field(out, 3, v.marshal_dc())
         out = _append_varint_field(out, 4, self.timestamp_ms)
+        out = _append_varint_field(out, 5, (1 if self.null_key else 0))
         out += self.unknown_fields
         return bytes(out)
 
@@ -190,6 +192,7 @@ class Record:
         self.value = b""
         self.headers = []
         self.timestamp_ms = 0
+        self.null_key = False
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -207,6 +210,8 @@ class Record:
                 self.headers.append(tmp2)
             elif num == 4:
                 self.timestamp_ms = _as_int64(value)
+            elif num == 5:
+                self.null_key = (value != 0)
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -214,18 +219,19 @@ class Record:
         return isinstance(other, Record) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"Record(key={self.key!r}, value={self.value!r}, headers={self.headers!r}, timestamp_ms={self.timestamp_ms!r})"
+        return f"Record(key={self.key!r}, value={self.value!r}, headers={self.headers!r}, timestamp_ms={self.timestamp_ms!r}, null_key={self.null_key!r})"
 
 
 class FetchedRecord:
     """Message grpcdc.kafka.v1.FetchedRecord."""
 
-    def __init__(self, offset=0, timestamp_ms=0, key=b"", value=b"", headers=None):
+    def __init__(self, offset=0, timestamp_ms=0, key=b"", value=b"", headers=None, key_null=False):
         self.offset = offset
         self.timestamp_ms = timestamp_ms
         self.key = key
         self.value = value
         self.headers = list(headers) if headers is not None else []
+        self.key_null = key_null
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -236,6 +242,7 @@ class FetchedRecord:
         if self.value: out = _append_bytes_field(out, 4, self.value)
         for v in self.headers:
             out = _append_bytes_field(out, 5, v.marshal_dc())
+        out = _append_varint_field(out, 6, (1 if self.key_null else 0))
         out += self.unknown_fields
         return bytes(out)
 
@@ -246,6 +253,7 @@ class FetchedRecord:
         self.key = b""
         self.value = b""
         self.headers = []
+        self.key_null = False
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -265,6 +273,8 @@ class FetchedRecord:
                 tmp.unmarshal_dc(value)
                 tmp2 = tmp
                 self.headers.append(tmp2)
+            elif num == 6:
+                self.key_null = (value != 0)
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -272,7 +282,7 @@ class FetchedRecord:
         return isinstance(other, FetchedRecord) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"FetchedRecord(offset={self.offset!r}, timestamp_ms={self.timestamp_ms!r}, key={self.key!r}, value={self.value!r}, headers={self.headers!r})"
+        return f"FetchedRecord(offset={self.offset!r}, timestamp_ms={self.timestamp_ms!r}, key={self.key!r}, value={self.value!r}, headers={self.headers!r}, key_null={self.key_null!r})"
 
 
 class TopicPartition:

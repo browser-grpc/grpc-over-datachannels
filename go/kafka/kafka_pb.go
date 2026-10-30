@@ -205,6 +205,7 @@ type Record struct {
 	Value         []byte
 	Headers       []*Header
 	TimestampMs   int64
+	NullKey       bool
 	UnknownFields []byte
 }
 
@@ -222,6 +223,10 @@ func (m *Record) MarshalDC() []byte {
 	if m.TimestampMs != 0 {
 		out = KafkaPbAppendTag(out, 4, 0)
 		out = KafkaPbAppendVarint(out, uint64(m.TimestampMs))
+	}
+	if m.NullKey {
+		out = KafkaPbAppendTag(out, 5, 0)
+		out = KafkaPbAppendVarint(out, KafkaPbBoolToUint64(m.NullKey))
 	}
 	out = append(out, m.UnknownFields...)
 	return out
@@ -261,6 +266,10 @@ func (m *Record) UnmarshalDC(data []byte) error {
 			if v, ok := value.(uint64); ok {
 				m.TimestampMs = int64(v)
 			}
+		case 5:
+			if v, ok := value.(uint64); ok {
+				m.NullKey = v != 0
+			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)
 		}
@@ -273,6 +282,7 @@ type FetchedRecord struct {
 	Key           []byte
 	Value         []byte
 	Headers       []*Header
+	KeyNull       bool
 	UnknownFields []byte
 }
 
@@ -294,6 +304,10 @@ func (m *FetchedRecord) MarshalDC() []byte {
 	}
 	for _, x := range m.Headers {
 		out = KafkaPbAppendBytesField(out, 5, x.MarshalDC())
+	}
+	if m.KeyNull {
+		out = KafkaPbAppendTag(out, 6, 0)
+		out = KafkaPbAppendVarint(out, KafkaPbBoolToUint64(m.KeyNull))
 	}
 	out = append(out, m.UnknownFields...)
 	return out
@@ -336,6 +350,10 @@ func (m *FetchedRecord) UnmarshalDC(data []byte) error {
 				}
 				tmpv = tmp5
 				m.Headers = append(m.Headers, tmpv)
+			}
+		case 6:
+			if v, ok := value.(uint64); ok {
+				m.KeyNull = v != 0
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)

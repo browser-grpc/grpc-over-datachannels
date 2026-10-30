@@ -190,7 +190,8 @@ class Record(
     var key: Array[Byte] = Array.empty[Byte],
     var value: Array[Byte] = Array.empty[Byte],
     var headers: List[Header] = List.empty,
-    var timestampMs: Long = 0L
+    var timestampMs: Long = 0L,
+    var nullKey: Boolean = false
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -208,6 +209,10 @@ class Record(
       w.tag(4, 0)
       w.varint(timestampMs.toLong)
     }
+    if (nullKey) {
+      w.tag(5, 0)
+      w.varint((if (nullKey) 1L else 0L))
+    }
     w.raw(unknownFields)
     w.toBytes
   }
@@ -218,6 +223,7 @@ class Record(
     value = Array.empty[Byte]
     headers = List.empty
     timestampMs = 0L
+    nullKey = false
     val r = new KafkaPb.Reader(data)
     var field = r.next()
     while (field != null) {
@@ -232,6 +238,8 @@ class Record(
           headers = headers :+ item
         case 4 =>
           timestampMs = field.varintValue
+        case 5 =>
+          nullKey = (field.varintValue != 0L)
         case _ => unknownFields = unknownFields ++ field.rawValue
       }
       field = r.next()
@@ -244,7 +252,8 @@ class FetchedRecord(
     var timestampMs: Long = 0L,
     var key: Array[Byte] = Array.empty[Byte],
     var value: Array[Byte] = Array.empty[Byte],
-    var headers: List[Header] = List.empty
+    var headers: List[Header] = List.empty,
+    var keyNull: Boolean = false
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -266,6 +275,10 @@ class FetchedRecord(
     for (x <- headers) {
       w.bytesField(5, x.marshalDc())
     }
+    if (keyNull) {
+      w.tag(6, 0)
+      w.varint((if (keyNull) 1L else 0L))
+    }
     w.raw(unknownFields)
     w.toBytes
   }
@@ -277,6 +290,7 @@ class FetchedRecord(
     key = Array.empty[Byte]
     value = Array.empty[Byte]
     headers = List.empty
+    keyNull = false
     val r = new KafkaPb.Reader(data)
     var field = r.next()
     while (field != null) {
@@ -293,6 +307,8 @@ class FetchedRecord(
           val item = new Header()
           item.unmarshalDc(field.bytesValue)
           headers = headers :+ item
+        case 6 =>
+          keyNull = (field.varintValue != 0L)
         case _ => unknownFields = unknownFields ++ field.rawValue
       }
       field = r.next()

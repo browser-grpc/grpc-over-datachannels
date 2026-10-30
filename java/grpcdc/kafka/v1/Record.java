@@ -7,13 +7,15 @@ public final class Record implements grpcdc.Marshaler, grpcdc.Unmarshaler {
     public byte[] value = new byte[0];
     public java.util.List<Header> headers = new java.util.ArrayList<>();
     public long timestampMs = 0L;
+    public boolean nullKey = false;
     public byte[] unknownFields = new byte[0];
     public Record() {}
-    public Record(byte[] key, byte[] value, java.util.List<Header> headers, long timestampMs) {
+    public Record(byte[] key, byte[] value, java.util.List<Header> headers, long timestampMs, boolean nullKey) {
         this.key = key;
         this.value = value;
         this.headers = headers;
         this.timestampMs = timestampMs;
+        this.nullKey = nullKey;
     }
 
     @Override
@@ -23,6 +25,7 @@ public final class Record implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         if (value != null && value.length > 0) w.bytesField(2, value);
         if (headers != null) for (Header x : headers) w.bytesField(3, x.marshalDc());
         if (timestampMs != 0) { w.tag(4, 0); w.varint(timestampMs); }
+        if (nullKey) { w.tag(5, 0); w.varint((nullKey ? 1 : 0)); }
         w.raw(unknownFields);
         return w.toBytes();
     }
@@ -34,6 +37,7 @@ public final class Record implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         value = new byte[0];
         headers = new java.util.ArrayList<>();
         timestampMs = 0L;
+        nullKey = false;
         KafkaPb.Reader r = new KafkaPb.Reader(data);
         KafkaPb.Field field;
         while ((field = r.next()) != null) {
@@ -51,6 +55,9 @@ public final class Record implements grpcdc.Marshaler, grpcdc.Unmarshaler {
                 }
                 case 4 -> {
                     timestampMs = field.varintValue;
+                }
+                case 5 -> {
+                    nullKey = field.varintValue != 0;
                 }
                 default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
             }

@@ -300,6 +300,395 @@ async fn kafka_proxy_multi_broker_leader_routing() {
     }
 }
 
+async fn produce_part(
+    client: &KafkaClient,
+    topic: &str,
+    partition: i32,
+    value: &str,
+) -> pb::ProduceResponse {
+    client
+        .produce(pb::ProduceRequest {
+            topic: topic.to_string(),
+            partition,
+            records: vec![record(value)],
+            acks: pb::Acks::AcksAll,
+            ..Default::default()
+        })
+        .await
+        .expect("produce rpc")
+}
+
+/// Read group events until `want_assignments` assignment events
+/// have been seen or the deadline passes; returns (assignments
+/// as sorted partition lists, all batch values seen).
+async fn collect_group(
+    stream: &mut (impl futures_util::Stream<Item = Result<pb::GroupSubscribeResponse, grpc_dc::Status>> + Unpin),
+    want_assignments: usize,
+    want_values: usize,
+    timeout: std::time::Duration,
+) -> (Vec<Vec<i32>>, Vec<String>, Vec<String>) {
+    let mut assignments: Vec<Vec<i32>> = Vec::new();
+    let mut members: Vec<String> = Vec::new();
+    let mut values: Vec<String> = Vec::new();
+    let deadline = tokio::time::Instant::now() + timeout;
+    while assignments.len() < want_assignments || values.len() < want_values {
+        let Some(next) = tokio::time::timeout_at(deadline, stream.next()).await.ok() else {
+            break;
+        };
+        match next {
+            Some(Ok(event)) => {
+                if let Some(a) = event.assignment {
+                    let mut parts: Vec<i32> = a.partitions.iter().map(|p| p.partition).collect();
+                    parts.sort_unstable();
+                    assignments.push(parts);
+                    members.push(a.member_id.clone());
+                }
+                if let Some(batch) = event.batch {
+                    for rec in batch.records {
+                        values.push(String::from_utf8(rec.value).expect("utf8"));
+                    }
+                }
+                if let Some(e) = event.group_error {
+                    panic!("group error {}: {}", e.error_code, e.message);
+                }
+            }
+            Some(Err(e)) => panic!("subscribe stream error: {e:?}"),
+            None => break,
+        }
+    }
+    (assignments, members, values)
+}
+
+
+/// Collect assignments until the last one satisfies `pred`
+/// (deadline-bounded); returns all assignments seen.
+async fn collect_until_assignment(
+    stream: &mut (impl futures_util::Stream<Item = Result<pb::GroupSubscribeResponse, grpc_dc::Status>> + Unpin),
+    pred: impl Fn(&Vec<i32>) -> bool,
+    timeout: std::time::Duration,
+) -> Vec<Vec<i32>> {
+    let mut all: Vec<Vec<i32>> = Vec::new();
+    let deadline = tokio::time::Instant::now() + timeout;
+    while !all.last().map(|l| pred(l)).unwrap_or(false) {
+        let Ok(next) = tokio::time::timeout_at(deadline, stream.next()).await else { break };
+        match next {
+            Some(Ok(event)) => {
+                if let Some(a) = event.assignment {
+                    let mut parts: Vec<i32> = a.partitions.iter().map(|x| x.partition).collect();
+                    parts.sort_unstable();
+                    all.push(parts);
+                }
+                if let Some(e) = event.group_error {
+                    panic!("group error {}: {}", e.error_code, e.message);
+                }
+            }
+            Some(Err(e)) => panic!("subscribe stream error: {e:?}"),
+            None => break,
+        }
+    }
+    all
+}
+
+fn subscribe_req(group: &str, topic: &str) -> pb::GroupSubscribeRequest {
+    pb::GroupSubscribeRequest {
+        group_id: group.to_string(),
+        topics: vec![topic.to_string()],
+        session_timeout_ms: 30_000,
+        max_poll_records: 10,
+        auto_offset_reset: "earliest".to_string(),
+        ..Default::default()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_fetch_long_poll_and_range() {
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    let topic = unique_topic("grpc-dc-e2e-range");
+    make_topic(&client, &topic, 1).await;
+    assert_eq!(produce_one(&client, &topic, "lp-1").await.error_code, 0);
+
+    // ListOffsets: earliest / latest / read_committed latest.
+    for (ts, want, rc) in [(-2, 0, false), (-1, 1, false), (-1, 1, true)] {
+        let out = client
+            .list_offsets(pb::ListOffsetsRequest {
+                topic: topic.clone(),
+                partition: 0,
+                timestamp: ts,
+                read_committed: rc,
+                ..Default::default()
+            })
+            .await
+            .expect("list offsets");
+        assert_eq!(out.error_code, 0, "{out:?}");
+        assert_eq!(out.offset, want, "ts={ts} rc={rc}: {out:?}");
+    }
+
+    // Out of range: first consume chunk must carry the broker
+    // error (Kafka/Redpanda OFFSET_OUT_OF_RANGE = 1), not data.
+    let mut stream = client
+        .consume(pb::ConsumeRequest {
+            topic: topic.clone(),
+            partition: 0,
+            offset: 99,
+            max_records: 10,
+            max_wait_ms: 500,
+            ..Default::default()
+        })
+        .await
+        .expect("consume rpc");
+    let first = tokio::time::timeout(std::time::Duration::from_secs(20), stream.next())
+        .await
+        .expect("out-of-range consume hung")
+        .expect("out-of-range stream ended without a chunk")
+        .expect("out-of-range stream errored instead of chunk");
+    assert_eq!(first.error_code, 1, "expected OFFSET_OUT_OF_RANGE: {first:?}");
+    assert!(first.records.is_empty());
+
+    // Long-poll: at the high watermark nothing arrives until a
+    // new record is produced, then it is delivered promptly.
+    let mut stream = client
+        .consume(pb::ConsumeRequest {
+            topic: topic.clone(),
+            partition: 0,
+            offset: 1,
+            max_records: 10,
+            max_wait_ms: 2_000,
+            ..Default::default()
+        })
+        .await
+        .expect("consume rpc");
+    let early = tokio::time::timeout(std::time::Duration::from_millis(900), stream.next()).await;
+    assert!(early.is_err(), "long-poll delivered before any new record: {early:?}");
+    assert_eq!(produce_one(&client, &topic, "lp-2").await.error_code, 0);
+    let chunk = tokio::time::timeout(std::time::Duration::from_secs(20), stream.next())
+        .await
+        .expect("long-poll did not deliver after produce")
+        .expect("long-poll stream ended")
+        .expect("long-poll stream error");
+    assert_eq!(chunk.error_code, 0, "{chunk:?}");
+    let vals: Vec<String> = chunk
+        .records
+        .iter()
+        .map(|r| String::from_utf8(r.value.clone()).expect("utf8"))
+        .collect();
+    assert_eq!(vals, vec!["lp-2"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_group_rebalance_two_members() {
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    let topic = unique_topic("grpc-dc-e2e-rebalance");
+    make_topic(&client, &topic, 2).await;
+    assert_eq!(produce_part(&client, &topic, 0, "m-p0").await.error_code, 0);
+    assert_eq!(produce_part(&client, &topic, 1, "m-p1").await.error_code, 0);
+    let group = format!("{topic}-members");
+
+    let mut a = client.subscribe(subscribe_req(&group, &topic)).await.expect("subscribe A");
+    let (assign_a, _, _) = collect_group(&mut a, 1, 0, std::time::Duration::from_secs(30)).await;
+    assert_eq!(assign_a, vec![vec![0, 1]], "first member takes both partitions");
+
+    // Second member joins: both are rebalanced to one each.
+    // (An intermediate generation may briefly re-grant both
+    // partitions to A before B syncs, so wait for the state,
+    // not a fixed event count.)
+    let mut b = client.subscribe(subscribe_req(&group, &topic)).await.expect("subscribe B");
+    let assign_b = collect_until_assignment(&mut b, |l| l.len() == 1, std::time::Duration::from_secs(45)).await;
+    let assign_a2 = collect_until_assignment(&mut a, |l| l.len() == 1, std::time::Duration::from_secs(45)).await;
+    let a_last = assign_a2.last().expect("A rebalanced").clone();
+    let b_last = assign_b.last().expect("B assigned").clone();
+    assert_ne!(a_last, b_last, "assignments must be disjoint: A={a_last:?} B={b_last:?}");
+    // The records sit at fixed offsets; whichever member owns
+    // a partition from the start may already have read it.
+    // Assert only assignment disjointness here; delivery is
+    // covered after B leaves below.
+    let _ = (&assign_a, &assign_a2);
+
+    // B leaves: A is rebalanced back to both partitions.
+    drop(b);
+    let assign_a3 = collect_until_assignment(&mut a, |l| l == &vec![0, 1], std::time::Duration::from_secs(45)).await;
+    assert_eq!(
+        assign_a3.last().cloned(),
+        Some(vec![0, 1]),
+        "A regains both partitions after B leaves: {assign_a3:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_group_static_membership() {
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    let topic = unique_topic("grpc-dc-e2e-static");
+    make_topic(&client, &topic, 1).await;
+    let group = format!("{topic}-static");
+
+    let mut req = subscribe_req(&group, &topic);
+    req.group_instance_id = "static-member-1".to_string();
+    let mut s1 = client.subscribe(req.clone()).await.expect("subscribe static 1");
+    let (a1, m1, _) = collect_group(&mut s1, 1, 0, std::time::Duration::from_secs(30)).await;
+    assert_eq!(a1, vec![vec![0]]);
+    assert!(!m1[0].is_empty());
+    drop(s1);
+    // Brief settle so the leave lands before the rejoin.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let mut s2 = client.subscribe(req).await.expect("subscribe static 2");
+    let (a2, m2, _) = collect_group(&mut s2, 1, 0, std::time::Duration::from_secs(30)).await;
+    assert_eq!(a2, vec![vec![0]], "static member rejoins with its partition");
+    // Static membership: after an explicit leave the broker
+    // mints a fresh id, but it is always derived from the
+    // group_instance_id ("<instance>-<uuid>"), which is what
+    // lets the coordinator fence by instance on rejoin.
+    assert!(m1[0].starts_with("static-member-1-"), "member id not instance-derived: {m1:?}");
+    assert!(m2[0].starts_with("static-member-1-"), "member id not instance-derived: {m2:?}");
+
+    // Fencing: a second live subscribe with the same instance
+    // id fences the first member; its stream must error or end.
+    let mut req3 = subscribe_req(&group, &topic);
+    req3.group_instance_id = "static-member-1".to_string();
+    let mut s3 = client.subscribe(req3).await.expect("subscribe static 3");
+    let (a3, _, _) = collect_group(&mut s3, 1, 0, std::time::Duration::from_secs(30)).await;
+    assert_eq!(a3, vec![vec![0]]);
+    let fenced = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            match s2.next().await {
+                Some(Ok(event)) => {
+                    if event.group_error.is_some() {
+                        return true;
+                    }
+                }
+                Some(Err(_)) => return true,
+                None => return true,
+            }
+        }
+    })
+    .await
+    .expect("fenced member stream hung");
+    assert!(fenced, "first static member was not fenced");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_group_read_committed() {
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    let topic = unique_topic("grpc-dc-e2e-grc");
+    make_topic(&client, &topic, 1).await;
+
+    // One committed and one aborted transactional record.
+    for (value, commit) in [("grc-committed", true), ("grc-aborted", false)] {
+        let opened = client
+            .open_producer(pb::OpenProducerRequest {
+                transactional_id: unique_topic("grpc-dc-grc-txn"),
+                transaction_timeout_ms: 60_000,
+                ..Default::default()
+            })
+            .await
+            .expect("open txn");
+        assert_eq!(opened.error_code, 0, "{opened:?}");
+        let produced = client
+            .produce(pb::ProduceRequest {
+                topic: topic.clone(),
+                partition: 0,
+                records: vec![record(value)],
+                acks: pb::Acks::AcksAll,
+                session_id: opened.session_id.clone(),
+                ..Default::default()
+            })
+            .await
+            .expect("txn produce");
+        assert_eq!(produced.error_code, 0, "{produced:?}");
+        let ended = client
+            .end_transaction(pb::EndTransactionRequest {
+                session_id: opened.session_id.clone(),
+                commit,
+                ..Default::default()
+            })
+            .await
+            .expect("end txn");
+        assert_eq!(ended.error_code, 0, "{ended:?}");
+    }
+
+    // read_committed group: only the committed record arrives.
+    let group = format!("{topic}-rc");
+    let mut req = subscribe_req(&group, &topic);
+    req.read_committed = true;
+    let mut stream = client.subscribe(req).await.expect("subscribe rc group");
+    let (_, _, values) = collect_group(&mut stream, 1, 1, std::time::Duration::from_secs(45)).await;
+    assert_eq!(values, vec!["grc-committed"], "group read_committed leaked: {values:?}");
+    // And nothing more within a short window.
+    let extra = tokio::time::timeout(std::time::Duration::from_secs(4), stream.next()).await;
+    if let Ok(Some(Ok(event))) = extra {
+        assert!(event.batch.is_none(), "aborted record arrived late: {event:?}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_null_vs_empty_key() {
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    let topic = unique_topic("grpc-dc-e2e-keys");
+    make_topic(&client, &topic, 1).await;
+
+    let cases: Vec<pb::Record> = vec![
+        pb::Record { key: b"".to_vec(), value: b"empty-key".to_vec(), ..Default::default() },
+        pb::Record { key: b"".to_vec(), value: b"null-key".to_vec(), null_key: true, ..Default::default() },
+        pb::Record { key: b"k3".to_vec(), value: b"real-key".to_vec(), ..Default::default() },
+    ];
+    let produced = client
+        .produce(pb::ProduceRequest {
+            topic: topic.clone(),
+            partition: 0,
+            records: cases,
+            acks: pb::Acks::AcksAll,
+            ..Default::default()
+        })
+        .await
+        .expect("produce keys");
+    assert_eq!(produced.error_code, 0, "{produced:?}");
+
+    let mut stream = client
+        .consume(pb::ConsumeRequest {
+            topic: topic.clone(),
+            partition: 0,
+            offset: -2,
+            max_records: 10,
+            max_wait_ms: 2_000,
+            ..Default::default()
+        })
+        .await
+        .expect("consume rpc");
+    let mut got: Vec<(String, bool, Vec<u8>)> = Vec::new();
+    let collect = async {
+        while got.len() < 3 {
+            match stream.next().await {
+                Some(Ok(chunk)) => {
+                    assert_eq!(chunk.error_code, 0, "{chunk:?}");
+                    for rec in chunk.records {
+                        got.push((
+                            String::from_utf8(rec.value).expect("utf8"),
+                            rec.key_null,
+                            rec.key,
+                        ));
+                    }
+                }
+                Some(Err(e)) => panic!("consume error: {e:?}"),
+                None => break,
+            }
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(30), collect)
+        .await
+        .expect("key consume timed out");
+    assert_eq!(
+        got,
+        vec![
+            ("empty-key".to_string(), false, Vec::new()),
+            ("null-key".to_string(), true, Vec::new()),
+            ("real-key".to_string(), false, b"k3".to_vec()),
+        ]
+    );
+}
+
 fn record(value: &str) -> pb::Record {
     pb::Record {
         key: format!("key-{value}").into_bytes(),

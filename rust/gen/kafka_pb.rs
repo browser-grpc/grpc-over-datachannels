@@ -241,6 +241,7 @@ pub struct Record {
     pub value: Vec<u8>,
     pub headers: Vec<Header>,
     pub timestamp_ms: i64,
+    pub null_key: bool,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -251,6 +252,7 @@ impl Default for Record {
             value: Vec::new(),
             headers: Vec::new(),
             timestamp_ms: 0,
+            null_key: false,
             unknown_fields: Vec::new(),
         }
     }
@@ -263,6 +265,7 @@ impl Record {
         if !self.value.is_empty() { pb_append_bytes_field(&mut out, 2, &self.value); }
         for x in &self.headers { pb_append_bytes_field(&mut out, 3, &x.encode()); }
         if self.timestamp_ms != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.timestamp_ms as u64)); }
+        if self.null_key { pb_append_tag(&mut out, 5, 0); pb_append_varint(&mut out, (if self.null_key { 1u64 } else { 0u64 })); }
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -284,6 +287,9 @@ impl Record {
                 4 => {
                     msg.timestamp_ms = (field.varint_value as i64);
                 }
+                5 => {
+                    msg.null_key = (field.varint_value != 0);
+                }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);
                 }
@@ -300,6 +306,7 @@ pub struct FetchedRecord {
     pub key: Vec<u8>,
     pub value: Vec<u8>,
     pub headers: Vec<Header>,
+    pub key_null: bool,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -311,6 +318,7 @@ impl Default for FetchedRecord {
             key: Vec::new(),
             value: Vec::new(),
             headers: Vec::new(),
+            key_null: false,
             unknown_fields: Vec::new(),
         }
     }
@@ -324,6 +332,7 @@ impl FetchedRecord {
         if !self.key.is_empty() { pb_append_bytes_field(&mut out, 3, &self.key); }
         if !self.value.is_empty() { pb_append_bytes_field(&mut out, 4, &self.value); }
         for x in &self.headers { pb_append_bytes_field(&mut out, 5, &x.encode()); }
+        if self.key_null { pb_append_tag(&mut out, 6, 0); pb_append_varint(&mut out, (if self.key_null { 1u64 } else { 0u64 })); }
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -347,6 +356,9 @@ impl FetchedRecord {
                 }
                 5 => {
                     msg.headers.push(Header::decode(&field.bytes_value)?);
+                }
+                6 => {
+                    msg.key_null = (field.varint_value != 0);
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);

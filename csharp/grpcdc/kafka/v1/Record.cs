@@ -10,13 +10,15 @@ public sealed class Record : IMarshaler, IUnmarshaler {
     public byte[] Value = new byte[0];
     public System.Collections.Generic.List<Header> Headers = new System.Collections.Generic.List<Header>();
     public long TimestampMs = 0;
+    public bool NullKey = false;
     public byte[] UnknownFields = new byte[0];
     public Record() {}
-    public Record(byte[] key, byte[] value, System.Collections.Generic.List<Header> headers, long timestampMs) {
+    public Record(byte[] key, byte[] value, System.Collections.Generic.List<Header> headers, long timestampMs, bool nullKey) {
         Key = key;
         Value = value;
         Headers = headers;
         TimestampMs = timestampMs;
+        NullKey = nullKey;
     }
     public byte[] MarshalDc() {
         var w = new KafkaPb.Writer();
@@ -24,6 +26,7 @@ public sealed class Record : IMarshaler, IUnmarshaler {
         if (Value != null && Value.Length > 0) w.BytesField(2, Value);
         if (Headers != null) foreach (var x in Headers) w.BytesField(3, x.MarshalDc());
         if (TimestampMs != 0) { w.Tag(4, 0); w.Varint(TimestampMs); }
+        if (NullKey) { w.Tag(5, 0); w.Varint((NullKey ? 1 : 0)); }
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -33,6 +36,7 @@ public sealed class Record : IMarshaler, IUnmarshaler {
         Value = new byte[0];
         Headers = new System.Collections.Generic.List<Header>();
         TimestampMs = 0;
+        NullKey = false;
         var r = new KafkaPb.Reader(data);
         KafkaPb.Field field;
         while ((field = r.Next()) != null) {
@@ -53,6 +57,10 @@ public sealed class Record : IMarshaler, IUnmarshaler {
                 }
                 case 4: {
                     TimestampMs = field.VarintValue;
+                    break;
+                }
+                case 5: {
+                    NullKey = field.VarintValue != 0;
                     break;
                 }
                 default: UnknownFields = KafkaPb.ConcatBytes(UnknownFields, field.RawValue); break;

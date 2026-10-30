@@ -770,7 +770,7 @@ async fn run_subscribe(
             return;
         }
 
-        let coordinator = match broker.coordinator(&req.group_id, 0).await {
+        let coordinator = match broker.coordinator_fresh(&req.group_id, 0).await {
             Ok(conn) => conn,
             Err(error) => {
                 let _ = tx.send(Ok(group_error(-1, error.message.clone())));
@@ -969,7 +969,8 @@ async fn run_subscribe(
                     )
                     .await
                 {
-                    Ok(0) => {}
+                    Ok(0) => {
+                    }
                     Ok(22 | 27) => {
                         rejoin = true;
                         break 'poll;
@@ -1070,7 +1071,13 @@ async fn run_subscribe(
             }
         }
 
-        {
+        if !rejoin {
+            // Final exit: drop the commit-offset session and
+            // leave the group. On a rejoin (rebalance /
+            // heartbeat 22/25/27) the member must NOT leave:
+            // leaving first makes the broker forget the
+            // member id, and the rejoin then fails with
+            // UNKNOWN_MEMBER_ID (25).
             let mut active_groups = groups.lock().await;
             if active_groups
                 .get(&req.group_id)
@@ -1078,16 +1085,15 @@ async fn run_subscribe(
             {
                 active_groups.remove(&req.group_id);
             }
-        }
-        let _ = broker
-            .leave_group(
-                &coordinator,
-                &req.group_id,
-                &member_id,
-                group_instance_id.as_deref(),
-            )
-            .await;
-        if !rejoin {
+            drop(active_groups);
+            let _ = broker
+                .leave_group(
+                    &coordinator,
+                    &req.group_id,
+                    &member_id,
+                    group_instance_id.as_deref(),
+                )
+                .await;
             return;
         }
     }

@@ -131,6 +131,7 @@ class Record : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   std::vector<std::uint8_t> value = {};
   std::vector<Header> headers = {};
   std::int64_t timestamp_ms = 0;
+  bool null_key = false;
   grpcdc::Bytes unknown_fields;
   Record() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -143,6 +144,7 @@ class FetchedRecord : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   std::vector<std::uint8_t> key = {};
   std::vector<std::uint8_t> value = {};
   std::vector<Header> headers = {};
+  bool key_null = false;
   grpcdc::Bytes unknown_fields;
   FetchedRecord() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -523,6 +525,7 @@ inline grpcdc::Bytes Record::MarshalDc() const {
     if (!value.empty()) w.BytesField(2, value);
     for (const auto& x : headers) w.BytesField(3, x.MarshalDc());
     if (timestamp_ms != 0) { w.Tag(4, 0); w.Varint(static_cast<std::uint64_t>(timestamp_ms)); }
+    if (null_key) { w.Tag(5, 0); w.Varint((null_key ? 1 : 0)); }
     w.Raw(unknown_fields);
     return w.ToBytes();
 }
@@ -533,6 +536,7 @@ inline void Record::UnmarshalDc(const grpcdc::Bytes& data) {
     value = {};
     headers = {};
     timestamp_ms = 0;
+    null_key = false;
     pb_kafka::Reader r(data);
     pb_kafka::Field field;
     while (r.Next(field)) {
@@ -555,6 +559,10 @@ inline void Record::UnmarshalDc(const grpcdc::Bytes& data) {
             timestamp_ms = static_cast<std::int64_t>(field.varint);
             break;
         }
+        case 5: {
+            null_key = field.varint != 0;
+            break;
+        }
         default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
       }
     }
@@ -567,6 +575,7 @@ inline grpcdc::Bytes FetchedRecord::MarshalDc() const {
     if (!key.empty()) w.BytesField(3, key);
     if (!value.empty()) w.BytesField(4, value);
     for (const auto& x : headers) w.BytesField(5, x.MarshalDc());
+    if (key_null) { w.Tag(6, 0); w.Varint((key_null ? 1 : 0)); }
     w.Raw(unknown_fields);
     return w.ToBytes();
 }
@@ -578,6 +587,7 @@ inline void FetchedRecord::UnmarshalDc(const grpcdc::Bytes& data) {
     key = {};
     value = {};
     headers = {};
+    key_null = false;
     pb_kafka::Reader r(data);
     pb_kafka::Field field;
     while (r.Next(field)) {
@@ -602,6 +612,10 @@ inline void FetchedRecord::UnmarshalDc(const grpcdc::Bytes& data) {
             Header item;
             item.UnmarshalDc(field.bytes);
             headers.push_back(item);
+            break;
+        }
+        case 6: {
+            key_null = field.varint != 0;
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;

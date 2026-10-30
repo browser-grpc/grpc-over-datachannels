@@ -37,6 +37,7 @@ message Record {
   bytes value = 2;
   repeated Header headers = 3;
   int64 timestamp_ms = 4; // 0 = broker/log-append time
+  bool null_key = 5; // true = Kafka null key (distinct from empty)
 }
 
 message FetchedRecord {
@@ -45,6 +46,7 @@ message FetchedRecord {
   bytes key = 3;
   bytes value = 4;
   repeated Header headers = 5;
+  bool key_null = 6; // true when the Kafka record key was null
 }
 
 message TopicPartition {

@@ -123,6 +123,7 @@ enum class Acks(val number: Int) {
     var value: ByteArray = ByteArray(0),
     var headers: MutableList<Header> = mutableListOf(),
     var timestampMs: Long = 0L,
+    var nullKey: Boolean = false,
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -131,6 +132,7 @@ enum class Acks(val number: Int) {
         if (value.isNotEmpty()) w.bytesField(2, value)
         for (x in headers) w.bytesField(3, x.marshalDc())
         if (timestampMs != 0L) { w.tag(4, 0); w.varint(timestampMs) }
+        if (nullKey) { w.tag(5, 0); w.varint(if (nullKey) 1L else 0L) }
         w.raw(unknownFields)
         return w.toBytes()
     }
@@ -140,6 +142,7 @@ enum class Acks(val number: Int) {
         value = ByteArray(0)
         headers = mutableListOf()
         timestampMs = 0L
+        nullKey = false
         val r = KafkaPb.Reader(data)
         while (true) {
             val field = r.next() ?: break
@@ -158,6 +161,9 @@ enum class Acks(val number: Int) {
                 4 -> {
                     timestampMs = field.varintValue
                 }
+                5 -> {
+                    nullKey = field.varintValue != 0L
+                }
                 else -> { unknownFields = unknownFields + field.rawValue }
             }
         }
@@ -169,6 +175,7 @@ enum class Acks(val number: Int) {
     var key: ByteArray = ByteArray(0),
     var value: ByteArray = ByteArray(0),
     var headers: MutableList<Header> = mutableListOf(),
+    var keyNull: Boolean = false,
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -178,6 +185,7 @@ enum class Acks(val number: Int) {
         if (key.isNotEmpty()) w.bytesField(3, key)
         if (value.isNotEmpty()) w.bytesField(4, value)
         for (x in headers) w.bytesField(5, x.marshalDc())
+        if (keyNull) { w.tag(6, 0); w.varint(if (keyNull) 1L else 0L) }
         w.raw(unknownFields)
         return w.toBytes()
     }
@@ -188,6 +196,7 @@ enum class Acks(val number: Int) {
         key = ByteArray(0)
         value = ByteArray(0)
         headers = mutableListOf()
+        keyNull = false
         val r = KafkaPb.Reader(data)
         while (true) {
             val field = r.next() ?: break
@@ -208,6 +217,9 @@ enum class Acks(val number: Int) {
                     val item = Header()
                     item.unmarshalDc(field.bytesValue)
                     headers.add(item)
+                }
+                6 -> {
+                    keyNull = field.varintValue != 0L
                 }
                 else -> { unknownFields = unknownFields + field.rawValue }
             }

@@ -191,8 +191,8 @@ end
 Record = {}
 Record.__index = Record
 
-function Record.new(key, value, headers, timestampMs)
-  return setmetatable({ key = key or "", value = value or "", headers = headers or {}, timestampMs = timestampMs or 0, unknownFields = "" }, Record)
+function Record.new(key, value, headers, timestampMs, nullKey)
+  return setmetatable({ key = key or "", value = value or "", headers = headers or {}, timestampMs = timestampMs or 0, nullKey = nullKey or false, unknownFields = "" }, Record)
 end
 
 function Record:marshalDc()
@@ -201,6 +201,7 @@ function Record:marshalDc()
     if #self.value > 0 then w:bytesField(2, self.value) end
     for _, x in ipairs(self.headers) do w:bytesField(3, x:marshalDc()) end
     if self.timestampMs ~= 0 then w:tag(4, 0) w:varint(self.timestampMs) end
+    if self.nullKey then w:tag(5, 0) w:varint((self.nullKey and 1 or 0)) end
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -211,6 +212,7 @@ function Record:unmarshalDc(data)
   self.value = ""
   self.headers = {}
   self.timestampMs = 0
+  self.nullKey = false
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -226,6 +228,8 @@ function Record:unmarshalDc(data)
       self.headers[#self.headers + 1] = item
     elseif field.number == 4 then
       self.timestampMs = field.varintValue
+    elseif field.number == 5 then
+      self.nullKey = (field.varintValue ~= 0)
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end
@@ -235,8 +239,8 @@ end
 FetchedRecord = {}
 FetchedRecord.__index = FetchedRecord
 
-function FetchedRecord.new(offset, timestampMs, key, value, headers)
-  return setmetatable({ offset = offset or 0, timestampMs = timestampMs or 0, key = key or "", value = value or "", headers = headers or {}, unknownFields = "" }, FetchedRecord)
+function FetchedRecord.new(offset, timestampMs, key, value, headers, keyNull)
+  return setmetatable({ offset = offset or 0, timestampMs = timestampMs or 0, key = key or "", value = value or "", headers = headers or {}, keyNull = keyNull or false, unknownFields = "" }, FetchedRecord)
 end
 
 function FetchedRecord:marshalDc()
@@ -246,6 +250,7 @@ function FetchedRecord:marshalDc()
     if #self.key > 0 then w:bytesField(3, self.key) end
     if #self.value > 0 then w:bytesField(4, self.value) end
     for _, x in ipairs(self.headers) do w:bytesField(5, x:marshalDc()) end
+    if self.keyNull then w:tag(6, 0) w:varint((self.keyNull and 1 or 0)) end
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -257,6 +262,7 @@ function FetchedRecord:unmarshalDc(data)
   self.key = ""
   self.value = ""
   self.headers = {}
+  self.keyNull = false
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -274,6 +280,8 @@ function FetchedRecord:unmarshalDc(data)
       local item = Header.new()
       item:unmarshalDc(field.bytesValue)
       self.headers[#self.headers + 1] = item
+    elseif field.number == 6 then
+      self.keyNull = (field.varintValue ~= 0)
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end

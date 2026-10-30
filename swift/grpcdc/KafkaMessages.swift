@@ -109,13 +109,15 @@ final class Record: Marshaler, Unmarshaler {
     var value: [UInt8] = []
     var headers: [Header] = []
     var timestampMs: Int64 = 0
+    var nullKey: Bool = false
     var unknownFields: [UInt8] = []
     init() {}
-    init(_ key: [UInt8] = [], _ value: [UInt8] = [], _ headers: [Header] = [], _ timestampMs: Int64 = 0) {
+    init(_ key: [UInt8] = [], _ value: [UInt8] = [], _ headers: [Header] = [], _ timestampMs: Int64 = 0, _ nullKey: Bool = false) {
         self.key = key
         self.value = value
         self.headers = headers
         self.timestampMs = timestampMs
+        self.nullKey = nullKey
     }
     func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
@@ -123,6 +125,7 @@ final class Record: Marshaler, Unmarshaler {
         if !value.isEmpty { w.BytesField(2, value) }
         for x in headers { w.BytesField(3, x.MarshalDc()) }
         if timestampMs != 0 { w.Tag(4, 0); w.Varint(UInt64(bitPattern: timestampMs)) }
+        if nullKey { w.Tag(5, 0); w.Varint((nullKey ? Int64(1) : Int64(0))) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
@@ -132,6 +135,7 @@ final class Record: Marshaler, Unmarshaler {
         value = []
         headers = []
         timestampMs = 0
+        nullKey = false
         let r = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
@@ -148,6 +152,8 @@ final class Record: Marshaler, Unmarshaler {
                 headers.append(item)
             case 4:
                 timestampMs = Int64(bitPattern: field.varintValue)
+            case 5:
+                nullKey = field.varintValue != 0
             default: unknownFields += field.rawValue
             }
         }
@@ -159,14 +165,16 @@ final class FetchedRecord: Marshaler, Unmarshaler {
     var key: [UInt8] = []
     var value: [UInt8] = []
     var headers: [Header] = []
+    var keyNull: Bool = false
     var unknownFields: [UInt8] = []
     init() {}
-    init(_ offset: Int64 = 0, _ timestampMs: Int64 = 0, _ key: [UInt8] = [], _ value: [UInt8] = [], _ headers: [Header] = []) {
+    init(_ offset: Int64 = 0, _ timestampMs: Int64 = 0, _ key: [UInt8] = [], _ value: [UInt8] = [], _ headers: [Header] = [], _ keyNull: Bool = false) {
         self.offset = offset
         self.timestampMs = timestampMs
         self.key = key
         self.value = value
         self.headers = headers
+        self.keyNull = keyNull
     }
     func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
@@ -175,6 +183,7 @@ final class FetchedRecord: Marshaler, Unmarshaler {
         if !key.isEmpty { w.BytesField(3, key) }
         if !value.isEmpty { w.BytesField(4, value) }
         for x in headers { w.BytesField(5, x.MarshalDc()) }
+        if keyNull { w.Tag(6, 0); w.Varint((keyNull ? Int64(1) : Int64(0))) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
@@ -185,6 +194,7 @@ final class FetchedRecord: Marshaler, Unmarshaler {
         key = []
         value = []
         headers = []
+        keyNull = false
         let r = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
@@ -203,6 +213,8 @@ final class FetchedRecord: Marshaler, Unmarshaler {
                 let item = Header()
                 item.UnmarshalDc(field.bytesValue)
                 headers.append(item)
+            case 6:
+                keyNull = field.varintValue != 0
             default: unknownFields += field.rawValue
             }
         }

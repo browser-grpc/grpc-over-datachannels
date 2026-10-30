@@ -157,11 +157,12 @@ export class Header {
 }
 
 export class Record {
-  constructor({ key = new Uint8Array(0), value = new Uint8Array(0), headers = [], timestampMs = 0n } = {}) {
+  constructor({ key = new Uint8Array(0), value = new Uint8Array(0), headers = [], timestampMs = 0n, nullKey = false } = {}) {
     this.key = key;
     this.value = value;
     this.headers = headers;
     this.timestampMs = timestampMs;
+    this.nullKey = nullKey;
     this.unknownFields = new Uint8Array(0);
   }
   static encode(msg) {
@@ -170,6 +171,7 @@ export class Record {
     if (msg.value && msg.value.length) putBytesField(out, 2, msg.value);
     if (msg.headers) for (const v of msg.headers) putBytesField(out, 3, Header.encode(v));
     putVarintField(out, 4, BigInt(msg.timestampMs));
+    putVarintField(out, 5, (msg.nullKey ? 1n : 0n));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -184,6 +186,7 @@ export class Record {
       case 2: msg.value = value; break;
       case 3: msg.headers.push(Header.decode(value)); break;
       case 4: msg.timestampMs = BigInt.asIntN(64, value); break;
+      case 5: msg.nullKey = value !== 0n; break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -192,12 +195,13 @@ export class Record {
 }
 
 export class FetchedRecord {
-  constructor({ offset = 0n, timestampMs = 0n, key = new Uint8Array(0), value = new Uint8Array(0), headers = [] } = {}) {
+  constructor({ offset = 0n, timestampMs = 0n, key = new Uint8Array(0), value = new Uint8Array(0), headers = [], keyNull = false } = {}) {
     this.offset = offset;
     this.timestampMs = timestampMs;
     this.key = key;
     this.value = value;
     this.headers = headers;
+    this.keyNull = keyNull;
     this.unknownFields = new Uint8Array(0);
   }
   static encode(msg) {
@@ -207,6 +211,7 @@ export class FetchedRecord {
     if (msg.key && msg.key.length) putBytesField(out, 3, msg.key);
     if (msg.value && msg.value.length) putBytesField(out, 4, msg.value);
     if (msg.headers) for (const v of msg.headers) putBytesField(out, 5, Header.encode(v));
+    putVarintField(out, 6, (msg.keyNull ? 1n : 0n));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -222,6 +227,7 @@ export class FetchedRecord {
       case 3: msg.key = value; break;
       case 4: msg.value = value; break;
       case 5: msg.headers.push(Header.decode(value)); break;
+      case 6: msg.keyNull = value !== 0n; break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }

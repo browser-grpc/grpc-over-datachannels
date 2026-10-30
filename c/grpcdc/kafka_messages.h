@@ -123,6 +123,7 @@ struct Record {
     Header * headers;
     size_t headers_count;
     int64_t timestamp_ms;
+    bool null_key;
     KafkaPbBytes unknown_fields;
 };
 
@@ -133,6 +134,7 @@ struct FetchedRecord {
     KafkaPbBytes value;
     Header * headers;
     size_t headers_count;
+    bool key_null;
     KafkaPbBytes unknown_fields;
 };
 
@@ -549,6 +551,7 @@ static inline KafkaPbBytes Record_marshal(const Record *m) {
     if (m->value.len > 0) KafkaPb_writer_bytes_field(&w, 2, m->value.data, m->value.len);
     for (size_t i = 0; i < m->headers_count; i++) { KafkaPbBytes b = Header_marshal(&m->headers[i]); KafkaPb_writer_bytes_field(&w, 3, b.data, b.len); free(b.data); }
     if ((m->timestamp_ms != 0)) { KafkaPb_writer_tag(&w, 4, 0); KafkaPb_writer_varint(&w, ((uint64_t)m->timestamp_ms)); }
+    if (m->null_key) { KafkaPb_writer_tag(&w, 5, 0); KafkaPb_writer_varint(&w, (m->null_key ? 1 : 0)); }
     KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
     return KafkaPb_writer_to_bytes(&w);
 }
@@ -578,6 +581,10 @@ static inline void Record_unmarshal(Record *m, const uint8_t *data, size_t len) 
                     m->timestamp_ms = ((int64_t)field.varint_value);
                     break;
                 }
+                case 5: {
+                    m->null_key = (field.varint_value != 0);
+                    break;
+                }
             default: {
                 KafkaPbBytes raw = KafkaPb_bytes_copy(field.raw_value.data, field.raw_value.len);
                 m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);
@@ -600,6 +607,7 @@ static inline KafkaPbBytes FetchedRecord_marshal(const FetchedRecord *m) {
     if (m->key.len > 0) KafkaPb_writer_bytes_field(&w, 3, m->key.data, m->key.len);
     if (m->value.len > 0) KafkaPb_writer_bytes_field(&w, 4, m->value.data, m->value.len);
     for (size_t i = 0; i < m->headers_count; i++) { KafkaPbBytes b = Header_marshal(&m->headers[i]); KafkaPb_writer_bytes_field(&w, 5, b.data, b.len); free(b.data); }
+    if (m->key_null) { KafkaPb_writer_tag(&w, 6, 0); KafkaPb_writer_varint(&w, (m->key_null ? 1 : 0)); }
     KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
     return KafkaPb_writer_to_bytes(&w);
 }
@@ -631,6 +639,10 @@ static inline void FetchedRecord_unmarshal(FetchedRecord *m, const uint8_t *data
                     Header_unmarshal(&item, field.bytes_value.data, field.bytes_value.len);
                     m->headers = (Header *)realloc(m->headers, sizeof(Header) * (m->headers_count + 1));
                     m->headers[m->headers_count++] = item;
+                    break;
+                }
+                case 6: {
+                    m->key_null = (field.varint_value != 0);
                     break;
                 }
             default: {

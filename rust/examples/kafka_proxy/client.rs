@@ -121,6 +121,7 @@ pub struct Conn {
     io: Io,
     corr: i32,
     client_id: String,
+    pub addr: String,
     pub versions: HashMap<i16, (i16, i16)>,
 }
 
@@ -230,7 +231,7 @@ impl Conn {
             None => Io::Plain(stream),
             Some(tls) => tls_wrap(stream, addr, tls).await?,
         };
-        let mut conn = Conn { io, corr: 0, client_id: client_id.to_string(), versions: HashMap::new() };
+        let mut conn = Conn { io, corr: 0, client_id: client_id.to_string(), addr: addr.to_string(), versions: HashMap::new() };
         // With SASL, authenticate first: some brokers (Redpanda)
         // reject ApiVersions on a SASL listener before the
         // handshake. SaslHandshake v1 / SaslAuthenticate v2 are
@@ -556,6 +557,22 @@ impl Broker {
 
     pub async fn bootstrap(&self) -> Result<Arc<Mutex<Conn>>, Status> {
         self.conn_for(&self.cfg.broker.clone()).await
+    }
+
+    /// Like `coordinator`, but returns a brand-new connection
+    /// that is NOT pooled. Group members must each own their
+    /// coordinator connection: a JoinGroup parked by the
+    /// broker during a rebalance would otherwise hold the
+    /// shared connection mutex and starve every other
+    /// member's heartbeat until its session expires.
+    pub async fn coordinator_fresh(&self, key: &str, key_type: i8) -> Result<Arc<Mutex<Conn>>, Status> {
+        let pooled = self.coordinator(key, key_type).await?;
+        let addr = {
+            let conn = pooled.lock().await;
+            conn.addr.clone()
+        };
+        let conn = Conn::connect(&addr, &self.cfg.client_id, &self.cfg.sasl, &self.cfg.tls).await?;
+        Ok(Arc::new(Mutex::new(conn)))
     }
 
     /// FindCoordinator (key_type 0=group, 1=transaction) then
@@ -915,16 +932,14 @@ pub fn build_record_batch(
         rb.i8(0); // attributes
         rb.varlong(ts - base_ts);
         rb.varint(i as i64);
-        match &rec.key {
-            k if k.is_empty() && rec.key.is_empty() => rb.varint(-1),
-            k => {
-                rb.varint(k.len() as i64);
-                rb.bytes(k);
-            }
+        if rec.null_key {
+            rb.varint(-1); // Kafka null key
+        } else {
+            // Empty-but-present key stays an empty key; only
+            // null_key maps to the -1 null marker.
+            rb.varint(rec.key.len() as i64);
+            rb.bytes(&rec.key);
         }
-        // Distinguish null key (empty stays empty bytes; the
-        // proto has no null marker, so empty key = empty key).
-        let _ = &rec.key;
         rb.varint(rec.value.len() as i64);
         rb.bytes(&rec.value);
         rb.varint(rec.headers.len() as i64);
@@ -1436,7 +1451,8 @@ pub fn parse_record_batches_tagged(data: &[u8]) -> Result<Vec<TaggedRecord>, Str
                 let ts_delta = rr.varint()?;
                 let off_delta = rr.varint()?;
                 let klen = rr.varint()?;
-                let key = if klen < 0 { Vec::new() } else { rr.take(klen as usize)?.to_vec() };
+                let key_null = klen < 0;
+                let key = if key_null { Vec::new() } else { rr.take(klen as usize)?.to_vec() };
                 let vlen = rr.varint()?;
                 let value = if vlen < 0 { Vec::new() } else { rr.take(vlen as usize)?.to_vec() };
                 let nh = rr.varint()?;
@@ -1461,6 +1477,7 @@ pub fn parse_record_batches_tagged(data: &[u8]) -> Result<Vec<TaggedRecord>, Str
                         offset: base_offset + off_delta,
                         timestamp_ms: base_ts + ts_delta,
                         key,
+                        key_null,
                         value,
                         headers,
                         ..Default::default()

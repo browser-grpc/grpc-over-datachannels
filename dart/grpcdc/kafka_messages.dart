@@ -106,8 +106,9 @@ class Record implements Marshaler, Unmarshaler {
   Uint8List value;
   List<Header> headers;
   int timestampMs;
+  bool nullKey;
   Uint8List unknownFields = Uint8List(0);
-  Record([this.timestampMs = 0]) : key = Uint8List(0), value = Uint8List(0), headers = [];
+  Record([this.timestampMs = 0, this.nullKey = false]) : key = Uint8List(0), value = Uint8List(0), headers = [];
   @override
   Uint8List marshalDc() {
     final w = KafkaPbWriter();
@@ -115,6 +116,7 @@ class Record implements Marshaler, Unmarshaler {
     if (value.isNotEmpty) w.bytesField(2, value);
     for (final x in headers) { w.bytesField(3, x.marshalDc()); }
     if (timestampMs != 0) { w.tag(4, 0); w.varint(timestampMs); }
+    if (nullKey) { w.tag(5, 0); w.varint((nullKey ? 1 : 0)); }
     w.raw(unknownFields);
     return w.toBytes();
   }
@@ -125,6 +127,7 @@ class Record implements Marshaler, Unmarshaler {
     value = Uint8List(0);
     headers = [];
     timestampMs = 0;
+    nullKey = false;
     final r = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
       final field = r.next();
@@ -144,6 +147,9 @@ class Record implements Marshaler, Unmarshaler {
         case 4:
           timestampMs = field.varintValue;
           break;
+        case 5:
+          nullKey = field.varintValue != 0;
+          break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
           break;
@@ -157,8 +163,9 @@ class FetchedRecord implements Marshaler, Unmarshaler {
   Uint8List key;
   Uint8List value;
   List<Header> headers;
+  bool keyNull;
   Uint8List unknownFields = Uint8List(0);
-  FetchedRecord([this.offset = 0, this.timestampMs = 0]) : key = Uint8List(0), value = Uint8List(0), headers = [];
+  FetchedRecord([this.offset = 0, this.timestampMs = 0, this.keyNull = false]) : key = Uint8List(0), value = Uint8List(0), headers = [];
   @override
   Uint8List marshalDc() {
     final w = KafkaPbWriter();
@@ -167,6 +174,7 @@ class FetchedRecord implements Marshaler, Unmarshaler {
     if (key.isNotEmpty) w.bytesField(3, key);
     if (value.isNotEmpty) w.bytesField(4, value);
     for (final x in headers) { w.bytesField(5, x.marshalDc()); }
+    if (keyNull) { w.tag(6, 0); w.varint((keyNull ? 1 : 0)); }
     w.raw(unknownFields);
     return w.toBytes();
   }
@@ -178,6 +186,7 @@ class FetchedRecord implements Marshaler, Unmarshaler {
     key = Uint8List(0);
     value = Uint8List(0);
     headers = [];
+    keyNull = false;
     final r = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
       final field = r.next();
@@ -199,6 +208,9 @@ class FetchedRecord implements Marshaler, Unmarshaler {
           final item = Header();
           item.unmarshalDc(field.bytesValue);
           headers.add(item);
+          break;
+        case 6:
+          keyNull = field.varintValue != 0;
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);

@@ -172,13 +172,14 @@ end
   end
 
   class Record
-    attr_accessor :key, :value, :headers, :timestamp_ms, :unknown_fields
+    attr_accessor :key, :value, :headers, :timestamp_ms, :null_key, :unknown_fields
 
-    def initialize(key: "".b, value: "".b, headers: [], timestamp_ms: 0)
+    def initialize(key: "".b, value: "".b, headers: [], timestamp_ms: 0, null_key: false)
       @key = key
       @value = value
       @headers = headers
       @timestamp_ms = timestamp_ms
+      @null_key = null_key
       @unknown_fields = "".b
     end
 
@@ -195,6 +196,10 @@ end
       w.tag(4, 0)
       w.varint(@timestamp_ms)
     end
+    if @null_key
+      w.tag(5, 0)
+      w.varint((@null_key ? 1 : 0))
+    end
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -205,6 +210,7 @@ end
       @value = "".b
       @headers = []
       @timestamp_ms = 0
+      @null_key = false
       r = Reader.new(data)
       loop do
         item = r.field
@@ -222,6 +228,8 @@ end
         @headers << item
       when 4
         @timestamp_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 5
+        @null_key = (varint_value != 0)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -230,19 +238,20 @@ end
     end
 
     def ==(other)
-      other.is_a?(Record) && @key == other.key && @value == other.value && @headers == other.headers && @timestamp_ms == other.timestamp_ms
+      other.is_a?(Record) && @key == other.key && @value == other.value && @headers == other.headers && @timestamp_ms == other.timestamp_ms && @null_key == other.null_key
     end
   end
 
   class FetchedRecord
-    attr_accessor :offset, :timestamp_ms, :key, :value, :headers, :unknown_fields
+    attr_accessor :offset, :timestamp_ms, :key, :value, :headers, :key_null, :unknown_fields
 
-    def initialize(offset: 0, timestamp_ms: 0, key: "".b, value: "".b, headers: [])
+    def initialize(offset: 0, timestamp_ms: 0, key: "".b, value: "".b, headers: [], key_null: false)
       @offset = offset
       @timestamp_ms = timestamp_ms
       @key = key
       @value = value
       @headers = headers
+      @key_null = key_null
       @unknown_fields = "".b
     end
 
@@ -263,6 +272,10 @@ end
       w.bytes_field(4, @value)
     end
     @headers.each { |x| w.bytes_field(5, x.marshal_dc) }
+    if @key_null
+      w.tag(6, 0)
+      w.varint((@key_null ? 1 : 0))
+    end
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -274,6 +287,7 @@ end
       @key = "".b
       @value = "".b
       @headers = []
+      @key_null = false
       r = Reader.new(data)
       loop do
         item = r.field
@@ -293,6 +307,8 @@ end
         item = Header.new
         item.unmarshal_dc(bytes_value)
         @headers << item
+      when 6
+        @key_null = (varint_value != 0)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -301,7 +317,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(FetchedRecord) && @offset == other.offset && @timestamp_ms == other.timestamp_ms && @key == other.key && @value == other.value && @headers == other.headers
+      other.is_a?(FetchedRecord) && @offset == other.offset && @timestamp_ms == other.timestamp_ms && @key == other.key && @value == other.value && @headers == other.headers && @key_null == other.key_null
     end
   end
 

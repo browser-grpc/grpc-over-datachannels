@@ -8,14 +8,16 @@ public final class FetchedRecord implements grpcdc.Marshaler, grpcdc.Unmarshaler
     public byte[] key = new byte[0];
     public byte[] value = new byte[0];
     public java.util.List<Header> headers = new java.util.ArrayList<>();
+    public boolean keyNull = false;
     public byte[] unknownFields = new byte[0];
     public FetchedRecord() {}
-    public FetchedRecord(long offset, long timestampMs, byte[] key, byte[] value, java.util.List<Header> headers) {
+    public FetchedRecord(long offset, long timestampMs, byte[] key, byte[] value, java.util.List<Header> headers, boolean keyNull) {
         this.offset = offset;
         this.timestampMs = timestampMs;
         this.key = key;
         this.value = value;
         this.headers = headers;
+        this.keyNull = keyNull;
     }
 
     @Override
@@ -26,6 +28,7 @@ public final class FetchedRecord implements grpcdc.Marshaler, grpcdc.Unmarshaler
         if (key != null && key.length > 0) w.bytesField(3, key);
         if (value != null && value.length > 0) w.bytesField(4, value);
         if (headers != null) for (Header x : headers) w.bytesField(5, x.marshalDc());
+        if (keyNull) { w.tag(6, 0); w.varint((keyNull ? 1 : 0)); }
         w.raw(unknownFields);
         return w.toBytes();
     }
@@ -38,6 +41,7 @@ public final class FetchedRecord implements grpcdc.Marshaler, grpcdc.Unmarshaler
         key = new byte[0];
         value = new byte[0];
         headers = new java.util.ArrayList<>();
+        keyNull = false;
         KafkaPb.Reader r = new KafkaPb.Reader(data);
         KafkaPb.Field field;
         while ((field = r.next()) != null) {
@@ -58,6 +62,9 @@ public final class FetchedRecord implements grpcdc.Marshaler, grpcdc.Unmarshaler
                     Header item = new Header();
                     item.unmarshalDc(field.bytesValue);
                     headers.add(item);
+                }
+                case 6 -> {
+                    keyNull = field.varintValue != 0;
                 }
                 default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
             }

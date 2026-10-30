@@ -220,14 +220,16 @@ class Record
     public string $value = "";
     public array $headers = [];
     public int $timestampMs = 0;
+    public bool $nullKey = false;
 
     public string $unknownFields = "";
-    public function __construct(string $key = "", string $value = "", array $headers = [], int $timestampMs = 0)
+    public function __construct(string $key = "", string $value = "", array $headers = [], int $timestampMs = 0, bool $nullKey = false)
     {
         $this->key = $key;
         $this->value = $value;
         $this->headers = $headers;
         $this->timestampMs = $timestampMs;
+        $this->nullKey = $nullKey;
     }
 
     public function marshalDc(): string
@@ -246,6 +248,10 @@ class Record
             $w->tag(4, 0);
             $w->varint($this->timestampMs);
         }
+        if ($this->nullKey) {
+            $w->tag(5, 0);
+            $w->varint(($this->nullKey ? 1 : 0));
+        }
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -257,6 +263,7 @@ class Record
         $this->value = "";
         $this->headers = [];
         $this->timestampMs = 0;
+        $this->nullKey = false;
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -275,6 +282,9 @@ class Record
                 case 4:
                     $this->timestampMs = $varintValue;
                     break;
+                case 5:
+                    $this->nullKey = ($varintValue !== 0);
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -289,7 +299,8 @@ class Record
             && $this->key === $other->key
             && $this->value === $other->value
             && $this->headers === $other->headers
-            && $this->timestampMs === $other->timestampMs;
+            && $this->timestampMs === $other->timestampMs
+            && $this->nullKey === $other->nullKey;
     }
 }
 
@@ -300,15 +311,17 @@ class FetchedRecord
     public string $key = "";
     public string $value = "";
     public array $headers = [];
+    public bool $keyNull = false;
 
     public string $unknownFields = "";
-    public function __construct(int $offset = 0, int $timestampMs = 0, string $key = "", string $value = "", array $headers = [])
+    public function __construct(int $offset = 0, int $timestampMs = 0, string $key = "", string $value = "", array $headers = [], bool $keyNull = false)
     {
         $this->offset = $offset;
         $this->timestampMs = $timestampMs;
         $this->key = $key;
         $this->value = $value;
         $this->headers = $headers;
+        $this->keyNull = $keyNull;
     }
 
     public function marshalDc(): string
@@ -331,6 +344,10 @@ class FetchedRecord
         foreach ($this->headers as $x) {
             $w->bytesField(5, $x->marshalDc());
         }
+        if ($this->keyNull) {
+            $w->tag(6, 0);
+            $w->varint(($this->keyNull ? 1 : 0));
+        }
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -343,6 +360,7 @@ class FetchedRecord
         $this->key = "";
         $this->value = "";
         $this->headers = [];
+        $this->keyNull = false;
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -364,6 +382,9 @@ class FetchedRecord
                     $item->unmarshalDc($bytesValue);
                     $this->headers[] = $item;
                     break;
+                case 6:
+                    $this->keyNull = ($varintValue !== 0);
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -379,7 +400,8 @@ class FetchedRecord
             && $this->timestampMs === $other->timestampMs
             && $this->key === $other->key
             && $this->value === $other->value
-            && $this->headers === $other->headers;
+            && $this->headers === $other->headers
+            && $this->keyNull === $other->keyNull;
     }
 }
 

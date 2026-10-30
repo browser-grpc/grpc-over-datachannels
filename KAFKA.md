@@ -29,7 +29,22 @@ generated client (any language)          kafka_proxy                broker
   proxy: JoinGroup/SyncGroup with range + roundrobin assignors,
   heartbeats, rejoin on rebalance errors, committed-offset
   resume. `CommitOffset` / `FetchOffset` for explicit offsets.
+  Each group member owns its coordinator connection (a parked
+  JoinGroup must not starve other members' heartbeats), and a
+  member rejoining after a rebalance heartbeat rejoins with
+  its existing member id instead of leaving first. Multi-
+  member assignment, static membership (`group_instance_id`,
+  instance-derived member ids, fencing of the previous member
+  on duplicate-instance join) are covered by e2e tests.
 - `CreateTopics` / `DeleteTopics` — topic admin.
+
+Record keys distinguish null from empty: `Record.null_key`
+produces a Kafka null key, and `FetchedRecord.key_null`
+reports one; an empty key without the flag stays an empty
+key. `Consume` long-polls at the high watermark (no chunk
+until a record lands) and an out-of-range offset returns the
+broker error (OFFSET_OUT_OF_RANGE) as the first chunk's
+`error_code`.
 
 Compression: gzip, snappy, LZ4, and zstd (dependency-free
 codecs in the proxy; zstd frames use raw blocks, and the
