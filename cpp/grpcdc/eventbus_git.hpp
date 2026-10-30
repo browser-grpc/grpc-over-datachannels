@@ -14,6 +14,7 @@
 // The commit blob (event.pb) is authoritative; the message
 // subject and trailers are a human index for `git log`.
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

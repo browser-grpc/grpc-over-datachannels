@@ -14,6 +14,7 @@
 // Tag is a scoped enum cast from the wire number, so
 // unknown (user-defined) tag numbers pass through unchanged.
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
