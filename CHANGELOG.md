@@ -3,7 +3,20 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.5 — 2026-10-30
+## v0.35.6 — 2026-10-30
+
+- Public CI fixes from the first GitHub runs: the Kafka
+  proxy retries a group commit briefly on
+  ILLEGAL_GENERATION/UNKNOWN_MEMBER_ID while a rebalance
+  settles; the Go and interop images run `go mod tidy` so
+  the versioned webrtc module resolves in-repo; the C++
+  image compiles every test file its driver references;
+  the C image defines `_DEFAULT_SOURCE` (gcc-14 strict
+  POSIX declarations); the Swift/Kotlin/Scala test compiles
+  include `examples/interop/*`; and the Rust image skips
+  the one oracle test that needs external reference clients.
+
+## v0.35.5 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 
 - The Java runtime now publishes to Maven Central as
   `io.github.browser-grpc:grpc-dc`: a generated `java/pom.xml`

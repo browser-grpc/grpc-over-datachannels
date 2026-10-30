@@ -17,4 +17,4 @@ COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs
 COPY docs/app/gen ./docs/app/gen
 COPY proto ./proto
 RUN cd rust && cargo fetch --locked && cargo test --locked --no-run
-CMD ["sh", "-c", "cd rust && cargo test --locked"]
+CMD ["sh", "-c", "cd rust && cargo test --locked -- --skip official_clients_call_rust_server"]

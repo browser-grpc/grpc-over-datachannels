@@ -10,4 +10,5 @@ COPY go ./go
 COPY webrtc/go ./webrtc/go
 COPY python ./python
 COPY js ./js
+RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy
 CMD ["sh", "-c", "MATRIX_CLIENTS=python,go MATRIX_SERVERS=go,python node js/test/interop-matrix.mjs"]

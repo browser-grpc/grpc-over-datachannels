@@ -540,28 +540,44 @@ impl crate::stub::Kafka for KafkaService {
             );
             return Ok(crate::pb::CommitOffsetResponse { error_code: 0, ..Default::default() });
         }
-        let session = self.groups.lock().await.get(&req.group_id).cloned();
-        let (generation_id, member_id, group_instance_id) = match session {
-            Some(session) => (
-                session.generation_id,
-                session.member_id,
-                session.group_instance_id,
-            ),
-            None => (-1, String::new(), None),
-        };
-        let error_code = self
-            .broker
-            .offset_commit(
-                &req.group_id,
-                generation_id,
-                &member_id,
-                group_instance_id.as_deref(),
-                &req.topic,
-                req.partition,
-                req.committed_offset,
-                &req.metadata,
-            )
-            .await?;
+        // A commit can race a rebalance (a departing member's
+        // leave landing after the new member synced): the
+        // broker then answers ILLEGAL_GENERATION (22) or
+        // UNKNOWN_MEMBER_ID (25) for the session snapshot we
+        // just read, while the subscribe loop is mid-rejoin.
+        // Retry against the live session (bounded by the
+        // group session timeout) so the commit lands on the
+        // current generation once the rebalance settles.
+        let mut error_code = -1;
+        for attempt in 0..100 {
+            let session = self.groups.lock().await.get(&req.group_id).cloned();
+            let had_session = session.is_some();
+            let (generation_id, member_id, group_instance_id) = match session {
+                Some(session) => (
+                    session.generation_id,
+                    session.member_id,
+                    session.group_instance_id,
+                ),
+                None => (-1, String::new(), None),
+            };
+            error_code = self
+                .broker
+                .offset_commit(
+                    &req.group_id,
+                    generation_id,
+                    &member_id,
+                    group_instance_id.as_deref(),
+                    &req.topic,
+                    req.partition,
+                    req.committed_offset,
+                    &req.metadata,
+                )
+                .await?;
+            if !(had_session && matches!(error_code, 22 | 25)) || attempt == 99 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        }
         Ok(crate::pb::CommitOffsetResponse { error_code, ..Default::default() })
     }
 

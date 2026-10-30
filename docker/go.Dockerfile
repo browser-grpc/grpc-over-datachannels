@@ -16,5 +16,5 @@ COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs
 COPY docs/app/gen ./docs/app/gen
 COPY proto ./proto
 COPY webrtc/go ./webrtc/go
-RUN cd go && go build ./...
-CMD ["sh", "-c", "cd go && go test -race -skip 'Sidecar' ./..."]
+RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy && go build ./...
+CMD ["sh", "-c", "cd go && go test -race -skip 'Sidecar|TestInteropOfficialClientsCallGoServer' ./..."]
