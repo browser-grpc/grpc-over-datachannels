@@ -910,8 +910,11 @@ release-public: webapp-assets transcripts
 
 ## Capture per-language stdio example transcripts for the
 ## public gallery (builds the interop harnesses once).
+## VERSION is cleared for the child builds: make exports the
+## release version (v-prefixed) and MSBuild imports it as the
+## NuGet Version property, which rejects the v prefix.
 transcripts:
-	node scripts/capture-transcripts.mjs
+	env -u VERSION node scripts/capture-transcripts.mjs
 
 ## Package the Scala.js facade bundles the browser tests load
 ## (shared by test-scalajs-browser and test-wasm-matrix).
