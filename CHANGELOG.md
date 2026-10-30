@@ -3,6 +3,18 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.35.8 — 2026-10-30
+
+- `publish-maven` root-caused and fixed: GitHub-built
+  bundles carried `_remote.repositories` and
+  `maven-metadata-local.xml` from the runner's local Maven
+  repository, which Portal validation rejects; the workflow
+  now strips them from the bundle zip before upload
+  (verified VALIDATED on a diagnostic branch).
+- Kafka e2e: the commit-after-rebalance test re-subscribes
+  and retries when a member stream dies mid-race under
+  load, instead of asserting on a fenced commit.
+
 ## v0.35.7 — 2026-10-30
 
 - Kafka proxy: `Produce` now retries stale-leader errors
