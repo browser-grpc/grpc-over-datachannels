@@ -629,6 +629,7 @@
       "        run: |\n"
       "          set -euo pipefail\n"
       "          TOKEN=$(printf '%s:%s' \"${{ secrets.CENTRAL_USERNAME }}\" \"${{ secrets.CENTRAL_PASSWORD }}\" | base64 -w0)\n"
+      "          zip -d java/target/central-publishing/central-bundle.zip '*/_remote.repositories*' '*/maven-metadata-local.xml*' || true\n"
       "          ID=$(curl -sf -X POST -H \"Authorization: Bearer $TOKEN\" -F \"bundle=@java/target/central-publishing/central-bundle.zip\" \"https://central.sonatype.com/api/v1/publisher/upload?name=grpc-dc&publishingType=USER_MANAGED\")\n"
       "          echo \"deployment: $ID\"\n"
       "          for i in $(seq 1 40); do\n"
