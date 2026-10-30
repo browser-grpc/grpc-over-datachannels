@@ -331,7 +331,7 @@ server_stream=tick#0,tick#1,tick#2
 client_stream=a+b+c
 bidi=x,y
 metadata=echo: hello [meta]
-deadline=4
+deadline=no error
 error_case=INVALID-ARGUMENT: asked to fail
 </code></pre>
 </section>
@@ -417,7 +417,7 @@ error_case=INVALID-ARGUMENT: asked to fail
 Fatal Python error: _enter_buffered_busy: could not acquire lock for &lt;_io.BufferedReader name='&lt;stdin&gt;'&gt; at interpreter shutdown, possibly due to daemon threads
 Python runtime state: finalizing (tstate=0x0000000000b8a848)
 
-Current thread 0x0000e5fd4ff23720 (most recent call first):
+Current thread 0x0000f3c93552c720 (most recent call first):
   &lt;no Python frame&gt;
 </code></pre>
 </section>

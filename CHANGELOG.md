@@ -3,7 +3,16 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.0 — 2026-10-30
+## v0.35.1 — 2026-10-30
+
+- The Kafka proxy now ships as a container image:
+  `ghcr.io/browser-grpc/kafka-proxy` (built with broker TLS and
+  WebRTC-direct support), with a generated
+  `docker/kafka-proxy.Dockerfile` and a public `KAFKA.md` guide
+  in the export. No new org — it publishes under `browser-grpc`
+  alongside `protoc-plugins`.
+
+## v0.35.0 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR)
 
 - Kafka over gRPC: `grpcdc.kafka.v1.Kafka` generated stubs and
   clients for every supported language (native and browser),
