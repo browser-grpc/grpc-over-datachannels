@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.3 — 2026-10-30
+## v0.35.3 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR)
 
 - The public repo now runs CI on GitHub: a generated
   `.github/workflows/ci.yml` builds and runs every per-language
