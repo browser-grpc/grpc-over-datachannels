@@ -2,7 +2,10 @@
 # One job per language Dockerfile in docker/; each job is
 # the same two commands a user runs from a local clone.
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 jobs:
   lang:
     runs-on: ubuntu-latest
@@ -24,3 +27,26 @@ jobs:
         run: docker build -f docker/interop.Dockerfile -t grpc-dc-interop .
       - name: Run interop demo
         run: docker run --rm grpc-dc-interop
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install browser test deps
+        working-directory: browser-test
+        run: npm ci
+      - name: Install browsers
+        working-directory: browser-test
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Build Rust peer for browser suites
+        run: cargo build --manifest-path webrtc/rust/Cargo.toml --example peer_echo
+      - name: Run browser suites (Chromium/Firefox/WebKit)
+        working-directory: browser-test
+        run: npm test

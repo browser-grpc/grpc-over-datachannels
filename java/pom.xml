@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>io.github.browser-grpc</groupId>
   <artifactId>grpc-dc</artifactId>
-  <version>0.35.8</version>
+  <version>0.35.9</version>
   <packaging>jar</packaging>
   <name>grpc-dc</name>
   <description>gRPC over WebRTC DataChannels for Java - dependency-free generated gRPC clients and servers, no grpc-web proxy</description>
