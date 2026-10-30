@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.12 — 2026-10-30
+## v0.35.12 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 
 - New dedicated public repo `browser-grpc/eventbus` (parity
   with `browser-grpc/kafka-proxy`): a generated subset export
