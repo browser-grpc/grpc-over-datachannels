@@ -115,6 +115,16 @@
         (display (string-join kept "\n") out)
         (newline out)))))
 
+;; Go workspace for in-repo builds: with the replace removed,
+;; building inside a clone (browser-test's Go harness, the
+;; docker images' tidy step) would resolve webrtc/go from the
+;; module proxy at this version, which races the release's
+;; own go/ tags. A workspace pins both modules to the tree.
+(call-with-output-file (build-path out-dir "go.work")
+  #:exists 'replace
+  (lambda (out)
+    (display "go 1.24\n\nuse ./go\n\nuse ./webrtc/go\n" out)))
+
 ;; NuGet: the C# runtime's PackageId/metadata live in the source
 ;; Grpcdc.csproj, but the package version tracks the release.
 ;; Inject it (plus a package readme, copied from the generated
