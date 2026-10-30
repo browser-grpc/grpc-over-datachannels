@@ -3,7 +3,18 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.11 — 2026-10-30
+## v0.35.12 — 2026-10-30
+
+- New dedicated public repo `browser-grpc/eventbus` (parity
+  with `browser-grpc/kafka-proxy`): a generated subset export
+  with `proto/events.proto`, the full Python and JavaScript
+  trees (broker, clients, demos, tests), generated EventBus
+  sources for the other fourteen languages under `gen/`, an
+  `EVENTBUS.md` guide, CI + demo Dockerfiles, and a
+  `ghcr.io/browser-grpc/eventbus-demo` image. `release-push.sh`
+  publishes it alongside the main and kafka-proxy repos.
+
+## v0.35.11 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 
 - Project blog launched at https://c100k.blogspot.com/
   (grpc-over-datachannels — gRPC over WebRTC, Browser &
