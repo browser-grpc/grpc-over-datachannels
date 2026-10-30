@@ -615,6 +615,89 @@
      out))
   #:exists 'replace)
 
+;; Kafka proxy image: the Rust kafka_proxy example (see
+;; KAFKA.md), built with broker TLS support. Users point it at
+;; a broker; generated clients in every language reach Kafka
+;; through it over stdio, length-prefixed TCP, or a WebRTC
+;; DataChannel.
+(call-with-output-file (build-path out-dir "docker/kafka-proxy.Dockerfile")
+  (lambda (out)
+    (display
+     (string-append
+      "# Kafka over gRPC proxy — generated. DO NOT EDIT.\n"
+      "#   docker build -f docker/kafka-proxy.Dockerfile -t kafka-proxy .\n"
+      "#   docker run --rm kafka-proxy --tcp 0.0.0.0:50201 --broker kafka:9092\n"
+      "FROM rust:1-bookworm AS build\n"
+      "WORKDIR /src\n"
+      "COPY rust ./rust\n"
+      "COPY webrtc/rust ./webrtc/rust\n"
+      "COPY proto ./proto\n"
+      "RUN cd rust && cargo build --release --locked --features kafka-tls,webrtc --example kafka_proxy\n"
+      "FROM debian:bookworm-slim\n"
+      "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*\n"
+      "COPY --from=build /src/rust/target/release/examples/kafka_proxy /usr/local/bin/kafka_proxy\n"
+      "ENTRYPOINT [\"kafka_proxy\"]\n"
+      "CMD [\"--help\"]\n")
+     out))
+  #:exists 'replace)
+
+;; Public Kafka guide: the service surface and how to run the
+;; proxy container. Deliberately free of private-repo paths.
+(call-with-output-file (build-path out-dir "KAFKA.md")
+  (lambda (out)
+    (display
+     (string-append
+      "# Kafka over gRPC\n"
+      "\n"
+      "`proto/kafka.proto` (`grpcdc.kafka.v1.Kafka`) exposes a Kafka\n"
+      "cluster through the generated gRPC clients of every supported\n"
+      "language, browser and native. A single Rust proxy terminates\n"
+      "the generated service and speaks the Kafka binary protocol to\n"
+      "Apache Kafka (KRaft) or Redpanda, negotiating API versions per\n"
+      "connection.\n"
+      "\n"
+      "## Run the proxy\n"
+      "\n"
+      "```sh\n"
+      "docker build -f docker/kafka-proxy.Dockerfile -t kafka-proxy .\n"
+      "docker run --rm kafka-proxy --tcp 0.0.0.0:50201 --broker kafka:9092\n"
+      "```\n"
+      "\n"
+      "Or from the published image:\n"
+      "\n"
+      "```sh\n"
+      "docker run --rm ghcr.io/browser-grpc/kafka-proxy:latest \\\n"
+      "  --tcp 0.0.0.0:50201 --broker kafka:9092\n"
+      "```\n"
+      "\n"
+      "Modes: `--stdio` (length-prefixed framing on stdin/stdout),\n"
+      "`--tcp ADDR` (the same framing over TCP, for any generated\n"
+      "client's sidecar transport), and `--webrtc-direct ADDR`\n"
+      "(gRPC over a WebRTC DataChannel).\n"
+      "\n"
+      "Broker security: `--sasl-plain USER PASS`,\n"
+      "`--sasl-scram-sha-256 USER PASS`, or\n"
+      "`--sasl-scram-sha-512 USER PASS`; TLS via `--tls-ca-cert PEM`\n"
+      "or `--tls-insecure-skip-verify` (the image is built with TLS\n"
+      "support enabled).\n"
+      "\n"
+      "## Service surface\n"
+      "\n"
+      "- `Metadata`, `ListOffsets`, `CreateTopics`, `DeleteTopics`.\n"
+      "- `Produce` / `Consume` (server-streaming): per-partition\n"
+      "  ordering, offset resume, null-vs-empty record keys,\n"
+      "  `read_committed`, gzip/snappy/LZ4/zstd compression.\n"
+      "- Producer sessions: idempotent produce and transactions\n"
+      "  (commit/abort, transactional consume-produce).\n"
+      "- Consumer groups: range/roundrobin assignment, static\n"
+      "  membership with fencing, committed-offset resume,\n"
+      "  out-of-range auto-reset, and transparent reconnect after\n"
+      "  a broker restart.\n"
+      "- Multi-broker clusters route produce/fetch to the partition\n"
+      "  leader discovered from metadata.\n")
+     out))
+  #:exists 'replace)
+
 (call-with-output-file (build-path out-dir "docker-compose.yml")
   (lambda (out)
     (display

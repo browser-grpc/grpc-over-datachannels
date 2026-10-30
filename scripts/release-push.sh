@@ -193,6 +193,33 @@ if [ -f "$EXPORT/docker/protoc-plugins.Dockerfile" ]; then
 fi
 
 # ------------------------------------------------------------------
+# 3d. Kafka proxy container image (ghcr.io): the Rust kafka_proxy
+#     (see the export's KAFKA.md). Best-effort like protoc-plugins.
+# ------------------------------------------------------------------
+if [ -f "$EXPORT/docker/kafka-proxy.Dockerfile" ]; then
+  if command -v docker >/dev/null 2>&1; then
+    IMAGE="ghcr.io/browser-grpc/kafka-proxy"
+    gh auth token 2>/dev/null | docker login ghcr.io -u "$ORG" \
+      --password-stdin >/dev/null 2>&1 || true
+    if docker build -f "$EXPORT/docker/kafka-proxy.Dockerfile" \
+         -t "$IMAGE:$VERSION" -t "$IMAGE:latest" "$EXPORT"; then
+      if docker push "$IMAGE:$VERSION" && docker push "$IMAGE:latest"; then
+        echo "container: $IMAGE:$VERSION pushed"
+        gh api -X PATCH "orgs/$ORG/packages/container/kafka-proxy/visibility" \
+          -f visibility=public >/dev/null 2>&1 \
+          || echo "note: set the kafka-proxy GHCR package to Public (org > Packages)"
+      else
+        echo "note: kafka-proxy container push failed (ghcr login?); continuing"
+      fi
+    else
+      echo "note: kafka-proxy container build failed; continuing"
+    fi
+  else
+    echo "note: kafka-proxy container image skipped (docker not available)"
+  fi
+fi
+
+# ------------------------------------------------------------------
 # 4. GitHub Release for the tag (notes from the export's
 #    CHANGELOG section; generated notes as fallback).
 # ------------------------------------------------------------------
