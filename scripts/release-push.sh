@@ -14,6 +14,8 @@ VERSION="${1:-$(git describe --tags --abbrev=0)}"
 EXPORT="release/browser-grpc"
 KP_EXPORT="release/kafka-proxy"
 KP_REPO="browser-grpc/kafka-proxy"
+EB_EXPORT="release/eventbus"
+EB_REPO="browser-grpc/eventbus"
 REPO="browser-grpc/grpc-over-datachannels"
 ORG="browser-grpc"
 PROFILE_REPO="browser-grpc/.github"
@@ -115,6 +117,35 @@ if [ -d "$KP_EXPORT" ]; then
   cd - >/dev/null
 else
   echo "note: no kafka-proxy export at $KP_EXPORT; skipping repo publish"
+fi
+
+# ------------------------------------------------------------------
+# 1c. EventBus repo (browser-grpc/eventbus): standalone generated
+#     subset export (no Racket source; leak gate enforced).
+#     Same version/tag as the main repo.
+# ------------------------------------------------------------------
+if [ -d "$EB_EXPORT" ]; then
+  if ! gh repo view "$EB_REPO" >/dev/null 2>&1; then
+    gh repo create "$EB_REPO" --public \
+      --description "Event bus over gRPC — generated grpcdc.events.v1 publish/subscribe brokers and clients for browser + native"
+  fi
+  gh repo clone "$EB_REPO" "$WORK/eventbus"
+  rsync -a --delete --exclude .git "$EB_EXPORT/" "$WORK/eventbus/"
+  cd "$WORK/eventbus"
+  git add -A
+  if git diff --cached --quiet; then
+    echo "eventbus export unchanged; nothing to publish"
+  else
+    git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
+      commit -m "release $VERSION (generated export)"
+    git tag "$VERSION"
+    git push origin HEAD
+    git push origin "$VERSION"
+    echo "published $EB_REPO $VERSION"
+  fi
+  cd - >/dev/null
+else
+  echo "note: no eventbus export at $EB_EXPORT; skipping repo publish"
 fi
 
 DEFAULT_BRANCH="$(gh repo view "$REPO" --json defaultBranchRef --jq .defaultBranchRef.name)"
@@ -288,6 +319,34 @@ if [ -f "$EXPORT/docker/kafka-proxy.Dockerfile" ]; then
     fi
   else
     echo "note: kafka-proxy container image skipped (docker not available)"
+  fi
+fi
+
+# ------------------------------------------------------------------
+# 3e. EventBus demo image (ghcr.io): runnable Python event bus
+#     demo. Source is the eventbus export, not the main export.
+#     Best-effort like the other images.
+# ------------------------------------------------------------------
+if [ -f "$EB_EXPORT/docker/eventbus-demo.Dockerfile" ]; then
+  if command -v docker >/dev/null 2>&1; then
+    IMAGE="ghcr.io/browser-grpc/eventbus-demo"
+    gh auth token 2>/dev/null | docker login ghcr.io -u "$ORG" \
+      --password-stdin >/dev/null 2>&1 || true
+    if docker build -f "$EB_EXPORT/docker/eventbus-demo.Dockerfile" \
+         -t "$IMAGE:$VERSION" -t "$IMAGE:latest" "$EB_EXPORT"; then
+      if docker push "$IMAGE:$VERSION" && docker push "$IMAGE:latest"; then
+        echo "container: $IMAGE:$VERSION pushed"
+        gh api -X PATCH "orgs/$ORG/packages/container/eventbus-demo/visibility" \
+          -f visibility=public >/dev/null 2>&1 \
+          || echo "note: set the eventbus-demo GHCR package to Public (org > Packages)"
+      else
+        echo "note: eventbus-demo container push failed (ghcr login?); continuing"
+      fi
+    else
+      echo "note: eventbus-demo container build failed; continuing"
+    fi
+  else
+    echo "note: eventbus-demo image skipped (docker not available)"
   fi
 fi
 

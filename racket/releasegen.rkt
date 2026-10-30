@@ -36,6 +36,7 @@
   (arg-value "--version" (sh "git describe --tags --abbrev=0")))
 (define out-dir (arg-value "--out" "release/browser-grpc"))
 (define kafka-proxy-out (arg-value "--kafka-proxy-out" ""))
+(define eventbus-out (arg-value "--eventbus-out" ""))
 (define source-commit (sh "git rev-parse HEAD"))
 
 ;; ---------------------------------------------------------------------------
@@ -1013,6 +1014,45 @@
      out))
   #:exists 'replace)
 
+;; Public EventBus guide: the service surface and how to run
+;; the demos. Deliberately free of private-repo paths.
+(call-with-output-file (build-path out-dir "EVENTBUS.md")
+  (lambda (out)
+    (display
+     (string-append
+      "# Event bus over gRPC\n"
+      "\n"
+      "`proto/events.proto` (`grpcdc.events.v1.EventBus`) is a\n"
+      "publish/subscribe event bus defined as a gRPC service and\n"
+      "generated — broker and clients — in every supported\n"
+      "language, browser and native. Publishers attach typed\n"
+      "routing tags (string, int64, double, bool, or any enum by\n"
+      "number); subscribers declare a containment filter and\n"
+      "receive every event whose tags contain all filter pairs.\n"
+      "The broker assigns a global sequence number (1-based, in\n"
+      "publish order) and a wall-clock timestamp to each event.\n"
+      "\n"
+      "## Run a demo\n"
+      "\n"
+      "```sh\n"
+      "python3 python/examples/eventbus_demo.py\n"
+      "node js/examples/eventbus_demo.js\n"
+      "```\n"
+      "\n"
+      "Each demo starts a broker, subscribes with a topic filter,\n"
+      "publishes three events, and prints what the filter admits.\n"
+      "A git-backed broker variant (`eventbus_git`) persists the\n"
+      "event log to a git repository for durable, inspectable\n"
+      "history.\n"
+      "\n"
+      "## Service surface\n"
+      "\n"
+      "- `Publish(tags, payload, publisher_id)` → broker sequence.\n"
+      "- `Subscribe(filter)` → stream of events matching the\n"
+      "  containment filter (empty filter receives all events).\n")
+     out))
+  #:exists 'replace)
+
 ;; ---------------------------------------------------------------------------
 ;; Dedicated kafka-proxy repo export (browser-grpc/kafka-proxy):
 ;; a standalone subset of the main export — the Rust runtime,
@@ -1234,6 +1274,155 @@
       (exit 1))
     (printf "releasegen: kafka-proxy export: ~a files, leak gate OK\n"
             (length kp-files))))
+
+;; ---------------------------------------------------------------------------
+;; Dedicated eventbus repo export (browser-grpc/eventbus):
+;; the events schema, the full dependency-free Python and
+;; JavaScript trees (broker, clients, demos, tests run as-is),
+;; and the generated EventBus sources for every other language
+;; under gen/<lang>/ to drop into the main repo's runtimes —
+;; plus its own README, CI/demo Dockerfiles, and workflow.
+;; Same leak rule: no Racket source ever crosses.
+;; ---------------------------------------------------------------------------
+
+(define (emit-eb-file rel text [mode #f])
+  (define dest (build-path eventbus-out rel))
+  (make-directory* (path-only dest))
+  (call-with-output-file dest
+    (lambda (out) (display text out)) #:exists 'replace)
+  (when mode (file-or-directory-permissions dest mode)))
+
+(when (non-empty-string? eventbus-out)
+  (when (directory-exists? eventbus-out)
+    (delete-directory/files eventbus-out))
+  (make-directory* eventbus-out)
+  (for ([dir (in-list '("python" "js"))])
+    (copy-directory/files (build-path out-dir dir)
+                          (build-path eventbus-out dir)))
+  (make-directory* (build-path eventbus-out "proto"))
+  (copy-file (build-path out-dir "proto/events.proto")
+             (build-path eventbus-out "proto/events.proto") #t)
+  (for ([f (in-list '("LICENSE" "GENERATED-CODE-LICENSE.md" "EVENTBUS.md"))])
+    (copy-file (build-path out-dir f) (build-path eventbus-out f) #t))
+  ;; Generated EventBus sources for the remaining languages.
+  (for ([lang (in-list languages)]
+        #:unless (member (cdr lang) '("python" "js")))
+    (define src-dir (build-path out-dir (cdr lang)))
+    (when (directory-exists? src-dir)
+      (for ([p (in-list (find-files file-exists? src-dir))]
+            #:when (regexp-match? #rx"(?i:eventbus|events_)"
+                                  (path->string (file-name-from-path p))))
+        (define rel (find-relative-path src-dir p))
+        (define dest (build-path eventbus-out "gen" (cdr lang) rel))
+        (make-directory* (path-only dest))
+        (copy-file p dest #t))))
+  (emit-eb-file
+   "RELEASE.json"
+   (string-append "{\n  \"version\": \"" version "\",\n"
+                  "  \"sourceCommit\": \"" source-commit "\",\n"
+                  "  \"generated\": true\n}\n"))
+  (emit-eb-file
+   "README.md"
+   (string-append
+    "# Event bus over gRPC\n"
+    "\n"
+    "A publish/subscribe event bus defined as one gRPC service,\n"
+    "`grpcdc.events.v1.EventBus` (see [EVENTBUS.md](EVENTBUS.md)),\n"
+    "with the broker and clients **generated in every language** —\n"
+    "browser and native — by [grpc-over-datachannels](https://github.com/browser-grpc/grpc-over-datachannels).\n"
+    "Publishers attach typed routing tags; subscribers declare a\n"
+    "containment filter; the broker assigns global sequence\n"
+    "numbers. A git-backed broker variant persists the log.\n"
+    "\n"
+    "This repository is a generated export (version " version ").\n"
+    "\n"
+    "## Run the demo\n"
+    "\n"
+    "```sh\n"
+    "docker run --rm ghcr.io/browser-grpc/eventbus-demo:latest\n"
+    "```\n"
+    "\n"
+    "Or here, no install (stdlib only):\n"
+    "\n"
+    "```sh\n"
+    "python3 python/examples/eventbus_demo.py\n"
+    "node js/examples/eventbus_demo.js\n"
+    "```\n"
+    "\n"
+    "## Layout\n"
+    "\n"
+    "- `proto/events.proto` — the schema (source of truth).\n"
+    "- `python/`, `js/` — complete dependency-free runtimes with\n"
+    "  the generated broker, clients, demos, and tests.\n"
+    "- `gen/<lang>/` — generated EventBus stubs, brokers, demos,\n"
+    "  and tests for the other fourteen languages; drop them into\n"
+    "  the matching runtime tree of the main repo.\n"
+    "\n"
+    "## Tests\n"
+    "\n"
+    "```sh\n"
+    "docker build -f docker/eventbus-ci.Dockerfile -t eventbus-ci .\n"
+    "docker run --rm eventbus-ci\n"
+    "```\n"
+    "\n"
+    "GitHub Actions runs the same image on every push. Background:\n"
+    "[A generated event bus](https://c100k.blogspot.com/2026/10/a-generated-event-bus-publishsubscribe.html).\n"))
+  (emit-eb-file
+   "docker/eventbus-ci.Dockerfile"
+   (string-append
+    "# EventBus CI — generated. DO NOT EDIT.\n"
+    "# Runs the Python + JavaScript event bus suites and demos.\n"
+    "#   docker build -f docker/eventbus-ci.Dockerfile -t eventbus-ci .\n"
+    "#   docker run --rm eventbus-ci\n"
+    "FROM python:3.13-slim\n"
+    "RUN apt-get update && apt-get install -y --no-install-recommends nodejs git && rm -rf /var/lib/apt/lists/*\n"
+    "WORKDIR /src\n"
+    "COPY proto ./proto\n"
+    "COPY python ./python\n"
+    "COPY js ./js\n"
+    "COPY gen ./gen\n"
+    "CMD [\"bash\", \"-c\", \"python3 -m unittest discover -s python/tests -p 'test_eventbus.py' && python3 python/examples/eventbus_demo.py && node --test js/test/eventbus.test.js && node js/examples/eventbus_demo.js\"]\n"))
+  (emit-eb-file
+   "docker/eventbus-demo.Dockerfile"
+   (string-append
+    "# EventBus demo — generated. DO NOT EDIT.\n"
+    "#   docker build -f docker/eventbus-demo.Dockerfile -t eventbus-demo .\n"
+    "#   docker run --rm eventbus-demo\n"
+    "FROM python:3.13-slim\n"
+    "WORKDIR /src\n"
+    "COPY proto ./proto\n"
+    "COPY python ./python\n"
+    "CMD [\"python3\", \"python/examples/eventbus_demo.py\"]\n"))
+  (emit-eb-file
+   ".github/workflows/ci.yml"
+   (string-append
+    "name: CI\n"
+    "on:\n"
+    "  push:\n"
+    "    branches: [main]\n"
+    "  pull_request:\n"
+    "jobs:\n"
+    "  eventbus:\n"
+    "    runs-on: ubuntu-latest\n"
+    "    steps:\n"
+    "      - uses: actions/checkout@v4\n"
+    "      - name: Build CI image\n"
+    "        run: docker build -f docker/eventbus-ci.Dockerfile -t eventbus-ci .\n"
+    "      - name: Run suites + demos (Python, JavaScript)\n"
+    "        run: docker run --rm eventbus-ci\n"
+    "      - name: Build and run demo image\n"
+    "        run: docker build -f docker/eventbus-demo.Dockerfile -t eventbus-demo . && docker run --rm eventbus-demo\n"))
+  ;; Leak gate for the subset export.
+  (let* ([eb-files (find-files file-exists? eventbus-out)]
+         [eb-leaks
+          (filter (lambda (p) (string-suffix? (path->string p) ".rkt"))
+                  eb-files)])
+    (unless (null? eb-leaks)
+      (eprintf "releasegen: EVENTBUS LEAK GATE FAILED:\n")
+      (for ([p (in-list eb-leaks)]) (eprintf "  ~a\n" p))
+      (exit 1))
+    (printf "releasegen: eventbus export: ~a files, leak gate OK\n"
+            (length eb-files))))
 
 (call-with-output-file (build-path out-dir "docker-compose.yml")
   (lambda (out)
