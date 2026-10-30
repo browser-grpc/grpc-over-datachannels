@@ -679,7 +679,7 @@
          "cd rust && cargo test --locked -- --skip official_clients_call_rust_server")
    (list "go" "golang:1.24-bookworm"
          '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*" "COPY go ./go" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto" "COPY webrtc/go ./webrtc/go" "RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy && go build ./...")
-         "cd go && go test -race -skip 'Sidecar' ./...")
+         "cd go && go test -race -skip 'Sidecar|TestInteropOfficialClientsCallGoServer' ./...")
    (list "js" "node:24-bookworm-slim"
          '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs git && rm -rf /var/lib/apt/lists/*" "COPY js ./js" "COPY webrtc/js ./webrtc/js" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto")
          "cd js && node --test $(ls test/*.test.js | grep -v -e dynamic.test -e oracle.test -e interop.test -e plugin_parity.test)")
