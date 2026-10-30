@@ -12,7 +12,7 @@
     <Description>gRPC over WebRTC DataChannels for .NET — dependency-free generated gRPC clients and servers, no grpc-web proxy</Description>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://browser-grpc.github.io/grpc-over-datachannels/</PackageProjectUrl>
-    <Repository Type="git" Url="https://github.com/browser-grpc/grpc-over-datachannels" />
+    <Repository type="git" url="https://github.com/browser-grpc/grpc-over-datachannels" />
     <PackageTags>grpc;webrtc;datachannel;protobuf;browser</PackageTags>
   </PropertyGroup>
 </Project>
