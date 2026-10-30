@@ -27,7 +27,7 @@
 <p><img src="badger/honey-badger-128.png" width="96" height="96" alt="Honey badger mascot"></p>
 <h1>gRPC over WebRTC DataChannels</h1>
 <p><img src="first-run.gif" alt="Guided first run: generate a gRPC client and call it in the browser" width="720"></p>
-<p>grpc-over-datachannels v0.35.10 — gRPC clients and servers that run <strong>in the browser</strong> over native WebRTC DataChannels, and natively in 16 languages, from the same .proto schemas. No grpc-web proxy and no external gRPC runtime: every runtime is generated and dependency-free.</p>
+<p>grpc-over-datachannels v0.35.11 — gRPC clients and servers that run <strong>in the browser</strong> over native WebRTC DataChannels, and natively in 16 languages, from the same .proto schemas. No grpc-web proxy and no external gRPC runtime: every runtime is generated and dependency-free.</p>
 <ul>
 <li><a href="app/">In-browser protoc generator + live demo</a> — paste a .proto, get stubs for every language</li>
 <li><a href="app/#schema=echo&lang=js">JavaScript/TypeScript browser client example</a></li>
@@ -35,6 +35,7 @@
 <li><a href="gallery.html">Echo server in every language</a> (<a href="gallery.md">Markdown</a>)</li>
 <li><a href="BDD.md">Behavior specification (BDD)</a></li>
 <li><a href="https://github.com/browser-grpc/grpc-over-datachannels">Source, runtimes and examples on GitHub</a></li>
+<li><a href="https://c100k.blogspot.com/">Project blog</a> — launch notes, design posts, and release write-ups</li>
 </ul>
 <h2>Why DataChannels?</h2>
 <p>WebRTC DataChannels give browsers an encrypted, ordered or lossy/unordered, bidirectional message pipe to any peer — including native processes. This project speaks the gRPC wire protocol directly over that pipe (HTTP/2 framing replaced by DataChannel messages), so a browser tab can call a Rust, Go, Python or Node service peer-to-peer, behind NATs via ICE/STUN/TURN, without a translating proxy.</p>

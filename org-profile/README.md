@@ -13,3 +13,5 @@ Start in 60 seconds, no toolchain install:
 
 Or generate stubs for your own schema in the browser:
 https://browser-grpc.github.io/grpc-over-datachannels/app/#schema=echo&lang=go
+
+Project blog (launch notes, design posts, releases): https://c100k.blogspot.com/
