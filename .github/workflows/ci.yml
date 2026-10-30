@@ -1,0 +1,26 @@
+# Generated. DO NOT EDIT.
+# One job per language Dockerfile in docker/; each job is
+# the same two commands a user runs from a local clone.
+name: CI
+on: [push, pull_request]
+jobs:
+  lang:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lang: [rust, go, js, python, java, csharp, cpp, swift, kotlin, dart, zig, c, lua, ruby, php, scala]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.lang }} image
+        run: docker build -f docker/${{ matrix.lang }}.Dockerfile -t grpc-dc-${{ matrix.lang }} .
+      - name: Run ${{ matrix.lang }} tests
+        run: docker run --rm grpc-dc-${{ matrix.lang }}
+  interop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build interop image
+        run: docker build -f docker/interop.Dockerfile -t grpc-dc-interop .
+      - name: Run interop demo
+        run: docker run --rm grpc-dc-interop

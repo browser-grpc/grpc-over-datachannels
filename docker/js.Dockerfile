@@ -7,7 +7,7 @@
 #   docker run --rm grpc-dc-js
 FROM node:24-bookworm-slim
 WORKDIR /src
-RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs git && rm -rf /var/lib/apt/lists/*
 COPY js ./js
 COPY webrtc/js ./webrtc/js
 COPY fixtures ./fixtures

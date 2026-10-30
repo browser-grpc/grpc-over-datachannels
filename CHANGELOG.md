@@ -3,7 +3,17 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.2 — 2026-10-30
+## v0.35.3 — 2026-10-30
+
+- The public repo now runs CI on GitHub: a generated
+  `.github/workflows/ci.yml` builds and runs every per-language
+  Docker image (`docker/<lang>.Dockerfile`) as a parallel
+  matrix job, plus the interop image — the same two commands
+  users can run from a local clone. Together with the
+  kafka-proxy repo's CI, both public repos now show live
+  per-language test results.
+
+## v0.35.2 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR)
 
 - The Kafka proxy gets its own public repo,
   [browser-grpc/kafka-proxy](https://github.com/browser-grpc/kafka-proxy):

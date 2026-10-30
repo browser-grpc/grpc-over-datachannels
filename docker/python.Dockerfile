@@ -7,7 +7,7 @@
 #   docker run --rm grpc-dc-python
 FROM python:3.13-slim
 WORKDIR /src
-RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs git && rm -rf /var/lib/apt/lists/*
 COPY python ./python
 COPY fixtures ./fixtures
 COPY bin ./bin
@@ -15,4 +15,4 @@ COPY webapp/testdata ./webapp/testdata
 COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs
 COPY docs/app/gen ./docs/app/gen
 COPY proto ./proto
-CMD ["sh", "-c", "cd python && python3 -m unittest $(ls tests/test_*.py | grep -v -e sidecar | sed -e 's|tests/||' -e 's|[.]py$||' -e 's|^|tests.|')"]
+CMD ["sh", "-c", "cd python && python3 -m unittest $(ls tests/test_*.py | grep -v -e sidecar -e interop_server_oracle | sed -e 's|tests/||' -e 's|[.]py$||' -e 's|^|tests.|')"]

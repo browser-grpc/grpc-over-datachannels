@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "grpc-dc"
-version = "0.35.2"
+version = "0.35.3"
 description = "gRPC over WebRTC DataChannels — dependency-free generated Python runtime"
 readme = "README.md"
 requires-python = ">=3.9"
