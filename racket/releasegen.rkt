@@ -487,6 +487,140 @@
       "        run: dotnet nuget push /tmp/nuget/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate\n")
      out)))
 
+;; Maven Central (Java): a generated pom for the runtime in
+;; java/ (the tree predates Maven; sources stay in place and
+;; the compiler is scoped to grpcdc/**), plus a manual-dispatch
+;; workflow that deploys via the Central Portal. Central has
+;; no OIDC trusted publishing, so the workflow uses repo
+;; secrets: CENTRAL_USERNAME / CENTRAL_PASSWORD (portal user
+;; token) and MAVEN_GPG_PRIVATE_KEY / MAVEN_GPG_PASSPHRASE.
+(call-with-output-file (build-path out-dir "java/pom.xml")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+      "<!-- Generated. DO NOT EDIT. -->\n"
+      "<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\">\n"
+      "  <modelVersion>4.0.0</modelVersion>\n"
+      "  <groupId>io.github.browser-grpc</groupId>\n"
+      "  <artifactId>grpc-dc</artifactId>\n"
+      "  <version>" (regexp-replace #rx"^v" version "") "</version>\n"
+      "  <packaging>jar</packaging>\n"
+      "  <name>grpc-dc</name>\n"
+      "  <description>gRPC over WebRTC DataChannels for Java - dependency-free generated gRPC clients and servers, no grpc-web proxy</description>\n"
+      "  <url>https://browser-grpc.github.io/grpc-over-datachannels/</url>\n"
+      "  <licenses>\n"
+      "    <license>\n"
+      "      <name>Apache License, Version 2.0</name>\n"
+      "      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>\n"
+      "    </license>\n"
+      "  </licenses>\n"
+      "  <developers>\n"
+      "    <developer>\n"
+      "      <id>unicomp21</id>\n"
+      "      <name>John Davis</name>\n"
+      "      <email>jdavis@pcprogramming.com</email>\n"
+      "    </developer>\n"
+      "  </developers>\n"
+      "  <scm>\n"
+      "    <connection>scm:git:https://github.com/browser-grpc/grpc-over-datachannels.git</connection>\n"
+      "    <developerConnection>scm:git:https://github.com/browser-grpc/grpc-over-datachannels.git</developerConnection>\n"
+      "    <url>https://github.com/browser-grpc/grpc-over-datachannels</url>\n"
+      "  </scm>\n"
+      "  <properties>\n"
+      "    <maven.compiler.release>17</maven.compiler.release>\n"
+      "    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>\n"
+      "  </properties>\n"
+      "  <build>\n"
+      "    <sourceDirectory>${project.basedir}</sourceDirectory>\n"
+      "    <plugins>\n"
+      "      <plugin>\n"
+      "        <artifactId>maven-compiler-plugin</artifactId>\n"
+      "        <version>3.13.0</version>\n"
+      "        <configuration>\n"
+      "          <includes><include>grpcdc/**</include></includes>\n"
+      "        </configuration>\n"
+      "      </plugin>\n"
+      "      <plugin>\n"
+      "        <artifactId>maven-source-plugin</artifactId>\n"
+      "        <version>3.3.1</version>\n"
+      "        <executions><execution><id>attach-sources</id><goals><goal>jar-no-fork</goal></goals></execution></executions>\n"
+      "      </plugin>\n"
+      "      <plugin>\n"
+      "        <artifactId>maven-javadoc-plugin</artifactId>\n"
+      "        <version>3.10.0</version>\n"
+      "        <configuration>\n"
+      "          <additionalOptions><additionalOption>-Xdoclint:none</additionalOption></additionalOptions>\n"
+      "          <quiet>true</quiet>\n"
+      "        </configuration>\n"
+      "        <executions><execution><id>attach-javadocs</id><goals><goal>jar</goal></goals></execution></executions>\n"
+      "      </plugin>\n"
+      "      <plugin>\n"
+      "        <groupId>org.sonatype.central</groupId>\n"
+      "        <artifactId>central-publishing-maven-plugin</artifactId>\n"
+      "        <version>0.8.0</version>\n"
+      "        <extensions>true</extensions>\n"
+      "        <configuration>\n"
+      "          <publishingServerId>central</publishingServerId>\n"
+      "          <autoPublish>true</autoPublish>\n"
+      "          <waitUntil>published</waitUntil>\n"
+      "        </configuration>\n"
+      "      </plugin>\n"
+      "    </plugins>\n"
+      "  </build>\n"
+      "  <profiles>\n"
+      "    <profile>\n"
+      "      <id>release</id>\n"
+      "      <build><plugins>\n"
+      "        <plugin>\n"
+      "          <artifactId>maven-gpg-plugin</artifactId>\n"
+      "          <version>3.2.7</version>\n"
+      "          <executions><execution><id>sign-artifacts</id><phase>verify</phase><goals><goal>sign</goal></goals></execution></executions>\n"
+      "          <configuration><gpgArguments><arg>--pinentry-mode</arg><arg>loopback</arg></gpgArguments></configuration>\n"
+      "        </plugin>\n"
+      "      </plugins></build>\n"
+      "    </profile>\n"
+      "  </profiles>\n"
+      "</project>\n")
+     out)))
+
+(call-with-output-file (build-path out-dir ".github/workflows/publish-maven.yml")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "# Publish the Java runtime to Maven Central via the\n"
+      "# Central Portal. Manual dispatch only. Requires repo\n"
+      "# secrets CENTRAL_USERNAME / CENTRAL_PASSWORD (portal\n"
+      "# user token) and MAVEN_GPG_PRIVATE_KEY /\n"
+      "# MAVEN_GPG_PASSPHRASE (artifact signing).\n"
+      "name: publish-maven\n"
+      "on: workflow_dispatch\n"
+      "permissions:\n"
+      "  contents: read\n"
+      "jobs:\n"
+      "  publish:\n"
+      "    runs-on: ubuntu-latest\n"
+      "    steps:\n"
+      "      - uses: actions/checkout@v4\n"
+      "      - uses: actions/setup-java@v4\n"
+      "        with:\n"
+      "          distribution: temurin\n"
+      "          java-version: 17\n"
+      "          server-id: central\n"
+      "          server-username: MAVEN_USERNAME\n"
+      "          server-password: MAVEN_PASSWORD\n"
+      "          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}\n"
+      "          gpg-passphrase: MAVEN_GPG_PASSPHRASE\n"
+      "      - name: Deploy to Maven Central\n"
+      "        run: mvn -B -f java/pom.xml deploy -Prelease\n"
+      "        env:\n"
+      "          MAVEN_USERNAME: ${{ secrets.CENTRAL_USERNAME }}\n"
+      "          MAVEN_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}\n"
+      "          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}\n")
+     out)))
+
 (call-with-output-file (build-path out-dir "NPM-PUBLISHING.md")
   #:exists 'replace
   (lambda (out)
