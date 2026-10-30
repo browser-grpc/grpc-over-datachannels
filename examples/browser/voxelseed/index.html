@@ -1,0 +1,97 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoxelSeed — procgen terrain dashboard &amp; autopilot flythrough</title>
+<meta name="description" content="VoxelSeed: a procedural voxel terrain dashboard. Tune the generator (seed, biomes, mountains, caves, lakes) and watch an autopilot fly through infinite generated worlds.">
+<link rel="stylesheet" href="style.css">
+<script>
+  // AdSense Auto ads: injected only on the public hosts and only
+  // after the page has fully loaded, so ad-network latency can
+  // never delay (or break) the page itself.
+  window.addEventListener("load", function () {
+    if (!/(^|\.)(github\.io|lunchgamer\.com)$/.test(location.hostname)) return;
+    var s = document.createElement("script");
+    s.async = true;
+    s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8450460284227575";
+    s.crossOrigin = "anonymous";
+    document.head.appendChild(s);
+  });
+</script>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<body>
+<aside id="panel">
+  <h1>VoxelSeed</h1>
+  <p class="sub">Procgen terrain dashboard — infinite voxel worlds,
+     generated in your browser. The autopilot is flying; take over any time.</p>
+
+  <section>
+    <h2>World</h2>
+    <label>Seed
+      <span class="row"><input id="seed" type="number" value="1337"><button id="dice" type="button" title="Random seed">Random</button></span>
+    </label>
+    <label>Generator
+      <select id="gen-mode">
+        <option value="0">Easy — gentle flatlands</option>
+        <option value="1" selected>Complex — mountains &amp; caves</option>
+        <option value="2">Biomes — desert/plains/forest/snow + lakes</option>
+      </select>
+    </label>
+    <label>Terrain height <output id="amp-out"></output>
+      <input id="amp" type="range" min="0.4" max="1.6" step="0.05" value="1">
+    </label>
+    <label>Sea level <output id="sea-out"></output>
+      <input id="sea" type="range" min="0" max="8" step="1" value="3">
+    </label>
+    <label>Tree density <output id="trees-out"></output>
+      <input id="trees" type="range" min="0" max="3" step="0.25" value="1">
+    </label>
+    <label>Biome size <output id="biome-out"></output>
+      <input id="biome" type="range" min="10" max="48" step="2" value="22">
+    </label>
+    <label class="check"><input id="caves" type="checkbox" checked> Caves (3D noise)</label>
+    <button id="regen" type="button">Regenerate world</button>
+  </section>
+
+  <section>
+    <h2>Flight</h2>
+    <div class="row">
+      <button id="fly-toggle" type="button">Pause autopilot</button>
+      <button id="manual" type="button">Free-fly</button>
+    </div>
+    <label>Fly speed <output id="speed-out"></output>
+      <input id="speed" type="range" min="4" max="40" step="1" value="14">
+    </label>
+    <label>Altitude clearance <output id="alt-out"></output>
+      <input id="alt" type="range" min="3" max="26" step="1" value="9">
+    </label>
+    <label>View distance (chunks) <output id="radius-out"></output>
+      <input id="radius" type="range" min="3" max="8" step="1" value="4">
+    </label>
+    <p class="hint" id="manual-hint" hidden>Click the view to lock the mouse.
+       WASD move · Space/Ctrl up/down · arrows or mouse look · Esc release.</p>
+  </section>
+
+  <section>
+    <h2>Telemetry</h2>
+    <dl id="stats">
+      <div><dt>Engine</dt><dd id="st-engine">–</dd></div>
+      <div><dt>FPS</dt><dd id="st-fps">–</dd></div>
+      <div><dt>Chunks</dt><dd id="st-chunks">–</dd></div>
+      <div><dt>Position</dt><dd id="st-pos">–</dd></div>
+      <div><dt>Biome</dt><dd id="st-biome">–</dd></div>
+      <div><dt>Ground</dt><dd id="st-ground">–</dd></div>
+    </dl>
+  </section>
+</aside>
+<main id="stage">
+  <div id="view"></div>
+  <div id="badge">AUTOPILOT</div>
+  <div id="engine-warn" hidden>
+    <span id="engine-warn-text"></span>
+    <button id="engine-warn-close" type="button" title="Dismiss">Dismiss</button>
+  </div>
+</main>
+<script type="module" src="game.js"></script>
+</body>

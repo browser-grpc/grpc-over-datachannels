@@ -579,15 +579,24 @@ fn spawn_coturn(extra: &[String]) -> Option<(std::process::Child, u16)> {
 
 fn spawn_coturn_turns(cert: &std::path::Path, key: &std::path::Path) -> Option<(std::process::Child, u16)> {
     // Probe-close port + startup-liveness retry, as spawn_coturn.
+    // The plain listening port is pinned as well: left at its
+    // default (3478) it collides with any TURN server already
+    // running on the host network, which coturn handles by
+    // binding its TLS listener somewhere unreachable instead
+    // of failing, so the child looks alive but never listens.
     for _ in 0..3 {
         let probe = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
         let tls_port = probe.local_addr().ok()?.port();
+        drop(probe);
+        let probe = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
+        let plain_port = probe.local_addr().ok()?.port();
         drop(probe);
         let mut child = std::process::Command::new("turnserver")
             .args([
                 "-n".to_string(),
                 "--listening-ip=127.0.0.1".to_string(),
                 "--relay-ip=127.0.0.1".to_string(),
+                format!("--listening-port={plain_port}"),
                 format!("--tls-listening-port={tls_port}"),
                 format!("--cert={}", cert.display()),
                 format!("--pkey={}", key.display()),
@@ -603,7 +612,16 @@ fn spawn_coturn_turns(cert: &std::path::Path, key: &std::path::Path) -> Option<(
             .ok()?;
         std::thread::sleep(Duration::from_millis(800));
         match child.try_wait() {
-            Ok(None) => return Some((child, tls_port)),
+            Ok(None) => {
+                // Liveness is not enough: confirm the TLS
+                // listener actually accepts before handing the
+                // port to the client (see above).
+                if std::net::TcpStream::connect(("127.0.0.1", tls_port)).is_ok() {
+                    return Some((child, tls_port));
+                }
+                let _ = child.kill();
+                continue;
+            }
             _ => continue,
         }
     }
@@ -657,7 +675,7 @@ fn direct_over_turns_coturn() {
         return;
     }
     let Some((mut turn, port)) = spawn_coturn_turns(&cert, &key) else {
-        eprintln!("turnserver not on PATH; skipping TURNS coturn leg");
+        eprintln!("warning: coturn did not come up; skipping TURNS coturn leg");
         return;
     };
     let result = std::panic::catch_unwind(|| {

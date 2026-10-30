@@ -57,6 +57,9 @@ begin
   when "TestSidecar"
     require_relative "test_sidecar"
     TestSidecar.run
+  when "TestKafkaE2E"
+    require_relative "test_kafka_e2e"
+    TestKafkaE2E.run
   else
     warn "unknown test: #{name}"
     exit(2)

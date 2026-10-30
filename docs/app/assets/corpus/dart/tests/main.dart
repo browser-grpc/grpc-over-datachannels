@@ -14,6 +14,7 @@ import 'test_interop_oracle.dart';
 import 'test_oracle.dart';
 import 'test_pb_messages.dart';
 import 'test_sidecar.dart';
+import 'test_kafka_e2e.dart';
 
 // Test runner: ./tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic>
 Future<void> main(List<String> args) async {
@@ -64,6 +65,9 @@ Future<void> main(List<String> args) async {
         break;
       case 'TestSidecar':
         await testSidecar();
+        break;
+      case 'TestKafkaE2E':
+        await testKafkaE2E();
         break;
       default:
         stderr.writeln('unknown test: ${args[0]}');

@@ -1,0 +1,291 @@
+// Kafka over gRPC: a Kafka/Redpanda facade served by the
+// Rust kafka proxy. This file is the public wire contract;
+// stubs are generated into every language by the grpc-dc
+// protoc plugins (see the kafka-stubs Makefile target).
+//
+// The proxy terminates these RPCs and speaks the Kafka
+// binary protocol to Apache Kafka (KRaft) or Redpanda.
+// Kafka error codes pass through in the *_code fields;
+// transport-level failures use the gRPC status.
+
+syntax = "proto3";
+
+package grpcdc.kafka.v1;
+
+enum Compression {
+  COMPRESSION_NONE = 0;
+  COMPRESSION_GZIP = 1;
+  COMPRESSION_SNAPPY = 2;
+  COMPRESSION_LZ4 = 3;
+  COMPRESSION_ZSTD = 4;
+}
+
+enum Acks {
+  ACKS_UNSPECIFIED = 0; // proxy default: ACKS_ALL
+  ACKS_NONE = 1;
+  ACKS_LEADER = 2;
+  ACKS_ALL = 3;
+}
+
+message Header {
+  string key = 1;
+  bytes value = 2;
+}
+
+message Record {
+  bytes key = 1;
+  bytes value = 2;
+  repeated Header headers = 3;
+  int64 timestamp_ms = 4; // 0 = broker/log-append time
+  bool null_key = 5; // true = Kafka null key (distinct from empty)
+}
+
+message FetchedRecord {
+  int64 offset = 1;
+  int64 timestamp_ms = 2;
+  bytes key = 3;
+  bytes value = 4;
+  repeated Header headers = 5;
+  bool key_null = 6; // true when the Kafka record key was null
+}
+
+message TopicPartition {
+  string topic = 1;
+  int32 partition = 2;
+}
+
+// --- Metadata -------------------------------------------------
+
+message MetadataRequest {
+  repeated string topics = 1; // empty = all topics
+  bool allow_auto_topic_creation = 2;
+}
+
+message BrokerMetadata {
+  int32 node_id = 1;
+  string host = 2;
+  int32 port = 3;
+  string rack = 4;
+}
+
+message PartitionMetadata {
+  int32 id = 1;
+  int32 leader_id = 2;
+  int32 leader_epoch = 3;
+  repeated int32 replicas = 4;
+  repeated int32 isr = 5;
+  int32 error_code = 6;
+}
+
+message TopicMetadata {
+  string name = 1;
+  bool is_internal = 2;
+  int32 error_code = 3;
+  repeated PartitionMetadata partitions = 4;
+}
+
+message MetadataResponse {
+  int32 throttle_time_ms = 1;
+  repeated BrokerMetadata brokers = 2;
+  string cluster_id = 3;
+  int32 controller_id = 4;
+  repeated TopicMetadata topics = 5;
+}
+
+// --- Producer sessions (idempotence / transactions) -----------
+
+message OpenProducerRequest {
+  string transactional_id = 1; // empty = idempotent-only producer
+  int32 transaction_timeout_ms = 2;
+}
+
+message OpenProducerResponse {
+  string session_id = 1; // proxy-issued; pass to Produce/EndTransaction
+  int64 producer_id = 2;
+  int32 producer_epoch = 3;
+  int32 error_code = 4;
+}
+
+message CloseProducerRequest {
+  string session_id = 1;
+}
+
+message CloseProducerResponse {
+  int32 error_code = 1;
+}
+
+message EndTransactionRequest {
+  string session_id = 1;
+  bool commit = 2;
+}
+
+message EndTransactionResponse {
+  int32 error_code = 1;
+}
+
+// --- Produce ----------------------------------------------------
+
+message ProduceRequest {
+  string topic = 1;
+  int32 partition = 2; // -1 = broker/partitioner choice (proxy round-robin)
+  repeated Record records = 3;
+  Acks acks = 4;
+  int32 timeout_ms = 5;
+  Compression compression = 6;
+  string session_id = 7; // optional; from OpenProducer (idempotent/txn)
+  string transactional_id = 8; // informational; proxy resolves via session
+}
+
+message ProduceResponse {
+  int32 partition = 1;
+  int64 base_offset = 2;
+  int64 log_append_time_ms = 3;
+  int32 error_code = 4;
+}
+
+// --- Consume (assignment mode) ----------------------------------
+
+message ConsumeRequest {
+  string topic = 1;
+  int32 partition = 2;
+  int64 offset = 3; // -2 = earliest, -1 = latest, else absolute
+  int32 max_records = 4; // per response chunk; 0 = proxy default
+  int32 max_wait_ms = 5; // long-poll budget per chunk
+  int32 min_bytes = 6;
+  bool read_committed = 7; // only committed transactional records
+}
+
+message ConsumeResponse {
+  string topic = 1;
+  int32 partition = 2;
+  int64 high_watermark = 3;
+  int32 error_code = 4;
+  repeated FetchedRecord records = 5;
+}
+
+// --- Consumer groups --------------------------------------------
+
+message GroupSubscribeRequest {
+  string group_id = 1;
+  repeated string topics = 2;
+  string group_instance_id = 3; // optional static membership
+  int32 session_timeout_ms = 4;
+  int32 max_poll_records = 5;
+  string auto_offset_reset = 6; // "earliest" | "latest"
+  bool read_committed = 7; // only committed transactional records
+}
+
+message GroupSubscribeResponse {
+  oneof event {
+    Assignment assignment = 1;
+    RecordBatch batch = 2;
+    GroupError group_error = 3;
+  }
+}
+
+message Assignment {
+  int32 generation_id = 1;
+  string member_id = 2;
+  repeated TopicPartition partitions = 3;
+}
+
+message RecordBatch {
+  string topic = 1;
+  int32 partition = 2;
+  int64 high_watermark = 3;
+  repeated FetchedRecord records = 4;
+}
+
+message GroupError {
+  int32 error_code = 1;
+  string message = 2;
+}
+
+// --- Offsets ------------------------------------------------------
+
+message ListOffsetsRequest {
+  string topic = 1;
+  int32 partition = 2;
+  int64 timestamp = 3; // -2 = earliest, -1 = latest, else ms since epoch
+  bool read_committed = 4; // latest = last stable offset
+}
+
+message ListOffsetsResponse {
+  int64 offset = 1;
+  int64 timestamp_ms = 2;
+  int32 error_code = 3;
+}
+
+message CommitOffsetRequest {
+  string group_id = 1;
+  string topic = 2;
+  int32 partition = 3;
+  int64 committed_offset = 4; // next offset to consume
+  string metadata = 5;
+  string session_id = 6; // from OpenProducer; commit inside that transaction
+}
+
+message CommitOffsetResponse {
+  int32 error_code = 1;
+}
+
+message FetchOffsetRequest {
+  string group_id = 1;
+  string topic = 2;
+  int32 partition = 3;
+}
+
+message FetchOffsetResponse {
+  int64 committed_offset = 1; // -1 = none committed
+  string metadata = 2;
+  int32 error_code = 3;
+}
+
+// --- Admin --------------------------------------------------------
+
+message NewTopic {
+  string name = 1;
+  int32 num_partitions = 2; // -1 = broker default
+  int32 replication_factor = 3; // -1 = broker default
+}
+
+message CreateTopicsRequest {
+  repeated NewTopic topics = 1;
+  int32 timeout_ms = 2;
+  bool validate_only = 3;
+}
+
+message TopicError {
+  string name = 1;
+  int32 error_code = 2;
+}
+
+message CreateTopicsResponse {
+  repeated TopicError results = 1;
+}
+
+message DeleteTopicsRequest {
+  repeated string topics = 1;
+  int32 timeout_ms = 2;
+}
+
+message DeleteTopicsResponse {
+  repeated TopicError results = 1;
+}
+
+// --- Service ------------------------------------------------------
+
+service Kafka {
+  rpc Metadata(MetadataRequest) returns (MetadataResponse);
+  rpc OpenProducer(OpenProducerRequest) returns (OpenProducerResponse);
+  rpc CloseProducer(CloseProducerRequest) returns (CloseProducerResponse);
+  rpc EndTransaction(EndTransactionRequest) returns (EndTransactionResponse);
+  rpc Produce(ProduceRequest) returns (ProduceResponse);
+  rpc Consume(ConsumeRequest) returns (stream ConsumeResponse);
+  rpc Subscribe(GroupSubscribeRequest) returns (stream GroupSubscribeResponse);
+  rpc ListOffsets(ListOffsetsRequest) returns (ListOffsetsResponse);
+  rpc CommitOffset(CommitOffsetRequest) returns (CommitOffsetResponse);
+  rpc FetchOffset(FetchOffsetRequest) returns (FetchOffsetResponse);
+  rpc CreateTopics(CreateTopicsRequest) returns (CreateTopicsResponse);
+  rpc DeleteTopics(DeleteTopicsRequest) returns (DeleteTopicsResponse);
+}

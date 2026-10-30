@@ -21,6 +21,7 @@ fun main(args: Array<String>) {
             "TestPbMessages" -> testPbMessages()
             "TestBddSchemas" -> testBddSchemas()
             "TestSidecar" -> testSidecar()
+            "TestKafkaE2E" -> testKafkaE2E()
             "TestEventBus" -> testEventBus()
             "TestInteropOracle" -> testInteropOracle()
             "TestInteropServerOracle" -> testInteropServerOracle()

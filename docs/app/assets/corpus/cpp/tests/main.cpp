@@ -20,6 +20,7 @@ void TestPbMessages();
 void TestBddSchemas();
 void TestSidecar();
 void TestBddSidecar();
+void TestKafkaE2E();
 }  // namespace tests
 
 int main(int argc, char** argv) {
@@ -61,6 +62,8 @@ int main(int argc, char** argv) {
       tests::TestSidecar();
     } else if (name == "TestBddSidecar") {
       tests::TestBddSidecar();
+    } else if (name == "TestKafkaE2E") {
+      tests::TestKafkaE2E();
     } else {
       std::fprintf(stderr, "unknown test: %s\n", name.c_str());
       return 2;

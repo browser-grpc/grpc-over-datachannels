@@ -3,7 +3,22 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.34.0 — 2026-10-28
+## v0.35.0 — 2026-10-30
+
+- Kafka over gRPC: `grpcdc.kafka.v1.Kafka` generated stubs and
+  clients for every supported language (native and browser),
+  served by a Rust proxy that speaks the Kafka binary protocol
+  to Apache Kafka (KRaft) and Redpanda. Produce/consume with
+  per-partition ordering and offset resume, consumer groups
+  (range/roundrobin assignment, static membership, fencing,
+  out-of-range auto-reset, broker-restart resume), idempotent
+  and transactional producers with `read_committed` consume,
+  null-vs-empty record keys, multi-broker leader routing, and
+  dependency-free gzip/snappy/LZ4/zstd codecs, SASL
+  PLAIN/SCRAM-SHA-256/SCRAM-SHA-512, and broker TLS. Extensive
+  generated e2e coverage runs against both brokers in CI.
+
+## v0.34.0 — 2026-10-28 (published to GitHub/npm/PyPI/GHCR)
 
 - The generator webapp now bundles starter projects for
   arbitrary schemas (web, Node, Python, Go) in its starter

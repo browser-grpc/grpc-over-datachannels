@@ -13,3 +13,5 @@ pub const interop_orca_grpc_dc = @import("interop/orca_grpc_dc.zig");
 pub const interop_orca_load_report_messages = @import("interop/orca_load_report_messages.zig");
 pub const eventbus = @import("eventbus.zig");
 pub const eventbus_git = @import("eventbus_git.zig");
+pub const kafka_messages = @import("kafka_messages.zig");
+pub const kafka_grpc_dc = @import("kafka_grpc_dc.zig");

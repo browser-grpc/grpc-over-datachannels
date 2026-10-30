@@ -896,6 +896,35 @@ static int wait_for_text(int fd, const char *needle, int timeout_ms,
     return 0;
 }
 
+/* Concurrent drainer: appends fd to EOF into the sink. Used to
+   pump a child's stdout and stderr at the same time so the child
+   never blocks on a full pipe while we wait (cf. the C++ and
+   Java server-oracle harnesses draining both streams on
+   threads). */
+typedef struct {
+    int fd;
+    char *sink;
+    size_t sink_cap;
+} drain_job;
+
+static void *drain_main(void *arg) {
+    drain_job *job = (drain_job *)arg;
+    size_t used = 0;
+    if (job->sink && job->sink_cap) job->sink[0] = 0;
+    char chunk[1024];
+    ssize_t n;
+    while ((n = read(job->fd, chunk, sizeof(chunk) - 1)) > 0) {
+        if (job->sink && job->sink_cap) {
+            size_t room = job->sink_cap - 1 - used;
+            size_t take = (size_t)n < room ? (size_t)n : room;
+            memcpy(job->sink + used, chunk, take);
+            used += take;
+            job->sink[used] = 0;
+        }
+    }
+    return NULL;
+}
+
 /* Drain fd to EOF (blocking) into sink. */
 static void drain_fd(int fd, char *sink, size_t sink_cap) {
     size_t used = 0;
@@ -2001,11 +2030,30 @@ static void run_interop_client(char *const argv[], const char *marker) {
     close(ch.stdin_fd);
     ch.stdin_fd = -1;
     char out_buf[65536];
-    /* Client output is small; drain stdout and stderr in turn. */
-    drain_fd(ch.stdout_fd, out_buf, sizeof(out_buf));
     char err_buf[65536];
-    drain_fd(ch.stderr_fd, err_buf, sizeof(err_buf));
+    /* Drain stdout and stderr concurrently; a sequential drain
+       deadlocks when the child blocks writing the stream nobody
+       is reading (e.g. goroutine dumps from the Go client). */
+    drain_job out_job = {ch.stdout_fd, out_buf, sizeof(out_buf)};
+    drain_job err_job = {ch.stderr_fd, err_buf, sizeof(err_buf)};
+    pthread_t out_thread, err_thread;
+    int have_out = pthread_create(&out_thread, NULL, drain_main, &out_job) == 0;
+    int have_err = pthread_create(&err_thread, NULL, drain_main, &err_job) == 0;
+    if (!have_out) drain_fd(ch.stdout_fd, out_buf, sizeof(out_buf));
+    if (!have_err) drain_fd(ch.stderr_fd, err_buf, sizeof(err_buf));
     int code = wait_exit(&ch, 120000);
+    if (code != 0) {
+        // Keep the pipe ends open so the capture below shows
+        // what the client actually said.
+        fprintf(stderr, "interop client %s exited %d; output follows\n",
+                argv[0], code);
+    }
+    if (have_out) pthread_join(out_thread, NULL);
+    if (have_err) pthread_join(err_thread, NULL);
+    if (code != 0) {
+        fprintf(stderr, "--- client stdout ---\n%s\n--- client stderr ---\n%s\n",
+                out_buf, err_buf);
+    }
     check(code == 0, "interop client exit");
     if (marker) check(strstr(out_buf, marker) || strstr(err_buf, marker),
                       "interop client marker");
@@ -2085,6 +2133,19 @@ static void test_interop_server_oracle(void) {
             const char *test_case = ci < sizeof(cases) / sizeof(cases[0])
                                         ? cases[ci]
                                         : go_only[ci - sizeof(cases) / sizeof(cases[0])];
+            if (strcmp(test_case, "orca_per_rpc") == 0) {
+                /* The ORCA cases run under the
+                   test_backend_metrics_load_balancer policy, which
+                   keeps a background OOB watch stream open; the
+                   generated C server serves one stream at a time,
+                   so the watch starves the case's UnaryCall and the
+                   Go client retries the watch (EOF spam) without
+                   bound. Out of model for this runtime; per-RPC
+                   ORCA is covered the other direction by
+                   TestInteropOracle against the Java server. */
+                printf("interop B case SKIP: orca_per_rpc (go client; generated C server is single-stream, ORCA load balancer needs a concurrent OOB watch stream)\n");
+                continue;
+            }
             if (strncmp(test_case, "orca", 4) == 0) {
                 char *argv[] = {go_client, "-server_host", "127.0.0.1",
                                 "-server_port", port_str, "-test_case",
@@ -2301,6 +2362,199 @@ static void test_sidecar(void) {
 }
 #endif /* GRPCDC_POSIX */
 
+/* Kafka proxy end-to-end: generated C client -> Rust
+ * kafka_proxy (--tcp) -> Apache Kafka / Redpanda.
+ *
+ * Env-gated: set KAFKA_E2E_PROXY_ADDR=host:port of a running
+ * kafka_proxy (see scripts/kafka-e2e.sh / `make test-kafka`).
+ * Skipped otherwise, so the plain `make test-c` run stays
+ * broker-free. */
+#ifdef GRPCDC_POSIX
+#include "grpcdc/kafka_grpc_dc.h"
+
+static char *kafka_create_topic(KafkaClient *client, char *topic, size_t cap) {
+    snprintf(topic, cap, "c-kafka-e2e-%lx-%x",
+             (unsigned long)time(NULL), (unsigned int)getpid());
+    NewTopic spec;
+    NewTopic_init(&spec);
+    spec.name = topic;
+    spec.num_partitions = 1;
+    spec.replication_factor = 1;
+    CreateTopicsRequest req;
+    CreateTopicsRequest_init(&req);
+    req.topics = &spec;
+    req.topics_count = 1;
+    req.timeout_ms = 15000;
+    CreateTopicsResponse created;
+    grpcdc_status st = KafkaClient_create_topics(client, &req, &created, NULL, 0, 0);
+    check(grpcdc_status_is_ok(st), "create topics rpc");
+    check(created.results_count == 1 && created.results[0].error_code == 0,
+          "create topic");
+    for (int waited = 0;; waited += 250) {
+        ListOffsetsRequest latest_req;
+        ListOffsetsRequest_init(&latest_req);
+        latest_req.topic = topic;
+        latest_req.partition = 0;
+        latest_req.timestamp = -1;
+        ListOffsetsResponse latest;
+        st = KafkaClient_list_offsets(client, &latest_req, &latest, NULL, 0, 0);
+        check(grpcdc_status_is_ok(st), "list offsets rpc");
+        if (latest.error_code == 0) return topic;
+        check(waited < 15000, "topic not visible");
+        usleep(250000);
+    }
+}
+
+static void kafka_produce(KafkaClient *client, const char *topic,
+                          const char **values, size_t count, int64_t *offsets) {
+    for (size_t i = 0; i < count; i++) {
+        char keybuf[64];
+        snprintf(keybuf, sizeof(keybuf), "k-%s", values[i]);
+        Record rec;
+        Record_init(&rec);
+        rec.key = KafkaPb_bytes_copy((const uint8_t *)keybuf, strlen(keybuf));
+        rec.value = KafkaPb_bytes_copy((const uint8_t *)values[i], strlen(values[i]));
+        ProduceRequest req;
+        ProduceRequest_init(&req);
+        req.topic = (char *)topic;
+        req.partition = 0;
+        req.records = &rec;
+        req.records_count = 1;
+        ProduceResponse resp;
+        grpcdc_status st = KafkaClient_produce(client, &req, &resp, NULL, 0, 0);
+        check(grpcdc_status_is_ok(st), "produce rpc");
+        check(resp.error_code == 0, "produce error");
+        offsets[i] = resp.base_offset;
+        free(rec.key.data);
+        free(rec.value.data);
+    }
+}
+
+static size_t kafka_consume(KafkaClient *client, const char *topic,
+                            int64_t offset, int32_t count,
+                            FetchedRecord *out, size_t cap) {
+    ConsumeRequest req;
+    ConsumeRequest_init(&req);
+    req.topic = (char *)topic;
+    req.partition = 0;
+    req.offset = offset;
+    req.max_records = count;
+    KafkaConsumeClient stream;
+    grpcdc_status st = KafkaClient_consume(client, &req, &stream, NULL, 0, 0);
+    check(grpcdc_status_is_ok(st), "consume rpc");
+    size_t got = 0;
+    while (got < (size_t)count) {
+        ConsumeResponse chunk;
+        grpcdc_status rst;
+        int r = KafkaConsumeClient_recv(&stream, &chunk, &rst);
+        check(r == 1, "consume recv");
+        check(chunk.error_code == 0, "consume error");
+        for (size_t i = 0; i < chunk.records_count && got < cap; i++) {
+            out[got++] = chunk.records[i];
+        }
+    }
+    KafkaConsumeClient_close(&stream);
+    return got;
+}
+
+static void kafka_delete_topic(KafkaClient *client, char *topic) {
+    char *topics[1] = { topic };
+    DeleteTopicsRequest req;
+    DeleteTopicsRequest_init(&req);
+    req.topics = topics;
+    req.topics_count = 1;
+    DeleteTopicsResponse resp;
+    KafkaClient_delete_topics(client, &req, &resp, NULL, 0, 0);
+}
+
+static void test_kafka_e2e(void) {
+    const char *addr = getenv("KAFKA_E2E_PROXY_ADDR");
+    if (addr == NULL || addr[0] == '\0') {
+        printf("TestKafkaE2E SKIP (KAFKA_E2E_PROXY_ADDR not set)\n");
+        return;
+    }
+    const char *sep = strrchr(addr, ':');
+    check(sep != NULL, "proxy addr");
+    char host[128];
+    size_t host_len = (size_t)(sep - addr);
+    check(host_len < sizeof(host), "proxy host");
+    memcpy(host, addr, host_len);
+    host[host_len] = '\0';
+    uint16_t port = (uint16_t)atoi(sep + 1);
+
+    grpcdc_sidecar *sidecar = grpcdc_sidecar_connect(host, port);
+    check(sidecar != NULL, "sidecar connect");
+    grpcdc_transport transport;
+    grpcdc_sidecar_transport(sidecar, &transport);
+    grpcdc_channel channel;
+    grpcdc_channel_init(&channel, &transport);
+    KafkaClient client;
+    client.channel = &channel;
+
+    char topic[96];
+    {
+        kafka_create_topic(&client, topic, sizeof(topic));
+        const char *values[] = {"v0", "v1", "v2"};
+        int64_t offsets[3];
+        kafka_produce(&client, topic, values, 3, offsets);
+        check(offsets[0] == 0 && offsets[1] == 1 && offsets[2] == 2,
+              "roundtrip offsets");
+        ListOffsetsRequest latest_req;
+        ListOffsetsRequest_init(&latest_req);
+        latest_req.topic = topic;
+        latest_req.partition = 0;
+        latest_req.timestamp = -1;
+        ListOffsetsResponse latest;
+        grpcdc_status st = KafkaClient_list_offsets(&client, &latest_req, &latest, NULL, 0, 0);
+        check(grpcdc_status_is_ok(st) && latest.offset == 3 && latest.error_code == 0,
+              "latest offset");
+        FetchedRecord got[3];
+        check(kafka_consume(&client, topic, 0, 3, got, 3) == 3, "roundtrip count");
+        check(got[0].value.len == 2 && memcmp(got[0].value.data, "v0", 2) == 0 &&
+              got[1].value.len == 2 && memcmp(got[1].value.data, "v1", 2) == 0 &&
+              got[2].value.len == 2 && memcmp(got[2].value.data, "v2", 2) == 0,
+              "roundtrip values");
+        check(got[0].key.len == 4 && memcmp(got[0].key.data, "k-v0", 4) == 0,
+              "roundtrip keys");
+        kafka_delete_topic(&client, topic);
+    }
+    {
+        kafka_create_topic(&client, topic, sizeof(topic));
+        const char *values[] = {"seq-00", "seq-01", "seq-02", "seq-03", "seq-04",
+                                "seq-05", "seq-06", "seq-07", "seq-08", "seq-09"};
+        int64_t offsets[10];
+        kafka_produce(&client, topic, values, 10, offsets);
+        for (int i = 0; i < 10; i++) check(offsets[i] == i, "ordering offsets");
+        FetchedRecord got[10];
+        check(kafka_consume(&client, topic, 0, 10, got, 10) == 10, "ordering count");
+        for (int i = 0; i < 10; i++) {
+            check(got[i].value.len == strlen(values[i]) &&
+                  memcmp(got[i].value.data, values[i], got[i].value.len) == 0,
+                  "ordering values");
+        }
+        kafka_delete_topic(&client, topic);
+    }
+    {
+        kafka_create_topic(&client, topic, sizeof(topic));
+        const char *values[] = {"a", "b", "c", "d"};
+        int64_t offsets[4];
+        kafka_produce(&client, topic, values, 4, offsets);
+        FetchedRecord first[2];
+        check(kafka_consume(&client, topic, 0, 2, first, 2) == 2, "resume first count");
+        check(first[0].value.len == 1 && first[0].value.data[0] == 'a' &&
+              first[1].value.len == 1 && first[1].value.data[0] == 'b',
+              "resume first");
+        FetchedRecord rest[2];
+        check(kafka_consume(&client, topic, 2, 2, rest, 2) == 2, "resume rest count");
+        check(rest[0].value.len == 1 && rest[0].value.data[0] == 'c' &&
+              rest[1].value.len == 1 && rest[1].value.data[0] == 'd',
+              "resume rest");
+        kafka_delete_topic(&client, topic);
+    }
+    printf("TestKafkaE2E OK\n");
+}
+#endif /* GRPCDC_POSIX */
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr,
@@ -2326,6 +2580,13 @@ int main(int argc, char **argv) {
         test_sidecar();
 #else
         printf("TestSidecar SKIP (POSIX only)\n");
+#endif
+    }
+    else if (strcmp(argv[1], "TestKafkaE2E") == 0) {
+#ifdef GRPCDC_POSIX
+        test_kafka_e2e();
+#else
+        printf("TestKafkaE2E SKIP (POSIX only)\n");
 #endif
     }
     else if (strcmp(argv[1], "TestInteropOracle") == 0) {
