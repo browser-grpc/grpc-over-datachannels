@@ -222,8 +222,10 @@ if [ -f "$NUGET_PROJ" ] && command -v dotnet >/dev/null 2>&1; then
       fi
     else
       echo "note: nuget push skipped (no NUGET_API_KEY env)."
-      echo "note: one-time setup: create a push key at https://www.nuget.org/account/apikeys"
-      echo "note: then store it persistently:"
+      echo "note: preferred path is Trusted Publishing: dispatch the"
+      echo "note:   publish-nuget workflow in browser-grpc/grpc-over-datachannels"
+      echo "note:   (OIDC, no stored key). API-key fallback: create a push key"
+      echo "note:   at https://www.nuget.org/account/apikeys and store it:"
       echo "note:   printf 'NUGET_API_KEY=<key>\\n' > ~/.config/grpc-dc/nuget.env && chmod 600 ~/.config/grpc-dc/nuget.env"
     fi
   else

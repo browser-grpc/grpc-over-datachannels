@@ -448,6 +448,45 @@
       "        run: npm publish --provenance --access public\n")
      out)))
 
+;; NuGet Trusted Publishing: same OIDC pattern as npm above.
+;; Manual dispatch only; packs csharp/grpcdc and pushes with
+;; the short-lived key NuGet/login mints from the workflow's
+;; OIDC identity — no stored API key. Requires a Trusted
+;; Publisher policy on nuget.org naming this repo + workflow.
+(call-with-output-file (build-path out-dir ".github/workflows/publish-nuget.yml")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "# Publish the GrpcDc NuGet package via Trusted Publishing\n"
+      "# (OIDC). Manual dispatch only. Requires the Trusted\n"
+      "# Publisher configured for GrpcDc on nuget.org (the\n"
+      "# browser-grpc/grpc-over-datachannels repo, workflow\n"
+      "# file publish-nuget.yml, user unicomp21).\n"
+      "name: publish-nuget\n"
+      "on: workflow_dispatch\n"
+      "permissions:\n"
+      "  contents: read\n"
+      "  id-token: write\n"
+      "jobs:\n"
+      "  publish:\n"
+      "    runs-on: ubuntu-latest\n"
+      "    steps:\n"
+      "      - uses: actions/checkout@v4\n"
+      "      - uses: actions/setup-dotnet@v4\n"
+      "        with:\n"
+      "          dotnet-version: 8.0.x\n"
+      "      - name: NuGet login (OIDC -> short-lived API key)\n"
+      "        uses: NuGet/login@v1\n"
+      "        id: login\n"
+      "        with:\n"
+      "          user: unicomp21\n"
+      "      - name: Pack GrpcDc\n"
+      "        run: dotnet pack csharp/grpcdc/Grpcdc.csproj -c Release -o /tmp/nuget\n"
+      "      - name: Push to nuget.org\n"
+      "        run: dotnet nuget push /tmp/nuget/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate\n")
+     out)))
+
 (call-with-output-file (build-path out-dir "NPM-PUBLISHING.md")
   #:exists 'replace
   (lambda (out)
