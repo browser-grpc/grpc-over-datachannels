@@ -1,0 +1,27 @@
+# Publish the GrpcDc NuGet package via Trusted Publishing
+# (OIDC). Manual dispatch only. Requires the Trusted
+# Publisher configured for GrpcDc on nuget.org (the
+# browser-grpc/grpc-over-datachannels repo, workflow
+# file publish-nuget.yml, user unicomp21).
+name: publish-nuget
+on: workflow_dispatch
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: NuGet login (OIDC -> short-lived API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: unicomp21
+      - name: Pack GrpcDc
+        run: dotnet pack csharp/grpcdc/Grpcdc.csproj -c Release -o /tmp/nuget
+      - name: Push to nuget.org
+        run: dotnet nuget push /tmp/nuget/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

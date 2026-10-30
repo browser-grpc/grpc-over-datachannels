@@ -5,5 +5,20 @@
     <Nullable>disable</Nullable>
     <AssemblyName>Grpcdc</AssemblyName>
     <RootNamespace>Grpcdc</RootNamespace>
+    <!-- NuGet package metadata (version + readme are injected
+         by the release exporter into the published tree). -->
+    <PackageId>GrpcDc</PackageId>
+    <Authors>John Davis</Authors>
+    <Description>gRPC over WebRTC DataChannels for .NET — dependency-free generated gRPC clients and servers, no grpc-web proxy</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://browser-grpc.github.io/grpc-over-datachannels/</PackageProjectUrl>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/browser-grpc/grpc-over-datachannels</RepositoryUrl>
+    <PackageTags>grpc;webrtc;datachannel;protobuf;browser</PackageTags>
+    <Version>0.35.4</Version>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 </Project>

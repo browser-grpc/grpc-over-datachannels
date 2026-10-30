@@ -3,7 +3,17 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.3 — 2026-10-30
+## v0.35.4 — 2026-10-30
+
+- The C# runtime now publishes to NuGet as
+  [`GrpcDc`](https://www.nuget.org/packages/GrpcDc): package
+  metadata in `Grpcdc.csproj`, version and package readme
+  injected by the exporter, and a best-effort pack/push step
+  in the release flow (`NUGET_API_KEY`). Maven Central for
+  the Java runtime is the remaining registry and follows
+  separately (it needs a Central Portal namespace + GPG).
+
+## v0.35.3 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR)
 
 - The public repo now runs CI on GitHub: a generated
   `.github/workflows/ci.yml` builds and runs every per-language
