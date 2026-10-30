@@ -3,13 +3,24 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.4 — 2026-10-30
+## v0.35.5 — 2026-10-30
+
+- The Java runtime now publishes to Maven Central as
+  `io.github.browser-grpc:grpc-dc`: a generated `java/pom.xml`
+  (sources/javadoc jars, GPG signing, Central Portal
+  publishing) and a manual-dispatch `publish-maven` workflow.
+  The `io.github.browser-grpc` namespace is verified on the
+  Central Portal.
+
+## v0.35.4 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR/NuGet)
 
 - The C# runtime now publishes to NuGet as
   [`GrpcDc`](https://www.nuget.org/packages/GrpcDc): package
   metadata in `Grpcdc.csproj`, version and package readme
-  injected by the exporter, and a best-effort pack/push step
-  in the release flow (`NUGET_API_KEY`). Maven Central for
+  injected by the exporter, a best-effort pack/push step in
+  the release flow (`NUGET_API_KEY`), and the primary path —
+  a `publish-nuget` GitHub Actions workflow using NuGet
+  Trusted Publishing (OIDC, no stored key). Maven Central for
   the Java runtime is the remaining registry and follows
   separately (it needs a Central Portal namespace + GPG).
 
