@@ -545,10 +545,11 @@ impl crate::stub::Kafka for KafkaService {
         // broker then answers ILLEGAL_GENERATION (22) or
         // UNKNOWN_MEMBER_ID (25) for the session snapshot we
         // just read, while the subscribe loop is mid-rejoin.
-        // Retry briefly against the live session so the commit
-        // lands on the current generation once it settles.
+        // Retry against the live session (bounded by the
+        // group session timeout) so the commit lands on the
+        // current generation once the rebalance settles.
         let mut error_code = -1;
-        for attempt in 0..20 {
+        for attempt in 0..100 {
             let session = self.groups.lock().await.get(&req.group_id).cloned();
             let had_session = session.is_some();
             let (generation_id, member_id, group_instance_id) = match session {
@@ -572,7 +573,7 @@ impl crate::stub::Kafka for KafkaService {
                     &req.metadata,
                 )
                 .await?;
-            if !(had_session && matches!(error_code, 22 | 25)) || attempt == 19 {
+            if !(had_session && matches!(error_code, 22 | 25)) || attempt == 99 {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
