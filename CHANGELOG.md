@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.9 — 2026-10-30
+## v0.35.9 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 
 - Public CI no longer runs 4× per release: both public
   workflows trigger on branch pushes and PRs only (release
