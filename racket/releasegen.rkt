@@ -574,6 +574,48 @@
       (build-path out-dir "docker" (string-append (first spec) ".Dockerfile"))
     (lambda (out) (display (emit-dockerfile spec) out)) #:exists 'replace))
 
+;; Public CI: one GitHub Actions job per generated language
+;; image (the matrix is built from docker-specs so it cannot
+;; drift from the Dockerfiles it runs), plus the interop demo.
+;; The private baked gate stays the authoritative full check;
+;; this gives the public repo a visible per-language signal
+;; that users can reproduce locally with the same commands.
+(make-directory* (build-path out-dir ".github/workflows"))
+(call-with-output-file (build-path out-dir ".github/workflows/ci.yml")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "# Generated. DO NOT EDIT.\n"
+      "# One job per language Dockerfile in docker/; each job is\n"
+      "# the same two commands a user runs from a local clone.\n"
+      "name: CI\n"
+      "on: [push, pull_request]\n"
+      "jobs:\n"
+      "  lang:\n"
+      "    runs-on: ubuntu-latest\n"
+      "    strategy:\n"
+      "      fail-fast: false\n"
+      "      matrix:\n"
+      "        lang: ["
+      (string-join (map first docker-specs) ", ")
+      "]\n"
+      "    steps:\n"
+      "      - uses: actions/checkout@v4\n"
+      "      - name: Build ${{ matrix.lang }} image\n"
+      "        run: docker build -f docker/${{ matrix.lang }}.Dockerfile -t grpc-dc-${{ matrix.lang }} .\n"
+      "      - name: Run ${{ matrix.lang }} tests\n"
+      "        run: docker run --rm grpc-dc-${{ matrix.lang }}\n"
+      "  interop:\n"
+      "    runs-on: ubuntu-latest\n"
+      "    steps:\n"
+      "      - uses: actions/checkout@v4\n"
+      "      - name: Build interop image\n"
+      "        run: docker build -f docker/interop.Dockerfile -t grpc-dc-interop .\n"
+      "      - name: Run interop demo\n"
+      "        run: docker run --rm grpc-dc-interop\n")
+     out)))
+
 ;; Cross-language interop demo: Python + JS clients against
 ;; Go + Python stdio servers, pumped by the exported runner.
 (call-with-output-file (build-path out-dir "docker/interop.Dockerfile")
