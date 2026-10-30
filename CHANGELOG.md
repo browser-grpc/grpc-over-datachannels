@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.8 — 2026-10-30
+## v0.35.8 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 
 - `publish-maven` root-caused and fixed: GitHub-built
   bundles carried `_remote.repositories` and
@@ -15,7 +15,7 @@ curated release tags on `master`; dates are the tag dates.
   and retries when a member stream dies mid-race under
   load, instead of asserting on a fenced commit.
 
-## v0.35.7 — 2026-10-30
+## v0.35.7 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 
 - Kafka proxy: `Produce` now retries stale-leader errors
   (5/6) with backoff for up to ~5 s, so a produce landing
@@ -26,7 +26,7 @@ curated release tags on `master`; dates are the tag dates.
   fails Portal bundle validation while the identical zip
   validates via the API, now proven on 0.35.5/0.35.6).
 
-## v0.35.6 — 2026-10-30
+## v0.35.6 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 
 - Public CI fixes from the first GitHub runs: the Kafka
   proxy retries a group commit briefly on
