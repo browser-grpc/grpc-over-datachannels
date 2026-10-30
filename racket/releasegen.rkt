@@ -678,7 +678,7 @@
            "RUN cd rust && cargo fetch --locked && cargo test --locked --no-run")
          "cd rust && cargo test --locked -- --skip official_clients_call_rust_server")
    (list "go" "golang:1.24-bookworm"
-         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*" "COPY go ./go" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto" "COPY webrtc/go ./webrtc/go" "RUN cd go && go mod tidy && go build ./...")
+         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*" "COPY go ./go" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto" "COPY webrtc/go ./webrtc/go" "RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy && go build ./...")
          "cd go && go test -race -skip 'Sidecar' ./...")
    (list "js" "node:24-bookworm-slim"
          '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs git && rm -rf /var/lib/apt/lists/*" "COPY js ./js" "COPY webrtc/js ./webrtc/js" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto")
@@ -836,7 +836,7 @@
       "RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*\n"
       "WORKDIR /src\n"
       "COPY go ./go\nCOPY webrtc/go ./webrtc/go\nCOPY python ./python\nCOPY js ./js\n"
-      "RUN cd go && go mod tidy\n"
+      "RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy\n"
       "CMD [\"sh\", \"-c\", \"MATRIX_CLIENTS=python,go MATRIX_SERVERS=go,python node js/test/interop-matrix.mjs\"]\n")
      out))
   #:exists 'replace)
