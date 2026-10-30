@@ -115,6 +115,38 @@
         (display (string-join kept "\n") out)
         (newline out)))))
 
+;; NuGet: the C# runtime's PackageId/metadata live in the source
+;; Grpcdc.csproj, but the package version tracks the release.
+;; Inject it (plus a package readme, copied from the generated
+;; per-language readme) into the exported project only, so the
+;; private tree keeps building without release state.
+(let ([csproj (build-path out-dir "csharp/grpcdc/Grpcdc.csproj")]
+      [readme-dst (build-path out-dir "csharp/grpcdc/README.md")]
+      [pkg-version (regexp-replace #rx"^v" version "")])
+  (when (file-exists? csproj)
+    ;; Minimal package readme (the full per-language readme is
+    ;; generated later in this run, too late to copy here).
+    (call-with-output-file readme-dst #:exists 'replace
+      (lambda (out)
+        (display
+         "# GrpcDc\n\ngRPC over WebRTC DataChannels for .NET — dependency-free generated gRPC clients and servers.\n\nSee https://browser-grpc.github.io/grpc-over-datachannels/ and the `csharp/README.md` in the repository.\n"
+         out)))
+    (define text (file->string csproj))
+    (call-with-output-file csproj #:exists 'replace
+      (lambda (out)
+        (display
+         (string-replace
+          text
+          "  </PropertyGroup>"
+          (string-append
+           "    <Version>" pkg-version "</Version>\n"
+           "    <PackageReadmeFile>README.md</PackageReadmeFile>\n"
+           "  </PropertyGroup>\n"
+           "  <ItemGroup>\n"
+           "    <None Include=\"README.md\" Pack=\"true\" PackagePath=\"\\\" />\n"
+           "  </ItemGroup>"))
+         out)))))
+
 ;; ---------------------------------------------------------------------------
 ;; Browser app (docs/app): fallback mode only — no .rkt
 ;; plugins, no racket-web assets. The app engages its

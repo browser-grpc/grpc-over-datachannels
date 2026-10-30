@@ -19,6 +19,12 @@ ORG="browser-grpc"
 PROFILE_REPO="browser-grpc/.github"
 SITE="https://browser-grpc.github.io/grpc-over-datachannels"
 
+# Persistent NuGet key (one-time setup; see the NuGet step).
+if [ -z "${NUGET_API_KEY:-}" ] && [ -f "$HOME/.config/grpc-dc/nuget.env" ]; then
+  . "$HOME/.config/grpc-dc/nuget.env"
+  export NUGET_API_KEY
+fi
+
 command -v gh >/dev/null || { echo "gh is required" >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 
@@ -192,6 +198,37 @@ if [ -d "$PYPI_DIR" ] && command -v twine >/dev/null 2>&1; then
     echo "note: one-time setup: create an API token at https://pypi.org/manage/account/#api-tokens"
     echo "note: then store it persistently:"
     echo "note:   printf '[pypi]\\nusername = __token__\\npassword = <token>\\n' > ~/.pypirc && chmod 600 ~/.pypirc"
+  fi
+fi
+
+# 3b3. Package registries (NuGet). Publishing needs NUGET_API_KEY
+#     in the environment (one-time setup: nuget.org > API Keys,
+#     a push-scoped key for the GrpcDc package); without it this
+#     step is a loud note, never a silent skip and never a failed
+#     publish. The package is always packed first so metadata
+#     errors surface even without a key.
+NUGET_PROJ="$EXPORT/csharp/grpcdc/Grpcdc.csproj"
+if [ -f "$NUGET_PROJ" ] && command -v dotnet >/dev/null 2>&1; then
+  NUGET_OUT="$WORK/nuget"
+  mkdir -p "$NUGET_OUT"
+  if dotnet pack "$NUGET_PROJ" -c Release -o "$NUGET_OUT" >"$WORK/nuget-pack.log" 2>&1; then
+    echo "nuget: packed $(ls "$NUGET_OUT"/*.nupkg | head -1)"
+    if [ -n "${NUGET_API_KEY:-}" ]; then
+      if dotnet nuget push "$NUGET_OUT"/*.nupkg --api-key "$NUGET_API_KEY" \
+           --source https://api.nuget.org/v3/index.json --skip-duplicate; then
+        echo "nuget: GrpcDc $VERSION published"
+      else
+        echo "note: nuget push failed (version may already exist); continuing"
+      fi
+    else
+      echo "note: nuget push skipped (no NUGET_API_KEY env)."
+      echo "note: one-time setup: create a push key at https://www.nuget.org/account/apikeys"
+      echo "note: then store it persistently:"
+      echo "note:   printf 'NUGET_API_KEY=<key>\\n' > ~/.config/grpc-dc/nuget.env && chmod 600 ~/.config/grpc-dc/nuget.env"
+    fi
+  else
+    echo "note: nuget pack failed; see $WORK/nuget-pack.log; continuing"
+    tail -5 "$WORK/nuget-pack.log" || true
   fi
 fi
 
