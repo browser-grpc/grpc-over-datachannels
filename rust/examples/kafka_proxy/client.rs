@@ -122,6 +122,8 @@ pub struct Conn {
     corr: i32,
     client_id: String,
     pub addr: String,
+    sasl: Option<SaslConfig>,
+    tls: Option<TlsConfig>,
     pub versions: HashMap<i16, (i16, i16)>,
 }
 
@@ -231,7 +233,7 @@ impl Conn {
             None => Io::Plain(stream),
             Some(tls) => tls_wrap(stream, addr, tls).await?,
         };
-        let mut conn = Conn { io, corr: 0, client_id: client_id.to_string(), addr: addr.to_string(), versions: HashMap::new() };
+        let mut conn = Conn { io, corr: 0, client_id: client_id.to_string(), addr: addr.to_string(), sasl: sasl.clone(), tls: tls.clone(), versions: HashMap::new() };
         // With SASL, authenticate first: some brokers (Redpanda)
         // reject ApiVersions on a SASL listener before the
         // handshake. SaslHandshake v1 / SaslAuthenticate v2 are
@@ -248,9 +250,41 @@ impl Conn {
         self.corr
     }
 
-    /// Send one request, read one response. `flexible` selects
-    /// header v2 / response header v1 (tagged fields present).
+    /// Re-establish the transport (TCP + optional TLS/SASL +
+    /// ApiVersions) after the broker connection died — e.g. a
+    /// broker restart. Pooled connections would otherwise stay
+    /// broken forever.
+    async fn reconnect(&mut self) -> Result<(), Status> {
+        let stream = TcpStream::connect(&self.addr)
+            .await
+            .map_err(|e| bad(format!("kafka reconnect {}: {e}", self.addr)))?;
+        self.io = match &self.tls {
+            None => Io::Plain(stream),
+            Some(tls) => tls_wrap(stream, &self.addr, tls).await?,
+        };
+        if let Some(s) = self.sasl.clone() {
+            self.sasl_authenticate(&s).await?;
+        }
+        self.negotiate_versions().await
+    }
+
+    /// Send one request, read one response. On a transport
+    /// error, reconnect once and retry (standard client
+    /// behavior; the request may not have reached the broker).
     pub async fn request(&mut self, api_key: i16, version: i16, body: W, flexible: bool) -> Result<Vec<u8>, Status> {
+        match self.request_once(api_key, version, &body, flexible).await {
+            Ok(resp) => Ok(resp),
+            Err(first) => {
+                if std::env::var("KAFKA_DEBUG").is_ok() {
+                    eprintln!("kafka req api={api_key} failed ({first}); reconnecting");
+                }
+                self.reconnect().await?;
+                self.request_once(api_key, version, &body, flexible).await
+            }
+        }
+    }
+
+    async fn request_once(&mut self, api_key: i16, version: i16, body: &W, flexible: bool) -> Result<Vec<u8>, Status> {
         if std::env::var("KAFKA_DEBUG").is_ok() {
             eprintln!("kafka req api={api_key} ver={version} flex={flexible} len={}", body.0.len());
         }
@@ -316,7 +350,7 @@ impl Conn {
         body.cstr("grpc-dc-kafka-proxy");
         body.cstr("1.0.0");
         body.tagged_none();
-        match self.request(API_API_VERSIONS, 3, body, true).await {
+        match self.request_once(API_API_VERSIONS, 3, &body, true).await {
             Ok(resp) => {
                 let mut r = R::new(&resp);
                 let err = r.i16().map_err(bad)?;
@@ -343,7 +377,7 @@ impl Conn {
         }
         // Fall back to ApiVersions v0 (non-flexible).
         let body = W::new();
-        let resp = self.request(API_API_VERSIONS, 0, body, false).await?;
+        let resp = self.request_once(API_API_VERSIONS, 0, &body, false).await?;
         let mut r = R::new(&resp);
         let err = r.i16().map_err(bad)?;
         if err != 0 {
@@ -370,7 +404,7 @@ impl Conn {
         // SaslHandshake v1 (non-flexible).
         let mut body = W::new();
         body.str16(&mechanism);
-        let resp = self.request(API_SASL_HANDSHAKE, 1, body, false).await?;
+        let resp = self.request_once(API_SASL_HANDSHAKE, 1, &body, false).await?;
         let mut r = R::new(&resp);
         let err = r.i16().map_err(bad)?;
         if err != 0 {
@@ -396,7 +430,7 @@ impl Conn {
         let mut body = W::new();
         body.cbytes(auth);
         body.tagged_none();
-        let resp = self.request(API_SASL_AUTHENTICATE, 2, body, true).await?;
+        let resp = self.request_once(API_SASL_AUTHENTICATE, 2, &body, true).await?;
         let mut r = R::new(&resp);
         let err = r.i16().map_err(bad)?;
         let msg = r.cstr_opt().map_err(bad)?;
@@ -1299,6 +1333,55 @@ impl Broker {
 
     #[allow(clippy::too_many_arguments)]
     pub async fn offset_commit(
+        &self,
+        group: &str,
+        generation_id: i32,
+        member_id: &str,
+        group_instance_id: Option<&str>,
+        topic: &str,
+        partition: i32,
+        offset: i64,
+        metadata: &str,
+    ) -> Result<i32, Status> {
+        // Retry through coordinator rediscovery on transient
+        // coordinator errors (14 COORDINATOR_LOAD_IN_PROGRESS,
+        // 15 COORDINATOR_NOT_AVAILABLE, 16 NOT_COORDINATOR):
+        // on a fresh group Redpanda answers 16 until its
+        // coordinator finishes loading.
+        for attempt in 0..12 {
+            match self.offset_commit_once(
+                group,
+                generation_id,
+                member_id,
+                group_instance_id,
+                topic,
+                partition,
+                offset,
+                metadata,
+            )
+            .await
+            {
+                Ok(code) => {
+                    if matches!(code, 14 | 15 | 16) && attempt < 11 {
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        continue;
+                    }
+                    return Ok(code);
+                }
+                Err(status) => {
+                    if attempt < 11 {
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        continue;
+                    }
+                    return Err(status);
+                }
+            }
+        }
+        Err(bad("kafka: offset_commit retries exhausted"))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn offset_commit_once(
         &self,
         group: &str,
         generation_id: i32,

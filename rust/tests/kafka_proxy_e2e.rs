@@ -689,6 +689,235 @@ async fn kafka_proxy_null_vs_empty_key() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_group_out_of_range_reset() {
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    let topic = unique_topic("grpc-dc-e2e-goor");
+    make_topic(&client, &topic, 1).await;
+    assert_eq!(produce_one(&client, &topic, "oor-1").await.error_code, 0);
+    let group = format!("{topic}-oor");
+    // Commit an offset far beyond the high watermark; the
+    // group's fetch position starts out of range and must
+    // recover via the earliest reset policy, not error out.
+    let committed = client
+        .commit_offset(pb::CommitOffsetRequest {
+            group_id: group.clone(),
+            topic: topic.clone(),
+            committed_offset: 500,
+            ..Default::default()
+        })
+        .await
+        .expect("commit oor offset");
+    assert_eq!(committed.error_code, 0, "{committed:?}");
+    let mut req = subscribe_req(&group, &topic);
+    req.auto_offset_reset = "earliest".to_string();
+    let mut stream = client.subscribe(req).await.expect("subscribe oor group");
+    let (_, _, values) =
+        collect_group(&mut stream, 1, 1, std::time::Duration::from_secs(45)).await;
+    assert_eq!(values, vec!["oor-1"], "group did not recover from out-of-range: {values:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_group_commit_after_rebalance() {
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    let topic = unique_topic("grpc-dc-e2e-fence");
+    make_topic(&client, &topic, 1).await;
+    assert_eq!(produce_one(&client, &topic, "fence-1").await.error_code, 0);
+    let group = format!("{topic}-fence");
+
+    let mut a = client.subscribe(subscribe_req(&group, &topic)).await.expect("subscribe A");
+    let (_, _, vals_a) = collect_group(&mut a, 1, 1, std::time::Duration::from_secs(45)).await;
+    assert_eq!(vals_a, vec!["fence-1"]);
+    // Commit through the live session (proxy uses A's
+    // generation/member): offset 1 = next record.
+    let c1 = client
+        .commit_offset(pb::CommitOffsetRequest {
+            group_id: group.clone(),
+            topic: topic.clone(),
+            committed_offset: 1,
+            ..Default::default()
+        })
+        .await
+        .expect("commit via A");
+    assert_eq!(c1.error_code, 0, "{c1:?}");
+    drop(a);
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // New member, new generation: resume proves the committed
+    // offset survived, and a second commit must use the NEW
+    // generation (a stale generation would be fenced by the
+    // broker with ILLEGAL_GENERATION/UNKNOWN_MEMBER).
+    let mut b = client.subscribe(subscribe_req(&group, &topic)).await.expect("subscribe B");
+    // A's leave lands asynchronously; the first generation
+    // may still give the partition to the departing A. Wait
+    // for the generation where B actually owns it.
+    let assign_b = collect_until_assignment(&mut b, |l| l == &vec![0], std::time::Duration::from_secs(45)).await;
+    assert_eq!(assign_b.last().cloned(), Some(vec![0]));
+    let fetched = client
+        .fetch_offset(pb::FetchOffsetRequest {
+            group_id: group.clone(),
+            topic: topic.clone(),
+            ..Default::default()
+        })
+        .await
+        .expect("fetch offset");
+    assert_eq!(fetched.committed_offset, 1, "{fetched:?}");
+    let c2 = client
+        .commit_offset(pb::CommitOffsetRequest {
+            group_id: group.clone(),
+            topic: topic.clone(),
+            committed_offset: 1,
+            metadata: "gen2".to_string(),
+            ..Default::default()
+        })
+        .await
+        .expect("commit via B");
+    assert_eq!(c2.error_code, 0, "commit with current generation failed (stale fencing?): {c2:?}");
+    let fetched2 = client
+        .fetch_offset(pb::FetchOffsetRequest {
+            group_id: group.clone(),
+            topic: topic.clone(),
+            ..Default::default()
+        })
+        .await
+        .expect("fetch offset 2");
+    assert_eq!(fetched2.committed_offset, 1);
+    assert_eq!(fetched2.metadata, "gen2");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_group_multi_topic() {
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    let t1 = unique_topic("grpc-dc-e2e-mt1");
+    let t2 = unique_topic("grpc-dc-e2e-mt2");
+    make_topic(&client, &t1, 2).await;
+    make_topic(&client, &t2, 1).await;
+    assert_eq!(produce_part(&client, &t1, 0, "mt-a").await.error_code, 0);
+    assert_eq!(produce_part(&client, &t1, 1, "mt-b").await.error_code, 0);
+    assert_eq!(produce_part(&client, &t2, 0, "mt-c").await.error_code, 0);
+    let group = format!("{t1}-mt");
+    let mut req = subscribe_req(&group, &t1);
+    req.topics = vec![t1.clone(), t2.clone()];
+    let mut stream = client.subscribe(req).await.expect("subscribe multi");
+    // Assignment must cover all three partitions.
+    let mut assigned: Vec<(String, i32)> = Vec::new();
+    let mut values: Vec<String> = Vec::new();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(45);
+    while assigned.len() < 3 || values.len() < 3 {
+        let Ok(next) = tokio::time::timeout_at(deadline, stream.next()).await else { break };
+        match next {
+            Some(Ok(event)) => {
+                if let Some(a) = event.assignment {
+                    assigned = a.partitions.iter().map(|p| (p.topic.clone(), p.partition)).collect();
+                }
+                if let Some(batch) = event.batch {
+                    for rec in batch.records {
+                        values.push(String::from_utf8(rec.value).expect("utf8"));
+                    }
+                }
+                if let Some(e) = event.group_error {
+                    panic!("group error {}: {}", e.error_code, e.message);
+                }
+            }
+            Some(Err(e)) => panic!("subscribe error: {e:?}"),
+            None => break,
+        }
+    }
+    assigned.sort();
+    assert_eq!(
+        assigned,
+        vec![(t1.clone(), 0), (t1.clone(), 1), (t2.clone(), 0)],
+        "multi-topic assignment incomplete"
+    );
+    values.sort();
+    assert_eq!(values, vec!["mt-a".to_string(), "mt-b".to_string(), "mt-c".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_producer_session_recovery() {
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    let topic = unique_topic("grpc-dc-e2e-session");
+    make_topic(&client, &topic, 1).await;
+
+    // Unknown session ids are rejected, not downgraded to a
+    // plain produce.
+    let bogus = client
+        .produce(pb::ProduceRequest {
+            topic: topic.clone(),
+            partition: 0,
+            records: vec![record("bogus")],
+            session_id: "no-such-session".to_string(),
+            ..Default::default()
+        })
+        .await;
+    assert!(bogus.is_err(), "unknown session produce succeeded: {bogus:?}");
+
+    // Idempotent session: produce, close, produce must fail;
+    // a fresh session recovers and sequences restart cleanly.
+    let opened = client
+        .open_producer(pb::OpenProducerRequest::default())
+        .await
+        .expect("open producer");
+    assert_eq!(opened.error_code, 0, "{opened:?}");
+    let p1 = client
+        .produce(pb::ProduceRequest {
+            topic: topic.clone(),
+            partition: 0,
+            records: vec![record("s1-a")],
+            acks: pb::Acks::AcksAll,
+            session_id: opened.session_id.clone(),
+            ..Default::default()
+        })
+        .await
+        .expect("session produce");
+    assert_eq!(p1.error_code, 0, "{p1:?}");
+    assert_eq!(p1.base_offset, 0);
+    let closed = client
+        .close_producer(pb::CloseProducerRequest {
+            session_id: opened.session_id.clone(),
+            ..Default::default()
+        })
+        .await
+        .expect("close producer");
+    assert_eq!(closed.error_code, 0, "{closed:?}");
+    let after_close = client
+        .produce(pb::ProduceRequest {
+            topic: topic.clone(),
+            partition: 0,
+            records: vec![record("s1-b")],
+            session_id: opened.session_id.clone(),
+            ..Default::default()
+        })
+        .await;
+    assert!(after_close.is_err(), "produce after close succeeded: {after_close:?}");
+
+    let reopened = client
+        .open_producer(pb::OpenProducerRequest::default())
+        .await
+        .expect("reopen producer");
+    assert_eq!(reopened.error_code, 0);
+    assert_ne!(reopened.session_id, opened.session_id);
+    let p2 = client
+        .produce(pb::ProduceRequest {
+            topic: topic.clone(),
+            partition: 0,
+            records: vec![record("s2-a")],
+            acks: pb::Acks::AcksAll,
+            session_id: reopened.session_id.clone(),
+            ..Default::default()
+        })
+        .await
+        .expect("recovered produce");
+    assert_eq!(p2.error_code, 0, "{p2:?}");
+    assert_eq!(p2.base_offset, 1, "recovered produce landed at wrong offset");
+    let values = consume_values(&client, &topic, 2).await;
+    assert_eq!(values, vec!["s1-a".to_string(), "s2-a".to_string()]);
+}
+
 fn record(value: &str) -> pb::Record {
     pb::Record {
         key: format!("key-{value}").into_bytes(),

@@ -181,6 +181,63 @@ EOF
     sleep 2
 }
 
+RESTART_KAFKA_ADDR=127.0.0.1:19095
+PROXY_RESTART_ADDR=127.0.0.1:50211
+
+# Broker-restart leg: a dedicated Kafka with persistent log
+# dirs (same TMP across the bounce) proving committed-offset
+# resume + proxy connection recovery across a broker restart.
+# Driven by scripts/kafka-restart-driver.py (generated python
+# client through a --tcp proxy).
+start_kafka_restart() {
+    local props="$TMP/kafka-restart.properties"
+    cat > "$props" <<EOF
+process.roles=broker,controller
+node.id=3
+listeners=PLAINTEXT://0.0.0.0:19095,CONTROLLER://0.0.0.0:19096
+advertised.listeners=PLAINTEXT://localhost:19095
+controller.listener.names=CONTROLLER
+controller.quorum.voters=3@localhost:19096
+log.dirs=$TMP/kafka-restart-logs
+offsets.topic.replication.factor=1
+transaction.state.log.replication.factor=1
+transaction.state.log.min.isr=1
+group.initial.rebalance.delay.ms=0
+num.partitions=1
+EOF
+    if [ ! -f "$TMP/kafka-restart.cluster-id" ]; then
+        "$KAFKA_HOME/bin/kafka-storage.sh" random-uuid > "$TMP/kafka-restart.cluster-id" || return 1
+    fi
+    "$KAFKA_HOME/bin/kafka-storage.sh" format -t "$(cat "$TMP/kafka-restart.cluster-id")" \
+        -c "$props" --ignore-formatted >"$TMP/kafka-restart-format.log" 2>&1 || return 1
+    "$KAFKA_HOME/bin/kafka-server-start.sh" "$props" >"$TMP/kafka-restart.log" 2>&1 &
+    KAFKA_RESTART_PID=$!
+    STARTED_BROKERS+=($KAFKA_RESTART_PID)
+    wait_port "$RESTART_KAFKA_ADDR" 180 "kafka (restart leg)" || { tail -20 "$TMP/kafka-restart.log" >&2; return 1; }
+}
+
+run_broker_restart_leg() {
+    local proxy_bin="$1"
+    start_kafka_restart || return 1
+    "$proxy_bin" --tcp "$PROXY_RESTART_ADDR" --broker "$RESTART_KAFKA_ADDR" \
+        >"$TMP/proxy-restart.log" 2>&1 &
+    PIDS+=($!)
+    wait_port "$PROXY_RESTART_ADDR" 30 "proxy (restart leg)" || return 1
+    local topic="grpc-dc-restart-$(date +%s%N)"
+    export KAFKA_RESTART_TOPIC="$topic" KAFKA_RESTART_GROUP="$topic-group"
+    run "broker restart phase1 (commit before bounce)" env \
+        KAFKA_E2E_PROXY_ADDR="$PROXY_RESTART_ADDR" \
+        python3 "$ROOT/scripts/kafka-restart-driver.py" phase1 || return 1
+    kill "$KAFKA_RESTART_PID" 2>/dev/null
+    wait "$KAFKA_RESTART_PID" 2>/dev/null
+    sleep 2
+    start_kafka_restart || return 1
+    run "broker restart phase2 (resume after bounce)" env \
+        KAFKA_E2E_PROXY_ADDR="$PROXY_RESTART_ADDR" \
+        python3 "$ROOT/scripts/kafka-restart-driver.py" phase2 || return 1
+    kill "$KAFKA_RESTART_PID" 2>/dev/null
+}
+
 run_kafka_sasl_suites() {
     run "sasl scram-sha-256 e2e (apache kafka)" env KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_SASL256_ADDR" \
         bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_e2e"
@@ -514,6 +571,8 @@ main() {
     run "rust multi-broker leader routing (apache kafka)" env \
         KAFKA_PROXY_E2E_BROKER="$KAFKA_CLUSTER_ADDR" KAFKA_PROXY_E2E_CLUSTER=1 \
         bash -c "cd '$ROOT/rust' && cargo test --test kafka_proxy_e2e kafka_proxy_multi_broker_leader_routing"
+
+    run_broker_restart_leg "$proxy_bin" || FAILED=1
 
     start_kafka_sasl || exit 1
     "$proxy_bin" --tcp "$PROXY_KAFKA_SASL256_ADDR" --broker "$KAFKA_SASL_ADDR" \

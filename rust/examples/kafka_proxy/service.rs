@@ -1017,8 +1017,11 @@ async fn run_subscribe(
                         break 'poll;
                     }
                 };
-                if outcome.error_code == 9 {
-                    // OFFSET_OUT_OF_RANGE: apply the reset policy.
+                if outcome.error_code == 1 || outcome.error_code == 9 {
+                    // OFFSET_OUT_OF_RANGE (1): apply the reset
+                    // policy. (9, REPLICA_NOT_AVAILABLE, is kept
+                    // on the same reset path for brokers that
+                    // surface a range problem that way.)
                     if let Ok((offset, _, error_code)) = broker
                         .list_offsets(topic, *partition, reset_timestamp, req.read_committed)
                         .await

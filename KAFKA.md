@@ -44,7 +44,14 @@ reports one; an empty key without the flag stays an empty
 key. `Consume` long-polls at the high watermark (no chunk
 until a record lands) and an out-of-range offset returns the
 broker error (OFFSET_OUT_OF_RANGE) as the first chunk's
-`error_code`.
+`error_code`; inside a consumer group the same condition
+applies the `auto_offset_reset` policy instead of ending the
+subscription. Broker connections are re-established
+transparently after a transport failure, so a broker restart
+does not permanently break the proxy: committed offsets and
+group membership resume on the next calls (proven by a
+dedicated restart leg in `scripts/kafka-e2e.sh` that bounces
+Kafka between two consume phases).
 
 Compression: gzip, snappy, LZ4, and zstd (dependency-free
 codecs in the proxy; zstd frames use raw blocks, and the
