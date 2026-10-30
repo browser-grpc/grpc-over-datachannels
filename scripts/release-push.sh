@@ -12,6 +12,8 @@ set -eu
 
 VERSION="${1:-$(git describe --tags --abbrev=0)}"
 EXPORT="release/browser-grpc"
+KP_EXPORT="release/kafka-proxy"
+KP_REPO="browser-grpc/kafka-proxy"
 REPO="browser-grpc/grpc-over-datachannels"
 ORG="browser-grpc"
 PROFILE_REPO="browser-grpc/.github"
@@ -79,6 +81,35 @@ else
   echo "published $REPO $VERSION"
 fi
 cd - >/dev/null
+
+# ------------------------------------------------------------------
+# 1b. Kafka proxy repo (browser-grpc/kafka-proxy): standalone
+#     generated subset export (no Racket source; the exporter's
+#     leak gate enforces it). Same version/tag as the main repo.
+# ------------------------------------------------------------------
+if [ -d "$KP_EXPORT" ]; then
+  if ! gh repo view "$KP_REPO" >/dev/null 2>&1; then
+    gh repo create "$KP_REPO" --public \
+      --description "Kafka over gRPC proxy — expose Apache Kafka/Redpanda as a generated gRPC service for browser + native clients"
+  fi
+  gh repo clone "$KP_REPO" "$WORK/kafka-proxy"
+  rsync -a --delete --exclude .git "$KP_EXPORT/" "$WORK/kafka-proxy/"
+  cd "$WORK/kafka-proxy"
+  git add -A
+  if git diff --cached --quiet; then
+    echo "kafka-proxy export unchanged; nothing to publish"
+  else
+    git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
+      commit -m "release $VERSION (generated export)"
+    git tag "$VERSION"
+    git push origin HEAD
+    git push origin "$VERSION"
+    echo "published $KP_REPO $VERSION"
+  fi
+  cd - >/dev/null
+else
+  echo "note: no kafka-proxy export at $KP_EXPORT; skipping repo publish"
+fi
 
 DEFAULT_BRANCH="$(gh repo view "$REPO" --json defaultBranchRef --jq .defaultBranchRef.name)"
 echo "default branch: $DEFAULT_BRANCH"

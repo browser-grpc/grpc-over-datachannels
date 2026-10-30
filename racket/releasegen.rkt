@@ -35,6 +35,7 @@
 (define version
   (arg-value "--version" (sh "git describe --tags --abbrev=0")))
 (define out-dir (arg-value "--out" "release/browser-grpc"))
+(define kafka-proxy-out (arg-value "--kafka-proxy-out" ""))
 (define source-commit (sh "git rev-parse HEAD"))
 
 ;; ---------------------------------------------------------------------------
@@ -697,6 +698,225 @@
       "  leader discovered from metadata.\n")
      out))
   #:exists 'replace)
+
+;; ---------------------------------------------------------------------------
+;; Dedicated kafka-proxy repo export (browser-grpc/kafka-proxy):
+;; a standalone subset of the main export — the Rust runtime,
+;; the kafka_proxy example, fixtures the crate tests include,
+;; proto, and the public Kafka guide — plus its own README,
+;; CI Dockerfile, e2e runner, and GitHub workflow, so users can
+;; build, run, and test the proxy without the main repo. Same
+;; leak rule: no Racket source ever crosses.
+;; ---------------------------------------------------------------------------
+
+(define (emit-kp-file rel text [mode #f])
+  (define dest (build-path kafka-proxy-out rel))
+  (make-directory* (path-only dest))
+  (call-with-output-file dest
+    (lambda (out) (display text out)) #:exists 'replace)
+  (when mode (file-or-directory-permissions dest mode)))
+
+(when (non-empty-string? kafka-proxy-out)
+  (when (directory-exists? kafka-proxy-out)
+    (delete-directory/files kafka-proxy-out))
+  (make-directory* kafka-proxy-out)
+  (for ([dir (in-list '("rust" "webrtc/rust" "proto" "fixtures"))])
+    (make-directory* (path-only (build-path kafka-proxy-out dir)))
+    (copy-directory/files (build-path out-dir dir)
+                          (build-path kafka-proxy-out dir)))
+  (for ([f (in-list '("LICENSE" "KAFKA.md"))])
+    (copy-file (build-path out-dir f) (build-path kafka-proxy-out f) #t))
+  (make-directory* (build-path kafka-proxy-out "docker"))
+  (copy-file (build-path out-dir "docker/kafka-proxy.Dockerfile")
+             (build-path kafka-proxy-out "docker/kafka-proxy.Dockerfile") #t)
+  (emit-kp-file
+   "RELEASE.json"
+   (string-append "{\n  \"version\": \"" version "\",\n"
+                  "  \"sourceCommit\": \"" source-commit "\",\n"
+                  "  \"generated\": true\n}\n"))
+  (emit-kp-file
+   "README.md"
+   (string-append
+    "# Kafka over gRPC — proxy\n"
+    "\n"
+    "A Rust proxy that exposes an Apache Kafka or Redpanda cluster as\n"
+    "the generated `grpcdc.kafka.v1.Kafka` gRPC service (see\n"
+    "[KAFKA.md](KAFKA.md)). Generated clients in every language —\n"
+    "from the main [grpc-over-datachannels](https://github.com/browser-grpc/grpc-over-datachannels)\n"
+    "repo, browser and native — reach Kafka through it over stdio,\n"
+    "length-prefixed TCP, or a WebRTC DataChannel.\n"
+    "\n"
+    "This repository is a generated export (version " version "); the\n"
+    "proxy sources live in `rust/examples/kafka_proxy/`.\n"
+    "\n"
+    "## Run\n"
+    "\n"
+    "```sh\n"
+    "docker run --rm ghcr.io/browser-grpc/kafka-proxy:latest \\\n"
+    "  --tcp 0.0.0.0:50201 --broker kafka:9092\n"
+    "```\n"
+    "\n"
+    "Or build it here:\n"
+    "\n"
+    "```sh\n"
+    "docker build -f docker/kafka-proxy.Dockerfile -t kafka-proxy .\n"
+    "cd rust && cargo build --release --features kafka-tls,webrtc \\\n"
+    "  --example kafka_proxy\n"
+    "```\n"
+    "\n"
+    "## Tests\n"
+    "\n"
+    "The end-to-end suite (produce/consume, consumer groups,\n"
+    "transactions, compression, restart resume) runs against real\n"
+    "Apache Kafka and Redpanda fixtures inside Docker — nothing to\n"
+    "install:\n"
+    "\n"
+    "```sh\n"
+    "docker build -f docker/kafka-proxy-ci.Dockerfile -t kafka-proxy-ci .\n"
+    "docker run --rm kafka-proxy-ci\n"
+    "```\n"
+    "\n"
+    "GitHub Actions runs the same image on every push.\n"))
+  (emit-kp-file
+   "docker/kafka-proxy-ci.Dockerfile"
+   (string-append
+    "# Kafka proxy CI — generated. DO NOT EDIT.\n"
+    "# Builds the proxy and runs the Rust e2e suite against real\n"
+    "# Apache Kafka + Redpanda fixtures, all inside the image.\n"
+    "#   docker build -f docker/kafka-proxy-ci.Dockerfile -t kafka-proxy-ci .\n"
+    "#   docker run --rm kafka-proxy-ci\n"
+    "FROM rust:1-bookworm\n"
+    "RUN apt-get update && apt-get install -y --no-install-recommends default-jdk-headless curl ca-certificates procps && rm -rf /var/lib/apt/lists/*\n"
+    "RUN curl -fsSL https://downloads.apache.org/kafka/4.3.1/kafka_2.13-4.3.1.tgz -o /tmp/kafka.tgz && mkdir -p /opt/kafka && tar -xzf /tmp/kafka.tgz -C /opt/kafka --strip-components=1 && rm /tmp/kafka.tgz\n"
+    "RUN curl -fsSL https://linux.pkg.redpanda.com/setup-redpanda.deb.sh | bash && apt-get update && apt-get install -y --no-install-recommends redpanda && rm -rf /var/lib/apt/lists/*\n"
+    "ENV KAFKA_HOME=/opt/kafka\n"
+    "WORKDIR /src\n"
+    "COPY rust ./rust\n"
+    "COPY webrtc/rust ./webrtc/rust\n"
+    "COPY proto ./proto\n"
+    "COPY fixtures ./fixtures\n"
+    "COPY scripts/run-e2e.sh ./scripts/run-e2e.sh\n"
+    "CMD [\"bash\", \"scripts/run-e2e.sh\"]\n"))
+  (emit-kp-file
+   "scripts/run-e2e.sh"
+   (string-append
+    "#!/usr/bin/env bash\n"
+    "# Run the kafka_proxy Rust e2e suite against a real Apache\n"
+    "# Kafka broker, then a real Redpanda broker. Brokers are\n"
+    "# started here and killed on exit. Fails loudly if a broker\n"
+    "# never opens its port (the suite skips itself without\n"
+    "# KAFKA_PROXY_E2E_BROKER, so the port checks matter).\n"
+    "set -uo pipefail\n"
+    "ROOT=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")/..\" && pwd)\"\n"
+    "KAFKA_HOME=\"${KAFKA_HOME:-/opt/kafka}\"\n"
+    "REDPANDA_BIN=\"${REDPANDA_BIN:-$(command -v redpanda || echo /opt/redpanda/bin/redpanda)}\"\n"
+    "TMP=\"$(mktemp -d)\"\n"
+    "PIDS=()\n"
+    "cleanup() {\n"
+    "  for pid in \"${PIDS[@]:-}\"; do\n"
+    "    [ -n \"$pid\" ] && kill \"$pid\" 2>/dev/null || true\n"
+    "  done\n"
+    "  rm -rf \"$TMP\"\n"
+    "}\n"
+    "trap cleanup EXIT\n"
+    "port_open() {\n"
+    "  (exec 3<>\"/dev/tcp/${1%:*}/${1##*:}\") 2>/dev/null && exec 3>&- 3<&-\n"
+    "}\n"
+    "wait_port() {\n"
+    "  local deadline=$((SECONDS + $2))\n"
+    "  while ! port_open \"$1\"; do\n"
+    "    if [ $SECONDS -ge $deadline ]; then\n"
+    "      echo \"FAIL: $3 did not open $1 within $2s\" >&2\n"
+    "      return 1\n"
+    "    fi\n"
+    "    sleep 1\n"
+    "  done\n"
+    "  echo \"ok: $3 listening on $1\"\n"
+    "}\n"
+    "start_kafka() {\n"
+    "  local props=\"$TMP/kafka.properties\"\n"
+    "  cat > \"$props\" <<EOF\n"
+    "process.roles=broker,controller\n"
+    "node.id=1\n"
+    "listeners=PLAINTEXT://0.0.0.0:19092,CONTROLLER://0.0.0.0:19094\n"
+    "advertised.listeners=PLAINTEXT://127.0.0.1:19092\n"
+    "controller.listener.names=CONTROLLER\n"
+    "controller.quorum.voters=1@127.0.0.1:19094\n"
+    "log.dirs=$TMP/kafka-logs\n"
+    "offsets.topic.replication.factor=1\n"
+    "transaction.state.log.replication.factor=1\n"
+    "transaction.state.log.min.isr=1\n"
+    "group.initial.rebalance.delay.ms=0\n"
+    "num.partitions=1\n"
+    "EOF\n"
+    "  local cluster_id\n"
+    "  cluster_id=\"$(\"$KAFKA_HOME/bin/kafka-storage.sh\" random-uuid)\" || return 1\n"
+    "  \"$KAFKA_HOME/bin/kafka-storage.sh\" format -t \"$cluster_id\" -c \"$props\" --ignore-formatted >\"$TMP/kafka-format.log\" 2>&1 || return 1\n"
+    "  \"$KAFKA_HOME/bin/kafka-server-start.sh\" \"$props\" >\"$TMP/kafka.log\" 2>&1 &\n"
+    "  PIDS+=($!)\n"
+    "  wait_port 127.0.0.1:19092 180 kafka || { tail -20 \"$TMP/kafka.log\" >&2; return 1; }\n"
+    "}\n"
+    "start_redpanda() {\n"
+    "  local cfg=\"$TMP/redpanda.yaml\" rpk_bin broker_bin\n"
+    "  rpk_bin=\"$(dirname \"$REDPANDA_BIN\")/rpk\"\n"
+    "  [ -x \"$rpk_bin\" ] || rpk_bin=\"$(command -v rpk || true)\"\n"
+    "  [ -n \"$rpk_bin\" ] || { echo \"FAIL: rpk not found\" >&2; return 1; }\n"
+    "  broker_bin=\"$REDPANDA_BIN\"\n"
+    "  [ -x \"$(dirname \"$REDPANDA_BIN\")/../libexec/redpanda\" ] && broker_bin=\"$(dirname \"$REDPANDA_BIN\")/../libexec/redpanda\"\n"
+    "  mkdir -p \"$TMP/rp-data\"\n"
+    "  \"$rpk_bin\" redpanda config bootstrap --config \"$cfg\" --self 127.0.0.1 >/dev/null || return 1\n"
+    "  \"$rpk_bin\" redpanda config set --config \"$cfg\" redpanda.data_directory \"$TMP/rp-data\" >/dev/null || return 1\n"
+    "  \"$rpk_bin\" redpanda config set --config \"$cfg\" redpanda.rpc_server \"{address: 127.0.0.1, port: 33145}\" >/dev/null || return 1\n"
+    "  \"$rpk_bin\" redpanda config set --config \"$cfg\" redpanda.advertised_rpc_api \"{address: 127.0.0.1, port: 33145}\" >/dev/null || return 1\n"
+    "  \"$rpk_bin\" redpanda config set --config \"$cfg\" redpanda.admin \"[{address: 127.0.0.1, port: 9644}]\" >/dev/null || return 1\n"
+    "  \"$rpk_bin\" redpanda config set --config \"$cfg\" redpanda.kafka_api \"[{name: internal, address: 127.0.0.1, port: 19095}, {name: external, address: 127.0.0.1, port: 19093}]\" >/dev/null || return 1\n"
+    "  \"$rpk_bin\" redpanda config set --config \"$cfg\" redpanda.advertised_kafka_api \"[{name: internal, address: 127.0.0.1, port: 19095}, {name: external, address: 127.0.0.1, port: 19093}]\" >/dev/null || return 1\n"
+    "  \"$broker_bin\" --redpanda-cfg \"$cfg\" --smp 1 --memory 512M >\"$TMP/redpanda.log\" 2>&1 &\n"
+    "  PIDS+=($!)\n"
+    "  wait_port 127.0.0.1:19093 120 redpanda || { tail -20 \"$TMP/redpanda.log\" >&2; return 1; }\n"
+    "}\n"
+    "FAILED=0\n"
+    "start_kafka || exit 1\n"
+    "echo \"== rust e2e (apache kafka)\"\n"
+    "(cd \"$ROOT/rust\" && KAFKA_PROXY_E2E_BROKER=127.0.0.1:19092 cargo test --locked --test kafka_proxy_e2e) || FAILED=1\n"
+    "if [ -x \"$REDPANDA_BIN\" ] || command -v redpanda >/dev/null 2>&1; then\n"
+    "  start_redpanda || FAILED=1\n"
+    "  if [ \"$FAILED\" -eq 0 ]; then\n"
+    "    echo \"== rust e2e (redpanda)\"\n"
+    "    (cd \"$ROOT/rust\" && KAFKA_PROXY_E2E_BROKER=127.0.0.1:19093 cargo test --locked --test kafka_proxy_e2e) || FAILED=1\n"
+    "  fi\n"
+    "else\n"
+    "  echo \"note: redpanda binary not found; kafka leg only\"\n"
+    "fi\n"
+    "exit \"$FAILED\"\n")
+   #o755)
+  (emit-kp-file
+   ".github/workflows/ci.yml"
+   (string-append
+    "name: CI\n"
+    "on: [push, pull_request]\n"
+    "jobs:\n"
+    "  e2e:\n"
+    "    runs-on: ubuntu-latest\n"
+    "    steps:\n"
+    "      - uses: actions/checkout@v4\n"
+    "      - name: Build CI image (brokers + toolchain)\n"
+    "        run: docker build -f docker/kafka-proxy-ci.Dockerfile -t kafka-proxy-ci .\n"
+    "      - name: Run e2e suite (Apache Kafka + Redpanda)\n"
+    "        run: docker run --rm kafka-proxy-ci\n"
+    "      - name: Build runtime image\n"
+    "        run: docker build -f docker/kafka-proxy.Dockerfile -t kafka-proxy .\n"))
+  ;; Leak gate for the subset export.
+  (let* ([kp-files (find-files file-exists? kafka-proxy-out)]
+         [kp-leaks
+          (filter (lambda (p) (string-suffix? (path->string p) ".rkt"))
+                  kp-files)])
+    (unless (null? kp-leaks)
+      (eprintf "releasegen: KAFKA-PROXY LEAK GATE FAILED:\n")
+      (for ([p (in-list kp-leaks)]) (eprintf "  ~a\n" p))
+      (exit 1))
+    (printf "releasegen: kafka-proxy export: ~a files, leak gate OK\n"
+            (length kp-files))))
 
 (call-with-output-file (build-path out-dir "docker-compose.yml")
   (lambda (out)
