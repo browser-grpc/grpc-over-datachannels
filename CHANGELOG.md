@@ -11,9 +11,10 @@ curated release tags on `master`; dates are the tag dates.
 - The main public repo gains a browser CI job: Playwright
   suites (Chromium/Firefox/WebKit) from the exported
   `browser-test/` harness. This also fixes the exporter
-  dropping `browser-test/test.mjs` from the public tree
-  (its filename missed the `*.test.mjs` copy pattern), so
-  `npm test` in a public clone runs the full script again.
+  dropping tracked `browser-test` sources (`test.mjs`,
+  `harness.mjs`, `fake_turnd.mjs`, `echo_deep_checks.mjs`
+  missed the old copy pattern), so `npm test` in a public
+  clone runs the full script again.
 
 ## v0.35.8 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 

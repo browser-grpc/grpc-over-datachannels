@@ -191,7 +191,7 @@
 
 (for ([rel (in-list tracked)]
       #:when (and (string-prefix? rel "browser-test/")
-                  (regexp-match? #rx"[.](test[.]mjs|html|json)$" rel)
+                  (regexp-match? #rx"[.](mjs|html|json)$" rel)
                   (not (string-contains? rel "node_modules"))))
   (copy-in rel))
 (for ([rel (in-list '("browser-test/package-lock.json"
