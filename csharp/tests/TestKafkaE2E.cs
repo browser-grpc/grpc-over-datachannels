@@ -46,7 +46,7 @@ public static class TestKafkaE2E
                 new List<Record>
                 {
                     new Record(Encoding.UTF8.GetBytes("k-" + value), Encoding.UTF8.GetBytes(value),
-                        new List<Header>(), 0),
+                        new List<Header>(), 0, false),
                 },
                 Acks.ACKS_UNSPECIFIED, 0, Compression.COMPRESSION_NONE, "", ""));
             Program.Check(resp.ErrorCode == 0, "produce error " + resp.ErrorCode);

@@ -64,7 +64,7 @@ public final class TestKafkaE2E {
                     List.of(new Record(
                             ("k-" + value).getBytes(StandardCharsets.UTF_8),
                             value.getBytes(StandardCharsets.UTF_8),
-                            List.of(), 0)),
+                            List.of(), 0, false)),
                     null, 0, null, "", ""));
             check(resp.errorCode == 0, "produce error " + resp.errorCode);
             offsets.add(resp.baseOffset);
