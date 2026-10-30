@@ -15,7 +15,7 @@
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/browser-grpc/grpc-over-datachannels</RepositoryUrl>
     <PackageTags>grpc;webrtc;datachannel;protobuf;browser</PackageTags>
-    <Version>0.35.7</Version>
+    <Version>0.35.8</Version>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
