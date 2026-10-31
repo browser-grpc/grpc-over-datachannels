@@ -1,0 +1,75 @@
+# WebRTC-Direct examples: server + clients + a real TURN server.
+#
+#   docker compose -f examples/direct/docker-compose.yml --profile host up
+#   docker compose -f examples/direct/docker-compose.yml --profile turn up
+#
+# host: JS client dials the server's multiaddr straight over UDP.
+# turn: JS client reaches the same server through a coturn allocation
+#       (the symmetric-NAT path). The server never changes.
+#
+# The server prints MULTIADDR ... on its log line; the client services
+# below cannot know it in advance, so run the server first, copy the
+# multiaddr, then start a client with GRPC_DC_ADDR set:
+#
+#   docker compose -f examples/direct/docker-compose.yml up direct-server
+#   GRPC_DC_ADDR='/ip4/...' docker compose -f examples/direct/docker-compose.yml \
+#       --profile host run --rm direct-client
+#
+# Images: grpc-dc-ci carries node/python3/coturn for these examples;
+# coturn/coturn is the public TURN server image.
+
+services:
+  direct-server:
+    image: grpc-dc-ci:latest
+    working_dir: /repo
+    volumes:
+      - ../..:/repo:ro
+    environment:
+      DIRECT_ADDRESS: "0.0.0.0"
+      DIRECT_PORT: "4001"
+    command: ["node", "examples/direct/server.mjs"]
+    ports:
+      - "4001:4001/udp"
+
+  direct-client:
+    image: grpc-dc-ci:latest
+    working_dir: /repo
+    volumes:
+      - ../..:/repo:ro
+    profiles: ["host"]
+    environment:
+      GRPC_DC_ADDR: ${GRPC_DC_ADDR:?set GRPC_DC_ADDR to the server MULTIADDR line}
+    command: ["node", "examples/direct/client.mjs"]
+
+  turn:
+    image: coturn/coturn:latest
+    profiles: ["turn"]
+    command:
+      - -n
+      - --listening-port=3478
+      - --realm=grpc-dc
+      - --user=grpc:grpc
+      - --lt-cred-mech
+      # Same-network test fixture only: a public TURN server must NOT
+      # allow loopback/private peers (SSRF). These flags let coturn
+      # relay to the compose server on the docker network.
+      - --allow-loopback-peers
+      - --allowed-peer-ip=172.16.0.0-172.31.255.255
+      - --no-cli
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+
+  direct-client-turn:
+    image: grpc-dc-ci:latest
+    working_dir: /repo
+    volumes:
+      - ../..:/repo:ro
+    profiles: ["turn"]
+    depends_on: ["turn"]
+    environment:
+      GRPC_DC_ADDR: ${GRPC_DC_ADDR:?set GRPC_DC_ADDR to the server MULTIADDR line}
+      DIRECT_TURN: turn:3478
+      DIRECT_TURN_USER: grpc
+      DIRECT_TURN_PASS: grpc
+    command: ["node", "examples/direct/client.mjs"]
