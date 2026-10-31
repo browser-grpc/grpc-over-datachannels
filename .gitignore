@@ -92,3 +92,6 @@ generated_images/
 
 /oracle/go-interop/interop-server
 /oracle/go-interop/interop-client
+
+# YouTube video build output (sources live in video/scripts/)
+/video/out/

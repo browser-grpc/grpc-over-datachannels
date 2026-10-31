@@ -400,4 +400,12 @@ ENV CARGO_NET_OFFLINE=true
 # unless WebKit's system libraries are present.
 ENV GRPC_DC_WEBKIT=1
 
+# ffmpeg/ffprobe for the YouTube video pipeline (video/build.mjs:
+# slide segments, caption burn-in, loudness norm). Deliberately a
+# late layer so the toolchain caches above stay warm; the Drama 3
+# TTS server itself lives in Dockerfile.video (GPU, GB10 only).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
 CMD ["make", "test"]

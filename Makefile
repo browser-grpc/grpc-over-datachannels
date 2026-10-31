@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate direct-examples plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go eventbus-stubs kafka-stubs test-kafka test-live-stun test-live-stun-ci test-nat-e2e test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen soak
+.PHONY: generate direct-examples plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go eventbus-stubs kafka-stubs test-kafka test-live-stun test-live-stun-ci test-nat-e2e test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen soak video-tts-image video-tts-up video-tts-down video-build video-preview video-grpcdc video-kafka
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -1134,6 +1134,42 @@ demos:
 	cd rust && $(CARGO) run --example echo_demo
 	node js/examples/echo_demo.js
 	cd go && go run ./examples/echo_demo
+
+## YouTube videos (video/build.mjs; narration by Fish Audio Drama 3
+## on the GB10, Dockerfile.video). Everything runs in containers:
+## the TTS server as `drama3` and the builder in the CI image, joined
+## by the grpc-dc-video network. Host needs only Docker + a GB10.
+video-tts-image:
+	docker build -f Dockerfile.video -t grpc-dc-drama3 .
+
+video-tts-up: video-tts-image
+	docker network create grpc-dc-video 2>/dev/null || true
+	docker rm -f drama3 2>/dev/null || true
+	docker run -d --name drama3 --gpus all --network grpc-dc-video \
+		-v drama3-hf:/root/.cache/huggingface -v drama3-cache:/root/.cache \
+		grpc-dc-drama3
+	@echo "drama3 starting (first start downloads ~37 GB + JIT-compiles); poll: curl -s http://localhost:8000/v1/models via 'docker exec drama3 curl -s localhost:8000/v1/models'"
+
+video-tts-down:
+	docker rm -f drama3 2>/dev/null || true
+
+VIDEO_SCRIPT ?= video/scripts/grpc-dc.json
+video-build:
+	docker network create grpc-dc-video 2>/dev/null || true
+	docker run --rm --network grpc-dc-video -e TTS_URL=http://drama3:8000 \
+		-v $(CURDIR):/work -w /work grpc-dc-ci \
+		node video/build.mjs $(VIDEO_SCRIPT)
+
+## Silent preview (no GPU server needed): framing/captions check only.
+video-preview:
+	docker run --rm -v $(CURDIR):/work -w /work grpc-dc-ci \
+		node video/build.mjs $(VIDEO_SCRIPT) --no-tts
+
+video-grpcdc:
+	$(MAKE) video-build VIDEO_SCRIPT=video/scripts/grpc-dc.json
+
+video-kafka:
+	$(MAKE) video-build VIDEO_SCRIPT=video/scripts/kafka-proxy.json
 
 clean-gen:
 	rm -f bin/protoc-gen-grpc-dc-kotlin bin/protoc-gen-grpc-dc-kotlin-native bin/protoc-gen-grpc-dc-rust bin/protoc-gen-grpc-dc-js bin/protoc-gen-grpc-dc-go bin/protoc-gen-grpc-dc-wasm-go bin/protoc-gen-grpc-dc-wasm-zig bin/protoc-gen-grpc-dc-wasm-cpp bin/protoc-gen-grpc-dc-wasm-swift bin/protoc-gen-grpc-dc-wasm-kotlin bin/protoc-gen-grpc-dc-cpp bin/protoc-gen-grpc-dc-swift bin/protoc-gen-grpc-dc-php bin/protoc-gen-grpc-dc-scala

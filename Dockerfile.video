@@ -1,0 +1,110 @@
+# syntax=docker/dockerfile:1
+# Fish Audio Drama 3 TTS server for generating YouTube narration on a
+# DGX Spark (GB10, arm64, CUDA 13). Deliberately NOT part of
+# Dockerfile.ci: that image is the CPU test gate for 16 languages and
+# must not carry a CUDA speech stack or model weights.
+#
+# Based on the measured dgx-spark-recipes build (MIT-style community
+# recipe, github.com/atakann/dgx-spark-recipes, images/sglang-omni),
+# which in turn tracks upstream sglang-omni docker/Dockerfile @22d4ace.
+# Pins: sglang base image by digest, sglang-omni @22d4ace, UCX pinned.
+# Model (downloaded at first server start, not baked in):
+#   fishaudio/drama-3 @ e0a9218aa48888270f06ef1ed9ea67622c0e17d2
+# Weights are licensed under the Fish Audio Community License 1.0.
+# Built with Fish Audio.
+#
+# Changes vs the recipe original:
+#  1. no flashinfer-cache stage: that image is amd64-only and holds
+#     only a SM89/SM90 JIT cache; FlashInfer compiles for SM121 on
+#     the first start instead
+#  2. sglang-omni cloned at a pinned commit at build time, not
+#     pulled from main at every start
+#  3. only the fishaudio extra (no llama.cpp / CosyVoice builds)
+#  4. OpenFst 1.8.3 built from source: pynini (pulled in by two TTS
+#     text frontends) has no aarch64 wheel and compiles against it
+#  5. the S2 Pro playground opens with Drama 3's sampling defaults
+#     (temperature 1.0, top_p 0.9; see
+#     sglang_omni/models/fishaudio_drama3/speech_request.py)
+#
+# Build:
+#   docker build -f Dockerfile.video -t grpc-dc-drama3 .
+# Serve (first start downloads ~37 GB of weights + JIT-compiles
+# FlashInfer SM121 kernels into the cache volumes; later starts fast):
+#   docker run -d --name drama3 --gpus all -p 127.0.0.1:8000:8000 \
+#     -v drama3-hf:/root/.cache/huggingface -v drama3-cache:/root/.cache \
+#     grpc-dc-drama3
+# API (OpenAI-compatible):
+#   POST http://127.0.0.1:8000/v1/audio/speech
+#   {"model": "<id from GET /v1/models>", "input": "...", "response_format": "wav"}
+
+ARG SGLANG_IMAGE=lmsysorg/sglang@sha256:b1259f3ea3275f66237c498ea388919729018bc9f01c3d638391e06e2cf3f469
+FROM ${SGLANG_IMAGE}
+ARG OMNI_COMMIT=22d4ace88f9547777b819a69d7691204bb9ce847
+ARG UCX_COMMIT=d8e50df6651b9ea5b76f23aee0aefbf053a4137a
+
+RUN apt-get update && apt-get install -y --no-install-recommends sox && rm -rf /var/lib/apt/lists/*
+
+# upstream's UCX build, unchanged
+RUN git clone --filter=blob:none https://github.com/openucx/ucx.git /tmp/ucx \
+    && git -C /tmp/ucx checkout "${UCX_COMMIT}" \
+    && cd /tmp/ucx \
+    && ./autogen.sh \
+    && ./contrib/configure-release-mt \
+        --enable-shared \
+        --disable-static \
+        --disable-doxygen-doc \
+        --enable-optimizations \
+        --enable-cma \
+        --enable-devel-headers \
+        --with-cuda=/usr/local/cuda \
+        --with-verbs \
+        --with-dm \
+        --prefix=/usr/local \
+    && make -j"$(nproc)" \
+    && make install-strip \
+    && ldconfig \
+    && rm -rf /tmp/ucx
+
+ARG OPENFST_VERSION=1.8.3
+RUN curl -fsSL https://www.openfst.org/twiki/pub/FST/FstDownload/openfst-${OPENFST_VERSION}.tar.gz \
+      | tar -xz -C /tmp \
+    && cd /tmp/openfst-${OPENFST_VERSION} \
+    && ./configure --enable-grm --prefix=/usr/local \
+    && make -j"$(nproc)" \
+    && make install \
+    && ldconfig \
+    && rm -rf /tmp/openfst-${OPENFST_VERSION}
+
+RUN git clone --filter=blob:none https://github.com/sgl-project/sglang-omni.git /opt/sglang-omni \
+    && git -C /opt/sglang-omni checkout "${OMNI_COMMIT}"
+RUN cd /opt/sglang-omni \
+    && python3 -c 'import tomllib; print("\n".join(tomllib.load(open("pyproject.toml","rb"))["tool"]["uv"]["override-dependencies"]))' > /tmp/ov.txt \
+    && uv pip install --python /opt/sglang/bin/python3 --no-build-isolation --overrides /tmp/ov.txt \
+         -r pyproject.toml --extra fishaudio \
+    && uv pip install --python /opt/sglang/bin/python3 --no-deps --reinstall flashinfer-python==0.6.18 \
+    && python3 -m pip uninstall -y flashinfer-cubin flashinfer-jit-cache \
+    && python3 -m pip install --no-deps --no-build-isolation -e /opt/sglang-omni \
+    && rm /tmp/ov.txt
+
+ENV FLASHINFER_WORKSPACE_BASE=/root \
+    FLASHINFER_JIT_DEBUG=0
+# llama.cpp must load the same NCCL as Torch, not the older system copy (upstream)
+ENV LD_LIBRARY_PATH=/opt/sglang/lib/python3.12/site-packages/nvidia/nccl/lib:${LD_LIBRARY_PATH}
+WORKDIR /opt/sglang-omni
+
+# change 5: Drama 3's sampling defaults in the S2 Pro playground (Top K is 30 in both)
+RUN sed -i -e '/label="Temperature"/,/value=/ s/value=0.8/value=1.0/' \
+           -e '/label="Top P"/,/value=/ s/value=0.8/value=0.9/' \
+    /opt/sglang-omni/playground/s2pro/ui.py
+
+# Drama 3 at the pinned revision. gpu_memory_fraction 0.45: SGLang's
+# default (0.70) leaves a Spark ~1 GiB free; 0.45 keeps ~17 GiB of KV
+# cache and headroom for the rest of the box.
+ARG DRAMA3_REVISION=e0a9218aa48888270f06ef1ed9ea67622c0e17d2
+ENV DRAMA3_MODEL=fishaudio/drama-3@${DRAMA3_REVISION}
+# First start downloads the model inside a stage worker and JIT-
+# compiles FlashInfer SM121 kernels; the upstream 600s stage-ready
+# budget (counted from spawn) is too small for that on a cold cache.
+ENV SGLANG_OMNI_STARTUP_TIMEOUT=1800 \
+    SGLANG_OMNI_WARMUP_TIMEOUT=1200
+CMD ["sh", "-c", "exec sgl-omni serve --model-path \"$DRAMA3_MODEL\" --vocoder.factory.codec_path \"$DRAMA3_MODEL\" --tts_engine.gpu_memory_fraction 0.45 --host 0.0.0.0 --port 8000"]

@@ -1,0 +1,59 @@
+{
+  "id": "grpc-dc",
+  "source": "https://c100k.blogspot.com/2026/10/introducing-grpc-over-datachannels-grpc.html and https://c100k.blogspot.com/2026/10/webrtc-direct-examples-in-every.html",
+  "youtube": {
+    "title": "gRPC over WebRTC DataChannels — No HTTP/2, No Dependencies | grpc-over-datachannels",
+    "description": "grpc-over-datachannels runs gRPC over a single WebRTC RTCDataChannel instead of HTTP/2. Generated, dependency-free runtimes for 16 languages — browser and native — plus WebRTC-Direct examples with direct, TURN, and STUN modes.\n\nCode: https://github.com/browser-grpc/grpc-over-datachannels\nIn-browser stub generator: https://browser-grpc.github.io/grpc-over-datachannels/app/\nBlog: https://c100k.blogspot.com/2026/10/introducing-grpc-over-datachannels-grpc.html\n\nBuilt with Fish Audio",
+    "tags": ["grpc", "webrtc", "datachannel", "rust", "golang", "javascript", "code generation", "metaprogramming", "webrtc-direct", "turn", "stun"]
+  },
+  "scenes": [
+    {
+      "kind": "title",
+      "heading": "gRPC over WebRTC",
+      "sub": "One DataChannel. No HTTP/2. No dependencies.",
+      "say": "[clear, confident tech narrator] What if gRPC didn't need H T T P slash two at all? This is grpc-over-datachannels: gRPC running over a single WebRTC data channel, in sixteen languages, with zero runtime dependencies."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Why not HTTP/2?",
+      "bullets": ["Browsers cannot open raw TCP or serve HTTP/2 endpoints", "Every language needs its own heavyweight gRPC stack", "Reaching a peer behind NAT means servers and signaling"],
+      "say": "Stock gRPC assumes H T T P slash two and a reachable server endpoint. Browsers can't open raw T C P. Every language drags in its own heavyweight stack. And reaching a peer behind a NAT means standing up servers and signaling. There is a shorter path."
+    },
+    {
+      "kind": "bullets",
+      "heading": "One channel, many calls",
+      "bullets": ["A small frame protocol over one ordered RTCDataChannel", "Unary, server-streaming, client-streaming, bidi — all multiplexed", "Our own WebRTC stack: ICE, DTLS, SCTP, written from scratch"],
+      "say": "Instead, many concurrent calls are multiplexed onto one ordered, reliable data channel, using a small frame protocol. All four g R P C call shapes work. Underneath sits our own WebRTC stack: ICE, D T L S, and S C T P, rebuilt from scratch with no external dependencies."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Generated runtimes, 16 languages",
+      "bullets": ["Rust, JavaScript, Go, Python, Java, C#, C++, Swift", "Kotlin, Dart, Zig, C99, Lua, Ruby, PHP, Scala", "Native clients and servers; browser clients incl. WASM facades"],
+      "say": "The runtimes are generated, not handwritten. One source of truth, expanded by recursive metaprogramming into runtimes and protoc plugins for sixteen languages. Native clients and servers, plus browser clients, including WASM facades that wrap the JavaScript client."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Graded against stock gRPC",
+      "bullets": ["Oracle tests: generated wire vs Google/Java/Go implementations", "TCP-to-DataChannel proxy puts reference gRPC on the same wire", "Behaviour is checked against the reference, not just itself"],
+      "say": "Generated code is only trustworthy if something independent grades it. So generated tests run the wire protocol against stock gRPC implementations, bridged through a T C P to DataChannel proxy. Behaviour is checked against the reference, not just against itself."
+    },
+    {
+      "kind": "bullets",
+      "heading": "WebRTC-Direct: no signaling",
+      "bullets": ["Server prints one certhash multiaddr; client dials it", "Direct UDP on LAN and public hosts", "TURN relay for symmetric NAT; full ICE + STUN peer mode"],
+      "say": "The newest examples go further: WebRTC-Direct. A server listens on a U D P socket and prints one certhash multiaddr. A client dials that address and gets a data channel. No signaling server, no S D P exchange. Direct on a LAN, through a TURN relay behind symmetric NAT, or full ICE with STUN in peer mode."
+    },
+    {
+      "kind": "demo",
+      "demo": "direct-echo",
+      "heading": "Live: direct echo, Node server to Node client",
+      "say": "Here it is live. The server prints its multiaddr; the client dials it directly and the echo comes back over the data channel. Every other language does the same thing, natively or through the generated sidecar transport."
+    },
+    {
+      "kind": "outro",
+      "heading": "Try it in your browser",
+      "bullets": ["browser-grpc.github.io/grpc-over-datachannels/app", "github.com/browser-grpc/grpc-over-datachannels", "v0.36.0 with direct examples in every language — December 1"],
+      "say": "You can try it right now: the in-browser generator turns your proto file into stubs and runtimes, entirely client-side. The code is on GitHub, and version zero thirty-six, with direct examples in every language, lands December first. Links are in the description."
+    }
+  ]
+}
