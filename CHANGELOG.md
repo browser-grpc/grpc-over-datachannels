@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.13 — 2026-10-31
+## v0.35.13 — 2026-10-31 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 
 - New generated catalog repo `browser-grpc/examples`: an
   index over every runnable example in the project (per-language
