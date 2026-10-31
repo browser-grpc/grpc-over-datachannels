@@ -25,6 +25,7 @@ pub fn build(b: *std.Build) void {
         .{ "dynamic_echo_server_stdio", "examples/dynamic_echo_server_stdio.zig" },
         .{ "interop_server_stdio", "examples/interop_server_stdio.zig" },
         .{ "eventbus_demo", "examples/eventbus_demo.zig" },
+        .{ "direct_echo", "examples/direct_echo.zig" },
     };
     for (names) |entry| {
         const exe = b.addExecutable(.{

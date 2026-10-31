@@ -10,7 +10,7 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go eventbus-stubs kafka-stubs test-kafka test-live-stun test-live-stun-ci test-nat-e2e test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen soak
+.PHONY: generate direct-examples plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go eventbus-stubs kafka-stubs test-kafka test-live-stun test-live-stun-ci test-nat-e2e test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen soak
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -247,7 +247,11 @@ kafka-stubs:
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
 		--grpc-dc-c_out=c/grpcdc -I proto proto/kafka.proto
 
-generate: plugins stubs
+generate: plugins stubs direct-examples
+
+## Regenerate the WebRTC-Direct examples + compose wiring
+direct-examples:
+	$(RACKET) racket/direct-examples-gen.rkt
 
 ## Descriptor compatibility gate (racket/compat.rkt): fails on
 ## wire/API-breaking schema changes vs the committed baseline.
