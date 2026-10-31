@@ -51,6 +51,10 @@ publishing.
 (`title` / `bullets` / `demo` / `outro`), the spoken text per scene
 (Drama 3 direction cues in `[brackets]` are performed, not read
 aloud, and are stripped from captions), and the YouTube metadata.
+A top-level `direction` sets the narrator's character for every
+scene — currently a sultry cinematic actress voice (Drama 3 designs
+the voice from that text; there is no reference clip). Change the
+`direction` string and rebuild to recast the narrator.
 Demo scenes run the real thing at build time — the direct Echo
 example, and a generated JS client round trip through `kafka_proxy`
 against a real Apache Kafka — and show the captured terminal output.

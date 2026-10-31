@@ -1,5 +1,6 @@
 {
   "id": "kafka-proxy",
+  "direction": "[sultry cinematic actress, warm expressive female voice, confident film-trailer delivery, smooth and unhurried]",
   "source": "https://c100k.blogspot.com/2026/10/kafka-over-grpc-rust-kafka-proxy-with.html",
   "youtube": {
     "title": "Kafka over gRPC: A Rust Kafka Proxy With Generated Clients for Browser & Native",
@@ -11,7 +12,7 @@
       "kind": "title",
       "heading": "Kafka over gRPC",
       "sub": "A Rust proxy. Generated clients. Browser to broker.",
-      "say": "[clear, confident tech narrator] Kafka has excellent clients, as long as your language has one, and as long as you are not a browser. This is kafka-proxy: Apache Kafka exposed through a generated g R P C service, reachable from every language we generate, including a browser tab."
+      "say": "Kafka has excellent clients, as long as your language has one, and as long as you are not a browser. This is kafka-proxy: Apache Kafka exposed through a generated g R P C service, reachable from every language we generate, including a browser tab."
     },
     {
       "kind": "bullets",

@@ -1,5 +1,6 @@
 {
   "id": "grpc-dc",
+  "direction": "[sultry cinematic actress, warm expressive female voice, confident film-trailer delivery, smooth and unhurried]",
   "source": "https://c100k.blogspot.com/2026/10/introducing-grpc-over-datachannels-grpc.html and https://c100k.blogspot.com/2026/10/webrtc-direct-examples-in-every.html",
   "youtube": {
     "title": "gRPC over WebRTC DataChannels — No HTTP/2, No Dependencies | grpc-over-datachannels",
@@ -11,7 +12,7 @@
       "kind": "title",
       "heading": "gRPC over WebRTC",
       "sub": "One DataChannel. No HTTP/2. No dependencies.",
-      "say": "[clear, confident tech narrator] What if gRPC didn't need H T T P slash two at all? This is grpc-over-datachannels: gRPC running over a single WebRTC data channel, in sixteen languages, with zero runtime dependencies."
+      "say": "What if gRPC didn't need H T T P slash two at all? This is grpc-over-datachannels: gRPC running over a single WebRTC data channel, in sixteen languages, with zero runtime dependencies."
     },
     {
       "kind": "bullets",

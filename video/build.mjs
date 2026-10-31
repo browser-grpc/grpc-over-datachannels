@@ -261,6 +261,10 @@ for (const scene of spec.scenes) {
 }
 
 // 2. Narration per scene -> wav + duration (or silent preview estimate).
+// The script's `direction` is prepended to every scene: Drama 3 takes
+// voice character (here: sultry cinematic actress) from that direction
+// text. Captions are built from `say` alone, so the direction never
+// appears on screen.
 const model = NO_TTS ? null : await ttsModel();
 console.log(`-- TTS model: ${model ?? '(none, preview)'}`);
 const durations = [];
@@ -269,8 +273,20 @@ for (let i = 0; i < spec.scenes.length; i++) {
   if (NO_TTS) {
     durations.push(estimateDuration(spec.scenes[i].say) + 0.4);
   } else {
-    await speak(model, spec.scenes[i].say, wav);
-    durations.push((await probeDuration(wav)) + 0.4);
+    const spoken = spec.direction ? `${spec.direction} ${spec.scenes[i].say}` : spec.scenes[i].say;
+    // Drama 3 sampling (temperature 1.0) occasionally loops or drags
+    // a scene to several times its spoken length; reject takes whose
+    // duration is implausible for the word count and re-roll.
+    const expected = estimateDuration(spec.scenes[i].say);
+    let dur = 0;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      await speak(model, spoken, wav);
+      dur = await probeDuration(wav);
+      if (dur >= expected * 0.4 && dur <= expected * 1.9) break;
+      console.log(`   scene ${i}: take ${attempt} is ${dur.toFixed(1)}s vs ~${expected.toFixed(1)}s expected, re-rolling`);
+      if (attempt === 4) throw new Error(`scene ${i}: TTS kept producing implausible durations (last ${dur.toFixed(1)}s)`);
+    }
+    durations.push(dur + 0.4);
   }
   console.log(`   scene ${i}: ${durations[i].toFixed(1)}s`);
 }
