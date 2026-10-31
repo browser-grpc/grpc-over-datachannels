@@ -91,14 +91,43 @@ async function ttsModel() {
   return body.data[0].id;
 }
 
-async function speak(model, text, file) {
+async function speak(model, text, file, voice) {
   const res = await fetch(`${TTS_URL}/v1/audio/speech`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, input: text, response_format: 'wav' }),
+    body: JSON.stringify({ model, input: text, response_format: 'wav', ...(voice ? { voice } : {}) }),
   });
   if (!res.ok) throw new Error(`TTS POST /v1/audio/speech -> ${res.status}: ${(await res.text()).slice(0, 300)}`);
   await writeFile(file, Buffer.from(await res.arrayBuffer()));
+}
+
+// Voice locking: a script may pin narration to a reference take
+// (spec.voice: {name, refAudio, refText}) — e.g. the take the user
+// picked at 1:55 of the grpc-dc video. The reference is uploaded to
+// the Drama 3 server once (uploaded voices persist server-side) and
+// every scene is then generated with that voice, so character cannot
+// drift between slides the way pure direction-based casting can.
+// The reference is synthetic speech we generated ourselves; no real
+// person is cloned.
+const VOICE_CONSENT =
+  'Synthetic AI-generated project narration created by us; no identifiable real person is being cloned.';
+async function ensureVoice(specVoice) {
+  const list = await (await fetch(`${TTS_URL}/v1/audio/voices`)).json();
+  const names = list.uploaded_voice_names ?? list.voices ?? [];
+  if (names.some((n) => String(n).toLowerCase() === specVoice.name.toLowerCase())) {
+    console.log(`-- voice '${specVoice.name}' already on TTS server`);
+    return specVoice.name;
+  }
+  const audio = await readFile(path.join(ROOT, specVoice.refAudio));
+  const form = new FormData();
+  form.append('audio_sample', new Blob([audio], { type: 'audio/wav' }), path.basename(specVoice.refAudio));
+  form.append('consent', VOICE_CONSENT);
+  form.append('name', specVoice.name);
+  if (specVoice.refText) form.append('ref_text', specVoice.refText);
+  const res = await fetch(`${TTS_URL}/v1/audio/voices`, { method: 'POST', body: form });
+  if (!res.ok) throw new Error(`TTS POST /v1/audio/voices -> ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  console.log(`-- uploaded reference voice '${specVoice.name}' from ${specVoice.refAudio}`);
+  return specVoice.name;
 }
 
 // ---- Live demo captures (real runs, trimmed for the terminal slide) ----
@@ -267,6 +296,8 @@ for (const scene of spec.scenes) {
 // appears on screen.
 const model = NO_TTS ? null : await ttsModel();
 console.log(`-- TTS model: ${model ?? '(none, preview)'}`);
+const voice = !NO_TTS && spec.voice ? await ensureVoice(spec.voice) : null;
+if (voice) console.log(`-- locked voice: ${voice}`);
 const durations = [];
 for (let i = 0; i < spec.scenes.length; i++) {
   const wav = path.join(OUT, `scene-${String(i).padStart(2, '0')}.wav`);
@@ -280,7 +311,7 @@ for (let i = 0; i < spec.scenes.length; i++) {
     const expected = estimateDuration(spec.scenes[i].say);
     let dur = 0;
     for (let attempt = 1; attempt <= 4; attempt++) {
-      await speak(model, spoken, wav);
+      await speak(model, spoken, wav, voice);
       dur = await probeDuration(wav);
       if (dur >= expected * 0.4 && dur <= expected * 1.9) break;
       console.log(`   scene ${i}: take ${attempt} is ${dur.toFixed(1)}s vs ~${expected.toFixed(1)}s expected, re-rolling`);

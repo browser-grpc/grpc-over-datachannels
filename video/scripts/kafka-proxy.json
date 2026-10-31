@@ -1,11 +1,25 @@
 {
   "id": "kafka-proxy",
   "direction": "[sultry cinematic actress, warm expressive female voice, confident film-trailer delivery, smooth and unhurried]",
+  "voice": {
+    "name": "sultry-narrator",
+    "refAudio": "video/assets/narrator-ref.wav",
+    "refText": "Here it is live. The server prints its multiaddr; the client dials it directly and the echo comes back over the data channel. Every other language does the same thing, natively or through the generated sidecar transport."
+  },
   "source": "https://c100k.blogspot.com/2026/10/kafka-over-grpc-rust-kafka-proxy-with.html",
   "youtube": {
     "title": "Kafka over gRPC: A Rust Kafka Proxy With Generated Clients for Browser & Native",
-    "description": "kafka-proxy exposes Apache Kafka through a generated gRPC service, grpcdc.kafka.v1.Kafka, so any generated grpc-over-datachannels client — browser or native — can produce to and consume from Kafka and Redpanda without a Kafka client library.\n\nCode: https://github.com/browser-grpc/kafka-proxy\nMain project: https://github.com/browser-grpc/grpc-over-datachannels\nBlog: https://c100k.blogspot.com/2026/10/kafka-over-grpc-rust-kafka-proxy-with.html\n\nBuilt with Fish Audio",
-    "tags": ["kafka", "grpc", "rust", "redpanda", "apache kafka", "webrtc", "browser", "streaming"]
+    "description": "kafka-proxy exposes Apache Kafka through a generated gRPC service, grpcdc.kafka.v1.Kafka, so any generated grpc-over-datachannels client \u2014 browser or native \u2014 can produce to and consume from Kafka and Redpanda without a Kafka client library.\n\nCode: https://github.com/browser-grpc/kafka-proxy\nMain project: https://github.com/browser-grpc/grpc-over-datachannels\nBlog: https://c100k.blogspot.com/2026/10/kafka-over-grpc-rust-kafka-proxy-with.html\n\nBuilt with Fish Audio",
+    "tags": [
+      "kafka",
+      "grpc",
+      "rust",
+      "redpanda",
+      "apache kafka",
+      "webrtc",
+      "browser",
+      "streaming"
+    ]
   },
   "scenes": [
     {
@@ -17,25 +31,41 @@
     {
       "kind": "bullets",
       "heading": "The problem",
-      "bullets": ["Kafka client libraries exist only for some languages", "Browsers cannot speak the Kafka protocol at all", "Every new language repeats the same client work"],
+      "bullets": [
+        "Kafka client libraries exist only for some languages",
+        "Browsers cannot speak the Kafka protocol at all",
+        "Every new language repeats the same client work"
+      ],
       "say": "The Kafka protocol is powerful, but each language needs its own client library, and browsers cannot speak it at all. Meanwhile we already generate g R P C clients for sixteen languages, over WebRTC data channels and plain transports. So: put Kafka behind g R P C, once."
     },
     {
       "kind": "bullets",
       "heading": "One proxy, real Kafka protocol",
-      "bullets": ["Rust proxy terminates generated gRPC on one side", "Speaks the real Kafka protocol on the other", "Works against Apache Kafka (KRaft) and Redpanda"],
+      "bullets": [
+        "Rust proxy terminates generated gRPC on one side",
+        "Speaks the real Kafka protocol on the other",
+        "Works against Apache Kafka (KRaft) and Redpanda"
+      ],
       "say": "kafka-proxy is a Rust service. On one side it terminates generated g R P C, as the service grpcdc kafka version one. On the other side it speaks the real Kafka protocol, to both Apache Kafka and Redpanda. No Kafka client library exists in your language, and none is needed."
     },
     {
       "kind": "bullets",
       "heading": "Sessions live on the proxy",
-      "bullets": ["Producer and consumer-group sessions held proxy-side", "Clients open streams, publish, subscribe, commit offsets", "Rebalances, reconnects, and commit retries handled centrally"],
+      "bullets": [
+        "Producer and consumer-group sessions held proxy-side",
+        "Clients open streams, publish, subscribe, commit offsets",
+        "Rebalances, reconnects, and commit retries handled centrally"
+      ],
       "say": "The stateful parts live on the proxy. Producer sessions and consumer-group sessions are held there; clients open streams, publish records, subscribe, and commit offsets through g R P C calls. Broker connections reconnect after failures, and offset commits retry through rebalances, so a group does not silently lose progress."
     },
     {
       "kind": "bullets",
       "heading": "Generated end-to-end coverage",
-      "bullets": ["Extensive generated e2e suite per broker", "Produce/consume, groups, commits across rebalances", "Same suite against Kafka and Redpanda in CI"],
+      "bullets": [
+        "Extensive generated e2e suite per broker",
+        "Produce/consume, groups, commits across rebalances",
+        "Same suite against Kafka and Redpanda in CI"
+      ],
       "say": "It is exercised by an extensive generated end-to-end suite: produce and consume round trips, consumer groups, offset commits across rebalances, and resuming a group after the proxy itself restarts. The same suite runs against Apache Kafka and Redpanda in C I, in generated Dockerfiles you can run yourself."
     },
     {
@@ -47,7 +77,11 @@
     {
       "kind": "outro",
       "heading": "Run it",
-      "bullets": ["ghcr.io/browser-grpc/kafka-proxy", "github.com/browser-grpc/kafka-proxy", "If you can call gRPC, you can reach Kafka"],
+      "bullets": [
+        "ghcr.io/browser-grpc/kafka-proxy",
+        "github.com/browser-grpc/kafka-proxy",
+        "If you can call gRPC, you can reach Kafka"
+      ],
       "say": "A prebuilt container image is published, and the code, guide, and C I live at browser-grpc slash kafka-proxy. If you can call g R P C from your language, including from a browser tab, you can now reach Kafka through it. Links are in the description."
     }
   ]

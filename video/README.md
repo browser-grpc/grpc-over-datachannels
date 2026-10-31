@@ -53,8 +53,14 @@ publishing.
 aloud, and are stripped from captions), and the YouTube metadata.
 A top-level `direction` sets the narrator's character for every
 scene — currently a sultry cinematic actress voice (Drama 3 designs
-the voice from that text; there is no reference clip). Change the
-`direction` string and rebuild to recast the narrator.
+the voice from that text). Direction-only casting can drift between
+scenes, so both scripts also pin a `voice`: the reference take the
+project owner picked (at 1:55 of the grpc-dc video) is kept in git
+at `video/assets/narrator-ref.wav` with its transcript, and the
+builder uploads it to the Drama 3 server as the locked voice
+`sultry-narrator` and generates every scene with it. Same voice,
+every slide, every rebuild, every video. To recast: replace the
+reference wav + transcript (or drop `voice` and edit `direction`).
 Demo scenes run the real thing at build time — the direct Echo
 example, and a generated JS client round trip through `kafka_proxy`
 against a real Apache Kafka — and show the captured terminal output.
