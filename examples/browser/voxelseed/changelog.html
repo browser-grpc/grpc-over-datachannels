@@ -1,0 +1,60 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoxelSeed dev notes — changelog and design history</title>
+<meta name="description" content="VoxelSeed development history: from a multiplayer gRPC demo to a procgen dashboard, world generators, biomes, the hand-rolled WebGPU engine, and what is next.">
+<link rel="stylesheet" href="style.css">
+<body class="doc">
+<div class="doc-wrap">
+  <nav class="doc-nav">
+    <a href="index.html">Play VoxelSeed</a>
+    <a href="about.html">About &amp; how it works</a>
+    <a href="how-to-play.html">How to play</a>
+  </nav>
+  <h1>Dev notes</h1>
+  <p class="sub">How VoxelSeed got here, newest first.</p>
+
+  <h2>Guides and site pages</h2>
+  <p>The site grows the pages you are reading: an
+     <a href="about.html">about page</a> explaining the generators and
+     engines, a <a href="how-to-play.html">playing guide</a>, and this
+     changelog. The dashboard itself is unchanged — same seed box, same
+     sliders, same autopilot.</p>
+
+  <h2>WebGPU warning</h2>
+  <p>When WebGPU is unavailable the page now shows a visible warning naming
+     the problem (and dismissing it is one click) instead of failing
+     silently, and the three.js fallback takes over rendering. Silent black
+     canvases are the worst error message a graphics page can give.</p>
+
+  <h2>Hand-rolled WebGPU engine</h2>
+  <p>The default renderer became our own WebGPU engine — WGSL pipelines,
+     instanced cubes from per-chunk GPU buffers, no dependencies — written
+     because the terrain renderer is simple enough that a general engine
+     was mostly ceremony. three.js moved to fallback duty (no WebGPU,
+     adapter failure, or a runtime GPU error; the swap re-uploads every
+     chunk). Force it any time with <code>?engine=three</code>.</p>
+
+  <h2>From game to dashboard</h2>
+  <p>VoxelSeed became a procgen dashboard with an autopilot flythrough: the
+     settings panel and telemetry replaced the game HUD, and the camera
+     learned to fly itself through whatever the generator makes. This is
+     the version most people meet today.</p>
+
+  <h2>Biomes, then world modes</h2>
+  <p>First the generator split into modes — easy plains versus complex
+     ridged terrain — then the Biomes mode added a low-frequency biome map
+     (desert, plains, forest, snow) and lakes below sea level. The slider
+     set (terrain height, sea level, tree density, biome size) arrived with
+     the modes, because a generator you cannot steer is only half an
+     instrument.</p>
+
+  <h2>Origins</h2>
+  <p>The project started as a multiplayer voxel demo for
+     <a href="https://github.com/browser-grpc/grpc-over-datachannels">grpc-over-datachannels</a>:
+     a browser-hosted gRPC game server with base64 invite links, renamed
+     early on to VoxelSeed to stay clear of other people's trademarks.
+     The generator outgrew the game; the multiplayer version remains in
+     the project's git history for the curious.</p>
+</div>
+</body>
