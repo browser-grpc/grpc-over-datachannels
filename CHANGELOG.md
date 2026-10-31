@@ -3,7 +3,18 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.12 — 2026-10-30
+## v0.35.13 — 2026-10-31
+
+- New generated catalog repo `browser-grpc/examples`: an
+  index over every runnable example in the project (per-language
+  example trees measured and linked at the release tag, plus
+  scenario entry points — Echo gallery, event bus, Kafka,
+  browser starter, VoxelSeed). No copied code, so nothing can
+  drift; a stdlib link-check CI guards the catalog. Also:
+  VoxelSeed gained About / How-to-play / Dev-notes pages and a
+  sitemap on lunchgamer (content depth for AdSense review).
+
+## v0.35.12 — 2026-10-30 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 
 - New dedicated public repo `browser-grpc/eventbus` (parity
   with `browser-grpc/kafka-proxy`): a generated subset export

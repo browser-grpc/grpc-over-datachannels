@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to play VoxelSeed — controls, seeds, and flight guide</title>
+<meta name="description" content="VoxelSeed controls and guide: autopilot and free-fly flight, keyboard and mouse controls, the generator sliders explained, sharing worlds by seed, and performance tips.">
+<link rel="stylesheet" href="style.css">
+<body class="doc">
+<div class="doc-wrap">
+  <nav class="doc-nav">
+    <a href="index.html">Play VoxelSeed</a>
+    <a href="about.html">About &amp; how it works</a>
+    <a href="changelog.html">Dev notes</a>
+  </nav>
+  <h1>How to play</h1>
+  <p class="sub">Ninety percent of VoxelSeed is watching. The rest is sliders and WASD.</p>
+
+  <h2>The autopilot</h2>
+  <p>When the page loads, the autopilot is already flying — the badge in the
+     corner of the view says AUTOPILOT. It steers through the terrain,
+     holding the altitude clearance you set. Use <strong>Pause
+     autopilot</strong> (or the <code>P</code> key) to hover, and resume the
+     same way. Nothing is scored and nothing can crash; the autopilot is a
+     screensaver you can steer.</p>
+
+  <h2>Taking over: free-fly</h2>
+  <p>Press <strong>Free-fly</strong>, then click the view to lock the mouse.
+     Look with the mouse (or arrow keys) and move on the keyboard:</p>
+  <table>
+    <tr><th>Key</th><th>Action</th></tr>
+    <tr><td><code>W A S D</code></td><td>Move forward / left / back / right</td></tr>
+    <tr><td><code>Space</code> / <code>Ctrl</code></td><td>Up / down</td></tr>
+    <tr><td>Mouse or arrow keys</td><td>Look around (pointer lock)</td></tr>
+    <tr><td><code>Shift</code></td><td>Speed boost</td></tr>
+    <tr><td><code>P</code></td><td>Pause / resume autopilot</td></tr>
+    <tr><td><code>Esc</code></td><td>Release the mouse</td></tr>
+  </table>
+
+  <h2>Shaping a world</h2>
+  <p><strong>Seed</strong> is the world's identity: the same seed and settings
+     always generate the same world, so a seed is how you share one — send a
+     friend the number. <strong>Regenerate world</strong> rebuilds terrain in
+     place after structural changes. The sliders, left to right in effect:
+     terrain height scales the mountains; sea level raises or drains the
+     lakes; tree density thins or thickens forests; biome size stretches the
+     distance between deserts and snowfields; the caves toggle switches the
+     3D-noise cave carving on and off.</p>
+
+  <h2>Performance tips</h2>
+  <p>View distance is the big lever: fewer chunks means a lighter scene and a
+     higher frame rate, at the cost of nearer fog. If flying feels heavy,
+     drop view distance a notch before lowering fly speed. On machines
+     without WebGPU the three.js fallback renders the same worlds — expect
+     somewhat lower frame rates at large view distances. The Telemetry panel
+     (FPS, chunk count, biome under the camera) tells you what the engine is
+     doing at any moment.</p>
+
+  <h2>Troubleshooting</h2>
+  <p>A yellow banner in the view means WebGPU was unavailable and the
+     fallback took over, or that no engine could start — try a current
+     Chrome, Edge, Firefox, or Safari. If the mouse will not lock, click
+     directly on the 3D view once; some browsers need that gesture before
+     pointer lock engages. Worlds are generated locally, so VoxelSeed keeps
+     working on flaky connections once the page has loaded.</p>
+</div>
+</body>

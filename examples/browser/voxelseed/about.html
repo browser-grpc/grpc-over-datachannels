@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About VoxelSeed — how the voxel world generator works</title>
+<meta name="description" content="What VoxelSeed is and how it works: seeded procedural terrain, three generators, biomes and lakes, chunk streaming, and a hand-rolled WebGPU renderer with a three.js fallback.">
+<link rel="stylesheet" href="style.css">
+<body class="doc">
+<div class="doc-wrap">
+  <nav class="doc-nav">
+    <a href="index.html">Play VoxelSeed</a>
+    <a href="how-to-play.html">How to play</a>
+    <a href="changelog.html">Dev notes</a>
+  </nav>
+  <h1>About VoxelSeed</h1>
+  <p class="sub">An infinite voxel-world generator that runs entirely in your browser.</p>
+
+  <h2>What it is</h2>
+  <p>VoxelSeed is a procedural terrain instrument. Every world is a pure
+     function of a seed plus a handful of knobs on the dashboard: type a seed
+     (or roll the dice), pick a generator, move the sliders, and the world
+     re-shapes around you, chunk by chunk, forever. An autopilot flies through
+     the world continuously; you can take over free-flight at any moment.
+     There is no server, no download, and no account — the page is the whole
+     application, which makes it a good lunch-break toy: open it, fly for
+     five minutes, close it.</p>
+
+  <h2>The three generators</h2>
+  <p><strong>Easy</strong> produces gentle flatlands: low rolling heights,
+     rare trees, nothing between you and the horizon. <strong>Complex</strong>
+     stacks multi-octave ridged noise into mountains with exposed stone on
+     steep faces, sandy lowlands, and caves carved by 3D noise.
+     <strong>Biomes</strong> layers a low-frequency biome map over the complex
+     terrain — desert with cacti, open plains, dense forest, snow caps on the
+     high ground — and fills everything below sea level with lakes.</p>
+
+  <h2>How it works</h2>
+  <p>Because terrain is a pure function of world coordinates (seeded value
+     noise for height, trilinear 3D noise for caves), the world never needs
+     to be stored. The terrain streams in 16×16 chunks around the camera,
+     nearest first, built within a per-frame time budget so flying never
+     hitches, and chunks behind the camera are dropped. Each chunk renders
+     as one instanced mesh with per-instance colors for solid blocks, plus
+     one for translucent water — a few hundred draw calls at any view
+     distance, with no downloaded assets.</p>
+
+  <h2>Rendering engines</h2>
+  <p>Two engines sit behind one interface, and the Telemetry panel names the
+     one in use. The default is a hand-rolled WebGPU engine: WGSL pipelines
+     for opaque blocks and translucent water, instanced cube rendering from
+     per-chunk GPU buffers, zero dependencies. Where WebGPU is missing or
+     fails, the page falls back to a three.js WebGL build and re-uploads
+     every chunk; you can force the fallback with <code>?engine=three</code>
+     in the URL. If neither is available, the page says so instead of
+     sitting black.</p>
+
+  <h2>Who makes it</h2>
+  <p>VoxelSeed is a LunchGamer project by John Davis. It began as a
+     multiplayer demo for the
+     <a href="https://github.com/browser-grpc/grpc-over-datachannels">grpc-over-datachannels</a>
+     project (a browser-hosted gRPC game server); the world generator
+     outgrew the game, and the page became the dashboard it is today. The
+     project blog, with design notes on the generator and the engines, is
+     at <a href="https://c100k.blogspot.com/">c100k.blogspot.com</a>.</p>
+</div>
+</body>
