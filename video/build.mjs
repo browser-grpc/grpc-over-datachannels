@@ -289,56 +289,77 @@ for (const scene of spec.scenes) {
   }
 }
 
-// 2. Narration per scene -> wav + duration (or silent preview estimate).
-// The script's `direction` is prepended to every scene: Drama 3 takes
-// voice character (here: sultry cinematic actress) from that direction
-// text. Captions are built from `say` alone, so the direction never
-// appears on screen.
+// 2. Narration per SENTENCE -> scene wavs + true caption timings.
+// Scene-length Drama 3 takes garbled and drifted: sampling at
+// temperature 1.0 occasionally loops or mumbles, and caption timing
+// could only be estimated by splitting the scene duration evenly.
+// Sentence-length takes are far more reliable, each bad take is
+// re-rolled on its own, and caption cues use measured durations.
+// The script's `direction` rides on every take; the locked reference
+// voice (spec.voice) anchors the character across all of them.
 const model = NO_TTS ? null : await ttsModel();
 console.log(`-- TTS model: ${model ?? '(none, preview)'}`);
 const voice = !NO_TTS && spec.voice ? await ensureVoice(spec.voice) : null;
 if (voice) console.log(`-- locked voice: ${voice}`);
+const SENTENCE_GAP = 0.18;
+const gapWav = path.join(OUT, 'gap.wav');
+if (!NO_TTS) {
+  await run('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-t', String(SENTENCE_GAP), gapWav]);
+}
+const splitSentences = (say) => (say.match(/[^.!?]+[.!?]+/g) ?? [say]).map((s) => s.trim()).filter(Boolean);
 const durations = [];
+const captionCues = [];
+let sceneClock = 0;
 for (let i = 0; i < spec.scenes.length; i++) {
-  const wav = path.join(OUT, `scene-${String(i).padStart(2, '0')}.wav`);
+  const sentences = splitSentences(spec.scenes[i].say);
+  const sceneWav = path.join(OUT, `scene-${String(i).padStart(2, '0')}.wav`);
+  let offset = 0;
   if (NO_TTS) {
-    durations.push(estimateDuration(spec.scenes[i].say) + 0.4);
-  } else {
-    const spoken = spec.direction ? `${spec.direction} ${spec.scenes[i].say}` : spec.scenes[i].say;
-    // Drama 3 sampling (temperature 1.0) occasionally loops or drags
-    // a scene to several times its spoken length; reject takes whose
-    // duration is implausible for the word count and re-roll.
-    const expected = estimateDuration(spec.scenes[i].say);
-    let dur = 0;
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      await speak(model, spoken, wav, voice);
-      dur = await probeDuration(wav);
-      if (dur >= expected * 0.4 && dur <= expected * 1.9) break;
-      console.log(`   scene ${i}: take ${attempt} is ${dur.toFixed(1)}s vs ~${expected.toFixed(1)}s expected, re-rolling`);
-      if (attempt === 4) throw new Error(`scene ${i}: TTS kept producing implausible durations (last ${dur.toFixed(1)}s)`);
+    for (const s of sentences) {
+      const dur = estimateDuration(s);
+      captionCues.push({ start: sceneClock + offset, end: sceneClock + offset + dur, text: captionText(s) });
+      offset += dur + SENTENCE_GAP;
     }
-    durations.push(dur + 0.4);
+  } else {
+    const concatList = [];
+    for (let j = 0; j < sentences.length; j++) {
+      const sentWav = path.join(OUT, `sent-${String(i).padStart(2, '0')}-${String(j).padStart(2, '0')}.wav`);
+      const spoken = spec.direction ? `${spec.direction} ${sentences[j]}` : sentences[j];
+      const expected = estimateDuration(sentences[j]);
+      let dur = 0;
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        await speak(model, spoken, sentWav, voice);
+        dur = await probeDuration(sentWav);
+        if (dur >= expected * 0.5 && dur <= expected * 2.2) break;
+        console.log(`   scene ${i} sentence ${j}: take ${attempt} is ${dur.toFixed(1)}s vs ~${expected.toFixed(1)}s expected, re-rolling`);
+        if (attempt === 4) throw new Error(`scene ${i} sentence ${j}: TTS kept producing implausible durations (last ${dur.toFixed(1)}s)`);
+      }
+      captionCues.push({ start: sceneClock + offset, end: sceneClock + offset + dur, text: captionText(sentences[j]) });
+      offset += dur;
+      concatList.push(`file '${sentWav}'`);
+      if (j < sentences.length - 1) {
+        concatList.push(`file '${gapWav}'`);
+        offset += SENTENCE_GAP;
+      }
+    }
+    const listFile = path.join(OUT, `scene-${String(i).padStart(2, '0')}.concat.txt`);
+    await writeFile(listFile, concatList.join('\n'));
+    await run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c:a', 'pcm_s16le', sceneWav]);
   }
-  console.log(`   scene ${i}: ${durations[i].toFixed(1)}s`);
+  durations.push(offset + 0.4);
+  sceneClock += offset + 0.4;
+  console.log(`   scene ${i}: ${durations[i].toFixed(1)}s (${sentences.length} sentences)`);
 }
 
 // 3. Slides.
 await renderSlides();
 
-// 4. Captions (SRT from spoken text split on sentence boundaries).
+// 4. Captions (SRT from measured sentence timings).
 {
-  let clock = 0;
   let n = 1;
-  const blocks = [];
-  for (let i = 0; i < spec.scenes.length; i++) {
-    const text = captionText(spec.scenes[i].say);
-    const parts = text.match(/[^.!?]+[.!?]+/g) ?? [text];
-    const per = durations[i] / parts.length;
-    for (const part of parts) {
-      blocks.push(`${n++}\n${srtTime(clock)} --> ${srtTime(clock + per)}\n${part.trim()}\n`);
-      clock += per;
-    }
-  }
+  const blocks = captionCues.map(
+    (c) => `${n++}\n${srtTime(c.start)} --> ${srtTime(c.end)}\n${c.text}\n`,
+  );
   await writeFile(path.join(OUT, `${spec.id}.srt`), blocks.join('\n'));
 }
 
