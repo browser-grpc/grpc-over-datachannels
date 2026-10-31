@@ -906,7 +906,7 @@ SCALACLI ?= scala-cli
 ## separate explicit scripts/release-push.sh.
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null)
 release-public: webapp-assets transcripts
-	$(RACKET) racket/releasegen.rkt --version $(VERSION) --out release/browser-grpc --kafka-proxy-out release/kafka-proxy --eventbus-out release/eventbus
+	$(RACKET) racket/releasegen.rkt --version $(VERSION) --out release/browser-grpc --kafka-proxy-out release/kafka-proxy --eventbus-out release/eventbus --examples-out release/examples
 
 ## Capture per-language stdio example transcripts for the
 ## public gallery (builds the interop harnesses once).

@@ -37,6 +37,7 @@
 (define out-dir (arg-value "--out" "release/browser-grpc"))
 (define kafka-proxy-out (arg-value "--kafka-proxy-out" ""))
 (define eventbus-out (arg-value "--eventbus-out" ""))
+(define examples-out (arg-value "--examples-out" ""))
 (define source-commit (sh "git rev-parse HEAD"))
 
 ;; ---------------------------------------------------------------------------
@@ -2077,6 +2078,166 @@
       "PyPI: https://pypi.org/project/grpc-dc/\n")
      out))
   #:exists 'replace)
+
+;; ---------------------------------------------------------------------------
+;; Examples catalog repo export (browser-grpc/examples):
+;; a generated index over the main repo's per-language example
+;; trees — no copied code, so nothing can drift. Rows derive
+;; from the language table and the exported trees themselves
+;; (file counts measured at generation time); links pin to
+;; this release's tag in the main repo.
+;; ---------------------------------------------------------------------------
+
+(define (emit-ex-file rel text [mode #f])
+  (define dest (build-path examples-out rel))
+  (make-directory* (path-only dest))
+  (call-with-output-file dest
+    (lambda (out) (display text out)) #:exists 'replace)
+  (when mode (file-or-directory-permissions dest mode)))
+
+(when (non-empty-string? examples-out)
+  (when (directory-exists? examples-out)
+    (delete-directory/files examples-out))
+  (make-directory* examples-out)
+  (for ([f (in-list '("LICENSE" "GENERATED-CODE-LICENSE.md"))])
+    (copy-file (build-path out-dir f) (build-path examples-out f) #t))
+  (define main-repo "https://github.com/browser-grpc/grpc-over-datachannels")
+  (define (count-files dir)
+    (if (directory-exists? dir)
+        (length (find-files file-exists? dir))
+        0))
+  ;; First-run command per language: the curated readme spec
+  ;; when one exists, else the Docker fallback its readme uses.
+  (define (first-run dir)
+    (define entry (hash-ref per-language-readmes dir #f))
+    (if entry
+        (car (string-split (cadr entry) "\n"))
+        (string-append "docker build -f docker/" dir ".Dockerfile -t grpc-dc-" dir " . && docker run --rm grpc-dc-" dir)))
+  ;; Guard: a language with example files but neither a curated
+  ;; spec nor a generated Dockerfile would silently produce an
+  ;; incomplete catalog row. Fail generation instead, so adding
+  ;; examples (or a language) without either is a red build.
+  (for ([lang (in-list languages)])
+    (define dir (cdr lang))
+    (define n (count-files (build-path out-dir dir "examples")))
+    (when (and (> n 0)
+               (not (hash-ref per-language-readmes dir #f))
+               (not (file-exists? (build-path out-dir "docker"
+                                              (string-append dir ".Dockerfile")))))
+      (eprintf "releasegen: EXAMPLES GATE FAILED: ~a has ~a example files but no readme spec and no docker/~a.Dockerfile\n"
+               dir n dir)
+      (exit 1)))
+  (define example-rows
+    (apply string-append
+           (for/list ([lang (in-list languages)])
+             (define dir (cdr lang))
+             (define n (count-files (build-path out-dir dir "examples")))
+             (define run (first-run dir))
+             (string-append
+              "| " (car lang) " | " (number->string n) " | [examples]("
+              main-repo "/tree/" version "/" dir "/examples) · [readme]("
+              main-repo "/blob/" version "/" dir "/README.md) | `"
+              (string-trim run) "` |\n"))))
+  (define total-examples
+    (for/sum ([lang (in-list languages)])
+      (count-files (build-path out-dir (cdr lang) "examples"))))
+  (emit-ex-file
+   "RELEASE.json"
+   (string-append "{\n  \"version\": \"" version "\",\n"
+                  "  \"sourceCommit\": \"" source-commit "\",\n"
+                  "  \"generated\": true\n}\n"))
+  (emit-ex-file
+   "README.md"
+   (string-append
+    "# grpc-dc examples — the catalog\n"
+    "\n"
+    "Every runnable example in the grpc-over-datachannels project,\n"
+    "indexed by language and scenario. This repository is a\n"
+    "**generated catalog** (version " version "): it copies no code, so it\n"
+    "cannot drift — each entry links to the example in the main\n"
+    "repo at this release's tag, where it is tested by the same\n"
+    "CI that tests the runtimes.\n"
+    "\n"
+    "New here? Run your first RPC in the browser, no install:\n"
+    "[live generator](https://browser-grpc.github.io/grpc-over-datachannels/app/).\n"
+    "\n"
+    "## Scenarios\n"
+    "\n"
+    "- **Echo in every language** — the same unary / server-streaming /\n"
+    "  client-streaming / bidi service in all sixteen languages:\n"
+    "  [gallery](https://browser-grpc.github.io/grpc-over-datachannels/gallery.html).\n"
+    "- **Event bus** — publish/subscribe as a gRPC service:\n"
+    "  [browser-grpc/eventbus](https://github.com/browser-grpc/eventbus).\n"
+    "- **Kafka clients** — produce/consume through the Rust proxy:\n"
+    "  [browser-grpc/kafka-proxy](https://github.com/browser-grpc/kafka-proxy).\n"
+    "- **Browser starter** — browser client ↔ Node server with\n"
+    "  WebSocket signaling: [`examples/starter`](" main-repo "/tree/" version "/examples/starter).\n"
+    "- **VoxelSeed** — the procgen voxel dashboard (WebGPU):\n"
+    "  [play it](https://voxelseed.lunchgamer.com/) ·\n"
+    "  [source](" main-repo "/tree/" version "/examples/browser/voxelseed).\n"
+    "\n"
+    "## Examples by language (" (number->string total-examples) " files)\n"
+    "\n"
+    "| Language | Example files | In the main repo | First run |\n"
+    "|---|---|---|---|\n"
+    example-rows
+    "\n"
+    "Generated code may be used without restriction (see\n"
+    "GENERATED-CODE-LICENSE.md); everything else is Apache-2.0\n"
+    "(see LICENSE). Background and design posts:\n"
+    "[project blog](https://c100k.blogspot.com/).\n"))
+  (emit-ex-file
+   "scripts/check-links.py"
+   (string-append
+    "#!/usr/bin/env python3\n"
+    "\"\"\"Check every URL in README.md answers (stdlib only).\n"
+    "403 counts as alive (bot walls); anything else >= 400 fails.\"\"\"\n"
+    "import re, sys, urllib.request\n"
+    "\n"
+    "text = open('README.md').read()\n"
+    "urls = sorted(set(re.findall(r'https://[^\\s)\\]]+', text)))\n"
+    "bad = []\n"
+    "for u in urls:\n"
+    "    try:\n"
+    "        req = urllib.request.Request(u, method='HEAD',\n"
+    "                                     headers={'User-Agent': 'link-check'})\n"
+    "        code = urllib.request.urlopen(req, timeout=20).status\n"
+    "    except Exception as e:\n"
+    "        code = getattr(e, 'code', 0) or 0\n"
+    "        if code == 403:\n"
+    "            code = 200\n"
+    "        if code == 0 or code >= 400:\n"
+    "            bad.append((u, code or str(e)))\n"
+    "    print(code, u)\n"
+    "print('checked', len(urls), 'links;', len(bad), 'bad')\n"
+    "sys.exit(1 if bad else 0)\n")
+   #o755)
+  (emit-ex-file
+   ".github/workflows/ci.yml"
+   (string-append
+    "name: CI\n"
+    "on:\n"
+    "  push:\n"
+    "    branches: [main]\n"
+    "  pull_request:\n"
+    "jobs:\n"
+    "  links:\n"
+    "    runs-on: ubuntu-latest\n"
+    "    steps:\n"
+    "      - uses: actions/checkout@v4\n"
+    "      - name: Check catalog links\n"
+    "        run: python3 scripts/check-links.py\n"))
+  ;; Leak gate for the catalog export.
+  (let* ([ex-files (find-files file-exists? examples-out)]
+         [ex-leaks
+          (filter (lambda (p) (string-suffix? (path->string p) ".rkt"))
+                  ex-files)])
+    (unless (null? ex-leaks)
+      (eprintf "releasegen: EXAMPLES LEAK GATE FAILED:\n")
+      (for ([p (in-list ex-leaks)]) (eprintf "  ~a\n" p))
+      (exit 1))
+    (printf "releasegen: examples export: ~a files, leak gate OK\n"
+            (length ex-files))))
 
 (call-with-output-file (build-path out-dir "RELEASE.json")
   (lambda (out)

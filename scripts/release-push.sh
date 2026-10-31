@@ -16,6 +16,8 @@ KP_EXPORT="release/kafka-proxy"
 KP_REPO="browser-grpc/kafka-proxy"
 EB_EXPORT="release/eventbus"
 EB_REPO="browser-grpc/eventbus"
+EX_EXPORT="release/examples"
+EX_REPO="browser-grpc/examples"
 REPO="browser-grpc/grpc-over-datachannels"
 ORG="browser-grpc"
 PROFILE_REPO="browser-grpc/.github"
@@ -146,6 +148,35 @@ if [ -d "$EB_EXPORT" ]; then
   cd - >/dev/null
 else
   echo "note: no eventbus export at $EB_EXPORT; skipping repo publish"
+fi
+
+# ------------------------------------------------------------------
+# 1d. Examples catalog repo (browser-grpc/examples): generated
+#     index only, no copied code (leak gate enforced). Same
+#     version/tag as the main repo.
+# ------------------------------------------------------------------
+if [ -d "$EX_EXPORT" ]; then
+  if ! gh repo view "$EX_REPO" >/dev/null 2>&1; then
+    gh repo create "$EX_REPO" --public \
+      --description "grpc-dc examples catalog — every runnable gRPC-over-WebRTC example, indexed by language and scenario"
+  fi
+  gh repo clone "$EX_REPO" "$WORK/examples"
+  rsync -a --delete --exclude .git "$EX_EXPORT/" "$WORK/examples/"
+  cd "$WORK/examples"
+  git add -A
+  if git diff --cached --quiet; then
+    echo "examples export unchanged; nothing to publish"
+  else
+    git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
+      commit -m "release $VERSION (generated catalog)"
+    git tag "$VERSION"
+    git push origin HEAD
+    git push origin "$VERSION"
+    echo "published $EX_REPO $VERSION"
+  fi
+  cd - >/dev/null
+else
+  echo "note: no examples export at $EX_EXPORT; skipping repo publish"
 fi
 
 DEFAULT_BRANCH="$(gh repo view "$REPO" --json defaultBranchRef --jq .defaultBranchRef.name)"
