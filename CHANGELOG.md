@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.36.0 — 2026-10-31
+## v0.36.0 — 2026-10-31 (published to GitHub/npm/PyPI/GHCR/NuGet/GitHub Maven)
 
 - WebRTC-Direct examples for every supported language, generated
   by `racket/direct-examples-gen.rkt` (wired into `make
