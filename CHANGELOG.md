@@ -3,7 +3,23 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.35.13 — 2026-10-31
+## v0.36.0 — 2026-10-31
+
+- WebRTC-Direct examples for every supported language, generated
+  by `racket/direct-examples-gen.rkt` (wired into `make
+  generate`): Go and Rust Echo server/clients on the embedded
+  stacks with direct, TURN (`DIRECT_TURN*`), and full-ICE
+  STUN peer modes; serve/dial sidecar examples for Python,
+  Ruby, PHP, Lua, C, C++, Dart, Java, Kotlin, Scala, Swift,
+  C#, and Zig. `examples/direct/` gains a Python server and a
+  generated compose file (host/go/turn/stun/sidecar profiles
+  plus a coturn fixture) where a shared `/signal` volume is
+  the whole client→server handoff. Verified end-to-end (all
+  modes, cross-stack dials, every sidecar language) and in
+  compose. Also: the Rust `direct_echo` example is gated
+  behind the `webrtc` feature so plain example builds pass.
+
+## v0.35.13 — 2026-10-31 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central)
 
 - New generated catalog repo `browser-grpc/examples`: an
   index over every runnable example in the project (per-language

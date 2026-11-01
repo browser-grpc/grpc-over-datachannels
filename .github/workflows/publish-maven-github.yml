@@ -1,0 +1,79 @@
+# Publish the Java runtime to the GitHub-hosted Maven
+# repository (docs/maven/, served by GitHub Pages).
+# Manual dispatch only; no secrets required. Unlike
+# Maven Central there is no deployment-count limit, so
+# this channel ships with every release. Consumers:
+#   <repository><id>github-pages</id>
+#   <url>https://browser-grpc.github.io/grpc-over-datachannels/maven/</url></repository>
+# and depend on io.github.browser-grpc:grpc-dc as usual.
+name: publish-maven-github
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Build jars
+        run: mvn -B -f java/pom.xml package -DskipTests
+      - name: Lay out the Maven repository under docs/maven
+        shell: bash
+        run: |
+          set -euo pipefail
+          V=$(grep -m1 '<version>' java/pom.xml | sed -E 's/<[^>]+>//g; s/^ *//; s/ *$//')
+          DEST="docs/maven/io/github/browser-grpc/grpc-dc/$V"
+          mkdir -p "$DEST"
+          cp java/pom.xml "$DEST/grpc-dc-$V.pom"
+          cp "java/target/grpc-dc-$V.jar" "$DEST/"
+          cp "java/target/grpc-dc-$V-sources.jar" "$DEST/"
+          cp "java/target/grpc-dc-$V-javadoc.jar" "$DEST/"
+          for f in "$DEST"/*; do
+            md5sum "$f" | cut -d' ' -f1 > "$f.md5"
+            sha1sum "$f" | cut -d' ' -f1 > "$f.sha1"
+          done
+          BASE=docs/maven/io/github/browser-grpc/grpc-dc
+          python3 - "$BASE" "$V" <<'PYEOF'
+          import os, sys, datetime
+          import xml.etree.ElementTree as ET
+          base, ver = sys.argv[1], sys.argv[2]
+          path = os.path.join(base, 'maven-metadata.xml')
+          versions = []
+          if os.path.exists(path):
+              vs = ET.parse(path).getroot().find('./versioning/versions')
+              versions = [v.text for v in vs.findall('version')] if vs is not None else []
+          if ver not in versions:
+              versions.append(ver)
+          now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d%H%M%S')
+          lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<metadata>',
+                   '  <groupId>io.github.browser-grpc</groupId>',
+                   '  <artifactId>grpc-dc</artifactId>', '  <versioning>',
+                   f'    <latest>{versions[-1]}</latest>', f'    <release>{versions[-1]}</release>',
+                   '    <versions>']
+          lines += [f'      <version>{v}</version>' for v in versions]
+          lines += ['    </versions>', f'    <lastUpdated>{now}</lastUpdated>',
+                    '  </versioning>', '</metadata>', '']
+          open(path, 'w').write('\n'.join(lines))
+          for algo in ('md5', 'sha1'):
+              import hashlib
+              h = hashlib.new(algo, open(path, 'rb').read()).hexdigest()
+              open(f'{path}.{algo}', 'w').write(h)
+          PYEOF
+      - name: Commit the repository tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "John Davis"
+          git config user.email "jdavis@pcprogramming.com"
+          git add docs/maven
+          if git diff --cached --quiet; then
+            echo 'maven tree unchanged; nothing to publish'
+          else
+            V=$(grep -m1 '<version>' java/pom.xml | sed -E 's/<[^>]+>//g; s/^ *//; s/ *$//')
+            git commit -m "maven-repo: grpc-dc $V (GitHub Pages channel)"
+            git push
+          fi

@@ -24,8 +24,13 @@ type DataChannel struct {
 
 	endpoint *DcEndpoint
 	mu       sync.Mutex
-	handler  func(data []byte, isText bool)
-	pending  []pendingMessage
+	// deliverMu serializes message delivery: registering the
+	// handler (and flushing the pre-registration queue) must not
+	// interleave with emitMessage, or a queued message can be
+	// delivered after a later one (DATA overtaken by HALF_CLOSE).
+	deliverMu sync.Mutex
+	handler   func(data []byte, isText bool)
+	pending   []pendingMessage
 
 	closeHandler func()
 	pendingClose bool
@@ -33,6 +38,8 @@ type DataChannel struct {
 
 // OnMessage registers the message handler; queued messages flush.
 func (c *DataChannel) OnMessage(fn func(data []byte, isText bool)) {
+	c.deliverMu.Lock()
+	defer c.deliverMu.Unlock()
 	c.mu.Lock()
 	c.handler = fn
 	pending := c.pending
@@ -101,6 +108,8 @@ func (c *DataChannel) Close() {
 }
 
 func (c *DataChannel) emitMessage(data []byte, isText bool) {
+	c.deliverMu.Lock()
+	defer c.deliverMu.Unlock()
 	c.mu.Lock()
 	handler := c.handler
 	if handler == nil {

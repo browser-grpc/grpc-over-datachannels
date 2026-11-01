@@ -71,6 +71,49 @@ func TestGrpcOverGoWebRtcDirect(t *testing.T) {
 	_ = time.Second
 }
 
+// Regression: DataChannel.OnMessage registration used to race
+// emitMessage, so a message queued before the handler was
+// installed could be delivered after a later one — the server
+// handler saw HALF_CLOSE before DATA and answered INTERNAL: EOF
+// (about 1 failure in 40 dials under -race). Looping the whole
+// dial/serve/unary cycle makes that ordering failure visible;
+// with delivery serialized it cannot recur.
+func TestGrpcOverGoWebRtcDirectRepeated(t *testing.T) {
+	for i := 0; i < 25; i++ {
+		func() {
+			listener, err := grpcdc.DirectListener("127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+
+			server := grpcdc.NewServer()
+			echo.RegisterEchoServer(server, echo.EchoService{})
+			go func() {
+				transport, err := grpcdc.AcceptDirectTransport(listener)
+				if err != nil {
+					t.Errorf("accept direct: %v", err)
+					return
+				}
+				server.ServeTransport(transport)
+			}()
+
+			transport, err := grpcdc.DirectClientTransport(listener.Multiaddr())
+			if err != nil {
+				t.Fatalf("iter %d direct client: %v", i, err)
+			}
+			client := echo.NewEchoClient(grpcdc.NewChannel(transport))
+			unary, err := client.Unary(context.Background(), &echo.EchoRequest{Message: "hello"})
+			if err != nil {
+				t.Fatalf("iter %d unary: %v", i, err)
+			}
+			if unary.Message != "echo: hello" {
+				t.Fatalf("iter %d unary = %q", i, unary.Message)
+			}
+		}()
+	}
+}
+
 // A lossy, unordered application channel opened next to the
 // grpc channel through the adapter's endpoint surface: the
 // channel is negotiated maxRetransmits=0 + unordered via

@@ -480,9 +480,9 @@ metadata=echo: hello [meta]
 deadline=4
 error_case=INVALID-ARGUMENT: asked to fail
 Fatal Python error: _enter_buffered_busy: could not acquire lock for <_io.BufferedReader name='<stdin>'> at interpreter shutdown, possibly due to daemon threads
-Python runtime state: finalizing (tstate=0x0000000000b8a848)
+Python runtime state: finalizing (tstate=0x0000000000a5e9c0)
 
-Current thread 0x0000e33396c5b720 (most recent call first):
+Current thread 0x0000f473abf50700 (most recent call first):
   <no Python frame>
 ```
 
