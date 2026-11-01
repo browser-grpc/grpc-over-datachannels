@@ -93,9 +93,9 @@
       "bullets": [
         "browser-grpc.github.io/grpc-over-datachannels/app",
         "github.com/browser-grpc/grpc-over-datachannels",
-        "v0.36.0 with direct examples in every language \u2014 December 1"
+        "v0.36.0 with direct examples in every language is live"
       ],
-      "say": "You can try it right now: the in-browser generator turns your proto file into stubs and runtimes, entirely client-side. The code is on GitHub, and version zero thirty-six, with direct examples in every language, lands December first. Links are in the description."
+      "say": "You can try it right now: the in-browser generator turns your proto file into stubs and runtimes, entirely client-side. The code is on GitHub, and version zero thirty-six, with direct examples in every language, is live now. Links are in the description."
     }
   ]
 }
