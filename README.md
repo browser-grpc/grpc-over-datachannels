@@ -20,7 +20,7 @@ and press **Run your first RPC**.
 
 **Project blog:** [grpc-over-datachannels — gRPC over WebRTC, Browser & Native](https://c100k.blogspot.com/) — launch notes, design posts, and release write-ups.
 
-**Watch:** [gRPC over WebRTC DataChannels — No HTTP/2, No Dependencies](https://youtu.be/4J_9XkpW1cs) and [Kafka over gRPC: A Rust Kafka Proxy](https://youtu.be/KJ98a4ApZ4E) — narrated walkthroughs with live demos, in the [grpc-over-datachannels playlist](https://www.youtube.com/playlist?list=PLL20oIw8Dg5U).
+**Watch:** [gRPC over WebRTC DataChannels — No HTTP/2, No Dependencies](https://youtu.be/LwrXpnlMlgA) and [Kafka over gRPC: A Rust Kafka Proxy](https://youtu.be/KJ98a4ApZ4E) — narrated walkthroughs with live demos, in the [grpc-over-datachannels playlist](https://www.youtube.com/playlist?list=PLL20oIw8Dg5U).
 
 **Run gRPC in the browser.** grpc-over-datachannels speaks the
 gRPC wire protocol directly over WebRTC DataChannels, so a
@@ -194,7 +194,7 @@ table runs natively in every language above and in real browsers.
 
 ## Provenance
 
-Exported from source commit `3559ae00b27e370c6d40b0c0d0631fdd94f4dfe0` by the project's
+Exported from source commit `62dd72708c4b50a0919eecbbbbec55ee83df8af5` by the project's
 code generator. This tree contains no build system: each language
 directory carries its runtime, generated stubs, examples, and
 tests in that language's usual layout.
