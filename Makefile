@@ -958,7 +958,7 @@ test-browser-examples:
 ## stubs, and the app zips stubs + runtime with no server.
 webapp-assets:
 	mkdir -p webapp/assets/runtime/js webapp/assets/runtime/go webapp/assets/runtime/python
-	cd webapp/compiler && GOOS=js GOARCH=wasm go build -o ../assets/protocompile.wasm .
+	cd webapp/compiler && GOOS=js GOARCH=wasm go build -buildvcs=false -o ../assets/protocompile.wasm .
 	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" webapp/assets/wasm_exec.js
 	cp proto/echo.proto webapp/assets/echo.proto
 	cp js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/js/
