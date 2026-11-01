@@ -8,6 +8,10 @@
 # the export is unchanged.
 #
 # Usage: scripts/release-push.sh [VERSION]   (default: make's)
+# SKIP_CENTRAL=1 skips the Maven Central dispatch (e.g. while
+# Sonatype's deployment count is throttled); Central is synced
+# later in its weekly slot. The GitHub-hosted Maven channel
+# (publish-maven-github) is unaffected and always dispatched.
 set -eu
 
 VERSION="${1:-$(git describe --tags --abbrev=0)}"
@@ -431,6 +435,10 @@ echo "release asset: grpc-dc-$VERSION.zip + SHA256SUMS uploaded"
 NPM_OK="${NPM_OK:-0}"; PYPI_OK="${PYPI_OK:-0}"
 NUGET_OK=0; MAVEN_OK=0; MAVEN_GH_OK=0
 for wf in publish-nuget publish-maven publish-maven-github; do
+  if [ "$wf" = publish-maven ] && [ "${SKIP_CENTRAL:-}" = 1 ]; then
+    echo "note: Maven Central dispatch skipped (SKIP_CENTRAL=1); sync Central in its weekly slot"
+    continue
+  fi
   if gh workflow run "$wf.yml" --repo "$REPO" >/dev/null 2>&1; then
     sleep 5
     RUN_ID="$(gh run list --repo "$REPO" --workflow "$wf.yml" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)"
