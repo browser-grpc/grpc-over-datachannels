@@ -1675,7 +1675,7 @@
    "Browser & Native](https://c100k.blogspot.com/) — launch notes, "
    "design posts, and release write-ups.\n\n"
    "**Watch:** [gRPC over WebRTC DataChannels — No HTTP/2, No "
-   "Dependencies](https://youtu.be/4J_9XkpW1cs) and [Kafka over gRPC: "
+   "Dependencies](https://youtu.be/LwrXpnIMIgA) and [Kafka over gRPC: "
    "A Rust Kafka Proxy](https://youtu.be/KJ98a4ApZ4E) — narrated "
    "walkthroughs with live demos, in the [grpc-over-datachannels "
    "playlist](https://www.youtube.com/playlist?list=PLL20oIw8Dg5U).\n\n"
