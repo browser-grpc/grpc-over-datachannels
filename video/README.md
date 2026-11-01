@@ -65,6 +65,14 @@ Demo scenes run the real thing at build time — the direct Echo
 example, and a generated JS client round trip through `kafka_proxy`
 against a real Apache Kafka — and show the captured terminal output.
 
+**No commitments in narration or slides.** Never write a release
+date, a version number, or a future promise ("lands December 1",
+"coming soon", "will support X") into a script. Videos are
+expensive to re-render and cannot be edited after upload, so
+anything time-sensitive belongs in the description, cards, and
+pinned comments — surfaces we can change without a re-upload.
+State durable facts only; link the rest.
+
 ## Stop the server
 
 ```sh
