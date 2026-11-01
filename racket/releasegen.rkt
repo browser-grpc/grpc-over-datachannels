@@ -663,6 +663,136 @@
       "          echo 'timed out waiting for PUBLISHED' >&2; exit 1\n")
      out)))
 
+;; GitHub-hosted Maven channel (fallback / cadence relief for
+;; Maven Central): a static Maven repository committed under
+;; docs/maven/ in this repo. GitHub Pages serves docs/ from the
+;; default branch (legacy mode), so consumers resolve
+;; io.github.browser-grpc:grpc-dc anonymously from
+;; https://browser-grpc.github.io/grpc-over-datachannels/maven/
+;; with no token and no Sonatype deployment count. Central
+;; stays the discovery channel; this one ships with every
+;; release. The workflow lays the freshly built artifacts into
+;; the existing tree (prior versions are kept) and commits the
+;; result; scripts/release-push.sh excludes docs/maven/ from
+;; its rsync --delete so the tree survives export refreshes.
+(call-with-output-file (build-path out-dir ".github/workflows/publish-maven-github.yml")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "# Publish the Java runtime to the GitHub-hosted Maven\n"
+      "# repository (docs/maven/, served by GitHub Pages).\n"
+      "# Manual dispatch only; no secrets required. Unlike\n"
+      "# Maven Central there is no deployment-count limit, so\n"
+      "# this channel ships with every release. Consumers:\n"
+      "#   <repository><id>github-pages</id>\n"
+      "#   <url>https://browser-grpc.github.io/grpc-over-datachannels/maven/</url></repository>\n"
+      "# and depend on io.github.browser-grpc:grpc-dc as usual.\n"
+      "name: publish-maven-github\n"
+      "on: workflow_dispatch\n"
+      "permissions:\n"
+      "  contents: write\n"
+      "jobs:\n"
+      "  publish:\n"
+      "    runs-on: ubuntu-latest\n"
+      "    steps:\n"
+      "      - uses: actions/checkout@v4\n"
+      "      - uses: actions/setup-java@v4\n"
+      "        with:\n"
+      "          distribution: temurin\n"
+      "          java-version: 17\n"
+      "      - name: Build jars\n"
+      "        run: mvn -B -f java/pom.xml package -DskipTests\n"
+      "      - name: Lay out the Maven repository under docs/maven\n"
+      "        shell: bash\n"
+      "        run: |\n"
+      "          set -euo pipefail\n"
+      "          V=$(grep -m1 '<version>' java/pom.xml | sed -E 's/<[^>]+>//g; s/^ *//; s/ *$//')\n"
+      "          DEST=\"docs/maven/io/github/browser-grpc/grpc-dc/$V\"\n"
+      "          mkdir -p \"$DEST\"\n"
+      "          cp java/pom.xml \"$DEST/grpc-dc-$V.pom\"\n"
+      "          cp \"java/target/grpc-dc-$V.jar\" \"$DEST/\"\n"
+      "          cp \"java/target/grpc-dc-$V-sources.jar\" \"$DEST/\"\n"
+      "          cp \"java/target/grpc-dc-$V-javadoc.jar\" \"$DEST/\"\n"
+      "          for f in \"$DEST\"/*; do\n"
+      "            md5sum \"$f\" | cut -d' ' -f1 > \"$f.md5\"\n"
+      "            sha1sum \"$f\" | cut -d' ' -f1 > \"$f.sha1\"\n"
+      "          done\n"
+      "          BASE=docs/maven/io/github/browser-grpc/grpc-dc\n"
+      "          python3 - \"$BASE\" \"$V\" <<'PYEOF'\n"
+      "          import os, sys, datetime\n"
+      "          import xml.etree.ElementTree as ET\n"
+      "          base, ver = sys.argv[1], sys.argv[2]\n"
+      "          path = os.path.join(base, 'maven-metadata.xml')\n"
+      "          versions = []\n"
+      "          if os.path.exists(path):\n"
+      "              vs = ET.parse(path).getroot().find('./versioning/versions')\n"
+      "              versions = [v.text for v in vs.findall('version')] if vs is not None else []\n"
+      "          if ver not in versions:\n"
+      "              versions.append(ver)\n"
+      "          now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d%H%M%S')\n"
+      "          lines = ['<?xml version=\"1.0\" encoding=\"UTF-8\"?>', '<metadata>',\n"
+      "                   '  <groupId>io.github.browser-grpc</groupId>',\n"
+      "                   '  <artifactId>grpc-dc</artifactId>', '  <versioning>',\n"
+      "                   f'    <latest>{versions[-1]}</latest>', f'    <release>{versions[-1]}</release>',\n"
+      "                   '    <versions>']\n"
+      "          lines += [f'      <version>{v}</version>' for v in versions]\n"
+      "          lines += ['    </versions>', f'    <lastUpdated>{now}</lastUpdated>',\n"
+      "                    '  </versioning>', '</metadata>', '']\n"
+      "          open(path, 'w').write('\\n'.join(lines))\n"
+      "          for algo in ('md5', 'sha1'):\n"
+      "              import hashlib\n"
+      "              h = hashlib.new(algo, open(path, 'rb').read()).hexdigest()\n"
+      "              open(f'{path}.{algo}', 'w').write(h)\n"
+      "          PYEOF\n"
+      "      - name: Commit the repository tree\n"
+      "        shell: bash\n"
+      "        run: |\n"
+      "          set -euo pipefail\n"
+      "          git config user.name \"John Davis\"\n"
+      "          git config user.email \"jdavis@pcprogramming.com\"\n"
+      "          git add docs/maven\n"
+      "          if git diff --cached --quiet; then\n"
+      "            echo 'maven tree unchanged; nothing to publish'\n"
+      "          else\n"
+      "            V=$(grep -m1 '<version>' java/pom.xml | sed -E 's/<[^>]+>//g; s/^ *//; s/ *$//')\n"
+      "            git commit -m \"maven-repo: grpc-dc $V (GitHub Pages channel)\"\n"
+      "            git push\n"
+      "          fi\n")
+     out)))
+
+(call-with-output-file (build-path out-dir "MAVEN-PUBLISHING.md")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "# Publishing grpc-dc for Java (maintainers)\n\n"
+      "Two channels publish the same artifact\n"
+      "(`io.github.browser-grpc:grpc-dc`, same version):\n\n"
+      "## Maven Central (discovery channel)\n\n"
+      "`.github/workflows/publish-maven.yml` (manual dispatch)\n"
+      "uploads the signed bundle to Maven Central via the\n"
+      "Central Portal API. Sonatype counts deployments per\n"
+      "organization per month, so Central is synced in a\n"
+      "batched weekly slot, not on every release.\n\n"
+      "## GitHub-hosted Maven repo (every release)\n\n"
+      "`.github/workflows/publish-maven-github.yml` (manual\n"
+      "dispatch) commits a static Maven repository under\n"
+      "`docs/maven/`; GitHub Pages serves it at\n"
+      "`https://browser-grpc.github.io/grpc-over-datachannels/maven/`.\n"
+      "No deployment-count limit and no credentials, so this\n"
+      "channel ships with every release. Consumers add:\n\n"
+      "```xml\n"
+      "<repository>\n"
+      "  <id>github-pages</id>\n"
+      "  <url>https://browser-grpc.github.io/grpc-over-datachannels/maven/</url>\n"
+      "</repository>\n"
+      "```\n\n"
+      "and depend on `io.github.browser-grpc:grpc-dc` as usual.\n"
+      "Anonymous reads; Gradle uses\n"
+      "`maven { url 'https://browser-grpc.github.io/grpc-over-datachannels/maven/' }`.\n")
+     out)))
+
 (call-with-output-file (build-path out-dir "NPM-PUBLISHING.md")
   #:exists 'replace
   (lambda (out)

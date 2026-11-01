@@ -71,7 +71,7 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 gh repo clone "$REPO" "$WORK/public"
-rsync -a --delete --exclude .git "$EXPORT/" "$WORK/public/"
+rsync -a --delete --exclude .git --exclude docs/maven "$EXPORT/" "$WORK/public/"
 cd "$WORK/public"
 git add -A
 if git diff --cached --quiet; then
@@ -429,8 +429,8 @@ echo "release asset: grpc-dc-$VERSION.zip + SHA256SUMS uploaded"
 #     failures are loud notes, never a failed release.
 # ------------------------------------------------------------------
 NPM_OK="${NPM_OK:-0}"; PYPI_OK="${PYPI_OK:-0}"
-NUGET_OK=0; MAVEN_OK=0
-for wf in publish-nuget publish-maven; do
+NUGET_OK=0; MAVEN_OK=0; MAVEN_GH_OK=0
+for wf in publish-nuget publish-maven publish-maven-github; do
   if gh workflow run "$wf.yml" --repo "$REPO" >/dev/null 2>&1; then
     sleep 5
     RUN_ID="$(gh run list --repo "$REPO" --workflow "$wf.yml" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)"
@@ -438,6 +438,7 @@ for wf in publish-nuget publish-maven; do
       echo "registry workflow $wf: succeeded (run $RUN_ID)"
       [ "$wf" = publish-nuget ] && NUGET_OK=1
       [ "$wf" = publish-maven ] && MAVEN_OK=1
+      [ "$wf" = publish-maven-github ] && MAVEN_GH_OK=1
     else
       echo "note: registry workflow $wf did not succeed (run ${RUN_ID:-unknown}); continuing"
     fi
@@ -461,6 +462,7 @@ if [ -f CHANGELOG.md ] && git rev-parse --git-dir >/dev/null 2>&1 \
   CHANNELS="$CHANNELS/GHCR"
   [ "$NUGET_OK" = 1 ] && CHANNELS="$CHANNELS/NuGet"
   [ "$MAVEN_OK" = 1 ] && CHANNELS="$CHANNELS/Maven Central"
+  [ "$MAVEN_GH_OK" = 1 ] && CHANNELS="$CHANNELS/GitHub Maven"
   sed -i "s|^## $VERSION — \(.*\)|## $VERSION — \1 (published to $CHANNELS)|" CHANGELOG.md
   git add CHANGELOG.md
   if git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
