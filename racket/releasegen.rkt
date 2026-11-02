@@ -2516,20 +2516,20 @@
   (lambda (out)
     (display
      (string-append
-      "# Gem packaging for the generated Ruby runtime.\\n"
-      "# Build from the export root: gem build ruby/grpc-dc.gemspec\\n"
-      "Gem::Specification.new do |spec|\\n"
-      "  spec.name = \"grpc-dc\"\\n"
-      "  spec.version = \"" npm-version "\"\\n"
-      "  spec.authors = [\"John Davis\"]\\n"
-      "  spec.summary = \"gRPC over WebRTC DataChannels — dependency-free generated Ruby runtime\"\\n"
-      "  spec.description = \"Generated, stdlib-only gRPC clients and servers for Ruby speaking the gRPC wire protocol over a WebRTC DataChannel, plus generated stubs (incl. grpcdc.kafka.v1). No grpc library underneath.\"\\n"
-      "  spec.homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\\n"
-      "  spec.license = \"Apache-2.0\"\\n"
-      "  spec.required_ruby_version = \">= 3.0\"\\n"
-      "  spec.files = Dir[\"ruby/grpcdc.rb\", \"ruby/grpcdc/**/*.rb\", \"ruby/README.md\"]\\n"
-      "  spec.require_paths = [\"ruby\"]\\n"
-      "end\\n")
+      "# Gem packaging for the generated Ruby runtime.\n"
+      "# Build from the export root: gem build ruby/grpc-dc.gemspec\n"
+      "Gem::Specification.new do |spec|\n"
+      "  spec.name = \"grpc-dc\"\n"
+      "  spec.version = \"" npm-version "\"\n"
+      "  spec.authors = [\"John Davis\"]\n"
+      "  spec.summary = \"gRPC over WebRTC DataChannels, dependency-free generated Ruby runtime\"\n"
+      "  spec.description = \"Generated, stdlib-only gRPC clients and servers for Ruby speaking the gRPC wire protocol over a WebRTC DataChannel, plus generated stubs (incl. grpcdc.kafka.v1). No grpc library underneath.\"\n"
+      "  spec.homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n"
+      "  spec.license = \"Apache-2.0\"\n"
+      "  spec.required_ruby_version = \">= 3.0\"\n"
+      "  spec.files = Dir[\"ruby/grpcdc.rb\", \"ruby/grpcdc/**/*.rb\", \"ruby/README.md\"]\n"
+      "  spec.require_paths = [\"ruby\"]\n"
+      "end\n")
      out)))
 (call-with-output-file (build-path out-dir "GITHUB-PACKAGES.md")
   #:exists 'replace
@@ -2653,7 +2653,7 @@
 (emit-kafka-file "kafka-csharp/KafkaGrpc.csproj"
   (string-append
    "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n"
-   "    <TargetFramework>netstandard2.0</TargetFramework>\n"
+   "    <TargetFramework>net8.0</TargetFramework>\n"
    "    <PackageId>KafkaGrpc</PackageId>\n    <Version>" npm-version "</Version>\n"
    "    <Authors>John Davis</Authors>\n    <Description>" kafka-desc " (.NET).</Description>\n"
    "    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>\n"
@@ -2674,7 +2674,7 @@
    "  <licenses><license><name>Apache-2.0</name></license></licenses>\n"
    "  <properties><maven.compiler.source>11</maven.compiler.source><maven.compiler.target>11</maven.compiler.target><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>\n"
    "  <dependencies><dependency><groupId>io.github.browser-grpc</groupId><artifactId>grpc-dc</artifactId><version>" npm-version "</version></dependency></dependencies>\n"
-   "  <build><plugins>\n"
+   "  <build><sourceDirectory>${project.basedir}</sourceDirectory><plugins>\n"
    "    <plugin><artifactId>maven-source-plugin</artifactId><version>3.3.1</version><executions><execution><id>attach-sources</id><goals><goal>jar-no-fork</goal></goals></execution></executions></plugin>\n"
    "    <plugin><artifactId>maven-javadoc-plugin</artifactId><version>3.10.0</version><configuration><additionalOptions><additionalOption>-Xdoclint:none</additionalOption></additionalOptions><quiet>true</quiet></configuration><executions><execution><id>attach-javadocs</id><goals><goal>jar</goal></goals></execution></executions></plugin>\n"
    "    <plugin><groupId>org.sonatype.central</groupId><artifactId>central-publishing-maven-plugin</artifactId><version>0.8.0</version><extensions>true</extensions><configuration><publishingServerId>central</publishingServerId><autoPublish>true</autoPublish><waitUntil>published</waitUntil></configuration></plugin>\n"
