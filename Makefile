@@ -391,7 +391,11 @@ test-csharp:
 		&& dotnet run --project tests --no-build -- TestPbMessages \
 		&& dotnet run --project tests --no-build -- TestBddSchemas \
 		&& dotnet run --project tests --no-build -- TestSidecar \
-		&& dotnet run --project tests --no-build -- TestKafkaE2E
+		&& dotnet run --project tests --no-build -- TestKafkaE2E \
+		&& dotnet pack grpcdc/Grpcdc.csproj -c Release -o tests-netstandard/feed --nologo -v q \
+		&& dotnet build tests-netstandard/Consumer.csproj -c Release --nologo -v q \
+		&& dotnet build tests-netstandard/Host/Host.csproj -c Release --nologo -v q \
+		&& mono tests-netstandard/Host/bin/Release/net472/NetstandardHost.exe
 
 CXX ?= g++
 CXXFLAGS ?= -std=c++17 -pthread -O1 -Icpp -I.
