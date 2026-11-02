@@ -2672,7 +2672,7 @@
    "  <name>kafka-grpc</name>\n  <description>" kafka-desc " (Java).</description>\n"
    "  <url>https://github.com/browser-grpc/grpc-over-datachannels</url>\n"
    "  <licenses><license><name>Apache-2.0</name></license></licenses>\n"
-   "  <properties><maven.compiler.source>11</maven.compiler.source><maven.compiler.target>11</maven.compiler.target><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>\n"
+   "  <properties><maven.compiler.release>17</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>\n"
    "  <dependencies><dependency><groupId>io.github.browser-grpc</groupId><artifactId>grpc-dc</artifactId><version>" npm-version "</version></dependency></dependencies>\n"
    "  <build><sourceDirectory>${project.basedir}</sourceDirectory><plugins>\n"
    "    <plugin><artifactId>maven-source-plugin</artifactId><version>3.3.1</version><executions><execution><id>attach-sources</id><goals><goal>jar-no-fork</goal></goals></execution></executions></plugin>\n"
