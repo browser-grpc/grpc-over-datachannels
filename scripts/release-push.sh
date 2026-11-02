@@ -244,6 +244,18 @@ if [ -d "$NPM_DIR" ] && command -v npm >/dev/null 2>&1; then
   fi
 fi
 
+# npm (kafka-grpc): separate package, same treatment.
+KAFKA_NPM_DIR="$EXPORT/packages/kafka-js"
+if [ -d "$KAFKA_NPM_DIR" ] && command -v npm >/dev/null 2>&1; then
+  if npm whoami >/dev/null 2>&1; then
+    if (cd "$KAFKA_NPM_DIR" && npm publish --access public); then
+      echo "npm: kafka-grpc@$VERSION published"
+    else
+      echo "note: npm kafka-grpc publish failed (version may already exist); continuing"
+    fi
+  fi
+fi
+
 # 3b2. Package registries (PyPI). Publishing needs a persistent
 #     API token: TWINE_PASSWORD in the environment, or a
 #     ~/.pypirc with a [pypi] __token__ entry (the one-time
@@ -269,6 +281,19 @@ if [ -d "$PYPI_DIR" ] && command -v twine >/dev/null 2>&1; then
   fi
 fi
 
+# PyPI (kafka-grpc): separate package, same treatment.
+KAFKA_PYPI_DIR="$EXPORT/packages/kafka-python"
+if [ -d "$KAFKA_PYPI_DIR" ] && command -v twine >/dev/null 2>&1; then
+  (cd "$KAFKA_PYPI_DIR" && rm -rf dist && python3 -m build --outdir dist 2>&1 | tail -2 && twine check dist/*) || true
+  if [ -n "${TWINE_PASSWORD:-}" ] || [ -f "$HOME/.pypirc" ]; then
+    if (cd "$KAFKA_PYPI_DIR" && twine upload dist/*); then
+      echo "pypi: kafka-grpc $VERSION published"
+    else
+      echo "note: pypi kafka-grpc upload failed (version may already exist); continuing"
+    fi
+  fi
+fi
+
 # 3b3. Package registries (NuGet). Publishing needs NUGET_API_KEY
 #     in the environment (one-time setup: nuget.org > API Keys,
 #     a push-scoped key for the GrpcDc package); without it this
@@ -279,6 +304,7 @@ NUGET_PROJ="$EXPORT/csharp/grpcdc/Grpcdc.csproj"
 if [ -f "$NUGET_PROJ" ] && command -v dotnet >/dev/null 2>&1; then
   NUGET_OUT="$WORK/nuget"
   mkdir -p "$NUGET_OUT"
+  dotnet pack "$EXPORT/packages/kafka-csharp/KafkaGrpc.csproj" -c Release -o "$NUGET_OUT" >>"$WORK/nuget-pack.log" 2>&1 || echo "note: KafkaGrpc pack failed; continuing"
   if dotnet pack "$NUGET_PROJ" -c Release -o "$NUGET_OUT" >"$WORK/nuget-pack.log" 2>&1; then
     echo "nuget: packed $(ls "$NUGET_OUT"/*.nupkg | head -1)"
     if [ -n "${NUGET_API_KEY:-}" ]; then
@@ -383,6 +409,65 @@ if [ -f "$EB_EXPORT/docker/eventbus-demo.Dockerfile" ]; then
   else
     echo "note: eventbus-demo image skipped (docker not available)"
   fi
+fi
+
+# ------------------------------------------------------------------
+# 3f. GitHub Packages mirrors (npm / NuGet / RubyGems — the only
+#     registries GitHub hosts; Maven stays on the Pages repo).
+#     Both packages (grpc-dc + kafka-grpc) are mirrored. Token:
+#     the gh session. Consumers still need a read:packages token
+#     even for public packages; see GITHUB-PACKAGES.md in the
+#     export. Best-effort: failures are loud notes.
+# ------------------------------------------------------------------
+GH_TOKEN_VAL="$(gh auth token 2>/dev/null || true)"
+if [ -n "$GH_TOKEN_VAL" ]; then
+  # npm: scoped staging copies (GitHub requires @org/name).
+  for spec in "js:@browser-grpc/grpc-dc" "packages/kafka-js:@browser-grpc/kafka-grpc"; do
+    SRC_DIR="$EXPORT/${spec%%:*}"
+    [ -f "$SRC_DIR/package.github.json" ] || continue
+    STAGE="$WORK/ghp-npm-$(basename "$SRC_DIR")"
+    cp -r "$SRC_DIR" "$STAGE"
+    cp "$STAGE/package.github.json" "$STAGE/package.json"
+    rm -f "$STAGE/package.github.json"
+    printf '@browser-grpc:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$GH_TOKEN_VAL" > "$STAGE/.npmrc"
+    if (cd "$STAGE" && NODE_AUTH_TOKEN="$GH_TOKEN_VAL" npm publish --registry https://npm.pkg.github.com >/dev/null 2>&1); then
+      echo "github packages: npm ${spec##*:}@$VERSION published"
+    else
+      echo "note: github packages npm ${spec##*:} publish failed (exists? token scope?); continuing"
+    fi
+  done
+  # NuGet: push the nupkgs packed in step 3b3 (GrpcDc + KafkaGrpc).
+  if command -v dotnet >/dev/null 2>&1 && ls "$WORK/nuget"/*.nupkg >/dev/null 2>&1; then
+    for pkg in "$WORK/nuget"/*.nupkg; do
+      if dotnet nuget push "$pkg" --api-key "$GH_TOKEN_VAL" --source "https://nuget.pkg.github.com/browser-grpc/index.json" --skip-duplicate >/dev/null 2>&1; then
+        echo "github packages: nuget $(basename "$pkg") published"
+      else
+        echo "note: github packages nuget $(basename "$pkg") push failed; continuing"
+      fi
+    done
+  fi
+  # RubyGems: build both gems and push with a temp GEM_HOME.
+  if command -v gem >/dev/null 2>&1; then
+    GEM_TMP="$WORK/gemhome"; mkdir -p "$GEM_TMP/.gem"
+    printf -- '---\n:github: Bearer %s\n' "$GH_TOKEN_VAL" > "$GEM_TMP/.gem/credentials"
+    chmod 600 "$GEM_TMP/.gem/credentials"
+    for spec in "ruby/grpc-dc.gemspec" "packages/kafka-ruby/kafka-grpc.gemspec"; do
+      [ -f "$EXPORT/$spec" ] || continue
+      if (cd "$EXPORT" && gem build "$spec" >/dev/null 2>&1); then
+        GEMFILE="$(ls -t "$EXPORT"/*.gem 2>/dev/null | head -1)"
+        if [ -n "$GEMFILE" ] && HOME="$GEM_TMP" gem push --key github --host "https://rubygems.pkg.github.com/browser-grpc" "$GEMFILE" >/dev/null 2>&1; then
+          echo "github packages: gem $(basename "$GEMFILE") published"
+        else
+          echo "note: github packages gem push failed for $spec; continuing"
+        fi
+        rm -f "$GEMFILE"
+      else
+        echo "note: gem build failed for $spec; continuing"
+      fi
+    done
+  fi
+else
+  echo "note: github packages mirrors skipped (no gh token)"
 fi
 
 # ------------------------------------------------------------------

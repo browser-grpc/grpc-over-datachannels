@@ -660,6 +660,28 @@
       "            [ \"$STATE\" = FAILED ] && exit 1\n"
       "            sleep 15\n"
       "          done\n"
+      "          echo 'timed out waiting for PUBLISHED' >&2; exit 1\n"
+      "      - name: Build signed kafka-grpc bundle\n"
+      "        run: mvn -B -f packages/kafka-java/pom.xml deploy -Prelease -DcentralBaseUrl=http://127.0.0.1:9/nope || test -f packages/kafka-java/target/central-publishing/central-bundle.zip\n"
+      "        env:\n"
+      "          MAVEN_USERNAME: ${{ secrets.CENTRAL_USERNAME }}\n"
+      "          MAVEN_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}\n"
+      "          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}\n"
+      "      - name: Upload kafka-grpc via Central Portal API\n"
+      "        shell: bash\n"
+      "        run: |\n"
+      "          set -euo pipefail\n"
+      "          TOKEN=$(printf '%s:%s' \"${{ secrets.CENTRAL_USERNAME }}\" \"${{ secrets.CENTRAL_PASSWORD }}\" | base64 -w0)\n"
+      "          zip -d packages/kafka-java/target/central-publishing/central-bundle.zip '*/_remote.repositories*' '*/maven-metadata-local.xml*' || true\n"
+      "          ID=$(curl -sf -X POST -H \"Authorization: Bearer $TOKEN\" -F \"bundle=@packages/kafka-java/target/central-publishing/central-bundle.zip\" \"https://central.sonatype.com/api/v1/publisher/upload?name=kafka-grpc&publishingType=USER_MANAGED\")\n"
+      "          echo \"deployment: $ID\"\n"
+      "          for i in $(seq 1 120); do\n"
+      "            STATE=$(curl -sf -X POST -H \"Authorization: Bearer $TOKEN\" \"https://central.sonatype.com/api/v1/publisher/status?id=$ID\" | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"deploymentState\"])')\n"
+      "            echo \"state: $STATE\"\n"
+      "            [ \"$STATE\" = PUBLISHED ] && exit 0\n"
+      "            [ \"$STATE\" = FAILED ] && exit 1\n"
+      "            sleep 15\n"
+      "          done\n"
       "          echo 'timed out waiting for PUBLISHED' >&2; exit 1\n")
      out)))
 
@@ -734,6 +756,49 @@
       "          lines = ['<?xml version=\"1.0\" encoding=\"UTF-8\"?>', '<metadata>',\n"
       "                   '  <groupId>io.github.browser-grpc</groupId>',\n"
       "                   '  <artifactId>grpc-dc</artifactId>', '  <versioning>',\n"
+      "                   f'    <latest>{versions[-1]}</latest>', f'    <release>{versions[-1]}</release>',\n"
+      "                   '    <versions>']\n"
+      "          lines += [f'      <version>{v}</version>' for v in versions]\n"
+      "          lines += ['    </versions>', f'    <lastUpdated>{now}</lastUpdated>',\n"
+      "                    '  </versioning>', '</metadata>', '']\n"
+      "          open(path, 'w').write('\\n'.join(lines))\n"
+      "          for algo in ('md5', 'sha1'):\n"
+      "              import hashlib\n"
+      "              h = hashlib.new(algo, open(path, 'rb').read()).hexdigest()\n"
+      "              open(f'{path}.{algo}', 'w').write(h)\n"
+      "          PYEOF\n"
+      "      - name: Build kafka-grpc jar and lay out its Maven repository\n"
+      "        shell: bash\n"
+      "        run: |\n"
+      "          set -euo pipefail\n"
+      "          mvn -B -f packages/kafka-java/pom.xml package -DskipTests\n"
+      "          V=$(grep -m1 '<version>' packages/kafka-java/pom.xml | sed -E 's/<[^>]+>//g; s/^ *//; s/ *$//')\n"
+      "          DEST=\"docs/maven/io/github/browser-grpc/kafka-grpc/$V\"\n"
+      "          mkdir -p \"$DEST\"\n"
+      "          cp packages/kafka-java/pom.xml \"$DEST/kafka-grpc-$V.pom\"\n"
+      "          cp \"packages/kafka-java/target/kafka-grpc-$V.jar\" \"$DEST/\"\n"
+      "          cp \"packages/kafka-java/target/kafka-grpc-$V-sources.jar\" \"$DEST/\"\n"
+      "          cp \"packages/kafka-java/target/kafka-grpc-$V-javadoc.jar\" \"$DEST/\"\n"
+      "          for f in \"$DEST\"/*; do\n"
+      "            md5sum \"$f\" | cut -d' ' -f1 > \"$f.md5\"\n"
+      "            sha1sum \"$f\" | cut -d' ' -f1 > \"$f.sha1\"\n"
+      "          done\n"
+      "          BASE=docs/maven/io/github/browser-grpc/kafka-grpc\n"
+      "          python3 - \"$BASE\" \"$V\" <<'PYEOF'\n"
+      "          import os, sys, datetime\n"
+      "          import xml.etree.ElementTree as ET\n"
+      "          base, ver = sys.argv[1], sys.argv[2]\n"
+      "          path = os.path.join(base, 'maven-metadata.xml')\n"
+      "          versions = []\n"
+      "          if os.path.exists(path):\n"
+      "              vs = ET.parse(path).getroot().find('./versioning/versions')\n"
+      "              versions = [v.text for v in vs.findall('version')] if vs is not None else []\n"
+      "          if ver not in versions:\n"
+      "              versions.append(ver)\n"
+      "          now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d%H%M%S')\n"
+      "          lines = ['<?xml version=\"1.0\" encoding=\"UTF-8\"?>', '<metadata>',\n"
+      "                   '  <groupId>io.github.browser-grpc</groupId>',\n"
+      "                   '  <artifactId>kafka-grpc</artifactId>', '  <versioning>',\n"
       "                   f'    <latest>{versions[-1]}</latest>', f'    <release>{versions[-1]}</release>',\n"
       "                   '    <versions>']\n"
       "          lines += [f'      <version>{v}</version>' for v in versions]\n"
@@ -2423,6 +2488,238 @@
          (string-append bin-block "  \"files\": ["))))
   (call-with-output-file js-package-path #:exists 'replace
     (lambda (out) (display aligned out))))
+;; GitHub Packages mirrors (npm / NuGet / RubyGems — the only
+;; package registries GitHub hosts; Maven stays on the Pages
+;; repo, which resolves anonymously). The npm mirror needs a
+;; scoped name, so emit a scoped variant manifest next to the
+;; canonical one; scripts/release-push.sh stages it as
+;; package.json when publishing to npm.pkg.github.com.
+(when (file-exists? js-package-path)
+  (define text (file->string js-package-path))
+  (define scoped
+    (regexp-replace
+     #rx"\"license\": \"Apache-2.0\"\n}"
+     (regexp-replace #rx"\"name\": \"grpc-dc\""
+                     text
+                     "\"name\": \"@browser-grpc/grpc-dc\"")
+     (string-append
+      "\"license\": \"Apache-2.0\",\n"
+      "  \"publishConfig\": {\"registry\": \"https://npm.pkg.github.com\"}\n}")))
+  (call-with-output-file (build-path out-dir "js/package.github.json")
+    #:exists 'replace
+    (lambda (out) (display scoped out))))
+;; RubyGems mirror: the export's ruby/ tree has no gemspec, so
+;; emit one (stdlib-only runtime, no gem dependencies; the
+;; generated grpcdc.kafka.v1 stubs ship inside the same gem).
+(call-with-output-file (build-path out-dir "ruby/grpc-dc.gemspec")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "# Gem packaging for the generated Ruby runtime.\\n"
+      "# Build from the export root: gem build ruby/grpc-dc.gemspec\\n"
+      "Gem::Specification.new do |spec|\\n"
+      "  spec.name = \"grpc-dc\"\\n"
+      "  spec.version = \"" npm-version "\"\\n"
+      "  spec.authors = [\"John Davis\"]\\n"
+      "  spec.summary = \"gRPC over WebRTC DataChannels — dependency-free generated Ruby runtime\"\\n"
+      "  spec.description = \"Generated, stdlib-only gRPC clients and servers for Ruby speaking the gRPC wire protocol over a WebRTC DataChannel, plus generated stubs (incl. grpcdc.kafka.v1). No grpc library underneath.\"\\n"
+      "  spec.homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\\n"
+      "  spec.license = \"Apache-2.0\"\\n"
+      "  spec.required_ruby_version = \">= 3.0\"\\n"
+      "  spec.files = Dir[\"ruby/grpcdc.rb\", \"ruby/grpcdc/**/*.rb\", \"ruby/README.md\"]\\n"
+      "  spec.require_paths = [\"ruby\"]\\n"
+      "end\\n")
+     out)))
+(call-with-output-file (build-path out-dir "GITHUB-PACKAGES.md")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "# GitHub Packages mirrors\\n\\n"
+      "The canonical packages live on the language registries\\n"
+      "(npm, PyPI, Maven Central + the Pages Maven repo, NuGet,\\n"
+      "crates.io-compatible git tags for Go). As a mirror, the\\n"
+      "registries GitHub Packages can host are also published\\n"
+      "to GitHub under the `browser-grpc` org at each release:\\n\\n"
+      "| Ecosystem | GitHub Packages artifact |\\n"
+      "|---|---|\\n"
+      "| npm | `@browser-grpc/grpc-dc` |\\n"
+      "| NuGet | `GrpcDc` |\\n"
+      "| RubyGems | `grpc-dc` |\\n\\n"
+      "Each ecosystem also gets a separate `kafka-grpc` package\\n"
+      "(npm `@browser-grpc/kafka-grpc`, NuGet `KafkaGrpc`, gem\\n"
+      "`kafka-grpc`) holding the generated `grpcdc.kafka.v1`\\n"
+      "stubs; see packages/README.md in the export.\\n\\n"
+      "GitHub Packages requires an authenticated token for\\n"
+      "consumers **even for public packages** (a GitHub personal\\n"
+      "access token with `read:packages`). That friction is why\\n"
+      "Maven is *not* mirrored here: the Pages-hosted Maven repo\\n"
+      "(see MAVEN-PUBLISHING.md) resolves the same coordinates\\n"
+      "anonymously. Ecosystems GitHub cannot host (Python, Rust,\\n"
+      "Go, Dart, PHP, Lua, Swift, Zig, C/C++) use their language\\n"
+      "registries, git tags, or the release zip instead.\\n\\n"
+      "## npm\\n\\n"
+      "```ini\\n"
+      "@browser-grpc:registry=https://npm.pkg.github.com\\n"
+      "//npm.pkg.github.com/:_authToken=YOUR_TOKEN\\n"
+      "```\\n\\n"
+      "## NuGet\\n\\n"
+      "```sh\\n"
+      "dotnet nuget add source https://nuget.pkg.github.com/browser-grpc/index.json \\\\\\n"
+      "  --name github-browser-grpc --username YOUR_GITHUB_USER --password YOUR_TOKEN\\n"
+      "dotnet add package GrpcDc\\n"
+      "```\\n\\n"
+      "## RubyGems\\n\\n"
+      "```sh\\n"
+      "gem install grpc-dc \\\\\\n"
+      "  --source https://rubygems.pkg.github.com/browser-grpc/\\n"
+      "```\\n"
+      "(with `github: Bearer YOUR_TOKEN` in ~/.gem/credentials)\\n")
+     out)))
+;; ---------------------------------------------------------------------------
+;; Separate kafka-grpc packages. The generated grpcdc.kafka.v1
+;; stubs (messages + client, two files per language) also ship
+;; as their own package in every ecosystem we publish, next to
+;; grpc-dc, depending on it. Trees land in packages/kafka-<lang>
+;; so each is installable/buildable on its own; Go gets a
+;; nested module, Rust a path-dependency crate, and the JVM a
+;; second Maven artifact (same group, reactor-built).
+(define kafka-root (build-path out-dir "packages"))
+(define (emit-kafka-file dest-rel text)
+  (define dest (build-path kafka-root dest-rel))
+  (make-directory* (path-only dest))
+  (call-with-output-file dest #:exists 'replace
+    (lambda (out) (display text out))))
+(define (copy-kafka-file src-rel dest-rel)
+  (define src (build-path out-dir src-rel))
+  (when (file-exists? src)
+    (define dest (build-path kafka-root dest-rel))
+    (make-directory* (path-only dest))
+    (copy-file src dest #t)))
+(define kafka-desc
+  "Kafka over gRPC — generated grpcdc.kafka.v1 clients (produce/consume/groups/topics) speaking gRPC over WebRTC DataChannels, via the grpc-dc runtime")
+;; --- npm (canonical + GitHub Packages scoped variant) ---
+(copy-kafka-file "js/src/kafka_pb.js" "kafka-js/kafka_pb.js")
+(copy-kafka-file "js/src/kafka_grpc_dc.js" "kafka-js/kafka_grpc_dc.js")
+(emit-kafka-file "kafka-js/index.js"
+  "export * from \"./kafka_pb.js\";\nexport * from \"./kafka_grpc_dc.js\";\n")
+(define (kafka-npm-manifest name dep-name)
+  (string-append
+   "{\n  \"name\": \"" name "\",\n"
+   "  \"version\": \"" npm-version "\",\n"
+   "  \"description\": \"" kafka-desc " (JavaScript, browser + Node)\",\n"
+   "  \"type\": \"module\",\n  \"main\": \"index.js\",\n"
+   "  \"files\": [\"index.js\", \"kafka_pb.js\", \"kafka_grpc_dc.js\"],\n"
+   "  \"dependencies\": {\"" dep-name "\": \"^" npm-version "\"},\n"
+   "  \"license\": \"Apache-2.0\",\n"
+   "  \"repository\": {\"type\": \"git\", \"url\": \"git+https://github.com/browser-grpc/grpc-over-datachannels.git\"}\n}\n"))
+(emit-kafka-file "kafka-js/package.json" (kafka-npm-manifest "kafka-grpc" "grpc-dc"))
+(emit-kafka-file "kafka-js/package.github.json"
+  (kafka-npm-manifest "@browser-grpc/kafka-grpc" "@browser-grpc/grpc-dc"))
+;; --- PyPI ---
+(copy-kafka-file "python/grpcdc/kafka_pb.py" "kafka-python/grpcdc/kafka_pb.py")
+(copy-kafka-file "python/grpcdc/kafka_grpc_dc.py" "kafka-python/grpcdc/kafka_grpc_dc.py")
+(emit-kafka-file "kafka-python/grpcdc/__init__.py"
+  "\"\"\"Generated grpcdc.kafka.v1 stubs; the runtime lives in the grpc-dc package.\"\"\"\n")
+(emit-kafka-file "kafka-python/README.md"
+  (string-append "# kafka-grpc (Python)\n\n" kafka-desc ".\n\nInstall: `pip install kafka-grpc` (depends on `grpc-dc`).\n"))
+(emit-kafka-file "kafka-python/pyproject.toml"
+  (string-append
+   "[build-system]\nrequires = [\"setuptools>=61\"]\nbuild-backend = \"setuptools.build_meta\"\n\n"
+   "[project]\nname = \"kafka-grpc\"\nversion = \"" npm-version "\"\n"
+   "description = \"" kafka-desc " (Python)\"\nreadme = \"README.md\"\nrequires-python = \">=3.9\"\n"
+   "license = {text = \"Apache-2.0\"}\ndependencies = [\"grpc-dc>=" npm-version "\"]\n\n"
+   "[tool.setuptools.packages.find]\ninclude = [\"grpcdc*\"]\n"))
+;; --- RubyGems ---
+(copy-kafka-file "ruby/grpcdc/kafka_pb.rb" "kafka-ruby/lib/grpcdc/kafka_pb.rb")
+(copy-kafka-file "ruby/grpcdc/kafka_grpc_dc.rb" "kafka-ruby/lib/grpcdc/kafka_grpc_dc.rb")
+(emit-kafka-file "kafka-ruby/lib/kafka_grpc.rb"
+  "require_relative \"grpcdc/kafka_pb\"\nrequire_relative \"grpcdc/kafka_grpc_dc\"\n")
+(emit-kafka-file "kafka-ruby/kafka-grpc.gemspec"
+  (string-append
+   "Gem::Specification.new do |spec|\n"
+   "  spec.name = \"kafka-grpc\"\n  spec.version = \"" npm-version "\"\n"
+   "  spec.authors = [\"John Davis\"]\n"
+   "  spec.summary = \"Kafka over gRPC — generated grpcdc.kafka.v1 Ruby clients\"\n"
+   "  spec.description = \"" kafka-desc " (Ruby).\"\n"
+   "  spec.homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n"
+   "  spec.license = \"Apache-2.0\"\n  spec.required_ruby_version = \">= 3.0\"\n"
+   "  spec.files = Dir[\"lib/**/*.rb\"]\n  spec.require_paths = [\"lib\"]\n"
+   "  spec.add_runtime_dependency \"grpc-dc\", \"= " npm-version "\"\nend\n"))
+;; --- NuGet (own project, ProjectReference on Grpcdc for pack) ---
+(copy-kafka-file "csharp/grpcdc/kafka/v1/KafkaPb.cs" "kafka-csharp/KafkaPb.cs")
+(copy-kafka-file "csharp/grpcdc/kafka/v1/KafkaGrpcDc.cs" "kafka-csharp/KafkaGrpcDc.cs")
+(emit-kafka-file "kafka-csharp/KafkaGrpc.csproj"
+  (string-append
+   "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n"
+   "    <TargetFramework>netstandard2.0</TargetFramework>\n"
+   "    <PackageId>KafkaGrpc</PackageId>\n    <Version>" npm-version "</Version>\n"
+   "    <Authors>John Davis</Authors>\n    <Description>" kafka-desc " (.NET).</Description>\n"
+   "    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>\n"
+   "    <RepositoryUrl>https://github.com/browser-grpc/grpc-over-datachannels</RepositoryUrl>\n"
+   "  </PropertyGroup>\n  <ItemGroup>\n"
+   "    <PackageReference Include=\"GrpcDc\" Version=\"" npm-version "\" />\n"
+   "  </ItemGroup>\n</Project>\n"))
+;; --- Maven (second artifact in the same reactor) ---
+(copy-kafka-file "java/grpcdc/kafka/v1/KafkaPb.java" "kafka-java/grpcdc/kafka/v1/KafkaPb.java")
+(copy-kafka-file "java/grpcdc/kafka/v1/KafkaGrpcDc.java" "kafka-java/grpcdc/kafka/v1/KafkaGrpcDc.java")
+(emit-kafka-file "kafka-java/pom.xml"
+  (string-append
+   "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n  <modelVersion>4.0.0</modelVersion>\n"
+   "  <groupId>io.github.browser-grpc</groupId>\n  <artifactId>kafka-grpc</artifactId>\n"
+   "  <version>" npm-version "</version>\n"
+   "  <name>kafka-grpc</name>\n  <description>" kafka-desc " (Java).</description>\n"
+   "  <url>https://github.com/browser-grpc/grpc-over-datachannels</url>\n"
+   "  <licenses><license><name>Apache-2.0</name></license></licenses>\n"
+   "  <properties><maven.compiler.source>11</maven.compiler.source><maven.compiler.target>11</maven.compiler.target><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>\n"
+   "  <dependencies><dependency><groupId>io.github.browser-grpc</groupId><artifactId>grpc-dc</artifactId><version>" npm-version "</version></dependency></dependencies>\n"
+   "  <build><plugins>\n"
+   "    <plugin><artifactId>maven-source-plugin</artifactId><version>3.3.1</version><executions><execution><id>attach-sources</id><goals><goal>jar-no-fork</goal></goals></execution></executions></plugin>\n"
+   "    <plugin><artifactId>maven-javadoc-plugin</artifactId><version>3.10.0</version><configuration><additionalOptions><additionalOption>-Xdoclint:none</additionalOption></additionalOptions><quiet>true</quiet></configuration><executions><execution><id>attach-javadocs</id><goals><goal>jar</goal></goals></execution></executions></plugin>\n"
+   "    <plugin><groupId>org.sonatype.central</groupId><artifactId>central-publishing-maven-plugin</artifactId><version>0.8.0</version><extensions>true</extensions><configuration><publishingServerId>central</publishingServerId><autoPublish>true</autoPublish><waitUntil>published</waitUntil></configuration></plugin>\n"
+   "  </plugins></build>\n"
+   "  <profiles><profile><id>release</id><build><plugins><plugin><artifactId>maven-gpg-plugin</artifactId><version>3.2.7</version><executions><execution><id>sign-artifacts</id><phase>verify</phase><goals><goal>sign</goal></goals></execution></executions><configuration><gpgArguments><arg>--pinentry-mode</arg><arg>loopback</arg></gpgArguments></configuration></plugin></plugins></build></profile></profiles>\n"
+   "</project>\n"))
+;; --- Cargo (path dependency on the grpc-dc crate in-repo) ---
+(copy-kafka-file "rust/gen/kafka_pb.rs" "kafka-rust/src/kafka_pb.rs")
+(copy-kafka-file "rust/gen/kafka_grpc_dc.rs" "kafka-rust/src/kafka_grpc_dc.rs")
+(emit-kafka-file "kafka-rust/src/lib.rs"
+  "pub mod kafka_pb;\npub mod kafka_grpc_dc;\n")
+(emit-kafka-file "kafka-rust/Cargo.toml"
+  (string-append
+   "[package]\nname = \"kafka-grpc\"\nversion = \"" npm-version "\"\nedition = \"2021\"\n"
+   "license = \"Apache-2.0\"\ndescription = \"" kafka-desc " (Rust).\"\n"
+   "homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n\n"
+   "[dependencies]\ngrpc-dc = { path = \"../../rust\" }\n"))
+;; --- Go (nested module) ---
+(copy-kafka-file "go/kafka/kafka_pb.go" "kafka-go/kafka_pb.go")
+(copy-kafka-file "go/kafka/kafka_grpc_dc.go" "kafka-go/kafka_grpc_dc.go")
+(emit-kafka-file "kafka-go/go.mod"
+  (string-append
+   "module github.com/browser-grpc/grpc-over-datachannels/kafka\n\ngo 1.21\n\n"
+   "require github.com/browser-grpc/grpc-over-datachannels/go v" npm-version "\n"))
+(call-with-output-file (build-path kafka-root "README.md")
+  #:exists 'replace
+  (lambda (out) (display
+   (string-append
+   "# Separate kafka-grpc packages\n\n"
+   "Each `kafka-<lang>` tree here is a standalone package of the\n"
+   "generated `grpcdc.kafka.v1` stubs for one ecosystem, depending\n"
+   "on that ecosystem's `grpc-dc` package at the same version:\n\n"
+   "| Tree | Package | Depends on |\n|---|---|---|\n"
+   "| kafka-js | npm `kafka-grpc` / GitHub `@browser-grpc/kafka-grpc` | `grpc-dc` / `@browser-grpc/grpc-dc` |\n"
+   "| kafka-python | PyPI `kafka-grpc` | `grpc-dc` |\n"
+   "| kafka-ruby | RubyGems/GitHub `kafka-grpc` | `grpc-dc` |\n"
+   "| kafka-csharp | NuGet/GitHub `KafkaGrpc` | `GrpcDc` |\n"
+   "| kafka-java | Maven `io.github.browser-grpc:kafka-grpc` | `io.github.browser-grpc:grpc-dc` |\n"
+   "| kafka-rust | crates.io `kafka-grpc` | `grpc-dc` |\n"
+   "| kafka-go | module `github.com/browser-grpc/grpc-over-datachannels/kafka` | `.../go` |\n\n"
+   "Kotlin, Scala, Dart, PHP, Lua, Swift, Zig, C and C++ carry the\n"
+   "same two generated files inside their grpc-dc trees (those\n"
+   "ecosystems have no separate package split here). Publishing is\n"
+   "driven by scripts/release-push.sh; see GITHUB-PACKAGES.md.\n")
+   out)))
 (call-with-output-file (build-path out-dir "python/pyproject.toml")
   #:exists 'replace
   (lambda (out)
