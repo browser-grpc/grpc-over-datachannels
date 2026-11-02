@@ -63,7 +63,7 @@ public static class Tracing
     // '*' means prefix match ('/echo.Echo/*'). Empty = trace all.
     public static void SetTraceFilter(string patterns)
     {
-        _traceFilter = patterns.Split(';', System.StringSplitOptions.RemoveEmptyEntries);
+        _traceFilter = patterns.Split(new char[] { ';' }, System.StringSplitOptions.RemoveEmptyEntries);
     }
 
     public static bool TraceAllowed(string method)
@@ -115,8 +115,8 @@ public static class Tracing
     private static string RandomHex(int bytes)
     {
         byte[] buf = new byte[bytes];
-        System.Security.Cryptography.RandomNumberGenerator.Fill(buf);
-        return Convert.ToHexString(buf).ToLowerInvariant();
+        using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create()) rng.GetBytes(buf);
+        return System.BitConverter.ToString(buf).Replace("-", "").ToLowerInvariant();
     }
 
     public static TraceContext TraceStart(string kind, string method, Parent parent)

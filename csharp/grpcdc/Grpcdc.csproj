@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <AssemblyName>Grpcdc</AssemblyName>
@@ -9,11 +10,22 @@
          by the release exporter into the published tree). -->
     <PackageId>GrpcDc</PackageId>
     <Authors>John Davis</Authors>
-    <Description>gRPC over WebRTC DataChannels for .NET — dependency-free generated gRPC clients and servers, no grpc-web proxy</Description>
+    <Description>gRPC over WebRTC DataChannels for .NET (net8.0 + netstandard2.0) — generated gRPC clients and servers, no grpc-web proxy</Description>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://browser-grpc.github.io/grpc-over-datachannels/</PackageProjectUrl>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/browser-grpc/grpc-over-datachannels</RepositoryUrl>
     <PackageTags>grpc;webrtc;datachannel;protobuf;browser</PackageTags>
   </PropertyGroup>
+  <!-- netstandard2.0 (Unity / .NET Framework 4.7.2+ / Mono / Xamarin
+       reach): first-party BCL compat packages for the async/JSON
+       surface, and no raw-TCP HTTP/2 transport (no
+       SslClientAuthenticationOptions there). net8.0 stays
+       dependency-free. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="8.0.0" />
+    <PackageReference Include="System.Threading.Channels" Version="8.0.0" />
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <Compile Remove="Http2Transport.cs" />
+  </ItemGroup>
 </Project>

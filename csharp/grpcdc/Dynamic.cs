@@ -489,7 +489,7 @@ public static class Dynamic
             case 5:
             {
                 int bits = field.Type == TypeFloat
-                    ? BitConverter.SingleToInt32Bits(Convert.ToSingle(value))
+                    ? BitConverter.ToInt32(BitConverter.GetBytes(Convert.ToSingle(value)), 0)
                     : Convert.ToInt32(value);
                 for (int i = 0; i < 4; i++)
                 {
@@ -581,7 +581,7 @@ public static class Dynamic
                 }
                 if (field.Type == TypeFloat)
                 {
-                    return BitConverter.Int32BitsToSingle(bits);
+                    return BitConverter.ToSingle(BitConverter.GetBytes(bits), 0);
                 }
                 return (long)(uint)bits;
             }

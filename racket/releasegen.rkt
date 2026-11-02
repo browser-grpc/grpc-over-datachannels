@@ -141,7 +141,7 @@
     (call-with-output-file readme-dst #:exists 'replace
       (lambda (out)
         (display
-         "# GrpcDc\n\ngRPC over WebRTC DataChannels for .NET — dependency-free generated gRPC clients and servers.\n\nSee https://browser-grpc.github.io/grpc-over-datachannels/ and the `csharp/README.md` in the repository.\n"
+         "# GrpcDc\n\ngRPC over WebRTC DataChannels for .NET (net8.0 + netstandard2.0: Unity, .NET Framework 4.7.2+, Mono, Xamarin) — generated gRPC clients and servers.\n\nSee https://browser-grpc.github.io/grpc-over-datachannels/ and the `csharp/README.md` in the repository.\n"
          out)))
     (define text (file->string csproj))
     (call-with-output-file csproj #:exists 'replace
@@ -2653,7 +2653,7 @@
 (emit-kafka-file "kafka-csharp/KafkaGrpc.csproj"
   (string-append
    "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n"
-   "    <TargetFramework>net8.0</TargetFramework>\n"
+   "    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>\n    <LangVersion>latest</LangVersion>\n"
    "    <PackageId>KafkaGrpc</PackageId>\n    <Version>" npm-version "</Version>\n"
    "    <Authors>John Davis</Authors>\n    <Description>" kafka-desc " (.NET).</Description>\n"
    "    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>\n"

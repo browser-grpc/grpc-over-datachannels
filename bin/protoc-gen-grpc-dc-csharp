@@ -11796,7 +11796,10 @@
        (arg 0)
        (case-on
         (ref type)
-        ((2) (fmt "BitConverter.Int32BitsToSingle((int) ~a)" (arg 1)))
+        ((2)
+         (fmt
+          "BitConverter.ToSingle(BitConverter.GetBytes((int) ~a), 0)"
+          (arg 1)))
         ((1) (fmt "BitConverter.Int64BitsToDouble(~a)" (arg 1)))
         ((7) (fmt "(uint) ~a" (arg 1)))
         ((15) (fmt "(int) ~a" (arg 1)))
@@ -11876,7 +11879,8 @@
              (cs-field-name)
              (case-on
               (ref type)
-              ((2) "BitConverter.Int32BitsToSingle(sub.Fixed32())")
+              ((2)
+               "BitConverter.ToSingle(BitConverter.GetBytes(sub.Fixed32()), 0)")
               ((1) "BitConverter.Int64BitsToDouble(sub.Fixed64())")
               ((7) "(uint) sub.Fixed32()")
               ((15) "sub.Fixed32()")
@@ -11887,7 +11891,8 @@
              (cs-field-name)
              (case-on
               (ref type)
-              ((2) "BitConverter.Int32BitsToSingle((int) field.FixedValue)")
+              ((2)
+               "BitConverter.ToSingle(BitConverter.GetBytes((int) field.FixedValue), 0)")
               ((1) "BitConverter.Int64BitsToDouble(field.FixedValue)")
               ((7) "(uint) field.FixedValue")
               ((15) "(int) field.FixedValue")
@@ -16693,7 +16698,7 @@
    "        public void Raw(byte[] payload) { _out.Write(payload, 0, payload.Length); }\n"
    "        public void FixedInt(int value) { _out.WriteByte((byte) value); _out.WriteByte((byte) (value >> 8)); _out.WriteByte((byte) (value >> 16)); _out.WriteByte((byte) (value >> 24)); }\n"
    "        public void FixedLong(long value) { for (int i = 0; i < 8; i++) _out.WriteByte((byte) (value >> (8 * i))); }\n"
-   "        public void FixedFloat(float value) { FixedInt(BitConverter.SingleToInt32Bits(value)); }\n"
+   "        public void FixedFloat(float value) { FixedInt(BitConverter.ToInt32(BitConverter.GetBytes(value), 0)); }\n"
    "        public void FixedDouble(double value) { FixedLong(BitConverter.DoubleToInt64Bits(value)); }\n"
    "        public byte[] ToBytes() => _out.ToArray();\n"
    "    }\n\n"

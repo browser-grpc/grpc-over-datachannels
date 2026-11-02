@@ -79,7 +79,7 @@ public static class Tracing
     // '*' means prefix match ('/echo.Echo/*'). Empty = trace all.
     public static void SetTraceFilter(string patterns)
     {
-        _traceFilter = patterns.Split(';', System.StringSplitOptions.RemoveEmptyEntries);
+        _traceFilter = patterns.Split(new char[] { ';' }, System.StringSplitOptions.RemoveEmptyEntries);
     }
 
     public static bool TraceAllowed(string method)
@@ -131,8 +131,8 @@ public static class Tracing
     private static string RandomHex(int bytes)
     {
         byte[] buf = new byte[bytes];
-        System.Security.Cryptography.RandomNumberGenerator.Fill(buf);
-        return Convert.ToHexString(buf).ToLowerInvariant();
+        using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create()) rng.GetBytes(buf);
+        return System.BitConverter.ToString(buf).Replace("-", "").ToLowerInvariant();
     }
 
     public static TraceContext TraceStart(string kind, string method, Parent parent)
@@ -421,7 +421,11 @@ public interface ITransport
     /// <summary>Next message; throws EndOfStreamException when closed.</summary>
     byte[] Recv();
 
+#if NET8_0_OR_GREATER
     void Close() { }
+#else
+    void Close();
+#endif
 }
 
 /// <summary>Implemented by generated protobuf message types.</summary>
@@ -1464,8 +1468,42 @@ GRPC_RUNTIME_EOF
            (string-append (string (char-upcase (string-ref part 0)))
                           (string-downcase (substring part 1))))))
 
+(define csharp-netstandard-shims-body
+#<<GRPC_RUNTIME_EOF
+#if NETSTANDARD2_0
+namespace System.Runtime.CompilerServices
+{
+    internal static class IsExternalInit { }
+}
+
+namespace Grpcdc
+{
+    using System.Threading;
+    using System.Threading.Tasks;
+
+    internal static class NetstandardCompat
+    {
+        public static async System.Collections.Generic.IAsyncEnumerable<T> ReadAll<T>(
+            System.Threading.Channels.ChannelReader<T> reader,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        {
+            while (await reader.WaitToReadAsync(ct).ConfigureAwait(false))
+            {
+                while (reader.TryRead(out var item))
+                {
+                    yield return item;
+                }
+            }
+        }
+    }
+}
+#endif
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-csharp-runtime-files)
   (list
+   (cons "grpcdc/NetstandardShims.cs" csharp-netstandard-shims-body)
    (cons "grpcdc/StatusException.cs" csharp-status-body)
    (cons "grpcdc/Codec.cs" csharp-codec-body)
    (cons "grpcdc/Transport.cs" csharp-transport-body)
@@ -1547,7 +1585,11 @@ public static class AsyncPump
         }, cancellationToken);
         try
         {
+#if NETSTANDARD2_0
+            await foreach (T item in NetstandardCompat.ReadAll(channel.Reader, cancellationToken))
+#else
             await foreach (T item in channel.Reader.ReadAllAsync(cancellationToken))
+#endif
             {
                 yield return item;
             }
@@ -2062,7 +2104,7 @@ public static class Dynamic
             case 5:
             {
                 int bits = field.Type == TypeFloat
-                    ? BitConverter.SingleToInt32Bits(Convert.ToSingle(value))
+                    ? BitConverter.ToInt32(BitConverter.GetBytes(Convert.ToSingle(value)), 0)
                     : Convert.ToInt32(value);
                 for (int i = 0; i < 4; i++)
                 {
@@ -2154,7 +2196,7 @@ public static class Dynamic
                 }
                 if (field.Type == TypeFloat)
                 {
-                    return BitConverter.Int32BitsToSingle(bits);
+                    return BitConverter.ToSingle(BitConverter.GetBytes(bits), 0);
                 }
                 return (long)(uint)bits;
             }

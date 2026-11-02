@@ -11796,7 +11796,10 @@
        (arg 0)
        (case-on
         (ref type)
-        ((2) (fmt "BitConverter.Int32BitsToSingle((int) ~a)" (arg 1)))
+        ((2)
+         (fmt
+          "BitConverter.ToSingle(BitConverter.GetBytes((int) ~a), 0)"
+          (arg 1)))
         ((1) (fmt "BitConverter.Int64BitsToDouble(~a)" (arg 1)))
         ((7) (fmt "(uint) ~a" (arg 1)))
         ((15) (fmt "(int) ~a" (arg 1)))
@@ -11876,7 +11879,8 @@
              (cs-field-name)
              (case-on
               (ref type)
-              ((2) "BitConverter.Int32BitsToSingle(sub.Fixed32())")
+              ((2)
+               "BitConverter.ToSingle(BitConverter.GetBytes(sub.Fixed32()), 0)")
               ((1) "BitConverter.Int64BitsToDouble(sub.Fixed64())")
               ((7) "(uint) sub.Fixed32()")
               ((15) "sub.Fixed32()")
@@ -11887,7 +11891,8 @@
              (cs-field-name)
              (case-on
               (ref type)
-              ((2) "BitConverter.Int32BitsToSingle((int) field.FixedValue)")
+              ((2)
+               "BitConverter.ToSingle(BitConverter.GetBytes((int) field.FixedValue), 0)")
               ((1) "BitConverter.Int64BitsToDouble(field.FixedValue)")
               ((7) "(uint) field.FixedValue")
               ((15) "(int) field.FixedValue")

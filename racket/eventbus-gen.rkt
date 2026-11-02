@@ -6835,6 +6835,10 @@ public static class EventbusGit
 
     public const string EventLogBranch = "grpc-dc-events";
 
+#if !NET8_0_OR_GREATER
+    static string Quote(string v) { return "\"" + v.Replace("\"", "\\\"") + "\""; }
+#endif
+
     public static byte[] Git(string repo, List<string> args, byte[] inputBytes = null,
                              Dictionary<string, string> envExtra = null)
     {
@@ -6845,9 +6849,13 @@ public static class EventbusGit
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+#if NET8_0_OR_GREATER
         psi.ArgumentList.Add("-C");
         psi.ArgumentList.Add(repo);
         foreach (var a in args) psi.ArgumentList.Add(a);
+#else
+        psi.Arguments = "-C " + Quote(repo) + " " + string.Join(" ", args.Select(a => Quote(a)));
+#endif
         if (envExtra != null)
         {
             foreach (var kv in envExtra) psi.Environment[kv.Key] = kv.Value;
@@ -6890,9 +6898,13 @@ public static class EventbusGit
                 RedirectStandardError = true,
                 UseShellExecute = false,
             };
+#if NET8_0_OR_GREATER
             psi.ArgumentList.Add("init");
             psi.ArgumentList.Add("-q");
             psi.ArgumentList.Add(repo);
+#else
+            psi.Arguments = "init -q " + Quote(repo);
+#endif
             using var proc = Process.Start(psi);
             proc.StandardOutput.ReadToEnd();
             proc.StandardError.ReadToEnd();

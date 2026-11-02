@@ -14,7 +14,11 @@ public interface ITransport
     /// <summary>Next message; throws EndOfStreamException when closed.</summary>
     byte[] Recv();
 
+#if NET8_0_OR_GREATER
     void Close() { }
+#else
+    void Close();
+#endif
 }
 
 /// <summary>Implemented by generated protobuf message types.</summary>

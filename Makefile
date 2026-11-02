@@ -372,7 +372,8 @@ test-java:
 		&& java -cp build tests.TestPbMessages && java -cp build tests.TestBddSchemas
 
 test-csharp:
-	cd csharp && dotnet build tests/Tests.csproj --nologo -v q \
+	cd csharp && dotnet build grpcdc/Grpcdc.csproj -f netstandard2.0 --nologo -v q \
+		&& dotnet build tests/Tests.csproj --nologo -v q \
 		&& dotnet build examples/EchoServerStdio/EchoServerStdio.csproj --nologo -v q \
 		&& dotnet build examples/EchoClientStdio/EchoClientStdio.csproj --nologo -v q \
 		&& dotnet run --project tests --no-build -- TestCodec \
