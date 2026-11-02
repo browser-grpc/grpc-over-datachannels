@@ -1,0 +1,11 @@
+{
+  "name": "@browser-grpc/kafka-grpc",
+  "version": "0.36.0",
+  "description": "Kafka over gRPC — generated grpcdc.kafka.v1 clients (produce/consume/groups/topics) speaking gRPC over WebRTC DataChannels, via the grpc-dc runtime (JavaScript, browser + Node)",
+  "type": "module",
+  "main": "index.js",
+  "files": ["index.js", "kafka_pb.js", "kafka_grpc_dc.js"],
+  "dependencies": {"@browser-grpc/grpc-dc": "^0.36.0"},
+  "license": "Apache-2.0",
+  "repository": {"type": "git", "url": "git+https://github.com/browser-grpc/grpc-over-datachannels.git"}
+}

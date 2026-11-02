@@ -1,0 +1,10 @@
+[package]
+name = "kafka-grpc"
+version = "0.36.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Kafka over gRPC — generated grpcdc.kafka.v1 clients (produce/consume/groups/topics) speaking gRPC over WebRTC DataChannels, via the grpc-dc runtime (Rust)."
+homepage = "https://github.com/browser-grpc/grpc-over-datachannels"
+
+[dependencies]
+grpc-dc = { path = "../../rust" }
