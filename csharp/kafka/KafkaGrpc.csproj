@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>KafkaGrpc</AssemblyName>
+    <RootNamespace>Grpcdc.kafka.v1</RootNamespace>
+    <PackageId>KafkaGrpc</PackageId>
+    <Authors>John Davis</Authors>
+    <Description>Kafka over gRPC for .NET (net8.0 + netstandard2.0) — generated grpcdc.kafka.v1 clients for the Rust Kafka proxy</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/browser-grpc/grpc-over-datachannels</RepositoryUrl>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../grpcdc/Grpcdc.csproj" />
+    <Compile Include="../grpcdc/kafka/v1/*.cs" LinkBase="kafka/v1" />
+  </ItemGroup>
+</Project>

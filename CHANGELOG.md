@@ -3,7 +3,18 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.37.0 — 2026-11-02
+## v0.37.1 — 2026-11-03
+
+- C# packaging fix (found by a consumer compile check after
+  v0.37.0): the `grpcdc.kafka.v1` stub types were compiled into
+  both the `GrpcDc` and `KafkaGrpc` assemblies, so any C#
+  consumer referencing `KafkaGrpc` hit CS0433 type ambiguity.
+  The kafka stubs now live only in `KafkaGrpc`
+  (`csharp/kafka/KafkaGrpc.csproj`); `GrpcDc` keeps the runtime
+  and events stubs. Breaking for anyone who used kafka types
+  from `GrpcDc` directly: reference `KafkaGrpc` instead.
+
+## v0.37.0 — 2026-11-02 (published to GitHub/npm/PyPI/GHCR/NuGet/GitHub Maven)
 
 - C# runtime (`GrpcDc` NuGet) now multi-targets
   `netstandard2.0;net8.0` via the generators: Unity, .NET

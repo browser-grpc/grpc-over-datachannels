@@ -2,7 +2,7 @@
 # Build from the export root: gem build ruby/grpc-dc.gemspec
 Gem::Specification.new do |spec|
   spec.name = "grpc-dc"
-  spec.version = "0.37.0"
+  spec.version = "0.37.1"
   spec.authors = ["John Davis"]
   spec.summary = "gRPC over WebRTC DataChannels, dependency-free generated Ruby runtime"
   spec.description = "Generated, stdlib-only gRPC clients and servers for Ruby speaking the gRPC wire protocol over a WebRTC DataChannel, plus generated stubs (incl. grpcdc.kafka.v1). No grpc library underneath."
