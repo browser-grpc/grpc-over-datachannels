@@ -67,7 +67,11 @@ public static class AsyncPump
         }, cancellationToken);
         try
         {
+#if NETSTANDARD2_0
+            await foreach (T item in NetstandardCompat.ReadAll(channel.Reader, cancellationToken))
+#else
             await foreach (T item in channel.Reader.ReadAllAsync(cancellationToken))
+#endif
             {
                 yield return item;
             }

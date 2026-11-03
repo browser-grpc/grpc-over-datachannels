@@ -14,7 +14,7 @@ internal static class EmptyPb {
         public void Raw(byte[] payload) { _out.Write(payload, 0, payload.Length); }
         public void FixedInt(int value) { _out.WriteByte((byte) value); _out.WriteByte((byte) (value >> 8)); _out.WriteByte((byte) (value >> 16)); _out.WriteByte((byte) (value >> 24)); }
         public void FixedLong(long value) { for (int i = 0; i < 8; i++) _out.WriteByte((byte) (value >> (8 * i))); }
-        public void FixedFloat(float value) { FixedInt(BitConverter.SingleToInt32Bits(value)); }
+        public void FixedFloat(float value) { FixedInt(BitConverter.ToInt32(BitConverter.GetBytes(value), 0)); }
         public void FixedDouble(double value) { FixedLong(BitConverter.DoubleToInt64Bits(value)); }
         public byte[] ToBytes() => _out.ToArray();
     }

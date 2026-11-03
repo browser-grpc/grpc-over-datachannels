@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>GrpcdcNetstandardConsumer</AssemblyName>
+    <RootNamespace>Consumer</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="ConsumerSmoke.cs" />
+  </ItemGroup>
+  <!-- True consumer view: only the packed GrpcDc nupkg (from the
+       local feed written by `make test-csharp`), never a project
+       reference, so TFM selection and the netstandard dependency
+       group are exercised exactly as a Unity / .NET Framework /
+       Mono consumer sees them. -->
+  <ItemGroup>
+    <PackageReference Include="GrpcDc" Version="1.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../examples/Pb.cs" Link="Echo/Pb.cs" />
+    <Compile Include="../examples/EchoPb.cs" Link="Echo/EchoPb.cs" />
+    <Compile Include="../examples/EchoRequest.cs" Link="Echo/EchoRequest.cs" />
+    <Compile Include="../examples/EchoResponse.cs" Link="Echo/EchoResponse.cs" />
+    <Compile Include="../examples/EchoGrpcDc.cs" Link="Echo/EchoGrpcDc.cs" />
+    <Compile Include="../examples/EchoServiceImpl.cs" Link="Echo/EchoServiceImpl.cs" />
+  </ItemGroup>
+</Project>
