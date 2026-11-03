@@ -20,5 +20,6 @@ jobs:
       - run: npm install -g npm@latest
       - working-directory: js
         run: npm publish --provenance --access public
-      - working-directory: packages/kafka-js
+      - if: "!cancelled()"
+        working-directory: packages/kafka-js
         run: npm publish --provenance --access public
