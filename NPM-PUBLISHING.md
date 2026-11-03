@@ -1,17 +1,16 @@
 # Publishing grpc-dc to npm (maintainers)
 
-Two paths exist. Path 1 is active today; path 2 replaces
-it before npm retires token-based direct publishing in
-January 2027 (the current granular token also expires
-2027-01-22).
+The Trusted Publishing workflow (path 2) is the active
+publish path since v0.37.1: `scripts/release-push.sh`
+dispatches it during a release. The local-token path is
+kept below as a fallback only; npm retires token-based
+direct publishing in January 2027.
 
-## Path 1: local token (current)
+## Path 1: local token (fallback)
 
-`scripts/release-push.sh` in the private source repo
-publishes `js/` from the generated export during a
-release, using the maintainer's granular access token
-(scope: the `grpc-dc` package only). No action is needed
-per release beyond being logged in.
+With a granular access token (all-packages, bypass 2FA)
+in `~/.npmrc`: `npm publish --access public` in `js/`
+and `packages/kafka-js` from the generated export.
 
 ## Path 2: Trusted Publishing via GitHub Actions
 
