@@ -496,6 +496,12 @@
       "          user: unicomp21\n"
       "      - name: Pack GrpcDc\n"
       "        run: dotnet pack csharp/grpcdc/Grpcdc.csproj -c Release -o /tmp/nuget\n"
+      "      - name: Push GrpcDc to nuget.org\n"
+      "        run: dotnet nuget push /tmp/nuget/GrpcDc.*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate\n"
+      "      - name: Wait for GrpcDc indexing (KafkaGrpc restore needs it)\n"
+      "        run: |\n"
+      "          V=$(grep -oPm1 '(?<=Include=\"GrpcDc\" Version=\")[^\"]+' packages/kafka-csharp/KafkaGrpc.csproj)\n"
+      "          for i in $(seq 1 40); do curl -sf https://api.nuget.org/v3-flatcontainer/grpcdc/index.json | grep -q \"\\\"$V\\\"\" && exit 0; sleep 15; done; echo 'GrpcDc not indexed in time' >&2; exit 1\n"
       "      - name: Pack KafkaGrpc\n"
       "        run: dotnet pack packages/kafka-csharp/KafkaGrpc.csproj -c Release -o /tmp/nuget\n"
       "      - name: Push to nuget.org\n"
@@ -2661,8 +2667,13 @@
    "  spec.files = Dir[\"lib/**/*.rb\"]\n  spec.require_paths = [\"lib\"]\n"
    "  spec.add_runtime_dependency \"grpc-dc\", \"= " npm-version "\"\nend\n"))
 ;; --- NuGet (own project, ProjectReference on Grpcdc for pack) ---
-(copy-kafka-file "csharp/grpcdc/kafka/v1/KafkaPb.cs" "kafka-csharp/KafkaPb.cs")
-(copy-kafka-file "csharp/grpcdc/kafka/v1/KafkaGrpcDc.cs" "kafka-csharp/KafkaGrpcDc.cs")
+;; All kafka stub sources (support + client + every message
+;; type), not just the two framework files: the package must
+;; compile against a GrpcDc that carries no kafka types.
+(for ([f (in-list (directory-list (build-path out-dir "csharp/grpcdc/kafka/v1")))]
+      #:when (path-has-extension? f #".cs"))
+  (copy-kafka-file (build-path "csharp/grpcdc/kafka/v1" f)
+                   (build-path "kafka-csharp" f)))
 (emit-kafka-file "kafka-csharp/KafkaGrpc.csproj"
   (string-append
    "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n"
