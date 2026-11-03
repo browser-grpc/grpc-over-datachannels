@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## Unreleased
+## v0.37.1 — 2026-11-03
 
 - C# packaging fix (found by a consumer compile check after
   v0.37.0): the `grpcdc.kafka.v1` stub types were compiled into
@@ -13,7 +13,6 @@ curated release tags on `master`; dates are the tag dates.
   (`csharp/kafka/KafkaGrpc.csproj`); `GrpcDc` keeps the runtime
   and events stubs. Breaking for anyone who used kafka types
   from `GrpcDc` directly: reference `KafkaGrpc` instead.
-  Ships in the next release.
 
 ## v0.37.0 — 2026-11-02 (published to GitHub/npm/PyPI/GHCR/NuGet/GitHub Maven)
 
