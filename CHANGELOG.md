@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.37.1 — 2026-11-03
+## v0.37.1 — 2026-11-03 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven)
 
 - C# packaging fix (found by a consumer compile check after
   v0.37.0): the `grpcdc.kafka.v1` stub types were compiled into
