@@ -223,37 +223,21 @@ if [ -f "$EXPORT/org-profile/README.md" ]; then
 fi
 
 # ------------------------------------------------------------------
-# 3b. Package registries (npm). Publishing needs NPM_TOKEN in
-#    the environment (or a prior `npm login`); without it this
-#    step is a loud note, never a silent skip and never a failed
-#    publish. The tarball is always dry-run first (file list +
-#    metadata are the newcomer-facing artifact).
+# 3b. Package registries (npm). Canonical publish is the
+#    publish-npm Trusted Publishing workflow (dispatched in 4b;
+#    OIDC, no stored token — required since npm retires
+#    bypass-2FA token publishing in Jan 2027). Here we only
+#    dry-run both tarballs (file list + metadata are the
+#    newcomer-facing artifact) so a malformed package fails
+#    loudly before anything is dispatched.
 # ------------------------------------------------------------------
 NPM_DIR="$EXPORT/js"
 if [ -d "$NPM_DIR" ] && command -v npm >/dev/null 2>&1; then
   (cd "$NPM_DIR" && npm publish --dry-run 2>&1 | tail -5) || true
-  if npm whoami >/dev/null 2>&1; then
-    if (cd "$NPM_DIR" && npm publish --access public); then
-      NPM_OK=1
-      echo "npm: grpc-dc@$VERSION published"
-    else
-      echo "note: npm publish failed (version may already exist); continuing"
-    fi
-  else
-    echo "note: npm publish skipped (not logged in; set NPM_TOKEN or npm login)"
-  fi
 fi
-
-# npm (kafka-grpc): separate package, same treatment.
 KAFKA_NPM_DIR="$EXPORT/packages/kafka-js"
 if [ -d "$KAFKA_NPM_DIR" ] && command -v npm >/dev/null 2>&1; then
-  if npm whoami >/dev/null 2>&1; then
-    if (cd "$KAFKA_NPM_DIR" && npm publish --access public); then
-      echo "npm: kafka-grpc@$VERSION published"
-    else
-      echo "note: npm kafka-grpc publish failed (version may already exist); continuing"
-    fi
-  fi
+  (cd "$KAFKA_NPM_DIR" && npm publish --dry-run 2>&1 | tail -5) || true
 fi
 
 # 3b2. Package registries (PyPI). Publishing needs a persistent
@@ -519,7 +503,7 @@ echo "release asset: grpc-dc-$VERSION.zip + SHA256SUMS uploaded"
 # ------------------------------------------------------------------
 NPM_OK="${NPM_OK:-0}"; PYPI_OK="${PYPI_OK:-0}"
 NUGET_OK=0; MAVEN_OK=0; MAVEN_GH_OK=0
-for wf in publish-nuget publish-maven publish-maven-github; do
+for wf in publish-npm publish-nuget publish-maven publish-maven-github; do
   if [ "$wf" = publish-maven ] && [ "${SKIP_CENTRAL:-}" = 1 ]; then
     echo "note: Maven Central dispatch skipped (SKIP_CENTRAL=1); sync Central in its weekly slot"
     continue
@@ -529,6 +513,7 @@ for wf in publish-nuget publish-maven publish-maven-github; do
     RUN_ID="$(gh run list --repo "$REPO" --workflow "$wf.yml" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)"
     if [ -n "$RUN_ID" ] && gh run watch "$RUN_ID" --repo "$REPO" --exit-status >/dev/null 2>&1; then
       echo "registry workflow $wf: succeeded (run $RUN_ID)"
+      [ "$wf" = publish-npm ] && NPM_OK=1
       [ "$wf" = publish-nuget ] && NUGET_OK=1
       [ "$wf" = publish-maven ] && MAVEN_OK=1
       [ "$wf" = publish-maven-github ] && MAVEN_GH_OK=1

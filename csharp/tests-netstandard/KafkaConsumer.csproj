@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>GrpcdcKafkaNetstandardConsumer</AssemblyName>
+    <RootNamespace>Consumer</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <!-- Regression gate for the v0.37.0 CS0433 break: kafka stub
+       types must resolve from the packed KafkaGrpc nupkg alone
+       (with GrpcDc arriving transitively), never from both. -->
+  <ItemGroup>
+    <Compile Include="KafkaUse.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="KafkaGrpc" Version="1.0.0" />
+  </ItemGroup>
+</Project>

@@ -9,7 +9,12 @@ namespace NetstandardHost
             try
             {
                 string summary = Consumer.ConsumerSmoke.Run();
-                Console.WriteLine("CONSUMER_SMOKE_OK " + summary);
+                string kafkaAssembly = Consumer.KafkaUse.Check();
+                if (kafkaAssembly != "KafkaGrpc")
+                {
+                    throw new Exception("kafka types resolved from " + kafkaAssembly + ", expected KafkaGrpc");
+                }
+                Console.WriteLine("CONSUMER_SMOKE_OK " + summary + " kafka@" + kafkaAssembly);
                 return 0;
             }
             catch (Exception e)
