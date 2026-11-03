@@ -70,6 +70,14 @@ jobs:
           zip -d packages/kafka-java/target/central-publishing/central-bundle.zip '*/_remote.repositories*' '*/maven-metadata-local.xml*' || true
           ID=$(curl -sf -X POST -H "Authorization: Bearer $TOKEN" -F "bundle=@packages/kafka-java/target/central-publishing/central-bundle.zip" "https://central.sonatype.com/api/v1/publisher/upload?name=kafka-grpc&publishingType=USER_MANAGED")
           echo "deployment: $ID"
+          for i in $(seq 1 40); do
+            STATE=$(curl -sf -X POST -H "Authorization: Bearer $TOKEN" "https://central.sonatype.com/api/v1/publisher/status?id=$ID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["deploymentState"])')
+            echo "state: $STATE"
+            [ "$STATE" = VALIDATED ] && break
+            [ "$STATE" = FAILED ] && exit 1
+            sleep 15
+          done
+          curl -sf -X POST -H "Authorization: Bearer $TOKEN" "https://central.sonatype.com/api/v1/publisher/deployment/$ID"
           for i in $(seq 1 120); do
             STATE=$(curl -sf -X POST -H "Authorization: Bearer $TOKEN" "https://central.sonatype.com/api/v1/publisher/status?id=$ID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["deploymentState"])')
             echo "state: $STATE"
