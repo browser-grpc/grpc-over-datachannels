@@ -460,7 +460,8 @@
       "      - run: npm install -g npm@latest\n"
       "      - working-directory: js\n"
       "        run: npm publish --provenance --access public\n"
-      "      - working-directory: packages/kafka-js\n"
+      "      - if: \"!cancelled()\"\n"
+      "        working-directory: packages/kafka-js\n"
       "        run: npm publish --provenance --access public\n")
      out)))
 
