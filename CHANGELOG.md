@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.37.0 — 2026-11-02
+## v0.37.0 — 2026-11-02 (published to GitHub/npm/PyPI/GHCR/NuGet/GitHub Maven)
 
 - C# runtime (`GrpcDc` NuGet) now multi-targets
   `netstandard2.0;net8.0` via the generators: Unity, .NET
