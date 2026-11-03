@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../examples/Examples.csproj" />
+    <ProjectReference Include="../kafka/KafkaGrpc.csproj" />
   </ItemGroup>
 </Project>
