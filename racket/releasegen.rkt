@@ -1940,6 +1940,9 @@
    "rust" (list "Rust"
                 "cd rust && cargo test"
                 "Add the crate by path: `grpc-dc = { path = \"rust\" }` in Cargo.toml. No external crates.")
+   "csharp" (list "C#"
+                  "cd csharp && dotnet run --project tests -- TestEcho"
+                  "`dotnet add package GrpcDc` (net8.0: zero dependencies; netstandard2.0 pulls three first-party BCL compat packages for async/JSON). The raw-TCP HTTP/2 transport is net8-only; the DataChannel core and generated stubs run everywhere.\n\n### Unity (and .NET Framework 4.7.2+, Mono, Xamarin)\n\nThe netstandard2.0 build is the Unity target. Add `GrpcDc` with NuGetForUnity (or drop the `lib/netstandard2.0` DLLs plus `Microsoft.Bcl.AsyncInterfaces`, `System.Threading.Channels`, and `System.Text.Json` into `Assets/Plugins`). Implement `Grpcdc.ITransport` over your `RTCDataChannel` — `Send(byte[])` per message, `Recv()` blocking until the next message (throw `EndOfStreamException` on close), and `Close()` (explicit on netstandard; it has a default only on net8) — then serve or dial exactly like the Echo example in `examples/`. A maintained consumer doing this against the packed nupkg lives in the source repo under `csharp/tests-netstandard` and runs in CI under Mono.")
    ))
 (define (emit-language-readme dir)
   (define spec (hash-ref per-language-readmes dir #f))
@@ -1950,9 +1953,9 @@
     (if spec
         (string-append
          "# " (first spec) " — grpc-dc runtime\n\n"
-         "Start here if you are new to the project. The runtime in\n"
-         "this directory is generated, dependency-free, and speaks\n"
-         "the gRPC wire protocol over WebRTC DataChannels.\n\n"
+         (if (equal? dir "csharp")
+             "Start here if you are new to the project. The runtime in\nthis directory is generated and speaks the gRPC wire\nprotocol over WebRTC DataChannels (net8.0 dependency-free;\nnetstandard2.0 adds BCL compat packages).\n\n"
+             "Start here if you are new to the project. The runtime in\nthis directory is generated, dependency-free, and speaks\nthe gRPC wire protocol over WebRTC DataChannels.\n\n")
          "## First run\n\n```sh\n    " (second spec) "\n```\n\n"
          "## Use it in your project\n\n" (third spec) "\n\n"
          "## Regenerate stubs for your schema\n\n"
