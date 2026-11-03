@@ -16,14 +16,16 @@ per release beyond being logged in.
 ## Path 2: Trusted Publishing via GitHub Actions
 
 This export ships `.github/workflows/publish-npm.yml`
-(manual dispatch only). It publishes `js/` with
+(manual dispatch only). It publishes `js/` (grpc-dc)
+and `packages/kafka-js` (kafka-grpc) with
 `npm publish --provenance` using the workflow's OIDC
 identity — no token is stored anywhere.
 
 One-time setup on npmjs.com (package owner, passkey
-required):
+required), once per package:
 
-1. Open the `grpc-dc` package settings, Trusted Publisher.
+1. Open the package settings (`grpc-dc` and
+   `kafka-grpc`), Trusted Publisher.
 2. Add GitHub Actions: repository
    `browser-grpc/grpc-over-datachannels`, workflow
    filename `publish-npm.yml`, no environment.

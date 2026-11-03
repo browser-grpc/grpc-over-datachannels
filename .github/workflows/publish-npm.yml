@@ -1,7 +1,8 @@
-# Publish the grpc-dc npm package via Trusted Publishing
-# (OIDC). Manual dispatch only; see NPM-PUBLISHING.md.
-# Requires the Trusted Publisher configured for grpc-dc
-# on npmjs.com (this repo + this workflow file).
+# Publish the grpc-dc and kafka-grpc npm packages via
+# Trusted Publishing (OIDC). Manual dispatch only; see
+# NPM-PUBLISHING.md. Requires the Trusted Publisher
+# configured for both packages on npmjs.com (this repo +
+# this workflow file).
 name: publish-npm
 on: workflow_dispatch
 permissions:
@@ -18,4 +19,6 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm install -g npm@latest
       - working-directory: js
+        run: npm publish --provenance --access public
+      - working-directory: packages/kafka-js
         run: npm publish --provenance --access public
