@@ -3,6 +3,20 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.37.0 — 2026-11-02
+
+- C# runtime (`GrpcDc` NuGet) now multi-targets
+  `netstandard2.0;net8.0` via the generators: Unity, .NET
+  Framework 4.7.2+, Mono, and Xamarin consumers get the
+  DataChannel core and generated stubs (netstandard-only BCL
+  compat packages for async/JSON; the raw-TCP HTTP/2 transport
+  stays net8-only). `KafkaGrpc` multi-targets the same way.
+  net8.0 remains dependency-free. Verified by a maintained
+  netstandard consumer smoke against the packed nupkg, executed
+  under Mono in CI.
+- First canonical kafka-grpc publishes (npmjs, PyPI, NuGet.org,
+  crates.io, Maven Central) alongside the usual grpc-dc releases.
+
 ## v0.36.0 — 2026-10-31 (published to GitHub/npm/PyPI/GHCR/NuGet/GitHub Maven)
 
 - WebRTC-Direct examples for every supported language, generated
