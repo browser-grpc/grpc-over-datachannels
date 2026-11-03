@@ -8,7 +8,7 @@
 FROM debian:bookworm-slim
 WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*
-RUN apt-get update && apt-get install -y build-essential curl ca-certificates libreadline-dev && curl -fsSL https://www.lua.org/ftp/lua-5.4.8.tar.gz -o /tmp/lua.tar.gz && tar -xzf /tmp/lua.tar.gz -C /tmp && make -C /tmp/lua-5.4.8 linux && cp /tmp/lua-5.4.8/src/lua /usr/local/bin/lua
+RUN apt-get update && apt-get install -y build-essential curl ca-certificates libreadline-dev && (curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 https://www.lua.org/ftp/lua-5.4.8.tar.gz -o /tmp/lua.tar.gz && tar -xzf /tmp/lua.tar.gz -C /tmp && make -C /tmp/lua-5.4.8 linux && cp /tmp/lua-5.4.8/src/lua /usr/local/bin/lua || apt-get install -y --no-install-recommends lua5.4)
 COPY lua ./lua
 COPY fixtures ./fixtures
 COPY bin ./bin
