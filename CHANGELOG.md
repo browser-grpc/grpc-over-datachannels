@@ -3,8 +3,19 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.37.1 — 2026-11-03 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven; Dart packages added on pub.dev 2026-11-05)
+## v0.37.1 — 2026-11-03 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven; Dart packages added on pub.dev and Rust crates on crates.io 2026-11-05)
 
+- Rust crates on crates.io (new channel, same version):
+  `grpc-dc` (the Rust runtime; the crates.io build drops the
+  `webrtc` feature, whose `dc-webrtc` dependency is an in-repo
+  path dependency — path users keep it) and `kafka-grpc`
+  (generated `grpcdc.kafka.v1` stubs depending on `grpc-dc`).
+  Both are generated into `packages/grpc-rust` and
+  `packages/kafka-rust`; the kafka crate now actually compiles
+  standalone (its lib re-exports the messages as `crate::pb`
+  and ships the `grpc_dc::Message` adapter module). Future
+  releases publish via the generated `publish-crates` GitHub
+  Actions workflow (crates.io Trusted Publishing, OIDC).
 - Dart/Flutter packages on pub.dev (new channel, same
   version): `grpc_dc` (the dependency-free Dart runtime —
   platform-neutral core for Flutter native + web, `dart:io`

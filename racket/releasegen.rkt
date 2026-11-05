@@ -547,6 +547,50 @@
       "        run: dart pub publish --force\n")
      out)))
 
+;; crates.io: manual-dispatch workflow publishing
+;; packages/grpc-rust (grpc-dc) then packages/kafka-rust
+;; (kafka-grpc) via crates.io Trusted Publishing (OIDC token
+;; exchange with rust-lang/crates-io-auth-action, no stored
+;; API token). Requires Trusted Publishing configured for both
+;; crates on crates.io (repo browser-grpc/grpc-over-datachannels,
+;; workflow publish-crates.yml); the first versions were
+;; published with an API token.
+(call-with-output-file (build-path out-dir ".github/workflows/publish-crates.yml")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "# Publish the grpc-dc and kafka-grpc crates via crates.io\n"
+      "# Trusted Publishing (OIDC). Manual dispatch only.\n"
+      "# Requires Trusted Publishing configured for both crates\n"
+      "# on crates.io (this repo + this workflow file).\n"
+      "name: publish-crates\n"
+      "on: workflow_dispatch\n"
+      "permissions:\n"
+      "  contents: read\n"
+      "  id-token: write\n"
+      "jobs:\n"
+      "  publish:\n"
+      "    runs-on: ubuntu-latest\n"
+      "    steps:\n"
+      "      - uses: actions/checkout@v4\n"
+      "      - uses: dtolnay/rust-toolchain@stable\n"
+      "      - uses: rust-lang/crates-io-auth-action@v1\n"
+      "        id: auth\n"
+      "      - name: Publish grpc-dc\n"
+      "        working-directory: packages/grpc-rust\n"
+      "        run: cargo publish --token ${{ steps.auth.outputs.token }}\n"
+      "      - name: Publish kafka-grpc (retry while the index catches up)\n"
+      "        if: \"!cancelled()\"\n"
+      "        working-directory: packages/kafka-rust\n"
+      "        run: |\n"
+      "          for i in $(seq 1 20); do\n"
+      "            cargo publish --token ${{ steps.auth.outputs.token }} && exit 0\n"
+      "            sleep 30\n"
+      "          done\n"
+      "          echo 'kafka-grpc publish did not succeed' >&2; exit 1\n")
+     out)))
+
 ;; Maven Central (Java): a generated pom for the runtime in
 ;; java/ (the tree predates Maven; sources stay in place and
 ;; the compiler is scoped to grpcdc/**), plus a manual-dispatch
@@ -2598,7 +2642,7 @@
       "# GitHub Packages mirrors\\n\\n"
       "The canonical packages live on the language registries\\n"
       "(npm, PyPI, Maven Central + the Pages Maven repo, NuGet,\\n"
-      "crates.io-compatible git tags for Go). As a mirror, the\\n"
+      "crates.io, pub.dev, and git tags for Go). As a mirror, the\\n"
       "registries GitHub Packages can host are also published\\n"
       "to GitHub under the `browser-grpc` org at each release:\\n\\n"
       "| Ecosystem | GitHub Packages artifact |\\n"
@@ -2747,17 +2791,97 @@
    "  </plugins></build>\n"
    "  <profiles><profile><id>release</id><build><plugins><plugin><artifactId>maven-gpg-plugin</artifactId><version>3.2.7</version><executions><execution><id>sign-artifacts</id><phase>verify</phase><goals><goal>sign</goal></goals></execution></executions><configuration><gpgArguments><arg>--pinentry-mode</arg><arg>loopback</arg></gpgArguments></configuration></plugin></plugins></build></profile></profiles>\n"
    "</project>\n"))
-;; --- Cargo (path dependency on the grpc-dc crate in-repo) ---
+;; --- Cargo (crates.io) ---
+;; Canonical grpc-dc crate in packages/grpc-rust: the export's
+;; rust/src minus the webrtc modules, whose dc-webrtc path
+;; dependency cannot ship on crates.io (the `webrtc` feature
+;; stays available to in-repo path users). Version stamped
+;; like every other registry manifest.
+(define (copy-rust-pub src-rel dest-rel)
+  (define src (build-path out-dir src-rel))
+  (when (file-exists? src)
+    (define dest (build-path kafka-root dest-rel))
+    (make-directory* (path-only dest))
+    (copy-file src dest #t)))
+(for ([f (in-list '("channel" "codec" "dynamic" "endpoint" "eventbus"
+                    "eventbus_git" "lib" "message" "server" "status"
+                    "transport" "wire_gen"))])
+  (copy-rust-pub (string-append "rust/src/" f ".rs")
+                 (string-append "grpc-rust/src/" f ".rs")))
+;; src/eventbus.rs includes its messages via ../gen/events_pb.rs.
+(copy-rust-pub "rust/gen/events_pb.rs" "grpc-rust/gen/events_pb.rs")
+(emit-kafka-file "grpc-rust/Cargo.toml"
+  (string-append
+   "[package]\nname = \"grpc-dc\"\nversion = \"" npm-version "\"\nedition = \"2021\"\n"
+   "license = \"Apache-2.0\"\n"
+   "description = \"gRPC over WebRTC DataChannels: dependency-free generated Rust runtime, client and server, all four call shapes, over a single RTCDataChannel.\"\n"
+   "homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n"
+   "repository = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n"
+   "readme = \"README.md\"\nkeywords = [\"grpc\", \"webrtc\", \"datachannel\", \"rpc\"]\n"
+   "categories = [\"network-programming\", \"asynchronous\"]\n\n"
+   "[lib]\nname = \"grpc_dc\"\npath = \"src/lib.rs\"\n\n"
+   "[features]\ndefault = []\nprost = [\"dep:prost\"]\n"
+   "kafka-tls = [\"dep:tokio-rustls\", \"dep:rustls\", \"dep:rustls-pemfile\"]\n\n"
+   "[dependencies]\n"
+   "async-trait = \"0.1\"\nbytes = \"1\"\nfutures-channel = \"0.3\"\n"
+   "futures-core = \"0.3\"\n"
+   "futures-util = { version = \"0.3\", default-features = false, features = [\"std\"] }\n"
+   "prost = { version = \"0.14\", optional = true }\n"
+   "serde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\n\n"
+   "[target.'cfg(not(target_arch = \"wasm32\"))'.dependencies]\n"
+   "tokio = { version = \"1\", features = [\"rt\", \"rt-multi-thread\", \"macros\", \"sync\", \"time\", \"io-util\", \"io-std\", \"net\"] }\n"
+   "tokio-rustls = { version = \"0.26\", optional = true, default-features = false, features = [\"ring\", \"tls12\"] }\n"
+   "rustls = { version = \"0.23\", optional = true, default-features = false, features = [\"ring\", \"std\", \"tls12\"] }\n"
+   "rustls-pemfile = { version = \"2\", optional = true }\n\n"
+   "[target.'cfg(target_arch = \"wasm32\")'.dependencies]\n"
+   "tokio = { version = \"1\", features = [\"sync\", \"rt\"] }\n"
+   "wasm-bindgen = \"0.2\"\nwasm-bindgen-futures = \"0.4\"\njs-sys = \"0.3\"\n"))
+(emit-kafka-file "grpc-rust/README.md"
+  (string-append
+   "# grpc-dc (Rust)\n\n"
+   "gRPC over WebRTC DataChannels — a dependency-free generated\n"
+   "Rust runtime: client and server, all four call shapes\n"
+   "(unary, server/client streaming, bidi), deadlines, metadata,\n"
+   "and status over a single `RTCDataChannel`. Stub code is\n"
+   "generated from your `.proto` by the grpc-dc protoc plugins;\n"
+   "this crate is the runtime those stubs call.\n\n"
+   "```toml\n[dependencies]\ngrpc-dc = \"" npm-version "\"\n```\n\n"
+   "Features: `prost` (prost messages implement the runtime's\n"
+   "`Message` trait automatically) and `kafka-tls` (TLS to a\n"
+   "Kafka broker for the proxy examples). The in-repo crate's\n"
+   "`webrtc` feature (the reimplemented WebRTC stack) is not in\n"
+   "the crates.io build because it is a path dependency; use\n"
+   "the repository checkout by path if you need it. Kafka\n"
+   "stubs ship separately in the `kafka-grpc` crate, which\n"
+   "depends on this one.\n"))
+(copy-rust-pub "LICENSE" "grpc-rust/LICENSE")
+;; kafka-grpc: depends on the crates.io grpc-dc (path kept for
+;; pre-publish resolution from this tree; cargo strips it on
+;; publish). The stubs address message types as crate::pb::*, so
+;; the lib re-exports kafka_pb under that name — without it the
+;; crate never compiled standalone.
 (copy-kafka-file "rust/gen/kafka_pb.rs" "kafka-rust/src/kafka_pb.rs")
 (copy-kafka-file "rust/gen/kafka_grpc_dc.rs" "kafka-rust/src/kafka_grpc_dc.rs")
+;; grpc_dc::Message adapters for the kafka messages: the same
+;; macro bridge the kafka proxy example uses, shipped in-crate
+;; (without it the stubs' Channel calls have no Message impls).
+(copy-kafka-file "rust/examples/kafka_proxy/pb_message_impl.rs"
+                 "kafka-rust/src/pb_message_impl.rs")
 (emit-kafka-file "kafka-rust/src/lib.rs"
-  "pub mod kafka_pb;\npub mod kafka_grpc_dc;\n")
+  "pub mod kafka_pb;\npub mod kafka_grpc_dc;\n\npub use kafka_pb as pb;\n\nmod pb_message_impl;\n")
 (emit-kafka-file "kafka-rust/Cargo.toml"
   (string-append
    "[package]\nname = \"kafka-grpc\"\nversion = \"" npm-version "\"\nedition = \"2021\"\n"
    "license = \"Apache-2.0\"\ndescription = \"" kafka-desc " (Rust).\"\n"
-   "homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n\n"
-   "[dependencies]\ngrpc-dc = { path = \"../../rust\" }\n"))
+   "homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n"
+   "repository = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n"
+   "readme = \"README.md\"\n\n"
+   "[dependencies]\ngrpc-dc = { version = \"" npm-version "\", path = \"../../grpc-rust\" }\n"))
+(emit-kafka-file "kafka-rust/README.md"
+  (string-append "# kafka-grpc (Rust)\n\n" kafka-desc " (Rust).\n\n"
+                 "```toml\n[dependencies]\nkafka-grpc = \"" npm-version "\"\n```\n\n"
+                 "(depends on the `grpc-dc` crate).\n"))
+(copy-rust-pub "LICENSE" "kafka-rust/LICENSE")
 ;; --- pub.dev (Dart/Flutter) ---
 ;; Canonical grpc_dc lives in packages/grpc-dart (its own tree,
 ;; like kafka-<lang>): lib/grpcdc/*.dart copies keep the
