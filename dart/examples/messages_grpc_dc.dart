@@ -8,7 +8,6 @@ import '../grpcdc/channel.dart';
 import '../grpcdc/endpoint.dart';
 import '../grpcdc/server.dart';
 import '../grpcdc/status.dart';
-import '../grpcdc/wire.dart';
 
 /// Generated gRPC-over-DataChannels stubs for grpc/testing/messages.proto.
 class MessagesGrpcDc {

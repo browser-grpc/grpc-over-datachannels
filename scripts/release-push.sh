@@ -503,7 +503,7 @@ echo "release asset: grpc-dc-$VERSION.zip + SHA256SUMS uploaded"
 # ------------------------------------------------------------------
 NPM_OK="${NPM_OK:-0}"; PYPI_OK="${PYPI_OK:-0}"
 NUGET_OK=0; MAVEN_OK=0; MAVEN_GH_OK=0
-for wf in publish-npm publish-nuget publish-maven publish-maven-github; do
+for wf in publish-npm publish-nuget publish-maven publish-maven-github publish-pubdev; do
   if [ "$wf" = publish-maven ] && [ "${SKIP_CENTRAL:-}" = 1 ]; then
     echo "note: Maven Central dispatch skipped (SKIP_CENTRAL=1); sync Central in its weekly slot"
     continue

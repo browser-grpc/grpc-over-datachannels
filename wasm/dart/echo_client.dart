@@ -14,42 +14,12 @@ import 'dart:typed_data';
 
 import '../../dart/grpcdc/channel.dart';
 import '../../dart/grpcdc/status.dart';
-import '../../dart/grpcdc/transport.dart';
+import '../../dart/grpcdc/web_transport.dart';
 import '../../dart/examples/echo_grpc_dc.dart';
 import '../../dart/examples/echo_messages.dart';
 
-/// The JS-side transport object passed in by the page:
-/// `{ send(Uint8Array), setOnMessage(callback) }`.
-extension type JsTransportJs._(JSObject _) implements JSObject {
-  external void send(JSUint8Array data);
-  external void setOnMessage(JSFunction callback);
-}
-
-/// DcTransport over the page's RTCDataChannel bridge.
-class JsTransport implements Transport {
-  final JsTransportJs _js;
-  final StreamController<Uint8List> _controller = StreamController<Uint8List>();
-
-  JsTransport(this._js) {
-    _js.setOnMessage((JSUint8Array data) {
-      if (!_controller.isClosed) {
-        _controller.add(Uint8List.fromList(data.toDart));
-      }
-    }.toJS);
-  }
-
-  @override
-  Stream<Uint8List> get onMessage => _controller.stream;
-
-  @override
-  void send(Uint8List data) => _js.send(data.toJS);
-
-  @override
-  Future<void> close() => _controller.close();
-}
-
-Future<String> runEcho(JsTransportJs jsTransport) async {
-  final channel = Channel(JsTransport(jsTransport));
+Future<String> runEcho(JSObject jsTransport) async {
+  final channel = Channel(WebTransport(jsTransport));
   final client = EchoClient(channel);
 
   Future<int> codeOf(Future<void> Function() run) async {
@@ -124,7 +94,7 @@ void main() {
   // Page contract mirrors wasm/go's callback style:
   // window.runDartEchoClient(transport, resolve, reject).
   final entry = (JSObject transport, JSFunction resolve, JSFunction reject) {
-    runEcho(transport as JsTransportJs).then(
+    runEcho(transport).then(
       (json) => resolve.callAsFunction(null, json.toJS),
       onError: (Object e) => reject.callAsFunction(null, e.toString().toJS),
     );

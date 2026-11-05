@@ -3,8 +3,23 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.37.1 — 2026-11-03 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven)
+## v0.37.1 — 2026-11-03 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven; Dart packages added on pub.dev 2026-11-05)
 
+- Dart/Flutter packages on pub.dev (new channel, same
+  version): `grpc_dc` (the dependency-free Dart runtime —
+  platform-neutral core for Flutter native + web, `dart:io`
+  transports on the VM, and a `dart:js_interop` WebTransport
+  over an RTCDataChannel bridge for the web) and `kafka_grpc`
+  (the generated `grpcdc.kafka.v1` stubs, depending on
+  `grpc_dc`; the kafka stubs no longer ship inside `grpc_dc`,
+  same split as the NuGet fix below). Both are generated into
+  `packages/grpc-dart` and `packages/kafka-dart` by the release
+  generator; future releases publish via the generated
+  `publish-pubdev` GitHub Actions workflow (pub.dev automated
+  publishing, OIDC). The Dart stub generator now only emits
+  the `wire.dart` import when a stub body uses `Wire.`, and
+  the browser Dart examples share the packaged `WebTransport`
+  instead of carrying local copies.
 - C# packaging fix (found by a consumer compile check after
   v0.37.0): the `grpcdc.kafka.v1` stub types were compiled into
   both the `GrpcDc` and `KafkaGrpc` assemblies, so any C#

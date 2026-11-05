@@ -8,7 +8,6 @@ import '../grpcdc/channel.dart';
 import '../grpcdc/endpoint.dart';
 import '../grpcdc/server.dart';
 import '../grpcdc/status.dart';
-import '../grpcdc/wire.dart';
 import 'kafka_messages.dart';
 
 /// Client for grpcdc.kafka.v1.Kafka.

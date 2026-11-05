@@ -4352,7 +4352,6 @@ TPL
 /// pass unknown tag numbers through unchanged.
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'endpoint.dart';
@@ -4575,7 +4574,6 @@ TPL
 
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'eventbus.dart';
 import 'events_messages.dart';

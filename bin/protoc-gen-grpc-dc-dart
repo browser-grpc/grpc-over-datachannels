@@ -16864,6 +16864,44 @@
       (file-name-from-path (hash-ref file-model 'name))
       "")))
   (define class-name (string-append (pascal (string->symbol base)) "GrpcDc"))
+  (define body
+    (string-append
+     (apply
+      string-append
+      (map
+       (lambda (svc) (let ((body (dart-service svc))) body))
+       (hash-ref file-model 'services)))
+     (format
+      "/// Generated gRPC-over-DataChannels stubs for ~a.\n"
+      (hash-ref file-model 'name))
+     (format "class ~a {\n" class-name)
+     (apply
+      string-append
+      (map
+       (lambda (svc)
+         (define sname (hash-ref svc 'name))
+         (string-append
+          (format
+           "  /// Register an implementation of ~a on a Server.\n"
+           (hash-ref svc 'full-name))
+          (format
+           "  static void register~aServer(Server server, ~aServer impl) {\n"
+           sname
+           sname)
+          (format
+           "    server.registerService(ServiceDesc(~s, [\n"
+           (hash-ref svc 'full-name))
+          (parameterize
+           ((current-service sname))
+           (apply
+            string-append
+            (map
+             dart-register-method
+             (append (hash-ref svc 'methods) (alias-server-methods svc)))))
+          "    ]));\n"
+          "  }\n"))
+       (hash-ref file-model 'services)))
+     "}\n"))
   (define stub
     (cons
      (string-append base "_grpc_dc.dart")
@@ -16875,7 +16913,7 @@
       "import '../grpcdc/endpoint.dart';\n"
       "import '../grpcdc/server.dart';\n"
       "import '../grpcdc/status.dart';\n"
-      "import '../grpcdc/wire.dart';\n"
+      (if (string-contains? body "Wire.") "import '../grpcdc/wire.dart';\n" "")
       (dart-stub-imports file-model)
       (if (equal? (hash-ref params 'trace #f) "hooks")
         (string-append
@@ -16889,42 +16927,7 @@
              "")))
         "")
       "\n"
-      (apply
-       string-append
-       (map
-        (lambda (svc) (let ((body (dart-service svc))) body))
-        (hash-ref file-model 'services)))
-      (format
-       "/// Generated gRPC-over-DataChannels stubs for ~a.\n"
-       (hash-ref file-model 'name))
-      (format "class ~a {\n" class-name)
-      (apply
-       string-append
-       (map
-        (lambda (svc)
-          (define sname (hash-ref svc 'name))
-          (string-append
-           (format
-            "  /// Register an implementation of ~a on a Server.\n"
-            (hash-ref svc 'full-name))
-           (format
-            "  static void register~aServer(Server server, ~aServer impl) {\n"
-            sname
-            sname)
-           (format
-            "    server.registerService(ServiceDesc(~s, [\n"
-            (hash-ref svc 'full-name))
-           (parameterize
-            ((current-service sname))
-            (apply
-             string-append
-             (map
-              dart-register-method
-              (append (hash-ref svc 'methods) (alias-server-methods svc)))))
-           "    ]));\n"
-           "  }\n"))
-        (hash-ref file-model 'services)))
-      "}\n")))
+      body)))
   (define pb-file (emit-dart-pb-file file-model))
   (if pb-file (list stub pb-file) stub))
 

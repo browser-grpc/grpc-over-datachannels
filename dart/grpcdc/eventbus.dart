@@ -18,7 +18,6 @@
 /// pass unknown tag numbers through unchanged.
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'endpoint.dart';
