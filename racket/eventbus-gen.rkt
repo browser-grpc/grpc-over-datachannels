@@ -11,7 +11,7 @@
 ;;; the protoc plugins generate them from proto/events.proto
 ;;; (make eventbus-stubs), and these modules build on them.
 
-(require "spec.rkt" "eventbus-spec.rkt" racket/runtime-path)
+(require "spec.rkt" "desc.rkt" "eventbus-spec.rkt" racket/runtime-path)
 (provide generate-eventbus)
 
 (define-runtime-path here ".")
@@ -12448,10 +12448,10 @@ TPL
   (write (build-path "scala" "grpcdc" "EventbusGit.scala") (emit-scala-gitlog))
   (write (build-path "scala" "tests" "TestEventBus.scala") (emit-scala-test))
   (write (build-path "scala" "examples" "EventBusDemo.scala") (emit-scala-demo))
-  (write (build-path "swift" "grpcdc" "Eventbus.swift") (emit-swift-eventbus))
-  (write (build-path "swift" "grpcdc" "EventBusBroker.swift") (emit-swift-broker))
-  (write (build-path "swift" "grpcdc" "LocalSubscription.swift") (emit-swift-local))
-  (write (build-path "swift" "grpcdc" "EventbusGit.swift") (emit-swift-gitlog))
+  (write (build-path "swift" "grpcdc" "Eventbus.swift") (publicize-swift (emit-swift-eventbus)))
+  (write (build-path "swift" "grpcdc" "EventBusBroker.swift") (publicize-swift (emit-swift-broker)))
+  (write (build-path "swift" "grpcdc" "LocalSubscription.swift") (publicize-swift (emit-swift-local)))
+  (write (build-path "swift" "grpcdc" "EventbusGit.swift") (publicize-swift (emit-swift-gitlog)))
   (write (build-path "swift" "tests" "TestEventBus.swift") (emit-swift-test))
   (write (build-path "swift" "examples" "EventBusDemo.swift") (emit-swift-demo))
   (write (build-path "cpp" "grpcdc" "eventbus.hpp") (emit-cpp-eventbus))

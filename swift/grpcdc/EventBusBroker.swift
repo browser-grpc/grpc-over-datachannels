@@ -7,18 +7,18 @@
 import Foundation
 
 internal final class EventbusSubscriber {
-    let filter: [TagValue]
-    let capacity: Int
+    public let filter: [TagValue]
+    public let capacity: Int
     private let condition = NSCondition()
     private var queue: [Event] = []
     private(set) var dropped: Int = 0
 
-    init(_ filter: [TagValue], _ capacity: Int) {
+    public init(_ filter: [TagValue], _ capacity: Int) {
         self.filter = filter
         self.capacity = capacity
     }
 
-    func push(_ event: Event) -> Bool {
+    public func push(_ event: Event) -> Bool {
         condition.lock()
         defer { condition.unlock() }
         var wasDropped = false
@@ -36,7 +36,7 @@ internal final class EventbusSubscriber {
     // broker re-checks every tick; a cancelled call is reaped
     // when its next matching send fails (the runtime surfaces
     // cancellation only at send time).
-    func take(_ timeoutMs: Int) -> Event? {
+    public func take(_ timeoutMs: Int) -> Event? {
         condition.lock()
         defer { condition.unlock() }
         let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000.0)
@@ -50,7 +50,7 @@ internal final class EventbusSubscriber {
     }
 }
 
-final class EventBusBroker: EventsGrpcDc.EventBusServer {
+public final class EventBusBroker: EventsGrpcDc.EventBusServer {
     private let queueCapacity: Int
     private let lock = NSLock()
     private var subscribers: [EventbusSubscriber] = []
@@ -58,7 +58,7 @@ final class EventBusBroker: EventsGrpcDc.EventBusServer {
     private var published: Int64 = 0
     private var droppedCount: Int64 = 0
 
-    init(queueCapacity: Int = subscriberQueueCapacity) {
+    public init(queueCapacity: Int = subscriberQueueCapacity) {
         self.queueCapacity = queueCapacity
     }
 
@@ -66,7 +66,7 @@ final class EventBusBroker: EventsGrpcDc.EventBusServer {
     // timestamp and fan it out to matching subscribers.
     // Returns the stamped Event.
     @discardableResult
-    func publishEvent(_ tags: [TagValue], _ payload: [UInt8],
+    public func publishEvent(_ tags: [TagValue], _ payload: [UInt8],
                              _ publisherId: String = "") -> Event {
         lock.lock()
         seq += 1
@@ -85,7 +85,7 @@ final class EventBusBroker: EventsGrpcDc.EventBusServer {
         return event
     }
 
-    func stats() -> [String: Int64] {
+    public func stats() -> [String: Int64] {
         lock.lock()
         defer { lock.unlock() }
         return [
@@ -97,12 +97,12 @@ final class EventBusBroker: EventsGrpcDc.EventBusServer {
 
     // grpcdc.events.v1.EventBus service implementation
     // (register calls these).
-    func Publish(_ ctx: Endpoint.CallContext, _ req: PublishRequest) throws -> PublishReply {
+    public func Publish(_ ctx: Endpoint.CallContext, _ req: PublishRequest) throws -> PublishReply {
         let event = publishEvent(req.tags, req.payload, req.publisherId)
         return PublishReply(event.seq)
     }
 
-    func Subscribe(_ req: SubscribeRequest, _ stream: EventsGrpcDc.EventBusSubscribeServer) throws {
+    public func Subscribe(_ req: SubscribeRequest, _ stream: EventsGrpcDc.EventBusSubscribeServer) throws {
         let sub = EventbusSubscriber(req.filter, queueCapacity)
         lock.lock()
         subscribers.append(sub)
@@ -122,7 +122,7 @@ final class EventBusBroker: EventsGrpcDc.EventBusServer {
     // In-process subscription: events fan out to it exactly
     // like an RPC subscriber, without a call. Useful embedded
     // and for tests; close() unregisters.
-    func subscribeLocal(_ filterTags: [TagValue]) -> LocalSubscription {
+    public func subscribeLocal(_ filterTags: [TagValue]) -> LocalSubscription {
         let sub = EventbusSubscriber(filterTags, queueCapacity)
         lock.lock()
         subscribers.append(sub)
@@ -137,7 +137,7 @@ final class EventBusBroker: EventsGrpcDc.EventBusServer {
     }
 
     @discardableResult
-    func register(_ server: Server) -> EventBusBroker {
+    public func register(_ server: Server) -> EventBusBroker {
         EventsGrpcDc.RegisterEventBusServer(server, self)
         return self
     }

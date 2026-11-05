@@ -967,6 +967,157 @@
     'impl-name
     (hash-ref target 'name))))
 
+(define swift-modifier-words
+  '("private"
+    "fileprivate"
+    "internal"
+    "public"
+    "open"
+    "final"
+    "static"
+    "override"
+    "convenience"
+    "required"
+    "mutating"
+    "nonmutating"
+    "lazy"
+    "indirect"
+    "weak"
+    "unowned"
+    "class"))
+
+(define swift-type-kinds '("class" "struct" "enum" "protocol" "extension"))
+
+(define swift-decl-kinds
+  (append
+   swift-type-kinds
+   '("func" "var" "let" "init" "typealias" "subscript")))
+
+(define (swift-word s)
+  (define m (regexp-match #px"^[A-Za-z]+" s))
+  (if m (car m) ""))
+
+(define (swift-parse-decl trimmed)
+  (let loop ((s trimmed) (private? #f) (access? #f))
+    (cond
+     ((string=? s "") (values #f private? access?))
+     ((string-prefix? s "@")
+      (define rest (substring s 1))
+      (define w (swift-word rest))
+      (define after (substring rest (string-length w)))
+      (if (string-prefix? after "(")
+        (let paren ((i 0) (d 0))
+          (cond
+           ((>= i (string-length after)) (values #f private? access?))
+           ((and (char=? (string-ref after i) #\)) (= d 1))
+            (loop (string-trim (substring after (add1 i))) private? access?))
+           (else
+            (paren
+             (add1 i)
+             (+
+              d
+              (case (string-ref after i) ((#\() 1) ((#\)) -1) (else 0)))))))
+        (loop (string-trim after) private? access?)))
+     (else
+      (define setm (regexp-match #px"^(private|internal|public)\\(set\\)" s))
+      (cond
+       (setm
+        (loop
+         (string-trim (substring s (string-length (car setm))))
+         private?
+         #t))
+       (else
+        (define w (swift-word s))
+        (cond
+         ((member w swift-decl-kinds) (values w private? access?))
+         ((member w swift-modifier-words)
+          (loop
+           (string-trim (substring s (string-length w)))
+           (or private? (member w '("private" "fileprivate")))
+           (or access? (member w '("public" "open" "internal")))))
+         (else (values #f private? access?)))))))))
+
+(define (swift-net-braces line)
+  (let loop ((i 0) (in-str? #f) (esc? #f) (n 0))
+    (cond
+     ((>= i (string-length line)) n)
+     (esc? (loop (add1 i) in-str? #f n))
+     ((and in-str? (char=? (string-ref line i) #\\))
+      (loop (add1 i) in-str? #t n))
+     ((char=? (string-ref line i) #\") (loop (add1 i) (not in-str?) #f n))
+     (in-str? (loop (add1 i) in-str? #f n))
+     ((and (char=? (string-ref line i) #\/)
+           (< (add1 i) (string-length line))
+           (char=? (string-ref line (add1 i)) #\/))
+      n)
+     ((char=? (string-ref line i) #\{) (loop (add1 i) #f #f (add1 n)))
+     ((char=? (string-ref line i) #\}) (loop (add1 i) #f #f (sub1 n)))
+     (else (loop (add1 i) #f #f n)))))
+
+(define (publicize-swift text)
+  (define (indent-of line)
+    (- (string-length line) (string-length (string-trim line #:left? #t))))
+  (let loop ((lines (string-split text "\n"))
+             (depth 0)
+             (stack '())
+             (out '())
+             (pending-func? #f))
+    (cond
+     ((null? lines) (string-join (reverse out) "\n"))
+     (else
+      (define line (car lines))
+      (define trimmed (string-trim line))
+      (define stack*
+        (let pop ((st stack))
+          (if (and (pair? st) (< depth (cdar st))) (pop (cdr st)) st)))
+      (define context-public?
+        (or (null? stack*) (eq? (caar stack*) 'type-pub)))
+      (define-values (kind private? access?) (swift-parse-decl trimmed))
+      (define net (swift-net-braces line))
+      (define new-depth (+ depth net))
+      (define publicize?
+        (and kind
+             context-public?
+             (not private?)
+             (not access?)
+             (not (equal? kind "extension"))
+             (not (string-prefix? trimmed "@"))))
+      (define line*
+        (if publicize?
+          (let ((ind (indent-of line)))
+            (string-append
+             (substring line 0 ind)
+             "public "
+             (substring line ind)))
+          line))
+      (define in-proto? (and (pair? stack*) (eq? (caar stack*) 'proto)))
+      (define stack**
+        (cond
+         ((and kind (member kind swift-type-kinds) (> new-depth depth))
+          (cons
+           (cons
+            (cond
+             (private? 'type-priv)
+             ((equal? kind "protocol") 'proto)
+             (else 'type-pub))
+            new-depth)
+           stack*))
+         ((and kind
+               (member kind '("func" "init" "var" "let" "subscript"))
+               (> new-depth depth))
+          (cons (cons 'func new-depth) stack*))
+         ((and pending-func? (> new-depth depth))
+          (cons (cons 'func new-depth) stack*))
+         (else stack*)))
+      (define pending*
+        (and (not in-proto?)
+             (or (and pending-func? (<= new-depth depth))
+                 (and kind
+                      (member kind '("func" "init" "subscript"))
+                      (<= new-depth depth)
+                      (not (string-suffix? trimmed ";"))))))
+      (loop (cdr lines) new-depth stack** (cons line* out) pending*)))))
+
 (define go-register-method-program
   '((kind-case
      (unary
@@ -16775,7 +16926,7 @@
               (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))))
          (cons
           (string-append (pascal (string->symbol base)) "Messages.swift")
-          content))))
+          (publicize-swift content)))))
 
 (define (emit-swift-file file-model params)
   (define base
@@ -16787,29 +16938,32 @@
   (define stub
     (cons
      (string-append (pascal (string->symbol base)) "GrpcDc.swift")
-     (string-append
-      "// @generated by protoc-gen-grpc-dc-swift. DO NOT EDIT.\n"
-      (format "// source: ~a\n\n" (hash-ref file-model 'name))
-      "#if canImport(Foundation)\nimport Foundation\n#endif\n\n"
-      (format
-       "/// Generated gRPC-over-DataChannels stubs for ~a.\n"
-       (hash-ref file-model 'name))
-      (format "enum ~a {\n" enum-name)
-      (if (equal? (hash-ref params 'trace #f) "hooks")
-        (string-append
-         "    // Tracing (trace=hooks): register an observer via SetTracer.\n"
-         "    static func SetTracer(_ t: Tracer?) { Tracing.SetTracer(t) }\n"
-         "    static func SetTraceFilter(_ patterns: String) { Tracing.SetTraceFilter(patterns) }\n"
-         (let ((methods (hash-ref params 'trace_methods #f)))
-           (if methods
-             (format
-              "    static let _traceFilterApplied: Bool = { Tracing.SetTraceFilter(~s); return true }()\n"
-              methods)
-             ""))
-         "\n")
-        "")
-      (apply string-append (map swift-service (hash-ref file-model 'services)))
-      "}\n")))
+     (publicize-swift
+      (string-append
+       "// @generated by protoc-gen-grpc-dc-swift. DO NOT EDIT.\n"
+       (format "// source: ~a\n\n" (hash-ref file-model 'name))
+       "#if canImport(Foundation)\nimport Foundation\n#endif\n\n"
+       (format
+        "/// Generated gRPC-over-DataChannels stubs for ~a.\n"
+        (hash-ref file-model 'name))
+       (format "enum ~a {\n" enum-name)
+       (if (equal? (hash-ref params 'trace #f) "hooks")
+         (string-append
+          "    // Tracing (trace=hooks): register an observer via SetTracer.\n"
+          "    static func SetTracer(_ t: Tracer?) { Tracing.SetTracer(t) }\n"
+          "    static func SetTraceFilter(_ patterns: String) { Tracing.SetTraceFilter(patterns) }\n"
+          (let ((methods (hash-ref params 'trace_methods #f)))
+            (if methods
+              (format
+               "    static let _traceFilterApplied: Bool = { Tracing.SetTraceFilter(~s); return true }()\n"
+               methods)
+              ""))
+          "\n")
+         "")
+       (apply
+        string-append
+        (map swift-service (hash-ref file-model 'services)))
+       "}\n"))))
   (define pb-file (emit-swift-pb-file file-model))
   (if pb-file (list stub pb-file) stub))
 

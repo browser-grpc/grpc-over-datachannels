@@ -4,41 +4,41 @@
 import Foundation
 #endif
 
-enum Orca_load_reportPb {
-    struct BadWireType: Error {}
-    final class Writer {
+public enum Orca_load_reportPb {
+    public struct BadWireType: Error {}
+    public final class Writer {
         private var out: [UInt8] = []
-        func Varint(_ value: UInt64) { var v = value; while v > 0x7f { out.append(UInt8((v & 0x7f) | 0x80)); v >>= 7 }; out.append(UInt8(v)) }
-        func Varint(_ value: Int64) { Varint(UInt64(bitPattern: value)) }
-        func Tag(_ field: Int, _ wire: Int) { Varint(UInt64((field << 3) | wire)) }
-        func BytesField(_ field: Int, _ payload: [UInt8]) { Tag(field, 2); Varint(UInt64(payload.count)); out += payload }
-        func StringField(_ field: Int, _ value: String) { if value.isEmpty { return }; BytesField(field, [UInt8](value.utf8)) }
-        func FixedInt32(_ value: Int32) { FixedUInt32(UInt32(bitPattern: value)) }
-        func FixedUInt32(_ value: UInt32) { for i in 0..<4 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
-        func FixedInt64(_ value: Int64) { FixedUInt64(UInt64(bitPattern: value)) }
-        func FixedUInt64(_ value: UInt64) { for i in 0..<8 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
-        func FixedFloat(_ value: Float) { FixedUInt32(value.bitPattern) }
-        func FixedDouble(_ value: Double) { FixedUInt64(value.bitPattern) }
-        func Raw(_ payload: [UInt8]) { out += payload }
-        func ToBytes() -> [UInt8] { out }
+        public func Varint(_ value: UInt64) { var v = value; while v > 0x7f { out.append(UInt8((v & 0x7f) | 0x80)); v >>= 7 }; out.append(UInt8(v)) }
+        public func Varint(_ value: Int64) { Varint(UInt64(bitPattern: value)) }
+        public func Tag(_ field: Int, _ wire: Int) { Varint(UInt64((field << 3) | wire)) }
+        public func BytesField(_ field: Int, _ payload: [UInt8]) { Tag(field, 2); Varint(UInt64(payload.count)); out += payload }
+        public func StringField(_ field: Int, _ value: String) { if value.isEmpty { return }; BytesField(field, [UInt8](value.utf8)) }
+        public func FixedInt32(_ value: Int32) { FixedUInt32(UInt32(bitPattern: value)) }
+        public func FixedUInt32(_ value: UInt32) { for i in 0..<4 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
+        public func FixedInt64(_ value: Int64) { FixedUInt64(UInt64(bitPattern: value)) }
+        public func FixedUInt64(_ value: UInt64) { for i in 0..<8 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
+        public func FixedFloat(_ value: Float) { FixedUInt32(value.bitPattern) }
+        public func FixedDouble(_ value: Double) { FixedUInt64(value.bitPattern) }
+        public func Raw(_ payload: [UInt8]) { out += payload }
+        public func ToBytes() -> [UInt8] { out }
     }
 
-    static func BitsToFloat(_ u: UInt32) -> Float { Float(bitPattern: u) }
-    static func BitsToDouble(_ u: UInt64) -> Double { Double(bitPattern: u) }
+    public static func BitsToFloat(_ u: UInt32) -> Float { Float(bitPattern: u) }
+    public static func BitsToDouble(_ u: UInt64) -> Double { Double(bitPattern: u) }
 
-    struct Field {
-        var number: Int; var wire: Int; var varintValue: UInt64; var bytesValue: [UInt8]; var fixedValue: UInt64; var rawValue: [UInt8]
+    public struct Field {
+        public var number: Int; var wire: Int; var varintValue: UInt64; var bytesValue: [UInt8]; var fixedValue: UInt64; var rawValue: [UInt8]
     }
 
-    final class Reader {
+    public final class Reader {
         private let buf: [UInt8]; private var pos = 0
-        init(_ buf: [UInt8]) { self.buf = buf }
-        func Done() -> Bool { pos >= buf.count }
-        func Varint() -> UInt64 { var result: UInt64 = 0; var shift: UInt64 = 0; while true { precondition(pos < buf.count, "truncated varint"); let b = buf[pos]; pos += 1; result |= UInt64(b & 0x7f) << shift; if (b & 0x80) == 0 { return result }; shift += 7; precondition(shift < 64, "varint too long") } }
-        func Take(_ n: Int) -> [UInt8] { precondition(pos + n <= buf.count, "truncated field"); let v = [UInt8](buf[pos..<(pos + n)]); pos += n; return v }
-        func Fixed32() -> UInt32 { let b = Take(4); return UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24) }
-        func Fixed64() -> UInt64 { let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return v }
-        func Next() throws -> Field? {
+        public init(_ buf: [UInt8]) { self.buf = buf }
+        public func Done() -> Bool { pos >= buf.count }
+        public func Varint() -> UInt64 { var result: UInt64 = 0; var shift: UInt64 = 0; while true { precondition(pos < buf.count, "truncated varint"); let b = buf[pos]; pos += 1; result |= UInt64(b & 0x7f) << shift; if (b & 0x80) == 0 { return result }; shift += 7; precondition(shift < 64, "varint too long") } }
+        public func Take(_ n: Int) -> [UInt8] { precondition(pos + n <= buf.count, "truncated field"); let v = [UInt8](buf[pos..<(pos + n)]); pos += n; return v }
+        public func Fixed32() -> UInt32 { let b = Take(4); return UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24) }
+        public func Fixed64() -> UInt64 { let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return v }
+        public func Next() throws -> Field? {
             if pos >= buf.count { return nil }
             let start = pos
             let tag = Varint(); let number = Int(tag >> 3); let wire = Int(tag & 7)
@@ -52,14 +52,14 @@ enum Orca_load_reportPb {
         }
     }
 
-    static func OrcaLoadReportRequestCostEntryEncode(_ key: String, _ value: Double) -> [UInt8] {
+    public static func OrcaLoadReportRequestCostEntryEncode(_ key: String, _ value: Double) -> [UInt8] {
         let w = Writer()
         w.StringField(1, key)
         if value != 0 { w.Tag(2, 1); w.FixedDouble(value) }
         return w.ToBytes()
     }
 
-    static func OrcaLoadReportRequestCostEntryDecode(_ bytes: [UInt8]) -> (String, Double) {
+    public static func OrcaLoadReportRequestCostEntryDecode(_ bytes: [UInt8]) -> (String, Double) {
         var key: String = ""
         var value: Double = 0
         let r = Reader(bytes)
@@ -76,14 +76,14 @@ enum Orca_load_reportPb {
         return (key, value)
     }
 
-    static func OrcaLoadReportUtilizationEntryEncode(_ key: String, _ value: Double) -> [UInt8] {
+    public static func OrcaLoadReportUtilizationEntryEncode(_ key: String, _ value: Double) -> [UInt8] {
         let w = Writer()
         w.StringField(1, key)
         if value != 0 { w.Tag(2, 1); w.FixedDouble(value) }
         return w.ToBytes()
     }
 
-    static func OrcaLoadReportUtilizationEntryDecode(_ bytes: [UInt8]) -> (String, Double) {
+    public static func OrcaLoadReportUtilizationEntryDecode(_ bytes: [UInt8]) -> (String, Double) {
         var key: String = ""
         var value: Double = 0
         let r = Reader(bytes)
@@ -102,22 +102,22 @@ enum Orca_load_reportPb {
 
 }
 
-final class OrcaLoadReport: Marshaler, Unmarshaler {
-    var cpuUtilization: Double = 0
-    var memUtilization: Double = 0
-    var rpsFractional: Double = 0
-    var requestCost: [String: Double] = [:]
-    var utilization: [String: Double] = [:]
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ cpuUtilization: Double = 0, _ memUtilization: Double = 0, _ rpsFractional: Double = 0, _ requestCost: [String: Double] = [:], _ utilization: [String: Double] = [:]) {
+public final class OrcaLoadReport: Marshaler, Unmarshaler {
+    public var cpuUtilization: Double = 0
+    public var memUtilization: Double = 0
+    public var rpsFractional: Double = 0
+    public var requestCost: [String: Double] = [:]
+    public var utilization: [String: Double] = [:]
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ cpuUtilization: Double = 0, _ memUtilization: Double = 0, _ rpsFractional: Double = 0, _ requestCost: [String: Double] = [:], _ utilization: [String: Double] = [:]) {
         self.cpuUtilization = cpuUtilization
         self.memUtilization = memUtilization
         self.rpsFractional = rpsFractional
         self.requestCost = requestCost
         self.utilization = utilization
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = Orca_load_reportPb.Writer()
         if cpuUtilization != 0 { w.Tag(1, 1); w.FixedDouble(cpuUtilization) }
         if memUtilization != 0 { w.Tag(2, 1); w.FixedDouble(memUtilization) }
@@ -127,7 +127,7 @@ final class OrcaLoadReport: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         cpuUtilization = 0
         memUtilization = 0
@@ -156,23 +156,23 @@ final class OrcaLoadReport: Marshaler, Unmarshaler {
             }
         }
     }
-    final class RequestCostEntry: Marshaler, Unmarshaler {
-        var key: String = ""
-        var value: Double = 0
-        var unknownFields: [UInt8] = []
-        init() {}
-        init(_ key: String = "", _ value: Double = 0) {
+    public final class RequestCostEntry: Marshaler, Unmarshaler {
+        public var key: String = ""
+        public var value: Double = 0
+        public var unknownFields: [UInt8] = []
+        public init() {}
+        public init(_ key: String = "", _ value: Double = 0) {
             self.key = key
             self.value = value
         }
-        func MarshalDc() -> [UInt8] {
+        public func MarshalDc() -> [UInt8] {
             let w = Orca_load_reportPb.Writer()
         w.StringField(1, key)
         if value != 0 { w.Tag(2, 1); w.FixedDouble(value) }
             w.Raw(unknownFields)
             return w.ToBytes()
         }
-        func UnmarshalDc(_ data: [UInt8]) {
+        public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             key = ""
             value = 0
@@ -191,23 +191,23 @@ final class OrcaLoadReport: Marshaler, Unmarshaler {
             }
         }
     }
-    final class UtilizationEntry: Marshaler, Unmarshaler {
-        var key: String = ""
-        var value: Double = 0
-        var unknownFields: [UInt8] = []
-        init() {}
-        init(_ key: String = "", _ value: Double = 0) {
+    public final class UtilizationEntry: Marshaler, Unmarshaler {
+        public var key: String = ""
+        public var value: Double = 0
+        public var unknownFields: [UInt8] = []
+        public init() {}
+        public init(_ key: String = "", _ value: Double = 0) {
             self.key = key
             self.value = value
         }
-        func MarshalDc() -> [UInt8] {
+        public func MarshalDc() -> [UInt8] {
             let w = Orca_load_reportPb.Writer()
         w.StringField(1, key)
         if value != 0 { w.Tag(2, 1); w.FixedDouble(value) }
             w.Raw(unknownFields)
             return w.ToBytes()
         }
-        func UnmarshalDc(_ data: [UInt8]) {
+        public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             key = ""
             value = 0

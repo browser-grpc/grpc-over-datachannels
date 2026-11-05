@@ -11,7 +11,7 @@
 ;;;
 ;;; Swift 5 language mode, Foundation only — no external packages.
 
-(require "spec.rkt")
+(require "spec.rkt" "desc.rkt")
 (provide emit-swift-runtime-files)
 
 (define swift-status-body
@@ -2328,14 +2328,17 @@ GRPC_RUNTIME_EOF
    "        default: break  // Unknown frame type: ignore for forward compatibility.\n        }"))
 
 (define (emit-swift-runtime-files)
-  (list
-   (cons "grpcdc/Status.swift" swift-status-body)
-   (cons "grpcdc/Codec.swift" swift-codec-body)
-   (cons "grpcdc/Transport.swift" swift-transport-body)
-   (cons "grpcdc/Endpoint.swift"
-         (string-replace swift-endpoint-body "@@FRAME_DISPATCH@@" (emit-swift-dispatch)))
-   (cons "grpcdc/Channel.swift" swift-channel-body)
-   (cons "grpcdc/Server.swift" swift-server-body)
-   (cons "grpcdc/MemoryTransport.swift" swift-loopback-body)
-   (cons "grpcdc/SidecarTransport.swift" swift-sidecar-body)
-   (cons "grpcdc/Dynamic.swift" swift-dynamic-body)))
+  ;; Publicized for the SwiftPM library product (desc.rkt);
+  ;; in-module test/example builds are unaffected.
+  (map (lambda (p) (cons (car p) (publicize-swift (cdr p))))
+       (list
+        (cons "grpcdc/Status.swift" swift-status-body)
+        (cons "grpcdc/Codec.swift" swift-codec-body)
+        (cons "grpcdc/Transport.swift" swift-transport-body)
+        (cons "grpcdc/Endpoint.swift"
+              (string-replace swift-endpoint-body "@@FRAME_DISPATCH@@" (emit-swift-dispatch)))
+        (cons "grpcdc/Channel.swift" swift-channel-body)
+        (cons "grpcdc/Server.swift" swift-server-body)
+        (cons "grpcdc/MemoryTransport.swift" swift-loopback-body)
+        (cons "grpcdc/SidecarTransport.swift" swift-sidecar-body)
+        (cons "grpcdc/Dynamic.swift" swift-dynamic-body))))

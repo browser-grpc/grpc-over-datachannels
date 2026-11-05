@@ -7,110 +7,110 @@ import Foundation
 #endif
 
 /// Generated gRPC-over-DataChannels stubs for kafka.proto.
-enum KafkaGrpcDc {
+public enum KafkaGrpcDc {
     /// Client for grpcdc.kafka.v1.Kafka.
-    final class KafkaClient {
+    public final class KafkaClient {
         private let channel: Channel
 
-        init(_ channel: Channel) {
+        public init(_ channel: Channel) {
             self.channel = channel
         }
 
-        final class KafkaConsumeStream {
+        public final class KafkaConsumeStream {
             private let stream: Channel.ClientStream
-            init(_ stream: Channel.ClientStream) { self.stream = stream }
-            func Recv() throws -> ConsumeResponse {
+            public init(_ stream: Channel.ClientStream) { self.stream = stream }
+            public func Recv() throws -> ConsumeResponse {
                 let resp = ConsumeResponse()
                 try stream.Recv(resp)
                 return resp
             }
             /// Initial metadata (response headers); nil until they arrive.
-            var Headers: [String: String]? { stream.headers?.metadata }
+            public var Headers: [String: String]? { stream.headers?.metadata }
             /// Trailing metadata of the terminal status; nil until it arrives.
-            var Trailers: [String: String]? { stream.trailers }
-            func Cancel() { stream.Cancel() }
-            func Close() { stream.Close() }
+            public var Trailers: [String: String]? { stream.trailers }
+            public func Cancel() { stream.Cancel() }
+            public func Close() { stream.Close() }
         }
 
-        final class KafkaSubscribeStream {
+        public final class KafkaSubscribeStream {
             private let stream: Channel.ClientStream
-            init(_ stream: Channel.ClientStream) { self.stream = stream }
-            func Recv() throws -> GroupSubscribeResponse {
+            public init(_ stream: Channel.ClientStream) { self.stream = stream }
+            public func Recv() throws -> GroupSubscribeResponse {
                 let resp = GroupSubscribeResponse()
                 try stream.Recv(resp)
                 return resp
             }
             /// Initial metadata (response headers); nil until they arrive.
-            var Headers: [String: String]? { stream.headers?.metadata }
+            public var Headers: [String: String]? { stream.headers?.metadata }
             /// Trailing metadata of the terminal status; nil until it arrives.
-            var Trailers: [String: String]? { stream.trailers }
-            func Cancel() { stream.Cancel() }
-            func Close() { stream.Close() }
+            public var Trailers: [String: String]? { stream.trailers }
+            public func Cancel() { stream.Cancel() }
+            public func Close() { stream.Close() }
         }
 
-        func Metadata(_ req: MetadataRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> MetadataResponse {
+        public func Metadata(_ req: MetadataRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> MetadataResponse {
             let resp = MetadataResponse()
             try channel.Unary("/grpcdc.kafka.v1.Kafka/Metadata", req, resp, metadata, timeout)
             return resp
         }
 
-        func OpenProducer(_ req: OpenProducerRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> OpenProducerResponse {
+        public func OpenProducer(_ req: OpenProducerRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> OpenProducerResponse {
             let resp = OpenProducerResponse()
             try channel.Unary("/grpcdc.kafka.v1.Kafka/OpenProducer", req, resp, metadata, timeout)
             return resp
         }
 
-        func CloseProducer(_ req: CloseProducerRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> CloseProducerResponse {
+        public func CloseProducer(_ req: CloseProducerRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> CloseProducerResponse {
             let resp = CloseProducerResponse()
             try channel.Unary("/grpcdc.kafka.v1.Kafka/CloseProducer", req, resp, metadata, timeout)
             return resp
         }
 
-        func EndTransaction(_ req: EndTransactionRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EndTransactionResponse {
+        public func EndTransaction(_ req: EndTransactionRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EndTransactionResponse {
             let resp = EndTransactionResponse()
             try channel.Unary("/grpcdc.kafka.v1.Kafka/EndTransaction", req, resp, metadata, timeout)
             return resp
         }
 
-        func Produce(_ req: ProduceRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ProduceResponse {
+        public func Produce(_ req: ProduceRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ProduceResponse {
             let resp = ProduceResponse()
             try channel.Unary("/grpcdc.kafka.v1.Kafka/Produce", req, resp, metadata, timeout)
             return resp
         }
 
-        func Consume(_ req: ConsumeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> KafkaConsumeStream {
+        public func Consume(_ req: ConsumeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> KafkaConsumeStream {
             return KafkaConsumeStream(try channel.ServerStream("/grpcdc.kafka.v1.Kafka/Consume", req, metadata, timeout))
         }
 
-        func Subscribe(_ req: GroupSubscribeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> KafkaSubscribeStream {
+        public func Subscribe(_ req: GroupSubscribeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> KafkaSubscribeStream {
             return KafkaSubscribeStream(try channel.ServerStream("/grpcdc.kafka.v1.Kafka/Subscribe", req, metadata, timeout))
         }
 
-        func ListOffsets(_ req: ListOffsetsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ListOffsetsResponse {
+        public func ListOffsets(_ req: ListOffsetsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ListOffsetsResponse {
             let resp = ListOffsetsResponse()
             try channel.Unary("/grpcdc.kafka.v1.Kafka/ListOffsets", req, resp, metadata, timeout)
             return resp
         }
 
-        func CommitOffset(_ req: CommitOffsetRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> CommitOffsetResponse {
+        public func CommitOffset(_ req: CommitOffsetRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> CommitOffsetResponse {
             let resp = CommitOffsetResponse()
             try channel.Unary("/grpcdc.kafka.v1.Kafka/CommitOffset", req, resp, metadata, timeout)
             return resp
         }
 
-        func FetchOffset(_ req: FetchOffsetRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> FetchOffsetResponse {
+        public func FetchOffset(_ req: FetchOffsetRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> FetchOffsetResponse {
             let resp = FetchOffsetResponse()
             try channel.Unary("/grpcdc.kafka.v1.Kafka/FetchOffset", req, resp, metadata, timeout)
             return resp
         }
 
-        func CreateTopics(_ req: CreateTopicsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> CreateTopicsResponse {
+        public func CreateTopics(_ req: CreateTopicsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> CreateTopicsResponse {
             let resp = CreateTopicsResponse()
             try channel.Unary("/grpcdc.kafka.v1.Kafka/CreateTopics", req, resp, metadata, timeout)
             return resp
         }
 
-        func DeleteTopics(_ req: DeleteTopicsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DeleteTopicsResponse {
+        public func DeleteTopics(_ req: DeleteTopicsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DeleteTopicsResponse {
             let resp = DeleteTopicsResponse()
             try channel.Unary("/grpcdc.kafka.v1.Kafka/DeleteTopics", req, resp, metadata, timeout)
             return resp
@@ -119,27 +119,27 @@ enum KafkaGrpcDc {
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
-        func MetadataAsync(_ req: MetadataRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> MetadataResponse {
+        public func MetadataAsync(_ req: MetadataRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> MetadataResponse {
             try await Task.detached { try self.Metadata(req, metadata, timeout) }.value
         }
 
-        func OpenProducerAsync(_ req: OpenProducerRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> OpenProducerResponse {
+        public func OpenProducerAsync(_ req: OpenProducerRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> OpenProducerResponse {
             try await Task.detached { try self.OpenProducer(req, metadata, timeout) }.value
         }
 
-        func CloseProducerAsync(_ req: CloseProducerRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> CloseProducerResponse {
+        public func CloseProducerAsync(_ req: CloseProducerRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> CloseProducerResponse {
             try await Task.detached { try self.CloseProducer(req, metadata, timeout) }.value
         }
 
-        func EndTransactionAsync(_ req: EndTransactionRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> EndTransactionResponse {
+        public func EndTransactionAsync(_ req: EndTransactionRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> EndTransactionResponse {
             try await Task.detached { try self.EndTransaction(req, metadata, timeout) }.value
         }
 
-        func ProduceAsync(_ req: ProduceRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ProduceResponse {
+        public func ProduceAsync(_ req: ProduceRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ProduceResponse {
             try await Task.detached { try self.Produce(req, metadata, timeout) }.value
         }
 
-        func ConsumeAsync(_ reqs: ConsumeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<ConsumeResponse, Error> {
+        public func ConsumeAsync(_ reqs: ConsumeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<ConsumeResponse, Error> {
             let stream: KafkaConsumeStream
             do {
                 stream = try Consume(reqs, metadata, timeout)
@@ -167,7 +167,7 @@ enum KafkaGrpcDc {
             }
         }
 
-        func SubscribeAsync(_ reqs: GroupSubscribeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<GroupSubscribeResponse, Error> {
+        public func SubscribeAsync(_ reqs: GroupSubscribeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<GroupSubscribeResponse, Error> {
             let stream: KafkaSubscribeStream
             do {
                 stream = try Subscribe(reqs, metadata, timeout)
@@ -195,23 +195,23 @@ enum KafkaGrpcDc {
             }
         }
 
-        func ListOffsetsAsync(_ req: ListOffsetsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ListOffsetsResponse {
+        public func ListOffsetsAsync(_ req: ListOffsetsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ListOffsetsResponse {
             try await Task.detached { try self.ListOffsets(req, metadata, timeout) }.value
         }
 
-        func CommitOffsetAsync(_ req: CommitOffsetRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> CommitOffsetResponse {
+        public func CommitOffsetAsync(_ req: CommitOffsetRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> CommitOffsetResponse {
             try await Task.detached { try self.CommitOffset(req, metadata, timeout) }.value
         }
 
-        func FetchOffsetAsync(_ req: FetchOffsetRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> FetchOffsetResponse {
+        public func FetchOffsetAsync(_ req: FetchOffsetRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> FetchOffsetResponse {
             try await Task.detached { try self.FetchOffset(req, metadata, timeout) }.value
         }
 
-        func CreateTopicsAsync(_ req: CreateTopicsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> CreateTopicsResponse {
+        public func CreateTopicsAsync(_ req: CreateTopicsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> CreateTopicsResponse {
             try await Task.detached { try self.CreateTopics(req, metadata, timeout) }.value
         }
 
-        func DeleteTopicsAsync(_ req: DeleteTopicsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> DeleteTopicsResponse {
+        public func DeleteTopicsAsync(_ req: DeleteTopicsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> DeleteTopicsResponse {
             try await Task.detached { try self.DeleteTopics(req, metadata, timeout) }.value
         }
 
@@ -219,19 +219,19 @@ enum KafkaGrpcDc {
     }
 
     /// Server-streaming sink passed to service implementations.
-    protocol KafkaConsumeServer: AnyObject {
+    public protocol KafkaConsumeServer: AnyObject {
         func Send(_ resp: ConsumeResponse) throws
         var context: Endpoint.CallContext { get }
     }
 
     /// Server-streaming sink passed to service implementations.
-    protocol KafkaSubscribeServer: AnyObject {
+    public protocol KafkaSubscribeServer: AnyObject {
         func Send(_ resp: GroupSubscribeResponse) throws
         var context: Endpoint.CallContext { get }
     }
 
     /// Service implementation interface for grpcdc.kafka.v1.Kafka.
-    protocol KafkaServer: AnyObject {
+    public protocol KafkaServer: AnyObject {
         func Metadata(_ ctx: Endpoint.CallContext, _ req: MetadataRequest) throws -> MetadataResponse
         func OpenProducer(_ ctx: Endpoint.CallContext, _ req: OpenProducerRequest) throws -> OpenProducerResponse
         func CloseProducer(_ ctx: Endpoint.CallContext, _ req: CloseProducerRequest) throws -> CloseProducerResponse
@@ -248,7 +248,7 @@ enum KafkaGrpcDc {
 
     #if canImport(Foundation)
     /// Async service implementation interface for grpcdc.kafka.v1.Kafka.
-    protocol KafkaServerAsync: AnyObject {
+    public protocol KafkaServerAsync: AnyObject {
         func MetadataAsync(_ ctx: Endpoint.CallContext, _ req: MetadataRequest) async throws -> MetadataResponse
         func OpenProducerAsync(_ ctx: Endpoint.CallContext, _ req: OpenProducerRequest) async throws -> OpenProducerResponse
         func CloseProducerAsync(_ ctx: Endpoint.CallContext, _ req: CloseProducerRequest) async throws -> CloseProducerResponse
@@ -332,7 +332,7 @@ enum KafkaGrpcDc {
     #endif
 
     /// Register an implementation of grpcdc.kafka.v1.Kafka on a Server.
-    static func RegisterKafkaServer(_ server: Server, _ impl: KafkaServer) {
+    public static func RegisterKafkaServer(_ server: Server, _ impl: KafkaServer) {
         server.RegisterService(Server.ServiceDesc(name: "grpcdc.kafka.v1.Kafka", methods: [
             Server.Method(name: "Metadata", path: "/grpcdc.kafka.v1.Kafka/Metadata", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = MetadataRequest()
@@ -409,7 +409,7 @@ enum KafkaGrpcDc {
 
     #if canImport(Foundation)
     /// Register an async implementation of grpcdc.kafka.v1.Kafka on a Server.
-    static func RegisterKafkaServerAsync(_ server: Server, _ impl: KafkaServerAsync) {
+    public static func RegisterKafkaServerAsync(_ server: Server, _ impl: KafkaServerAsync) {
         // Adapters are retained for the process lifetime: registration is
         // once-per-process and bounded by service count.
         KafkaAdapters.append(KafkaServerAsyncAdapter(impl))

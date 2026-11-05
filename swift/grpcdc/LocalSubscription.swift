@@ -5,7 +5,7 @@
 // the timeout, in milliseconds), or nil; dropped counts
 // this subscription's drop-oldest losses.
 
-final class LocalSubscription {
+public final class LocalSubscription {
     private let broker: EventBusBroker
     private let sub: EventbusSubscriber
 
@@ -14,13 +14,13 @@ final class LocalSubscription {
         self.sub = sub
     }
 
-    var dropped: Int { sub.dropped }
+    public var dropped: Int { sub.dropped }
 
-    func take(_ timeoutMs: Int = 1000) -> Event? {
+    public func take(_ timeoutMs: Int = 1000) -> Event? {
         return sub.take(timeoutMs)
     }
 
-    func close() {
+    public func close() {
         broker.removeSubscriber(sub)
     }
 }

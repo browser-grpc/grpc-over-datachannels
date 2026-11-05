@@ -23,7 +23,7 @@
 ;;; (request -> file -> service -> method) to emit stubs — generation all
 ;;; the way down.
 
-(require "spec.rkt" "pb.rkt" json racket/runtime-path "webrtc-gen.rkt"
+(require "spec.rkt" "pb.rkt" "desc.rkt" json racket/runtime-path "webrtc-gen.rkt"
          "oracle-spec.rkt" "oracle-gen.rkt" "bdd-gen.rkt" "webgen.rkt" "mux-gen.rkt"
          "interop-gen.rkt" "sctp-gen.rkt"
          "proxy-gen.rkt" "http2-gen.rkt" "eventbus-gen.rkt" "interop-service-gen.rkt"
@@ -1657,7 +1657,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "cpp/examples" "interop-service-gen.rkt" (list (emit-cpp-interop-service)))
   (make-directory* (build-path root "swift" "grpcdc"))
   (call-with-output-file (build-path root "swift" "grpcdc" "Wire.swift") #:exists 'replace
-    (lambda (out) (display (emit-swift-wire) out)))
+    (lambda (out) (display (publicize-swift (emit-swift-wire)) out)))
   (printf "generated swift/grpcdc/Wire.swift\n")
   (write-runtime-files "swift" "runtime-swift.rkt" (emit-swift-runtime-files))
   (make-directory* (build-path root "swift" "tests"))

@@ -3,8 +3,19 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.37.1 — 2026-11-03 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven; Dart packages added on pub.dev, Rust crates on crates.io, Ruby gems on RubyGems.org 2026-11-05)
+## v0.37.1 — 2026-11-03 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven; Dart packages added on pub.dev, Rust crates on crates.io, Ruby gems on RubyGems.org, SwiftPM package 2026-11-05)
 
+- SwiftPM / Swift Package Index (new channel, same
+  version): the public repository is now a Swift package
+  (`Package.swift` at the export root, library product
+  `GrpcDc`, module `Grpcdc`). The Swift generators never
+  emitted access modifiers (the runtime was built for
+  single-module compilation), so a brace-tracking
+  `publicize-swift` transform in the shared generator code
+  now publicizes the API across the runtime, stubs, event
+  bus, and HTTP/2 transport; private helpers and protocol
+  requirements are left alone. SPI listing is filed against
+  the public repo once this export is pushed.
 - Ruby gems on RubyGems.org (new channel, same version):
   `grpc-dc` (the stdlib-only Ruby runtime; kafka stubs split
   out, same as everywhere) and `kafka-grpc`, generated into

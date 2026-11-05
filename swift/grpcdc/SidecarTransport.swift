@@ -11,15 +11,15 @@ import Darwin
 /// TCP socket using u32 big-endian length-prefixed messages
 /// (one prefix per DataChannel message). POSIX sockets only;
 /// `host` must be an IP literal (the sidecar is local).
-final class SidecarTransport: Transport {
+public final class SidecarTransport: Transport {
     private let fd: Int32
     private var closedFlag = false
 
-    init(fd: Int32) {
+    public init(fd: Int32) {
         self.fd = fd
     }
 
-    static func Connect(_ host: String, _ port: Int) throws -> SidecarTransport {
+    public static func Connect(_ host: String, _ port: Int) throws -> SidecarTransport {
         let fd = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
         if fd < 0 { throw EndOfStreamError() }
         var addr = sockaddr_in()
@@ -35,7 +35,7 @@ final class SidecarTransport: Transport {
         return SidecarTransport(fd: fd)
     }
 
-    func Send(_ data: [UInt8]) throws {
+    public func Send(_ data: [UInt8]) throws {
         if closedFlag { throw EndOfStreamError() }
         var frame = [UInt8](repeating: 0, count: 4)
         frame[0] = UInt8((data.count >> 24) & 0xff)
@@ -46,13 +46,13 @@ final class SidecarTransport: Transport {
         try writeAll(frame)
     }
 
-    func Recv() throws -> [UInt8] {
+    public func Recv() throws -> [UInt8] {
         let header = try readExact(4)
         let length = (Int(header[0]) << 24) | (Int(header[1]) << 16) | (Int(header[2]) << 8) | Int(header[3])
         return try readExact(length)
     }
 
-    func Close() {
+    public func Close() {
         closedFlag = true
         close(fd)
     }

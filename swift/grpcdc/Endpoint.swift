@@ -5,35 +5,35 @@ import Foundation
 #endif
 
 /// Multiplexes grpc-dc streams over one Transport.
-final class Endpoint {
-    enum EventKind {
+public final class Endpoint {
+    public enum EventKind {
         case headers, data, halfClose, trailers, rst
     }
 
-    struct StreamEvent {
-        var kind: EventKind
-        var headers: Codec.Headers? = nil
-        var payload: [UInt8] = []
-        var status: StatusException? = nil
+    public struct StreamEvent {
+        public var kind: EventKind
+        public var headers: Codec.Headers? = nil
+        public var payload: [UInt8] = []
+        public var status: StatusException? = nil
     }
 
     /// Receiving queue of one stream; closed after a terminal event.
-    final class StreamInput {
+    public final class StreamInput {
         private let queue = BlockingQueue<StreamEvent>()
 
         /// Inline mode: Get drives the endpoint pump instead of
         /// waiting on a condition variable. Strong, cleared by
         /// Endpoint.CloseStream (`weak` is unavailable in
         /// Embedded Swift); ClientStream also retains both.
-        var pump: Endpoint?
+        public var pump: Endpoint?
 
-        func SetPump(_ endpoint: Endpoint?) { pump = endpoint }
+        public func SetPump(_ endpoint: Endpoint?) { pump = endpoint }
 
-        func Put(_ event: StreamEvent) { queue.Add(event) }
-        func Close() { queue.Close() }
+        public func Put(_ event: StreamEvent) { queue.Add(event) }
+        public func Close() { queue.Close() }
 
         /// Next event, or nil once the stream is closed and drained.
-        func Get() -> StreamEvent? {
+        public func Get() -> StreamEvent? {
             if let pump = pump {
                 while true {
                     if let event = queue.TryTake() { return event }
@@ -45,7 +45,7 @@ final class Endpoint {
         }
 
         /// Timed Get: timedOut is true on expiry with no event.
-        func Get(deadlineMs: Double) -> (event: StreamEvent?, timedOut: Bool) {
+        public func Get(deadlineMs: Double) -> (event: StreamEvent?, timedOut: Bool) {
             if let pump = pump {
                 while true {
                     if let event = queue.TryTake() { return (event, false) }
@@ -66,37 +66,37 @@ final class Endpoint {
     /// Per-call context: metadata sent in HEADERS, plus deadline.
     /// A class (not a struct) so handlers can record response
     /// metadata the endpoint reads after dispatch.
-    final class CallContext {
-        var metadata: [String: String] = [:]
+    public final class CallContext {
+        public var metadata: [String: String] = [:]
         /// Response initial metadata recorded via SetHeaders.
-        var responseHeaders: [String: String] = [:]
+        public var responseHeaders: [String: String] = [:]
         /// Response trailing metadata recorded via SetTrailers.
-        var responseTrailers: [String: String] = [:]
+        public var responseTrailers: [String: String] = [:]
 
         /// Record response initial metadata (sent lazily, before the first response message).
-        func SetHeaders(_ md: [String: String]) {
+        public func SetHeaders(_ md: [String: String]) {
             for (k, v) in md { responseHeaders[k] = v }
         }
 
         /// Record response trailing metadata (rides the terminal status frame).
-        func SetTrailers(_ md: [String: String]) {
+        public func SetTrailers(_ md: [String: String]) {
             for (k, v) in md { responseTrailers[k] = v }
         }
         /// Monotonic deadline (GrpcTime milliseconds) propagated
         /// via grpc-timeout, when the client set one.
-        var deadlineMs: Double? = nil
+        public var deadlineMs: Double? = nil
 
-        init() {}
+        public init() {}
 
         /// Seconds left before the deadline, or nil when unbounded.
-        func TimeRemaining() -> Double? {
+        public func TimeRemaining() -> Double? {
             guard let deadlineMs else { return nil }
             return max(0, (deadlineMs - GrpcTime.NowMs()) / 1000.0)
         }
 
-        var DeadlineExceeded: Bool { TimeRemaining() == 0 }
+        public var DeadlineExceeded: Bool { TimeRemaining() == 0 }
 
-        static func FromMetadata(_ metadata: [String: String]) -> CallContext {
+        public static func FromMetadata(_ metadata: [String: String]) -> CallContext {
             var ctx = CallContext()
             ctx.metadata = metadata
             if let remaining = Codec.ParseTimeout(metadata["grpc-timeout"]) {
@@ -107,11 +107,11 @@ final class Endpoint {
     }
 
     /// Sends response payloads of one inbound call.
-    final class ResponseSink {
+    public final class ResponseSink {
         private let endpoint: Endpoint
         private let streamId: UInt32
 
-        init(_ endpoint: Endpoint, _ streamId: UInt32) {
+        public init(_ endpoint: Endpoint, _ streamId: UInt32) {
             self.endpoint = endpoint
             self.streamId = streamId
         }
@@ -119,10 +119,10 @@ final class Endpoint {
         // Wired to the CallContext by the endpoint (held by
         // reference so handler SetHeaders/SetTrailers mutations
         // are visible when the endpoint flushes).
-        var ctx: CallContext? = nil
-        var respHeaders: [String: String] { ctx?.responseHeaders ?? [:] }
-        var respTrailers: [String: String] { ctx?.responseTrailers ?? [:] }
-        var headersSent = false
+        public var ctx: CallContext? = nil
+        public var respHeaders: [String: String] { ctx?.responseHeaders ?? [:] }
+        public var respTrailers: [String: String] { ctx?.responseTrailers ?? [:] }
+        public var headersSent = false
 
         // A stream the endpoint has forgotten was RST by the
         // peer (or the channel went away): fail the send so a
@@ -134,30 +134,30 @@ final class Endpoint {
             }
         }
 
-        func Send(_ payload: [UInt8]) throws {
+        public func Send(_ payload: [UInt8]) throws {
             try CheckOpen()
             try FlushHeaders()
             try endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, streamId, payload))
         }
 
-        func FlushHeaders() throws {
+        public func FlushHeaders() throws {
             if !headersSent {
                 headersSent = true
                 try SendHeaders(respHeaders)
             }
         }
 
-        func SendHeaders() throws {
+        public func SendHeaders() throws {
             try SendHeaders(respHeaders)
         }
 
-        func SendHeaders(_ metadata: [String: String]) throws {
+        public func SendHeaders(_ metadata: [String: String]) throws {
             try CheckOpen()
             headersSent = true
             try endpoint.SendFrame(Codec.HeadersFrame(streamId, nil, metadata))
         }
 
-        func SendTrailers(_ status: StatusException) throws {
+        public func SendTrailers(_ status: StatusException) throws {
             var out = status
             if !respTrailers.isEmpty {
                 var merged = respTrailers
@@ -170,7 +170,7 @@ final class Endpoint {
 
     /// Server-side call handler installed by Server.
     /// Returns the status that becomes the call's TRAILERS.
-    typealias Dispatcher = (CallContext, Codec.Headers, StreamInput, ResponseSink) -> StatusException
+    public typealias Dispatcher = (CallContext, Codec.Headers, StreamInput, ResponseSink) -> StatusException
 
     private let transport: Transport
     private var dispatcher: Dispatcher?
@@ -187,7 +187,7 @@ final class Endpoint {
     /// answerer even. The read loop starts on Start() — after any
     /// dispatcher is installed, so an early HEADERS can never race
     /// dispatcher setup.
-    init(_ transport: Transport, creator: Bool) {
+    public init(_ transport: Transport, creator: Bool) {
         self.transport = transport
         self.nextId = creator ? 1 : 2
     }
@@ -195,7 +195,7 @@ final class Endpoint {
     /// Start the read loop (idempotent). A TryRecv transport
     /// runs inline instead: no thread is spawned and stream
     /// waits pump the transport (single-threaded wasm32).
-    func Start() {
+    public func Start() {
         stateLock.lock()
         if started {
             stateLock.unlock()
@@ -218,13 +218,13 @@ final class Endpoint {
     }
 
     /// Whether this endpoint runs in inline pump mode.
-    func IsInlinePump() -> Bool { inlinePumpFlag }
+    public func IsInlinePump() -> Bool { inlinePumpFlag }
 
     /// Inline mode: receive and dispatch at most one message.
     /// Stream waits call this through StreamInput's pump hook;
     /// a server-only program drives its endpoint by calling it
     /// in a loop.
-    func PollOnce() {
+    public func PollOnce() {
         if IsClosed() { return }
         switch transport.TryRecv() {
         case .message(let data):
@@ -242,17 +242,17 @@ final class Endpoint {
         }
     }
 
-    func SetDispatcher(_ dispatcher: @escaping Dispatcher) {
+    public func SetDispatcher(_ dispatcher: @escaping Dispatcher) {
         self.dispatcher = dispatcher
     }
 
-    func SendFrame(_ frame: [UInt8]) throws {
+    public func SendFrame(_ frame: [UInt8]) throws {
         sendLock.lock()
         defer { sendLock.unlock() }
         try transport.Send(frame)
     }
 
-    func OpenStream() -> (UInt32, StreamInput) {
+    public func OpenStream() -> (UInt32, StreamInput) {
         sendLock.lock()
         let id = nextId
         nextId += 2
@@ -265,7 +265,7 @@ final class Endpoint {
         return (id, input)
     }
 
-    func CloseStream(_ id: UInt32) {
+    public func CloseStream(_ id: UInt32) {
         streamsLock.lock()
         let removed = streams.removeValue(forKey: id)
         streamsLock.unlock()
@@ -273,7 +273,7 @@ final class Endpoint {
     }
 
     /// Abort one stream: RST out; a pending Recv wakes with CANCELLED.
-    func CancelStream(_ id: UInt32) {
+    public func CancelStream(_ id: UInt32) {
         streamsLock.lock()
         let input = streams.removeValue(forKey: id)
         streamsLock.unlock()
@@ -291,7 +291,7 @@ final class Endpoint {
         return streams[id]
     }
 
-    func Close() {
+    public func Close() {
         stateLock.lock()
         if closed {
             stateLock.unlock()

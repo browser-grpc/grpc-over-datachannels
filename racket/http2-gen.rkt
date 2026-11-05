@@ -22,7 +22,7 @@
 ;;; stdlib TLS of each language (ALPN "h2"); only the dial glue
 ;;; and verification policy are emitted here.
 
-(require "http2-spec.rkt")
+(require "http2-spec.rkt" "desc.rkt")
 (provide emit-js-http2 emit-python-http2 emit-go-http2 emit-java-http2 emit-csharp-http2 emit-kotlin-http2 emit-scala-http2 emit-dart-http2 emit-swift-http2 emit-zig-http2)
 
 (define (code->number c)
@@ -5664,12 +5664,13 @@
 
 (define (emit-swift-http2)
   (cons "Http2Transport.swift"
-        (string-replace
+        (publicize-swift
          (string-replace
-          (string-replace swift-http2-body
+          (string-replace
+           (string-replace swift-http2-body
                           "SWIFT_STATIC_TABLE" (swift-static-table))
           "SWIFT_HUFF_CODES" (swift-huff-codes))
-         "SWIFT_HUFF_LENS" (swift-huff-lens))))
+         "SWIFT_HUFF_LENS" (swift-huff-lens)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Zig emitter -> zig/grpcdc/http2_transport.zig

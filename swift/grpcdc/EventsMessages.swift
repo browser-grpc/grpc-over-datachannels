@@ -4,41 +4,41 @@
 import Foundation
 #endif
 
-enum EventsPb {
-    struct BadWireType: Error {}
-    final class Writer {
+public enum EventsPb {
+    public struct BadWireType: Error {}
+    public final class Writer {
         private var out: [UInt8] = []
-        func Varint(_ value: UInt64) { var v = value; while v > 0x7f { out.append(UInt8((v & 0x7f) | 0x80)); v >>= 7 }; out.append(UInt8(v)) }
-        func Varint(_ value: Int64) { Varint(UInt64(bitPattern: value)) }
-        func Tag(_ field: Int, _ wire: Int) { Varint(UInt64((field << 3) | wire)) }
-        func BytesField(_ field: Int, _ payload: [UInt8]) { Tag(field, 2); Varint(UInt64(payload.count)); out += payload }
-        func StringField(_ field: Int, _ value: String) { if value.isEmpty { return }; BytesField(field, [UInt8](value.utf8)) }
-        func FixedInt32(_ value: Int32) { FixedUInt32(UInt32(bitPattern: value)) }
-        func FixedUInt32(_ value: UInt32) { for i in 0..<4 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
-        func FixedInt64(_ value: Int64) { FixedUInt64(UInt64(bitPattern: value)) }
-        func FixedUInt64(_ value: UInt64) { for i in 0..<8 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
-        func FixedFloat(_ value: Float) { FixedUInt32(value.bitPattern) }
-        func FixedDouble(_ value: Double) { FixedUInt64(value.bitPattern) }
-        func Raw(_ payload: [UInt8]) { out += payload }
-        func ToBytes() -> [UInt8] { out }
+        public func Varint(_ value: UInt64) { var v = value; while v > 0x7f { out.append(UInt8((v & 0x7f) | 0x80)); v >>= 7 }; out.append(UInt8(v)) }
+        public func Varint(_ value: Int64) { Varint(UInt64(bitPattern: value)) }
+        public func Tag(_ field: Int, _ wire: Int) { Varint(UInt64((field << 3) | wire)) }
+        public func BytesField(_ field: Int, _ payload: [UInt8]) { Tag(field, 2); Varint(UInt64(payload.count)); out += payload }
+        public func StringField(_ field: Int, _ value: String) { if value.isEmpty { return }; BytesField(field, [UInt8](value.utf8)) }
+        public func FixedInt32(_ value: Int32) { FixedUInt32(UInt32(bitPattern: value)) }
+        public func FixedUInt32(_ value: UInt32) { for i in 0..<4 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
+        public func FixedInt64(_ value: Int64) { FixedUInt64(UInt64(bitPattern: value)) }
+        public func FixedUInt64(_ value: UInt64) { for i in 0..<8 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
+        public func FixedFloat(_ value: Float) { FixedUInt32(value.bitPattern) }
+        public func FixedDouble(_ value: Double) { FixedUInt64(value.bitPattern) }
+        public func Raw(_ payload: [UInt8]) { out += payload }
+        public func ToBytes() -> [UInt8] { out }
     }
 
-    static func BitsToFloat(_ u: UInt32) -> Float { Float(bitPattern: u) }
-    static func BitsToDouble(_ u: UInt64) -> Double { Double(bitPattern: u) }
+    public static func BitsToFloat(_ u: UInt32) -> Float { Float(bitPattern: u) }
+    public static func BitsToDouble(_ u: UInt64) -> Double { Double(bitPattern: u) }
 
-    struct Field {
-        var number: Int; var wire: Int; var varintValue: UInt64; var bytesValue: [UInt8]; var fixedValue: UInt64; var rawValue: [UInt8]
+    public struct Field {
+        public var number: Int; var wire: Int; var varintValue: UInt64; var bytesValue: [UInt8]; var fixedValue: UInt64; var rawValue: [UInt8]
     }
 
-    final class Reader {
+    public final class Reader {
         private let buf: [UInt8]; private var pos = 0
-        init(_ buf: [UInt8]) { self.buf = buf }
-        func Done() -> Bool { pos >= buf.count }
-        func Varint() -> UInt64 { var result: UInt64 = 0; var shift: UInt64 = 0; while true { precondition(pos < buf.count, "truncated varint"); let b = buf[pos]; pos += 1; result |= UInt64(b & 0x7f) << shift; if (b & 0x80) == 0 { return result }; shift += 7; precondition(shift < 64, "varint too long") } }
-        func Take(_ n: Int) -> [UInt8] { precondition(pos + n <= buf.count, "truncated field"); let v = [UInt8](buf[pos..<(pos + n)]); pos += n; return v }
-        func Fixed32() -> UInt32 { let b = Take(4); return UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24) }
-        func Fixed64() -> UInt64 { let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return v }
-        func Next() throws -> Field? {
+        public init(_ buf: [UInt8]) { self.buf = buf }
+        public func Done() -> Bool { pos >= buf.count }
+        public func Varint() -> UInt64 { var result: UInt64 = 0; var shift: UInt64 = 0; while true { precondition(pos < buf.count, "truncated varint"); let b = buf[pos]; pos += 1; result |= UInt64(b & 0x7f) << shift; if (b & 0x80) == 0 { return result }; shift += 7; precondition(shift < 64, "varint too long") } }
+        public func Take(_ n: Int) -> [UInt8] { precondition(pos + n <= buf.count, "truncated field"); let v = [UInt8](buf[pos..<(pos + n)]); pos += n; return v }
+        public func Fixed32() -> UInt32 { let b = Take(4); return UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24) }
+        public func Fixed64() -> UInt64 { let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return v }
+        public func Next() throws -> Field? {
             if pos >= buf.count { return nil }
             let start = pos
             let tag = Varint(); let number = Int(tag >> 3); let wire = Int(tag & 7)
@@ -54,23 +54,23 @@ enum EventsPb {
 
 }
 
-enum Tag: Int32 {
+public enum Tag: Int32 {
     case TAG_UNSPECIFIED = 0
     case TOPIC = 1
     case SOURCE = 2
     case KIND = 3
 }
 
-final class TagValue: Marshaler, Unmarshaler {
-    var tag: Tag = Tag.TAG_UNSPECIFIED
-    var stringValue: String = ""
-    var intValue: Int64 = 0
-    var doubleValue: Double = 0
-    var boolValue: Bool = false
-    var enumValue: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ tag: Tag = Tag.TAG_UNSPECIFIED, _ stringValue: String = "", _ intValue: Int64 = 0, _ doubleValue: Double = 0, _ boolValue: Bool = false, _ enumValue: Int32 = 0) {
+public final class TagValue: Marshaler, Unmarshaler {
+    public var tag: Tag = Tag.TAG_UNSPECIFIED
+    public var stringValue: String = ""
+    public var intValue: Int64 = 0
+    public var doubleValue: Double = 0
+    public var boolValue: Bool = false
+    public var enumValue: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ tag: Tag = Tag.TAG_UNSPECIFIED, _ stringValue: String = "", _ intValue: Int64 = 0, _ doubleValue: Double = 0, _ boolValue: Bool = false, _ enumValue: Int32 = 0) {
         self.tag = tag
         self.stringValue = stringValue
         self.intValue = intValue
@@ -78,7 +78,7 @@ final class TagValue: Marshaler, Unmarshaler {
         self.boolValue = boolValue
         self.enumValue = enumValue
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = EventsPb.Writer()
         if tag.rawValue != 0 { w.Tag(1, 0); w.Varint(Int64(tag.rawValue)) }
         if !(intValue != 0 || doubleValue != 0 || boolValue || enumValue != 0) {
@@ -97,7 +97,7 @@ final class TagValue: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         tag = Tag.TAG_UNSPECIFIED
         stringValue = ""
@@ -148,18 +148,18 @@ final class TagValue: Marshaler, Unmarshaler {
         }
     }
 }
-final class PublishRequest: Marshaler, Unmarshaler {
-    var tags: [TagValue] = []
-    var payload: [UInt8] = []
-    var publisherId: String = ""
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ tags: [TagValue] = [], _ payload: [UInt8] = [], _ publisherId: String = "") {
+public final class PublishRequest: Marshaler, Unmarshaler {
+    public var tags: [TagValue] = []
+    public var payload: [UInt8] = []
+    public var publisherId: String = ""
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ tags: [TagValue] = [], _ payload: [UInt8] = [], _ publisherId: String = "") {
         self.tags = tags
         self.payload = payload
         self.publisherId = publisherId
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = EventsPb.Writer()
         for x in tags { w.BytesField(1, x.MarshalDc()) }
         if !payload.isEmpty { w.BytesField(2, payload) }
@@ -167,7 +167,7 @@ final class PublishRequest: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         tags = []
         payload = []
@@ -191,20 +191,20 @@ final class PublishRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class PublishReply: Marshaler, Unmarshaler {
-    var seq: UInt64 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ seq: UInt64 = 0) {
+public final class PublishReply: Marshaler, Unmarshaler {
+    public var seq: UInt64 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ seq: UInt64 = 0) {
         self.seq = seq
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = EventsPb.Writer()
         if seq != 0 { w.Tag(1, 0); w.Varint(seq) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         seq = 0
         let r = EventsPb.Reader(data)
@@ -220,20 +220,20 @@ final class PublishReply: Marshaler, Unmarshaler {
         }
     }
 }
-final class SubscribeRequest: Marshaler, Unmarshaler {
-    var filter: [TagValue] = []
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ filter: [TagValue] = []) {
+public final class SubscribeRequest: Marshaler, Unmarshaler {
+    public var filter: [TagValue] = []
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ filter: [TagValue] = []) {
         self.filter = filter
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = EventsPb.Writer()
         for x in filter { w.BytesField(1, x.MarshalDc()) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         filter = []
         let r = EventsPb.Reader(data)
@@ -251,22 +251,22 @@ final class SubscribeRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class Event: Marshaler, Unmarshaler {
-    var tags: [TagValue] = []
-    var payload: [UInt8] = []
-    var seq: UInt64 = 0
-    var publisherId: String = ""
-    var timestampUnixMs: Int64 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ tags: [TagValue] = [], _ payload: [UInt8] = [], _ seq: UInt64 = 0, _ publisherId: String = "", _ timestampUnixMs: Int64 = 0) {
+public final class Event: Marshaler, Unmarshaler {
+    public var tags: [TagValue] = []
+    public var payload: [UInt8] = []
+    public var seq: UInt64 = 0
+    public var publisherId: String = ""
+    public var timestampUnixMs: Int64 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ tags: [TagValue] = [], _ payload: [UInt8] = [], _ seq: UInt64 = 0, _ publisherId: String = "", _ timestampUnixMs: Int64 = 0) {
         self.tags = tags
         self.payload = payload
         self.seq = seq
         self.publisherId = publisherId
         self.timestampUnixMs = timestampUnixMs
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = EventsPb.Writer()
         for x in tags { w.BytesField(1, x.MarshalDc()) }
         if !payload.isEmpty { w.BytesField(2, payload) }
@@ -276,7 +276,7 @@ final class Event: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         tags = []
         payload = []

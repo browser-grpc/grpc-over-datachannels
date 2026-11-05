@@ -7,75 +7,75 @@ import Foundation
 #endif
 
 /// Generated gRPC-over-DataChannels stubs for echo.proto.
-enum EchoGrpcDc {
+public enum EchoGrpcDc {
     /// Client for echo.Echo.
-    final class EchoClient {
+    public final class EchoClient {
         private let channel: Channel
 
-        init(_ channel: Channel) {
+        public init(_ channel: Channel) {
             self.channel = channel
         }
 
-        final class EchoServerStreamStream {
+        public final class EchoServerStreamStream {
             private let stream: Channel.ClientStream
-            init(_ stream: Channel.ClientStream) { self.stream = stream }
-            func Recv() throws -> EchoResponse {
+            public init(_ stream: Channel.ClientStream) { self.stream = stream }
+            public func Recv() throws -> EchoResponse {
                 let resp = EchoResponse()
                 try stream.Recv(resp)
                 return resp
             }
             /// Initial metadata (response headers); nil until they arrive.
-            var Headers: [String: String]? { stream.headers?.metadata }
+            public var Headers: [String: String]? { stream.headers?.metadata }
             /// Trailing metadata of the terminal status; nil until it arrives.
-            var Trailers: [String: String]? { stream.trailers }
-            func Cancel() { stream.Cancel() }
-            func Close() { stream.Close() }
+            public var Trailers: [String: String]? { stream.trailers }
+            public func Cancel() { stream.Cancel() }
+            public func Close() { stream.Close() }
         }
 
-        final class EchoBidiStream {
+        public final class EchoBidiStream {
             private let stream: Channel.ClientStream
-            init(_ stream: Channel.ClientStream) { self.stream = stream }
-            func Recv() throws -> EchoResponse {
+            public init(_ stream: Channel.ClientStream) { self.stream = stream }
+            public func Recv() throws -> EchoResponse {
                 let resp = EchoResponse()
                 try stream.Recv(resp)
                 return resp
             }
             /// Initial metadata (response headers); nil until they arrive.
-            var Headers: [String: String]? { stream.headers?.metadata }
+            public var Headers: [String: String]? { stream.headers?.metadata }
             /// Trailing metadata of the terminal status; nil until it arrives.
-            var Trailers: [String: String]? { stream.trailers }
-            func Cancel() { stream.Cancel() }
-            func Close() { stream.Close() }
+            public var Trailers: [String: String]? { stream.trailers }
+            public func Cancel() { stream.Cancel() }
+            public func Close() { stream.Close() }
         }
 
-        func Unary(_ req: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EchoResponse {
+        public func Unary(_ req: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EchoResponse {
             let resp = EchoResponse()
             try channel.Unary("/echo.Echo/Unary", req, resp, metadata, timeout)
             return resp
         }
 
-        func ServerStream(_ req: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EchoServerStreamStream {
+        public func ServerStream(_ req: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EchoServerStreamStream {
             return EchoServerStreamStream(try channel.ServerStream("/echo.Echo/ServerStream", req, metadata, timeout))
         }
 
-        func ClientStream(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EchoResponse {
+        public func ClientStream(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EchoResponse {
             let resp = EchoResponse()
             try channel.ClientStreamCall("/echo.Echo/ClientStream", reqs, resp, metadata, timeout)
             return resp
         }
 
-        func Bidi(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EchoBidiStream {
+        public func Bidi(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EchoBidiStream {
             return EchoBidiStream(try channel.Bidi("/echo.Echo/Bidi", reqs, metadata, timeout))
         }
 
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
-        func UnaryAsync(_ req: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> EchoResponse {
+        public func UnaryAsync(_ req: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> EchoResponse {
             try await Task.detached { try self.Unary(req, metadata, timeout) }.value
         }
 
-        func ServerStreamAsync(_ reqs: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<EchoResponse, Error> {
+        public func ServerStreamAsync(_ reqs: EchoRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<EchoResponse, Error> {
             let stream: EchoServerStreamStream
             do {
                 stream = try ServerStream(reqs, metadata, timeout)
@@ -103,11 +103,11 @@ enum EchoGrpcDc {
             }
         }
 
-        func ClientStreamAsync(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> EchoResponse {
+        public func ClientStreamAsync(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> EchoResponse {
             try await Task.detached { try self.ClientStream(reqs, metadata, timeout) }.value
         }
 
-        func BidiAsync(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<EchoResponse, Error> {
+        public func BidiAsync(_ reqs: [EchoRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<EchoResponse, Error> {
             let stream: EchoBidiStream
             do {
                 stream = try Bidi(reqs, metadata, timeout)
@@ -139,27 +139,27 @@ enum EchoGrpcDc {
     }
 
     /// Server-streaming sink passed to service implementations.
-    protocol EchoServerStreamServer: AnyObject {
+    public protocol EchoServerStreamServer: AnyObject {
         func Send(_ resp: EchoResponse) throws
         var context: Endpoint.CallContext { get }
     }
 
     /// Client-streaming stream passed to service implementations.
-    protocol EchoClientStreamServer: AnyObject {
+    public protocol EchoClientStreamServer: AnyObject {
         func Recv() throws -> EchoRequest
         func SendAndClose(_ resp: EchoResponse)
         var context: Endpoint.CallContext { get }
     }
 
     /// Bidi stream passed to service implementations.
-    protocol EchoBidiServer: AnyObject {
+    public protocol EchoBidiServer: AnyObject {
         func Send(_ resp: EchoResponse) throws
         func Recv() throws -> EchoRequest
         var context: Endpoint.CallContext { get }
     }
 
     /// Service implementation interface for echo.Echo.
-    protocol EchoServer: AnyObject {
+    public protocol EchoServer: AnyObject {
         func Unary(_ ctx: Endpoint.CallContext, _ req: EchoRequest) throws -> EchoResponse
         func ServerStream(_ req: EchoRequest, _ stream: EchoServerStreamServer) throws
         func ClientStream(_ stream: EchoClientStreamServer) throws
@@ -168,7 +168,7 @@ enum EchoGrpcDc {
 
     #if canImport(Foundation)
     /// Async service implementation interface for echo.Echo.
-    protocol EchoServerAsync: AnyObject {
+    public protocol EchoServerAsync: AnyObject {
         func UnaryAsync(_ ctx: Endpoint.CallContext, _ req: EchoRequest) async throws -> EchoResponse
         func ServerStreamAsync(_ req: EchoRequest, _ stream: EchoServerStreamServer) async throws
         func ClientStreamAsync(_ stream: EchoClientStreamServer) async throws
@@ -244,7 +244,7 @@ enum EchoGrpcDc {
     #endif
 
     /// Register an implementation of echo.Echo on a Server.
-    static func RegisterEchoServer(_ server: Server, _ impl: EchoServer) {
+    public static func RegisterEchoServer(_ server: Server, _ impl: EchoServer) {
         server.RegisterService(Server.ServiceDesc(name: "echo.Echo", methods: [
             Server.Method(name: "Unary", path: "/echo.Echo/Unary", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = EchoRequest()
@@ -273,7 +273,7 @@ enum EchoGrpcDc {
 
     #if canImport(Foundation)
     /// Register an async implementation of echo.Echo on a Server.
-    static func RegisterEchoServerAsync(_ server: Server, _ impl: EchoServerAsync) {
+    public static func RegisterEchoServerAsync(_ server: Server, _ impl: EchoServerAsync) {
         // Adapters are retained for the process lifetime: registration is
         // once-per-process and bounded by service count.
         EchoAdapters.append(EchoServerAsyncAdapter(impl))
