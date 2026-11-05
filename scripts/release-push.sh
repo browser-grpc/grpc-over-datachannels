@@ -435,10 +435,11 @@ if [ -n "$GH_TOKEN_VAL" ]; then
     GEM_TMP="$WORK/gemhome"; mkdir -p "$GEM_TMP/.gem"
     printf -- '---\n:github: Bearer %s\n' "$GH_TOKEN_VAL" > "$GEM_TMP/.gem/credentials"
     chmod 600 "$GEM_TMP/.gem/credentials"
-    for spec in "ruby/grpc-dc.gemspec" "packages/kafka-ruby/kafka-grpc.gemspec"; do
+    for spec in "packages/grpc-ruby/grpc-dc.gemspec" "packages/kafka-ruby/kafka-grpc.gemspec"; do
       [ -f "$EXPORT/$spec" ] || continue
-      if (cd "$EXPORT" && gem build "$spec" >/dev/null 2>&1); then
-        GEMFILE="$(ls -t "$EXPORT"/*.gem 2>/dev/null | head -1)"
+      specdir="$(dirname "$spec")"
+      if (cd "$EXPORT/$specdir" && gem build "$(basename "$spec")" >/dev/null 2>&1); then
+        GEMFILE="$(ls -t "$EXPORT/$specdir"/*.gem 2>/dev/null | head -1)"
         if [ -n "$GEMFILE" ] && HOME="$GEM_TMP" gem push --key github --host "https://rubygems.pkg.github.com/browser-grpc" "$GEMFILE" >/dev/null 2>&1; then
           echo "github packages: gem $(basename "$GEMFILE") published"
         else
@@ -503,7 +504,7 @@ echo "release asset: grpc-dc-$VERSION.zip + SHA256SUMS uploaded"
 # ------------------------------------------------------------------
 NPM_OK="${NPM_OK:-0}"; PYPI_OK="${PYPI_OK:-0}"
 NUGET_OK=0; MAVEN_OK=0; MAVEN_GH_OK=0
-for wf in publish-npm publish-nuget publish-maven publish-maven-github publish-pubdev publish-crates; do
+for wf in publish-npm publish-nuget publish-maven publish-maven-github publish-pubdev publish-crates publish-rubygems; do
   if [ "$wf" = publish-maven ] && [ "${SKIP_CENTRAL:-}" = 1 ]; then
     echo "note: Maven Central dispatch skipped (SKIP_CENTRAL=1); sync Central in its weekly slot"
     continue

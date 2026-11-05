@@ -591,6 +591,51 @@
       "          echo 'kafka-grpc publish did not succeed' >&2; exit 1\n")
      out)))
 
+;; RubyGems: manual-dispatch workflow publishing
+;; packages/grpc-ruby (grpc-dc) then packages/kafka-ruby
+;; (kafka-grpc) via RubyGems Trusted Publishing (OIDC, using
+;; rubygems/configure-rubygems-credentials, then plain
+;; gem build/push in each package dir). Requires a Trusted
+;; Publisher configured for both gems on rubygems.org (repo
+;; browser-grpc/grpc-over-datachannels, workflow
+;; publish-rubygems.yml); the first versions were pushed with
+;; an API key.
+(call-with-output-file (build-path out-dir ".github/workflows/publish-rubygems.yml")
+  #:exists 'replace
+  (lambda (out)
+    (display
+     (string-append
+      "# Publish the grpc-dc and kafka-grpc gems via RubyGems\n"
+      "# Trusted Publishing (OIDC). Manual dispatch only.\n"
+      "# Requires a Trusted Publisher configured for both gems\n"
+      "# on rubygems.org (this repo + this workflow file).\n"
+      "name: publish-rubygems\n"
+      "on: workflow_dispatch\n"
+      "permissions:\n"
+      "  contents: read\n"
+      "  id-token: write\n"
+      "jobs:\n"
+      "  publish:\n"
+      "    runs-on: ubuntu-latest\n"
+      "    steps:\n"
+      "      - uses: actions/checkout@v4\n"
+      "      - uses: ruby/setup-ruby@v1\n"
+      "        with:\n"
+      "          ruby-version: ruby\n"
+      "      - uses: rubygems/configure-rubygems-credentials@v1\n"
+      "      - name: Push grpc-dc\n"
+      "        working-directory: packages/grpc-ruby\n"
+      "        run: |\n"
+      "          gem build grpc-dc.gemspec\n"
+      "          gem push grpc-dc-*.gem\n"
+      "      - name: Push kafka-grpc\n"
+      "        if: \"!cancelled()\"\n"
+      "        working-directory: packages/kafka-ruby\n"
+      "        run: |\n"
+      "          gem build kafka-grpc.gemspec\n"
+      "          gem push kafka-grpc-*.gem\n")
+     out)))
+
 ;; Maven Central (Java): a generated pom for the runtime in
 ;; java/ (the tree predates Maven; sources stay in place and
 ;; the compiler is scoped to grpcdc/**), plus a manual-dispatch
@@ -2611,29 +2656,53 @@
   (call-with-output-file (build-path out-dir "js/package.github.json")
     #:exists 'replace
     (lambda (out) (display scoped out))))
-;; RubyGems mirror: the export's ruby/ tree has no gemspec, so
-;; emit one (stdlib-only runtime, no gem dependencies; the
-;; generated grpcdc.kafka.v1 stubs ship inside the same gem).
-(call-with-output-file (build-path out-dir "ruby/grpc-dc.gemspec")
-  #:exists 'replace
-  (lambda (out)
-    (display
-     (string-append
-      "# Gem packaging for the generated Ruby runtime.\n"
-      "# Build from the export root: gem build ruby/grpc-dc.gemspec\n"
-      "Gem::Specification.new do |spec|\n"
-      "  spec.name = \"grpc-dc\"\n"
-      "  spec.version = \"" npm-version "\"\n"
-      "  spec.authors = [\"John Davis\"]\n"
-      "  spec.summary = \"gRPC over WebRTC DataChannels, dependency-free generated Ruby runtime\"\n"
-      "  spec.description = \"Generated, stdlib-only gRPC clients and servers for Ruby speaking the gRPC wire protocol over a WebRTC DataChannel, plus generated stubs (incl. grpcdc.kafka.v1). No grpc library underneath.\"\n"
-      "  spec.homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n"
-      "  spec.license = \"Apache-2.0\"\n"
-      "  spec.required_ruby_version = \">= 3.0\"\n"
-      "  spec.files = Dir[\"ruby/grpcdc.rb\", \"ruby/grpcdc/**/*.rb\", \"ruby/README.md\"]\n"
-      "  spec.require_paths = [\"ruby\"]\n"
-      "end\n")
-     out)))
+;; RubyGems (canonical): packages/grpc-ruby, a lib-layout gem
+;; tree like the other canonical packages (the export's ruby/
+;; tree stays the test tree; the GitHub Packages mirror builds
+;; this same gemspec). Kafka stubs are excluded here — they
+;; ship in the kafka-grpc gem, same split as everywhere else.
+(define (emit-ruby-pub dest-rel text)
+  (define dest (build-path out-dir "packages" dest-rel))
+  (make-directory* (path-only dest))
+  (call-with-output-file dest #:exists 'replace
+    (lambda (out) (display text out))))
+(define (copy-ruby-pub src-rel dest-rel)
+  (define src (build-path out-dir src-rel))
+  (when (file-exists? src)
+    (define dest (build-path out-dir "packages" dest-rel))
+    (make-directory* (path-only dest))
+    (copy-file src dest #t)))
+(copy-ruby-pub "ruby/grpcdc.rb" "grpc-ruby/lib/grpcdc.rb")
+(for ([f (in-list (directory-list (build-path out-dir "ruby/grpcdc")))]
+      #:when (and (path-has-extension? f #".rb")
+                  (not (string-prefix? (path->string f) "kafka_"))))
+  (copy-ruby-pub (build-path "ruby/grpcdc" f)
+                 (build-path "grpc-ruby/lib/grpcdc" f)))
+(emit-ruby-pub "grpc-ruby/lib/grpc_dc.rb"
+  "require_relative \"grpcdc\"\n")
+(emit-ruby-pub "grpc-ruby/grpc-dc.gemspec"
+  (string-append
+   "Gem::Specification.new do |spec|\n"
+   "  spec.name = \"grpc-dc\"\n  spec.version = \"" npm-version "\"\n"
+   "  spec.authors = [\"John Davis\"]\n  spec.email = [\"jdavis@pcprogramming.com\"]\n"
+   "  spec.summary = \"gRPC over WebRTC DataChannels, dependency-free generated Ruby runtime\"\n"
+   "  spec.description = \"Generated, stdlib-only gRPC clients and servers for Ruby speaking the gRPC wire protocol over a WebRTC DataChannel. No grpc library underneath. Kafka stubs ship separately in the kafka-grpc gem.\"\n"
+   "  spec.homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n"
+   "  spec.license = \"Apache-2.0\"\n  spec.required_ruby_version = \">= 3.0\"\n"
+   "  spec.metadata = { \"homepage_uri\" => spec.homepage, \"source_code_uri\" => \"https://github.com/browser-grpc/grpc-over-datachannels/tree/master/packages/grpc-ruby\", \"changelog_uri\" => \"https://github.com/browser-grpc/grpc-over-datachannels/blob/master/CHANGELOG.md\" }\n"
+   "  spec.files = Dir[\"lib/**/*.rb\", \"README.md\", \"LICENSE\"]\n  spec.require_paths = [\"lib\"]\n"
+   "end\n"))
+(emit-ruby-pub "grpc-ruby/README.md"
+  (string-append
+   "# grpc-dc (Ruby)\n\n"
+   "gRPC over WebRTC DataChannels — a generated, stdlib-only\n"
+   "Ruby runtime: clients and servers speaking the gRPC wire\n"
+   "protocol over a WebRTC DataChannel. No `grpc` gem (or any\n"
+   "other gem) underneath.\n\n"
+   "Install: `gem install grpc-dc`, then `require \"grpcdc\"`\n"
+   "(or `require \"grpc_dc\"`). Kafka stubs ship separately in\n"
+   "the `kafka-grpc` gem, which depends on this one.\n"))
+(copy-ruby-pub "LICENSE" "grpc-ruby/LICENSE")
 (call-with-output-file (build-path out-dir "GITHUB-PACKAGES.md")
   #:exists 'replace
   (lambda (out)
@@ -2743,13 +2812,18 @@
   (string-append
    "Gem::Specification.new do |spec|\n"
    "  spec.name = \"kafka-grpc\"\n  spec.version = \"" npm-version "\"\n"
-   "  spec.authors = [\"John Davis\"]\n"
+   "  spec.authors = [\"John Davis\"]\n  spec.email = [\"jdavis@pcprogramming.com\"]\n"
    "  spec.summary = \"Kafka over gRPC — generated grpcdc.kafka.v1 Ruby clients\"\n"
    "  spec.description = \"" kafka-desc " (Ruby).\"\n"
    "  spec.homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n"
    "  spec.license = \"Apache-2.0\"\n  spec.required_ruby_version = \">= 3.0\"\n"
-   "  spec.files = Dir[\"lib/**/*.rb\"]\n  spec.require_paths = [\"lib\"]\n"
+   "  spec.metadata = { \"homepage_uri\" => spec.homepage, \"source_code_uri\" => \"https://github.com/browser-grpc/grpc-over-datachannels/tree/master/packages/kafka-ruby\" }\n"
+   "  spec.files = Dir[\"lib/**/*.rb\", \"README.md\", \"LICENSE\"]\n  spec.require_paths = [\"lib\"]\n"
    "  spec.add_runtime_dependency \"grpc-dc\", \"= " npm-version "\"\nend\n"))
+(emit-kafka-file "kafka-ruby/README.md"
+  (string-append "# kafka-grpc (Ruby)\n\n" kafka-desc " (Ruby).\n\n"
+                 "Install: `gem install kafka-grpc` (depends on `grpc-dc`).\n"))
+(copy-kafka-file "LICENSE" "kafka-ruby/LICENSE")
 ;; --- NuGet (own project, ProjectReference on Grpcdc for pack) ---
 ;; All kafka stub sources (support + client + every message
 ;; type), not just the two framework files: the package must

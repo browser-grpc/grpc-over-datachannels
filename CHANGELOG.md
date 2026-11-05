@@ -3,8 +3,16 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.37.1 — 2026-11-03 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven; Dart packages added on pub.dev and Rust crates on crates.io 2026-11-05)
+## v0.37.1 — 2026-11-03 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven; Dart packages added on pub.dev, Rust crates on crates.io, Ruby gems on RubyGems.org 2026-11-05)
 
+- Ruby gems on RubyGems.org (new channel, same version):
+  `grpc-dc` (the stdlib-only Ruby runtime; kafka stubs split
+  out, same as everywhere) and `kafka-grpc`, generated into
+  `packages/grpc-ruby` and `packages/kafka-ruby`. Future
+  releases publish via the generated `publish-rubygems`
+  GitHub Actions workflow (RubyGems Trusted Publishing,
+  OIDC). The GitHub Packages mirror builds the same canonical
+  gemspec now.
 - Rust crates on crates.io (new channel, same version):
   `grpc-dc` (the Rust runtime; the crates.io build drops the
   `webrtc` feature, whose `dc-webrtc` dependency is an in-repo
