@@ -3,6 +3,42 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.38.0 — 2026-11-05
+
+Registry channels: every prior channel moves to 0.38.0, and
+the three channels first published at 0.37.1 on 2026-11-05
+now publish through release automation at this version —
+pub.dev (`grpc_dc`, `kafka_grpc`), crates.io (`grpc-dc`,
+`kafka-grpc`), and RubyGems.org (`grpc-dc`, `kafka-grpc`) —
+each via its registry's OIDC trusted publishing from the
+generated workflows in this repo (no stored tokens). The
+public repository is also a SwiftPM package (`Package.swift`,
+library product `GrpcDc`, module `Grpcdc`; listing on the
+Swift Package Index is filed with this release).
+
+- Swift: the generators never emitted access modifiers (the
+  runtime was built for single-module compilation), so a
+  brace-tracking `publicize-swift` transform in the shared
+  generator code now publicizes the API across the runtime,
+  protoc stubs, event bus, and HTTP/2 transport. Private
+  helpers, protocol requirements, explicit `internal` types,
+  and multi-line-signature bodies are left alone.
+- Dart: the runtime gains a `dart:js_interop` `WebTransport`
+  over an `RTCDataChannel` bridge (Flutter/Dart web client
+  and server); the browser Dart examples share it instead of
+  carrying local copies. Dart stubs now emit the `wire.dart`
+  import only when the stub body uses `Wire.`.
+- Rust: the crates.io `kafka-grpc` crate now actually
+  compiles standalone (its lib re-exports the messages as
+  `crate::pb` and ships the `grpc_dc::Message` adapter
+  module).
+- Release machinery: independent publish-npm steps, the Lua
+  CI image retries the lua.org download with an apt fallback,
+  the C# Kafka consumer test moved to its own directory
+  (shared `obj/` collision), and `release-push.sh` now
+  dispatches all registry workflows including the three new
+  OIDC ones.
+
 ## v0.37.1 — 2026-11-03 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven; Dart packages added on pub.dev, Rust crates on crates.io, Ruby gems on RubyGems.org, SwiftPM package 2026-11-05)
 
 - SwiftPM / Swift Package Index (new channel, same
