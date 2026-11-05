@@ -1063,7 +1063,10 @@
              (out '())
              (pending-func? #f))
     (cond
-     ((null? lines) (string-join (reverse out) "\n"))
+     ((null? lines)
+      (string-append
+       (string-join (reverse out) "\n")
+       (if (string-suffix? text "\n") "\n" "")))
      (else
       (define line (car lines))
       (define trimmed (string-trim line))

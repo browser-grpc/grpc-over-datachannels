@@ -442,7 +442,11 @@
   (let loop ([lines (string-split text "\n")] [depth 0] [stack '()] [out '()]
              [pending-func? #f])
     (cond
-      [(null? lines) (string-join (reverse out) "\n")]
+      [(null? lines)
+       ;; string-split drops a trailing empty field; restore the
+       ;; file's final newline (the JS mirror keeps it naturally).
+       (string-append (string-join (reverse out) "\n")
+                      (if (string-suffix? text "\n") "\n" ""))]
       [else
        (define line (car lines))
        (define trimmed (string-trim line))
