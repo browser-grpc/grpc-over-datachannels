@@ -1,0 +1,20 @@
+# Publish the grpc_dc and kafka_grpc pub.dev packages via
+# pub.dev automated publishing (OIDC). Manual dispatch
+# only. Requires automated publishing configured for both
+# packages on pub.dev (this repo + this workflow file).
+name: publish-pubdev
+on: workflow_dispatch
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - working-directory: packages/grpc-dart
+        run: dart pub publish --force
+      - if: "!cancelled()"
+        working-directory: packages/kafka-dart
+        run: dart pub publish --force

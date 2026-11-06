@@ -15,72 +15,72 @@ import Foundation
 /// string -> string, bytes/message -> bytes / message(GenericMessage),
 /// fixed/float -> uint64/int64 / double. Repeated fields are lists in
 /// field-number order.
-enum Dynamic {
+public enum Dynamic {
     // FieldDescriptorProto.Type values (descriptor.proto).
-    static let TypeDouble = 1
-    static let TypeFloat = 2
-    static let TypeInt64 = 3
-    static let TypeUint64 = 4
-    static let TypeInt32 = 5
-    static let TypeFixed64 = 6
-    static let TypeFixed32 = 7
-    static let TypeBool = 8
-    static let TypeString = 9
-    static let TypeGroup = 10
-    static let TypeMessage = 11
-    static let TypeBytes = 12
-    static let TypeUint32 = 13
-    static let TypeEnum = 14
-    static let TypeSfixed32 = 15
-    static let TypeSfixed64 = 16
-    static let TypeSint32 = 17
-    static let TypeSint64 = 18
+    public static let TypeDouble = 1
+    public static let TypeFloat = 2
+    public static let TypeInt64 = 3
+    public static let TypeUint64 = 4
+    public static let TypeInt32 = 5
+    public static let TypeFixed64 = 6
+    public static let TypeFixed32 = 7
+    public static let TypeBool = 8
+    public static let TypeString = 9
+    public static let TypeGroup = 10
+    public static let TypeMessage = 11
+    public static let TypeBytes = 12
+    public static let TypeUint32 = 13
+    public static let TypeEnum = 14
+    public static let TypeSfixed32 = 15
+    public static let TypeSfixed64 = 16
+    public static let TypeSint32 = 17
+    public static let TypeSint64 = 18
 
-    static let LabelRepeated = 3
+    public static let LabelRepeated = 3
 
-    final class FieldModel {
-        var number: Int = 0
-        var name: String = ""
-        var type: Int = 0
-        var repeated: Bool = false
-        var typeName: String = ""  // for TypeMessage, e.g. ".echo.EchoRequest"
+    public final class FieldModel {
+        public var number: Int = 0
+        public var name: String = ""
+        public var type: Int = 0
+        public var repeated: Bool = false
+        public var typeName: String = ""  // for TypeMessage, e.g. ".echo.EchoRequest"
     }
 
-    final class MessageModel {
-        var fullName: String = ""
-        var fields: [Int: FieldModel] = [:]
-        var byName: [String: Int] = [:]
+    public final class MessageModel {
+        public var fullName: String = ""
+        public var fields: [Int: FieldModel] = [:]
+        public var byName: [String: Int] = [:]
     }
 
-    final class MethodModel {
-        var name: String = ""
-        var path: String = ""
-        var kind: String = ""
-        var input: MessageModel!
-        var output: MessageModel!
+    public final class MethodModel {
+        public var name: String = ""
+        public var path: String = ""
+        public var kind: String = ""
+        public var input: MessageModel!
+        public var output: MessageModel!
     }
 
-    final class ServiceModel {
-        var fullName: String = ""
-        var methods: [String: MethodModel] = [:]
+    public final class ServiceModel {
+        public var fullName: String = ""
+        public var methods: [String: MethodModel] = [:]
     }
 
     /// Parsed descriptor set: messages and services by full name.
     /// Message keys carry the leading dot (".echo.EchoRequest"),
     /// matching FieldDescriptorProto.type_name; service keys do not
     /// ("echo.Echo").
-    final class FileModel {
-        var messages: [String: MessageModel] = [:]
-        var services: [String: ServiceModel] = [:]
+    public final class FileModel {
+        public var messages: [String: MessageModel] = [:]
+        public var services: [String: ServiceModel] = [:]
 
-        func Message(_ fullName: String) throws -> MessageModel {
+        public func Message(_ fullName: String) throws -> MessageModel {
             guard let m = messages[fullName] else {
                 throw StatusException(Wire.CodeInvalidArgument, "unknown message \(fullName)")
             }
             return m
         }
 
-        func Service(_ fullName: String) throws -> ServiceModel {
+        public func Service(_ fullName: String) throws -> ServiceModel {
             guard let s = services[fullName] else {
                 throw StatusException(Wire.CodeInvalidArgument, "unknown service \(fullName)")
             }
@@ -88,7 +88,7 @@ enum Dynamic {
         }
     }
 
-    enum GenericValue {
+    public enum GenericValue {
         case int64(Int64)
         case uint64(UInt64)
         case bool(Bool)
@@ -104,37 +104,37 @@ enum Dynamic {
     /// `unknown` (protobuf unknown-field retention): a decode -> encode
     /// round trip re-emits them after the known fields, so intermediate
     /// hops do not strip newer fields.
-    final class GenericMessage {
-        var model: MessageModel?
-        var values: [Int: [GenericValue]] = [:]
-        var unknown: [[UInt8]] = []
+    public final class GenericMessage {
+        public var model: MessageModel?
+        public var values: [Int: [GenericValue]] = [:]
+        public var unknown: [[UInt8]] = []
 
-        init(_ model: MessageModel? = nil) {
+        public init(_ model: MessageModel? = nil) {
             self.model = model
         }
 
         @discardableResult
-        func Set(_ number: Int, _ value: GenericValue) -> GenericMessage {
+        public func Set(_ number: Int, _ value: GenericValue) -> GenericMessage {
             values[number] = [value]
             return self
         }
 
         @discardableResult
-        func Add(_ number: Int, _ value: GenericValue) -> GenericMessage {
+        public func Add(_ number: Int, _ value: GenericValue) -> GenericMessage {
             values[number, default: []].append(value)
             return self
         }
 
-        func Get(_ number: Int) -> GenericValue? {
+        public func Get(_ number: Int) -> GenericValue? {
             values[number]?.first
         }
 
-        func GetString(_ number: Int) -> String {
+        public func GetString(_ number: Int) -> String {
             if case .string(let s)? = Get(number) { return s }
             return ""
         }
 
-        func GetInt(_ number: Int) -> Int64 {
+        public func GetInt(_ number: Int) -> Int64 {
             switch Get(number) {
             case .int64(let v)?: return v
             case .uint64(let v)?: return Int64(bitPattern: v)
@@ -148,19 +148,19 @@ enum Dynamic {
     // Generic protobuf codec
     // ------------------------------------------------------------------
 
-    struct PbField {
-        var number: Int = 0
-        var wire: Int = 0
-        var varint: UInt64 = 0
-        var bytes: [UInt8] = []
-        var chunk: [UInt8] = []
+    public struct PbField {
+        public var number: Int = 0
+        public var wire: Int = 0
+        public var varint: UInt64 = 0
+        public var bytes: [UInt8] = []
+        public var chunk: [UInt8] = []
     }
 
-    struct PbReader {
-        let buf: [UInt8]
-        var pos = 0
+    public struct PbReader {
+        public let buf: [UInt8]
+        public var pos = 0
 
-        mutating func Varint() throws -> UInt64 {
+        public mutating func Varint() throws -> UInt64 {
             var result: UInt64 = 0
             var shift = 0
             while true {
@@ -178,7 +178,7 @@ enum Dynamic {
             }
         }
 
-        mutating func LenBytes() throws -> [UInt8] {
+        public mutating func LenBytes() throws -> [UInt8] {
             let n = Int(try Varint())
             if pos + n > buf.count {
                 throw StatusException(Wire.CodeInvalidArgument, "truncated bytes field")
@@ -187,7 +187,7 @@ enum Dynamic {
             return Array(buf[pos..<(pos + n)])
         }
 
-        mutating func Next() throws -> PbField? {
+        public mutating func Next() throws -> PbField? {
             if pos >= buf.count { return nil }
             let start = pos
             let tag = try Varint()
@@ -273,7 +273,7 @@ enum Dynamic {
         }
     }
 
-    static func EncodeGeneric(_ model: MessageModel, _ message: GenericMessage, _ file: FileModel) throws -> [UInt8] {
+    public static func EncodeGeneric(_ model: MessageModel, _ message: GenericMessage, _ file: FileModel) throws -> [UInt8] {
         var out: [UInt8] = []
         for number in message.values.keys.sorted() {
             guard let field = model.fields[number] else {
@@ -360,7 +360,7 @@ enum Dynamic {
         }
     }
 
-    static func DecodeGeneric(_ model: MessageModel, _ data: [UInt8], _ file: FileModel) throws -> GenericMessage {
+    public static func DecodeGeneric(_ model: MessageModel, _ data: [UInt8], _ file: FileModel) throws -> GenericMessage {
         let message = GenericMessage(model)
         var reader = PbReader(buf: data)
         while let raw = try reader.Next() {
@@ -414,7 +414,7 @@ enum Dynamic {
     // ------------------------------------------------------------------
 
     /// Parse FileDescriptorSet bytes into a FileModel.
-    static func ParseDescriptorSet(_ data: [UInt8]) throws -> FileModel {
+    public static func ParseDescriptorSet(_ data: [UInt8]) throws -> FileModel {
         let file = FileModel()
         var pendingServices: [(String, [UInt8])] = []
         var reader = PbReader(buf: data)
@@ -568,11 +568,11 @@ enum Dynamic {
     }
 
     /// Runtime-built client: methods resolve from the FileModel.
-    final class DynamicClient {
+    public final class DynamicClient {
         private let channel: Channel
         private let model: FileModel
 
-        init(_ channel: Channel, _ model: FileModel) {
+        public init(_ channel: Channel, _ model: FileModel) {
             self.channel = channel
             self.model = model
         }
@@ -585,7 +585,7 @@ enum Dynamic {
             return m
         }
 
-        func Unary(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> GenericMessage {
+        public func Unary(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> GenericMessage {
             let m = try Method(service, method)
             let resp = BoundMessage(m.output, GenericMessage(m.output), model)
             try channel.Unary(m.path, BoundMessage(m.input, req, model), resp, metadata, timeout)
@@ -593,38 +593,38 @@ enum Dynamic {
         }
 
         /// Receiving stream of generic responses.
-        final class DynamicStream {
+        public final class DynamicStream {
             private let stream: Channel.ClientStream
             private let output: MessageModel
             private let file: FileModel
 
-            init(_ stream: Channel.ClientStream, _ output: MessageModel, _ file: FileModel) {
+            public init(_ stream: Channel.ClientStream, _ output: MessageModel, _ file: FileModel) {
                 self.stream = stream
                 self.output = output
                 self.file = file
             }
 
             /// Next response; EndOfStreamError at end.
-            func Recv() throws -> GenericMessage {
+            public func Recv() throws -> GenericMessage {
                 let resp = BoundMessage(output, GenericMessage(output), file)
                 try stream.Recv(resp)
                 return resp.generic
             }
 
             /// Abandon this stream (RST CANCELLED unless completed).
-            func Cancel() { stream.Cancel() }
+            public func Cancel() { stream.Cancel() }
 
             /// Abandon this stream (RST CANCELLED unless completed).
-            func Close() { stream.Close() }
+            public func Close() { stream.Close() }
         }
 
-        func ServerStream(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DynamicStream {
+        public func ServerStream(_ service: String, _ method: String, _ req: GenericMessage, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DynamicStream {
             let m = try Method(service, method)
             return DynamicStream(try channel.ServerStream(m.path, BoundMessage(m.input, req, model), metadata, timeout),
                                  m.output, model)
         }
 
-        func ClientStream(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> GenericMessage {
+        public func ClientStream(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> GenericMessage {
             let m = try Method(service, method)
             let bound = reqs.map { BoundMessage(m.input, $0, model) }
             let resp = BoundMessage(m.output, GenericMessage(m.output), model)
@@ -632,7 +632,7 @@ enum Dynamic {
             return resp.generic
         }
 
-        func Bidi(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DynamicStream {
+        public func Bidi(_ service: String, _ method: String, _ reqs: [GenericMessage], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DynamicStream {
             let m = try Method(service, method)
             let bound = reqs.map { BoundMessage(m.input, $0, model) }
             return DynamicStream(try channel.Bidi(m.path, bound, metadata, timeout), m.output, model)
@@ -640,12 +640,12 @@ enum Dynamic {
     }
 
     /// Receives generic requests; EndOfStreamError at half-close.
-    typealias RecvFn = () throws -> GenericMessage
+    public typealias RecvFn = () throws -> GenericMessage
     /// Sends one generic response.
-    typealias SendFn = (GenericMessage) throws -> Void
+    public typealias SendFn = (GenericMessage) throws -> Void
 
     /// Implements a service with generic messages.
-    protocol DynamicHandler: AnyObject {
+    public protocol DynamicHandler: AnyObject {
         func Unary(_ ctx: Endpoint.CallContext, _ method: MethodModel, _ req: GenericMessage) throws -> GenericMessage
         func ServerStream(_ ctx: Endpoint.CallContext, _ method: MethodModel, _ req: GenericMessage, _ send: SendFn) throws
         func ClientStream(_ ctx: Endpoint.CallContext, _ method: MethodModel, _ recv: RecvFn) throws -> GenericMessage
@@ -653,7 +653,7 @@ enum Dynamic {
     }
 
     /// Register a runtime-built service on a Server.
-    static func RegisterDynamicService(_ server: Server, _ fileModel: FileModel, _ serviceName: String, _ handler: DynamicHandler) throws {
+    public static func RegisterDynamicService(_ server: Server, _ fileModel: FileModel, _ serviceName: String, _ handler: DynamicHandler) throws {
         let service = try fileModel.Service(serviceName)
         var methods: [Server.Method] = []
         for m in service.methods.values {

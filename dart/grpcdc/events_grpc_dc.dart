@@ -8,7 +8,6 @@ import '../grpcdc/channel.dart';
 import '../grpcdc/endpoint.dart';
 import '../grpcdc/server.dart';
 import '../grpcdc/status.dart';
-import '../grpcdc/wire.dart';
 import 'events_messages.dart';
 
 /// Client for grpcdc.events.v1.EventBus.

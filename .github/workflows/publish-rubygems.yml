@@ -1,0 +1,29 @@
+# Publish the grpc-dc and kafka-grpc gems via RubyGems
+# Trusted Publishing (OIDC). Manual dispatch only.
+# Requires a Trusted Publisher configured for both gems
+# on rubygems.org (this repo + this workflow file).
+name: publish-rubygems
+on: workflow_dispatch
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ruby
+      - uses: rubygems/configure-rubygems-credentials@v1
+      - name: Push grpc-dc
+        working-directory: packages/grpc-ruby
+        run: |
+          gem build grpc-dc.gemspec
+          gem push grpc-dc-*.gem
+      - name: Push kafka-grpc
+        if: "!cancelled()"
+        working-directory: packages/kafka-ruby
+        run: |
+          gem build kafka-grpc.gemspec
+          gem push kafka-grpc-*.gem

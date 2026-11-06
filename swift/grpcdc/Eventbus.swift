@@ -19,7 +19,7 @@
 
 import Foundation
 
-let subscriberQueueCapacity = 128
+public let subscriberQueueCapacity = 128
 
 private func doubleBits(_ value: Double) -> String {
     var bits = value.bitPattern
@@ -42,46 +42,46 @@ private func valueKey(_ tv: TagValue) -> String {
 }
 
 /// Stable key for one TagValue, e.g. "1|s:orders".
-func tagValueKey(_ tv: TagValue) -> String {
+public func tagValueKey(_ tv: TagValue) -> String {
     return String(tv.tag.rawValue) + "|" + valueKey(tv)
 }
 
 /// Containment match: the event is delivered when its tag
 /// list contains every (tag, value) pair of the filter. An
 /// empty filter matches everything.
-func tagsMatch(_ eventTags: [TagValue], _ filterTags: [TagValue]) -> Bool {
+public func tagsMatch(_ eventTags: [TagValue], _ filterTags: [TagValue]) -> Bool {
     if filterTags.isEmpty { return true }
     var have = Set<String>()
     for tv in eventTags { have.insert(tagValueKey(tv)) }
     return filterTags.allSatisfy { have.contains(tagValueKey($0)) }
 }
 
-func tagString(_ tag: Tag, _ value: Any) -> TagValue {
+public func tagString(_ tag: Tag, _ value: Any) -> TagValue {
     return TagValue(tag, String(describing: value), 0, 0, false, 0)
 }
 
-func tagInt(_ tag: Tag, _ value: Any) -> TagValue {
+public func tagInt(_ tag: Tag, _ value: Any) -> TagValue {
     let n = (value as? NSNumber)?.int64Value ?? Int64(String(describing: value)) ?? 0
     return TagValue(tag, "", n, 0, false, 0)
 }
 
-func tagDouble(_ tag: Tag, _ value: Any) -> TagValue {
+public func tagDouble(_ tag: Tag, _ value: Any) -> TagValue {
     let d = (value as? NSNumber)?.doubleValue ?? Double(String(describing: value)) ?? 0
     return TagValue(tag, "", 0, d, false, 0)
 }
 
-func tagBool(_ tag: Tag, _ value: Any) -> TagValue {
+public func tagBool(_ tag: Tag, _ value: Any) -> TagValue {
     return TagValue(tag, "", 0, 0, (value as? Bool) ?? false, 0)
 }
 
-func tagEnum(_ tag: Tag, _ value: Any) -> TagValue {
+public func tagEnum(_ tag: Tag, _ value: Any) -> TagValue {
     let n = (value as? NSNumber)?.int32Value ?? Int32(String(describing: value)) ?? 0
     return TagValue(tag, "", 0, 0, false, n)
 }
 
 /// Publish through a generated EventBusClient; returns the
 /// broker-assigned sequence number.
-func publishEvent(_ client: EventsGrpcDc.EventBusClient,
+public func publishEvent(_ client: EventsGrpcDc.EventBusClient,
                          _ tags: [TagValue], _ payload: [UInt8],
                          _ publisherId: String = "") throws -> UInt64 {
     let reply = try client.Publish(
@@ -92,7 +92,7 @@ func publishEvent(_ client: EventsGrpcDc.EventBusClient,
 /// Subscribe through a generated EventBusClient; returns the
 /// receiving stream (Recv from it, or Close it to
 /// unsubscribe).
-func subscribeEvents(_ client: EventsGrpcDc.EventBusClient,
+public func subscribeEvents(_ client: EventsGrpcDc.EventBusClient,
                             _ filterTags: [TagValue]) throws
         -> EventsGrpcDc.EventBusClient.EventBusSubscribeStream {
     return try client.Subscribe(SubscribeRequest(filterTags))

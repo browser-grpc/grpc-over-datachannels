@@ -11,7 +11,7 @@ import Dispatch
 /// Shared by generated stubs and tests; defined once here (it was
 /// previously emitted per stub file, which collided when several
 /// generated stubs share one module).
-func RunBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {
+public func RunBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {
     let semaphore = DispatchSemaphore(value: 0)
     var result: Result<T, Error>!
     Task.detached {
@@ -28,63 +28,63 @@ func RunBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {
 #endif
 
 /// Channel: the client side of one Endpoint.
-final class Channel {
+public final class Channel {
     private let endpointInstance: Endpoint
 
     /// Wrap a transport, allocating odd stream ids.
-    init(_ transport: Transport) {
+    public init(_ transport: Transport) {
         endpointInstance = Endpoint(transport, creator: true)
         endpointInstance.Start()
     }
 
     /// Wrap an existing endpoint (bidirectional use; starts its read loop).
-    init(endpoint: Endpoint) {
+    public init(endpoint: Endpoint) {
         endpointInstance = endpoint
         endpoint.Start()
     }
 
-    var endpoint: Endpoint { endpointInstance }
+    public var endpoint: Endpoint { endpointInstance }
 
     /// Receives response messages of one call.
-    final class ClientStream {
-        let streamId: UInt32
+    public final class ClientStream {
+        public let streamId: UInt32
         private let endpoint: Endpoint
         private let input: Endpoint.StreamInput
         private(set) var headers: Codec.Headers?
         /// Trailing metadata of the terminal status (nil until it arrives).
         private(set) var trailers: [String: String]?
-        var deadlineMs: Double? = nil
-        var traceCtx: Tracing.TraceContext? = nil
-        var tracePath: String? = nil
+        public var deadlineMs: Double? = nil
+        public var traceCtx: Tracing.TraceContext? = nil
+        public var tracePath: String? = nil
         private var traceEnded = false
         private var terminated = false
 
-        func EndTrace(_ status: String) {
+        public func EndTrace(_ status: String) {
             if !traceEnded {
                 traceEnded = true
                 Tracing.TraceEnd("client", tracePath ?? "", traceCtx, status)
             }
         }
 
-        init(_ endpoint: Endpoint, _ streamId: UInt32, _ input: Endpoint.StreamInput) {
+        public init(_ endpoint: Endpoint, _ streamId: UInt32, _ input: Endpoint.StreamInput) {
             self.endpoint = endpoint
             self.streamId = streamId
             self.input = input
         }
 
         /// Send one request message on an open stream (no half-close).
-        func Send(_ msg: Marshaler) throws {
+        public func Send(_ msg: Marshaler) throws {
             try endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, streamId, msg.MarshalDc()))
         }
 
         /// Half-close an open stream (no more requests).
-        func HalfClose() throws {
+        public func HalfClose() throws {
             try endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameHalfClose, streamId, []))
         }
 
         /// Abort this stream (sends RST, wakes a pending Recv).
         /// After normal completion this just closes locally.
-        func Cancel() {
+        public func Cancel() {
             if terminated {
                 endpoint.CloseStream(streamId)
                 return
@@ -94,12 +94,12 @@ final class Channel {
         }
 
         /// Abandon this stream: RST CANCELLED unless it already completed.
-        func Close() { Cancel() }
+        public func Close() { Cancel() }
 
         /// Decode the next response into resp. EndOfStreamError means
         /// the call completed OK; StatusException reports the
         /// trailers status.
-        func Recv(_ resp: Unmarshaler) throws {
+        public func Recv(_ resp: Unmarshaler) throws {
             while true {
                 let event: Endpoint.StreamEvent?
                 if let deadlineMs {
@@ -209,7 +209,7 @@ final class Channel {
     }
 
     /// Run a unary call, decoding the single response into resp.
-    func Unary(_ path: String, _ req: Marshaler, _ resp: Unmarshaler, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws {
+    public func Unary(_ path: String, _ req: Marshaler, _ resp: Unmarshaler, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws {
         let stream = try Open(path, metadata, timeout)
         defer { endpointInstance.CloseStream(stream.streamId) }
         try SendMessage(stream, req)
@@ -218,7 +218,7 @@ final class Channel {
     }
 
     /// Start a server-streaming call.
-    func ServerStream(_ path: String, _ req: Marshaler, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ClientStream {
+    public func ServerStream(_ path: String, _ req: Marshaler, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ClientStream {
         let stream = try Open(path, metadata, timeout)
         try SendMessage(stream, req)
         try HalfClose(stream)
@@ -226,7 +226,7 @@ final class Channel {
     }
 
     /// Send all requests, then decode the one response into resp.
-    func ClientStreamCall<T: Marshaler>(_ path: String, _ reqs: [T], _ resp: Unmarshaler, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws {
+    public func ClientStreamCall<T: Marshaler>(_ path: String, _ reqs: [T], _ resp: Unmarshaler, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws {
         let stream = try Open(path, metadata, timeout)
         defer { endpointInstance.CloseStream(stream.streamId) }
         try SendAll(stream, reqs)
@@ -235,12 +235,12 @@ final class Channel {
 
     /// Open a stream without sending anything: drive it with
     /// ClientStream.Send / HalfClose / Recv / Cancel.
-    func OpenStream(_ path: String, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ClientStream {
+    public func OpenStream(_ path: String, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ClientStream {
         return try Open(path, metadata, timeout)
     }
 
     /// Start a bidi call with all requests sent up front.
-    func Bidi<T: Marshaler>(_ path: String, _ reqs: [T], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ClientStream {
+    public func Bidi<T: Marshaler>(_ path: String, _ reqs: [T], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ClientStream {
         let stream = try Open(path, metadata, timeout)
         try SendAll(stream, reqs)
         return stream

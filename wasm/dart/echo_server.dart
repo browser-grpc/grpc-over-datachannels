@@ -16,40 +16,10 @@ import 'dart:typed_data';
 
 import '../../dart/grpcdc/endpoint.dart';
 import '../../dart/grpcdc/server.dart';
-import '../../dart/grpcdc/transport.dart';
+import '../../dart/grpcdc/web_transport.dart';
 import '../../dart/examples/echo_grpc_dc.dart';
 import '../../dart/examples/echo_messages.dart';
 import '../../dart/examples/echo_service_impl.dart';
-
-/// The JS-side transport object passed in by the page:
-/// `{ send(Uint8Array), setOnMessage(callback) }`.
-extension type JsTransportJs._(JSObject _) implements JSObject {
-  external void send(JSUint8Array data);
-  external void setOnMessage(JSFunction callback);
-}
-
-/// DcTransport over the page's RTCDataChannel bridge.
-class JsTransport implements Transport {
-  final JsTransportJs _js;
-  final StreamController<Uint8List> _controller = StreamController<Uint8List>();
-
-  JsTransport(this._js) {
-    _js.setOnMessage((JSUint8Array data) {
-      if (!_controller.isClosed) {
-        _controller.add(Uint8List.fromList(data.toDart));
-      }
-    }.toJS);
-  }
-
-  @override
-  Stream<Uint8List> get onMessage => _controller.stream;
-
-  @override
-  void send(Uint8List data) => _js.send(data.toJS);
-
-  @override
-  Future<void> close() => _controller.close();
-}
 
 /// Echo impl with a delayed Unary so client deadlines fire.
 class SlowEcho extends EchoServiceImpl {
@@ -65,10 +35,10 @@ class SlowEcho extends EchoServiceImpl {
 /// Retained so the server and its endpoint outlive this call.
 Server? _server;
 
-void runEchoServer(JsTransportJs jsTransport) {
+void runEchoServer(JSObject jsTransport) {
   final server = Server();
   EchoGrpcDc.registerEchoServer(server, SlowEcho());
-  server.serveTransport(JsTransport(jsTransport));
+  server.serveTransport(WebTransport(jsTransport));
   _server = server;
 }
 
@@ -76,7 +46,7 @@ void main() {
   // Page contract mirrors the client's callback style:
   // window.runDartEchoServer(transport).
   final entry = (JSObject transport) {
-    runEchoServer(transport as JsTransportJs);
+    runEchoServer(transport);
   };
   globalContext.setProperty('runDartEchoServer'.toJS, entry.toJS);
 }

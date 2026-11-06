@@ -4,41 +4,41 @@
 import Foundation
 #endif
 
-enum KafkaPb {
-    struct BadWireType: Error {}
-    final class Writer {
+public enum KafkaPb {
+    public struct BadWireType: Error {}
+    public final class Writer {
         private var out: [UInt8] = []
-        func Varint(_ value: UInt64) { var v = value; while v > 0x7f { out.append(UInt8((v & 0x7f) | 0x80)); v >>= 7 }; out.append(UInt8(v)) }
-        func Varint(_ value: Int64) { Varint(UInt64(bitPattern: value)) }
-        func Tag(_ field: Int, _ wire: Int) { Varint(UInt64((field << 3) | wire)) }
-        func BytesField(_ field: Int, _ payload: [UInt8]) { Tag(field, 2); Varint(UInt64(payload.count)); out += payload }
-        func StringField(_ field: Int, _ value: String) { if value.isEmpty { return }; BytesField(field, [UInt8](value.utf8)) }
-        func FixedInt32(_ value: Int32) { FixedUInt32(UInt32(bitPattern: value)) }
-        func FixedUInt32(_ value: UInt32) { for i in 0..<4 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
-        func FixedInt64(_ value: Int64) { FixedUInt64(UInt64(bitPattern: value)) }
-        func FixedUInt64(_ value: UInt64) { for i in 0..<8 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
-        func FixedFloat(_ value: Float) { FixedUInt32(value.bitPattern) }
-        func FixedDouble(_ value: Double) { FixedUInt64(value.bitPattern) }
-        func Raw(_ payload: [UInt8]) { out += payload }
-        func ToBytes() -> [UInt8] { out }
+        public func Varint(_ value: UInt64) { var v = value; while v > 0x7f { out.append(UInt8((v & 0x7f) | 0x80)); v >>= 7 }; out.append(UInt8(v)) }
+        public func Varint(_ value: Int64) { Varint(UInt64(bitPattern: value)) }
+        public func Tag(_ field: Int, _ wire: Int) { Varint(UInt64((field << 3) | wire)) }
+        public func BytesField(_ field: Int, _ payload: [UInt8]) { Tag(field, 2); Varint(UInt64(payload.count)); out += payload }
+        public func StringField(_ field: Int, _ value: String) { if value.isEmpty { return }; BytesField(field, [UInt8](value.utf8)) }
+        public func FixedInt32(_ value: Int32) { FixedUInt32(UInt32(bitPattern: value)) }
+        public func FixedUInt32(_ value: UInt32) { for i in 0..<4 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
+        public func FixedInt64(_ value: Int64) { FixedUInt64(UInt64(bitPattern: value)) }
+        public func FixedUInt64(_ value: UInt64) { for i in 0..<8 { out.append(UInt8((value >> (8 * i)) & 0xff)) } }
+        public func FixedFloat(_ value: Float) { FixedUInt32(value.bitPattern) }
+        public func FixedDouble(_ value: Double) { FixedUInt64(value.bitPattern) }
+        public func Raw(_ payload: [UInt8]) { out += payload }
+        public func ToBytes() -> [UInt8] { out }
     }
 
-    static func BitsToFloat(_ u: UInt32) -> Float { Float(bitPattern: u) }
-    static func BitsToDouble(_ u: UInt64) -> Double { Double(bitPattern: u) }
+    public static func BitsToFloat(_ u: UInt32) -> Float { Float(bitPattern: u) }
+    public static func BitsToDouble(_ u: UInt64) -> Double { Double(bitPattern: u) }
 
-    struct Field {
-        var number: Int; var wire: Int; var varintValue: UInt64; var bytesValue: [UInt8]; var fixedValue: UInt64; var rawValue: [UInt8]
+    public struct Field {
+        public var number: Int; var wire: Int; var varintValue: UInt64; var bytesValue: [UInt8]; var fixedValue: UInt64; var rawValue: [UInt8]
     }
 
-    final class Reader {
+    public final class Reader {
         private let buf: [UInt8]; private var pos = 0
-        init(_ buf: [UInt8]) { self.buf = buf }
-        func Done() -> Bool { pos >= buf.count }
-        func Varint() -> UInt64 { var result: UInt64 = 0; var shift: UInt64 = 0; while true { precondition(pos < buf.count, "truncated varint"); let b = buf[pos]; pos += 1; result |= UInt64(b & 0x7f) << shift; if (b & 0x80) == 0 { return result }; shift += 7; precondition(shift < 64, "varint too long") } }
-        func Take(_ n: Int) -> [UInt8] { precondition(pos + n <= buf.count, "truncated field"); let v = [UInt8](buf[pos..<(pos + n)]); pos += n; return v }
-        func Fixed32() -> UInt32 { let b = Take(4); return UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24) }
-        func Fixed64() -> UInt64 { let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return v }
-        func Next() throws -> Field? {
+        public init(_ buf: [UInt8]) { self.buf = buf }
+        public func Done() -> Bool { pos >= buf.count }
+        public func Varint() -> UInt64 { var result: UInt64 = 0; var shift: UInt64 = 0; while true { precondition(pos < buf.count, "truncated varint"); let b = buf[pos]; pos += 1; result |= UInt64(b & 0x7f) << shift; if (b & 0x80) == 0 { return result }; shift += 7; precondition(shift < 64, "varint too long") } }
+        public func Take(_ n: Int) -> [UInt8] { precondition(pos + n <= buf.count, "truncated field"); let v = [UInt8](buf[pos..<(pos + n)]); pos += n; return v }
+        public func Fixed32() -> UInt32 { let b = Take(4); return UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24) }
+        public func Fixed64() -> UInt64 { let b = Take(8); var v: UInt64 = 0; for i in 0..<8 { v |= UInt64(b[i]) << (8 * i) }; return v }
+        public func Next() throws -> Field? {
             if pos >= buf.count { return nil }
             let start = pos
             let tag = Varint(); let number = Int(tag >> 3); let wire = Int(tag & 7)
@@ -54,7 +54,7 @@ enum KafkaPb {
 
 }
 
-enum Compression: Int32 {
+public enum Compression: Int32 {
     case COMPRESSION_NONE = 0
     case COMPRESSION_GZIP = 1
     case COMPRESSION_SNAPPY = 2
@@ -62,30 +62,30 @@ enum Compression: Int32 {
     case COMPRESSION_ZSTD = 4
 }
 
-enum Acks: Int32 {
+public enum Acks: Int32 {
     case ACKS_UNSPECIFIED = 0
     case ACKS_NONE = 1
     case ACKS_LEADER = 2
     case ACKS_ALL = 3
 }
 
-final class Header: Marshaler, Unmarshaler {
-    var key: String = ""
-    var value: [UInt8] = []
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ key: String = "", _ value: [UInt8] = []) {
+public final class Header: Marshaler, Unmarshaler {
+    public var key: String = ""
+    public var value: [UInt8] = []
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ key: String = "", _ value: [UInt8] = []) {
         self.key = key
         self.value = value
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, key)
         if !value.isEmpty { w.BytesField(2, value) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         key = ""
         value = []
@@ -104,22 +104,22 @@ final class Header: Marshaler, Unmarshaler {
         }
     }
 }
-final class Record: Marshaler, Unmarshaler {
-    var key: [UInt8] = []
-    var value: [UInt8] = []
-    var headers: [Header] = []
-    var timestampMs: Int64 = 0
-    var nullKey: Bool = false
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ key: [UInt8] = [], _ value: [UInt8] = [], _ headers: [Header] = [], _ timestampMs: Int64 = 0, _ nullKey: Bool = false) {
+public final class Record: Marshaler, Unmarshaler {
+    public var key: [UInt8] = []
+    public var value: [UInt8] = []
+    public var headers: [Header] = []
+    public var timestampMs: Int64 = 0
+    public var nullKey: Bool = false
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ key: [UInt8] = [], _ value: [UInt8] = [], _ headers: [Header] = [], _ timestampMs: Int64 = 0, _ nullKey: Bool = false) {
         self.key = key
         self.value = value
         self.headers = headers
         self.timestampMs = timestampMs
         self.nullKey = nullKey
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if !key.isEmpty { w.BytesField(1, key) }
         if !value.isEmpty { w.BytesField(2, value) }
@@ -129,7 +129,7 @@ final class Record: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         key = []
         value = []
@@ -159,16 +159,16 @@ final class Record: Marshaler, Unmarshaler {
         }
     }
 }
-final class FetchedRecord: Marshaler, Unmarshaler {
-    var offset: Int64 = 0
-    var timestampMs: Int64 = 0
-    var key: [UInt8] = []
-    var value: [UInt8] = []
-    var headers: [Header] = []
-    var keyNull: Bool = false
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ offset: Int64 = 0, _ timestampMs: Int64 = 0, _ key: [UInt8] = [], _ value: [UInt8] = [], _ headers: [Header] = [], _ keyNull: Bool = false) {
+public final class FetchedRecord: Marshaler, Unmarshaler {
+    public var offset: Int64 = 0
+    public var timestampMs: Int64 = 0
+    public var key: [UInt8] = []
+    public var value: [UInt8] = []
+    public var headers: [Header] = []
+    public var keyNull: Bool = false
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ offset: Int64 = 0, _ timestampMs: Int64 = 0, _ key: [UInt8] = [], _ value: [UInt8] = [], _ headers: [Header] = [], _ keyNull: Bool = false) {
         self.offset = offset
         self.timestampMs = timestampMs
         self.key = key
@@ -176,7 +176,7 @@ final class FetchedRecord: Marshaler, Unmarshaler {
         self.headers = headers
         self.keyNull = keyNull
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if offset != 0 { w.Tag(1, 0); w.Varint(UInt64(bitPattern: offset)) }
         if timestampMs != 0 { w.Tag(2, 0); w.Varint(UInt64(bitPattern: timestampMs)) }
@@ -187,7 +187,7 @@ final class FetchedRecord: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         offset = 0
         timestampMs = 0
@@ -220,23 +220,23 @@ final class FetchedRecord: Marshaler, Unmarshaler {
         }
     }
 }
-final class TopicPartition: Marshaler, Unmarshaler {
-    var topic: String = ""
-    var partition: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ topic: String = "", _ partition: Int32 = 0) {
+public final class TopicPartition: Marshaler, Unmarshaler {
+    public var topic: String = ""
+    public var partition: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ topic: String = "", _ partition: Int32 = 0) {
         self.topic = topic
         self.partition = partition
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, topic)
         if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topic = ""
         partition = 0
@@ -255,23 +255,23 @@ final class TopicPartition: Marshaler, Unmarshaler {
         }
     }
 }
-final class MetadataRequest: Marshaler, Unmarshaler {
-    var topics: [String] = []
-    var allowAutoTopicCreation: Bool = false
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ topics: [String] = [], _ allowAutoTopicCreation: Bool = false) {
+public final class MetadataRequest: Marshaler, Unmarshaler {
+    public var topics: [String] = []
+    public var allowAutoTopicCreation: Bool = false
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ topics: [String] = [], _ allowAutoTopicCreation: Bool = false) {
         self.topics = topics
         self.allowAutoTopicCreation = allowAutoTopicCreation
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         for x in topics { w.BytesField(1, [UInt8](x.utf8)) }
         if allowAutoTopicCreation { w.Tag(2, 0); w.Varint((allowAutoTopicCreation ? Int64(1) : Int64(0))) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topics = []
         allowAutoTopicCreation = false
@@ -290,20 +290,20 @@ final class MetadataRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class BrokerMetadata: Marshaler, Unmarshaler {
-    var nodeId: Int32 = 0
-    var host: String = ""
-    var port: Int32 = 0
-    var rack: String = ""
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ nodeId: Int32 = 0, _ host: String = "", _ port: Int32 = 0, _ rack: String = "") {
+public final class BrokerMetadata: Marshaler, Unmarshaler {
+    public var nodeId: Int32 = 0
+    public var host: String = ""
+    public var port: Int32 = 0
+    public var rack: String = ""
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ nodeId: Int32 = 0, _ host: String = "", _ port: Int32 = 0, _ rack: String = "") {
         self.nodeId = nodeId
         self.host = host
         self.port = port
         self.rack = rack
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if nodeId != 0 { w.Tag(1, 0); w.Varint(Int64(nodeId)) }
         w.StringField(2, host)
@@ -312,7 +312,7 @@ final class BrokerMetadata: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         nodeId = 0
         host = ""
@@ -337,16 +337,16 @@ final class BrokerMetadata: Marshaler, Unmarshaler {
         }
     }
 }
-final class PartitionMetadata: Marshaler, Unmarshaler {
-    var id: Int32 = 0
-    var leaderId: Int32 = 0
-    var leaderEpoch: Int32 = 0
-    var replicas: [Int32] = []
-    var isr: [Int32] = []
-    var errorCode: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ id: Int32 = 0, _ leaderId: Int32 = 0, _ leaderEpoch: Int32 = 0, _ replicas: [Int32] = [], _ isr: [Int32] = [], _ errorCode: Int32 = 0) {
+public final class PartitionMetadata: Marshaler, Unmarshaler {
+    public var id: Int32 = 0
+    public var leaderId: Int32 = 0
+    public var leaderEpoch: Int32 = 0
+    public var replicas: [Int32] = []
+    public var isr: [Int32] = []
+    public var errorCode: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ id: Int32 = 0, _ leaderId: Int32 = 0, _ leaderEpoch: Int32 = 0, _ replicas: [Int32] = [], _ isr: [Int32] = [], _ errorCode: Int32 = 0) {
         self.id = id
         self.leaderId = leaderId
         self.leaderEpoch = leaderEpoch
@@ -354,7 +354,7 @@ final class PartitionMetadata: Marshaler, Unmarshaler {
         self.isr = isr
         self.errorCode = errorCode
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if id != 0 { w.Tag(1, 0); w.Varint(Int64(id)) }
         if leaderId != 0 { w.Tag(2, 0); w.Varint(Int64(leaderId)) }
@@ -373,7 +373,7 @@ final class PartitionMetadata: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         id = 0
         leaderId = 0
@@ -418,20 +418,20 @@ final class PartitionMetadata: Marshaler, Unmarshaler {
         }
     }
 }
-final class TopicMetadata: Marshaler, Unmarshaler {
-    var name: String = ""
-    var isInternal: Bool = false
-    var errorCode: Int32 = 0
-    var partitions: [PartitionMetadata] = []
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ name: String = "", _ isInternal: Bool = false, _ errorCode: Int32 = 0, _ partitions: [PartitionMetadata] = []) {
+public final class TopicMetadata: Marshaler, Unmarshaler {
+    public var name: String = ""
+    public var isInternal: Bool = false
+    public var errorCode: Int32 = 0
+    public var partitions: [PartitionMetadata] = []
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ name: String = "", _ isInternal: Bool = false, _ errorCode: Int32 = 0, _ partitions: [PartitionMetadata] = []) {
         self.name = name
         self.isInternal = isInternal
         self.errorCode = errorCode
         self.partitions = partitions
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, name)
         if isInternal { w.Tag(2, 0); w.Varint((isInternal ? Int64(1) : Int64(0))) }
@@ -440,7 +440,7 @@ final class TopicMetadata: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         name = ""
         isInternal = false
@@ -467,22 +467,22 @@ final class TopicMetadata: Marshaler, Unmarshaler {
         }
     }
 }
-final class MetadataResponse: Marshaler, Unmarshaler {
-    var throttleTimeMs: Int32 = 0
-    var brokers: [BrokerMetadata] = []
-    var clusterId: String = ""
-    var controllerId: Int32 = 0
-    var topics: [TopicMetadata] = []
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ throttleTimeMs: Int32 = 0, _ brokers: [BrokerMetadata] = [], _ clusterId: String = "", _ controllerId: Int32 = 0, _ topics: [TopicMetadata] = []) {
+public final class MetadataResponse: Marshaler, Unmarshaler {
+    public var throttleTimeMs: Int32 = 0
+    public var brokers: [BrokerMetadata] = []
+    public var clusterId: String = ""
+    public var controllerId: Int32 = 0
+    public var topics: [TopicMetadata] = []
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ throttleTimeMs: Int32 = 0, _ brokers: [BrokerMetadata] = [], _ clusterId: String = "", _ controllerId: Int32 = 0, _ topics: [TopicMetadata] = []) {
         self.throttleTimeMs = throttleTimeMs
         self.brokers = brokers
         self.clusterId = clusterId
         self.controllerId = controllerId
         self.topics = topics
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if throttleTimeMs != 0 { w.Tag(1, 0); w.Varint(Int64(throttleTimeMs)) }
         for x in brokers { w.BytesField(2, x.MarshalDc()) }
@@ -492,7 +492,7 @@ final class MetadataResponse: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         throttleTimeMs = 0
         brokers = []
@@ -524,23 +524,23 @@ final class MetadataResponse: Marshaler, Unmarshaler {
         }
     }
 }
-final class OpenProducerRequest: Marshaler, Unmarshaler {
-    var transactionalId: String = ""
-    var transactionTimeoutMs: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ transactionalId: String = "", _ transactionTimeoutMs: Int32 = 0) {
+public final class OpenProducerRequest: Marshaler, Unmarshaler {
+    public var transactionalId: String = ""
+    public var transactionTimeoutMs: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ transactionalId: String = "", _ transactionTimeoutMs: Int32 = 0) {
         self.transactionalId = transactionalId
         self.transactionTimeoutMs = transactionTimeoutMs
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, transactionalId)
         if transactionTimeoutMs != 0 { w.Tag(2, 0); w.Varint(Int64(transactionTimeoutMs)) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         transactionalId = ""
         transactionTimeoutMs = 0
@@ -559,20 +559,20 @@ final class OpenProducerRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class OpenProducerResponse: Marshaler, Unmarshaler {
-    var sessionId: String = ""
-    var producerId: Int64 = 0
-    var producerEpoch: Int32 = 0
-    var errorCode: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ sessionId: String = "", _ producerId: Int64 = 0, _ producerEpoch: Int32 = 0, _ errorCode: Int32 = 0) {
+public final class OpenProducerResponse: Marshaler, Unmarshaler {
+    public var sessionId: String = ""
+    public var producerId: Int64 = 0
+    public var producerEpoch: Int32 = 0
+    public var errorCode: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ sessionId: String = "", _ producerId: Int64 = 0, _ producerEpoch: Int32 = 0, _ errorCode: Int32 = 0) {
         self.sessionId = sessionId
         self.producerId = producerId
         self.producerEpoch = producerEpoch
         self.errorCode = errorCode
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, sessionId)
         if producerId != 0 { w.Tag(2, 0); w.Varint(UInt64(bitPattern: producerId)) }
@@ -581,7 +581,7 @@ final class OpenProducerResponse: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         sessionId = ""
         producerId = 0
@@ -606,20 +606,20 @@ final class OpenProducerResponse: Marshaler, Unmarshaler {
         }
     }
 }
-final class CloseProducerRequest: Marshaler, Unmarshaler {
-    var sessionId: String = ""
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ sessionId: String = "") {
+public final class CloseProducerRequest: Marshaler, Unmarshaler {
+    public var sessionId: String = ""
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ sessionId: String = "") {
         self.sessionId = sessionId
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, sessionId)
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         sessionId = ""
         let r = KafkaPb.Reader(data)
@@ -635,20 +635,20 @@ final class CloseProducerRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class CloseProducerResponse: Marshaler, Unmarshaler {
-    var errorCode: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ errorCode: Int32 = 0) {
+public final class CloseProducerResponse: Marshaler, Unmarshaler {
+    public var errorCode: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ errorCode: Int32 = 0) {
         self.errorCode = errorCode
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
         let r = KafkaPb.Reader(data)
@@ -664,23 +664,23 @@ final class CloseProducerResponse: Marshaler, Unmarshaler {
         }
     }
 }
-final class EndTransactionRequest: Marshaler, Unmarshaler {
-    var sessionId: String = ""
-    var commit: Bool = false
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ sessionId: String = "", _ commit: Bool = false) {
+public final class EndTransactionRequest: Marshaler, Unmarshaler {
+    public var sessionId: String = ""
+    public var commit: Bool = false
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ sessionId: String = "", _ commit: Bool = false) {
         self.sessionId = sessionId
         self.commit = commit
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, sessionId)
         if commit { w.Tag(2, 0); w.Varint((commit ? Int64(1) : Int64(0))) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         sessionId = ""
         commit = false
@@ -699,20 +699,20 @@ final class EndTransactionRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class EndTransactionResponse: Marshaler, Unmarshaler {
-    var errorCode: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ errorCode: Int32 = 0) {
+public final class EndTransactionResponse: Marshaler, Unmarshaler {
+    public var errorCode: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ errorCode: Int32 = 0) {
         self.errorCode = errorCode
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
         let r = KafkaPb.Reader(data)
@@ -728,18 +728,18 @@ final class EndTransactionResponse: Marshaler, Unmarshaler {
         }
     }
 }
-final class ProduceRequest: Marshaler, Unmarshaler {
-    var topic: String = ""
-    var partition: Int32 = 0
-    var records: [Record] = []
-    var acks: Acks = Acks.ACKS_UNSPECIFIED
-    var timeoutMs: Int32 = 0
-    var compression: Compression = Compression.COMPRESSION_NONE
-    var sessionId: String = ""
-    var transactionalId: String = ""
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ topic: String = "", _ partition: Int32 = 0, _ records: [Record] = [], _ acks: Acks = Acks.ACKS_UNSPECIFIED, _ timeoutMs: Int32 = 0, _ compression: Compression = Compression.COMPRESSION_NONE, _ sessionId: String = "", _ transactionalId: String = "") {
+public final class ProduceRequest: Marshaler, Unmarshaler {
+    public var topic: String = ""
+    public var partition: Int32 = 0
+    public var records: [Record] = []
+    public var acks: Acks = Acks.ACKS_UNSPECIFIED
+    public var timeoutMs: Int32 = 0
+    public var compression: Compression = Compression.COMPRESSION_NONE
+    public var sessionId: String = ""
+    public var transactionalId: String = ""
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ topic: String = "", _ partition: Int32 = 0, _ records: [Record] = [], _ acks: Acks = Acks.ACKS_UNSPECIFIED, _ timeoutMs: Int32 = 0, _ compression: Compression = Compression.COMPRESSION_NONE, _ sessionId: String = "", _ transactionalId: String = "") {
         self.topic = topic
         self.partition = partition
         self.records = records
@@ -749,7 +749,7 @@ final class ProduceRequest: Marshaler, Unmarshaler {
         self.sessionId = sessionId
         self.transactionalId = transactionalId
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, topic)
         if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
@@ -762,7 +762,7 @@ final class ProduceRequest: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topic = ""
         partition = 0
@@ -801,20 +801,20 @@ final class ProduceRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class ProduceResponse: Marshaler, Unmarshaler {
-    var partition: Int32 = 0
-    var baseOffset: Int64 = 0
-    var logAppendTimeMs: Int64 = 0
-    var errorCode: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ partition: Int32 = 0, _ baseOffset: Int64 = 0, _ logAppendTimeMs: Int64 = 0, _ errorCode: Int32 = 0) {
+public final class ProduceResponse: Marshaler, Unmarshaler {
+    public var partition: Int32 = 0
+    public var baseOffset: Int64 = 0
+    public var logAppendTimeMs: Int64 = 0
+    public var errorCode: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ partition: Int32 = 0, _ baseOffset: Int64 = 0, _ logAppendTimeMs: Int64 = 0, _ errorCode: Int32 = 0) {
         self.partition = partition
         self.baseOffset = baseOffset
         self.logAppendTimeMs = logAppendTimeMs
         self.errorCode = errorCode
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if partition != 0 { w.Tag(1, 0); w.Varint(Int64(partition)) }
         if baseOffset != 0 { w.Tag(2, 0); w.Varint(UInt64(bitPattern: baseOffset)) }
@@ -823,7 +823,7 @@ final class ProduceResponse: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         partition = 0
         baseOffset = 0
@@ -848,17 +848,17 @@ final class ProduceResponse: Marshaler, Unmarshaler {
         }
     }
 }
-final class ConsumeRequest: Marshaler, Unmarshaler {
-    var topic: String = ""
-    var partition: Int32 = 0
-    var offset: Int64 = 0
-    var maxRecords: Int32 = 0
-    var maxWaitMs: Int32 = 0
-    var minBytes: Int32 = 0
-    var readCommitted: Bool = false
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ topic: String = "", _ partition: Int32 = 0, _ offset: Int64 = 0, _ maxRecords: Int32 = 0, _ maxWaitMs: Int32 = 0, _ minBytes: Int32 = 0, _ readCommitted: Bool = false) {
+public final class ConsumeRequest: Marshaler, Unmarshaler {
+    public var topic: String = ""
+    public var partition: Int32 = 0
+    public var offset: Int64 = 0
+    public var maxRecords: Int32 = 0
+    public var maxWaitMs: Int32 = 0
+    public var minBytes: Int32 = 0
+    public var readCommitted: Bool = false
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ topic: String = "", _ partition: Int32 = 0, _ offset: Int64 = 0, _ maxRecords: Int32 = 0, _ maxWaitMs: Int32 = 0, _ minBytes: Int32 = 0, _ readCommitted: Bool = false) {
         self.topic = topic
         self.partition = partition
         self.offset = offset
@@ -867,7 +867,7 @@ final class ConsumeRequest: Marshaler, Unmarshaler {
         self.minBytes = minBytes
         self.readCommitted = readCommitted
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, topic)
         if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
@@ -879,7 +879,7 @@ final class ConsumeRequest: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topic = ""
         partition = 0
@@ -913,22 +913,22 @@ final class ConsumeRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class ConsumeResponse: Marshaler, Unmarshaler {
-    var topic: String = ""
-    var partition: Int32 = 0
-    var highWatermark: Int64 = 0
-    var errorCode: Int32 = 0
-    var records: [FetchedRecord] = []
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ topic: String = "", _ partition: Int32 = 0, _ highWatermark: Int64 = 0, _ errorCode: Int32 = 0, _ records: [FetchedRecord] = []) {
+public final class ConsumeResponse: Marshaler, Unmarshaler {
+    public var topic: String = ""
+    public var partition: Int32 = 0
+    public var highWatermark: Int64 = 0
+    public var errorCode: Int32 = 0
+    public var records: [FetchedRecord] = []
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ topic: String = "", _ partition: Int32 = 0, _ highWatermark: Int64 = 0, _ errorCode: Int32 = 0, _ records: [FetchedRecord] = []) {
         self.topic = topic
         self.partition = partition
         self.highWatermark = highWatermark
         self.errorCode = errorCode
         self.records = records
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, topic)
         if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
@@ -938,7 +938,7 @@ final class ConsumeResponse: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topic = ""
         partition = 0
@@ -968,17 +968,17 @@ final class ConsumeResponse: Marshaler, Unmarshaler {
         }
     }
 }
-final class GroupSubscribeRequest: Marshaler, Unmarshaler {
-    var groupId: String = ""
-    var topics: [String] = []
-    var groupInstanceId: String = ""
-    var sessionTimeoutMs: Int32 = 0
-    var maxPollRecords: Int32 = 0
-    var autoOffsetReset: String = ""
-    var readCommitted: Bool = false
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ groupId: String = "", _ topics: [String] = [], _ groupInstanceId: String = "", _ sessionTimeoutMs: Int32 = 0, _ maxPollRecords: Int32 = 0, _ autoOffsetReset: String = "", _ readCommitted: Bool = false) {
+public final class GroupSubscribeRequest: Marshaler, Unmarshaler {
+    public var groupId: String = ""
+    public var topics: [String] = []
+    public var groupInstanceId: String = ""
+    public var sessionTimeoutMs: Int32 = 0
+    public var maxPollRecords: Int32 = 0
+    public var autoOffsetReset: String = ""
+    public var readCommitted: Bool = false
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ groupId: String = "", _ topics: [String] = [], _ groupInstanceId: String = "", _ sessionTimeoutMs: Int32 = 0, _ maxPollRecords: Int32 = 0, _ autoOffsetReset: String = "", _ readCommitted: Bool = false) {
         self.groupId = groupId
         self.topics = topics
         self.groupInstanceId = groupInstanceId
@@ -987,7 +987,7 @@ final class GroupSubscribeRequest: Marshaler, Unmarshaler {
         self.autoOffsetReset = autoOffsetReset
         self.readCommitted = readCommitted
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, groupId)
         for x in topics { w.BytesField(2, [UInt8](x.utf8)) }
@@ -999,7 +999,7 @@ final class GroupSubscribeRequest: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         groupId = ""
         topics = []
@@ -1033,18 +1033,18 @@ final class GroupSubscribeRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class GroupSubscribeResponse: Marshaler, Unmarshaler {
-    var assignment: Assignment? = nil
-    var batch: RecordBatch? = nil
-    var groupError: GroupError? = nil
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ assignment: Assignment? = nil, _ batch: RecordBatch? = nil, _ groupError: GroupError? = nil) {
+public final class GroupSubscribeResponse: Marshaler, Unmarshaler {
+    public var assignment: Assignment? = nil
+    public var batch: RecordBatch? = nil
+    public var groupError: GroupError? = nil
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ assignment: Assignment? = nil, _ batch: RecordBatch? = nil, _ groupError: GroupError? = nil) {
         self.assignment = assignment
         self.batch = batch
         self.groupError = groupError
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if !(batch != nil || groupError != nil) {
         if let v = assignment { w.BytesField(1, v.MarshalDc()) }
@@ -1056,7 +1056,7 @@ final class GroupSubscribeResponse: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         assignment = nil
         batch = nil
@@ -1087,18 +1087,18 @@ final class GroupSubscribeResponse: Marshaler, Unmarshaler {
         }
     }
 }
-final class Assignment: Marshaler, Unmarshaler {
-    var generationId: Int32 = 0
-    var memberId: String = ""
-    var partitions: [TopicPartition] = []
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ generationId: Int32 = 0, _ memberId: String = "", _ partitions: [TopicPartition] = []) {
+public final class Assignment: Marshaler, Unmarshaler {
+    public var generationId: Int32 = 0
+    public var memberId: String = ""
+    public var partitions: [TopicPartition] = []
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ generationId: Int32 = 0, _ memberId: String = "", _ partitions: [TopicPartition] = []) {
         self.generationId = generationId
         self.memberId = memberId
         self.partitions = partitions
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if generationId != 0 { w.Tag(1, 0); w.Varint(Int64(generationId)) }
         w.StringField(2, memberId)
@@ -1106,7 +1106,7 @@ final class Assignment: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         generationId = 0
         memberId = ""
@@ -1130,20 +1130,20 @@ final class Assignment: Marshaler, Unmarshaler {
         }
     }
 }
-final class RecordBatch: Marshaler, Unmarshaler {
-    var topic: String = ""
-    var partition: Int32 = 0
-    var highWatermark: Int64 = 0
-    var records: [FetchedRecord] = []
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ topic: String = "", _ partition: Int32 = 0, _ highWatermark: Int64 = 0, _ records: [FetchedRecord] = []) {
+public final class RecordBatch: Marshaler, Unmarshaler {
+    public var topic: String = ""
+    public var partition: Int32 = 0
+    public var highWatermark: Int64 = 0
+    public var records: [FetchedRecord] = []
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ topic: String = "", _ partition: Int32 = 0, _ highWatermark: Int64 = 0, _ records: [FetchedRecord] = []) {
         self.topic = topic
         self.partition = partition
         self.highWatermark = highWatermark
         self.records = records
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, topic)
         if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
@@ -1152,7 +1152,7 @@ final class RecordBatch: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topic = ""
         partition = 0
@@ -1179,23 +1179,23 @@ final class RecordBatch: Marshaler, Unmarshaler {
         }
     }
 }
-final class GroupError: Marshaler, Unmarshaler {
-    var errorCode: Int32 = 0
-    var message: String = ""
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ errorCode: Int32 = 0, _ message: String = "") {
+public final class GroupError: Marshaler, Unmarshaler {
+    public var errorCode: Int32 = 0
+    public var message: String = ""
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ errorCode: Int32 = 0, _ message: String = "") {
         self.errorCode = errorCode
         self.message = message
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
         w.StringField(2, message)
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
         message = ""
@@ -1214,20 +1214,20 @@ final class GroupError: Marshaler, Unmarshaler {
         }
     }
 }
-final class ListOffsetsRequest: Marshaler, Unmarshaler {
-    var topic: String = ""
-    var partition: Int32 = 0
-    var timestamp: Int64 = 0
-    var readCommitted: Bool = false
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ topic: String = "", _ partition: Int32 = 0, _ timestamp: Int64 = 0, _ readCommitted: Bool = false) {
+public final class ListOffsetsRequest: Marshaler, Unmarshaler {
+    public var topic: String = ""
+    public var partition: Int32 = 0
+    public var timestamp: Int64 = 0
+    public var readCommitted: Bool = false
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ topic: String = "", _ partition: Int32 = 0, _ timestamp: Int64 = 0, _ readCommitted: Bool = false) {
         self.topic = topic
         self.partition = partition
         self.timestamp = timestamp
         self.readCommitted = readCommitted
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, topic)
         if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
@@ -1236,7 +1236,7 @@ final class ListOffsetsRequest: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topic = ""
         partition = 0
@@ -1261,18 +1261,18 @@ final class ListOffsetsRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class ListOffsetsResponse: Marshaler, Unmarshaler {
-    var offset: Int64 = 0
-    var timestampMs: Int64 = 0
-    var errorCode: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ offset: Int64 = 0, _ timestampMs: Int64 = 0, _ errorCode: Int32 = 0) {
+public final class ListOffsetsResponse: Marshaler, Unmarshaler {
+    public var offset: Int64 = 0
+    public var timestampMs: Int64 = 0
+    public var errorCode: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ offset: Int64 = 0, _ timestampMs: Int64 = 0, _ errorCode: Int32 = 0) {
         self.offset = offset
         self.timestampMs = timestampMs
         self.errorCode = errorCode
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if offset != 0 { w.Tag(1, 0); w.Varint(UInt64(bitPattern: offset)) }
         if timestampMs != 0 { w.Tag(2, 0); w.Varint(UInt64(bitPattern: timestampMs)) }
@@ -1280,7 +1280,7 @@ final class ListOffsetsResponse: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         offset = 0
         timestampMs = 0
@@ -1302,16 +1302,16 @@ final class ListOffsetsResponse: Marshaler, Unmarshaler {
         }
     }
 }
-final class CommitOffsetRequest: Marshaler, Unmarshaler {
-    var groupId: String = ""
-    var topic: String = ""
-    var partition: Int32 = 0
-    var committedOffset: Int64 = 0
-    var metadata: String = ""
-    var sessionId: String = ""
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ groupId: String = "", _ topic: String = "", _ partition: Int32 = 0, _ committedOffset: Int64 = 0, _ metadata: String = "", _ sessionId: String = "") {
+public final class CommitOffsetRequest: Marshaler, Unmarshaler {
+    public var groupId: String = ""
+    public var topic: String = ""
+    public var partition: Int32 = 0
+    public var committedOffset: Int64 = 0
+    public var metadata: String = ""
+    public var sessionId: String = ""
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ groupId: String = "", _ topic: String = "", _ partition: Int32 = 0, _ committedOffset: Int64 = 0, _ metadata: String = "", _ sessionId: String = "") {
         self.groupId = groupId
         self.topic = topic
         self.partition = partition
@@ -1319,7 +1319,7 @@ final class CommitOffsetRequest: Marshaler, Unmarshaler {
         self.metadata = metadata
         self.sessionId = sessionId
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, groupId)
         w.StringField(2, topic)
@@ -1330,7 +1330,7 @@ final class CommitOffsetRequest: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         groupId = ""
         topic = ""
@@ -1361,20 +1361,20 @@ final class CommitOffsetRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class CommitOffsetResponse: Marshaler, Unmarshaler {
-    var errorCode: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ errorCode: Int32 = 0) {
+public final class CommitOffsetResponse: Marshaler, Unmarshaler {
+    public var errorCode: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ errorCode: Int32 = 0) {
         self.errorCode = errorCode
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
         let r = KafkaPb.Reader(data)
@@ -1390,18 +1390,18 @@ final class CommitOffsetResponse: Marshaler, Unmarshaler {
         }
     }
 }
-final class FetchOffsetRequest: Marshaler, Unmarshaler {
-    var groupId: String = ""
-    var topic: String = ""
-    var partition: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ groupId: String = "", _ topic: String = "", _ partition: Int32 = 0) {
+public final class FetchOffsetRequest: Marshaler, Unmarshaler {
+    public var groupId: String = ""
+    public var topic: String = ""
+    public var partition: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ groupId: String = "", _ topic: String = "", _ partition: Int32 = 0) {
         self.groupId = groupId
         self.topic = topic
         self.partition = partition
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, groupId)
         w.StringField(2, topic)
@@ -1409,7 +1409,7 @@ final class FetchOffsetRequest: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         groupId = ""
         topic = ""
@@ -1431,18 +1431,18 @@ final class FetchOffsetRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class FetchOffsetResponse: Marshaler, Unmarshaler {
-    var committedOffset: Int64 = 0
-    var metadata: String = ""
-    var errorCode: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ committedOffset: Int64 = 0, _ metadata: String = "", _ errorCode: Int32 = 0) {
+public final class FetchOffsetResponse: Marshaler, Unmarshaler {
+    public var committedOffset: Int64 = 0
+    public var metadata: String = ""
+    public var errorCode: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ committedOffset: Int64 = 0, _ metadata: String = "", _ errorCode: Int32 = 0) {
         self.committedOffset = committedOffset
         self.metadata = metadata
         self.errorCode = errorCode
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         if committedOffset != 0 { w.Tag(1, 0); w.Varint(UInt64(bitPattern: committedOffset)) }
         w.StringField(2, metadata)
@@ -1450,7 +1450,7 @@ final class FetchOffsetResponse: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         committedOffset = 0
         metadata = ""
@@ -1472,18 +1472,18 @@ final class FetchOffsetResponse: Marshaler, Unmarshaler {
         }
     }
 }
-final class NewTopic: Marshaler, Unmarshaler {
-    var name: String = ""
-    var numPartitions: Int32 = 0
-    var replicationFactor: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ name: String = "", _ numPartitions: Int32 = 0, _ replicationFactor: Int32 = 0) {
+public final class NewTopic: Marshaler, Unmarshaler {
+    public var name: String = ""
+    public var numPartitions: Int32 = 0
+    public var replicationFactor: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ name: String = "", _ numPartitions: Int32 = 0, _ replicationFactor: Int32 = 0) {
         self.name = name
         self.numPartitions = numPartitions
         self.replicationFactor = replicationFactor
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, name)
         if numPartitions != 0 { w.Tag(2, 0); w.Varint(Int64(numPartitions)) }
@@ -1491,7 +1491,7 @@ final class NewTopic: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         name = ""
         numPartitions = 0
@@ -1513,18 +1513,18 @@ final class NewTopic: Marshaler, Unmarshaler {
         }
     }
 }
-final class CreateTopicsRequest: Marshaler, Unmarshaler {
-    var topics: [NewTopic] = []
-    var timeoutMs: Int32 = 0
-    var validateOnly: Bool = false
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ topics: [NewTopic] = [], _ timeoutMs: Int32 = 0, _ validateOnly: Bool = false) {
+public final class CreateTopicsRequest: Marshaler, Unmarshaler {
+    public var topics: [NewTopic] = []
+    public var timeoutMs: Int32 = 0
+    public var validateOnly: Bool = false
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ topics: [NewTopic] = [], _ timeoutMs: Int32 = 0, _ validateOnly: Bool = false) {
         self.topics = topics
         self.timeoutMs = timeoutMs
         self.validateOnly = validateOnly
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         for x in topics { w.BytesField(1, x.MarshalDc()) }
         if timeoutMs != 0 { w.Tag(2, 0); w.Varint(Int64(timeoutMs)) }
@@ -1532,7 +1532,7 @@ final class CreateTopicsRequest: Marshaler, Unmarshaler {
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topics = []
         timeoutMs = 0
@@ -1556,23 +1556,23 @@ final class CreateTopicsRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class TopicError: Marshaler, Unmarshaler {
-    var name: String = ""
-    var errorCode: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ name: String = "", _ errorCode: Int32 = 0) {
+public final class TopicError: Marshaler, Unmarshaler {
+    public var name: String = ""
+    public var errorCode: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ name: String = "", _ errorCode: Int32 = 0) {
         self.name = name
         self.errorCode = errorCode
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         w.StringField(1, name)
         if errorCode != 0 { w.Tag(2, 0); w.Varint(Int64(errorCode)) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         name = ""
         errorCode = 0
@@ -1591,20 +1591,20 @@ final class TopicError: Marshaler, Unmarshaler {
         }
     }
 }
-final class CreateTopicsResponse: Marshaler, Unmarshaler {
-    var results: [TopicError] = []
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ results: [TopicError] = []) {
+public final class CreateTopicsResponse: Marshaler, Unmarshaler {
+    public var results: [TopicError] = []
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ results: [TopicError] = []) {
         self.results = results
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         for x in results { w.BytesField(1, x.MarshalDc()) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         results = []
         let r = KafkaPb.Reader(data)
@@ -1622,23 +1622,23 @@ final class CreateTopicsResponse: Marshaler, Unmarshaler {
         }
     }
 }
-final class DeleteTopicsRequest: Marshaler, Unmarshaler {
-    var topics: [String] = []
-    var timeoutMs: Int32 = 0
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ topics: [String] = [], _ timeoutMs: Int32 = 0) {
+public final class DeleteTopicsRequest: Marshaler, Unmarshaler {
+    public var topics: [String] = []
+    public var timeoutMs: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ topics: [String] = [], _ timeoutMs: Int32 = 0) {
         self.topics = topics
         self.timeoutMs = timeoutMs
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         for x in topics { w.BytesField(1, [UInt8](x.utf8)) }
         if timeoutMs != 0 { w.Tag(2, 0); w.Varint(Int64(timeoutMs)) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topics = []
         timeoutMs = 0
@@ -1657,20 +1657,20 @@ final class DeleteTopicsRequest: Marshaler, Unmarshaler {
         }
     }
 }
-final class DeleteTopicsResponse: Marshaler, Unmarshaler {
-    var results: [TopicError] = []
-    var unknownFields: [UInt8] = []
-    init() {}
-    init(_ results: [TopicError] = []) {
+public final class DeleteTopicsResponse: Marshaler, Unmarshaler {
+    public var results: [TopicError] = []
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ results: [TopicError] = []) {
         self.results = results
     }
-    func MarshalDc() -> [UInt8] {
+    public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
         for x in results { w.BytesField(1, x.MarshalDc()) }
         w.Raw(unknownFields)
         return w.ToBytes()
     }
-    func UnmarshalDc(_ data: [UInt8]) {
+    public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         results = []
         let r = KafkaPb.Reader(data)

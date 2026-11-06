@@ -7,5 +7,5 @@ import Foundation
 #endif
 
 /// Generated gRPC-over-DataChannels stubs for grpc/testing/messages.proto.
-enum MessagesGrpcDc {
+public enum MessagesGrpcDc {
 }

@@ -13,21 +13,21 @@ import Glibc
 /// TLS is not offered: Swift has no stdlib TLS on this
 /// platform, so DialTls throws CodeUnimplemented with that
 /// message rather than silently dialing cleartext.
-final class Http2Transport: Transport {
-    static let H2Data = 0x0
-    static let H2Headers = 0x1
-    static let H2RstStream = 0x3
-    static let H2Settings = 0x4
-    static let H2Ping = 0x6
-    static let H2WindowUpdate = 0x8
-    static let H2Continuation = 0x9
-    static let FlagEndStream = 0x1
-    static let FlagEndHeaders = 0x4
-    static let FlagAck = 0x1
-    static let FlagPadded = 0x8
-    static let MaxFramePayload = 16384
+public final class Http2Transport: Transport {
+    public static let H2Data = 0x0
+    public static let H2Headers = 0x1
+    public static let H2RstStream = 0x3
+    public static let H2Settings = 0x4
+    public static let H2Ping = 0x6
+    public static let H2WindowUpdate = 0x8
+    public static let H2Continuation = 0x9
+    public static let FlagEndStream = 0x1
+    public static let FlagEndHeaders = 0x4
+    public static let FlagAck = 0x1
+    public static let FlagPadded = 0x8
+    public static let MaxFramePayload = 16384
 
-    static let StaticTable: [(String, String)] = [
+    public static let StaticTable: [(String, String)] = [
         (":authority", ""),
         (":method", "GET"),
         (":method", "POST"),
@@ -91,15 +91,15 @@ final class Http2Transport: Transport {
         ("www-authenticate", ""),
     ]
 
-    static let HuffCodes: [Int] = [
+    public static let HuffCodes: [Int] = [
         0x1ff8, 0x7fffd8, 0xfffffe2, 0xfffffe3, 0xfffffe4, 0xfffffe5, 0xfffffe6, 0xfffffe7, 0xfffffe8, 0xffffea, 0x3ffffffc, 0xfffffe9, 0xfffffea, 0x3ffffffd, 0xfffffeb, 0xfffffec, 0xfffffed, 0xfffffee, 0xfffffef, 0xffffff0, 0xffffff1, 0xffffff2, 0x3ffffffe, 0xffffff3, 0xffffff4, 0xffffff5, 0xffffff6, 0xffffff7, 0xffffff8, 0xffffff9, 0xffffffa, 0xffffffb, 0x14, 0x3f8, 0x3f9, 0xffa, 0x1ff9, 0x15, 0xf8, 0x7fa, 0x3fa, 0x3fb, 0xf9, 0x7fb, 0xfa, 0x16, 0x17, 0x18, 0x0, 0x1, 0x2, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x5c, 0xfb, 0x7ffc, 0x20, 0xffb, 0x3fc, 0x1ffa, 0x21, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72, 0xfc, 0x73, 0xfd, 0x1ffb, 0x7fff0, 0x1ffc, 0x3ffc, 0x22, 0x7ffd, 0x3, 0x23, 0x4, 0x24, 0x5, 0x25, 0x26, 0x27, 0x6, 0x74, 0x75, 0x28, 0x29, 0x2a, 0x7, 0x2b, 0x76, 0x2c, 0x8, 0x9, 0x2d, 0x77, 0x78, 0x79, 0x7a, 0x7b, 0x7ffe, 0x7fc, 0x3ffd, 0x1ffd, 0xffffffc, 0xfffe6, 0x3fffd2, 0xfffe7, 0xfffe8, 0x3fffd3, 0x3fffd4, 0x3fffd5, 0x7fffd9, 0x3fffd6, 0x7fffda, 0x7fffdb, 0x7fffdc, 0x7fffdd, 0x7fffde, 0xffffeb, 0x7fffdf, 0xffffec, 0xffffed, 0x3fffd7, 0x7fffe0, 0xffffee, 0x7fffe1, 0x7fffe2, 0x7fffe3, 0x7fffe4, 0x1fffdc, 0x3fffd8, 0x7fffe5, 0x3fffd9, 0x7fffe6, 0x7fffe7, 0xffffef, 0x3fffda, 0x1fffdd, 0xfffe9, 0x3fffdb, 0x3fffdc, 0x7fffe8, 0x7fffe9, 0x1fffde, 0x7fffea, 0x3fffdd, 0x3fffde, 0xfffff0, 0x1fffdf, 0x3fffdf, 0x7fffeb, 0x7fffec, 0x1fffe0, 0x1fffe1, 0x3fffe0, 0x1fffe2, 0x7fffed, 0x3fffe1, 0x7fffee, 0x7fffef, 0xfffea, 0x3fffe2, 0x3fffe3, 0x3fffe4, 0x7ffff0, 0x3fffe5, 0x3fffe6, 0x7ffff1, 0x3ffffe0, 0x3ffffe1, 0xfffeb, 0x7fff1, 0x3fffe7, 0x7ffff2, 0x3fffe8, 0x1ffffec, 0x3ffffe2, 0x3ffffe3, 0x3ffffe4, 0x7ffffde, 0x7ffffdf, 0x3ffffe5, 0xfffff1, 0x1ffffed, 0x7fff2, 0x1fffe3, 0x3ffffe6, 0x7ffffe0, 0x7ffffe1, 0x3ffffe7, 0x7ffffe2, 0xfffff2, 0x1fffe4, 0x1fffe5, 0x3ffffe8, 0x3ffffe9, 0xffffffd, 0x7ffffe3, 0x7ffffe4, 0x7ffffe5, 0xfffec, 0xfffff3, 0xfffed, 0x1fffe6, 0x3fffe9, 0x1fffe7, 0x1fffe8, 0x7ffff3, 0x3fffea, 0x3fffeb, 0x1ffffee, 0x1ffffef, 0xfffff4, 0xfffff5, 0x3ffffea, 0x7ffff4, 0x3ffffeb, 0x7ffffe6, 0x3ffffec, 0x3ffffed, 0x7ffffe7, 0x7ffffe8, 0x7ffffe9, 0x7ffffea, 0x7ffffeb, 0xffffffe, 0x7ffffec, 0x7ffffed, 0x7ffffee, 0x7ffffef, 0x7fffff0, 0x3ffffee, 0x3fffffff
     ]
 
-    static let HuffLens: [Int] = [
+    public static let HuffLens: [Int] = [
         13, 23, 28, 28, 28, 28, 28, 28, 28, 24, 30, 28, 28, 30, 28, 28, 28, 28, 28, 28, 28, 28, 30, 28, 28, 28, 28, 28, 28, 28, 28, 28, 6, 10, 10, 12, 13, 6, 8, 11, 10, 10, 8, 11, 8, 6, 6, 6, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 8, 15, 6, 12, 10, 13, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 7, 8, 13, 19, 13, 14, 6, 15, 5, 6, 5, 6, 5, 6, 6, 6, 5, 7, 7, 6, 6, 6, 5, 6, 7, 6, 5, 5, 6, 7, 7, 7, 7, 7, 15, 11, 14, 13, 28, 20, 22, 20, 20, 22, 22, 22, 23, 22, 23, 23, 23, 23, 23, 24, 23, 24, 24, 22, 23, 24, 23, 23, 23, 23, 21, 22, 23, 22, 23, 23, 24, 22, 21, 20, 22, 22, 23, 23, 21, 23, 22, 22, 24, 21, 22, 23, 23, 21, 21, 22, 21, 23, 22, 23, 23, 20, 22, 22, 22, 23, 22, 22, 23, 26, 26, 20, 19, 22, 23, 22, 25, 26, 26, 26, 27, 27, 26, 24, 25, 19, 21, 26, 27, 27, 26, 27, 24, 21, 21, 26, 26, 28, 27, 27, 27, 20, 24, 20, 21, 22, 21, 21, 23, 22, 22, 25, 25, 24, 24, 26, 23, 26, 27, 26, 26, 27, 27, 27, 27, 27, 28, 27, 27, 27, 27, 27, 26, 30
     ]
 
-    static let HuffDecode: [Int: Int] = {
+    public static let HuffDecode: [Int: Int] = {
         var map: [Int: Int] = [:]
         for sym in 0..<HuffCodes.count {
             map[(HuffLens[sym] << 32) | HuffCodes[sym]] = sym
@@ -107,7 +107,7 @@ final class Http2Transport: Transport {
         return map
     }()
 
-    static func HuffDecodeString(_ data: [UInt8], _ off: Int, _ len: Int) throws -> String {
+    public static func HuffDecodeString(_ data: [UInt8], _ off: Int, _ len: Int) throws -> String {
         var out = String()
         var code = 0
         var bits = 0
@@ -131,12 +131,12 @@ final class Http2Transport: Transport {
         return out
     }
 
-    final class HpackDecoder {
-        var dynamic: [(String, String)] = []
-        var dynamicSize = 0
-        static let MaxDynamic = 4096
+    public final class HpackDecoder {
+        public var dynamic: [(String, String)] = []
+        public var dynamicSize = 0
+        public static let MaxDynamic = 4096
 
-        func Entry(_ index: Int) throws -> (String, String) {
+        public func Entry(_ index: Int) throws -> (String, String) {
             if index <= 0 {
                 throw StatusException(Wire.CodeInternal, "bad hpack index 0")
             }
@@ -150,7 +150,7 @@ final class Http2Transport: Transport {
             return dynamic[j]
         }
 
-        func Add(_ name: String, _ value: String) {
+        public func Add(_ name: String, _ value: String) {
             dynamic.insert((name, value), at: 0)
             dynamicSize += name.count + value.count + 32
             while dynamicSize > HpackDecoder.MaxDynamic && !dynamic.isEmpty {
@@ -159,7 +159,7 @@ final class Http2Transport: Transport {
             }
         }
 
-        static func ReadInt(_ data: [UInt8], _ pos: inout Int, _ prefixBits: Int) throws -> Int {
+        public static func ReadInt(_ data: [UInt8], _ pos: inout Int, _ prefixBits: Int) throws -> Int {
             let mask = (1 << prefixBits) - 1
             var value = Int(data[pos]) & mask
             pos += 1
@@ -182,7 +182,7 @@ final class Http2Transport: Transport {
             return value
         }
 
-        static func ReadString(_ data: [UInt8], _ pos: inout Int) throws -> String {
+        public static func ReadString(_ data: [UInt8], _ pos: inout Int) throws -> String {
             if pos >= data.count {
                 throw StatusException(Wire.CodeInternal, "truncated hpack string")
             }
@@ -198,7 +198,7 @@ final class Http2Transport: Transport {
             return value
         }
 
-        func Decode(_ block: [UInt8]) throws -> [(String, String)] {
+        public func Decode(_ block: [UInt8]) throws -> [(String, String)] {
             var out: [(String, String)] = []
             var pos = 0
             while pos < block.count {
@@ -223,7 +223,7 @@ final class Http2Transport: Transport {
         }
     }
 
-    static func WriteInt(_ out: inout [UInt8], _ value: Int, _ prefixBits: Int, _ prefix: Int) {
+    public static func WriteInt(_ out: inout [UInt8], _ value: Int, _ prefixBits: Int, _ prefix: Int) {
         let mask = (1 << prefixBits) - 1
         if value < mask {
             out.append(UInt8(prefix | value))
@@ -238,18 +238,18 @@ final class Http2Transport: Transport {
         out.append(UInt8(rest))
     }
 
-    static func WriteString(_ out: inout [UInt8], _ value: String) {
+    public static func WriteString(_ out: inout [UInt8], _ value: String) {
         let raw = [UInt8](value.utf8)
         WriteInt(&out, raw.count, 7, 0)
         out.append(contentsOf: raw)
     }
 
-    static func WriteLiteralIndexedName(_ out: inout [UInt8], _ index: Int, _ value: String) {
+    public static func WriteLiteralIndexedName(_ out: inout [UInt8], _ index: Int, _ value: String) {
         WriteInt(&out, index, 4, 0)
         WriteString(&out, value)
     }
 
-    static func WriteLiteralNewName(_ out: inout [UInt8], _ name: String, _ value: String) {
+    public static func WriteLiteralNewName(_ out: inout [UInt8], _ name: String, _ value: String) {
         WriteInt(&out, 0, 4, 0)
         WriteString(&out, name)
         WriteString(&out, value)
@@ -258,7 +258,7 @@ final class Http2Transport: Transport {
     // ---- gzip (RFC 1952) over a stored-block deflate writer and
     // a full inflate reader: no zlib in the Swift stdlib. ----
 
-    static let CrcTable: [UInt32] = {
+    public static let CrcTable: [UInt32] = {
         var table = [UInt32](repeating: 0, count: 256)
         for i in 0..<256 {
             var c = UInt32(i)
@@ -270,7 +270,7 @@ final class Http2Transport: Transport {
         return table
     }()
 
-    static func Crc32(_ data: [UInt8]) -> UInt32 {
+    public static func Crc32(_ data: [UInt8]) -> UInt32 {
         var crc: UInt32 = 0xffffffff
         for b in data {
             crc = CrcTable[Int((crc ^ UInt32(b)) & 0xff)] ^ (crc >> 8)
@@ -278,7 +278,7 @@ final class Http2Transport: Transport {
         return crc ^ 0xffffffff
     }
 
-    static func Gzip(_ data: [UInt8]) -> [UInt8] {
+    public static func Gzip(_ data: [UInt8]) -> [UInt8] {
         var out: [UInt8] = [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255]
         if data.isEmpty {
             out.append(contentsOf: [1, 0, 0, 0xff, 0xff])
@@ -310,14 +310,14 @@ final class Http2Transport: Transport {
         return out
     }
 
-    final class BitReader {
-        let data: [UInt8]
-        var pos = 0
-        var bitPos = 0
+    public final class BitReader {
+        public let data: [UInt8]
+        public var pos = 0
+        public var bitPos = 0
 
-        init(_ data: [UInt8]) { self.data = data }
+        public init(_ data: [UInt8]) { self.data = data }
 
-        func Bit() throws -> Int {
+        public func Bit() throws -> Int {
             if pos >= data.count {
                 throw StatusException(Wire.CodeInternal, "inflate: out of input")
             }
@@ -330,7 +330,7 @@ final class Http2Transport: Transport {
             return bit
         }
 
-        func Bits(_ n: Int) throws -> Int {
+        public func Bits(_ n: Int) throws -> Int {
             var value = 0
             for i in 0..<n {
                 value |= try Bit() << i
@@ -338,7 +338,7 @@ final class Http2Transport: Transport {
             return value
         }
 
-        func AlignByte() {
+        public func AlignByte() {
             if bitPos != 0 {
                 bitPos = 0
                 pos += 1
@@ -346,7 +346,7 @@ final class Http2Transport: Transport {
         }
     }
 
-    static func BuildHuffman(_ lengths: [Int]) -> [Int: Int] {
+    public static func BuildHuffman(_ lengths: [Int]) -> [Int: Int] {
         var blCount = [Int](repeating: 0, count: 16)
         for l in lengths where l > 0 {
             blCount[l] += 1
@@ -368,7 +368,7 @@ final class Http2Transport: Transport {
         return map
     }
 
-    static func DecodeSymbol(_ reader: BitReader, _ table: [Int: Int]) throws -> Int {
+    public static func DecodeSymbol(_ reader: BitReader, _ table: [Int: Int]) throws -> Int {
         var code = 0
         for len in 1...15 {
             let bit = try reader.Bit()
@@ -380,12 +380,12 @@ final class Http2Transport: Transport {
         throw StatusException(Wire.CodeInternal, "inflate: bad huffman code")
     }
 
-    static let LengthBases = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258]
-    static let LengthExtra = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0]
-    static let DistBases = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577]
-    static let DistExtra = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13]
+    public static let LengthBases = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258]
+    public static let LengthExtra = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0]
+    public static let DistBases = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577]
+    public static let DistExtra = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13]
 
-    static func InflateBlock(_ reader: BitReader, _ litTable: [Int: Int], _ distTable: [Int: Int], _ out: inout [UInt8]) throws {
+    public static func InflateBlock(_ reader: BitReader, _ litTable: [Int: Int], _ distTable: [Int: Int], _ out: inout [UInt8]) throws {
         while true {
             let sym = try DecodeSymbol(reader, litTable)
             if sym < 256 {
@@ -415,7 +415,7 @@ final class Http2Transport: Transport {
         }
     }
 
-    static func Inflate(_ data: [UInt8]) throws -> [UInt8] {
+    public static func Inflate(_ data: [UInt8]) throws -> [UInt8] {
         let reader = BitReader(data)
         var out: [UInt8] = []
         while true {
@@ -491,7 +491,7 @@ final class Http2Transport: Transport {
         return out
     }
 
-    static func Gunzip(_ data: [UInt8]) throws -> [UInt8] {
+    public static func Gunzip(_ data: [UInt8]) throws -> [UInt8] {
         guard data.count >= 18, data[0] == 0x1f, data[1] == 0x8b, data[2] == 8 else {
             throw StatusException(Wire.CodeInternal, "gunzip: bad header")
         }
@@ -540,13 +540,13 @@ final class Http2Transport: Transport {
     private var recvBuffer: [UInt8] = []
 
     /// Cleartext (h2c, prior knowledge) connection to authority.
-    static func Dial(_ authority: String) throws -> Http2Transport {
+    public static func Dial(_ authority: String) throws -> Http2Transport {
         return try Http2Transport(authority, tls: false)
     }
 
     /// TLS is not offered by the generated Swift transport (no
     /// stdlib TLS on this platform): throws CodeUnimplemented.
-    static func DialTls(_ authority: String) throws -> Http2Transport {
+    public static func DialTls(_ authority: String) throws -> Http2Transport {
         throw StatusException(Wire.CodeUnimplemented,
                               "generated Swift HTTP/2 transport has no TLS (no stdlib TLS on this platform)")
     }
@@ -839,7 +839,7 @@ final class Http2Transport: Transport {
         dataBuffers[streamId] = data
     }
 
-    static func PercentDecode(_ value: String) -> String {
+    public static func PercentDecode(_ value: String) -> String {
         var bytes: [UInt8] = []
         let units = [UInt8](value.utf8)
         var i = 0
@@ -869,7 +869,7 @@ final class Http2Transport: Transport {
         }
     }
 
-    func Send(_ message: [UInt8]) throws {
+    public func Send(_ message: [UInt8]) throws {
         if message.count < 9 {
             throw StatusException(Wire.CodeInvalidArgument, "short frame")
         }
@@ -946,14 +946,14 @@ final class Http2Transport: Transport {
         }
     }
 
-    func Recv() throws -> [UInt8] {
+    public func Recv() throws -> [UInt8] {
         guard let msg = queue.Take() else {
             throw EndOfStreamError()
         }
         return msg
     }
 
-    func Close() {
+    public func Close() {
         MarkClosed()
         _ = Glibc.shutdown(fd, Int32(SHUT_RDWR))
         Glibc.close(fd)

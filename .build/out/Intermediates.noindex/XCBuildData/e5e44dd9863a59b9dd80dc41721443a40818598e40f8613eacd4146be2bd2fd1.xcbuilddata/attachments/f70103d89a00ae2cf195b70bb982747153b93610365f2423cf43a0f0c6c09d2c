@@ -1,0 +1,199 @@
+{
+  "" : {
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Grpcdc-primary.dia",
+    "emit-module-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Grpcdc-primary-emit-module.d",
+    "emit-module-diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Grpcdc-primary-emit-module.dia",
+    "pch" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Grpcdc-primary-Bridging-header.pch",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Grpcdc-primary.swiftdeps"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/Channel.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Channel.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Channel.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Channel.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Channel.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Channel.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Channel.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Channel.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Channel~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/Codec.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Codec.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Codec.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Codec.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Codec.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Codec.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Codec.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Codec.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Codec~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/Dynamic.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Dynamic.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Dynamic.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Dynamic.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Dynamic.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Dynamic.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Dynamic.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Dynamic.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Dynamic~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/Endpoint.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Endpoint.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Endpoint.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Endpoint.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Endpoint.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Endpoint.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Endpoint.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Endpoint.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Endpoint~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/EventBusBroker.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventBusBroker.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventBusBroker.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventBusBroker.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventBusBroker.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventBusBroker.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventBusBroker.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventBusBroker.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventBusBroker~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/Eventbus.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Eventbus.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Eventbus.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Eventbus.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Eventbus.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Eventbus.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Eventbus.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Eventbus.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Eventbus~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/EventbusGit.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventbusGit.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventbusGit.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventbusGit.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventbusGit.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventbusGit.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventbusGit.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventbusGit.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventbusGit~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/EventsGrpcDc.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsGrpcDc.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsGrpcDc.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsGrpcDc.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsGrpcDc.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsGrpcDc.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsGrpcDc.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsGrpcDc.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsGrpcDc~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/EventsMessages.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsMessages.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsMessages.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsMessages.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsMessages.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsMessages.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsMessages.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsMessages.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/EventsMessages~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/Http2Transport.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Http2Transport.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Http2Transport.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Http2Transport.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Http2Transport.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Http2Transport.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Http2Transport.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Http2Transport.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Http2Transport~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/KafkaGrpcDc.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaGrpcDc.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaGrpcDc.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaGrpcDc.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaGrpcDc.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaGrpcDc.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaGrpcDc.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaGrpcDc.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaGrpcDc~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/KafkaMessages.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaMessages.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaMessages.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaMessages.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaMessages.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaMessages.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaMessages.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaMessages.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/KafkaMessages~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/LocalSubscription.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/LocalSubscription.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/LocalSubscription.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/LocalSubscription.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/LocalSubscription.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/LocalSubscription.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/LocalSubscription.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/LocalSubscription.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/LocalSubscription~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/MemoryTransport.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/MemoryTransport.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/MemoryTransport.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/MemoryTransport.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/MemoryTransport.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/MemoryTransport.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/MemoryTransport.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/MemoryTransport.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/MemoryTransport~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/Server.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Server.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Server.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Server.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Server.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Server.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Server.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Server.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Server~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/SidecarTransport.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/SidecarTransport.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/SidecarTransport.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/SidecarTransport.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/SidecarTransport.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/SidecarTransport.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/SidecarTransport.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/SidecarTransport.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/SidecarTransport~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/Status.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Status.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Status.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Status.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Status.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Status.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Status.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Status.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Status~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/Transport.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Transport.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Transport.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Transport.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Transport.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Transport.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Transport.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Transport.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Transport~partial.swiftmodule"
+  },
+  "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/swift/grpcdc/Wire.swift" : {
+    "const-values" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Wire.swiftconstvalues",
+    "dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Wire.d",
+    "diagnostics" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Wire.dia",
+    "index-unit-output-path" : "/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Wire.o",
+    "llvm-bc" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Wire.bc",
+    "object" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Wire.o",
+    "swift-dependencies" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Wire.swiftdeps",
+    "swiftmodule" : "/media/jdavis/DGX10_03/data/repo/devenv/grpc-over-datachannels/release/browser-grpc/.build/out/Intermediates.noindex/grpc-over-datachannels.build/Debug-linux-aarch64/Grpcdc-t.build/Objects-normal/aarch64/Wire~partial.swiftmodule"
+  }
+}

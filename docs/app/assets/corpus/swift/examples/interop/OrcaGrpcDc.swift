@@ -7,39 +7,39 @@ import Foundation
 #endif
 
 /// Generated gRPC-over-DataChannels stubs for xds/service/orca/v3/orca.proto.
-enum OrcaGrpcDc {
+public enum OrcaGrpcDc {
     /// Client for xds.service.orca.v3.OpenRcaService.
-    final class OpenRcaServiceClient {
+    public final class OpenRcaServiceClient {
         private let channel: Channel
 
-        init(_ channel: Channel) {
+        public init(_ channel: Channel) {
             self.channel = channel
         }
 
-        final class OpenRcaServiceStreamCoreMetricsStream {
+        public final class OpenRcaServiceStreamCoreMetricsStream {
             private let stream: Channel.ClientStream
-            init(_ stream: Channel.ClientStream) { self.stream = stream }
-            func Recv() throws -> OrcaLoadReport {
+            public init(_ stream: Channel.ClientStream) { self.stream = stream }
+            public func Recv() throws -> OrcaLoadReport {
                 let resp = OrcaLoadReport()
                 try stream.Recv(resp)
                 return resp
             }
             /// Initial metadata (response headers); nil until they arrive.
-            var Headers: [String: String]? { stream.headers?.metadata }
+            public var Headers: [String: String]? { stream.headers?.metadata }
             /// Trailing metadata of the terminal status; nil until it arrives.
-            var Trailers: [String: String]? { stream.trailers }
-            func Cancel() { stream.Cancel() }
-            func Close() { stream.Close() }
+            public var Trailers: [String: String]? { stream.trailers }
+            public func Cancel() { stream.Cancel() }
+            public func Close() { stream.Close() }
         }
 
-        func StreamCoreMetrics(_ req: OrcaLoadReportRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> OpenRcaServiceStreamCoreMetricsStream {
+        public func StreamCoreMetrics(_ req: OrcaLoadReportRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> OpenRcaServiceStreamCoreMetricsStream {
             return OpenRcaServiceStreamCoreMetricsStream(try channel.ServerStream("/xds.service.orca.v3.OpenRcaService/StreamCoreMetrics", req, metadata, timeout))
         }
 
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
-        func StreamCoreMetricsAsync(_ reqs: OrcaLoadReportRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<OrcaLoadReport, Error> {
+        public func StreamCoreMetricsAsync(_ reqs: OrcaLoadReportRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<OrcaLoadReport, Error> {
             let stream: OpenRcaServiceStreamCoreMetricsStream
             do {
                 stream = try StreamCoreMetrics(reqs, metadata, timeout)
@@ -71,19 +71,19 @@ enum OrcaGrpcDc {
     }
 
     /// Server-streaming sink passed to service implementations.
-    protocol OpenRcaServiceStreamCoreMetricsServer: AnyObject {
+    public protocol OpenRcaServiceStreamCoreMetricsServer: AnyObject {
         func Send(_ resp: OrcaLoadReport) throws
         var context: Endpoint.CallContext { get }
     }
 
     /// Service implementation interface for xds.service.orca.v3.OpenRcaService.
-    protocol OpenRcaServiceServer: AnyObject {
+    public protocol OpenRcaServiceServer: AnyObject {
         func StreamCoreMetrics(_ req: OrcaLoadReportRequest, _ stream: OpenRcaServiceStreamCoreMetricsServer) throws
     }
 
     #if canImport(Foundation)
     /// Async service implementation interface for xds.service.orca.v3.OpenRcaService.
-    protocol OpenRcaServiceServerAsync: AnyObject {
+    public protocol OpenRcaServiceServerAsync: AnyObject {
         func StreamCoreMetricsAsync(_ req: OrcaLoadReportRequest, _ stream: OpenRcaServiceStreamCoreMetricsServer) async throws
     }
 
@@ -112,7 +112,7 @@ enum OrcaGrpcDc {
     #endif
 
     /// Register an implementation of xds.service.orca.v3.OpenRcaService on a Server.
-    static func RegisterOpenRcaServiceServer(_ server: Server, _ impl: OpenRcaServiceServer) {
+    public static func RegisterOpenRcaServiceServer(_ server: Server, _ impl: OpenRcaServiceServer) {
         server.RegisterService(Server.ServiceDesc(name: "xds.service.orca.v3.OpenRcaService", methods: [
             Server.Method(name: "StreamCoreMetrics", path: "/xds.service.orca.v3.OpenRcaService/StreamCoreMetrics", kind: Server.KindServerStreaming) { ctx, reqs, sink in
                 let req = OrcaLoadReportRequest()
@@ -124,7 +124,7 @@ enum OrcaGrpcDc {
 
     #if canImport(Foundation)
     /// Register an async implementation of xds.service.orca.v3.OpenRcaService on a Server.
-    static func RegisterOpenRcaServiceServerAsync(_ server: Server, _ impl: OpenRcaServiceServerAsync) {
+    public static func RegisterOpenRcaServiceServerAsync(_ server: Server, _ impl: OpenRcaServiceServerAsync) {
         // Adapters are retained for the process lifetime: registration is
         // once-per-process and bounded by service count.
         OpenRcaServiceAdapters.append(OpenRcaServiceServerAsyncAdapter(impl))

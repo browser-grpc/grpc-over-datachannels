@@ -14,22 +14,22 @@
 
 import Foundation
 
-let gitAuthorName = "grpc-dc eventbus"
-let gitAuthorEmail = "eventbus@grpc-dc.local"
-let gitBlobPath = "event.pb"
-let gitCommitSubject = "grpc-dc event"
-let gitTrailerSeq = "Seq"
-let gitTrailerPublisher = "Publisher"
-let gitTrailerTag = "Tag"
-let zeroSha = "0000000000000000000000000000000000000000"
+public let gitAuthorName = "grpc-dc eventbus"
+public let gitAuthorEmail = "eventbus@grpc-dc.local"
+public let gitBlobPath = "event.pb"
+public let gitCommitSubject = "grpc-dc event"
+public let gitTrailerSeq = "Seq"
+public let gitTrailerPublisher = "Publisher"
+public let gitTrailerTag = "Tag"
+public let zeroSha = "0000000000000000000000000000000000000000"
 
-let eventLogBranch = "grpc-dc-events"
+public let eventLogBranch = "grpc-dc-events"
 
-enum EventbusGitError: Error {
+public enum EventbusGitError: Error {
     case gitFailed(String)
 }
 
-func git(_ repo: String, _ args: [String], _ inputBytes: [UInt8]? = nil,
+public func git(_ repo: String, _ args: [String], _ inputBytes: [UInt8]? = nil,
                 _ envExtra: [String: String]? = nil) throws -> [UInt8] {
     let proc = Process()
     proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -59,7 +59,7 @@ func git(_ repo: String, _ args: [String], _ inputBytes: [UInt8]? = nil,
     return [UInt8](out)
 }
 
-func gitText(_ repo: String, _ args: [String], _ inputBytes: [UInt8]? = nil,
+public func gitText(_ repo: String, _ args: [String], _ inputBytes: [UInt8]? = nil,
                     _ envExtra: [String: String]? = nil) throws -> String {
     let data = try git(repo, args, inputBytes, envExtra)
     return String(bytes: data, encoding: .utf8)!
@@ -67,7 +67,7 @@ func gitText(_ repo: String, _ args: [String], _ inputBytes: [UInt8]? = nil,
 }
 
 /// Create the log repo if needed (a plain `git init`).
-func initEventLogRepo(_ repo: String) throws {
+public func initEventLogRepo(_ repo: String) throws {
     do {
         _ = try gitText(repo, ["rev-parse", "--git-dir"])
     } catch {
@@ -84,13 +84,13 @@ func initEventLogRepo(_ repo: String) throws {
     }
 }
 
-func branchHead(_ repo: String, _ branch: String) -> String? {
+public func branchHead(_ repo: String, _ branch: String) -> String? {
     return try? gitText(repo, ["rev-parse", "--verify", "refs/heads/" + branch])
 }
 
 /// "grpc-dc event 42" plus Seq/Publisher/Tag trailers, so
 /// `git log` alone can filter the log without decoding blobs.
-func commitMessage(_ event: Event) -> String {
+public func commitMessage(_ event: Event) -> String {
     var lines = [
         gitCommitSubject + " " + String(event.seq),
         "",
@@ -105,7 +105,7 @@ func commitMessage(_ event: Event) -> String {
     return lines.joined(separator: "\n") + "\n"
 }
 
-func commitEnv(_ event: Event) -> [String: String] {
+public func commitEnv(_ event: Event) -> [String: String] {
     let seconds = max(0, event.timestampUnixMs / 1000)
     let date = String(seconds) + " +0000"
     return [
@@ -122,7 +122,7 @@ func commitEnv(_ event: Event) -> [String: String] {
 /// optionally windowed by sequence number and narrowed by a
 /// tag filter (same containment semantics as Subscribe). A
 /// missing branch imports as an empty log.
-func importEvents(_ repo: String, branch: String = eventLogBranch,
+public func importEvents(_ repo: String, branch: String = eventLogBranch,
                          fromSeq: UInt64 = 0, toSeq: UInt64? = nil,
                          filterTags: [TagValue]? = nil) throws -> [Event] {
     var events: [Event] = []
@@ -148,7 +148,7 @@ func importEvents(_ repo: String, branch: String = eventLogBranch,
 /// compare-and-swap: a concurrent exporter fails loudly
 /// instead of forking the log; retrying is safe.
 @discardableResult
-func exportEvents(_ repo: String, _ events: [Event],
+public func exportEvents(_ repo: String, _ events: [Event],
                          branch: String = eventLogBranch) throws -> String? {
     try initEventLogRepo(repo)
     var existing = Set<UInt64>()

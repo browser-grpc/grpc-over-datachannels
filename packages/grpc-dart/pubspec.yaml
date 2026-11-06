@@ -1,0 +1,9 @@
+name: grpc_dc
+version: 0.38.0
+description: "gRPC over WebRTC DataChannels for Dart and Flutter: dependency-free generated runtime, client and server, all four call shapes, no grpc package underneath."
+homepage: https://github.com/browser-grpc/grpc-over-datachannels
+repository: https://github.com/browser-grpc/grpc-over-datachannels
+issue_tracker: https://github.com/browser-grpc/grpc-over-datachannels/issues
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+dependencies:

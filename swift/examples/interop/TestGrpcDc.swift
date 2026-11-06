@@ -7,100 +7,100 @@ import Foundation
 #endif
 
 /// Generated gRPC-over-DataChannels stubs for grpc/testing/test.proto.
-enum TestGrpcDc {
+public enum TestGrpcDc {
     /// Client for grpc.testing.TestService.
-    final class TestServiceClient {
+    public final class TestServiceClient {
         private let channel: Channel
 
-        init(_ channel: Channel) {
+        public init(_ channel: Channel) {
             self.channel = channel
         }
 
-        final class TestServiceStreamingOutputCallStream {
+        public final class TestServiceStreamingOutputCallStream {
             private let stream: Channel.ClientStream
-            init(_ stream: Channel.ClientStream) { self.stream = stream }
-            func Recv() throws -> StreamingOutputCallResponse {
+            public init(_ stream: Channel.ClientStream) { self.stream = stream }
+            public func Recv() throws -> StreamingOutputCallResponse {
                 let resp = StreamingOutputCallResponse()
                 try stream.Recv(resp)
                 return resp
             }
             /// Initial metadata (response headers); nil until they arrive.
-            var Headers: [String: String]? { stream.headers?.metadata }
+            public var Headers: [String: String]? { stream.headers?.metadata }
             /// Trailing metadata of the terminal status; nil until it arrives.
-            var Trailers: [String: String]? { stream.trailers }
-            func Cancel() { stream.Cancel() }
-            func Close() { stream.Close() }
+            public var Trailers: [String: String]? { stream.trailers }
+            public func Cancel() { stream.Cancel() }
+            public func Close() { stream.Close() }
         }
 
-        final class TestServiceFullDuplexCallStream {
+        public final class TestServiceFullDuplexCallStream {
             private let stream: Channel.ClientStream
-            init(_ stream: Channel.ClientStream) { self.stream = stream }
-            func Recv() throws -> StreamingOutputCallResponse {
+            public init(_ stream: Channel.ClientStream) { self.stream = stream }
+            public func Recv() throws -> StreamingOutputCallResponse {
                 let resp = StreamingOutputCallResponse()
                 try stream.Recv(resp)
                 return resp
             }
             /// Initial metadata (response headers); nil until they arrive.
-            var Headers: [String: String]? { stream.headers?.metadata }
+            public var Headers: [String: String]? { stream.headers?.metadata }
             /// Trailing metadata of the terminal status; nil until it arrives.
-            var Trailers: [String: String]? { stream.trailers }
-            func Cancel() { stream.Cancel() }
-            func Close() { stream.Close() }
+            public var Trailers: [String: String]? { stream.trailers }
+            public func Cancel() { stream.Cancel() }
+            public func Close() { stream.Close() }
         }
 
-        final class TestServiceHalfDuplexCallStream {
+        public final class TestServiceHalfDuplexCallStream {
             private let stream: Channel.ClientStream
-            init(_ stream: Channel.ClientStream) { self.stream = stream }
-            func Recv() throws -> StreamingOutputCallResponse {
+            public init(_ stream: Channel.ClientStream) { self.stream = stream }
+            public func Recv() throws -> StreamingOutputCallResponse {
                 let resp = StreamingOutputCallResponse()
                 try stream.Recv(resp)
                 return resp
             }
             /// Initial metadata (response headers); nil until they arrive.
-            var Headers: [String: String]? { stream.headers?.metadata }
+            public var Headers: [String: String]? { stream.headers?.metadata }
             /// Trailing metadata of the terminal status; nil until it arrives.
-            var Trailers: [String: String]? { stream.trailers }
-            func Cancel() { stream.Cancel() }
-            func Close() { stream.Close() }
+            public var Trailers: [String: String]? { stream.trailers }
+            public func Cancel() { stream.Cancel() }
+            public func Close() { stream.Close() }
         }
 
-        func EmptyCall(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> Empty {
+        public func EmptyCall(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> Empty {
             let resp = Empty()
             try channel.Unary("/grpc.testing.TestService/EmptyCall", req, resp, metadata, timeout)
             return resp
         }
 
-        func UnaryCall(_ req: SimpleRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> SimpleResponse {
+        public func UnaryCall(_ req: SimpleRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> SimpleResponse {
             let resp = SimpleResponse()
             try channel.Unary("/grpc.testing.TestService/UnaryCall", req, resp, metadata, timeout)
             return resp
         }
 
-        func CacheableUnaryCall(_ req: SimpleRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> SimpleResponse {
+        public func CacheableUnaryCall(_ req: SimpleRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> SimpleResponse {
             let resp = SimpleResponse()
             try channel.Unary("/grpc.testing.TestService/CacheableUnaryCall", req, resp, metadata, timeout)
             return resp
         }
 
-        func StreamingOutputCall(_ req: StreamingOutputCallRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> TestServiceStreamingOutputCallStream {
+        public func StreamingOutputCall(_ req: StreamingOutputCallRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> TestServiceStreamingOutputCallStream {
             return TestServiceStreamingOutputCallStream(try channel.ServerStream("/grpc.testing.TestService/StreamingOutputCall", req, metadata, timeout))
         }
 
-        func StreamingInputCall(_ reqs: [StreamingInputCallRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> StreamingInputCallResponse {
+        public func StreamingInputCall(_ reqs: [StreamingInputCallRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> StreamingInputCallResponse {
             let resp = StreamingInputCallResponse()
             try channel.ClientStreamCall("/grpc.testing.TestService/StreamingInputCall", reqs, resp, metadata, timeout)
             return resp
         }
 
-        func FullDuplexCall(_ reqs: [StreamingOutputCallRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> TestServiceFullDuplexCallStream {
+        public func FullDuplexCall(_ reqs: [StreamingOutputCallRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> TestServiceFullDuplexCallStream {
             return TestServiceFullDuplexCallStream(try channel.Bidi("/grpc.testing.TestService/FullDuplexCall", reqs, metadata, timeout))
         }
 
-        func HalfDuplexCall(_ reqs: [StreamingOutputCallRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> TestServiceHalfDuplexCallStream {
+        public func HalfDuplexCall(_ reqs: [StreamingOutputCallRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> TestServiceHalfDuplexCallStream {
             return TestServiceHalfDuplexCallStream(try channel.Bidi("/grpc.testing.TestService/HalfDuplexCall", reqs, metadata, timeout))
         }
 
-        func UnimplementedCall(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> Empty {
+        public func UnimplementedCall(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> Empty {
             let resp = Empty()
             try channel.Unary("/grpc.testing.TestService/UnimplementedCall", req, resp, metadata, timeout)
             return resp
@@ -109,19 +109,19 @@ enum TestGrpcDc {
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
-        func EmptyCallAsync(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> Empty {
+        public func EmptyCallAsync(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> Empty {
             try await Task.detached { try self.EmptyCall(req, metadata, timeout) }.value
         }
 
-        func UnaryCallAsync(_ req: SimpleRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> SimpleResponse {
+        public func UnaryCallAsync(_ req: SimpleRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> SimpleResponse {
             try await Task.detached { try self.UnaryCall(req, metadata, timeout) }.value
         }
 
-        func CacheableUnaryCallAsync(_ req: SimpleRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> SimpleResponse {
+        public func CacheableUnaryCallAsync(_ req: SimpleRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> SimpleResponse {
             try await Task.detached { try self.CacheableUnaryCall(req, metadata, timeout) }.value
         }
 
-        func StreamingOutputCallAsync(_ reqs: StreamingOutputCallRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<StreamingOutputCallResponse, Error> {
+        public func StreamingOutputCallAsync(_ reqs: StreamingOutputCallRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<StreamingOutputCallResponse, Error> {
             let stream: TestServiceStreamingOutputCallStream
             do {
                 stream = try StreamingOutputCall(reqs, metadata, timeout)
@@ -149,11 +149,11 @@ enum TestGrpcDc {
             }
         }
 
-        func StreamingInputCallAsync(_ reqs: [StreamingInputCallRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> StreamingInputCallResponse {
+        public func StreamingInputCallAsync(_ reqs: [StreamingInputCallRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> StreamingInputCallResponse {
             try await Task.detached { try self.StreamingInputCall(reqs, metadata, timeout) }.value
         }
 
-        func FullDuplexCallAsync(_ reqs: [StreamingOutputCallRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<StreamingOutputCallResponse, Error> {
+        public func FullDuplexCallAsync(_ reqs: [StreamingOutputCallRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<StreamingOutputCallResponse, Error> {
             let stream: TestServiceFullDuplexCallStream
             do {
                 stream = try FullDuplexCall(reqs, metadata, timeout)
@@ -181,7 +181,7 @@ enum TestGrpcDc {
             }
         }
 
-        func HalfDuplexCallAsync(_ reqs: [StreamingOutputCallRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<StreamingOutputCallResponse, Error> {
+        public func HalfDuplexCallAsync(_ reqs: [StreamingOutputCallRequest], _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<StreamingOutputCallResponse, Error> {
             let stream: TestServiceHalfDuplexCallStream
             do {
                 stream = try HalfDuplexCall(reqs, metadata, timeout)
@@ -209,7 +209,7 @@ enum TestGrpcDc {
             }
         }
 
-        func UnimplementedCallAsync(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> Empty {
+        public func UnimplementedCallAsync(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> Empty {
             try await Task.detached { try self.UnimplementedCall(req, metadata, timeout) }.value
         }
 
@@ -217,34 +217,34 @@ enum TestGrpcDc {
     }
 
     /// Server-streaming sink passed to service implementations.
-    protocol TestServiceStreamingOutputCallServer: AnyObject {
+    public protocol TestServiceStreamingOutputCallServer: AnyObject {
         func Send(_ resp: StreamingOutputCallResponse) throws
         var context: Endpoint.CallContext { get }
     }
 
     /// Client-streaming stream passed to service implementations.
-    protocol TestServiceStreamingInputCallServer: AnyObject {
+    public protocol TestServiceStreamingInputCallServer: AnyObject {
         func Recv() throws -> StreamingInputCallRequest
         func SendAndClose(_ resp: StreamingInputCallResponse)
         var context: Endpoint.CallContext { get }
     }
 
     /// Bidi stream passed to service implementations.
-    protocol TestServiceFullDuplexCallServer: AnyObject {
+    public protocol TestServiceFullDuplexCallServer: AnyObject {
         func Send(_ resp: StreamingOutputCallResponse) throws
         func Recv() throws -> StreamingOutputCallRequest
         var context: Endpoint.CallContext { get }
     }
 
     /// Bidi stream passed to service implementations.
-    protocol TestServiceHalfDuplexCallServer: AnyObject {
+    public protocol TestServiceHalfDuplexCallServer: AnyObject {
         func Send(_ resp: StreamingOutputCallResponse) throws
         func Recv() throws -> StreamingOutputCallRequest
         var context: Endpoint.CallContext { get }
     }
 
     /// Service implementation interface for grpc.testing.TestService.
-    protocol TestServiceServer: AnyObject {
+    public protocol TestServiceServer: AnyObject {
         func EmptyCall(_ ctx: Endpoint.CallContext, _ req: Empty) throws -> Empty
         func UnaryCall(_ ctx: Endpoint.CallContext, _ req: SimpleRequest) throws -> SimpleResponse
         func CacheableUnaryCall(_ ctx: Endpoint.CallContext, _ req: SimpleRequest) throws -> SimpleResponse
@@ -257,7 +257,7 @@ enum TestGrpcDc {
 
     #if canImport(Foundation)
     /// Async service implementation interface for grpc.testing.TestService.
-    protocol TestServiceServerAsync: AnyObject {
+    public protocol TestServiceServerAsync: AnyObject {
         func EmptyCallAsync(_ ctx: Endpoint.CallContext, _ req: Empty) async throws -> Empty
         func UnaryCallAsync(_ ctx: Endpoint.CallContext, _ req: SimpleRequest) async throws -> SimpleResponse
         func CacheableUnaryCallAsync(_ ctx: Endpoint.CallContext, _ req: SimpleRequest) async throws -> SimpleResponse
@@ -367,7 +367,7 @@ enum TestGrpcDc {
     #endif
 
     /// Register an implementation of grpc.testing.TestService on a Server.
-    static func RegisterTestServiceServer(_ server: Server, _ impl: TestServiceServer) {
+    public static func RegisterTestServiceServer(_ server: Server, _ impl: TestServiceServer) {
         server.RegisterService(Server.ServiceDesc(name: "grpc.testing.TestService", methods: [
             Server.Method(name: "EmptyCall", path: "/grpc.testing.TestService/EmptyCall", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = Empty()
@@ -417,7 +417,7 @@ enum TestGrpcDc {
 
     #if canImport(Foundation)
     /// Register an async implementation of grpc.testing.TestService on a Server.
-    static func RegisterTestServiceServerAsync(_ server: Server, _ impl: TestServiceServerAsync) {
+    public static func RegisterTestServiceServerAsync(_ server: Server, _ impl: TestServiceServerAsync) {
         // Adapters are retained for the process lifetime: registration is
         // once-per-process and bounded by service count.
         TestServiceAdapters.append(TestServiceServerAsyncAdapter(impl))
@@ -427,14 +427,14 @@ enum TestGrpcDc {
     private static var TestServiceAdapters: [TestServiceServerAsyncAdapter] = []
     #endif
     /// Client for grpc.testing.UnimplementedService.
-    final class UnimplementedServiceClient {
+    public final class UnimplementedServiceClient {
         private let channel: Channel
 
-        init(_ channel: Channel) {
+        public init(_ channel: Channel) {
             self.channel = channel
         }
 
-        func UnimplementedCall(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> Empty {
+        public func UnimplementedCall(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> Empty {
             let resp = Empty()
             try channel.Unary("/grpc.testing.UnimplementedService/UnimplementedCall", req, resp, metadata, timeout)
             return resp
@@ -443,7 +443,7 @@ enum TestGrpcDc {
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
-        func UnimplementedCallAsync(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> Empty {
+        public func UnimplementedCallAsync(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> Empty {
             try await Task.detached { try self.UnimplementedCall(req, metadata, timeout) }.value
         }
 
@@ -451,13 +451,13 @@ enum TestGrpcDc {
     }
 
     /// Service implementation interface for grpc.testing.UnimplementedService.
-    protocol UnimplementedServiceServer: AnyObject {
+    public protocol UnimplementedServiceServer: AnyObject {
         func UnimplementedCall(_ ctx: Endpoint.CallContext, _ req: Empty) throws -> Empty
     }
 
     #if canImport(Foundation)
     /// Async service implementation interface for grpc.testing.UnimplementedService.
-    protocol UnimplementedServiceServerAsync: AnyObject {
+    public protocol UnimplementedServiceServerAsync: AnyObject {
         func UnimplementedCallAsync(_ ctx: Endpoint.CallContext, _ req: Empty) async throws -> Empty
     }
 
@@ -475,7 +475,7 @@ enum TestGrpcDc {
     #endif
 
     /// Register an implementation of grpc.testing.UnimplementedService on a Server.
-    static func RegisterUnimplementedServiceServer(_ server: Server, _ impl: UnimplementedServiceServer) {
+    public static func RegisterUnimplementedServiceServer(_ server: Server, _ impl: UnimplementedServiceServer) {
         server.RegisterService(Server.ServiceDesc(name: "grpc.testing.UnimplementedService", methods: [
             Server.Method(name: "UnimplementedCall", path: "/grpc.testing.UnimplementedService/UnimplementedCall", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = Empty()
@@ -488,7 +488,7 @@ enum TestGrpcDc {
 
     #if canImport(Foundation)
     /// Register an async implementation of grpc.testing.UnimplementedService on a Server.
-    static func RegisterUnimplementedServiceServerAsync(_ server: Server, _ impl: UnimplementedServiceServerAsync) {
+    public static func RegisterUnimplementedServiceServerAsync(_ server: Server, _ impl: UnimplementedServiceServerAsync) {
         // Adapters are retained for the process lifetime: registration is
         // once-per-process and bounded by service count.
         UnimplementedServiceAdapters.append(UnimplementedServiceServerAsyncAdapter(impl))
@@ -498,20 +498,20 @@ enum TestGrpcDc {
     private static var UnimplementedServiceAdapters: [UnimplementedServiceServerAsyncAdapter] = []
     #endif
     /// Client for grpc.testing.ReconnectService.
-    final class ReconnectServiceClient {
+    public final class ReconnectServiceClient {
         private let channel: Channel
 
-        init(_ channel: Channel) {
+        public init(_ channel: Channel) {
             self.channel = channel
         }
 
-        func Start(_ req: ReconnectParams, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> Empty {
+        public func Start(_ req: ReconnectParams, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> Empty {
             let resp = Empty()
             try channel.Unary("/grpc.testing.ReconnectService/Start", req, resp, metadata, timeout)
             return resp
         }
 
-        func Stop(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ReconnectInfo {
+        public func Stop(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ReconnectInfo {
             let resp = ReconnectInfo()
             try channel.Unary("/grpc.testing.ReconnectService/Stop", req, resp, metadata, timeout)
             return resp
@@ -520,11 +520,11 @@ enum TestGrpcDc {
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
-        func StartAsync(_ req: ReconnectParams, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> Empty {
+        public func StartAsync(_ req: ReconnectParams, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> Empty {
             try await Task.detached { try self.Start(req, metadata, timeout) }.value
         }
 
-        func StopAsync(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ReconnectInfo {
+        public func StopAsync(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ReconnectInfo {
             try await Task.detached { try self.Stop(req, metadata, timeout) }.value
         }
 
@@ -532,14 +532,14 @@ enum TestGrpcDc {
     }
 
     /// Service implementation interface for grpc.testing.ReconnectService.
-    protocol ReconnectServiceServer: AnyObject {
+    public protocol ReconnectServiceServer: AnyObject {
         func Start(_ ctx: Endpoint.CallContext, _ req: ReconnectParams) throws -> Empty
         func Stop(_ ctx: Endpoint.CallContext, _ req: Empty) throws -> ReconnectInfo
     }
 
     #if canImport(Foundation)
     /// Async service implementation interface for grpc.testing.ReconnectService.
-    protocol ReconnectServiceServerAsync: AnyObject {
+    public protocol ReconnectServiceServerAsync: AnyObject {
         func StartAsync(_ ctx: Endpoint.CallContext, _ req: ReconnectParams) async throws -> Empty
         func StopAsync(_ ctx: Endpoint.CallContext, _ req: Empty) async throws -> ReconnectInfo
     }
@@ -561,7 +561,7 @@ enum TestGrpcDc {
     #endif
 
     /// Register an implementation of grpc.testing.ReconnectService on a Server.
-    static func RegisterReconnectServiceServer(_ server: Server, _ impl: ReconnectServiceServer) {
+    public static func RegisterReconnectServiceServer(_ server: Server, _ impl: ReconnectServiceServer) {
         server.RegisterService(Server.ServiceDesc(name: "grpc.testing.ReconnectService", methods: [
             Server.Method(name: "Start", path: "/grpc.testing.ReconnectService/Start", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = ReconnectParams()
@@ -580,7 +580,7 @@ enum TestGrpcDc {
 
     #if canImport(Foundation)
     /// Register an async implementation of grpc.testing.ReconnectService on a Server.
-    static func RegisterReconnectServiceServerAsync(_ server: Server, _ impl: ReconnectServiceServerAsync) {
+    public static func RegisterReconnectServiceServerAsync(_ server: Server, _ impl: ReconnectServiceServerAsync) {
         // Adapters are retained for the process lifetime: registration is
         // once-per-process and bounded by service count.
         ReconnectServiceAdapters.append(ReconnectServiceServerAsyncAdapter(impl))
@@ -590,20 +590,20 @@ enum TestGrpcDc {
     private static var ReconnectServiceAdapters: [ReconnectServiceServerAsyncAdapter] = []
     #endif
     /// Client for grpc.testing.LoadBalancerStatsService.
-    final class LoadBalancerStatsServiceClient {
+    public final class LoadBalancerStatsServiceClient {
         private let channel: Channel
 
-        init(_ channel: Channel) {
+        public init(_ channel: Channel) {
             self.channel = channel
         }
 
-        func GetClientStats(_ req: LoadBalancerStatsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> LoadBalancerStatsResponse {
+        public func GetClientStats(_ req: LoadBalancerStatsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> LoadBalancerStatsResponse {
             let resp = LoadBalancerStatsResponse()
             try channel.Unary("/grpc.testing.LoadBalancerStatsService/GetClientStats", req, resp, metadata, timeout)
             return resp
         }
 
-        func GetClientAccumulatedStats(_ req: LoadBalancerAccumulatedStatsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> LoadBalancerAccumulatedStatsResponse {
+        public func GetClientAccumulatedStats(_ req: LoadBalancerAccumulatedStatsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> LoadBalancerAccumulatedStatsResponse {
             let resp = LoadBalancerAccumulatedStatsResponse()
             try channel.Unary("/grpc.testing.LoadBalancerStatsService/GetClientAccumulatedStats", req, resp, metadata, timeout)
             return resp
@@ -612,11 +612,11 @@ enum TestGrpcDc {
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
-        func GetClientStatsAsync(_ req: LoadBalancerStatsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> LoadBalancerStatsResponse {
+        public func GetClientStatsAsync(_ req: LoadBalancerStatsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> LoadBalancerStatsResponse {
             try await Task.detached { try self.GetClientStats(req, metadata, timeout) }.value
         }
 
-        func GetClientAccumulatedStatsAsync(_ req: LoadBalancerAccumulatedStatsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> LoadBalancerAccumulatedStatsResponse {
+        public func GetClientAccumulatedStatsAsync(_ req: LoadBalancerAccumulatedStatsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> LoadBalancerAccumulatedStatsResponse {
             try await Task.detached { try self.GetClientAccumulatedStats(req, metadata, timeout) }.value
         }
 
@@ -624,14 +624,14 @@ enum TestGrpcDc {
     }
 
     /// Service implementation interface for grpc.testing.LoadBalancerStatsService.
-    protocol LoadBalancerStatsServiceServer: AnyObject {
+    public protocol LoadBalancerStatsServiceServer: AnyObject {
         func GetClientStats(_ ctx: Endpoint.CallContext, _ req: LoadBalancerStatsRequest) throws -> LoadBalancerStatsResponse
         func GetClientAccumulatedStats(_ ctx: Endpoint.CallContext, _ req: LoadBalancerAccumulatedStatsRequest) throws -> LoadBalancerAccumulatedStatsResponse
     }
 
     #if canImport(Foundation)
     /// Async service implementation interface for grpc.testing.LoadBalancerStatsService.
-    protocol LoadBalancerStatsServiceServerAsync: AnyObject {
+    public protocol LoadBalancerStatsServiceServerAsync: AnyObject {
         func GetClientStatsAsync(_ ctx: Endpoint.CallContext, _ req: LoadBalancerStatsRequest) async throws -> LoadBalancerStatsResponse
         func GetClientAccumulatedStatsAsync(_ ctx: Endpoint.CallContext, _ req: LoadBalancerAccumulatedStatsRequest) async throws -> LoadBalancerAccumulatedStatsResponse
     }
@@ -653,7 +653,7 @@ enum TestGrpcDc {
     #endif
 
     /// Register an implementation of grpc.testing.LoadBalancerStatsService on a Server.
-    static func RegisterLoadBalancerStatsServiceServer(_ server: Server, _ impl: LoadBalancerStatsServiceServer) {
+    public static func RegisterLoadBalancerStatsServiceServer(_ server: Server, _ impl: LoadBalancerStatsServiceServer) {
         server.RegisterService(Server.ServiceDesc(name: "grpc.testing.LoadBalancerStatsService", methods: [
             Server.Method(name: "GetClientStats", path: "/grpc.testing.LoadBalancerStatsService/GetClientStats", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = LoadBalancerStatsRequest()
@@ -672,7 +672,7 @@ enum TestGrpcDc {
 
     #if canImport(Foundation)
     /// Register an async implementation of grpc.testing.LoadBalancerStatsService on a Server.
-    static func RegisterLoadBalancerStatsServiceServerAsync(_ server: Server, _ impl: LoadBalancerStatsServiceServerAsync) {
+    public static func RegisterLoadBalancerStatsServiceServerAsync(_ server: Server, _ impl: LoadBalancerStatsServiceServerAsync) {
         // Adapters are retained for the process lifetime: registration is
         // once-per-process and bounded by service count.
         LoadBalancerStatsServiceAdapters.append(LoadBalancerStatsServiceServerAsyncAdapter(impl))
@@ -682,20 +682,20 @@ enum TestGrpcDc {
     private static var LoadBalancerStatsServiceAdapters: [LoadBalancerStatsServiceServerAsyncAdapter] = []
     #endif
     /// Client for grpc.testing.XdsUpdateHealthService.
-    final class XdsUpdateHealthServiceClient {
+    public final class XdsUpdateHealthServiceClient {
         private let channel: Channel
 
-        init(_ channel: Channel) {
+        public init(_ channel: Channel) {
             self.channel = channel
         }
 
-        func SetServing(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> Empty {
+        public func SetServing(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> Empty {
             let resp = Empty()
             try channel.Unary("/grpc.testing.XdsUpdateHealthService/SetServing", req, resp, metadata, timeout)
             return resp
         }
 
-        func SetNotServing(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> Empty {
+        public func SetNotServing(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> Empty {
             let resp = Empty()
             try channel.Unary("/grpc.testing.XdsUpdateHealthService/SetNotServing", req, resp, metadata, timeout)
             return resp
@@ -704,11 +704,11 @@ enum TestGrpcDc {
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
-        func SetServingAsync(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> Empty {
+        public func SetServingAsync(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> Empty {
             try await Task.detached { try self.SetServing(req, metadata, timeout) }.value
         }
 
-        func SetNotServingAsync(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> Empty {
+        public func SetNotServingAsync(_ req: Empty, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> Empty {
             try await Task.detached { try self.SetNotServing(req, metadata, timeout) }.value
         }
 
@@ -716,14 +716,14 @@ enum TestGrpcDc {
     }
 
     /// Service implementation interface for grpc.testing.XdsUpdateHealthService.
-    protocol XdsUpdateHealthServiceServer: AnyObject {
+    public protocol XdsUpdateHealthServiceServer: AnyObject {
         func SetServing(_ ctx: Endpoint.CallContext, _ req: Empty) throws -> Empty
         func SetNotServing(_ ctx: Endpoint.CallContext, _ req: Empty) throws -> Empty
     }
 
     #if canImport(Foundation)
     /// Async service implementation interface for grpc.testing.XdsUpdateHealthService.
-    protocol XdsUpdateHealthServiceServerAsync: AnyObject {
+    public protocol XdsUpdateHealthServiceServerAsync: AnyObject {
         func SetServingAsync(_ ctx: Endpoint.CallContext, _ req: Empty) async throws -> Empty
         func SetNotServingAsync(_ ctx: Endpoint.CallContext, _ req: Empty) async throws -> Empty
     }
@@ -745,7 +745,7 @@ enum TestGrpcDc {
     #endif
 
     /// Register an implementation of grpc.testing.XdsUpdateHealthService on a Server.
-    static func RegisterXdsUpdateHealthServiceServer(_ server: Server, _ impl: XdsUpdateHealthServiceServer) {
+    public static func RegisterXdsUpdateHealthServiceServer(_ server: Server, _ impl: XdsUpdateHealthServiceServer) {
         server.RegisterService(Server.ServiceDesc(name: "grpc.testing.XdsUpdateHealthService", methods: [
             Server.Method(name: "SetServing", path: "/grpc.testing.XdsUpdateHealthService/SetServing", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = Empty()
@@ -764,7 +764,7 @@ enum TestGrpcDc {
 
     #if canImport(Foundation)
     /// Register an async implementation of grpc.testing.XdsUpdateHealthService on a Server.
-    static func RegisterXdsUpdateHealthServiceServerAsync(_ server: Server, _ impl: XdsUpdateHealthServiceServerAsync) {
+    public static func RegisterXdsUpdateHealthServiceServerAsync(_ server: Server, _ impl: XdsUpdateHealthServiceServerAsync) {
         // Adapters are retained for the process lifetime: registration is
         // once-per-process and bounded by service count.
         XdsUpdateHealthServiceAdapters.append(XdsUpdateHealthServiceServerAsyncAdapter(impl))
@@ -774,14 +774,14 @@ enum TestGrpcDc {
     private static var XdsUpdateHealthServiceAdapters: [XdsUpdateHealthServiceServerAsyncAdapter] = []
     #endif
     /// Client for grpc.testing.XdsUpdateClientConfigureService.
-    final class XdsUpdateClientConfigureServiceClient {
+    public final class XdsUpdateClientConfigureServiceClient {
         private let channel: Channel
 
-        init(_ channel: Channel) {
+        public init(_ channel: Channel) {
             self.channel = channel
         }
 
-        func Configure(_ req: ClientConfigureRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ClientConfigureResponse {
+        public func Configure(_ req: ClientConfigureRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ClientConfigureResponse {
             let resp = ClientConfigureResponse()
             try channel.Unary("/grpc.testing.XdsUpdateClientConfigureService/Configure", req, resp, metadata, timeout)
             return resp
@@ -790,7 +790,7 @@ enum TestGrpcDc {
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
-        func ConfigureAsync(_ req: ClientConfigureRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ClientConfigureResponse {
+        public func ConfigureAsync(_ req: ClientConfigureRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ClientConfigureResponse {
             try await Task.detached { try self.Configure(req, metadata, timeout) }.value
         }
 
@@ -798,13 +798,13 @@ enum TestGrpcDc {
     }
 
     /// Service implementation interface for grpc.testing.XdsUpdateClientConfigureService.
-    protocol XdsUpdateClientConfigureServiceServer: AnyObject {
+    public protocol XdsUpdateClientConfigureServiceServer: AnyObject {
         func Configure(_ ctx: Endpoint.CallContext, _ req: ClientConfigureRequest) throws -> ClientConfigureResponse
     }
 
     #if canImport(Foundation)
     /// Async service implementation interface for grpc.testing.XdsUpdateClientConfigureService.
-    protocol XdsUpdateClientConfigureServiceServerAsync: AnyObject {
+    public protocol XdsUpdateClientConfigureServiceServerAsync: AnyObject {
         func ConfigureAsync(_ ctx: Endpoint.CallContext, _ req: ClientConfigureRequest) async throws -> ClientConfigureResponse
     }
 
@@ -822,7 +822,7 @@ enum TestGrpcDc {
     #endif
 
     /// Register an implementation of grpc.testing.XdsUpdateClientConfigureService on a Server.
-    static func RegisterXdsUpdateClientConfigureServiceServer(_ server: Server, _ impl: XdsUpdateClientConfigureServiceServer) {
+    public static func RegisterXdsUpdateClientConfigureServiceServer(_ server: Server, _ impl: XdsUpdateClientConfigureServiceServer) {
         server.RegisterService(Server.ServiceDesc(name: "grpc.testing.XdsUpdateClientConfigureService", methods: [
             Server.Method(name: "Configure", path: "/grpc.testing.XdsUpdateClientConfigureService/Configure", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = ClientConfigureRequest()
@@ -835,7 +835,7 @@ enum TestGrpcDc {
 
     #if canImport(Foundation)
     /// Register an async implementation of grpc.testing.XdsUpdateClientConfigureService on a Server.
-    static func RegisterXdsUpdateClientConfigureServiceServerAsync(_ server: Server, _ impl: XdsUpdateClientConfigureServiceServerAsync) {
+    public static func RegisterXdsUpdateClientConfigureServiceServerAsync(_ server: Server, _ impl: XdsUpdateClientConfigureServiceServerAsync) {
         // Adapters are retained for the process lifetime: registration is
         // once-per-process and bounded by service count.
         XdsUpdateClientConfigureServiceAdapters.append(XdsUpdateClientConfigureServiceServerAsyncAdapter(impl))

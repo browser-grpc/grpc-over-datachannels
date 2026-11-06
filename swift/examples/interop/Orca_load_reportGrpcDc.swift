@@ -7,5 +7,5 @@ import Foundation
 #endif
 
 /// Generated gRPC-over-DataChannels stubs for xds/data/orca/v3/orca_load_report.proto.
-enum Orca_load_reportGrpcDc {
+public enum Orca_load_reportGrpcDc {
 }

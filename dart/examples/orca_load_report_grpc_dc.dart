@@ -8,7 +8,6 @@ import '../grpcdc/channel.dart';
 import '../grpcdc/endpoint.dart';
 import '../grpcdc/server.dart';
 import '../grpcdc/status.dart';
-import '../grpcdc/wire.dart';
 
 /// Generated gRPC-over-DataChannels stubs for xds/data/orca/v3/orca_load_report.proto.
 class Orca_load_reportGrpcDc {

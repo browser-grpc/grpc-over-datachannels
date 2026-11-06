@@ -3,8 +3,89 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.37.1 — 2026-11-03
+## v0.38.0 — 2026-11-05
 
+Registry channels: every prior channel moves to 0.38.0, and
+the three channels first published at 0.37.1 on 2026-11-05
+now publish through release automation at this version —
+pub.dev (`grpc_dc`, `kafka_grpc`), crates.io (`grpc-dc`,
+`kafka-grpc`), and RubyGems.org (`grpc-dc`, `kafka-grpc`) —
+each via its registry's OIDC trusted publishing from the
+generated workflows in this repo (no stored tokens). The
+public repository is also a SwiftPM package (`Package.swift`,
+library product `GrpcDc`, module `Grpcdc`; listing on the
+Swift Package Index is filed with this release).
+
+- Swift: the generators never emitted access modifiers (the
+  runtime was built for single-module compilation), so a
+  brace-tracking `publicize-swift` transform in the shared
+  generator code now publicizes the API across the runtime,
+  protoc stubs, event bus, and HTTP/2 transport. Private
+  helpers, protocol requirements, explicit `internal` types,
+  and multi-line-signature bodies are left alone.
+- Dart: the runtime gains a `dart:js_interop` `WebTransport`
+  over an `RTCDataChannel` bridge (Flutter/Dart web client
+  and server); the browser Dart examples share it instead of
+  carrying local copies. Dart stubs now emit the `wire.dart`
+  import only when the stub body uses `Wire.`.
+- Rust: the crates.io `kafka-grpc` crate now actually
+  compiles standalone (its lib re-exports the messages as
+  `crate::pb` and ships the `grpc_dc::Message` adapter
+  module).
+- Release machinery: independent publish-npm steps, the Lua
+  CI image retries the lua.org download with an apt fallback,
+  the C# Kafka consumer test moved to its own directory
+  (shared `obj/` collision), and `release-push.sh` now
+  dispatches all registry workflows including the three new
+  OIDC ones.
+
+## v0.37.1 — 2026-11-03 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven; Dart packages added on pub.dev, Rust crates on crates.io, Ruby gems on RubyGems.org, SwiftPM package 2026-11-05)
+
+- SwiftPM / Swift Package Index (new channel, same
+  version): the public repository is now a Swift package
+  (`Package.swift` at the export root, library product
+  `GrpcDc`, module `Grpcdc`). The Swift generators never
+  emitted access modifiers (the runtime was built for
+  single-module compilation), so a brace-tracking
+  `publicize-swift` transform in the shared generator code
+  now publicizes the API across the runtime, stubs, event
+  bus, and HTTP/2 transport; private helpers and protocol
+  requirements are left alone. SPI listing is filed against
+  the public repo once this export is pushed.
+- Ruby gems on RubyGems.org (new channel, same version):
+  `grpc-dc` (the stdlib-only Ruby runtime; kafka stubs split
+  out, same as everywhere) and `kafka-grpc`, generated into
+  `packages/grpc-ruby` and `packages/kafka-ruby`. Future
+  releases publish via the generated `publish-rubygems`
+  GitHub Actions workflow (RubyGems Trusted Publishing,
+  OIDC). The GitHub Packages mirror builds the same canonical
+  gemspec now.
+- Rust crates on crates.io (new channel, same version):
+  `grpc-dc` (the Rust runtime; the crates.io build drops the
+  `webrtc` feature, whose `dc-webrtc` dependency is an in-repo
+  path dependency — path users keep it) and `kafka-grpc`
+  (generated `grpcdc.kafka.v1` stubs depending on `grpc-dc`).
+  Both are generated into `packages/grpc-rust` and
+  `packages/kafka-rust`; the kafka crate now actually compiles
+  standalone (its lib re-exports the messages as `crate::pb`
+  and ships the `grpc_dc::Message` adapter module). Future
+  releases publish via the generated `publish-crates` GitHub
+  Actions workflow (crates.io Trusted Publishing, OIDC).
+- Dart/Flutter packages on pub.dev (new channel, same
+  version): `grpc_dc` (the dependency-free Dart runtime —
+  platform-neutral core for Flutter native + web, `dart:io`
+  transports on the VM, and a `dart:js_interop` WebTransport
+  over an RTCDataChannel bridge for the web) and `kafka_grpc`
+  (the generated `grpcdc.kafka.v1` stubs, depending on
+  `grpc_dc`; the kafka stubs no longer ship inside `grpc_dc`,
+  same split as the NuGet fix below). Both are generated into
+  `packages/grpc-dart` and `packages/kafka-dart` by the release
+  generator; future releases publish via the generated
+  `publish-pubdev` GitHub Actions workflow (pub.dev automated
+  publishing, OIDC). The Dart stub generator now only emits
+  the `wire.dart` import when a stub body uses `Wire.`, and
+  the browser Dart examples share the packaged `WebTransport`
+  instead of carrying local copies.
 - C# packaging fix (found by a consumer compile check after
   v0.37.0): the `grpcdc.kafka.v1` stub types were compiled into
   both the `GrpcDc` and `KafkaGrpc` assemblies, so any C#

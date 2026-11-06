@@ -14,5 +14,6 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <ProjectReference Include="../Consumer.csproj" />
+    <ProjectReference Include="../Kafka/KafkaConsumer.csproj" />
   </ItemGroup>
 </Project>

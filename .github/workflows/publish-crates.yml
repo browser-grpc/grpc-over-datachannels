@@ -1,0 +1,29 @@
+# Publish the grpc-dc and kafka-grpc crates via crates.io
+# Trusted Publishing (OIDC). Manual dispatch only.
+# Requires Trusted Publishing configured for both crates
+# on crates.io (this repo + this workflow file).
+name: publish-crates
+on: workflow_dispatch
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: Publish grpc-dc
+        working-directory: packages/grpc-rust
+        run: cargo publish --token ${{ steps.auth.outputs.token }}
+      - name: Publish kafka-grpc (retry while the index catches up)
+        if: "!cancelled()"
+        working-directory: packages/kafka-rust
+        run: |
+          for i in $(seq 1 20); do
+            cargo publish --token ${{ steps.auth.outputs.token }} && exit 0
+            sleep 30
+          done
+          echo 'kafka-grpc publish did not succeed' >&2; exit 1

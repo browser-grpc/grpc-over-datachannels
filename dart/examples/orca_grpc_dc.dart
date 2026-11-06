@@ -8,7 +8,6 @@ import '../grpcdc/channel.dart';
 import '../grpcdc/endpoint.dart';
 import '../grpcdc/server.dart';
 import '../grpcdc/status.dart';
-import '../grpcdc/wire.dart';
 import 'orca_messages.dart';
 import 'orca_load_report_messages.dart';
 

@@ -7,22 +7,22 @@ import Foundation
 /// Lock shim: NSLock where Foundation exists (native), a no-op
 /// on Embedded Swift (wasm32, single-threaded by construction).
 #if canImport(Foundation)
-typealias GrpcLock = NSLock
+public typealias GrpcLock = NSLock
 #else
-final class GrpcLock {
-    func lock() {}
-    func unlock() {}
+public final class GrpcLock {
+    public func lock() {}
+    public func unlock() {}
 }
 
 @_extern(c, "js_now_ms")
-func grpcdcJsNowMs() -> Double
+public func grpcdcJsNowMs() -> Double
 #endif
 
 /// Monotonic clock seam (milliseconds). Native builds use the
 /// wall clock via Foundation (as before); Embedded Swift uses
 /// the host's js_now_ms import (performance.now in the worker).
-enum GrpcTime {
-    static func NowMs() -> Double {
+public enum GrpcTime {
+    public static func NowMs() -> Double {
         #if canImport(Foundation)
         return Date().timeIntervalSince1970 * 1000.0
         #else
@@ -34,7 +34,7 @@ enum GrpcTime {
 /// Carries whole DataChannel messages: one Send/Recv is one message,
 /// boundaries preserved, ordered and reliable — the contract an
 /// RTCDataChannel (or the loopback pair) offers.
-protocol Transport: AnyObject {
+public protocol Transport: AnyObject {
     func Send(_ data: [UInt8]) throws
     /// Next message; throws EndOfStreamError when closed.
     func Recv() throws -> [UInt8]
@@ -50,36 +50,36 @@ protocol Transport: AnyObject {
 }
 
 /// Result of a Transport.TryRecv call.
-enum TryRecvResult {
+public enum TryRecvResult {
     case message([UInt8])
     case wouldBlock
     case closed
 }
 
 extension Transport {
-    func Close() {}
-    var HasTryRecv: Bool { false }
-    func TryRecv() -> TryRecvResult { .wouldBlock }
+    public func Close() {}
+    public var HasTryRecv: Bool { false }
+    public func TryRecv() -> TryRecvResult { .wouldBlock }
 }
 
 /// Implemented by hand-written protobuf message types.
-protocol Marshaler {
+public protocol Marshaler {
     func MarshalDc() -> [UInt8]
 }
 
 /// Implemented by hand-written protobuf message types.
-protocol Unmarshaler {
+public protocol Unmarshaler {
     func UnmarshalDc(_ data: [UInt8])
 }
 
 #if canImport(Foundation)
 /// Thread-safe blocking queue (Foundation only).
-final class BlockingQueue<T> {
+public final class BlockingQueue<T> {
     private let cond = NSCondition()
     private var items: [T] = []
     private var closed = false
 
-    func Add(_ item: T) {
+    public func Add(_ item: T) {
         cond.lock()
         items.append(item)
         cond.signal()
@@ -87,20 +87,20 @@ final class BlockingQueue<T> {
     }
 
     /// Non-blocking take: next item, or nil when empty.
-    func TryTake() -> T? {
+    public func TryTake() -> T? {
         cond.lock()
         defer { cond.unlock() }
         return items.isEmpty ? nil : items.removeFirst()
     }
 
-    func IsClosed() -> Bool {
+    public func IsClosed() -> Bool {
         cond.lock()
         defer { cond.unlock() }
         return closed
     }
 
     /// Next item, or nil once closed and drained.
-    func Take() -> T? {
+    public func Take() -> T? {
         cond.lock()
         while items.isEmpty && !closed {
             cond.wait()
@@ -111,7 +111,7 @@ final class BlockingQueue<T> {
     }
 
     /// Timed take: timedOut is true when the deadline passed empty.
-    func Take(until deadline: Date) -> (item: T?, timedOut: Bool) {
+    public func Take(until deadline: Date) -> (item: T?, timedOut: Bool) {
         cond.lock()
         while items.isEmpty && !closed {
             if !cond.wait(until: deadline) {
@@ -127,7 +127,7 @@ final class BlockingQueue<T> {
         return (item, false)
     }
 
-    func Close() {
+    public func Close() {
         cond.lock()
         closed = true
         cond.broadcast()
@@ -138,34 +138,34 @@ final class BlockingQueue<T> {
 /// Single-threaded queue for Embedded Swift (no NSCondition):
 /// Take is non-blocking; waiters use TryTake plus the endpoint
 /// pump (inline mode), never a blocking wait.
-final class BlockingQueue<T> {
+public final class BlockingQueue<T> {
     private var items: [T] = []
     private var closedFlag = false
 
-    func Add(_ item: T) {
+    public func Add(_ item: T) {
         items.append(item)
     }
 
-    func TryTake() -> T? {
+    public func TryTake() -> T? {
         items.isEmpty ? nil : items.removeFirst()
     }
 
-    func IsClosed() -> Bool { closedFlag }
+    public func IsClosed() -> Bool { closedFlag }
 
     /// Next item, or nil once closed and drained (non-blocking
     /// in this build; see the type doc).
-    func Take() -> T? {
+    public func Take() -> T? {
         if let item = TryTake() { return item }
         return nil
     }
 
     /// Non-blocking timed take: expiry is immediate emptiness.
-    func Take(until deadlineMs: Double) -> (item: T?, timedOut: Bool) {
+    public func Take(until deadlineMs: Double) -> (item: T?, timedOut: Bool) {
         if let item = TryTake() { return (item, false) }
         return (nil, !closedFlag)
     }
 
-    func Close() {
+    public func Close() {
         closedFlag = true
     }
 }

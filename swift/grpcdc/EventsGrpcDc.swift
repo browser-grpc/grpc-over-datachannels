@@ -7,49 +7,49 @@ import Foundation
 #endif
 
 /// Generated gRPC-over-DataChannels stubs for events.proto.
-enum EventsGrpcDc {
+public enum EventsGrpcDc {
     /// Client for grpcdc.events.v1.EventBus.
-    final class EventBusClient {
+    public final class EventBusClient {
         private let channel: Channel
 
-        init(_ channel: Channel) {
+        public init(_ channel: Channel) {
             self.channel = channel
         }
 
-        final class EventBusSubscribeStream {
+        public final class EventBusSubscribeStream {
             private let stream: Channel.ClientStream
-            init(_ stream: Channel.ClientStream) { self.stream = stream }
-            func Recv() throws -> Event {
+            public init(_ stream: Channel.ClientStream) { self.stream = stream }
+            public func Recv() throws -> Event {
                 let resp = Event()
                 try stream.Recv(resp)
                 return resp
             }
             /// Initial metadata (response headers); nil until they arrive.
-            var Headers: [String: String]? { stream.headers?.metadata }
+            public var Headers: [String: String]? { stream.headers?.metadata }
             /// Trailing metadata of the terminal status; nil until it arrives.
-            var Trailers: [String: String]? { stream.trailers }
-            func Cancel() { stream.Cancel() }
-            func Close() { stream.Close() }
+            public var Trailers: [String: String]? { stream.trailers }
+            public func Cancel() { stream.Cancel() }
+            public func Close() { stream.Close() }
         }
 
-        func Publish(_ req: PublishRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> PublishReply {
+        public func Publish(_ req: PublishRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> PublishReply {
             let resp = PublishReply()
             try channel.Unary("/grpcdc.events.v1.EventBus/Publish", req, resp, metadata, timeout)
             return resp
         }
 
-        func Subscribe(_ req: SubscribeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EventBusSubscribeStream {
+        public func Subscribe(_ req: SubscribeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> EventBusSubscribeStream {
             return EventBusSubscribeStream(try channel.ServerStream("/grpcdc.events.v1.EventBus/Subscribe", req, metadata, timeout))
         }
 
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
-        func PublishAsync(_ req: PublishRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> PublishReply {
+        public func PublishAsync(_ req: PublishRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> PublishReply {
             try await Task.detached { try self.Publish(req, metadata, timeout) }.value
         }
 
-        func SubscribeAsync(_ reqs: SubscribeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<Event, Error> {
+        public func SubscribeAsync(_ reqs: SubscribeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) -> AsyncThrowingStream<Event, Error> {
             let stream: EventBusSubscribeStream
             do {
                 stream = try Subscribe(reqs, metadata, timeout)
@@ -81,20 +81,20 @@ enum EventsGrpcDc {
     }
 
     /// Server-streaming sink passed to service implementations.
-    protocol EventBusSubscribeServer: AnyObject {
+    public protocol EventBusSubscribeServer: AnyObject {
         func Send(_ resp: Event) throws
         var context: Endpoint.CallContext { get }
     }
 
     /// Service implementation interface for grpcdc.events.v1.EventBus.
-    protocol EventBusServer: AnyObject {
+    public protocol EventBusServer: AnyObject {
         func Publish(_ ctx: Endpoint.CallContext, _ req: PublishRequest) throws -> PublishReply
         func Subscribe(_ req: SubscribeRequest, _ stream: EventBusSubscribeServer) throws
     }
 
     #if canImport(Foundation)
     /// Async service implementation interface for grpcdc.events.v1.EventBus.
-    protocol EventBusServerAsync: AnyObject {
+    public protocol EventBusServerAsync: AnyObject {
         func PublishAsync(_ ctx: Endpoint.CallContext, _ req: PublishRequest) async throws -> PublishReply
         func SubscribeAsync(_ req: SubscribeRequest, _ stream: EventBusSubscribeServer) async throws
     }
@@ -127,7 +127,7 @@ enum EventsGrpcDc {
     #endif
 
     /// Register an implementation of grpcdc.events.v1.EventBus on a Server.
-    static func RegisterEventBusServer(_ server: Server, _ impl: EventBusServer) {
+    public static func RegisterEventBusServer(_ server: Server, _ impl: EventBusServer) {
         server.RegisterService(Server.ServiceDesc(name: "grpcdc.events.v1.EventBus", methods: [
             Server.Method(name: "Publish", path: "/grpcdc.events.v1.EventBus/Publish", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = PublishRequest()
@@ -145,7 +145,7 @@ enum EventsGrpcDc {
 
     #if canImport(Foundation)
     /// Register an async implementation of grpcdc.events.v1.EventBus on a Server.
-    static func RegisterEventBusServerAsync(_ server: Server, _ impl: EventBusServerAsync) {
+    public static func RegisterEventBusServerAsync(_ server: Server, _ impl: EventBusServerAsync) {
         // Adapters are retained for the process lifetime: registration is
         // once-per-process and bounded by service count.
         EventBusAdapters.append(EventBusServerAsyncAdapter(impl))
