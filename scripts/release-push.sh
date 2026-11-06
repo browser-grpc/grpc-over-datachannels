@@ -97,7 +97,9 @@ else
   # tags (pkg.go.dev). Same commit as $VERSION.
   git tag "go/$VERSION"
   git tag "webrtc/go/$VERSION"
-  git push origin "go/$VERSION" "webrtc/go/$VERSION"
+  git tag "kafka/$VERSION"
+  git tag "eventbus/$VERSION"
+  git push origin "go/$VERSION" "webrtc/go/$VERSION" "kafka/$VERSION" "eventbus/$VERSION"
   echo "published $REPO $VERSION"
 fi
 cd - >/dev/null

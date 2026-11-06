@@ -3357,6 +3357,21 @@
     (define dest (build-path kafka-root dest-rel))
     (make-directory* (path-only dest))
     (copy-file src dest #t)))
+;; Go nested modules must sit at the directory matching their
+;; module path (repo-root kafka/ and eventbus/), or the module
+;; proxy cannot resolve them; release-push tags kafka/<version>
+;; and eventbus/<version> like go/<version>.
+(define (emit-go-file dest-rel text)
+  (define dest (build-path out-dir dest-rel))
+  (make-directory* (path-only dest))
+  (call-with-output-file dest #:exists 'replace
+    (lambda (out) (display text out))))
+(define (copy-go-file src-rel dest-rel)
+  (define src (build-path out-dir src-rel))
+  (when (file-exists? src)
+    (define dest (build-path out-dir dest-rel))
+    (make-directory* (path-only dest))
+    (copy-file src dest #t)))
 (define kafka-desc
   "Kafka over gRPC — generated grpcdc.kafka.v1 clients (produce/consume/groups/topics) speaking gRPC over WebRTC DataChannels, via the grpc-dc runtime")
 ;; --- npm (canonical + GitHub Packages scoped variant) ---
@@ -3702,10 +3717,10 @@
                  "- First pub.dev release: generated `grpcdc.kafka.v1`\n"
                  "  Dart stubs from grpc-over-datachannels v" npm-version ".\n"))
 (copy-dart-pub "LICENSE" "kafka-dart/LICENSE")
-;; --- Go (nested module) ---
-(copy-kafka-file "go/kafka/kafka_pb.go" "kafka-go/kafka_pb.go")
-(copy-kafka-file "go/kafka/kafka_grpc_dc.go" "kafka-go/kafka_grpc_dc.go")
-(emit-kafka-file "kafka-go/go.mod"
+;; --- Go (nested module at repo root, matching its path) ---
+(copy-go-file "go/kafka/kafka_pb.go" "kafka/kafka_pb.go")
+(copy-go-file "go/kafka/kafka_grpc_dc.go" "kafka/kafka_grpc_dc.go")
+(emit-go-file "kafka/go.mod"
   (string-append
    "module github.com/browser-grpc/grpc-over-datachannels/kafka\n\ngo 1.21\n\n"
    "require github.com/browser-grpc/grpc-over-datachannels/go v" npm-version "\n"))
@@ -3888,10 +3903,10 @@
                  "- First pub.dev release: generated `grpcdc.events.v1`\n"
                  "  Dart stubs from grpc-over-datachannels v" npm-version ".\n"))
 (copy-dart-pub "LICENSE" "eventbus-dart/LICENSE")
-;; --- Go (nested module) ---
-(copy-eventbus-file "go/eventbus/events_pb.go" "eventbus-go/events_pb.go")
-(copy-eventbus-file "go/eventbus/events_grpc_dc.go" "eventbus-go/events_grpc_dc.go")
-(emit-eventbus-file "eventbus-go/go.mod"
+;; --- Go (nested module at repo root, matching its path) ---
+(copy-go-file "go/eventbus/events_pb.go" "eventbus/events_pb.go")
+(copy-go-file "go/eventbus/events_grpc_dc.go" "eventbus/events_grpc_dc.go")
+(emit-go-file "eventbus/go.mod"
   (string-append
    "module github.com/browser-grpc/grpc-over-datachannels/eventbus\n\ngo 1.21\n\n"
    "require github.com/browser-grpc/grpc-over-datachannels/go v" npm-version "\n"))
@@ -3913,7 +3928,8 @@
    "| kafka-csharp | NuGet/GitHub `KafkaGrpc` | `GrpcDc` |\n"
    "| kafka-java | Maven `io.github.browser-grpc:kafka-grpc` | `io.github.browser-grpc:grpc-dc` |\n"
    "| kafka-rust | crates.io `kafka-grpc` | `grpc-dc` |\n"
-   "| kafka-go | module `github.com/browser-grpc/grpc-over-datachannels/kafka` | `.../go` |\n"
+   "| (repo root) kafka/ | Go module `github.com/browser-grpc/grpc-over-datachannels/kafka` | `.../go` |\n"
+   "| (repo root) eventbus/ | Go module `github.com/browser-grpc/grpc-over-datachannels/eventbus` | `.../go` |\n"
    "| kafka-dart | pub.dev `kafka_grpc` | pub.dev `grpc_dc` |\n\n"
    "Kotlin, Scala, PHP, Lua, Swift, Zig, C and C++ carry the\n"
    "same two generated files inside their grpc-dc trees (those\n"
