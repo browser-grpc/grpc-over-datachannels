@@ -21,6 +21,8 @@ PHP_EXPORT="release/grpc-php"
 PHP_REPO="browser-grpc/grpc-dc-php"
 KPHP_EXPORT="release/kafka-php"
 KPHP_REPO="browser-grpc/kafka-grpc-php"
+EBPHP_EXPORT="release/eventbus-php"
+EBPHP_REPO="browser-grpc/eventbus-grpc-php"
 KP_REPO="browser-grpc/kafka-proxy"
 EB_EXPORT="release/eventbus"
 EB_REPO="browser-grpc/eventbus"
@@ -135,7 +137,7 @@ fi
 #     repo for Packagist. Same version/tag; Packagist picks up
 #     new tags automatically after the one-time submission.
 # ------------------------------------------------------------------
-for pair in "$PHP_EXPORT $PHP_REPO" "$KPHP_EXPORT $KPHP_REPO"; do
+for pair in "$PHP_EXPORT $PHP_REPO" "$KPHP_EXPORT $KPHP_REPO" "$EBPHP_EXPORT $EBPHP_REPO"; do
   set -- $pair
   P_EXPORT="$1"; P_REPO="$2"
   if [ -d "$P_EXPORT" ]; then
@@ -277,6 +279,10 @@ KAFKA_NPM_DIR="$EXPORT/packages/kafka-js"
 if [ -d "$KAFKA_NPM_DIR" ] && command -v npm >/dev/null 2>&1; then
   (cd "$KAFKA_NPM_DIR" && npm publish --dry-run 2>&1 | tail -5) || true
 fi
+EB_NPM_DIR="$EXPORT/packages/eventbus-js"
+if [ -d "$EB_NPM_DIR" ] && command -v npm >/dev/null 2>&1; then
+  (cd "$EB_NPM_DIR" && npm publish --dry-run 2>&1 | tail -5) || true
+fi
 
 # 3b2. Package registries (PyPI). Publishing needs a persistent
 #     API token: TWINE_PASSWORD in the environment, or a
@@ -312,6 +318,19 @@ if [ -d "$KAFKA_PYPI_DIR" ] && command -v twine >/dev/null 2>&1; then
       echo "pypi: kafka-grpc $VERSION published"
     else
       echo "note: pypi kafka-grpc upload failed (version may already exist); continuing"
+    fi
+  fi
+fi
+
+# PyPI (eventbus-grpc): separate package, same treatment.
+EB_PYPI_DIR="$EXPORT/packages/eventbus-python"
+if [ -d "$EB_PYPI_DIR" ] && command -v twine >/dev/null 2>&1; then
+  (cd "$EB_PYPI_DIR" && rm -rf dist && python3 -m build --outdir dist 2>&1 | tail -2 && twine check dist/*) || true
+  if [ -n "${TWINE_PASSWORD:-}" ] || [ -f "$HOME/.pypirc" ]; then
+    if (cd "$EB_PYPI_DIR" && twine upload dist/*); then
+      echo "pypi: eventbus-grpc $VERSION published"
+    else
+      echo "note: pypi eventbus-grpc upload failed (version may already exist); continuing"
     fi
   fi
 fi
@@ -444,7 +463,7 @@ fi
 GH_TOKEN_VAL="$(gh auth token 2>/dev/null || true)"
 if [ -n "$GH_TOKEN_VAL" ]; then
   # npm: scoped staging copies (GitHub requires @org/name).
-  for spec in "js:@browser-grpc/grpc-dc" "packages/kafka-js:@browser-grpc/kafka-grpc"; do
+  for spec in "js:@browser-grpc/grpc-dc" "packages/kafka-js:@browser-grpc/kafka-grpc" "packages/eventbus-js:@browser-grpc/eventbus-grpc"; do
     SRC_DIR="$EXPORT/${spec%%:*}"
     [ -f "$SRC_DIR/package.github.json" ] || continue
     STAGE="$WORK/ghp-npm-$(basename "$SRC_DIR")"

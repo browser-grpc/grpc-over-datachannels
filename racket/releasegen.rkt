@@ -38,6 +38,7 @@
 (define kafka-proxy-out (arg-value "--kafka-proxy-out" ""))
 (define php-out (arg-value "--php-out" ""))
 (define kafka-php-out (arg-value "--kafka-php-out" ""))
+(define eventbus-php-out (arg-value "--eventbus-php-out" ""))
 (define eventbus-out (arg-value "--eventbus-out" ""))
 (define examples-out (arg-value "--examples-out" ""))
 (define source-commit (sh "git rev-parse HEAD"))
@@ -464,6 +465,9 @@
       "        run: npm publish --provenance --access public\n"
       "      - if: \"!cancelled()\"\n"
       "        working-directory: packages/kafka-js\n"
+      "        run: npm publish --provenance --access public\n"
+      "      - if: \"!cancelled()\"\n"
+      "        working-directory: packages/eventbus-js\n"
       "        run: npm publish --provenance --access public\n")
      out)))
 
@@ -510,6 +514,8 @@
       "          for i in $(seq 1 40); do curl -sf https://api.nuget.org/v3-flatcontainer/grpcdc/index.json | grep -q \"\\\"$V\\\"\" && exit 0; sleep 15; done; echo 'GrpcDc not indexed in time' >&2; exit 1\n"
       "      - name: Pack KafkaGrpc\n"
       "        run: dotnet pack packages/kafka-csharp/KafkaGrpc.csproj -c Release -o /tmp/nuget\n"
+      "      - name: Pack EventBusGrpc\n"
+      "        run: dotnet pack packages/eventbus-csharp/EventBusGrpc.csproj -c Release -o /tmp/nuget\n"
       "      - name: Push to nuget.org\n"
       "        run: dotnet nuget push /tmp/nuget/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate\n")
      out)))
@@ -576,6 +582,17 @@
       "            echo \"kafka_grpc $VER already on pub.dev; skipping\"\n"
       "          else\n"
       "            dart pub publish --force\n"
+      "          fi\n"
+      "      - if: \"!cancelled()\"\n"
+      "        name: Publish eventbus_grpc\n"
+      "        working-directory: packages/eventbus-dart\n"
+      "        run: |\n"
+      "          VER=$(sed -n 's/^version: //p' pubspec.yaml)\n"
+      "          LATEST=$(curl -sf https://pub.dev/api/packages/eventbus_grpc | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"latest\"][\"version\"])')\n"
+      "          if [ \"$LATEST\" = \"$VER\" ]; then\n"
+      "            echo \"eventbus_grpc $VER already on pub.dev; skipping\"\n"
+      "          else\n"
+      "            dart pub publish --force\n"
       "          fi\n")
      out)))
 
@@ -620,7 +637,16 @@
       "            cargo publish --token ${{ steps.auth.outputs.token }} && exit 0\n"
       "            sleep 30\n"
       "          done\n"
-      "          echo 'kafka-grpc publish did not succeed' >&2; exit 1\n")
+      "          echo 'kafka-grpc publish did not succeed' >&2; exit 1\n"
+      "      - name: Publish eventbus-grpc (retry while the index catches up)\n"
+      "        if: \"!cancelled()\"\n"
+      "        working-directory: packages/eventbus-rust\n"
+      "        run: |\n"
+      "          for i in $(seq 1 20); do\n"
+      "            cargo publish --token ${{ steps.auth.outputs.token }} && exit 0\n"
+      "            sleep 30\n"
+      "          done\n"
+      "          echo 'eventbus-grpc publish did not succeed' >&2; exit 1\n")
      out)))
 
 ;; RubyGems: manual-dispatch workflow publishing
@@ -665,7 +691,13 @@
       "        working-directory: packages/kafka-ruby\n"
       "        run: |\n"
       "          gem build kafka-grpc.gemspec\n"
-      "          gem push kafka-grpc-*.gem\n")
+      "          gem push kafka-grpc-*.gem\n"
+      "      - name: Push eventbus-grpc\n"
+      "        if: \"!cancelled()\"\n"
+      "        working-directory: packages/eventbus-ruby\n"
+      "        run: |\n"
+      "          gem build eventbus-grpc.gemspec\n"
+      "          gem push eventbus-grpc-*.gem\n")
      out)))
 
 ;; LuaRocks: manual-dispatch workflow uploading the rockspecs in
@@ -713,7 +745,14 @@
       "        run: |\n"
       "          VER=$(basename kafka-grpc-*.rockspec .rockspec | sed 's/^kafka-grpc-//')\n"
       "          luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} kafka-grpc-*.rockspec || true\n"
-      "          curl -sf https://luarocks.org/modules/unicomp21/kafka-grpc | grep -q \"$VER\"\n")
+      "          curl -sf https://luarocks.org/modules/unicomp21/kafka-grpc | grep -q \"$VER\"\n"
+      "      - name: Upload eventbus-grpc\n"
+      "        if: \"!cancelled()\"\n"
+      "        working-directory: packages/eventbus-lua\n"
+      "        run: |\n"
+      "          VER=$(basename eventbus-grpc-*.rockspec .rockspec | sed 's/^eventbus-grpc-//')\n"
+      "          luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} eventbus-grpc-*.rockspec || true\n"
+      "          curl -sf https://luarocks.org/modules/unicomp21/eventbus-grpc | grep -q \"$VER\"\n")
      out)))
 
 ;; JSR (Deno): manual-dispatch workflow publishing js/ as
@@ -748,6 +787,10 @@
       "      - name: Publish kafka-grpc\n"
       "        if: \"!cancelled()\"\n"
       "        working-directory: packages/kafka-js\n"
+      "        run: npx -y jsr publish --allow-slow-types\n"
+      "      - name: Publish eventbus-grpc\n"
+      "        if: \"!cancelled()\"\n"
+      "        working-directory: packages/eventbus-js\n"
       "        run: npx -y jsr publish --allow-slow-types\n")
      out)))
 
@@ -808,6 +851,12 @@
       "        .optimize = optimize,\n"
       "        .imports = &.{.{ .name = \"grpcdc\", .module = grpcdc }},\n"
       "    });\n"
+      "    _ = b.addModule(\"eventbus_grpc\", .{\n"
+      "        .root_source_file = b.path(\"zig/examples/events_grpc_dc.zig\"),\n"
+      "        .target = target,\n"
+      "        .optimize = optimize,\n"
+      "        .imports = &.{.{ .name = \"grpcdc\", .module = grpcdc }},\n"
+      "    });\n"
       "}\n")
      out)))
 (call-with-output-file (build-path out-dir "build.zig.zon")
@@ -827,6 +876,8 @@
       "        \"zig/grpcdc\",\n"
       "        \"zig/examples/kafka_grpc_dc.zig\",\n"
       "        \"zig/examples/kafka_messages.zig\",\n"
+      "        \"zig/examples/events_grpc_dc.zig\",\n"
+      "        \"zig/examples/events_messages.zig\",\n"
       "        \"LICENSE\",\n"
       "    },\n"
       "}\n")
@@ -1022,6 +1073,38 @@
       "            [ \"$STATE\" = FAILED ] && exit 1\n"
       "            sleep 15\n"
       "          done\n"
+      "          echo 'timed out waiting for PUBLISHED' >&2; exit 1\n"
+      "      - name: Build signed eventbus-grpc bundle\n"
+      "        if: \"!cancelled()\"\n"
+      "        run: mvn -B -f packages/eventbus-java/pom.xml deploy -Prelease -DcentralBaseUrl=http://127.0.0.1:9/nope || test -f packages/eventbus-java/target/central-publishing/central-bundle.zip\n"
+      "        env:\n"
+      "          MAVEN_USERNAME: ${{ secrets.CENTRAL_USERNAME }}\n"
+      "          MAVEN_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}\n"
+      "          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}\n"
+      "      - name: Upload eventbus-grpc via Central Portal API\n"
+      "        if: \"!cancelled()\"\n"
+      "        shell: bash\n"
+      "        run: |\n"
+      "          set -euo pipefail\n"
+      "          TOKEN=$(printf '%s:%s' \"${{ secrets.CENTRAL_USERNAME }}\" \"${{ secrets.CENTRAL_PASSWORD }}\" | base64 -w0)\n"
+      "          zip -d packages/eventbus-java/target/central-publishing/central-bundle.zip '*/_remote.repositories*' '*/maven-metadata-local.xml*' || true\n"
+      "          ID=$(curl -sf -X POST -H \"Authorization: Bearer $TOKEN\" -F \"bundle=@packages/eventbus-java/target/central-publishing/central-bundle.zip\" \"https://central.sonatype.com/api/v1/publisher/upload?name=eventbus-grpc&publishingType=USER_MANAGED\")\n"
+      "          echo \"deployment: $ID\"\n"
+      "          for i in $(seq 1 40); do\n"
+      "            STATE=$(curl -sf -X POST -H \"Authorization: Bearer $TOKEN\" \"https://central.sonatype.com/api/v1/publisher/status?id=$ID\" | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"deploymentState\"])')\n"
+      "            echo \"state: $STATE\"\n"
+      "            [ \"$STATE\" = VALIDATED ] && break\n"
+      "            [ \"$STATE\" = FAILED ] && exit 1\n"
+      "            sleep 15\n"
+      "          done\n"
+      "          curl -sf -X POST -H \"Authorization: Bearer $TOKEN\" \"https://central.sonatype.com/api/v1/publisher/deployment/$ID\"\n"
+      "          for i in $(seq 1 120); do\n"
+      "            STATE=$(curl -sf -X POST -H \"Authorization: Bearer $TOKEN\" \"https://central.sonatype.com/api/v1/publisher/status?id=$ID\" | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"deploymentState\"])')\n"
+      "            echo \"state: $STATE\"\n"
+      "            [ \"$STATE\" = PUBLISHED ] && exit 0\n"
+      "            [ \"$STATE\" = FAILED ] && exit 1\n"
+      "            sleep 15\n"
+      "          done\n"
       "          echo 'timed out waiting for PUBLISHED' >&2; exit 1\n")
      out)))
 
@@ -1139,6 +1222,50 @@
       "          lines = ['<?xml version=\"1.0\" encoding=\"UTF-8\"?>', '<metadata>',\n"
       "                   '  <groupId>io.github.browser-grpc</groupId>',\n"
       "                   '  <artifactId>kafka-grpc</artifactId>', '  <versioning>',\n"
+      "                   f'    <latest>{versions[-1]}</latest>', f'    <release>{versions[-1]}</release>',\n"
+      "                   '    <versions>']\n"
+      "          lines += [f'      <version>{v}</version>' for v in versions]\n"
+      "          lines += ['    </versions>', f'    <lastUpdated>{now}</lastUpdated>',\n"
+      "                    '  </versioning>', '</metadata>', '']\n"
+      "          open(path, 'w').write('\\n'.join(lines))\n"
+      "          for algo in ('md5', 'sha1'):\n"
+      "              import hashlib\n"
+      "              h = hashlib.new(algo, open(path, 'rb').read()).hexdigest()\n"
+      "              open(f'{path}.{algo}', 'w').write(h)\n"
+      "          PYEOF\n"
+      "      - name: Build eventbus-grpc jar and lay out its Maven repository\n"
+      "        if: \"!cancelled()\"\n"
+      "        shell: bash\n"
+      "        run: |\n"
+      "          set -euo pipefail\n"
+      "          mvn -B -f packages/eventbus-java/pom.xml package -DskipTests\n"
+      "          V=$(grep -m1 '<version>' packages/eventbus-java/pom.xml | sed -E 's/<[^>]+>//g; s/^ *//; s/ *$//')\n"
+      "          DEST=\"docs/maven/io/github/browser-grpc/eventbus-grpc/$V\"\n"
+      "          mkdir -p \"$DEST\"\n"
+      "          cp packages/eventbus-java/pom.xml \"$DEST/eventbus-grpc-$V.pom\"\n"
+      "          cp \"packages/eventbus-java/target/eventbus-grpc-$V.jar\" \"$DEST/\"\n"
+      "          cp \"packages/eventbus-java/target/eventbus-grpc-$V-sources.jar\" \"$DEST/\"\n"
+      "          cp \"packages/eventbus-java/target/eventbus-grpc-$V-javadoc.jar\" \"$DEST/\"\n"
+      "          for f in \"$DEST\"/*; do\n"
+      "            md5sum \"$f\" | cut -d' ' -f1 > \"$f.md5\"\n"
+      "            sha1sum \"$f\" | cut -d' ' -f1 > \"$f.sha1\"\n"
+      "          done\n"
+      "          BASE=docs/maven/io/github/browser-grpc/eventbus-grpc\n"
+      "          python3 - \"$BASE\" \"$V\" <<'PYEOF'\n"
+      "          import os, sys, datetime\n"
+      "          import xml.etree.ElementTree as ET\n"
+      "          base, ver = sys.argv[1], sys.argv[2]\n"
+      "          path = os.path.join(base, 'maven-metadata.xml')\n"
+      "          versions = []\n"
+      "          if os.path.exists(path):\n"
+      "              vs = ET.parse(path).getroot().find('./versioning/versions')\n"
+      "              versions = [v.text for v in vs.findall('version')] if vs is not None else []\n"
+      "          if ver not in versions:\n"
+      "              versions.append(ver)\n"
+      "          now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d%H%M%S')\n"
+      "          lines = ['<?xml version=\"1.0\" encoding=\"UTF-8\"?>', '<metadata>',\n"
+      "                   '  <groupId>io.github.browser-grpc</groupId>',\n"
+      "                   '  <artifactId>eventbus-grpc</artifactId>', '  <versioning>',\n"
       "                   f'    <latest>{versions[-1]}</latest>', f'    <release>{versions[-1]}</release>',\n"
       "                   '    <versions>']\n"
       "          lines += [f'      <version>{v}</version>' for v in versions]\n"
@@ -2950,6 +3077,43 @@
      "`composer require browser-grpc/kafka-grpc`.\n"))
   (printf "releasegen: kafka-php export: ~a files, leak gate OK\n"
           (length (find-files file-exists? kafka-php-out))))
+(when (non-empty-string? eventbus-php-out)
+  (when (directory-exists? eventbus-php-out)
+    (delete-directory/files eventbus-php-out))
+  (make-directory* eventbus-php-out)
+  (copy-php-file eventbus-php-out "php/grpcdc/events_pb.php" "lib/events_pb.php")
+  (copy-php-file eventbus-php-out "php/grpcdc/events_grpc_dc.php" "lib/events_grpc_dc.php"
+                 (lambda (text)
+                   (string-replace text
+                                   "require_once __DIR__ . \"/../grpcdc.php\";\n"
+                                   "")))
+  (copy-php-file eventbus-php-out "LICENSE" "LICENSE")
+  (emit-php-file eventbus-php-out "composer.json"
+    (string-append
+     "{\n"
+     "  \"name\": \"browser-grpc/eventbus-grpc\",\n"
+     "  \"description\": \"Event bus over gRPC for PHP: generated grpcdc.events.v1 publish/subscribe clients over the grpc-dc runtime.\",\n"
+     "  \"type\": \"library\",\n"
+     "  \"license\": \"Apache-2.0\",\n"
+     "  \"homepage\": \"https://github.com/browser-grpc/grpc-over-datachannels\",\n"
+     "  \"autoload\": {\n"
+     "    \"classmap\": [\"lib\"],\n"
+     "    \"files\": [\"lib/events_grpc_dc.php\"]\n"
+     "  },\n"
+     "  \"require\": {\n"
+     "    \"php\": \">=8.1\",\n"
+     "    \"browser-grpc/grpc-dc\": \"^" npm-version "\"\n"
+     "  }\n"
+     "}\n"))
+  (emit-php-file eventbus-php-out "README.md"
+    (string-append
+     "# eventbus-grpc (PHP)\n\n"
+     "Generated `grpcdc.events.v1` clients for PHP (publish/\n"
+     "subscribe) over the `grpc-dc` runtime. Install:\n"
+     "`composer require browser-grpc/eventbus-grpc`.\n"))
+  (printf "releasegen: eventbus-php export: ~a files\n"
+          (length (find-files file-exists? eventbus-php-out))))
+
 
 
 ;; GitHub Packages mirrors (npm / NuGet / RubyGems — the only
@@ -3099,6 +3263,34 @@
    "groups/topics) over the `grpc-dc` runtime. Install:\n"
    "`luarocks install kafka-grpc`, then\n"
    "`require(\"kafka_grpc_dc\")`.\n"))
+(emit-lua-pub (string-append "eventbus-lua/eventbus-grpc-" npm-version "-1.rockspec")
+  (rockspec
+   "eventbus-grpc"
+   "Event bus over gRPC for Lua: generated grpcdc.events.v1 publish/subscribe clients"
+   ;; Packaged copies (below): two module names mapped to one
+   ;; source file install only one of them, so the messages
+   ;; file ships under its own path and the stub's require is
+   ;; rewritten to the plain module name.
+   '(("events_messages" . "packages/eventbus-lua/events_messages.lua")
+     ("events_grpc_dc" . "packages/eventbus-lua/events_grpc_dc.lua"))
+   (list "lua >= 5.4" (string-append "grpc-dc >= " npm-version))))
+(define (copy-eb-lua src-rel dest-rel rewrite?)
+  (define src (build-path out-dir src-rel))
+  (when (file-exists? src)
+    (define text (file->string src))
+    (emit-lua-pub dest-rel
+                  (if rewrite?
+                      (string-replace text "examples.events_messages" "events_messages")
+                      text))))
+(copy-eb-lua "lua/examples/events_messages.lua" "eventbus-lua/events_messages.lua" #f)
+(copy-eb-lua "lua/examples/events_grpc_dc.lua" "eventbus-lua/events_grpc_dc.lua" #t)
+(emit-lua-pub "eventbus-lua/README.md"
+  (string-append
+   "# eventbus-grpc (Lua)\n\n"
+   "Generated `grpcdc.events.v1` clients for Lua (publish/\n"
+   "subscribe) over the `grpc-dc` runtime. Install:\n"
+   "`luarocks install eventbus-grpc`, then\n"
+   "`require(\"events_grpc_dc\")`.\n"))
 (call-with-output-file (build-path out-dir "GITHUB-PACKAGES.md")
   #:exists 'replace
   (lambda (out)
@@ -3194,8 +3386,9 @@
 ;; --- PyPI ---
 (copy-kafka-file "python/grpcdc/kafka_pb.py" "kafka-python/grpcdc/kafka_pb.py")
 (copy-kafka-file "python/grpcdc/kafka_grpc_dc.py" "kafka-python/grpcdc/kafka_grpc_dc.py")
-(emit-kafka-file "kafka-python/grpcdc/__init__.py"
-  "\"\"\"Generated grpcdc.kafka.v1 stubs; the runtime lives in the grpc-dc package.\"\"\"\n")
+;; No grpcdc/__init__.py in the stub wheels: it would clobber
+;; the grpc-dc wheel's package init when both are installed
+;; into the same grpcdc/ directory.
 (emit-kafka-file "kafka-python/README.md"
   (string-append "# kafka-grpc (Python)\n\n" kafka-desc ".\n\nInstall: `pip install kafka-grpc` (depends on `grpc-dc`).\n"))
 (emit-kafka-file "kafka-python/pyproject.toml"
@@ -3516,14 +3709,203 @@
   (string-append
    "module github.com/browser-grpc/grpc-over-datachannels/kafka\n\ngo 1.21\n\n"
    "require github.com/browser-grpc/grpc-over-datachannels/go v" npm-version "\n"))
+;; ---------------------------------------------------------------------------
+;; Separate eventbus-grpc packages, mirroring kafka-grpc: the
+;; generated grpcdc.events.v1 stubs ship as their own package in
+;; every ecosystem (packages/eventbus-<lang>), depending on
+;; grpc-dc. Additive split (user-approved): the same stubs also
+;; remain inside the grpc-dc runtime trees, so nothing breaks
+;; for existing imports; new code can depend on the small
+;; package alone. The per-language broker stays in the runtime.
+;; ---------------------------------------------------------------------------
+(define (emit-eventbus-file dest-rel text) (emit-kafka-file dest-rel text))
+(define (copy-eventbus-file src-rel dest-rel) (copy-kafka-file src-rel dest-rel))
+(define eb-desc
+  "Event bus over gRPC — generated grpcdc.events.v1 publish/subscribe clients over WebRTC DataChannels, via the grpc-dc runtime")
+;; --- npm / JSR ---
+(copy-eventbus-file "js/src/events_pb.js" "eventbus-js/events_pb.js")
+(copy-eventbus-file "js/src/events_grpc_dc.js" "eventbus-js/events_grpc_dc.js")
+(emit-eventbus-file "eventbus-js/index.js"
+  "export * from \"./events_pb.js\";\nexport * from \"./events_grpc_dc.js\";\n")
+(define (eb-npm-manifest name dep-name)
+  (string-append
+   "{\n  \"name\": \"" name "\",\n"
+   "  \"version\": \"" npm-version "\",\n"
+   "  \"description\": \"" eb-desc " (JavaScript, browser + Node)\",\n"
+   "  \"type\": \"module\",\n  \"main\": \"index.js\",\n"
+   "  \"files\": [\"index.js\", \"events_pb.js\", \"events_grpc_dc.js\"],\n"
+   "  \"dependencies\": {\"" dep-name "\": \"^" npm-version "\"},\n"
+   "  \"license\": \"Apache-2.0\",\n"
+   "  \"repository\": {\"type\": \"git\", \"url\": \"git+https://github.com/browser-grpc/grpc-over-datachannels.git\"}\n}\n"))
+(emit-eventbus-file "eventbus-js/package.json" (eb-npm-manifest "eventbus-grpc" "grpc-dc"))
+(emit-eventbus-file "eventbus-js/package.github.json"
+  (eb-npm-manifest "@browser-grpc/eventbus-grpc" "@browser-grpc/grpc-dc"))
+(emit-eventbus-file "eventbus-js/jsr.json"
+  (string-append
+   "{\n  \"name\": \"@browser-grpc/eventbus-grpc\",\n"
+   "  \"version\": \"" npm-version "\",\n"
+   "  \"license\": \"Apache-2.0\",\n"
+   "  \"exports\": \"./index.js\"\n}\n"))
+;; --- PyPI ---
+(copy-eventbus-file "python/grpcdc/events_pb.py" "eventbus-python/grpcdc/events_pb.py")
+(copy-eventbus-file "python/grpcdc/events_grpc_dc.py" "eventbus-python/grpcdc/events_grpc_dc.py")
+;; No grpcdc/__init__.py here either (see kafka-python).
+(emit-eventbus-file "eventbus-python/README.md"
+  (string-append "# eventbus-grpc (Python)\n\n" eb-desc ".\n\nInstall: `pip install eventbus-grpc` (depends on `grpc-dc`).\n"))
+(emit-eventbus-file "eventbus-python/pyproject.toml"
+  (string-append
+   "[build-system]\nrequires = [\"setuptools>=61\"]\nbuild-backend = \"setuptools.build_meta\"\n\n"
+   "[project]\nname = \"eventbus-grpc\"\nversion = \"" npm-version "\"\n"
+   "description = \"" eb-desc " (Python)\"\nreadme = \"README.md\"\nrequires-python = \">=3.9\"\n"
+   "license = {text = \"Apache-2.0\"}\ndependencies = [\"grpc-dc>=" npm-version "\"]\n\n"
+   "[tool.setuptools.packages.find]\ninclude = [\"grpcdc*\"]\n"))
+;; --- RubyGems ---
+(copy-eventbus-file "ruby/grpcdc/events_pb.rb" "eventbus-ruby/lib/grpcdc/events_pb.rb")
+(copy-eventbus-file "ruby/grpcdc/events_grpc_dc.rb" "eventbus-ruby/lib/grpcdc/events_grpc_dc.rb")
+(emit-eventbus-file "eventbus-ruby/lib/eventbus_grpc.rb"
+  "require_relative \"grpcdc/events_pb\"\nrequire_relative \"grpcdc/events_grpc_dc\"\n")
+(emit-eventbus-file "eventbus-ruby/eventbus-grpc.gemspec"
+  (string-append
+   "Gem::Specification.new do |spec|\n"
+   "  spec.name = \"eventbus-grpc\"\n  spec.version = \"" npm-version "\"\n"
+   "  spec.authors = [\"John Davis\"]\n  spec.email = [\"jdavis@pcprogramming.com\"]\n"
+   "  spec.summary = \"Event bus over gRPC — generated grpcdc.events.v1 Ruby clients\"\n"
+   "  spec.description = \"" eb-desc " (Ruby).\"\n"
+   "  spec.homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n"
+   "  spec.license = \"Apache-2.0\"\n  spec.required_ruby_version = \">= 3.0\"\n"
+   "  spec.metadata = { \"homepage_uri\" => spec.homepage, \"source_code_uri\" => \"https://github.com/browser-grpc/grpc-over-datachannels/tree/main/packages/eventbus-ruby\" }\n"
+   "  spec.files = Dir[\"lib/**/*.rb\", \"README.md\", \"LICENSE\"]\n  spec.require_paths = [\"lib\"]\n"
+   "  spec.add_runtime_dependency \"grpc-dc\", \"= " npm-version "\"\nend\n"))
+(emit-eventbus-file "eventbus-ruby/README.md"
+  (string-append "# eventbus-grpc (Ruby)\n\n" eb-desc " (Ruby).\n\n"
+                 "Install: `gem install eventbus-grpc` (depends on `grpc-dc`).\n"))
+(copy-eventbus-file "LICENSE" "eventbus-ruby/LICENSE")
+;; --- NuGet ---
+(for ([f (in-list (directory-list (build-path out-dir "csharp/grpcdc/events/v1")))]
+      #:when (path-has-extension? f #".cs"))
+  (copy-eventbus-file (build-path "csharp/grpcdc/events/v1" f)
+                (build-path "eventbus-csharp" f)))
+(emit-eventbus-file "eventbus-csharp/EventBusGrpc.csproj"
+  (string-append
+   "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n"
+   "    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>\n    <LangVersion>latest</LangVersion>\n"
+   "    <PackageId>EventBusGrpc</PackageId>\n    <Version>" npm-version "</Version>\n"
+   "    <Authors>John Davis</Authors>\n    <Description>" eb-desc " (.NET).</Description>\n"
+   "    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>\n"
+   "    <RepositoryUrl>https://github.com/browser-grpc/grpc-over-datachannels</RepositoryUrl>\n"
+   "  </PropertyGroup>\n  <ItemGroup>\n"
+   "    <PackageReference Include=\"GrpcDc\" Version=\"" npm-version "\" />\n"
+   "  </ItemGroup>\n</Project>\n"))
+;; --- Maven ---
+(for ([f (in-list (directory-list (build-path out-dir "java/grpcdc/events/v1")))]
+      #:when (path-has-extension? f #".java"))
+  (copy-eventbus-file (build-path "java/grpcdc/events/v1" f)
+                (build-path "eventbus-java/grpcdc/events/v1" f)))
+(emit-eventbus-file "eventbus-java/pom.xml"
+  (string-append
+   "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n  <modelVersion>4.0.0</modelVersion>\n"
+   "  <groupId>io.github.browser-grpc</groupId>\n  <artifactId>eventbus-grpc</artifactId>\n"
+   "  <version>" npm-version "</version>\n"
+   "  <name>eventbus-grpc</name>\n  <description>" eb-desc " (Java).</description>\n"
+   "  <url>https://github.com/browser-grpc/grpc-over-datachannels</url>\n"
+   "  <licenses><license><name>Apache-2.0</name></license></licenses>\n"
+   "  <developers><developer><id>unicomp21</id><name>John Davis</name><email>jdavis@pcprogramming.com</email></developer></developers>\n"
+   "  <scm><connection>scm:git:https://github.com/browser-grpc/grpc-over-datachannels.git</connection><developerConnection>scm:git:https://github.com/browser-grpc/grpc-over-datachannels.git</developerConnection><url>https://github.com/browser-grpc/grpc-over-datachannels</url></scm>\n"
+   "  <properties><maven.compiler.release>17</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>\n"
+   "  <dependencies><dependency><groupId>io.github.browser-grpc</groupId><artifactId>grpc-dc</artifactId><version>" npm-version "</version></dependency></dependencies>\n"
+   "  <build><sourceDirectory>${project.basedir}</sourceDirectory><plugins>\n"
+   "    <plugin><artifactId>maven-source-plugin</artifactId><version>3.3.1</version><executions><execution><id>attach-sources</id><goals><goal>jar-no-fork</goal></goals></execution></executions></plugin>\n"
+   "    <plugin><artifactId>maven-javadoc-plugin</artifactId><version>3.10.0</version><configuration><additionalOptions><additionalOption>-Xdoclint:none</additionalOption></additionalOptions><quiet>true</quiet></configuration><executions><execution><id>attach-javadocs</id><goals><goal>jar</goal></goals></execution></executions></plugin>\n"
+   "    <plugin><groupId>org.sonatype.central</groupId><artifactId>central-publishing-maven-plugin</artifactId><version>0.8.0</version><extensions>true</extensions><configuration><publishingServerId>central</publishingServerId><autoPublish>true</autoPublish><waitUntil>published</waitUntil></configuration></plugin>\n"
+   "  </plugins></build>\n"
+   "  <profiles><profile><id>release</id><build><plugins><plugin><artifactId>maven-gpg-plugin</artifactId><version>3.2.7</version><executions><execution><id>sign-artifacts</id><phase>verify</phase><goals><goal>sign</goal></goals></execution></executions><configuration><gpgArguments><arg>--pinentry-mode</arg><arg>loopback</arg></gpgArguments></configuration></plugin></plugins></build></profile></profiles>\n"
+   "</project>\n"))
+;; --- Cargo ---
+(copy-eventbus-file "rust/gen/events_pb.rs" "eventbus-rust/src/events_pb.rs")
+(copy-eventbus-file "rust/gen/events_grpc_dc.rs" "eventbus-rust/src/events_grpc_dc.rs")
+(emit-eventbus-file "eventbus-rust/src/pb_message_impl.rs"
+  (string-append
+   "// grpc_dc::Message adapters for the events messages (same\n"
+   "// macro bridge the in-repo eventbus tests use).\n"
+   "use crate::events_pb::{Event, PublishReply, PublishRequest, SubscribeRequest, TagValue};\n"
+   "use grpc_dc::Message;\n\n"
+   "macro_rules! impl_message {\n"
+   "    ($t:ty) => {\n"
+   "        impl Message for $t {\n"
+   "            fn encode(&self) -> Vec<u8> { <$t>::encode(self) }\n"
+   "            fn decode(bytes: &[u8]) -> Result<Self, grpc_dc::Status> {\n"
+   "                <$t>::decode(bytes).map_err(grpc_dc::Status::invalid_argument)\n"
+   "            }\n"
+   "        }\n"
+   "    };\n"
+   "}\n"
+   "impl_message!(TagValue);\n"
+   "impl_message!(PublishRequest);\n"
+   "impl_message!(PublishReply);\n"
+   "impl_message!(SubscribeRequest);\n"
+   "impl_message!(Event);\n"))
+(emit-eventbus-file "eventbus-rust/src/lib.rs"
+  "pub mod events_pb;\npub mod events_grpc_dc;\n\npub use events_pb as pb;\n\nmod pb_message_impl;\n")
+(emit-eventbus-file "eventbus-rust/Cargo.toml"
+  (string-append
+   "[package]\nname = \"eventbus-grpc\"\nversion = \"" npm-version "\"\nedition = \"2021\"\n"
+   "license = \"Apache-2.0\"\ndescription = \"" eb-desc " (Rust).\"\n"
+   "homepage = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n"
+   "repository = \"https://github.com/browser-grpc/grpc-over-datachannels\"\n"
+   "readme = \"README.md\"\n\n"
+   "[dependencies]\ngrpc-dc = { version = \"" npm-version "\", path = \"../grpc-rust\" }\n"))
+(emit-eventbus-file "eventbus-rust/README.md"
+  (string-append "# eventbus-grpc (Rust)\n\n" eb-desc " (Rust).\n\n"
+                 "```toml\n[dependencies]\neventbus-grpc = \"" npm-version "\"\n```\n\n"
+                 "(depends on the `grpc-dc` crate).\n"))
+(copy-eventbus-file "LICENSE" "eventbus-rust/LICENSE")
+;; --- pub.dev (Dart) ---
+(copy-kafka-dart "dart/grpcdc/events_messages.dart"
+                 "eventbus-dart/lib/grpcdc/events_messages.dart")
+(copy-kafka-dart "dart/grpcdc/events_grpc_dc.dart"
+                 "eventbus-dart/lib/grpcdc/events_grpc_dc.dart")
+(emit-eventbus-file "eventbus-dart/lib/eventbus_grpc.dart"
+  (string-append
+   "// eventbus_grpc: generated grpcdc.events.v1 stubs for Dart.\n"
+   "// The runtime lives in package:grpc_dc.\n"
+   "export 'grpcdc/events_messages.dart';\n"
+   "export 'grpcdc/events_grpc_dc.dart';\n"))
+(emit-eventbus-file "eventbus-dart/pubspec.yaml"
+  (string-append
+   "name: eventbus_grpc\n"
+   "version: " npm-version "\n"
+   "description: \"Event bus over gRPC for Dart and Flutter: generated grpcdc.events.v1 publish/subscribe clients speaking gRPC over WebRTC DataChannels, via the grpc_dc runtime.\"\n"
+   "homepage: https://github.com/browser-grpc/grpc-over-datachannels\n"
+   "repository: https://github.com/browser-grpc/grpc-over-datachannels\n"
+   "issue_tracker: https://github.com/browser-grpc/grpc-over-datachannels/issues\n"
+   "environment:\n  sdk: \">=3.0.0 <4.0.0\"\n"
+   "dependencies:\n  grpc_dc: ^" npm-version "\n"))
+(emit-eventbus-file "eventbus-dart/README.md"
+  (string-append "# eventbus_grpc (Dart)\n\n" eb-desc " (Dart).\n\n"
+                 "Install: `dart pub add eventbus_grpc` (depends on `grpc_dc`).\n"))
+(emit-eventbus-file "eventbus-dart/CHANGELOG.md"
+  (string-append "# Changelog\n\n## " npm-version "\n\n"
+                 "- First pub.dev release: generated `grpcdc.events.v1`\n"
+                 "  Dart stubs from grpc-over-datachannels v" npm-version ".\n"))
+(copy-dart-pub "LICENSE" "eventbus-dart/LICENSE")
+;; --- Go (nested module) ---
+(copy-eventbus-file "go/eventbus/events_pb.go" "eventbus-go/events_pb.go")
+(copy-eventbus-file "go/eventbus/events_grpc_dc.go" "eventbus-go/events_grpc_dc.go")
+(emit-eventbus-file "eventbus-go/go.mod"
+  (string-append
+   "module github.com/browser-grpc/grpc-over-datachannels/eventbus\n\ngo 1.21\n\n"
+   "require github.com/browser-grpc/grpc-over-datachannels/go v" npm-version "\n"))
 (call-with-output-file (build-path kafka-root "README.md")
   #:exists 'replace
   (lambda (out) (display
    (string-append
-   "# Separate kafka-grpc packages\n\n"
+   "# Separate kafka-grpc and eventbus-grpc packages\n\n"
    "Each `kafka-<lang>` tree here is a standalone package of the\n"
    "generated `grpcdc.kafka.v1` stubs for one ecosystem, depending\n"
-   "on that ecosystem's `grpc-dc` package at the same version:\n\n"
+   "on that ecosystem's `grpc-dc` package at the same version.\n"
+   "The `eventbus-<lang>` trees do the same for the generated\n"
+   "`grpcdc.events.v1` stubs (package name `eventbus-grpc`, Dart\n"
+   "`eventbus_grpc`):\n\n"
    "| Tree | Package | Depends on |\n|---|---|---|\n"
    "| kafka-js | npm `kafka-grpc` / GitHub `@browser-grpc/kafka-grpc` | `grpc-dc` / `@browser-grpc/grpc-dc` |\n"
    "| kafka-python | PyPI `kafka-grpc` | `grpc-dc` |\n"
