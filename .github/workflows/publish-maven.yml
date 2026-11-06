@@ -86,3 +86,35 @@ jobs:
             sleep 15
           done
           echo 'timed out waiting for PUBLISHED' >&2; exit 1
+      - name: Build signed eventbus-grpc bundle
+        if: "!cancelled()"
+        run: mvn -B -f packages/eventbus-java/pom.xml deploy -Prelease -DcentralBaseUrl=http://127.0.0.1:9/nope || test -f packages/eventbus-java/target/central-publishing/central-bundle.zip
+        env:
+          MAVEN_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+      - name: Upload eventbus-grpc via Central Portal API
+        if: "!cancelled()"
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN=$(printf '%s:%s' "${{ secrets.CENTRAL_USERNAME }}" "${{ secrets.CENTRAL_PASSWORD }}" | base64 -w0)
+          zip -d packages/eventbus-java/target/central-publishing/central-bundle.zip '*/_remote.repositories*' '*/maven-metadata-local.xml*' || true
+          ID=$(curl -sf -X POST -H "Authorization: Bearer $TOKEN" -F "bundle=@packages/eventbus-java/target/central-publishing/central-bundle.zip" "https://central.sonatype.com/api/v1/publisher/upload?name=eventbus-grpc&publishingType=USER_MANAGED")
+          echo "deployment: $ID"
+          for i in $(seq 1 40); do
+            STATE=$(curl -sf -X POST -H "Authorization: Bearer $TOKEN" "https://central.sonatype.com/api/v1/publisher/status?id=$ID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["deploymentState"])')
+            echo "state: $STATE"
+            [ "$STATE" = VALIDATED ] && break
+            [ "$STATE" = FAILED ] && exit 1
+            sleep 15
+          done
+          curl -sf -X POST -H "Authorization: Bearer $TOKEN" "https://central.sonatype.com/api/v1/publisher/deployment/$ID"
+          for i in $(seq 1 120); do
+            STATE=$(curl -sf -X POST -H "Authorization: Bearer $TOKEN" "https://central.sonatype.com/api/v1/publisher/status?id=$ID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["deploymentState"])')
+            echo "state: $STATE"
+            [ "$STATE" = PUBLISHED ] && exit 0
+            [ "$STATE" = FAILED ] && exit 1
+            sleep 15
+          done
+          echo 'timed out waiting for PUBLISHED' >&2; exit 1

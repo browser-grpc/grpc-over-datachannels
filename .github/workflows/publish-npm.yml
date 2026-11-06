@@ -23,3 +23,6 @@ jobs:
       - if: "!cancelled()"
         working-directory: packages/kafka-js
         run: npm publish --provenance --access public
+      - if: "!cancelled()"
+        working-directory: packages/eventbus-js
+        run: npm publish --provenance --access public

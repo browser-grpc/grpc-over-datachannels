@@ -1,8 +1,11 @@
-# Separate kafka-grpc packages
+# Separate kafka-grpc and eventbus-grpc packages
 
 Each `kafka-<lang>` tree here is a standalone package of the
 generated `grpcdc.kafka.v1` stubs for one ecosystem, depending
-on that ecosystem's `grpc-dc` package at the same version:
+on that ecosystem's `grpc-dc` package at the same version.
+The `eventbus-<lang>` trees do the same for the generated
+`grpcdc.events.v1` stubs (package name `eventbus-grpc`, Dart
+`eventbus_grpc`):
 
 | Tree | Package | Depends on |
 |---|---|---|

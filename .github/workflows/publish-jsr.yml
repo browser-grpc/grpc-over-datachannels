@@ -21,3 +21,7 @@ jobs:
         if: "!cancelled()"
         working-directory: packages/kafka-js
         run: npx -y jsr publish --allow-slow-types
+      - name: Publish eventbus-grpc
+        if: "!cancelled()"
+        working-directory: packages/eventbus-js
+        run: npx -y jsr publish --allow-slow-types

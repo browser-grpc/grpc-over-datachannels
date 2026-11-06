@@ -27,3 +27,9 @@ jobs:
         run: |
           gem build kafka-grpc.gemspec
           gem push kafka-grpc-*.gem
+      - name: Push eventbus-grpc
+        if: "!cancelled()"
+        working-directory: packages/eventbus-ruby
+        run: |
+          gem build eventbus-grpc.gemspec
+          gem push eventbus-grpc-*.gem

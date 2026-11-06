@@ -27,3 +27,12 @@ jobs:
             sleep 30
           done
           echo 'kafka-grpc publish did not succeed' >&2; exit 1
+      - name: Publish eventbus-grpc (retry while the index catches up)
+        if: "!cancelled()"
+        working-directory: packages/eventbus-rust
+        run: |
+          for i in $(seq 1 20); do
+            cargo publish --token ${{ steps.auth.outputs.token }} && exit 0
+            sleep 30
+          done
+          echo 'eventbus-grpc publish did not succeed' >&2; exit 1

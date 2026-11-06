@@ -31,5 +31,7 @@ jobs:
           for i in $(seq 1 40); do curl -sf https://api.nuget.org/v3-flatcontainer/grpcdc/index.json | grep -q "\"$V\"" && exit 0; sleep 15; done; echo 'GrpcDc not indexed in time' >&2; exit 1
       - name: Pack KafkaGrpc
         run: dotnet pack packages/kafka-csharp/KafkaGrpc.csproj -c Release -o /tmp/nuget
+      - name: Pack EventBusGrpc
+        run: dotnet pack packages/eventbus-csharp/EventBusGrpc.csproj -c Release -o /tmp/nuget
       - name: Push to nuget.org
         run: dotnet nuget push /tmp/nuget/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
