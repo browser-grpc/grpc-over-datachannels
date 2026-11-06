@@ -503,13 +503,18 @@ echo "release asset: grpc-dc-$VERSION.zip + SHA256SUMS uploaded"
 #     failures are loud notes, never a failed release.
 # ------------------------------------------------------------------
 NPM_OK="${NPM_OK:-0}"; PYPI_OK="${PYPI_OK:-0}"
-NUGET_OK=0; MAVEN_OK=0; MAVEN_GH_OK=0
+NUGET_OK=0; MAVEN_OK=0; MAVEN_GH_OK=0; PUBDEV_OK=0; CRATES_OK=0; RUBYGEMS_OK=0
 for wf in publish-npm publish-nuget publish-maven publish-maven-github publish-pubdev publish-crates publish-rubygems; do
   if [ "$wf" = publish-maven ] && [ "${SKIP_CENTRAL:-}" = 1 ]; then
     echo "note: Maven Central dispatch skipped (SKIP_CENTRAL=1); sync Central in its weekly slot"
     continue
   fi
-  if gh workflow run "$wf.yml" --repo "$REPO" >/dev/null 2>&1; then
+  # pub.dev automated publishing only accepts OIDC tokens issued
+  # for a git tag matching v{{version}}; dispatch from the release
+  # tag (created above), not the default branch.
+  REF_ARGS=""
+  [ "$wf" = publish-pubdev ] && REF_ARGS="--ref $VERSION"
+  if gh workflow run "$wf.yml" --repo "$REPO" $REF_ARGS >/dev/null 2>&1; then
     sleep 5
     RUN_ID="$(gh run list --repo "$REPO" --workflow "$wf.yml" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)"
     if [ -n "$RUN_ID" ] && gh run watch "$RUN_ID" --repo "$REPO" --exit-status >/dev/null 2>&1; then
@@ -518,6 +523,9 @@ for wf in publish-npm publish-nuget publish-maven publish-maven-github publish-p
       [ "$wf" = publish-nuget ] && NUGET_OK=1
       [ "$wf" = publish-maven ] && MAVEN_OK=1
       [ "$wf" = publish-maven-github ] && MAVEN_GH_OK=1
+      [ "$wf" = publish-pubdev ] && PUBDEV_OK=1
+      [ "$wf" = publish-crates ] && CRATES_OK=1
+      [ "$wf" = publish-rubygems ] && RUBYGEMS_OK=1
     else
       echo "note: registry workflow $wf did not succeed (run ${RUN_ID:-unknown}); continuing"
     fi
@@ -542,6 +550,9 @@ if [ -f CHANGELOG.md ] && git rev-parse --git-dir >/dev/null 2>&1 \
   [ "$NUGET_OK" = 1 ] && CHANNELS="$CHANNELS/NuGet"
   [ "$MAVEN_OK" = 1 ] && CHANNELS="$CHANNELS/Maven Central"
   [ "$MAVEN_GH_OK" = 1 ] && CHANNELS="$CHANNELS/GitHub Maven"
+  [ "$PUBDEV_OK" = 1 ] && CHANNELS="$CHANNELS/pub.dev"
+  [ "$CRATES_OK" = 1 ] && CHANNELS="$CHANNELS/crates.io"
+  [ "$RUBYGEMS_OK" = 1 ] && CHANNELS="$CHANNELS/RubyGems"
   sed -i "s|^## $VERSION — \(.*\)|## $VERSION — \1 (published to $CHANNELS)|" CHANGELOG.md
   git add CHANGELOG.md
   if git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \

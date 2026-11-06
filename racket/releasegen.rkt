@@ -512,23 +512,32 @@
       "        run: dotnet nuget push /tmp/nuget/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate\n")
      out)))
 
-;; pub.dev (Dart/Flutter): manual-dispatch workflow publishing
-;; packages/grpc-dart (grpc_dc) then packages/kafka-dart
-;; (kafka_grpc) via pub.dev automated publishing (GitHub OIDC,
-;; no stored token). Requires automated publishing enabled for
-;; both packages on pub.dev (repo browser-grpc/grpc-over-
-;; datachannels, workflow publish-pubdev.yml); the first
-;; versions were published interactively. See the packages'
-;; pubspec.yaml files under packages/.
+;; pub.dev (Dart/Flutter): workflow publishing packages/grpc-dart
+;; (grpc_dc) then packages/kafka-dart (kafka_grpc) via pub.dev
+;; automated publishing (GitHub OIDC, no stored token). Requires
+;; automated publishing enabled for both packages on pub.dev
+;; (repo browser-grpc/grpc-over-datachannels, tag pattern
+;; v{{version}}, workflow_dispatch allowed). pub.dev rejects
+;; branch-ref OIDC tokens, so release-push.sh dispatches this
+;; workflow with --ref set to the release tag; the first versions
+;; were published interactively. See the packages' pubspec.yaml
+;; files under packages/.
 (call-with-output-file (build-path out-dir ".github/workflows/publish-pubdev.yml")
   #:exists 'replace
   (lambda (out)
     (display
      (string-append
       "# Publish the grpc_dc and kafka_grpc pub.dev packages via\n"
-      "# pub.dev automated publishing (OIDC). Manual dispatch\n"
-      "# only. Requires automated publishing configured for both\n"
-      "# packages on pub.dev (this repo + this workflow file).\n"
+      "# pub.dev automated publishing (OIDC). pub.dev only accepts\n"
+      "# OIDC tokens issued for a git tag matching the configured\n"
+      "# tag pattern (v{{version}}), so dispatch this workflow\n"
+      "# from the release tag ref (scripts/release-push.sh does:\n"
+      "# gh workflow run publish-pubdev.yml --ref vX.Y.Z); a\n"
+      "# branch-ref dispatch is rejected by pub.dev. Each publish\n"
+      "# step is idempotent (skips when the pubspec version is\n"
+      "# already the latest on pub.dev), and the grpc_dc step\n"
+      "# waits until the new version is visible in the pub.dev\n"
+      "# API before kafka_grpc (which depends on it) publishes.\n"
       "name: publish-pubdev\n"
       "on: workflow_dispatch\n"
       "permissions:\n"
@@ -540,11 +549,32 @@
       "    steps:\n"
       "      - uses: actions/checkout@v4\n"
       "      - uses: dart-lang/setup-dart@v1\n"
-      "      - working-directory: packages/grpc-dart\n"
-      "        run: dart pub publish --force\n"
+      "      - name: Publish grpc_dc\n"
+      "        working-directory: packages/grpc-dart\n"
+      "        run: |\n"
+      "          VER=$(sed -n 's/^version: //p' pubspec.yaml)\n"
+      "          latest() { curl -sf https://pub.dev/api/packages/grpc_dc | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"latest\"][\"version\"])'; }\n"
+      "          if [ \"$(latest)\" = \"$VER\" ]; then\n"
+      "            echo \"grpc_dc $VER already on pub.dev; skipping\"\n"
+      "          else\n"
+      "            dart pub publish --force\n"
+      "          fi\n"
+      "          for i in $(seq 1 30); do\n"
+      "            [ \"$(latest)\" = \"$VER\" ] && break\n"
+      "            sleep 20\n"
+      "          done\n"
+      "          [ \"$(latest)\" = \"$VER\" ]\n"
       "      - if: \"!cancelled()\"\n"
+      "        name: Publish kafka_grpc\n"
       "        working-directory: packages/kafka-dart\n"
-      "        run: dart pub publish --force\n")
+      "        run: |\n"
+      "          VER=$(sed -n 's/^version: //p' pubspec.yaml)\n"
+      "          LATEST=$(curl -sf https://pub.dev/api/packages/kafka_grpc | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"latest\"][\"version\"])')\n"
+      "          if [ \"$LATEST\" = \"$VER\" ]; then\n"
+      "            echo \"kafka_grpc $VER already on pub.dev; skipping\"\n"
+      "          else\n"
+      "            dart pub publish --force\n"
+      "          fi\n")
      out)))
 
 ;; crates.io: manual-dispatch workflow publishing
