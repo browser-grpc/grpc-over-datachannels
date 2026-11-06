@@ -254,6 +254,18 @@ The Rust crate is layered so the protocol core runs with no OS:
   every ACK re-arms the clock. Pure frame-in/frame-out state
   machines; the target supplies the NIC driver below Ethernet
   and ARP routing is local-subnet only.
+- **Raw Ethernet gRPC framing** (`EthFraming` in `net.rs`):
+  whole grpc-dc wire messages travel directly in Ethernet II
+  frames (EtherType `0x88B5`, IEEE 802 Local Experimental 1), so
+  a bare-metal target with only a NIC driver runs generated
+  clients/servers with no IP/UDP/ICE at all. Messages fragment
+  into 1491-byte chunks (magic, message sequence, byte offset,
+  last-fragment flag) and reassemble in order; point-to-point
+  only, and a lost fragment drops its message (resync on the
+  next), like a serial link. The generated Rust runtime ships it
+  as the `EthDc` `DcTransport` (webrtc feature) over any
+  `EthFramePort`; `dc-webrtc`'s `RawEthernetPort` is the virtual-
+  cable implementation used by the tests.
 - **IPv6 beside IPv4** (`IpStack6`): NDP neighbour discovery,
   ICMPv6 echo, UDP/6, EUI-64/SLAAC addresses, Router
   Solicitation/Advertisement (an RA installs the sender as
