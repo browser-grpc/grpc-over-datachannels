@@ -1,0 +1,23 @@
+# Publish @browser-grpc/grpc-dc and @browser-grpc/kafka-grpc
+# to JSR via OIDC. Manual dispatch only. Requires both
+# packages linked to this repo on jsr.io.
+name: publish-jsr
+on: workflow_dispatch
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Publish grpc-dc
+        working-directory: js
+        run: npx -y jsr publish --allow-slow-types
+      - name: Publish kafka-grpc
+        if: "!cancelled()"
+        working-directory: packages/kafka-js
+        run: npx -y jsr publish --allow-slow-types

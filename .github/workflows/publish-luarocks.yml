@@ -1,0 +1,23 @@
+# Publish the grpc-dc and kafka-grpc rocks via LuaRocks
+# (luarocks upload). Manual dispatch only. Requires the
+# LUAROCKS_API_KEY repo secret (luarocks.org account key).
+name: publish-luarocks
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.4"
+      - uses: leafo/gh-actions-luarocks@v4
+      - name: Upload grpc-dc
+        working-directory: packages/grpc-lua
+        run: luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} grpc-dc-*.rockspec
+      - name: Upload kafka-grpc
+        if: "!cancelled()"
+        working-directory: packages/kafka-lua
+        run: luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} kafka-grpc-*.rockspec
