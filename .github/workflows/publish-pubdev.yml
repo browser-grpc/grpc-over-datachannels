@@ -40,7 +40,7 @@ jobs:
         working-directory: packages/kafka-dart
         run: |
           VER=$(sed -n 's/^version: //p' pubspec.yaml)
-          LATEST=$(curl -sf https://pub.dev/api/packages/kafka_grpc | python3 -c 'import json,sys; print(json.load(sys.stdin)["latest"]["version"])')
+          LATEST=$(curl -sf https://pub.dev/api/packages/kafka_grpc | python3 -c 'import json,sys; print(json.load(sys.stdin)["latest"]["version"])' || echo none)
           if [ "$LATEST" = "$VER" ]; then
             echo "kafka_grpc $VER already on pub.dev; skipping"
           else
@@ -51,7 +51,7 @@ jobs:
         working-directory: packages/eventbus-dart
         run: |
           VER=$(sed -n 's/^version: //p' pubspec.yaml)
-          LATEST=$(curl -sf https://pub.dev/api/packages/eventbus_grpc | python3 -c 'import json,sys; print(json.load(sys.stdin)["latest"]["version"])')
+          LATEST=$(curl -sf https://pub.dev/api/packages/eventbus_grpc | python3 -c 'import json,sys; print(json.load(sys.stdin)["latest"]["version"])' || echo none)
           if [ "$LATEST" = "$VER" ]; then
             echo "eventbus_grpc $VER already on pub.dev; skipping"
           else
