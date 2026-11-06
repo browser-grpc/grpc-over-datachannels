@@ -16,8 +16,7 @@ dependencies = {
 build = {
   type = "builtin",
   modules = {
-    ["events_messages"] = "lua/examples/events_messages.lua",
-    ["examples.events_messages"] = "lua/examples/events_messages.lua",
-    ["events_grpc_dc"] = "lua/examples/events_grpc_dc.lua",
+    ["events_messages"] = "packages/eventbus-lua/events_messages.lua",
+    ["events_grpc_dc"] = "packages/eventbus-lua/events_grpc_dc.lua",
   },
 }
