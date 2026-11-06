@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.38.0 — 2026-11-05 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven)
+## v0.38.0 — 2026-11-05 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems)
 
 Registry channels: every prior channel moves to 0.38.0, and
 the three channels first published at 0.37.1 on 2026-11-05
