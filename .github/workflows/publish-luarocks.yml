@@ -34,3 +34,10 @@ jobs:
           VER=$(basename kafka-grpc-*.rockspec .rockspec | sed 's/^kafka-grpc-//')
           luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} kafka-grpc-*.rockspec || true
           curl -sf https://luarocks.org/modules/unicomp21/kafka-grpc | grep -q "$VER"
+      - name: Upload eventbus-grpc
+        if: "!cancelled()"
+        working-directory: packages/eventbus-lua
+        run: |
+          VER=$(basename eventbus-grpc-*.rockspec .rockspec | sed 's/^eventbus-grpc-//')
+          luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} eventbus-grpc-*.rockspec || true
+          curl -sf https://luarocks.org/modules/unicomp21/eventbus-grpc | grep -q "$VER"
