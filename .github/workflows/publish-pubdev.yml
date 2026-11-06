@@ -1,7 +1,14 @@
 # Publish the grpc_dc and kafka_grpc pub.dev packages via
-# pub.dev automated publishing (OIDC). Manual dispatch
-# only. Requires automated publishing configured for both
-# packages on pub.dev (this repo + this workflow file).
+# pub.dev automated publishing (OIDC). pub.dev only accepts
+# OIDC tokens issued for a git tag matching the configured
+# tag pattern (v{{version}}), so dispatch this workflow
+# from the release tag ref (scripts/release-push.sh does:
+# gh workflow run publish-pubdev.yml --ref vX.Y.Z); a
+# branch-ref dispatch is rejected by pub.dev. Each publish
+# step is idempotent (skips when the pubspec version is
+# already the latest on pub.dev), and the grpc_dc step
+# waits until the new version is visible in the pub.dev
+# API before kafka_grpc (which depends on it) publishes.
 name: publish-pubdev
 on: workflow_dispatch
 permissions:
@@ -13,8 +20,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
-      - working-directory: packages/grpc-dart
-        run: dart pub publish --force
+      - name: Publish grpc_dc
+        working-directory: packages/grpc-dart
+        run: |
+          VER=$(sed -n 's/^version: //p' pubspec.yaml)
+          latest() { curl -sf https://pub.dev/api/packages/grpc_dc | python3 -c 'import json,sys; print(json.load(sys.stdin)["latest"]["version"])'; }
+          if [ "$(latest)" = "$VER" ]; then
+            echo "grpc_dc $VER already on pub.dev; skipping"
+          else
+            dart pub publish --force
+          fi
+          for i in $(seq 1 30); do
+            [ "$(latest)" = "$VER" ] && break
+            sleep 20
+          done
+          [ "$(latest)" = "$VER" ]
       - if: "!cancelled()"
+        name: Publish kafka_grpc
         working-directory: packages/kafka-dart
-        run: dart pub publish --force
+        run: |
+          VER=$(sed -n 's/^version: //p' pubspec.yaml)
+          LATEST=$(curl -sf https://pub.dev/api/packages/kafka_grpc | python3 -c 'import json,sys; print(json.load(sys.stdin)["latest"]["version"])')
+          if [ "$LATEST" = "$VER" ]; then
+            echo "kafka_grpc $VER already on pub.dev; skipping"
+          else
+            dart pub publish --force
+          fi
