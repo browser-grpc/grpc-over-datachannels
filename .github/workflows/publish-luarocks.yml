@@ -18,8 +18,19 @@ jobs:
         run: luarocks install lua-cjson
       - name: Upload grpc-dc
         working-directory: packages/grpc-lua
-        run: luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} grpc-dc-*.rockspec
+        run: |
+          # luarocks upload also tries to hand the server a
+          # locally packed src.rock and exits 1 when the
+          # server builds that rock from the git source
+          # itself (repeated dispatch: 'revision already
+          # exists'). Judge by registry state instead.
+          VER=$(basename grpc-dc-*.rockspec .rockspec | sed 's/^grpc-dc-//')
+          luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} grpc-dc-*.rockspec || true
+          curl -sf https://luarocks.org/modules/unicomp21/grpc-dc | grep -q "$VER"
       - name: Upload kafka-grpc
         if: "!cancelled()"
         working-directory: packages/kafka-lua
-        run: luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} kafka-grpc-*.rockspec
+        run: |
+          VER=$(basename kafka-grpc-*.rockspec .rockspec | sed 's/^kafka-grpc-//')
+          luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} kafka-grpc-*.rockspec || true
+          curl -sf https://luarocks.org/modules/unicomp21/kafka-grpc | grep -q "$VER"
