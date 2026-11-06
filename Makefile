@@ -1119,7 +1119,7 @@ test-webrtc-matrix:
 test-stress-ports:
 	python3 scripts/stress_ports.py
 
-test: check-generated test-racket compat test-schema-shapes test-rust test-rust-nostd test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-c test-c-cross test-lua test-ruby test-php test-scala test-webrtc-rust test-iot test-webrtc-js test-proxy test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-live-stun-ci test-kafka
+test: check-generated test-racket compat test-schema-shapes test-rust test-rust-nostd test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-c test-c-cross test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-live-stun-ci test-kafka
 
 ## Kafka proxy end-to-end (rust/python/js/go clients through the
 ## Rust kafka_proxy against Apache Kafka + Redpanda fixtures;

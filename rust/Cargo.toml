@@ -47,6 +47,11 @@ name = "direct_echo"
 path = "examples/direct_echo.rs"
 required-features = ["webrtc"]
 
+[[example]]
+name = "eth_echo"
+path = "examples/eth_echo.rs"
+required-features = ["webrtc"]
+
 # wasm32: the browser event loop replaces the Tokio executor (see
 # grpc_dc::spawn_task); tokio contributes only its sync primitives,
 # the subset tokio supports on wasm.
