@@ -16,7 +16,8 @@ dependencies = {
 build = {
   type = "builtin",
   modules = {
-    ["kafka_messages"] = "packages/kafka-lua/kafka_messages.lua",
-    ["kafka_grpc_dc"] = "packages/kafka-lua/kafka_grpc_dc.lua",
+    ["kafka_messages"] = "lua/examples/kafka_messages.lua",
+    ["examples.kafka_messages"] = "lua/examples/kafka_messages.lua",
+    ["kafka_grpc_dc"] = "lua/examples/kafka_grpc_dc.lua",
   },
 }
