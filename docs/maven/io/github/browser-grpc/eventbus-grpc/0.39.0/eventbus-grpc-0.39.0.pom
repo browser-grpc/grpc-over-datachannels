@@ -1,0 +1,20 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>io.github.browser-grpc</groupId>
+  <artifactId>eventbus-grpc</artifactId>
+  <version>0.39.0</version>
+  <name>eventbus-grpc</name>
+  <description>Event bus over gRPC — generated grpcdc.events.v1 publish/subscribe clients over WebRTC DataChannels, via the grpc-dc runtime (Java).</description>
+  <url>https://github.com/browser-grpc/grpc-over-datachannels</url>
+  <licenses><license><name>Apache-2.0</name></license></licenses>
+  <developers><developer><id>unicomp21</id><name>John Davis</name><email>jdavis@pcprogramming.com</email></developer></developers>
+  <scm><connection>scm:git:https://github.com/browser-grpc/grpc-over-datachannels.git</connection><developerConnection>scm:git:https://github.com/browser-grpc/grpc-over-datachannels.git</developerConnection><url>https://github.com/browser-grpc/grpc-over-datachannels</url></scm>
+  <properties><maven.compiler.release>17</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>
+  <dependencies><dependency><groupId>io.github.browser-grpc</groupId><artifactId>grpc-dc</artifactId><version>0.39.0</version></dependency></dependencies>
+  <build><sourceDirectory>${project.basedir}</sourceDirectory><plugins>
+    <plugin><artifactId>maven-source-plugin</artifactId><version>3.3.1</version><executions><execution><id>attach-sources</id><goals><goal>jar-no-fork</goal></goals></execution></executions></plugin>
+    <plugin><artifactId>maven-javadoc-plugin</artifactId><version>3.10.0</version><configuration><additionalOptions><additionalOption>-Xdoclint:none</additionalOption></additionalOptions><quiet>true</quiet></configuration><executions><execution><id>attach-javadocs</id><goals><goal>jar</goal></goals></execution></executions></plugin>
+    <plugin><groupId>org.sonatype.central</groupId><artifactId>central-publishing-maven-plugin</artifactId><version>0.8.0</version><extensions>true</extensions><configuration><publishingServerId>central</publishingServerId><autoPublish>true</autoPublish><waitUntil>published</waitUntil></configuration></plugin>
+  </plugins></build>
+  <profiles><profile><id>release</id><build><plugins><plugin><artifactId>maven-gpg-plugin</artifactId><version>3.2.7</version><executions><execution><id>sign-artifacts</id><phase>verify</phase><goals><goal>sign</goal></goals></execution></executions><configuration><gpgArguments><arg>--pinentry-mode</arg><arg>loopback</arg></gpgArguments></configuration></plugin></plugins></build></profile></profiles>
+</project>
