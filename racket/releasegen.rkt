@@ -694,13 +694,26 @@
       "        with:\n"
       "          luaVersion: \"5.4\"\n"
       "      - uses: leafo/gh-actions-luarocks@v4\n"
+      "      - name: JSON library for luarocks upload\n"
+      "        run: luarocks install lua-cjson\n"
       "      - name: Upload grpc-dc\n"
       "        working-directory: packages/grpc-lua\n"
-      "        run: luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} grpc-dc-*.rockspec\n"
+      "        run: |\n"
+      "          # luarocks upload also tries to hand the server a\n"
+      "          # locally packed src.rock and exits 1 when the\n"
+      "          # server builds that rock from the git source\n"
+      "          # itself (repeated dispatch: 'revision already\n"
+      "          # exists'). Judge by registry state instead.\n"
+      "          VER=$(basename grpc-dc-*.rockspec .rockspec | sed 's/^grpc-dc-//')\n"
+      "          luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} grpc-dc-*.rockspec || true\n"
+      "          curl -sf https://luarocks.org/modules/unicomp21/grpc-dc | grep -q \"$VER\"\n"
       "      - name: Upload kafka-grpc\n"
       "        if: \"!cancelled()\"\n"
       "        working-directory: packages/kafka-lua\n"
-      "        run: luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} kafka-grpc-*.rockspec\n")
+      "        run: |\n"
+      "          VER=$(basename kafka-grpc-*.rockspec .rockspec | sed 's/^kafka-grpc-//')\n"
+      "          luarocks upload --api-key ${{ secrets.LUAROCKS_API_KEY }} kafka-grpc-*.rockspec || true\n"
+      "          curl -sf https://luarocks.org/modules/unicomp21/kafka-grpc | grep -q \"$VER\"\n")
      out)))
 
 ;; JSR (Deno): manual-dispatch workflow publishing js/ as
@@ -3010,10 +3023,9 @@
 ;; LuaRocks (canonical): packages/grpc-lua and packages/kafka-lua
 ;; hold rockspecs whose source is this repo at the release tag;
 ;; LuaRocks fetches the tag and installs the module files from
-;; lua/grpcdc (resp. the kafka stubs) per the builtin build
-;; table. The kafka_grpc_dc copy here rewrites its stub require
-;; from the test-tree name (examples.kafka_messages) to the
-;; installed module name (kafka_messages). Publishing is
+;; lua/grpcdc (resp. the kafka stubs in lua/examples, which are
+;; in every tagged tree) per the builtin build table.
+;; Publishing is
 ;; `luarocks upload` with an account API key (secret
 ;; LUAROCKS_API_KEY in the publish-luarocks workflow); there is
 ;; no OIDC path on LuaRocks.
@@ -3073,8 +3085,12 @@
   (rockspec
    "kafka-grpc"
    "Kafka over gRPC for Lua: generated grpcdc.kafka.v1 clients (produce/consume/groups/topics)"
-   '(("kafka_messages" . "packages/kafka-lua/kafka_messages.lua")
-     ("kafka_grpc_dc" . "packages/kafka-lua/kafka_grpc_dc.lua"))
+   ;; The stubs live in lua/examples in every tagged tree, and
+   ;; kafka_grpc_dc requires them as examples.kafka_messages;
+   ;; register both module names for the same file.
+   '(("kafka_messages" . "lua/examples/kafka_messages.lua")
+     ("examples.kafka_messages" . "lua/examples/kafka_messages.lua")
+     ("kafka_grpc_dc" . "lua/examples/kafka_grpc_dc.lua"))
    (list "lua >= 5.4" (string-append "grpc-dc >= " npm-version))))
 (emit-lua-pub "kafka-lua/README.md"
   (string-append
@@ -3083,16 +3099,6 @@
    "groups/topics) over the `grpc-dc` runtime. Install:\n"
    "`luarocks install kafka-grpc`, then\n"
    "`require(\"kafka_grpc_dc\")`.\n"))
-(define (copy-lua-kafka src-rel dest-rel rewrite?)
-  (define src (build-path out-dir src-rel))
-  (when (file-exists? src)
-    (define text (file->string src))
-    (emit-lua-pub dest-rel
-                  (if rewrite?
-                      (string-replace text "examples.kafka_messages" "kafka_messages")
-                      text))))
-(copy-lua-kafka "lua/examples/kafka_messages.lua" "kafka-lua/kafka_messages.lua" #f)
-(copy-lua-kafka "lua/examples/kafka_grpc_dc.lua" "kafka-lua/kafka_grpc_dc.lua" #t)
 (call-with-output-file (build-path out-dir "GITHUB-PACKAGES.md")
   #:exists 'replace
   (lambda (out)
