@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../grpcdc/Grpcdc.csproj" />
+    <ProjectReference Include="../../events/EventBusGrpc.csproj" />
   </ItemGroup>
 </Project>

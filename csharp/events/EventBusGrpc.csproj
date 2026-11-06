@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>EventBusGrpc</AssemblyName>
+    <RootNamespace>Grpcdc.events.v1</RootNamespace>
+    <PackageId>EventBusGrpc</PackageId>
+    <Authors>John Davis</Authors>
+    <Description>Event bus over gRPC for .NET (net8.0 + netstandard2.0) — generated grpcdc.events.v1 publish/subscribe clients over the grpc-dc runtime</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/browser-grpc/grpc-over-datachannels</RepositoryUrl>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../grpcdc/Grpcdc.csproj" />
+    <Compile Include="../grpcdc/events/v1/*.cs" LinkBase="events/v1" />
+  </ItemGroup>
+</Project>

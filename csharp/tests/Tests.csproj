@@ -10,5 +10,6 @@
   <ItemGroup>
     <ProjectReference Include="../examples/Examples.csproj" />
     <ProjectReference Include="../kafka/KafkaGrpc.csproj" />
+    <ProjectReference Include="../events/EventBusGrpc.csproj" />
   </ItemGroup>
 </Project>

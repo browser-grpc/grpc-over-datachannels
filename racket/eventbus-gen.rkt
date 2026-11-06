@@ -7285,6 +7285,7 @@ TPL
    "  </PropertyGroup>\n"
    "  <ItemGroup>\n"
    "    <ProjectReference Include=\"../../grpcdc/Grpcdc.csproj\" />\n"
+   "    <ProjectReference Include=\"../../events/EventBusGrpc.csproj\" />\n"
    "  </ItemGroup>\n"
    "</Project>\n"))
 
