@@ -6,7 +6,12 @@
 //! association keeps TSN-window/SACK bookkeeping; this type
 //! owns per-stream partials, completion, and SSN ordering.
 
+#[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::collections::BTreeMap as HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 pub struct SctpDelivery {
     pub stream: u16,

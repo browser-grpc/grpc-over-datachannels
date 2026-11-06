@@ -9,7 +9,7 @@ this crate is the runtime those stubs call.
 
 ```toml
 [dependencies]
-grpc-dc = "0.38.0"
+grpc-dc = "0.39.0"
 ```
 
 Features: `prost` (prost messages implement the runtime's

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 /// Server: dispatches inbound calls to registered methods.
 public final class Server {
+    public init() {}
+
     public static let KindUnary = "unary"
     public static let KindServerStreaming = "server-streaming"
     public static let KindClientStreaming = "client-streaming"
@@ -51,11 +53,23 @@ public final class Server {
         public var path: String
         public var kind: String
         public var handler: MethodHandler
+
+        public init(name: String, path: String, kind: String, handler: @escaping MethodHandler) {
+            self.name = name
+            self.path = path
+            self.kind = kind
+            self.handler = handler
+        }
     }
 
     public struct ServiceDesc {
         public var name: String
         public var methods: [Method]
+
+        public init(name: String, methods: [Method]) {
+            self.name = name
+            self.methods = methods
+        }
     }
 
     /// Method table shared with the dispatcher closure, so registered

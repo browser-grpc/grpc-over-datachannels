@@ -1,6 +1,6 @@
 [package]
 name = "grpc-dc"
-version = "0.38.0"
+version = "0.39.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "gRPC over WebRTC DataChannels: dependency-free generated Rust runtime, client and server, all four call shapes, over a single RTCDataChannel."

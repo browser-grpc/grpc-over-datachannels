@@ -55,6 +55,121 @@ pub fn ethernet_frame(dst: MacAddr, src: MacAddr, ethertype: u16, payload: &[u8]
     frame
 }
 
+/// EtherType carrying grpc-dc wire messages directly in Ethernet
+/// frames (no IP/UDP/ICE): IEEE 802 Local Experimental EtherType 1,
+/// for point-to-point embedded links where the target supplies only
+/// a NIC driver below Ethernet. See [`EthFraming`].
+pub const ETHERTYPE_GRPC_DC: u16 = 0x88B5;
+
+/// Magic prefix of an [`EthFraming`] payload ("GD").
+const ETH_FRAMING_MAGIC: u16 = 0x4744;
+
+/// Largest payload one Ethernet frame carries here: the standard
+/// 1500-byte Ethernet payload minus the 9-byte framing header.
+const ETH_FRAMING_CHUNK: usize = 1500 - 9;
+
+/// Message framing over raw Ethernet II frames: one grpc-dc wire
+/// message (which may far exceed one frame) is split into chunks
+/// carrying (magic, message sequence, byte offset, last-fragment
+/// flag); the receiver reassembles in order. Pure frame-in/
+/// frame-out state machine, like the stacks below.
+///
+/// Deliberate limits (documented, not silent): point-to-point only
+/// (one peer MAC), in-order delivery assumed — a lost or reordered
+/// fragment drops the message being reassembled and resynchronizes
+/// on the next message, exactly as a dropped byte would break a
+/// serial link. Reliability, if wanted, belongs to the layers
+/// above (or to the DataChannel path over ICE/DTLS/SCTP).
+pub struct EthFraming {
+    local: MacAddr,
+    peer: MacAddr,
+    tx_seq: u16,
+    rx_seq: Option<u16>,
+    rx_buf: Vec<u8>,
+}
+
+impl EthFraming {
+    pub fn new(local: MacAddr, peer: MacAddr) -> Self {
+        Self { local, peer, tx_seq: 0, rx_seq: None, rx_buf: Vec::new() }
+    }
+
+    /// Fragment one whole message into Ethernet frames appended to
+    /// `out` (each at most 1514 bytes before padding/FCS, which are
+    /// the NIC driver's business).
+    pub fn encode(&mut self, msg: &[u8], out: &mut Vec<Vec<u8>>) {
+        let seq = self.tx_seq;
+        self.tx_seq = self.tx_seq.wrapping_add(1);
+        if msg.is_empty() {
+            out.push(self.frame(seq, 0, true, &[]));
+            return;
+        }
+        let mut offset = 0usize;
+        while offset < msg.len() {
+            let end = (offset + ETH_FRAMING_CHUNK).min(msg.len());
+            out.push(self.frame(seq, offset as u32, end == msg.len(), &msg[offset..end]));
+            offset = end;
+        }
+    }
+
+    fn frame(&self, seq: u16, offset: u32, last: bool, chunk: &[u8]) -> Vec<u8> {
+        let mut payload = Vec::with_capacity(9 + chunk.len());
+        payload.extend_from_slice(&ETH_FRAMING_MAGIC.to_be_bytes());
+        payload.extend_from_slice(&seq.to_be_bytes());
+        payload.extend_from_slice(&offset.to_be_bytes());
+        payload.push(if last { 1 } else { 0 });
+        payload.extend_from_slice(chunk);
+        ethernet_frame(self.peer, self.local, ETHERTYPE_GRPC_DC, &payload)
+    }
+
+    /// Feed one inbound Ethernet frame; returns the whole message
+    /// once its last fragment lands, `None` while reassembling (or
+    /// for frames that are not ours).
+    pub fn input(&mut self, frame: &[u8]) -> Option<Vec<u8>> {
+        let (dst, src, ethertype, payload) = ethernet_parse(frame)?;
+        if ethertype != ETHERTYPE_GRPC_DC || src != self.peer {
+            return None;
+        }
+        if dst != self.local && dst != BROADCAST_MAC {
+            return None;
+        }
+        if payload.len() < 9 || u16::from_be_bytes([payload[0], payload[1]]) != ETH_FRAMING_MAGIC {
+            return None;
+        }
+        let seq = u16::from_be_bytes([payload[2], payload[3]]);
+        let offset = u32::from_be_bytes([payload[4], payload[5], payload[6], payload[7]]) as usize;
+        let last = payload[8] & 1 != 0;
+        let chunk = &payload[9..];
+        match self.rx_seq {
+            Some(cur) if cur == seq => {
+                if offset != self.rx_buf.len() {
+                    // Gap or duplicate: drop the partial message and
+                    // resynchronize on the next sequence.
+                    self.rx_seq = None;
+                    self.rx_buf.clear();
+                    return None;
+                }
+            }
+            _ => {
+                if offset != 0 {
+                    // Joined mid-message; wait for a fresh start.
+                    self.rx_seq = None;
+                    self.rx_buf.clear();
+                    return None;
+                }
+                self.rx_seq = Some(seq);
+                self.rx_buf.clear();
+            }
+        }
+        self.rx_buf.extend_from_slice(chunk);
+        if last {
+            self.rx_seq = None;
+            Some(core::mem::take(&mut self.rx_buf))
+        } else {
+            None
+        }
+    }
+}
+
 /// Parse an Ethernet II header: (dst, src, ethertype, payload).
 pub fn ethernet_parse(frame: &[u8]) -> Option<(MacAddr, MacAddr, u16, &[u8])> {
     if frame.len() < 14 {

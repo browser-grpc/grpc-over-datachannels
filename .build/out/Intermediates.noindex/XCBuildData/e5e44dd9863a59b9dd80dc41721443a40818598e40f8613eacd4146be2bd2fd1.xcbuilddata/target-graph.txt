@@ -1,7 +1,0 @@
-Target dependency graph (3 targets)
-Target 'AllExcludingTests' in project 'Aggregate'
-➜ Explicit dependency on target 'GrpcDc-product' in project 'grpc-over-datachannels'
-➜ Explicit dependency on target 'Grpcdc' in project 'grpc-over-datachannels'
-Target 'GrpcDc-product' in project 'grpc-over-datachannels'
-➜ Explicit dependency on target 'Grpcdc' in project 'grpc-over-datachannels'
-Target 'Grpcdc' in project 'grpc-over-datachannels' (no dependencies)

@@ -77,3 +77,88 @@ impl DcTransport for InboxDc {
         rx.recv().await.map(Ok)
     }
 }
+
+/// One raw Ethernet port: the only NIC-driver seam of [`EthDc`].
+/// `dc_webrtc::net::RawEthernetPort` (the virtual cable) implements
+/// it; an embedded target implements it over its NIC driver
+/// (blocking `recv_frame` with a timeout, `None` on expiry).
+#[cfg(feature = "webrtc")]
+pub trait EthFramePort: Send + Sync {
+    /// Put one whole Ethernet II frame on the wire.
+    fn send_frame(&self, frame: Vec<u8>);
+    /// Next inbound frame; `None` on timeout.
+    fn recv_frame(&self, timeout: std::time::Duration) -> Option<Vec<u8>>;
+}
+
+#[cfg(feature = "webrtc")]
+impl EthFramePort for dc_webrtc::net::RawEthernetPort {
+    fn send_frame(&self, frame: Vec<u8>) {
+        dc_webrtc::net::RawEthernetPort::send_frame(self, frame)
+    }
+    fn recv_frame(&self, timeout: std::time::Duration) -> Option<Vec<u8>> {
+        dc_webrtc::net::RawEthernetPort::recv_frame(self, timeout)
+    }
+}
+
+/// `DcTransport` over raw Ethernet framing (EtherType 0x88B5,
+/// `dc_webrtc::net::EthFraming`): whole wire messages travel
+/// directly in Ethernet II frames to one peer MAC — no IP, UDP, or
+/// ICE — for bare-metal targets whose only network surface is a
+/// NIC driver. A background thread pumps inbound frames into the
+/// message queue; a lost fragment drops its message (see
+/// `EthFraming` for the documented reliability limits).
+#[cfg(feature = "webrtc")]
+pub struct EthDc {
+    framing: std::sync::Mutex<dc_webrtc::net::EthFraming>,
+    port: Arc<dyn EthFramePort>,
+    rx: Mutex<mpsc::Receiver<Bytes>>,
+}
+
+#[cfg(feature = "webrtc")]
+impl EthDc {
+    pub fn new(
+        local: dc_webrtc::net::MacAddr,
+        peer: dc_webrtc::net::MacAddr,
+        port: Arc<dyn EthFramePort>,
+    ) -> Arc<Self> {
+        let (tx, rx) = mpsc::channel(LOOPBACK_CAPACITY);
+        let framing = std::sync::Mutex::new(dc_webrtc::net::EthFraming::new(local, peer));
+        let shared = Arc::new(EthDc { framing, port, rx: Mutex::new(rx) });
+        let pump = shared.clone();
+        std::thread::spawn(move || loop {
+            match pump.port.recv_frame(std::time::Duration::from_millis(50)) {
+                Some(frame) => {
+                    let msg = pump.framing.lock().unwrap().input(&frame);
+                    if let Some(msg) = msg {
+                        if tx.blocking_send(Bytes::from(msg)).is_err() {
+                            return;
+                        }
+                    }
+                }
+                None => {
+                    if tx.is_closed() {
+                        return;
+                    }
+                }
+            }
+        });
+        shared
+    }
+}
+
+#[cfg(feature = "webrtc")]
+#[async_trait]
+impl DcTransport for EthDc {
+    async fn send(&self, msg: Bytes) -> Result<(), Status> {
+        let mut frames = Vec::new();
+        self.framing.lock().unwrap().encode(&msg, &mut frames);
+        for frame in frames {
+            self.port.send_frame(frame);
+        }
+        Ok(())
+    }
+    async fn next(&self) -> Option<Result<Bytes, Status>> {
+        let mut rx = self.rx.lock().await;
+        rx.recv().await.map(Ok)
+    }
+}

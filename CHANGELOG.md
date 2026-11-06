@@ -3,7 +3,40 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.38.0 — 2026-11-05
+## v0.39.0 — prepared 2026-11-06, scheduled to publish 2026-11-09
+
+- Event bus registry packages: the generated
+  `grpcdc.events.v1` stubs now also ship as separate
+  `eventbus-grpc` packages (npm, PyPI, crates.io, RubyGems,
+  JSR, Packagist, GitHub Maven; bootstrapped at 0.38.0 where
+  the channel allows it), depending on the `grpc-dc` runtime,
+  mirroring `kafka-grpc`. The stubs remain in the runtime
+  packages in every language except C#, where the
+  `EventBusGrpc` NuGet package now owns them exclusively
+  (GrpcDc no longer compiles `events/**`), fixing CS0433 for
+  consumers of the 0.38.0 package. First publishes from this
+  tag complete the tag-sourced channels: pub.dev
+  (`eventbus_grpc`), LuaRocks, the Go module, and Zig.
+- Ethernet framing for bare-metal targets: `dc-webrtc`
+  gains `EthFraming` (EtherType 0x88B5) and the Rust runtime
+  an `EthDc` transport, with a loopback `eth_echo` example —
+  the gRPC wire with no IP/UDP stack at all.
+- Rust WebRTC: the generated SCTP reassembly code builds
+  under `no_std` again (cfg-gated imports), and
+  `make test-webrtc-nostd` joins the aggregate `make test`
+  gate.
+- Swift: explicit public `Server()` and `Method`/`ServiceDesc`
+  initializers, so external SwiftPM consumers can construct
+  servers (0.38.0 allowed clients only).
+- Python stub wheels (`kafka-grpc`, `eventbus-grpc`) no
+  longer ship a docstring-only `grpcdc/__init__.py` that
+  could clobber the `grpc-dc` package init when co-installed
+  (0.38.0 wheels carry this flaw; upgrade to 0.39.0).
+- New registry channels prepared since 0.38.0 (Zig package,
+  LuaRocks, Packagist, JSR) publish from this tag through
+  the generated workflows.
+
+## v0.38.0 — 2026-11-05 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems)
 
 Registry channels: every prior channel moves to 0.38.0, and
 the three channels first published at 0.37.1 on 2026-11-05

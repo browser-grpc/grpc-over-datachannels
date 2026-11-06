@@ -204,6 +204,8 @@ where
     wasm_bindgen_futures::spawn_local(future);
 }
 pub use transport::{loopback_pair, DcTransport, InboxDc};
+#[cfg(feature = "webrtc")]
+pub use transport::{EthDc, EthFramePort};
 
 use std::future::Future;
 use std::pin::Pin;

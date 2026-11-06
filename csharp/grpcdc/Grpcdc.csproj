@@ -16,7 +16,7 @@
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/browser-grpc/grpc-over-datachannels</RepositoryUrl>
     <PackageTags>grpc;webrtc;datachannel;protobuf;browser</PackageTags>
-    <Version>0.38.0</Version>
+    <Version>0.39.0</Version>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
@@ -27,13 +27,14 @@
        surface, and no raw-TCP HTTP/2 transport (no
        SslClientAuthenticationOptions there). net8.0 stays
        dependency-free. -->
-  <!-- The kafka service stubs live in the separate KafkaGrpc
-       assembly (csharp/kafka); compiling them here too would
-       duplicate every kafka type across both NuGet packages
-       (CS0433 for consumers). Events stubs stay: there is no
-       separate events package. -->
+  <!-- The kafka and events service stubs live in the separate
+       KafkaGrpc / EventBusGrpc assemblies (csharp/kafka,
+       csharp/events); compiling them here too would duplicate
+       every stub type across both NuGet packages (CS0433 for
+       consumers). -->
   <ItemGroup>
     <Compile Remove="kafka/**/*.cs" />
+    <Compile Remove="events/**/*.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="8.0.0" />

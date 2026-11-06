@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eventbus-grpc"
-version = "0.38.0"
+version = "0.39.0"
 description = "Event bus over gRPC — generated grpcdc.events.v1 publish/subscribe clients over WebRTC DataChannels, via the grpc-dc runtime (Python)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "Apache-2.0"}
-dependencies = ["grpc-dc>=0.38.0"]
+dependencies = ["grpc-dc>=0.39.0"]
 
 [tool.setuptools.packages.find]
 include = ["grpcdc*"]

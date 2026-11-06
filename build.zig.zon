@@ -1,0 +1,17 @@
+.{
+    .name = .grpc_dc,
+    .version = "0.39.0",
+    .fingerprint = 0xf71c4e31e7d21092,
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "zig/grpcdc",
+        "zig/examples/kafka_grpc_dc.zig",
+        "zig/examples/kafka_messages.zig",
+        "zig/examples/events_grpc_dc.zig",
+        "zig/examples/events_messages.zig",
+        "LICENSE",
+    },
+}
