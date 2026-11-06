@@ -15,7 +15,8 @@ The `eventbus-<lang>` trees do the same for the generated
 | kafka-csharp | NuGet/GitHub `KafkaGrpc` | `GrpcDc` |
 | kafka-java | Maven `io.github.browser-grpc:kafka-grpc` | `io.github.browser-grpc:grpc-dc` |
 | kafka-rust | crates.io `kafka-grpc` | `grpc-dc` |
-| kafka-go | module `github.com/browser-grpc/grpc-over-datachannels/kafka` | `.../go` |
+| (repo root) kafka/ | Go module `github.com/browser-grpc/grpc-over-datachannels/kafka` | `.../go` |
+| (repo root) eventbus/ | Go module `github.com/browser-grpc/grpc-over-datachannels/eventbus` | `.../go` |
 | kafka-dart | pub.dev `kafka_grpc` | pub.dev `grpc_dc` |
 
 Kotlin, Scala, PHP, Lua, Swift, Zig, C and C++ carry the
