@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.39.0 — prepared 2026-11-06, scheduled to publish 2026-11-09
+## v0.39.0 — prepared 2026-11-06, scheduled to publish 2026-11-09 (published to GitHub/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/crates.io/LuaRocks/JSR)
 
 - Event bus registry packages: the generated
   `grpcdc.events.v1` stubs now also ship as separate
