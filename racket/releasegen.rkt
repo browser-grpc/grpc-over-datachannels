@@ -622,7 +622,7 @@
       "      - uses: ruby/setup-ruby@v1\n"
       "        with:\n"
       "          ruby-version: ruby\n"
-      "      - uses: rubygems/configure-rubygems-credentials@v1\n"
+      "      - uses: rubygems/configure-rubygems-credentials@v1.0.0\n"
       "      - name: Push grpc-dc\n"
       "        working-directory: packages/grpc-ruby\n"
       "        run: |\n"
