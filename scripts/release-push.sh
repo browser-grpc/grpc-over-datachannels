@@ -17,6 +17,10 @@ set -eu
 VERSION="${1:-$(git describe --tags --abbrev=0)}"
 EXPORT="release/browser-grpc"
 KP_EXPORT="release/kafka-proxy"
+PHP_EXPORT="release/grpc-php"
+PHP_REPO="browser-grpc/grpc-dc-php"
+KPHP_EXPORT="release/kafka-php"
+KPHP_REPO="browser-grpc/kafka-grpc-php"
 KP_REPO="browser-grpc/kafka-proxy"
 EB_EXPORT="release/eventbus"
 EB_REPO="browser-grpc/eventbus"
@@ -124,6 +128,40 @@ if [ -d "$KP_EXPORT" ]; then
 else
   echo "note: no kafka-proxy export at $KP_EXPORT; skipping repo publish"
 fi
+
+# ------------------------------------------------------------------
+# 1bb. Packagist repos (browser-grpc/grpc-dc-php,
+#     browser-grpc/kafka-grpc-php): one composer package per
+#     repo for Packagist. Same version/tag; Packagist picks up
+#     new tags automatically after the one-time submission.
+# ------------------------------------------------------------------
+for pair in "$PHP_EXPORT $PHP_REPO" "$KPHP_EXPORT $KPHP_REPO"; do
+  set -- $pair
+  P_EXPORT="$1"; P_REPO="$2"
+  if [ -d "$P_EXPORT" ]; then
+    if ! gh repo view "$P_REPO" >/dev/null 2>&1; then
+      gh repo create "$P_REPO" --public \
+        --description "Generated PHP package for Packagist (browser-grpc) — dependency-free gRPC over WebRTC DataChannels"
+    fi
+    gh repo clone "$P_REPO" "$WORK/$(basename "$P_REPO")"
+    rsync -a --delete --exclude .git "$P_EXPORT/" "$WORK/$(basename "$P_REPO")/"
+    cd "$WORK/$(basename "$P_REPO")"
+    git add -A
+    if git diff --cached --quiet; then
+      echo "$P_REPO export unchanged; nothing to publish"
+    else
+      git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
+        commit -m "release $VERSION (generated export)"
+      git tag "$VERSION"
+      git push origin HEAD
+      git push origin "$VERSION"
+      echo "published $P_REPO $VERSION"
+    fi
+    cd - >/dev/null
+  else
+    echo "note: no export at $P_EXPORT; skipping $P_REPO publish"
+  fi
+done
 
 # ------------------------------------------------------------------
 # 1c. EventBus repo (browser-grpc/eventbus): standalone generated
@@ -503,8 +541,8 @@ echo "release asset: grpc-dc-$VERSION.zip + SHA256SUMS uploaded"
 #     failures are loud notes, never a failed release.
 # ------------------------------------------------------------------
 NPM_OK="${NPM_OK:-0}"; PYPI_OK="${PYPI_OK:-0}"
-NUGET_OK=0; MAVEN_OK=0; MAVEN_GH_OK=0; PUBDEV_OK=0; CRATES_OK=0; RUBYGEMS_OK=0
-for wf in publish-npm publish-nuget publish-maven publish-maven-github publish-pubdev publish-crates publish-rubygems; do
+NUGET_OK=0; MAVEN_OK=0; MAVEN_GH_OK=0; PUBDEV_OK=0; CRATES_OK=0; RUBYGEMS_OK=0; LUAROCKS_OK=0; JSR_OK=0
+for wf in publish-npm publish-nuget publish-maven publish-maven-github publish-pubdev publish-crates publish-rubygems publish-luarocks publish-jsr; do
   if [ "$wf" = publish-maven ] && [ "${SKIP_CENTRAL:-}" = 1 ]; then
     echo "note: Maven Central dispatch skipped (SKIP_CENTRAL=1); sync Central in its weekly slot"
     continue
@@ -526,6 +564,8 @@ for wf in publish-npm publish-nuget publish-maven publish-maven-github publish-p
       [ "$wf" = publish-pubdev ] && PUBDEV_OK=1
       [ "$wf" = publish-crates ] && CRATES_OK=1
       [ "$wf" = publish-rubygems ] && RUBYGEMS_OK=1
+      [ "$wf" = publish-luarocks ] && LUAROCKS_OK=1
+      [ "$wf" = publish-jsr ] && JSR_OK=1
     else
       echo "note: registry workflow $wf did not succeed (run ${RUN_ID:-unknown}); continuing"
     fi
@@ -553,6 +593,8 @@ if [ -f CHANGELOG.md ] && git rev-parse --git-dir >/dev/null 2>&1 \
   [ "$PUBDEV_OK" = 1 ] && CHANNELS="$CHANNELS/pub.dev"
   [ "$CRATES_OK" = 1 ] && CHANNELS="$CHANNELS/crates.io"
   [ "$RUBYGEMS_OK" = 1 ] && CHANNELS="$CHANNELS/RubyGems"
+  [ "$LUAROCKS_OK" = 1 ] && CHANNELS="$CHANNELS/LuaRocks"
+  [ "$JSR_OK" = 1 ] && CHANNELS="$CHANNELS/JSR"
   sed -i "s|^## $VERSION — \(.*\)|## $VERSION — \1 (published to $CHANNELS)|" CHANGELOG.md
   git add CHANGELOG.md
   if git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \

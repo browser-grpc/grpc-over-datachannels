@@ -147,8 +147,9 @@ RUN curl -fsSL https://www.lua.org/ftp/lua-5.4.7.tar.gz -o /tmp/lua.tar.gz \
 ENV LUA_SRC=/opt/lua-5.4.7/src
 
 # Lua for the Lua runtime (pure 5.4 stdlib; no luarocks packages).
+# luarocks only proves the rockspec install path in tests.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends lua5.4 \
+  && apt-get install -y --no-install-recommends lua5.4 liblua5.4-dev luarocks \
   && rm -rf /var/lib/apt/lists/*
 ENV LUA=lua5.4
 
@@ -158,10 +159,11 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends coturn \
   && rm -rf /var/lib/apt/lists/*
 
-# Ruby for the Ruby runtime (stdlib only; no gems).
+# Ruby for the Ruby runtime (stdlib only; no gems). Composer
+# only proves the Packagist package install path in tests.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ruby \
-  && apt-get install -y --no-install-recommends php-cli \
+  && apt-get install -y --no-install-recommends php-cli composer \
   && rm -rf /var/lib/apt/lists/*
 ENV RUBY=ruby
 ENV PHP=php
