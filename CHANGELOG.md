@@ -22,9 +22,16 @@ curated release tags on `master`; dates are the tag dates.
   per-language tracing suites assert one shared trace id and
   the full client/server parent chain; dedicated browser
   legs cover JS and every native Wasm runtime (Rust, Dart,
-  Zig, C++, Lua, Kotlin, Swift), and a new multi-service tracing example
-  (`examples/tracing`) walks a three-hop call chain. Each
-  language ships a `TRACING.md` alongside its `TESTS.md`.
+  Zig, C++, Lua, Kotlin, Swift), the Wasm matrix asserts span
+  parenting across the native/facade boundary in both
+  directions, and new `examples/tracing` examples walk a
+  three-hop call chain and export it as OTLP/JSON to an
+  OpenTelemetry collector. Each language ships a
+  `TRACING.md` alongside its `TESTS.md`.
+- Wasm tracing fixes found by that coverage: Rust span-id
+  seeding no longer traps on `wasm32-unknown-unknown`, and
+  the Lua span clock works in hosts without the `os` library
+  (the Wasm host shape).
 - The TCP/DataChannel proxy emits a span for proxied calls,
   joining the caller's trace.
 - Go `kafka-grpc` and `eventbus-grpc` modules now live at

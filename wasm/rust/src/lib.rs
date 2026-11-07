@@ -93,22 +93,25 @@ fn req(message: &str, count: i32) -> pb::EchoRequest {
     pb::EchoRequest { message: message.into(), count, delay_ms: 0, ..Default::default() }
 }
 
-/// Run the generated Echo client over the given JS transport and
-/// resolve with a JSON summary (same shape the Go WASM facade and
-/// the JS client produce, so one Node test can assert all three).
-#[wasm_bindgen]
-pub async fn echo_client(transport: JsTransport) -> Result<String, JsValue> {
+fn wasm_transport(transport: JsTransport) -> Arc<WasmTransport> {
     let (tx, rx) = mpsc::unbounded::<Vec<u8>>();
     let callback = Closure::wrap(Box::new(move |data: Box<[u8]>| {
         let _ = tx.unbounded_send(data.into_vec());
     }) as Box<dyn FnMut(Box<[u8]>)>);
     transport.set_on_message(&callback);
-    let wasm_transport = Arc::new(WasmTransport {
+    Arc::new(WasmTransport {
         js: transport,
         inbox: Mutex::new(rx),
         _callback: callback,
-    });
-    let channel = Channel::new(wasm_transport);
+    })
+}
+
+/// Run the generated Echo client over the given JS transport and
+/// resolve with a JSON summary (same shape the Go WASM facade and
+/// the JS client produce, so one Node test can assert all three).
+#[wasm_bindgen]
+pub async fn echo_client(transport: JsTransport) -> Result<String, JsValue> {
+    let channel = Channel::new(wasm_transport(transport));
     let client = EchoClient::new(channel.clone());
 
     let run = async {
@@ -424,17 +427,77 @@ pub async fn echo_tracing() -> Result<String, JsValue> {
 /// transport closes.
 #[wasm_bindgen]
 pub fn echo_server(transport: JsTransport) {
-    let (tx, rx) = mpsc::unbounded::<Vec<u8>>();
-    let callback = Closure::wrap(Box::new(move |data: Box<[u8]>| {
-        let _ = tx.unbounded_send(data.into_vec());
-    }) as Box<dyn FnMut(Box<[u8]>)>);
-    transport.set_on_message(&callback);
-    let wasm_transport = Arc::new(WasmTransport {
-        js: transport,
-        inbox: Mutex::new(rx),
-        _callback: callback,
-    });
+    let transport = wasm_transport(transport);
     wasm_bindgen_futures::spawn_local(async move {
-        Server::serve(wasm_transport, vec![echo_service(Arc::new(EchoService))]).await;
+        Server::serve(transport, vec![echo_service(Arc::new(EchoService))]).await;
     });
+}
+
+// ---------------------------------------------------------------------------
+// Matrix tracing entries: single-unary tracing client and a
+// tracing server whose spans the page can read back, so the
+// Wasm matrix test can assert span parenting across the
+// native/facade boundary in both directions.
+// ---------------------------------------------------------------------------
+
+static MATRIX_RECORDER: std::sync::OnceLock<Arc<TracingRecorder>> = std::sync::OnceLock::new();
+
+fn matrix_recorder() -> Arc<TracingRecorder> {
+    MATRIX_RECORDER.get_or_init(|| Arc::new(TracingRecorder::default())).clone()
+}
+
+#[derive(Serialize)]
+struct MatrixClientResults {
+    message: String,
+    starts: Vec<[String; 5]>,
+    ends: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct MatrixSpans {
+    starts: Vec<[String; 5]>,
+    ends: Vec<String>,
+}
+
+/// One unary call over the JS transport with the recorder
+/// registered; resolves with the response plus recorded spans.
+#[wasm_bindgen]
+pub async fn echo_client_tracing(transport: JsTransport) -> Result<String, JsValue> {
+    let recorder = Arc::new(TracingRecorder::default());
+    grpc_dc::status::set_tracer(Some(recorder.clone()));
+    let client = EchoClient::new(Channel::new(wasm_transport(transport)));
+    let result = client.unary(req("hello", 0)).await;
+    grpc_dc::status::set_tracer(None);
+    match result {
+        Ok(resp) => {
+            let results = MatrixClientResults {
+                message: resp.message,
+                starts: recorder.starts.lock().unwrap().clone(),
+                ends: recorder.ends.lock().unwrap().clone(),
+            };
+            serde_json::to_string(&results).map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        Err(status) => Err(JsValue::from_str(&format!("{status}"))),
+    }
+}
+
+/// Serve Echo over the JS transport with the matrix recorder
+/// registered (spans readable via echo_tracing_spans).
+#[wasm_bindgen]
+pub fn echo_server_tracing(transport: JsTransport) {
+    grpc_dc::status::set_tracer(Some(matrix_recorder()));
+    let transport = wasm_transport(transport);
+    wasm_bindgen_futures::spawn_local(async move {
+        Server::serve(transport, vec![echo_service(Arc::new(EchoService))]).await;
+    });
+}
+
+/// JSON snapshot of the matrix recorder's spans.
+#[wasm_bindgen]
+pub fn echo_tracing_spans() -> String {
+    let spans = MatrixSpans {
+        starts: matrix_recorder().starts.lock().unwrap().clone(),
+        ends: matrix_recorder().ends.lock().unwrap().clone(),
+    };
+    serde_json::to_string(&spans).unwrap_or_else(|_| "{\"starts\":[],\"ends\":[]}".into())
 }

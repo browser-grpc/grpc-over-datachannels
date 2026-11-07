@@ -2,7 +2,7 @@
 <meta charset="utf-8">
 <title>grpc-dc native WASM Rust server test</title>
 <script type="module">
-import init, { echo_server } from "/browser-test/wasm_rust_gen/grpc_dc_wasm_rust.js";
+import init, { echo_server, echo_server_tracing, echo_tracing_spans } from "/browser-test/wasm_rust_gen/grpc_dc_wasm_rust.js";
 
 // The calls originate in the Rust grpc_dc runtime compiled to
 // wasm32 (frame codec, endpoint multiplexer, generated Echo stub —
@@ -18,7 +18,7 @@ window.__acceptAnswer = async (sdp) => {
   await pc.setRemoteDescription({ type: "answer", sdp });
 };
 
-window.__runServer = async () => {
+async function makeTransport() {
   await init();
   if (dc.readyState !== "open") {
     await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
@@ -38,8 +38,18 @@ window.__runServer = async () => {
       transport._onMessage(new Uint8Array(event.data));
     }
   });
-  echo_server(transport);
+  return transport;
+}
+
+window.__runServer = async () => {
+  echo_server(await makeTransport());
 };
+
+// Matrix tracing entries: traced server + span readback.
+window.__runServerTracing = async () => {
+  echo_server_tracing(await makeTransport());
+};
+window.__tracingSpans = () => JSON.parse(echo_tracing_spans());
 
 const offer = await pc.createOffer();
 await pc.setLocalDescription(offer);

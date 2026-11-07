@@ -30,6 +30,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`kafka.test.js`](test/kafka.test.js) — Kafka end-to-end (broker legs env-gated)
 - [`oracle.test.js`](test/oracle.test.js) — Official-implementation oracle, via the proxy
 - [`oracle_driver.generated.js`](test/oracle_driver.generated.js) — Official-implementation oracle, via the proxy
+- [`otlp_example.test.js`](test/otlp_example.test.js) — Generated suite/example
 - [`pb_messages.test.js`](test/pb_messages.test.js) — Generated suite/example
 - [`plugin_parity.test.js`](test/plugin_parity.test.js) — Generated suite/example
 - [`tracing.test.js`](test/tracing.test.js) — Tracing: traceparent propagation, span observers, nested calls

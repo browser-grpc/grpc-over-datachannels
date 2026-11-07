@@ -993,6 +993,7 @@ test-scalajs-browser: scalajs-gen
 
 test-wasm-matrix: scalajs-gen
 	cd browser-test && node wasm_matrix.test.mjs all
+	cd browser-test && node wasm_matrix_tracing.test.mjs all
 	cd browser-test && node bdd_wasm.test.mjs
 
 ## Browser-examples index (examples/browser) in Chromium,

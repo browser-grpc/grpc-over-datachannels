@@ -8,6 +8,13 @@ client, a callee, and the downstream service the callee calls.
   its outbound call with `Channel.withTraceContext`, so all four
   spans (client, server, client, server) share one trace id.
   Run: `node examples/tracing/multiservice.mjs`
+- `otlp.mjs` — the same nested trace, exported as OTLP/JSON by
+  the example `OtlpTracer` observer. With no collector it is
+  self-verifying (throwaway local collector, checks the
+  four-span payload, prints `OTLP_EXAMPLE_OK`); set
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to export to a real
+  OpenTelemetry collector instead.
+  Run: `node examples/tracing/otlp.mjs`
 
 Per-language API names (registrar, handler span context,
 context binding, root contexts) are generated into each
