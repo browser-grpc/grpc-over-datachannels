@@ -2431,7 +2431,8 @@
          "## Where things live\n\n"
          "- Runtime: this directory (see its generated sources).\n"
          "- Worked example: `examples/` (Echo in every method shape).\n"
-         "- Tests: `tests/` — the same BDD scenarios every language runs.\n\n"
+         "- Tests: `tests/` — the same BDD scenarios every language runs.\n"
+         "- Test and example index: [`TESTS.md`](TESTS.md) — every suite and example here, plus shared matrix coverage.\n\n"
          "Full project quickstart: [`../QUICKSTART.md`](../QUICKSTART.md).\n")
         (string-append
          "# " name " — grpc-dc runtime\n\n"
@@ -2443,6 +2444,7 @@
          "## Regenerate stubs for your schema\n\n"
          "    protoc --plugin=protoc-gen-grpc-dc-" dir "=$PWD/bin/protoc-gen-grpc-dc-" dir " \\\n"
          "           --grpc-dc-" dir "_out=out -I . your.proto\n\n"
+         "Test and example index: [`TESTS.md`](TESTS.md).\n\n"
          "Full project quickstart: [`../QUICKSTART.md`](../QUICKSTART.md).\n")))
   (call-with-output-file (build-path out-dir dir "README.md")
     (lambda (out) (display body out)) #:exists 'replace))

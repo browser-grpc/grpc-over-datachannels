@@ -297,6 +297,15 @@ in JS).
 
 ## Testing notes
 
+Per-language test and example indexes:
+[C](c/TESTS.md), [C++](cpp/TESTS.md), [C#](csharp/TESTS.md),
+[Dart](dart/TESTS.md), [Go](go/TESTS.md), [Java](java/TESTS.md),
+[JavaScript](js/TESTS.md), [Kotlin](kotlin/TESTS.md),
+[Lua](lua/TESTS.md), [PHP](php/TESTS.md), [Python](python/TESTS.md),
+[Ruby](ruby/TESTS.md), [Rust](rust/TESTS.md), [Scala](scala/TESTS.md),
+[Swift](swift/TESTS.md), [Zig](zig/TESTS.md), plus
+[Wasm](wasm/TESTS.md) and [WebRTC stacks](webrtc/TESTS.md).
+
 Behavior documentation is generated, not hand-written: the
 scenario table in `racket/bdd-spec.rkt` is the single source of
 truth. `make generate` stamps it into `BDD.md` (Given/When/Then
