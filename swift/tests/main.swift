@@ -1,9 +1,9 @@
 import Foundation
 
-// Test runner: ./tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline|TestInlinePump>
+// Test runner: ./tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline|TestTracing|TestInlinePump>
 let args = CommandLine.arguments
 if args.count < 2 {
-    FileHandle.standardError.write("usage: tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline|TestInlinePump>\n".data(using: .utf8)!)
+    FileHandle.standardError.write("usage: tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline|TestTracing|TestInlinePump>\n".data(using: .utf8)!)
     exit(2)
 }
 do {
@@ -19,6 +19,7 @@ do {
     case "TestDynamic": try TestDynamic()
     case "TestBdd": try TestBdd()
     case "TestDeadline": try TestDeadline()
+    case "TestTracing": try TestTracing()
     case "TestInlinePump": try TestInlinePump()
     case "TestPbMessages": try TestPbMessages()
     case "TestBddSchemas": try TestBddSchemas()

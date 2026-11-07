@@ -1,10 +1,10 @@
 local scriptDir = arg[0]:match("^(.*)/lua/tests/[^/]+$") or "."
 package.path = scriptDir .. "/lua/?.lua;" .. scriptDir .. "/lua/tests/?.lua;" .. package.path
 
--- Test runner: lua lua/tests/main.lua <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestCoro|TestDeadline|TestPbMessages>
+-- Test runner: lua lua/tests/main.lua <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestCoro|TestDeadline|TestTracing|TestPbMessages>
 local name = arg[1]
 if name == nil then
-  io.stderr:write("usage: main.lua <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestCoro|TestDeadline|TestPbMessages>\n")
+  io.stderr:write("usage: main.lua <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestCoro|TestDeadline|TestTracing|TestPbMessages>\n")
   os.exit(2)
 end
 
@@ -31,6 +31,8 @@ local ok, err = pcall(function()
     require("test_coro")()
   elseif name == "TestDeadline" then
     require("test_deadline")()
+  elseif name == "TestTracing" then
+    require("test_tracing")()
   elseif name == "TestPbMessages" then
     require("test_pb_messages")()
   elseif name == "TestSidecar" then

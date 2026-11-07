@@ -258,7 +258,7 @@
            (if (and (pair? (hash-ref file-model 'services))
                     (equal? (hash-ref params 'trace #f) "hooks"))
                (string-append
-                "// Tracing (trace=hooks): register an observer with\n"
+                "// Tracing (trace=hooks@@TRACING_BETA@@): register an observer with\n"
                 "// grpcdc.SetTracer, e.g. via the alias below.\n"
                 "var SetTracer = grpcdc.SetTracer\n\n"
                 "var SetTraceFilter = grpcdc.SetTraceFilter\n\n"

@@ -284,7 +284,7 @@
          ;; trace=hooks: re-export the tracer registrar; bake filter.
          (if (equal? (hash-ref params 'trace #f) "hooks")
              (string-append
-              "\n// Tracing (trace=hooks): register an observer via setTracer.\n"
+              "\n// Tracing (trace=hooks@@TRACING_BETA@@): register an observer via setTracer.\n"
               "export '../grpcdc/status.dart' show setTracer, setTraceFilter;\n"
               (let ([methods (hash-ref params 'trace_methods #f)])
                 (if methods

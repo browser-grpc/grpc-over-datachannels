@@ -5,7 +5,7 @@ package grpcdc;
 import java.security.SecureRandom;
 
 /**
- * Homegrown tracing: W3C traceparent propagation with a span
+ * Homegrown tracing (beta): W3C traceparent propagation with a span
  * observer. Dormant until {@link #setTracer} registers one;
  * generated code stays dependency-free (sampling and export are
  * the application's problem).

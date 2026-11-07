@@ -34,6 +34,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_oracle.zig`](tests/test_oracle.zig) — Official-implementation oracle, via the proxy
 - [`test_pb_messages.zig`](tests/test_pb_messages.zig) — Generated suite/example
 - [`test_sidecar.zig`](tests/test_sidecar.zig) — Sidecar transport
+- [`test_tracing.zig`](tests/test_tracing.zig) — Tracing: traceparent propagation, span observers, nested calls
 - [`test_util.zig`](tests/test_util.zig) — Generated suite/example
 
 ## Examples

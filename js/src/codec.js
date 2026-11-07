@@ -153,7 +153,7 @@ export function fromHex(hex) {
   return out;
 }
 
-// --- Homegrown tracing (W3C traceparent propagation) -------------
+// --- Homegrown tracing (beta) (W3C traceparent propagation) -------------
 // Dormant until setTracer() registers an observer with
 // onStart(kind, method, traceId, spanId, parentSpanId) and
 // onEnd(kind, method, traceId, spanId, statusName). Generated code

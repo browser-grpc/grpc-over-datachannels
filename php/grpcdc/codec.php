@@ -45,7 +45,7 @@ final class Status
         return Wire::STATUS_NAMES[$code] ?? ("CODE_" . $code);
     }
 
-    // --- Homegrown tracing (W3C traceparent propagation) --------
+    // --- Homegrown tracing (beta) (W3C traceparent propagation) --------
     // Dormant until Status::setTracer registers an observer with
     // traceStart/traceEnd-style callbacks. Provide an object with
     // onStart($kind, $method, $traceId, $spanId, $parentSpanId)

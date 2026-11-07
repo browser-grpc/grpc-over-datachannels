@@ -388,7 +388,7 @@
          ;; trace=hooks: delegate the tracer registrar to grpcdc::Tracing.
          (if (equal? (hash-ref params 'trace #f) "hooks")
              (string-append
-              "/// Tracing (trace=hooks): register an observer via SetTracer.\n"
+              "/// Tracing (trace=hooks@@TRACING_BETA@@): register an observer via SetTracer.\n"
               "inline void SetTracer(grpcdc::Tracing::Tracer* t) { grpcdc::Tracing::SetTracer(t); }\n"
               "inline void SetTraceFilter(const std::string& patterns) { grpcdc::Tracing::SetTraceFilter(patterns); }\n"
               (let ([methods (hash-ref params 'trace_methods #f)])

@@ -59,7 +59,7 @@ impl fmt::Display for Status {
 impl std::error::Error for Status {}
 
 // ---------------------------------------------------------------------------
-// Homegrown tracing (W3C traceparent propagation)
+// Homegrown tracing (beta) (W3C traceparent propagation)
 // ---------------------------------------------------------------------------
 // Tracing support lives here so every module can reach it.
 // Dormant until a tracer is registered; generated code stays

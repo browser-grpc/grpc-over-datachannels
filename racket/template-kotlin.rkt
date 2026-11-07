@@ -275,7 +275,7 @@
          ;; trace=hooks: delegate the tracer registrar to grpcdc.Tracing.
          (if (equal? (hash-ref params 'trace #f) "hooks")
              (string-append
-              "// Tracing (trace=hooks): register an observer via setTracer.\n"
+              "// Tracing (trace=hooks@@TRACING_BETA@@): register an observer via setTracer.\n"
               "fun setTracer(t: grpcdc.Tracing.Tracer?) = grpcdc.Tracing.setTracer(t)\n"
               "fun setTraceFilter(patterns: String) = grpcdc.Tracing.setTraceFilter(patterns)\n"
               (let ([methods (hash-ref params 'trace_methods #f)])

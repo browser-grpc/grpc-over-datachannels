@@ -65,7 +65,7 @@ grpcdc_status grpcdc_status_make(int code, const char *message);
 grpcdc_status grpcdc_ok(void);
 bool grpcdc_status_is_ok(grpcdc_status st);
 
-/* ---- homegrown tracing (W3C traceparent propagation) ----
+/* ---- homegrown tracing (beta) (W3C traceparent propagation) ----
    Dormant until grpcdc_set_tracer registers an observer.
    Dependency-free: sampling/export are the app's problem. */
 typedef struct {
@@ -105,6 +105,11 @@ char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out);
 
 /* Start a root span context (client workflows). Pair with grpcdc_trace_end. */
 grpcdc_trace_context grpcdc_new_trace_context(const char *kind, const char *method);
+
+/* The serving call's span context while a handler runs on this
+   thread (inactive otherwise). Outbound calls made on the same
+   thread are parented to it automatically. */
+grpcdc_trace_context grpcdc_current_trace_context(void);
 
 /* Owned byte buffer (malloc'd; free data or use grpcdc_bytes_free). */
 typedef struct {

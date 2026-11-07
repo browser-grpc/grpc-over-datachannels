@@ -382,7 +382,7 @@
          ;; trace=hooks: baking + namespaced delegates to \Status.
          (if (equal? (hash-ref params 'trace #f) "hooks")
              (string-append
-              "// Tracing (trace=hooks): register an observer via set_tracer().\n"
+              "// Tracing (trace=hooks@@TRACING_BETA@@): register an observer via set_tracer().\n"
               "function set_tracer(mixed $t): void { \\Status::setTracer($t); }\n"
               "function set_trace_filter(string $p): void { \\Status::setTraceFilter($p); }\n\n"
               (let ([methods (hash-ref params 'trace_methods #f)])

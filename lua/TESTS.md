@@ -36,6 +36,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_oracle.lua`](tests/test_oracle.lua) — Official-implementation oracle, via the proxy
 - [`test_pb_messages.lua`](tests/test_pb_messages.lua) — Generated suite/example
 - [`test_sidecar.lua`](tests/test_sidecar.lua) — Sidecar transport
+- [`test_tracing.lua`](tests/test_tracing.lua) — Tracing: traceparent propagation, span observers, nested calls
 - [`test_util.lua`](tests/test_util.lua) — Generated suite/example
 
 ## Examples

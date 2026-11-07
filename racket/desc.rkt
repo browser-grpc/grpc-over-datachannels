@@ -311,17 +311,18 @@
                (string-suffix? (car file-pair) ".rb")) "#"]
           [(string-suffix? (car file-pair) ".lua") "--"]
           [else "//"]))
-  (if (string-suffix? (car file-pair) ".php")
-      ;; PHP: <?php must be the first bytes; stamp after it.
-      (cons (car file-pair)
-            (string-append "<?php\n"
-                           prefix
-                           " Generated code: use without restriction (see GENERATED-CODE-LICENSE.md).\n"
-                           (substring (cdr file-pair) (string-length "<?php\n"))))
-      (cons (car file-pair)
-            (string-append prefix
-                           " Generated code: use without restriction (see GENERATED-CODE-LICENSE.md).\n"
-                           (cdr file-pair)))))
+  (define stamped
+    (if (string-suffix? (car file-pair) ".php")
+        ;; PHP: <?php must be the first bytes; stamp after it.
+        (string-append "<?php\n"
+                       prefix
+                       " Generated code: use without restriction (see GENERATED-CODE-LICENSE.md).\n"
+                       (substring (cdr file-pair) (string-length "<?php\n")))
+        (string-append prefix
+                       " Generated code: use without restriction (see GENERATED-CODE-LICENSE.md).\n"
+                       (cdr file-pair))))
+  ;; Resolve the tracing beta token (see spec.rkt) on the way out.
+  (cons (car file-pair) (apply-tracing-beta stamped)))
 
 
 ;; ---------------------------------------------------------------------------

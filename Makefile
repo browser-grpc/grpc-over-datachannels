@@ -369,7 +369,7 @@ test-java:
 	cd java && mkdir -p build && javac -encoding UTF-8 -d build $$(find grpcdc examples tests -name '*.java') \
 		&& java -cp build tests.TestCodec && java -cp build tests.TestEcho \
 		&& java -cp build tests.TestInterop && java -cp build tests.TestInteropOracle && java -cp build tests.TestInteropServerOracle && java -cp build tests.TestOracle && java -cp build tests.TestHttp2Oracle \
-		&& java -cp build tests.TestDynamic && java -cp build tests.TestBdd && java -cp build tests.TestDeadline \
+		&& java -cp build tests.TestDynamic && java -cp build tests.TestBdd && java -cp build tests.TestDeadline && java -cp build tests.TestTracing \
 		&& java -cp build tests.TestSidecar \
 		&& java -cp build tests.TestKafkaE2E \
 		&& java -cp build tests.TestEventBus \
@@ -391,7 +391,7 @@ test-csharp:
 		&& dotnet build examples/DynamicEchoServerStdio/DynamicEchoServerStdio.csproj --nologo -v q \
 		&& dotnet run --project tests --no-build -- TestOracle \
 		&& dotnet run --project tests --no-build -- TestDynamic \
-		&& dotnet run --project tests --no-build -- TestBdd && dotnet run --project tests --no-build -- TestDeadline \
+		&& dotnet run --project tests --no-build -- TestBdd && dotnet run --project tests --no-build -- TestDeadline && dotnet run --project tests --no-build -- TestTracing \
 		&& dotnet run --project tests --no-build -- TestPbMessages \
 		&& dotnet run --project tests --no-build -- TestBddSchemas \
 		&& dotnet run --project tests --no-build -- TestSidecar \
@@ -408,14 +408,14 @@ CXXFLAGS ?= -std=c++17 -pthread -O1 -Icpp -I.
 
 test-cpp:
 	mkdir -p cpp/build
-	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_interop_oracle.cpp cpp/tests/test_interop_server_oracle.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp cpp/tests/test_eventbus.cpp cpp/tests/test_kafka_e2e.cpp -o cpp/build/tests
+	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_interop_oracle.cpp cpp/tests/test_interop_server_oracle.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_tracing.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp cpp/tests/test_eventbus.cpp cpp/tests/test_kafka_e2e.cpp -o cpp/build/tests
 	$(CXX) $(CXXFLAGS) cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/dynamic_echo_server_stdio.cpp -o cpp/build/dynamic_echo_server_stdio
 	$(CXX) $(CXXFLAGS) cpp/examples/interop_server_stdio.cpp -o cpp/build/interop_server_stdio
 	cd cpp && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestOracle \
-		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
+		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline && ./build/tests TestTracing \
 		&& ./build/tests TestEventBus \
 		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar && ./build/tests TestBddSidecar && ./build/tests TestKafkaE2E
 	# C++20 coroutine surface test: built with zig's clang because
@@ -435,7 +435,7 @@ test-swift:
 	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/interop/*.swift swift/examples/InteropServerStdio/main.swift -o swift/build/interop_server_stdio
 	cd swift && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestHttp2Oracle && ./build/tests TestOracle \
-		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
+		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline && ./build/tests TestTracing \
 		&& ./build/tests TestEventBus \
 		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar && ./build/tests TestKafkaE2E
 
@@ -450,7 +450,7 @@ test-kotlin:
 	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/examples/DynamicEchoServerStdio/Main.kt -d kotlin/build/dynamic_echo_server_stdio.jar
 	java -jar kotlin/build/tests.jar TestCodec && java -jar kotlin/build/tests.jar TestEcho \
 		&& java -jar kotlin/build/tests.jar TestInterop && java -jar kotlin/build/tests.jar TestInteropOracle && java -jar kotlin/build/tests.jar TestInteropServerOracle && java -jar kotlin/build/tests.jar TestHttp2Oracle && java -jar kotlin/build/tests.jar TestOracle \
-		&& java -jar kotlin/build/tests.jar TestDynamic && java -jar kotlin/build/tests.jar TestBdd && java -jar kotlin/build/tests.jar TestDeadline \
+		&& java -jar kotlin/build/tests.jar TestDynamic && java -jar kotlin/build/tests.jar TestBdd && java -jar kotlin/build/tests.jar TestDeadline && java -jar kotlin/build/tests.jar TestTracing \
 		&& java -jar kotlin/build/tests.jar TestSidecar && java -jar kotlin/build/tests.jar TestKafkaE2E && java -jar kotlin/build/tests.jar TestBddSchemas \
 		&& java -jar kotlin/build/tests.jar TestEventBus \
 		&& java -jar kotlin/build/tests.jar TestInlinePump && java -jar kotlin/build/tests.jar TestPbMessages
@@ -466,7 +466,7 @@ test-dart:
 	$(DART) compile exe dart/examples/InteropServerStdio/main.dart -o dart/build/interop_server_stdio
 	cd dart && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestHttp2Oracle && ./build/tests TestOracle \
-		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline \
+		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline && ./build/tests TestTracing \
 		&& ./build/tests TestEventBus \
 		&& ./build/tests TestSidecar && ./build/tests TestKafkaE2E && ./build/tests TestPbMessages && ./build/tests TestBddSchemas
 
@@ -476,7 +476,7 @@ test-zig:
 	cd zig && rm -rf build .zig-cache && $(ZIG) build --prefix build
 	cd zig && ./build/bin/tests TestCodec && ./build/bin/tests TestEcho \
 		&& ./build/bin/tests TestInterop && ./build/bin/tests TestInteropOracle && ./build/bin/tests TestInteropServerOracle && ./build/bin/tests TestHttp2Oracle && ./build/bin/tests TestOracle \
-		&& ./build/bin/tests TestDynamic && ./build/bin/tests TestBdd && ./build/bin/tests TestDeadline \
+		&& ./build/bin/tests TestDynamic && ./build/bin/tests TestBdd && ./build/bin/tests TestDeadline && ./build/bin/tests TestTracing \
 		&& ./build/bin/tests TestPbMessages && ./build/bin/tests TestBddSchemas && ./build/bin/tests TestSidecar \
 		&& ./build/bin/tests TestKafkaE2E && ./build/bin/tests TestEventBus
 
@@ -491,7 +491,7 @@ test-c:
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -o c/build/echo_server_stdio
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -o c/build/echo_client_stdio
 	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/interop_server_stdio.c -o c/build/interop_server_stdio
-	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestBddSchemas && ./c/build/tests TestOracle && ./c/build/tests TestInteropOracle && ./c/build/tests TestInteropServerOracle && ./c/build/tests TestDynamic && ./c/build/tests TestSidecar && ./c/build/tests TestKafkaE2E && ./c/build/tests TestEventBus
+	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestBddSchemas && ./c/build/tests TestOracle && ./c/build/tests TestInteropOracle && ./c/build/tests TestInteropServerOracle && ./c/build/tests TestDynamic && ./c/build/tests TestTracing && ./c/build/tests TestSidecar && ./c/build/tests TestKafkaE2E && ./c/build/tests TestEventBus
 
 LUA ?= lua
 
@@ -506,7 +506,7 @@ test-lua:
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDynamic \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestBdd \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestCoro \
-		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDeadline \
+		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestDeadline && LUA=$(LUA) $(LUA) lua/tests/main.lua TestTracing \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestPbMessages \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestSidecar \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestKafkaE2E \
@@ -571,7 +571,7 @@ test-ruby:
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestDynamic \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestBdd \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestFiber \
-		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestDeadline \
+		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestDeadline && RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestTracing \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestSidecar \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestKafkaE2E \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestPbMessages \
@@ -590,7 +590,7 @@ test-php:
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDynamic \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestBdd \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestFiber \
-		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDeadline \
+		&& PHP=$(PHP) $(PHP) php/tests/main.php TestDeadline && PHP=$(PHP) $(PHP) php/tests/main.php TestTracing \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestSidecar \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestKafkaE2E \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestPbMessages \
@@ -617,7 +617,7 @@ test-scala:
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDynamic \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestEventBus \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestBdd \
-		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDeadline \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestDeadline && java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestTracing \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestSidecar \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestKafkaE2E \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestPbMessages && java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestBddSchemas

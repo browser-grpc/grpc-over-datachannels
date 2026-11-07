@@ -33,6 +33,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestOracle.cs`](tests/TestOracle.cs) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.cs`](tests/TestPbMessages.cs) — Generated suite/example
 - [`TestSidecar.cs`](tests/TestSidecar.cs) — Sidecar transport
+- [`TestTracing.cs`](tests/TestTracing.cs) — Tracing: traceparent propagation, span observers, nested calls
 
 ## Examples
 

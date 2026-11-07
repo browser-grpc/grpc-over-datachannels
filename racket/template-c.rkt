@@ -305,8 +305,8 @@
            (if (equal? (hash-ref params 'trace #f) "hooks")
                (let ([methods (hash-ref params 'trace_methods #f)])
                  (if methods
-                     (format "\n/* Tracing (trace=hooks): call once at startup to apply\n   the baked trace_methods filter. */\nstatic inline void grpcdc_~a_apply_trace_filter(void) {\n    grpcdc_set_trace_filter(~s);\n}\n" base methods)
-                     "\n/* Tracing (trace=hooks): register an observer via\n   grpcdc_set_tracer (grpcdc/grpcdc.h). */\n"))
+                     (format "\n/* Tracing (trace=hooks@@TRACING_BETA@@): call once at startup to apply\n   the baked trace_methods filter. */\nstatic inline void grpcdc_~a_apply_trace_filter(void) {\n    grpcdc_set_trace_filter(~s);\n}\n" base methods)
+                     "\n/* Tracing (trace=hooks@@TRACING_BETA@@): register an observer via\n   grpcdc_set_tracer (grpcdc/grpcdc.h). */\n"))
                "")
            "\n"
            (apply string-append

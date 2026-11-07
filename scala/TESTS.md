@@ -34,6 +34,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestOracle.scala`](tests/TestOracle.scala) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.scala`](tests/TestPbMessages.scala) — Generated suite/example
 - [`TestSidecar.scala`](tests/TestSidecar.scala) — Sidecar transport
+- [`TestTracing.scala`](tests/TestTracing.scala) — Tracing: traceparent propagation, span observers, nested calls
 - [`TestUtil.scala`](tests/TestUtil.scala) — Generated suite/example
 
 ## Examples

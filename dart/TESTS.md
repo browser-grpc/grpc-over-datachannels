@@ -34,6 +34,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_oracle.dart`](tests/test_oracle.dart) — Official-implementation oracle, via the proxy
 - [`test_pb_messages.dart`](tests/test_pb_messages.dart) — Generated suite/example
 - [`test_sidecar.dart`](tests/test_sidecar.dart) — Sidecar transport
+- [`test_tracing.dart`](tests/test_tracing.dart) — Tracing: traceparent propagation, span observers, nested calls
 - [`test_util.dart`](tests/test_util.dart) — Generated suite/example
 
 ## Examples

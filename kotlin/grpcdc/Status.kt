@@ -24,7 +24,7 @@ class StatusException(val code: Int, message: String) : Exception(message) {
 }
 
 /**
- * Homegrown tracing: W3C traceparent propagation with a span
+ * Homegrown tracing (beta): W3C traceparent propagation with a span
  * observer. Dormant until [Tracing.setTracer] registers one;
  * generated code stays dependency-free (sampling and export are
  * the application's problem).

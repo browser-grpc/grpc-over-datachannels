@@ -78,7 +78,7 @@ pub fn RecvResult(comptime T: type) type {
     };
 }
 
-// --- Homegrown tracing (W3C traceparent propagation) -------------
+// --- Homegrown tracing@@TRACING_BETA@@ (W3C traceparent propagation) -------------
 // Dormant until setTracer registers an observer. Generated code
 // stays dependency-free: sampling and export are the app's problem.
 

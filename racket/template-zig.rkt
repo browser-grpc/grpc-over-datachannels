@@ -338,7 +338,7 @@
          ;; trace=hooks: re-export the tracer registrar.
          (if (equal? (hash-ref params 'trace #f) "hooks")
              (string-append
-              "\n/// Tracing (trace=hooks): register an observer via setTracer.\n"
+              "\n/// Tracing (trace=hooks@@TRACING_BETA@@): register an observer via setTracer.\n"
               "pub const setTracer = status_mod.setTracer;\n"
               "pub const setTraceFilter = status_mod.setTraceFilter;\n"
               (let ([methods (hash-ref params 'trace_methods #f)])

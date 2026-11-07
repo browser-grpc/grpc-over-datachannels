@@ -43,7 +43,7 @@ module Grpcdc
   # The call completed OK (client-side stream end).
   class CallClosed < EOFError; end
 
-  # --- Homegrown tracing (W3C traceparent propagation) ----------
+  # --- Homegrown tracing (beta) (W3C traceparent propagation) ----------
   # Dormant until Grpcdc.set_tracer registers an observer with
   # on_start(kind, method, trace_id, span_id, parent_span_id) and
   # on_end(kind, method, trace_id, span_id, status_name, duration_ms).

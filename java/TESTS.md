@@ -32,6 +32,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestOracle.java`](tests/TestOracle.java) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.java`](tests/TestPbMessages.java) — Generated suite/example
 - [`TestSidecar.java`](tests/TestSidecar.java) — Sidecar transport
+- [`TestTracing.java`](tests/TestTracing.java) — Tracing: traceparent propagation, span observers, nested calls
 
 ## Examples
 

@@ -367,7 +367,7 @@
          ;; trace=hooks: delegate the tracer registrar to the runtime.
          (if (equal? (hash-ref params 'trace #f) "hooks")
              (string-append
-              "  # Tracing (trace=hooks): register an observer via set_tracer.\n"
+              "  # Tracing (trace=hooks@@TRACING_BETA@@): register an observer via set_tracer.\n"
               "  def self.set_tracer(t)\n    Grpcdc.set_tracer(t)\n  end\n\n"
               "  def self.set_trace_filter(patterns)\n    Grpcdc.set_trace_filter(patterns)\n  end\n\n"
               (let ([methods (hash-ref params 'trace_methods #f)])

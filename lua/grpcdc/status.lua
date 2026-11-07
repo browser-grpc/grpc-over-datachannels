@@ -46,7 +46,7 @@ local function raise(status)
   error(status, 0)
 end
 
--- --- Homegrown tracing (W3C traceparent propagation) -------------
+-- --- Homegrown tracing (beta) (W3C traceparent propagation) -------------
 -- Dormant until setTracer registers an observer table with
 -- onStart(kind, method, traceId, spanId, parentSpanId) and
 -- onEnd(kind, method, traceId, spanId, statusName, durationMs) fields.

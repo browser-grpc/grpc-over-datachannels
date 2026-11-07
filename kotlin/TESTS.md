@@ -35,6 +35,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestOracle.kt`](tests/TestOracle.kt) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.kt`](tests/TestPbMessages.kt) — Generated suite/example
 - [`TestSidecar.kt`](tests/TestSidecar.kt) — Sidecar transport
+- [`TestTracing.kt`](tests/TestTracing.kt) — Tracing: traceparent propagation, span observers, nested calls
 - [`TestUtil.kt`](tests/TestUtil.kt) — Generated suite/example
 
 ## Examples

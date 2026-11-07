@@ -98,7 +98,7 @@ Kotlin/Wasm inline mode) a handler already running inline
 cannot be preempted — the deadline is checked between
 messages.
 
-## Tracing (homegrown, opt-in)
+## Tracing (homegrown, opt-in, beta)
 
 Runtimes carry W3C Trace Context propagation without any
 dependency: when the application registers a span observer

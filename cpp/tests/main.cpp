@@ -15,6 +15,7 @@ void TestOracle();
 void TestDynamic();
 void TestBdd();
 void TestDeadline();
+void TestTracing();
 void TestInlinePump();
 void TestPbMessages();
 void TestBddSchemas();
@@ -27,7 +28,7 @@ int main(int argc, char** argv) {
   if (argc < 2) {
     std::fprintf(stderr,
                  "usage: tests <TestCodec|TestEcho|TestInterop|TestOracle|"
-                 "TestDynamic|TestBdd|TestDeadline|TestInlinePump>\n");
+                 "TestDynamic|TestBdd|TestDeadline|TestTracing|TestInlinePump>\n");
     return 2;
   }
   std::string name = argv[1];
@@ -52,6 +53,8 @@ int main(int argc, char** argv) {
       tests::TestBdd();
     } else if (name == "TestDeadline") {
       tests::TestDeadline();
+    } else if (name == "TestTracing") {
+      tests::TestTracing();
     } else if (name == "TestInlinePump") {
       tests::TestInlinePump();
     } else if (name == "TestPbMessages") {

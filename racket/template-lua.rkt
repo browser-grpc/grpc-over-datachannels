@@ -323,7 +323,7 @@
          ;; trace=hooks: aliases into the runtime registrar.
          (if (equal? (hash-ref params 'trace #f) "hooks")
              (string-append
-              "-- Tracing (trace=hooks): register an observer via set_tracer.\n"
+              "-- Tracing (trace=hooks@@TRACING_BETA@@): register an observer via set_tracer.\n"
               "local set_tracer = statusModule.setTracer\n"
               "local set_trace_filter = statusModule.setTraceFilter\n"
               (let ([methods (hash-ref params 'trace_methods #f)])

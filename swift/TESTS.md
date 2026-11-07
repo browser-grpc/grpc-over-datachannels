@@ -34,6 +34,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestOracle.swift`](tests/TestOracle.swift) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.swift`](tests/TestPbMessages.swift) — Generated suite/example
 - [`TestSidecar.swift`](tests/TestSidecar.swift) — Sidecar transport
+- [`TestTracing.swift`](tests/TestTracing.swift) — Tracing: traceparent propagation, span observers, nested calls
 - [`TestUtil.swift`](tests/TestUtil.swift) — Generated suite/example
 - [`main.swift`](tests/main.swift) — Generated suite/example
 

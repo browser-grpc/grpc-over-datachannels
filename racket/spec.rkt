@@ -25,7 +25,23 @@
          status:DATA-LOSS status:UNAUTHENTICATED
          status-code->name status-name->code status-table
          define-frame-table define-status-table define-frame-constants
-         define-status-constants streaming-kind)
+         define-status-constants streaming-kind
+         tracing-beta-enabled tracing-beta-suffix apply-tracing-beta)
+
+;; ---------------------------------------------------------------------------
+;; Tracing beta designation. The tracing surface (runtime hooks,
+;; propagation, generated docs) is beta: generated tracing text
+;; carries the token @@TRACING_BETA@@, which the generator writers
+;; (metagen/desc/coverage-docs) replace with tracing-beta-suffix.
+;; To end the beta, set tracing-beta-enabled to #f (labels vanish)
+;; or remove the token and these helpers.
+(define tracing-beta-enabled #t)
+
+(define (tracing-beta-suffix)
+  (if tracing-beta-enabled " (beta)" ""))
+
+(define (apply-tracing-beta text)
+  (string-replace text "@@TRACING_BETA@@" (tracing-beta-suffix)))
 
 ;; ---------------------------------------------------------------------------
 ;; Recursive table macros

@@ -4,7 +4,7 @@ import 'dart:math';
 
 import 'wire.dart';
 
-/// Observer for homegrown tracing (W3C traceparent propagation).
+/// Observer for homegrown tracing (beta) (W3C traceparent propagation).
 abstract class Tracer {
   void onStart(
       String kind, String method, String traceId, String spanId, String parentSpanId);

@@ -134,7 +134,7 @@
            ;; runtime; trace_methods bakes via a lazy static.
            (if (equal? (hash-ref params 'trace #f) "hooks")
                (string-append
-                "/// Tracing (trace=hooks): register an observer via `set_tracer`.\n"
+                "/// Tracing (trace=hooks@@TRACING_BETA@@): register an observer via `set_tracer`.\n"
                 "pub use ::grpc_dc::status::{set_tracer, set_trace_filter};\n\n"
                 (let ([methods (hash-ref params 'trace_methods #f)])
                   (if methods

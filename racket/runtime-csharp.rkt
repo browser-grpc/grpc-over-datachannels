@@ -49,7 +49,7 @@ public class StatusException : Exception
 }
 
 /// <summary>
-/// Homegrown tracing: W3C traceparent propagation with a span
+/// Homegrown tracing@@TRACING_BETA@@: W3C traceparent propagation with a span
 /// observer. Dormant until Tracing.SetTracer registers one;
 /// generated code stays dependency-free (sampling and export are
 /// the application's problem).

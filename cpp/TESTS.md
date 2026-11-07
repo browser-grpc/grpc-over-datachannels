@@ -37,6 +37,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_oracle.cpp`](tests/test_oracle.cpp) — Official-implementation oracle, via the proxy
 - [`test_pb_messages.cpp`](tests/test_pb_messages.cpp) — Generated suite/example
 - [`test_sidecar.cpp`](tests/test_sidecar.cpp) — Sidecar transport
+- [`test_tracing.cpp`](tests/test_tracing.cpp) — Tracing: traceparent propagation, span observers, nested calls
 - [`test_util.hpp`](tests/test_util.hpp) — Generated suite/example
 
 ## Examples

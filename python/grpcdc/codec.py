@@ -30,7 +30,7 @@ def status_name(code):
     return STATUS_NAMES.get(code, f"CODE_{code}")
 
 
-# --- Homegrown tracing (W3C traceparent propagation) -----------------
+# --- Homegrown tracing (beta) (W3C traceparent propagation) -----------------
 # Dormant until set_tracer() registers an observer. The observer is
 # any object with on_start(kind, method, trace_id, span_id,
 # parent_span_id) and on_end(kind, method, trace_id, span_id,

@@ -243,7 +243,7 @@
          ;; trace=hooks: delegate the tracer registrar to Tracing.
          (if (equal? (hash-ref params 'trace #f) "hooks")
              (string-append
-              "    // Tracing (trace=hooks): register an observer via SetTracer.\n"
+              "    // Tracing (trace=hooks@@TRACING_BETA@@): register an observer via SetTracer.\n"
               "    static func SetTracer(_ t: Tracer?) { Tracing.SetTracer(t) }\n"
               "    static func SetTraceFilter(_ patterns: String) { Tracing.SetTraceFilter(patterns) }\n"
               (let ([methods (hash-ref params 'trace_methods #f)])

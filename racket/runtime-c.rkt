@@ -89,7 +89,7 @@ grpcdc_status grpcdc_status_make(int code, const char *message);
 grpcdc_status grpcdc_ok(void);
 bool grpcdc_status_is_ok(grpcdc_status st);
 
-/* ---- homegrown tracing (W3C traceparent propagation) ----
+/* ---- homegrown tracing@@TRACING_BETA@@ (W3C traceparent propagation) ----
    Dormant until grpcdc_set_tracer registers an observer.
    Dependency-free: sampling/export are the app's problem. */
 typedef struct {
@@ -129,6 +129,11 @@ char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out);
 
 /* Start a root span context (client workflows). Pair with grpcdc_trace_end. */
 grpcdc_trace_context grpcdc_new_trace_context(const char *kind, const char *method);
+
+/* The serving call's span context while a handler runs on this
+   thread (inactive otherwise). Outbound calls made on the same
+   thread are parented to it automatically. */
+grpcdc_trace_context grpcdc_current_trace_context(void);
 
 /* Owned byte buffer (malloc'd; free data or use grpcdc_bytes_free). */
 typedef struct {
@@ -479,6 +484,12 @@ void grpcdc_trace_end(const char *kind, const char *method,
 
 grpcdc_trace_context grpcdc_new_trace_context(const char *kind, const char *method) {
     return grpcdc_trace_start(kind, method, NULL);
+}
+
+static _Thread_local grpcdc_trace_context g_current_trace;
+
+grpcdc_trace_context grpcdc_current_trace_context(void) {
+    return g_current_trace;
 }
 
 void grpcdc_channel_set_trace_parent(grpcdc_channel *ch,
@@ -1084,6 +1095,10 @@ grpcdc_status grpcdc_channel_open(grpcdc_channel *ch, const char *path,
         grpcdc_format_traceparent(&ch->trace_parent, parent_buf);
         parent_tp = parent_buf;
     }
+    if (!parent_tp && g_current_trace.active) {
+        grpcdc_format_traceparent(&g_current_trace, parent_buf);
+        parent_tp = parent_buf;
+    }
     s->trace = grpcdc_trace_start("client", path, parent_tp);
     s->trace_path = path;
     /* Merge caller metadata with grpc-timeout and traceparent. */
@@ -1687,6 +1702,7 @@ static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
         "server", ss->path ? ss->path : "",
         md_find(ss->metadata, ss->metadata_count, "traceparent"));
     ss->trace = trace;
+    g_current_trace = trace;
     grpcdc_status st = grpcdc_ok();
     grpcdc_server_stream raw;
     raw.state = ss;
@@ -1754,6 +1770,7 @@ static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
             break;
         }
     }
+    memset(&g_current_trace, 0, sizeof(g_current_trace));
     grpcdc_trace_end("server", ss->path ? ss->path : "", &trace,
                      grpcdc_status_name(st.code));
     server_send_trailers(ss, st);

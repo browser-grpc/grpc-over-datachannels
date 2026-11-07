@@ -18,7 +18,7 @@ struct EndOfStream : std::exception {
   const char* what() const noexcept override { return "end of stream"; }
 };
 
-/// Homegrown tracing: W3C traceparent propagation with a span
+/// Homegrown tracing (beta): W3C traceparent propagation with a span
 /// observer. Dormant until Tracing::SetTracer registers one;
 /// generated code stays dependency-free (sampling and export are
 /// the application's problem).

@@ -59,7 +59,7 @@ func Status(err error) *StatusError {
 	return NewStatus(CodeInternal, err.Error())
 }
 
-// --- Homegrown tracing (W3C traceparent propagation) -------------
+// --- Homegrown tracing (beta) (W3C traceparent propagation) -------------
 // Dormant until SetTracer registers an observer. Generated code
 // stays dependency-free: sampling and export are the app's problem.
 

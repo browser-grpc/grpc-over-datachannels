@@ -4,6 +4,7 @@ import 'test_eventbus.dart';
 import 'test_bdd.dart';
 import 'test_bdd_schemas.dart';
 import 'test_deadline.dart';
+import 'test_tracing.dart';
 import 'test_codec.dart';
 import 'test_dynamic.dart';
 import 'test_echo.dart';
@@ -19,7 +20,7 @@ import 'test_kafka_e2e.dart';
 // Test runner: ./tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic>
 Future<void> main(List<String> args) async {
   if (args.isEmpty) {
-    stderr.writeln('usage: tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline>');
+    stderr.writeln('usage: tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline|TestTracing>');
     exit(2);
   }
   try {
@@ -56,6 +57,9 @@ Future<void> main(List<String> args) async {
         break;
       case 'TestDeadline':
         await testDeadline();
+        break;
+      case 'TestTracing':
+        await testTracing();
         break;
       case 'TestPbMessages':
         await testPbMessages();
