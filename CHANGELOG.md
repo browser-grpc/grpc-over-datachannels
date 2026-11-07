@@ -3,6 +3,38 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.40.0 — prepared 2026-11-07, scheduled to publish 2026-11-09
+
+- Distributed tracing (beta) across every generated runtime:
+  span start/end observers now receive span durations and the
+  W3C sampled flag, unsampled contexts propagate without
+  recording spans, and nested calls parent automatically —
+  a callee's outbound calls join the inbound trace with no
+  manual context plumbing (ambient context on native runtimes,
+  explicit trace-context binding on browser runtimes). A
+  client-originated call starts a root span when no parent
+  exists, and a root workflow context can group several
+  outbound calls into one trace. The `trace=off|hooks` plugin
+  option gates only the generated stub convenience surface;
+  the runtime stays dormant until the application registers
+  a tracer. Designated beta behind a single central flag.
+- Nested tracing end-to-end coverage in every language:
+  per-language tracing suites assert one shared trace id and
+  the full client/server parent chain; dedicated browser
+  legs cover JS and the native Kotlin/Wasm and Swift/Wasm
+  runtimes, and a new multi-service tracing example
+  (`examples/tracing`) walks a three-hop call chain. Each
+  language ships a `TRACING.md` alongside its `TESTS.md`.
+- The TCP/DataChannel proxy emits a span for proxied calls,
+  joining the caller's trace.
+- Go `kafka-grpc` and `eventbus-grpc` modules now live at
+  the repository root, so the Go module proxy resolves them
+  (`kafka/<version>` and `eventbus/<version>` tags).
+- Per-language `TESTS.md` indexes (tests and examples) are
+  generated for every language and linked from the readmes;
+  `docs/.nojekyll` keeps GitHub Pages serving the static
+  tree as-is.
+
 ## v0.39.0 — prepared 2026-11-06, scheduled to publish 2026-11-09 (published to GitHub/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/crates.io/LuaRocks/JSR)
 
 - Event bus registry packages: the generated
