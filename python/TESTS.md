@@ -7,6 +7,9 @@ Generated tests exercise the wire codec, all four call
 shapes, deadlines, and the descriptor-driven dynamic 
 surface for this runtime.
 
+Tracing (W3C traceparent, span observers, nested-call 
+propagation) is documented in [`TRACING.md`](TRACING.md).
+
 ## Tests
 
 - [`bdd_scenarios_generated.py`](tests/bdd_scenarios_generated.py) — BDD scenario suite (generated)
@@ -28,12 +31,12 @@ surface for this runtime.
 - [`test_interop_server_oracle.py`](tests/test_interop_server_oracle.py) — Official-implementation oracle, via the proxy
 - [`test_kafka_e2e.py`](tests/test_kafka_e2e.py) — Kafka end-to-end (broker legs env-gated)
 - [`test_oracle.py`](tests/test_oracle.py) — Official-implementation oracle, via the proxy
-- [`test_otlp_tracer.py`](tests/test_otlp_tracer.py) — Generated suite/example
+- [`test_otlp_tracer.py`](tests/test_otlp_tracer.py) — Tracing: traceparent propagation, span observers, nested calls
 - [`test_pb_messages.py`](tests/test_pb_messages.py) — Generated suite/example
 - [`test_sidecar_direct.py`](tests/test_sidecar_direct.py) — WebRTC-Direct example/test
 - [`test_sidecar_multi.py`](tests/test_sidecar_multi.py) — Sidecar transport
-- [`test_trace_option.py`](tests/test_trace_option.py) — Generated suite/example
-- [`test_tracing.py`](tests/test_tracing.py) — Generated suite/example
+- [`test_trace_option.py`](tests/test_trace_option.py) — Tracing: traceparent propagation, span observers, nested calls
+- [`test_tracing.py`](tests/test_tracing.py) — Tracing: traceparent propagation, span observers, nested calls
 
 ## Examples
 
@@ -53,11 +56,11 @@ surface for this runtime.
 - [`orca_load_report_grpc_dc.py`](examples/orca_load_report_grpc_dc.py) — Generated suite/example
 - [`orca_load_report_pb.py`](examples/orca_load_report_pb.py) — Generated suite/example
 - [`orca_pb.py`](examples/orca_pb.py) — Generated suite/example
-- [`otlp_tracer.py`](examples/otlp_tracer.py) — Generated suite/example
+- [`otlp_tracer.py`](examples/otlp_tracer.py) — Tracing: traceparent propagation, span observers, nested calls
 - [`stdio.py`](examples/stdio.py) — Generated suite/example
 - [`test_grpc_dc.py`](examples/test_grpc_dc.py) — Generated suite/example
 - [`test_pb.py`](examples/test_pb.py) — Generated suite/example
-- [`tracing_demo.py`](examples/tracing_demo.py) — Generated suite/example
+- [`tracing_demo.py`](examples/tracing_demo.py) — Tracing: traceparent propagation, span observers, nested calls
 
 ## Shared matrix coverage
 

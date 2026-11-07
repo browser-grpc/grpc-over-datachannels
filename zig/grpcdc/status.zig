@@ -207,6 +207,19 @@ pub fn traceStart(kind: []const u8, method: []const u8, parent: ?Parent) ?TraceC
     return ctx;
 }
 
+/// Start a root span context (client workflows). Pair with traceEnd.
+pub fn newTraceContext(kind: []const u8, method: []const u8) ?TraceContext {
+    return traceStart(kind, method, null);
+}
+
+/// View a span context as a traceparent parent for an outbound
+/// call. The slices borrow ctx, which must outlive the traceStart
+/// call (span contexts stored on a Channel or CallContext do).
+pub fn parentOf(ctx: ?*const TraceContext) ?Parent {
+    const c = ctx orelse return null;
+    return .{ .trace_id = &c.trace_id, .span_id = &c.span_id, .sampled = c.sampled };
+}
+
 pub fn traceEnd(kind: []const u8, method: []const u8, ctx: ?TraceContext, status: []const u8) void {
     const t = tracer orelse return;
     const c = ctx orelse return;

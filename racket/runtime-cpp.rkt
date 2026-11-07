@@ -152,6 +152,18 @@ struct Tracing {
     return ctx;
   }
 
+  // Start a root span context (client workflows). Pair with TraceEnd.
+  static std::optional<TraceContext> NewTraceContext(const std::string& kind,
+                                                     const std::string& method) {
+    return TraceStart(kind, method, std::nullopt);
+  }
+
+  // View a span context as a traceparent parent.
+  static std::optional<Parent> ParentOf(const std::optional<TraceContext>& ctx) {
+    if (!ctx) return std::nullopt;
+    return Parent{ctx->trace_id, ctx->span_id, ctx->sampled};
+  }
+
   static void TraceEnd(const std::string& kind, const std::string& method,
                        const std::optional<TraceContext>& ctx,
                        const std::string& status) {
@@ -750,6 +762,8 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
   /// Per-call context: metadata sent in HEADERS, plus deadline.
   struct CallContext {
     Metadata metadata;
+    /// This call's server span context (empty when dormant).
+    mutable std::optional<Tracing::TraceContext> trace_context;
     std::shared_ptr<ResponseMeta> response = std::make_shared<ResponseMeta>();
 
     /// Record response initial metadata (sent lazily, before
@@ -1180,6 +1194,14 @@ class Channel {
 
   std::shared_ptr<Endpoint> endpoint() const { return endpoint_; }
 
+  /// A Channel view sharing this endpoint whose outbound spans
+  /// are parented to ctx. Explicit call metadata still wins.
+  Channel WithTraceContext(const std::optional<Tracing::TraceContext>& ctx) const {
+    Channel ch(endpoint_);
+    ch.trace_context_ = ctx;
+    return ch;
+  }
+
   /// Receives response messages of one call.
   class ClientStream {
    public:
@@ -1441,9 +1463,9 @@ class Channel {
       }
       if (Tracing::Enabled()) {
         auto it = merged.find("traceparent");
-        trace_ctx = Tracing::TraceStart(
-            "client", path,
-            Tracing::ParseTraceparent(it == merged.end() ? nullptr : it->second.c_str()));
+        auto parent = Tracing::ParseTraceparent(it == merged.end() ? nullptr : it->second.c_str());
+        if (!parent) parent = Tracing::ParentOf(trace_context_);
+        trace_ctx = Tracing::TraceStart("client", path, parent);
         if (trace_ctx) {
           merged["traceparent"] =
               Tracing::FormatTraceparent(trace_ctx->trace_id, trace_ctx->span_id, trace_ctx->sampled);
@@ -1483,6 +1505,7 @@ class Channel {
   }
 
   std::shared_ptr<Endpoint> endpoint_;
+  std::optional<Tracing::TraceContext> trace_context_;
 };
 
 }  // namespace grpcdc
@@ -1613,6 +1636,7 @@ class Server {
         Tracing::ParseTraceparent(trace_it == headers.metadata.end()
                                       ? nullptr
                                       : trace_it->second.c_str()));
+    ctx.trace_context = trace_ctx;
     StatusException result(wire::kCodeOk, "");
     try {
       RequestStream reqs(input);

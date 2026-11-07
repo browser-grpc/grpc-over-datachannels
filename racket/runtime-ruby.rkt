@@ -133,6 +133,18 @@ module Grpcdc
     ctx
   end
 
+  # Start a root span context (client workflows). Pair with trace_end.
+  def self.new_trace_context(kind, method)
+    trace_start(kind, method, nil)
+  end
+
+  # View a span context as a traceparent parent for an outbound call.
+  def self.parent_of(ctx)
+    return nil if ctx.nil?
+
+    [ctx["trace_id"], ctx["span_id"], ctx["sampled"]]
+  end
+
   def self.trace_end(kind, method, ctx, status)
     return if ctx.nil? || @tracer.nil? || ctx["sampled"] == false
 
@@ -431,6 +443,8 @@ module Grpcdc
   # Per-call context: metadata sent in HEADERS, plus deadline.
   class CallContext
     attr_reader :metadata, :deadline, :response_headers, :response_trailers
+    # This call's server span context (nil when dormant).
+    attr_accessor :trace_context
 
     # Record response initial metadata (sent lazily, before
     # the first response message).
@@ -694,7 +708,18 @@ module Grpcdc
 
     def initialize(transport = nil, endpoint: nil)
       @endpoint = endpoint || Endpoint.new(transport, creator: true)
+      @trace_context = nil
       @endpoint.start
+    end
+
+    # Parent this channel's outbound spans to ctx (usually
+    # ctx.trace_context of the call being served, or a root from
+    # Grpcdc.new_trace_context). Explicit metadata still wins.
+    def with_trace_context(ctx)
+      ch = Channel.allocate
+      ch.instance_variable_set(:@endpoint, @endpoint)
+      ch.instance_variable_set(:@trace_context, ctx)
+      ch
     end
 
     def unary(path, req, resp, metadata = nil, timeout: nil)
@@ -779,7 +804,8 @@ module Grpcdc
           metadata["grpc-timeout"] = Codec.encode_timeout(timeout)
         end
         unless Grpcdc.tracer.nil?
-          trace_ctx = Grpcdc.trace_start("client", path, Grpcdc.parse_traceparent(metadata["traceparent"]))
+          parent = Grpcdc.parse_traceparent(metadata["traceparent"]) || Grpcdc.parent_of(@trace_context)
+          trace_ctx = Grpcdc.trace_start("client", path, parent)
           unless trace_ctx.nil?
             metadata["traceparent"] = Grpcdc.format_traceparent(trace_ctx["trace_id"], trace_ctx["span_id"], trace_ctx["sampled"])
           end
@@ -1104,6 +1130,7 @@ module Grpcdc
       end
 
       trace_ctx = Grpcdc.trace_start("server", headers.path, Grpcdc.parse_traceparent((headers.metadata || {})["traceparent"]))
+      ctx.trace_context = trace_ctx
       result = nil
       begin
         method.handler.call(ctx, RequestStream.new(stream_input), sink)

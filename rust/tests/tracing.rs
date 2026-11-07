@@ -150,8 +150,103 @@ async fn tracing_parented_spans() {
         .unary_with_options(req("hello", 0), grpc_dc::CallOptions { metadata, timeout: None, ..Default::default() })
         .await
         .unwrap();
-    grpc_dc::status::set_tracer(None);
     assert_eq!(resp.message, "echo: hello");
     assert!(recorder.starts.lock().unwrap().is_empty());
     assert!(recorder.ends.lock().unwrap().is_empty());
+
+    // Nested: the front callee's handler makes an outbound call
+    // parented to its server span via CallCtx::trace_context.
+    recorder.starts.lock().unwrap().clear();
+    recorder.ends.lock().unwrap().clear();
+    let downstream = setup().await;
+    let seen = Arc::new(std::sync::Mutex::new(None::<String>));
+    let front_service = FrontService { downstream, seen: seen.clone() };
+    let (a, b) = loopback_pair();
+    let server_transport: Arc<dyn DcTransport> = Arc::new(b);
+    tokio::spawn(Server::serve(server_transport, vec![echo_service(Arc::new(front_service))]));
+    let client_transport: Arc<dyn DcTransport> = Arc::new(a);
+    let front_client = EchoClient::new(Channel::new(client_transport));
+    let resp = front_client.unary(req("hello", 0)).await.unwrap();
+    assert_eq!(resp.message, "echo: nested");
+    {
+        let starts = recorder.starts.lock().unwrap();
+        assert_eq!(starts.len(), 4, "starts: {starts:?}");
+        let kinds: Vec<&str> = starts.iter().map(|s| s.0.as_str()).collect();
+        assert_eq!(kinds, ["client", "server", "client", "server"]);
+        let (outer_client, outer_server, inner_client, inner_server) =
+            (&starts[0], &starts[1], &starts[2], &starts[3]);
+        assert!(starts.iter().all(|s| s.2 == outer_client.2));
+        assert_eq!(outer_server.4, outer_client.3);
+        assert_eq!(inner_client.4, outer_server.3);
+        assert_eq!(inner_server.4, inner_client.3);
+        assert_eq!(seen.lock().unwrap().as_deref(), Some(outer_server.3.as_str()));
+        assert_eq!(recorder.ends.lock().unwrap().len(), 4);
+    }
+
+    // Root context groups several client calls under one trace.
+    recorder.starts.lock().unwrap().clear();
+    recorder.ends.lock().unwrap().clear();
+    let root = grpc_dc::status::new_trace_context("internal", "workflow").unwrap();
+    let client = setup().await;
+    for msg in ["one", "two"] {
+        client
+            .unary_with_options(
+                req(msg, 0),
+                grpc_dc::CallOptions::default().trace_parent(&root),
+            )
+            .await
+            .unwrap();
+    }
+    grpc_dc::status::trace_end("internal", "workflow", Some(&root), "OK");
+    grpc_dc::status::set_tracer(None);
+    {
+        let starts = recorder.starts.lock().unwrap();
+        let clients: Vec<_> = starts.iter().filter(|s| s.0 == "client").collect();
+        assert_eq!(clients.len(), 2);
+        assert!(clients.iter().all(|s| s.4 == root.span_id));
+        assert!(starts.iter().all(|s| s.2 == root.trace_id));
+    }
+}
+
+struct FrontService {
+    downstream: EchoClient,
+    seen: Arc<std::sync::Mutex<Option<String>>>,
+}
+
+#[grpc_dc::async_trait]
+impl Echo for FrontService {
+    async fn unary(&self, _req: pb::EchoRequest, ctx: CallCtx) -> Result<pb::EchoResponse, Status> {
+        let trace = ctx.trace_context.clone().expect("server trace context");
+        *self.seen.lock().unwrap() = Some(trace.span_id.clone());
+        self.downstream
+            .unary_with_options(
+                req("nested", 0),
+                grpc_dc::CallOptions::default().trace_parent(&trace),
+            )
+            .await
+    }
+
+    async fn server_stream(
+        &self,
+        _req: pb::EchoRequest,
+        _ctx: CallCtx,
+    ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        Ok(Box::pin(futures_util::stream::empty()))
+    }
+
+    async fn client_stream(
+        &self,
+        _reqs: RequestStream<pb::EchoRequest>,
+        _ctx: CallCtx,
+    ) -> Result<pb::EchoResponse, Status> {
+        Ok(pb::EchoResponse::default())
+    }
+
+    async fn bidi(
+        &self,
+        _reqs: RequestStream<pb::EchoRequest>,
+        _ctx: CallCtx,
+    ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        Ok(Box::pin(futures_util::stream::empty()))
+    }
 }

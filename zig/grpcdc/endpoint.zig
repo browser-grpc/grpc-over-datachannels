@@ -176,6 +176,8 @@ pub const CallContext = struct {
     metadata: Metadata,
     /// Deadline (nowMs clock) propagated via grpc-timeout, if any.
     deadline_ms: ?i64 = null,
+    /// This call's server span context (null when dormant).
+    trace_context: ?status_mod.TraceContext = null,
     /// Shared response-metadata state (endpoint-installed).
     response: ?*ResponseState = null,
 

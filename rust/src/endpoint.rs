@@ -196,10 +196,16 @@ impl Endpoint {
                 let response_meta: crate::server::SharedMeta = Default::default();
                 let sink = ResponseSink::new(self.clone(), frame.stream_id, response_meta.clone());
                 let flush_sink = sink.clone();
+                let trace_ctx = crate::status::trace_start(
+                    "server",
+                    &path,
+                    crate::status::parse_traceparent(headers.metadata.get("traceparent")),
+                );
                 let call = ServerCall {
                     ctx: CallCtx {
                         path: path.clone(),
                         metadata: headers.metadata.clone(),
+                        trace_context: trace_ctx.clone(),
                         stream_id: frame.stream_id,
                         deadline: headers
                             .metadata
@@ -211,11 +217,6 @@ impl Endpoint {
                     requests: RequestStream::<Bytes>::from_events(rx),
                     sink,
                 };
-                let trace_ctx = crate::status::trace_start(
-                    "server",
-                    &path,
-                    crate::status::parse_traceparent(headers.metadata.get("traceparent")),
-                );
                 let ep = self.clone();
                 let stream_id = frame.stream_id;
                 crate::spawn_task(async move {

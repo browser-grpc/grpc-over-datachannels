@@ -68,6 +68,8 @@ public final class Endpoint {
     /// metadata the endpoint reads after dispatch.
     public final class CallContext {
         public var metadata: [String: String] = [:]
+        /// This call's server span context (nil when dormant).
+        public var traceContext: Tracing.TraceContext? = nil
         /// Response initial metadata recorded via SetHeaders.
         public var responseHeaders: [String: String] = [:]
         /// Response trailing metadata recorded via SetTrailers.

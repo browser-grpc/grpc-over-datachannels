@@ -173,6 +173,15 @@ void grpcdc_trace_end(const char *kind, const char *method,
                     status, (double)(grpcdc_now_ms() - ctx->start_ms));
 }
 
+grpcdc_trace_context grpcdc_new_trace_context(const char *kind, const char *method) {
+    return grpcdc_trace_start(kind, method, NULL);
+}
+
+void grpcdc_channel_set_trace_parent(grpcdc_channel *ch,
+                                     const grpcdc_trace_context *ctx) {
+    if (ch && ctx) ch->trace_parent = *ctx;
+}
+
 char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out) {
     memcpy(out, "00-", 3);
     memcpy(out + 3, ctx->trace_id, 32);
@@ -760,8 +769,13 @@ grpcdc_status grpcdc_channel_open(grpcdc_channel *ch, const char *path,
     s->channel = ch;
     s->id = ch->next_stream_id;
     ch->next_stream_id += 2;
-    s->trace = grpcdc_trace_start("client", path,
-                                  md_find(md, md_count, "traceparent"));
+    const char *parent_tp = md_find(md, md_count, "traceparent");
+    char parent_buf[56];
+    if (!parent_tp && ch->trace_parent.active) {
+        grpcdc_format_traceparent(&ch->trace_parent, parent_buf);
+        parent_tp = parent_buf;
+    }
+    s->trace = grpcdc_trace_start("client", path, parent_tp);
     s->trace_path = path;
     /* Merge caller metadata with grpc-timeout and traceparent. */
     grpcdc_kv *merged = NULL;
@@ -1083,6 +1097,7 @@ typedef struct {
     char *path;
     bool cancelled;
     bool half_closed;
+    grpcdc_trace_context trace;
 } server_stream_state;
 
 struct grpcdc_server_stream {
@@ -1348,11 +1363,16 @@ static const server_method_entry *server_find(grpcdc_server *srv,
     return NULL;
 }
 
+grpcdc_trace_context grpcdc_server_stream_trace_context(grpcdc_server_stream *s) {
+    return s->state->trace;
+}
+
 static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
     (void)srv;
     grpcdc_trace_context trace = grpcdc_trace_start(
         "server", ss->path ? ss->path : "",
         md_find(ss->metadata, ss->metadata_count, "traceparent"));
+    ss->trace = trace;
     grpcdc_status st = grpcdc_ok();
     grpcdc_server_stream raw;
     raw.state = ss;

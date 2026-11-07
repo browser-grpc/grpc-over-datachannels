@@ -130,6 +130,8 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
   /// Per-call context: metadata sent in HEADERS, plus deadline.
   struct CallContext {
     Metadata metadata;
+    /// This call's server span context (empty when dormant).
+    mutable std::optional<Tracing::TraceContext> trace_context;
     std::shared_ptr<ResponseMeta> response = std::make_shared<ResponseMeta>();
 
     /// Record response initial metadata (sent lazily, before

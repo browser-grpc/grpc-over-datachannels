@@ -1,0 +1,78 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc browser tracing test</title>
+<script type="module">
+import { Channel, Server, memoryDataChannelPair, setTracer } from "/js/index.js";
+import { EchoRequest, EchoResponse } from "/js/examples/echo_pb.js";
+import { EchoClient, createEchoService } from "/js/examples/echo_grpc_dc.js";
+
+// In-page nested trace: client -> front callee -> downstream
+// service, all over in-memory DataChannel pairs in a real browser.
+// The front handler parents its outbound call with
+// Channel.withTraceContext(ctx.traceContext) (the browser-safe
+// propagation path); the page records every span and exposes the
+// result for the Playwright driver.
+function handlers() {
+  return {
+    async unary(req) {
+      return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+    },
+    async *serverStream(req) {
+      for (let i = 0; i < Math.max(0, req.count); i++) {
+        yield new EchoResponse({ message: req.message, index: i });
+      }
+    },
+    async clientStream(requests) {
+      const parts = [];
+      for await (const req of requests) parts.push(req.message);
+      return new EchoResponse({ message: parts.join("+"), index: parts.length });
+    },
+    async *bidi(requests) {
+      let index = 0;
+      for await (const req of requests) {
+        yield new EchoResponse({ message: req.message, index: index++ });
+      }
+    },
+  };
+}
+
+window.__runTracing = async () => {
+  const starts = [];
+  const ends = [];
+  setTracer({
+    onStart: (kind, method, traceId, spanId, parentSpanId) =>
+      starts.push({ kind, method, traceId, spanId, parentSpanId }),
+    onEnd: (kind, method, traceId, spanId, status, durationMs) =>
+      ends.push({ kind, method, traceId, spanId, status, durationMs }),
+  });
+  try {
+    const [a2, b2] = memoryDataChannelPair();
+    const back = new Server();
+    back.addService(createEchoService(handlers()));
+    back.serve(b2);
+    const downstreamChannel = new Channel(a2);
+
+    let seenSpanId = null;
+    const frontHandlers = {
+      ...handlers(),
+      async unary(req, ctx) {
+        seenSpanId = ctx.traceContext?.spanId ?? null;
+        const downstream = new EchoClient(
+          downstreamChannel.withTraceContext(ctx.traceContext),
+        );
+        return downstream.unary(new EchoRequest({ message: "nested" }));
+      },
+    };
+    const [a, b] = memoryDataChannelPair();
+    const front = new Server();
+    front.addService(createEchoService(frontHandlers));
+    front.serve(b);
+    const client = new EchoClient(new Channel(a));
+
+    const resp = await client.unary(new EchoRequest({ message: "hello" }));
+    return { starts, ends, message: resp.message, seenSpanId };
+  } finally {
+    setTracer(null);
+  }
+};
+</script>

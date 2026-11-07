@@ -236,3 +236,16 @@ export function traceEnd(kind, method, ctx, status) {
     // observers must never break the call
   }
 }
+
+// Start a root span context (e.g. for a client workflow grouping
+// several outbound calls under one trace). Pair with traceEnd.
+// Returns null when tracing is dormant.
+export function newTraceContext(kind = "internal", method = "") {
+  return traceStart(kind, method, null);
+}
+
+// View a span context as a traceparent parent for an outbound call.
+export function asTraceParent(ctx) {
+  if (!ctx) return null;
+  return { traceId: ctx.traceId, spanId: ctx.spanId, sampled: ctx.sampled !== false };
+}

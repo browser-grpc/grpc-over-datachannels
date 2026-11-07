@@ -136,6 +136,18 @@ struct Tracing {
     return ctx;
   }
 
+  // Start a root span context (client workflows). Pair with TraceEnd.
+  static std::optional<TraceContext> NewTraceContext(const std::string& kind,
+                                                     const std::string& method) {
+    return TraceStart(kind, method, std::nullopt);
+  }
+
+  // View a span context as a traceparent parent.
+  static std::optional<Parent> ParentOf(const std::optional<TraceContext>& ctx) {
+    if (!ctx) return std::nullopt;
+    return Parent{ctx->trace_id, ctx->span_id, ctx->sampled};
+  }
+
   static void TraceEnd(const std::string& kind, const std::string& method,
                        const std::optional<TraceContext>& ctx,
                        const std::string& status) {

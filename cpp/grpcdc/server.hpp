@@ -122,6 +122,7 @@ class Server {
         Tracing::ParseTraceparent(trace_it == headers.metadata.end()
                                       ? nullptr
                                       : trace_it->second.c_str()));
+    ctx.trace_context = trace_ctx;
     StatusException result(wire::kCodeOk, "");
     try {
       RequestStream reqs(input);

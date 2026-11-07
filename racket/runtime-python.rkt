@@ -163,6 +163,46 @@ def trace_end(kind, method, ctx, status):
         pass
 
 
+# --- Trace-context propagation (ambient + explicit) ----------------
+# The server activates its span context while the handler runs;
+# Channel._open then parents outbound client spans to it with no
+# manual metadata handling. ContextVar storage keeps concurrent
+# calls (threads and asyncio tasks) apart.
+import contextvars as _contextvars
+from contextlib import contextmanager as _contextmanager
+
+_current_trace_context = _contextvars.ContextVar(
+    "grpcdc_current_trace_context", default=None)
+
+
+def current_trace_context():
+    """The trace context active in this execution context, or None."""
+    return _current_trace_context.get()
+
+
+@_contextmanager
+def with_trace_context(ctx):
+    """Run the enclosed block with ctx as the ambient trace context."""
+    token = _current_trace_context.set(ctx)
+    try:
+        yield ctx
+    finally:
+        _current_trace_context.reset(token)
+
+
+def new_trace_context(kind="internal", method=""):
+    """Start a root span context (e.g. for a client workflow that
+    groups several outbound calls under one trace). Pair with
+    trace_end. Returns None when tracing is dormant."""
+    return trace_start(kind, method, None)
+
+
+def _trace_parent(ctx):
+    if ctx is None:
+        return None
+    return (ctx["trace_id"], ctx["span_id"], ctx["sampled"])
+
+
 class StatusError(Exception):
     """A gRPC status (code + message) carried as an exception."""
 
@@ -447,6 +487,7 @@ class CallContext:
         self.metadata = metadata or {}
         self.response_headers = {}
         self.response_trailers = {}
+        self.trace_context = None
         self.deadline = None
         remaining = parse_timeout(self.metadata.get("grpc-timeout"))
         if remaining is not None:
@@ -681,6 +722,8 @@ from .codec import (
     format_traceparent,
     get_tracer,
     headers_frame,
+    _trace_parent,
+    current_trace_context,
     parse_traceparent,
     status_name,
     trace_end,
@@ -712,7 +755,17 @@ class Channel:
             self.endpoint = endpoint
         else:
             self.endpoint = Endpoint(transport, creator=True)
+        self._trace_context = None
         self.endpoint.start()
+
+    def with_trace_context(self, ctx):
+        """A Channel view sharing this endpoint, whose outbound
+        spans are parented to ctx (a server span context or a root
+        from new_trace_context). Explicit call metadata still wins."""
+        ch = Channel.__new__(Channel)
+        ch.endpoint = self.endpoint
+        ch._trace_context = ctx
+        return ch
 
     def _open(self, path, metadata, timeout=None):
         deadline = None
@@ -724,6 +777,10 @@ class Channel:
                 merged["grpc-timeout"] = encode_timeout(timeout)
             if get_tracer() is not None:
                 parent = parse_traceparent(merged.get("traceparent"))
+                if parent is None:
+                    parent = _trace_parent(self._trace_context)
+                if parent is None:
+                    parent = _trace_parent(current_trace_context())
                 trace_ctx = trace_start("client", path, parent)
                 if trace_ctx is not None:
                     merged["traceparent"] = format_traceparent(
@@ -969,6 +1026,10 @@ class AsyncChannel:
     def endpoint(self):
         return self._channel.endpoint
 
+    def with_trace_context(self, ctx):
+        """AsyncChannel view whose calls parent to ctx (see Channel)."""
+        return AsyncChannel(channel=self._channel.with_trace_context(ctx))
+
     async def unary(self, path, req, resp, metadata=None, timeout=None):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -1004,6 +1065,7 @@ from .codec import (
     to_status,
     trace_end,
     trace_start,
+    with_trace_context,
 )
 from .endpoint import (
     EVENT_DATA,
@@ -1090,9 +1152,11 @@ class Server:
             )
         parent = parse_traceparent((headers.metadata or {}).get("traceparent"))
         trace_ctx = trace_start("server", headers.path, parent)
+        ctx.trace_context = trace_ctx
         result = None
         try:
-            method.handler(ctx, RequestStream(stream_input), sink)
+            with with_trace_context(trace_ctx):
+                method.handler(ctx, RequestStream(stream_input), sink)
         except Exception as e:  # StatusError passes through via to_status
             result = to_status(e)
         status = status_name(result.code) if result is not None else "OK"
@@ -1221,12 +1285,16 @@ from .codec import (
     CallClosed,
     Headers,
     StatusError,
+    current_trace_context,
     decode_frame,
     encode_frame,
+    new_trace_context,
     set_tracer,
     set_trace_filter,
     status_name,
     to_status,
+    trace_end,
+    with_trace_context,
 )
 from .endpoint import CallContext, Endpoint, Transport
 from .dynamic import (
@@ -1281,10 +1349,14 @@ __all__ = [
     "memory_transport_pair",
     "parse_descriptor_set",
     "register_dynamic_service",
+    "current_trace_context",
+    "new_trace_context",
     "set_tracer",
     "set_trace_filter",
     "status_name",
     "to_status",
+    "trace_end",
+    "with_trace_context",
 ]
 GRPC_RUNTIME_EOF
 )

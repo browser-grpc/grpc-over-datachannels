@@ -117,6 +117,18 @@ module Grpcdc
     ctx
   end
 
+  # Start a root span context (client workflows). Pair with trace_end.
+  def self.new_trace_context(kind, method)
+    trace_start(kind, method, nil)
+  end
+
+  # View a span context as a traceparent parent for an outbound call.
+  def self.parent_of(ctx)
+    return nil if ctx.nil?
+
+    [ctx["trace_id"], ctx["span_id"], ctx["sampled"]]
+  end
+
   def self.trace_end(kind, method, ctx, status)
     return if ctx.nil? || @tracer.nil? || ctx["sampled"] == false
 

@@ -64,6 +64,7 @@ class Server {
       return StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path)
     }
     val traceCtx = Tracing.traceStart("server", headers.path, Tracing.parseTraceparent(headers.metadata.getOrElse("traceparent", null)))
+    ctx.traceContext = traceCtx
     var result: StatusException = null
     try {
       method.handler(ctx, new RequestStream(input), new ServerSink {

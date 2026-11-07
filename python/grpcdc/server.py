@@ -8,6 +8,7 @@ from .codec import (
     to_status,
     trace_end,
     trace_start,
+    with_trace_context,
 )
 from .endpoint import (
     EVENT_DATA,
@@ -94,9 +95,11 @@ class Server:
             )
         parent = parse_traceparent((headers.metadata or {}).get("traceparent"))
         trace_ctx = trace_start("server", headers.path, parent)
+        ctx.trace_context = trace_ctx
         result = None
         try:
-            method.handler(ctx, RequestStream(stream_input), sink)
+            with with_trace_context(trace_ctx):
+                method.handler(ctx, RequestStream(stream_input), sink)
         except Exception as e:  # StatusError passes through via to_status
             result = to_status(e)
         status = status_name(result.code) if result is not None else "OK"

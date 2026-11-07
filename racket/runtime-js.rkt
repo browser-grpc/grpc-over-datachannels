@@ -250,6 +250,19 @@ export function traceEnd(kind, method, ctx, status) {
     // observers must never break the call
   }
 }
+
+// Start a root span context (e.g. for a client workflow grouping
+// several outbound calls under one trace). Pair with traceEnd.
+// Returns null when tracing is dormant.
+export function newTraceContext(kind = "internal", method = "") {
+  return traceStart(kind, method, null);
+}
+
+// View a span context as a traceparent parent for an outbound call.
+export function asTraceParent(ctx) {
+  if (!ctx) return null;
+  return { traceId: ctx.traceId, spanId: ctx.spanId, sampled: ctx.sampled !== false };
+}
 GRPC_RUNTIME_EOF
 )
 
@@ -549,6 +562,7 @@ import {
   formatTraceparent,
   getTracer,
   headersFrame,
+  asTraceParent,
   parseTraceparent,
   statusFrame,
   traceEnd,
@@ -625,6 +639,18 @@ function responsesIterable(inner, cancel) {
 export class Channel {
   #endpoint;
   #traces = new Map();
+  #traceContext = null;
+
+  // A Channel view sharing this endpoint whose outbound spans are
+  // parented to traceContext (a server span context from
+  // ctx.traceContext, or a root from newTraceContext). Explicit
+  // call metadata still wins. This is the browser-safe propagation
+  // path: no ambient async context is assumed.
+  withTraceContext(traceContext) {
+    const ch = new Channel(this.#endpoint);
+    ch.#traceContext = traceContext ?? null;
+    return ch;
+  }
 
   /** Accepts an Endpoint or a raw RTCDataChannel-like object. */
   constructor(dcOrEndpoint, options) {
@@ -644,7 +670,11 @@ export class Channel {
     }
     let traceCtx = null;
     if (getTracer() !== null) {
-      traceCtx = traceStart("client", path, parseTraceparent(metadata?.traceparent));
+      traceCtx = traceStart(
+        "client",
+        path,
+        parseTraceparent(metadata?.traceparent) ?? asTraceParent(this.#traceContext),
+      );
       if (traceCtx !== null) {
         metadata = {
           ...metadata,
@@ -990,6 +1020,7 @@ export class Server {
       setTrailers: (md) => Object.assign(responseTrailers, md),
     };
     const traceCtx = traceStart("server", path, parseTraceparent(metadata.traceparent));
+    ctx.traceContext = traceCtx;
     let traceStatus = "OK";
     try {
       await this.#dispatchTraced(path, method, ctx, input, callSink);

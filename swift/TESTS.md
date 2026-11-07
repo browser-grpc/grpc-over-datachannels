@@ -7,6 +7,9 @@ Generated tests exercise the wire codec, all four call
 shapes, deadlines, and the descriptor-driven dynamic 
 surface for this runtime.
 
+Tracing (W3C traceparent, span observers, nested-call 
+propagation) is documented in [`TRACING.md`](TRACING.md).
+
 ## Tests
 
 - [`BddScenarios.swift`](tests/BddScenarios.swift) — BDD scenario suite (generated)

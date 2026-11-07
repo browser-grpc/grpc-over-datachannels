@@ -142,6 +142,7 @@ class Server
             return new StatusError(Wire::CODE_UNIMPLEMENTED, "unknown method " . $headers->path);
         }
         $traceCtx = Status::traceStart("server", $headers->path, Status::parseTraceparent($headers->metadata["traceparent"] ?? null));
+        $ctx->traceContext = $traceCtx;
         $result = null;
         try {
             ($method->handler)($ctx, new RequestStream($endpoint, $input), $sink);

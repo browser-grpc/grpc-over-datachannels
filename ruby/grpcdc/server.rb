@@ -93,6 +93,7 @@ module Grpcdc
       end
 
       trace_ctx = Grpcdc.trace_start("server", headers.path, Grpcdc.parse_traceparent((headers.metadata || {})["traceparent"]))
+      ctx.trace_context = trace_ctx
       result = nil
       begin
         method.handler.call(ctx, RequestStream.new(stream_input), sink)

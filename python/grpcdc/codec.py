@@ -147,6 +147,46 @@ def trace_end(kind, method, ctx, status):
         pass
 
 
+# --- Trace-context propagation (ambient + explicit) ----------------
+# The server activates its span context while the handler runs;
+# Channel._open then parents outbound client spans to it with no
+# manual metadata handling. ContextVar storage keeps concurrent
+# calls (threads and asyncio tasks) apart.
+import contextvars as _contextvars
+from contextlib import contextmanager as _contextmanager
+
+_current_trace_context = _contextvars.ContextVar(
+    "grpcdc_current_trace_context", default=None)
+
+
+def current_trace_context():
+    """The trace context active in this execution context, or None."""
+    return _current_trace_context.get()
+
+
+@_contextmanager
+def with_trace_context(ctx):
+    """Run the enclosed block with ctx as the ambient trace context."""
+    token = _current_trace_context.set(ctx)
+    try:
+        yield ctx
+    finally:
+        _current_trace_context.reset(token)
+
+
+def new_trace_context(kind="internal", method=""):
+    """Start a root span context (e.g. for a client workflow that
+    groups several outbound calls under one trace). Pair with
+    trace_end. Returns None when tracing is dormant."""
+    return trace_start(kind, method, None)
+
+
+def _trace_parent(ctx):
+    if ctx is None:
+        return None
+    return (ctx["trace_id"], ctx["span_id"], ctx["sampled"])
+
+
 class StatusError(Exception):
     """A gRPC status (code + message) carried as an exception."""
 

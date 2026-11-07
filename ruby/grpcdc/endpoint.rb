@@ -143,6 +143,8 @@ module Grpcdc
   # Per-call context: metadata sent in HEADERS, plus deadline.
   class CallContext
     attr_reader :metadata, :deadline, :response_headers, :response_trailers
+    # This call's server span context (nil when dormant).
+    attr_accessor :trace_context
 
     # Record response initial metadata (sent lazily, before
     # the first response message).

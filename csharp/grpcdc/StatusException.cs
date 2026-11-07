@@ -151,6 +151,14 @@ public static class Tracing
         return ctx;
     }
 
+    /// <summary>Start a root span context (client workflows). Pair with TraceEnd.</summary>
+    public static TraceContext NewTraceContext(string kind, string method) =>
+        TraceStart(kind, method, null);
+
+    /// <summary>View a span context as a traceparent parent.</summary>
+    public static Parent ParentOf(TraceContext ctx) =>
+        ctx == null ? null : new Parent(ctx.TraceId, ctx.SpanId, ctx.Sampled);
+
     public static void TraceEnd(string kind, string method, TraceContext ctx, string status)
     {
         ITracer tracer = _tracer;

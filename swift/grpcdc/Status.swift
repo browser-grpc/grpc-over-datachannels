@@ -115,6 +115,17 @@ public enum Tracing {
         return ctx
     }
 
+    /// Start a root span context (client workflows). Pair with TraceEnd.
+    public static func NewTraceContext(_ kind: String, _ method: String) -> TraceContext? {
+        return TraceStart(kind, method, nil)
+    }
+
+    /// View a span context as a traceparent parent.
+    public static func ParentOf(_ ctx: TraceContext?) -> Parent? {
+        guard let ctx else { return nil }
+        return Parent(traceId: ctx.traceId, spanId: ctx.spanId, sampled: ctx.sampled)
+    }
+
     public static func TraceEnd(_ kind: String, _ method: String, _ ctx: TraceContext?, _ status: String) {
         guard let ctx, let t = tracer, ctx.sampled else { return }
         let d = ctx.start.duration(to: ContinuousClock.now)

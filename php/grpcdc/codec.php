@@ -132,6 +132,18 @@ final class Status
         return $ctx;
     }
 
+    /** Start a root span context (client workflows). Pair with traceEnd. */
+    public static function newTraceContext(string $kind, string $method): ?array
+    {
+        return self::traceStart($kind, $method, null);
+    }
+
+    /** View a span context as a traceparent parent for an outbound call. */
+    public static function parentOf(?array $ctx): ?array
+    {
+        return $ctx === null ? null : [$ctx["trace_id"], $ctx["span_id"], $ctx["sampled"]];
+    }
+
     public static function traceEnd(string $kind, string $method, ?array $ctx, string $status): void
     {
         if ($ctx === null || self::$tracer === null || ($ctx["sampled"] ?? true) === false) {

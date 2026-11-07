@@ -131,6 +131,16 @@ public final class Tracing {
         return ctx;
     }
 
+    /** Start a root span context (client workflows). Pair with traceEnd. */
+    public static TraceContext newTraceContext(String kind, String method) {
+        return traceStart(kind, method, null);
+    }
+
+    /** View a span context as a traceparent parent. */
+    public static Parent parentOf(TraceContext ctx) {
+        return ctx == null ? null : new Parent(ctx.traceId(), ctx.spanId(), ctx.sampled());
+    }
+
     public static void traceEnd(String kind, String method, TraceContext ctx, String status) {
         Tracer t = tracer;
         if (ctx == null || t == null || !ctx.sampled()) {

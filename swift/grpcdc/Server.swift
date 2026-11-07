@@ -113,6 +113,7 @@ public final class Server {
             return StatusException(Wire.CodeUnimplemented, "unknown method \(headers.path ?? "")")
         }
         let traceCtx = Tracing.TraceStart("server", path, Tracing.ParseTraceparent(headers.metadata["traceparent"]))
+        ctx.traceContext = traceCtx
         var result = StatusException(Wire.CodeOk, "")
         do {
             let reqs = RequestStream(input)

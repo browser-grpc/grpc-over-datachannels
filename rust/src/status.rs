@@ -223,6 +223,22 @@ pub fn trace_end(kind: &str, method: &str, ctx: Option<&TraceContext>, status: &
     );
 }
 
+/// Start a root span context (e.g. for a client workflow grouping
+/// several outbound calls under one trace). Pair with trace_end.
+/// None when tracing is dormant.
+pub fn new_trace_context(kind: &str, method: &str) -> Option<TraceContext> {
+    trace_start(kind, method, None)
+}
+
+/// View a span context as a traceparent parent for an outbound call.
+pub fn trace_parent_of(ctx: &TraceContext) -> TraceParent {
+    TraceParent {
+        trace_id: ctx.trace_id.clone(),
+        span_id: ctx.span_id.clone(),
+        sampled: ctx.sampled,
+    }
+}
+
 impl From<String> for Status {
     fn from(message: String) -> Self {
         Status::unknown(message)

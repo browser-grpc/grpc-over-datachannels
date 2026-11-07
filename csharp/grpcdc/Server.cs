@@ -96,6 +96,7 @@ public class Server
         }
         Tracing.TraceContext traceCtx = Tracing.TraceStart("server", headers.Path,
             Tracing.ParseTraceparent(headers.Metadata.TryGetValue("traceparent", out string tp) ? tp : null));
+        ctx.TraceContext = traceCtx;
         StatusException result = null;
         try
         {

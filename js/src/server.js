@@ -99,6 +99,7 @@ export class Server {
       setTrailers: (md) => Object.assign(responseTrailers, md),
     };
     const traceCtx = traceStart("server", path, parseTraceparent(metadata.traceparent));
+    ctx.traceContext = traceCtx;
     let traceStatus = "OK";
     try {
       await this.#dispatchTraced(path, method, ctx, input, callSink);

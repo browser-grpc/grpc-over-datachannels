@@ -154,6 +154,17 @@ local function traceStart(kind, method, parent)
   return ctx
 end
 
+-- Start a root span context (client workflows). Pair with traceEnd.
+local function newTraceContext(kind, method)
+  return traceStart(kind, method, nil)
+end
+
+-- View a span context as a traceparent parent for an outbound call.
+local function parentOf(ctx)
+  if ctx == nil then return nil end
+  return { traceId = ctx.traceId, spanId = ctx.spanId, sampled = ctx.sampled }
+end
+
 local function traceEnd(kind, method, ctx, status)
   if ctx == nil or tracer == nil or ctx.sampled == false then return end
   pcall(function()
@@ -175,6 +186,8 @@ return {
   formatTraceparent = formatTraceparent,
   parseTraceparent = parseTraceparent,
   traceStart = traceStart,
+  newTraceContext = newTraceContext,
+  parentOf = parentOf,
   traceEnd = traceEnd,
 }
 GRPC_RUNTIME_EOF
@@ -926,6 +939,13 @@ function Channel.fromEndpoint(endpoint)
   return setmetatable({ endpoint = endpoint }, Channel)
 end
 
+--- Parent this channel's outbound spans to ctx (usually
+--- ctx.traceContext of the call being served, or a root from
+--- statusModule.newTraceContext). Explicit metadata still wins.
+function Channel:setTraceContext(ctx)
+  self.traceContext = ctx
+end
+
 function Channel:open(path, metadata, timeout)
   local deadline = nil
   local traceCtx = nil
@@ -940,7 +960,9 @@ function Channel:open(path, metadata, timeout)
       merged["grpc-timeout"] = Codec.encodeTimeout(timeout)
     end
     if statusModule.tracer() ~= nil then
-      traceCtx = statusModule.traceStart("client", path, statusModule.parseTraceparent(merged["traceparent"]))
+      local parent = statusModule.parseTraceparent(merged["traceparent"])
+      if parent == nil then parent = statusModule.parentOf(self.traceContext) end
+      traceCtx = statusModule.traceStart("client", path, parent)
       if traceCtx ~= nil then
         merged["traceparent"] = statusModule.formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled)
       end
@@ -1252,6 +1274,7 @@ function Server:dispatch(endpoint, ctx, headers, input, sink)
     return Status.new(wire.CODE_UNIMPLEMENTED, "unknown method " .. tostring(headers.path))
   end
   local traceCtx = statusModule.traceStart("server", headers.path, statusModule.parseTraceparent((headers.metadata or {})["traceparent"]))
+  ctx.traceContext = traceCtx
   local reqs = RequestStream.new(endpoint, input)
   local ok, err = pcall(method.handler, ctx, reqs, function(payload)
     sink:send(payload)

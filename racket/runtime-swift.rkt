@@ -131,6 +131,17 @@ enum Tracing {
         return ctx
     }
 
+    /// Start a root span context (client workflows). Pair with TraceEnd.
+    static func NewTraceContext(_ kind: String, _ method: String) -> TraceContext? {
+        return TraceStart(kind, method, nil)
+    }
+
+    /// View a span context as a traceparent parent.
+    static func ParentOf(_ ctx: TraceContext?) -> Parent? {
+        guard let ctx else { return nil }
+        return Parent(traceId: ctx.traceId, spanId: ctx.spanId, sampled: ctx.sampled)
+    }
+
     static func TraceEnd(_ kind: String, _ method: String, _ ctx: TraceContext?, _ status: String) {
         guard let ctx, let t = tracer, ctx.sampled else { return }
         let d = ctx.start.duration(to: ContinuousClock.now)
@@ -769,6 +780,8 @@ final class Endpoint {
     /// metadata the endpoint reads after dispatch.
     final class CallContext {
         var metadata: [String: String] = [:]
+        /// This call's server span context (nil when dormant).
+        var traceContext: Tracing.TraceContext? = nil
         /// Response initial metadata recorded via SetHeaders.
         var responseHeaders: [String: String] = [:]
         /// Response trailing metadata recorded via SetTrailers.
@@ -1158,6 +1171,15 @@ func RunBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {
 /// Channel: the client side of one Endpoint.
 final class Channel {
     private let endpointInstance: Endpoint
+    private var traceContext: Tracing.TraceContext? = nil
+
+    /// A Channel view sharing this endpoint whose outbound spans
+    /// are parented to ctx. Explicit call metadata still wins.
+    public func WithTraceContext(_ ctx: Tracing.TraceContext?) -> Channel {
+        let ch = Channel(endpoint: endpointInstance)
+        ch.traceContext = ctx
+        return ch
+    }
 
     /// Wrap a transport, allocating odd stream ids.
     init(_ transport: Transport) {
@@ -1283,7 +1305,8 @@ final class Channel {
                 merged["grpc-timeout"] = Codec.EncodeTimeout(timeout)
             }
             if Tracing.Enabled {
-                traceCtx = Tracing.TraceStart("client", path, Tracing.ParseTraceparent(merged["traceparent"]))
+                let parent = Tracing.ParseTraceparent(merged["traceparent"]) ?? Tracing.ParentOf(traceContext)
+                traceCtx = Tracing.TraceStart("client", path, parent)
                 if let traceCtx {
                     merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled)
                 }
@@ -1492,6 +1515,7 @@ final class Server {
             return StatusException(Wire.CodeUnimplemented, "unknown method \(headers.path ?? "")")
         }
         let traceCtx = Tracing.TraceStart("server", path, Tracing.ParseTraceparent(headers.metadata["traceparent"]))
+        ctx.traceContext = traceCtx
         var result = StatusException(Wire.CodeOk, "")
         do {
             let reqs = RequestStream(input)

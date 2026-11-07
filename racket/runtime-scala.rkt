@@ -128,6 +128,14 @@ object Tracing {
     ctx
   }
 
+  /** Start a root span context (client workflows). Pair with traceEnd. */
+  def newTraceContext(kind: String, method: String): TraceContext =
+    traceStart(kind, method, null)
+
+  /** View a span context as a traceparent parent. */
+  def parentOf(ctx: TraceContext): Parent =
+    if (ctx == null) null else Parent(ctx.traceId, ctx.spanId, ctx.sampled)
+
   def traceEnd(kind: String, method: String, ctx: TraceContext, status: String): Unit = {
     val t = tracer
     if (ctx == null || t == null || !ctx.sampled) return
@@ -536,6 +544,8 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
 
   /** Per-call context: metadata sent in HEADERS. */
   class CallContext(val metadata: Map[String, String]) {
+    /** This call's server span context (null when dormant). */
+    var traceContext: Tracing.TraceContext = null
     /** Response initial metadata recorded via setHeaders. */
     val responseHeaders: scala.collection.mutable.Map[String, String] =
       scala.collection.mutable.HashMap.empty
@@ -865,6 +875,16 @@ import java.io.EOFException
 class Channel(val endpoint: Endpoint) {
   endpoint.start()
 
+  private var traceContext: Tracing.TraceContext = null
+
+  /** A Channel view sharing this endpoint whose outbound spans
+   *  are parented to ctx. Explicit call metadata still wins. */
+  def withTraceContext(ctx: Tracing.TraceContext): Channel = {
+    val ch = new Channel(endpoint)
+    ch.traceContext = ctx
+    ch
+  }
+
   /** Wrap a transport, allocating odd stream ids. */
   def this(transport: Transport) = {
     this(Endpoint(transport, true))
@@ -987,7 +1007,11 @@ class Channel(val endpoint: Endpoint) {
         md = md + ("grpc-timeout" -> Codec.encodeTimeout(timeout))
       }
       if (Tracing.enabled) {
-        traceCtx = Tracing.traceStart("client", path, Tracing.parseTraceparent(md.getOrElse("traceparent", null)))
+        val parent = Tracing.parseTraceparent(md.getOrElse("traceparent", null)) match {
+          case null => Tracing.parentOf(traceContext)
+          case p => p
+        }
+        traceCtx = Tracing.traceStart("client", path, parent)
         if (traceCtx != null) {
           md = md + ("traceparent" -> Tracing.formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled))
         }
@@ -1156,6 +1180,7 @@ class Server {
       return StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path)
     }
     val traceCtx = Tracing.traceStart("server", headers.path, Tracing.parseTraceparent(headers.metadata.getOrElse("traceparent", null)))
+    ctx.traceContext = traceCtx
     var result: StatusException = null
     try {
       method.handler(ctx, new RequestStream(input), new ServerSink {

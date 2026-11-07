@@ -110,6 +110,14 @@ object Tracing {
     ctx
   }
 
+  /** Start a root span context (client workflows). Pair with traceEnd. */
+  def newTraceContext(kind: String, method: String): TraceContext =
+    traceStart(kind, method, null)
+
+  /** View a span context as a traceparent parent. */
+  def parentOf(ctx: TraceContext): Parent =
+    if (ctx == null) null else Parent(ctx.traceId, ctx.spanId, ctx.sampled)
+
   def traceEnd(kind: String, method: String, ctx: TraceContext, status: String): Unit = {
     val t = tracer
     if (ctx == null || t == null || !ctx.sampled) return

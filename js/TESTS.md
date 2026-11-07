@@ -7,6 +7,9 @@ Generated tests exercise the wire codec, all four call
 shapes, deadlines, and the descriptor-driven dynamic 
 surface for this runtime.
 
+Tracing (W3C traceparent, span observers, nested-call 
+propagation) is documented in [`TRACING.md`](TRACING.md).
+
 ## Tests
 
 - [`bdd.test.js`](test/bdd.test.js) — BDD scenario suite (generated)
@@ -29,7 +32,7 @@ surface for this runtime.
 - [`oracle_driver.generated.js`](test/oracle_driver.generated.js) — Official-implementation oracle, via the proxy
 - [`pb_messages.test.js`](test/pb_messages.test.js) — Generated suite/example
 - [`plugin_parity.test.js`](test/plugin_parity.test.js) — Generated suite/example
-- [`tracing.test.js`](test/tracing.test.js) — Generated suite/example
+- [`tracing.test.js`](test/tracing.test.js) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct.test.js`](test/webrtc_direct.test.js) — WebRTC-Direct example/test
 
 ## Examples
@@ -50,8 +53,8 @@ surface for this runtime.
 - [`orca_pb.js`](examples/interop/orca_pb.js) — Generated suite/example
 - [`test_grpc_dc.js`](examples/interop/test_grpc_dc.js) — Generated suite/example
 - [`test_pb.js`](examples/interop/test_pb.js) — Generated suite/example
-- [`otlp_tracer.js`](examples/otlp_tracer.js) — Generated suite/example
-- [`tracing_demo.js`](examples/tracing_demo.js) — Generated suite/example
+- [`otlp_tracer.js`](examples/otlp_tracer.js) — Tracing: traceparent propagation, span observers, nested calls
+- [`tracing_demo.js`](examples/tracing_demo.js) — Tracing: traceparent propagation, span observers, nested calls
 
 ## Shared matrix coverage
 

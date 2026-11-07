@@ -24,7 +24,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`sctp_vectors_test.go`](go/sctp_vectors_test.go) — Generated suite/example
 - [`srflx_test.go`](go/srflx_test.go) — Generated suite/example
 - [`streamreset_test.go`](go/streamreset_test.go) — Generated suite/example
-- [`trace_test.go`](go/trace_test.go) — Generated suite/example
+- [`trace_test.go`](go/trace_test.go) — Tracing: traceparent propagation, span observers, nested calls
 - [`trickle_test.go`](go/trickle_test.go) — Generated suite/example
 - [`turn_mux_test.go`](go/turn_mux_test.go) — Generated suite/example
 - [`turn_tcp_test.go`](go/turn_tcp_test.go) — Generated suite/example
@@ -51,7 +51,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`sctp_vectors.test.js`](js/test/sctp_vectors.test.js) — Generated suite/example
 - [`srflx.test.js`](js/test/srflx.test.js) — Generated suite/example
 - [`streamreset.test.js`](js/test/streamreset.test.js) — Generated suite/example
-- [`trace.test.js`](js/test/trace.test.js) — Generated suite/example
+- [`trace.test.js`](js/test/trace.test.js) — Tracing: traceparent propagation, span observers, nested calls
 - [`trickle.test.js`](js/test/trickle.test.js) — Generated suite/example
 - [`turn.test.js`](js/test/turn.test.js) — Generated suite/example
 - [`turn_mux.test.js`](js/test/turn_mux.test.js) — Generated suite/example
@@ -70,7 +70,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`net_stack.rs`](rust/tests/net_stack.rs) — Generated suite/example
 - [`peer.rs`](rust/tests/peer.rs) — Generated suite/example
 - [`peer_resumption.rs`](rust/tests/peer_resumption.rs) — Generated suite/example
-- [`peer_trace.rs`](rust/tests/peer_trace.rs) — Generated suite/example
+- [`peer_trace.rs`](rust/tests/peer_trace.rs) — Tracing: traceparent propagation, span observers, nested calls
 - [`platform_harness.rs`](rust/tests/platform_harness.rs) — Generated suite/example
 - [`restart.rs`](rust/tests/restart.rs) — Generated suite/example
 - [`sctp.rs`](rust/tests/sctp.rs) — Generated suite/example

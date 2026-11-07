@@ -101,6 +101,16 @@ TraceContext? traceStart(
   return ctx;
 }
 
+/// Start a root span context (client workflows). Pair with traceEnd.
+TraceContext? newTraceContext(String kind, String method) =>
+    traceStart(kind, method, null);
+
+/// View a span context as a traceparent parent.
+({String traceId, String spanId, bool sampled})? parentOf(TraceContext? ctx) =>
+    ctx == null
+        ? null
+        : (traceId: ctx.traceId, spanId: ctx.spanId, sampled: ctx.sampled);
+
 void traceEnd(String kind, String method, TraceContext? ctx, String status) {
   final tracer = _tracer;
   if (ctx == null || tracer == null || !ctx.sampled) return;

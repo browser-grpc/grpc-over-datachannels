@@ -128,8 +128,29 @@ the original client. Sampling policy, batching, and export
 (OTLP or otherwise) are deliberately out of scope — this is
 propagation plus hooks, not an OpenTelemetry SDK.
 
+Nested propagation is automated by the runtimes. The server
+attaches its span context to the handler context
+(`ctx.traceContext` / `CallCtx.trace_context` /
+`ctx.trace_context`, per language); while the handler runs,
+outbound calls are parented to that span with no manual
+metadata handling — via an ambient context where the
+platform has one (Python `contextvars`, Go
+`context.Context`, and equivalents), or via an explicitly
+context-bound channel/client where it does not (notably
+browser JS/Wasm, e.g. `Channel.withTraceContext`). A client
+call with no parent starts a root span automatically; a
+root context (`new_trace_context` and per-language
+equivalents) groups several calls under one workflow span.
+Explicit `traceparent` call metadata always wins over the
+bound or ambient context. Per-language API names and
+examples are generated into each language's `TRACING.md`.
+
 The protoc plugins accept `trace=off|hooks` (default `off`).
-`hooks` additionally wires the registrar into generated stubs:
+The option controls stub convenience, not capability: the
+runtime tracing engine above is always present and dormant,
+and `off` simply means the generated stubs carry no tracing
+wiring (no registrar re-export, no baked filter). `hooks`
+additionally wires the registrar into generated stubs:
 every native template re-exports or delegates to the runtime
 registrar (JS and the Wasm wrappers excepted, below); any
 other value is a plugin error. The runtime API itself is
@@ -137,7 +158,8 @@ always present and dormant. The option is covered by
 `racket/tests/trace_option_test.rkt` (registrar present with
 `hooks`, absent with `off`, `trace_methods` baked, bad values
 rejected through real protoc) and by per-language observer
-tests (JS, Python, Go, and Rust end to end).
+tests (JS, Python, Go, and Rust end to end, including nested
+callee calls and a real-browser leg for JS).
 
 `set_trace_filter(patterns)` restricts which methods produce
 spans: `;`-separated method paths, a trailing `*` meaning

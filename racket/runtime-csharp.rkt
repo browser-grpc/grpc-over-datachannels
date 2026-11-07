@@ -167,6 +167,14 @@ public static class Tracing
         return ctx;
     }
 
+    /// <summary>Start a root span context (client workflows). Pair with TraceEnd.</summary>
+    public static TraceContext NewTraceContext(string kind, string method) =>
+        TraceStart(kind, method, null);
+
+    /// <summary>View a span context as a traceparent parent.</summary>
+    public static Parent ParentOf(TraceContext ctx) =>
+        ctx == null ? null : new Parent(ctx.TraceId, ctx.SpanId, ctx.Sampled);
+
     public static void TraceEnd(string kind, string method, TraceContext ctx, string status)
     {
         ITracer tracer = _tracer;
@@ -516,6 +524,9 @@ public class Endpoint
     public sealed class CallContext
     {
         public Dictionary<string, string> Metadata { get; }
+
+        /// <summary>This call's server span context (null when dormant).</summary>
+        public Tracing.TraceContext TraceContext { get; set; }
 
         /// <summary>Response initial metadata recorded via SetHeaders.</summary>
         public Dictionary<string, string> ResponseHeaders { get; } = new();
@@ -877,6 +888,16 @@ namespace Grpcdc;
 public class Channel
 {
     private readonly Endpoint _endpoint;
+    private Tracing.TraceContext _traceContext;
+
+    /// <summary>A Channel view sharing this endpoint whose outbound
+    /// spans are parented to ctx. Explicit call metadata still wins.</summary>
+    public Channel WithTraceContext(Tracing.TraceContext ctx)
+    {
+        var ch = new Channel(_endpoint);
+        ch._traceContext = ctx;
+        return ch;
+    }
 
     /// <summary>Wrap a transport, allocating odd stream ids.</summary>
     public Channel(ITransport transport) : this(new Endpoint(transport, true))
@@ -1050,8 +1071,9 @@ public class Channel
             }
             if (Tracing.Enabled)
             {
-                traceCtx = Tracing.TraceStart("client", path,
-                    Tracing.ParseTraceparent(merged.TryGetValue("traceparent", out string tp) ? tp : null));
+                var parent = Tracing.ParseTraceparent(merged.TryGetValue("traceparent", out string tp) ? tp : null)
+                    ?? Tracing.ParentOf(_traceContext);
+                traceCtx = Tracing.TraceStart("client", path, parent);
                 if (traceCtx != null)
                 {
                     merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.TraceId, traceCtx.SpanId, traceCtx.Sampled);
@@ -1295,6 +1317,7 @@ public class Server
         }
         Tracing.TraceContext traceCtx = Tracing.TraceStart("server", headers.Path,
             Tracing.ParseTraceparent(headers.Metadata.TryGetValue("traceparent", out string tp) ? tp : null));
+        ctx.TraceContext = traceCtx;
         StatusException result = null;
         try
         {

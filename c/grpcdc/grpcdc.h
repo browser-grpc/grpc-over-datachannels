@@ -103,6 +103,9 @@ void grpcdc_trace_end(const char *kind, const char *method,
 /* Format "00-<trace>-<span>-<flags>" into out[56]; returns out. */
 char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out);
 
+/* Start a root span context (client workflows). Pair with grpcdc_trace_end. */
+grpcdc_trace_context grpcdc_new_trace_context(const char *kind, const char *method);
+
 /* Owned byte buffer (malloc'd; free data or use grpcdc_bytes_free). */
 typedef struct {
     uint8_t *data;
@@ -179,7 +182,15 @@ grpcdc_status grpcdc_parse_status_payload(const uint8_t *payload, size_t len);
 typedef struct grpcdc_channel {
     grpcdc_transport *transport;
     uint32_t next_stream_id;
+    /* Bound parent for outbound spans (grpcdc_channel_set_trace_parent). */
+    grpcdc_trace_context trace_parent;
 } grpcdc_channel;
+
+/* Parent this channel's outbound spans to ctx (usually the serving
+   span from grpcdc_server_stream_trace_context, or a root from
+   grpcdc_new_trace_context). Explicit call metadata still wins. */
+void grpcdc_channel_set_trace_parent(grpcdc_channel *ch,
+                                     const grpcdc_trace_context *ctx);
 
 void grpcdc_channel_init(grpcdc_channel *ch, grpcdc_transport *transport);
 
@@ -250,6 +261,9 @@ void grpcdc_server_stream_set_trailer(grpcdc_server_stream *s,
    on this so a cancelled call stops promptly instead of
    wedging the single-stream serve loop. */
 int grpcdc_server_stream_cancelled(grpcdc_server_stream *s);
+
+/* The serving call's server span context (inactive when dormant). */
+grpcdc_trace_context grpcdc_server_stream_trace_context(grpcdc_server_stream *s);
 
 /* Trailing metadata received with the terminal status of a
    client stream (owned by the stream; valid until free). */

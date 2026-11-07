@@ -517,6 +517,8 @@ public class Endpoint {
         public final Map<String, String> responseTrailers = new java.util.HashMap<>();
         /** Monotonic deadline (System.nanoTime), or -1 when unbounded. */
         public final long deadlineNanos;
+        /** This call's server span context (null when dormant). */
+        public Tracing.TraceContext traceContext;
 
         /** Record response initial metadata (sent lazily, before the first response message). */
         public void setHeaders(Map<String, String> md) {
@@ -842,6 +844,15 @@ import java.util.Map;
 /** Channel: the client side of one Endpoint. */
 public class Channel {
     private final Endpoint endpoint;
+    private Tracing.TraceContext traceContext;
+
+    /** A Channel view sharing this endpoint whose outbound spans
+     *  are parented to ctx. Explicit call metadata still wins. */
+    public Channel withTraceContext(Tracing.TraceContext ctx) {
+        Channel ch = new Channel(endpoint);
+        ch.traceContext = ctx;
+        return ch;
+    }
 
     /** Wrap a transport, allocating odd stream ids. */
     public Channel(Transport transport) {
@@ -1010,8 +1021,11 @@ public class Channel {
                 merged.put("grpc-timeout", Codec.encodeTimeout(timeout));
             }
             if (Tracing.enabled()) {
-                traceCtx = Tracing.traceStart("client", path,
-                        Tracing.parseTraceparent(merged.get("traceparent")));
+                Tracing.Parent parent = Tracing.parseTraceparent(merged.get("traceparent"));
+                if (parent == null) {
+                    parent = Tracing.parentOf(traceContext);
+                }
+                traceCtx = Tracing.traceStart("client", path, parent);
                 if (traceCtx != null) {
                     merged.put("traceparent",
                             Tracing.formatTraceparent(traceCtx.traceId(), traceCtx.spanId(), traceCtx.sampled()));
@@ -1306,6 +1320,7 @@ public class Server {
         }
         Tracing.TraceContext traceCtx = Tracing.traceStart("server", headers.path,
                 Tracing.parseTraceparent(headers.metadata.get("traceparent")));
+        ctx.traceContext = traceCtx;
         StatusException result = null;
         try {
             method.handler().handle(ctx, new RequestStream(in), sink::send);
@@ -1597,6 +1612,16 @@ public final class Tracing {
             // observers must never break the call
         }
         return ctx;
+    }
+
+    /** Start a root span context (client workflows). Pair with traceEnd. */
+    public static TraceContext newTraceContext(String kind, String method) {
+        return traceStart(kind, method, null);
+    }
+
+    /** View a span context as a traceparent parent. */
+    public static Parent parentOf(TraceContext ctx) {
+        return ctx == null ? null : new Parent(ctx.traceId(), ctx.spanId(), ctx.sampled());
     }
 
     public static void traceEnd(String kind, String method, TraceContext ctx, String status) {

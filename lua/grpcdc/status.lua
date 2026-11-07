@@ -136,6 +136,17 @@ local function traceStart(kind, method, parent)
   return ctx
 end
 
+-- Start a root span context (client workflows). Pair with traceEnd.
+local function newTraceContext(kind, method)
+  return traceStart(kind, method, nil)
+end
+
+-- View a span context as a traceparent parent for an outbound call.
+local function parentOf(ctx)
+  if ctx == nil then return nil end
+  return { traceId = ctx.traceId, spanId = ctx.spanId, sampled = ctx.sampled }
+end
+
 local function traceEnd(kind, method, ctx, status)
   if ctx == nil or tracer == nil or ctx.sampled == false then return end
   pcall(function()
@@ -157,5 +168,7 @@ return {
   formatTraceparent = formatTraceparent,
   parseTraceparent = parseTraceparent,
   traceStart = traceStart,
+  newTraceContext = newTraceContext,
+  parentOf = parentOf,
   traceEnd = traceEnd,
 }

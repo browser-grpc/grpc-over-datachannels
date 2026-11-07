@@ -7,6 +7,9 @@ Generated tests exercise the wire codec, all four call
 shapes, deadlines, and the descriptor-driven dynamic 
 surface for this runtime.
 
+Tracing (W3C traceparent, span observers, nested-call 
+propagation) is documented in [`TRACING.md`](TRACING.md).
+
 ## Tests
 
 - [`bdd.rs`](tests/bdd.rs) — BDD scenario suite (generated)
@@ -23,7 +26,7 @@ surface for this runtime.
 - [`oracle.rs`](tests/oracle.rs) — Official-implementation oracle, via the proxy
 - [`mod.rs`](tests/oracle_scenarios/mod.rs) — Generated suite/example
 - [`pb_messages.rs`](tests/pb_messages.rs) — Generated suite/example
-- [`tracing.rs`](tests/tracing.rs) — Generated suite/example
+- [`tracing.rs`](tests/tracing.rs) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct_grpc.rs`](tests/webrtc_direct_grpc.rs) — WebRTC-Direct example/test
 - [`webrtc_grpc.rs`](tests/webrtc_grpc.rs) — WebRTC transport
 

@@ -91,6 +91,77 @@ test("unary propagates one parented trace", async () => {
   assert.equal(rec.ends.find((e) => e.kind === "server").spanId, serverSpan.spanId);
 });
 
+test("nested callee call joins the trace (explicit context)", async () => {
+  const rec = recorder();
+  let seenCtx = null;
+  setTracer(rec.tracer);
+  try {
+    // Downstream service.
+    const [a2, b2] = memoryDataChannelPair();
+    const back = new Server();
+    back.addService(createEchoService(handlers()));
+    back.serve(b2);
+    const downstreamChannel = new Channel(a2);
+
+    // Front callee: handler makes an outbound call through a
+    // context-bound channel; no manual metadata handling.
+    const frontHandlers = {
+      ...handlers(),
+      async unary(req, ctx) {
+        seenCtx = ctx;
+        const downstream = new EchoClient(
+          downstreamChannel.withTraceContext(ctx.traceContext),
+        );
+        const resp = await downstream.unary(new EchoRequest({ message: "nested" }));
+        return resp;
+      },
+    };
+    const [a, b] = memoryDataChannelPair();
+    const front = new Server();
+    front.addService(createEchoService(frontHandlers));
+    front.serve(b);
+    const client = new EchoClient(new Channel(a));
+
+    const resp = await client.unary(new EchoRequest({ message: "hello" }));
+    assert.equal(resp.message, "echo: nested");
+  } finally {
+    setTracer(null);
+  }
+  assert.deepEqual(rec.starts.map((s) => s.kind), ["client", "server", "client", "server"]);
+  const [outerClient, outerServer, innerClient, innerServer] = rec.starts;
+  assert.ok(rec.starts.every((s) => s.traceId === outerClient.traceId));
+  assert.equal(outerServer.parentSpanId, outerClient.spanId);
+  assert.equal(innerClient.parentSpanId, outerServer.spanId);
+  assert.equal(innerServer.parentSpanId, innerClient.spanId);
+  assert.equal(seenCtx.traceContext.spanId, outerServer.spanId);
+  assert.equal(rec.ends.length, 4);
+  assert.ok(rec.ends.every((e) => typeof e.durationMs === "number" && e.durationMs >= 0));
+});
+
+test("root context groups client calls", async () => {
+  const rec = recorder();
+  const { newTraceContext, traceEnd } = await import("../index.js");
+  setTracer(rec.tracer);
+  const root = newTraceContext("internal", "workflow");
+  assert.ok(root);
+  try {
+    const [a, b] = memoryDataChannelPair();
+    const server = new Server();
+    server.addService(createEchoService(handlers()));
+    server.serve(b);
+    const client = new EchoClient(new Channel(a).withTraceContext(root));
+    await client.unary(new EchoRequest({ message: "one" }));
+    await client.unary(new EchoRequest({ message: "two" }));
+  } finally {
+    traceEnd("internal", "workflow", root, "OK");
+    setTracer(null);
+  }
+  const clients = rec.starts.filter((s) => s.kind === "client");
+  assert.equal(clients.length, 2);
+  assert.ok(clients.every((s) => s.parentSpanId === root.spanId));
+  assert.ok(rec.starts.every((s) => s.traceId === root.traceId));
+});
+
 test("incoming traceparent is continued", async () => {
   const rec = recorder();
   const client = setup(rec.tracer);

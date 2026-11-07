@@ -78,6 +78,8 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
 
     /** Per-call context: metadata sent in HEADERS. */
     class CallContext(val metadata: Map<String, String>) {
+        /** This call's server span context (null when dormant). */
+        var traceContext: Tracing.TraceContext? = null
         /** Response initial metadata recorded via setHeaders. */
         val responseHeaders = HashMap<String, String>()
         /** Response trailing metadata recorded via setTrailers. */

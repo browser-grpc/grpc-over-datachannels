@@ -7,6 +7,9 @@ Generated tests exercise the wire codec, all four call
 shapes, deadlines, and the descriptor-driven dynamic 
 surface for this runtime.
 
+Tracing (W3C traceparent, span observers, nested-call 
+propagation) is documented in [`TRACING.md`](TRACING.md).
+
 ## Tests
 
 - [`bdd_scenarios_generated_test.go`](bdd_scenarios_generated_test.go) — BDD scenario suite (generated)
@@ -20,7 +23,7 @@ surface for this runtime.
 - [`echo_e2e_test.go`](echo_e2e_test.go) — Echo: all four call shapes
 - [`eventbus_test.go`](eventbus_test.go) — Event bus end-to-end
 - [`echo_pb_test.go`](examples/echo_pb_test.go) — Echo: all four call shapes
-- [`otlp_tracer_test.go`](examples/otlp_tracer_test.go) — Generated suite/example
+- [`otlp_tracer_test.go`](examples/otlp_tracer_test.go) — Tracing: traceparent propagation, span observers, nested calls
 - [`http2_oracle_test.go`](http2_oracle_test.go) — Official-implementation oracle, via the proxy
 - [`interop_oracle_test.go`](interop_oracle_test.go) — Official-implementation oracle, via the proxy
 - [`interop_server_oracle_test.go`](interop_server_oracle_test.go) — Official-implementation oracle, via the proxy
@@ -30,7 +33,7 @@ surface for this runtime.
 - [`oracle_test.go`](oracle_test.go) — Official-implementation oracle, via the proxy
 - [`pb_messages_test.go`](pb_messages_test.go) — Generated suite/example
 - [`sidecar_test.go`](sidecar_test.go) — Sidecar transport
-- [`tracing_test.go`](tracing_test.go) — Generated suite/example
+- [`tracing_test.go`](tracing_test.go) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct_test.go`](webrtc_direct_test.go) — WebRTC-Direct example/test
 - [`webrtc_test.go`](webrtc_test.go) — WebRTC transport
 
@@ -47,8 +50,8 @@ surface for this runtime.
 - [`main.go`](examples/echo_server_stdio/main.go) — Generated suite/example
 - [`echo_service.go`](examples/echo_service.go) — Echo: all four call shapes
 - [`main.go`](examples/eventbus_demo/main.go) — Generated suite/example
-- [`otlp_tracer.go`](examples/otlp_tracer.go) — Generated suite/example
-- [`otlp_tracer_test.go`](examples/otlp_tracer_test.go) — Generated suite/example
+- [`otlp_tracer.go`](examples/otlp_tracer.go) — Tracing: traceparent propagation, span observers, nested calls
+- [`otlp_tracer_test.go`](examples/otlp_tracer_test.go) — Tracing: traceparent propagation, span observers, nested calls
 - [`stdio.go`](examples/stdio.go) — Generated suite/example
 
 ## Shared matrix coverage

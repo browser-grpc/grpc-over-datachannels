@@ -667,6 +667,22 @@ pub fn trace_end(kind: &str, method: &str, ctx: Option<&TraceContext>, status: &
     );
 }
 
+/// Start a root span context (e.g. for a client workflow grouping
+/// several outbound calls under one trace). Pair with trace_end.
+/// None when tracing is dormant.
+pub fn new_trace_context(kind: &str, method: &str) -> Option<TraceContext> {
+    trace_start(kind, method, None)
+}
+
+/// View a span context as a traceparent parent for an outbound call.
+pub fn trace_parent_of(ctx: &TraceContext) -> TraceParent {
+    TraceParent {
+        trace_id: ctx.trace_id.clone(),
+        span_id: ctx.span_id.clone(),
+        sampled: ctx.sampled,
+    }
+}
+
 impl From<String> for Status {
     fn from(message: String) -> Self {
         Status::unknown(message)
@@ -1101,10 +1117,16 @@ impl Endpoint {
                 let response_meta: crate::server::SharedMeta = Default::default();
                 let sink = ResponseSink::new(self.clone(), frame.stream_id, response_meta.clone());
                 let flush_sink = sink.clone();
+                let trace_ctx = crate::status::trace_start(
+                    "server",
+                    &path,
+                    crate::status::parse_traceparent(headers.metadata.get("traceparent")),
+                );
                 let call = ServerCall {
                     ctx: CallCtx {
                         path: path.clone(),
                         metadata: headers.metadata.clone(),
+                        trace_context: trace_ctx.clone(),
                         stream_id: frame.stream_id,
                         deadline: headers
                             .metadata
@@ -1116,11 +1138,6 @@ impl Endpoint {
                     requests: RequestStream::<Bytes>::from_events(rx),
                     sink,
                 };
-                let trace_ctx = crate::status::trace_start(
-                    "server",
-                    &path,
-                    crate::status::parse_traceparent(headers.metadata.get("traceparent")),
-                );
                 let ep = self.clone();
                 let stream_id = frame.stream_id;
                 crate::spawn_task(async move {
@@ -1207,6 +1224,10 @@ use crate::platform_time::Instant;
 pub struct CallOptions {
     pub metadata: Metadata,
     pub timeout: Option<Duration>,
+    /// Parent span for this call's client span (usually the
+    /// serving span from CallCtx::trace_context). Explicit
+    /// traceparent metadata still wins.
+    pub trace_parent: Option<crate::status::TraceParent>,
     /// When set, response initial metadata is copied into the
     /// sink as it arrives.
     pub response_headers: Option<SharedMetaSink>,
@@ -1244,6 +1265,13 @@ impl CallOptions {
 
     pub fn metadata(mut self, metadata: Metadata) -> Self {
         self.metadata = metadata;
+        self
+    }
+
+    /// Parent this call's client span to a span context (usually
+    /// CallCtx::trace_context of the call being served).
+    pub fn trace_parent(mut self, ctx: &crate::status::TraceContext) -> Self {
+        self.trace_parent = Some(crate::status::trace_parent_of(ctx));
         self
     }
 
@@ -1333,11 +1361,9 @@ impl Channel {
         let mut metadata = options.metadata;
         let mut trace_ctx = None;
         if crate::status::tracing_enabled() {
-            trace_ctx = crate::status::trace_start(
-                "client",
-                path,
-                crate::status::parse_traceparent(metadata.get("traceparent")),
-            );
+            let parent = crate::status::parse_traceparent(metadata.get("traceparent"))
+                .or_else(|| options.trace_parent.clone());
+            trace_ctx = crate::status::trace_start("client", path, parent);
             if let Some(ctx) = &trace_ctx {
                 metadata.insert(
                     "traceparent".to_string(),
@@ -1760,6 +1786,10 @@ pub type SharedMeta = Arc<std::sync::Mutex<ResponseMeta>>;
 pub struct CallCtx {
     pub path: String,
     pub metadata: Metadata,
+    /// This call's server span context (None when tracing is
+    /// dormant). Pass it to outbound calls via
+    /// CallOptions::trace_parent to join the same trace.
+    pub trace_context: Option<crate::status::TraceContext>,
     pub stream_id: u32,
     /// Deadline propagated via grpc-timeout, when the client set one.
     pub deadline: Option<crate::platform_time::Instant>,

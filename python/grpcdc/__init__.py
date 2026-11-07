@@ -7,12 +7,16 @@ from .codec import (
     CallClosed,
     Headers,
     StatusError,
+    current_trace_context,
     decode_frame,
     encode_frame,
+    new_trace_context,
     set_tracer,
     set_trace_filter,
     status_name,
     to_status,
+    trace_end,
+    with_trace_context,
 )
 from .endpoint import CallContext, Endpoint, Transport
 from .dynamic import (
@@ -67,8 +71,12 @@ __all__ = [
     "memory_transport_pair",
     "parse_descriptor_set",
     "register_dynamic_service",
+    "current_trace_context",
+    "new_trace_context",
     "set_tracer",
     "set_trace_filter",
     "status_name",
     "to_status",
+    "trace_end",
+    "with_trace_context",
 ]

@@ -119,6 +119,16 @@ TraceContext? traceStart(
   return ctx;
 }
 
+/// Start a root span context (client workflows). Pair with traceEnd.
+TraceContext? newTraceContext(String kind, String method) =>
+    traceStart(kind, method, null);
+
+/// View a span context as a traceparent parent.
+({String traceId, String spanId, bool sampled})? parentOf(TraceContext? ctx) =>
+    ctx == null
+        ? null
+        : (traceId: ctx.traceId, spanId: ctx.spanId, sampled: ctx.sampled);
+
 void traceEnd(String kind, String method, TraceContext? ctx, String status) {
   final tracer = _tracer;
   if (ctx == null || tracer == null || !ctx.sampled) return;
@@ -431,6 +441,9 @@ class StreamInput {
 /// Per-call context: metadata sent in HEADERS.
 class CallContext {
   final Map<String, String> metadata;
+
+  /// This call's server span context (null when dormant).
+  TraceContext? traceContext;
 
   /// Response initial metadata recorded via setHeaders.
   final Map<String, String> responseHeaders = {};
@@ -828,6 +841,15 @@ class ClientStream {
 /// Channel: the client side of one Endpoint.
 class Channel {
   final Endpoint endpoint;
+  TraceContext? _traceContext;
+
+  /// A Channel view sharing this endpoint whose outbound spans
+  /// are parented to ctx. Explicit call metadata still wins.
+  Channel withTraceContext(TraceContext? ctx) {
+    final ch = Channel.fromEndpoint(endpoint);
+    ch._traceContext = ctx;
+    return ch;
+  }
 
   /// Wrap a transport, allocating odd stream ids.
   Channel(Transport transport) : endpoint = Endpoint(transport, creator: true) {
@@ -850,7 +872,8 @@ class Channel {
         metadata['grpc-timeout'] = Codec.encodeTimeout(timeout);
       }
       if (tracingEnabled) {
-        traceCtx = traceStart('client', path, parseTraceparent(metadata['traceparent']));
+        traceCtx = traceStart('client', path,
+            parseTraceparent(metadata['traceparent']) ?? parentOf(_traceContext));
         if (traceCtx != null) {
           metadata['traceparent'] =
               formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled);
@@ -1076,6 +1099,7 @@ class Server {
     }
     final traceCtx = traceStart('server', headers.path ?? '',
         parseTraceparent(headers.metadata['traceparent']));
+    ctx.traceContext = traceCtx;
     StatusException? result;
     try {
       await method.handler(ctx, RequestStream(input), sink.send);
