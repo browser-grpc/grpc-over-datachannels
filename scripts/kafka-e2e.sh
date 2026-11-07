@@ -526,7 +526,7 @@ run_suites() { # broker_addr proxy_addr label
     run "dart e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
         bash -c "cd '$ROOT/dart' && ./build/tests TestKafkaE2E"
     run "lua e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
-        bash -c "cd '$ROOT' && lua lua/tests/main.lua TestKafkaE2E"
+        bash -c "cd '$ROOT' && ${LUA:-lua5.4} lua/tests/main.lua TestKafkaE2E"
     run "java e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
         bash -c "cd '$ROOT/java' && java -cp build tests.TestKafkaE2E"
     run "kotlin e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
