@@ -44,7 +44,7 @@ public enum Tracing {
         public let spanId: String
         public let parentSpanId: String
         public let sampled: Bool
-        public let start: ContinuousClock.Instant
+        public let startMs: Double
     }
 
     public struct Parent {
@@ -109,7 +109,7 @@ public enum Tracing {
             spanId: RandomHex(8),
             parentSpanId: parent?.spanId ?? "",
             sampled: parent?.sampled ?? true,
-            start: ContinuousClock.now)
+            startMs: GrpcTime.NowMs())
         if !ctx.sampled { return ctx }
         t.OnStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId)
         return ctx
@@ -128,9 +128,7 @@ public enum Tracing {
 
     public static func TraceEnd(_ kind: String, _ method: String, _ ctx: TraceContext?, _ status: String) {
         guard let ctx, let t = tracer, ctx.sampled else { return }
-        let d = ctx.start.duration(to: ContinuousClock.now)
-        let durationMs = Double(d.components.seconds) * 1000.0
-            + Double(d.components.attoseconds) / 1.0e15
+        let durationMs = GrpcTime.NowMs() - ctx.startMs
         t.OnEnd(kind, method, ctx.traceId, ctx.spanId, status, durationMs)
     }
 }
