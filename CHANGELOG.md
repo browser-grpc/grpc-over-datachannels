@@ -21,8 +21,8 @@ curated release tags on `master`; dates are the tag dates.
 - Nested tracing end-to-end coverage in every language:
   per-language tracing suites assert one shared trace id and
   the full client/server parent chain; dedicated browser
-  legs cover JS and the native Kotlin/Wasm and Swift/Wasm
-  runtimes, and a new multi-service tracing example
+  legs cover JS and every native Wasm runtime (Rust, Dart,
+  Zig, C++, Lua, Kotlin, Swift), and a new multi-service tracing example
   (`examples/tracing`) walks a three-hop call chain. Each
   language ships a `TRACING.md` alongside its `TESTS.md`.
 - The TCP/DataChannel proxy emits a span for proxied calls,
