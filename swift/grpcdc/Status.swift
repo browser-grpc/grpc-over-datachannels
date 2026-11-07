@@ -36,18 +36,21 @@ public struct StatusException: Error, CustomStringConvertible {
 public enum Tracing {
     public protocol Tracer {
         func OnStart(_ kind: String, _ method: String, _ traceId: String, _ spanId: String, _ parentSpanId: String)
-        func OnEnd(_ kind: String, _ method: String, _ traceId: String, _ spanId: String, _ status: String)
+        func OnEnd(_ kind: String, _ method: String, _ traceId: String, _ spanId: String, _ status: String, _ durationMs: Double)
     }
 
     public struct TraceContext {
         public let traceId: String
         public let spanId: String
         public let parentSpanId: String
+        public let sampled: Bool
+        public let start: ContinuousClock.Instant
     }
 
     public struct Parent {
         public let traceId: String
         public let spanId: String
+        public let sampled: Bool
     }
 
     private static var tracer: Tracer? = nil
@@ -71,8 +74,8 @@ public enum Tracing {
 
     public static var Enabled: Bool { tracer != nil }
 
-    public static func FormatTraceparent(_ traceId: String, _ spanId: String) -> String {
-        "00-\(traceId)-\(spanId)-01"
+    public static func FormatTraceparent(_ traceId: String, _ spanId: String, _ sampled: Bool) -> String {
+        "00-\(traceId)-\(spanId)-\(sampled ? "01" : "00")"
     }
 
     public static func ParseTraceparent(_ value: String?) -> Parent? {
@@ -82,7 +85,9 @@ public enum Tracing {
         let isHex: (Unicode.Scalar) -> Bool = { ($0.value >= 48 && $0.value <= 57) || ($0.value >= 97 && $0.value <= 102) }
         guard parts[1].unicodeScalars.allSatisfy(isHex),
               parts[2].unicodeScalars.allSatisfy(isHex) else { return nil }
-        return Parent(traceId: String(parts[1]), spanId: String(parts[2]))
+        guard parts[3].count == 2, parts[3].unicodeScalars.allSatisfy(isHex),
+              let flags = Int(parts[3], radix: 16) else { return nil }
+        return Parent(traceId: String(parts[1]), spanId: String(parts[2]), sampled: (flags & 1) == 1)
     }
 
     private static func RandomHex(_ bytes: Int) -> String {
@@ -102,13 +107,19 @@ public enum Tracing {
         let ctx = TraceContext(
             traceId: parent?.traceId ?? RandomHex(16),
             spanId: RandomHex(8),
-            parentSpanId: parent?.spanId ?? "")
+            parentSpanId: parent?.spanId ?? "",
+            sampled: parent?.sampled ?? true,
+            start: ContinuousClock.now)
+        if !ctx.sampled { return ctx }
         t.OnStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId)
         return ctx
     }
 
     public static func TraceEnd(_ kind: String, _ method: String, _ ctx: TraceContext?, _ status: String) {
-        guard let ctx, let t = tracer else { return }
-        t.OnEnd(kind, method, ctx.traceId, ctx.spanId, status)
+        guard let ctx, let t = tracer, ctx.sampled else { return }
+        let d = ctx.start.duration(to: ContinuousClock.now)
+        let durationMs = Double(d.components.seconds) * 1000.0
+            + Double(d.components.attoseconds) / 1.0e15
+        t.OnEnd(kind, method, ctx.traceId, ctx.spanId, status, durationMs)
     }
 }

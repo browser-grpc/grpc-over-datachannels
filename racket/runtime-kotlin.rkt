@@ -52,14 +52,14 @@ object Tracing {
     /** Span observer callbacks (kind is "client" or "server"). */
     interface Tracer {
         fun onStart(kind: String, method: String, traceId: String, spanId: String, parentSpanId: String)
-        fun onEnd(kind: String, method: String, traceId: String, spanId: String, status: String)
+        fun onEnd(kind: String, method: String, traceId: String, spanId: String, status: String, durationMs: Double)
     }
 
     /** One in-flight span's context. */
-    data class TraceContext(val traceId: String, val spanId: String, val parentSpanId: String)
+    data class TraceContext(val traceId: String, val spanId: String, val parentSpanId: String, val sampled: Boolean, val startNanos: Long)
 
     /** Parsed traceparent parent. */
-    data class Parent(val traceId: String, val spanId: String)
+    data class Parent(val traceId: String, val spanId: String, val sampled: Boolean)
 
     private var tracer: Tracer? = null
     private val rng = kotlin.random.Random.Default
@@ -85,8 +85,8 @@ object Tracing {
 
     fun enabled(): Boolean = tracer != null
 
-    fun formatTraceparent(traceId: String, spanId: String): String =
-        "00-$traceId-$spanId-01"
+    fun formatTraceparent(traceId: String, spanId: String, sampled: Boolean): String =
+        "00-$traceId-$spanId-${if (sampled) "01" else "00"}"
 
     fun parseTraceparent(value: String?): Parent? {
         if (value == null) return null
@@ -94,7 +94,8 @@ object Tracing {
         if (parts.size != 4 || parts[1].length != 32 || parts[2].length != 16) return null
         if (!parts[1].all { it in '0'..'9' || it in 'a'..'f' }) return null
         if (!parts[2].all { it in '0'..'9' || it in 'a'..'f' }) return null
-        return Parent(parts[1], parts[2])
+        val flags = parts[3].toIntOrNull(16) ?: return null
+        return Parent(parts[1], parts[2], (flags and 1) == 1)
     }
 
     private fun randomHex(bytes: Int): String {
@@ -114,8 +115,11 @@ object Tracing {
         val ctx = TraceContext(
             parent?.traceId ?: randomHex(16),
             randomHex(8),
-            parent?.spanId ?: ""
+            parent?.spanId ?: "",
+            parent?.sampled ?: true,
+            System.nanoTime()
         )
+        if (!ctx.sampled) return ctx
         try {
             t.onStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId)
         } catch (ignored: Throwable) {
@@ -125,9 +129,10 @@ object Tracing {
 
     fun traceEnd(kind: String, method: String, ctx: TraceContext?, status: String) {
         val t = tracer
-        if (ctx == null || t == null) return
+        if (ctx == null || t == null || !ctx.sampled) return
         try {
-            t.onEnd(kind, method, ctx.traceId, ctx.spanId, status)
+            t.onEnd(kind, method, ctx.traceId, ctx.spanId, status,
+                (System.nanoTime() - ctx.startNanos) / 1_000_000.0)
         } catch (ignored: Throwable) {
         }
     }
@@ -1080,7 +1085,7 @@ class Channel {
             if (Tracing.enabled()) {
                 traceCtx = Tracing.traceStart("client", path, Tracing.parseTraceparent(merged["traceparent"]))
                 if (traceCtx != null) {
-                    merged = merged + ("traceparent" to Tracing.formatTraceparent(traceCtx.traceId, traceCtx.spanId))
+                    merged = merged + ("traceparent" to Tracing.formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled))
                 }
             }
             metadata = merged

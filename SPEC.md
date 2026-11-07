@@ -115,8 +115,12 @@ not-sampled decision (traceparent flags `00`) is honored and
 propagated: context crosses the wire, but no span is
 recorded. `tracestate` and `baggage` headers ride as ordinary
 metadata and reach server handlers unchanged. The JS and
-Python reference runtimes additionally pass each span's
-duration (milliseconds) to `on_end`. The HTTP/2 proxy
+Python reference runtimes and the generated Java, Kotlin,
+Scala, C#, C++, Swift, Dart, Zig, C, Lua, Ruby, and PHP
+runtimes additionally pass each span's duration
+(milliseconds) to `on_end`; Zig reports `0` on
+single-threaded targets, where no monotonic clock is
+available. The HTTP/2 proxy
 contributes a `proxy` span when a tracer is registered in
 its process (`--trace` on the proxy CLI prints spans as JSON
 lines), so server spans parent to the proxy hop instead of

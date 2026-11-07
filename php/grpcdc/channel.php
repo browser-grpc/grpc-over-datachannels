@@ -104,7 +104,7 @@ class Channel
             if (Status::tracer() !== null) {
                 $traceCtx = Status::traceStart("client", $path, Status::parseTraceparent($metadata["traceparent"] ?? null));
                 if ($traceCtx !== null) {
-                    $metadata["traceparent"] = Status::formatTraceparent($traceCtx["trace_id"], $traceCtx["span_id"]);
+                    $metadata["traceparent"] = Status::formatTraceparent($traceCtx["trace_id"], $traceCtx["span_id"], $traceCtx["sampled"]);
                 }
             }
         }

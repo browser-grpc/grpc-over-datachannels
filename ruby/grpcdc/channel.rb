@@ -100,7 +100,7 @@ module Grpcdc
         unless Grpcdc.tracer.nil?
           trace_ctx = Grpcdc.trace_start("client", path, Grpcdc.parse_traceparent(metadata["traceparent"]))
           unless trace_ctx.nil?
-            metadata["traceparent"] = Grpcdc.format_traceparent(trace_ctx["trace_id"], trace_ctx["span_id"])
+            metadata["traceparent"] = Grpcdc.format_traceparent(trace_ctx["trace_id"], trace_ctx["span_id"], trace_ctx["sampled"])
           end
         end
       end

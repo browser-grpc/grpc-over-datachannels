@@ -62,7 +62,7 @@ module Grpcdc
   # --- Homegrown tracing (W3C traceparent propagation) ----------
   # Dormant until Grpcdc.set_tracer registers an observer with
   # on_start(kind, method, trace_id, span_id, parent_span_id) and
-  # on_end(kind, method, trace_id, span_id, status_name).
+  # on_end(kind, method, trace_id, span_id, status_name, duration_ms).
   # Generated code stays dependency-free: sampling and export are
   # the application's problem.
   @tracer = nil
@@ -91,47 +91,54 @@ module Grpcdc
     end
   end
 
-  def self.format_traceparent(trace_id, span_id)
-    "00-#{trace_id}-#{span_id}-01"
+  def self.format_traceparent(trace_id, span_id, sampled = true)
+    "00-#{trace_id}-#{span_id}-#{sampled ? "01" : "00"}"
   end
 
-  # Parse a traceparent header -> [trace_id, span_id] or nil.
+  # Parse a traceparent header ->
+  # [trace_id, span_id, sampled] or nil.
   def self.parse_traceparent(value)
     return nil unless value.is_a?(String)
 
     parts = value.split("-")
     return nil unless parts.length == 4
 
-    trace_id, span_id = parts[1], parts[2]
+    trace_id, span_id, flags = parts[1], parts[2], parts[3]
     return nil unless trace_id.length == 32 && span_id.length == 16
     return nil unless trace_id.match?(/\A[0-9a-f]+\z/) && span_id.match?(/\A[0-9a-f]+\z/)
+    return nil unless flags.length == 2 && flags.match?(/\A[0-9a-f]+\z/)
 
-    [trace_id, span_id]
+    [trace_id, span_id, (flags.to_i(16) & 1) == 1]
   end
 
   def self.trace_start(kind, method, parent)
     return nil if @tracer.nil? || !trace_allowed?(method)
 
     require "securerandom"
-    trace_id, parent_span_id = parent || [SecureRandom.hex(16), ""]
+    trace_id, parent_span_id, parent_sampled = parent || [SecureRandom.hex(16), "", true]
     ctx = {
       "trace_id" => trace_id,
       "span_id" => SecureRandom.hex(8),
-      "parent_span_id" => parent_span_id
+      "parent_span_id" => parent_span_id,
+      "sampled" => parent_sampled,
+      "start_time" => Process.clock_gettime(Process::CLOCK_MONOTONIC)
     }
-    begin
-      @tracer.on_start(kind, method, ctx["trace_id"], ctx["span_id"], parent_span_id)
-    rescue StandardError
-      # observers must never break the call
+    if ctx["sampled"]
+      begin
+        @tracer.on_start(kind, method, ctx["trace_id"], ctx["span_id"], parent_span_id)
+      rescue StandardError
+        # observers must never break the call
+      end
     end
     ctx
   end
 
   def self.trace_end(kind, method, ctx, status)
-    return if ctx.nil? || @tracer.nil?
+    return if ctx.nil? || @tracer.nil? || ctx["sampled"] == false
 
+    duration_ms = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - ctx["start_time"]) * 1000.0
     begin
-      @tracer.on_end(kind, method, ctx["trace_id"], ctx["span_id"], status)
+      @tracer.on_end(kind, method, ctx["trace_id"], ctx["span_id"], status, duration_ms)
     rescue StandardError
       # observers must never break the call
     end
@@ -774,7 +781,7 @@ module Grpcdc
         unless Grpcdc.tracer.nil?
           trace_ctx = Grpcdc.trace_start("client", path, Grpcdc.parse_traceparent(metadata["traceparent"]))
           unless trace_ctx.nil?
-            metadata["traceparent"] = Grpcdc.format_traceparent(trace_ctx["trace_id"], trace_ctx["span_id"])
+            metadata["traceparent"] = Grpcdc.format_traceparent(trace_ctx["trace_id"], trace_ctx["span_id"], trace_ctx["sampled"])
           end
         end
       end

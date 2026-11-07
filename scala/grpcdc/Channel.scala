@@ -132,7 +132,7 @@ class Channel(val endpoint: Endpoint) {
       if (Tracing.enabled) {
         traceCtx = Tracing.traceStart("client", path, Tracing.parseTraceparent(md.getOrElse("traceparent", null)))
         if (traceCtx != null) {
-          md = md + ("traceparent" -> Tracing.formatTraceparent(traceCtx.traceId, traceCtx.spanId))
+          md = md + ("traceparent" -> Tracing.formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled))
         }
       }
     }

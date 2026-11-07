@@ -150,7 +150,7 @@ class Channel {
             if (Tracing.enabled()) {
                 traceCtx = Tracing.traceStart("client", path, Tracing.parseTraceparent(merged["traceparent"]))
                 if (traceCtx != null) {
-                    merged = merged + ("traceparent" to Tracing.formatTraceparent(traceCtx.traceId, traceCtx.spanId))
+                    merged = merged + ("traceparent" to Tracing.formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled))
                 }
             }
             metadata = merged

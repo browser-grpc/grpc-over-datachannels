@@ -133,7 +133,7 @@ function Channel:open(path, metadata, timeout)
     if statusModule.tracer() ~= nil then
       traceCtx = statusModule.traceStart("client", path, statusModule.parseTraceparent(merged["traceparent"]))
       if traceCtx ~= nil then
-        merged["traceparent"] = statusModule.formatTraceparent(traceCtx.traceId, traceCtx.spanId)
+        merged["traceparent"] = statusModule.formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled)
       end
     end
     metadata = merged

@@ -139,7 +139,7 @@ class Channel {
         traceCtx = traceStart('client', path, parseTraceparent(metadata['traceparent']));
         if (traceCtx != null) {
           metadata['traceparent'] =
-              formatTraceparent(traceCtx.traceId, traceCtx.spanId);
+              formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled);
         }
       }
     }

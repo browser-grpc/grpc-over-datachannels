@@ -67,7 +67,7 @@ end
 -- --- Homegrown tracing (W3C traceparent propagation) -------------
 -- Dormant until setTracer registers an observer table with
 -- onStart(kind, method, traceId, spanId, parentSpanId) and
--- onEnd(kind, method, traceId, spanId, statusName) fields.
+-- onEnd(kind, method, traceId, spanId, statusName, durationMs) fields.
 -- Dependency-free: sampling and export are the app's problem.
 
 local tracer = nil
@@ -114,8 +114,8 @@ local function randomHex(nbytes)
   return table.concat(out)
 end
 
-local function formatTraceparent(traceId, spanId)
-  return "00-" .. traceId .. "-" .. spanId .. "-01"
+local function formatTraceparent(traceId, spanId, sampled)
+  return "00-" .. traceId .. "-" .. spanId .. (sampled == false and "-00" or "-01")
 end
 
 local function parseTraceparent(value)
@@ -127,20 +127,25 @@ local function parseTraceparent(value)
   if #parts ~= 4 then return nil end
   local traceId, spanId = parts[2], parts[3]
   if #traceId ~= 32 or #spanId ~= 16 then return nil end
+  local flags = parts[4]
   if traceId:find("[^0-9a-f]") or spanId:find("[^0-9a-f]") then return nil end
-  return { traceId = traceId, spanId = spanId }
+  if #flags ~= 2 or flags:find("[^0-9a-f]") then return nil end
+  return { traceId = traceId, spanId = spanId, sampled = (tonumber(flags, 16) % 2) == 1 }
 end
 
 local function traceStart(kind, method, parent)
   if tracer == nil or not traceAllowed(method) then return nil end
-  local ctx = { spanId = randomHex(8) }
+  local ctx = { spanId = randomHex(8), startTime = os.clock() }
   if parent ~= nil then
     ctx.traceId = parent.traceId
     ctx.parentSpanId = parent.spanId
+    ctx.sampled = parent.sampled
   else
     ctx.traceId = randomHex(16)
     ctx.parentSpanId = ""
+    ctx.sampled = true
   end
+  if ctx.sampled == false then return ctx end
   pcall(function()
     if tracer.onStart then
       tracer.onStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId)
@@ -150,10 +155,11 @@ local function traceStart(kind, method, parent)
 end
 
 local function traceEnd(kind, method, ctx, status)
-  if ctx == nil or tracer == nil then return end
+  if ctx == nil or tracer == nil or ctx.sampled == false then return end
   pcall(function()
     if tracer.onEnd then
-      tracer.onEnd(kind, method, ctx.traceId, ctx.spanId, status)
+      tracer.onEnd(kind, method, ctx.traceId, ctx.spanId, status,
+                   (os.clock() - ctx.startTime) * 1000)
     end
   end)
 end
@@ -936,7 +942,7 @@ function Channel:open(path, metadata, timeout)
     if statusModule.tracer() ~= nil then
       traceCtx = statusModule.traceStart("client", path, statusModule.parseTraceparent(merged["traceparent"]))
       if traceCtx ~= nil then
-        merged["traceparent"] = statusModule.formatTraceparent(traceCtx.traceId, traceCtx.spanId)
+        merged["traceparent"] = statusModule.formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled)
       end
     end
     metadata = merged

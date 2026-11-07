@@ -60,14 +60,14 @@ public static class Tracing
     public interface ITracer
     {
         void OnStart(string kind, string method, string traceId, string spanId, string parentSpanId);
-        void OnEnd(string kind, string method, string traceId, string spanId, string status);
+        void OnEnd(string kind, string method, string traceId, string spanId, string status, double durationMs);
     }
 
     /// <summary>One in-flight span's context.</summary>
-    public sealed record TraceContext(string TraceId, string SpanId, string ParentSpanId);
+    public sealed record TraceContext(string TraceId, string SpanId, string ParentSpanId, bool Sampled, long StartTicks);
 
     /// <summary>Parsed traceparent parent.</summary>
-    public sealed record Parent(string TraceId, string SpanId);
+    public sealed record Parent(string TraceId, string SpanId, bool Sampled);
 
     private static volatile ITracer _tracer;
 
@@ -103,8 +103,8 @@ public static class Tracing
 
     public static bool Enabled => _tracer != null;
 
-    public static string FormatTraceparent(string traceId, string spanId) =>
-        $"00-{traceId}-{spanId}-01";
+    public static string FormatTraceparent(string traceId, string spanId, bool sampled) =>
+        $"00-{traceId}-{spanId}-{(sampled ? "01" : "00")}";
 
     public static Parent ParseTraceparent(string value)
     {
@@ -125,7 +125,11 @@ public static class Tracing
                 return null;
             }
         }
-        return new Parent(parts[1], parts[2]);
+        if (!int.TryParse(parts[3], System.Globalization.NumberStyles.HexNumber, null, out int flags))
+        {
+            return null;
+        }
+        return new Parent(parts[1], parts[2], (flags & 1) == 1);
     }
 
     private static string RandomHex(int bytes)
@@ -145,7 +149,13 @@ public static class Tracing
         var ctx = new TraceContext(
             parent != null ? parent.TraceId : RandomHex(16),
             RandomHex(8),
-            parent != null ? parent.SpanId : "");
+            parent != null ? parent.SpanId : "",
+            parent == null || parent.Sampled,
+            System.Diagnostics.Stopwatch.GetTimestamp());
+        if (!ctx.Sampled)
+        {
+            return ctx;
+        }
         try
         {
             tracer.OnStart(kind, method, ctx.TraceId, ctx.SpanId, ctx.ParentSpanId);
@@ -160,13 +170,15 @@ public static class Tracing
     public static void TraceEnd(string kind, string method, TraceContext ctx, string status)
     {
         ITracer tracer = _tracer;
-        if (ctx == null || tracer == null)
+        if (ctx == null || tracer == null || !ctx.Sampled)
         {
             return;
         }
+        double durationMs = (System.Diagnostics.Stopwatch.GetTimestamp() - ctx.StartTicks) * 1000.0
+            / System.Diagnostics.Stopwatch.Frequency;
         try
         {
-            tracer.OnEnd(kind, method, ctx.TraceId, ctx.SpanId, status);
+            tracer.OnEnd(kind, method, ctx.TraceId, ctx.SpanId, status, durationMs);
         }
         catch
         {
@@ -1042,7 +1054,7 @@ public class Channel
                     Tracing.ParseTraceparent(merged.TryGetValue("traceparent", out string tp) ? tp : null));
                 if (traceCtx != null)
                 {
-                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.TraceId, traceCtx.SpanId);
+                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.TraceId, traceCtx.SpanId, traceCtx.Sampled);
                 }
             }
             metadata = merged;

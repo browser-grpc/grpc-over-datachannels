@@ -18,6 +18,7 @@
 (define zig-status-body
 #<<GRPC_RUNTIME_EOF
 const std = @import("std");
+const builtin = @import("builtin");
 const wire = @import("wire.zig");
 
 /// A gRPC status (code + message), carried as a value: Zig has no
@@ -86,12 +87,14 @@ pub const TraceContext = struct {
     span_id: [16]u8,
     parent_span_id: [16]u8,
     has_parent: bool = false,
+    sampled: bool = true,
+    start_ms: i64 = 0,
 };
 
 pub const Tracer = struct {
     ctx: *anyopaque,
     on_start: *const fn (ctx: *anyopaque, kind: []const u8, method: []const u8, trace_id: []const u8, span_id: []const u8, parent_span_id: []const u8) void,
-    on_end: *const fn (ctx: *anyopaque, kind: []const u8, method: []const u8, trace_id: []const u8, span_id: []const u8, status: []const u8) void,
+    on_end: *const fn (ctx: *anyopaque, kind: []const u8, method: []const u8, trace_id: []const u8, span_id: []const u8, status: []const u8, duration_ms: f64) void,
 };
 
 var tracer: ?Tracer = null;
@@ -166,7 +169,13 @@ fn isHex(s: []const u8) bool {
 pub const Parent = struct {
     trace_id: []const u8,
     span_id: []const u8,
+    sampled: bool = true,
 };
+
+fn traceNowMs() i64 {
+    if (comptime builtin.single_threaded) return 0;
+    return std.time.milliTimestamp();
+}
 
 pub fn parseTraceparent(value: ?[]const u8) ?Parent {
     const v = value orelse return null;
@@ -174,18 +183,20 @@ pub fn parseTraceparent(value: ?[]const u8) ?Parent {
     _ = it.next() orelse return null;
     const trace_id = it.next() orelse return null;
     const span_id = it.next() orelse return null;
-    if (it.next() == null) return null;
+    const flags = it.next() orelse return null;
     if (trace_id.len != 32 or span_id.len != 16) return null;
     if (!isHex(trace_id) or !isHex(span_id)) return null;
-    return .{ .trace_id = trace_id, .span_id = span_id };
+    if (flags.len != 2 or !isHex(flags)) return null;
+    const flag_value = std.fmt.parseInt(u8, flags, 16) catch return null;
+    return .{ .trace_id = trace_id, .span_id = span_id, .sampled = (flag_value & 1) == 1 };
 }
 
-pub fn formatTraceparent(buf: *[55]u8, trace_id: []const u8, span_id: []const u8) []const u8 {
+pub fn formatTraceparent(buf: *[55]u8, trace_id: []const u8, span_id: []const u8, sampled: bool) []const u8 {
     @memcpy(buf[0..3], "00-");
     @memcpy(buf[3..35], trace_id[0..32]);
     buf[35] = '-';
     @memcpy(buf[36..52], span_id[0..16]);
-    @memcpy(buf[52..55], "-01");
+    @memcpy(buf[52..55], if (sampled) "-01" else "-00");
     return buf;
 }
 
@@ -205,6 +216,9 @@ pub fn traceStart(kind: []const u8, method: []const u8, parent: ?Parent) ?TraceC
         ctx.trace_id = randomHex(16);
         ctx.parent_span_id = [_]u8{' '} ** 16;
     }
+    ctx.sampled = if (parent) |par| par.sampled else true;
+    ctx.start_ms = traceNowMs();
+    if (!ctx.sampled) return ctx;
     const parent_span: []const u8 = if (ctx.has_parent) &ctx.parent_span_id else "";
     t.on_start(t.ctx, kind, method, &ctx.trace_id, &ctx.span_id, parent_span);
     return ctx;
@@ -213,7 +227,9 @@ pub fn traceStart(kind: []const u8, method: []const u8, parent: ?Parent) ?TraceC
 pub fn traceEnd(kind: []const u8, method: []const u8, ctx: ?TraceContext, status: []const u8) void {
     const t = tracer orelse return;
     const c = ctx orelse return;
-    t.on_end(t.ctx, kind, method, &c.trace_id, &c.span_id, status);
+    if (!c.sampled) return;
+    const duration_ms: f64 = if (c.start_ms == 0) 0 else @floatFromInt(traceNowMs() - c.start_ms);
+    t.on_end(t.ctx, kind, method, &c.trace_id, &c.span_id, status, duration_ms);
 }
 GRPC_RUNTIME_EOF
 )
@@ -1388,7 +1404,7 @@ pub const Channel = struct {
                 const parent = status_mod.parseTraceparent(if (metadata) |m| m.get("traceparent") else null);
                 trace_ctx = status_mod.traceStart("client", path, parent);
                 if (trace_ctx) |tc| {
-                    merged.?.put("traceparent", status_mod.formatTraceparent(&tp_buf, &tc.trace_id, &tc.span_id)) catch @panic("out of memory");
+                    merged.?.put("traceparent", status_mod.formatTraceparent(&tp_buf, &tc.trace_id, &tc.span_id, tc.sampled)) catch @panic("out of memory");
                 }
             }
             md = &merged.?;

@@ -99,7 +99,7 @@ typedef struct {
                      const char *parent_span_id);
     void (*on_end)(void *ctx, const char *kind, const char *method,
                    const char *trace_id, const char *span_id,
-                   const char *status);
+                   const char *status, double duration_ms);
 } grpcdc_tracer;
 
 void grpcdc_set_tracer(const grpcdc_tracer *tracer);
@@ -114,6 +114,8 @@ typedef struct {
     char span_id[17];
     char parent_span_id[17];
     int active;
+    int sampled;
+    int64_t start_ms;
 } grpcdc_trace_context;
 
 /* Begin a span; parent_traceparent may be NULL. The returned
@@ -122,7 +124,7 @@ grpcdc_trace_context grpcdc_trace_start(const char *kind, const char *method,
                                         const char *parent_traceparent);
 void grpcdc_trace_end(const char *kind, const char *method,
                       const grpcdc_trace_context *ctx, const char *status);
-/* Format "00-<trace>-<span>-01" into out[56]; returns out. */
+/* Format "00-<trace>-<span>-<flags>" into out[56]; returns out. */
 char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out);
 
 /* Owned byte buffer (malloc'd; free data or use grpcdc_bytes_free). */
@@ -427,18 +429,28 @@ grpcdc_trace_context grpcdc_trace_start(const char *kind, const char *method,
     grpcdc_trace_context ctx;
     memset(&ctx, 0, sizeof(ctx));
     if (!g_tracer_set || !g_tracer.on_start || !trace_allowed(method)) return ctx;
+    ctx.sampled = 1;
     if (parent_traceparent) {
-        /* 00-<32>-<16>-01 */
+        /* 00-<32>-<16>-<flags> */
         const char *p = parent_traceparent;
         if (strlen(p) == 55 && p[2] == '-' && p[35] == '-' && p[52] == '-'
-            && trace_is_hex(p + 3, 32) && trace_is_hex(p + 36, 16)) {
+            && trace_is_hex(p + 3, 32) && trace_is_hex(p + 36, 16)
+            && trace_is_hex(p + 53, 2)) {
+            int flags = 0;
             memcpy(ctx.trace_id, p + 3, 32);
             memcpy(ctx.parent_span_id, p + 36, 16);
+            for (int i = 0; i < 2; i++) {
+                char c = p[53 + i];
+                flags = flags * 16 + (c <= '9' ? c - '0' : c - 'a' + 10);
+            }
+            ctx.sampled = (flags & 1) != 0;
         }
     }
     if (ctx.trace_id[0] == 0) trace_random_hex(ctx.trace_id, 16);
     trace_random_hex(ctx.span_id, 8);
     ctx.active = 1;
+    ctx.start_ms = grpcdc_now_ms();
+    if (!ctx.sampled) return ctx;
     g_tracer.on_start(g_tracer.ctx, kind, method, ctx.trace_id, ctx.span_id,
                       ctx.parent_span_id);
     return ctx;
@@ -446,9 +458,9 @@ grpcdc_trace_context grpcdc_trace_start(const char *kind, const char *method,
 
 void grpcdc_trace_end(const char *kind, const char *method,
                       const grpcdc_trace_context *ctx, const char *status) {
-    if (!ctx || !ctx->active || !g_tracer_set || !g_tracer.on_end) return;
+    if (!ctx || !ctx->active || !ctx->sampled || !g_tracer_set || !g_tracer.on_end) return;
     g_tracer.on_end(g_tracer.ctx, kind, method, ctx->trace_id, ctx->span_id,
-                    status);
+                    status, (double)(grpcdc_now_ms() - ctx->start_ms));
 }
 
 char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out) {
@@ -456,7 +468,7 @@ char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out) {
     memcpy(out + 3, ctx->trace_id, 32);
     out[35] = '-';
     memcpy(out + 36, ctx->span_id, 16);
-    memcpy(out + 52, "-01", 4);
+    memcpy(out + 52, ctx->sampled ? "-01" : "-00", 4);
     return out;
 }
 

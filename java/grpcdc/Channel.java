@@ -181,7 +181,7 @@ public class Channel {
                         Tracing.parseTraceparent(merged.get("traceparent")));
                 if (traceCtx != null) {
                     merged.put("traceparent",
-                            Tracing.formatTraceparent(traceCtx.traceId(), traceCtx.spanId()));
+                            Tracing.formatTraceparent(traceCtx.traceId(), traceCtx.spanId(), traceCtx.sampled()));
                 }
             }
             metadata = merged;

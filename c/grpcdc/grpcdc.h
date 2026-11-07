@@ -75,7 +75,7 @@ typedef struct {
                      const char *parent_span_id);
     void (*on_end)(void *ctx, const char *kind, const char *method,
                    const char *trace_id, const char *span_id,
-                   const char *status);
+                   const char *status, double duration_ms);
 } grpcdc_tracer;
 
 void grpcdc_set_tracer(const grpcdc_tracer *tracer);
@@ -90,6 +90,8 @@ typedef struct {
     char span_id[17];
     char parent_span_id[17];
     int active;
+    int sampled;
+    int64_t start_ms;
 } grpcdc_trace_context;
 
 /* Begin a span; parent_traceparent may be NULL. The returned
@@ -98,7 +100,7 @@ grpcdc_trace_context grpcdc_trace_start(const char *kind, const char *method,
                                         const char *parent_traceparent);
 void grpcdc_trace_end(const char *kind, const char *method,
                       const grpcdc_trace_context *ctx, const char *status);
-/* Format "00-<trace>-<span>-01" into out[56]; returns out. */
+/* Format "00-<trace>-<span>-<flags>" into out[56]; returns out. */
 char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out);
 
 /* Owned byte buffer (malloc'd; free data or use grpcdc_bytes_free). */

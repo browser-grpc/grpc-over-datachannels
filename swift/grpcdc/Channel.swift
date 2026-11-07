@@ -157,7 +157,7 @@ public final class Channel {
             if Tracing.Enabled {
                 traceCtx = Tracing.TraceStart("client", path, Tracing.ParseTraceparent(merged["traceparent"]))
                 if let traceCtx {
-                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.traceId, traceCtx.spanId)
+                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled)
                 }
             }
             metadata = merged

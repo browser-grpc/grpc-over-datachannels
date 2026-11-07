@@ -217,7 +217,7 @@ pub const Channel = struct {
                 const parent = status_mod.parseTraceparent(if (metadata) |m| m.get("traceparent") else null);
                 trace_ctx = status_mod.traceStart("client", path, parent);
                 if (trace_ctx) |tc| {
-                    merged.?.put("traceparent", status_mod.formatTraceparent(&tp_buf, &tc.trace_id, &tc.span_id)) catch @panic("out of memory");
+                    merged.?.put("traceparent", status_mod.formatTraceparent(&tp_buf, &tc.trace_id, &tc.span_id, tc.sampled)) catch @panic("out of memory");
                 }
             }
             md = &merged.?;

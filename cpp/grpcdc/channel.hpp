@@ -294,7 +294,7 @@ class Channel {
             Tracing::ParseTraceparent(it == merged.end() ? nullptr : it->second.c_str()));
         if (trace_ctx) {
           merged["traceparent"] =
-              Tracing::FormatTraceparent(trace_ctx->trace_id, trace_ctx->span_id);
+              Tracing::FormatTraceparent(trace_ctx->trace_id, trace_ctx->span_id, trace_ctx->sampled);
         }
       }
       md = &merged;

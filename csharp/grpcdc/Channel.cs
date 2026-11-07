@@ -183,7 +183,7 @@ public class Channel
                     Tracing.ParseTraceparent(merged.TryGetValue("traceparent", out string tp) ? tp : null));
                 if (traceCtx != null)
                 {
-                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.TraceId, traceCtx.SpanId);
+                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.TraceId, traceCtx.SpanId, traceCtx.Sampled);
                 }
             }
             metadata = merged;
