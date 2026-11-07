@@ -247,11 +247,15 @@ kafka-stubs:
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
 		--grpc-dc-c_out=c/grpcdc -I proto proto/kafka.proto
 
-generate: plugins stubs direct-examples
+generate: plugins stubs direct-examples coverage-docs
 
 ## Regenerate the WebRTC-Direct examples + compose wiring
 direct-examples:
 	$(RACKET) racket/direct-examples-gen.rkt
+
+## Per-language TESTS.md: links to each language's tests/examples
+coverage-docs:
+	$(RACKET) racket/coverage-doc-gen.rkt
 
 ## Descriptor compatibility gate (racket/compat.rkt): fails on
 ## wire/API-breaking schema changes vs the committed baseline.
