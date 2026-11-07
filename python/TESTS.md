@@ -32,6 +32,7 @@ surface for this runtime.
 - [`test_pb_messages.py`](tests/test_pb_messages.py) — Generated suite/example
 - [`test_sidecar_direct.py`](tests/test_sidecar_direct.py) — WebRTC-Direct example/test
 - [`test_sidecar_multi.py`](tests/test_sidecar_multi.py) — Sidecar transport
+- [`test_trace_option.py`](tests/test_trace_option.py) — Generated suite/example
 - [`test_tracing.py`](tests/test_tracing.py) — Generated suite/example
 
 ## Examples

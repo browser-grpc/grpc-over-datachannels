@@ -115,10 +115,15 @@ and export (OTLP or otherwise) are deliberately out of scope —
 this is propagation plus hooks, not an OpenTelemetry SDK.
 
 The protoc plugins accept `trace=off|hooks` (default `off`).
-`hooks` additionally wires the registrar into generated stubs
-where the generator supports it (currently the Python stub
-re-exports `grpcdc.set_tracer`); any other value is a plugin
-error. The runtime API itself is always present and dormant.
+`hooks` additionally wires the registrar into generated stubs:
+every native template re-exports or delegates to the runtime
+registrar (JS and the Wasm wrappers excepted, below); any
+other value is a plugin error. The runtime API itself is
+always present and dormant. The option is covered by
+`racket/tests/trace_option_test.rkt` (registrar present with
+`hooks`, absent with `off`, `trace_methods` baked, bad values
+rejected through real protoc) and by per-language observer
+tests (JS and Python end to end).
 
 `set_trace_filter(patterns)` restricts which methods produce
 spans: `;`-separated method paths, a trailing `*` meaning
