@@ -194,17 +194,18 @@ function randomHex(bytes) {
   return toHex(buf);
 }
 
-export function formatTraceparent(traceId, spanId) {
-  return `00-${traceId}-${spanId}-01`;
+export function formatTraceparent(traceId, spanId, sampled = true) {
+  return `00-${traceId}-${spanId}-${sampled ? "01" : "00"}`;
 }
 
 export function parseTraceparent(value) {
   if (typeof value !== "string") return null;
   const parts = value.split("-");
   if (parts.length !== 4) return null;
-  const [, traceId, spanId] = parts;
+  const [, traceId, spanId, flags] = parts;
   if (!/^[0-9a-f]{32}$/.test(traceId) || !/^[0-9a-f]{16}$/.test(spanId)) return null;
-  return { traceId, spanId };
+  if (!/^[0-9a-f]{2}$/.test(flags)) return null;
+  return { traceId, spanId, sampled: (parseInt(flags, 16) & 1) === 1 };
 }
 
 export function traceStart(kind, method, parent) {
@@ -213,7 +214,12 @@ export function traceStart(kind, method, parent) {
     traceId: parent ? parent.traceId : randomHex(16),
     spanId: randomHex(8),
     parentSpanId: parent ? parent.spanId : "",
+    sampled: parent ? parent.sampled : true,
+    startMs: Date.now(),
   };
+  // An upstream not-sampled decision is honored: the context
+  // still propagates (with flags 00) but no span is recorded.
+  if (!ctx.sampled) return ctx;
   try {
     tracer.onStart?.(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId);
   } catch {
@@ -223,9 +229,9 @@ export function traceStart(kind, method, parent) {
 }
 
 export function traceEnd(kind, method, ctx, status) {
-  if (ctx === null || tracer === null) return;
+  if (ctx === null || tracer === null || ctx.sampled === false) return;
   try {
-    tracer.onEnd?.(kind, method, ctx.traceId, ctx.spanId, status);
+    tracer.onEnd?.(kind, method, ctx.traceId, ctx.spanId, status, Date.now() - ctx.startMs);
   } catch {
     // observers must never break the call
   }

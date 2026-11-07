@@ -54,6 +54,7 @@ def status_name(code):
 # batching and export are the application's problem.
 
 import secrets as _secrets
+import time as _time
 
 _tracer = None
 
@@ -98,45 +99,53 @@ def _new_span_id():
     return _secrets.token_hex(8)
 
 
-def format_traceparent(trace_id, span_id):
-    return f"00-{trace_id}-{span_id}-01"
+def format_traceparent(trace_id, span_id, sampled=True):
+    return f"00-{trace_id}-{span_id}-{'01' if sampled else '00'}"
 
 
 def parse_traceparent(value):
-    """Parse a traceparent header -> (trace_id, span_id) or None."""
+    """Parse a traceparent header -> (trace_id, span_id, sampled) or None."""
     if not isinstance(value, str):
         return None
     parts = value.split("-")
     if len(parts) != 4:
         return None
-    _, trace_id, span_id, _flags = parts
-    if len(trace_id) != 32 or len(span_id) != 16:
+    _, trace_id, span_id, flags = parts
+    if len(trace_id) != 32 or len(span_id) != 16 or len(flags) != 2:
         return None
     try:
         int(trace_id, 16)
         int(span_id, 16)
+        flags_int = int(flags, 16)
     except ValueError:
         return None
-    return (trace_id, span_id)
+    return (trace_id, span_id, bool(flags_int & 1))
 
 
 def trace_start(kind, method, parent):
     """Begin a span; parent is a parsed traceparent or None.
 
     Returns a context dict (keys: trace_id, span_id,
-    parent_span_id) or None when no tracer is registered.
+    parent_span_id, sampled) or None when no tracer is
+    registered. An upstream not-sampled decision is honored:
+    the context still propagates (flags 00) but no span is
+    recorded.
     """
     if _tracer is None or not _trace_allowed(method):
         return None
     if parent is not None:
-        trace_id, parent_span_id = parent
+        trace_id, parent_span_id, sampled = parent
     else:
-        trace_id, parent_span_id = _new_trace_id(), ""
+        trace_id, parent_span_id, sampled = _new_trace_id(), "", True
     ctx = {
         "trace_id": trace_id,
         "span_id": _new_span_id(),
         "parent_span_id": parent_span_id,
+        "sampled": sampled,
+        "start": _time.monotonic(),
     }
+    if not sampled:
+        return ctx
     try:
         _tracer.on_start(kind, method, ctx["trace_id"], ctx["span_id"], parent_span_id)
     except Exception:
@@ -145,10 +154,11 @@ def trace_start(kind, method, parent):
 
 
 def trace_end(kind, method, ctx, status):
-    if ctx is None or _tracer is None:
+    if ctx is None or _tracer is None or not ctx.get("sampled", True):
         return
     try:
-        _tracer.on_end(kind, method, ctx["trace_id"], ctx["span_id"], status)
+        duration_ms = (_time.monotonic() - ctx["start"]) * 1000.0
+        _tracer.on_end(kind, method, ctx["trace_id"], ctx["span_id"], status, duration_ms)
     except Exception:
         pass
 
@@ -717,7 +727,8 @@ class Channel:
                 trace_ctx = trace_start("client", path, parent)
                 if trace_ctx is not None:
                     merged["traceparent"] = format_traceparent(
-                        trace_ctx["trace_id"], trace_ctx["span_id"]
+                        trace_ctx["trace_id"], trace_ctx["span_id"],
+                        trace_ctx["sampled"]
                     )
             metadata = merged
         stream_id, stream_input = self.endpoint.open_stream()

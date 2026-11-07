@@ -52,17 +52,17 @@ function recorder() {
     tracer: {
       onStart: (kind, method, traceId, spanId, parentSpanId) =>
         starts.push({ kind, method, traceId, spanId, parentSpanId }),
-      onEnd: (kind, method, traceId, spanId, status) =>
-        ends.push({ kind, method, traceId, spanId, status }),
+      onEnd: (kind, method, traceId, spanId, status, durationMs) =>
+        ends.push({ kind, method, traceId, spanId, status, durationMs }),
     },
   };
 }
 
-function setup(tracer) {
+function setup(tracer, serviceHandlers = handlers()) {
   setTracer(tracer);
   const [a, b] = memoryDataChannelPair();
   const server = new Server();
-  server.addService(createEchoService(handlers()));
+  server.addService(createEchoService(serviceHandlers));
   server.serve(b);
   return new EchoClient(new Channel(a));
 }
@@ -86,6 +86,7 @@ test("unary propagates one parented trace", async () => {
   assert.equal(clientSpan.parentSpanId, "");
   assert.equal(rec.ends.length, 2);
   assert.ok(rec.ends.every((e) => e.status === "OK"));
+  assert.ok(rec.ends.every((e) => typeof e.durationMs === "number" && e.durationMs >= 0));
   assert.equal(rec.ends.find((e) => e.kind === "client").spanId, clientSpan.spanId);
   assert.equal(rec.ends.find((e) => e.kind === "server").spanId, serverSpan.spanId);
 });
@@ -182,4 +183,53 @@ test("dormant without a tracer", async () => {
   const client = setup(null);
   const resp = await client.unary(new EchoRequest({ message: "hello" }));
   assert.equal(resp.message, "echo: hello");
+});
+
+test("tracestate and baggage reach the server as metadata", async () => {
+  const rec = recorder();
+  let seen = null;
+  const capturing = {
+    ...handlers(),
+    async unary(req, ctx) {
+      seen = ctx.metadata;
+      return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+    },
+  };
+  const client = setup(rec.tracer, capturing);
+  try {
+    await client.unary(new EchoRequest({ message: "hello" }), {
+      metadata: { tracestate: "vendor=abc", baggage: "userId=42" },
+    });
+  } finally {
+    setTracer(null);
+  }
+  assert.equal(seen.tracestate, "vendor=abc");
+  assert.equal(seen.baggage, "userId=42");
+  assert.match(seen.traceparent, /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
+});
+
+test("not-sampled parent is honored and propagated", async () => {
+  const rec = recorder();
+  let seen = null;
+  const capturing = {
+    ...handlers(),
+    async unary(req, ctx) {
+      seen = ctx.metadata;
+      return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+    },
+  };
+  const client = setup(rec.tracer, capturing);
+  const traceId = "c".repeat(32);
+  const spanId = "d".repeat(16);
+  try {
+    await client.unary(new EchoRequest({ message: "hello" }), {
+      metadata: { traceparent: `00-${traceId}-${spanId}-00` },
+    });
+  } finally {
+    setTracer(null);
+  }
+  assert.deepEqual(rec.starts, []);
+  assert.deepEqual(rec.ends, []);
+  assert.ok(seen.traceparent.startsWith(`00-${traceId}-`));
+  assert.ok(seen.traceparent.endsWith("-00"));
 });

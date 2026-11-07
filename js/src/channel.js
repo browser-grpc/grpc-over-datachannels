@@ -111,7 +111,7 @@ export class Channel {
       if (traceCtx !== null) {
         metadata = {
           ...metadata,
-          traceparent: formatTraceparent(traceCtx.traceId, traceCtx.spanId),
+          traceparent: formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled),
         };
       }
     }

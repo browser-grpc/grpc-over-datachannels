@@ -46,7 +46,7 @@ class OtlpTracer:
             "attributes": [{"key": "grpcdc.kind", "value": {"stringValue": kind}}],
         }
 
-    def on_end(self, kind, method, trace_id, span_id, status):
+    def on_end(self, kind, method, trace_id, span_id, status, duration_ms=None):
         span = self._open.pop(span_id, None)
         if span is None:
             return

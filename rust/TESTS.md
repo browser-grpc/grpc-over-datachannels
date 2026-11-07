@@ -23,6 +23,7 @@ surface for this runtime.
 - [`oracle.rs`](tests/oracle.rs) — Official-implementation oracle, via the proxy
 - [`mod.rs`](tests/oracle_scenarios/mod.rs) — Generated suite/example
 - [`pb_messages.rs`](tests/pb_messages.rs) — Generated suite/example
+- [`tracing.rs`](tests/tracing.rs) — Generated suite/example
 - [`webrtc_direct_grpc.rs`](tests/webrtc_direct_grpc.rs) — WebRTC-Direct example/test
 - [`webrtc_grpc.rs`](tests/webrtc_grpc.rs) — WebRTC transport
 

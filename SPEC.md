@@ -110,9 +110,19 @@ present — and the server parents its span to it. Observers
 receive `on_start`/`on_end` callbacks with kind (`client` /
 `server`), method path, trace/span ids, and the terminal status
 name. With no observer registered the wire is unchanged: no
-header is written and no ids are minted. Sampling, batching,
-and export (OTLP or otherwise) are deliberately out of scope —
-this is propagation plus hooks, not an OpenTelemetry SDK.
+header is written and no ids are minted. An upstream
+not-sampled decision (traceparent flags `00`) is honored and
+propagated: context crosses the wire, but no span is
+recorded. `tracestate` and `baggage` headers ride as ordinary
+metadata and reach server handlers unchanged. The JS and
+Python reference runtimes additionally pass each span's
+duration (milliseconds) to `on_end`. The HTTP/2 proxy
+contributes a `proxy` span when a tracer is registered in
+its process (`--trace` on the proxy CLI prints spans as JSON
+lines), so server spans parent to the proxy hop instead of
+the original client. Sampling policy, batching, and export
+(OTLP or otherwise) are deliberately out of scope — this is
+propagation plus hooks, not an OpenTelemetry SDK.
 
 The protoc plugins accept `trace=off|hooks` (default `off`).
 `hooks` additionally wires the registrar into generated stubs:

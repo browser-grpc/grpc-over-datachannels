@@ -12,7 +12,7 @@ import { gzipSync } from "node:zlib";
 
 import { EchoRequest, EchoResponse } from "../js/examples/echo_pb.js";
 import { EchoClient, createEchoService } from "../js/examples/echo_grpc_dc.js";
-import { Endpoint, Server, memoryDataChannelPair } from "../js/index.js";
+import { Endpoint, Server, memoryDataChannelPair, setTracer } from "../js/index.js";
 import { LpmParser, lpm, serveHttp2ToDc } from "../oracle/bridge.mjs";
 import { dialDc, startIngressProxy } from "./grpc-dc-proxy.mjs";
 import { startAgent } from "./grpc-dc-agent.mjs";
@@ -41,7 +41,7 @@ test("proxy: generated mode table matches implementation", async () => {
 });
 
 // Raw HTTP/2 gRPC client call against the ingress listener.
-function http2Call(port, path, payload) {
+function http2Call(port, path, payload, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const session = http2.connect(`http://127.0.0.1:${port}`);
     const stream = session.request({
@@ -50,6 +50,7 @@ function http2Call(port, path, payload) {
       ":scheme": "http",
       "content-type": "application/grpc",
       te: "trailers",
+      ...extraHeaders,
     });
     const parser = new LpmParser("identity");
     const messages = [];
@@ -185,4 +186,55 @@ test("proxy ingress http2: stock HTTP/2 client -> proxy -> grpc-dc server (WebRT
     EchoRequest.encode(new EchoRequest({ message: "fail" })),
   );
   assert.equal(fail.trailers["grpc-status"], "3");
+});
+
+test("proxy span: bridge hop parents the server span", { timeout: 60000 }, async (t) => {
+  const starts = [];
+  setTracer({
+    onStart: (kind, method, traceId, spanId, parentSpanId) =>
+      starts.push({ kind, method, traceId, spanId, parentSpanId }),
+    onEnd: () => {},
+  });
+  t.after(() => setTracer(null));
+  const handlers = {
+    async unary(req) {
+      return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+    },
+    async *serverStream(req) {
+      yield new EchoResponse({ message: req.message, index: 0 });
+    },
+    async clientStream(reqs) {
+      let n = 0;
+      for await (const _req of reqs) n++;
+      return new EchoResponse({ message: "joined", index: n });
+    },
+    async *bidi(reqs) {
+      for await (const req of reqs) {
+        yield new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+      }
+    },
+  };
+  const [a, b] = memoryDataChannelPair();
+  const server = new Server();
+  server.addService(createEchoService(handlers));
+  server.serve(b);
+  const port = await freePort();
+  const http2Server = await serveHttp2ToDc({ port, endpoint: new Endpoint(a) });
+  t.after(() => http2Server.close());
+
+  const traceId = "a".repeat(32);
+  const incomingSpan = "b".repeat(16);
+  const payload = EchoRequest.encode(new EchoRequest({ message: "hello" }));
+  await http2Call(port, "/echo.Echo/Unary", payload, {
+    traceparent: `00-${traceId}-${incomingSpan}-01`,
+  });
+
+  const proxySpan = starts.find((s) => s.kind === "proxy");
+  const serverSpan = starts.find((s) => s.kind === "server");
+  assert.ok(proxySpan, "proxy span recorded");
+  assert.ok(serverSpan, "server span recorded");
+  assert.equal(proxySpan.traceId, traceId);
+  assert.equal(proxySpan.parentSpanId, incomingSpan);
+  assert.equal(serverSpan.traceId, traceId);
+  assert.equal(serverSpan.parentSpanId, proxySpan.spanId);
 });

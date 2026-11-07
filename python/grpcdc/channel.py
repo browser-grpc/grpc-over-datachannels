@@ -57,7 +57,8 @@ class Channel:
                 trace_ctx = trace_start("client", path, parent)
                 if trace_ctx is not None:
                     merged["traceparent"] = format_traceparent(
-                        trace_ctx["trace_id"], trace_ctx["span_id"]
+                        trace_ctx["trace_id"], trace_ctx["span_id"],
+                        trace_ctx["sampled"]
                     )
             metadata = merged
         stream_id, stream_input = self.endpoint.open_stream()

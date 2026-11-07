@@ -34,7 +34,7 @@ class PrintingTracer:
             f"parent={parent_span_id or '-'}"
         )
 
-    def on_end(self, kind, method, trace_id, span_id, status):
+    def on_end(self, kind, method, trace_id, span_id, status, duration_ms=None):
         self.events.append(("end", kind, trace_id, span_id, status))
         self.out(f"<- {kind} {method} trace={trace_id} span={span_id} status={status}")
 
