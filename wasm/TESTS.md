@@ -17,9 +17,11 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`dc_transport.hpp`](cpp/native/dc_transport.hpp) — Generated suite/example
 - [`echo_client.cpp`](cpp/native/echo_client.cpp) — Echo: all four call shapes
 - [`echo_server.cpp`](cpp/native/echo_server.cpp) — Echo: all four call shapes
+- [`echo_tracing.cpp`](cpp/native/echo_tracing.cpp) — Tracing: traceparent propagation, span observers, nested calls
 - [`pb.hpp`](cpp/pb.hpp) — Generated suite/example
 - [`echo_client.dart`](dart/echo_client.dart) — Echo: all four call shapes
 - [`echo_server.dart`](dart/echo_server.dart) — Echo: all four call shapes
+- [`echo_tracing.dart`](dart/echo_tracing.dart) — Tracing: traceparent propagation, span observers, nested calls
 - [`bridge.go`](go/bridge.go) — Generated suite/example
 - [`main.go`](go/cmd/echo_server_wasm/main.go) — Generated suite/example
 - [`main.go`](go/cmd/echo_stream_server_wasm/main.go) — Generated suite/example
@@ -48,6 +50,7 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`dc_transport.lua`](lua/dc_transport.lua) — Generated suite/example
 - [`echo_client.lua`](lua/echo_client.lua) — Echo: all four call shapes
 - [`echo_server.lua`](lua/echo_server.lua) — Echo: all four call shapes
+- [`echo_tracing.lua`](lua/echo_tracing.lua) — Tracing: traceparent propagation, span observers, nested calls
 - [`embed_modules.py`](lua/embed_modules.py) — Generated suite/example
 - [`host.c`](lua/host.c) — Generated suite/example
 - [`modules.h`](lua/modules.h) — Generated suite/example
@@ -77,6 +80,7 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`dc_transport.zig`](zig/native/dc_transport.zig) — Generated suite/example
 - [`echo_client.zig`](zig/native/echo_client.zig) — Echo: all four call shapes
 - [`echo_server.zig`](zig/native/echo_server.zig) — Echo: all four call shapes
+- [`echo_tracing.zig`](zig/native/echo_tracing.zig) — Tracing: traceparent propagation, span observers, nested calls
 
 ## Examples and harnesses
 

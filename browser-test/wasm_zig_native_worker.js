@@ -53,6 +53,11 @@ onmessage = async (event) => {
   try {
     const bytes = await (await fetch(wasmUrl)).arrayBuffer();
     ({ instance } = await WebAssembly.instantiate(bytes, { env }));
+    if (mode === "tracing") {
+      instance.exports.run_echo_tracing();
+      // run_echo_tracing reports via on_result/on_error.
+      return;
+    }
     if (mode === "server") {
       postMessage({ t: "ready" });
       instance.exports.run_echo_server();

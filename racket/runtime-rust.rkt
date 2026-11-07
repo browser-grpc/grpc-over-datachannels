@@ -581,11 +581,20 @@ fn trace_allowed(method: &str) -> bool {
 fn random_hex(bytes_len: usize) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let mut state = std::time::SystemTime::now()
+    // Seed from the wall clock where std has one; on
+    // wasm32-unknown-unknown SystemTime::now() traps, so seed
+    // from the platform_time monotonic clock there instead.
+    #[cfg(not(target_arch = "wasm32"))]
+    let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-        ^ COUNTER.fetch_add(0x9e37_79b9_7f4a_7c15, Ordering::Relaxed);
+        .unwrap_or(0);
+    #[cfg(target_arch = "wasm32")]
+    let seed = crate::platform_time::Instant::now().0.to_bits();
+    let mut state = seed ^ COUNTER.fetch_add(0x9e37_79b9_7f4a_7c15, Ordering::Relaxed);
+    if state == 0 {
+        state = 0x2545_f491_4f6c_dd1d;
+    }
     const DIGITS: &[u8] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes_len * 2);
     for _ in 0..bytes_len {

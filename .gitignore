@@ -39,6 +39,7 @@ browser-test/echo_dart_wasm.support.js
 /.agents/
 browser-test/echo_lua.wasm
 browser-test/echo_lua_server.wasm
+browser-test/echo_lua_tracing.wasm
 browser-test/echo.wasm
 browser-test/echo_cpp.wasm
 browser-test/echo_swift.wasm
@@ -54,6 +55,7 @@ browser-test/echo_cpp.wasm
 browser-test/echo_cpp_server.wasm
 browser-test/echo_cpp_native.wasm
 browser-test/echo_cpp_native_server.wasm
+browser-test/echo_cpp_native_tracing.wasm
 browser-test/echo_swift.wasm
 browser-test/echo_swift_native.wasm
 /browser-test/kotlin_wasm_gen/
@@ -66,6 +68,11 @@ browser-test/echo_go_server.wasm
 browser-test/echo_go_stream_server.wasm
 /scala/build/
 browser-test/echo_zig_stream_server.wasm
+browser-test/echo_zig_native_tracing.wasm
+browser-test/echo_dart_tracing_wasm.wasm
+browser-test/echo_dart_tracing_wasm.wasm.map
+browser-test/echo_dart_tracing_wasm.mjs
+browser-test/echo_dart_tracing_wasm.support.js
 browser-test/echo_cpp_stream_server.wasm
 browser-test/echo_swift_stream_server.wasm
 browser-test/scalajs_gen/

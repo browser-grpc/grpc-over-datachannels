@@ -289,6 +289,136 @@ impl Echo for EchoService {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Nested tracing (browser): client -> front callee -> downstream
+// service over loopback transports, entirely in this module, with
+// a recording span observer. Asserts (in the Node driver) one
+// shared trace id and the full client/server parent chain.
+// ---------------------------------------------------------------------------
+
+#[derive(Default)]
+struct TracingRecorder {
+    starts: std::sync::Mutex<Vec<[String; 5]>>,
+    ends: std::sync::Mutex<Vec<String>>,
+}
+
+impl grpc_dc::status::Tracer for TracingRecorder {
+    fn on_start(&self, kind: &str, _method: &str, trace_id: &str, span_id: &str, parent_span_id: &str) {
+        self.starts.lock().unwrap().push([
+            kind.into(),
+            trace_id.into(),
+            span_id.into(),
+            parent_span_id.into(),
+            String::new(),
+        ]);
+    }
+    fn on_end(&self, kind: &str, _method: &str, _trace_id: &str, _span_id: &str, _status: &str, _duration_ms: f64) {
+        self.ends.lock().unwrap().push(kind.into());
+    }
+}
+
+struct FrontService {
+    downstream: EchoClient,
+    seen_span: Arc<std::sync::Mutex<String>>,
+}
+
+#[grpc_dc::async_trait]
+impl Echo for FrontService {
+    async fn unary(&self, _req: pb::EchoRequest, ctx: CallCtx) -> Result<pb::EchoResponse, Status> {
+        if let Some(trace) = &ctx.trace_context {
+            *self.seen_span.lock().unwrap() = trace.span_id.clone();
+        }
+        let options = match &ctx.trace_context {
+            Some(trace) => CallOptions::new().trace_parent(trace),
+            None => CallOptions::new(),
+        };
+        self.downstream.unary_with_options(req("nested", 0), options).await
+    }
+
+    async fn server_stream(
+        &self,
+        req: pb::EchoRequest,
+        _ctx: CallCtx,
+    ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        let responses = (0..req.count.max(0))
+            .map(move |i| Ok(pb::EchoResponse { message: req.message.clone(), index: i, ..Default::default() }));
+        Ok(Box::pin(futures_util::stream::iter(responses)))
+    }
+
+    async fn client_stream(
+        &self,
+        reqs: RequestStream<pb::EchoRequest>,
+        _ctx: CallCtx,
+    ) -> Result<pb::EchoResponse, Status> {
+        let parts: Vec<String> = reqs.map_ok(|r| r.message).try_collect().await?;
+        Ok(pb::EchoResponse { message: parts.join("+"), index: parts.len() as i32, ..Default::default() })
+    }
+
+    async fn bidi(
+        &self,
+        reqs: RequestStream<pb::EchoRequest>,
+        _ctx: CallCtx,
+    ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        let stream = futures_util::stream::unfold((reqs, 0i32), |(mut reqs, mut index)| async move {
+            match reqs.next().await {
+                Some(Ok(req)) => {
+                    let resp = pb::EchoResponse { message: req.message, index, ..Default::default() };
+                    index += 1;
+                    Some((Ok(resp), (reqs, index)))
+                }
+                Some(Err(e)) => Some((Err(e), (reqs, index))),
+                None => None,
+            }
+        });
+        Ok(Box::pin(stream))
+    }
+}
+
+#[derive(Serialize)]
+struct TracingResults {
+    message: String,
+    #[serde(rename = "seenSpan")]
+    seen_span: String,
+    starts: Vec<[String; 5]>,
+    ends: Vec<String>,
+}
+
+/// Run the nested tracing scenario and resolve with its JSON.
+#[wasm_bindgen]
+pub async fn echo_tracing() -> Result<String, JsValue> {
+    let recorder = Arc::new(TracingRecorder::default());
+    grpc_dc::status::set_tracer(Some(recorder.clone()));
+    let seen_span = Arc::new(std::sync::Mutex::new(String::new()));
+
+    let (down_a, down_b) = grpc_dc::loopback_pair();
+    wasm_bindgen_futures::spawn_local(async move {
+        Server::serve(Arc::new(down_b), vec![echo_service(Arc::new(EchoService))]).await;
+    });
+    let downstream = EchoClient::new(Channel::new(Arc::new(down_a)));
+
+    let (front_a, front_b) = grpc_dc::loopback_pair();
+    let front = FrontService { downstream, seen_span: seen_span.clone() };
+    wasm_bindgen_futures::spawn_local(async move {
+        Server::serve(Arc::new(front_b), vec![echo_service(Arc::new(front))]).await;
+    });
+    let client = EchoClient::new(Channel::new(Arc::new(front_a)));
+
+    let result = client.unary(req("hello", 0)).await;
+    grpc_dc::status::set_tracer(None);
+    match result {
+        Ok(resp) => {
+            let results = TracingResults {
+                message: resp.message,
+                seen_span: seen_span.lock().unwrap().clone(),
+                starts: recorder.starts.lock().unwrap().clone(),
+                ends: recorder.ends.lock().unwrap().clone(),
+            };
+            serde_json::to_string(&results).map_err(|e| JsValue::from_str(&e.to_string()))
+        }
+        Err(status) => Err(JsValue::from_str(&format!("{status}"))),
+    }
+}
+
 /// Serve the generated Echo service over the given JS transport.
 /// Returns immediately; serving runs as a local task until the
 /// transport closes.

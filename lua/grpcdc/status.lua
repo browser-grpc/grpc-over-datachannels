@@ -85,10 +85,20 @@ local function traceAllowed(method)
   return false
 end
 
+-- Monotonic-ish clock in seconds for span timing and id
+-- seeds: the WASM/browser host provides host_now (no os
+-- library there); natively os.clock, else os.time, else 0.
+local function traceClock()
+  if host_now ~= nil then return host_now() end
+  if os ~= nil and os.clock ~= nil then return os.clock() end
+  if os ~= nil and os.time ~= nil then return os.time() end
+  return 0
+end
+
 local randCounter = 0
 local function randomHex(nbytes)
   randCounter = randCounter + 1
-  math.randomseed(os.time() + randCounter * 7919)
+  math.randomseed(math.floor(traceClock() * 1000) + randCounter * 7919)
   local out = {}
   for i = 1, nbytes do
     out[i] = string.format("%02x", math.random(0, 255))
@@ -117,7 +127,7 @@ end
 
 local function traceStart(kind, method, parent)
   if tracer == nil or not traceAllowed(method) then return nil end
-  local ctx = { spanId = randomHex(8), startTime = os.clock() }
+  local ctx = { spanId = randomHex(8), startTime = traceClock() }
   if parent ~= nil then
     ctx.traceId = parent.traceId
     ctx.parentSpanId = parent.spanId
@@ -152,7 +162,7 @@ local function traceEnd(kind, method, ctx, status)
   pcall(function()
     if tracer.onEnd then
       tracer.onEnd(kind, method, ctx.traceId, ctx.spanId, status,
-                   (os.clock() - ctx.startTime) * 1000)
+                   (traceClock() - ctx.startTime) * 1000)
     end
   end)
 end

@@ -555,8 +555,26 @@ test-lua-wasm-browser:
 	    $(wildcard $(LUA_SRC)/*.c)) \
 	  -lm -lwasi-emulated-signal -lwasi-emulated-process-clocks \
 	  -o browser-test/echo_lua_server.wasm
+	python3 wasm/lua/embed_modules.py wasm/lua/modules.h \
+	  grpcdc.wire=lua/grpcdc/wire.lua grpcdc.status=lua/grpcdc/status.lua \
+	  grpcdc.codec=lua/grpcdc/codec.lua grpcdc.transport=lua/grpcdc/transport.lua \
+	  grpcdc.endpoint=lua/grpcdc/endpoint.lua grpcdc.channel=lua/grpcdc/channel.lua \
+	  grpcdc.server=lua/grpcdc/server.lua grpcdc.memory_transport=lua/grpcdc/memory_transport.lua \
+	  examples.pb=lua/examples/pb.lua examples.echo_messages=lua/examples/echo_messages.lua \
+	  examples.echo_grpc_dc=lua/examples/echo_grpc_dc.lua \
+	  examples.echo_service_impl=lua/examples/echo_service_impl.lua \
+	  dc_transport=wasm/lua/dc_transport.lua @main=wasm/lua/echo_tracing.lua
+	zig cc -target wasm32-wasi -O2 -s -mexception-handling -mllvm -wasm-enable-sjlj -mllvm -wasm-use-legacy-eh=false -mbulk-memory \
+	  -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_PROCESS_CLOCKS \
+	  -I $(LUA_SRC) -I wasm/lua wasm/lua/host.c wasm/lua/sjlj_rt.c \
+	  $(filter-out $(LUA_SRC)/lua.c $(LUA_SRC)/luac.c $(LUA_SRC)/loslib.c \
+	    $(LUA_SRC)/liolib.c $(LUA_SRC)/ldblib.c $(LUA_SRC)/linit.c, \
+	    $(wildcard $(LUA_SRC)/*.c)) \
+	  -lm -lwasi-emulated-signal -lwasi-emulated-process-clocks \
+	  -o browser-test/echo_lua_tracing.wasm
 	cd browser-test && node wasm_lua.test.mjs all
 	cd browser-test && node wasm_lua_server.test.mjs all
+	cd browser-test && node wasm_lua_tracing.test.mjs all
 
 RUBY ?= ruby
 
@@ -649,6 +667,7 @@ test-wasm:
 	$(WASM_BINDGEN) --target web --out-dir browser-test/wasm_rust_gen wasm/rust/target/wasm32-unknown-unknown/release/grpc_dc_wasm_rust.wasm
 	cd browser-test && node wasm.test.mjs all && node wasm_rust.test.mjs all
 	cd browser-test && node wasm_rust_server.test.mjs all
+	cd browser-test && node wasm_rust_tracing.test.mjs all
 
 test-zig-wasm-native-browser:
 	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
@@ -663,8 +682,15 @@ test-zig-wasm-native-browser:
 		--dep grpcdc -Mecho_stub=zig/examples/echo_grpc_dc.zig \
 		-Mgrpcdc=zig/grpcdc/grpcdc.zig \
 		-femit-bin=browser-test/echo_zig_native_server.wasm
+	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
+		--dep grpcdc --dep echo_stub \
+		-Mroot=wasm/zig/native/echo_tracing.zig \
+		--dep grpcdc -Mecho_stub=zig/examples/echo_grpc_dc.zig \
+		-Mgrpcdc=zig/grpcdc/grpcdc.zig \
+		-femit-bin=browser-test/echo_zig_native_tracing.wasm
 	cd browser-test && node wasm_zig_native.test.mjs all
 	cd browser-test && node wasm_zig_native_server.test.mjs all
+	cd browser-test && node wasm_zig_tracing.test.mjs all
 
 test-zig-wasm-browser:
 	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
@@ -695,8 +721,10 @@ test-dart-browser:
 test-dart-wasm-browser:
 	$(DART) compile wasm wasm/dart/echo_client.dart -o browser-test/echo_dart_wasm.wasm
 	$(DART) compile wasm wasm/dart/echo_server.dart -o browser-test/echo_dart_server_wasm.wasm
+	$(DART) compile wasm wasm/dart/echo_tracing.dart -o browser-test/echo_dart_tracing_wasm.wasm
 	cd browser-test && node dart_wasm.test.mjs all
 	cd browser-test && node dart_wasm_server.test.mjs all
+	cd browser-test && node dart_wasm_tracing.test.mjs all
 
 # C++ WASM facade: generated callback client over the JS bridge,
 # zig c++ wasm32-wasi reactor without exceptions (Zig's wasm32
@@ -756,8 +784,16 @@ test-cpp-wasm-native-browser:
 		-Wl,--export=_initialize -Wl,--export=run_echo_server \
 		wasm/cpp/native/echo_server.cpp \
 		-o browser-test/echo_cpp_native_server.wasm
+	$(WASI_CXX) -target wasm32-wasip1 -std=c++17 -O1 -mexec-model=reactor \
+		-fwasm-exceptions -mllvm -wasm-use-legacy-eh=false \
+		-Icpp -I. -Iwasm/cpp/native \
+		-L$(WASI_SDK)/share/wasi-sysroot/lib/wasm32-wasip1/eh -lunwind \
+		-Wl,--export=_initialize -Wl,--export=run_echo_tracing \
+		wasm/cpp/native/echo_tracing.cpp \
+		-o browser-test/echo_cpp_native_tracing.wasm
 	cd browser-test && node wasm_cpp_native.test.mjs all
 	cd browser-test && node wasm_cpp_native_server.test.mjs all
+	cd browser-test && node wasm_cpp_tracing.test.mjs all
 
 WASM_LD ?= wasm-ld
 SWIFT_WASM_LIBDIR ?= $(shell $(SWIFTC) -print-target-info 2>/dev/null | sed -n 's/.*"runtimeResourcePath": "\([^"]*\)".*/\1/p')/embedded/wasm32-unknown-none-wasm

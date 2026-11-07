@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc Rust/Wasm tracing test</title>
+<script type="module">
+import init, { echo_tracing } from "/browser-test/wasm_rust_gen/grpc_dc_wasm_rust.js";
+
+// Runs the nested tracing scenario inside the native Rust/Wasm
+// runtime: client -> front callee -> downstream service over
+// loopback transports, spans recorded in the module and returned
+// as JSON.
+window.__runTracing = async () => {
+  await init();
+  return JSON.parse(await echo_tracing());
+};
+</script>

@@ -129,6 +129,11 @@ onmessage = async (event) => {
       wasi_snapshot_preview1: wasiStubs(),
     }));
     instance.exports._initialize?.();
+    if (mode === "tracing") {
+      instance.exports.run_echo_tracing();
+      // run_echo_tracing reports via on_result/on_error.
+      return;
+    }
     if (mode === "server") {
       postMessage({ t: "ready" });
       instance.exports.run_echo_server();
