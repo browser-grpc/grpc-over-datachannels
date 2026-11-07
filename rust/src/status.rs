@@ -68,7 +68,7 @@ impl std::error::Error for Status {}
 /// Span observer (kind is "client" or "server").
 pub trait Tracer: Send + Sync {
     fn on_start(&self, kind: &str, method: &str, trace_id: &str, span_id: &str, parent_span_id: &str);
-    fn on_end(&self, kind: &str, method: &str, trace_id: &str, span_id: &str, status: &str);
+    fn on_end(&self, kind: &str, method: &str, trace_id: &str, span_id: &str, status: &str, duration_ms: f64);
 }
 
 /// One in-flight span's context.
@@ -77,6 +77,8 @@ pub struct TraceContext {
     pub trace_id: String,
     pub span_id: String,
     pub parent_span_id: String,
+    pub sampled: bool,
+    pub start: crate::platform_time::Instant,
 }
 
 /// Parsed traceparent parent.
@@ -84,6 +86,7 @@ pub struct TraceContext {
 pub struct TraceParent {
     pub trace_id: String,
     pub span_id: String,
+    pub sampled: bool,
 }
 
 static TRACER: std::sync::OnceLock<std::sync::RwLock<Option<std::sync::Arc<dyn Tracer>>>> =
@@ -153,8 +156,8 @@ fn random_hex(bytes_len: usize) -> String {
     out
 }
 
-pub fn format_traceparent(trace_id: &str, span_id: &str) -> String {
-    format!("00-{trace_id}-{span_id}-01")
+pub fn format_traceparent(trace_id: &str, span_id: &str, sampled: bool) -> String {
+    format!("00-{trace_id}-{span_id}-{}", if sampled { "01" } else { "00" })
 }
 
 pub fn parse_traceparent(value: Option<&String>) -> Option<TraceParent> {
@@ -165,12 +168,16 @@ pub fn parse_traceparent(value: Option<&String>) -> Option<TraceParent> {
     }
     if !parts[1].bytes().all(|b| b.is_ascii_hexdigit())
         || !parts[2].bytes().all(|b| b.is_ascii_hexdigit())
+        || parts[3].len() != 2
+        || !parts[3].bytes().all(|b| b.is_ascii_hexdigit())
     {
         return None;
     }
+    let flags = u8::from_str_radix(parts[3], 16).ok()?;
     Some(TraceParent {
         trace_id: parts[1].to_string(),
         span_id: parts[2].to_string(),
+        sampled: flags & 1 == 1,
     })
 }
 
@@ -180,6 +187,7 @@ pub fn trace_start(kind: &str, method: &str, parent: Option<TraceParent>) -> Opt
         return None;
     }
     let tracer = tracer_slot().read().unwrap().clone()?;
+    let sampled = parent.as_ref().map(|p| p.sampled).unwrap_or(true);
     let ctx = TraceContext {
         trace_id: parent
             .as_ref()
@@ -187,7 +195,12 @@ pub fn trace_start(kind: &str, method: &str, parent: Option<TraceParent>) -> Opt
             .unwrap_or_else(|| random_hex(16)),
         span_id: random_hex(8),
         parent_span_id: parent.map(|p| p.span_id).unwrap_or_default(),
+        sampled,
+        start: crate::platform_time::Instant::now(),
     };
+    if !ctx.sampled {
+        return Some(ctx);
+    }
     tracer.on_start(kind, method, &ctx.trace_id, &ctx.span_id, &ctx.parent_span_id);
     Some(ctx)
 }
@@ -197,7 +210,17 @@ pub fn trace_end(kind: &str, method: &str, ctx: Option<&TraceContext>, status: &
     let (Some(tracer), Some(ctx)) = (tracer_slot().read().unwrap().clone(), ctx) else {
         return;
     };
-    tracer.on_end(kind, method, &ctx.trace_id, &ctx.span_id, status);
+    if !ctx.sampled {
+        return;
+    }
+    tracer.on_end(
+        kind,
+        method,
+        &ctx.trace_id,
+        &ctx.span_id,
+        status,
+        ctx.start.elapsed().as_secs_f64() * 1000.0,
+    );
 }
 
 impl From<String> for Status {

@@ -149,7 +149,7 @@ func (ch *Channel) open(ctx context.Context, path string, metadata map[string]st
 		if getTracer() != nil {
 			traceCtx = traceStart("client", path, ParseTraceparent(metadata["traceparent"]))
 			if traceCtx != nil {
-				merged["traceparent"] = FormatTraceparent(traceCtx.TraceID, traceCtx.SpanID)
+				merged["traceparent"] = FormatTraceparent(traceCtx.TraceID, traceCtx.SpanID, traceCtx.Sampled)
 			}
 		}
 		metadata = merged

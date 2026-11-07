@@ -107,7 +107,7 @@ func (t *OtlpTracer) OnStart(kind, method, traceID, spanID, parentSpanID string)
 	}
 }
 
-func (t *OtlpTracer) OnEnd(kind, method, traceID, spanID, status string) {
+func (t *OtlpTracer) OnEnd(kind, method, traceID, spanID, status string, durationMs float64) {
 	t.mu.Lock()
 	span := t.open[spanID]
 	if span == nil {
@@ -115,7 +115,7 @@ func (t *OtlpTracer) OnEnd(kind, method, traceID, spanID, status string) {
 		return
 	}
 	delete(t.open, spanID)
-	span.EndTimeUnixNano = formatUnixNano(time.Now())
+	span.EndTimeUnixNano = formatUnixNano(span.started.Add(time.Duration(durationMs * float64(time.Millisecond))))
 	if status == "OK" {
 		span.Status = &otlpStatus{Code: 1}
 	} else {

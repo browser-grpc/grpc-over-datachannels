@@ -96,15 +96,15 @@ async fn setup() -> EchoClient {
 #[derive(Default)]
 struct Recorder {
     starts: std::sync::Mutex<Vec<(String, String, String, String, String)>>,
-    ends: std::sync::Mutex<Vec<(String, String, String, String, String)>>,
+    ends: std::sync::Mutex<Vec<(String, String, String, String, String, f64)>>,
 }
 
 impl grpc_dc::status::Tracer for Recorder {
     fn on_start(&self, kind: &str, method: &str, trace_id: &str, span_id: &str, parent_span_id: &str) {
         self.starts.lock().unwrap().push((kind.into(), method.into(), trace_id.into(), span_id.into(), parent_span_id.into()));
     }
-    fn on_end(&self, kind: &str, method: &str, trace_id: &str, span_id: &str, status: &str) {
-        self.ends.lock().unwrap().push((kind.into(), method.into(), trace_id.into(), span_id.into(), status.into()));
+    fn on_end(&self, kind: &str, method: &str, trace_id: &str, span_id: &str, status: &str, duration_ms: f64) {
+        self.ends.lock().unwrap().push((kind.into(), method.into(), trace_id.into(), span_id.into(), status.into(), duration_ms));
     }
 }
 
@@ -114,16 +114,44 @@ async fn tracing_parented_spans() {
     grpc_dc::status::set_tracer(Some(recorder.clone()));
     let client = setup().await;
     let resp = client.unary(req("hello", 0)).await.unwrap();
-    grpc_dc::status::set_tracer(None);
     assert_eq!(resp.message, "echo: hello");
 
-    let starts = recorder.starts.lock().unwrap();
-    let ends = recorder.ends.lock().unwrap();
-    assert_eq!(starts.len(), 2, "starts: {starts:?}");
-    assert_eq!(ends.len(), 2, "ends: {ends:?}");
-    let client_span = starts.iter().find(|s| s.0 == "client").unwrap();
-    let server_span = starts.iter().find(|s| s.0 == "server").unwrap();
-    assert_eq!(client_span.2, server_span.2, "one trace id");
-    assert_eq!(server_span.4, client_span.3, "server parented to client");
-    assert!(ends.iter().all(|e| e.4 == "OK"));
+    {
+        let starts = recorder.starts.lock().unwrap();
+        let ends = recorder.ends.lock().unwrap();
+        assert_eq!(starts.len(), 2, "starts: {starts:?}");
+        assert_eq!(ends.len(), 2, "ends: {ends:?}");
+        let client_span = starts.iter().find(|s| s.0 == "client").unwrap();
+        let server_span = starts.iter().find(|s| s.0 == "server").unwrap();
+        assert_eq!(client_span.2, server_span.2, "one trace id");
+        assert_eq!(server_span.4, client_span.3, "server parented to client");
+        assert!(ends.iter().all(|e| e.4 == "OK" && e.5 >= 0.0));
+    }
+
+    let parent = grpc_dc::status::parse_traceparent(Some(
+        &"00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-00".to_string(),
+    ))
+    .unwrap();
+    assert!(!parent.sampled);
+    assert_eq!(
+        grpc_dc::status::format_traceparent(&parent.trace_id, &parent.span_id, parent.sampled),
+        "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-00"
+    );
+
+    recorder.starts.lock().unwrap().clear();
+    recorder.ends.lock().unwrap().clear();
+    let client = setup().await;
+    let mut metadata = Metadata::new();
+    metadata.insert(
+        "traceparent".into(),
+        "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-00".into(),
+    );
+    let resp = client
+        .unary_with_options(req("hello", 0), grpc_dc::CallOptions { metadata, timeout: None, ..Default::default() })
+        .await
+        .unwrap();
+    grpc_dc::status::set_tracer(None);
+    assert_eq!(resp.message, "echo: hello");
+    assert!(recorder.starts.lock().unwrap().is_empty());
+    assert!(recorder.ends.lock().unwrap().is_empty());
 }

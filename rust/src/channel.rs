@@ -160,7 +160,7 @@ impl Channel {
             if let Some(ctx) = &trace_ctx {
                 metadata.insert(
                     "traceparent".to_string(),
-                    crate::status::format_traceparent(&ctx.trace_id, &ctx.span_id),
+                    crate::status::format_traceparent(&ctx.trace_id, &ctx.span_id, ctx.sampled),
                 );
             }
         }

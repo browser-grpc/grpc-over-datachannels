@@ -115,9 +115,9 @@ not-sampled decision (traceparent flags `00`) is honored and
 propagated: context crosses the wire, but no span is
 recorded. `tracestate` and `baggage` headers ride as ordinary
 metadata and reach server handlers unchanged. The JS and
-Python reference runtimes and the generated Java, Kotlin,
-Scala, C#, C++, Swift, Dart, Zig, C, Lua, Ruby, and PHP
-runtimes additionally pass each span's duration
+Python reference runtimes and the Go, Rust, and generated
+Java, Kotlin, Scala, C#, C++, Swift, Dart, Zig, C, Lua,
+Ruby, and PHP runtimes additionally pass each span's duration
 (milliseconds) to `on_end`; Zig reports `0` on
 single-threaded targets, where no monotonic clock is
 available. The HTTP/2 proxy
@@ -137,7 +137,7 @@ always present and dormant. The option is covered by
 `racket/tests/trace_option_test.rkt` (registrar present with
 `hooks`, absent with `off`, `trace_methods` baked, bad values
 rejected through real protoc) and by per-language observer
-tests (JS and Python end to end).
+tests (JS, Python, Go, and Rust end to end).
 
 `set_trace_filter(patterns)` restricts which methods produce
 spans: `;`-separated method paths, a trailing `*` meaning

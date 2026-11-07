@@ -65,7 +65,7 @@ func Status(err error) *StatusError {
 // Tracer receives span callbacks (kind is "client" or "server").
 type Tracer interface {
 	OnStart(kind, method, traceID, spanID, parentSpanID string)
-	OnEnd(kind, method, traceID, spanID, status string)
+	OnEnd(kind, method, traceID, spanID, status string, durationMs float64)
 }
 
 var tracerMu sync.RWMutex
@@ -120,6 +120,8 @@ type traceContext struct {
 	TraceID      string
 	SpanID       string
 	ParentSpanID string
+	Sampled      bool
+	start        time.Time
 }
 
 func randomHex(n int) string {
@@ -133,8 +135,12 @@ func randomHex(n int) string {
 }
 
 // FormatTraceparent renders a W3C traceparent header value.
-func FormatTraceparent(traceID, spanID string) string {
-	return "00-" + traceID + "-" + spanID + "-01"
+func FormatTraceparent(traceID, spanID string, sampled bool) string {
+	flags := "00"
+	if sampled {
+		flags = "01"
+	}
+	return "00-" + traceID + "-" + spanID + "-" + flags
 }
 
 // ParseTraceparent parses a traceparent header value.
@@ -149,7 +155,11 @@ func ParseTraceparent(value string) *traceContext {
 	if _, err := hex.DecodeString(parts[2]); err != nil {
 		return nil
 	}
-	return &traceContext{TraceID: parts[1], SpanID: parts[2]}
+	flags, err := hex.DecodeString(parts[3])
+	if err != nil || len(flags) != 1 {
+		return nil
+	}
+	return &traceContext{TraceID: parts[1], SpanID: parts[2], Sampled: flags[0]&1 == 1}
 }
 
 func traceStart(kind, method string, parent *traceContext) *traceContext {
@@ -157,12 +167,16 @@ func traceStart(kind, method string, parent *traceContext) *traceContext {
 	if t == nil || !traceAllowed(method) {
 		return nil
 	}
-	ctx := &traceContext{SpanID: randomHex(8)}
+	ctx := &traceContext{SpanID: randomHex(8), Sampled: true, start: time.Now()}
 	if parent != nil {
 		ctx.TraceID = parent.TraceID
 		ctx.ParentSpanID = parent.SpanID
+		ctx.Sampled = parent.Sampled
 	} else {
 		ctx.TraceID = randomHex(16)
+	}
+	if !ctx.Sampled {
+		return ctx
 	}
 	defer func() { _ = recover() }() // observers must never break the call
 	t.OnStart(kind, method, ctx.TraceID, ctx.SpanID, ctx.ParentSpanID)
@@ -170,7 +184,7 @@ func traceStart(kind, method string, parent *traceContext) *traceContext {
 }
 
 func traceEnd(kind, method string, ctx *traceContext, status string) {
-	if ctx == nil {
+	if ctx == nil || !ctx.Sampled {
 		return
 	}
 	t := getTracer()
@@ -178,7 +192,8 @@ func traceEnd(kind, method string, ctx *traceContext, status string) {
 		return
 	}
 	defer func() { _ = recover() }()
-	t.OnEnd(kind, method, ctx.TraceID, ctx.SpanID, status)
+	t.OnEnd(kind, method, ctx.TraceID, ctx.SpanID, status,
+		float64(time.Since(ctx.start))/float64(time.Millisecond))
 }
 
 // Marshaler is implemented by protobuf message types (see the

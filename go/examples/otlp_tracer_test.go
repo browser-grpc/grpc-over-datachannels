@@ -11,7 +11,7 @@ func TestOtlpTracerPayload(t *testing.T) {
 	tracer.OnStart("client", "/echo.Echo/Unary",
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb", "")
 	tracer.OnEnd("client", "/echo.Echo/Unary",
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb", "OK")
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb", "OK", 1.5)
 
 	payload := tracer.Payload()
 	if payload == nil {
