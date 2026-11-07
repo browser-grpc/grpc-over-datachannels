@@ -98,7 +98,7 @@ object Tracing {
             randomHex(8),
             parent?.spanId ?: "",
             parent?.sampled ?: true,
-            System.nanoTime()
+            grpcdcNowNanos()
         )
         if (!ctx.sampled) return ctx
         try {
@@ -121,7 +121,7 @@ object Tracing {
         if (ctx == null || t == null || !ctx.sampled) return
         try {
             t.onEnd(kind, method, ctx.traceId, ctx.spanId, status,
-                (System.nanoTime() - ctx.startNanos) / 1_000_000.0)
+                (grpcdcNowNanos() - ctx.startNanos) / 1_000_000.0)
         } catch (ignored: Throwable) {
         }
     }

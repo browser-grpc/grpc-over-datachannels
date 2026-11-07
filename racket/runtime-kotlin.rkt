@@ -2247,7 +2247,7 @@ class GrpcdcQueue<T> {
 (define (emit-kotlin-wasm-runtime-files)
   (define x kotlin-wasm-xform)
   (list
-   (cons "grpcdc/Status.kt" kotlin-status-body)
+   (cons "grpcdc/Status.kt" (kotlin-wasm-xform/common kotlin-status-body))
    (cons "grpcdc/Codec.kt"
          (x "Codec" (kotlin-wasm-xform/common kotlin-codec-body)
             (list
