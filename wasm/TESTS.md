@@ -44,6 +44,7 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`dc_transport.kt`](kotlin/native/dc_transport.kt) — Generated suite/example
 - [`echo_client.kt`](kotlin/native/echo_client.kt) — Echo: all four call shapes
 - [`echo_server.kt`](kotlin/native/echo_server.kt) — Echo: all four call shapes
+- [`echo_tracing.kt`](kotlin/native/echo_tracing.kt) — Tracing: traceparent propagation, span observers, nested calls
 - [`dc_transport.lua`](lua/dc_transport.lua) — Generated suite/example
 - [`echo_client.lua`](lua/echo_client.lua) — Echo: all four call shapes
 - [`echo_server.lua`](lua/echo_server.lua) — Echo: all four call shapes
@@ -66,6 +67,7 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`dc_transport.swift`](swift/native/dc_transport.swift) — Generated suite/example
 - [`echo_client.swift`](swift/native/echo_client.swift) — Echo: all four call shapes
 - [`echo_server.swift`](swift/native/echo_server.swift) — Echo: all four call shapes
+- [`echo_tracing.swift`](swift/native/echo_tracing.swift) — Tracing: traceparent propagation, span observers, nested calls
 - [`support.c`](swift/support.c) — Generated suite/example
 - [`bridge.zig`](zig/bridge.zig) — Generated suite/example
 - [`echo_client.zig`](zig/echo_client.zig) — Echo: all four call shapes

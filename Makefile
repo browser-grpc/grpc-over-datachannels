@@ -843,11 +843,12 @@ test-swift-wasm-native-browser:
 		wasm/swift/native/dc_transport.swift \
 		wasm/swift/native/echo_client.swift \
 		wasm/swift/native/echo_server.swift \
+		wasm/swift/native/echo_tracing.swift \
 		-o wasm/swift/build/echo_swift_native.o
 	$(ZIG) cc -target wasm32-freestanding -O1 -c wasm/swift/support.c \
 		-o wasm/swift/build/support.o
 	$(WASM_LD) --no-entry --allow-undefined \
-		--export=run_echo_client --export=run_echo_server \
+		--export=run_echo_client --export=run_echo_server --export=run_echo_tracing \
 		wasm/swift/build/echo_swift_native.o wasm/swift/build/support.o \
 		$(SWIFT_WASM_LIBDIR)/libswiftUnicodeDataTables.a \
 		$(SWIFT_WASM_LIBDIR)/libswiftEmbeddedPlatformPOSIX.a \
@@ -855,6 +856,7 @@ test-swift-wasm-native-browser:
 		-o browser-test/echo_swift_native.wasm
 	cd browser-test && node wasm_swift_native.test.mjs all
 	cd browser-test && node wasm_swift_native_server.test.mjs all
+	cd browser-test && node wasm_swift_tracing.test.mjs all
 
 KOTLINC_JS ?= kotlinc-js
 KOTLIN_WASM_STDLIB ?= $(firstword $(wildcard $(HOME)/.local/kotlin-dist/kotlinc/lib/kotlin-stdlib-wasm-js.klib /usr/local/kotlinc/lib/kotlin-stdlib-wasm-js.klib))
@@ -900,7 +902,7 @@ test-kotlin-wasm-native-browser:
 		wasm/kotlin/grpcdc/*.kt wasm/kotlin/Pb.kt \
 		wasm/kotlin/EchoMessages.kt wasm/kotlin/native/EchoGrpcDc.kt \
 		wasm/kotlin/native/dc_transport.kt wasm/kotlin/native/echo_client.kt \
-		wasm/kotlin/native/echo_server.kt
+		wasm/kotlin/native/echo_server.kt wasm/kotlin/native/echo_tracing.kt
 	$(KOTLINC_JS) -Xwasm -Xwasm-target=wasm-js \
 		-Xwasm-use-new-exception-proposal \
 		-libraries $(KOTLIN_WASM_STDLIB) \
@@ -910,6 +912,7 @@ test-kotlin-wasm-native-browser:
 		-module-kind es -target es2015 -main noCall -Xir-produce-js
 	cd browser-test && node wasm_kotlin_native.test.mjs all
 	cd browser-test && node wasm_kotlin_native_server.test.mjs all
+	cd browser-test && node wasm_kotlin_tracing.test.mjs all
 
 ## Cross-language interop matrix: every stdio Echo client
 ## against every stdio Echo server (14 x 14 ordered pairs).

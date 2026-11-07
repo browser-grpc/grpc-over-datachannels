@@ -11,6 +11,11 @@ onmessage = async (event) => {
   const { sab, wasmUrl, mode } = event.data;
   try {
     const mod = await import(wasmUrl);
+    if (mode === "tracing") {
+      const json = mod.runEchoTracingNative();
+      postMessage({ t: "result", json });
+      return;
+    }
     if (mode === "server") {
       postMessage({ t: "ready" });
       mod.runEchoServerNative(sab);
