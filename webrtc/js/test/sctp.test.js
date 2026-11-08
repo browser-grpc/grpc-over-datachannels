@@ -43,6 +43,28 @@ class Link {
   }
 }
 
+function sackArwnd(packet) {
+  assert.equal(packet[12], 3, "expected a SACK chunk");
+  return packet.readUInt32BE(20);
+}
+
+test("sack rwnd shrinks for gap-buffered bytes and recovers", () => {
+  const link = new Link();
+  link.handshake();
+  const payload = Buffer.alloc(5000, "x");
+  const pkts = link.client.sendData(0, 63, payload, {}, link.now);
+  assert.ok(pkts.length >= 2);
+  // Only the second fragment: gap-buffered, window -1000.
+  let r = link.server.handlePacket(pkts[1], link.now);
+  assert.equal(sackArwnd(r.packets[0]), 262144 - 1000);
+  // Duplicate of the same TSN must not double-count.
+  r = link.server.handlePacket(pkts[1], link.now);
+  assert.equal(sackArwnd(r.packets[0]), 262144 - 1000);
+  // Filling the gap restores the full window.
+  r = link.server.handlePacket(pkts[0], link.now);
+  assert.equal(sackArwnd(r.packets[0]), 262144);
+});
+
 test("handshake and ordered data", () => {
   const link = new Link();
   link.handshake();

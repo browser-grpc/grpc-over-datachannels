@@ -573,6 +573,40 @@ test-lua-wasm-browser:
 	    $(wildcard $(LUA_SRC)/*.c)) \
 	  -lm -lwasi-emulated-signal -lwasi-emulated-process-clocks \
 	  -o browser-test/echo_lua_tracing.wasm
+	python3 wasm/lua/embed_modules.py wasm/lua/modules.h \
+	  grpcdc.wire=lua/grpcdc/wire.lua grpcdc.status=lua/grpcdc/status.lua \
+	  grpcdc.codec=lua/grpcdc/codec.lua grpcdc.transport=lua/grpcdc/transport.lua \
+	  grpcdc.endpoint=lua/grpcdc/endpoint.lua grpcdc.channel=lua/grpcdc/channel.lua \
+	  grpcdc.server=lua/grpcdc/server.lua grpcdc.memory_transport=lua/grpcdc/memory_transport.lua \
+	  examples.pb=lua/examples/pb.lua examples.echo_messages=lua/examples/echo_messages.lua \
+	  examples.echo_grpc_dc=lua/examples/echo_grpc_dc.lua \
+	  examples.echo_service_impl=lua/examples/echo_service_impl.lua \
+	  dc_transport=wasm/lua/dc_transport.lua @main=wasm/lua/echo_client_tracing.lua
+	zig cc -target wasm32-wasi -O2 -s -mexception-handling -mllvm -wasm-enable-sjlj -mllvm -wasm-use-legacy-eh=false -mbulk-memory \
+	  -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_PROCESS_CLOCKS \
+	  -I $(LUA_SRC) -I wasm/lua wasm/lua/host.c wasm/lua/sjlj_rt.c \
+	  $(filter-out $(LUA_SRC)/lua.c $(LUA_SRC)/luac.c $(LUA_SRC)/loslib.c \
+	    $(LUA_SRC)/liolib.c $(LUA_SRC)/ldblib.c $(LUA_SRC)/linit.c, \
+	    $(wildcard $(LUA_SRC)/*.c)) \
+	  -lm -lwasi-emulated-signal -lwasi-emulated-process-clocks \
+	  -o browser-test/echo_lua_client_tracing.wasm
+	python3 wasm/lua/embed_modules.py wasm/lua/modules.h \
+	  grpcdc.wire=lua/grpcdc/wire.lua grpcdc.status=lua/grpcdc/status.lua \
+	  grpcdc.codec=lua/grpcdc/codec.lua grpcdc.transport=lua/grpcdc/transport.lua \
+	  grpcdc.endpoint=lua/grpcdc/endpoint.lua grpcdc.channel=lua/grpcdc/channel.lua \
+	  grpcdc.server=lua/grpcdc/server.lua grpcdc.memory_transport=lua/grpcdc/memory_transport.lua \
+	  examples.pb=lua/examples/pb.lua examples.echo_messages=lua/examples/echo_messages.lua \
+	  examples.echo_grpc_dc=lua/examples/echo_grpc_dc.lua \
+	  examples.echo_service_impl=lua/examples/echo_service_impl.lua \
+	  dc_transport=wasm/lua/dc_transport.lua @main=wasm/lua/echo_server_tracing.lua
+	zig cc -target wasm32-wasi -O2 -s -mexception-handling -mllvm -wasm-enable-sjlj -mllvm -wasm-use-legacy-eh=false -mbulk-memory \
+	  -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_PROCESS_CLOCKS \
+	  -I $(LUA_SRC) -I wasm/lua wasm/lua/host.c wasm/lua/sjlj_rt.c \
+	  $(filter-out $(LUA_SRC)/lua.c $(LUA_SRC)/luac.c $(LUA_SRC)/loslib.c \
+	    $(LUA_SRC)/liolib.c $(LUA_SRC)/ldblib.c $(LUA_SRC)/linit.c, \
+	    $(wildcard $(LUA_SRC)/*.c)) \
+	  -lm -lwasi-emulated-signal -lwasi-emulated-process-clocks \
+	  -o browser-test/echo_lua_server_tracing.wasm
 	cd browser-test && node wasm_lua.test.mjs all
 	cd browser-test && node wasm_lua_server.test.mjs all
 	cd browser-test && node wasm_lua_tracing.test.mjs all
@@ -775,14 +809,14 @@ test-cpp-wasm-native-browser:
 		-fwasm-exceptions -mllvm -wasm-use-legacy-eh=false \
 		-Icpp -I. -Iwasm/cpp/native \
 		-L$(WASI_SDK)/share/wasi-sysroot/lib/wasm32-wasip1/eh -lunwind \
-		-Wl,--export=_initialize -Wl,--export=run_echo_client \
+		-Wl,--export=_initialize -Wl,--export=run_echo_client -Wl,--export=run_echo_client_tracing \
 		wasm/cpp/native/echo_client.cpp \
 		-o browser-test/echo_cpp_native.wasm
 	$(WASI_CXX) -target wasm32-wasip1 -std=c++17 -O1 -mexec-model=reactor \
 		-fwasm-exceptions -mllvm -wasm-use-legacy-eh=false \
 		-Icpp -I. -Iwasm/cpp/native \
 		-L$(WASI_SDK)/share/wasi-sysroot/lib/wasm32-wasip1/eh -lunwind \
-		-Wl,--export=_initialize -Wl,--export=run_echo_server \
+		-Wl,--export=_initialize -Wl,--export=run_echo_server -Wl,--export=run_echo_server_tracing \
 		wasm/cpp/native/echo_server.cpp \
 		-o browser-test/echo_cpp_native_server.wasm
 	$(WASI_CXX) -target wasm32-wasip1 -std=c++17 -O1 -mexec-model=reactor \
@@ -886,6 +920,7 @@ test-swift-wasm-native-browser:
 		-o wasm/swift/build/support.o
 	$(WASM_LD) --no-entry --allow-undefined \
 		--export=run_echo_client --export=run_echo_server --export=run_echo_tracing \
+		--export=run_echo_client_tracing --export=run_echo_server_tracing \
 		wasm/swift/build/echo_swift_native.o wasm/swift/build/support.o \
 		$(SWIFT_WASM_LIBDIR)/libswiftUnicodeDataTables.a \
 		$(SWIFT_WASM_LIBDIR)/libswiftEmbeddedPlatformPOSIX.a \

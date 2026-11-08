@@ -50,6 +50,8 @@ window.__runServer = async () => {
   const worker = new Worker("/browser-test/wasm_swift_native_worker.js", { type: "module" });
   worker.addEventListener("message", (event) => {
     if (event.data.t === "send" && dc.readyState === "open") dc.send(event.data.bytes);
+    // Tracing mode reports cumulative spans as results.
+    if (event.data.t === "result") window.__spans = JSON.parse(event.data.json);
   });
   const ready = new Promise((resolve, reject) => {
     worker.addEventListener("message", (event) => {
@@ -59,9 +61,16 @@ window.__runServer = async () => {
     });
     worker.onerror = (err) => reject(err);
   });
-  worker.postMessage({ sab, wasmUrl: "/browser-test/echo_swift_native.wasm", mode: "server" });
+  worker.postMessage({ sab, wasmUrl: "/browser-test/echo_swift_native.wasm", mode: window.__swiftServerMode || "server" });
   window.__worker = worker;
   await ready;
+};
+
+// Matrix tracing entry: server spans land on window.__spans.
+window.__spans = { starts: [], ends: [] };
+window.__runServerTracing = async () => {
+  window.__swiftServerMode = "server-tracing";
+  return window.__runServer();
 };
 
 const offer = await pc.createOffer();

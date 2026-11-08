@@ -22,6 +22,17 @@ onmessage = async (event) => {
       // runEchoServerNative never returns (inline pump loop).
       return;
     }
+    if (mode === "server-tracing") {
+      postMessage({ t: "ready" });
+      mod.runEchoServerTracingNative(sab);
+      // Tracing spans report via result messages while pumping.
+      return;
+    }
+    if (mode === "client-tracing") {
+      const json = mod.runEchoClientTracingNative(sab);
+      postMessage({ t: "result", json });
+      return;
+    }
     const json = mod.runEchoClientNative(sab);
     postMessage({ t: "result", json });
   } catch (err) {

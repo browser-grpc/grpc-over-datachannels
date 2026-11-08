@@ -132,3 +132,48 @@ public func run_echo_client() {
         report("error: \(error)", error: true)
     }
 }
+
+// Matrix tracing entry: one traced unary over the real
+// DataChannel transport; spans ride back in the result JSON in
+// the same [kind, traceId, spanId, parentSpanId] shape the
+// nested tracing entry reports.
+private struct MatrixStartRec {
+    let kind: String
+    let traceId: String
+    let spanId: String
+    let parentSpanId: String
+}
+
+private final class MatrixClientRecorder: Tracing.Tracer {
+    var starts: [MatrixStartRec] = []
+    var ends = 0
+
+    func OnStart(_ kind: String, _ method: String, _ traceId: String, _ spanId: String, _ parentSpanId: String) {
+        starts.append(MatrixStartRec(kind: kind, traceId: traceId, spanId: spanId, parentSpanId: parentSpanId))
+    }
+
+    func OnEnd(_ kind: String, _ method: String, _ traceId: String, _ spanId: String, _ status: String, _ durationMs: Double) {
+        ends += 1
+    }
+}
+
+@_cdecl("run_echo_client_tracing")
+public func run_echo_client_tracing() {
+    let recorder = MatrixClientRecorder()
+    Tracing.SetTracer(recorder)
+    defer { Tracing.SetTracer(nil) }
+    do {
+        let channel = Channel(DcTransport())
+        let client = EchoGrpcDc.EchoClient(channel)
+        let resp = try client.Unary(EchoRequest("hello", 0))
+        let startsJson = recorder.starts
+            .map { "[\"\($0.kind)\",\"\($0.traceId)\",\"\($0.spanId)\",\"\($0.parentSpanId)\"]" }
+            .joined(separator: ",")
+        report("{\"message\":\"\(resp.message)\",\"starts\":[\(startsJson)],\"ends\":\(recorder.ends)}",
+               error: false)
+    } catch let e as StatusException {
+        report("grpc status \(e.code): \(e.message)", error: true)
+    } catch {
+        report("error: \(error)", error: true)
+    }
+}

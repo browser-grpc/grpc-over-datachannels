@@ -16,10 +16,12 @@ import grpcdc.EOFException
 import grpcdc.Endpoint
 import grpcdc.Server
 import grpcdc.StatusException
+import grpcdc.Tracing
 import grpcdc.Wire
 import grpcdc.grpcdcNowNanos
 import kotlin.js.JsAny
 import kotlin.js.JsExport
+import kotlin.js.js
 import kotlin.math.max
 
 private class SlowEcho : EchoGrpcDc.EchoServer {
@@ -88,6 +90,57 @@ private class SlowEcho : EchoGrpcDc.EchoServer {
 
 @JsExport
 fun runEchoServerNative(sab: JsAny) {
+    val transport = DcTransport(sab)
+    val server = Server()
+    EchoGrpcDc.registerEchoServer(server, SlowEcho())
+    val endpoint = server.serveTransport(transport)
+    while (true) {
+        endpoint.pollOnce()
+        transport.waitBriefly()
+    }
+}
+
+// Matrix tracing entry: same server with a recording span
+// observer; every span start/end re-reports the cumulative
+// spans via postMessage so the page can expose them to the
+// matrix driver (window.__spans) while the pump keeps running.
+private data class MatrixStartRec(
+    val kind: String,
+    val traceId: String,
+    val spanId: String,
+    val parentSpanId: String,
+)
+
+private fun jsPostSpans(json: String) {
+    js("postMessage({ t: 'result', json: json })")
+}
+
+private class MatrixServerRecorder : Tracing.Tracer {
+    private val starts = mutableListOf<MatrixStartRec>()
+    private val endKinds = mutableListOf<String>()
+
+    override fun onStart(kind: String, method: String, traceId: String, spanId: String, parentSpanId: String) {
+        starts.add(MatrixStartRec(kind, traceId, spanId, parentSpanId))
+        report()
+    }
+
+    override fun onEnd(kind: String, method: String, traceId: String, spanId: String, status: String, durationMs: Double) {
+        endKinds.add(kind)
+        report()
+    }
+
+    private fun report() {
+        val startsJson = starts.joinToString(",") { s ->
+            "[\"${s.kind}\",\"${s.traceId}\",\"${s.spanId}\",\"${s.parentSpanId}\"]"
+        }
+        val endsJson = endKinds.joinToString(",") { "\"$it\"" }
+        jsPostSpans("{\"starts\":[$startsJson],\"ends\":[$endsJson]}")
+    }
+}
+
+@JsExport
+fun runEchoServerTracingNative(sab: JsAny) {
+    Tracing.setTracer(MatrixServerRecorder())
     val transport = DcTransport(sab)
     val server = Server()
     EchoGrpcDc.registerEchoServer(server, SlowEcho())

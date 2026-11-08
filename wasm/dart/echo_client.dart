@@ -100,4 +100,60 @@ void main() {
     );
   };
   globalContext.setProperty('runDartEchoClient'.toJS, entry.toJS);
+  final tracingEntry =
+      (JSObject transport, JSFunction resolve, JSFunction reject) {
+    runEchoClientTracing(transport).then(
+      (json) => resolve.callAsFunction(null, json.toJS),
+      onError: (Object e) => reject.callAsFunction(null, e.toString().toJS),
+    );
+  };
+  globalContext.setProperty('runDartEchoClientTracing'.toJS, tracingEntry.toJS);
+}
+
+// Matrix tracing entry: one traced unary over the real
+// DataChannel transport; spans ride back in the result JSON in
+// the same [kind, traceId, spanId, parentSpanId] shape the
+// nested tracing entry reports.
+class _MatrixStart {
+  final String kind;
+  final String traceId;
+  final String spanId;
+  final String parentSpanId;
+  _MatrixStart(this.kind, this.traceId, this.spanId, this.parentSpanId);
+}
+
+class _MatrixRecorder implements Tracer {
+  final List<_MatrixStart> starts = [];
+  int ends = 0;
+
+  @override
+  void onStart(String kind, String method, String traceId, String spanId,
+      String parentSpanId) {
+    starts.add(_MatrixStart(kind, traceId, spanId, parentSpanId));
+  }
+
+  @override
+  void onEnd(String kind, String method, String traceId, String spanId,
+      String status, double durationMs) {
+    ends++;
+  }
+}
+
+Future<String> runEchoClientTracing(JSObject jsTransport) async {
+  final rec = _MatrixRecorder();
+  setTracer(rec);
+  try {
+    final channel = Channel(WebTransport(jsTransport));
+    final client = EchoClient(channel);
+    final resp = await client.unary(EchoRequest('hello', 0));
+    return jsonEncode({
+      'message': resp.message,
+      'starts': rec.starts
+          .map((s) => [s.kind, s.traceId, s.spanId, s.parentSpanId])
+          .toList(),
+      'ends': rec.ends,
+    });
+  } finally {
+    setTracer(null);
+  }
 }

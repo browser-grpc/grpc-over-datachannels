@@ -49,7 +49,9 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`echo_tracing.kt`](kotlin/native/echo_tracing.kt) — Tracing: traceparent propagation, span observers, nested calls
 - [`dc_transport.lua`](lua/dc_transport.lua) — Generated suite/example
 - [`echo_client.lua`](lua/echo_client.lua) — Echo: all four call shapes
+- [`echo_client_tracing.lua`](lua/echo_client_tracing.lua) — Tracing: traceparent propagation, span observers, nested calls
 - [`echo_server.lua`](lua/echo_server.lua) — Echo: all four call shapes
+- [`echo_server_tracing.lua`](lua/echo_server_tracing.lua) — Tracing: traceparent propagation, span observers, nested calls
 - [`echo_tracing.lua`](lua/echo_tracing.lua) — Tracing: traceparent propagation, span observers, nested calls
 - [`embed_modules.py`](lua/embed_modules.py) — Generated suite/example
 - [`host.c`](lua/host.c) — Generated suite/example

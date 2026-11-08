@@ -51,7 +51,17 @@ if (window.__wasmReady) {
         transport._onMessage(new Uint8Array(event.data));
       }
     });
-    window.runDartEchoServer(transport);
+    window[window.__dartServerEntry || "runDartEchoServer"](transport);
+  };
+
+  // Matrix tracing entry: server spans land on window.__spans.
+  window.__dartReportSpans = (json) => {
+    window.__spans = JSON.parse(json);
+  };
+  window.__spans = { starts: [], ends: [] };
+  window.__runServerTracing = async () => {
+    window.__dartServerEntry = "runDartEchoServerTracing";
+    return window.__runServer();
   };
 
   const offer = await pc.createOffer();

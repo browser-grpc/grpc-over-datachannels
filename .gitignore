@@ -40,6 +40,8 @@ browser-test/echo_dart_wasm.support.js
 browser-test/echo_lua.wasm
 browser-test/echo_lua_server.wasm
 browser-test/echo_lua_tracing.wasm
+browser-test/echo_lua_client_tracing.wasm
+browser-test/echo_lua_server_tracing.wasm
 browser-test/echo.wasm
 browser-test/echo_cpp.wasm
 browser-test/echo_swift.wasm

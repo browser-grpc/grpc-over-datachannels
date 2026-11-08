@@ -112,7 +112,7 @@ onmessage = async (event) => {
       env,
       wasi_snapshot_preview1: wasiStubs(),
     }));
-    if (mode === "server") postMessage({ t: "ready" });
+    if (mode === "server" || mode === "server-tracing") postMessage({ t: "ready" });
     instance.exports._start();
   } catch (err) {
     if (err && typeof err === "object" && "exitCode" in err) {

@@ -122,6 +122,14 @@ export class Association {
     this.queued = [];
     this.outQueue = []; // chunk records awaiting cwnd/rwnd room
     this.inflightBytes = 0;
+    // Inbound DATA bytes received but not yet SACK-cum-acked
+    // (gap-buffered + reassembly-held), per TSN so duplicates
+    // never double-count. The SACK a_rwnd we advertise is
+    // INITIAL_RWND minus their sum (RFC 9260 3.3.4); a constant
+    // advertisement lets the sender overrun the window, and
+    // the overrun tail recovers only at RTO granularity.
+    this.recvBuffered = new Map();
+    this.recvBufferedBytes = 0;
     this.peerRwnd = INITIAL_RWND;
     // Congestion window (RFC 9260 §6): without it a large
     // message bursts its fragments into kernel UDP buffers
@@ -447,7 +455,10 @@ export class Association {
     const gaps = this.sack.gapBlocks();
     const body = Buffer.alloc(12 + gaps.length * 4);
     body.writeUInt32BE(this.sack.cum(), 0);
-    body.writeUInt32BE(INITIAL_RWND, 4);
+    // RFC 9260 3.3.4: a_rwnd is the receiver buffer still
+    // available — INITIAL_RWND minus inbound bytes not yet
+    // cum-acked (see recvBuffered in the constructor).
+    body.writeUInt32BE(Math.max(0, INITIAL_RWND - this.recvBufferedBytes), 4);
     body.writeUInt16BE(gaps.length, 8);
     body.writeUInt16BE(0, 10);
     gaps.forEach(([s2, e], idx) => {
@@ -482,6 +493,8 @@ export class Association {
           this.peerTag = view.body.readUInt32BE(0);
           this.peerInitialTsn = view.body.readUInt32BE(12);
           this.sack.reset(u32(view.body.readUInt32BE(12) - 1));
+          this.recvBuffered.clear();
+          this.recvBufferedBytes = 0;
           for (const [ty, value] of parseParams(view.body.subarray(16))) {
             if (ty === 7) this.pendingCookie = Buffer.from(value);
           }
@@ -499,6 +512,8 @@ export class Association {
           this.peerTag = peerTag;
           this.myTag = myTag;
           this.sack.reset(u32(peerTsn - 1));
+          this.recvBuffered.clear();
+          this.recvBufferedBytes = 0;
           this.nextTsn = myTsn;
           this.outCumDone = u32(myTsn - 1);
           this.state = "established";
@@ -569,7 +584,23 @@ export class Association {
     const isBegin = (flags & 0x02) !== 0;
     const isEnd = (flags & 0x01) !== 0;
 
+    // TSN bookkeeping for SACK generation, plus receive-window
+    // accounting: count each newly seen TSN above cum once,
+    // release its bytes as cum passes it.
+    const cumBefore = this.sack.cum();
+    if (diff32(tsn, cumBefore) > 0 && !this.recvBuffered.has(tsn)) {
+      this.recvBuffered.set(tsn, payload.length);
+      this.recvBufferedBytes += payload.length;
+    }
     this.sack.noteReceived(tsn);
+    const cumAfter = this.sack.cum();
+    for (let t = cumBefore; t !== cumAfter; t = u32(t + 1)) {
+      const next = u32(t + 1);
+      if (this.recvBuffered.has(next)) {
+        this.recvBufferedBytes -= this.recvBuffered.get(next);
+        this.recvBuffered.delete(next);
+      }
+    }
 
     for (const d of this.reasm.feed(tsn, stream, ssn, ppid, unordered, isBegin, isEnd, payload)) {
       events.push({ type: "data", stream: d.stream, ppid: d.ppid, payload: d.payload });
@@ -580,6 +611,12 @@ export class Association {
     if (body.length < 4) return;
     const newCum = body.readUInt32BE(0);
     this.sack.forwardTsn(newCum);
+    for (const [tsn, n] of this.recvBuffered) {
+      if (diff32(tsn, newCum) <= 0) {
+        this.recvBuffered.delete(tsn);
+        this.recvBufferedBytes -= n;
+      }
+    }
     for (let pos = 4; pos + 4 <= body.length; pos += 4) {
       const stream = body.readUInt16BE(pos);
       const ssn = body.readUInt16BE(pos + 2);

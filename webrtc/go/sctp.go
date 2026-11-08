@@ -167,7 +167,15 @@ type Association struct {
 	queued        []queuedMessage
 	outQueue      []*outChunk // chunks awaiting cwnd/rwnd room
 	inflightBytes int
-	peerRwnd      uint32
+	// Inbound DATA bytes received but not yet SACK-cum-acked
+	// (gap-buffered + reassembly-held), per TSN so duplicates
+	// never double-count. The SACK a_rwnd we advertise is
+	// initialRwnd minus their sum (RFC 9260 3.3.4); a constant
+	// advertisement lets the sender overrun the window, and
+	// the overrun tail recovers only at RTO granularity.
+	recvBuffered      map[uint32]int
+	recvBufferedBytes int
+	peerRwnd          uint32
 	// Congestion window (RFC 9260 section 6): without it a
 	// large message bursts its fragments into kernel UDP
 	// buffers faster than the peer drains them; the dropped
@@ -229,6 +237,7 @@ func newAssociation(isClient bool, localPort, peerPort uint16) *Association {
 		sack:           newSackTracker(0),
 		outSsn:         map[uint16]uint16{},
 		unacked:        map[uint32]*outChunk{},
+		recvBuffered:   map[uint32]int{},
 		peerRwnd:       initialRwnd,
 		cwnd:           initialCwnd,
 		ssthresh:       int(^uint(0) >> 1),
@@ -625,7 +634,14 @@ func (a *Association) sackPacket() []byte {
 	gaps := a.sack.gapBlocks()
 	body := make([]byte, 12+len(gaps)*4)
 	binary.BigEndian.PutUint32(body[0:4], a.sack.cum())
-	binary.BigEndian.PutUint32(body[4:8], initialRwnd)
+	// RFC 9260 3.3.4: a_rwnd is the receiver buffer still
+	// available — initialRwnd minus inbound bytes not yet
+	// cum-acked (see recvBuffered on the Association).
+	rwnd := initialRwnd - a.recvBufferedBytes
+	if rwnd < 0 {
+		rwnd = 0
+	}
+	binary.BigEndian.PutUint32(body[4:8], uint32(rwnd))
 	binary.BigEndian.PutUint16(body[8:10], uint16(len(gaps)))
 	for idx, g := range gaps {
 		binary.BigEndian.PutUint16(body[12+idx*4:14+idx*4], g[0])
@@ -667,6 +683,8 @@ func (a *Association) HandlePacket(packet []byte, nowMs int64) ([][]byte, []Sctp
 			a.peerTag = binary.BigEndian.Uint32(view.body[0:4])
 			a.peerInitialTsn = binary.BigEndian.Uint32(view.body[12:16])
 			a.sack.reset(a.peerInitialTsn - 1)
+			a.recvBuffered = map[uint32]int{}
+			a.recvBufferedBytes = 0
 			for _, p := range parseSctpParams(view.body[16:]) {
 				if p.typ == 7 {
 					a.pendingCookie = p.value
@@ -686,6 +704,8 @@ func (a *Association) HandlePacket(packet []byte, nowMs int64) ([][]byte, []Sctp
 			a.peerTag, a.myTag = peerTag, myTag
 			a.peerInitialTsn = peerTsn
 			a.sack.reset(peerTsn - 1)
+			a.recvBuffered = map[uint32]int{}
+			a.recvBufferedBytes = 0
 			a.nextTsn = myTsn
 			a.outCumDone = myTsn - 1
 			a.state = "established"
@@ -756,7 +776,25 @@ func (a *Association) handleData(flags byte, body []byte) []SctpEvent {
 	isBegin := flags&0x02 != 0
 	isEnd := flags&0x01 != 0
 
+	// TSN bookkeeping for SACK generation, plus receive-window
+	// accounting: count each newly seen TSN above cum once,
+	// release its bytes as cum passes it.
+	cumBefore := a.sack.cum()
+	if diff32(tsn, cumBefore) > 0 {
+		if _, seen := a.recvBuffered[tsn]; !seen {
+			a.recvBuffered[tsn] = len(payload)
+			a.recvBufferedBytes += len(payload)
+		}
+	}
 	a.sack.noteReceived(tsn)
+	cumAfter := a.sack.cum()
+	for t := cumBefore; t != cumAfter; {
+		t++
+		if n, seen := a.recvBuffered[t]; seen {
+			delete(a.recvBuffered, t)
+			a.recvBufferedBytes -= n
+		}
+	}
 
 	return sctpDataEvents(a.reasm.feed(tsn, stream, ssn, ppid, unordered, isBegin, isEnd, payload))
 }
@@ -767,6 +805,12 @@ func (a *Association) handleForwardTsn(body []byte) []SctpEvent {
 	}
 	newCum := binary.BigEndian.Uint32(body[0:4])
 	a.sack.forwardTsn(newCum)
+	for tsn, n := range a.recvBuffered {
+		if diff32(tsn, newCum) <= 0 {
+			delete(a.recvBuffered, tsn)
+			a.recvBufferedBytes -= n
+		}
+	}
 	var events []SctpEvent
 	for pos := 4; pos+4 <= len(body); pos += 4 {
 		stream := binary.BigEndian.Uint16(body[pos : pos+2])

@@ -181,3 +181,67 @@ extern "C" void run_echo_client() {
     Fail("unknown error");
   }
 }
+
+// Matrix tracing entry: one traced unary over the real
+// DataChannel transport; spans ride back in the result JSON in
+// the same [kind, traceId, spanId, parentSpanId] shape the
+// nested tracing entry reports.
+namespace {
+
+struct MatrixStart {
+  std::string kind, trace_id, span_id, parent_span_id;
+};
+
+struct MatrixRecorder : grpcdc::Tracing::Tracer {
+  std::vector<MatrixStart> starts;
+  int ends = 0;
+
+  void OnStart(const std::string& kind, const std::string&,
+               const std::string& trace_id, const std::string& span_id,
+               const std::string& parent_span_id) override {
+    starts.push_back({kind, trace_id, span_id, parent_span_id});
+  }
+
+  void OnEnd(const std::string& kind, const std::string&, const std::string&,
+             const std::string&, const std::string&, double) override {
+    (void)kind;
+    ends++;
+  }
+};
+
+void RunTracing() {
+  MatrixRecorder rec;
+  grpcdc::Tracing::SetTracer(&rec);
+  struct ClearTracer {
+    ~ClearTracer() { grpcdc::Tracing::SetTracer(nullptr); }
+  } clear;
+
+  auto transport = std::make_shared<DcTransport>();
+  auto channel = std::make_shared<grpcdc::Channel>(transport);
+  echo::EchoGrpcDc::EchoClient client(channel);
+  echo::EchoResponse resp = client.Unary(Req("hello", 0));
+
+  std::string json = "{\"message\":\"" + JsonEscape(resp.message) + "\",\"starts\":[";
+  for (std::size_t i = 0; i < rec.starts.size(); ++i) {
+    if (i) json += ",";
+    const MatrixStart& s = rec.starts[i];
+    json += "[\"" + s.kind + "\",\"" + s.trace_id + "\",\"" + s.span_id +
+            "\",\"" + s.parent_span_id + "\"]";
+  }
+  json += "],\"ends\":" + std::to_string(rec.ends) + "}";
+  on_result(json.data(), json.size());
+}
+
+}  // namespace
+
+extern "C" void run_echo_client_tracing() {
+  try {
+    RunTracing();
+  } catch (const grpcdc::StatusException& e) {
+    Fail("grpc status " + std::to_string(e.code()) + ": " + e.message());
+  } catch (const std::exception& e) {
+    Fail(std::string("error: ") + e.what());
+  } catch (...) {
+    Fail("unknown error");
+  }
+}
