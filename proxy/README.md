@@ -14,8 +14,8 @@ in the proxy; the DataChannel wire is uncompressed.
 | Mode | Backend | Status | Implementation | Notes |
 |---|---|---|---|---|
 | `http2-ingress` | HTTP/2 over TCP ingress -> grpc-dc server | shipped | proxy/grpc-dc-proxy.mjs --http2 [--tls-cert/--tls-key] (Node, stdlib only) | Stock grpc-java / grpc-go / grpc-node clients (h2c or TLS) call a grpc-dc server; compression terminated in the proxy |
-| `http2-ingress-rust` | HTTP/2 over TCP ingress -> grpc-dc server (Rust) | shipped | grpc_dc_proxy --dc-dial <multiaddr> --http2 <port> (Rust example, generated grpc_dc::http2, no external gRPC/HTTP2 deps) | Same as http2-ingress with the homegrown Rust proxy; h2c only, compression terminated in the proxy |
-| `dc-egress-rust` | grpc-dc client -> HTTP/2 over TCP backend (Rust) | shipped | grpc_dc_proxy --dc-listen <port> --http2-dial <host:port> (Rust example, generated grpc_dc::http2) | grpc-dc clients dial the proxy over WebRTC-Direct; it forwards every call to a stock HTTP/2 gRPC backend (h2c); compression terminated in the proxy |
+| `http2-ingress-rust` | HTTP/2 over TCP ingress -> grpc-dc server (Rust) | shipped | grpc_dc_proxy --dc-dial <multiaddr> --http2 <port> [--tls-cert/--tls-key] (Rust example, generated grpc_dc::http2, no external gRPC/HTTP2 deps) | Same as http2-ingress with the homegrown Rust proxy; h2c only, compression terminated in the proxy |
+| `dc-egress-rust` | grpc-dc client -> HTTP/2 over TCP backend (Rust) | shipped | grpc_dc_proxy --dc-listen <port> --http2-dial <host:port> [--http2-tls] (Rust example, generated grpc_dc::http2) | grpc-dc clients dial the proxy over WebRTC-Direct; it forwards every call to a stock HTTP/2 gRPC backend (h2c); compression terminated in the proxy |
 
 ## Client surfaces
 
@@ -59,9 +59,9 @@ HTTP/2 + HPACK stack (`grpc_dc::http2`); the example
 binary speaks it in both directions (h2c only):
 
     # direction 1: stock client -> grpc-dc server
-    cargo run --features webrtc --example grpc_dc_proxy -- --dc-dial <multiaddr> --http2 50051
+    cargo run --features webrtc,http2-tls --example grpc_dc_proxy -- --dc-dial <multiaddr> --http2 50051
     # direction 2: grpc-dc client -> stock backend
-    cargo run --features webrtc --example grpc_dc_proxy -- --dc-listen 4001 --http2-dial 127.0.0.1:50051
+    cargo run --features webrtc,http2-tls --example grpc_dc_proxy -- --dc-listen 4001 --http2-dial 127.0.0.1:50051
 
     node --test proxy/rust_proxy.test.mjs   # also in make test-proxy
 

@@ -126,6 +126,7 @@
            "- [`browser-test/`](../browser-test/) — browser client/server cells in Chromium and Firefox"
            "- [`examples/direct/`](../examples/direct/) — WebRTC-Direct, TURN, and sidecar examples"
            "- Official grpc-java oracle suites (per language, through the TCP↔DataChannel proxy)"
+           "- [`proxy/README.md`](../proxy/README.md) — TCP↔DataChannel proxies: the Node proxy (`--dc-dial`, TLS) and the Rust `grpc_dc_proxy` (both directions, `--tls-cert/--tls-key` / `--http2-tls`), so stock HTTP/2 clients and grpc-dc clients interoperate through either implementation"
            "")))
   (call-with-output-file (build-path lang-dir "TESTS.md")
     #:exists 'replace

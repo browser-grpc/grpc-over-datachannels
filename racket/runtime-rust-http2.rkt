@@ -519,7 +519,7 @@ fn window_update(id: u32, increment: i64) -> Out {
     }
 }
 
-async fn writer_loop(mut write: WriteHalf<TcpStream>, mut rx: UnboundedReceiver<Out>) {
+async fn writer_loop<W: tokio::io::AsyncWrite + Unpin>(mut write: WriteHalf<W>, mut rx: UnboundedReceiver<Out>) {
     use futures_util::StreamExt;
     while let Some(out) = rx.next().await {
         let bytes: Vec<Bytes> = match out {
@@ -561,8 +561,8 @@ async fn writer_loop(mut write: WriteHalf<TcpStream>, mut rx: UnboundedReceiver<
     }
 }
 
-async fn reader_loop(
-    mut read: ReadHalf<TcpStream>,
+async fn reader_loop<R: tokio::io::AsyncRead + Unpin>(
+    mut read: ReadHalf<R>,
     conn: Arc<Conn>,
     incoming: Option<UnboundedSender<H2Stream>>,
     is_server: bool,
@@ -717,12 +717,15 @@ fn deliver_headers(
     conn.deliver(stream_id, H2Event::Headers { headers, end_stream });
 }
 
-fn spawn_conn(
-    socket: TcpStream,
+fn spawn_conn<S>(socket: S,
+
     incoming: Option<UnboundedSender<H2Stream>>,
     is_server: bool,
     client_ids: bool,
-) -> Arc<Conn> {
+) -> Arc<Conn>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let (read, write) = tokio::io::split(socket);
     let (out_tx, out_rx) = mpsc::unbounded::<Out>();
     let conn = Arc::new(Conn {
@@ -751,7 +754,10 @@ pub struct H2ServerConn {
     conn: Arc<Conn>,
 }
 
-pub async fn accept_h2(socket: TcpStream) -> Result<H2ServerConn, Status> {
+pub async fn accept_h2<S>(socket: S) -> Result<H2ServerConn, Status>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let mut socket = socket;
     let mut preface = [0u8; 24];
     socket.read_exact(&mut preface).await.map_err(io_status)?;
@@ -769,7 +775,16 @@ pub struct H2ClientConn {
 
 impl H2ClientConn {
     pub async fn connect(addr: &str) -> Result<Self, Status> {
-        let mut socket = TcpStream::connect(addr).await.map_err(io_status)?;
+        let socket = TcpStream::connect(addr).await.map_err(io_status)?;
+        Self::from_stream(socket).await
+    }
+
+    /// Wrap an already-connected transport (plaintext or TLS):
+    /// writes the HTTP/2 client preface and first SETTINGS.
+    pub async fn from_stream<S>(mut socket: S) -> Result<Self, Status>
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    {
         socket.write_all(H2_PREFACE).await.map_err(io_status)?;
         socket.write_all(&frame_bytes(frame_type_h2::SETTINGS as u8, 0, 0, &settings_payload(H2_WINDOW))).await.map_err(io_status)?;
         socket.flush().await.map_err(io_status)?;
@@ -1280,19 +1295,30 @@ pub mod proxy {
         finish(&stream, &state, &endpoint, dc_id, Status::unavailable("data channel closed"));
     }
 
+    /// Serve one HTTP/2 connection (plaintext or TLS stream)
+    /// in direction 1. `endpoint` is the client endpoint over
+    /// the DataChannel transport (reader already running).
+    pub async fn serve_h2_connection<S>(socket: S, endpoint: Arc<Endpoint>) -> Result<(), Status>
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    {
+        let mut server = accept_h2(socket).await?;
+        while let Some(stream) = server.incoming.next().await {
+            let ep = endpoint.clone();
+            crate::spawn_task(http2_to_dc_stream(stream, ep));
+        }
+        Ok(())
+    }
+
     /// Direction 1: stock HTTP/2 clients -> grpc-dc server.
     /// `endpoint` is the client endpoint over the DataChannel
     /// transport (its reader loop must already be running).
     pub async fn serve_http2_to_dc(listener: TcpListener, endpoint: Arc<Endpoint>) -> Result<(), Status> {
         loop {
             let (socket, _) = listener.accept().await.map_err(io_status)?;
-            let mut server = accept_h2(socket).await?;
             let ep = endpoint.clone();
             crate::spawn_task(async move {
-                while let Some(stream) = server.incoming.next().await {
-                    let ep2 = ep.clone();
-                    crate::spawn_task(http2_to_dc_stream(stream, ep2));
-                }
+                let _ = serve_h2_connection(socket, ep).await;
             });
         }
     }
@@ -1417,14 +1443,13 @@ pub mod proxy {
         Ok(())
     }
 
-    /// Direction 2: grpc-dc client -> stock HTTP/2 server.
-    /// Runs the server endpoint over `transport` until it
-    /// closes; every incoming call is forwarded to `authority`.
-    pub async fn serve_dc_to_http2(
+    /// Direction 2 over a pre-built HTTP/2 backend connection
+    /// (plaintext or TLS; see H2ClientConn::from_stream).
+    pub async fn serve_dc_to_http2_conn(
         transport: Arc<dyn crate::transport::DcTransport>,
+        client: Arc<H2ClientConn>,
         authority: &str,
     ) -> Result<(), Status> {
-        let client = Arc::new(H2ClientConn::connect(authority).await?);
         let endpoint = Endpoint::new(transport, crate::endpoint::StreamIdParity::Even);
         let authority = authority.to_string();
         endpoint.set_fallback_handler(Arc::new(move |call| {
@@ -1434,6 +1459,17 @@ pub mod proxy {
         }));
         endpoint.run().await;
         Ok(())
+    }
+
+    /// Direction 2: grpc-dc client -> stock HTTP/2 server.
+    /// Runs the server endpoint over `transport` until it
+    /// closes; every incoming call is forwarded to `authority`.
+    pub async fn serve_dc_to_http2(
+        transport: Arc<dyn crate::transport::DcTransport>,
+        authority: &str,
+    ) -> Result<(), Status> {
+        let client = Arc::new(H2ClientConn::connect(authority).await?);
+        serve_dc_to_http2_conn(transport, client, authority).await
     }
 }
 GRPC_HTTP2_EOF

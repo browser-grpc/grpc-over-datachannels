@@ -18,6 +18,9 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import test from "node:test";
 
+const CERT = readFileSync("webrtc/js/test/fixtures/turn_tls_cert.pem");
+const KEY = readFileSync("webrtc/js/test/fixtures/turn_tls_key.pem");
+
 import { EchoRequest, EchoResponse } from "../js/examples/echo_pb.js";
 import { LpmParser, lpm } from "../oracle/bridge.mjs";
 
@@ -65,15 +68,17 @@ function stop(child) {
 test.before(() => {
   const build = spawnSync(
     "cargo",
-    ["build", "--features", "webrtc", "--example", "grpc_dc_proxy", "--example", "direct_echo"],
+    ["build", "--features", "webrtc,http2-tls", "--example", "grpc_dc_proxy", "--example", "direct_echo"],
     { cwd: `${ROOT}/rust`, stdio: "inherit", timeout: 600000 },
   );
   assert.equal(build.status, 0, "cargo build proxy examples");
 });
 
-function http2Call(port, path, payload) {
+function http2Call(port, path, payload, tlsOptions = null) {
   return new Promise((resolve, reject) => {
-    const session = http2.connect(`http://127.0.0.1:${port}`);
+    const session = tlsOptions
+      ? http2.connect(`https://127.0.0.1:${port}`, tlsOptions)
+      : http2.connect(`http://127.0.0.1:${port}`);
     const stream = session.request({
       ":path": path,
       ":method": "POST",
@@ -246,4 +251,151 @@ test("rust proxy direction 2: grpc-dc client -> proxy -> stock HTTP/2 server", {
   await done;
   stop(client);
   console.log("rust proxy direction 2 OK");
+});
+
+test("rust proxy direction 1 (tls): stock HTTPS client -> proxy -> grpc-dc server", { timeout: 180000 }, async (t) => {
+  const server = start(`${ROOT}/rust/target/debug/examples/direct_echo`, ["serve"], {
+    DIRECT_ADDR: "127.0.0.1:0",
+  });
+  t.after(() => stop(server));
+  const multiaddr = (await waitFor(server, /MULTIADDR (\S+)/, "direct_echo server"))[1];
+
+  const port = await freePort();
+  const proxy = start(`${ROOT}/rust/target/debug/examples/grpc_dc_proxy`, [
+    "--dc-dial", multiaddr, "--http2", String(port),
+    "--tls-cert", "webrtc/js/test/fixtures/turn_tls_cert.pem",
+    "--tls-key", "webrtc/js/test/fixtures/turn_tls_key.pem",
+  ]);
+  t.after(() => stop(proxy));
+  await waitFor(proxy, /ingress http2=/, "rust proxy tls ingress");
+
+  const unary = await http2Call(
+    port, "/echo.Echo/Unary",
+    EchoRequest.encode(new EchoRequest({ message: "hello" })),
+    { ca: CERT },
+  );
+  assert.equal(unary.trailers["grpc-status"], "0");
+  assert.equal(EchoResponse.decode(unary.messages[0]).message, "echo: hello");
+  console.log("rust proxy direction 1 tls OK");
+});
+
+test("rust proxy direction 2 (tls): grpc-dc client -> proxy -> HTTPS backend", { timeout: 180000 }, async (t) => {
+  const backendPort = await freePort();
+  const backend = http2.createSecureServer({ cert: CERT, key: KEY, allowHTTP1: false });
+  backend.on("stream", (stream, headers) => {
+    const parser = new LpmParser(headers["grpc-encoding"] ?? "identity");
+    const pending = [];
+    stream.on("data", (chunk) => pending.push(...parser.push(chunk)));
+    stream.on("end", () => {
+      const req = EchoRequest.decode(pending[0]);
+      stream.respond(
+        { ":status": 200, "content-type": "application/grpc" },
+        { waitForTrailers: true },
+      );
+      if (headers[":path"] === "/echo.Echo/Unary") {
+        stream.end(lpm(EchoResponse.encode(
+          new EchoResponse({ message: `echo: ${req.message}`, index: 0 }))));
+      } else {
+        for (let i = 0; i < 3; i++) {
+          stream.write(lpm(EchoResponse.encode(
+            new EchoResponse({ message: req.message, index: i }))));
+        }
+        stream.end();
+      }
+      stream.on("wantTrailers", () => stream.sendTrailers({ "grpc-status": "0" }));
+    });
+  });
+  await new Promise((resolve) => backend.listen(backendPort, "127.0.0.1", resolve));
+  t.after(() => backend.close());
+
+  const dcPort = await freePort();
+  const proxy = start(`${ROOT}/rust/target/debug/examples/grpc_dc_proxy`, [
+    "--dc-listen", String(dcPort), "--http2-dial", `127.0.0.1:${backendPort}`,
+    "--http2-tls", "--insecure-skip-verify",
+  ]);
+  t.after(() => stop(proxy));
+  const multiaddr = (await waitFor(proxy, /dc-listen .*?\((\S+)\)/, "rust proxy dc-listen"))[1];
+
+  const client = start(`${ROOT}/rust/target/debug/examples/direct_echo`, ["dial", multiaddr]);
+  await waitFor(client, /direct-echo OK/, "direct_echo client");
+  stop(client);
+  console.log("rust proxy direction 2 tls OK");
+});
+
+function sessionCall(port, path, payload, { delayMs = 0 } = {}) {
+  const session = http2.connect(`http://127.0.0.1:${port}`);
+  const done = new Promise((resolve, reject) => {
+    const stream = session.request({
+      ":path": path, ":method": "POST", ":scheme": "http",
+      "content-type": "application/grpc", te: "trailers",
+    });
+    const parser = new LpmParser("identity");
+    const messages = [];
+    let trailers = null;
+    const consume = () => {
+      stream.on("data", (chunk) => messages.push(...parser.push(chunk)));
+      stream.on("trailers", (tr) => (trailers = tr));
+      stream.on("error", reject);
+      stream.on("end", () => { session.close(); resolve({ messages, trailers }); });
+    };
+    stream.end(lpm(payload));
+    if (delayMs > 0) setTimeout(consume, delayMs);
+    else consume();
+  });
+  return done;
+}
+
+test("rust proxy stress: 1MB unary, 100 concurrent, slow consumer", { timeout: 300000 }, async (t) => {
+  const server = start(`${ROOT}/rust/target/debug/examples/direct_echo`, ["serve"], {
+    DIRECT_ADDR: "127.0.0.1:0",
+  });
+  t.after(() => stop(server));
+  const multiaddr = (await waitFor(server, /MULTIADDR (\S+)/, "direct_echo server"))[1];
+  const port = await freePort();
+  const proxy = start(`${ROOT}/rust/target/debug/examples/grpc_dc_proxy`, [
+    "--dc-dial", multiaddr, "--http2", String(port),
+  ]);
+  t.after(() => stop(proxy));
+  await waitFor(proxy, /ingress http2=/, "rust proxy ingress");
+
+  // 1 MB unary in each direction. Larger payloads exercise the
+  // same code paths much more slowly over SCTP (and only
+  // intermittently), so keep this leg at the deterministic size
+  // and comment the reason: raw DC unary at 1-6 MB is fast and
+  // reliable; at 8-10 MB the SCTP send window appears to stall
+  // before retransmit timers fire (RTO ~1s, rwnd 256KB), making
+  // the test timing-flaky rather than correctness-flaky.
+  const big = "x".repeat(1 * 1024 * 1024);
+  const t0 = Date.now();
+  const r = await sessionCall(port, "/echo.Echo/Unary",
+    EchoRequest.encode(new EchoRequest({ message: big })));
+  assert.equal(r.trailers["grpc-status"], "0");
+  const bigResp = EchoResponse.decode(r.messages[0]).message;
+  assert.equal(bigResp.length, big.length + 6, "1MB echo length");
+  assert.ok(bigResp.endsWith("xxxxxxxx"), "1MB echo tail");
+  console.log(`stress large unary ok (${Date.now() - t0}ms)`);
+
+  // 100 concurrent unary streams, one session each (proxy spawns
+  // 100 DC streams over one endpoint).
+  const jobs = Array.from({ length: 100 }, (_, i) =>
+    sessionCall(port, "/echo.Echo/Unary",
+      EchoRequest.encode(new EchoRequest({ message: `c${i}` })))
+      .then((res) => {
+        assert.equal(res.trailers["grpc-status"], "0");
+        assert.equal(EchoResponse.decode(res.messages[0]).message, `echo: c${i}`);
+      }));
+  await Promise.all(jobs);
+  console.log("stress 100 concurrent ok");
+
+  // Slow consumer: server streams 3 x 512KB; the client waits
+  // 800ms before draining. Flow control must hold, not drop.
+  const fat = "y".repeat(512 * 1024);
+  const s = await sessionCall(port, "/echo.Echo/ServerStream",
+    EchoRequest.encode(new EchoRequest({ message: fat, count: 3 })), { delayMs: 800 });
+  assert.equal(s.trailers["grpc-status"], "0");
+  assert.equal(s.messages.length, 3);
+  for (const m of s.messages) {
+    assert.equal(EchoResponse.decode(m).message.length, fat.length);
+  }
+  console.log("stress slow consumer ok");
 });

@@ -37,10 +37,13 @@ curated release tags on `master`; dates are the tag dates.
 - Rust TCP/DataChannel proxy in both directions: a
   dependency-free generated HTTP/2 + HPACK stack in the Rust
   runtime powers `grpc_dc_proxy` — stock HTTP/2 clients can
-  call a grpc-dc server (`--dc-dial`), and grpc-dc clients
-  can call a stock HTTP/2 backend (`--dc-listen`), with
-  compression terminated in the proxy and both directions
-  graded against the grpc-java oracle.
+  call a grpc-dc server (`--dc-dial`, TLS via
+  `--tls-cert/--tls-key`), and grpc-dc clients can call a
+  stock HTTP/2 backend (`--dc-listen`, TLS via `--http2-tls`),
+  with compression terminated in the proxy and both
+  directions graded against the grpc-java oracle plus a
+  stress leg (1 MB unary, 100 concurrent streams, slow
+  consumer).
 - Go `kafka-grpc` and `eventbus-grpc` modules now live at
   the repository root, so the Go module proxy resolves them
   (`kafka/<version>` and `eventbus/<version>` tags).

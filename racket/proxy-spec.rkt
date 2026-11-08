@@ -24,12 +24,12 @@
     (http2-ingress-rust
      "HTTP/2 over TCP ingress -> grpc-dc server (Rust)"
      shipped
-     "grpc_dc_proxy --dc-dial <multiaddr> --http2 <port> (Rust example, generated grpc_dc::http2, no external gRPC/HTTP2 deps)"
+     "grpc_dc_proxy --dc-dial <multiaddr> --http2 <port> [--tls-cert/--tls-key] (Rust example, generated grpc_dc::http2, no external gRPC/HTTP2 deps)"
      "Same as http2-ingress with the homegrown Rust proxy; h2c only, compression terminated in the proxy")
     (dc-egress-rust
      "grpc-dc client -> HTTP/2 over TCP backend (Rust)"
      shipped
-     "grpc_dc_proxy --dc-listen <port> --http2-dial <host:port> (Rust example, generated grpc_dc::http2)"
+     "grpc_dc_proxy --dc-listen <port> --http2-dial <host:port> [--http2-tls] (Rust example, generated grpc_dc::http2)"
      "grpc-dc clients dial the proxy over WebRTC-Direct; it forwards every call to a stock HTTP/2 gRPC backend (h2c); compression terminated in the proxy")))
 
 ;; How each surface reaches the other through the proxy.
