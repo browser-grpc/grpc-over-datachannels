@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import http2 from "node:http2";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -22,6 +22,9 @@ const CERT = readFileSync("webrtc/js/test/fixtures/turn_tls_cert.pem");
 const KEY = readFileSync("webrtc/js/test/fixtures/turn_tls_key.pem");
 
 import { EchoRequest, EchoResponse } from "../js/examples/echo_pb.js";
+import { EchoClient, createEchoService } from "../js/examples/echo_grpc_dc.js";
+import { Channel, Server, StatusCode, StatusError } from "../js/index.js";
+import { acceptDirectEndpoint, directClientEndpoint, directListener } from "../js/src/webrtc_direct.js";
 import { LpmParser, lpm } from "../oracle/bridge.mjs";
 
 const ROOT = new URL("..", import.meta.url).pathname;
@@ -162,6 +165,34 @@ function stockEchoServer(port) {
   return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve(server)));
 }
 
+function secureEchoServer(port, cert, key) {
+  const backend = http2.createSecureServer({ cert, key, allowHTTP1: false });
+  backend.on("stream", (stream, headers) => {
+    const parser = new LpmParser(headers["grpc-encoding"] ?? "identity");
+    const pending = [];
+    stream.on("data", (chunk) => pending.push(...parser.push(chunk)));
+    stream.on("end", () => {
+      const req = EchoRequest.decode(pending[0]);
+      stream.respond(
+        { ":status": 200, "content-type": "application/grpc" },
+        { waitForTrailers: true },
+      );
+      if (headers[":path"] === "/echo.Echo/Unary") {
+        stream.end(lpm(EchoResponse.encode(
+          new EchoResponse({ message: `echo: ${req.message}`, index: 0 }))));
+      } else {
+        for (let i = 0; i < 3; i++) {
+          stream.write(lpm(EchoResponse.encode(
+            new EchoResponse({ message: req.message, index: i }))));
+        }
+        stream.end();
+      }
+      stream.on("wantTrailers", () => stream.sendTrailers({ "grpc-status": "0" }));
+    });
+  });
+  return new Promise((resolve) => backend.listen(port, "127.0.0.1", () => resolve(backend)));
+}
+
 function javaClasspath() {
   const target = `${ROOT}/oracle/java/target`;
   if (!existsSync(`${target}/cp.txt`) || !existsSync(`${target}/classes`)) return null;
@@ -281,31 +312,7 @@ test("rust proxy direction 1 (tls): stock HTTPS client -> proxy -> grpc-dc serve
 
 test("rust proxy direction 2 (tls): grpc-dc client -> proxy -> HTTPS backend", { timeout: 180000 }, async (t) => {
   const backendPort = await freePort();
-  const backend = http2.createSecureServer({ cert: CERT, key: KEY, allowHTTP1: false });
-  backend.on("stream", (stream, headers) => {
-    const parser = new LpmParser(headers["grpc-encoding"] ?? "identity");
-    const pending = [];
-    stream.on("data", (chunk) => pending.push(...parser.push(chunk)));
-    stream.on("end", () => {
-      const req = EchoRequest.decode(pending[0]);
-      stream.respond(
-        { ":status": 200, "content-type": "application/grpc" },
-        { waitForTrailers: true },
-      );
-      if (headers[":path"] === "/echo.Echo/Unary") {
-        stream.end(lpm(EchoResponse.encode(
-          new EchoResponse({ message: `echo: ${req.message}`, index: 0 }))));
-      } else {
-        for (let i = 0; i < 3; i++) {
-          stream.write(lpm(EchoResponse.encode(
-            new EchoResponse({ message: req.message, index: i }))));
-        }
-        stream.end();
-      }
-      stream.on("wantTrailers", () => stream.sendTrailers({ "grpc-status": "0" }));
-    });
-  });
-  await new Promise((resolve) => backend.listen(backendPort, "127.0.0.1", resolve));
+  const backend = await secureEchoServer(backendPort, CERT, KEY);
   t.after(() => backend.close());
 
   const dcPort = await freePort();
@@ -320,6 +327,246 @@ test("rust proxy direction 2 (tls): grpc-dc client -> proxy -> HTTPS backend", {
   await waitFor(client, /direct-echo OK/, "direct_echo client");
   stop(client);
   console.log("rust proxy direction 2 tls OK");
+});
+
+test("rust proxy direction 2 (tls-ca): CA-signed backend verifies, wrong CA rejected", { timeout: 180000 }, async (t) => {
+  // Mint a throwaway CA and a leaf signed by it (SAN localhost)
+  // with the openssl CLI from the CI image; no fixtures checked
+  // in, no network.
+  const dir = mkdtempSync(`${tmpdir()}/grpc-dc-ca-`);
+  const ssl = (args) => {
+    const r = spawnSync("openssl", args, { encoding: "utf8" });
+    assert.equal(r.status, 0, `openssl ${args[0]}: ${r.stderr}`);
+  };
+  ssl(["req", "-x509", "-newkey", "rsa:2048", "-keyout", `${dir}/ca.key`,
+    "-out", `${dir}/ca.crt`, "-days", "2", "-nodes", "-subj", "/CN=grpc-dc-test-ca",
+    "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign"]);
+  ssl(["req", "-x509", "-newkey", "rsa:2048", "-keyout", `${dir}/wrong.key`,
+    "-out", `${dir}/wrong.crt`, "-days", "2", "-nodes", "-subj", "/CN=other-ca",
+    "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign"]);
+  ssl(["req", "-newkey", "rsa:2048", "-keyout", `${dir}/srv.key`,
+    "-out", `${dir}/srv.csr`, "-nodes", "-subj", "/CN=localhost"]);
+  writeFileSync(`${dir}/san.cnf`,
+    "subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\n");
+  ssl(["x509", "-req", "-in", `${dir}/srv.csr`, "-CA", `${dir}/ca.crt`,
+    "-CAkey", `${dir}/ca.key`, "-CAcreateserial", "-out", `${dir}/srv.crt`,
+    "-days", "2", "-extfile", `${dir}/san.cnf`]);
+
+  const backendPort = await freePort();
+  const backend = await secureEchoServer(
+    backendPort, readFileSync(`${dir}/srv.crt`), readFileSync(`${dir}/srv.key`));
+  t.after(() => backend.close());
+
+  // Verified path: the proxy pins the test CA and the server
+  // name; the call must succeed end to end.
+  const dcPort = await freePort();
+  const proxy = start(`${ROOT}/rust/target/debug/examples/grpc_dc_proxy`, [
+    "--dc-listen", String(dcPort), "--http2-dial", `127.0.0.1:${backendPort}`,
+    "--http2-tls", "--tls-ca", `${dir}/ca.crt`, "--tls-server-name", "localhost",
+  ]);
+  t.after(() => stop(proxy));
+  const multiaddr = (await waitFor(proxy, /dc-listen .*?\((\S+)\)/, "rust proxy dc-listen"))[1];
+  const client = start(`${ROOT}/rust/target/debug/examples/direct_echo`, ["dial", multiaddr]);
+  await waitFor(client, /direct-echo OK/, "direct_echo client via tls-ca proxy");
+  stop(client);
+  console.log("direction 2 tls-ca verified OK");
+
+  // Wrong CA: verification must fail at proxy startup (the
+  // backend connection is established before dc-listen prints).
+  const dcPort2 = await freePort();
+  const badProxy = start(`${ROOT}/rust/target/debug/examples/grpc_dc_proxy`, [
+    "--dc-listen", String(dcPort2), "--http2-dial", `127.0.0.1:${backendPort}`,
+    "--http2-tls", "--tls-ca", `${dir}/wrong.crt`, "--tls-server-name", "localhost",
+  ]);
+  t.after(() => stop(badProxy));
+  const code = await new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 15000);
+    badProxy.on("close", (c) => { clearTimeout(timer); resolve(c); });
+  });
+  assert.notEqual(code, null, "proxy with wrong CA must fail, not serve");
+  assert.notEqual(code, 0);
+  console.log("direction 2 tls-ca wrong CA rejected OK");
+});
+
+// Backend for the error-path legs: fails on demand, streams
+// slowly until cancelled, and records what the proxy forwarded.
+function errorBackend(port, observed) {
+  const server = http2.createServer();
+  const sessions = new Set();
+  server.on("session", (s) => { sessions.add(s); s.on("close", () => sessions.delete(s)); });
+  server.on("stream", (stream, headers) => {
+    const parser = new LpmParser(headers["grpc-encoding"] ?? "identity");
+    const pending = [];
+    stream.on("data", (chunk) => pending.push(...parser.push(chunk)));
+    stream.on("end", () => {
+      observed.headers = headers;
+      const req = EchoRequest.decode(pending[0]);
+      const respondHead = () => stream.respond(
+        { ":status": 200, "content-type": "application/grpc" }, { waitForTrailers: true });
+      if (headers[":path"] === "/echo.Echo/ServerStream" && req.message === "slow-stream") {
+        respondHead();
+        stream.write(lpm(EchoResponse.encode(new EchoResponse({ message: req.message, index: 0 }))));
+        let i = 1;
+        const timer = setInterval(() => {
+          if (stream.destroyed) { clearInterval(timer); return; }
+          stream.write(lpm(EchoResponse.encode(new EchoResponse({ message: req.message, index: i++ }))));
+        }, 250);
+        stream.on("close", () => { observed.cancelled = true; clearInterval(timer); });
+        stream.on("wantTrailers", () => stream.sendTrailers({ "grpc-status": "0" }));
+        return;
+      }
+      if (req.message === "fail") {
+        respondHead();
+        stream.end();
+        stream.on("wantTrailers", () => stream.sendTrailers({
+          "grpc-status": "3", "grpc-message": "asked to fail",
+        }));
+        return;
+      }
+      if (req.message === "slow") {
+        setTimeout(() => {
+          if (stream.destroyed) return;
+          respondHead();
+          stream.end(lpm(EchoResponse.encode(new EchoResponse({ message: "slow done", index: 0 }))));
+          stream.on("wantTrailers", () => stream.sendTrailers({ "grpc-status": "0" }));
+        }, 800);
+        return;
+      }
+      respondHead();
+      stream.end(lpm(EchoResponse.encode(new EchoResponse({ message: `echo: ${req.message}`, index: 0 }))));
+      stream.on("wantTrailers", () => stream.sendTrailers({ "grpc-status": "0" }));
+    });
+  });
+  return new Promise((resolve) => server.listen(port, "127.0.0.1", () =>
+    resolve({ server, destroy: () => { for (const s of sessions) s.destroy(); server.close(); } })));
+}
+
+async function direction2Client(t, backendPort) {
+  const dcPort = await freePort();
+  const proxy = start(`${ROOT}/rust/target/debug/examples/grpc_dc_proxy`, [
+    "--dc-listen", String(dcPort), "--http2-dial", `127.0.0.1:${backendPort}`,
+  ]);
+  t.after(() => stop(proxy));
+  const multiaddr = (await waitFor(proxy, /dc-listen .*?\((\S+)\)/, "rust proxy dc-listen"))[1];
+  const endpoint = await directClientEndpoint(multiaddr);
+  t.after(async () => { await endpoint.directEndpoint.closeDirect?.() ?? endpoint.directEndpoint.close(); });
+  return new EchoClient(new Channel(endpoint));
+}
+
+test("rust proxy direction 2 error paths: backend status, deadline, cancel, backend down", { timeout: 180000 }, async (t) => {
+  const observed = { cancelled: false, headers: null };
+  const backendPort = await freePort();
+  const backend = await errorBackend(backendPort, observed);
+  const client = await direction2Client(t, backendPort);
+
+  // Non-OK backend status + message reach the grpc-dc client.
+  await assert.rejects(client.unary(new EchoRequest({ message: "fail" })), (err) => {
+    assert.equal(err.code, StatusCode.INVALID_ARGUMENT);
+    assert.ok(err.message.includes("asked to fail"), err.message);
+    return true;
+  });
+  console.log("direction 2 backend status OK");
+
+  // Deadline: the client timeout is forwarded as grpc-timeout
+  // and enforced locally while the backend is still working.
+  await assert.rejects(client.unary(new EchoRequest({ message: "slow" }), { timeout: 150 }), (err) => {
+    assert.equal(err.code, StatusCode.DEADLINE_EXCEEDED);
+    return true;
+  });
+  assert.ok(observed.headers["grpc-timeout"], "proxy must forward grpc-timeout to the backend");
+  console.log("direction 2 deadline OK");
+
+  // Cancellation: aborting mid-stream resets the backend stream.
+  const controller = new AbortController();
+  const stream = await client.serverStream(
+    new EchoRequest({ message: "slow-stream" }), { signal: controller.signal });
+  const iter = stream[Symbol.asyncIterator]();
+  const first = await iter.next();
+  assert.equal(first.value.index, 0);
+  controller.abort();
+  await assert.rejects(iter.next(), (err) => {
+    assert.equal(err.code, StatusCode.CANCELLED);
+    return true;
+  });
+  const deadline = Date.now() + 5000;
+  while (!observed.cancelled && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.ok(observed.cancelled, "backend must observe the stream reset");
+  console.log("direction 2 cancel OK");
+
+  // Backend dies mid-flight: later calls fail UNAVAILABLE,
+  // they do not hang or succeed.
+  backend.destroy();
+  await assert.rejects(client.unary(new EchoRequest({ message: "hello" })), (err) => {
+    assert.equal(err.code, StatusCode.UNAVAILABLE);
+    return true;
+  });
+  console.log("direction 2 backend down OK");
+});
+
+test("rust proxy direction 2: backend unreachable at startup fails fast", { timeout: 60000 }, async (t) => {
+  const closedPort = await freePort();
+  const dcPort = await freePort();
+  const proxy = start(`${ROOT}/rust/target/debug/examples/grpc_dc_proxy`, [
+    "--dc-listen", String(dcPort), "--http2-dial", `127.0.0.1:${closedPort}`,
+  ]);
+  t.after(() => stop(proxy));
+  const code = await new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 15000);
+    proxy.on("close", (c) => { clearTimeout(timer); resolve(c); });
+  });
+  assert.notEqual(code, null, "proxy must exit when the backend connection fails");
+  assert.notEqual(code, 0);
+  console.log("direction 2 backend unreachable OK");
+});
+
+test("rust proxy direction 1 error path: dc server failure reaches the HTTP/2 client", { timeout: 180000 }, async (t) => {
+  const listener = await directListener();
+  t.after(() => listener.close());
+  const serverEndpointPromise = acceptDirectEndpoint(listener);
+  const server = new Server();
+  server.addService(createEchoService({
+    async unary(req) {
+      if (req.message === "fail") {
+        throw new StatusError(StatusCode.INVALID_ARGUMENT, "asked to fail");
+      }
+      return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+    },
+    async *serverStream(req) {
+      for (let i = 0; i < Math.max(0, req.count); i++) {
+        yield new EchoResponse({ message: req.message, index: i });
+      }
+    },
+    async clientStream(requests) {
+      const parts = [];
+      for await (const req of requests) parts.push(req.message);
+      return new EchoResponse({ message: parts.join("+"), index: parts.length });
+    },
+    async *bidi(requests) {
+      let index = 0;
+      for await (const req of requests) yield new EchoResponse({ message: req.message, index: index++ });
+    },
+  }));
+  serverEndpointPromise.then((endpoint) => server.serve(endpoint));
+  t.after(async () => {
+    const ep = await serverEndpointPromise;
+    await ep.directEndpoint.close();
+  });
+
+  const port = await freePort();
+  const proxy = start(`${ROOT}/rust/target/debug/examples/grpc_dc_proxy`, [
+    "--dc-dial", listener.multiaddr(), "--http2", String(port),
+  ]);
+  t.after(() => stop(proxy));
+  await waitFor(proxy, /ingress http2=/, "rust proxy ingress");
+
+  const failed = await http2Call(port, "/echo.Echo/Unary",
+    EchoRequest.encode(new EchoRequest({ message: "fail" })));
+  assert.equal(failed.trailers["grpc-status"], "3");
+  assert.ok(decodeURIComponent(failed.trailers["grpc-message"] ?? "").includes("asked to fail"),
+    JSON.stringify(failed.trailers));
+  console.log("direction 1 fail OK");
 });
 
 function sessionCall(port, path, payload, { delayMs = 0 } = {}) {
@@ -345,7 +592,7 @@ function sessionCall(port, path, payload, { delayMs = 0 } = {}) {
   return done;
 }
 
-test("rust proxy stress: 1MB unary, 100 concurrent, slow consumer", { timeout: 300000 }, async (t) => {
+test("rust proxy stress: 4MB unary, 100 concurrent, slow consumer", { timeout: 300000 }, async (t) => {
   const server = start(`${ROOT}/rust/target/debug/examples/direct_echo`, ["serve"], {
     DIRECT_ADDR: "127.0.0.1:0",
   });
@@ -358,21 +605,21 @@ test("rust proxy stress: 1MB unary, 100 concurrent, slow consumer", { timeout: 3
   t.after(() => stop(proxy));
   await waitFor(proxy, /ingress http2=/, "rust proxy ingress");
 
-  // 1 MB unary in each direction. Larger payloads exercise the
-  // same code paths much more slowly over SCTP (and only
-  // intermittently), so keep this leg at the deterministic size
-  // and comment the reason: raw DC unary at 1-6 MB is fast and
-  // reliable; at 8-10 MB the SCTP send window appears to stall
-  // before retransmit timers fire (RTO ~1s, rwnd 256KB), making
-  // the test timing-flaky rather than correctness-flaky.
-  const big = "x".repeat(1 * 1024 * 1024);
+  // 4 MB unary in each direction (16x the 256KB SCTP receive
+  // window). This size used to stall: SACKs advertised a
+  // constant a_rwnd regardless of gap-buffered bytes, and the
+  // byte-wise GHASH throttled debug builds so far below window
+  // rate that chunks aged into RTO recovery. Both are fixed
+  // (per-TSN rwnd accounting in sctp.rs, u128 GHASH in
+  // crypto.rs) with regression tests in webrtc/rust/tests.
+  const big = "x".repeat(4 * 1024 * 1024);
   const t0 = Date.now();
   const r = await sessionCall(port, "/echo.Echo/Unary",
     EchoRequest.encode(new EchoRequest({ message: big })));
   assert.equal(r.trailers["grpc-status"], "0");
   const bigResp = EchoResponse.decode(r.messages[0]).message;
-  assert.equal(bigResp.length, big.length + 6, "1MB echo length");
-  assert.ok(bigResp.endsWith("xxxxxxxx"), "1MB echo tail");
+  assert.equal(bigResp.length, big.length + 6, "4MB echo length");
+  assert.ok(bigResp.endsWith("xxxxxxxx"), "4MB echo tail");
   console.log(`stress large unary ok (${Date.now() - t0}ms)`);
 
   // 100 concurrent unary streams, one session each (proxy spawns

@@ -210,6 +210,31 @@ fn interleaved_fragments_do_not_merge_across_messages() {
     assert_eq!(payloads, vec![msg_a, msg_b, b"third".to_vec()]);
 }
 
+fn sack_arwnd(packet: &[u8]) -> u32 {
+    assert_eq!(packet[12], 3, "expected a SACK chunk");
+    u32::from_be_bytes(packet[20..24].try_into().unwrap())
+}
+
+#[test]
+fn sack_rwnd_shrinks_for_gap_buffered_bytes_and_recovers() {
+    let mut link = Link::new();
+    link.handshake();
+    let payload = vec![b'x'; 5000];
+    let pkts = link.client.send_data(0, 63, &payload, SendOptions::default(), link.now);
+    assert!(pkts.len() >= 2);
+    // Deliver only the second fragment: it is gap-buffered, so
+    // the advertised window must drop by its payload size.
+    let (sacks, _) = link.server.handle_packet(&pkts[1], link.now);
+    assert_eq!(sack_arwnd(&sacks[0]), 262_144 - 1000);
+    // A duplicate of the same TSN must not double-count.
+    let (sacks, _) = link.server.handle_packet(&pkts[1], link.now);
+    assert_eq!(sack_arwnd(&sacks[0]), 262_144 - 1000);
+    // Filling the gap advances cum over both fragments and
+    // restores the full window.
+    let (sacks, _) = link.server.handle_packet(&pkts[0], link.now);
+    assert_eq!(sack_arwnd(&sacks[0]), 262_144);
+}
+
 #[test]
 fn shutdown_handshake() {
     let mut link = Link::new();

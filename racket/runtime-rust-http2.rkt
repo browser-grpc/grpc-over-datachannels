@@ -119,7 +119,7 @@ use bytes::{Bytes, BytesMut};
 use futures_channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use std::collections::{HashMap, VecDeque};
 use std::io;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
@@ -394,6 +394,10 @@ struct Conn {
     flow: AsyncMutex<Flow>,
     notify: Notify,
     next_id: AtomicU32,
+    // Set when the reader loop exits (peer/socket gone): streams
+    // registered afterwards must fail fast instead of waiting
+    // for events that can never arrive.
+    closed: AtomicBool,
 }
 
 impl Conn {
@@ -406,6 +410,9 @@ impl Conn {
 
     fn register(&self, id: u32) -> UnboundedReceiver<H2Event> {
         let (tx, rx) = mpsc::unbounded();
+        if self.closed.load(Ordering::Relaxed) {
+            let _ = tx.unbounded_send(H2Event::Closed);
+        }
         self.streams.lock().unwrap().insert(id, tx);
         rx
     }
@@ -512,6 +519,13 @@ fn settings_payload(initial_window: i64) -> Bytes {
     out.freeze()
 }
 
+fn goaway_payload(last_stream_id: u32, error_code: u32) -> [u8; 8] {
+    let mut out = [0u8; 8];
+    out[0..4].copy_from_slice(&(last_stream_id & 0x7fff_ffff).to_be_bytes());
+    out[4..8].copy_from_slice(&error_code.to_be_bytes());
+    out
+}
+
 fn window_update(id: u32, increment: i64) -> Out {
     Out::Frame {
         frame_type: frame_type_h2::WINDOW_UPDATE as u8, id, flags: 0,
@@ -579,6 +593,20 @@ async fn reader_loop<R: tokio::io::AsyncRead + Unpin>(
         let stream_id = u32::from_be_bytes([head[5], head[6], head[7], head[8]]) & 0x7fff_ffff;
         let mut payload = vec![0u8; len];
         if read.read_exact(&mut payload).await.is_err() { break; }
+        // While a header block is open only CONTINUATION (and a
+        // HEADERS, rejected in its arm below) may arrive; any
+        // other frame interleaved into the block is a
+        // connection error (RFC 7540 4.3).
+        if header_block.is_some()
+            && frame_type as u32 != frame_type_h2::HEADERS
+            && frame_type as u32 != frame_type_h2::CONTINUATION
+        {
+            let _ = conn.out.unbounded_send(Out::Frame {
+                frame_type: frame_type_h2::GOAWAY as u8, id: 0, flags: 0,
+                payload: Bytes::copy_from_slice(&goaway_payload(stream_id, 1)),
+            });
+            break;
+        }
         match frame_type as u32 {
             x if x == frame_type_h2::SETTINGS => {
                 if flags & 1 == 0 {
@@ -625,6 +653,18 @@ async fn reader_loop<R: tokio::io::AsyncRead + Unpin>(
                 let end_headers = flags & 0x4 != 0;
                 let end_stream = flags & 0x1 != 0;
                 if frame_type as u32 == frame_type_h2::HEADERS {
+                    // A HEADERS that opens a block while another
+                    // is still open breaks the header-block state
+                    // machine (RFC 7540 4.3: only CONTINUATION may
+                    // follow until END_HEADERS). Protocol-error
+                    // the connection: GOAWAY and stop reading.
+                    if header_block.is_some() {
+                        let _ = conn.out.unbounded_send(Out::Frame {
+                            frame_type: frame_type_h2::GOAWAY as u8, id: 0, flags: 0,
+                            payload: Bytes::copy_from_slice(&goaway_payload(stream_id, 1)),
+                        });
+                        break;
+                    }
                     // Strip PADDED / PRIORITY fields if present.
                     let mut block = payload;
                     if flags & 0x8 != 0 {
@@ -638,6 +678,14 @@ async fn reader_loop<R: tokio::io::AsyncRead + Unpin>(
                         block = block[5..].to_vec();
                     }
                     header_block = Some((stream_id, block, end_stream));
+                } else if header_block.is_none() {
+                    // CONTINUATION with no open header block is a
+                    // connection error too (RFC 7540 6.10).
+                    let _ = conn.out.unbounded_send(Out::Frame {
+                        frame_type: frame_type_h2::GOAWAY as u8, id: 0, flags: 0,
+                        payload: Bytes::copy_from_slice(&goaway_payload(stream_id, 1)),
+                    });
+                    break;
                 } else if let Some((id, block, _end)) = &mut header_block {
                     if *id == stream_id {
                         block.extend_from_slice(&payload);
@@ -683,6 +731,7 @@ async fn reader_loop<R: tokio::io::AsyncRead + Unpin>(
             _ => {}
         }
     }
+    conn.closed.store(true, Ordering::Relaxed);
     let streams: Vec<UnboundedSender<H2Event>> = conn.streams.lock().unwrap().drain().map(|(_, tx)| tx).collect();
     for tx in streams {
         let _ = tx.unbounded_send(H2Event::Closed);
@@ -734,6 +783,7 @@ where
         flow: AsyncMutex::new(Flow::new()),
         notify: Notify::new(),
         next_id: AtomicU32::new(if client_ids { 1 } else { 2 }),
+        closed: AtomicBool::new(false),
     });
     crate::spawn_task(writer_loop(write, out_rx));
     // SETTINGS must be the first frame sent (RFC 7540 3.2);
@@ -1426,11 +1476,19 @@ pub mod proxy {
                     failure = Some(Status::from_code_u32(code, "http2 stream reset"));
                     break;
                 }
-                H2Event::Closed => break,
+                H2Event::Closed => {
+                    failure = Some(Status::unavailable("http2 connection closed"));
+                    break;
+                }
             }
         }
         pump.abort();
         if let Some(e) = failure {
+            // Tell the backend the call is gone (the dc client
+            // cancelled, or the sink failed): without an explicit
+            // RST the backend stream outlives the call, because
+            // dropping our stream handle does not close it.
+            stream.reset(error_h2::CANCEL);
             return Err(e);
         }
         let code = grpc_status.ok_or_else(|| Status::internal("official server sent no grpc-status"))?;

@@ -64,6 +64,16 @@ onmessage = async (event) => {
       // run_echo_server never returns (inline pump loop).
       return;
     }
+    if (mode === "server-tracing") {
+      postMessage({ t: "ready" });
+      instance.exports.run_echo_server_tracing();
+      // Tracing spans report via on_result while pumping.
+      return;
+    }
+    if (mode === "client-tracing") {
+      instance.exports.run_echo_client_tracing();
+      return;
+    }
     instance.exports.run_echo_client();
     // run_echo_client only returns after reporting via
     // on_result/on_error (or never, if the peer stalls and

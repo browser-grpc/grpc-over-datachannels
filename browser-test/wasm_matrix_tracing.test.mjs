@@ -56,6 +56,28 @@ const PAIRS = [
     clientSpans: "window",
     serverSpans: "getter",
   },
+  {
+    clientLabel: "Zig native client",
+    clientPage: "wasm_zig_native_page.html",
+    serverLabel: "Rust native server",
+    serverPage: "wasm_rust_server_page.html",
+    runClient: "__runWasmTracing",
+    runServer: "__runServerTracing",
+    clientSpans: "result",
+    serverSpans: "getter",
+    exactSingle: true,
+  },
+  {
+    clientLabel: "Rust native client",
+    clientPage: "wasm_rust_page.html",
+    serverLabel: "Zig native server",
+    serverPage: "wasm_zig_native_server_page.html",
+    runClient: "__runWasmTracing",
+    runServer: "__runServerTracing",
+    clientSpans: "result",
+    serverSpans: "window",
+    exactSingle: true,
+  },
 ];
 
 function relay(from, to) {
