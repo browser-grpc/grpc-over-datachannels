@@ -25,6 +25,8 @@ const initialRwnd = 262144
 // payload is 1000B, so ~4 fragments in flight before SACK clocking).
 const initialCwnd = 4 * maxDataPayload
 const initialRtoMs = 1000
+const rtoMinMs = 200
+const rtoMaxMs = 60000
 
 // Crc32c computes the SCTP checksum (Castagnoli, reflected).
 func Crc32c(buf []byte) uint32 {
@@ -180,14 +182,19 @@ type Association struct {
 	// large message bursts its fragments into kernel UDP
 	// buffers faster than the peer drains them; the dropped
 	// tail then recovers only at RTO granularity (1s a round).
-	cwnd             int
-	ssthresh         int
-	reasm            *sctpReassembler
-	cookieSecret     []byte
-	pendingCookie    []byte
-	lastInitMs       int64
-	lastPacketOutMs  int64
-	rtoMs            int64
+	cwnd            int
+	ssthresh        int
+	reasm           *sctpReassembler
+	cookieSecret    []byte
+	pendingCookie   []byte
+	lastInitMs      int64
+	lastPacketOutMs int64
+	rtoMs           int64
+	// RFC 9260 6.3 RTT estimation feeding rtoMs: SRTT/RTTVAR
+	// over first-transmission ack samples (Karn: retransmitted
+	// chunks never sample). Zero until the first sample.
+	srttMs           int64
+	rttvarMs         int64
 	abandonedOrdered [][2]uint16
 
 	// Stream reset (RFC 6525) bookkeeping.
@@ -843,11 +850,21 @@ func (a *Association) handleSack(body []byte, nowMs int64) [][]byte {
 		blocks = append(blocks, [2]uint16{s, e})
 	}
 	acked, retransmit := a.sack.noteSack(cum, blocks, sortedUnackedTsns(a))
+	// RTT sample (RFC 9260 6.3.1): from the newest acked chunk
+	// that was never retransmitted (Karn) — one sample per
+	// SACK, measured from its first send.
+	var sample int64 = -1
 	freed := 0
 	for _, tsn := range acked {
 		c := a.unacked[tsn]
+		if c.retransmits == 0 {
+			sample = nowMs - c.bornMs
+		}
 		freed += len(c.payload)
 		delete(a.unacked, tsn)
+	}
+	if sample >= 0 {
+		a.noteRtt(sample)
 	}
 	a.inflightBytes -= freed
 	if a.inflightBytes < 0 {
@@ -883,6 +900,37 @@ func (a *Association) handleSack(body []byte, nowMs int64) [][]byte {
 	}
 	packets = append(packets, a.flushQueue(nowMs)...)
 	return packets
+}
+
+// RFC 9260 6.3.1: first sample seeds SRTT/RTTVAR; later
+// samples smooth with alpha=1/8, beta=1/4. RTO tracks
+// SRTT + 4*RTTVAR, clamped so a fast local path still recovers
+// promptly and a dead path cannot park forever.
+func (a *Association) noteRtt(sampleMs int64) {
+	if a.srttMs == 0 && a.rttvarMs == 0 {
+		a.srttMs = sampleMs
+		if a.srttMs < 1 {
+			a.srttMs = 1
+		}
+		a.rttvarMs = sampleMs / 2
+		if a.rttvarMs < 1 {
+			a.rttvarMs = 1
+		}
+	} else {
+		err := a.srttMs - sampleMs
+		if err < 0 {
+			err = -err
+		}
+		a.rttvarMs = (3*a.rttvarMs + err) / 4
+		a.srttMs = (7*a.srttMs + sampleMs) / 8
+	}
+	a.rtoMs = a.srttMs + 4*a.rttvarMs
+	if a.rtoMs < rtoMinMs {
+		a.rtoMs = rtoMinMs
+	}
+	if a.rtoMs > rtoMaxMs {
+		a.rtoMs = rtoMaxMs
+	}
 }
 
 func (a *Association) advanceOutCum() {

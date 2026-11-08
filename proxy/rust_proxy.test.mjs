@@ -592,7 +592,7 @@ function sessionCall(port, path, payload, { delayMs = 0 } = {}) {
   return done;
 }
 
-test("rust proxy stress: 4MB unary, 100 concurrent, slow consumer", { timeout: 300000 }, async (t) => {
+test("rust proxy stress: 8MB unary, 100 concurrent, slow consumer", { timeout: 300000 }, async (t) => {
   const server = start(`${ROOT}/rust/target/debug/examples/direct_echo`, ["serve"], {
     DIRECT_ADDR: "127.0.0.1:0",
   });
@@ -605,21 +605,21 @@ test("rust proxy stress: 4MB unary, 100 concurrent, slow consumer", { timeout: 3
   t.after(() => stop(proxy));
   await waitFor(proxy, /ingress http2=/, "rust proxy ingress");
 
-  // 4 MB unary in each direction (16x the 256KB SCTP receive
-  // window). This size used to stall: SACKs advertised a
-  // constant a_rwnd regardless of gap-buffered bytes, and the
-  // byte-wise GHASH throttled debug builds so far below window
-  // rate that chunks aged into RTO recovery. Both are fixed
-  // (per-TSN rwnd accounting in sctp.rs, u128 GHASH in
-  // crypto.rs) with regression tests in webrtc/rust/tests.
-  const big = "x".repeat(4 * 1024 * 1024);
+  // 8 MB unary in each direction (32x the 256KB SCTP receive
+  // window) — the size that originally stalled. SACKs now
+  // advertise a_rwnd minus gap-buffered bytes in all three
+  // stacks, GHASH runs on u128 words, the RTO follows the
+  // measured RTT instead of a fixed 1s, and reassembly caches
+  // per-partial TSN extremes instead of rescanning every
+  // fragment key per fragment (which was quadratic here).
+  const big = "x".repeat(8 * 1024 * 1024);
   const t0 = Date.now();
   const r = await sessionCall(port, "/echo.Echo/Unary",
     EchoRequest.encode(new EchoRequest({ message: big })));
   assert.equal(r.trailers["grpc-status"], "0");
   const bigResp = EchoResponse.decode(r.messages[0]).message;
-  assert.equal(bigResp.length, big.length + 6, "4MB echo length");
-  assert.ok(bigResp.endsWith("xxxxxxxx"), "4MB echo tail");
+  assert.equal(bigResp.length, big.length + 6, "8MB echo length");
+  assert.ok(bigResp.endsWith("xxxxxxxx"), "8MB echo tail");
   console.log(`stress large unary ok (${Date.now() - t0}ms)`);
 
   // 100 concurrent unary streams, one session each (proxy spawns

@@ -21,6 +21,8 @@ export const SCTP_PORT = 5000;
 const MAX_DATA_PAYLOAD = 1000;
 const INITIAL_RWND = 262144;
 const INITIAL_RTO_MS = 1000;
+const RTO_MIN_MS = 200;
+const RTO_MAX_MS = 60000;
 // RFC 9260 §6.1: initial cwnd is 4 MTU here (fragment payload
 // is 1000B, so ~4 fragments in flight before SACK clocking).
 const INITIAL_CWND = 4 * MAX_DATA_PAYLOAD;
@@ -143,6 +145,11 @@ export class Association {
     this.lastInitMs = 0;
     this.lastPacketOutMs = 0;
     this.rtoMs = INITIAL_RTO_MS;
+    // RFC 9260 6.3 RTT estimation feeding rtoMs: SRTT/RTTVAR
+    // over first-transmission ack samples (Karn: retransmitted
+    // chunks never sample). Zero until the first sample.
+    this.srttMs = 0;
+    this.rttvarMs = 0;
     this.abandonedOrdered = [];
     // Stream reset (RFC 6525) bookkeeping.
     this.reconfSeq = this.nextTsn;
@@ -638,11 +645,18 @@ export class Association {
     }
     const unackedTsns = [...this.unacked.keys()].sort((a, b) => diff32(a, b));
     const { acked, retransmit } = this.sack.noteSack(cum, blocks, unackedTsns);
+    // RTT sample (RFC 9260 6.3.1): from the newest acked chunk
+    // that was never retransmitted (Karn) — one sample per
+    // SACK, measured from its first send.
+    let sample = null;
     let freed = 0;
     for (const tsn of acked) {
-      freed += this.unacked.get(tsn).payload.length;
+      const c = this.unacked.get(tsn);
+      if (c.retransmits === 0) sample = nowMs - c.bornMs;
+      freed += c.payload.length;
       this.unacked.delete(tsn);
     }
+    if (sample !== null) this.#noteRtt(sample);
     this.inflightBytes = Math.max(0, this.inflightBytes - freed);
     if (freed > 0) {
       // RFC 9260 §6.2: slow start grows cwnd by up to one MTU
@@ -663,6 +677,22 @@ export class Association {
     }
     packets.push(...this.#flushQueue(nowMs));
     return packets;
+  }
+
+  // RFC 9260 6.3.1: first sample seeds SRTT/RTTVAR; later
+  // samples smooth with alpha=1/8, beta=1/4. RTO tracks
+  // SRTT + 4*RTTVAR, clamped so a fast local path still
+  // recovers promptly and a dead path cannot park forever.
+  #noteRtt(sampleMs) {
+    if (this.srttMs === 0 && this.rttvarMs === 0) {
+      this.srttMs = Math.max(1, sampleMs);
+      this.rttvarMs = Math.max(1, Math.floor(sampleMs / 2));
+    } else {
+      const err = Math.abs(this.srttMs - sampleMs);
+      this.rttvarMs = Math.floor((3 * this.rttvarMs + err) / 4);
+      this.srttMs = Math.floor((7 * this.srttMs + sampleMs) / 8);
+    }
+    this.rtoMs = Math.min(RTO_MAX_MS, Math.max(RTO_MIN_MS, this.srttMs + 4 * this.rttvarMs));
   }
 
   #advanceOutCum() {

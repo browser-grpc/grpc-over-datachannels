@@ -210,6 +210,27 @@ fn interleaved_fragments_do_not_merge_across_messages() {
     assert_eq!(payloads, vec![msg_a, msg_b, b"third".to_vec()]);
 }
 
+#[test]
+fn rto_follows_measured_rtt_not_fixed_timer() {
+    let mut link = Link::new();
+    link.handshake();
+    // Round 1: DATA at now=0, SACK returns at now=600 -> first
+    // RTT sample 600ms -> SRTT=600, RTTVAR=300, RTO=1800.
+    let pkts = link.client.send_data(0, 63, b"one", SendOptions::default(), link.now);
+    let (sacks, _) = link.server.handle_packet(&pkts[0], link.now);
+    link.now += 600;
+    let (_, _) = link.client.handle_packet(&sacks[0], link.now);
+    // Round 2 at now=600: a delayed-but-not-lost flight must
+    // not be retransmitted at the old fixed 1000ms RTO.
+    let pkts = link.client.send_data(0, 63, b"two", SendOptions::default(), link.now);
+    assert_eq!(pkts.len(), 1);
+    let (packets, _) = link.client.tick(link.now + 1100);
+    assert!(packets.is_empty(), "spurious retransmit at fixed RTO: {packets:?}");
+    // Past the measured RTO (600 + 1800) retransmission fires.
+    let (packets, _) = link.client.tick(link.now + 1801);
+    assert!(!packets.is_empty(), "retransmit must fire past measured RTO");
+}
+
 fn sack_arwnd(packet: &[u8]) -> u32 {
     assert_eq!(packet[12], 3, "expected a SACK chunk");
     u32::from_be_bytes(packet[20..24].try_into().unwrap())

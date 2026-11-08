@@ -26,6 +26,8 @@ pub const SCTP_PORT: u16 = 5000;
 const MAX_DATA_PAYLOAD: usize = 1000;
 const INITIAL_RWND: u32 = 262_144;
 const INITIAL_RTO_MS: u64 = 1000;
+const RTO_MIN_MS: u64 = 200;
+const RTO_MAX_MS: u64 = 60_000;
 // RFC 9260 §6.1: initial cwnd is 4 MTU here (fragment payload
 // is 1000B, so ~4 fragments in flight before SACK clocking).
 const INITIAL_CWND: usize = 4 * MAX_DATA_PAYLOAD;
@@ -106,6 +108,11 @@ pub struct Association {
     last_init_ms: u64,
     last_packet_out_ms: u64,
     rto_ms: u64,
+    // RFC 9260 6.3 RTT estimation feeding rto_ms: SRTT/RTTVAR
+    // over first-transmission ack samples (Karn: retransmitted
+    // chunks never sample). Zero until the first sample.
+    srtt_ms: u64,
+    rttvar_ms: u64,
     abandoned_ordered: Vec<(u16, u16)>, // (stream, ssn) for FORWARD-TSN
     // Stream reset (RFC 6525) bookkeeping.
     reconf_seq: u32,
@@ -228,6 +235,8 @@ impl Association {
             last_init_ms: 0,
             last_packet_out_ms: 0,
             rto_ms: INITIAL_RTO_MS,
+            srtt_ms: 0,
+            rttvar_ms: 0,
             abandoned_ordered: Vec::new(),
             reconf_seq: tsn,
             resets: HashMap::new(),
@@ -858,11 +867,21 @@ impl Association {
         unacked_tsns.sort_by_key(|&t| t.wrapping_sub(cum));
         let (acked, retransmit) = self.sack.note_sack(cum, &blocks, &unacked_tsns);
         // Cumulative + gap acked TSNs leave the retransmission queue.
+        // RTT sample (RFC 9260 6.3.1): from the newest acked
+        // chunk that was never retransmitted (Karn) — one
+        // sample per SACK, measured from its first send.
+        let mut sample: Option<u64> = None;
         let mut freed = 0usize;
         for tsn in acked {
             if let Some(c) = self.unacked.remove(&tsn) {
+                if c.retransmits == 0 {
+                    sample = Some(now_ms.saturating_sub(c.born_ms));
+                }
                 freed += c.payload.len();
             }
+        }
+        if let Some(r) = sample {
+            self.note_rtt(r);
         }
         self.inflight_bytes = self.inflight_bytes.saturating_sub(freed);
         if freed > 0 {
@@ -968,6 +987,22 @@ impl Association {
             }
         }
         (packets, events)
+    }
+
+    // RFC 9260 6.3.1: first sample seeds SRTT/RTTVAR; later
+    // samples smooth with alpha=1/8, beta=1/4. RTO tracks
+    // SRTT + 4*RTTVAR, clamped so a fast local path still
+    // recovers promptly and a dead path cannot park forever.
+    fn note_rtt(&mut self, sample_ms: u64) {
+        if self.srtt_ms == 0 && self.rttvar_ms == 0 {
+            self.srtt_ms = sample_ms.max(1);
+            self.rttvar_ms = (sample_ms / 2).max(1);
+        } else {
+            let err = self.srtt_ms.abs_diff(sample_ms);
+            self.rttvar_ms = (3 * self.rttvar_ms + err) / 4;
+            self.srtt_ms = (7 * self.srtt_ms + sample_ms) / 8;
+        }
+        self.rto_ms = (self.srtt_ms + 4 * self.rttvar_ms).clamp(RTO_MIN_MS, RTO_MAX_MS);
     }
 
     fn advance_out_cum(&mut self) {
