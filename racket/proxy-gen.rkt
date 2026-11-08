@@ -86,6 +86,18 @@
    "unary, server-streaming, and an INVALID_ARGUMENT case.\n"
    "The test also checks this spec's mode table against the\n"
    "implementation (parity).\n\n"
+   "## Rust proxy (homegrown HTTP/2)\n\n"
+   "The Rust runtime carries a generated, dependency-free\n"
+   "HTTP/2 + HPACK stack (`grpc_dc::http2`); the example\n"
+   "binary speaks it in both directions (h2c only):\n\n"
+   "    # direction 1: stock client -> grpc-dc server\n"
+   "    cargo run --features webrtc --example grpc_dc_proxy -- --dc-dial <multiaddr> --http2 50051\n"
+   "    # direction 2: grpc-dc client -> stock backend\n"
+   "    cargo run --features webrtc --example grpc_dc_proxy -- --dc-listen 4001 --http2-dial 127.0.0.1:50051\n\n"
+   "    node --test proxy/rust_proxy.test.mjs   # also in make test-proxy\n\n"
+   "Drives the Rust proxy in both directions against stock\n"
+   "Node HTTP/2 peers and the grpc-java oracle (client and\n"
+   "server), including the gzip-compressed oracle client.\n\n"
 ))
 
 (define (generate-proxy)

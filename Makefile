@@ -325,6 +325,7 @@ test-webrtc-js:
 ## proxy to a stock HTTP/2 backend (unary/stream/error paths).
 test-proxy:
 	node --test proxy/proxy.test.mjs
+	node --test proxy/rust_proxy.test.mjs
 
 test-webrtc-go:
 	cd webrtc/go && go test -race ./...

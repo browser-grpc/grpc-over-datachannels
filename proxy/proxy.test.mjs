@@ -31,13 +31,17 @@ test("proxy: generated mode table matches implementation", async () => {
   const spec = JSON.parse(await readFile(new URL("./proxy_modes.generated.json", import.meta.url), "utf8"));
   const byId = Object.fromEntries(spec.modes.map((m) => [m.id, m]));
   assert.equal(byId["http2-ingress"]?.status, "shipped");
-  assert.deepEqual(Object.keys(byId), ["http2-ingress"], "proxy supports only HTTP/2 over TCP");
-  assert.equal(byId["dc-egress"], undefined, "egress direction was removed");
+  assert.deepEqual(
+    Object.keys(byId),
+    ["http2-ingress", "http2-ingress-rust", "dc-egress-rust"],
+    "proxy supports only HTTP/2 over TCP",
+  );
+  assert.equal(byId["dc-egress"], undefined, "Node egress mode stays removed; egress is the Rust proxy");
   const proxySource = await readFile(new URL("./grpc-dc-proxy.mjs", import.meta.url), "utf8");
   assert.match(proxySource, /serveHttp2ToDc/, "http2-ingress must use the bridge server");
   assert.doesNotMatch(proxySource, /TcpFramedChannel|--tcp/, "custom TCP ingress was removed");
   assert.match(proxySource, /directClientStackEndpoint/, "DC leg must dial WebRTC-Direct");
-  assert.doesNotMatch(proxySource, /serveDcToHttp2|startEgressProxy/, "egress direction was removed");
+  assert.doesNotMatch(proxySource, /serveDcToHttp2|startEgressProxy/, "Node egress direction was removed");
 });
 
 // Raw HTTP/2 gRPC client call against the ingress listener.

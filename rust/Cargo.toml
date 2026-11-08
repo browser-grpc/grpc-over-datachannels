@@ -43,6 +43,11 @@ rustls = { version = "0.23", optional = true, default-features = false, features
 rustls-pemfile = { version = "2", optional = true }
 
 [[example]]
+name = "grpc_dc_proxy"
+path = "examples/grpc_dc_proxy.rs"
+required-features = ["webrtc"]
+
+[[example]]
 name = "direct_echo"
 path = "examples/direct_echo.rs"
 required-features = ["webrtc"]

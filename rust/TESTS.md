@@ -41,6 +41,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`echo_server_stdio.rs`](examples/echo_server_stdio.rs) — Echo: all four call shapes
 - [`eth_echo.rs`](examples/eth_echo.rs) — Echo: all four call shapes
 - [`eventbus_demo.rs`](examples/eventbus_demo.rs) — Event bus end-to-end
+- [`grpc_dc_proxy.rs`](examples/grpc_dc_proxy.rs) — Generated suite/example
 - [`main.rs`](examples/interop_server_stdio/main.rs) — Generated suite/example
 - [`pb_glue.rs`](examples/interop_server_stdio/pb_glue.rs) — Generated suite/example
 - [`client.rs`](examples/kafka_proxy/client.rs) — Generated suite/example
