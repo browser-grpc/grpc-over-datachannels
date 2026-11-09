@@ -89,9 +89,16 @@ if git diff --cached --quiet; then
 else
   git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
     commit -m "release $VERSION (generated export)"
-  git tag "$VERSION"
-  git push origin HEAD
-  git push origin "$VERSION"
+  # Re-runs after the tag exists (export fixups) must still push
+  # the new commit; only create/push the tag the first time.
+  if git rev-parse "$VERSION" >/dev/null 2>&1; then
+    echo "tag $VERSION already exists; pushing export commit only"
+    git push origin HEAD
+  else
+    git tag "$VERSION"
+    git push origin HEAD
+    git push origin "$VERSION"
+  fi
   # Submodule tags: the Go module proxy resolves the modules at
   # go/ and webrtc/go/ only via go/<version> / webrtc/go/<version>
   # tags (pkg.go.dev). Same commit as $VERSION.
