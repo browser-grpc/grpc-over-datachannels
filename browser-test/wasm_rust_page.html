@@ -52,6 +52,7 @@ window.__runWasmTracing = async () => {
   return JSON.parse(json);
 };
 
+
 const offer = await pc.createOffer();
 await pc.setLocalDescription(offer);
 await new Promise((resolve) => {

@@ -18,13 +18,18 @@ function strace(...args) {
 }
 
 export const SCTP_PORT = 5000;
-const MAX_DATA_PAYLOAD = 1000;
+// Fragment payload per DATA chunk: a local send-side choice
+// (receivers accept any chunk size); 1152 keeps the whole
+// SCTP packet inside the ~1200-byte DTLS datagrams browsers
+// emit (Chromium drops SCTP packets over 2048 bytes; larger
+// packets IP-fragment on real paths). See Rust sctp.rs.
+const MAX_DATA_PAYLOAD = 1152;
 const INITIAL_RWND = 262144;
 const INITIAL_RTO_MS = 1000;
 const RTO_MIN_MS = 200;
 const RTO_MAX_MS = 60000;
 // RFC 9260 §6.1: initial cwnd is 4 MTU here (fragment payload
-// is 1000B, so ~4 fragments in flight before SACK clocking).
+// is 1152B, so ~4 fragments in flight before SACK clocking).
 const INITIAL_CWND = 4 * MAX_DATA_PAYLOAD;
 
 export function crc32c(buf) {

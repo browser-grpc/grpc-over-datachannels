@@ -44,15 +44,15 @@ func TestSackRwndShrinksForGapBufferedBytesAndRecovers(t *testing.T) {
 	if len(pkts) < 2 {
 		t.Fatalf("expected >= 2 fragments, got %d", len(pkts))
 	}
-	// Only the second fragment: gap-buffered, window -1000.
+	// Only the second fragment: gap-buffered, window -1152.
 	sacks, _ := server.HandlePacket(pkts[1], now)
-	if got := sackArwnd(t, sacks[0]); got != initialRwnd-1000 {
-		t.Fatalf("gap-buffered a_rwnd: got %d want %d", got, initialRwnd-1000)
+	if got := sackArwnd(t, sacks[0]); got != initialRwnd-1152 {
+		t.Fatalf("gap-buffered a_rwnd: got %d want %d", got, initialRwnd-1152)
 	}
 	// Duplicate of the same TSN must not double-count.
 	sacks, _ = server.HandlePacket(pkts[1], now)
-	if got := sackArwnd(t, sacks[0]); got != initialRwnd-1000 {
-		t.Fatalf("duplicate a_rwnd: got %d want %d", got, initialRwnd-1000)
+	if got := sackArwnd(t, sacks[0]); got != initialRwnd-1152 {
+		t.Fatalf("duplicate a_rwnd: got %d want %d", got, initialRwnd-1152)
 	}
 	// Filling the gap restores the full window.
 	sacks, _ = server.HandlePacket(pkts[0], now)

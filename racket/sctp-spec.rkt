@@ -10,8 +10,9 @@
 ;;; Scenario: (name stream messages deliver expect)
 ;;;   messages: ((fill-char size) ...) sent in order on `stream`
 ;;;   deliver:  permutation of the concatenated fragment-packet
-;;;             indices (fragments are 1000-byte chunks, the
-;;;             MAX_DATA_PAYLOAD of every stack)
+;;;             indices (fragments are 1152-byte chunks, the
+;;;             MAX_DATA_PAYLOAD of every stack; scenario sizes
+;;;             fragment into 2-3 chunks at that size)
 ;;;   expect:   indices of messages in expected delivery order
 
 (provide sctp-scenarios sctp-sack-scenarios)

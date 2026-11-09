@@ -167,6 +167,56 @@ const PAIRS = [
     exactSingle: true,
   },
   {
+    clientLabel: "Go facade client",
+    clientPage: "wasm_page.html?trace=1",
+    serverLabel: "Rust native server",
+    serverPage: "wasm_rust_server_page.html",
+    runClient: "__runWasm",
+    runServer: "__runServerTracing",
+    clientSpans: "window",
+    serverSpans: "getter",
+  },
+  {
+    clientLabel: "Kotlin facade client",
+    clientPage: "wasm_kotlin_page.html?trace=1",
+    serverLabel: "Rust native server",
+    serverPage: "wasm_rust_server_page.html",
+    runClient: "__runWasm",
+    runServer: "__runServerTracing",
+    clientSpans: "window",
+    serverSpans: "getter",
+  },
+  {
+    clientLabel: "C++ facade client",
+    clientPage: "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm&trace=1",
+    serverLabel: "Rust native server",
+    serverPage: "wasm_rust_server_page.html",
+    runClient: "__runWasm",
+    runServer: "__runServerTracing",
+    clientSpans: "window",
+    serverSpans: "getter",
+  },
+  {
+    clientLabel: "Swift facade client",
+    clientPage: "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm&trace=1",
+    serverLabel: "Rust native server",
+    serverPage: "wasm_rust_server_page.html",
+    runClient: "__runWasm",
+    runServer: "__runServerTracing",
+    clientSpans: "window",
+    serverSpans: "getter",
+  },
+  {
+    clientLabel: "Scala.js facade client",
+    clientPage: "wasm_scalajs_page.html?trace=1",
+    serverLabel: "Rust native server",
+    serverPage: "wasm_rust_server_page.html",
+    runClient: "__runWasm",
+    runServer: "__runServerTracing",
+    clientSpans: "window",
+    serverSpans: "getter",
+  },
+  {
     clientLabel: "Dart native client",
     clientPage: "dart_wasm_page.html",
     serverLabel: "Rust native server",
@@ -263,7 +313,14 @@ async function runPair(name, pair) {
     const clientData = await readSpans(clientPg, pair.clientSpans, result);
     const serverData = await readSpans(serverPg, pair.serverSpans, result);
     const clientStarts = normalize(clientData.starts).filter((s) => s.kind === "client");
-    const serverStarts = normalize(serverData.starts).filter((s) => s.kind === "server");
+    // The Rust native client also pushes an untraced 192 KiB
+    // unary on the same endpoint (largeBytes below); its server
+    // span belongs to another trace, so parenting assertions
+    // only cover server spans in a client trace.
+    const clientTraceIds = new Set(clientStarts.map((s) => s.traceId));
+    const serverStarts = normalize(serverData.starts)
+      .filter((s) => s.kind === "server")
+      .filter((s) => clientTraceIds.has(s.traceId));
     assert.ok(clientStarts.length >= 1, `client spans: ${clientStarts.length}`);
     assert.ok(serverStarts.length >= 1, `server spans: ${serverStarts.length}`);
     if (pair.exactSingle) {
@@ -281,6 +338,14 @@ async function runPair(name, pair) {
       `${name}: ${pair.clientLabel} -> ${pair.serverLabel} tracing OK ` +
       `(client spans ${clientStarts.length}, server spans ${serverStarts.length})`,
     );
+    // Large-message leg: clients that report largeBytes pushed
+    // a 192 KiB unary on the same endpoint (just under the
+    // browser max-message-size; the multi-MB stall class must
+    // stay dead in browsers too).
+    if (result.largeBytes !== undefined) {
+      assert.equal(result.largeBytes, 192 * 1024 + 6, "192 KiB echo byte count");
+      console.log(`${name}: ${pair.clientLabel} -> ${pair.serverLabel} large (192KiB) OK`);
+    }
   } finally {
     await browser.close();
     if (clientPeer) await clientPeer.close();

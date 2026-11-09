@@ -23,13 +23,25 @@ use std::collections::{HashMap, HashSet};
 use alloc::collections::{BTreeMap as HashMap, BTreeSet as HashSet};
 
 pub const SCTP_PORT: u16 = 5000;
-const MAX_DATA_PAYLOAD: usize = 1000;
+// Fragment payload per DATA chunk: a local send-side choice
+// (receivers accept any chunk size). 1152 keeps the whole
+// SCTP packet (1152 + 28 header) inside the ~1200-byte DTLS
+// datagrams browsers themselves emit: Chromium drops SCTP
+// packets over 2048 bytes outright (measured: 2028-byte packet
+// acked, 2128-byte packet retransmitted forever), and larger
+// packets IP-fragment on real paths. A bigger fragment size
+// (tried 4096) silently stalls every browser-bound large
+// message, so do not raise this past the browser MTU budget.
+// DTLS/SACK overhead 4x vs 1000 on large messages while
+// keeping datagrams small enough to avoid pathological IP
+// fragmentation on LAN paths.
+const MAX_DATA_PAYLOAD: usize = 1152;
 const INITIAL_RWND: u32 = 262_144;
 const INITIAL_RTO_MS: u64 = 1000;
 const RTO_MIN_MS: u64 = 200;
 const RTO_MAX_MS: u64 = 60_000;
 // RFC 9260 §6.1: initial cwnd is 4 MTU here (fragment payload
-// is 1000B, so ~4 fragments in flight before SACK clocking).
+// is 1152B, so ~4 fragments in flight before SACK clocking).
 const INITIAL_CWND: usize = 4 * MAX_DATA_PAYLOAD;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

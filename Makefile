@@ -326,6 +326,7 @@ test-webrtc-js:
 test-proxy:
 	node --test proxy/proxy.test.mjs
 	node --test proxy/rust_proxy.test.mjs
+	node --test proxy/http2_corpus.test.mjs
 
 test-webrtc-go:
 	cd webrtc/go && go test -race ./...
@@ -1216,6 +1217,19 @@ test-schema-shapes:
 ## and ping-pong RTT for pairs hosted on one PeerMux socket.
 bench-mux:
 	cd webrtc/rust && $(CARGO) run --release --example mux_bench
+
+## SCTP throughput benchmark: hand-rolled JS stack against
+## itself and against Chromium's native stack (blast MiB/s +
+## ping-pong RTT on loopback). Baseline numbers, not a gate.
+bench-throughput:
+	cd browser-test && node throughput_bench.mjs
+
+## Published-package consumer verification: install the
+## registry kafka-grpc (+ its grpc-dc dependency) into a fresh
+## temp consumer and run a Metadata+Produce smoke against the
+## installed stubs. Network required; not part of `make test`.
+verify-kafka-npm:
+	node scripts/verify-kafka-npm-consumer.mjs
 
 demos:
 	cd rust && $(CARGO) run --example echo_demo

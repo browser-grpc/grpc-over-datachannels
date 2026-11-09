@@ -54,12 +54,12 @@ test("sack rwnd shrinks for gap-buffered bytes and recovers", () => {
   const payload = Buffer.alloc(5000, "x");
   const pkts = link.client.sendData(0, 63, payload, {}, link.now);
   assert.ok(pkts.length >= 2);
-  // Only the second fragment: gap-buffered, window -1000.
+  // Only the second fragment: gap-buffered, window -1152.
   let r = link.server.handlePacket(pkts[1], link.now);
-  assert.equal(sackArwnd(r.packets[0]), 262144 - 1000);
+  assert.equal(sackArwnd(r.packets[0]), 262144 - 1152);
   // Duplicate of the same TSN must not double-count.
   r = link.server.handlePacket(pkts[1], link.now);
-  assert.equal(sackArwnd(r.packets[0]), 262144 - 1000);
+  assert.equal(sackArwnd(r.packets[0]), 262144 - 1152);
   // Filling the gap restores the full window.
   r = link.server.handlePacket(pkts[0], link.now);
   assert.equal(sackArwnd(r.packets[0]), 262144);

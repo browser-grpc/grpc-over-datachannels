@@ -202,7 +202,14 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
         );
       }
     };
+    // First terminal status wins: the parser-error path and
+    // the endpoint-closed path can both reach finish for one
+    // stream, and overwriting trailersToSend after stream.end()
+    // would report the later (wrong) status to the client.
+    let finished = false;
     const finish = (status) => {
+      if (finished) return;
+      finished = true;
       respond();
       trailersToSend = { "grpc-status": String(status.code) };
       const wireMessage = status.statusMessage ?? status.message;

@@ -451,6 +451,8 @@ struct MatrixClientResults {
     message: String,
     starts: Vec<[String; 5]>,
     ends: Vec<String>,
+    #[serde(rename = "largeBytes")]
+    large_bytes: usize,
 }
 
 #[derive(Serialize)]
@@ -468,16 +470,27 @@ pub async fn echo_client_tracing(transport: JsTransport) -> Result<String, JsVal
     let client = EchoClient::new(Channel::new(wasm_transport(transport)));
     let result = client.unary(req("hello", 0)).await;
     grpc_dc::status::set_tracer(None);
-    match result {
-        Ok(resp) => {
+    // Large-message leg on the same endpoint: 192 KiB unary
+    // (under the browser RTCDataChannel max-message-size of
+    // 256 KiB — dc.send rejects larger single messages, and
+    // no browser transport chunks yet; chunking the frame
+    // stream under the endpoint is the follow-up that unlocks
+    // multi-MB browser messages). The multi-MB stall class
+    // must stay dead in browsers too.
+    let large = client.unary(req(&"x".repeat(192 * 1024), 0)).await;
+    match (result, large) {
+        (Ok(resp), Ok(big)) => {
             let results = MatrixClientResults {
                 message: resp.message,
                 starts: recorder.starts.lock().unwrap().clone(),
                 ends: recorder.ends.lock().unwrap().clone(),
+                large_bytes: big.message.len(),
             };
             serde_json::to_string(&results).map_err(|e| JsValue::from_str(&e.to_string()))
         }
-        Err(status) => Err(JsValue::from_str(&format!("{status}"))),
+        (Err(status), _) | (_, Err(status)) => {
+            Err(JsValue::from_str(&format!("{status}")))
+        }
     }
 }
 

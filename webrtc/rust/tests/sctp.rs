@@ -246,10 +246,10 @@ fn sack_rwnd_shrinks_for_gap_buffered_bytes_and_recovers() {
     // Deliver only the second fragment: it is gap-buffered, so
     // the advertised window must drop by its payload size.
     let (sacks, _) = link.server.handle_packet(&pkts[1], link.now);
-    assert_eq!(sack_arwnd(&sacks[0]), 262_144 - 1000);
+    assert_eq!(sack_arwnd(&sacks[0]), 262_144 - 1152);
     // A duplicate of the same TSN must not double-count.
     let (sacks, _) = link.server.handle_packet(&pkts[1], link.now);
-    assert_eq!(sack_arwnd(&sacks[0]), 262_144 - 1000);
+    assert_eq!(sack_arwnd(&sacks[0]), 262_144 - 1152);
     // Filling the gap advances cum over both fragments and
     // restores the full window.
     let (sacks, _) = link.server.handle_packet(&pkts[0], link.now);

@@ -4014,7 +4014,7 @@
                      (file->string p))])
          ;; Runtime fetch URLs ("assets/racket/runner.rkt") are
          ;; asset references, not source-path references: exempt.
-         (regexp-match? #rx"(^|[\"'(/ \t])racket/[a-z0-9_.*-]+[.]rkt"
+         (regexp-match? #rx"(^|[\"'`(/ \t])racket/[a-z0-9_.*-]+[.]rkt"
                         (regexp-replace* #rx"assets/racket/" text "assets/")))))
 
 (define clarity-violations (filter clarity-violation? all-exported))

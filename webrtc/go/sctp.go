@@ -18,11 +18,17 @@ import (
 // SctpPort is the default SCTP port in the SDP profile.
 const SctpPort = 5000
 
-const maxDataPayload = 1000
+// Fragment payload per DATA chunk: a local send-side choice
+// (receivers accept any chunk size); 1152 keeps the whole
+// SCTP packet inside the ~1200-byte DTLS datagrams browsers
+// emit (Chromium drops SCTP packets over 2048 bytes; larger
+// packets IP-fragment on real paths). See Rust sctp.rs.
+// overhead 4x vs 1000 on large messages. See Rust sctp.rs.
+const maxDataPayload = 1152
 const initialRwnd = 262144
 
 // RFC 9260 section 6.1: initial cwnd is 4 MTU here (fragment
-// payload is 1000B, so ~4 fragments in flight before SACK clocking).
+// payload is 1152B, so ~4 fragments in flight before SACK clocking).
 const initialCwnd = 4 * maxDataPayload
 const initialRtoMs = 1000
 const rtoMinMs = 200
