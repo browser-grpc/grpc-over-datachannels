@@ -78,7 +78,21 @@ impl SctpReassembler {
     ) -> Vec<SctpDelivery> {
         let entry = self.streams.entry(stream).or_default();
         let mut key = tsn;
-        if !is_begin {
+        // A retransmitted fragment belongs to the partial
+        // that already holds its TSN; keying a fresh partial
+        // for it splits one message across two partials, and
+        // neither can complete (an END-holding partial is
+        // merge-exempt), wedging ordered delivery while
+        // SACKs keep acking.
+        let mut owned = false;
+        for (k, p) in entry.partials.iter() {
+            if p.parts.contains_key(&tsn) {
+                key = *k;
+                owned = true;
+                break;
+            }
+        }
+        if !owned && !is_begin {
             for (k, p) in entry.partials.iter() {
                 if p.last_tsn.is_some() {
                     continue; // already ended: new partial

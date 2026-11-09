@@ -71,7 +71,19 @@ func sctpPartialMin(p *sctpPartial) uint32 { return p.minTsn }
 func (r *sctpReassembler) feed(tsn uint32, stream uint16, ssn uint16, ppid uint32, unordered bool, isBegin bool, isEnd bool, payload []byte) []sctpDelivery {
     entry := r.entry(stream)
     key := tsn
-    if !isBegin {
+    // A retransmitted fragment belongs to the partial that
+    // already holds its TSN; keying a fresh partial for it
+    // splits one message across two partials, and neither
+    // can complete (an END-holding partial is merge-
+    // exempt), wedging ordered delivery while SACKs ack.
+    owned := false
+    for k, p := range entry.partials {
+        if _, has := p.parts[tsn]; has {
+            key, owned = k, true
+            break
+        }
+    }
+    if !owned && !isBegin {
         for k, p := range entry.partials {
             if p.hasLast {
                 continue // already ended: a later fragment starts a new partial
