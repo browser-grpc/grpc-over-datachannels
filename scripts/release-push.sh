@@ -95,7 +95,7 @@ else
     echo "tag $VERSION already exists; pushing export commit only"
     git push origin HEAD
   else
-    git tag "$VERSION"
+    git rev-parse "$VERSION" >/dev/null 2>&1 || git tag "$VERSION"
     git push origin HEAD
     git push origin "$VERSION"
   fi
@@ -129,7 +129,7 @@ if [ -d "$KP_EXPORT" ]; then
   else
     git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
       commit -m "release $VERSION (generated export)"
-    git tag "$VERSION"
+    git rev-parse "$VERSION" >/dev/null 2>&1 || git tag "$VERSION"
     git push origin HEAD
     git push origin "$VERSION"
     echo "published $KP_REPO $VERSION"
@@ -162,7 +162,7 @@ for pair in "$PHP_EXPORT $PHP_REPO" "$KPHP_EXPORT $KPHP_REPO" "$EBPHP_EXPORT $EB
     else
       git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
         commit -m "release $VERSION (generated export)"
-      git tag "$VERSION"
+      git rev-parse "$VERSION" >/dev/null 2>&1 || git tag "$VERSION"
       git push origin HEAD
       git push origin "$VERSION"
       echo "published $P_REPO $VERSION"
@@ -192,7 +192,7 @@ if [ -d "$EB_EXPORT" ]; then
   else
     git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
       commit -m "release $VERSION (generated export)"
-    git tag "$VERSION"
+    git rev-parse "$VERSION" >/dev/null 2>&1 || git tag "$VERSION"
     git push origin HEAD
     git push origin "$VERSION"
     echo "published $EB_REPO $VERSION"
@@ -221,7 +221,7 @@ if [ -d "$EX_EXPORT" ]; then
   else
     git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
       commit -m "release $VERSION (generated catalog)"
-    git tag "$VERSION"
+    git rev-parse "$VERSION" >/dev/null 2>&1 || git tag "$VERSION"
     git push origin HEAD
     git push origin "$VERSION"
     echo "published $EX_REPO $VERSION"
