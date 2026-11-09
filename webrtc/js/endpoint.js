@@ -18,6 +18,52 @@ import {
 } from "./dcep.js";
 import { Association, SCTP_PORT } from "./sctp.js";
 
+// DC message chunking (mirrors js/src/chunking.js and the
+// Rust/Go stacks): browsers cap one RTCDataChannel message at
+// the negotiated max-message-size (262144 in Chromium), so
+// endpoints with chunkMessages enabled split binary messages
+// over 64 KiB into [0xF0, flags]-headed chunks and reassemble
+// on receipt. 0xF0 is an unknown grpc-dc frame type, so a
+// peer without chunking ignores chunks per the forward-compat
+// rule instead of misdecoding them.
+const DC_CHUNK_MAGIC = 0xf0;
+const DC_CHUNK_FINAL = 0x01;
+const MAX_DC_CHUNK_PAYLOAD = 65536;
+
+function splitDcMessage(data) {
+  if (data.length <= MAX_DC_CHUNK_PAYLOAD) return [data];
+  const out = [];
+  for (let off = 0; off < data.length; off += MAX_DC_CHUNK_PAYLOAD) {
+    const last = off + MAX_DC_CHUNK_PAYLOAD >= data.length;
+    const chunk = Buffer.alloc(2 + Math.min(MAX_DC_CHUNK_PAYLOAD, data.length - off));
+    chunk[0] = DC_CHUNK_MAGIC;
+    chunk[1] = last ? DC_CHUNK_FINAL : 0;
+    data.copy(chunk, 2, off, off + Math.min(MAX_DC_CHUNK_PAYLOAD, data.length - off));
+    out.push(chunk);
+  }
+  return out;
+}
+
+class DcChunkReassembler {
+  constructor() {
+    this.parts = null;
+  }
+
+  push(data) {
+    if (this.parts === null && (data.length < 2 || data[0] !== DC_CHUNK_MAGIC)) return data;
+    if (data.length < 2 || data[0] !== DC_CHUNK_MAGIC) {
+      this.parts = null;
+      return data;
+    }
+    if (this.parts === null) this.parts = [];
+    this.parts.push(data.subarray(2));
+    if ((data[1] & DC_CHUNK_FINAL) === 0) return null;
+    const whole = Buffer.concat(this.parts);
+    this.parts = null;
+    return whole;
+  }
+}
+
 export class DataChannel {
   constructor(endpoint, stream, params) {
     this._endpoint = endpoint;
@@ -32,6 +78,7 @@ export class DataChannel {
     // Messages that arrive before any handler is registered are queued,
     // never dropped (matches native RTCDataChannel handler timing).
     this._pending = [];
+    this._reasm = new DcChunkReassembler();
     Object.defineProperty(this, "onmessage", {
       get: () => this._onmessage,
       set: (fn) => {
@@ -104,7 +151,8 @@ export class DcEndpoint {
    * @param role "client" (DTLS client: opens even streams, sends INIT)
    *             or "server" (DTLS server: odd streams)
    */
-  constructor(dtls, role, { localPort = SCTP_PORT } = {}) {
+  constructor(dtls, role, { localPort = SCTP_PORT, chunkMessages = false } = {}) {
+    this.chunkMessages = chunkMessages;
     this.dtls = dtls;
     this.role = role;
     this.assoc = role === "client" ? Association.newClient(localPort) : Association.newServer(localPort);
@@ -157,6 +205,16 @@ export class DcEndpoint {
   }
 
   _sendData(channel, data, isText) {
+    if (this.chunkMessages && !isText && data.length > MAX_DC_CHUNK_PAYLOAD) {
+      // Chunks themselves are at most MAX+2 bytes; send them
+      // through the raw path so they are not re-split.
+      for (const chunk of splitDcMessage(data)) this._sendDataRaw(channel, chunk);
+      return;
+    }
+    this._sendDataRaw(channel, data, isText);
+  }
+
+  _sendDataRaw(channel, data, isText = false) {
     const ppid = isText
       ? data.length === 0
         ? PPID_STRING_EMPTY
@@ -218,6 +276,15 @@ export class DcEndpoint {
     }
     if (event.type !== "data") return;
     const { stream, ppid, payload } = event;
+    if (this.chunkMessages && (ppid === PPID_BINARY || ppid === PPID_BINARY_EMPTY)) {
+      const channel = this.channels.get(stream);
+      if (channel) {
+        const whole = channel._reasm.push(Buffer.from(payload));
+        if (whole === null) return;
+        channel._emitMessage(whole, false);
+        return;
+      }
+    }
     if (ppid === PPID_DCEP) {
       if (isAck(payload)) return;
       const params = decodeOpen(payload);

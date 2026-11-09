@@ -11,7 +11,11 @@
  * next to the Swift object. */
 #include <stddef.h>
 
-#define HEAP_BYTES (4u * 1024u * 1024u)
+/* 32 MiB: one 1 MiB call copies its payload several times
+ * through the bridge (alloc in, message copy, response
+ * build, alloc out) and free is a no-op, so the arena must
+ * hold a whole call's peak, not one buffer. */
+#define HEAP_BYTES (32u * 1024u * 1024u)
 static _Alignas(16) unsigned char g_heap[HEAP_BYTES];
 static size_t g_offset;
 

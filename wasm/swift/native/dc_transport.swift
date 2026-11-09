@@ -15,7 +15,7 @@ func jsDcSend(_ ptr: UnsafePointer<UInt8>, _ len: Int)
 func jsDcRecv(_ ptr: UnsafeMutablePointer<UInt8>, _ cap: Int, _ timeoutMs: Int32) -> Int32
 
 final class DcTransport: Transport {
-    private var buffer = [UInt8](repeating: 0, count: 256 * 1024)
+    private var buffer = [UInt8](repeating: 0, count: 4 * 1024 * 1024) // fits shim-reassembled frames
 
     func Send(_ data: [UInt8]) throws {
         let safe = data.isEmpty ? [0] : data

@@ -2,6 +2,7 @@
 <meta charset="utf-8">
 <title>grpc-dc WASM native C++ server test</title>
 <script type="module">
+import { DcChunkReassembler, splitDcMessage } from "/js/index.js";
 // Native-runtime test: the real generated Zig client +
 // grpcdc runtime run in a Web Worker (WASM), driving the
 // browser's native RTCDataChannel through a SharedArrayBuffer
@@ -17,7 +18,7 @@ window.__acceptAnswer = async (sdp) => {
   await pc.setRemoteDescription({ type: "answer", sdp });
 };
 
-const SAB_DATA = 256 * 1024;
+const SAB_DATA = 4 * 1024 * 1024; // fits a 1 MiB frame + margin (large-message legs)
 window.__runServer = async () => {
   if (dc.readyState !== "open") {
     await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
@@ -38,8 +39,13 @@ window.__runServer = async () => {
     }
     if (queue.length) pumpTimer = setTimeout(pumpQueue, 1);
   };
+  // DC chunk shim: >64 KiB frames arrive as chunks and are
+  // reassembled before the mailbox (browser 256 KiB cap).
+  const reassembler = new DcChunkReassembler();
   dc.addEventListener("message", (event) => {
-    queue.push(new Uint8Array(event.data));
+    const whole = reassembler.push(new Uint8Array(event.data));
+    if (whole === null) return;
+    queue.push(whole);
     if (!pumpTimer) pumpQueue();
   });
   dc.addEventListener("close", () => {
@@ -49,7 +55,7 @@ window.__runServer = async () => {
 
   const worker = new Worker("/browser-test/wasm_cpp_native_worker.js", { type: "module" });
   worker.addEventListener("message", (event) => {
-    if (event.data.t === "send" && dc.readyState === "open") dc.send(event.data.bytes);
+    if (event.data.t === "send" && dc.readyState === "open") for (const chunk of splitDcMessage(event.data.bytes)) dc.send(chunk);
     // Tracing mode reports cumulative spans as results.
     if (event.data.t === "result") window.__spans = JSON.parse(event.data.json);
   });

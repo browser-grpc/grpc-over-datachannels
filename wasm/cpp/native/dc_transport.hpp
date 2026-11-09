@@ -56,7 +56,7 @@ class DcTransport : public grpcdc::Transport {
   void Close() override {}
 
  private:
-  static constexpr std::size_t kMaxMessage = 256 * 1024;
+  static constexpr std::size_t kMaxMessage = 4 * 1024 * 1024; // fits shim-reassembled frames
 
   static std::vector<std::uint8_t>& Buffer() {
     static std::vector<std::uint8_t> buffer(kMaxMessage);

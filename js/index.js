@@ -34,6 +34,13 @@ export {
 export { Channel } from "./src/channel.js";
 export { Server } from "./src/server.js";
 export { memoryDataChannelPair } from "./src/loopback.js";
+export {
+  DC_CHUNK_MAGIC,
+  MAX_DC_CHUNK_PAYLOAD,
+  DcChunkReassembler,
+  chunkedDataChannel,
+  splitDcMessage,
+} from "./src/chunking.js";
 export { createGrpcDcBridge, createGrpcDcServerBridge } from "./src/wasm_bridge.js";
 // Note: the Node WebRTC-Direct adapter (src/webrtc_direct.js)
 // is deliberately NOT re-exported here -- it imports Node-only

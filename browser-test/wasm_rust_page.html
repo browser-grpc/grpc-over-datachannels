@@ -3,6 +3,7 @@
 <title>grpc-dc native WASM Rust client test</title>
 <script type="module">
 import init, { echo_client, echo_client_tracing } from "/browser-test/wasm_rust_gen/grpc_dc_wasm_rust.js";
+import { DcChunkReassembler, splitDcMessage } from "/js/index.js";
 
 // The calls originate in the Rust grpc_dc runtime compiled to
 // wasm32 (frame codec, endpoint multiplexer, generated Echo stub —
@@ -24,18 +25,22 @@ async function makeTransport() {
     await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
   }
   dc.binaryType = "arraybuffer";
+  // DC chunk shim: frames over 64 KiB cross as chunks so
+  // multi-MB calls fit the browser's 256 KiB message cap.
+  const reassembler = new DcChunkReassembler();
   const transport = {
     _onMessage: null,
     send(data) {
-      dc.send(data);
+      for (const chunk of splitDcMessage(data)) dc.send(chunk);
     },
     setOnMessage(callback) {
       this._onMessage = callback;
     },
   };
   dc.addEventListener("message", (event) => {
-    if (transport._onMessage) {
-      transport._onMessage(new Uint8Array(event.data));
+    const whole = reassembler.push(new Uint8Array(event.data));
+    if (whole !== null && transport._onMessage) {
+      transport._onMessage(whole);
     }
   });
   return transport;

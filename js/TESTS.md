@@ -16,6 +16,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`bdd_scenarios.generated.js`](test/bdd_scenarios.generated.js) — BDD scenario suite (generated)
 - [`bdd_schemas.generated.js`](test/bdd_schemas.generated.js) — BDD scenario suite (generated)
 - [`bdd_schemas.test.js`](test/bdd_schemas.test.js) — BDD scenario suite (generated)
+- [`chunking.test.js`](test/chunking.test.js) — Generated suite/example
 - [`deadline.test.js`](test/deadline.test.js) — Deadline propagation and enforcement
 - [`dynamic.test.js`](test/dynamic.test.js) — Generated suite/example
 - [`echo.test.js`](test/echo.test.js) — Echo: all four call shapes

@@ -45,6 +45,7 @@ export class Peer {
   #certificate;
   #remote = null;
   #dtlsRole = "server";
+  #chunkMessages = false;
   #requirePeerCertificate;
   #dtlsQueue = [];
   #dtlsWaiters = [];
@@ -75,7 +76,8 @@ export class Peer {
   #consentIntervalMs = 5000;
   #consentExpiryMs = 30000;
 
-  constructor(socket, agent, certificate, { requirePeerCertificate = true } = {}) {
+  constructor(socket, agent, certificate, { requirePeerCertificate = true, chunkMessages = false } = {}) {
+    this.#chunkMessages = chunkMessages;
     this.#socket = socket;
     this.#agent = agent;
     this.#certificate = certificate;
@@ -93,6 +95,7 @@ export class Peer {
     turnServers = [],
     consentIntervalMs = 5000,
     consentExpiryMs = 30000,
+    chunkMessages = false,
   } = {}) {
     const effectiveIps = localIps ?? defaultLocalIps();
     // A dual-stack udp6 socket serves IPv6 candidates (and IPv4
@@ -116,6 +119,7 @@ export class Peer {
       turnServers,
       consentIntervalMs,
       consentExpiryMs,
+      chunkMessages,
     });
   }
 
@@ -132,6 +136,7 @@ export class Peer {
       turnServers = [],
       consentIntervalMs = 5000,
       consentExpiryMs = 30000,
+      chunkMessages = false,
     } = {},
   ) {
     const effectiveIps = localIps ?? defaultLocalIps();
@@ -140,7 +145,7 @@ export class Peer {
     agent.localCandidates = effectiveIps.map((ip, i) =>
       Candidate.host(ip, port, String(i + 1)),
     );
-    const peer = new Peer(socket, agent, Certificate.generate(), { requirePeerCertificate });
+    const peer = new Peer(socket, agent, Certificate.generate(), { requirePeerCertificate, chunkMessages });
     peer.#consentIntervalMs = consentIntervalMs;
     peer.#consentExpiryMs = consentExpiryMs;
     for (const server of stunServers) {
@@ -594,7 +599,7 @@ export class Peer {
         ? await DtlsConnection.connect(io, config)
         : await DtlsConnection.accept(io, config);
     emitStackEvent("dtls.handshake", dtls.wasResumed?.() ? "resumed" : "full");
-    this.#endpoint = new DcEndpoint(dtls, this.#dtlsRole);
+    this.#endpoint = new DcEndpoint(dtls, this.#dtlsRole, { chunkMessages: this.#chunkMessages });
     emitStackEvent("endpoint.ready", this.#dtlsRole);
     this.#startConsentLoop();
     return this.#endpoint;

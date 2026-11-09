@@ -18,7 +18,7 @@ fn hostNowMs() i64 {
     return @intFromFloat(js_now_ms());
 }
 
-const MAX_MESSAGE = 256 * 1024;
+const MAX_MESSAGE = 4 * 1024 * 1024; // fits shim-reassembled frames (page SAB is 4 MiB)
 var recv_buf: [MAX_MESSAGE]u8 = undefined;
 
 pub const DcTransport = struct {
