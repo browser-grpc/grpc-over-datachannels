@@ -102,10 +102,9 @@ else
   # Submodule tags: the Go module proxy resolves the modules at
   # go/ and webrtc/go/ only via go/<version> / webrtc/go/<version>
   # tags (pkg.go.dev). Same commit as $VERSION.
-  git tag "go/$VERSION"
-  git tag "webrtc/go/$VERSION"
-  git tag "kafka/$VERSION"
-  git tag "eventbus/$VERSION"
+  for sub in go webrtc/go kafka eventbus; do
+    git rev-parse "$sub/$VERSION" >/dev/null 2>&1 || git tag "$sub/$VERSION"
+  done
   git push origin "go/$VERSION" "webrtc/go/$VERSION" "kafka/$VERSION" "eventbus/$VERSION"
   echo "published $REPO $VERSION"
 fi
