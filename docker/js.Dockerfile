@@ -16,4 +16,5 @@ COPY webapp/testdata ./webapp/testdata
 COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs
 COPY docs/app/gen ./docs/app/gen
 COPY proto ./proto
+COPY examples/tracing ./examples/tracing
 CMD ["sh", "-c", "cd js && node --test $(ls test/*.test.js | grep -v -e dynamic.test -e oracle.test -e interop.test -e plugin_parity.test)"]
