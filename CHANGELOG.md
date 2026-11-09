@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.40.0 — 2026-11-09
+## v0.40.0 — 2026-11-09 (published to GitHub/GHCR/NuGet/GitHub Maven/pub.dev/crates.io/LuaRocks/JSR)
 
 - Distributed tracing (beta) across every generated runtime:
   span start/end observers now receive span durations and the
