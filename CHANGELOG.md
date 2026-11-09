@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.40.0 — prepared 2026-11-07, scheduled to publish 2026-11-09
+## v0.40.0 — 2026-11-09
 
 - Distributed tracing (beta) across every generated runtime:
   span start/end observers now receive span durations and the
@@ -51,6 +51,33 @@ curated release tags on `master`; dates are the tag dates.
   generated for every language and linked from the readmes;
   `docs/.nojekyll` keeps GitHub Pages serving the static
   tree as-is.
+- SCTP delivery depth in all three hand-rolled stacks
+  (Rust/Go/JS): RTT-measured retransmit timers (SRTT/RTTVAR
+  feeding RTO) replace the fixed 1s recovery, reassembly is
+  O(1)-amortized instead of quadratic, and every stack now
+  advertises a truthful per-TSN `a_rwnd` that shrinks for
+  gap-buffered bytes — the proxy stress leg grows to 8 MB.
+- SCTP fragment size is now browser-MTU-safe (1152-byte
+  payloads in all three stacks): browsers drop SCTP packets
+  over 2048 bytes outright, so larger fragments silently
+  stalled browser-bound large messages; packets now match
+  the ~1200-byte datagrams browsers themselves emit.
+- Browser matrix: 192 KiB large-message legs join the Wasm
+  tracing matrix (20/20 pairs in Chromium and Firefox), with
+  Scala.js/Go/Kotlin/C++/Swift facade client pairs added;
+  a paced throughput bench (`make bench-throughput`) baselines
+  the JS stack against Chromium's native stack.
+- JS proxy HTTP/2 malformed-input corpus (garbage preface,
+  truncated frames/LPM, bad gzip, oversize decompression,
+  mid-message resets); it found and fixed the bridge
+  reporting UNAVAILABLE instead of UNIMPLEMENTED for parser
+  errors. Rust proxy gains TLS in both directions
+  (`--tls-ca`, per-direction cert handling) and a
+  published-package consumer gate for npm `kafka-grpc`.
+- Embedded: the raw-Ethernet Echo e2e now fragments a
+  10 KiB unary across ~7 frames each way and streams over
+  `EthDc`; the public-export clarity gate also catches
+  backticked generator-path references.
 
 ## v0.39.0 — prepared 2026-11-06, scheduled to publish 2026-11-09 (published to GitHub/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/crates.io/LuaRocks/JSR)
 
