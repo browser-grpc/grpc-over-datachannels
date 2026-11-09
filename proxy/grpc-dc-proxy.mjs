@@ -26,7 +26,7 @@
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-import { Endpoint } from "../js/index.js";
+import { Endpoint, setTracer } from "../js/index.js";
 import { directClientStackEndpoint } from "../js/src/webrtc_direct.js";
 import { serveHttp2ToDc } from "./bridge.mjs";
 
@@ -58,7 +58,17 @@ export async function dialDc(multiaddr) {
 // server (tests inject it; the CLI obtains it via dialDc).
 // ---------------------------------------------------------------------------
 
-export async function startIngressProxy({ dcStackEndpoint, http2Port = 0, host = "127.0.0.1", dc = null, tls = null }) {
+export async function startIngressProxy({ dcStackEndpoint, http2Port = 0, host = "127.0.0.1", dc = null, tls = null, trace = false }) {
+  if (trace) {
+    // One JSON span line per event on stderr; the bridge's
+    // "proxy" spans parent the server spans to this hop.
+    setTracer({
+      onStart: (kind, method, traceId, spanId, parentSpanId) =>
+        console.error(JSON.stringify({ event: "start", kind, method, traceId, spanId, parentSpanId })),
+      onEnd: (kind, method, traceId, spanId, status, durationMs) =>
+        console.error(JSON.stringify({ event: "end", kind, method, traceId, spanId, status, durationMs })),
+    });
+  }
   const closers = [];
   let http2 = null;
 
@@ -101,6 +111,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       http2Port: Number(value("--http2", "0")),
       host: value("--host", "0.0.0.0"),
       tls,
+      trace: args.includes("--trace"),
     });
   } else {
     console.error(

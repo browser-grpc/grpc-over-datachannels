@@ -9,6 +9,15 @@ import java.util.Map;
 /** Channel: the client side of one Endpoint. */
 public class Channel {
     private final Endpoint endpoint;
+    private Tracing.TraceContext traceContext;
+
+    /** A Channel view sharing this endpoint whose outbound spans
+     *  are parented to ctx. Explicit call metadata still wins. */
+    public Channel withTraceContext(Tracing.TraceContext ctx) {
+        Channel ch = new Channel(endpoint);
+        ch.traceContext = ctx;
+        return ch;
+    }
 
     /** Wrap a transport, allocating odd stream ids. */
     public Channel(Transport transport) {
@@ -177,11 +186,14 @@ public class Channel {
                 merged.put("grpc-timeout", Codec.encodeTimeout(timeout));
             }
             if (Tracing.enabled()) {
-                traceCtx = Tracing.traceStart("client", path,
-                        Tracing.parseTraceparent(merged.get("traceparent")));
+                Tracing.Parent parent = Tracing.parseTraceparent(merged.get("traceparent"));
+                if (parent == null) {
+                    parent = Tracing.parentOf(traceContext);
+                }
+                traceCtx = Tracing.traceStart("client", path, parent);
                 if (traceCtx != null) {
                     merged.put("traceparent",
-                            Tracing.formatTraceparent(traceCtx.traceId(), traceCtx.spanId()));
+                            Tracing.formatTraceparent(traceCtx.traceId(), traceCtx.spanId(), traceCtx.sampled()));
                 }
             }
             metadata = merged;

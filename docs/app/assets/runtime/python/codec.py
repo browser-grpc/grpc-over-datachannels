@@ -30,7 +30,7 @@ def status_name(code):
     return STATUS_NAMES.get(code, f"CODE_{code}")
 
 
-# --- Homegrown tracing (W3C traceparent propagation) -----------------
+# --- Homegrown tracing (beta) (W3C traceparent propagation) -----------------
 # Dormant until set_tracer() registers an observer. The observer is
 # any object with on_start(kind, method, trace_id, span_id,
 # parent_span_id) and on_end(kind, method, trace_id, span_id,
@@ -38,6 +38,7 @@ def status_name(code):
 # batching and export are the application's problem.
 
 import secrets as _secrets
+import time as _time
 
 _tracer = None
 
@@ -82,45 +83,53 @@ def _new_span_id():
     return _secrets.token_hex(8)
 
 
-def format_traceparent(trace_id, span_id):
-    return f"00-{trace_id}-{span_id}-01"
+def format_traceparent(trace_id, span_id, sampled=True):
+    return f"00-{trace_id}-{span_id}-{'01' if sampled else '00'}"
 
 
 def parse_traceparent(value):
-    """Parse a traceparent header -> (trace_id, span_id) or None."""
+    """Parse a traceparent header -> (trace_id, span_id, sampled) or None."""
     if not isinstance(value, str):
         return None
     parts = value.split("-")
     if len(parts) != 4:
         return None
-    _, trace_id, span_id, _flags = parts
-    if len(trace_id) != 32 or len(span_id) != 16:
+    _, trace_id, span_id, flags = parts
+    if len(trace_id) != 32 or len(span_id) != 16 or len(flags) != 2:
         return None
     try:
         int(trace_id, 16)
         int(span_id, 16)
+        flags_int = int(flags, 16)
     except ValueError:
         return None
-    return (trace_id, span_id)
+    return (trace_id, span_id, bool(flags_int & 1))
 
 
 def trace_start(kind, method, parent):
     """Begin a span; parent is a parsed traceparent or None.
 
     Returns a context dict (keys: trace_id, span_id,
-    parent_span_id) or None when no tracer is registered.
+    parent_span_id, sampled) or None when no tracer is
+    registered. An upstream not-sampled decision is honored:
+    the context still propagates (flags 00) but no span is
+    recorded.
     """
     if _tracer is None or not _trace_allowed(method):
         return None
     if parent is not None:
-        trace_id, parent_span_id = parent
+        trace_id, parent_span_id, sampled = parent
     else:
-        trace_id, parent_span_id = _new_trace_id(), ""
+        trace_id, parent_span_id, sampled = _new_trace_id(), "", True
     ctx = {
         "trace_id": trace_id,
         "span_id": _new_span_id(),
         "parent_span_id": parent_span_id,
+        "sampled": sampled,
+        "start": _time.monotonic(),
     }
+    if not sampled:
+        return ctx
     try:
         _tracer.on_start(kind, method, ctx["trace_id"], ctx["span_id"], parent_span_id)
     except Exception:
@@ -129,12 +138,53 @@ def trace_start(kind, method, parent):
 
 
 def trace_end(kind, method, ctx, status):
-    if ctx is None or _tracer is None:
+    if ctx is None or _tracer is None or not ctx.get("sampled", True):
         return
     try:
-        _tracer.on_end(kind, method, ctx["trace_id"], ctx["span_id"], status)
+        duration_ms = (_time.monotonic() - ctx["start"]) * 1000.0
+        _tracer.on_end(kind, method, ctx["trace_id"], ctx["span_id"], status, duration_ms)
     except Exception:
         pass
+
+
+# --- Trace-context propagation (ambient + explicit) ----------------
+# The server activates its span context while the handler runs;
+# Channel._open then parents outbound client spans to it with no
+# manual metadata handling. ContextVar storage keeps concurrent
+# calls (threads and asyncio tasks) apart.
+import contextvars as _contextvars
+from contextlib import contextmanager as _contextmanager
+
+_current_trace_context = _contextvars.ContextVar(
+    "grpcdc_current_trace_context", default=None)
+
+
+def current_trace_context():
+    """The trace context active in this execution context, or None."""
+    return _current_trace_context.get()
+
+
+@_contextmanager
+def with_trace_context(ctx):
+    """Run the enclosed block with ctx as the ambient trace context."""
+    token = _current_trace_context.set(ctx)
+    try:
+        yield ctx
+    finally:
+        _current_trace_context.reset(token)
+
+
+def new_trace_context(kind="internal", method=""):
+    """Start a root span context (e.g. for a client workflow that
+    groups several outbound calls under one trace). Pair with
+    trace_end. Returns None when tracing is dormant."""
+    return trace_start(kind, method, None)
+
+
+def _trace_parent(ctx):
+    if ctx is None:
+        return None
+    return (ctx["trace_id"], ctx["span_id"], ctx["sampled"])
 
 
 class StatusError(Exception):

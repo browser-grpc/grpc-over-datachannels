@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc throughput bench page</title>
+<script type="module">
+// Bench counterpart for throughput_bench.mjs: a native browser
+// RTCDataChannel that echoes every binary message back verbatim.
+// The Node side drives it with our hand-rolled JS stack, so the
+// numbers compare the browser SCTP/DTLS stack against ours on
+// the same loopback path.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+dc.binaryType = "arraybuffer";
+window.__got = 0;
+dc.onmessage = (e) => { window.__got += 1; dc.send(e.data); };
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>

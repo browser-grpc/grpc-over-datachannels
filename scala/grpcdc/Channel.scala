@@ -8,6 +8,16 @@ import java.io.EOFException
 class Channel(val endpoint: Endpoint) {
   endpoint.start()
 
+  private var traceContext: Tracing.TraceContext = null
+
+  /** A Channel view sharing this endpoint whose outbound spans
+   *  are parented to ctx. Explicit call metadata still wins. */
+  def withTraceContext(ctx: Tracing.TraceContext): Channel = {
+    val ch = new Channel(endpoint)
+    ch.traceContext = ctx
+    ch
+  }
+
   /** Wrap a transport, allocating odd stream ids. */
   def this(transport: Transport) = {
     this(Endpoint(transport, true))
@@ -130,9 +140,13 @@ class Channel(val endpoint: Endpoint) {
         md = md + ("grpc-timeout" -> Codec.encodeTimeout(timeout))
       }
       if (Tracing.enabled) {
-        traceCtx = Tracing.traceStart("client", path, Tracing.parseTraceparent(md.getOrElse("traceparent", null)))
+        val parent = Tracing.parseTraceparent(md.getOrElse("traceparent", null)) match {
+          case null => Tracing.parentOf(traceContext)
+          case p => p
+        }
+        traceCtx = Tracing.traceStart("client", path, parent)
         if (traceCtx != null) {
-          md = md + ("traceparent" -> Tracing.formatTraceparent(traceCtx.traceId, traceCtx.spanId))
+          md = md + ("traceparent" -> Tracing.formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled))
         }
       }
     }

@@ -2,10 +2,10 @@ package tests
 
 import kotlin.system.exitProcess
 
-// Test runner: java -jar tests.jar <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline|TestInlinePump>
+// Test runner: java -jar tests.jar <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline|TestTracing|TestInlinePump>
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
-        System.err.println("usage: tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline|TestInlinePump>")
+        System.err.println("usage: tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline|TestTracing|TestInlinePump>")
         exitProcess(2)
     }
     try {
@@ -17,6 +17,7 @@ fun main(args: Array<String>) {
             "TestDynamic" -> testDynamic()
             "TestBdd" -> testBdd()
             "TestDeadline" -> testDeadline()
+            "TestTracing" -> testTracing()
             "TestInlinePump" -> testInlinePump()
             "TestPbMessages" -> testPbMessages()
             "TestBddSchemas" -> testBddSchemas()

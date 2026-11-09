@@ -156,6 +156,8 @@ class CallContext
     public array $responseHeaders = [];
     /** @var array<string,string> Response trailing metadata recorded via setTrailers. */
     public array $responseTrailers = [];
+    /** This call's server span context (null when dormant). */
+    public ?array $traceContext = null;
     public ?float $deadline;
 
     /** Record response initial metadata (sent lazily, before the first response message). */

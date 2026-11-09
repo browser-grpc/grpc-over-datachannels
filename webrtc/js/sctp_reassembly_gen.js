@@ -33,8 +33,7 @@ export class SctpReassembler {
     if (!isBegin) {
       for (const [k, p] of entry.partials) {
         if (p.lastTsn !== null) continue; // already ended: new partial
-        const maxTsn = Math.max(...p.parts.keys());
-        if (add32(maxTsn, 1) === tsn) {
+        if (p.maxTsn !== null && add32(p.maxTsn, 1) === tsn) {
           key = k;
           break;
         }
@@ -42,7 +41,7 @@ export class SctpReassembler {
     }
     let partial = entry.partials.get(key);
     if (!partial) {
-      partial = { ssn: 0, ppid: 0, unordered: false, parts: new Map(), firstTsn: null, lastTsn: null };
+      partial = { ssn: 0, ppid: 0, unordered: false, parts: new Map(), firstTsn: null, lastTsn: null, minTsn: null, maxTsn: null };
       entry.partials.set(key, partial);
     }
     if (isBegin) {
@@ -53,14 +52,16 @@ export class SctpReassembler {
     }
     if (isEnd) partial.lastTsn = tsn;
     partial.parts.set(tsn, Buffer.from(payload));
+    if (partial.minTsn === null || diff32(tsn, partial.minTsn) < 0) partial.minTsn = tsn;
+    if (partial.maxTsn === null || diff32(tsn, partial.maxTsn) > 0) partial.maxTsn = tsn;
 
     // Merge TSN-contiguous partials: a fragment that arrives
     // out of order starts a dangling partial that could
     // otherwise never complete. Never merge across a message
     // boundary: a partial holding a BEGIN fragment starts a
     // new message, and one holding an END fragment is whole.
-    const maxOf = (p) => Math.max(...p.parts.keys());
-    const minOf = (p) => Math.min(...p.parts.keys());
+    const maxOf = (p) => p.maxTsn;
+    const minOf = (p) => p.minTsn;
     let merged = true;
     while (merged) {
       merged = false;
@@ -72,6 +73,8 @@ export class SctpReassembler {
           if (add32(maxOf(pa), 1) === minOf(pb)) {
             for (const [t, b] of pb.parts) pa.parts.set(t, b);
             if (pb.lastTsn !== null) pa.lastTsn = pb.lastTsn;
+            if (pb.minTsn !== null && (pa.minTsn === null || diff32(pb.minTsn, pa.minTsn) < 0)) pa.minTsn = pb.minTsn;
+            if (pb.maxTsn !== null && (pa.maxTsn === null || diff32(pb.maxTsn, pa.maxTsn) > 0)) pa.maxTsn = pb.maxTsn;
             entry.partials.delete(kb);
             merged = true;
             break scan;
@@ -91,11 +94,8 @@ export class SctpReassembler {
         if (p.firstTsn === null || p.lastTsn === null) continue;
         const count = diff32(p.lastTsn, p.firstTsn) + 1;
         if (p.parts.size !== count) continue;
-        let okAll = true;
-        for (let i = 0; i < count; i++) {
-          if (!p.parts.has(add32(p.firstTsn, i))) { okAll = false; break; }
-        }
-        if (okAll) { completeKey = k; completePartial = p; break; }
+        if (p.minTsn !== p.firstTsn || p.maxTsn !== p.lastTsn) continue;
+        { completeKey = k; completePartial = p; break; }
       }
       if (completeKey === null) break;
       entry.partials.delete(completeKey);

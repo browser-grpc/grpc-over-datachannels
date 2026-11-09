@@ -117,6 +117,13 @@ function Channel.fromEndpoint(endpoint)
   return setmetatable({ endpoint = endpoint }, Channel)
 end
 
+--- Parent this channel's outbound spans to ctx (usually
+--- ctx.traceContext of the call being served, or a root from
+--- statusModule.newTraceContext). Explicit metadata still wins.
+function Channel:setTraceContext(ctx)
+  self.traceContext = ctx
+end
+
 function Channel:open(path, metadata, timeout)
   local deadline = nil
   local traceCtx = nil
@@ -131,9 +138,11 @@ function Channel:open(path, metadata, timeout)
       merged["grpc-timeout"] = Codec.encodeTimeout(timeout)
     end
     if statusModule.tracer() ~= nil then
-      traceCtx = statusModule.traceStart("client", path, statusModule.parseTraceparent(merged["traceparent"]))
+      local parent = statusModule.parseTraceparent(merged["traceparent"])
+      if parent == nil then parent = statusModule.parentOf(self.traceContext) end
+      traceCtx = statusModule.traceStart("client", path, parent)
       if traceCtx ~= nil then
-        merged["traceparent"] = statusModule.formatTraceparent(traceCtx.traceId, traceCtx.spanId)
+        merged["traceparent"] = statusModule.formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled)
       end
     end
     metadata = merged

@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc Kotlin/Wasm tracing test</title>
+<script type="module">
+// Runs the nested tracing scenario inside the native Kotlin/Wasm
+// runtime (Web Worker): client -> front callee -> downstream
+// service, spans recorded in the worker and returned as JSON.
+const worker = new Worker("/browser-test/wasm_kotlin_native_worker.js", { type: "module" });
+worker.onmessage = (event) => {
+  const msg = event.data || {};
+  if (msg.t === "result") {
+    try {
+      window.__result = JSON.parse(msg.json);
+    } catch (err) {
+      window.__error = String(err);
+    }
+  } else if (msg.t === "error") {
+    window.__error = msg.message || "worker error";
+  }
+};
+worker.onerror = (event) => {
+  window.__error = String(event.message || event.error || "worker error");
+};
+worker.postMessage({
+  sab: null,
+  wasmUrl: "/browser-test/kotlin_wasm_native_gen/echo_kotlin_native.mjs",
+  mode: "tracing",
+});
+</script>

@@ -46,10 +46,10 @@ local function raise(status)
   error(status, 0)
 end
 
--- --- Homegrown tracing (W3C traceparent propagation) -------------
+-- --- Homegrown tracing (beta) (W3C traceparent propagation) -------------
 -- Dormant until setTracer registers an observer table with
 -- onStart(kind, method, traceId, spanId, parentSpanId) and
--- onEnd(kind, method, traceId, spanId, statusName) fields.
+-- onEnd(kind, method, traceId, spanId, statusName, durationMs) fields.
 -- Dependency-free: sampling and export are the app's problem.
 
 local tracer = nil
@@ -85,10 +85,20 @@ local function traceAllowed(method)
   return false
 end
 
+-- Monotonic-ish clock in seconds for span timing and id
+-- seeds: the WASM/browser host provides host_now (no os
+-- library there); natively os.clock, else os.time, else 0.
+local function traceClock()
+  if host_now ~= nil then return host_now() end
+  if os ~= nil and os.clock ~= nil then return os.clock() end
+  if os ~= nil and os.time ~= nil then return os.time() end
+  return 0
+end
+
 local randCounter = 0
 local function randomHex(nbytes)
   randCounter = randCounter + 1
-  math.randomseed(os.time() + randCounter * 7919)
+  math.randomseed(math.floor(traceClock() * 1000) + randCounter * 7919)
   local out = {}
   for i = 1, nbytes do
     out[i] = string.format("%02x", math.random(0, 255))
@@ -96,8 +106,8 @@ local function randomHex(nbytes)
   return table.concat(out)
 end
 
-local function formatTraceparent(traceId, spanId)
-  return "00-" .. traceId .. "-" .. spanId .. "-01"
+local function formatTraceparent(traceId, spanId, sampled)
+  return "00-" .. traceId .. "-" .. spanId .. (sampled == false and "-00" or "-01")
 end
 
 local function parseTraceparent(value)
@@ -109,20 +119,25 @@ local function parseTraceparent(value)
   if #parts ~= 4 then return nil end
   local traceId, spanId = parts[2], parts[3]
   if #traceId ~= 32 or #spanId ~= 16 then return nil end
+  local flags = parts[4]
   if traceId:find("[^0-9a-f]") or spanId:find("[^0-9a-f]") then return nil end
-  return { traceId = traceId, spanId = spanId }
+  if #flags ~= 2 or flags:find("[^0-9a-f]") then return nil end
+  return { traceId = traceId, spanId = spanId, sampled = (tonumber(flags, 16) % 2) == 1 }
 end
 
 local function traceStart(kind, method, parent)
   if tracer == nil or not traceAllowed(method) then return nil end
-  local ctx = { spanId = randomHex(8) }
+  local ctx = { spanId = randomHex(8), startTime = traceClock() }
   if parent ~= nil then
     ctx.traceId = parent.traceId
     ctx.parentSpanId = parent.spanId
+    ctx.sampled = parent.sampled
   else
     ctx.traceId = randomHex(16)
     ctx.parentSpanId = ""
+    ctx.sampled = true
   end
+  if ctx.sampled == false then return ctx end
   pcall(function()
     if tracer.onStart then
       tracer.onStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId)
@@ -131,11 +146,23 @@ local function traceStart(kind, method, parent)
   return ctx
 end
 
+-- Start a root span context (client workflows). Pair with traceEnd.
+local function newTraceContext(kind, method)
+  return traceStart(kind, method, nil)
+end
+
+-- View a span context as a traceparent parent for an outbound call.
+local function parentOf(ctx)
+  if ctx == nil then return nil end
+  return { traceId = ctx.traceId, spanId = ctx.spanId, sampled = ctx.sampled }
+end
+
 local function traceEnd(kind, method, ctx, status)
-  if ctx == nil or tracer == nil then return end
+  if ctx == nil or tracer == nil or ctx.sampled == false then return end
   pcall(function()
     if tracer.onEnd then
-      tracer.onEnd(kind, method, ctx.traceId, ctx.spanId, status)
+      tracer.onEnd(kind, method, ctx.traceId, ctx.spanId, status,
+                   (traceClock() - ctx.startTime) * 1000)
     end
   end)
 end
@@ -151,5 +178,7 @@ return {
   formatTraceparent = formatTraceparent,
   parseTraceparent = parseTraceparent,
   traceStart = traceStart,
+  newTraceContext = newTraceContext,
+  parentOf = parentOf,
   traceEnd = traceEnd,
 }

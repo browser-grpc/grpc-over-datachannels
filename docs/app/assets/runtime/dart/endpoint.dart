@@ -61,6 +61,9 @@ class StreamInput {
 class CallContext {
   final Map<String, String> metadata;
 
+  /// This call's server span context (null when dormant).
+  TraceContext? traceContext;
+
   /// Response initial metadata recorded via setHeaders.
   final Map<String, String> responseHeaders = {};
 

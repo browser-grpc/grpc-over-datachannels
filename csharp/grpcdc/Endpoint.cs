@@ -61,6 +61,9 @@ public class Endpoint
     {
         public Dictionary<string, string> Metadata { get; }
 
+        /// <summary>This call's server span context (null when dormant).</summary>
+        public Tracing.TraceContext TraceContext { get; set; }
+
         /// <summary>Response initial metadata recorded via SetHeaders.</summary>
         public Dictionary<string, string> ResponseHeaders { get; } = new();
 

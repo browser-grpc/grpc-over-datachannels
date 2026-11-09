@@ -13,4 +13,6 @@ with Echo stubs, examples, and tests in this directory.
     protoc --plugin=protoc-gen-grpc-dc-java=$PWD/bin/protoc-gen-grpc-dc-java \
            --grpc-dc-java_out=out -I . your.proto
 
+Test and example index: [`TESTS.md`](TESTS.md).
+
 Full project quickstart: [`../QUICKSTART.md`](../QUICKSTART.md).

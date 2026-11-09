@@ -1,11 +1,11 @@
 <?php
-// Test runner: php php/tests/main.php <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestPbMessages|TestBddSchemas>
+// Test runner: php php/tests/main.php <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestTracing|TestPbMessages|TestBddSchemas>
 
 require_once __DIR__ . "/test_util.php";
 
 $name = $argv[1] ?? null;
 if ($name === null) {
-    fwrite(STDERR, "usage: main.php <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestPbMessages>\n");
+    fwrite(STDERR, "usage: main.php <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestTracing|TestPbMessages>\n");
     exit(2);
 }
 
@@ -50,6 +50,10 @@ try {
         case "TestFiber":
             require_once __DIR__ . "/test_fiber.php";
             TestFiber::run();
+            break;
+        case "TestTracing":
+            require_once __DIR__ . "/test_tracing.php";
+            TestTracing::run();
             break;
         case "TestDeadline":
             require_once __DIR__ . "/test_deadline.php";

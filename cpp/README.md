@@ -13,4 +13,6 @@ with Echo stubs, examples, and tests in this directory.
     protoc --plugin=protoc-gen-grpc-dc-cpp=$PWD/bin/protoc-gen-grpc-dc-cpp \
            --grpc-dc-cpp_out=out -I . your.proto
 
+Test and example index: [`TESTS.md`](TESTS.md).
+
 Full project quickstart: [`../QUICKSTART.md`](../QUICKSTART.md).

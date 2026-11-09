@@ -43,6 +43,47 @@ class Link {
   }
 }
 
+function sackArwnd(packet) {
+  assert.equal(packet[12], 3, "expected a SACK chunk");
+  return packet.readUInt32BE(20);
+}
+
+test("sack rwnd shrinks for gap-buffered bytes and recovers", () => {
+  const link = new Link();
+  link.handshake();
+  const payload = Buffer.alloc(5000, "x");
+  const pkts = link.client.sendData(0, 63, payload, {}, link.now);
+  assert.ok(pkts.length >= 2);
+  // Only the second fragment: gap-buffered, window -1152.
+  let r = link.server.handlePacket(pkts[1], link.now);
+  assert.equal(sackArwnd(r.packets[0]), 262144 - 1152);
+  // Duplicate of the same TSN must not double-count.
+  r = link.server.handlePacket(pkts[1], link.now);
+  assert.equal(sackArwnd(r.packets[0]), 262144 - 1152);
+  // Filling the gap restores the full window.
+  r = link.server.handlePacket(pkts[0], link.now);
+  assert.equal(sackArwnd(r.packets[0]), 262144);
+});
+
+test("rto follows measured rtt not fixed timer", () => {
+  const link = new Link();
+  link.handshake();
+  // Round 1: DATA at now, SACK returns 600ms later -> first
+  // RTT sample 600ms -> SRTT=600, RTTVAR=300, RTO=1800.
+  const pkts = link.client.sendData(0, 63, Buffer.from("one"), {}, link.now);
+  const r = link.server.handlePacket(pkts[0], link.now);
+  link.now += 600;
+  link.client.handlePacket(r.packets[0], link.now);
+  // Round 2: no spurious retransmit at the old fixed +1100ms.
+  const pkts2 = link.client.sendData(0, 63, Buffer.from("two"), {}, link.now);
+  assert.equal(pkts2.length, 1);
+  const t1 = link.client.tick(link.now + 1100);
+  assert.equal(t1.packets.length, 0, "spurious retransmit at fixed RTO");
+  // Past the measured RTO (600 + 1800) retransmission fires.
+  const t2 = link.client.tick(link.now + 1801);
+  assert.ok(t2.packets.length > 0, "retransmit must fire past measured RTO");
+});
+
 test("handshake and ordered data", () => {
   const link = new Link();
   link.handshake();

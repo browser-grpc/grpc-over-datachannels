@@ -94,6 +94,7 @@ function Server:dispatch(endpoint, ctx, headers, input, sink)
     return Status.new(wire.CODE_UNIMPLEMENTED, "unknown method " .. tostring(headers.path))
   end
   local traceCtx = statusModule.traceStart("server", headers.path, statusModule.parseTraceparent((headers.metadata or {})["traceparent"]))
+  ctx.traceContext = traceCtx
   local reqs = RequestStream.new(endpoint, input)
   local ok, err = pcall(method.handler, ctx, reqs, function(payload)
     sink:send(payload)

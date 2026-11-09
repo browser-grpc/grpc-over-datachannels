@@ -145,6 +145,7 @@ class CallContext:
         self.metadata = metadata or {}
         self.response_headers = {}
         self.response_trailers = {}
+        self.trace_context = None
         self.deadline = None
         remaining = parse_timeout(self.metadata.get("grpc-timeout"))
         if remaining is not None:

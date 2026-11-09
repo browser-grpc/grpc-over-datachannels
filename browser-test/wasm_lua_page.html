@@ -62,12 +62,18 @@ window.__runWasm = async () => {
     };
     worker.onerror = (err) => reject(err);
   });
-  worker.postMessage({ sab, wasmUrl: "/browser-test/echo_lua.wasm" });
+  worker.postMessage({ sab, wasmUrl: window.__luaWasmUrl || "/browser-test/echo_lua.wasm" });
   try {
     return await done;
   } finally {
     worker.terminate();
   }
+};
+
+// Matrix tracing entry: one traced unary, spans in the result.
+window.__runWasmTracing = async () => {
+  window.__luaWasmUrl = "/browser-test/echo_lua_client_tracing.wasm";
+  return window.__runWasm();
 };
 
 const offer = await pc.createOffer();

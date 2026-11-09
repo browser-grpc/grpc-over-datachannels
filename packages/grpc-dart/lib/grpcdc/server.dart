@@ -112,6 +112,7 @@ class Server {
     }
     final traceCtx = traceStart('server', headers.path ?? '',
         parseTraceparent(headers.metadata['traceparent']));
+    ctx.traceContext = traceCtx;
     StatusException? result;
     try {
       await method.handler(ctx, RequestStream(input), sink.send);

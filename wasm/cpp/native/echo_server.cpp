@@ -48,3 +48,70 @@ extern "C" void run_echo_server() {
     endpoint->PollOnce();
   }
 }
+
+// Matrix tracing entry: same server with a recording span
+// observer; every span start/end re-reports the cumulative
+// spans via on_result so the page can expose them to the
+// matrix driver (window.__spans) while the pump keeps running.
+#define GRPCDC_WASM_IMPORT_SRV(name) \
+  __attribute__((import_module("env"), import_name(name)))
+
+extern "C" {
+GRPCDC_WASM_IMPORT_SRV("on_result")
+void on_result(const char* ptr, std::size_t len);
+}
+
+namespace {
+
+struct MatrixServerStart {
+  std::string kind, trace_id, span_id, parent_span_id;
+};
+
+struct MatrixServerRecorder : grpcdc::Tracing::Tracer {
+  std::vector<MatrixServerStart> starts;
+  std::vector<std::string> end_kinds;
+
+  void OnStart(const std::string& kind, const std::string&,
+               const std::string& trace_id, const std::string& span_id,
+               const std::string& parent_span_id) override {
+    starts.push_back({kind, trace_id, span_id, parent_span_id});
+    Report();
+  }
+
+  void OnEnd(const std::string& kind, const std::string&, const std::string&,
+             const std::string&, const std::string&, double) override {
+    end_kinds.push_back(kind);
+    Report();
+  }
+
+  void Report() {
+    std::string json = "{\"starts\":[";
+    for (std::size_t i = 0; i < starts.size(); ++i) {
+      if (i) json += ",";
+      const MatrixServerStart& s = starts[i];
+      json += "[\"" + s.kind + "\",\"" + s.trace_id + "\",\"" + s.span_id +
+              "\",\"" + s.parent_span_id + "\"]";
+    }
+    json += "],\"ends\":[";
+    for (std::size_t i = 0; i < end_kinds.size(); ++i) {
+      if (i) json += ",";
+      json += "\"" + end_kinds[i] + "\"";
+    }
+    json += "]}";
+    on_result(json.data(), json.size());
+  }
+};
+
+}  // namespace
+
+extern "C" void run_echo_server_tracing() {
+  MatrixServerRecorder rec;
+  grpcdc::Tracing::SetTracer(&rec);
+  grpcdc::Server server;
+  SlowEcho impl;
+  echo::EchoGrpcDc::RegisterEchoServer(server, impl);
+  auto endpoint = server.ServeTransport(std::make_shared<DcTransport>());
+  while (true) {
+    endpoint->PollOnce();
+  }
+}

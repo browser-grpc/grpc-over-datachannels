@@ -10,12 +10,14 @@
 // Mirrors wasm/dart/echo_client.dart.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
 import '../../dart/grpcdc/endpoint.dart';
 import '../../dart/grpcdc/server.dart';
+import '../../dart/grpcdc/status.dart';
 import '../../dart/grpcdc/web_transport.dart';
 import '../../dart/examples/echo_grpc_dc.dart';
 import '../../dart/examples/echo_messages.dart';
@@ -49,4 +51,58 @@ void main() {
     runEchoServer(transport);
   };
   globalContext.setProperty('runDartEchoServer'.toJS, entry.toJS);
+  final tracingEntry = (JSObject transport) {
+    runEchoServerTracing(transport);
+  };
+  globalContext.setProperty('runDartEchoServerTracing'.toJS, tracingEntry.toJS);
+}
+
+// Matrix tracing entry: same server with a recording span
+// observer; every span start/end re-reports the cumulative
+// spans via window.__dartReportSpans so the page can expose
+// them to the matrix driver (window.__spans) while the server
+// keeps running.
+class _MatrixServerStart {
+  final String kind;
+  final String traceId;
+  final String spanId;
+  final String parentSpanId;
+  _MatrixServerStart(this.kind, this.traceId, this.spanId, this.parentSpanId);
+}
+
+class _MatrixServerRecorder implements Tracer {
+  final List<_MatrixServerStart> starts = [];
+  final List<String> endKinds = [];
+
+  @override
+  void onStart(String kind, String method, String traceId, String spanId,
+      String parentSpanId) {
+    starts.add(_MatrixServerStart(kind, traceId, spanId, parentSpanId));
+    _report();
+  }
+
+  @override
+  void onEnd(String kind, String method, String traceId, String spanId,
+      String status, double durationMs) {
+    endKinds.add(kind);
+    _report();
+  }
+
+  void _report() {
+    final json = jsonEncode({
+      'starts': starts
+          .map((s) => [s.kind, s.traceId, s.spanId, s.parentSpanId])
+          .toList(),
+      'ends': endKinds,
+    });
+    final report = globalContext.getProperty('__dartReportSpans'.toJS);
+    if (report.isDefinedAndNotNull) {
+      (report as JSFunction).callAsFunction(null, json.toJS);
+    }
+  }
+}
+
+void runEchoServerTracing(JSObject jsTransport) {
+  setTracer(_MatrixServerRecorder());
+  runEchoServer(jsTransport);
 }

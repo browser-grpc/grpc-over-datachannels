@@ -524,25 +524,28 @@ fn mix_columns(s: &mut [u8; 16]) {
 // ---------------------------------------------------------------------------
 
 fn gf128_mul(x: &[u8; 16], y: &[u8; 16]) -> [u8; 16] {
-    let mut z = [0u8; 16];
-    let mut v = *y;
+    // Same bit loop as the byte-wise form, on u128 words: the
+    // big-endian integer view makes the per-bit shift/xor a
+    // handful of instructions instead of 16 byte steps. GHASH
+    // runs per DTLS record, so this is the datachannel hot path
+    // (the byte form throttled multi-MB messages in debug builds
+    // into spurious RTO recovery). Reduction constant R is
+    // 11100001 followed by 120 zero bits (RFC 5116 section 2.2).
+    const R: u128 = 0xe1u128 << 120;
+    let mut z: u128 = 0;
+    let mut v = u128::from_be_bytes(*y);
+    let xw = u128::from_be_bytes(*x);
     for i in 0..128 {
-        let bit = (x[i / 8] >> (7 - (i % 8))) & 1;
-        if bit == 1 {
-            for j in 0..16 {
-                z[j] ^= v[j];
-            }
+        if (xw >> (127 - i)) & 1 == 1 {
+            z ^= v;
         }
-        let lsb = v[15] & 1;
-        for j in (1..16).rev() {
-            v[j] = (v[j] >> 1) | ((v[j - 1] & 1) << 7);
-        }
-        v[0] >>= 1;
+        let lsb = v & 1;
+        v >>= 1;
         if lsb == 1 {
-            v[0] ^= 0xe1;
+            v ^= R;
         }
     }
-    z
+    z.to_be_bytes()
 }
 
 fn ghash(h: &[u8; 16], aad: &[u8], ciphertext: &[u8]) -> [u8; 16] {

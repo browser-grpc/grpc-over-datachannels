@@ -2,7 +2,20 @@
 <meta charset="utf-8">
 <title>grpc-dc Kotlin/Wasm client test</title>
 <script type="module">
-import { Channel, createGrpcDcBridge } from "/js/index.js";
+import { Channel, createGrpcDcBridge, setTracer } from "/js/index.js";
+
+// Matrix tracing (?trace=1): record JS-runtime spans (the wire
+// owner for facade calls) for the Playwright driver.
+if (new URLSearchParams(location.search).has("trace")) {
+  window.__spans = { starts: [], ends: [] };
+  setTracer({
+    onStart: (kind, method, traceId, spanId, parentSpanId) =>
+      window.__spans.starts.push({ kind, method, traceId, spanId, parentSpanId }),
+    onEnd: (kind, method, traceId, spanId, status, durationMs) =>
+      window.__spans.ends.push({ kind, method, traceId, spanId, status, durationMs }),
+  });
+}
+
 import { runEchoClient } from "/browser-test/kotlin_wasm_gen/echo_kotlin.mjs";
 
 // The calls originate in Kotlin/Wasm (generated facade:

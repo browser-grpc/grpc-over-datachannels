@@ -7,7 +7,7 @@ public static class Program
     {
         if (args.Length < 1)
         {
-            Console.Error.WriteLine("usage: GrpcdcTests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline>");
+            Console.Error.WriteLine("usage: GrpcdcTests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestDeadline|TestTracing>");
             return 2;
         }
         try
@@ -25,6 +25,7 @@ public static class Program
                 case "TestDynamic": TestDynamic.Run(); break;
                 case "TestBdd": TestBdd.Run(); break;
                 case "TestDeadline": TestDeadline.Run(); break;
+                case "TestTracing": TestTracing.Run(); break;
                 case "TestPbMessages": TestPbMessages.Run(); break;
                 case "TestBddSchemas": TestBddSchemas.Run(); break;
                 case "TestSidecar": TestSidecar.Run(); break;

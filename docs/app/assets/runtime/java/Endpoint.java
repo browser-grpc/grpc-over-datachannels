@@ -68,6 +68,8 @@ public class Endpoint {
         public final Map<String, String> responseTrailers = new java.util.HashMap<>();
         /** Monotonic deadline (System.nanoTime), or -1 when unbounded. */
         public final long deadlineNanos;
+        /** This call's server span context (null when dormant). */
+        public Tracing.TraceContext traceContext;
 
         /** Record response initial metadata (sent lazily, before the first response message). */
         public void setHeaders(Map<String, String> md) {

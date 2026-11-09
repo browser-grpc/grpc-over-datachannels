@@ -28,6 +28,14 @@ class Channel {
 
   std::shared_ptr<Endpoint> endpoint() const { return endpoint_; }
 
+  /// A Channel view sharing this endpoint whose outbound spans
+  /// are parented to ctx. Explicit call metadata still wins.
+  Channel WithTraceContext(const std::optional<Tracing::TraceContext>& ctx) const {
+    Channel ch(endpoint_);
+    ch.trace_context_ = ctx;
+    return ch;
+  }
+
   /// Receives response messages of one call.
   class ClientStream {
    public:
@@ -289,12 +297,12 @@ class Channel {
       }
       if (Tracing::Enabled()) {
         auto it = merged.find("traceparent");
-        trace_ctx = Tracing::TraceStart(
-            "client", path,
-            Tracing::ParseTraceparent(it == merged.end() ? nullptr : it->second.c_str()));
+        auto parent = Tracing::ParseTraceparent(it == merged.end() ? nullptr : it->second.c_str());
+        if (!parent) parent = Tracing::ParentOf(trace_context_);
+        trace_ctx = Tracing::TraceStart("client", path, parent);
         if (trace_ctx) {
           merged["traceparent"] =
-              Tracing::FormatTraceparent(trace_ctx->trace_id, trace_ctx->span_id);
+              Tracing::FormatTraceparent(trace_ctx->trace_id, trace_ctx->span_id, trace_ctx->sampled);
         }
       }
       md = &merged;
@@ -331,6 +339,7 @@ class Channel {
   }
 
   std::shared_ptr<Endpoint> endpoint_;
+  std::optional<Tracing::TraceContext> trace_context_;
 };
 
 }  // namespace grpcdc

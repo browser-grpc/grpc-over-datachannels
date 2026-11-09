@@ -6,6 +6,16 @@ namespace Grpcdc;
 public class Channel
 {
     private readonly Endpoint _endpoint;
+    private Tracing.TraceContext _traceContext;
+
+    /// <summary>A Channel view sharing this endpoint whose outbound
+    /// spans are parented to ctx. Explicit call metadata still wins.</summary>
+    public Channel WithTraceContext(Tracing.TraceContext ctx)
+    {
+        var ch = new Channel(_endpoint);
+        ch._traceContext = ctx;
+        return ch;
+    }
 
     /// <summary>Wrap a transport, allocating odd stream ids.</summary>
     public Channel(ITransport transport) : this(new Endpoint(transport, true))
@@ -179,11 +189,12 @@ public class Channel
             }
             if (Tracing.Enabled)
             {
-                traceCtx = Tracing.TraceStart("client", path,
-                    Tracing.ParseTraceparent(merged.TryGetValue("traceparent", out string tp) ? tp : null));
+                var parent = Tracing.ParseTraceparent(merged.TryGetValue("traceparent", out string tp) ? tp : null)
+                    ?? Tracing.ParentOf(_traceContext);
+                traceCtx = Tracing.TraceStart("client", path, parent);
                 if (traceCtx != null)
                 {
-                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.TraceId, traceCtx.SpanId);
+                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.TraceId, traceCtx.SpanId, traceCtx.Sampled);
                 }
             }
             metadata = merged;

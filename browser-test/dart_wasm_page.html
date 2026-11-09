@@ -32,6 +32,32 @@ if (window.__wasmReady) {
     await pc.setRemoteDescription({ type: "answer", sdp });
   };
 
+  // Matrix tracing entry: one traced unary via the Dart
+  // module's tracing callback, spans in the result.
+  window.__runWasmTracing = async () => {
+    if (dc.readyState !== "open") {
+      await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+    }
+    dc.binaryType = "arraybuffer";
+    const transport = {
+      _onMessage: null,
+      send(data) {
+        dc.send(data);
+      },
+      setOnMessage(callback) {
+        this._onMessage = callback;
+      },
+    };
+    dc.addEventListener("message", (event) => {
+      if (transport._onMessage) {
+        transport._onMessage(new Uint8Array(event.data));
+      }
+    });
+    const json = await new Promise((resolve, reject) =>
+      window.runDartEchoClientTracing(transport, resolve, reject));
+    return JSON.parse(json);
+  };
+
   window.__runDart = async () => {
     if (dc.readyState !== "open") {
       await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));

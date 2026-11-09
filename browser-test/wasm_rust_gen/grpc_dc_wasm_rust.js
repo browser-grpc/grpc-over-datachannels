@@ -82,6 +82,33 @@ function getDataViewMemory0() {
     return cachedDataViewMemory0;
 }
 /**
+ * Serve the generated Echo service over the given JS transport.
+ * Returns immediately; serving runs as a local task until the
+ * transport closes.
+ * @param {any} transport
+ */
+export function echo_server(transport) {
+    wasm.echo_server(transport);
+}
+
+/**
+ * JSON snapshot of the matrix recorder's spans.
+ * @returns {string}
+ */
+export function echo_tracing_spans() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.echo_tracing_spans();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * Run the generated Echo client over the given JS transport and
  * resolve with a JSON summary (same shape the Go WASM facade and
  * the JS client produce, so one Node test can assert all three).
@@ -94,13 +121,32 @@ export function echo_client(transport) {
 }
 
 /**
- * Serve the generated Echo service over the given JS transport.
- * Returns immediately; serving runs as a local task until the
- * transport closes.
+ * One unary call over the JS transport with the recorder
+ * registered; resolves with the response plus recorded spans.
+ * @param {any} transport
+ * @returns {Promise<string>}
+ */
+export function echo_client_tracing(transport) {
+    const ret = wasm.echo_client_tracing(transport);
+    return ret;
+}
+
+/**
+ * Serve Echo over the JS transport with the matrix recorder
+ * registered (spans readable via echo_tracing_spans).
  * @param {any} transport
  */
-export function echo_server(transport) {
-    wasm.echo_server(transport);
+export function echo_server_tracing(transport) {
+    wasm.echo_server_tracing(transport);
+}
+
+/**
+ * Run the nested tracing scenario and resolve with its JSON.
+ * @returns {Promise<string>}
+ */
+export function echo_tracing() {
+    const ret = wasm.echo_tracing();
+    return ret;
 }
 
 let WASM_VECTOR_LEN = 0;
@@ -122,11 +168,11 @@ function __wbg_adapter_25(arg0, arg1) {
 }
 
 function __wbg_adapter_28(arg0, arg1, arg2) {
-    wasm.closure151_externref_shim(arg0, arg1, arg2);
+    wasm.closure199_externref_shim(arg0, arg1, arg2);
 }
 
-function __wbg_adapter_49(arg0, arg1, arg2, arg3) {
-    wasm.closure173_externref_shim(arg0, arg1, arg2, arg3);
+function __wbg_adapter_53(arg0, arg1, arg2, arg3) {
+    wasm.closure221_externref_shim(arg0, arg1, arg2, arg3);
 }
 
 async function __wbg_load(module, imports) {
@@ -186,7 +232,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_49(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_53(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -255,16 +301,16 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper188 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 78, __wbg_adapter_22);
+    imports.wbg.__wbindgen_closure_wrapper304 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 127, __wbg_adapter_22);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper478 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 138, __wbg_adapter_25);
+    imports.wbg.__wbindgen_closure_wrapper583 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 181, __wbg_adapter_25);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper548 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 152, __wbg_adapter_28);
+    imports.wbg.__wbindgen_closure_wrapper695 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 200, __wbg_adapter_28);
         return ret;
     };
     imports.wbg.__wbindgen_init_externref_table = function() {

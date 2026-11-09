@@ -2555,16 +2555,145 @@ static void test_kafka_e2e(void) {
 }
 #endif /* GRPCDC_POSIX */
 
+/* ---- Tracing: nested callee call joins the trace ---- */
+typedef struct {
+    char kind[8];
+    char trace_id[33];
+    char span_id[17];
+    char parent_span_id[17];
+} trace_start_rec;
+
+static trace_start_rec trace_starts[8];
+static int trace_start_count;
+static int trace_end_count;
+
+static void trace_on_start(void *ctx, const char *kind, const char *method,
+                           const char *trace_id, const char *span_id,
+                           const char *parent_span_id) {
+    (void)ctx; (void)method;
+    trace_start_rec *r = &trace_starts[trace_start_count++];
+    snprintf(r->kind, sizeof(r->kind), "%s", kind);
+    snprintf(r->trace_id, sizeof(r->trace_id), "%s", trace_id);
+    snprintf(r->span_id, sizeof(r->span_id), "%s", span_id);
+    snprintf(r->parent_span_id, sizeof(r->parent_span_id), "%s",
+             parent_span_id ? parent_span_id : "");
+}
+
+static void trace_on_end(void *ctx, const char *kind, const char *method,
+                         const char *trace_id, const char *span_id,
+                         const char *status, double duration_ms) {
+    (void)ctx; (void)kind; (void)method; (void)trace_id; (void)span_id;
+    (void)status;
+    check(duration_ms >= 0, "duration");
+    trace_end_count++;
+}
+
+typedef struct {
+    grpcdc_channel *downstream;
+    char seen_span[17];
+} front_ctx;
+
+static grpcdc_status front_unary_impl(void *ctx, const grpcdc_kv *md,
+                                      size_t md_count, const EchoRequest *req,
+                                      EchoResponse *resp) {
+    (void)md; (void)md_count; (void)req;
+    front_ctx *front = (front_ctx *)ctx;
+    grpcdc_trace_context current = grpcdc_current_trace_context();
+    snprintf(front->seen_span, sizeof(front->seen_span), "%s", current.span_id);
+    EchoClient downstream;
+    downstream.channel = front->downstream;
+    EchoRequest nested;
+    EchoRequest_init(&nested);
+    nested.message = "nested";
+    return EchoClient_unary(&downstream, &nested, resp, NULL, 0, 0);
+}
+
+static EchoServerImpl front_impl = {
+    NULL, front_unary_impl, echo_server_stream_impl,
+    echo_client_stream_impl, echo_bidi_impl};
+
+static void *front_server_main(void *arg) {
+    server_job *job = (server_job *)arg;
+    grpcdc_server *server = grpcdc_server_new();
+    EchoServer_register(server, &front_impl);
+    grpcdc_server_serve(server, job->transport);
+    grpcdc_server_free(server);
+    return NULL;
+}
+
+static void test_tracing(void) {
+    static grpcdc_tracer tracer;
+    tracer.ctx = NULL;
+    tracer.on_start = trace_on_start;
+    tracer.on_end = trace_on_end;
+    grpcdc_set_tracer(&tracer);
+
+    grpcdc_memory_pair *back_pair = grpcdc_memory_pair_new();
+    grpcdc_transport ba, bb;
+    grpcdc_memory_pair_transports(back_pair, &ba, &bb);
+    server_job back_job = {&bb};
+    pthread_t back_thread;
+    check(pthread_create(&back_thread, NULL, server_main, &back_job) == 0,
+          "back server thread");
+    grpcdc_channel downstream;
+    grpcdc_channel_init(&downstream, &ba);
+
+    static front_ctx front;
+    front.downstream = &downstream;
+    front_impl.ctx = &front;
+
+    grpcdc_memory_pair *pair = grpcdc_memory_pair_new();
+    grpcdc_transport a, b;
+    grpcdc_memory_pair_transports(pair, &a, &b);
+    server_job front_job = {&b};
+    pthread_t front_thread;
+    check(pthread_create(&front_thread, NULL, front_server_main, &front_job) == 0,
+          "front server thread");
+    grpcdc_channel channel;
+    grpcdc_channel_init(&channel, &a);
+    EchoClient client;
+    client.channel = &channel;
+
+    EchoRequest req;
+    EchoRequest_init(&req);
+    req.message = "hello";
+    EchoResponse resp;
+    grpcdc_status st = EchoClient_unary(&client, &req, &resp, NULL, 0, 0);
+    check(grpcdc_status_is_ok(st), "nested unary status");
+    check(strcmp(resp.message, "echo: nested") == 0, "nested unary body");
+
+    check(trace_start_count == 4, "starts count");
+    check(strcmp(trace_starts[0].kind, "client") == 0 &&
+              strcmp(trace_starts[1].kind, "server") == 0 &&
+              strcmp(trace_starts[2].kind, "client") == 0 &&
+              strcmp(trace_starts[3].kind, "server") == 0,
+          "kinds");
+    for (int i = 0; i < 4; i++)
+        check(strcmp(trace_starts[i].trace_id, trace_starts[0].trace_id) == 0,
+              "trace ids");
+    check(strcmp(trace_starts[1].parent_span_id, trace_starts[0].span_id) == 0,
+          "server parent");
+    check(strcmp(trace_starts[2].parent_span_id, trace_starts[1].span_id) == 0,
+          "inner client parent");
+    check(strcmp(trace_starts[3].parent_span_id, trace_starts[2].span_id) == 0,
+          "inner server parent");
+    check(strcmp(front.seen_span, trace_starts[1].span_id) == 0, "ctx span");
+    check(trace_end_count == 4, "ends count");
+    grpcdc_set_tracer(NULL);
+    printf("TestTracing OK\n");
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr,
                 "usage: tests <TestCodec|TestEcho|TestPbMessages|TestBdd|"
-                "TestOracle|TestDynamic>\n");
+                "TestOracle|TestDynamic|TestTracing>\n");
         return 2;
     }
     if (strcmp(argv[1], "TestBddSchemas") == 0) test_bdd_schemas();
     else if (strcmp(argv[1], "TestCodec") == 0) test_codec();
     else if (strcmp(argv[1], "TestEcho") == 0) test_echo();
+    else if (strcmp(argv[1], "TestTracing") == 0) test_tracing();
     else if (strcmp(argv[1], "TestEventBus") == 0) test_eventbus();
     else if (strcmp(argv[1], "TestPbMessages") == 0) test_pb_messages();
     else if (strcmp(argv[1], "TestBdd") == 0) test_bdd();

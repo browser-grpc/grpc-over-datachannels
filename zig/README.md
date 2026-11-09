@@ -12,7 +12,7 @@ the gRPC wire protocol over WebRTC DataChannels.
 
 ## Use it in your project
 
-Zig package manager: `zig fetch --save git+https://github.com/browser-grpc/grpc-over-datachannels.git#v0.39.0` — the repository root is a Zig package (build.zig.zon) exposing modules `grpcdc` (the runtime) and `kafka_grpc` (the grpcdc.kafka.v1 stubs). Depend on it with `b.dependency("grpc_dc", .{})` and `dep.module("grpcdc")` / `dep.module("kafka_grpc")`. Or copy this directory; there are no dependencies.
+Zig package manager: `zig fetch --save git+https://github.com/browser-grpc/grpc-over-datachannels.git#v0.40.0` — the repository root is a Zig package (build.zig.zon) exposing modules `grpcdc` (the runtime) and `kafka_grpc` (the grpcdc.kafka.v1 stubs). Depend on it with `b.dependency("grpc_dc", .{})` and `dep.module("grpcdc")` / `dep.module("kafka_grpc")`. Or copy this directory; there are no dependencies.
 
 ## Regenerate stubs for your schema
 
@@ -29,5 +29,6 @@ https://browser-grpc.github.io/grpc-over-datachannels/app/
 - Runtime: this directory (see its generated sources).
 - Worked example: `examples/` (Echo in every method shape).
 - Tests: `tests/` — the same BDD scenarios every language runs.
+- Test and example index: [`TESTS.md`](TESTS.md) — every suite and example here, plus shared matrix coverage.
 
 Full project quickstart: [`../QUICKSTART.md`](../QUICKSTART.md).

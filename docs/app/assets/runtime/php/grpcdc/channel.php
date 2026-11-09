@@ -12,6 +12,17 @@ require_once __DIR__ . "/wire_gen.php";
 class Channel
 {
     public Endpoint $endpoint;
+    /** Span context outbound calls are parented to (withTraceContext). */
+    public ?array $traceContext = null;
+
+    /** A Channel view sharing this endpoint whose outbound spans
+     *  are parented to ctx. Explicit call metadata still wins. */
+    public function withTraceContext(?array $ctx): Channel
+    {
+        $ch = new Channel(null, $this->endpoint);
+        $ch->traceContext = $ctx;
+        return $ch;
+    }
 
     public function __construct(?Transport $transport = null, ?Endpoint $endpoint = null)
     {
@@ -102,9 +113,11 @@ class Channel
                 $metadata["grpc-timeout"] = Codec::encodeTimeout($timeout);
             }
             if (Status::tracer() !== null) {
-                $traceCtx = Status::traceStart("client", $path, Status::parseTraceparent($metadata["traceparent"] ?? null));
+                $parent = Status::parseTraceparent($metadata["traceparent"] ?? null)
+                    ?? Status::parentOf($this->traceContext);
+                $traceCtx = Status::traceStart("client", $path, $parent);
                 if ($traceCtx !== null) {
-                    $metadata["traceparent"] = Status::formatTraceparent($traceCtx["trace_id"], $traceCtx["span_id"]);
+                    $metadata["traceparent"] = Status::formatTraceparent($traceCtx["trace_id"], $traceCtx["span_id"], $traceCtx["sampled"]);
                 }
             }
         }

@@ -98,7 +98,7 @@ Kotlin/Wasm inline mode) a handler already running inline
 cannot be preempted — the deadline is checked between
 messages.
 
-## Tracing (homegrown, opt-in)
+## Tracing (homegrown, opt-in, beta)
 
 Runtimes carry W3C Trace Context propagation without any
 dependency: when the application registers a span observer
@@ -110,15 +110,56 @@ present — and the server parents its span to it. Observers
 receive `on_start`/`on_end` callbacks with kind (`client` /
 `server`), method path, trace/span ids, and the terminal status
 name. With no observer registered the wire is unchanged: no
-header is written and no ids are minted. Sampling, batching,
-and export (OTLP or otherwise) are deliberately out of scope —
-this is propagation plus hooks, not an OpenTelemetry SDK.
+header is written and no ids are minted. An upstream
+not-sampled decision (traceparent flags `00`) is honored and
+propagated: context crosses the wire, but no span is
+recorded. `tracestate` and `baggage` headers ride as ordinary
+metadata and reach server handlers unchanged. The JS and
+Python reference runtimes and the Go, Rust, and generated
+Java, Kotlin, Scala, C#, C++, Swift, Dart, Zig, C, Lua,
+Ruby, and PHP runtimes additionally pass each span's duration
+(milliseconds) to `on_end`; Zig reports `0` on
+single-threaded targets, where no monotonic clock is
+available. The HTTP/2 proxy
+contributes a `proxy` span when a tracer is registered in
+its process (`--trace` on the proxy CLI prints spans as JSON
+lines), so server spans parent to the proxy hop instead of
+the original client. Sampling policy, batching, and export
+(OTLP or otherwise) are deliberately out of scope — this is
+propagation plus hooks, not an OpenTelemetry SDK.
+
+Nested propagation is automated by the runtimes. The server
+attaches its span context to the handler context
+(`ctx.traceContext` / `CallCtx.trace_context` /
+`ctx.trace_context`, per language); while the handler runs,
+outbound calls are parented to that span with no manual
+metadata handling — via an ambient context where the
+platform has one (Python `contextvars`, Go
+`context.Context`, and equivalents), or via an explicitly
+context-bound channel/client where it does not (notably
+browser JS/Wasm, e.g. `Channel.withTraceContext`). A client
+call with no parent starts a root span automatically; a
+root context (`new_trace_context` and per-language
+equivalents) groups several calls under one workflow span.
+Explicit `traceparent` call metadata always wins over the
+bound or ambient context. Per-language API names and
+examples are generated into each language's `TRACING.md`.
 
 The protoc plugins accept `trace=off|hooks` (default `off`).
-`hooks` additionally wires the registrar into generated stubs
-where the generator supports it (currently the Python stub
-re-exports `grpcdc.set_tracer`); any other value is a plugin
-error. The runtime API itself is always present and dormant.
+The option controls stub convenience, not capability: the
+runtime tracing engine above is always present and dormant,
+and `off` simply means the generated stubs carry no tracing
+wiring (no registrar re-export, no baked filter). `hooks`
+additionally wires the registrar into generated stubs:
+every native template re-exports or delegates to the runtime
+registrar (JS and the Wasm wrappers excepted, below); any
+other value is a plugin error. The runtime API itself is
+always present and dormant. The option is covered by
+`racket/tests/trace_option_test.rkt` (registrar present with
+`hooks`, absent with `off`, `trace_methods` baked, bad values
+rejected through real protoc) and by per-language observer
+tests (JS, Python, Go, and Rust end to end, including nested
+callee calls and a real-browser leg for JS).
 
 `set_trace_filter(patterns)` restricts which methods produce
 spans: `;`-separated method paths, a trailing `*` meaning

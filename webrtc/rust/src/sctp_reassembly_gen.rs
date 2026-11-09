@@ -27,6 +27,8 @@ struct ReasmPartial {
     parts: HashMap<u32, Vec<u8>>,
     first_tsn: Option<u32>,
     last_tsn: Option<u32>,
+    min_tsn: Option<u32>,
+    max_tsn: Option<u32>,
 }
 
 #[derive(Default)]
@@ -46,11 +48,11 @@ fn reasm_diff32(a: u32, b: u32) -> i32 {
 }
 
 fn partial_max(p: &ReasmPartial) -> u32 {
-    p.parts.keys().copied().max().unwrap_or(0)
+    p.max_tsn.unwrap_or(0)
 }
 
 fn partial_min(p: &ReasmPartial) -> u32 {
-    p.parts.keys().copied().min().unwrap_or(0)
+    p.min_tsn.unwrap_or(0)
 }
 
 impl SctpReassembler {
@@ -98,6 +100,12 @@ impl SctpReassembler {
             partial.last_tsn = Some(tsn);
         }
         partial.parts.insert(tsn, payload.to_vec());
+        if partial.min_tsn.map_or(true, |m| reasm_diff32(tsn, m) < 0) {
+            partial.min_tsn = Some(tsn);
+        }
+        if partial.max_tsn.map_or(true, |m| reasm_diff32(tsn, m) > 0) {
+            partial.max_tsn = Some(tsn);
+        }
 
         // Merge TSN-contiguous partials: a fragment that
         // arrives out of order starts a dangling partial that
@@ -131,6 +139,12 @@ impl SctpReassembler {
                     if pb.last_tsn.is_some() {
                         pa.last_tsn = pb.last_tsn;
                     }
+                    if pb.min_tsn.map_or(false, |m| pa.min_tsn.map_or(true, |a| reasm_diff32(m, a) < 0)) {
+                        pa.min_tsn = pb.min_tsn;
+                    }
+                    if pb.max_tsn.map_or(false, |m| pa.max_tsn.map_or(true, |a| reasm_diff32(m, a) > 0)) {
+                        pa.max_tsn = pb.max_tsn;
+                    }
                 }
                 None => break,
             }
@@ -147,10 +161,8 @@ impl SctpReassembler {
                 if p.parts.len() != count {
                     return None;
                 }
-                for i in 0..count {
-                    if !p.parts.contains_key(&first.wrapping_add(i as u32)) {
-                        return None;
-                    }
+                if p.min_tsn != Some(first) || p.max_tsn != Some(last) {
+                    return None;
                 }
                 Some(*k)
             });

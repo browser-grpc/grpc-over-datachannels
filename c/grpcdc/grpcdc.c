@@ -139,18 +139,28 @@ grpcdc_trace_context grpcdc_trace_start(const char *kind, const char *method,
     grpcdc_trace_context ctx;
     memset(&ctx, 0, sizeof(ctx));
     if (!g_tracer_set || !g_tracer.on_start || !trace_allowed(method)) return ctx;
+    ctx.sampled = 1;
     if (parent_traceparent) {
-        /* 00-<32>-<16>-01 */
+        /* 00-<32>-<16>-<flags> */
         const char *p = parent_traceparent;
         if (strlen(p) == 55 && p[2] == '-' && p[35] == '-' && p[52] == '-'
-            && trace_is_hex(p + 3, 32) && trace_is_hex(p + 36, 16)) {
+            && trace_is_hex(p + 3, 32) && trace_is_hex(p + 36, 16)
+            && trace_is_hex(p + 53, 2)) {
+            int flags = 0;
             memcpy(ctx.trace_id, p + 3, 32);
             memcpy(ctx.parent_span_id, p + 36, 16);
+            for (int i = 0; i < 2; i++) {
+                char c = p[53 + i];
+                flags = flags * 16 + (c <= '9' ? c - '0' : c - 'a' + 10);
+            }
+            ctx.sampled = (flags & 1) != 0;
         }
     }
     if (ctx.trace_id[0] == 0) trace_random_hex(ctx.trace_id, 16);
     trace_random_hex(ctx.span_id, 8);
     ctx.active = 1;
+    ctx.start_ms = grpcdc_now_ms();
+    if (!ctx.sampled) return ctx;
     g_tracer.on_start(g_tracer.ctx, kind, method, ctx.trace_id, ctx.span_id,
                       ctx.parent_span_id);
     return ctx;
@@ -158,9 +168,24 @@ grpcdc_trace_context grpcdc_trace_start(const char *kind, const char *method,
 
 void grpcdc_trace_end(const char *kind, const char *method,
                       const grpcdc_trace_context *ctx, const char *status) {
-    if (!ctx || !ctx->active || !g_tracer_set || !g_tracer.on_end) return;
+    if (!ctx || !ctx->active || !ctx->sampled || !g_tracer_set || !g_tracer.on_end) return;
     g_tracer.on_end(g_tracer.ctx, kind, method, ctx->trace_id, ctx->span_id,
-                    status);
+                    status, (double)(grpcdc_now_ms() - ctx->start_ms));
+}
+
+grpcdc_trace_context grpcdc_new_trace_context(const char *kind, const char *method) {
+    return grpcdc_trace_start(kind, method, NULL);
+}
+
+static _Thread_local grpcdc_trace_context g_current_trace;
+
+grpcdc_trace_context grpcdc_current_trace_context(void) {
+    return g_current_trace;
+}
+
+void grpcdc_channel_set_trace_parent(grpcdc_channel *ch,
+                                     const grpcdc_trace_context *ctx) {
+    if (ch && ctx) ch->trace_parent = *ctx;
 }
 
 char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out) {
@@ -168,7 +193,7 @@ char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out) {
     memcpy(out + 3, ctx->trace_id, 32);
     out[35] = '-';
     memcpy(out + 36, ctx->span_id, 16);
-    memcpy(out + 52, "-01", 4);
+    memcpy(out + 52, ctx->sampled ? "-01" : "-00", 4);
     return out;
 }
 
@@ -750,8 +775,17 @@ grpcdc_status grpcdc_channel_open(grpcdc_channel *ch, const char *path,
     s->channel = ch;
     s->id = ch->next_stream_id;
     ch->next_stream_id += 2;
-    s->trace = grpcdc_trace_start("client", path,
-                                  md_find(md, md_count, "traceparent"));
+    const char *parent_tp = md_find(md, md_count, "traceparent");
+    char parent_buf[56];
+    if (!parent_tp && ch->trace_parent.active) {
+        grpcdc_format_traceparent(&ch->trace_parent, parent_buf);
+        parent_tp = parent_buf;
+    }
+    if (!parent_tp && g_current_trace.active) {
+        grpcdc_format_traceparent(&g_current_trace, parent_buf);
+        parent_tp = parent_buf;
+    }
+    s->trace = grpcdc_trace_start("client", path, parent_tp);
     s->trace_path = path;
     /* Merge caller metadata with grpc-timeout and traceparent. */
     grpcdc_kv *merged = NULL;
@@ -1073,6 +1107,7 @@ typedef struct {
     char *path;
     bool cancelled;
     bool half_closed;
+    grpcdc_trace_context trace;
 } server_stream_state;
 
 struct grpcdc_server_stream {
@@ -1338,11 +1373,17 @@ static const server_method_entry *server_find(grpcdc_server *srv,
     return NULL;
 }
 
+grpcdc_trace_context grpcdc_server_stream_trace_context(grpcdc_server_stream *s) {
+    return s->state->trace;
+}
+
 static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
     (void)srv;
     grpcdc_trace_context trace = grpcdc_trace_start(
         "server", ss->path ? ss->path : "",
         md_find(ss->metadata, ss->metadata_count, "traceparent"));
+    ss->trace = trace;
+    g_current_trace = trace;
     grpcdc_status st = grpcdc_ok();
     grpcdc_server_stream raw;
     raw.state = ss;
@@ -1410,6 +1451,7 @@ static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
             break;
         }
     }
+    memset(&g_current_trace, 0, sizeof(g_current_trace));
     grpcdc_trace_end("server", ss->path ? ss->path : "", &trace,
                      grpcdc_status_name(st.code));
     server_send_trailers(ss, st);

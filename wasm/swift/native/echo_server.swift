@@ -49,3 +49,56 @@ public func run_echo_server() {
         endpoint.PollOnce()
     }
 }
+
+// Matrix tracing entry: same server with a recording span
+// observer; every span start/end re-reports the cumulative
+// spans via on_result so the page can expose them to the
+// matrix driver (window.__spans) while the pump keeps running.
+private struct MatrixServerStartRec {
+    let kind: String
+    let traceId: String
+    let spanId: String
+    let parentSpanId: String
+}
+
+private final class MatrixServerRecorder: Tracing.Tracer {
+    var starts: [MatrixServerStartRec] = []
+    var endKinds: [String] = []
+
+    func OnStart(_ kind: String, _ method: String, _ traceId: String, _ spanId: String, _ parentSpanId: String) {
+        starts.append(MatrixServerStartRec(kind: kind, traceId: traceId, spanId: spanId, parentSpanId: parentSpanId))
+        report()
+    }
+
+    func OnEnd(_ kind: String, _ method: String, _ traceId: String, _ spanId: String, _ status: String, _ durationMs: Double) {
+        // Embedded Swift (wasm) recurses formatting Int/Double
+        // into strings, so ends are reported as kind strings only.
+        endKinds.append(kind)
+        report()
+    }
+
+    private func report() {
+        let startsJson = starts
+            .map { "[\"\($0.kind)\",\"\($0.traceId)\",\"\($0.spanId)\",\"\($0.parentSpanId)\"]" }
+            .joined(separator: ",")
+        let endsJson = endKinds
+            .map { "\"\($0)\"" }
+            .joined(separator: ",")
+        let bytes = [UInt8]("{\"starts\":[\(startsJson)],\"ends\":[\(endsJson)]}".utf8)
+        let safe = bytes.isEmpty ? [0] : bytes
+        safe.withUnsafeBufferPointer { b in
+            onResult(b.baseAddress!, bytes.count)
+        }
+    }
+}
+
+@_cdecl("run_echo_server_tracing")
+public func run_echo_server_tracing() {
+    Tracing.SetTracer(MatrixServerRecorder())
+    let server = Server()
+    EchoGrpcDc.RegisterEchoServer(server, SlowEcho())
+    let endpoint = server.ServeTransport(DcTransport())
+    while true {
+        endpoint.PollOnce()
+    }
+}

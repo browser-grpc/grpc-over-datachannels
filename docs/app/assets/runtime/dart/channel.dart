@@ -114,6 +114,15 @@ class ClientStream {
 /// Channel: the client side of one Endpoint.
 class Channel {
   final Endpoint endpoint;
+  TraceContext? _traceContext;
+
+  /// A Channel view sharing this endpoint whose outbound spans
+  /// are parented to ctx. Explicit call metadata still wins.
+  Channel withTraceContext(TraceContext? ctx) {
+    final ch = Channel.fromEndpoint(endpoint);
+    ch._traceContext = ctx;
+    return ch;
+  }
 
   /// Wrap a transport, allocating odd stream ids.
   Channel(Transport transport) : endpoint = Endpoint(transport, creator: true) {
@@ -136,10 +145,11 @@ class Channel {
         metadata['grpc-timeout'] = Codec.encodeTimeout(timeout);
       }
       if (tracingEnabled) {
-        traceCtx = traceStart('client', path, parseTraceparent(metadata['traceparent']));
+        traceCtx = traceStart('client', path,
+            parseTraceparent(metadata['traceparent']) ?? parentOf(_traceContext));
         if (traceCtx != null) {
           metadata['traceparent'] =
-              formatTraceparent(traceCtx.traceId, traceCtx.spanId);
+              formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled);
         }
       }
     }

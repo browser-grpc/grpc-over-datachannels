@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc Lua/Wasm tracing test</title>
+<script type="module">
+// Runs the nested tracing scenario inside the native Lua/Wasm
+// runtime (Lua 5.4 VM in a Web Worker): client -> front callee
+// -> downstream service, spans recorded in the worker and
+// reported as JSON.
+const SAB_DATA = 1 << 16;
+const sab = new SharedArrayBuffer(8 + SAB_DATA);
+const worker = new Worker("/browser-test/wasm_lua_worker.js", { type: "module" });
+worker.onmessage = (event) => {
+  const msg = event.data || {};
+  if (msg.t === "result") {
+    try {
+      window.__result = JSON.parse(msg.json);
+    } catch (err) {
+      window.__error = String(err);
+    }
+  } else if (msg.t === "error") {
+    window.__error = msg.message || "worker error";
+  }
+};
+worker.onerror = (event) => {
+  window.__error = String(event.message || event.error || "worker error");
+};
+worker.postMessage({
+  sab,
+  wasmUrl: "/browser-test/echo_lua_tracing.wasm",
+  mode: "tracing",
+});
+</script>

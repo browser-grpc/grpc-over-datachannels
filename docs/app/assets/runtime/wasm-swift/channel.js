@@ -12,6 +12,7 @@ import {
   formatTraceparent,
   getTracer,
   headersFrame,
+  asTraceParent,
   parseTraceparent,
   statusFrame,
   traceEnd,
@@ -88,6 +89,18 @@ function responsesIterable(inner, cancel) {
 export class Channel {
   #endpoint;
   #traces = new Map();
+  #traceContext = null;
+
+  // A Channel view sharing this endpoint whose outbound spans are
+  // parented to traceContext (a server span context from
+  // ctx.traceContext, or a root from newTraceContext). Explicit
+  // call metadata still wins. This is the browser-safe propagation
+  // path: no ambient async context is assumed.
+  withTraceContext(traceContext) {
+    const ch = new Channel(this.#endpoint);
+    ch.#traceContext = traceContext ?? null;
+    return ch;
+  }
 
   /** Accepts an Endpoint or a raw RTCDataChannel-like object. */
   constructor(dcOrEndpoint, options) {
@@ -107,11 +120,15 @@ export class Channel {
     }
     let traceCtx = null;
     if (getTracer() !== null) {
-      traceCtx = traceStart("client", path, parseTraceparent(metadata?.traceparent));
+      traceCtx = traceStart(
+        "client",
+        path,
+        parseTraceparent(metadata?.traceparent) ?? asTraceParent(this.#traceContext),
+      );
       if (traceCtx !== null) {
         metadata = {
           ...metadata,
-          traceparent: formatTraceparent(traceCtx.traceId, traceCtx.spanId),
+          traceparent: formatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled),
         };
       }
     }

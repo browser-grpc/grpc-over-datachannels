@@ -52,17 +52,17 @@ function recorder() {
     tracer: {
       onStart: (kind, method, traceId, spanId, parentSpanId) =>
         starts.push({ kind, method, traceId, spanId, parentSpanId }),
-      onEnd: (kind, method, traceId, spanId, status) =>
-        ends.push({ kind, method, traceId, spanId, status }),
+      onEnd: (kind, method, traceId, spanId, status, durationMs) =>
+        ends.push({ kind, method, traceId, spanId, status, durationMs }),
     },
   };
 }
 
-function setup(tracer) {
+function setup(tracer, serviceHandlers = handlers()) {
   setTracer(tracer);
   const [a, b] = memoryDataChannelPair();
   const server = new Server();
-  server.addService(createEchoService(handlers()));
+  server.addService(createEchoService(serviceHandlers));
   server.serve(b);
   return new EchoClient(new Channel(a));
 }
@@ -86,8 +86,80 @@ test("unary propagates one parented trace", async () => {
   assert.equal(clientSpan.parentSpanId, "");
   assert.equal(rec.ends.length, 2);
   assert.ok(rec.ends.every((e) => e.status === "OK"));
+  assert.ok(rec.ends.every((e) => typeof e.durationMs === "number" && e.durationMs >= 0));
   assert.equal(rec.ends.find((e) => e.kind === "client").spanId, clientSpan.spanId);
   assert.equal(rec.ends.find((e) => e.kind === "server").spanId, serverSpan.spanId);
+});
+
+test("nested callee call joins the trace (explicit context)", async () => {
+  const rec = recorder();
+  let seenCtx = null;
+  setTracer(rec.tracer);
+  try {
+    // Downstream service.
+    const [a2, b2] = memoryDataChannelPair();
+    const back = new Server();
+    back.addService(createEchoService(handlers()));
+    back.serve(b2);
+    const downstreamChannel = new Channel(a2);
+
+    // Front callee: handler makes an outbound call through a
+    // context-bound channel; no manual metadata handling.
+    const frontHandlers = {
+      ...handlers(),
+      async unary(req, ctx) {
+        seenCtx = ctx;
+        const downstream = new EchoClient(
+          downstreamChannel.withTraceContext(ctx.traceContext),
+        );
+        const resp = await downstream.unary(new EchoRequest({ message: "nested" }));
+        return resp;
+      },
+    };
+    const [a, b] = memoryDataChannelPair();
+    const front = new Server();
+    front.addService(createEchoService(frontHandlers));
+    front.serve(b);
+    const client = new EchoClient(new Channel(a));
+
+    const resp = await client.unary(new EchoRequest({ message: "hello" }));
+    assert.equal(resp.message, "echo: nested");
+  } finally {
+    setTracer(null);
+  }
+  assert.deepEqual(rec.starts.map((s) => s.kind), ["client", "server", "client", "server"]);
+  const [outerClient, outerServer, innerClient, innerServer] = rec.starts;
+  assert.ok(rec.starts.every((s) => s.traceId === outerClient.traceId));
+  assert.equal(outerServer.parentSpanId, outerClient.spanId);
+  assert.equal(innerClient.parentSpanId, outerServer.spanId);
+  assert.equal(innerServer.parentSpanId, innerClient.spanId);
+  assert.equal(seenCtx.traceContext.spanId, outerServer.spanId);
+  assert.equal(rec.ends.length, 4);
+  assert.ok(rec.ends.every((e) => typeof e.durationMs === "number" && e.durationMs >= 0));
+});
+
+test("root context groups client calls", async () => {
+  const rec = recorder();
+  const { newTraceContext, traceEnd } = await import("../index.js");
+  setTracer(rec.tracer);
+  const root = newTraceContext("internal", "workflow");
+  assert.ok(root);
+  try {
+    const [a, b] = memoryDataChannelPair();
+    const server = new Server();
+    server.addService(createEchoService(handlers()));
+    server.serve(b);
+    const client = new EchoClient(new Channel(a).withTraceContext(root));
+    await client.unary(new EchoRequest({ message: "one" }));
+    await client.unary(new EchoRequest({ message: "two" }));
+  } finally {
+    traceEnd("internal", "workflow", root, "OK");
+    setTracer(null);
+  }
+  const clients = rec.starts.filter((s) => s.kind === "client");
+  assert.equal(clients.length, 2);
+  assert.ok(clients.every((s) => s.parentSpanId === root.spanId));
+  assert.ok(rec.starts.every((s) => s.traceId === root.traceId));
 });
 
 test("incoming traceparent is continued", async () => {
@@ -182,4 +254,53 @@ test("dormant without a tracer", async () => {
   const client = setup(null);
   const resp = await client.unary(new EchoRequest({ message: "hello" }));
   assert.equal(resp.message, "echo: hello");
+});
+
+test("tracestate and baggage reach the server as metadata", async () => {
+  const rec = recorder();
+  let seen = null;
+  const capturing = {
+    ...handlers(),
+    async unary(req, ctx) {
+      seen = ctx.metadata;
+      return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+    },
+  };
+  const client = setup(rec.tracer, capturing);
+  try {
+    await client.unary(new EchoRequest({ message: "hello" }), {
+      metadata: { tracestate: "vendor=abc", baggage: "userId=42" },
+    });
+  } finally {
+    setTracer(null);
+  }
+  assert.equal(seen.tracestate, "vendor=abc");
+  assert.equal(seen.baggage, "userId=42");
+  assert.match(seen.traceparent, /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
+});
+
+test("not-sampled parent is honored and propagated", async () => {
+  const rec = recorder();
+  let seen = null;
+  const capturing = {
+    ...handlers(),
+    async unary(req, ctx) {
+      seen = ctx.metadata;
+      return new EchoResponse({ message: `echo: ${req.message}`, index: 0 });
+    },
+  };
+  const client = setup(rec.tracer, capturing);
+  const traceId = "c".repeat(32);
+  const spanId = "d".repeat(16);
+  try {
+    await client.unary(new EchoRequest({ message: "hello" }), {
+      metadata: { traceparent: `00-${traceId}-${spanId}-00` },
+    });
+  } finally {
+    setTracer(null);
+  }
+  assert.deepEqual(rec.starts, []);
+  assert.deepEqual(rec.ends, []);
+  assert.ok(seen.traceparent.startsWith(`00-${traceId}-`));
+  assert.ok(seen.traceparent.endsWith("-00"));
 });

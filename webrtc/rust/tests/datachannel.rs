@@ -93,3 +93,68 @@ fn datachannel_echo_rust_rust() {
     client_ep.shutdown();
     server_ep.shutdown();
 }
+
+// Regression for the multi-MB stall: a 2 MiB message each way
+// over the real DTLS/UDP loopback must complete well inside
+// the deadline (it previously degraded into retransmit-timer
+// recovery when the receive window was overrun).
+#[test]
+fn datachannel_large_message_echo() {
+    let client_socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let server_socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let client_addr = client_socket.local_addr().unwrap();
+    let server_addr = server_socket.local_addr().unwrap();
+
+    let server_thread = std::thread::spawn(move || {
+        let io = UdpDtlsIo { socket: server_socket, peer: client_addr };
+        let dtls = Dtls::accept(io, &config()).expect("server handshake");
+        DcEndpoint::spawn(dtls, Role::Server, 5000)
+    });
+    let client_io = UdpDtlsIo { socket: client_socket, peer: server_addr };
+    let client_dtls = Dtls::connect(client_io, &config()).expect("client handshake");
+    let client_ep = DcEndpoint::spawn(client_dtls, Role::Client, 5000);
+    let server_ep = server_thread.join().unwrap();
+
+    let channel = client_ep
+        .open_channel(ChannelParams { label: "echo".into(), ..Default::default() })
+        .unwrap();
+    let server_channel = match server_ep.recv_event_timeout(Duration::from_secs(5)) {
+        Some(EndpointEvent::ChannelOpened { channel }) => channel,
+        _ => panic!("expected ChannelOpened"),
+    };
+
+    let payload: Vec<u8> = (0..2 * 1024 * 1024u32).map(|i| (i % 251) as u8).collect();
+    channel.send_binary(&payload).unwrap();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    let mut echoed = false;
+    while !echoed && std::time::Instant::now() < deadline {
+        match server_ep.recv_event_timeout(Duration::from_millis(200)) {
+            Some(EndpointEvent::Message { data, .. }) => {
+                assert_eq!(data, payload, "server must receive the 2 MiB message intact");
+                server_channel.send_binary(&data).unwrap();
+                echoed = true;
+            }
+            Some(_) => {}
+            None => {}
+        }
+    }
+    assert!(echoed, "server never received the 2 MiB message");
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    let mut got = false;
+    while !got && std::time::Instant::now() < deadline {
+        match client_ep.recv_event_timeout(Duration::from_millis(200)) {
+            Some(EndpointEvent::Message { data, .. }) => {
+                assert_eq!(data, payload, "client must receive the 2 MiB echo intact");
+                got = true;
+            }
+            Some(_) => {}
+            None => {}
+        }
+    }
+    assert!(got, "client never received the 2 MiB echo");
+
+    client_ep.shutdown();
+    server_ep.shutdown();
+}

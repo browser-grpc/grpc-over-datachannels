@@ -42,6 +42,7 @@ pub struct Endpoint {
     transport: Arc<dyn DcTransport>,
     streams: Mutex<HashMap<u32, StreamTx>>,
     services: RwLock<HashMap<String, crate::server::MethodDef>>,
+    fallback: RwLock<Option<crate::server::MethodHandler>>,
     next_id: AtomicU32,
     send_lock: AsyncMutex<()>,
     traces: Mutex<HashMap<u32, (crate::status::TraceContext, String)>>,
@@ -53,6 +54,7 @@ impl Endpoint {
             transport,
             streams: Mutex::new(HashMap::new()),
             services: RwLock::new(HashMap::new()),
+            fallback: RwLock::new(None),
             next_id: AtomicU32::new(match parity {
                 StreamIdParity::Odd => 1,
                 StreamIdParity::Even => 2,
@@ -80,6 +82,13 @@ impl Endpoint {
             let path = format!("/{}/{}", service.name, method.name);
             services.insert(path, method);
         }
+    }
+
+    /// Install a raw handler for paths with no registered
+    /// method (generic dispatch; the TCP proxy uses this to
+    /// forward arbitrary services without descriptors).
+    pub fn set_fallback_handler(&self, handler: crate::server::MethodHandler) {
+        *self.fallback.write().unwrap() = Some(handler);
     }
 
     /// Allocate a locally-initiated stream and register its event sink.
@@ -174,6 +183,7 @@ impl Endpoint {
                 let handler = {
                     let services = self.services.read().unwrap();
                     services.get(&path).map(|m| m.handler.clone())
+                        .or_else(|| self.fallback.read().unwrap().clone())
                 };
                 let Some(handler) = handler else {
                     let _ = self
@@ -196,10 +206,16 @@ impl Endpoint {
                 let response_meta: crate::server::SharedMeta = Default::default();
                 let sink = ResponseSink::new(self.clone(), frame.stream_id, response_meta.clone());
                 let flush_sink = sink.clone();
+                let trace_ctx = crate::status::trace_start(
+                    "server",
+                    &path,
+                    crate::status::parse_traceparent(headers.metadata.get("traceparent")),
+                );
                 let call = ServerCall {
                     ctx: CallCtx {
                         path: path.clone(),
                         metadata: headers.metadata.clone(),
+                        trace_context: trace_ctx.clone(),
                         stream_id: frame.stream_id,
                         deadline: headers
                             .metadata
@@ -211,11 +227,6 @@ impl Endpoint {
                     requests: RequestStream::<Bytes>::from_events(rx),
                     sink,
                 };
-                let trace_ctx = crate::status::trace_start(
-                    "server",
-                    &path,
-                    crate::status::parse_traceparent(headers.metadata.get("traceparent")),
-                );
                 let ep = self.clone();
                 let stream_id = frame.stream_id;
                 crate::spawn_task(async move {

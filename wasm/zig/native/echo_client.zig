@@ -25,6 +25,80 @@ fn fail(st: stubs.Status) void {
     on_error(msg.ptr, msg.len);
 }
 
+// Matrix tracing entry: one traced unary over the real
+// DataChannel transport; spans ride back in the result JSON in
+// the same shape the nested tracing entry reports.
+const TraceStart = struct {
+    kind: [16]u8,
+    kind_len: usize,
+    trace_id: [32]u8,
+    span_id: [16]u8,
+    parent_span_id: [16]u8,
+    parent_len: usize,
+};
+
+const TraceRecorder = struct {
+    starts: [8]TraceStart = undefined,
+    start_count: usize = 0,
+    end_count: usize = 0,
+
+    fn onStart(ctx: *anyopaque, kind: []const u8, _method: []const u8, trace_id: []const u8, span_id: []const u8, parent_span_id: []const u8) void {
+        _ = _method;
+        const self: *TraceRecorder = @ptrCast(@alignCast(ctx));
+        var s = TraceStart{
+            .kind = [_]u8{0} ** 16,
+            .kind_len = kind.len,
+            .trace_id = [_]u8{0} ** 32,
+            .span_id = [_]u8{0} ** 16,
+            .parent_span_id = [_]u8{0} ** 16,
+            .parent_len = parent_span_id.len,
+        };
+        @memcpy(s.kind[0..kind.len], kind);
+        @memcpy(&s.trace_id, trace_id[0..32]);
+        @memcpy(&s.span_id, span_id[0..16]);
+        if (parent_span_id.len != 0) @memcpy(&s.parent_span_id, parent_span_id[0..16]);
+        self.starts[self.start_count] = s;
+        self.start_count += 1;
+    }
+
+    fn onEnd(ctx: *anyopaque, _kind: []const u8, _method: []const u8, _trace_id: []const u8, _span_id: []const u8, _status: []const u8, _duration_ms: f64) void {
+        _ = _kind;
+        _ = _method;
+        _ = _trace_id;
+        _ = _span_id;
+        _ = _status;
+        _ = _duration_ms;
+        const self: *TraceRecorder = @ptrCast(@alignCast(ctx));
+        self.end_count += 1;
+    }
+};
+
+export fn run_echo_client_tracing() void {
+    var recorder = TraceRecorder{};
+    grpcdc.status.setTracer(.{ .ctx = &recorder, .on_start = TraceRecorder.onStart, .on_end = TraceRecorder.onEnd });
+    defer grpcdc.status.setTracer(null);
+
+    var dc = dc_transport.DcTransport{};
+    var channel = grpcdc.channel.Channel.init(alloc, dc.transport());
+    defer channel.deinit();
+    var client = stubs.EchoClient.init(&channel);
+    const resp = switch (client.unary(&req("hello", 0), null, null)) {
+        .ok => |r| r,
+        .status => |st| return fail(st),
+    };
+    var starts_json: std.ArrayList(u8) = .empty;
+    for (recorder.starts[0..recorder.start_count], 0..) |s, i| {
+        if (i > 0) starts_json.appendSlice(alloc, ",") catch return fail(stubs.Status.init(13, "out of memory"));
+        starts_json.appendSlice(alloc, std.fmt.allocPrint(alloc, "[\"{s}\",\"{s}\",\"{s}\",\"{s}\"]", .{
+            s.kind[0..s.kind_len], &s.trace_id, &s.span_id, s.parent_span_id[0..s.parent_len],
+        }) catch return fail(stubs.Status.init(13, "out of memory"))) catch return fail(stubs.Status.init(13, "out of memory"));
+    }
+    const json = std.fmt.allocPrint(alloc, "{{\"message\":\"{s}\",\"starts\":[{s}],\"ends\":{d}}}", .{
+        resp.message, starts_json.items, recorder.end_count,
+    }) catch return fail(stubs.Status.init(13, "out of memory"));
+    on_result(json.ptr, json.len);
+}
+
 export fn run_echo_client() void {
     var dc = dc_transport.DcTransport{};
     var channel = grpcdc.channel.Channel.init(alloc, dc.transport());

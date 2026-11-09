@@ -5,7 +5,7 @@ package grpcdc;
 import java.security.SecureRandom;
 
 /**
- * Homegrown tracing: W3C traceparent propagation with a span
+ * Homegrown tracing (beta): W3C traceparent propagation with a span
  * observer. Dormant until {@link #setTracer} registers one;
  * generated code stays dependency-free (sampling and export are
  * the application's problem).
@@ -15,15 +15,15 @@ public final class Tracing {
     public interface Tracer {
         void onStart(String kind, String method, String traceId, String spanId, String parentSpanId);
 
-        void onEnd(String kind, String method, String traceId, String spanId, String status);
+        void onEnd(String kind, String method, String traceId, String spanId, String status, double durationMs);
     }
 
     /** One in-flight span's context. */
-    public record TraceContext(String traceId, String spanId, String parentSpanId) {
+    public record TraceContext(String traceId, String spanId, String parentSpanId, boolean sampled, long startNanos) {
     }
 
     /** Parsed traceparent parent (trace + parent span). */
-    public record Parent(String traceId, String spanId) {
+    public record Parent(String traceId, String spanId, boolean sampled) {
     }
 
     private static volatile Tracer tracer;
@@ -67,8 +67,8 @@ public final class Tracing {
         return tracer != null;
     }
 
-    public static String formatTraceparent(String traceId, String spanId) {
-        return "00-" + traceId + "-" + spanId + "-01";
+    public static String formatTraceparent(String traceId, String spanId, boolean sampled) {
+        return "00-" + traceId + "-" + spanId + (sampled ? "-01" : "-00");
     }
 
     public static Parent parseTraceparent(String value) {
@@ -89,7 +89,13 @@ public final class Tracing {
                 return null;
             }
         }
-        return new Parent(parts[1], parts[2]);
+        int flags;
+        try {
+            flags = Integer.parseInt(parts[3], 16);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        return new Parent(parts[1], parts[2], (flags & 1) == 1);
     }
 
     private static String randomHex(int bytes) {
@@ -111,7 +117,12 @@ public final class Tracing {
         TraceContext ctx = new TraceContext(
                 parent != null ? parent.traceId() : randomHex(16),
                 randomHex(8),
-                parent != null ? parent.spanId() : "");
+                parent != null ? parent.spanId() : "",
+                parent == null || parent.sampled(),
+                System.nanoTime());
+        if (!ctx.sampled()) {
+            return ctx;
+        }
         try {
             t.onStart(kind, method, ctx.traceId(), ctx.spanId(), ctx.parentSpanId());
         } catch (Throwable ignored) {
@@ -120,13 +131,24 @@ public final class Tracing {
         return ctx;
     }
 
+    /** Start a root span context (client workflows). Pair with traceEnd. */
+    public static TraceContext newTraceContext(String kind, String method) {
+        return traceStart(kind, method, null);
+    }
+
+    /** View a span context as a traceparent parent. */
+    public static Parent parentOf(TraceContext ctx) {
+        return ctx == null ? null : new Parent(ctx.traceId(), ctx.spanId(), ctx.sampled());
+    }
+
     public static void traceEnd(String kind, String method, TraceContext ctx, String status) {
         Tracer t = tracer;
-        if (ctx == null || t == null) {
+        if (ctx == null || t == null || !ctx.sampled()) {
             return;
         }
         try {
-            t.onEnd(kind, method, ctx.traceId(), ctx.spanId(), status);
+            t.onEnd(kind, method, ctx.traceId(), ctx.spanId(), status,
+                    (System.nanoTime() - ctx.startNanos()) / 1_000_000.0);
         } catch (Throwable ignored) {
             // observers must never break the call
         }

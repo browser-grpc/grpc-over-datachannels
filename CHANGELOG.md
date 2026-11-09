@@ -3,7 +3,83 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.39.0 — prepared 2026-11-06, scheduled to publish 2026-11-09
+## v0.40.0 — 2026-11-09
+
+- Distributed tracing (beta) across every generated runtime:
+  span start/end observers now receive span durations and the
+  W3C sampled flag, unsampled contexts propagate without
+  recording spans, and nested calls parent automatically —
+  a callee's outbound calls join the inbound trace with no
+  manual context plumbing (ambient context on native runtimes,
+  explicit trace-context binding on browser runtimes). A
+  client-originated call starts a root span when no parent
+  exists, and a root workflow context can group several
+  outbound calls into one trace. The `trace=off|hooks` plugin
+  option gates only the generated stub convenience surface;
+  the runtime stays dormant until the application registers
+  a tracer. Designated beta behind a single central flag.
+- Nested tracing end-to-end coverage in every language:
+  per-language tracing suites assert one shared trace id and
+  the full client/server parent chain; dedicated browser
+  legs cover JS and every native Wasm runtime (Rust, Dart,
+  Zig, C++, Lua, Kotlin, Swift), the Wasm matrix asserts span
+  parenting across the native/facade boundary in both
+  directions, and new `examples/tracing` examples walk a
+  three-hop call chain and export it as OTLP/JSON to an
+  OpenTelemetry collector. Each language ships a
+  `TRACING.md` alongside its `TESTS.md`.
+- Wasm tracing fixes found by that coverage: Rust span-id
+  seeding no longer traps on `wasm32-unknown-unknown`, and
+  the Lua span clock works in hosts without the `os` library
+  (the Wasm host shape).
+- The TCP/DataChannel proxy emits a span for proxied calls,
+  joining the caller's trace.
+- Rust TCP/DataChannel proxy in both directions: a
+  dependency-free generated HTTP/2 + HPACK stack in the Rust
+  runtime powers `grpc_dc_proxy` — stock HTTP/2 clients can
+  call a grpc-dc server (`--dc-dial`, TLS via
+  `--tls-cert/--tls-key`), and grpc-dc clients can call a
+  stock HTTP/2 backend (`--dc-listen`, TLS via `--http2-tls`),
+  with compression terminated in the proxy and both
+  directions graded against the grpc-java oracle plus a
+  stress leg (1 MB unary, 100 concurrent streams, slow
+  consumer).
+- Go `kafka-grpc` and `eventbus-grpc` modules now live at
+  the repository root, so the Go module proxy resolves them
+  (`kafka/<version>` and `eventbus/<version>` tags).
+- Per-language `TESTS.md` indexes (tests and examples) are
+  generated for every language and linked from the readmes;
+  `docs/.nojekyll` keeps GitHub Pages serving the static
+  tree as-is.
+- SCTP delivery depth in all three hand-rolled stacks
+  (Rust/Go/JS): RTT-measured retransmit timers (SRTT/RTTVAR
+  feeding RTO) replace the fixed 1s recovery, reassembly is
+  O(1)-amortized instead of quadratic, and every stack now
+  advertises a truthful per-TSN `a_rwnd` that shrinks for
+  gap-buffered bytes — the proxy stress leg grows to 8 MB.
+- SCTP fragment size is now browser-MTU-safe (1152-byte
+  payloads in all three stacks): browsers drop SCTP packets
+  over 2048 bytes outright, so larger fragments silently
+  stalled browser-bound large messages; packets now match
+  the ~1200-byte datagrams browsers themselves emit.
+- Browser matrix: 192 KiB large-message legs join the Wasm
+  tracing matrix (20/20 pairs in Chromium and Firefox), with
+  Scala.js/Go/Kotlin/C++/Swift facade client pairs added;
+  a paced throughput bench (`make bench-throughput`) baselines
+  the JS stack against Chromium's native stack.
+- JS proxy HTTP/2 malformed-input corpus (garbage preface,
+  truncated frames/LPM, bad gzip, oversize decompression,
+  mid-message resets); it found and fixed the bridge
+  reporting UNAVAILABLE instead of UNIMPLEMENTED for parser
+  errors. Rust proxy gains TLS in both directions
+  (`--tls-ca`, per-direction cert handling) and a
+  published-package consumer gate for npm `kafka-grpc`.
+- Embedded: the raw-Ethernet Echo e2e now fragments a
+  10 KiB unary across ~7 frames each way and streams over
+  `EthDc`; the public-export clarity gate also catches
+  backticked generator-path references.
+
+## v0.39.0 — prepared 2026-11-06, scheduled to publish 2026-11-09 (published to GitHub/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/crates.io/LuaRocks/JSR)
 
 - Event bus registry packages: the generated
   `grpcdc.events.v1` stubs now also ship as separate

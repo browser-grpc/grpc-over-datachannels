@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <chrono>
 #include <exception>
 #include <optional>
 #include <random>
@@ -17,7 +18,7 @@ struct EndOfStream : std::exception {
   const char* what() const noexcept override { return "end of stream"; }
 };
 
-/// Homegrown tracing: W3C traceparent propagation with a span
+/// Homegrown tracing (beta): W3C traceparent propagation with a span
 /// observer. Dormant until Tracing::SetTracer registers one;
 /// generated code stays dependency-free (sampling and export are
 /// the application's problem).
@@ -29,18 +30,21 @@ struct Tracing {
                          const std::string& parent_span_id) = 0;
     virtual void OnEnd(const std::string& kind, const std::string& method,
                        const std::string& trace_id, const std::string& span_id,
-                       const std::string& status) = 0;
+                       const std::string& status, double duration_ms) = 0;
   };
 
   struct TraceContext {
     std::string trace_id;
     std::string span_id;
     std::string parent_span_id;
+    bool sampled = true;
+    std::chrono::steady_clock::time_point start{};
   };
 
   struct Parent {
     std::string trace_id;
     std::string span_id;
+    bool sampled = true;
   };
 
   static void SetTracer(Tracer* t) { TracerSlot() = t; }
@@ -81,8 +85,9 @@ struct Tracing {
   }
 
   static std::string FormatTraceparent(const std::string& trace_id,
-                                       const std::string& span_id) {
-    return "00-" + trace_id + "-" + span_id + "-01";
+                                       const std::string& span_id,
+                                       bool sampled) {
+    return "00-" + trace_id + "-" + span_id + (sampled ? "-01" : "-00");
   }
 
   static std::optional<Parent> ParseTraceparent(const char* value) {
@@ -108,8 +113,8 @@ struct Tracing {
       }
       return true;
     };
-    if (!is_hex(parts[1]) || !is_hex(parts[2])) return std::nullopt;
-    return Parent{parts[1], parts[2]};
+    if (!is_hex(parts[1]) || !is_hex(parts[2]) || parts[3].size() != 2 || !is_hex(parts[3])) return std::nullopt;
+    return Parent{parts[1], parts[2], (std::stoi(parts[3], nullptr, 16) & 1) == 1};
   }
 
   static std::optional<TraceContext> TraceStart(
@@ -121,6 +126,9 @@ struct Tracing {
     ctx.trace_id = parent ? parent->trace_id : RandomHex(16);
     ctx.span_id = RandomHex(8);
     ctx.parent_span_id = parent ? parent->span_id : "";
+    ctx.sampled = !parent || parent->sampled;
+    ctx.start = std::chrono::steady_clock::now();
+    if (!ctx.sampled) return ctx;
     try {
       t->OnStart(kind, method, ctx.trace_id, ctx.span_id, ctx.parent_span_id);
     } catch (...) {
@@ -128,13 +136,27 @@ struct Tracing {
     return ctx;
   }
 
+  // Start a root span context (client workflows). Pair with TraceEnd.
+  static std::optional<TraceContext> NewTraceContext(const std::string& kind,
+                                                     const std::string& method) {
+    return TraceStart(kind, method, std::nullopt);
+  }
+
+  // View a span context as a traceparent parent.
+  static std::optional<Parent> ParentOf(const std::optional<TraceContext>& ctx) {
+    if (!ctx) return std::nullopt;
+    return Parent{ctx->trace_id, ctx->span_id, ctx->sampled};
+  }
+
   static void TraceEnd(const std::string& kind, const std::string& method,
                        const std::optional<TraceContext>& ctx,
                        const std::string& status) {
     Tracer* t = TracerSlot();
-    if (!ctx || !t) return;
+    if (!ctx || !t || !ctx->sampled) return;
+    double duration_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - ctx->start).count();
     try {
-      t->OnEnd(kind, method, ctx->trace_id, ctx->span_id, status);
+      t->OnEnd(kind, method, ctx->trace_id, ctx->span_id, status, duration_ms);
     } catch (...) {
     }
   }

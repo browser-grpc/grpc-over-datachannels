@@ -3,7 +3,20 @@
 <title>grpc-dc WASM client test</title>
 <script src="/browser-test/wasm_exec.js"></script>
 <script type="module">
-import { Channel, createGrpcDcBridge } from "/js/index.js";
+import { Channel, createGrpcDcBridge, setTracer } from "/js/index.js";
+
+// Matrix tracing (?trace=1): record JS-runtime spans (the wire
+// owner for facade calls) for the Playwright driver.
+if (new URLSearchParams(location.search).has("trace")) {
+  window.__spans = { starts: [], ends: [] };
+  setTracer({
+    onStart: (kind, method, traceId, spanId, parentSpanId) =>
+      window.__spans.starts.push({ kind, method, traceId, spanId, parentSpanId }),
+    onEnd: (kind, method, traceId, spanId, status, durationMs) =>
+      window.__spans.ends.push({ kind, method, traceId, spanId, status, durationMs }),
+  });
+}
+
 
 // The calls originate in Go/WASM (generated facade); the JS grpc-dc
 // implementation owns the wire. Signaling mirrors grpc_page.html.

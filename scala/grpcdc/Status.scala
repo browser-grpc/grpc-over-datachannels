@@ -24,7 +24,7 @@ object StatusException {
 }
 
 /**
- * Homegrown tracing: W3C traceparent propagation with a span
+ * Homegrown tracing (beta): W3C traceparent propagation with a span
  * observer. Dormant until Tracing.setTracer registers one;
  * generated code stays dependency-free (sampling and export are
  * the application's problem).
@@ -33,14 +33,14 @@ object Tracing {
   /** Span observer callbacks (kind is "client" or "server"). */
   trait Tracer {
     def onStart(kind: String, method: String, traceId: String, spanId: String, parentSpanId: String): Unit
-    def onEnd(kind: String, method: String, traceId: String, spanId: String, status: String): Unit
+    def onEnd(kind: String, method: String, traceId: String, spanId: String, status: String, durationMs: Double): Unit
   }
 
   /** One in-flight span's context. */
-  case class TraceContext(traceId: String, spanId: String, parentSpanId: String)
+  case class TraceContext(traceId: String, spanId: String, parentSpanId: String, sampled: Boolean, startNanos: Long)
 
   /** Parsed traceparent parent. */
-  case class Parent(traceId: String, spanId: String)
+  case class Parent(traceId: String, spanId: String, sampled: Boolean)
 
   @volatile private var tracer: Tracer = null
   private val rng = new java.security.SecureRandom()
@@ -66,8 +66,8 @@ object Tracing {
 
   def enabled: Boolean = tracer != null
 
-  def formatTraceparent(traceId: String, spanId: String): String =
-    "00-" + traceId + "-" + spanId + "-01"
+  def formatTraceparent(traceId: String, spanId: String, sampled: Boolean): String =
+    "00-" + traceId + "-" + spanId + (if (sampled) "-01" else "-00")
 
   def parseTraceparent(value: String): Parent = {
     if (value == null) return null
@@ -75,7 +75,10 @@ object Tracing {
     if (parts.length != 4 || parts(1).length != 32 || parts(2).length != 16) return null
     if (!parts(1).forall(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return null
     if (!parts(2).forall(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return null
-    Parent(parts(1), parts(2))
+    var flags = -1
+    try { flags = Integer.parseInt(parts(3), 16) } catch { case _: Throwable => () }
+    if (flags < 0) return null
+    Parent(parts(1), parts(2), (flags & 1) == 1)
   }
 
   private def randomHex(bytes: Int): String = {
@@ -95,7 +98,10 @@ object Tracing {
     val ctx = TraceContext(
       if (parent != null) parent.traceId else randomHex(16),
       randomHex(8),
-      if (parent != null) parent.spanId else "")
+      if (parent != null) parent.spanId else "",
+      parent == null || parent.sampled,
+      System.nanoTime())
+    if (!ctx.sampled) return ctx
     try {
       t.onStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId)
     } catch {
@@ -104,11 +110,20 @@ object Tracing {
     ctx
   }
 
+  /** Start a root span context (client workflows). Pair with traceEnd. */
+  def newTraceContext(kind: String, method: String): TraceContext =
+    traceStart(kind, method, null)
+
+  /** View a span context as a traceparent parent. */
+  def parentOf(ctx: TraceContext): Parent =
+    if (ctx == null) null else Parent(ctx.traceId, ctx.spanId, ctx.sampled)
+
   def traceEnd(kind: String, method: String, ctx: TraceContext, status: String): Unit = {
     val t = tracer
-    if (ctx == null || t == null) return
+    if (ctx == null || t == null || !ctx.sampled) return
     try {
-      t.onEnd(kind, method, ctx.traceId, ctx.spanId, status)
+      t.onEnd(kind, method, ctx.traceId, ctx.spanId, status,
+        (System.nanoTime() - ctx.startNanos) / 1000000.0)
     } catch {
       case _: Throwable => ()
     }

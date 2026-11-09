@@ -7,6 +7,7 @@
 package grpcdc
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -58,14 +59,14 @@ func Status(err error) *StatusError {
 	return NewStatus(CodeInternal, err.Error())
 }
 
-// --- Homegrown tracing (W3C traceparent propagation) -------------
+// --- Homegrown tracing (beta) (W3C traceparent propagation) -------------
 // Dormant until SetTracer registers an observer. Generated code
 // stays dependency-free: sampling and export are the app's problem.
 
 // Tracer receives span callbacks (kind is "client" or "server").
 type Tracer interface {
 	OnStart(kind, method, traceID, spanID, parentSpanID string)
-	OnEnd(kind, method, traceID, spanID, status string)
+	OnEnd(kind, method, traceID, spanID, status string, durationMs float64)
 }
 
 var tracerMu sync.RWMutex
@@ -120,6 +121,10 @@ type traceContext struct {
 	TraceID      string
 	SpanID       string
 	ParentSpanID string
+	Sampled      bool
+	start        time.Time
+	kind         string
+	method       string
 }
 
 func randomHex(n int) string {
@@ -133,8 +138,12 @@ func randomHex(n int) string {
 }
 
 // FormatTraceparent renders a W3C traceparent header value.
-func FormatTraceparent(traceID, spanID string) string {
-	return "00-" + traceID + "-" + spanID + "-01"
+func FormatTraceparent(traceID, spanID string, sampled bool) string {
+	flags := "00"
+	if sampled {
+		flags = "01"
+	}
+	return "00-" + traceID + "-" + spanID + "-" + flags
 }
 
 // ParseTraceparent parses a traceparent header value.
@@ -149,7 +158,11 @@ func ParseTraceparent(value string) *traceContext {
 	if _, err := hex.DecodeString(parts[2]); err != nil {
 		return nil
 	}
-	return &traceContext{TraceID: parts[1], SpanID: parts[2]}
+	flags, err := hex.DecodeString(parts[3])
+	if err != nil || len(flags) != 1 {
+		return nil
+	}
+	return &traceContext{TraceID: parts[1], SpanID: parts[2], Sampled: flags[0]&1 == 1}
 }
 
 func traceStart(kind, method string, parent *traceContext) *traceContext {
@@ -157,12 +170,16 @@ func traceStart(kind, method string, parent *traceContext) *traceContext {
 	if t == nil || !traceAllowed(method) {
 		return nil
 	}
-	ctx := &traceContext{SpanID: randomHex(8)}
+	ctx := &traceContext{SpanID: randomHex(8), Sampled: true, start: time.Now(), kind: kind, method: method}
 	if parent != nil {
 		ctx.TraceID = parent.TraceID
 		ctx.ParentSpanID = parent.SpanID
+		ctx.Sampled = parent.Sampled
 	} else {
 		ctx.TraceID = randomHex(16)
+	}
+	if !ctx.Sampled {
+		return ctx
 	}
 	defer func() { _ = recover() }() // observers must never break the call
 	t.OnStart(kind, method, ctx.TraceID, ctx.SpanID, ctx.ParentSpanID)
@@ -170,7 +187,7 @@ func traceStart(kind, method string, parent *traceContext) *traceContext {
 }
 
 func traceEnd(kind, method string, ctx *traceContext, status string) {
-	if ctx == nil {
+	if ctx == nil || !ctx.Sampled {
 		return
 	}
 	t := getTracer()
@@ -178,7 +195,53 @@ func traceEnd(kind, method string, ctx *traceContext, status string) {
 		return
 	}
 	defer func() { _ = recover() }()
-	t.OnEnd(kind, method, ctx.TraceID, ctx.SpanID, status)
+	t.OnEnd(kind, method, ctx.TraceID, ctx.SpanID, status,
+		float64(time.Since(ctx.start))/float64(time.Millisecond))
+}
+
+type traceContextKey struct{}
+
+// ContextWithTraceContext returns a context carrying tc as the
+// ambient trace context: outbound calls made with it (directly or
+// through generated stubs, which thread context.Context) are
+// parented to tc with no manual metadata handling. The server
+// installs its span context this way before dispatch.
+func ContextWithTraceContext(ctx context.Context, tc *traceContext) context.Context {
+	if tc == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, traceContextKey{}, tc)
+}
+
+// TraceContextFromContext returns the ambient trace context, or nil.
+func TraceContextFromContext(ctx context.Context) *traceContext {
+	if ctx == nil {
+		return nil
+	}
+	tc, _ := ctx.Value(traceContextKey{}).(*traceContext)
+	return tc
+}
+
+// NewTraceContext starts a root span context (e.g. for a client
+// workflow grouping several outbound calls under one trace).
+// Pair with EndTraceContext. Nil when tracing is dormant.
+func NewTraceContext(kind, method string) *traceContext {
+	return traceStart(kind, method, nil)
+}
+
+// EndTraceContext ends a context from NewTraceContext.
+func EndTraceContext(tc *traceContext, status string) {
+	if tc == nil {
+		return
+	}
+	traceEnd(tc.kind, tc.method, tc, status)
+}
+
+func traceParentOf(tc *traceContext) *traceContext {
+	if tc == nil {
+		return nil
+	}
+	return &traceContext{TraceID: tc.TraceID, SpanID: tc.SpanID, Sampled: tc.Sampled}
 }
 
 // Marshaler is implemented by protobuf message types (see the

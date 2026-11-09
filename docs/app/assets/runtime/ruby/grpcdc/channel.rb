@@ -13,7 +13,18 @@ module Grpcdc
 
     def initialize(transport = nil, endpoint: nil)
       @endpoint = endpoint || Endpoint.new(transport, creator: true)
+      @trace_context = nil
       @endpoint.start
+    end
+
+    # Parent this channel's outbound spans to ctx (usually
+    # ctx.trace_context of the call being served, or a root from
+    # Grpcdc.new_trace_context). Explicit metadata still wins.
+    def with_trace_context(ctx)
+      ch = Channel.allocate
+      ch.instance_variable_set(:@endpoint, @endpoint)
+      ch.instance_variable_set(:@trace_context, ctx)
+      ch
     end
 
     def unary(path, req, resp, metadata = nil, timeout: nil)
@@ -98,9 +109,10 @@ module Grpcdc
           metadata["grpc-timeout"] = Codec.encode_timeout(timeout)
         end
         unless Grpcdc.tracer.nil?
-          trace_ctx = Grpcdc.trace_start("client", path, Grpcdc.parse_traceparent(metadata["traceparent"]))
+          parent = Grpcdc.parse_traceparent(metadata["traceparent"]) || Grpcdc.parent_of(@trace_context)
+          trace_ctx = Grpcdc.trace_start("client", path, parent)
           unless trace_ctx.nil?
-            metadata["traceparent"] = Grpcdc.format_traceparent(trace_ctx["trace_id"], trace_ctx["span_id"])
+            metadata["traceparent"] = Grpcdc.format_traceparent(trace_ctx["trace_id"], trace_ctx["span_id"], trace_ctx["sampled"])
           end
         end
       end

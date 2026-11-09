@@ -11,6 +11,8 @@ from .codec import (
     format_traceparent,
     get_tracer,
     headers_frame,
+    _trace_parent,
+    current_trace_context,
     parse_traceparent,
     status_name,
     trace_end,
@@ -42,7 +44,17 @@ class Channel:
             self.endpoint = endpoint
         else:
             self.endpoint = Endpoint(transport, creator=True)
+        self._trace_context = None
         self.endpoint.start()
+
+    def with_trace_context(self, ctx):
+        """A Channel view sharing this endpoint, whose outbound
+        spans are parented to ctx (a server span context or a root
+        from new_trace_context). Explicit call metadata still wins."""
+        ch = Channel.__new__(Channel)
+        ch.endpoint = self.endpoint
+        ch._trace_context = ctx
+        return ch
 
     def _open(self, path, metadata, timeout=None):
         deadline = None
@@ -54,10 +66,15 @@ class Channel:
                 merged["grpc-timeout"] = encode_timeout(timeout)
             if get_tracer() is not None:
                 parent = parse_traceparent(merged.get("traceparent"))
+                if parent is None:
+                    parent = _trace_parent(self._trace_context)
+                if parent is None:
+                    parent = _trace_parent(current_trace_context())
                 trace_ctx = trace_start("client", path, parent)
                 if trace_ctx is not None:
                     merged["traceparent"] = format_traceparent(
-                        trace_ctx["trace_id"], trace_ctx["span_id"]
+                        trace_ctx["trace_id"], trace_ctx["span_id"],
+                        trace_ctx["sampled"]
                     )
             metadata = merged
         stream_id, stream_input = self.endpoint.open_stream()
@@ -297,6 +314,10 @@ class AsyncChannel:
     @property
     def endpoint(self):
         return self._channel.endpoint
+
+    def with_trace_context(self, ctx):
+        """AsyncChannel view whose calls parent to ctx (see Channel)."""
+        return AsyncChannel(channel=self._channel.with_trace_context(ctx))
 
     async def unary(self, path, req, resp, metadata=None, timeout=None):
         loop = asyncio.get_running_loop()

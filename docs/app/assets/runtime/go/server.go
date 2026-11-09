@@ -142,6 +142,7 @@ func (s *Server) dispatch(ctx context.Context, headers Headers, in *streamInput,
 	}
 	ctx = context.WithValue(ctx, callStateKey{}, sink)
 	traceCtx := traceStart("server", *headers.Path, ParseTraceparent(headers.Metadata["traceparent"]))
+	ctx = ContextWithTraceContext(ctx, traceCtx)
 	err := method.Handler(ctx, &RequestStream{in: in}, sinkAdapter{sink: sink})
 	status := "OK"
 	if err != nil {

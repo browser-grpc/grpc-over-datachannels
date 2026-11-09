@@ -94,6 +94,7 @@ public class Server {
         }
         Tracing.TraceContext traceCtx = Tracing.traceStart("server", headers.path,
                 Tracing.parseTraceparent(headers.metadata.get("traceparent")));
+        ctx.traceContext = traceCtx;
         StatusException result = null;
         try {
             method.handler().handle(ctx, new RequestStream(in), sink::send);

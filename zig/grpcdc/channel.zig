@@ -164,6 +164,14 @@ pub const StreamResult = status_mod.CallResult(ClientStream);
 pub const Channel = struct {
     endpoint: *Endpoint,
     owns_endpoint: bool,
+    trace_context: ?status_mod.TraceContext = null,
+
+    /// Parent this channel's outbound spans to ctx (usually
+    /// CallContext.trace_context of the call being served, or a
+    /// root from newTraceContext). Explicit metadata still wins.
+    pub fn setTraceContext(self: *Channel, ctx: ?status_mod.TraceContext) void {
+        self.trace_context = ctx;
+    }
 
     /// Wrap a transport, allocating odd stream ids. The endpoint is
     /// allocated with alloc and freed by deinit.
@@ -214,10 +222,13 @@ pub const Channel = struct {
                 merged.?.put("grpc-timeout", timeout_text.?) catch @panic("out of memory");
             }
             if (status_mod.tracingEnabled()) {
-                const parent = status_mod.parseTraceparent(if (metadata) |m| m.get("traceparent") else null);
+                var parent = status_mod.parseTraceparent(if (metadata) |m| m.get("traceparent") else null);
+                if (parent == null) {
+                    if (self.trace_context) |*tc| parent = status_mod.parentOf(tc);
+                }
                 trace_ctx = status_mod.traceStart("client", path, parent);
                 if (trace_ctx) |tc| {
-                    merged.?.put("traceparent", status_mod.formatTraceparent(&tp_buf, &tc.trace_id, &tc.span_id)) catch @panic("out of memory");
+                    merged.?.put("traceparent", status_mod.formatTraceparent(&tp_buf, &tc.trace_id, &tc.span_id, tc.sampled)) catch @panic("out of memory");
                 }
             }
             md = &merged.?;

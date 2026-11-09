@@ -34,5 +34,6 @@ https://browser-grpc.github.io/grpc-over-datachannels/app/
 - Runtime: this directory (see its generated sources).
 - Worked example: `examples/` (Echo in every method shape).
 - Tests: `tests/` — the same BDD scenarios every language runs.
+- Test and example index: [`TESTS.md`](TESTS.md) — every suite and example here, plus shared matrix coverage.
 
 Full project quickstart: [`../QUICKSTART.md`](../QUICKSTART.md).

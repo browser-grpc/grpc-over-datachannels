@@ -2,7 +2,7 @@
 <meta charset="utf-8">
 <title>grpc-dc native WASM Rust client test</title>
 <script type="module">
-import init, { echo_client } from "/browser-test/wasm_rust_gen/grpc_dc_wasm_rust.js";
+import init, { echo_client, echo_client_tracing } from "/browser-test/wasm_rust_gen/grpc_dc_wasm_rust.js";
 
 // The calls originate in the Rust grpc_dc runtime compiled to
 // wasm32 (frame codec, endpoint multiplexer, generated Echo stub —
@@ -18,7 +18,7 @@ window.__acceptAnswer = async (sdp) => {
   await pc.setRemoteDescription({ type: "answer", sdp });
 };
 
-window.__runWasm = async () => {
+async function makeTransport() {
   await init();
   if (dc.readyState !== "open") {
     await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
@@ -38,9 +38,20 @@ window.__runWasm = async () => {
       transport._onMessage(new Uint8Array(event.data));
     }
   });
-  const json = await echo_client(transport);
+  return transport;
+}
+
+window.__runWasm = async () => {
+  const json = await echo_client(await makeTransport());
   return JSON.parse(json);
 };
+
+// Matrix tracing entry: one traced unary, spans included.
+window.__runWasmTracing = async () => {
+  const json = await echo_client_tracing(await makeTransport());
+  return JSON.parse(json);
+};
+
 
 const offer = await pc.createOffer();
 await pc.setLocalDescription(offer);

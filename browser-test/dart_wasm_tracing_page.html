@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc Dart/Wasm tracing test</title>
+<script type="module">
+// Runs the nested tracing scenario inside the native Dart
+// runtime compiled to WasmGC: client -> front callee ->
+// downstream service over memory transports, spans recorded in
+// the module and returned as JSON.
+import { compileStreaming } from "/browser-test/echo_dart_tracing_wasm.mjs";
+
+try {
+  const app = await compileStreaming(fetch("/browser-test/echo_dart_tracing_wasm.wasm"));
+  const instance = await app.instantiate();
+  instance.invokeMain();
+  window.__wasmReady = true;
+} catch (err) {
+  window.__wasmError = String(err && err.message ? err.message : err);
+}
+
+window.__runTracing = async () => {
+  const json = await new Promise((resolve, reject) =>
+    window.runDartEchoTracing(resolve, reject));
+  return JSON.parse(json);
+};
+</script>

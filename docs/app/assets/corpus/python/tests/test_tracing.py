@@ -26,8 +26,8 @@ class Recorder:
     def on_start(self, kind, method, trace_id, span_id, parent_span_id):
         self.starts.append((kind, method, trace_id, span_id, parent_span_id))
 
-    def on_end(self, kind, method, trace_id, span_id, status):
-        self.ends.append((kind, method, trace_id, span_id, status))
+    def on_end(self, kind, method, trace_id, span_id, status, duration_ms=None):
+        self.ends.append((kind, method, trace_id, span_id, status, duration_ms))
 
 
 class TestTracing(unittest.TestCase):
@@ -64,6 +64,65 @@ class TestTracing(unittest.TestCase):
         # End hooks carry the same span ids as start hooks.
         self.assertEqual(ends[0][3], server[3])
         self.assertEqual(ends[1][3], client[3])
+        self.assertTrue(all(e[5] is not None and e[5] >= 0 for e in ends))
+
+    def test_nested_callee_call_joins_trace(self):
+        # Front callee: its handler makes an outbound call with no
+        # manual metadata; the ambient server context must parent
+        # the outbound client span.
+        downstream_client_holder = {}
+
+        class Front(EchoService):
+            def Unary(self, ctx, req):
+                downstream_client_holder["ctx_trace"] = ctx.trace_context
+                downstream_client_holder["ambient"] = grpcdc.current_trace_context()
+                resp = downstream_client_holder["client"].Unary(
+                    EchoRequest(message="nested"))
+                return resp
+
+        a2, b2 = grpcdc.memory_transport_pair()
+        back = grpcdc.Server()
+        echo_grpc_dc.register_echo_server(back, EchoService())
+        back.serve_transport(b2)
+        downstream_client_holder["client"] = echo_grpc_dc.EchoClient(
+            grpcdc.Channel(a2))
+
+        a, b = grpcdc.memory_transport_pair()
+        front_server = grpcdc.Server()
+        echo_grpc_dc.register_echo_server(front_server, Front())
+        front_server.serve_transport(b)
+        front_client = echo_grpc_dc.EchoClient(grpcdc.Channel(a))
+
+        resp = front_client.Unary(EchoRequest(message="hello"))
+        self.assertEqual(resp.message, "echo: nested")
+        starts = self.recorder.starts
+        self.assertEqual([s[0] for s in starts],
+                         ["client", "server", "client", "server"])
+        self.assertTrue(all(s[2] == starts[0][2] for s in starts))
+        outer_client, outer_server, inner_client, inner_server = starts
+        self.assertEqual(outer_server[4], outer_client[3])
+        self.assertEqual(inner_client[4], outer_server[3])
+        self.assertEqual(inner_server[4], inner_client[3])
+        self.assertEqual(downstream_client_holder["ctx_trace"]["span_id"],
+                         outer_server[3])
+        self.assertEqual(downstream_client_holder["ambient"]["span_id"],
+                         outer_server[3])
+        self.assertEqual(len(self.recorder.ends), 4)
+        self.assertTrue(all(e[5] is not None and e[5] >= 0
+                            for e in self.recorder.ends))
+
+    def test_root_context_groups_client_calls(self):
+        root = grpcdc.new_trace_context("internal", "workflow")
+        self.assertIsNotNone(root)
+        with grpcdc.with_trace_context(root):
+            self.client.Unary(EchoRequest(message="one"))
+            self.client.Unary(EchoRequest(message="two"))
+        grpcdc.trace_end("internal", "workflow", root, "OK")
+        starts = self.recorder.starts
+        clients = [s for s in starts if s[0] == "client"]
+        self.assertEqual(len(clients), 2)
+        self.assertTrue(all(s[4] == root["span_id"] for s in clients))
+        self.assertTrue(all(s[2] == root["trace_id"] for s in starts))
 
     def test_server_stream_spans_once_each(self):
         responses = list(self.client.ServerStream(EchoRequest(message="tick", count=3)))
@@ -112,6 +171,51 @@ class TestTracing(unittest.TestCase):
         self.assertEqual(resp.message, "echo: hello")
         self.assertEqual(self.recorder.starts, [])
         self.assertEqual(self.recorder.ends, [])
+
+
+    def test_tracestate_and_baggage_reach_server(self):
+        seen = {}
+
+        class Capturing(EchoService):
+            def Unary(self, ctx, req):
+                seen.update(ctx.metadata)
+                return super().Unary(ctx, req)
+
+        a, b = grpcdc.memory_transport_pair()
+        server = grpcdc.Server()
+        echo_grpc_dc.register_echo_server(server, Capturing())
+        server.serve_transport(b)
+        client = echo_grpc_dc.EchoClient(grpcdc.Channel(a))
+        client.Unary(
+            EchoRequest(message="hello"),
+            metadata={"tracestate": "vendor=abc", "baggage": "userId=42"},
+        )
+        self.assertEqual(seen.get("tracestate"), "vendor=abc")
+        self.assertEqual(seen.get("baggage"), "userId=42")
+        self.assertTrue(seen.get("traceparent", "").endswith("-01"))
+
+    def test_not_sampled_parent_is_honored(self):
+        seen = {}
+
+        class Capturing(EchoService):
+            def Unary(self, ctx, req):
+                seen.update(ctx.metadata)
+                return super().Unary(ctx, req)
+
+        a, b = grpcdc.memory_transport_pair()
+        server = grpcdc.Server()
+        echo_grpc_dc.register_echo_server(server, Capturing())
+        server.serve_transport(b)
+        client = echo_grpc_dc.EchoClient(grpcdc.Channel(a))
+        trace_id = "c" * 32
+        client.Unary(
+            EchoRequest(message="hello"),
+            metadata={"traceparent": f"00-{trace_id}-{'d' * 16}-00"},
+        )
+        self.assertEqual(self.recorder.starts, [])
+        self.assertEqual(self.recorder.ends, [])
+        self.assertTrue(seen.get("traceparent", "").startswith(f"00-{trace_id}-"))
+        self.assertTrue(seen.get("traceparent", "").endswith("-00"))
 
 
 class TestTracingDemo(unittest.TestCase):

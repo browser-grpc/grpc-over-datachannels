@@ -37,6 +37,10 @@ pub type SharedMeta = Arc<std::sync::Mutex<ResponseMeta>>;
 pub struct CallCtx {
     pub path: String,
     pub metadata: Metadata,
+    /// This call's server span context (None when tracing is
+    /// dormant). Pass it to outbound calls via
+    /// CallOptions::trace_parent to join the same trace.
+    pub trace_context: Option<crate::status::TraceContext>,
     pub stream_id: u32,
     /// Deadline propagated via grpc-timeout, when the client set one.
     pub deadline: Option<crate::platform_time::Instant>,

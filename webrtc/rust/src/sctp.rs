@@ -23,11 +23,25 @@ use std::collections::{HashMap, HashSet};
 use alloc::collections::{BTreeMap as HashMap, BTreeSet as HashSet};
 
 pub const SCTP_PORT: u16 = 5000;
-const MAX_DATA_PAYLOAD: usize = 1000;
+// Fragment payload per DATA chunk: a local send-side choice
+// (receivers accept any chunk size). 1152 keeps the whole
+// SCTP packet (1152 + 28 header) inside the ~1200-byte DTLS
+// datagrams browsers themselves emit: Chromium drops SCTP
+// packets over 2048 bytes outright (measured: 2028-byte packet
+// acked, 2128-byte packet retransmitted forever), and larger
+// packets IP-fragment on real paths. A bigger fragment size
+// (tried 4096) silently stalls every browser-bound large
+// message, so do not raise this past the browser MTU budget.
+// DTLS/SACK overhead 4x vs 1000 on large messages while
+// keeping datagrams small enough to avoid pathological IP
+// fragmentation on LAN paths.
+const MAX_DATA_PAYLOAD: usize = 1152;
 const INITIAL_RWND: u32 = 262_144;
 const INITIAL_RTO_MS: u64 = 1000;
+const RTO_MIN_MS: u64 = 200;
+const RTO_MAX_MS: u64 = 60_000;
 // RFC 9260 §6.1: initial cwnd is 4 MTU here (fragment payload
-// is 1000B, so ~4 fragments in flight before SACK clocking).
+// is 1152B, so ~4 fragments in flight before SACK clocking).
 const INITIAL_CWND: usize = 4 * MAX_DATA_PAYLOAD;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,6 +99,14 @@ pub struct Association {
     queued: VecDeque<(u16, u32, Vec<u8>, SendOptions)>,
     out_queue: VecDeque<OutChunk>, // chunks awaiting cwnd/rwnd room
     inflight_bytes: usize,
+    // Inbound DATA bytes received but not yet SACK-cum-acked
+    // (gap-buffered + reassembly-held), per TSN so duplicates
+    // never double-count. The SACK a_rwnd we advertise is
+    // INITIAL_RWND minus their sum (RFC 9260 3.3.4); a constant
+    // advertisement lets the sender overrun the window, and
+    // the overrun tail recovers only at RTO granularity.
+    recv_buffered: BTreeMap<u32, usize>,
+    recv_buffered_bytes: usize,
     peer_rwnd: u32,
     // Congestion window (RFC 9260 §6): without it a large
     // message bursts its fragments into kernel UDP buffers
@@ -98,6 +120,11 @@ pub struct Association {
     last_init_ms: u64,
     last_packet_out_ms: u64,
     rto_ms: u64,
+    // RFC 9260 6.3 RTT estimation feeding rto_ms: SRTT/RTTVAR
+    // over first-transmission ack samples (Karn: retransmitted
+    // chunks never sample). Zero until the first sample.
+    srtt_ms: u64,
+    rttvar_ms: u64,
     abandoned_ordered: Vec<(u16, u16)>, // (stream, ssn) for FORWARD-TSN
     // Stream reset (RFC 6525) bookkeeping.
     reconf_seq: u32,
@@ -209,6 +236,8 @@ impl Association {
             queued: VecDeque::new(),
             out_queue: VecDeque::new(),
             inflight_bytes: 0,
+            recv_buffered: BTreeMap::new(),
+            recv_buffered_bytes: 0,
             peer_rwnd: INITIAL_RWND,
             cwnd: INITIAL_CWND,
             ssthresh: usize::MAX,
@@ -218,6 +247,8 @@ impl Association {
             last_init_ms: 0,
             last_packet_out_ms: 0,
             rto_ms: INITIAL_RTO_MS,
+            srtt_ms: 0,
+            rttvar_ms: 0,
             abandoned_ordered: Vec::new(),
             reconf_seq: tsn,
             resets: HashMap::new(),
@@ -599,7 +630,17 @@ impl Association {
     fn sack_packet(&self) -> Vec<u8> {
         let mut body = Vec::new();
         body.extend_from_slice(&self.sack.cum_tsn().to_be_bytes());
-        body.extend_from_slice(&INITIAL_RWND.to_be_bytes());
+        // RFC 9260 3.3.4: a_rwnd is the receiver buffer still
+        // available — INITIAL_RWND minus inbound bytes not yet
+        // cum-acked. Advertising the constant lets the sender
+        // overrun the receive window whenever >256KiB ends up
+        // gap/reassembly-buffered, losing chunks into
+        // retransmit-timer stalls on multi-MB messages.
+        body.extend_from_slice(
+            &INITIAL_RWND
+                .saturating_sub(self.recv_buffered_bytes.min(u32::MAX as usize) as u32)
+                .to_be_bytes(),
+        );
         let gaps = self.sack.gap_blocks();
         body.extend_from_slice(&(gaps.len() as u16).to_be_bytes());
         body.extend_from_slice(&0u16.to_be_bytes()); // no duplicate TSNs reported
@@ -660,6 +701,8 @@ impl Association {
                     self.peer_initial_tsn =
                         u32::from_be_bytes(view.body[12..16].try_into().unwrap());
                     self.sack.reset(self.peer_initial_tsn.wrapping_sub(1));
+                    self.recv_buffered.clear();
+                    self.recv_buffered_bytes = 0;
                     self.peer_next_tsn_init = true;
                     for (ty, value) in parse_params(&view.body[16..]) {
                         if ty == 7 {
@@ -685,6 +728,8 @@ impl Association {
                     self.my_tag = my_tag;
                     self.peer_initial_tsn = peer_tsn;
                     self.sack.reset(peer_tsn.wrapping_sub(1));
+                    self.recv_buffered.clear();
+                    self.recv_buffered_bytes = 0;
                     self.peer_next_tsn_init = true;
                     self.next_tsn = my_tsn;
                     self.out_cum_done = my_tsn.wrapping_sub(1);
@@ -765,8 +810,26 @@ impl Association {
         let is_begin = flags & 0x02 != 0;
         let is_end = flags & 0x01 != 0;
 
-        // TSN bookkeeping for SACK generation.
+        // TSN bookkeeping for SACK generation, plus receive-
+        // window accounting: count each newly seen TSN above
+        // cum once, release its bytes as cum passes it.
+        fn diff32v(a: u32, b: u32) -> i32 { a.wrapping_sub(b) as i32 }
+        let cum_before = self.sack.cum_tsn();
+        if diff32v(tsn, cum_before) > 0 && !self.recv_buffered.contains_key(&tsn) {
+            self.recv_buffered.insert(tsn, payload.len());
+            self.recv_buffered_bytes += payload.len();
+        }
         self.sack.note_received(tsn);
+        let cum_after = self.sack.cum_tsn();
+        if diff32v(cum_after, cum_before) > 0 {
+            let mut t = cum_before;
+            while t != cum_after {
+                t = t.wrapping_add(1);
+                if let Some(n) = self.recv_buffered.remove(&t) {
+                    self.recv_buffered_bytes = self.recv_buffered_bytes.saturating_sub(n);
+                }
+            }
+        }
 
         for d in self.reasm.feed(tsn, stream, ssn, ppid, unordered, is_begin, is_end, &payload) {
             events.push(Event::Data { stream: d.stream, ppid: d.ppid, payload: d.payload });
@@ -779,6 +842,8 @@ impl Association {
         }
         let new_cum = u32::from_be_bytes(body[0..4].try_into().unwrap());
         self.sack.forward_tsn(new_cum);
+        self.recv_buffered.retain(|&tsn, _| (tsn.wrapping_sub(new_cum) as i32) > 0);
+        self.recv_buffered_bytes = self.recv_buffered.values().sum();
         let mut pos = 4;
         while pos + 4 <= body.len() {
             let stream = u16::from_be_bytes(body[pos..pos + 2].try_into().unwrap());
@@ -814,11 +879,21 @@ impl Association {
         unacked_tsns.sort_by_key(|&t| t.wrapping_sub(cum));
         let (acked, retransmit) = self.sack.note_sack(cum, &blocks, &unacked_tsns);
         // Cumulative + gap acked TSNs leave the retransmission queue.
+        // RTT sample (RFC 9260 6.3.1): from the newest acked
+        // chunk that was never retransmitted (Karn) — one
+        // sample per SACK, measured from its first send.
+        let mut sample: Option<u64> = None;
         let mut freed = 0usize;
         for tsn in acked {
             if let Some(c) = self.unacked.remove(&tsn) {
+                if c.retransmits == 0 {
+                    sample = Some(now_ms.saturating_sub(c.born_ms));
+                }
                 freed += c.payload.len();
             }
+        }
+        if let Some(r) = sample {
+            self.note_rtt(r);
         }
         self.inflight_bytes = self.inflight_bytes.saturating_sub(freed);
         if freed > 0 {
@@ -924,6 +999,22 @@ impl Association {
             }
         }
         (packets, events)
+    }
+
+    // RFC 9260 6.3.1: first sample seeds SRTT/RTTVAR; later
+    // samples smooth with alpha=1/8, beta=1/4. RTO tracks
+    // SRTT + 4*RTTVAR, clamped so a fast local path still
+    // recovers promptly and a dead path cannot park forever.
+    fn note_rtt(&mut self, sample_ms: u64) {
+        if self.srtt_ms == 0 && self.rttvar_ms == 0 {
+            self.srtt_ms = sample_ms.max(1);
+            self.rttvar_ms = (sample_ms / 2).max(1);
+        } else {
+            let err = self.srtt_ms.abs_diff(sample_ms);
+            self.rttvar_ms = (3 * self.rttvar_ms + err) / 4;
+            self.srtt_ms = (7 * self.srtt_ms + sample_ms) / 8;
+        }
+        self.rto_ms = (self.srtt_ms + 4 * self.rttvar_ms).clamp(RTO_MIN_MS, RTO_MAX_MS);
     }
 
     fn advance_out_cum(&mut self) {

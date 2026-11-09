@@ -22,6 +22,10 @@ type sctpPartial struct {
     hasFirst bool
     lastTsn uint32
     hasLast bool
+    minTsn uint32
+    hasMin bool
+    maxTsn uint32
+    hasMax bool
 }
 
 type sctpCompleted struct {
@@ -60,27 +64,9 @@ func (r *sctpReassembler) entry(stream uint16) *sctpInStream {
     return e
 }
 
-func sctpPartialMax(p *sctpPartial) uint32 {
-    var m uint32
-    first := true
-    for t := range p.parts {
-        if first || t > m {
-            m, first = t, false
-        }
-    }
-    return m
-}
+func sctpPartialMax(p *sctpPartial) uint32 { return p.maxTsn }
 
-func sctpPartialMin(p *sctpPartial) uint32 {
-    var m uint32
-    first := true
-    for t := range p.parts {
-        if first || t < m {
-            m, first = t, false
-        }
-    }
-    return m
-}
+func sctpPartialMin(p *sctpPartial) uint32 { return p.minTsn }
 
 func (r *sctpReassembler) feed(tsn uint32, stream uint16, ssn uint16, ppid uint32, unordered bool, isBegin bool, isEnd bool, payload []byte) []sctpDelivery {
     entry := r.entry(stream)
@@ -111,6 +97,12 @@ func (r *sctpReassembler) feed(tsn uint32, stream uint16, ssn uint16, ppid uint3
     cp := make([]byte, len(payload))
     copy(cp, payload)
     partial.parts[tsn] = cp
+    if !partial.hasMin || diff32(tsn, partial.minTsn) < 0 {
+        partial.minTsn, partial.hasMin = tsn, true
+    }
+    if !partial.hasMax || diff32(tsn, partial.maxTsn) > 0 {
+        partial.maxTsn, partial.hasMax = tsn, true
+    }
 
     // Merge TSN-contiguous partials: a fragment that arrives
     // out of order starts a dangling partial that could
@@ -144,6 +136,12 @@ func (r *sctpReassembler) feed(tsn uint32, stream uint16, ssn uint16, ppid uint3
                     if pb.hasLast {
                         pa.lastTsn, pa.hasLast = pb.lastTsn, true
                     }
+                    if pb.hasMin && (!pa.hasMin || diff32(pb.minTsn, pa.minTsn) < 0) {
+                        pa.minTsn, pa.hasMin = pb.minTsn, true
+                    }
+                    if pb.hasMax && (!pa.hasMax || diff32(pb.maxTsn, pa.maxTsn) > 0) {
+                        pa.maxTsn, pa.hasMax = pb.maxTsn, true
+                    }
                     delete(entry.partials, kb)
                     merged = true
                     break scan
@@ -169,14 +167,10 @@ func (r *sctpReassembler) feed(tsn uint32, stream uint16, ssn uint16, ppid uint3
             if len(p.parts) != count {
                 continue
             }
-            okAll := true
-            for i := 0; i < count; i++ {
-                if _, ok := p.parts[p.firstTsn+uint32(i)]; !ok {
-                    okAll = false
-                    break
-                }
+            if !p.hasMin || !p.hasMax || p.minTsn != p.firstTsn || p.maxTsn != p.lastTsn {
+                continue
             }
-            if okAll {
+            if true {
                 completeKey, found = k, true
                 break
             }

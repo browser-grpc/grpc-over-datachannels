@@ -21,8 +21,8 @@
 import http2 from "node:http2";
 import { spawn } from "node:child_process";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { Endpoint, FrameType, StatusCode, StatusError, encodeFrame } from "../js/index.js";
-import { headersFrame, statusFrame } from "../js/src/codec.js";
+import { Endpoint, FrameType, StatusCode, StatusError, StatusName, encodeFrame } from "../js/index.js";
+import { formatTraceparent, headersFrame, parseTraceparent, statusFrame, traceEnd, traceStart } from "../js/src/codec.js";
 
 const { HTTP2_HEADER_PATH, HTTP2_HEADER_STATUS, HTTP2_HEADER_CONTENT_TYPE } = http2.constants;
 
@@ -202,12 +202,23 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
         );
       }
     };
+    // First terminal status wins: the parser-error path and
+    // the endpoint-closed path can both reach finish for one
+    // stream, and overwriting trailersToSend after stream.end()
+    // would report the later (wrong) status to the client.
+    let finished = false;
     const finish = (status) => {
+      if (finished) return;
+      finished = true;
       respond();
       trailersToSend = { "grpc-status": String(status.code) };
       const wireMessage = status.statusMessage ?? status.message;
       if (wireMessage) {
         trailersToSend["grpc-message"] = grpcMessageEncode(wireMessage);
+      }
+      if (!proxyTraceEnded) {
+        proxyTraceEnded = true;
+        traceEnd("proxy", path, proxyTraceCtx, StatusName[status.code] ?? `CODE_${status.code}`);
       }
       // Trailing metadata from the grpc-dc status frame.
       Object.assign(trailersToSend, metadataToHttp2(status.trailers ?? {}));
@@ -229,6 +240,17 @@ export function serveHttp2ToDc({ port, endpoint, host = "127.0.0.1", tls = null 
     // message's flag -- surface it as metadata so the server
     // can run the expect_compressed check.
     const requestMetadata = metadataFromHttp2(headers);
+    // Proxy span: when a tracer is registered in this process
+    // (the proxy CLI's --trace), the hop becomes visible in the
+    // trace: start a "proxy" span parented to the incoming
+    // traceparent and rewrite the downstream traceparent to it,
+    // so the server span parents to the proxy span. Dormant
+    // (traceStart returns null) when no tracer is registered.
+    const proxyTraceCtx = traceStart("proxy", path, parseTraceparent(requestMetadata.traceparent));
+    let proxyTraceEnded = false;
+    if (proxyTraceCtx !== null) {
+      requestMetadata.traceparent = formatTraceparent(proxyTraceCtx.traceId, proxyTraceCtx.spanId, proxyTraceCtx.sampled);
+    }
     let headersSent = false;
     const pendingData = [];
     const sendHeaders = () => {

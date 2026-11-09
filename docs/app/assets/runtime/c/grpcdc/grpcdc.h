@@ -65,7 +65,7 @@ grpcdc_status grpcdc_status_make(int code, const char *message);
 grpcdc_status grpcdc_ok(void);
 bool grpcdc_status_is_ok(grpcdc_status st);
 
-/* ---- homegrown tracing (W3C traceparent propagation) ----
+/* ---- homegrown tracing (beta) (W3C traceparent propagation) ----
    Dormant until grpcdc_set_tracer registers an observer.
    Dependency-free: sampling/export are the app's problem. */
 typedef struct {
@@ -75,7 +75,7 @@ typedef struct {
                      const char *parent_span_id);
     void (*on_end)(void *ctx, const char *kind, const char *method,
                    const char *trace_id, const char *span_id,
-                   const char *status);
+                   const char *status, double duration_ms);
 } grpcdc_tracer;
 
 void grpcdc_set_tracer(const grpcdc_tracer *tracer);
@@ -90,6 +90,8 @@ typedef struct {
     char span_id[17];
     char parent_span_id[17];
     int active;
+    int sampled;
+    int64_t start_ms;
 } grpcdc_trace_context;
 
 /* Begin a span; parent_traceparent may be NULL. The returned
@@ -98,8 +100,16 @@ grpcdc_trace_context grpcdc_trace_start(const char *kind, const char *method,
                                         const char *parent_traceparent);
 void grpcdc_trace_end(const char *kind, const char *method,
                       const grpcdc_trace_context *ctx, const char *status);
-/* Format "00-<trace>-<span>-01" into out[56]; returns out. */
+/* Format "00-<trace>-<span>-<flags>" into out[56]; returns out. */
 char *grpcdc_format_traceparent(const grpcdc_trace_context *ctx, char *out);
+
+/* Start a root span context (client workflows). Pair with grpcdc_trace_end. */
+grpcdc_trace_context grpcdc_new_trace_context(const char *kind, const char *method);
+
+/* The serving call's span context while a handler runs on this
+   thread (inactive otherwise). Outbound calls made on the same
+   thread are parented to it automatically. */
+grpcdc_trace_context grpcdc_current_trace_context(void);
 
 /* Owned byte buffer (malloc'd; free data or use grpcdc_bytes_free). */
 typedef struct {
@@ -177,7 +187,15 @@ grpcdc_status grpcdc_parse_status_payload(const uint8_t *payload, size_t len);
 typedef struct grpcdc_channel {
     grpcdc_transport *transport;
     uint32_t next_stream_id;
+    /* Bound parent for outbound spans (grpcdc_channel_set_trace_parent). */
+    grpcdc_trace_context trace_parent;
 } grpcdc_channel;
+
+/* Parent this channel's outbound spans to ctx (usually the serving
+   span from grpcdc_server_stream_trace_context, or a root from
+   grpcdc_new_trace_context). Explicit call metadata still wins. */
+void grpcdc_channel_set_trace_parent(grpcdc_channel *ch,
+                                     const grpcdc_trace_context *ctx);
 
 void grpcdc_channel_init(grpcdc_channel *ch, grpcdc_transport *transport);
 
@@ -248,6 +266,9 @@ void grpcdc_server_stream_set_trailer(grpcdc_server_stream *s,
    on this so a cancelled call stops promptly instead of
    wedging the single-stream serve loop. */
 int grpcdc_server_stream_cancelled(grpcdc_server_stream *s);
+
+/* The serving call's server span context (inactive when dormant). */
+grpcdc_trace_context grpcdc_server_stream_trace_context(grpcdc_server_stream *s);
 
 /* Trailing metadata received with the terminal status of a
    client stream (owned by the stream; valid until free). */

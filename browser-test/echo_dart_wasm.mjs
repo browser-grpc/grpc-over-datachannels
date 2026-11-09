@@ -73,9 +73,23 @@ class CompiledApp {
 
     // Imports
     const dart2wasm = {
-            B: s => printToConsole(s),
+            AB: o => {
+        if (o === undefined || o === null) return 0;
+        if (typeof o === 'boolean') return 1;
+        return 2;
+      },
+      B: s => printToConsole(s),
+      BB: x0 => x0.flags,
       C: Function.prototype.call.bind(Number.prototype.toString),
+      CB: (s, m) => {
+        try {
+          return new RegExp(s, m);
+        } catch (e) {
+          return String(e);
+        }
+      },
       D: Function.prototype.call.bind(BigInt.prototype.toString),
+      DB: o => o instanceof RegExp,
       E: (exn) => {
         let stackString = exn.toString();
         let frames = stackString.split('\n');
@@ -85,10 +99,15 @@ class CompiledApp {
         }
         return frames.slice(drop).join('\n');
       },
+      EB: (string, token) => string.split(token),
       F: () => new Error().stack,
+      FB: o => o instanceof Array,
       G: s => JSON.stringify(s),
+      GB: (a, i) => a[i],
       H: Function.prototype.call.bind(Number.prototype.toString),
+      HB: a => a.length,
       I: Function.prototype.call.bind(String.prototype.indexOf),
+      IB: (s) => +s,
       J: (exn) => {
         if (exn instanceof Error) {
           return exn.stack;
@@ -96,27 +115,38 @@ class CompiledApp {
           return null;
         }
       },
+      JB: s => {
+        if (!/^\s*[+-]?(?:Infinity|NaN|(?:\.\d+|\d+(?:\.\d*)?)(?:[eE][+-]?\d+)?)\s*$/.test(s)) {
+          return NaN;
+        }
+        return parseFloat(s);
+      },
       K: o => o === undefined,
+      KB: s => s.trim(),
       L: o => String(o),
+      LB: o => o.byteOffset,
       M: (wasmFunction,f) => finalizeWrapper(f, function(x0,x1,x2) { return wasmFunction(f,arguments.length,x0,x1,x2) }),
-      N: (o, p, v) => o[p] = v,
-      O: () => globalThis,
-      P: (c) =>
+      MB: (wasmFunction,f) => finalizeWrapper(f, function(x0) { return wasmFunction(f,arguments.length,x0) }),
+      N: (wasmFunction,f) => finalizeWrapper(f, function(x0,x1,x2) { return wasmFunction(f,arguments.length,x0,x1,x2) }),
+      NB: (x0,x1) => x0.setOnMessage(x1),
+      O: (c) =>
       queueMicrotask(() => dartInstance.exports.$invokeCallback(c)),
-      Q: (x0,x1,x2) => x0.call(x1,x2),
-      R: (l, r) => l === r,
-      S: x0 => x0.random(),
-      T: o => o,
-      U: o => {
+      OB: (o, p, v) => o[p] = v,
+      P: (x0,x1,x2) => x0.call(x1,x2),
+      PB: () => globalThis,
+      Q: (l, r) => l === r,
+      R: x0 => x0.random(),
+      S: o => o,
+      T: o => {
         if (o === undefined || o === null) return 0;
         if (typeof o === 'number') return 1;
         return 2;
       },
-      V: () => globalThis.Math,
-      W: (s, p, i) => s.lastIndexOf(p, i),
-      X: (handle) => clearTimeout(handle),
-      Y: (ms, c) =>
-      setTimeout(() => dartInstance.exports.$invokeCallback(c),ms),
+      U: () => globalThis.Math,
+      V: (s, p, i) => s.lastIndexOf(p, i),
+      W: () => typeof dartUseDateNowForTicks !== "undefined",
+      X: () => Date.now(),
+      Y: () => 1000 * performance.now(),
       Z: (string, times) => string.repeat(times),
       a: (decoder, codeUnits) => decoder.decode(codeUnits),
       b: (o, start, length) => new Uint8Array(o.buffer, o.byteOffset + start, length),
@@ -136,30 +166,29 @@ class CompiledApp {
           jsArray[jsArrayOffset + i] = getValue(wasmArray, wasmArrayOffset + i);
         }
       },
-      i: o => o,
-      j: s => new Date(s * 1000).getTimezoneOffset() * 60,
-      k: Date.now,
-      l: (s) => +s,
-      m: s => {
-        if (!/^\s*[+-]?(?:Infinity|NaN|(?:\.\d+|\d+(?:\.\d*)?)(?:[eE][+-]?\d+)?)\s*$/.test(s)) {
-          return NaN;
-        }
-        return parseFloat(s);
-      },
-      n: s => s.trim(),
-      o: (wasmFunction,f) => finalizeWrapper(f, function(x0) { return wasmFunction(f,arguments.length,x0) }),
-      p: (x0,x1) => x0.setOnMessage(x1),
-      q: (o) => new DataView(o.buffer, o.byteOffset, o.byteLength),
-      r: Function.prototype.call.bind(Object.getOwnPropertyDescriptor(DataView.prototype, 'byteLength').get),
-      s: o => o.byteOffset,
-      t: o => o.buffer,
-      u: (b, o, l) => new DataView(b, o, l),
-      v: Function.prototype.call.bind(DataView.prototype.getUint8),
-      w: o => {
+      i: Function.prototype.call.bind(DataView.prototype.setUint8),
+      j: (t, s) => t.set(s),
+      k: (o) => new DataView(o.buffer, o.byteOffset, o.byteLength),
+      l: Function.prototype.call.bind(Object.getOwnPropertyDescriptor(DataView.prototype, 'byteLength').get),
+      m: o => o.buffer,
+      n: Function.prototype.call.bind(DataView.prototype.getUint8),
+      o: o => {
         if (o === null || o === undefined) return 0;
         if (o instanceof Uint8Array) return 1;
         return 2;
       },
+      p: o => o,
+      q: (handle) => clearTimeout(handle),
+      r: (ms, c) =>
+      setTimeout(() => dartInstance.exports.$invokeCallback(c),ms),
+      s: s => new Date(s * 1000).getTimezoneOffset() * 60,
+      t: Date.now,
+      u: (x0,x1) => x0.getRandomValues(x1),
+      v: () => globalThis.crypto,
+      w: (b, o, l) => new DataView(b, o, l),
+      x: l => new DataView(new ArrayBuffer(l)),
+      y: (x0,x1) => x0.test(x1),
+      z: o => o,
 
     };
 

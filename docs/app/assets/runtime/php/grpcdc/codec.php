@@ -45,7 +45,7 @@ final class Status
         return Wire::STATUS_NAMES[$code] ?? ("CODE_" . $code);
     }
 
-    // --- Homegrown tracing (W3C traceparent propagation) --------
+    // --- Homegrown tracing (beta) (W3C traceparent propagation) --------
     // Dormant until Status::setTracer registers an observer with
     // traceStart/traceEnd-style callbacks. Provide an object with
     // onStart($kind, $method, $traceId, $spanId, $parentSpanId)
@@ -88,12 +88,12 @@ final class Status
         return self::$traceFilter === [];
     }
 
-    public static function formatTraceparent(string $traceId, string $spanId): string
+    public static function formatTraceparent(string $traceId, string $spanId, bool $sampled = true): string
     {
-        return "00-$traceId-$spanId-01";
+        return "00-$traceId-$spanId-" . ($sampled ? "01" : "00");
     }
 
-    /** @return array{string,string}|null [traceId, spanId] */
+    /** @return array{string,string,bool}|null [traceId, spanId, sampled] */
     public static function parseTraceparent(?string $value): ?array
     {
         if ($value === null) {
@@ -103,13 +103,14 @@ final class Status
         if (count($parts) !== 4 || strlen($parts[1]) !== 32 || strlen($parts[2]) !== 16) {
             return null;
         }
-        if (!ctype_xdigit($parts[1]) || !ctype_xdigit($parts[2])) {
+        if (!ctype_xdigit($parts[1]) || !ctype_xdigit($parts[2])
+            || strlen($parts[3]) !== 2 || !ctype_xdigit($parts[3])) {
             return null;
         }
-        return [$parts[1], $parts[2]];
+        return [$parts[1], $parts[2], (hexdec($parts[3]) & 1) === 1];
     }
 
-    /** @return array{trace_id:string,span_id:string,parent_span_id:string}|null */
+    /** @return array{trace_id:string,span_id:string,parent_span_id:string,sampled:bool,start_time:float}|null */
     public static function traceStart(string $kind, string $method, ?array $parent): ?array
     {
         if (self::$tracer === null || !self::traceAllowed($method)) {
@@ -119,21 +120,38 @@ final class Status
             "trace_id" => $parent !== null ? $parent[0] : bin2hex(random_bytes(16)),
             "span_id" => bin2hex(random_bytes(8)),
             "parent_span_id" => $parent !== null ? $parent[1] : "",
+            "sampled" => $parent !== null ? $parent[2] : true,
+            "start_time" => microtime(true),
         ];
-        try {
-            self::$tracer->onStart($kind, $method, $ctx["trace_id"], $ctx["span_id"], $ctx["parent_span_id"]);
-        } catch (\Throwable) {
+        if ($ctx["sampled"]) {
+            try {
+                self::$tracer->onStart($kind, $method, $ctx["trace_id"], $ctx["span_id"], $ctx["parent_span_id"]);
+            } catch (\Throwable) {
+            }
         }
         return $ctx;
     }
 
+    /** Start a root span context (client workflows). Pair with traceEnd. */
+    public static function newTraceContext(string $kind, string $method): ?array
+    {
+        return self::traceStart($kind, $method, null);
+    }
+
+    /** View a span context as a traceparent parent for an outbound call. */
+    public static function parentOf(?array $ctx): ?array
+    {
+        return $ctx === null ? null : [$ctx["trace_id"], $ctx["span_id"], $ctx["sampled"]];
+    }
+
     public static function traceEnd(string $kind, string $method, ?array $ctx, string $status): void
     {
-        if ($ctx === null || self::$tracer === null) {
+        if ($ctx === null || self::$tracer === null || ($ctx["sampled"] ?? true) === false) {
             return;
         }
         try {
-            self::$tracer->onEnd($kind, $method, $ctx["trace_id"], $ctx["span_id"], $status);
+            $durationMs = (microtime(true) - $ctx["start_time"]) * 1000.0;
+            self::$tracer->onEnd($kind, $method, $ctx["trace_id"], $ctx["span_id"], $status, $durationMs);
         } catch (\Throwable) {
         }
     }

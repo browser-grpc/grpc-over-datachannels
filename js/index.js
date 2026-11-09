@@ -11,8 +11,11 @@ export {
   decodeFrame,
   encodeTimeout,
   parseTimeout,
+  asTraceParent,
+  newTraceContext,
   setTracer,
   setTraceFilter,
+  traceEnd,
   toHex,
   fromHex,
 } from "./src/codec.js";

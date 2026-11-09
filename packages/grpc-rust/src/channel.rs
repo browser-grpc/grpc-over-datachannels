@@ -26,6 +26,10 @@ use crate::platform_time::Instant;
 pub struct CallOptions {
     pub metadata: Metadata,
     pub timeout: Option<Duration>,
+    /// Parent span for this call's client span (usually the
+    /// serving span from CallCtx::trace_context). Explicit
+    /// traceparent metadata still wins.
+    pub trace_parent: Option<crate::status::TraceParent>,
     /// When set, response initial metadata is copied into the
     /// sink as it arrives.
     pub response_headers: Option<SharedMetaSink>,
@@ -63,6 +67,13 @@ impl CallOptions {
 
     pub fn metadata(mut self, metadata: Metadata) -> Self {
         self.metadata = metadata;
+        self
+    }
+
+    /// Parent this call's client span to a span context (usually
+    /// CallCtx::trace_context of the call being served).
+    pub fn trace_parent(mut self, ctx: &crate::status::TraceContext) -> Self {
+        self.trace_parent = Some(crate::status::trace_parent_of(ctx));
         self
     }
 
@@ -152,15 +163,13 @@ impl Channel {
         let mut metadata = options.metadata;
         let mut trace_ctx = None;
         if crate::status::tracing_enabled() {
-            trace_ctx = crate::status::trace_start(
-                "client",
-                path,
-                crate::status::parse_traceparent(metadata.get("traceparent")),
-            );
+            let parent = crate::status::parse_traceparent(metadata.get("traceparent"))
+                .or_else(|| options.trace_parent.clone());
+            trace_ctx = crate::status::trace_start("client", path, parent);
             if let Some(ctx) = &trace_ctx {
                 metadata.insert(
                     "traceparent".to_string(),
-                    crate::status::format_traceparent(&ctx.trace_id, &ctx.span_id),
+                    crate::status::format_traceparent(&ctx.trace_id, &ctx.span_id, ctx.sampled),
                 );
             }
         }

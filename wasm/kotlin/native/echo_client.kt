@@ -13,6 +13,7 @@ package echo
 import grpcdc.Channel
 import grpcdc.EOFException
 import grpcdc.StatusException
+import grpcdc.Tracing
 import kotlin.js.JsAny
 import kotlin.js.JsExport
 import kotlin.js.JsString
@@ -125,4 +126,39 @@ fun runEchoClientNative(sab: JsAny): JsString {
         ",\"bidiFailureCode\":" + bidiFailureCode +
         ",\"unknownMethodCode\":" + unknownMethodCode +
         ",\"cancelTerminated\":" + cancelTerminated + "}").toJsString()
+}
+
+// Matrix tracing entry: one traced unary over the real
+// DataChannel transport; spans ride back in the result JSON in
+// the same [kind, traceId, spanId, parentSpanId] shape the
+// nested tracing entry reports.
+private class MatrixClientRecorder : Tracing.Tracer {
+    val starts = mutableListOf<Array<String>>()
+    var ends = 0
+
+    override fun onStart(kind: String, method: String, traceId: String, spanId: String, parentSpanId: String) {
+        starts.add(arrayOf(kind, traceId, spanId, parentSpanId))
+    }
+
+    override fun onEnd(kind: String, method: String, traceId: String, spanId: String, status: String, durationMs: Double) {
+        ends++
+    }
+}
+
+@JsExport
+fun runEchoClientTracingNative(sab: JsAny): JsString {
+    val recorder = MatrixClientRecorder()
+    Tracing.setTracer(recorder)
+    try {
+        val channel = Channel(DcTransport(sab))
+        val client = EchoGrpcDc.EchoClient(channel)
+        val resp = client.Unary(EchoRequest("hello", 0))
+        val startsJson = recorder.starts.joinToString(",") { s ->
+            "[\"${s[0]}\",\"${s[1]}\",\"${s[2]}\",\"${s[3]}\"]"
+        }
+        return ("{\"message\":\"" + jsonEscape(resp.message) +
+            "\",\"starts\":[" + startsJson + "],\"ends\":" + recorder.ends + "}").toJsString()
+    } finally {
+        Tracing.setTracer(null)
+    }
 }

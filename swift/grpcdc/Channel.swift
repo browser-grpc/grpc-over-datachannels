@@ -30,6 +30,15 @@ public func RunBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {
 /// Channel: the client side of one Endpoint.
 public final class Channel {
     private let endpointInstance: Endpoint
+    private var traceContext: Tracing.TraceContext? = nil
+
+    /// A Channel view sharing this endpoint whose outbound spans
+    /// are parented to ctx. Explicit call metadata still wins.
+    public func WithTraceContext(_ ctx: Tracing.TraceContext?) -> Channel {
+        let ch = Channel(endpoint: endpointInstance)
+        ch.traceContext = ctx
+        return ch
+    }
 
     /// Wrap a transport, allocating odd stream ids.
     public init(_ transport: Transport) {
@@ -155,9 +164,10 @@ public final class Channel {
                 merged["grpc-timeout"] = Codec.EncodeTimeout(timeout)
             }
             if Tracing.Enabled {
-                traceCtx = Tracing.TraceStart("client", path, Tracing.ParseTraceparent(merged["traceparent"]))
+                let parent = Tracing.ParseTraceparent(merged["traceparent"]) ?? Tracing.ParentOf(traceContext)
+                traceCtx = Tracing.TraceStart("client", path, parent)
                 if let traceCtx {
-                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.traceId, traceCtx.spanId)
+                    merged["traceparent"] = Tracing.FormatTraceparent(traceCtx.traceId, traceCtx.spanId, traceCtx.sampled)
                 }
             }
             metadata = merged

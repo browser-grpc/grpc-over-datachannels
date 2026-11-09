@@ -1,4 +1,4 @@
-# Test runner: ruby ruby/tests/main.rb <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestPbMessages|TestBddSchemas>
+# Test runner: ruby ruby/tests/main.rb <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestTracing|TestPbMessages|TestBddSchemas>
 
 root = File.expand_path("..", __dir__)
 $LOAD_PATH.unshift(root)
@@ -9,7 +9,7 @@ require_relative "test_util"
 
 name = ARGV[0]
 if name.nil?
-  warn "usage: main.rb <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestPbMessages>"
+  warn "usage: main.rb <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic|TestBdd|TestFiber|TestDeadline|TestTracing|TestPbMessages>"
   exit(2)
 end
 
@@ -45,6 +45,9 @@ begin
   when "TestDeadline"
     require_relative "test_deadline"
     TestDeadline.run
+  when "TestTracing"
+    require_relative "test_tracing"
+    TestTracing.run
   when "TestPbMessages"
     require_relative "test_pb_messages"
     TestPbMessages.run

@@ -147,9 +147,13 @@ func (ch *Channel) open(ctx context.Context, path string, metadata map[string]st
 			merged["grpc-timeout"] = EncodeTimeout(time.Until(deadline))
 		}
 		if getTracer() != nil {
-			traceCtx = traceStart("client", path, ParseTraceparent(metadata["traceparent"]))
+			parent := ParseTraceparent(metadata["traceparent"])
+			if parent == nil {
+				parent = traceParentOf(TraceContextFromContext(ctx))
+			}
+			traceCtx = traceStart("client", path, parent)
 			if traceCtx != nil {
-				merged["traceparent"] = FormatTraceparent(traceCtx.TraceID, traceCtx.SpanID)
+				merged["traceparent"] = FormatTraceparent(traceCtx.TraceID, traceCtx.SpanID, traceCtx.Sampled)
 			}
 		}
 		metadata = merged

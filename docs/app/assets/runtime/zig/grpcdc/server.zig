@@ -150,6 +150,7 @@ pub const Server = struct {
             return Status.init(wire.codeUnimplemented, msg);
         };
         const trace_ctx = status_mod.traceStart("server", headers.path.?, status_mod.parseTraceparent(headers.metadata.get("traceparent")));
+        mutable_ctx.trace_context = trace_ctx;
         var reqs = RequestStream{ .input = input, .alloc = self.alloc };
         const result = method.handler(method.ctx, &mutable_ctx, &reqs, .{ .sink = sink });
         status_mod.traceEnd("server", headers.path.?, trace_ctx, wire.statusName(self.alloc, result.code));

@@ -4,11 +4,11 @@ import 'dart:math';
 
 import 'wire.dart';
 
-/// Observer for homegrown tracing (W3C traceparent propagation).
+/// Observer for homegrown tracing (beta) (W3C traceparent propagation).
 abstract class Tracer {
   void onStart(
       String kind, String method, String traceId, String spanId, String parentSpanId);
-  void onEnd(String kind, String method, String traceId, String spanId, String status);
+  void onEnd(String kind, String method, String traceId, String spanId, String status, double durationMs);
 }
 
 /// One in-flight span's context.
@@ -16,7 +16,10 @@ class TraceContext {
   final String traceId;
   final String spanId;
   final String parentSpanId;
-  const TraceContext(this.traceId, this.spanId, this.parentSpanId);
+  final bool sampled;
+  final Stopwatch _clock;
+  TraceContext(this.traceId, this.spanId, this.parentSpanId, this.sampled)
+      : _clock = Stopwatch()..start();
 }
 
 Tracer? _tracer;
@@ -62,10 +65,10 @@ String _randomHex(int bytes) {
   return out.toString();
 }
 
-String formatTraceparent(String traceId, String spanId) =>
-    '00-$traceId-$spanId-01';
+String formatTraceparent(String traceId, String spanId, bool sampled) =>
+    '00-$traceId-$spanId-${sampled ? '01' : '00'}';
 
-({String traceId, String spanId})? parseTraceparent(String? value) {
+({String traceId, String spanId, bool sampled})? parseTraceparent(String? value) {
   if (value == null) return null;
   final parts = value.split('-');
   if (parts.length != 4 || parts[1].length != 32 || parts[2].length != 16) {
@@ -73,18 +76,23 @@ String formatTraceparent(String traceId, String spanId) =>
   }
   final hex = RegExp(r'^[0-9a-f]+$');
   if (!hex.hasMatch(parts[1]) || !hex.hasMatch(parts[2])) return null;
-  return (traceId: parts[1], spanId: parts[2]);
+  if (parts[3].length != 2 || !hex.hasMatch(parts[3])) return null;
+  return (traceId: parts[1], spanId: parts[2],
+      sampled: (int.parse(parts[3], radix: 16) & 1) == 1);
 }
 
 TraceContext? traceStart(
-    String kind, String method, ({String traceId, String spanId})? parent) {
+    String kind, String method,
+    ({String traceId, String spanId, bool sampled})? parent) {
   final tracer = _tracer;
   if (tracer == null || !_traceAllowed(method)) return null;
   final ctx = TraceContext(
     parent?.traceId ?? _randomHex(16),
     _randomHex(8),
     parent?.spanId ?? '',
+    parent?.sampled ?? true,
   );
+  if (!ctx.sampled) return ctx;
   try {
     tracer.onStart(kind, method, ctx.traceId, ctx.spanId, ctx.parentSpanId);
   } catch (_) {
@@ -93,11 +101,22 @@ TraceContext? traceStart(
   return ctx;
 }
 
+/// Start a root span context (client workflows). Pair with traceEnd.
+TraceContext? newTraceContext(String kind, String method) =>
+    traceStart(kind, method, null);
+
+/// View a span context as a traceparent parent.
+({String traceId, String spanId, bool sampled})? parentOf(TraceContext? ctx) =>
+    ctx == null
+        ? null
+        : (traceId: ctx.traceId, spanId: ctx.spanId, sampled: ctx.sampled);
+
 void traceEnd(String kind, String method, TraceContext? ctx, String status) {
   final tracer = _tracer;
-  if (ctx == null || tracer == null) return;
+  if (ctx == null || tracer == null || !ctx.sampled) return;
   try {
-    tracer.onEnd(kind, method, ctx.traceId, ctx.spanId, status);
+    tracer.onEnd(kind, method, ctx.traceId, ctx.spanId, status,
+        ctx._clock.elapsedMicroseconds / 1000.0);
   } catch (_) {
     // observers must never break the call
   }

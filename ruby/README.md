@@ -13,4 +13,6 @@ with Echo stubs, examples, and tests in this directory.
     protoc --plugin=protoc-gen-grpc-dc-ruby=$PWD/bin/protoc-gen-grpc-dc-ruby \
            --grpc-dc-ruby_out=out -I . your.proto
 
+Test and example index: [`TESTS.md`](TESTS.md).
+
 Full project quickstart: [`../QUICKSTART.md`](../QUICKSTART.md).
