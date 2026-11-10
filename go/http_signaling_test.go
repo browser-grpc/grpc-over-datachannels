@@ -74,8 +74,9 @@ func TestHttpSignalingEcho(t *testing.T) {
 		t.Fatalf("POST status = %d", res.StatusCode)
 	}
 	var answer struct {
-		Type string `json:"type"`
-		SDP  string `json:"sdp"`
+		Type    string `json:"type"`
+		SDP     string `json:"sdp"`
+		Session string `json:"session"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&answer); err != nil {
 		t.Fatal(err)
@@ -104,5 +105,50 @@ func TestHttpSignalingEcho(t *testing.T) {
 	}
 	if unary.Message != "echo: hello" {
 		t.Fatalf("unary = %q", unary.Message)
+	}
+
+	// Trickle + restart over the answer's session id.
+	if answer.Session == "" {
+		t.Fatal("answer carries no session id")
+	}
+	if lines := offererPeer.LocalCandidateLines(); len(lines) > 0 {
+		candidateBody, _ := json.Marshal(map[string]string{
+			"session": answer.Session, "candidate": strings.TrimPrefix(lines[0], "a="),
+		})
+		candRes, err := http.Post(url+"/candidate", "application/json", bytes.NewReader(candidateBody))
+		if err != nil {
+			t.Fatal(err)
+		}
+		candRes.Body.Close()
+		if candRes.StatusCode != http.StatusOK {
+			t.Fatalf("candidate status = %d", candRes.StatusCode)
+		}
+	}
+	restartBody, _ := json.Marshal(map[string]string{
+		"session": answer.Session, "type": "offer", "sdp": offererPeer.CreateRestartOffer(),
+	})
+	restartRes, err := http.Post(url+"/restart", "application/json", bytes.NewReader(restartBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restartRes.Body.Close()
+	if restartRes.StatusCode != http.StatusOK {
+		t.Fatalf("restart status = %d", restartRes.StatusCode)
+	}
+	var restartAnswer struct {
+		SDP string `json:"sdp"`
+	}
+	if err := json.NewDecoder(restartRes.Body).Decode(&restartAnswer); err != nil {
+		t.Fatal(err)
+	}
+	if err := offererPeer.HandleRestartAnswer(restartAnswer.SDP); err != nil {
+		t.Fatal(err)
+	}
+	after, err := client.Unary(context.Background(), &echo.EchoRequest{Message: "after"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Message != "echo: after" {
+		t.Fatalf("after restart unary = %q", after.Message)
 	}
 }

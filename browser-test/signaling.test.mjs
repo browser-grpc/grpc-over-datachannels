@@ -80,6 +80,13 @@ async function runBrowser(name, engine) {
     assert.equal(result.unary, "echo: hello");
     assert.deepEqual(result.ticks, [0, 1, 2]);
     console.log(`${name}: browser gRPC via HTTP/POST signaling OK`, result);
+
+    await page.goto(pageUrl.replace("signaling_page.html", "signaling_trickle_page.html"));
+    const trickle = await page.evaluate(() => window.__runTrickle());
+    assert.ok(trickle.session, "session id present");
+    assert.equal(trickle.before, "echo: before");
+    assert.equal(trickle.after, "echo: after");
+    console.log(`${name}: browser trickle + restart via signaling OK`, trickle);
   } finally {
     await browser.close();
   }

@@ -1,0 +1,39 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc signaling example</title>
+<h1>gRPC over a DataChannel, signaled by one POST</h1>
+<p>
+  This page uses the generated <code>httpSignalingChannel</code>:
+  it POSTs its ICE-complete WebRTC offer to
+  <code>/grpc-dc/signal</code> on this same server, applies the
+  answer, and then runs Echo calls over the <code>grpc</code>
+  DataChannel. No signaling server, no WebSocket.
+</p>
+<pre id="result">connecting…</pre>
+<script type="module">
+import { httpSignalingChannel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+
+const out = document.getElementById("result");
+try {
+  const channel = await httpSignalingChannel("/grpc-dc/signal");
+  const client = new EchoClient(channel);
+  const req = (message, count = 0) => new EchoRequest({ message, count });
+
+  const lines = [];
+  const unary = await client.unary(req("hello"));
+  lines.push(`unary -> ${unary.message}`);
+
+  const ticks = [];
+  for await (const resp of await client.serverStream(req("tick", 3))) {
+    ticks.push(resp.index);
+  }
+  lines.push(`serverStream -> indexes ${ticks.join(", ")}`);
+
+  out.textContent = lines.join("\n") + "\nsignaling example OK";
+  channel.closeSignaling();
+} catch (e) {
+  out.textContent = `failed: ${e.message ?? e}`;
+}
+</script>

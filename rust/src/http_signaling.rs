@@ -21,14 +21,29 @@ use crate::transport::DcTransport;
 use crate::webrtc_transport::WebRtcDc;
 use dc_webrtc::endpoint::EndpointEvent;
 use dc_webrtc::mux::PeerMux;
-use dc_webrtc::peer::{Peer, PeerConfig};
+use dc_webrtc::peer::{Peer, PeerConfig, RestartHandle};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub const SIGNAL_PATH: &str = "/grpc-dc/signal";
 const MAX_SIGNAL_BODY: usize = 1 << 20;
+
+static SESSION_SEQ: AtomicU64 = AtomicU64::new(1);
+
+/// One browser session: candidates trickle into the peer's
+/// connect via a channel; after connect, the RestartHandle
+/// answers ICE restart offers for the same session.
+struct SignalingSession {
+    trickle_tx: Mutex<Option<Sender<String>>>,
+    restart: Mutex<Option<RestartHandle>>,
+}
+
+type SessionRegistry = Arc<Mutex<HashMap<String, Arc<SignalingSession>>>>;
 
 fn clone_services(services: &[ServiceDef]) -> Vec<ServiceDef> {
     services
@@ -129,16 +144,35 @@ fn error_body(message: &str) -> String {
     format!("{{\"error\":\"{}\"}}", json_escape(message))
 }
 
-fn serve_peer(peer: Peer, services: Vec<ServiceDef>) {
+fn serve_peer(
+    peer: Peer,
+    services: Vec<ServiceDef>,
+    session: Arc<SignalingSession>,
+    trickle_rx: Receiver<String>,
+    registry: SessionRegistry,
+    session_id: String,
+) {
     let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(rt) => rt,
-        Err(_) => return,
+        Err(_) => {
+            registry.lock().unwrap().remove(&session_id);
+            return;
+        }
     };
     runtime.block_on(async move {
-        let endpoint = match tokio::task::spawn_blocking(move || peer.connect()).await {
-            Ok(Ok(ep)) => Arc::new(ep),
-            _ => return,
-        };
+        let (endpoint, restart) =
+            match tokio::task::spawn_blocking(move || peer.connect_trickled_with_handle(trickle_rx))
+                .await
+            {
+                Ok(Ok(pair)) => pair,
+                _ => {
+                    registry.lock().unwrap().remove(&session_id);
+                    return;
+                }
+            };
+        *session.restart.lock().unwrap() = Some(restart);
+        *session.trickle_tx.lock().unwrap() = None;
+        let endpoint = Arc::new(endpoint);
         let ep = endpoint.clone();
         let channel = match tokio::task::spawn_blocking(move || loop {
             match ep.recv_event_timeout(Duration::from_secs(30)) {
@@ -154,10 +188,14 @@ fn serve_peer(peer: Peer, services: Vec<ServiceDef>) {
         .await
         {
             Ok(Some(ch)) => ch,
-            _ => return,
+            _ => {
+                registry.lock().unwrap().remove(&session_id);
+                return;
+            }
         };
         let transport: Arc<dyn DcTransport> = Arc::new(WebRtcDc::new(endpoint, channel));
         Server::serve(transport, services).await;
+        registry.lock().unwrap().remove(&session_id);
     });
 }
 
@@ -166,6 +204,7 @@ fn handle_connection<F>(
     path: &str,
     services: &[ServiceDef],
     mux: &PeerMux,
+    sessions: &SessionRegistry,
     make_peer_config: &F,
 ) where
     F: Fn() -> PeerConfig,
@@ -193,7 +232,12 @@ fn handle_connection<F>(
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("");
     let request_path = parts.next().unwrap_or("");
-    if request_path != path {
+    let candidate_path = format!("{path}/candidate");
+    let restart_path = format!("{path}/restart");
+    let is_signal = request_path == path;
+    let is_candidate = request_path == candidate_path;
+    let is_restart = request_path == restart_path;
+    if !is_signal && !is_candidate && !is_restart {
         let _ = write_response(&mut stream, 404, &error_body("not found"));
         return;
     }
@@ -236,6 +280,56 @@ fn handle_connection<F>(
             return;
         }
     };
+    if is_candidate || is_restart {
+        let session_id = json_string_field(&body_text, "session").unwrap_or_default();
+        let session = sessions.lock().unwrap().get(&session_id).cloned();
+        let session = match session {
+            Some(s) => s,
+            None => {
+                let _ = write_response(&mut stream, 404, &error_body("unknown session"));
+                return;
+            }
+        };
+        if is_candidate {
+            let candidate = json_string_field(&body_text, "candidate").unwrap_or_default();
+            if let Some(tx) = session.trickle_tx.lock().unwrap().as_ref() {
+                let _ = tx.send(candidate);
+            }
+            let _ = write_response(&mut stream, 200, "{\"ok\":true}");
+            return;
+        }
+        let restart_type = json_string_field(&body_text, "type");
+        let restart_sdp = json_string_field(&body_text, "sdp");
+        let restart_sdp = match (restart_type.as_deref(), restart_sdp) {
+            (Some("offer"), Some(sdp)) if !sdp.is_empty() => sdp,
+            _ => {
+                let _ = write_response(
+                    &mut stream,
+                    400,
+                    &error_body("expected {\"session\",\"type\":\"offer\",\"sdp\":...}"),
+                );
+                return;
+            }
+        };
+        let answer = {
+            let restart = session.restart.lock().unwrap();
+            match restart.as_ref().map(|handle| handle.handle_restart_offer(&restart_sdp)) {
+                Some(Ok(answer)) => answer,
+                _ => {
+                    let _ =
+                        write_response(&mut stream, 400, &error_body("invalid restart offer SDP"));
+                    return;
+                }
+            }
+        };
+        let response = format!(
+            "{{\"type\":\"answer\",\"sdp\":\"{}\",\"session\":\"{}\"}}",
+            json_escape(&answer),
+            json_escape(&session_id)
+        );
+        let _ = write_response(&mut stream, 200, &response);
+        return;
+    }
     let offer_type = json_string_field(&body_text, "type");
     let offer_sdp = json_string_field(&body_text, "sdp");
     let offer_sdp = match (offer_type.as_deref(), offer_sdp) {
@@ -263,15 +357,32 @@ fn handle_connection<F>(
             return;
         }
     };
+    let session_id = format!(
+        "s{}-{}",
+        std::process::id(),
+        SESSION_SEQ.fetch_add(1, Ordering::Relaxed)
+    );
+    let (trickle_tx, trickle_rx) = channel();
+    let session = Arc::new(SignalingSession {
+        trickle_tx: Mutex::new(Some(trickle_tx)),
+        restart: Mutex::new(None),
+    });
+    sessions
+        .lock()
+        .unwrap()
+        .insert(session_id.clone(), session.clone());
     let response = format!(
-        "{{\"type\":\"answer\",\"sdp\":\"{}\"}}",
-        json_escape(&answer)
+        "{{\"type\":\"answer\",\"sdp\":\"{}\",\"session\":\"{}\"}}",
+        json_escape(&answer),
+        json_escape(&session_id)
     );
     if write_response(&mut stream, 200, &response).is_err() {
+        sessions.lock().unwrap().remove(&session_id);
         return;
     }
     let services = clone_services(services);
-    std::thread::spawn(move || serve_peer(peer, services));
+    let registry = sessions.clone();
+    std::thread::spawn(move || serve_peer(peer, services, session, trickle_rx, registry, session_id));
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -341,6 +452,7 @@ where
     let services = Arc::new(services);
     let make_peer_config = Arc::new(make_peer_config);
     let path = path.to_string();
+    let sessions: SessionRegistry = Arc::new(Mutex::new(HashMap::new()));
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             match stream {
@@ -349,8 +461,16 @@ where
                     let make_peer_config = make_peer_config.clone();
                     let path = path.clone();
                     let mux = mux.clone();
+                    let sessions = sessions.clone();
                     std::thread::spawn(move || {
-                        handle_connection(stream, &path, &services, &mux, &*make_peer_config)
+                        handle_connection(
+                            stream,
+                            &path,
+                            &services,
+                            &mux,
+                            &sessions,
+                            &*make_peer_config,
+                        )
                     });
                 }
                 Err(_) => break,

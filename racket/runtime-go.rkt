@@ -1433,6 +1433,8 @@ package grpcdc
 //   200                   {"type":"answer","sdp":"v=0\r\n..."}
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net"
@@ -1467,8 +1469,10 @@ type HttpSignalingOptions struct {
 }
 
 type signalingMessage struct {
-	Type string `json:"type"`
-	SDP  string `json:"sdp"`
+	Type      string `json:"type"`
+	SDP       string `json:"sdp"`
+	Session   string `json:"session,omitempty"`
+	Candidate string `json:"candidate,omitempty"`
 }
 
 type signalingError struct {
@@ -1493,6 +1497,36 @@ type httpSignalingCore struct {
 	muxOnce sync.Once
 	mux     *dcwebrtc.PeerMux
 	muxErr  error
+
+	sessionsMu sync.Mutex
+	sessions   map[string]*dcwebrtc.Peer
+}
+
+func (c *httpSignalingCore) addSession(peer *dcwebrtc.Peer) string {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return ""
+	}
+	session := hex.EncodeToString(raw[:])
+	c.sessionsMu.Lock()
+	if c.sessions == nil {
+		c.sessions = make(map[string]*dcwebrtc.Peer)
+	}
+	c.sessions[session] = peer
+	c.sessionsMu.Unlock()
+	return session
+}
+
+func (c *httpSignalingCore) sessionPeer(session string) *dcwebrtc.Peer {
+	c.sessionsMu.Lock()
+	defer c.sessionsMu.Unlock()
+	return c.sessions[session]
+}
+
+func (c *httpSignalingCore) deleteSession(session string) {
+	c.sessionsMu.Lock()
+	delete(c.sessions, session)
+	c.sessionsMu.Unlock()
 }
 
 func (c *httpSignalingCore) getMux() (*dcwebrtc.PeerMux, error) {
@@ -1521,7 +1555,10 @@ func (c *httpSignalingCore) handler() http.HandlerFunc {
 		onError = func(error) {}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != path {
+		isSignal := r.URL.Path == path
+		isCandidate := r.URL.Path == path+"/candidate"
+		isRestart := r.URL.Path == path+"/restart"
+		if !isSignal && !isCandidate && !isRestart {
 			writeSignalingJSON(w, http.StatusNotFound, signalingError{Error: "not found"})
 			return
 		}
@@ -1531,7 +1568,34 @@ func (c *httpSignalingCore) handler() http.HandlerFunc {
 		}
 		var offer signalingMessage
 		decoder := json.NewDecoder(io.LimitReader(r.Body, maxSignalingBody))
-		if err := decoder.Decode(&offer); err != nil || offer.Type != "offer" || offer.SDP == "" {
+		if err := decoder.Decode(&offer); err != nil {
+			writeSignalingJSON(w, http.StatusBadRequest, signalingError{Error: "expected JSON signaling body"})
+			return
+		}
+		if isCandidate || isRestart {
+			sessionPeer := c.sessionPeer(offer.Session)
+			if sessionPeer == nil {
+				writeSignalingJSON(w, http.StatusNotFound, signalingError{Error: "unknown session"})
+				return
+			}
+			if isCandidate {
+				sessionPeer.AddRemoteCandidate(offer.Candidate)
+				writeSignalingJSON(w, http.StatusOK, map[string]bool{"ok": true})
+				return
+			}
+			if offer.Type != "offer" || offer.SDP == "" {
+				writeSignalingJSON(w, http.StatusBadRequest, signalingError{Error: "expected {\"session\",\"type\":\"offer\",\"sdp\":...}"})
+				return
+			}
+			restartAnswer, err := sessionPeer.HandleRestartOffer(offer.SDP)
+			if err != nil {
+				writeSignalingJSON(w, http.StatusBadRequest, signalingError{Error: "invalid restart offer SDP"})
+				return
+			}
+			writeSignalingJSON(w, http.StatusOK, signalingMessage{Type: "answer", SDP: restartAnswer, Session: offer.Session})
+			return
+		}
+		if offer.Type != "offer" || offer.SDP == "" {
 			writeSignalingJSON(w, http.StatusBadRequest, signalingError{Error: "expected {\"type\":\"offer\",\"sdp\":...}"})
 			return
 		}
@@ -1551,11 +1615,13 @@ func (c *httpSignalingCore) handler() http.HandlerFunc {
 			writeSignalingJSON(w, http.StatusBadRequest, signalingError{Error: "invalid offer SDP"})
 			return
 		}
-		writeSignalingJSON(w, http.StatusOK, signalingMessage{Type: "answer", SDP: answer})
+		session := c.addSession(peer)
+		writeSignalingJSON(w, http.StatusOK, signalingMessage{Type: "answer", SDP: answer, Session: session})
 		go func() {
 			endpoint, err := peer.Connect()
 			if err != nil {
 				onError(err)
+				c.deleteSession(session)
 				peer.Close()
 				return
 			}
@@ -1565,7 +1631,10 @@ func (c *httpSignalingCore) handler() http.HandlerFunc {
 					// One signaling POST owns one peer: when its
 					// grpc channel closes, tear the peer down
 					// with it instead of leaking it per request.
-					channel.OnClose(func() { peer.Close() })
+					channel.OnClose(func() {
+						c.deleteSession(session)
+						peer.Close()
+					})
 				}
 			})
 		}()

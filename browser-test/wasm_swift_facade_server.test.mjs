@@ -69,6 +69,16 @@ async function runBrowser(name) {
 
     await assertEchoDeepBehavior(client, channel);
 
+    // Large leg: 1 MiB unary through the DC chunk shim. The
+    // Swift facade allocator used to be bump-only (free was a
+    // no-op), so a call's copies consumed the arena for good;
+    // this locks the free-list fix at a size far above the
+    // old 512 KiB comfort zone.
+    const { Channel: Ch, chunkedDataChannel } = await import("../js/index.js");
+    const largeClient = new EchoClient(new Ch(chunkedDataChannel(dc)));
+    const large = await largeClient.unary(req("x".repeat(1024 * 1024)));
+    assert.equal(large.message.length, 1024 * 1024 + 6);
+
     const result = { unary: unary.message, ticks, joined: joined.message, echoed, deadlineCode };
     console.log(`${name}: Swift/WASM facade gRPC server over native RTCDataChannel OK`, result);
   } finally {

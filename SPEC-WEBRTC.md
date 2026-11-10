@@ -235,12 +235,20 @@ on-ramp — an exchange, not a signaling server:
 
 - **Contract**: `POST /grpc-dc/signal` with JSON
   `{"type":"offer","sdp":...}` returns `200`
-  `{"type":"answer","sdp":...}`. Errors are JSON
+  `{"type":"answer","sdp":...,"session":...}`. Errors are JSON
   `{"error":...}` (400 malformed/invalid offer, 405 non-POST,
-  404 other paths on the standalone servers). Bodies are
-  limited to 1 MiB. Non-trickle only: the browser waits for ICE
-  gathering to complete before POSTing, and the server answers
-  from the candidates its Peer holds at creation.
+  404 other paths / unknown session on the standalone
+  servers). Bodies are limited to 1 MiB. Default is
+  non-trickle: the browser waits for ICE gathering to
+  complete before POSTing, and the server answers from the
+  candidates its Peer holds at creation. With trickle
+  enabled, candidates POST to `/grpc-dc/signal/candidate`
+  (`{"session","candidate"}`), and ICE restart runs through
+  `/grpc-dc/signal/restart` (`{"session","type":"offer","sdp"}`
+  → answer JSON) against the session's peer/RestartHandle.
+  The browser helper exposes both as
+  `httpSignalingChannel(url, { trickle: true })` and
+  `channel.restartSignaling()`.
 - **Browser side**: generated JS `httpSignalingChannel(url)`
   (`js/src/signaling.js`) builds the `RTCPeerConnection`, opens
   the `grpc` channel, performs the POST with `fetch`, and

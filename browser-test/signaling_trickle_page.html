@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc trickle signaling browser test</title>
+<script type="module">
+import { httpSignalingChannel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+
+// Like signaling_page.html, but trickle: candidates POST as
+// they arrive instead of waiting for ICE gathering, then an
+// ICE restart over the same session, then another call.
+window.__runTrickle = async () => {
+  const channel = await httpSignalingChannel("/grpc-dc/signal", { trickle: true });
+  try {
+    const client = new EchoClient(channel);
+    const req = (message) => new EchoRequest({ message });
+    const before = await client.unary(req("before"));
+    await channel.restartSignaling();
+    const after = await client.unary(req("after"));
+    return { session: channel.signalingSession, before: before.message, after: after.message };
+  } finally {
+    channel.closeSignaling();
+  }
+};
+</script>

@@ -474,9 +474,11 @@ pub async fn echo_client_tracing(transport: JsTransport) -> Result<String, JsVal
     // twice the browser RTCDataChannel single-message cap
     // (256 KiB), so the frame crosses as DC chunks (0xF0 shim
     // in the page glue + relay); the endpoint sees one whole
-    // frame. 512 KiB is the largest size every matrix server
-    // currently echoes (the Swift facade cliffs above it);
-    // the stacks and JS runtime move 1 MiB+ in their own
+    // frame. 512 KiB is the matrix echo size for every
+    // server (Swift facade included; multi-MiB Swift facade
+    // calls are covered in wasm_swift_facade_server.test.mjs
+    // after its allocator gained a real free list); the
+    // stacks and JS runtime move 1 MiB+ in their own
     // chunking tests. The multi-MB stall class must stay
     // dead in browsers too.
     let large = client.unary(req(&"x".repeat(512 * 1024), 0)).await;

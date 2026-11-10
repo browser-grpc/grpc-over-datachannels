@@ -1741,6 +1741,18 @@ function waitChannelOpen(dc, timeoutMs) {
  * Exported for callers managing their own RTCPeerConnection.
  */
 export async function signalViaHttp(url, offerSdp, fetchImpl = globalThis.fetch) {
+  const { sdp } = await signalSessionViaHttp(url, offerSdp, fetchImpl);
+  return sdp;
+}
+
+/**
+ * POST one offer SDP to `url` and return { sdp, session }:
+ * the answer SDP plus the session id for trickle candidates
+ * (signalCandidateViaHttp) and ICE restarts
+ * (signalRestartViaHttp). Servers without sessions return
+ * session: null.
+ */
+export async function signalSessionViaHttp(url, offerSdp, fetchImpl = globalThis.fetch) {
   if (typeof fetchImpl !== "function") {
     throw new Error("http-signaling: fetch is not available");
   }
@@ -1753,6 +1765,37 @@ export async function signalViaHttp(url, offerSdp, fetchImpl = globalThis.fetch)
   if (!res.ok || body?.type !== "answer" || typeof body?.sdp !== "string" || !body.sdp) {
     throw new Error(`http-signaling: signaling POST failed (${res.status})`);
   }
+  return { sdp: body.sdp, session: typeof body.session === "string" ? body.session : null };
+}
+
+async function postSignalingJson(fetchImpl, url, value) {
+  const res = await fetchImpl(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(value),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(`http-signaling: POST ${url} failed (${res.status})`);
+  }
+  return body;
+}
+
+/** Trickle one ICE candidate (or "" for end-of-candidates). */
+export async function signalCandidateViaHttp(url, session, candidate, fetchImpl = globalThis.fetch) {
+  await postSignalingJson(fetchImpl, `${url}/candidate`, { session, candidate });
+}
+
+/** ICE-restart an existing session; returns the answer SDP. */
+export async function signalRestartViaHttp(url, session, offerSdp, fetchImpl = globalThis.fetch) {
+  const body = await postSignalingJson(fetchImpl, `${url}/restart`, {
+    session,
+    type: "offer",
+    sdp: offerSdp,
+  });
+  if (body?.type !== "answer" || typeof body?.sdp !== "string" || !body.sdp) {
+    throw new Error("http-signaling: restart POST returned no answer");
+  }
   return body.sdp;
 }
 
@@ -1763,9 +1806,14 @@ export async function signalViaHttp(url, offerSdp, fetchImpl = globalThis.fetch)
  * httpSignalingChannel("/grpc-dc/signal"))`.
  * Options: iceServers, iceGatherTimeoutMs (default 10000),
  * connectTimeoutMs (default 30000), label (default "grpc"),
+ * trickle (default false: skip the ICE-gathering wait and
+ * POST each candidate to <url>/candidate as it arrives),
  * fetchImpl / RTCPeerConnectionImpl for tests and embedding.
- * The returned Channel carries .peerConnection and .dataChannel;
- * call channel.closeSignaling() to tear the peer down.
+ * The returned Channel carries .peerConnection, .dataChannel
+ * and .signalingSession; call channel.closeSignaling() to
+ * tear the peer down, or channel.restartSignaling() for an
+ * ICE restart over the same session (candidates trickle the
+ * same way when trickle is on).
  */
 export async function httpSignalingChannel(url, options = {}) {
   const {
@@ -1773,6 +1821,7 @@ export async function httpSignalingChannel(url, options = {}) {
     iceGatherTimeoutMs = 10000,
     connectTimeoutMs = 30000,
     label = "grpc",
+    trickle = false,
     fetchImpl = globalThis.fetch,
     RTCPeerConnectionImpl = globalThis.RTCPeerConnection,
   } = options;
@@ -1782,18 +1831,69 @@ export async function httpSignalingChannel(url, options = {}) {
   const pc = new RTCPeerConnectionImpl({ iceServers });
   try {
     const dc = pc.createDataChannel(label);
+    let session = null;
+    let candidateQueue = [];
+    let signalingChain = Promise.resolve();
+    let holdCandidates = false;
+    const sendCandidate = (candidate) => {
+      if (!trickle) return;
+      if (!session || holdCandidates) {
+        candidateQueue.push(candidate);
+        return;
+      }
+      signalingChain = signalingChain
+        .then(() => signalCandidateViaHttp(url, session, candidate, fetchImpl))
+        .catch(() => {});
+    };
+    pc.addEventListener?.("icecandidate", (event) => {
+      sendCandidate(event.candidate ? event.candidate.candidate : "");
+    });
+    if (typeof pc === "object" && "onicecandidate" in pc && !pc.addEventListener) {
+      pc.onicecandidate = (event) => {
+        sendCandidate(event.candidate ? event.candidate.candidate : "");
+      };
+    }
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    await waitIceGathering(pc, iceGatherTimeoutMs);
-    const answerSdp = await signalViaHttp(url, pc.localDescription.sdp, fetchImpl);
-    await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+    if (!trickle) await waitIceGathering(pc, iceGatherTimeoutMs);
+    const answer = await signalSessionViaHttp(url, pc.localDescription.sdp, fetchImpl);
+    session = answer.session;
+    await pc.setRemoteDescription({ type: "answer", sdp: answer.sdp });
+    if (trickle && session) {
+      const queued = candidateQueue;
+      candidateQueue = [];
+      for (const candidate of queued) sendCandidate(candidate);
+      await signalingChain;
+    }
     await waitChannelOpen(dc, connectTimeoutMs);
     const channel = new Channel(dc);
     channel.peerConnection = pc;
     channel.dataChannel = dc;
+    channel.signalingSession = session;
     channel.closeSignaling = () => {
       try { dc.close(); } catch { /* already closed */ }
       try { pc.close(); } catch { /* already closed */ }
+    };
+    channel.restartSignaling = async () => {
+      if (!session) throw new Error("http-signaling: server returned no session");
+      holdCandidates = true;
+      candidateQueue = [];
+      try {
+        await signalingChain;
+        const restartOffer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(restartOffer);
+        if (!trickle) await waitIceGathering(pc, iceGatherTimeoutMs);
+        const restartAnswer = await signalRestartViaHttp(url, session, pc.localDescription.sdp, fetchImpl);
+        await pc.setRemoteDescription({ type: "answer", sdp: restartAnswer });
+      } finally {
+        holdCandidates = false;
+      }
+      if (trickle) {
+        const queued = candidateQueue;
+        candidateQueue = [];
+        for (const candidate of queued) sendCandidate(candidate);
+        await signalingChain;
+      }
     };
     return channel;
   } catch (e) {
@@ -1859,6 +1959,7 @@ export function signalingHandler(grpcServer, options = {}) {
   const peerOptions = options.peerOptions ?? {};
   const onError = options.onError ?? ((e) => console.error("http-signaling:", e));
   const peers = new Set();
+  const sessions = new Map(); // session id -> peer (trickle/restart)
   // All session peers share one PeerMux UDP socket for the
   // life of this handler (created lazily on first POST, or
   // supplied by the host via options.mux so several signaling
@@ -1879,7 +1980,10 @@ export function signalingHandler(grpcServer, options = {}) {
     } catch {
       return false;
     }
-    if (pathname !== path) return false;
+    const isSignal = pathname === path;
+    const isCandidate = pathname === `${path}/candidate`;
+    const isRestart = pathname === `${path}/restart`;
+    if (!isSignal && !isCandidate && !isRestart) return false;
     if (req.method !== "POST") {
       sendJson(res, 405, { error: "method not allowed" });
       return true;
@@ -1887,6 +1991,33 @@ export function signalingHandler(grpcServer, options = {}) {
     let peer = null;
     try {
       const parsed = JSON.parse(await readBody(req));
+      if (isCandidate || isRestart) {
+        const sessionPeer = sessions.get(parsed?.session);
+        if (!sessionPeer) {
+          sendJson(res, 404, { error: "unknown session" });
+          return true;
+        }
+        if (isCandidate) {
+          if (typeof parsed?.candidate !== "string") {
+            sendJson(res, 400, { error: "expected {\"session\",\"candidate\":...}" });
+            return true;
+          }
+          sessionPeer.addRemoteCandidate(parsed.candidate);
+          sendJson(res, 200, { ok: true });
+          return true;
+        }
+        if (parsed?.type !== "offer" || typeof parsed?.sdp !== "string" || !parsed.sdp) {
+          sendJson(res, 400, { error: "expected {\"session\",\"type\":\"offer\",\"sdp\":...}" });
+          return true;
+        }
+        try {
+          const answer = sessionPeer.handleRestartOffer(parsed.sdp);
+          sendJson(res, 200, { type: "answer", sdp: answer, session: parsed.session });
+        } catch {
+          sendJson(res, 400, { error: "invalid restart offer SDP" });
+        }
+        return true;
+      }
       if (parsed?.type !== "offer" || typeof parsed?.sdp !== "string" || !parsed.sdp) {
         sendJson(res, 400, { error: "expected {\"type\":\"offer\",\"sdp\":...}" });
         return true;
@@ -1903,7 +2034,9 @@ export function signalingHandler(grpcServer, options = {}) {
         sendJson(res, 400, { error: "invalid offer SDP" });
         return true;
       }
-      sendJson(res, 200, { type: "answer", sdp: answer });
+      const session = globalThis.crypto?.randomUUID?.() ?? `s${Date.now()}-${sessions.size}`;
+      sessions.set(session, peer);
+      sendJson(res, 200, { type: "answer", sdp: answer, session });
       // Background: run ICE/DTLS, then serve the grpc channel.
       const serving = peer;
       void (async () => {
@@ -1919,6 +2052,7 @@ export function signalingHandler(grpcServer, options = {}) {
                 "close",
                 () => {
                   peers.delete(serving);
+                  sessions.delete(session);
                   void serving.close().catch(() => {});
                 },
                 { once: true },
@@ -1927,6 +2061,7 @@ export function signalingHandler(grpcServer, options = {}) {
           };
         } catch (e) {
           onError(e);
+          sessions.delete(session);
           await serving.close().catch(() => {});
         }
       })();
@@ -1947,6 +2082,7 @@ export function signalingHandler(grpcServer, options = {}) {
   handler.closePeers = async () => {
     const all = [...peers];
     peers.clear();
+    sessions.clear();
     await Promise.all(all.map((p) => p.close().catch(() => {})));
     if (ownsMux && muxPromise) {
       const mux = await muxPromise.catch(() => null);

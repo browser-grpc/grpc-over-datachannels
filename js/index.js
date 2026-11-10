@@ -42,7 +42,14 @@ export {
   splitDcMessage,
 } from "./src/chunking.js";
 export { createGrpcDcBridge, createGrpcDcServerBridge } from "./src/wasm_bridge.js";
-export { SIGNAL_PATH, httpSignalingChannel, signalViaHttp } from "./src/signaling.js";
+export {
+  SIGNAL_PATH,
+  httpSignalingChannel,
+  signalCandidateViaHttp,
+  signalRestartViaHttp,
+  signalSessionViaHttp,
+  signalViaHttp,
+} from "./src/signaling.js";
 // The Node HTTP/POST signaling server (src/signaling_server.js)
 // is likewise Node-only (node:http + the Node WebRTC stack) and
 // is not re-exported here. Import it directly:

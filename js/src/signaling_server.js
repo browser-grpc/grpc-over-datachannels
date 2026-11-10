@@ -53,6 +53,7 @@ export function signalingHandler(grpcServer, options = {}) {
   const peerOptions = options.peerOptions ?? {};
   const onError = options.onError ?? ((e) => console.error("http-signaling:", e));
   const peers = new Set();
+  const sessions = new Map(); // session id -> peer (trickle/restart)
   // All session peers share one PeerMux UDP socket for the
   // life of this handler (created lazily on first POST, or
   // supplied by the host via options.mux so several signaling
@@ -73,7 +74,10 @@ export function signalingHandler(grpcServer, options = {}) {
     } catch {
       return false;
     }
-    if (pathname !== path) return false;
+    const isSignal = pathname === path;
+    const isCandidate = pathname === `${path}/candidate`;
+    const isRestart = pathname === `${path}/restart`;
+    if (!isSignal && !isCandidate && !isRestart) return false;
     if (req.method !== "POST") {
       sendJson(res, 405, { error: "method not allowed" });
       return true;
@@ -81,6 +85,33 @@ export function signalingHandler(grpcServer, options = {}) {
     let peer = null;
     try {
       const parsed = JSON.parse(await readBody(req));
+      if (isCandidate || isRestart) {
+        const sessionPeer = sessions.get(parsed?.session);
+        if (!sessionPeer) {
+          sendJson(res, 404, { error: "unknown session" });
+          return true;
+        }
+        if (isCandidate) {
+          if (typeof parsed?.candidate !== "string") {
+            sendJson(res, 400, { error: "expected {\"session\",\"candidate\":...}" });
+            return true;
+          }
+          sessionPeer.addRemoteCandidate(parsed.candidate);
+          sendJson(res, 200, { ok: true });
+          return true;
+        }
+        if (parsed?.type !== "offer" || typeof parsed?.sdp !== "string" || !parsed.sdp) {
+          sendJson(res, 400, { error: "expected {\"session\",\"type\":\"offer\",\"sdp\":...}" });
+          return true;
+        }
+        try {
+          const answer = sessionPeer.handleRestartOffer(parsed.sdp);
+          sendJson(res, 200, { type: "answer", sdp: answer, session: parsed.session });
+        } catch {
+          sendJson(res, 400, { error: "invalid restart offer SDP" });
+        }
+        return true;
+      }
       if (parsed?.type !== "offer" || typeof parsed?.sdp !== "string" || !parsed.sdp) {
         sendJson(res, 400, { error: "expected {\"type\":\"offer\",\"sdp\":...}" });
         return true;
@@ -97,7 +128,9 @@ export function signalingHandler(grpcServer, options = {}) {
         sendJson(res, 400, { error: "invalid offer SDP" });
         return true;
       }
-      sendJson(res, 200, { type: "answer", sdp: answer });
+      const session = globalThis.crypto?.randomUUID?.() ?? `s${Date.now()}-${sessions.size}`;
+      sessions.set(session, peer);
+      sendJson(res, 200, { type: "answer", sdp: answer, session });
       // Background: run ICE/DTLS, then serve the grpc channel.
       const serving = peer;
       void (async () => {
@@ -113,6 +146,7 @@ export function signalingHandler(grpcServer, options = {}) {
                 "close",
                 () => {
                   peers.delete(serving);
+                  sessions.delete(session);
                   void serving.close().catch(() => {});
                 },
                 { once: true },
@@ -121,6 +155,7 @@ export function signalingHandler(grpcServer, options = {}) {
           };
         } catch (e) {
           onError(e);
+          sessions.delete(session);
           await serving.close().catch(() => {});
         }
       })();
@@ -141,6 +176,7 @@ export function signalingHandler(grpcServer, options = {}) {
   handler.closePeers = async () => {
     const all = [...peers];
     peers.clear();
+    sessions.clear();
     await Promise.all(all.map((p) => p.close().catch(() => {})));
     if (ownsMux && muxPromise) {
       const mux = await muxPromise.catch(() => null);

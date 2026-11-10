@@ -603,6 +603,15 @@ impl Peer {
         Ok(self.connect_inner(Some(trickle))?.0)
     }
 
+    /// connect_trickled plus the RestartHandle, for servers
+    /// that both trickle candidates and answer ICE restarts.
+    pub fn connect_trickled_with_handle(
+        self,
+        trickle: Receiver<String>,
+    ) -> io::Result<(DcEndpoint, RestartHandle)> {
+        self.connect_inner(Some(trickle))
+    }
+
     fn connect_inner(
         self,
         trickle: Option<Receiver<String>>,

@@ -108,7 +108,12 @@ fn http_exchange(addr: &str, request: &str) -> (u16, String) {
 }
 
 fn extract_sdp(body: &str) -> String {
-    let start = body.find("\"sdp\":\"").unwrap() + "\"sdp\":\"".len();
+    extract_json_string(body, "sdp")
+}
+
+fn extract_json_string(body: &str, field: &str) -> String {
+    let needle = format!("\"{field}\":\"");
+    let start = body.find(&needle).unwrap() + needle.len();
     let mut out = String::new();
     let mut chars = body[start..].chars();
     loop {
@@ -168,9 +173,12 @@ async fn http_signaling_echo() {
         answer.contains(&format!(" {mux_port} typ host")),
         "answer candidates do not use the mux port {mux_port}: {answer}"
     );
+    let session = extract_json_string(&response, "session");
+    assert!(!session.is_empty(), "answer carries a session id");
     offerer.handle_answer(&answer).unwrap();
 
-    let offerer_ep = Arc::new(offerer.connect().expect("offerer connect"));
+    let (offerer_ep, restart) = offerer.connect_with_handle().expect("offerer connect");
+    let offerer_ep = Arc::new(offerer_ep);
     let client_channel = offerer_ep
         .open_channel(ChannelParams { label: "grpc".into(), ..Default::default() })
         .unwrap();
@@ -182,4 +190,36 @@ async fn http_signaling_echo() {
         .await
         .unwrap();
     assert_eq!(unary.message, "echo: hello");
+
+    // Trickle candidate POST (unknown session 404s first).
+    let bad_body = "{\"session\":\"nope\",\"candidate\":\"candidate:1 1 udp 1 127.0.0.1 9 typ host\"}";
+    let bad_request = format!(
+        "POST /grpc-dc/signal/candidate HTTP/1.1\r\nhost: x\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+        bad_body.len(),
+        bad_body
+    );
+    let (status, _) = http_exchange(&addr, &bad_request);
+    assert_eq!(status, 404);
+
+    // ICE restart over the same session, then the channel works.
+    let restart_offer = restart.create_restart_offer();
+    let restart_body = format!(
+        "{{\"session\":\"{}\",\"type\":\"offer\",\"sdp\":\"{}\"}}",
+        json_escape(&session),
+        json_escape(&restart_offer)
+    );
+    let restart_request = format!(
+        "POST /grpc-dc/signal/restart HTTP/1.1\r\nhost: x\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+        restart_body.len(),
+        restart_body
+    );
+    let (status, restart_response) = http_exchange(&addr, &restart_request);
+    assert_eq!(status, 200, "restart response: {restart_response}");
+    let restart_answer = extract_sdp(&restart_response);
+    restart.handle_restart_answer(&restart_answer).unwrap();
+    let after = client
+        .unary(pb::EchoRequest { message: "after".into(), count: 0, delay_ms: 0, ..Default::default() })
+        .await
+        .unwrap();
+    assert_eq!(after.message, "echo: after");
 }

@@ -5,6 +5,7 @@ import { Channel, Server } from "../index.js";
 import { EchoRequest, EchoResponse } from "../examples/echo_pb.js";
 import { EchoClient, createEchoService } from "../examples/echo_grpc_dc.js";
 import { serveHttpSignaling } from "../src/signaling_server.js";
+import { signalCandidateViaHttp, signalRestartViaHttp } from "../src/signaling.js";
 import { Peer } from "../../webrtc/js/peer.js";
 
 function echoServer() {
@@ -74,6 +75,56 @@ test("HTTP/POST signaling: offer in, answer out, Echo over the channel", async (
     const client = new EchoClient(new Channel(dc));
     const unary = await client.unary(new EchoRequest({ message: "hello" }));
     assert.equal(unary.message, "echo: hello");
+    dc.close();
+    await endpoint.close();
+  } finally {
+    await offerer.close();
+    httpServer.close();
+    await httpServer.closeSignaling();
+  }
+});
+
+test("signaling session: trickle candidate POST and ICE restart", async () => {
+  const httpServer = serveHttpSignaling(echoServer(), { host: "127.0.0.1", port: 0 });
+  await new Promise((resolve) => httpServer.once("listening", resolve));
+  const url = `http://127.0.0.1:${httpServer.address().port}/grpc-dc/signal`;
+  const offerer = await Peer.create({ localIps: ["127.0.0.1"] });
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "offer", sdp: offerer.createOffer() }),
+    });
+    assert.equal(res.status, 200);
+    const answer = await res.json();
+    assert.ok(answer.session, "answer carries a session id");
+    offerer.handleAnswer(answer.sdp);
+
+    // Unknown sessions are rejected; a real candidate is accepted.
+    const badCandidate = await fetch(`${url}/candidate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session: "nope", candidate: "candidate:1 1 udp 1 127.0.0.1 9 typ host" }),
+    });
+    assert.equal(badCandidate.status, 404);
+    const candidate = offerer.localCandidateLines()[0]?.replace(/^a=/, "");
+    if (candidate) {
+      await signalCandidateViaHttp(url, answer.session, candidate);
+    }
+
+    const endpoint = await offerer.connect();
+    const dc = endpoint.openChannel({ label: "grpc" });
+    const client = new EchoClient(new Channel(dc));
+    const before = await client.unary(new EchoRequest({ message: "before" }));
+    assert.equal(before.message, "echo: before");
+
+    // ICE restart over the same session, then the same channel works.
+    const restartOffer = await offerer.createRestartOffer();
+    const restartAnswer = await signalRestartViaHttp(url, answer.session, restartOffer);
+    await offerer.handleRestartAnswer(restartAnswer);
+    const after = await client.unary(new EchoRequest({ message: "after" }));
+    assert.equal(after.message, "echo: after");
+
     dc.close();
     await endpoint.close();
   } finally {
