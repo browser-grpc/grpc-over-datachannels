@@ -75,6 +75,15 @@ type PeerOptions struct {
 	// consent for the nominated pair expires; the endpoint is
 	// closed so sends fail instead of hitting a dead pair.
 	OnConsentFailure func()
+	// IceUfrag/IcePwd, when set, fix this peer's local ICE
+	// credentials instead of random ones (rendezvous mode: the
+	// pair is pre-published so browsers can synthesize this
+	// peer's description without signaling).
+	IceUfrag string
+	IcePwd   string
+	// Certificate, when set, fixes this peer's DTLS certificate
+	// (rendezvous mode: its fingerprint is pre-published).
+	Certificate *Certificate
 }
 
 // packetConn is the datagram seam for one peer: a real UDP
@@ -183,13 +192,23 @@ func NewPeer(options PeerOptions) (*Peer, error) {
 func newPeer(options PeerOptions, socket packetConn, ips []string) (*Peer, error) {
 	port := socket.LocalAddr().(*net.UDPAddr).Port
 	agent := NewIceAgent(true)
+	if options.IceUfrag != "" {
+		agent.LocalUfrag = options.IceUfrag
+	}
+	if options.IcePwd != "" {
+		agent.LocalPwd = options.IcePwd
+	}
 	for i, ip := range ips {
 		agent.LocalCandidates = append(agent.LocalCandidates,
 			HostCandidate(ip, port, strconv.Itoa(i+1)))
 	}
-	cert, err := GenerateCertificate()
-	if err != nil {
-		return nil, err
+	cert := options.Certificate
+	if cert == nil {
+		var err error
+		cert, err = GenerateCertificate()
+		if err != nil {
+			return nil, err
+		}
 	}
 	peer := &Peer{
 		socket: socket, agent: agent, certificate: cert,
@@ -318,6 +337,28 @@ func (p *Peer) HandleOffer(offerSdp string) (string, error) {
 	p.agent.SetControlling(false)
 	p.dtlsRole = "client"
 	d := p.localDescription("active")
+	return d.Generate("answer"), nil
+}
+
+// HandleRendezvousOffer applies a synthesized offer for a
+// rendezvous dialer and returns the (never transmitted) answer
+// SDP. Like HandleOffer, but this peer takes the DTLS *server*
+// role: the dialer applied a synthesized description of us as
+// ICE-lite (setup passive), so it is the controlling agent and
+// nominates, and it runs DTLS as client presenting the
+// fingerprinted certificate. The synthesized remote
+// description carries placeholder ICE pwd / DTLS fingerprint
+// values; connect with ConnectWithOptions(false) so neither
+// is required.
+func (p *Peer) HandleRendezvousOffer(offerSdp string) (string, error) {
+	remote, err := ParseSDP(offerSdp)
+	if err != nil {
+		return "", err
+	}
+	p.applyRemote(*remote)
+	p.agent.SetControlling(false)
+	p.dtlsRole = "server"
+	d := p.localDescription("passive")
 	return d.Generate("answer"), nil
 }
 
@@ -663,9 +704,15 @@ func (p *Peer) ConnectWithOptions(requirePeerCert bool) (*DcEndpoint, error) {
 	emitStackEvent("ice.nominated", selected.String())
 	io := &peerIO{peer: p, selected: selected, connectGen: p.agent.Generation()}
 	config := DtlsConfig{
-		Certificate:             p.certificate,
-		ExpectedPeerFingerprint: p.remote.Fingerprint,
-		RequirePeerCertificate:  requirePeerCert,
+		Certificate:            p.certificate,
+		RequirePeerCertificate: requirePeerCert,
+	}
+	// With peer-certificate pinning off (rendezvous answering:
+	// the dialer's fingerprint is unknowable in advance), the
+	// remote fingerprint must not be checked at all — the
+	// synthesized remote description carries a placeholder.
+	if requirePeerCert {
+		config.ExpectedPeerFingerprint = p.remote.Fingerprint
 	}
 	// A muxed socket allocates a connection id per endpoint so
 	// DTLS records route without a learned source address;

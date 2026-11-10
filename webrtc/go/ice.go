@@ -434,6 +434,14 @@ func (a *IceAgent) HandleStun(raw []byte, src *net.UDPAddr) ([]StunResponse, []I
 			a.lastConsent = time.Now()
 			events = append(events, IceEvent{"nominated", src})
 		}
+		// An integrity-valid Binding request from the nominated
+		// pair is itself consent evidence (RFC 7675): peers that
+		// only ever send checks — ICE-lite dialers whose password
+		// we never learn, e.g. rendezvous browsers — keep the
+		// pair fresh without any Binding success reaching us.
+		if a.Nominated != nil && a.Nominated.String() == src.String() {
+			a.lastConsent = time.Now()
+		}
 	case StunTypeBindingSuccess:
 		if !msg.CheckIntegrity(raw, []byte(a.RemotePwd)) {
 			return responses, events

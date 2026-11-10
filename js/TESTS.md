@@ -34,6 +34,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`otlp_example.test.js`](test/otlp_example.test.js) — Generated suite/example
 - [`pb_messages.test.js`](test/pb_messages.test.js) — Generated suite/example
 - [`plugin_parity.test.js`](test/plugin_parity.test.js) — Generated suite/example
+- [`rendezvous.test.js`](test/rendezvous.test.js) — Generated suite/example
 - [`signaling.test.js`](test/signaling.test.js) — Generated suite/example
 - [`tracing.test.js`](test/tracing.test.js) — Tracing: traceparent propagation, span observers, nested calls
 - [`tracing_nested_demo.test.js`](test/tracing_nested_demo.test.js) — Tracing: traceparent propagation, span observers, nested calls

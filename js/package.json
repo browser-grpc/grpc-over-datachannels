@@ -31,6 +31,8 @@
     "./webrtc_direct": "./src/webrtc_direct.js",
     "./signaling": "./src/signaling.js",
     "./signaling_server": "./src/signaling_server.js",
+    "./rendezvous": "./src/rendezvous.js",
+    "./rendezvous_server": "./src/rendezvous_server.js",
     "./http2": "./src/http2.js",
     "./eventbus_gitlog": "./src/eventbus_gitlog.js"
   },

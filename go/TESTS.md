@@ -33,6 +33,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`oracle_driver_generated_test.go`](oracle_driver_generated_test.go) — Official-implementation oracle, via the proxy
 - [`oracle_test.go`](oracle_test.go) — Official-implementation oracle, via the proxy
 - [`pb_messages_test.go`](pb_messages_test.go) — Generated suite/example
+- [`rendezvous_test.go`](rendezvous_test.go) — Generated suite/example
 - [`sidecar_test.go`](sidecar_test.go) — Sidecar transport
 - [`tracing_test.go`](tracing_test.go) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct_test.go`](webrtc_direct_test.go) — WebRTC-Direct example/test

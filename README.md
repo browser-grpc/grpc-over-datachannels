@@ -278,6 +278,35 @@ Proven in Chromium, Firefox, and WebKit by
 `browser-test/signaling.test.mjs`, plus native offerer tests
 per stack.
 
+### Rendezvous (browser → fixed server, no signaling)
+
+When the server's address is fixed in advance, even that one
+POST can go away: the server pre-publishes a rendezvous
+descriptor — host, port, ICE credentials, DTLS fingerprint —
+and the browser synthesizes the server's SDP locally. No
+signaling exchange ever happens after publication.
+
+```js
+import { rendezvousChannel } from "grpc-dc";
+const descriptor = { host: "203.0.113.10", port: 8443,
+  iceUfrag: "…", icePwd: "…", fingerprint: "AB:CD:…" };
+const client = new EchoClient(await rendezvousChannel(descriptor));
+```
+
+The server half is a fixed listener per stack — one UDP
+socket, fixed ICE credentials and certificate, sessions
+demuxed by the browser's ufrag — behind generated adapters:
+`serveRendezvous` (JS/Node, `grpc-dc/rendezvous_server`),
+`ServeRendezvous` (Go), `serve_rendezvous` (Rust). Publish
+`listener.descriptor(host)` (or `.Descriptor(host)`) wherever
+browsers can find it; fix the credentials/certificate and it
+stays stable across restarts. The browser authenticates the
+server by the published fingerprint. Proven in Chromium,
+Firefox, and WebKit against all three stacks by
+`browser-test/rendezvous.test.mjs` and
+`browser-test/rendezvous_stacks.test.mjs`. Details:
+[SPEC-WEBRTC.md](SPEC-WEBRTC.md#rendezvous-browser--fixed-server-no-signaling).
+
 ### Event bus
 
 Every language also ships a generated event bus,

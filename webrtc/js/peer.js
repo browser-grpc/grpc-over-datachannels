@@ -137,15 +137,23 @@ export class Peer {
       consentIntervalMs = 5000,
       consentExpiryMs = 30000,
       chunkMessages = false,
+      // Rendezvous mode: pre-published fixed local ICE
+      // credentials and DTLS certificate, so a browser can
+      // synthesize this peer's description without signaling.
+      iceUfrag = null,
+      icePwd = null,
+      certificate = null,
     } = {},
   ) {
     const effectiveIps = localIps ?? defaultLocalIps();
     const { port } = socket.address();
     const agent = new IceAgent(true);
+    if (iceUfrag) agent.localUfrag = iceUfrag;
+    if (icePwd) agent.localPwd = icePwd;
     agent.localCandidates = effectiveIps.map((ip, i) =>
       Candidate.host(ip, port, String(i + 1)),
     );
-    const peer = new Peer(socket, agent, Certificate.generate(), { requirePeerCertificate, chunkMessages });
+    const peer = new Peer(socket, agent, certificate ?? Certificate.generate(), { requirePeerCertificate, chunkMessages });
     peer.#consentIntervalMs = consentIntervalMs;
     peer.#consentExpiryMs = consentExpiryMs;
     for (const server of stunServers) {
@@ -383,6 +391,16 @@ export class Peer {
     return this.#agent.localUfrag;
   }
 
+  // This peer's local ICE password (rendezvous descriptor).
+  get localPwd() {
+    return this.#agent.localPwd;
+  }
+
+  // SHA-256 fingerprint of this peer's DTLS certificate.
+  get certificateFingerprint() {
+    return this.#certificate.fingerprint();
+  }
+
   #localDescription(setup) {
     return {
       ufrag: this.#agent.localUfrag,
@@ -452,6 +470,24 @@ export class Peer {
     const remote = parse(answerSdp);
     this.#dtlsRole = remote.setup === "active" ? "server" : "client";
     this.#applyRemote(remote);
+  }
+
+  // Rendezvous answering: like handleOffer, but this peer
+  // takes the DTLS *server* role. The remote description is
+  // synthesized server-side from the dialer's first Binding
+  // request (fixed published credentials on this side; the
+  // dialer's ICE pwd and DTLS fingerprint are unknown and,
+  // with requirePeerCertificate off, unneeded). The dialer
+  // applied a synthesized description of us as ICE-lite, so
+  // it is the controlling agent and nominates; this peer's
+  // own checks may fail integrity at the dialer and are
+  // harmless. Returns the (never transmitted) answer SDP.
+  handleRendezvousOffer(offerSdp) {
+    const remote = parse(offerSdp);
+    this.#applyRemote(remote);
+    this.#agent.controlling = false;
+    this.#dtlsRole = "server";
+    return generate(this.#localDescription("passive"), false);
   }
 
   #applyRemote(remote) {
@@ -604,7 +640,13 @@ export class Peer {
     };
     const config = {
       certificate: this.#certificate,
-      expectedPeerFingerprint: this.#remote.fingerprint,
+      // With peer-certificate pinning off (rendezvous answering:
+      // the dialer's fingerprint is unknowable in advance), the
+      // remote fingerprint must not be checked at all — the
+      // synthesized remote description carries a placeholder.
+      expectedPeerFingerprint: this.#requirePeerCertificate
+        ? this.#remote.fingerprint
+        : null,
       requirePeerCertificate: this.#requirePeerCertificate,
     };
     // Single-socket mux endpoints allocate a connection id

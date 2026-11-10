@@ -28,6 +28,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`oracle.rs`](tests/oracle.rs) — Official-implementation oracle, via the proxy
 - [`mod.rs`](tests/oracle_scenarios/mod.rs) — Generated suite/example
 - [`pb_messages.rs`](tests/pb_messages.rs) — Generated suite/example
+- [`rendezvous.rs`](tests/rendezvous.rs) — Generated suite/example
 - [`tracing.rs`](tests/tracing.rs) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct_grpc.rs`](tests/webrtc_direct_grpc.rs) — WebRTC-Direct example/test
 - [`webrtc_grpc.rs`](tests/webrtc_grpc.rs) — WebRTC transport
@@ -53,6 +54,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`pb_message_impl.rs`](examples/kafka_proxy/pb_message_impl.rs) — Generated suite/example
 - [`service.rs`](examples/kafka_proxy/service.rs) — Generated suite/example
 - [`wire.rs`](examples/kafka_proxy/wire.rs) — Generated suite/example
+- [`rendezvous_echo.rs`](examples/rendezvous_echo.rs) — Echo: all four call shapes
 
 ## Shared matrix coverage
 

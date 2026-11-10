@@ -19,6 +19,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`mux_test.go`](go/mux_test.go) — Generated suite/example
 - [`nomination_test.go`](go/nomination_test.go) — Generated suite/example
 - [`peer_test.go`](go/peer_test.go) — Generated suite/example
+- [`rendezvous_test.go`](go/rendezvous_test.go) — Generated suite/example
 - [`restart_test.go`](go/restart_test.go) — Generated suite/example
 - [`sctp_reassembly_test.go`](go/sctp_reassembly_test.go) — Generated suite/example
 - [`sctp_rwnd_test.go`](go/sctp_rwnd_test.go) — Generated suite/example
@@ -77,6 +78,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`peer_resumption.rs`](rust/tests/peer_resumption.rs) — Generated suite/example
 - [`peer_trace.rs`](rust/tests/peer_trace.rs) — Tracing: traceparent propagation, span observers, nested calls
 - [`platform_harness.rs`](rust/tests/platform_harness.rs) — Generated suite/example
+- [`rendezvous.rs`](rust/tests/rendezvous.rs) — Generated suite/example
 - [`restart.rs`](rust/tests/restart.rs) — Generated suite/example
 - [`sctp.rs`](rust/tests/sctp.rs) — Generated suite/example
 - [`sctp_sack_vectors.rs`](rust/tests/sctp_sack_vectors.rs) — Generated suite/example

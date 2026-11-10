@@ -262,6 +262,16 @@ impl Peer {
         self.agent.local_ufrag.clone()
     }
 
+    /// Fix this peer's local ICE credentials (rendezvous mode:
+    /// the ufrag/pwd pair is pre-published, with the fixed
+    /// certificate from PeerConfig, so browsers can synthesize
+    /// this peer's description without signaling). Call before
+    /// any offer/answer handling.
+    pub fn set_local_credentials(&mut self, ufrag: &str, pwd: &str) {
+        self.agent.local_ufrag = ufrag.to_string();
+        self.agent.local_pwd = pwd.to_string();
+    }
+
     fn build(
         config: PeerConfig,
         platform: crate::platform::Platform,
@@ -562,6 +572,23 @@ impl Peer {
         Ok(generate(&self.local_description("active"), false))
     }
 
+    /// Rendezvous answering: like `handle_offer`, but this peer
+    /// takes the DTLS *server* role. The remote description is
+    /// synthesized server-side from the dialer's first Binding
+    /// request (fixed published credentials on this side; the
+    /// dialer's ICE pwd and DTLS fingerprint are unknown and,
+    /// with `require_peer_certificate` off, unneeded). The
+    /// dialer applied a synthesized description of us as
+    /// ICE-lite, so it is the controlling agent and nominates.
+    /// Returns the (never transmitted) answer SDP.
+    pub fn handle_rendezvous_offer(&mut self, offer_sdp: &str) -> io::Result<String> {
+        let remote = parse(offer_sdp).map_err(bad)?;
+        self.apply_remote(remote);
+        self.agent.controlling = false;
+        self.dtls_role = Role::Server;
+        Ok(generate(&self.local_description("passive"), false))
+    }
+
     pub fn handle_answer(&mut self, answer_sdp: &str) -> io::Result<()> {
         let remote = parse(answer_sdp).map_err(bad)?;
         // Answer setup=active → the answerer is the DTLS client, so we
@@ -794,7 +821,16 @@ impl Peer {
         let fingerprint = certificate.fingerprint();
         let dtls_config = DtlsConfig {
             certificate,
-            expected_peer_fingerprint: Some(remote_desc.fingerprint.clone()),
+            // With peer-certificate pinning off (rendezvous
+            // answering: the dialer's fingerprint is unknowable
+            // in advance), the remote fingerprint must not be
+            // checked at all — the synthesized remote
+            // description carries a placeholder.
+            expected_peer_fingerprint: if config.require_peer_certificate {
+                Some(remote_desc.fingerprint.clone())
+            } else {
+                None
+            },
             require_peer_certificate: config.require_peer_certificate,
             session_resumption: config.session_resumption,
             session_ticket_key: config.session_ticket_key,

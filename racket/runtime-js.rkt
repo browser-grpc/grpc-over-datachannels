@@ -1904,6 +1904,149 @@ export async function httpSignalingChannel(url, options = {}) {
 GRPC_RUNTIME_EOF
 )
 
+(define js-rendezvous-body
+#<<GRPC_RUNTIME_EOF
+// Rendezvous browser channel: connect to a pre-published,
+// fixed WebRTC endpoint with no signaling exchange at all.
+//
+// A rendezvous descriptor ({host, port, iceUfrag, icePwd,
+// fingerprint}) is published beforehand by the server —
+// hardcoded, in a config file, served from any static URL.
+// This helper synthesizes that endpoint's SDP offer locally,
+// answers it in-page, and lets the browser run ICE as the
+// controlling agent (the descriptor is ICE-lite) with DTLS
+// setup passive (the server presents the fingerprinted
+// certificate). host must be an IP literal: candidate lines
+// carry addresses, not names.
+
+import { Channel } from "./channel.js";
+
+function waitRendezvousChannelOpen(dc, timeoutMs) {
+  if (dc.readyState === "open") return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("rendezvous: data channel did not open"));
+    }, timeoutMs);
+    function cleanup() {
+      clearTimeout(timer);
+      dc.removeEventListener?.("open", onOpen);
+      dc.removeEventListener?.("error", onError);
+    }
+    function onOpen() {
+      cleanup();
+      resolve();
+    }
+    function onError() {
+      cleanup();
+      reject(new Error("rendezvous: data channel error"));
+    }
+    dc.addEventListener("open", onOpen);
+    dc.addEventListener("error", onError);
+  });
+}
+
+/**
+ * The endpoint's SDP offer, synthesized from a rendezvous
+ * descriptor. Exported for tests and debugging.
+ */
+export function synthesizeRendezvousOffer(descriptor) {
+  const { host, port } = descriptor;
+  return [
+    "v=0",
+    "o=- 4611733050433952912 2 IN IP4 127.0.0.1",
+    "s=-",
+    "t=0 0",
+    "a=group:BUNDLE 0",
+    "a=ice-lite",
+    `m=application ${port} UDP/DTLS/SCTP webrtc-datachannel`,
+    "c=IN IP4 0.0.0.0",
+    `a=candidate:1 1 udp 2130706431 ${host} ${port} typ host generation 0`,
+    "a=end-of-candidates",
+    `a=ice-ufrag:${descriptor.iceUfrag}`,
+    `a=ice-pwd:${descriptor.icePwd}`,
+    `a=fingerprint:sha-256 ${descriptor.fingerprint}`,
+    `a=setup:${descriptor.setup ?? "passive"}`,
+    "a=mid:0",
+    "a=sctp-port:5000",
+    "a=max-message-size:262144",
+    "",
+  ].join("\r\n");
+}
+
+/**
+ * Dial a rendezvous endpoint and return a ready Channel.
+ * Waits for the "grpc" DataChannel to open, matching
+ * httpSignalingChannel's ready-to-use contract.
+ *
+ * options: { iceServers, timeoutMs, label }
+ */
+export async function rendezvousChannel(descriptor, options = {}) {
+  const pc = new RTCPeerConnection({ iceServers: options.iceServers });
+  const dc = pc.createDataChannel(options.label ?? "grpc");
+  try {
+    await pc.setRemoteDescription({
+      type: "offer",
+      sdp: synthesizeRendezvousOffer(descriptor),
+    });
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await waitRendezvousChannelOpen(dc, options.timeoutMs ?? 15000);
+  } catch (e) {
+    pc.close();
+    throw e;
+  }
+  const channel = new Channel(dc);
+  channel.peerConnection = pc;
+  channel.dataChannel = dc;
+  channel.closeRendezvous = () => pc.close();
+  return channel;
+}
+GRPC_RUNTIME_EOF
+)
+
+(define js-rendezvous-server-body
+#<<GRPC_RUNTIME_EOF
+// Rendezvous server: one fixed, pre-published WebRTC
+// endpoint browsers dial with no signaling exchange.
+// Wraps the WebRTC stack's RendezvousListener: one UDP
+// socket, fixed ICE credentials and DTLS certificate.
+// Publish listener.descriptor(host) wherever browsers can
+// find it; serve HTTP signaling instead when the server
+// address cannot be fixed in advance.
+
+import { RendezvousListener } from "../../webrtc/js/rendezvous.js";
+
+export { RendezvousListener } from "../../webrtc/js/rendezvous.js";
+
+/**
+ * Serve this gRPC Server to rendezvous browsers.
+ *
+ * options: { address, port, family, localIps, iceUfrag,
+ *   icePwd, certificate, onError } — fix iceUfrag/icePwd/
+ *   certificate and the published descriptor stays stable
+ *   across restarts; ephemeral values rotate per process.
+ * Returns the RendezvousListener (call .descriptor(host)
+ * and .close()).
+ */
+export async function serveRendezvous(grpcServer, options = {}) {
+  const listener = await RendezvousListener.bind({
+    ...options,
+    onChannel: (channel, peer) => {
+      if (channel.label === "grpc") {
+        grpcServer.serve(channel);
+        channel.onclose = () => peer.close().catch(() => {});
+      } else {
+        channel.close();
+      }
+    },
+  });
+  grpcServer.closeRendezvous = () => listener.close();
+  return listener;
+}
+GRPC_RUNTIME_EOF
+)
+
 (define js-signaling-server-body
 #<<GRPC_RUNTIME_EOF
 // Node HTTP/POST signaling server: the server half of the
@@ -2132,7 +2275,9 @@ GRPC_RUNTIME_EOF
    (cons "dynamic.js" js-dynamic-body)
    (cons "webrtc_direct.js" js-webrtc-direct-body)
    (cons "signaling.js" js-signaling-body)
-   (cons "signaling_server.js" js-signaling-server-body)))
+   (cons "signaling_server.js" js-signaling-server-body)
+   (cons "rendezvous.js" js-rendezvous-body)
+   (cons "rendezvous_server.js" js-rendezvous-server-body)))
 
 (define js-dynamic-body
 #<<GRPC_RUNTIME_EOF

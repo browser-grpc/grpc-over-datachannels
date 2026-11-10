@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc rendezvous browser test</title>
+<script type="module">
+import { rendezvousChannel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+
+// Browser side: fetch the pre-published rendezvous descriptor
+// (in production it could be hardcoded — here the test server
+// hands it out as static JSON), then dial with
+// rendezvousChannel. No signaling request of any kind is made
+// after this fetch; ICE/DTLS/SCTP run straight at the fixed
+// endpoint. Two sequential dials prove per-ufrag session
+// demux on the shared listener socket.
+window.__runRendezvous = async () => {
+  const descriptor = await (await fetch("/rendezvous.json")).json();
+  const out = {};
+  for (const name of ["first", "second"]) {
+    const channel = await rendezvousChannel(descriptor);
+    try {
+      const client = new EchoClient(channel);
+      const req = (message, count = 0) => new EchoRequest({ message, count });
+      const unary = await client.unary(req(`hello-${name}`));
+      const ticks = [];
+      for await (const resp of await client.serverStream(req("tick", 3))) {
+        ticks.push(resp.index);
+      }
+      out[name] = { unary: unary.message, ticks };
+    } finally {
+      channel.closeRendezvous();
+    }
+  }
+  return out;
+};
+</script>

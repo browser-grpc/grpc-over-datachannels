@@ -279,6 +279,65 @@ on-ramp — an exchange, not a signaling server:
   `go/http_signaling_test.go`, and
   `rust/tests/http_signaling.rs` (native offerer POST + Echo).
 
+## Rendezvous (browser → fixed server, no signaling)
+
+When the server's address is fixed in advance, the SDP
+exchange itself can be skipped: the server pre-publishes a
+**rendezvous descriptor** — `{host, port, iceUfrag, icePwd,
+fingerprint}` — and the browser synthesizes the server's SDP
+offer locally from it. Nothing is transmitted out of band
+after publication; the descriptor may be hardcoded, shipped
+in a config file, or served as static JSON.
+
+- **Browser side**: generated JS `rendezvousChannel(descriptor)`
+  (`js/src/rendezvous.js`) builds the offer with session-level
+  `a=ice-lite` (RFC 8445: this is what makes the browser the
+  controlling agent), `a=setup:passive`, the descriptor's ICE
+  credentials, fingerprint, and one host candidate, answers it
+  in-page, runs ICE, and returns a `Channel` once the `grpc`
+  DataChannel opens. `host` must be an IP literal — candidate
+  lines carry addresses, not names.
+- **Server side**: a rendezvous listener in each stack
+  (`webrtc/js/rendezvous.js` `RendezvousListener`,
+  `webrtc/go/rendezvous.go` `ListenRendezvous`,
+  `webrtc/rust/src/rendezvous.rs` `RendezvousListener`) owns
+  one UDP socket, the fixed ICE credentials, and the fixed
+  DTLS certificate. The first Binding request from a dialer
+  carries the dialer's ufrag in its USERNAME; the listener
+  spawns a session Peer with the fixed credentials/certificate,
+  synthesizes the dialer's offer from the packet's source
+  address (the dialer's ICE pwd and DTLS fingerprint are
+  unknown, and neither is required), and feeds the packet in.
+  Sessions demux by dialer ufrag (then by source address).
+  The dialer nominates (USE-CANDIDATE); DTLS runs with the
+  server presenting the fingerprinted certificate — the
+  browser authenticates the server by fingerprint, while the
+  server deliberately does not pin the browser's certificate.
+  Because the dialer's ICE password is never learned, the
+  server's own connectivity checks cannot pass integrity at
+  the browser and are dropped harmlessly; an integrity-valid
+  Binding request from the nominated pair itself refreshes
+  consent freshness (RFC 7675) in all three stacks, so
+  sessions outlive the usual 30 s consent window.
+- **Generated adapters**: JS `serveRendezvous`
+  (`js/src/rendezvous_server.js`, `grpc-dc/rendezvous_server`),
+  Go `ServeRendezvous` (`go/rendezvous.go`), Rust
+  `serve_rendezvous(_with)` (`rust/src/rendezvous.rs`). Fix
+  the ICE credentials and certificate and the descriptor
+  stays stable across restarts; ephemeral values rotate per
+  process. Serve HTTP/POST signaling instead when the server
+  address cannot be fixed in advance.
+- **Tests**: `browser-test/rendezvous.test.mjs` (Chromium,
+  Firefox, WebKit → JS listener) and
+  `browser-test/rendezvous_stacks.test.mjs` (same browsers →
+  Go `go/cmd/rendezvous_server` and Rust
+  `rust/examples/rendezvous_echo` servers), each dialing
+  twice to prove per-ufrag session demux; native dialer
+  tests `webrtc/go/rendezvous_test.go`,
+  `webrtc/rust/tests/rendezvous.rs`, plus generated-adapter
+  tests `go/rendezvous_test.go` and
+  `rust/tests/rendezvous.rs`.
+
 ## Embedded profile
 
 The Rust crate is layered so the protocol core runs with no OS:

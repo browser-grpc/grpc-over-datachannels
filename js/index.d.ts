@@ -159,6 +159,30 @@ export declare function httpSignalingChannel(
   closeSignaling(): void;
   restartSignaling(): Promise<void>;
 }>;
+export interface RendezvousDescriptor {
+  host: string;
+  port: number;
+  iceUfrag: string;
+  icePwd: string;
+  fingerprint: string;
+  setup?: string;
+}
+export interface RendezvousOptions {
+  iceServers?: RTCIceServer[];
+  timeoutMs?: number;
+  label?: string;
+}
+export declare function synthesizeRendezvousOffer(
+  descriptor: RendezvousDescriptor,
+): string;
+export declare function rendezvousChannel(
+  descriptor: RendezvousDescriptor,
+  options?: RendezvousOptions,
+): Promise<Channel & {
+  peerConnection: RTCPeerConnection;
+  dataChannel: RTCDataChannel;
+  closeRendezvous(): void;
+}>;
 
 // Event bus (grpcdc.events.v1): message/stub types live in
 // grpc-dc's generated events_pb/events_grpc_dc modules; these

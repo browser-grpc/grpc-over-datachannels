@@ -1702,6 +1702,47 @@ func ServeHttpSignaling(addr string, srv *Server, options HttpSignalingOptions) 
 GRPC_RUNTIME_EOF
 )
 
+(define go-rendezvous-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+// Rendezvous server: one fixed, pre-published WebRTC endpoint
+// browsers dial with no signaling exchange. Wraps the WebRTC
+// stack's RendezvousListener: one UDP socket, fixed ICE
+// credentials and DTLS certificate. Publish the returned
+// listener's Descriptor(host) wherever browsers can find it;
+// serve HTTP signaling instead when the server address cannot
+// be fixed in advance.
+
+import (
+	"net"
+
+	dcwebrtc "github.com/browser-grpc/grpc-over-datachannels/webrtc/go"
+)
+
+// RendezvousDescriptor is the publishable description of a
+// rendezvous endpoint (the same shape the generated browser
+// rendezvousChannel consumes).
+type RendezvousDescriptor = dcwebrtc.RendezvousDescriptor
+
+// ServeRendezvous serves srv to rendezvous browsers on addr
+// (nil selects 0.0.0.0:0) and returns the listener: publish
+// listener.Descriptor(host) and call listener.Close() on
+// shutdown. Fix options' IceUfrag/IcePwd/Certificate and the
+// descriptor stays stable across restarts; ephemeral values
+// rotate per process.
+func ServeRendezvous(srv *Server, addr *net.UDPAddr, options dcwebrtc.RendezvousOptions) (*dcwebrtc.RendezvousListener, error) {
+	options.OnChannel = func(channel *dcwebrtc.DataChannel, peer *dcwebrtc.Peer) {
+		if channel.Label == "grpc" || channel.Label == "" {
+			srv.ServeTransport(NewDcTransport(channel))
+			channel.OnClose(func() { peer.Close() })
+		}
+	}
+	return dcwebrtc.ListenRendezvous(addr, options)
+}
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-go-runtime-files)
   (list
    (cons "codec.go" go-codec-body)
@@ -1712,7 +1753,8 @@ GRPC_RUNTIME_EOF
    (cons "loopback.go" go-loopback-body)
    (cons "sidecar.go" go-sidecar-body)
    (cons "dynamic.go" go-dynamic-body)
-   (cons "http_signaling.go" go-http-signaling-body)))
+   (cons "http_signaling.go" go-http-signaling-body)
+   (cons "rendezvous.go" go-rendezvous-body)))
 
 (define go-dynamic-body
 #<<GRPC_RUNTIME_EOF

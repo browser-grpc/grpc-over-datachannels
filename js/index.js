@@ -50,6 +50,14 @@ export {
   signalSessionViaHttp,
   signalViaHttp,
 } from "./src/signaling.js";
+export {
+  rendezvousChannel,
+  synthesizeRendezvousOffer,
+} from "./src/rendezvous.js";
+// The rendezvous server (src/rendezvous_server.js) is Node-only
+// (node:dgram via webrtc/js/rendezvous.js) and is not re-exported
+// here. Import it directly:
+//   import { serveRendezvous } from "grpc-dc/rendezvous_server";
 // The Node HTTP/POST signaling server (src/signaling_server.js)
 // is likewise Node-only (node:http + the Node WebRTC stack) and
 // is not re-exported here. Import it directly:
