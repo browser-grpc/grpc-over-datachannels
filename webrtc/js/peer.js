@@ -316,6 +316,29 @@ export class Peer {
     return this.#agent.localCandidates.map((c) => c.toSdp());
   }
 
+  // Local candidate objects (host, srflx, relay) as gathered.
+  localCandidates() {
+    return [...this.#agent.localCandidates];
+  }
+
+  // Adopt srflx candidates gathered by another peer on the
+  // same socket (a PeerMux gathers once for all its peers:
+  // the reflexive address depends only on the shared socket
+  // and the STUN server, not on the peer). Duplicates by
+  // address/port are skipped; adopted candidates trickle.
+  adoptSrflxCandidates(candidates) {
+    for (const cand of candidates ?? []) {
+      if (cand.type !== "srflx") continue;
+      const exists = this.#agent.localCandidates.some(
+        (c) => c.type === cand.type && c.address === cand.address && c.port === cand.port,
+      );
+      if (!exists) {
+        this.#agent.localCandidates.push(cand);
+        this.#emitLocalCandidate(cand);
+      }
+    }
+  }
+
   // Trickle one remote candidate in after the remote description
   // was applied (RFC 8445 trickle ICE). Accepts a full SDP line
   // ("a=candidate:..."), the bare candidate value ("candidate:...",

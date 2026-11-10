@@ -8,6 +8,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -20,14 +22,21 @@ import (
 func TestHttpSignalingEcho(t *testing.T) {
 	server := grpcdc.NewServer()
 	echo.RegisterEchoServer(server, echo.EchoService{})
-	httpServer, err := grpcdc.ServeHttpSignaling("127.0.0.1:0", server, grpcdc.HttpSignalingOptions{
+	signaling, err := grpcdc.NewHttpSignalingServer(server, grpcdc.HttpSignalingOptions{
 		PeerOptions: dcwebrtc.PeerOptions{LocalIPs: []string{"127.0.0.1"}, RequirePeerCertificate: true},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer signaling.Close()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := &http.Server{Handler: signaling.Handler}
+	go func() { _ = httpServer.Serve(listener) }()
 	defer httpServer.Close()
-	url := "http://" + httpServer.Addr + "/grpc-dc/signal"
+	url := "http://" + listener.Addr().String() + "/grpc-dc/signal"
 
 	// Contract negatives: wrong method, malformed offer.
 	getRes, err := http.Get(url)
@@ -73,6 +82,11 @@ func TestHttpSignalingEcho(t *testing.T) {
 	}
 	if answer.Type != "answer" || !strings.Contains(answer.SDP, "a=setup:active") {
 		t.Fatalf("answer = %+v", answer)
+	}
+	// Every session peer lives on the server's one shared
+	// PeerMux socket: the answer's candidates carry its port.
+	if !strings.Contains(answer.SDP, fmt.Sprintf(" %d typ host", signaling.Mux.LocalAddr().Port)) {
+		t.Fatalf("answer candidates do not use the mux port %d: %s", signaling.Mux.LocalAddr().Port, answer.SDP)
 	}
 	if err := offererPeer.HandleAnswer(answer.SDP); err != nil {
 		t.Fatal(err)

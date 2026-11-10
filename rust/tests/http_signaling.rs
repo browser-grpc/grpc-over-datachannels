@@ -17,7 +17,8 @@ mod stub;
 use dc_webrtc::dcep::ChannelParams;
 use dc_webrtc::peer::{Peer, PeerConfig};
 use futures_util::StreamExt;
-use grpc_dc::http_signaling::serve_http_signaling_with;
+use dc_webrtc::mux::PeerMux;
+use grpc_dc::http_signaling::serve_http_signaling_muxed;
 use grpc_dc::webrtc_transport::WebRtcDc;
 use grpc_dc::{CallCtx, Channel, RequestStream, ResponseStream, Status};
 use std::io::{Read, Write};
@@ -127,7 +128,12 @@ fn extract_sdp(body: &str) -> String {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn http_signaling_echo() {
-    let addr = serve_http_signaling_with(
+    // Host-supplied shared PeerMux: every session peer lives
+    // on this one UDP socket.
+    let mux = Arc::new(PeerMux::bind("127.0.0.1:0".parse().unwrap()).unwrap());
+    let mux_port = mux.local_addr().port();
+    let addr = serve_http_signaling_muxed(
+        mux,
         "127.0.0.1:0",
         grpc_dc::http_signaling::SIGNAL_PATH,
         vec![echo_service(Arc::new(EchoService))],
@@ -158,6 +164,10 @@ async fn http_signaling_echo() {
     assert_eq!(status, 200, "response: {response}");
     let answer = extract_sdp(&response);
     assert!(answer.contains("a=setup:active"), "answer: {answer}");
+    assert!(
+        answer.contains(&format!(" {mux_port} typ host")),
+        "answer candidates do not use the mux port {mux_port}: {answer}"
+    );
     offerer.handle_answer(&answer).unwrap();
 
     let offerer_ep = Arc::new(offerer.connect().expect("offerer connect"));

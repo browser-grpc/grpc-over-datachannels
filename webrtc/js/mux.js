@@ -117,6 +117,10 @@ export class PeerMux {
   #byCid = new Map();
   #cidSeq = 0n;
   #endpoints = new Set();
+  // srflx candidates gathered once per STUN-server list and
+  // adopted by every later peer (same shared socket and STUN
+  // servers => same reflexive address for every peer).
+  #srflxByServers = new Map();
 
   constructor(socket) {
     this.#socket = socket;
@@ -157,7 +161,23 @@ export class PeerMux {
   // pins a concrete 5-tuple); TCP/TLS TURN rides its stream.
   async createPeer(options = {}) {
     const endpoint = new MuxEndpoint(this);
-    const peer = await Peer.createWithSocket(endpoint, options);
+    // Gather srflx once per STUN-server list: the reflexive
+    // address depends only on this shared socket and those
+    // servers, so later peers adopt the first peer's result
+    // instead of re-querying per connection.
+    const stunServers = options.stunServers ?? [];
+    const srflxKey = stunServers.join("\n");
+    const cachedSrflx = srflxKey ? this.#srflxByServers.get(srflxKey) : undefined;
+    const peer = await Peer.createWithSocket(
+      endpoint,
+      cachedSrflx ? { ...options, stunServers: [] } : options,
+    );
+    if (cachedSrflx) {
+      peer.adoptSrflxCandidates(cachedSrflx);
+    } else if (srflxKey) {
+      const gathered = peer.localCandidates().filter((c) => c.type === "srflx");
+      if (gathered.length) this.#srflxByServers.set(srflxKey, gathered);
+    }
     endpoint.ufrag = peer.localUfrag;
     this.#byUfrag.set(endpoint.ufrag, endpoint);
     // Allocate this endpoint's DTLS connection id (RFC 9146):

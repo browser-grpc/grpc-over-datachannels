@@ -5,6 +5,8 @@
 //! std-only, mirroring webrtc/js/mdns.js.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, UdpSocket};
+use std::sync::mpsc::{channel, Sender};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 fn encode_name(name: &str) -> Vec<u8> {
@@ -161,46 +163,121 @@ mod tests {
     }
 }
 
-/// Resolve a ".local" hostname to an IP address (1.5 s budget).
-/// Responders may answer unicast to the query socket (the query
-/// asks with the QU bit) or multicast to the group address —
-/// Chromium does the latter — so listen on both: the ephemeral
-/// query socket and a group membership on :5353 (best effort;
-/// the port may be taken).
-pub fn resolve_ip(name: &str) -> Option<IpAddr> {
-    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
-    let group = UdpSocket::bind("0.0.0.0:5353").ok().and_then(|socket| {
-        socket
-            .join_multicast_v4(&Ipv4Addr::new(224, 0, 0, 251), &Ipv4Addr::UNSPECIFIED)
-            .ok()?;
-        Some(socket)
-    });
-    let query = build_query(0, name);
-    socket.send_to(&query, "224.0.0.251:5353").ok()?;
-    let deadline = std::time::Instant::now() + Duration::from_millis(1500);
-    let resend_at = std::time::Instant::now() + Duration::from_millis(750);
-    let mut resent = false;
-    let mut buf = [0u8; 4096];
-    loop {
-        if !resent && std::time::Instant::now() >= resend_at {
-            resent = true;
-            let _ = socket.send_to(&query, "224.0.0.251:5353");
-        }
-        if std::time::Instant::now() > deadline {
-            return None;
-        }
-        for candidate in [Some(&socket), group.as_ref()].into_iter().flatten() {
-            candidate
-                .set_read_timeout(Some(Duration::from_millis(50)))
-                .ok()?;
-            if let Ok((n, _)) = candidate.recv_from(&mut buf) {
-                if let Some(ip) = parse_a_record(&buf[..n], name) {
-                    return Some(IpAddr::V4(ip));
-                }
-                if let Some(ip) = parse_aaaa_record(&buf[..n], name) {
-                    return Some(IpAddr::V6(ip));
+/// One shared resolver for the whole process: concurrent
+/// resolutions (a signaling server accepting many browsers at
+/// once, each with its own ".local" candidate) share the query
+/// socket and the :5353 group socket instead of binding a pair
+/// per peer. Waiters demux by queried name; the shared sockets
+/// and their reader threads live for the process lifetime.
+struct MdnsWaiter {
+    id: u64,
+    name: String,
+    tx: Sender<IpAddr>,
+}
+
+struct MdnsShared {
+    query: UdpSocket,
+    waiters: Mutex<Vec<MdnsWaiter>>,
+    next_id: Mutex<u64>,
+}
+
+static SHARED_MDNS: OnceLock<Option<Arc<MdnsShared>>> = OnceLock::new();
+
+fn shared_mdns() -> Option<Arc<MdnsShared>> {
+    SHARED_MDNS
+        .get_or_init(|| {
+            let query = UdpSocket::bind("0.0.0.0:0").ok()?;
+            let group = UdpSocket::bind("0.0.0.0:5353").ok().and_then(|socket| {
+                socket
+                    .join_multicast_v4(&Ipv4Addr::new(224, 0, 0, 251), &Ipv4Addr::UNSPECIFIED)
+                    .ok()?;
+                Some(socket)
+            });
+            let shared = Arc::new(MdnsShared {
+                query,
+                waiters: Mutex::new(Vec::new()),
+                next_id: Mutex::new(1),
+            });
+            for socket in [Some(&shared.query), group.as_ref()].into_iter().flatten() {
+                let socket = socket.try_clone().ok()?;
+                let reader_shared = shared.clone();
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 4096];
+                    loop {
+                        let _ = socket.set_read_timeout(Some(Duration::from_millis(500)));
+                        if let Ok((n, _)) = socket.recv_from(&mut buf) {
+                            reader_shared.deliver(&buf[..n]);
+                        }
+                    }
+                });
+            }
+            Some(shared)
+        })
+        .clone()
+}
+
+impl MdnsShared {
+    fn deliver(&self, packet: &[u8]) {
+        let names: Vec<String> = {
+            let waiters = self.waiters.lock().unwrap();
+            let mut names: Vec<String> = waiters.iter().map(|w| w.name.clone()).collect();
+            names.sort();
+            names.dedup();
+            names
+        };
+        for name in names {
+            let ip = parse_a_record(packet, &name)
+                .map(IpAddr::V4)
+                .or_else(|| parse_aaaa_record(packet, &name).map(IpAddr::V6));
+            if let Some(ip) = ip {
+                let mut waiters = self.waiters.lock().unwrap();
+                let mut i = 0;
+                while i < waiters.len() {
+                    if waiters[i].name == name {
+                        let waiter = waiters.remove(i);
+                        let _ = waiter.tx.send(ip);
+                    } else {
+                        i += 1;
+                    }
                 }
             }
         }
     }
+
+    fn send_query(&self, name: &str) {
+        let query = build_query(0, name);
+        let _ = self.query.send_to(&query, "224.0.0.251:5353");
+    }
+}
+
+/// Resolve a ".local" hostname to an IP address (1.5 s budget).
+/// Responders may answer unicast to the shared query socket
+/// (the query asks with the QU bit) or multicast to the group
+/// address — Chromium does the latter — so the shared resolver
+/// listens on both.
+pub fn resolve_ip(name: &str) -> Option<IpAddr> {
+    let shared = shared_mdns()?;
+    let (tx, rx) = channel();
+    let id = {
+        let mut next = shared.next_id.lock().unwrap();
+        let id = *next;
+        *next += 1;
+        id
+    };
+    shared.waiters.lock().unwrap().push(MdnsWaiter { id, name: name.to_string(), tx });
+    let cleanup = |shared: &Arc<MdnsShared>| {
+        shared.waiters.lock().unwrap().retain(|w| w.id != id);
+    };
+    shared.send_query(name);
+    match rx.recv_timeout(Duration::from_millis(750)) {
+        Ok(ip) => {
+            cleanup(&shared);
+            return Some(ip);
+        }
+        Err(_) => {}
+    }
+    shared.send_query(name);
+    let result = rx.recv_timeout(Duration::from_millis(750)).ok();
+    cleanup(&shared);
+    result
 }

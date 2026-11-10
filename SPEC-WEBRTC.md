@@ -245,14 +245,22 @@ on-ramp — an exchange, not a signaling server:
   (`js/src/signaling.js`) builds the `RTCPeerConnection`, opens
   the `grpc` channel, performs the POST with `fetch`, and
   returns a `Channel` for generated clients.
-- **Server side**: one fresh full `Peer` per POST; the answer
-  returns immediately and the peer connects in the background,
-  serving the `grpc` channel and closing with it. Generated
+- **Server side**: one fresh full `Peer` per POST — created on
+  the signaling server's shared `PeerMux`, so all sessions use
+  one UDP socket (srflx gathered once per STUN-server list and
+  adopted by later peers; mDNS resolution shares one process
+  resolver). The answer returns immediately and the peer
+  connects in the background, serving the `grpc` channel and
+  closing with it. Hosts may supply their own mux
+  (`options.mux` in JS, `HttpSignalingOptions.Mux` /
+  `NewHttpSignalingServer` in Go,
+  `serve_http_signaling_muxed` in Rust) to share one socket
+  across several signaling servers in a process. Generated
   adapters: JS `signalingHandler` / `serveHttpSignaling`
   (`js/src/signaling_server.js`), Go `HttpSignalingHandler` /
   `ServeHttpSignaling` (`go/http_signaling.go`), Rust
-  `serve_http_signaling(_with)` (`rust/src/http_signaling.rs`,
-  std-only HTTP listener).
+  `serve_http_signaling(_with|_muxed)`
+  (`rust/src/http_signaling.rs`, std-only HTTP listener).
 - **Scope**: auth and CORS belong to the host application
   (mount the handler forms behind them). STUN/TURN for the
   server peer are Peer(Options|Config) settings; the browser's

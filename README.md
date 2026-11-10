@@ -269,6 +269,10 @@ The server half is generated for each native stack —
 or mount the handler form (JS `signalingHandler`, Go
 `HttpSignalingHandler`) behind your own HTTP server. Contract:
 `POST {"type":"offer","sdp":...}` → `200 {"type":"answer","sdp":...}`.
+Every session peer lives on the server's shared `PeerMux` —
+one UDP socket for all browsers, with srflx gathered once and
+mDNS resolved through one process-wide resolver; hosts can
+supply their own mux to share it across signaling servers.
 Non-trickle only; auth and CORS stay with the host application.
 Proven in Chromium, Firefox, and WebKit by
 `browser-test/signaling.test.mjs`, plus native offerer tests

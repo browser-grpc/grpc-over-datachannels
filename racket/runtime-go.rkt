@@ -1438,6 +1438,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 
 	dcwebrtc "github.com/browser-grpc/grpc-over-datachannels/webrtc/go"
 )
@@ -1453,6 +1454,14 @@ type HttpSignalingOptions struct {
 	Path string
 	// PeerOptions configures each WebRTC peer created per POST.
 	PeerOptions dcwebrtc.PeerOptions
+	// Mux is the shared PeerMux every session peer is created
+	// on (one UDP socket per process). When nil, the handler
+	// binds its own mux at MuxAddr on first use; a supplied mux
+	// stays caller-owned.
+	Mux *dcwebrtc.PeerMux
+	// MuxAddr is the bind address for the handler-owned mux;
+	// nil selects 0.0.0.0:0. Ignored when Mux is set.
+	MuxAddr *net.UDPAddr
 	// OnError, when set, receives background connect failures.
 	OnError func(error)
 }
@@ -1478,11 +1487,31 @@ func writeSignalingJSON(w http.ResponseWriter, status int, value any) {
 	_, _ = w.Write(body)
 }
 
-// HttpSignalingHandler answers browser signaling POSTs and
-// serves each resulting "grpc" DataChannel with srv. Mount it
-// on any net/http mux; paths other than the signaling path get
-// a 404 and non-POST methods a 405.
-func HttpSignalingHandler(srv *Server, options HttpSignalingOptions) http.HandlerFunc {
+type httpSignalingCore struct {
+	srv     *Server
+	options HttpSignalingOptions
+	muxOnce sync.Once
+	mux     *dcwebrtc.PeerMux
+	muxErr  error
+}
+
+func (c *httpSignalingCore) getMux() (*dcwebrtc.PeerMux, error) {
+	if c.options.Mux != nil {
+		return c.options.Mux, nil
+	}
+	c.muxOnce.Do(func() {
+		addr := c.options.MuxAddr
+		if addr == nil {
+			addr = &net.UDPAddr{IP: net.IPv4zero, Port: 0}
+		}
+		c.mux, c.muxErr = dcwebrtc.NewPeerMux(addr)
+	})
+	return c.mux, c.muxErr
+}
+
+func (c *httpSignalingCore) handler() http.HandlerFunc {
+	srv := c.srv
+	options := c.options
 	path := options.Path
 	if path == "" {
 		path = DefaultSignalingPath
@@ -1506,7 +1535,12 @@ func HttpSignalingHandler(srv *Server, options HttpSignalingOptions) http.Handle
 			writeSignalingJSON(w, http.StatusBadRequest, signalingError{Error: "expected {\"type\":\"offer\",\"sdp\":...}"})
 			return
 		}
-		peer, err := dcwebrtc.NewPeer(options.PeerOptions)
+		mux, err := c.getMux()
+		if err != nil {
+			writeSignalingJSON(w, http.StatusInternalServerError, signalingError{Error: "peer creation failed"})
+			return
+		}
+		peer, err := mux.NewPeer(options.PeerOptions)
 		if err != nil {
 			writeSignalingJSON(w, http.StatusInternalServerError, signalingError{Error: "peer creation failed"})
 			return
@@ -1536,6 +1570,51 @@ func HttpSignalingHandler(srv *Server, options HttpSignalingOptions) http.Handle
 			})
 		}()
 	}
+}
+
+// HttpSignalingHandler answers browser signaling POSTs and
+// serves each resulting "grpc" DataChannel with srv. Every
+// session peer is created on one shared PeerMux (see
+// HttpSignalingOptions.Mux). Mount it on any net/http mux;
+// paths other than the signaling path get a 404 and non-POST
+// methods a 405.
+func HttpSignalingHandler(srv *Server, options HttpSignalingOptions) http.HandlerFunc {
+	core := &httpSignalingCore{srv: srv, options: options}
+	return core.handler()
+}
+
+// HttpSignalingServer is a signaling handler plus the shared
+// PeerMux its session peers are created on, so hosts can
+// share one mux across several signaling servers in a process
+// and close it on shutdown.
+type HttpSignalingServer struct {
+	Handler http.Handler
+	Mux     *dcwebrtc.PeerMux
+	ownsMux bool
+}
+
+// NewHttpSignalingServer builds a signaling handler and binds
+// (or adopts, via options.Mux) its shared PeerMux eagerly.
+func NewHttpSignalingServer(srv *Server, options HttpSignalingOptions) (*HttpSignalingServer, error) {
+	core := &httpSignalingCore{srv: srv, options: options}
+	mux, err := core.getMux()
+	if err != nil {
+		return nil, err
+	}
+	return &HttpSignalingServer{
+		Handler: core.handler(),
+		Mux:     mux,
+		ownsMux: options.Mux == nil,
+	}, nil
+}
+
+// Close closes the shared mux when this server bound it; a
+// caller-supplied mux (options.Mux) stays caller-owned.
+func (s *HttpSignalingServer) Close() error {
+	if s.ownsMux && s.Mux != nil {
+		return s.Mux.Close()
+	}
+	return nil
 }
 
 // ServeHttpSignaling starts a standalone signaling HTTP server

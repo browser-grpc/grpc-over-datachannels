@@ -452,6 +452,34 @@ impl Peer {
         self.agent.local_candidates.iter().map(|c| c.to_sdp()).collect()
     }
 
+    /// Local candidate objects (host, srflx, relay) as gathered.
+    pub fn local_candidates(&self) -> Vec<Candidate> {
+        self.agent.local_candidates.clone()
+    }
+
+    /// Adopt srflx candidates gathered by another peer on the
+    /// same socket (a PeerMux gathers once for all its peers:
+    /// the reflexive address depends only on the shared socket
+    /// and the STUN server, not on the peer). Duplicates by
+    /// address are skipped; adopted candidates trickle.
+    pub fn adopt_srflx_candidates(&mut self, candidates: &[Candidate]) {
+        for cand in candidates {
+            if !cand.is_srflx() {
+                continue;
+            }
+            if !self.agent.local_candidates.iter().any(|c| c.addr == cand.addr && c.is_srflx() == cand.is_srflx()) {
+                self.agent.local_candidates.push(cand.clone());
+                self.emit_local_candidate(cand);
+            }
+        }
+    }
+
+    /// Run the PeerConfig-driven gathering now (idempotent);
+    /// offer/answer creation would otherwise run it lazily.
+    pub(crate) fn gather_from_config_once(&mut self) {
+        self.gather_from_config();
+    }
+
     /// Trickle one remote candidate in after the remote
     /// description was applied (RFC 8445 trickle ICE). Accepts a
     /// full SDP line ("a=candidate:..."), the bare candidate value

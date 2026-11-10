@@ -63,6 +63,11 @@ test("HTTP/POST signaling: offer in, answer out, Echo over the channel", async (
     assert.equal(typeof answer.sdp, "string");
     assert.match(answer.sdp, /a=setup:active/);
 
+    // Every session peer lives on the handler's one shared
+    // PeerMux socket: the answer's candidates carry its port.
+    const mux = await httpServer.getSignalingMux();
+    assert.ok(answer.sdp.includes(` ${mux.address().port} typ host`), "answer candidates use the mux port");
+
     offerer.handleAnswer(answer.sdp);
     const endpoint = await offerer.connect();
     const dc = endpoint.openChannel({ label: "grpc" });

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -129,18 +130,41 @@ func ParseAAAARecord(packet []byte, name string) string {
 	return net.IP(rdata).String()
 }
 
-// ResolveMDNS resolves a ".local" name to an IP string ("" on miss).
-// Responders may answer unicast to the query socket (the query asks
-// with the QU bit) or multicast to the group address — Chromium does
-// the latter — so listen on both: the ephemeral query socket and a
-// group membership on :5353 per multicast interface.
-func ResolveMDNS(name string, timeout time.Duration) string {
+// One shared resolver for the whole process: concurrent
+// resolutions (a signaling server accepting many browsers at
+// once, each with its own ".local" candidate) share the query
+// socket and the :5353 group sockets instead of binding a set
+// per peer. Waiters demux by queried name; the shared sockets
+// stay open for the life of the process.
+type mdnsSharedResolver struct {
+	query   *net.UDPConn
+	group   *net.UDPAddr
+	mu      sync.Mutex
+	waiters map[string][]chan string
+}
+
+var sharedMDNS struct {
+	sync.Mutex
+	resolver *mdnsSharedResolver
+}
+
+func getSharedMDNS() *mdnsSharedResolver {
+	sharedMDNS.Lock()
+	defer sharedMDNS.Unlock()
+	if sharedMDNS.resolver != nil {
+		return sharedMDNS.resolver
+	}
 	query, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 0})
 	if err != nil {
-		return ""
+		return nil
+	}
+	group := &net.UDPAddr{IP: net.ParseIP("224.0.0.251"), Port: 5353}
+	resolver := &mdnsSharedResolver{
+		query:   query,
+		group:   group,
+		waiters: make(map[string][]chan string),
 	}
 	sockets := []*net.UDPConn{query}
-	group := &net.UDPAddr{IP: net.ParseIP("224.0.0.251"), Port: 5353}
 	if ifaces, err := net.Interfaces(); err == nil {
 		for i := range ifaces {
 			iface := &ifaces[i]
@@ -152,38 +176,81 @@ func ResolveMDNS(name string, timeout time.Duration) string {
 			}
 		}
 	}
-	defer func() {
-		for _, conn := range sockets {
-			conn.Close()
-		}
-	}()
-	found := make(chan string, 1)
 	for _, conn := range sockets {
-		go func(conn *net.UDPConn) {
-			buf := make([]byte, 4096)
-			for {
-				n, _, err := conn.ReadFromUDP(buf)
-				if err != nil {
-					return
-				}
-				ip := ParseARecord(buf[:n], name)
-				if ip == "" {
-					ip = ParseAAAARecord(buf[:n], name)
-				}
-				if ip != "" {
-					select {
-					case found <- ip:
-					default:
-					}
-					return
+		go resolver.readLoop(conn)
+	}
+	sharedMDNS.resolver = resolver
+	return resolver
+}
+
+func (r *mdnsSharedResolver) readLoop(conn *net.UDPConn) {
+	buf := make([]byte, 4096)
+	for {
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			return
+		}
+		packet := append([]byte(nil), buf[:n]...)
+		r.mu.Lock()
+		names := make([]string, 0, len(r.waiters))
+		for name := range r.waiters {
+			names = append(names, name)
+		}
+		r.mu.Unlock()
+		for _, name := range names {
+			ip := ParseARecord(packet, name)
+			if ip == "" {
+				ip = ParseAAAARecord(packet, name)
+			}
+			if ip == "" {
+				continue
+			}
+			r.mu.Lock()
+			waiters := r.waiters[name]
+			delete(r.waiters, name)
+			r.mu.Unlock()
+			for _, ch := range waiters {
+				select {
+				case ch <- ip:
+				default:
 				}
 			}
-		}(conn)
+		}
 	}
-	packet := buildMDNSQuery(0, name)
-	if _, err := query.WriteToUDP(packet, group); err != nil {
+}
+
+func (r *mdnsSharedResolver) sendQuery(name string) {
+	_, _ = r.query.WriteToUDP(buildMDNSQuery(0, name), r.group)
+}
+
+// ResolveMDNS resolves a ".local" name to an IP string ("" on miss).
+// Responders may answer unicast to the query socket (the query asks
+// with the QU bit) or multicast to the group address — Chromium does
+// the latter — so the shared resolver listens on both.
+func ResolveMDNS(name string, timeout time.Duration) string {
+	resolver := getSharedMDNS()
+	if resolver == nil {
 		return ""
 	}
+	found := make(chan string, 1)
+	resolver.mu.Lock()
+	resolver.waiters[name] = append(resolver.waiters[name], found)
+	resolver.mu.Unlock()
+	defer func() {
+		resolver.mu.Lock()
+		waiters := resolver.waiters[name]
+		for i, ch := range waiters {
+			if ch == found {
+				resolver.waiters[name] = append(waiters[:i], waiters[i+1:]...)
+				break
+			}
+		}
+		if len(resolver.waiters[name]) == 0 {
+			delete(resolver.waiters, name)
+		}
+		resolver.mu.Unlock()
+	}()
+	resolver.sendQuery(name)
 	resend := time.After(timeout / 2)
 	deadline := time.After(timeout)
 	for {
@@ -191,7 +258,7 @@ func ResolveMDNS(name string, timeout time.Duration) string {
 		case ip := <-found:
 			return ip
 		case <-resend:
-			_, _ = query.WriteToUDP(packet, group)
+			resolver.sendQuery(name)
 			resend = time.After(timeout)
 		case <-deadline:
 			return ""

@@ -20,6 +20,7 @@ use crate::status::Status;
 use crate::transport::DcTransport;
 use crate::webrtc_transport::WebRtcDc;
 use dc_webrtc::endpoint::EndpointEvent;
+use dc_webrtc::mux::PeerMux;
 use dc_webrtc::peer::{Peer, PeerConfig};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -164,6 +165,7 @@ fn handle_connection<F>(
     mut stream: TcpStream,
     path: &str,
     services: &[ServiceDef],
+    mux: &PeerMux,
     make_peer_config: &F,
 ) where
     F: Fn() -> PeerConfig,
@@ -247,7 +249,7 @@ fn handle_connection<F>(
             return;
         }
     };
-    let mut peer = match Peer::new(make_peer_config()) {
+    let mut peer = match mux.new_peer(make_peer_config()) {
         Ok(p) => p,
         Err(_) => {
             let _ = write_response(&mut stream, 500, &error_body("peer creation failed"));
@@ -279,18 +281,50 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 /// Start the standalone signaling HTTP listener on `addr`
 /// (for example "127.0.0.1:8080") with a default PeerConfig per
 /// POST, serving `services` on each browser's "grpc" channel.
-/// Returns the bound address (useful with port 0 in tests).
-/// The listener runs on background threads for the life of the
-/// process. Host applications that need auth/CORS should front
-/// this listener or implement the same contract themselves.
+/// Every session peer is created on one shared PeerMux bound
+/// at the same address (one UDP socket for all sessions).
+/// Returns the HTTP listener's bound address (useful with
+/// port 0 in tests); the mux's UDP address is the same IP with
+/// the mux's own port — use serve_http_signaling_with or
+/// serve_http_signaling_muxed to learn it. The listener runs
+/// on background threads for the life of the process. Host
+/// applications that need auth/CORS should front this listener
+/// or implement the same contract themselves.
 pub fn serve_http_signaling(addr: &str, services: Vec<ServiceDef>) -> Result<SocketAddr, Status> {
     serve_http_signaling_with(addr, SIGNAL_PATH, services, PeerConfig::default)
 }
 
 /// `serve_http_signaling` with a custom path and a factory for
 /// each connection's PeerConfig (STUN/TURN servers, local IPs,
-/// a persistent DTLS certificate, and so on).
+/// a persistent DTLS certificate, and so on). Binds a fresh
+/// PeerMux at `addr`'s IP with an ephemeral UDP port and
+/// returns the HTTP listener's bound address.
 pub fn serve_http_signaling_with<F>(
+    addr: &str,
+    path: &str,
+    services: Vec<ServiceDef>,
+    make_peer_config: F,
+) -> Result<SocketAddr, Status>
+where
+    F: Fn() -> PeerConfig + Send + Sync + 'static,
+{
+    let http_addr: SocketAddr = addr
+        .parse()
+        .map_err(|_| Status::invalid_argument(format!("http-signaling addr: {addr}")))?;
+    let mux = Arc::new(
+        PeerMux::bind(SocketAddr::new(http_addr.ip(), 0))
+            .map_err(|e| Status::unavailable(format!("http-signaling mux: {e}")))?,
+    );
+    serve_http_signaling_muxed(mux, addr, path, services, make_peer_config)
+}
+
+/// Serve signaling on a host-supplied shared PeerMux: several
+/// signaling servers in one process can share one mux (one UDP
+/// socket). The mux stays caller-owned. Returns the HTTP
+/// listener's bound address; the UDP address every session
+/// advertises is `mux.local_addr()`.
+pub fn serve_http_signaling_muxed<F>(
+    mux: Arc<PeerMux>,
     addr: &str,
     path: &str,
     services: Vec<ServiceDef>,
@@ -314,8 +348,9 @@ where
                     let services = services.clone();
                     let make_peer_config = make_peer_config.clone();
                     let path = path.clone();
+                    let mux = mux.clone();
                     std::thread::spawn(move || {
-                        handle_connection(stream, &path, &services, &*make_peer_config)
+                        handle_connection(stream, &path, &services, &mux, &*make_peer_config)
                     });
                 }
                 Err(_) => break,

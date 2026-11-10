@@ -1808,10 +1808,11 @@ GRPC_RUNTIME_EOF
 #<<GRPC_RUNTIME_EOF
 // Node HTTP/POST signaling server: the server half of the
 // browser signaling contract in signaling.js. Each POST creates
-// a fresh Peer from the hand-written WebRTC stack, answers the
-// offer, returns the answer JSON immediately, then connects in
-// the background and serves the browser's "grpc" DataChannel
-// with the given generated Server. Non-trickle: the answer
+// a fresh Peer on the handler's shared PeerMux (one UDP socket
+// for every session; options.mux supplies a process-wide one),
+// answers the offer, returns the answer JSON immediately, then
+// connects in the background and serves the browser's "grpc"
+// DataChannel with the given generated Server. Non-trickle: the answer
 // carries the peer's host candidates as created; configure
 // peerOptions (localIps / stunServers / turnServers) when the
 // host candidates in the answer are not reachable as-is.
@@ -1821,7 +1822,7 @@ GRPC_RUNTIME_EOF
 
 import { createServer } from "node:http";
 
-import { Peer } from "../../webrtc/js/peer.js";
+import { PeerMux } from "../../webrtc/js/mux.js";
 
 export const SIGNAL_PATH = "/grpc-dc/signal";
 const MAX_SIGNAL_BODY = 1 << 20;
@@ -1858,6 +1859,19 @@ export function signalingHandler(grpcServer, options = {}) {
   const peerOptions = options.peerOptions ?? {};
   const onError = options.onError ?? ((e) => console.error("http-signaling:", e));
   const peers = new Set();
+  // All session peers share one PeerMux UDP socket for the
+  // life of this handler (created lazily on first POST, or
+  // supplied by the host via options.mux so several signaling
+  // servers in one process share one socket; a host-supplied
+  // mux stays host-owned and is never closed here).
+  let muxPromise = options.mux ? Promise.resolve(options.mux) : null;
+  let ownsMux = !options.mux;
+  const getMux = () => {
+    if (!muxPromise) {
+      muxPromise = PeerMux.bind(options.muxBind ?? {});
+    }
+    return muxPromise;
+  };
   const handler = async (req, res) => {
     let pathname;
     try {
@@ -1877,7 +1891,7 @@ export function signalingHandler(grpcServer, options = {}) {
         sendJson(res, 400, { error: "expected {\"type\":\"offer\",\"sdp\":...}" });
         return true;
       }
-      peer = await Peer.create(peerOptions);
+      peer = await (await getMux()).createPeer(peerOptions);
       peers.add(peer);
       let answer;
       try {
@@ -1934,8 +1948,16 @@ export function signalingHandler(grpcServer, options = {}) {
     const all = [...peers];
     peers.clear();
     await Promise.all(all.map((p) => p.close().catch(() => {})));
+    if (ownsMux && muxPromise) {
+      const mux = await muxPromise.catch(() => null);
+      muxPromise = null;
+      try { mux?.close(); } catch { /* already closed */ }
+    }
   };
   handler.peers = peers;
+  // The shared PeerMux every session peer was created on
+  // (host-supplied via options.mux, or bound lazily here).
+  handler.getMux = getMux;
   return handler;
 }
 
@@ -1954,6 +1976,7 @@ export function serveHttpSignaling(grpcServer, options = {}) {
     });
   });
   server.closeSignaling = handler.closePeers;
+  server.getSignalingMux = handler.getMux;
   server.listen(options.port ?? 8080, options.host ?? "127.0.0.1");
   return server;
 }

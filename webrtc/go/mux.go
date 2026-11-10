@@ -48,6 +48,10 @@ type PeerMux struct {
 	cidSeq  uint64
 	done    chan struct{}
 	once    sync.Once
+	// srflx candidates gathered once per STUN-server list and
+	// adopted by every later peer (same shared socket and STUN
+	// servers => same reflexive address for every peer).
+	srflxByServers map[string][]Candidate
 }
 
 type muxPacket struct {
@@ -93,12 +97,13 @@ func NewPeerMux(addr *net.UDPAddr) (*PeerMux, error) {
 		return nil, err
 	}
 	mux := &PeerMux{
-		socket:  conn,
-		addr:    conn.LocalAddr().(*net.UDPAddr),
-		byUfrag: make(map[string]*muxEndpoint),
-		bySrc:   make(map[string]*muxEndpoint),
-		byCid:   make(map[string]*muxEndpoint),
-		done:    make(chan struct{}),
+		socket:         conn,
+		addr:           conn.LocalAddr().(*net.UDPAddr),
+		byUfrag:        make(map[string]*muxEndpoint),
+		bySrc:          make(map[string]*muxEndpoint),
+		byCid:          make(map[string]*muxEndpoint),
+		done:           make(chan struct{}),
+		srflxByServers: make(map[string][]Candidate),
 	}
 	go mux.readLoop()
 	return mux, nil
@@ -129,10 +134,61 @@ func (m *PeerMux) NewPeer(options PeerOptions) (*Peer, error) {
 	if ips == nil {
 		ips = defaultLocalIPs()
 	}
+	// Gather srflx once per STUN-server list: the reflexive
+	// address depends only on this shared socket and those
+	// servers, so later peers adopt the first peer's result
+	// instead of re-querying per connection.
+	srflxKey := strings.Join(options.StunServers, "\n")
+	if srflxKey != "" {
+		m.mu.Lock()
+		cached, ok := m.srflxByServers[srflxKey]
+		m.mu.Unlock()
+		if ok {
+			options.StunServers = nil
+			peer, err := newPeer(options, endpoint, ips)
+			if err != nil {
+				return nil, err
+			}
+			for _, cand := range cached {
+				found := false
+				for _, existing := range peer.agent.LocalCandidates {
+					if existing.Type == cand.Type && existing.Address == cand.Address && existing.Port == cand.Port {
+						found = true
+						break
+					}
+				}
+				if !found {
+					peer.agent.LocalCandidates = append(peer.agent.LocalCandidates, cand)
+					peer.emitLocalCandidate(cand)
+				}
+			}
+			return m.registerPeer(endpoint, peer), nil
+		}
+	}
 	peer, err := newPeer(options, endpoint, ips)
 	if err != nil {
 		return nil, err
 	}
+	if srflxKey != "" {
+		peer.gatherFromOptions()
+		var gathered []Candidate
+		for _, cand := range peer.agent.LocalCandidates {
+			if cand.Type == "srflx" {
+				gathered = append(gathered, cand)
+			}
+		}
+		if len(gathered) > 0 {
+			m.mu.Lock()
+			m.srflxByServers[srflxKey] = gathered
+			m.mu.Unlock()
+		}
+	}
+	return m.registerPeer(endpoint, peer), nil
+}
+
+// registerPeer allocates the endpoint's DTLS connection id and
+// indexes it by cid and ICE ufrag for routing.
+func (m *PeerMux) registerPeer(endpoint *muxEndpoint, peer *Peer) *Peer {
 	// Allocate this endpoint's DTLS connection id (RFC 9146):
 	// the shared port's bytes plus a counter — unique per
 	// endpoint, fixed length so routing is an exact lookup.
@@ -146,7 +202,7 @@ func (m *PeerMux) NewPeer(options PeerOptions) (*Peer, error) {
 	m.byUfrag[peer.agent.LocalUfrag] = endpoint
 	m.mu.Unlock()
 	endpoint.ufrag = peer.agent.LocalUfrag
-	return peer, nil
+	return peer
 }
 
 func (m *PeerMux) readLoop() {

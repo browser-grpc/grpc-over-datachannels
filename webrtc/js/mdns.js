@@ -108,80 +108,140 @@ export function parseAAAARecord(packet, name) {
 
 const cache = new Map();
 
-/** Resolve a ".local" hostname to an IP address, or null. */
-export async function resolveMdns(name, timeoutMs = 1500) {
-  if (cache.has(name)) return cache.get(name);
-  const ip = await new Promise((resolve) => {
-    // Responders may answer unicast to the query socket (the
-    // query asks with the QU bit) or multicast to the group
-    // address — Chromium does the latter — so listen on both:
-    // the ephemeral query socket and a group membership on
-    // :5353 (best effort; the port may be taken).
-    const sockets = [dgram.createSocket("udp4")];
-    try {
-      sockets.push(dgram.createSocket({ type: "udp4", reuseAddr: true }));
-    } catch {
-      /* query socket only */
+// One shared resolver for the whole process: concurrent
+// resolutions (a signaling server accepting many browsers at
+// once, each with its own ".local" candidate) share the query
+// socket and the :5353 group socket instead of binding a pair
+// per peer. Waiters demux by queried name; the sockets close
+// again when the last waiter settles. Successful answers are
+// cached above, as before.
+let shared = null;
+
+function ensureShared() {
+  if (shared) return shared;
+  // Responders may answer unicast to the query socket (the
+  // query asks with the QU bit) or multicast to the group
+  // address — Chromium does the latter — so listen on both:
+  // the ephemeral query socket and a group membership on
+  // :5353 (best effort; the port may be taken).
+  const sockets = [dgram.createSocket("udp4")];
+  try {
+    sockets.push(dgram.createSocket({ type: "udp4", reuseAddr: true }));
+  } catch {
+    /* query socket only */
+  }
+  const state = {
+    sockets,
+    waiters: new Map(), // name -> Set<{ settle }>
+    bound: false,
+    pendingSends: [],
+  };
+  const onMessage = (msg) => {
+    for (const [name, waiters] of [...state.waiters]) {
+      const found = parseARecord(msg, name) ?? parseAAAARecord(msg, name);
+      if (found) settleName(state, name, found);
     }
-    let settled = false;
-    const timer = setTimeout(() => done(null), timeoutMs);
-    const done = (value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      for (const socket of sockets) {
-        try {
-          socket.close();
-        } catch {
-          /* already closed */
-        }
-      }
-      resolve(value);
-    };
-    for (const socket of sockets) {
-      socket.on("error", () => {});
-      socket.on("message", (msg) => {
-        const found = parseARecord(msg, name) ?? parseAAAARecord(msg, name);
-        if (found) done(found);
-      });
-    }
-    const [querySocket, groupSocket] = sockets;
-    if (groupSocket) {
-      groupSocket.bind(5353, () => {
-        for (const list of Object.values(os.networkInterfaces())) {
-          for (const entry of list ?? []) {
-            if (entry.family === "IPv4" && !entry.internal) {
-              try {
-                groupSocket.addMembership("224.0.0.251", entry.address);
-              } catch {
-                /* interface not multicast-capable */
-              }
+  };
+  for (const socket of sockets) {
+    socket.on("error", () => {});
+    socket.on("message", onMessage);
+  }
+  const [querySocket, groupSocket] = sockets;
+  if (groupSocket) {
+    groupSocket.bind(5353, () => {
+      for (const list of Object.values(os.networkInterfaces())) {
+        for (const entry of list ?? []) {
+          if (entry.family === "IPv4" && !entry.internal) {
+            try {
+              groupSocket.addMembership("224.0.0.251", entry.address);
+            } catch {
+              /* interface not multicast-capable */
             }
           }
         }
-        try {
-          groupSocket.addMembership("224.0.0.251");
-        } catch {
-          /* default interface membership failed */
-        }
-      });
-    }
-    querySocket.bind(0, () => {
+      }
       try {
-        querySocket.setMulticastTTL(255);
-        const query = buildQuery(0, name);
-        querySocket.send(query, 5353, "224.0.0.251");
-        setTimeout(() => {
-          try {
-            querySocket.send(query, 5353, "224.0.0.251");
-          } catch {
-            /* closed */
-          }
-        }, 250);
+        groupSocket.addMembership("224.0.0.251");
       } catch {
-        done(null);
+        /* default interface membership failed */
       }
     });
+  }
+  querySocket.bind(0, () => {
+    try {
+      querySocket.setMulticastTTL(255);
+    } catch {
+      /* best effort */
+    }
+    state.bound = true;
+    for (const send of state.pendingSends.splice(0)) send();
+  });
+  shared = state;
+  return state;
+}
+
+function settleName(state, name, value) {
+  const waiters = state.waiters.get(name);
+  if (!waiters) return;
+  state.waiters.delete(name);
+  if (value) cache.set(name, value);
+  for (const waiter of waiters) waiter.settle(value);
+  closeSharedIfIdle(state);
+}
+
+function closeSharedIfIdle(state) {
+  if (state.waiters.size > 0 || shared !== state) return;
+  shared = null;
+  for (const socket of state.sockets) {
+    try {
+      socket.close();
+    } catch {
+      /* already closed */
+    }
+  }
+}
+
+function sendSharedQuery(state, name) {
+  const query = buildQuery(0, name);
+  const send = () => {
+    try {
+      state.sockets[0].send(query, 5353, "224.0.0.251");
+    } catch {
+      settleName(state, name, null);
+    }
+  };
+  if (state.bound) send();
+  else state.pendingSends.push(send);
+}
+
+/** Resolve a ".local" hostname to an IP address, or null. */
+export async function resolveMdns(name, timeoutMs = 1500) {
+  if (cache.has(name)) return cache.get(name);
+  const state = ensureShared();
+  const ip = await new Promise((resolve) => {
+    let settled = false;
+    const waiter = {
+      settle: (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearTimeout(resendTimer);
+        resolve(value);
+      },
+    };
+    const timer = setTimeout(() => {
+      const waiters = state.waiters.get(name);
+      if (waiters) {
+        waiters.delete(waiter);
+        if (!waiters.size) state.waiters.delete(name);
+      }
+      waiter.settle(null);
+      closeSharedIfIdle(state);
+    }, timeoutMs);
+    const resendTimer = setTimeout(() => sendSharedQuery(state, name), 250);
+    if (!state.waiters.has(name)) state.waiters.set(name, new Set());
+    state.waiters.get(name).add(waiter);
+    sendSharedQuery(state, name);
   });
   if (ip) cache.set(name, ip);
   return ip;
