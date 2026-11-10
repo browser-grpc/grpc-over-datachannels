@@ -54,3 +54,4 @@ metadata.
 Run with `make test-js` (in the CI image). Tracing coverage:
 
 - [`tracing.test.js`](test/tracing.test.js) — Tracing: traceparent propagation, span observers, nested calls
+- [`tracing_nested_demo.test.js`](test/tracing_nested_demo.test.js) — Tracing: traceparent propagation, span observers, nested calls

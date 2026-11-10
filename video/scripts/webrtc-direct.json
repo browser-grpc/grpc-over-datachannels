@@ -1,0 +1,98 @@
+{
+  "id": "webrtc-direct",
+  "direction": "[sultry cinematic actress, warm expressive female voice, confident film-trailer delivery, smooth and unhurried]",
+  "voice": {
+    "name": "sultry-narrator",
+    "refAudio": "video/assets/narrator-ref.wav",
+    "refText": "Here it is live. The server prints its multiaddr; the client dials it directly and the echo comes back over the data channel. Every other language does the same thing, natively or through the generated sidecar transport."
+  },
+  "source": "https://github.com/browser-grpc/grpc-over-datachannels",
+  "youtube": {
+    "title": "WebRTC-Direct: gRPC Peers With No Signaling Server | grpc-over-datachannels",
+    "description": "WebRTC-Direct examples for grpc-over-datachannels: a server listens on UDP and prints one certhash multiaddr; a client dials that address and gets an RTCDataChannel carrying generated gRPC. Direct on a LAN, relayed through TURN behind symmetric NAT, or full ICE with STUN in peer mode — generated examples in every supported language.\n\nCode: https://github.com/browser-grpc/grpc-over-datachannels\nDirect examples: https://github.com/browser-grpc/grpc-over-datachannels/tree/master/examples/direct\nBlog: https://c100k.blogspot.com/2026/10/webrtc-direct-examples-in-every.html\n\nBuilt with Fish Audio",
+    "tags": [
+      "webrtc",
+      "grpc",
+      "p2p",
+      "turn",
+      "stun",
+      "ice",
+      "datachannel",
+      "nat traversal"
+    ]
+  },
+  "scenes": [
+    {
+      "kind": "title",
+      "heading": "WebRTC Without Signaling",
+      "sub": "One address printed. One dial. A data channel.",
+      "say": "WebRTC usually starts with a signaling server, just so two peers can introduce themselves. This is WebRTC-Direct: a server prints one address, a client dials it, and a data channel opens. No introductions."
+    },
+    {
+      "kind": "bullets",
+      "heading": "The usual ceremony",
+      "bullets": [
+        "Peers exchange SDP through a signaling service you must run",
+        "Signaling is one more moving part to deploy and secure",
+        "Most examples stop at the browser demo stage"
+      ],
+      "say": "The standard ceremony needs a signaling service, an offer and answer exchange, and only then a connection. That service is one more moving part to deploy, secure, and keep running, and most examples never get past it."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Dial the multiaddr",
+      "bullets": [
+        "Server binds UDP and prints a certhash multiaddr",
+        "The certificate hash is the identity; the address is the intro",
+        "A Direct listener needs no STUN server at all"
+      ],
+      "say": "A Direct server binds a U D P socket and prints a multiaddr whose certhash names its D T L S certificate. The client dials that address and verifies the hash as it connects. Identity and introduction in one string, and no S T U N server involved."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Three ways through",
+      "bullets": [
+        "Direct: plain UDP on a LAN or a reachable host",
+        "TURN: relayed through an allocation for symmetric NAT",
+        "Peer mode: full ICE with STUN, SDP exchanged out of band"
+      ],
+      "say": "There are three ways through. Direct is plain U D P, on a local network or any reachable host. For symmetric N A T, the same server is reached through a T U R N relay; the server never changes. And where you want full I C E, peer mode gathers candidates with S T U N and exchanges S D P out of band, through files in the examples."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Every generated language",
+      "bullets": [
+        "Embedded stacks dial and serve natively in Go and Rust",
+        "Sidecar examples for the other languages use the same address",
+        "The gRPC code on top is identical either way"
+      ],
+      "say": "The embedded stacks serve and dial natively. The other languages use generated sidecar examples that reach the same listener at the same address. The g R P C code above the channel does not change; only the way the channel is opened does."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Honest limits",
+      "bullets": [
+        "Browsers cannot dial multiaddrs: no raw UDP in the browser",
+        "Direct needs a reachable UDP path between the peers",
+        "A TCP-only tunnel cannot carry the TURN leg"
+      ],
+      "say": "The limits, honestly. Browsers cannot dial multiaddrs, because browsers do not get raw U D P. Direct needs a reachable U D P path, or a relay. And a T C P-only tunnel cannot carry the data channel's U D P legs, so browser plus tunnel plus T U R N is not a supported shape. The examples say exactly this, in writing."
+    },
+    {
+      "kind": "demo",
+      "demo": "direct-echo",
+      "heading": "Live: dial the printed address",
+      "say": "Here it is live. The server prints its multiaddr; the client dials it directly and the echo comes back over the data channel. Every other language does the same thing, natively or through the generated sidecar transport."
+    },
+    {
+      "kind": "outro",
+      "heading": "Run the examples",
+      "bullets": [
+        "examples/direct in the repository",
+        "Compose profiles: host, turn, stun, sidecar",
+        "github.com/browser-grpc/grpc-over-datachannels"
+      ],
+      "say": "The examples ship with compose profiles for the host, relay, S T U N, and sidecar shapes, and run in the project's C I containers. If you need g R P C between two machines without standing up an introducer, start there. Links are in the description."
+    }
+  ]
+}

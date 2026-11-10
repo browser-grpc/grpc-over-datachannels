@@ -1,0 +1,97 @@
+{
+  "id": "tracing",
+  "direction": "[sultry cinematic actress, warm expressive female voice, confident film-trailer delivery, smooth and unhurried]",
+  "voice": {
+    "name": "sultry-narrator",
+    "refAudio": "video/assets/narrator-ref.wav",
+    "refText": "Here it is live. The server prints its multiaddr; the client dials it directly and the echo comes back over the data channel. Every other language does the same thing, natively or through the generated sidecar transport."
+  },
+  "source": "https://github.com/browser-grpc/grpc-over-datachannels",
+  "youtube": {
+    "title": "Distributed Tracing Across Generated gRPC Runtimes — Browser and Native | grpc-over-datachannels",
+    "description": "Distributed tracing (beta) for grpc-over-datachannels: register one span observer and every generated client and server — 16 native languages plus the browser — emits spans that follow the call. Nested outbound calls parent automatically, trace context propagates in the standard traceparent header, and the TCP/DataChannel proxy emits its own span, so a trace survives the hop from a stock HTTP/2 client into a DataChannel service.\n\nCode: https://github.com/browser-grpc/grpc-over-datachannels\nRelease notes: https://github.com/browser-grpc/grpc-over-datachannels/releases\nBlog: https://c100k.blogspot.com/2026/11/grpc-over-datachannels-0400-tracing.html\n\nBuilt with Fish Audio",
+    "tags": [
+      "grpc",
+      "distributed tracing",
+      "opentelemetry",
+      "traceparent",
+      "webrtc",
+      "observability",
+      "code generation"
+    ]
+  },
+  "scenes": [
+    {
+      "kind": "title",
+      "heading": "Tracing That Follows the Call",
+      "sub": "One observer. Every generated runtime. Browser and native.",
+      "say": "When a call crosses three services in three languages, where did the time go? This is distributed tracing for grpc-over-datachannels: spans that follow the call through every generated runtime, in the browser and on native, with one observer to register."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Why calls go dark",
+      "bullets": [
+        "A request fans out across services and languages",
+        "Logs show each hop, but nothing connects them",
+        "Adding tracing by hand means plumbing context everywhere"
+      ],
+      "say": "A single request fans out across services, languages, and transports. Each hop logs happily, and nothing connects the logs. Hand-wiring context through every handler is exactly the kind of plumbing generated code should do for you."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Register one observer",
+      "bullets": [
+        "setTracer with onStart and onEnd callbacks",
+        "Spans carry kind, method, trace id, span id, parent, status, duration",
+        "Context travels in the standard traceparent header"
+      ],
+      "say": "Register one span observer and every generated client and server starts emitting spans: start and end events with the method, status, and duration. The context travels in the standard traceparent header, so hops that do not record still pass the trace along."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Nested calls parent themselves",
+      "bullets": [
+        "A handler's outbound call joins the inbound trace automatically",
+        "Ambient context on native runtimes",
+        "Explicit trace-context binding in the browser"
+      ],
+      "say": "The part that matters in practice: when a handler makes its own outbound call, that call joins the inbound trace with no manual plumbing. Native runtimes keep the context ambient. In the browser it binds explicitly. A client-originated call starts a root span when there is no parent."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Quiet until you ask",
+      "bullets": [
+        "No observer registered: nothing is recorded, nothing is sent",
+        "Unsampled contexts still propagate; they just do not record",
+        "The proxy adds its own span, so traces cross the HTTP/2 hop"
+      ],
+      "say": "Until an observer is registered, the runtime stays dormant: no spans, no header. Unsampled contexts still propagate end to end, they simply do not record. And the T C P to DataChannel proxy emits its own span for proxied calls, so a trace survives the hop from a stock H T T P slash two client into a DataChannel service."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Checked in every language",
+      "bullets": [
+        "Every language ships TRACING.md next to TESTS.md",
+        "Suites assert the full client and server parent chain",
+        "The browser matrix pairs native and WASM facade runtimes both ways"
+      ],
+      "say": "Every language documents tracing in its own T R A C I N G file, and the suites assert the whole chain: client span, server span, correct parent, same trace. The browser matrix pairs native and facade runtimes in both directions and checks that server spans parent to client spans, so the behaviour is proven, not just described."
+    },
+    {
+      "kind": "demo",
+      "demo": "tracing-demo",
+      "heading": "Live: one call, one trace, parented spans",
+      "say": "Here it is live. One echo call, one trace id, and the server span parented to the client span, printed by the observer as the call happens."
+    },
+    {
+      "kind": "outro",
+      "heading": "Try it",
+      "bullets": [
+        "github.com/browser-grpc/grpc-over-datachannels",
+        "TRACING.md in every language tree",
+        "Designated beta, behind one central switch"
+      ],
+      "say": "Tracing is designated beta, behind one central switch in the generator, so it can evolve without disturbing the stable wire. If you try it, the project would like to hear where the model chafes. Links are in the description."
+    }
+  ]
+}

@@ -31,9 +31,12 @@ that image is the CPU test gate for 16 languages and must stay lean.
 make video-tts-up
 
 # Once it answers (docker exec drama3 curl -s localhost:8000/v1/models),
-# build one or both videos:
+# build any of the videos:
 make video-grpcdc     # grpc-over-datachannels (blog: introducing + direct)
 make video-kafka      # kafka-proxy
+make video-tracing    # distributed tracing (nested span parenting demo)
+make video-direct     # WebRTC-Direct examples
+make video-eventbus   # generated event bus
 
 # No GPU server handy? Silent framing/caption preview (never upload):
 make video-preview VIDEO_SCRIPT=video/scripts/grpc-dc.json

@@ -1,0 +1,87 @@
+{
+  "id": "eventbus",
+  "direction": "[sultry cinematic actress, warm expressive female voice, confident film-trailer delivery, smooth and unhurried]",
+  "voice": {
+    "name": "sultry-narrator",
+    "refAudio": "video/assets/narrator-ref.wav",
+    "refText": "Here it is live. The server prints its multiaddr; the client dials it directly and the echo comes back over the data channel. Every other language does the same thing, natively or through the generated sidecar transport."
+  },
+  "source": "https://github.com/browser-grpc/eventbus",
+  "youtube": {
+    "title": "A Generated Event Bus Over gRPC — Publish/Subscribe in Every Language | grpc-over-datachannels",
+    "description": "eventbus-grpc is a generated publish/subscribe event bus on top of grpc-over-datachannels: a broker service with tag-filtered subscriptions and per-subscriber sequence numbers, exposed through the same generated clients used for gRPC — native and browser. It ships as its own repository with its own packages next to grpc-dc and kafka-grpc.\n\nCode: https://github.com/browser-grpc/eventbus\nMain project: https://github.com/browser-grpc/grpc-over-datachannels\n\nBuilt with Fish Audio",
+    "tags": [
+      "grpc",
+      "event bus",
+      "pubsub",
+      "publish subscribe",
+      "webrtc",
+      "code generation",
+      "messaging"
+    ]
+  },
+  "scenes": [
+    {
+      "kind": "title",
+      "heading": "An Event Bus, Generated",
+      "sub": "Publish and subscribe, over the same generated gRPC.",
+      "say": "Every project eventually grows a pub sub bus, usually as glue nobody wants to maintain. This is an event bus generated the same way as the g R P C runtimes themselves: one service definition, clients in every generated language, browser included."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Why another bus?",
+      "bullets": [
+        "Services need events without a heavyweight broker deploy",
+        "Browser clients are second-class in most messaging stacks",
+        "The glue code is small, repeated, and easy to get subtly wrong"
+      ],
+      "say": "Not every system earns a dedicated broker deployment, and browser clients are second-class citizens in most messaging stacks. The glue each team writes instead is small, repeated everywhere, and easy to get subtly wrong. Generate it once, properly."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Broker, filters, sequences",
+      "bullets": [
+        "Publish events with string tags; subscribe with tag filters",
+        "Each subscriber sees a gap-free per-subscriber sequence",
+        "Broker stats expose publish, deliver, and drop counts"
+      ],
+      "say": "The broker is a generated service. Publishers attach string tags to events; subscribers open a stream with tag filters and receive only what matches. Every subscriber sees its own gap-free sequence of events, and the broker reports what it published, delivered, and dropped."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Same clients, same transports",
+      "bullets": [
+        "Runs over the transports the runtime already generates",
+        "DataChannel, sidecar, and plain socket paths all carry it",
+        "Native servers and browser clients mix freely"
+      ],
+      "say": "The bus rides the transports the runtime already generates, so the same generated client that calls your services also publishes and subscribes, from a native process or a browser tab. Servers and clients mix across languages, because underneath, it is all the same generated wire."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Its own packages",
+      "bullets": [
+        "Dedicated eventbus repository and package set",
+        "Published next to grpc-dc and kafka-grpc, per language",
+        "Consumed like any other generated service, no vendoring"
+      ],
+      "say": "The event bus ships as its own repository with its own packages, next to the core and Kafka package sets, in each language's package manager. You depend on it the way you depend on the runtime itself, and generated code stays generated, never vendored by hand."
+    },
+    {
+      "kind": "demo",
+      "demo": "eventbus-demo",
+      "heading": "Live: filtered subscription over one channel",
+      "say": "Here it is live. One subscriber, filtered to the orders topic; three events published; the two that match arrive in order, the noise does not. The broker's counters say exactly what happened."
+    },
+    {
+      "kind": "outro",
+      "heading": "Find it",
+      "bullets": [
+        "github.com/browser-grpc/eventbus",
+        "eventbus-grpc on your package manager",
+        "Demos generated in every language tree"
+      ],
+      "say": "The bus has its own home, its own packages, and a generated demo in every language tree. If your services already speak generated g R P C, they can already publish. Links are in the description."
+    }
+  ]
+}

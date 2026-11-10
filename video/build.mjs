@@ -229,7 +229,22 @@ async function captureKafkaRoundtrip() {
   }
 }
 
-const DEMOS = { 'direct-echo': captureDirectEcho, 'kafka-roundtrip': captureKafkaRoundtrip };
+async function captureTracingDemo() {
+  const out = await run('node', ['examples/tracing_nested_demo.mjs'], { cwd: path.join(ROOT, 'js') });
+  return trimLines(`$ node js/examples/tracing_nested_demo.mjs\n${out}`);
+}
+
+async function captureEventbusDemo() {
+  const out = await run('node', ['examples/eventbus_demo.js'], { cwd: path.join(ROOT, 'js') });
+  return trimLines(`$ node js/examples/eventbus_demo.js\n${out}`);
+}
+
+const DEMOS = {
+  'direct-echo': captureDirectEcho,
+  'kafka-roundtrip': captureKafkaRoundtrip,
+  'tracing-demo': captureTracingDemo,
+  'eventbus-demo': captureEventbusDemo,
+};
 
 // ---- Slides (HTML -> Playwright screenshot, 1920x1080) ----
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

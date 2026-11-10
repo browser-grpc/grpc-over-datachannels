@@ -35,6 +35,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`pb_messages.test.js`](test/pb_messages.test.js) — Generated suite/example
 - [`plugin_parity.test.js`](test/plugin_parity.test.js) — Generated suite/example
 - [`tracing.test.js`](test/tracing.test.js) — Tracing: traceparent propagation, span observers, nested calls
+- [`tracing_nested_demo.test.js`](test/tracing_nested_demo.test.js) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct.test.js`](test/webrtc_direct.test.js) — WebRTC-Direct example/test
 
 ## Examples
@@ -57,6 +58,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_pb.js`](examples/interop/test_pb.js) — Generated suite/example
 - [`otlp_tracer.js`](examples/otlp_tracer.js) — Tracing: traceparent propagation, span observers, nested calls
 - [`tracing_demo.js`](examples/tracing_demo.js) — Tracing: traceparent propagation, span observers, nested calls
+- [`tracing_nested_demo.mjs`](examples/tracing_nested_demo.mjs) — Tracing: traceparent propagation, span observers, nested calls
 
 ## Shared matrix coverage
 
