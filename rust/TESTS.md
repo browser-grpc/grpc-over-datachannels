@@ -22,6 +22,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`eth_framing.rs`](tests/eth_framing.rs) — Generated suite/example
 - [`eventbus.rs`](tests/eventbus.rs) — Event bus end-to-end
 - [`http2_robustness.rs`](tests/http2_robustness.rs) — HTTP/2 transport
+- [`http_signaling.rs`](tests/http_signaling.rs) — Generated suite/example
 - [`interop_oracle.rs`](tests/interop_oracle.rs) — Official-implementation oracle, via the proxy
 - [`kafka_proxy_e2e.rs`](tests/kafka_proxy_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`oracle.rs`](tests/oracle.rs) — Official-implementation oracle, via the proxy

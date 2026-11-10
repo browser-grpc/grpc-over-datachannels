@@ -34,6 +34,8 @@ pub mod status;
 pub mod transport;
 #[cfg(feature = "webrtc")]
 pub mod webrtc_direct;
+#[cfg(all(feature = "webrtc", not(target_arch = "wasm32")))]
+pub mod http_signaling;
 #[cfg(feature = "webrtc")]
 pub mod webrtc_transport;
 pub mod wire_gen;

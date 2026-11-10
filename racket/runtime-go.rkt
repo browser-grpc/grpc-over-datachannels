@@ -1412,6 +1412,148 @@ GRPC_RUNTIME_EOF
             (format "\tcase Frame~a:\n\t\t~a\n" (go-frame-const (first e)) (cdr arm))))
    "\tdefault:\n\t\t// Unknown frame type: ignore for forward compatibility.\n\t}"))
 
+(define go-http-signaling-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+// HTTP/POST signaling server for browser clients: the server
+// half of the browser signaling contract (js/src/signaling.js).
+// Each POST creates a fresh Peer from the WebRTC stack, answers
+// the offer, returns the answer JSON immediately, then connects
+// in the background and serves the browser's "grpc" DataChannel
+// with the given Server. Non-trickle: the answer carries the
+// peer's host candidates as created; configure PeerOptions
+// (LocalIPs / StunServers / TurnServers) when those candidates
+// are not reachable as-is. Auth and CORS belong to the host
+// application: mount HttpSignalingHandler behind them, or use
+// ServeHttpSignaling for the standalone no-auth shape.
+//
+// Contract:
+//   POST /grpc-dc/signal  {"type":"offer","sdp":"v=0\r\n..."}
+//   200                   {"type":"answer","sdp":"v=0\r\n..."}
+
+import (
+	"encoding/json"
+	"io"
+	"net"
+	"net/http"
+	"strconv"
+
+	dcwebrtc "github.com/browser-grpc/grpc-over-datachannels/webrtc/go"
+)
+
+// DefaultSignalingPath is the default HTTP/POST signaling path.
+const DefaultSignalingPath = "/grpc-dc/signal"
+
+const maxSignalingBody = 1 << 20
+
+// HttpSignalingOptions configures HttpSignalingHandler.
+type HttpSignalingOptions struct {
+	// Path is the signaling path; empty selects /grpc-dc/signal.
+	Path string
+	// PeerOptions configures each WebRTC peer created per POST.
+	PeerOptions dcwebrtc.PeerOptions
+	// OnError, when set, receives background connect failures.
+	OnError func(error)
+}
+
+type signalingMessage struct {
+	Type string `json:"type"`
+	SDP  string `json:"sdp"`
+}
+
+type signalingError struct {
+	Error string `json:"error"`
+}
+
+func writeSignalingJSON(w http.ResponseWriter, status int, value any) {
+	body, err := json.Marshal(value)
+	if err != nil {
+		status = http.StatusInternalServerError
+		body = []byte(`{"error":"encode failed"}`)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
+}
+
+// HttpSignalingHandler answers browser signaling POSTs and
+// serves each resulting "grpc" DataChannel with srv. Mount it
+// on any net/http mux; paths other than the signaling path get
+// a 404 and non-POST methods a 405.
+func HttpSignalingHandler(srv *Server, options HttpSignalingOptions) http.HandlerFunc {
+	path := options.Path
+	if path == "" {
+		path = DefaultSignalingPath
+	}
+	onError := options.OnError
+	if onError == nil {
+		onError = func(error) {}
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != path {
+			writeSignalingJSON(w, http.StatusNotFound, signalingError{Error: "not found"})
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeSignalingJSON(w, http.StatusMethodNotAllowed, signalingError{Error: "method not allowed"})
+			return
+		}
+		var offer signalingMessage
+		decoder := json.NewDecoder(io.LimitReader(r.Body, maxSignalingBody))
+		if err := decoder.Decode(&offer); err != nil || offer.Type != "offer" || offer.SDP == "" {
+			writeSignalingJSON(w, http.StatusBadRequest, signalingError{Error: "expected {\"type\":\"offer\",\"sdp\":...}"})
+			return
+		}
+		peer, err := dcwebrtc.NewPeer(options.PeerOptions)
+		if err != nil {
+			writeSignalingJSON(w, http.StatusInternalServerError, signalingError{Error: "peer creation failed"})
+			return
+		}
+		answer, err := peer.HandleOffer(offer.SDP)
+		if err != nil {
+			peer.Close()
+			writeSignalingJSON(w, http.StatusBadRequest, signalingError{Error: "invalid offer SDP"})
+			return
+		}
+		writeSignalingJSON(w, http.StatusOK, signalingMessage{Type: "answer", SDP: answer})
+		go func() {
+			endpoint, err := peer.Connect()
+			if err != nil {
+				onError(err)
+				peer.Close()
+				return
+			}
+			endpoint.SetOnChannel(func(channel *dcwebrtc.DataChannel) {
+				if channel.Label == "grpc" || channel.Label == "" {
+					srv.ServeTransport(NewDcTransport(channel))
+					// One signaling POST owns one peer: when its
+					// grpc channel closes, tear the peer down
+					// with it instead of leaking it per request.
+					channel.OnClose(func() { peer.Close() })
+				}
+			})
+		}()
+	}
+}
+
+// ServeHttpSignaling starts a standalone signaling HTTP server
+// on addr (for example "127.0.0.1:8080") and returns it; call
+// Shutdown to stop. Host applications that need auth/CORS
+// should mount HttpSignalingHandler on their own server.
+func ServeHttpSignaling(addr string, srv *Server, options HttpSignalingOptions) (*http.Server, error) {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	server := &http.Server{Addr: listener.Addr().String(), Handler: HttpSignalingHandler(srv, options)}
+	go func() { _ = server.Serve(listener) }()
+	return server, nil
+}
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-go-runtime-files)
   (list
    (cons "codec.go" go-codec-body)
@@ -1421,7 +1563,8 @@ GRPC_RUNTIME_EOF
    (cons "server.go" go-server-body)
    (cons "loopback.go" go-loopback-body)
    (cons "sidecar.go" go-sidecar-body)
-   (cons "dynamic.go" go-dynamic-body)))
+   (cons "dynamic.go" go-dynamic-body)
+   (cons "http_signaling.go" go-http-signaling-body)))
 
 (define go-dynamic-body
 #<<GRPC_RUNTIME_EOF

@@ -48,6 +48,8 @@ pub mod status;
 pub mod transport;
 #[cfg(feature = "webrtc")]
 pub mod webrtc_direct;
+#[cfg(all(feature = "webrtc", not(target_arch = "wasm32")))]
+pub mod http_signaling;
 #[cfg(feature = "webrtc")]
 pub mod webrtc_transport;
 pub mod wire_gen;
@@ -3303,6 +3305,335 @@ fn decode_requests(
 GRPC_RUNTIME_EOF
 )
 
+(define rust-http-signaling-body
+#<<GRPC_RUNTIME_EOF
+//! HTTP/POST signaling server for browser clients: the server
+//! half of the browser signaling contract (see the generated JS
+//! `signaling.js`). Each POST creates a fresh `dc_webrtc` Peer,
+//! answers the offer, returns the answer JSON immediately, then
+//! connects on a background thread and serves the browser's
+//! "grpc" channel with `Server::serve`. Non-trickle: the answer
+//! carries the peer's host candidates as created; supply a
+//! PeerConfig factory when those candidates are not reachable
+//! as-is. Auth and CORS belong to the host application; this
+//! std-only listener is the standalone no-auth shape.
+//!
+//! Contract:
+//!   POST /grpc-dc/signal  {"type":"offer","sdp":"v=0\r\n..."}
+//!   200                   {"type":"answer","sdp":"v=0\r\n..."}
+
+use crate::server::{MethodDef, ServiceDef, Server};
+use crate::status::Status;
+use crate::transport::DcTransport;
+use crate::webrtc_transport::WebRtcDc;
+use dc_webrtc::endpoint::EndpointEvent;
+use dc_webrtc::peer::{Peer, PeerConfig};
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::Arc;
+use std::time::Duration;
+
+pub const SIGNAL_PATH: &str = "/grpc-dc/signal";
+const MAX_SIGNAL_BODY: usize = 1 << 20;
+
+fn clone_services(services: &[ServiceDef]) -> Vec<ServiceDef> {
+    services
+        .iter()
+        .map(|s| ServiceDef {
+            name: s.name.clone(),
+            methods: s
+                .methods
+                .iter()
+                .map(|m: &MethodDef| MethodDef {
+                    name: m.name,
+                    kind: m.kind,
+                    handler: m.handler.clone(),
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+fn json_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\r' => out.push_str("\\r"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Extract one string field from a flat JSON object. Returns
+/// None on any malformed input (fail closed).
+fn json_string_field(body: &str, field: &str) -> Option<String> {
+    let needle = format!("\"{field}\"");
+    let after_key = &body[body.find(&needle)? + needle.len()..];
+    let after_colon = after_key.trim_start().strip_prefix(':')?.trim_start();
+    let mut chars = after_colon.chars();
+    if chars.next()? != '"' {
+        return None;
+    }
+    let mut out = String::new();
+    let mut rest = chars.as_str();
+    loop {
+        let mut it = rest.chars();
+        match it.next()? {
+            '"' => return Some(out),
+            '\\' => {
+                let esc = it.next()?;
+                rest = it.as_str();
+                match esc {
+                    '"' => out.push('"'),
+                    '\\' => out.push('\\'),
+                    '/' => out.push('/'),
+                    'n' => out.push('\n'),
+                    'r' => out.push('\r'),
+                    't' => out.push('\t'),
+                    'b' => out.push('\u{0008}'),
+                    'f' => out.push('\u{000C}'),
+                    'u' => {
+                        let hex = rest.get(..4)?;
+                        out.push(char::from_u32(u32::from_str_radix(hex, 16).ok()?)?);
+                        rest = &rest[4..];
+                        continue;
+                    }
+                    _ => return None,
+                }
+            }
+            c => {
+                out.push(c);
+                rest = it.as_str();
+            }
+        }
+    }
+}
+
+fn write_response(stream: &mut TcpStream, status: u16, body: &str) -> std::io::Result<()> {
+    let reason = match status {
+        200 => "OK",
+        400 => "Bad Request",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        _ => "Internal Server Error",
+    };
+    let head = format!(
+        "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(head.as_bytes())?;
+    stream.write_all(body.as_bytes())
+}
+
+fn error_body(message: &str) -> String {
+    format!("{{\"error\":\"{}\"}}", json_escape(message))
+}
+
+fn serve_peer(peer: Peer, services: Vec<ServiceDef>) {
+    let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(_) => return,
+    };
+    runtime.block_on(async move {
+        let endpoint = match tokio::task::spawn_blocking(move || peer.connect()).await {
+            Ok(Ok(ep)) => Arc::new(ep),
+            _ => return,
+        };
+        let ep = endpoint.clone();
+        let channel = match tokio::task::spawn_blocking(move || loop {
+            match ep.recv_event_timeout(Duration::from_secs(30)) {
+                Some(EndpointEvent::ChannelOpened { channel })
+                    if channel.label.is_empty() || channel.label == "grpc" =>
+                {
+                    break Some(channel)
+                }
+                Some(_) => continue,
+                None => break None,
+            }
+        })
+        .await
+        {
+            Ok(Some(ch)) => ch,
+            _ => return,
+        };
+        let transport: Arc<dyn DcTransport> = Arc::new(WebRtcDc::new(endpoint, channel));
+        Server::serve(transport, services).await;
+    });
+}
+
+fn handle_connection<F>(
+    mut stream: TcpStream,
+    path: &str,
+    services: &[ServiceDef],
+    make_peer_config: &F,
+) where
+    F: Fn() -> PeerConfig,
+{
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
+    let mut buf: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 8192];
+    let header_end = loop {
+        if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
+            break pos + 4;
+        }
+        if buf.len() > MAX_SIGNAL_BODY {
+            let _ = write_response(&mut stream, 400, &error_body("headers too large"));
+            return;
+        }
+        match stream.read(&mut chunk) {
+            Ok(0) => return,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Err(_) => return,
+        }
+    };
+    let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
+    let mut lines = head.lines();
+    let request_line = lines.next().unwrap_or("");
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or("");
+    let request_path = parts.next().unwrap_or("");
+    if request_path != path {
+        let _ = write_response(&mut stream, 404, &error_body("not found"));
+        return;
+    }
+    if method != "POST" {
+        let _ = write_response(&mut stream, 405, &error_body("method not allowed"));
+        return;
+    }
+    let content_length = lines
+        .filter_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if name.trim().eq_ignore_ascii_case("content-length") {
+                value.trim().parse::<usize>().ok()
+            } else {
+                None
+            }
+        })
+        .next()
+        .unwrap_or(0);
+    if content_length > MAX_SIGNAL_BODY {
+        let _ = write_response(&mut stream, 400, &error_body("signaling body too large"));
+        return;
+    }
+    let mut body = buf.split_off(header_end);
+    while body.len() < content_length {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => body.extend_from_slice(&chunk[..n]),
+            Err(_) => return,
+        }
+    }
+    body.truncate(content_length);
+    let body_text = match String::from_utf8(body) {
+        Ok(t) => t,
+        Err(_) => {
+            let _ = write_response(
+                &mut stream,
+                400,
+                &error_body("expected {\"type\":\"offer\",\"sdp\":...}"),
+            );
+            return;
+        }
+    };
+    let offer_type = json_string_field(&body_text, "type");
+    let offer_sdp = json_string_field(&body_text, "sdp");
+    let offer_sdp = match (offer_type.as_deref(), offer_sdp) {
+        (Some("offer"), Some(sdp)) if !sdp.is_empty() => sdp,
+        _ => {
+            let _ = write_response(
+                &mut stream,
+                400,
+                &error_body("expected {\"type\":\"offer\",\"sdp\":...}"),
+            );
+            return;
+        }
+    };
+    let mut peer = match Peer::new(make_peer_config()) {
+        Ok(p) => p,
+        Err(_) => {
+            let _ = write_response(&mut stream, 500, &error_body("peer creation failed"));
+            return;
+        }
+    };
+    let answer = match peer.handle_offer(&offer_sdp) {
+        Ok(a) => a,
+        Err(_) => {
+            let _ = write_response(&mut stream, 400, &error_body("invalid offer SDP"));
+            return;
+        }
+    };
+    let response = format!(
+        "{{\"type\":\"answer\",\"sdp\":\"{}\"}}",
+        json_escape(&answer)
+    );
+    if write_response(&mut stream, 200, &response).is_err() {
+        return;
+    }
+    let services = clone_services(services);
+    std::thread::spawn(move || serve_peer(peer, services));
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Start the standalone signaling HTTP listener on `addr`
+/// (for example "127.0.0.1:8080") with a default PeerConfig per
+/// POST, serving `services` on each browser's "grpc" channel.
+/// Returns the bound address (useful with port 0 in tests).
+/// The listener runs on background threads for the life of the
+/// process. Host applications that need auth/CORS should front
+/// this listener or implement the same contract themselves.
+pub fn serve_http_signaling(addr: &str, services: Vec<ServiceDef>) -> Result<SocketAddr, Status> {
+    serve_http_signaling_with(addr, SIGNAL_PATH, services, PeerConfig::default)
+}
+
+/// `serve_http_signaling` with a custom path and a factory for
+/// each connection's PeerConfig (STUN/TURN servers, local IPs,
+/// a persistent DTLS certificate, and so on).
+pub fn serve_http_signaling_with<F>(
+    addr: &str,
+    path: &str,
+    services: Vec<ServiceDef>,
+    make_peer_config: F,
+) -> Result<SocketAddr, Status>
+where
+    F: Fn() -> PeerConfig + Send + Sync + 'static,
+{
+    let listener = TcpListener::bind(addr)
+        .map_err(|e| Status::unavailable(format!("http-signaling listen: {e}")))?;
+    let bound = listener
+        .local_addr()
+        .map_err(|e| Status::unavailable(format!("http-signaling addr: {e}")))?;
+    let services = Arc::new(services);
+    let make_peer_config = Arc::new(make_peer_config);
+    let path = path.to_string();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            match stream {
+                Ok(stream) => {
+                    let services = services.clone();
+                    let make_peer_config = make_peer_config.clone();
+                    let path = path.clone();
+                    std::thread::spawn(move || {
+                        handle_connection(stream, &path, &services, &*make_peer_config)
+                    });
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    Ok(bound)
+}
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-rust-runtime-files)
   (list
    (cons "lib.rs" rust-lib-body)
@@ -3318,4 +3649,5 @@ GRPC_RUNTIME_EOF
    (cons "server.rs" rust-server-body)
    (cons "dynamic.rs" rust-dynamic-body)
    (cons "webrtc_transport.rs" rust-webrtc-transport-body)
-   (cons "webrtc_direct.rs" rust-webrtc-direct-body)))
+   (cons "webrtc_direct.rs" rust-webrtc-direct-body)
+   (cons "http_signaling.rs" rust-http-signaling-body)))

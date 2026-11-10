@@ -1677,6 +1677,289 @@ export async function directClientTurnEndpoint(multiaddr, turn, options = {}) {
 GRPC_RUNTIME_EOF
 )
 
+(define js-signaling-body
+#<<GRPC_RUNTIME_EOF
+// Browser HTTP/POST signaling client: one non-trickle exchange
+// replaces a signaling server. The page creates an
+// RTCPeerConnection, waits for ICE gathering to complete (so the
+// offer SDP carries every candidate), POSTs it as JSON to the
+// server's signaling endpoint, and applies the JSON answer.
+//   POST /grpc-dc/signal  {"type":"offer","sdp":"v=0\r\n..."}
+//   200                   {"type":"answer","sdp":"v=0\r\n..."}
+// Browser-safe: no Node imports. The server half is
+// signaling_server.js (Node) plus the generated Go/Rust adapters,
+// all implementing the same contract. Auth and CORS belong to
+// the host application serving the page/endpoint, not here.
+
+import { Channel } from "./channel.js";
+
+export const SIGNAL_PATH = "/grpc-dc/signal";
+
+function waitIceGathering(pc, timeoutMs) {
+  if (pc.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, timeoutMs);
+    function done() {
+      clearTimeout(timer);
+      pc.removeEventListener?.("icegatheringstatechange", check);
+      resolve();
+    }
+    function check() {
+      if (pc.iceGatheringState === "complete") done();
+    }
+    pc.addEventListener("icegatheringstatechange", check);
+  });
+}
+
+function waitChannelOpen(dc, timeoutMs) {
+  if (dc.readyState === "open") return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("http-signaling: data channel did not open"));
+    }, timeoutMs);
+    function cleanup() {
+      clearTimeout(timer);
+      dc.removeEventListener?.("open", onOpen);
+      dc.removeEventListener?.("error", onError);
+    }
+    function onOpen() {
+      cleanup();
+      resolve();
+    }
+    function onError() {
+      cleanup();
+      reject(new Error("http-signaling: data channel error"));
+    }
+    dc.addEventListener("open", onOpen, { once: true });
+    dc.addEventListener("error", onError, { once: true });
+  });
+}
+
+/**
+ * POST one offer SDP to `url` and return the answer SDP string.
+ * Exported for callers managing their own RTCPeerConnection.
+ */
+export async function signalViaHttp(url, offerSdp, fetchImpl = globalThis.fetch) {
+  if (typeof fetchImpl !== "function") {
+    throw new Error("http-signaling: fetch is not available");
+  }
+  const res = await fetchImpl(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type: "offer", sdp: offerSdp }),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || body?.type !== "answer" || typeof body?.sdp !== "string" || !body.sdp) {
+    throw new Error(`http-signaling: signaling POST failed (${res.status})`);
+  }
+  return body.sdp;
+}
+
+/**
+ * Connect a browser gRPC client to a server exposing the
+ * HTTP/POST signaling endpoint and return a Channel for
+ * generated clients: `new EchoClient(await
+ * httpSignalingChannel("/grpc-dc/signal"))`.
+ * Options: iceServers, iceGatherTimeoutMs (default 10000),
+ * connectTimeoutMs (default 30000), label (default "grpc"),
+ * fetchImpl / RTCPeerConnectionImpl for tests and embedding.
+ * The returned Channel carries .peerConnection and .dataChannel;
+ * call channel.closeSignaling() to tear the peer down.
+ */
+export async function httpSignalingChannel(url, options = {}) {
+  const {
+    iceServers = [],
+    iceGatherTimeoutMs = 10000,
+    connectTimeoutMs = 30000,
+    label = "grpc",
+    fetchImpl = globalThis.fetch,
+    RTCPeerConnectionImpl = globalThis.RTCPeerConnection,
+  } = options;
+  if (typeof RTCPeerConnectionImpl !== "function") {
+    throw new Error("http-signaling: RTCPeerConnection is not available");
+  }
+  const pc = new RTCPeerConnectionImpl({ iceServers });
+  try {
+    const dc = pc.createDataChannel(label);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await waitIceGathering(pc, iceGatherTimeoutMs);
+    const answerSdp = await signalViaHttp(url, pc.localDescription.sdp, fetchImpl);
+    await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+    await waitChannelOpen(dc, connectTimeoutMs);
+    const channel = new Channel(dc);
+    channel.peerConnection = pc;
+    channel.dataChannel = dc;
+    channel.closeSignaling = () => {
+      try { dc.close(); } catch { /* already closed */ }
+      try { pc.close(); } catch { /* already closed */ }
+    };
+    return channel;
+  } catch (e) {
+    try { pc.close(); } catch { /* already closed */ }
+    throw e;
+  }
+}
+GRPC_RUNTIME_EOF
+)
+
+(define js-signaling-server-body
+#<<GRPC_RUNTIME_EOF
+// Node HTTP/POST signaling server: the server half of the
+// browser signaling contract in signaling.js. Each POST creates
+// a fresh Peer from the hand-written WebRTC stack, answers the
+// offer, returns the answer JSON immediately, then connects in
+// the background and serves the browser's "grpc" DataChannel
+// with the given generated Server. Non-trickle: the answer
+// carries the peer's host candidates as created; configure
+// peerOptions (localIps / stunServers / turnServers) when the
+// host candidates in the answer are not reachable as-is.
+// Auth and CORS belong to the host application: mount
+// signalingHandler on your own HTTP server behind them, or use
+// serveHttpSignaling for the standalone no-auth shape.
+
+import { createServer } from "node:http";
+
+import { Peer } from "../../webrtc/js/peer.js";
+
+export const SIGNAL_PATH = "/grpc-dc/signal";
+const MAX_SIGNAL_BODY = 1 << 20;
+
+function sendJson(res, status, value) {
+  const body = JSON.stringify(value);
+  res.writeHead(status, {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
+async function readBody(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > MAX_SIGNAL_BODY) throw new Error("signaling body too large");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/**
+ * HTTP handler for the signaling contract. Returns true when
+ * the request path matched (and was handled), false otherwise,
+ * so hosts can mount it alongside their own routes:
+ *   const signal = signalingHandler(grpcServer);
+ *   createServer((req, res) => signal(req, res).then(h => ...));
+ */
+export function signalingHandler(grpcServer, options = {}) {
+  const path = options.path ?? SIGNAL_PATH;
+  const peerOptions = options.peerOptions ?? {};
+  const onError = options.onError ?? ((e) => console.error("http-signaling:", e));
+  const peers = new Set();
+  const handler = async (req, res) => {
+    let pathname;
+    try {
+      pathname = new URL(req.url, "http://localhost").pathname;
+    } catch {
+      return false;
+    }
+    if (pathname !== path) return false;
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "method not allowed" });
+      return true;
+    }
+    let peer = null;
+    try {
+      const parsed = JSON.parse(await readBody(req));
+      if (parsed?.type !== "offer" || typeof parsed?.sdp !== "string" || !parsed.sdp) {
+        sendJson(res, 400, { error: "expected {\"type\":\"offer\",\"sdp\":...}" });
+        return true;
+      }
+      peer = await Peer.create(peerOptions);
+      peers.add(peer);
+      let answer;
+      try {
+        answer = peer.handleOffer(parsed.sdp);
+      } catch {
+        await peer.close().catch(() => {});
+        peers.delete(peer);
+        peer = null;
+        sendJson(res, 400, { error: "invalid offer SDP" });
+        return true;
+      }
+      sendJson(res, 200, { type: "answer", sdp: answer });
+      // Background: run ICE/DTLS, then serve the grpc channel.
+      const serving = peer;
+      void (async () => {
+        try {
+          const endpoint = await serving.connect();
+          endpoint.onchannel = (channel) => {
+            if ((channel.label ?? "grpc") === "grpc") {
+              grpcServer.serve(channel);
+              // One signaling POST owns one peer: when its grpc
+              // channel closes, tear the peer (socket, timers)
+              // down with it instead of leaking it per request.
+              channel.addEventListener?.(
+                "close",
+                () => {
+                  peers.delete(serving);
+                  void serving.close().catch(() => {});
+                },
+                { once: true },
+              );
+            }
+          };
+        } catch (e) {
+          onError(e);
+          await serving.close().catch(() => {});
+        }
+      })();
+      return true;
+    } catch (e) {
+      if (peer) {
+        peers.delete(peer);
+        await peer.close().catch(() => {});
+      }
+      if (!res.headersSent) sendJson(res, 500, { error: "signaling failed" });
+      return true;
+    }
+  };
+  // Hosts/tests can tear down every peer created so far (each
+  // grpc channel close already closes its own peer; this is
+  // the bulk shutdown path). Also exposed as closeSignaling
+  // on serveHttpSignaling's returned server.
+  handler.closePeers = async () => {
+    const all = [...peers];
+    peers.clear();
+    await Promise.all(all.map((p) => p.close().catch(() => {})));
+  };
+  handler.peers = peers;
+  return handler;
+}
+
+/**
+ * Standalone signaling HTTP server on host:port (defaults
+ * 127.0.0.1:8080). Requests outside the signaling path get a
+ * 404 JSON body. Returns the node:http Server (await its
+ * "listening" event; close() to stop). Host applications that
+ * need auth/CORS should mount signalingHandler instead.
+ */
+export function serveHttpSignaling(grpcServer, options = {}) {
+  const handler = signalingHandler(grpcServer, options);
+  const server = createServer((req, res) => {
+    void handler(req, res).then((handled) => {
+      if (!handled && !res.headersSent) sendJson(res, 404, { error: "not found" });
+    });
+  });
+  server.closeSignaling = handler.closePeers;
+  server.listen(options.port ?? 8080, options.host ?? "127.0.0.1");
+  return server;
+}
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-js-runtime-files)
   (list
    (cons "codec.js" js-codec-body)
@@ -1688,7 +1971,9 @@ GRPC_RUNTIME_EOF
    (cons "loopback.js" js-loopback-body)
    (cons "wasm_bridge.js" js-wasm-bridge-body)
    (cons "dynamic.js" js-dynamic-body)
-   (cons "webrtc_direct.js" js-webrtc-direct-body)))
+   (cons "webrtc_direct.js" js-webrtc-direct-body)
+   (cons "signaling.js" js-signaling-body)
+   (cons "signaling_server.js" js-signaling-server-body)))
 
 (define js-dynamic-body
 #<<GRPC_RUNTIME_EOF

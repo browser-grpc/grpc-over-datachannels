@@ -226,6 +226,43 @@ reachable UDP address: no ICE negotiation, no SDP exchange.
   Dart, Java, Kotlin, Scala, C#, Swift, C++, Zig, C, and Lua;
   each prints `TestSidecar OK`).
 
+## HTTP/POST signaling (browser → server)
+
+Browsers cannot dial a Direct multiaddr and `RTCPeerConnection`
+always needs an SDP exchange, so the generated runtimes ship an
+optional single-POST signaling contract as the minimal browser
+on-ramp — an exchange, not a signaling server:
+
+- **Contract**: `POST /grpc-dc/signal` with JSON
+  `{"type":"offer","sdp":...}` returns `200`
+  `{"type":"answer","sdp":...}`. Errors are JSON
+  `{"error":...}` (400 malformed/invalid offer, 405 non-POST,
+  404 other paths on the standalone servers). Bodies are
+  limited to 1 MiB. Non-trickle only: the browser waits for ICE
+  gathering to complete before POSTing, and the server answers
+  from the candidates its Peer holds at creation.
+- **Browser side**: generated JS `httpSignalingChannel(url)`
+  (`js/src/signaling.js`) builds the `RTCPeerConnection`, opens
+  the `grpc` channel, performs the POST with `fetch`, and
+  returns a `Channel` for generated clients.
+- **Server side**: one fresh full `Peer` per POST; the answer
+  returns immediately and the peer connects in the background,
+  serving the `grpc` channel and closing with it. Generated
+  adapters: JS `signalingHandler` / `serveHttpSignaling`
+  (`js/src/signaling_server.js`), Go `HttpSignalingHandler` /
+  `ServeHttpSignaling` (`go/http_signaling.go`), Rust
+  `serve_http_signaling(_with)` (`rust/src/http_signaling.rs`,
+  std-only HTTP listener).
+- **Scope**: auth and CORS belong to the host application
+  (mount the handler forms behind them). STUN/TURN for the
+  server peer are Peer(Options|Config) settings; the browser's
+  own are `iceServers` options.
+- **Tests**: `browser-test/signaling.test.mjs` (Chromium,
+  Firefox, WebKit page → Node signaling server, unary +
+  server-streaming), `js/test/signaling.test.js`,
+  `go/http_signaling_test.go`, and
+  `rust/tests/http_signaling.rs` (native offerer POST + Echo).
+
 ## Embedded profile
 
 The Rust crate is layered so the protocol core runs with no OS:

@@ -250,6 +250,30 @@ TURNS (TLS) and IPv6 legs against a real coturn. Browsers
 stay dial-only with relay-only ICE (the symmetric-NAT shape) in `browser-test/direct_turn.test.mjs`. Details and
 test map: [SPEC-WEBRTC.md](SPEC-WEBRTC.md#webrtc-direct-libp2p-style).
 
+### HTTP/POST signaling (browser → native server)
+
+Browsers cannot dial a Direct multiaddr (no UDP sockets), so
+for browser→server the generated runtimes ship an optional
+single-POST signaling exchange instead of a signaling server:
+the page POSTs its ICE-complete offer to `/grpc-dc/signal` and
+applies the answer from the response body.
+
+```js
+import { httpSignalingChannel } from "grpc-dc";
+const client = new EchoClient(await httpSignalingChannel("/grpc-dc/signal"));
+```
+
+The server half is generated for each native stack —
+`serveHttpSignaling` (JS/Node, `grpc-dc/signaling_server`),
+`ServeHttpSignaling` (Go), `serve_http_signaling` (Rust) —
+or mount the handler form (JS `signalingHandler`, Go
+`HttpSignalingHandler`) behind your own HTTP server. Contract:
+`POST {"type":"offer","sdp":...}` → `200 {"type":"answer","sdp":...}`.
+Non-trickle only; auth and CORS stay with the host application.
+Proven in Chromium, Firefox, and WebKit by
+`browser-test/signaling.test.mjs`, plus native offerer tests
+per stack.
+
 ### Event bus
 
 Every language also ships a generated event bus,

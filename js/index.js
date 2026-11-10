@@ -42,6 +42,11 @@ export {
   splitDcMessage,
 } from "./src/chunking.js";
 export { createGrpcDcBridge, createGrpcDcServerBridge } from "./src/wasm_bridge.js";
+export { SIGNAL_PATH, httpSignalingChannel, signalViaHttp } from "./src/signaling.js";
+// The Node HTTP/POST signaling server (src/signaling_server.js)
+// is likewise Node-only (node:http + the Node WebRTC stack) and
+// is not re-exported here. Import it directly:
+//   import { serveHttpSignaling } from "grpc-dc/signaling_server";
 // Note: the Node WebRTC-Direct adapter (src/webrtc_direct.js)
 // is deliberately NOT re-exported here -- it imports Node-only
 // modules (node:dgram via webrtc/js/direct.js) and this index

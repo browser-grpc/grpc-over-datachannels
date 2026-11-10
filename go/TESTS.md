@@ -25,6 +25,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`echo_pb_test.go`](examples/echo_pb_test.go) — Echo: all four call shapes
 - [`otlp_tracer_test.go`](examples/otlp_tracer_test.go) — Tracing: traceparent propagation, span observers, nested calls
 - [`http2_oracle_test.go`](http2_oracle_test.go) — Official-implementation oracle, via the proxy
+- [`http_signaling_test.go`](http_signaling_test.go) — Generated suite/example
 - [`interop_oracle_test.go`](interop_oracle_test.go) — Official-implementation oracle, via the proxy
 - [`interop_server_oracle_test.go`](interop_server_oracle_test.go) — Official-implementation oracle, via the proxy
 - [`interop_test.go`](interop_test.go) — Cross-language interop

@@ -96,7 +96,15 @@ above — STUN alone cannot make an inbound UDP listener reachable.
 Browsers have no UDP sockets, so a browser page can never dial a
 multiaddr. Browser clients join through full ICE with a native peer
 (the browser examples), where the browser's own `RTCPeerConnection`
-does STUN/TURN natively. Two honest limits:
+does STUN/TURN natively. For browser→server without a signaling
+server, the generated runtimes also ship single-POST HTTP
+signaling: the page POSTs its ICE-complete offer to
+`/grpc-dc/signal` and applies the answer in the response
+(`httpSignalingChannel` in the JS runtime; server halves:
+`serveHttpSignaling` / `signalingHandler` in JS,
+`ServeHttpSignaling` / `HttpSignalingHandler` in Go,
+`serve_http_signaling` in Rust). Auth and CORS stay with the
+host application. Two honest limits:
 
 - A browser behind a symmetric NAT needs the **native peer** to be
   reachable (public IP or its own TURN relay); a TURN server for the
@@ -136,3 +144,4 @@ for every language by the generated BDD sidecar tests in CI.
 | direct + TURN | TURN allocation → relayed UDP dial | reachable UDP port | no |
 | full ICE + STUN | ICE with STUN-discovered candidates | native peer (any stack) | yes — this is the browser path |
 | full ICE + TURN | ICE with relay candidates | native peer | yes, `iceServers` in the page |
+| full ICE via HTTP/POST signaling | one POST of the ICE-complete offer to `/grpc-dc/signal`, answer in the response | native peer + generated signaling endpoint | yes — no signaling server to run |
