@@ -15,10 +15,16 @@
  * with wasm-ld next to the Swift object. */
 #include <stddef.h>
 
-/* 64 MiB arena: a multi-MiB call holds several live copies at
- * once (bridge input, decoded message, response build), and
- * the free list reuses freed copies within the same call. */
-#define HEAP_BYTES (64u * 1024u * 1024u)
+/* 128 MiB arena: a multi-MiB call holds many live copies at
+ * once (bridge input, byte-array copy, decoded message,
+ * response build, marshaled output — plus power-of-two array
+ * growth transients), and the free list reuses freed copies
+ * within the same call. Measured: an 8 MiB unary peaks past
+ * the old 64 MiB and traps Swift's allocation failure
+ * (surfaced as INTERNAL: unreachable); 128 MiB covers it
+ * with headroom. Payloads far beyond 8 MiB will still hit
+ * this ceiling — it is an arena, not a streaming path. */
+#define HEAP_BYTES (128u * 1024u * 1024u)
 #define HEAP_ALIGN 16u
 #define BLOCK_HEADER 16u /* header, 16-aligned; payload follows */
 

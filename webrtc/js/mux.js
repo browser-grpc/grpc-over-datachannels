@@ -117,6 +117,7 @@ export class PeerMux {
   #byCid = new Map();
   #cidSeq = 0n;
   #endpoints = new Set();
+  #onUnhandled = null;
   // srflx candidates gathered once per STUN-server list and
   // adopted by every later peer (same shared socket and STUN
   // servers => same reflexive address for every peer).
@@ -208,6 +209,19 @@ export class PeerMux {
     this.#endpoints.delete(endpoint);
   }
 
+  /**
+   * Fallback for packets no registered peer claims: STUN
+   * whose username's local ufrag is unregistered, and DTLS
+   * with no hint/cid/learned source. One handler at a time;
+   * the RendezvousListener uses this to share the mux socket
+   * (its sessions all share one published ufrag, so they
+   * cannot register per-peer here — the listener demuxes
+   * them itself by dialer ufrag). Pass null to detach.
+   */
+  setUnhandledHandler(fn) {
+    this.#onUnhandled = fn ?? null;
+  }
+
   close() {
     this.#socket.close();
   }
@@ -226,6 +240,10 @@ export class PeerMux {
             endpoint.deliver(msg, rinfo);
             return;
           }
+          if (this.#onUnhandled) {
+            this.#onUnhandled(msg, rinfo);
+            return;
+          }
         }
         // A Binding Success carries no username. Offer it to
         // every endpoint: each agent consumes only its own
@@ -240,8 +258,10 @@ export class PeerMux {
           known.deliver(msg, rinfo);
           return;
         }
+        this.#onUnhandled?.(msg, rinfo);
         return;
       }
+      this.#onUnhandled?.(msg, rinfo);
       return;
     }
     // DTLS: an epoch-0 ClientHello routes by its DcPairHint;
@@ -259,7 +279,11 @@ export class PeerMux {
       return;
     }
     const endpoint = this.#bySrc.get(srcKey);
-    if (endpoint) endpoint.deliver(msg, rinfo);
+    if (endpoint) {
+      endpoint.deliver(msg, rinfo);
+      return;
+    }
+    this.#onUnhandled?.(msg, rinfo);
   }
 
   // Route a first-flight ClientHello by its DcPairHint

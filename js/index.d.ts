@@ -169,12 +169,17 @@ export interface RendezvousDescriptor {
 }
 export interface RendezvousOptions {
   iceServers?: RTCIceServer[];
+  iceTransportPolicy?: RTCIceTransportPolicy;
   timeoutMs?: number;
   label?: string;
 }
 export declare function synthesizeRendezvousOffer(
   descriptor: RendezvousDescriptor,
 ): string;
+export declare function fetchRendezvousDescriptor(
+  url: string,
+  options?: { fetchImpl?: typeof fetch },
+): Promise<RendezvousDescriptor>;
 export declare function rendezvousChannel(
   descriptor: RendezvousDescriptor,
   options?: RendezvousOptions,

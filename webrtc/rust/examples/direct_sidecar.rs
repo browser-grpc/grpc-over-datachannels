@@ -27,12 +27,21 @@
 //! the language server over its own framed TCP connection, so
 //! any generated language server becomes browser-reachable.
 //! Auth/CORS stay with the host serving the page.
+//!
+//! Browser shape with no signaling at all (Rendezvous):
+//!   direct_sidecar rendezvous --udp 0.0.0.0:4001 --tcp 127.0.0.1:50052 \
+//!       [--host 203.0.113.10] [--ufrag U --pwd P]
+//! prints `RENDEZVOUS {"host":...,"port":...}` on stdout: the
+//! fixed descriptor browsers dial with rendezvousChannel.
+//! Each browser session is bridged to the language server
+//! over its own framed TCP connection, like signal mode.
 
 use dc_webrtc::dcep::ChannelParams;
 use dc_webrtc::direct::{direct_dial_multiaddr, direct_dial_turn_multiaddr, DirectListener};
 use dc_webrtc::endpoint::{ChannelHandle, DcEndpoint, EndpointEvent};
 use dc_webrtc::mux::PeerMux;
 use dc_webrtc::peer::{PeerConfig, RestartHandle};
+use dc_webrtc::rendezvous::{RendezvousListener, RendezvousOptions};
 use dc_webrtc::turn::TurnServerConfig;
 use dc_webrtc::x509::Certificate;
 use std::collections::HashMap;
@@ -433,10 +442,55 @@ fn main() -> io::Result<()> {
             }
             Ok(())
         }
+        "rendezvous" => {
+            let udp_addr: SocketAddr = arg(&args, "--udp")
+                .expect("--udp required")
+                .parse()
+                .expect("bad --udp address");
+            let lang_addr: SocketAddr = arg(&args, "--tcp")
+                .expect("--tcp required")
+                .parse()
+                .expect("bad --tcp address");
+            // The published host: --host, else this host's
+            // default-route IPv4 (as a deployment publishes
+            // its public address).
+            let host = arg(&args, "--host").unwrap_or_else(|| {
+                std::net::UdpSocket::bind("0.0.0.0:0")
+                    .and_then(|s| {
+                        s.connect("8.8.8.8:53")?;
+                        s.local_addr()
+                    })
+                    .map(|a| a.ip().to_string())
+                    .unwrap_or_else(|_| "127.0.0.1".to_string())
+            });
+            let listener = RendezvousListener::bind(
+                udp_addr,
+                RendezvousOptions {
+                    ice_ufrag: arg(&args, "--ufrag"),
+                    ice_pwd: arg(&args, "--pwd"),
+                    on_endpoint: Box::new(move |endpoint| {
+                        let endpoint = Arc::new(endpoint);
+                        std::thread::spawn(move || -> io::Result<()> {
+                            let channel = wait_channel(&endpoint)?;
+                            let tcp = TcpStream::connect(lang_addr)?;
+                            bridge(endpoint, channel, tcp)
+                        });
+                    }),
+                    on_error: Box::new(|e| eprintln!("rendezvous session failed: {e}")),
+                    ..Default::default()
+                },
+            )?;
+            println!("RENDEZVOUS {}", listener.descriptor(&host).to_json());
+            io::stdout().flush()?;
+            loop {
+                std::thread::sleep(Duration::from_secs(3600));
+            }
+        }
         _ => {
             eprintln!("usage: direct_sidecar dial --multiaddr MA --tcp A [--turn A --turn-user U --turn-pass P]");
             eprintln!("       direct_sidecar listen --udp A --tcp A");
             eprintln!("       direct_sidecar signal --http A --tcp A [--udp A] [--stun URL]");
+            eprintln!("       direct_sidecar rendezvous --udp A --tcp A [--host IP] [--ufrag U --pwd P]");
             std::process::exit(2);
         }
     }

@@ -69,6 +69,12 @@ pub struct RendezvousOptions {
     pub ice_ufrag: Option<String>,
     pub ice_pwd: Option<String>,
     pub certificate: Option<Certificate>,
+    /// RFC 7675 consent freshness per session peer. When
+    /// either is set, checks run every consent_interval
+    /// (default 5 s) and expire after consent_expiry
+    /// (default 30 s) without a response.
+    pub consent_interval: Option<Duration>,
+    pub consent_expiry: Option<Duration>,
     /// Receives each connected session's endpoint.
     pub on_endpoint: Box<dyn Fn(DcEndpoint) + Send + Sync>,
     /// Receives background connect failures.
@@ -82,6 +88,8 @@ impl Default for RendezvousOptions {
             ice_ufrag: None,
             ice_pwd: None,
             certificate: None,
+            consent_interval: None,
+            consent_expiry: None,
             on_endpoint: Box::new(|_| {}),
             on_error: Box::new(|_| {}),
         }
@@ -95,6 +103,8 @@ struct RvInner {
     ice_pwd: String,
     certificate: Certificate,
     local_ips: Vec<IpAddr>,
+    consent_interval: Option<Duration>,
+    consent_expiry: Option<Duration>,
     by_remote: Mutex<HashMap<String, Arc<RvEndpoint>>>,
     by_src: Mutex<HashMap<SocketAddr, Arc<RvEndpoint>>>,
     on_endpoint: Box<dyn Fn(DcEndpoint) + Send + Sync>,
@@ -180,6 +190,8 @@ impl RendezvousListener {
                 .clone()
                 .unwrap_or_else(|| Certificate::generate_self_signed("dc-webrtc")),
             local_ips: options.local_ips.clone(),
+            consent_interval: options.consent_interval,
+            consent_expiry: options.consent_expiry,
             by_remote: Mutex::new(HashMap::new()),
             by_src: Mutex::new(HashMap::new()),
             on_endpoint: options.on_endpoint,
@@ -281,6 +293,13 @@ fn spawn_session(inner: &Arc<RvInner>, src: SocketAddr, remote_ufrag: &str, firs
         }
     };
     peer.set_local_credentials(&inner.ice_ufrag, &inner.ice_pwd);
+    if inner.consent_interval.is_some() || inner.consent_expiry.is_some() {
+        peer.set_consent(
+            inner.consent_interval.or(Some(Duration::from_secs(5))),
+            inner.consent_expiry.unwrap_or(Duration::from_secs(30)),
+            || {},
+        );
+    }
     if let Err(e) = peer.handle_rendezvous_offer(&synthesized_offer(src, remote_ufrag)) {
         (inner.on_error)(e);
         return;

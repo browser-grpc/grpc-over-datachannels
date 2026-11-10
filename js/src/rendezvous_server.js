@@ -16,9 +16,14 @@ export { RendezvousListener } from "../../webrtc/js/rendezvous.js";
  * Serve this gRPC Server to rendezvous browsers.
  *
  * options: { address, port, family, localIps, iceUfrag,
- *   icePwd, certificate, onError } — fix iceUfrag/icePwd/
+ *   icePwd, certificate, onError, consentIntervalMs,
+ *   consentExpiryMs, mux } — fix iceUfrag/icePwd/
  *   certificate and the published descriptor stays stable
  *   across restarts; ephemeral values rotate per process.
+ * With `mux` (a PeerMux, e.g. the one a signalingHandler
+ * uses via options.mux), the listener shares the mux's UDP
+ * socket instead of binding its own: one port serves both
+ * HTTP-signaled and rendezvous browsers.
  * Returns the RendezvousListener (call .descriptor(host)
  * and .close()).
  */

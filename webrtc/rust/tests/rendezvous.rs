@@ -61,6 +61,72 @@ fn rendezvous_dial_and_echo() {
     assert!(!desc.fingerprint.is_empty() && desc.setup == "passive");
     assert!(desc.to_json().contains("\"iceUfrag\""));
 
+    // Long-lived leg on a second listener: with a 6 s consent
+    // expiry, the session must still answer after 9 s. The
+    // dialer's password is never learned by the listener, so
+    // its consent checks can never be answered — the session
+    // survives only because the dialer's own Binding requests
+    // refresh server-side consent (RFC 7675).
+    {
+        let (tx2, rx2) = channel::<DcEndpoint>();
+        let short = RendezvousListener::bind(
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            RendezvousOptions {
+                consent_interval: Some(Duration::from_millis(500)),
+                consent_expiry: Some(Duration::from_secs(6)),
+                on_endpoint: Box::new(move |endpoint| {
+                    let _ = tx2.send(endpoint);
+                }),
+                on_error: Box::new(|e| eprintln!("rendezvous: {e}")),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let sdesc = short.descriptor("127.0.0.1");
+        let mut dialer = Peer::new(PeerConfig::default()).unwrap();
+        dialer.set_consent(Some(Duration::from_secs(1)), Duration::from_secs(30), || {});
+        let remote = SessionDescription {
+            ufrag: sdesc.ice_ufrag.clone(),
+            pwd: sdesc.ice_pwd.clone(),
+            fingerprint: sdesc.fingerprint.clone(),
+            setup: "passive".to_string(),
+            candidates: vec![Candidate::host(
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), sdesc.port),
+                "1",
+            )],
+            sctp_port: 5000,
+        };
+        dialer.handle_answer(&generate(&remote, false)).unwrap();
+        let endpoint = dialer.connect().expect("dialer connect");
+        let server_endpoint = rx2
+            .recv_timeout(Duration::from_secs(15))
+            .expect("listener endpoint");
+        echo_endpoint(server_endpoint);
+        let channel = endpoint
+            .open_channel(ChannelParams { label: "grpc".into(), ..Default::default() })
+            .unwrap();
+        let roundtrip = |endpoint: &DcEndpoint, want: &str| {
+            channel.send_binary(want.as_bytes()).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(15);
+            while std::time::Instant::now() < deadline {
+                match endpoint.recv_event_timeout(Duration::from_millis(500)) {
+                    Some(EndpointEvent::Message { data, .. }) => {
+                        assert_eq!(String::from_utf8(data).unwrap(), format!("re:{want}"));
+                        return;
+                    }
+                    Some(_) => continue,
+                    None => continue,
+                }
+            }
+            panic!("no reply for {want}");
+        };
+        roundtrip(&endpoint, "before");
+        std::thread::sleep(Duration::from_secs(9));
+        roundtrip(&endpoint, "after");
+        endpoint.shutdown();
+        short.close();
+    }
+
     for dial in 0..2 {
         let mut dialer = Peer::new(PeerConfig::default()).unwrap();
         let remote = SessionDescription {

@@ -51,6 +51,7 @@ export {
   signalViaHttp,
 } from "./src/signaling.js";
 export {
+  fetchRendezvousDescriptor,
   rendezvousChannel,
   synthesizeRendezvousOffer,
 } from "./src/rendezvous.js";

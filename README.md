@@ -299,9 +299,15 @@ demuxed by the browser's ufrag — behind generated adapters:
 `serveRendezvous` (JS/Node, `grpc-dc/rendezvous_server`),
 `ServeRendezvous` (Go), `serve_rendezvous` (Rust). Publish
 `listener.descriptor(host)` (or `.Descriptor(host)`) wherever
-browsers can find it; fix the credentials/certificate and it
-stays stable across restarts. The browser authenticates the
-server by the published fingerprint. Proven in Chromium,
+browsers can find it — hardcoded, or over HTTPS at
+`/.well-known/grpc-dc-rendezvous.json` with a short cache
+lifetime for rotation (the generated
+`fetchRendezvousDescriptor(url)` fetches and validates it);
+fix the credentials/certificate and it stays stable across
+restarts. The browser authenticates the server by the
+published fingerprint. Limits: fixed address only, IP-literal
+host (no DNS names in candidates), no ICE restart (redial
+instead) — all detailed in SPEC-WEBRTC. Proven in Chromium,
 Firefox, and WebKit against all three stacks by
 `browser-test/rendezvous.test.mjs` and
 `browser-test/rendezvous_stacks.test.mjs`. Details:

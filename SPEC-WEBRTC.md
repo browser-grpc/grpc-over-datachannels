@@ -327,13 +327,83 @@ in a config file, or served as static JSON.
   stays stable across restarts; ephemeral values rotate per
   process. Serve HTTP/POST signaling instead when the server
   address cannot be fixed in advance.
+- **Sharing one socket with signaling (JS)**: a
+  `RendezvousListener` may attach to a signaling server's
+  `PeerMux` instead of binding its own socket
+  (`serveRendezvous(grpcServer, { mux })`, with the same mux
+  passed to `signalingHandler`): the mux routes packets for
+  unregistered ufrags to the listener, which demuxes its
+  sessions itself. One UDP port then serves both
+  HTTP-signaled peers and rendezvous browsers
+  (`browser-test/rendezvous_mux.test.mjs`).
+- **Sidecar languages**: `direct_sidecar rendezvous --udp A
+  --tcp A [--host IP] [--ufrag U --pwd P]` runs the Rust
+  rendezvous listener and bridges each browser session to a
+  language server's framed TCP endpoint (the same bridging
+  as Direct/signal modes), printing the `RENDEZVOUS {...}`
+  descriptor line — so every generated language server is
+  browser-reachable at a fixed endpoint
+  (`browser-test/sidecar_rendezvous.test.mjs`).
+- **Publishing the descriptor**: the descriptor is plain
+  JSON (`{"host","port","iceUfrag","icePwd","fingerprint",
+  "setup":"passive"}` — `descriptor(host)` in JS,
+  `Descriptor(host)` in Go, `descriptor(host).to_json()` in
+  Rust). Hardcode it, ship it in a config file, or serve it
+  over HTTPS. The HTTPS convention is a well-known URL,
+  `https://<name>/.well-known/grpc-dc-rendezvous.json`, with
+  `Cache-Control: max-age=60` (short enough that credential
+  or address rotation propagates within a minute; long
+  enough to absorb page-load bursts). This is also the DNS
+  answer to the IP-literal rule: the page reaches the
+  *name* over HTTPS and dials the *address* inside the
+  descriptor. The generated `fetchRendezvousDescriptor(url)`
+  fetches and validates it. Rotation procedure: publish the
+  new descriptor, keep the old listener (or old credentials)
+  serving until the cache window plus a page lifetime has
+  passed, then retire it — in-flight sessions are unaffected
+  either way, since ICE/DTLS state never consults the
+  descriptor after the dial.
+- **Limits**:
+  - Fixed address only. If the server's address is
+    ephemeral, serve HTTP/POST signaling instead, or
+    republish the descriptor on address change (browsers
+    pick it up on next dial/page load; live sessions keep
+    their nominated pair).
+  - `host` is an IP literal. Candidate lines carry
+    addresses, not names; publish the address your DNS name
+    resolves to, or serve the descriptor from the name over
+    HTTPS as above. (Firefox additionally will not pair a
+    non-loopback local candidate with a loopback remote
+    candidate, so publish the outward address even in
+    development.)
+  - No ICE restart. Restart renegotiates SDP, and SDP is
+    what Rendezvous does not exchange; a failed session
+    redials the descriptor (fresh ufrag, fresh session).
+  - No per-browser authentication of the dialer: the
+    server authenticates to the browser by fingerprint,
+    but any holder of the descriptor can dial. Treat the
+    descriptor as a published address, not a secret, and
+    authenticate at the gRPC layer if the service needs it.
+  - One descriptor describes one listener (one host/port).
+    Multi-homed or anycast deployments publish one
+    descriptor per address and let the page choose.
 - **Tests**: `browser-test/rendezvous.test.mjs` (Chromium,
-  Firefox, WebKit → JS listener) and
+  Firefox, WebKit → JS listener; sequential dials plus 8
+  concurrent dials with unique messages for cross-talk) and
   `browser-test/rendezvous_stacks.test.mjs` (same browsers →
   Go `go/cmd/rendezvous_server` and Rust
   `rust/examples/rendezvous_echo` servers), each dialing
-  twice to prove per-ufrag session demux; native dialer
-  tests `webrtc/go/rendezvous_test.go`,
+  twice to prove per-ufrag session demux;
+  `browser-test/rendezvous_longlived.test.mjs` (session
+  alive past a 10 s consent-expiry window, JS listener);
+  `browser-test/rendezvous_example.test.mjs` (the runnable
+  example); `browser-test/rendezvous_mux.test.mjs`
+  (signaling + rendezvous on one mux socket);
+  `browser-test/sidecar_rendezvous.test.mjs` (Python server
+  via the Rust sidecar); `browser-test/rendezvous_turn.test.mjs`
+  (browser relay-only over the fake TURN server, probe-and-
+  skip like direct_turn); native dialer + long-lived tests
+  `webrtc/go/rendezvous_test.go` and
   `webrtc/rust/tests/rendezvous.rs`, plus generated-adapter
   tests `go/rendezvous_test.go` and
   `rust/tests/rendezvous.rs`.

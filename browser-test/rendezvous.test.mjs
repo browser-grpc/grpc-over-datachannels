@@ -97,6 +97,13 @@ async function runBrowser(name, engine) {
     assert.equal(result.second.unary, "echo: hello-second");
     assert.deepEqual(result.second.ticks, [0, 1, 2]);
     console.log(`${name}: browser gRPC via rendezvous OK`, result);
+
+    const stress = await page.evaluate(() => window.__runRendezvousStress(8));
+    assert.deepEqual(
+      stress,
+      Array.from({ length: 8 }, (_, i) => `echo: stress-${i}`),
+    );
+    console.log(`${name}: browser rendezvous stress (8 concurrent dials) OK`);
   } finally {
     await browser.close();
   }

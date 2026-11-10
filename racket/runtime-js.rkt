@@ -1975,14 +1975,43 @@ export function synthesizeRendezvousOffer(descriptor) {
 }
 
 /**
+ * Fetch a rendezvous descriptor JSON from `url` (HTTPS in
+ * production; the well-known location
+ * /.well-known/grpc-dc-rendezvous.json with a short
+ * Cache-Control max-age is the rotation convention — see
+ * SPEC-WEBRTC.md). Returns the parsed descriptor object for
+ * rendezvousChannel.
+ *
+ * options: { fetchImpl }
+ */
+export async function fetchRendezvousDescriptor(url, options = {}) {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const res = await fetchImpl(url, { headers: { accept: "application/json" } });
+  if (!res.ok) throw new Error(`rendezvous descriptor fetch failed: ${res.status}`);
+  const descriptor = await res.json();
+  for (const field of ["host", "port", "iceUfrag", "icePwd", "fingerprint"]) {
+    if (descriptor[field] === undefined) {
+      throw new Error(`rendezvous descriptor missing ${field}`);
+    }
+  }
+  return descriptor;
+}
+
+/**
  * Dial a rendezvous endpoint and return a ready Channel.
  * Waits for the "grpc" DataChannel to open, matching
  * httpSignalingChannel's ready-to-use contract.
  *
- * options: { iceServers, timeoutMs, label }
+ * options: { iceServers, iceTransportPolicy, timeoutMs, label }
+ * iceTransportPolicy "relay" (with TURN iceServers) is the
+ * symmetric-NAT shape: the browser nominates its relay
+ * candidate against the listener's published address.
  */
 export async function rendezvousChannel(descriptor, options = {}) {
-  const pc = new RTCPeerConnection({ iceServers: options.iceServers });
+  const pc = new RTCPeerConnection({
+    iceServers: options.iceServers,
+    iceTransportPolicy: options.iceTransportPolicy,
+  });
   const dc = pc.createDataChannel(options.label ?? "grpc");
   try {
     await pc.setRemoteDescription({
@@ -2023,9 +2052,14 @@ export { RendezvousListener } from "../../webrtc/js/rendezvous.js";
  * Serve this gRPC Server to rendezvous browsers.
  *
  * options: { address, port, family, localIps, iceUfrag,
- *   icePwd, certificate, onError } — fix iceUfrag/icePwd/
+ *   icePwd, certificate, onError, consentIntervalMs,
+ *   consentExpiryMs, mux } — fix iceUfrag/icePwd/
  *   certificate and the published descriptor stays stable
  *   across restarts; ephemeral values rotate per process.
+ * With `mux` (a PeerMux, e.g. the one a signalingHandler
+ * uses via options.mux), the listener shares the mux's UDP
+ * socket instead of binding its own: one port serves both
+ * HTTP-signaled and rendezvous browsers.
  * Returns the RendezvousListener (call .descriptor(host)
  * and .close()).
  */

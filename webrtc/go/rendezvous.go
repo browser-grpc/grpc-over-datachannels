@@ -51,6 +51,11 @@ type RendezvousOptions struct {
 	IceUfrag    string
 	IcePwd      string
 	Certificate *Certificate
+	// ConsentInterval/ConsentExpiry configure RFC 7675
+	// consent freshness on each session peer (0 = defaults:
+	// 5 s / 30 s; negative interval disables).
+	ConsentInterval time.Duration
+	ConsentExpiry   time.Duration
 	// OnChannel receives each session's inbound DataChannel
 	// (with its Peer, e.g. to close it when the channel ends).
 	OnChannel func(channel *DataChannel, peer *Peer)
@@ -227,10 +232,12 @@ func (l *RendezvousListener) spawnSession(src *net.UDPAddr, remoteUfrag string, 
 		ips = defaultLocalIPs()
 	}
 	peer, err := newPeer(PeerOptions{
-		LocalIPs:    l.options.LocalIPs,
-		IceUfrag:    l.iceUfrag,
-		IcePwd:      l.icePwd,
-		Certificate: l.certificate,
+		LocalIPs:        l.options.LocalIPs,
+		IceUfrag:        l.iceUfrag,
+		IcePwd:          l.icePwd,
+		Certificate:     l.certificate,
+		ConsentInterval: l.options.ConsentInterval,
+		ConsentExpiry:   l.options.ConsentExpiry,
 	}, endpoint, ips)
 	if err != nil {
 		l.reportError(err)

@@ -99,17 +99,32 @@ export class RendezvousListener {
   #iceUfrag;
   #icePwd;
   #certificate;
+  #consentIntervalMs;
+  #consentExpiryMs;
+  #mux = null;
 
   constructor(socket, options = {}) {
     this.#socket = socket;
     this.#onChannel = options.onChannel ?? (() => {});
     this.#onError = options.onError ?? ((e) => console.error("rendezvous:", e));
     this.#localIps = options.localIps ?? null;
+    this.#consentIntervalMs = options.consentIntervalMs;
+    this.#consentExpiryMs = options.consentExpiryMs;
     this.#iceUfrag = options.iceUfrag ?? randomToken("abcdefghijklmnopqrstuvwxyz0123456789", 8);
     this.#icePwd = options.icePwd ?? randomToken("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 24);
     this.#certificate = options.certificate ?? Certificate.generate();
-    socket.on("error", () => {});
-    socket.on("message", (msg, rinfo) => void this.#route(msg, rinfo));
+    if (options.mux) {
+      // Shared-socket mode: the PeerMux owns the socket and
+      // its reader; packets it cannot attribute to a
+      // registered peer come to us, and session peers send
+      // via the mux socket. One UDP port then serves both
+      // HTTP-signaled peers (mux) and rendezvous browsers.
+      this.#mux = options.mux;
+      this.#mux.setUnhandledHandler((msg, rinfo) => void this.#route(msg, rinfo));
+    } else {
+      socket.on("error", () => {});
+      socket.on("message", (msg, rinfo) => void this.#route(msg, rinfo));
+    }
   }
 
   /** The shared UDP socket all sessions use. */
@@ -118,6 +133,9 @@ export class RendezvousListener {
   }
 
   static async bind({ address = "0.0.0.0", port = 0, family = "udp4", ...options } = {}) {
+    if (options.mux) {
+      return new RendezvousListener(options.mux.socket, options);
+    }
     const socket = dgram.createSocket(family);
     socket.on("error", () => {});
     await new Promise((resolve, reject) => {
@@ -170,6 +188,8 @@ export class RendezvousListener {
       iceUfrag: this.#iceUfrag,
       icePwd: this.#icePwd,
       certificate: this.#certificate,
+      consentIntervalMs: this.#consentIntervalMs,
+      consentExpiryMs: this.#consentExpiryMs,
     });
     session.peer = peer;
     this.#sessionsByRemote.set(remoteUfrag, session);
@@ -227,6 +247,12 @@ export class RendezvousListener {
     }
     this.#sessionsByRemote.clear();
     this.#sessionsBySrc.clear();
+    if (this.#mux) {
+      // The mux owns the shared socket; just detach.
+      this.#mux.setUnhandledHandler(null);
+      this.#mux = null;
+      return;
+    }
     try {
       this.#socket.close();
     } catch {
