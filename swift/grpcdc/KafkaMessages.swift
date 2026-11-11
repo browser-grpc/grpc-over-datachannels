@@ -2327,16 +2327,16 @@ public final class DescribedGroup: Marshaler, Unmarshaler {
     public var errorCode: Int32 = 0
     public var groupState: String = ""
     public var protocolType: String = ""
-    public var protocol: String = ""
+    public var `protocol`: String = ""
     public var members: [GroupMember] = []
     public var unknownFields: [UInt8] = []
     public init() {}
-    public init(_ groupId: String = "", _ errorCode: Int32 = 0, _ groupState: String = "", _ protocolType: String = "", _ protocol: String = "", _ members: [GroupMember] = []) {
+    public init(_ groupId: String = "", _ errorCode: Int32 = 0, _ groupState: String = "", _ protocolType: String = "", _ `protocol`: String = "", _ members: [GroupMember] = []) {
         self.groupId = groupId
         self.errorCode = errorCode
         self.groupState = groupState
         self.protocolType = protocolType
-        self.protocol = protocol
+        self.`protocol` = `protocol`
         self.members = members
     }
     public func MarshalDc() -> [UInt8] {
@@ -2345,7 +2345,7 @@ public final class DescribedGroup: Marshaler, Unmarshaler {
         if errorCode != 0 { w.Tag(2, 0); w.Varint(Int64(errorCode)) }
         w.StringField(3, groupState)
         w.StringField(4, protocolType)
-        w.StringField(5, protocol)
+        w.StringField(5, `protocol`)
         for x in members { w.BytesField(6, x.MarshalDc()) }
         w.Raw(unknownFields)
         return w.ToBytes()
@@ -2356,7 +2356,7 @@ public final class DescribedGroup: Marshaler, Unmarshaler {
         errorCode = 0
         groupState = ""
         protocolType = ""
-        protocol = ""
+        `protocol` = ""
         members = []
         let r = KafkaPb.Reader(data)
         while true {
@@ -2373,7 +2373,7 @@ public final class DescribedGroup: Marshaler, Unmarshaler {
             case 4:
                 protocolType = String(decoding: field.bytesValue, as: UTF8.self)
             case 5:
-                protocol = String(decoding: field.bytesValue, as: UTF8.self)
+                `protocol` = String(decoding: field.bytesValue, as: UTF8.self)
             case 6:
                 let item = GroupMember()
                 item.UnmarshalDc(field.bytesValue)
