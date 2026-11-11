@@ -29,6 +29,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_interop_oracle.php`](tests/test_interop_oracle.php) — Official-implementation oracle, via the proxy
 - [`test_interop_server_oracle.php`](tests/test_interop_server_oracle.php) — Official-implementation oracle, via the proxy
 - [`test_kafka_e2e.php`](tests/test_kafka_e2e.php) — Kafka end-to-end (broker legs env-gated)
+- [`test_kafka_native.php`](tests/test_kafka_native.php) — Kafka end-to-end (broker legs env-gated)
 - [`test_oracle.php`](tests/test_oracle.php) — Official-implementation oracle, via the proxy
 - [`test_pb_messages.php`](tests/test_pb_messages.php) — Generated suite/example
 - [`test_sidecar.php`](tests/test_sidecar.php) — Sidecar transport

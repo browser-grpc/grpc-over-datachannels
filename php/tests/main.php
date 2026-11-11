@@ -67,6 +67,10 @@ try {
             require_once __DIR__ . "/test_kafka_e2e.php";
             TestKafkaE2E::run();
             break;
+        case "TestKafkaNative":
+            require_once __DIR__ . "/test_kafka_native.php";
+            TestKafkaNative::run();
+            break;
         case "TestPbMessages":
             require_once __DIR__ . "/test_pb_messages.php";
             TestPbMessages::run();

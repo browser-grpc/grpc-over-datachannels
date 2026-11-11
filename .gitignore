@@ -104,3 +104,4 @@ generated_images/
 
 # YouTube video build output (sources live in video/scripts/)
 /video/out/
+/crates/kafka-native/target/

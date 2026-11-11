@@ -457,6 +457,23 @@ run_native_legs() {
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/csharp' && dotnet run --project tests/Tests.csproj -c Release -- TestKafkaNative"
+    run "swift native e2e (apache kafka)" env KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        bash -c "mkdir -p '$TMP/swiftmod' && printf 'module KafkaNativeC [system] {\n  header \"$ROOT/crates/kafka-native/include/kafka_native.h\"\n  link \"kafka_native\"\n  export *\n}\n' > '$TMP/swiftmod/module.modulemap' && swiftc -swift-version 5 -O '$ROOT'/swift/grpcdc/*.swift '$ROOT/swift/tests/TestKafkaNative.swift' -I '$TMP/swiftmod' -L '$ROOT/crates/kafka-native/target/debug' -lkafka_native -o '$TMP/swift_kafka_native' && LD_LIBRARY_PATH='$ROOT/crates/kafka-native/target/debug' '$TMP/swift_kafka_native'"
+    run "cpp native e2e (apache kafka)" env KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        bash -c "g++ -std=c++17 -pthread -O1 -I'$ROOT/cpp' -I'$ROOT' -I'$ROOT/crates/kafka-native/include' '$ROOT/cpp/tests/test_kafka_native.cpp' -L'$ROOT/crates/kafka-native/target/debug' -lkafka_native -Wl,-rpath,'$ROOT/crates/kafka-native/target/debug' -o '$TMP/cpp_kafka_native' && '$TMP/cpp_kafka_native'"
+    run "go native e2e (apache kafka)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        GOFLAGS=-buildvcs=false \
+        CGO_LDFLAGS="-L$ROOT/crates/kafka-native/target/debug -Wl,-rpath,$ROOT/crates/kafka-native/target/debug" \
+        bash -c "cd '$ROOT/go' && go test -tags kafka_native -run TestKafkaNativeRoundtrip ."
+    run "js native e2e (apache kafka)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        GRPC_DC_KAFKA_NATIVE_ADDON="$TMP/kafka_native_addon.node" \
+        bash -c "cc -O2 -fPIC -shared -I/usr/local/include/node -I'$ROOT/crates/kafka-native/include' '$ROOT/js/src/kafka_native_addon.c' -L'$ROOT/crates/kafka-native/target/debug' -lkafka_native -Wl,-rpath,'$ROOT/crates/kafka-native/target/debug' -o '$TMP/kafka_native_addon.node' && cd '$ROOT/js' && node --test test/kafka_native.test.js"
+    run "php native e2e (apache kafka)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        bash -c "cd '$ROOT/php' && php -d ffi.enable=true tests/main.php TestKafkaNative"
     run "python differential e2e (proxy vs native)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_ADDR" \
