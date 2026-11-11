@@ -170,6 +170,18 @@ else
   echo "note: no kafka-native export at $KN_EXPORT; skipping repo publish"
 fi
 
+# 1bb. kafka-native registry workflows (crates.io + PyPI via
+# Trusted Publishing from the kafka-native repo itself).
+# Best-effort: both fail until the owner's Trusted Publisher
+# entries exist on crates.io / PyPI.
+if [ -d "$KN_EXPORT" ]; then
+  echo "== dispatching kafka-native publish workflows"
+  gh workflow run publish-crates.yml --repo "$KN_REPO" 2>&1 || \
+    echo "note: kafka-native publish-crates dispatch failed (Trusted Publisher pending?)"
+  gh workflow run publish-pypi.yml --repo "$KN_REPO" 2>&1 || \
+    echo "note: kafka-native publish-pypi dispatch failed (Trusted Publisher pending?)"
+fi
+
 # ------------------------------------------------------------------
 # 1bb. Packagist repos (browser-grpc/grpc-dc-php,
 #     browser-grpc/kafka-grpc-php): one composer package per

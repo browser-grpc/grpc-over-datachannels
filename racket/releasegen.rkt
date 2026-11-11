@@ -1946,6 +1946,9 @@
     (printf "releasegen: kafka-proxy export: ~a files, leak gate OK\n"
             (length kp-files))))
 
+(define kn-bare-version
+  (if (string-prefix? version "v") (substring version 1) version))
+
 ;; ---------------------------------------------------------------------------
 ;; Dedicated kafka-native repo export (browser-grpc/kafka-native):
 ;; the in-process Kafka protocol client — Rust crate, C ABI,
@@ -2139,6 +2142,119 @@
     "(cd \"$ROOT/python\" && KAFKA_E2E_BROKER=127.0.0.1:19092 GRPC_DC_KAFKA_NATIVE_LIB=\"$ROOT/crates/kafka-native/target/debug/libkafka_native.so\" python3 -m unittest tests.test_kafka_native) || FAILED=1\n"
     "exit \"$FAILED\"\n")
    #o755)
+  (define kn-kn-bare-version
+    (if (string-prefix? version "v") (substring version 1) version))
+  ;; Stamp the crate version to the release version so the
+  ;; crates.io publish matches the release.
+  (let* ([cargo (build-path kafka-native-out "crates/kafka-native/Cargo.toml")]
+         [stamped (string-replace (file->string cargo)
+                                  "version = \"0.1.0\""
+                                  (string-append "version = \"" kn-bare-version "\""))])
+    (call-with-output-file cargo
+      (lambda (out) (display stamped out))
+      #:exists 'replace))
+  (emit-kn-file
+   ".github/workflows/publish-crates.yml"
+   (string-append
+    "# Publish the kafka-native crate via crates.io Trusted\n"
+    "# Publishing (OIDC). Manual dispatch only. Requires a\n"
+    "# Trusted Publisher configured for the crate on crates.io\n"
+    "# (this repo + this workflow file).\n"
+    "name: publish-crates\n"
+    "on: workflow_dispatch\n"
+    "permissions:\n"
+    "  contents: read\n"
+    "  id-token: write\n"
+    "jobs:\n"
+    "  publish:\n"
+    "    runs-on: ubuntu-latest\n"
+    "    steps:\n"
+    "      - uses: actions/checkout@v4\n"
+    "      - uses: dtolnay/rust-toolchain@stable\n"
+    "      - uses: rust-lang/crates-io-auth-action@v1\n"
+    "        id: auth\n"
+    "      - name: Publish kafka-native\n"
+    "        working-directory: crates/kafka-native\n"
+    "        run: cargo publish --token ${{ steps.auth.outputs.token }}\n"))
+  (emit-kn-file
+   ".github/workflows/publish-pypi.yml"
+   (string-append
+    "# Publish the kafka-native Python wheel (bundled\n"
+    "# libkafka_native) via PyPI Trusted Publishing (OIDC).\n"
+    "# Manual dispatch only. Requires a Trusted Publisher\n"
+    "# configured for the project on PyPI (this repo + this\n"
+    "# workflow file).\n"
+    "name: publish-pypi\n"
+    "on: workflow_dispatch\n"
+    "permissions:\n"
+    "  contents: read\n"
+    "  id-token: write\n"
+    "jobs:\n"
+    "  publish:\n"
+    "    runs-on: ubuntu-latest\n"
+    "    steps:\n"
+    "      - uses: actions/checkout@v4\n"
+    "      - uses: dtolnay/rust-toolchain@stable\n"
+    "      - uses: actions/setup-python@v5\n"
+    "        with:\n"
+    "          python-version: '3.12'\n"
+    "      - name: Build libkafka_native\n"
+    "        working-directory: crates/kafka-native\n"
+    "        run: cargo build --release\n"
+    "      - name: Assemble wheel tree\n"
+    "        run: |\n"
+    "          mkdir -p wheel/grpcdc\n"
+    "          cp python/grpcdc/*.py wheel/grpcdc/\n"
+    "          cp crates/kafka-native/target/release/libkafka_native.so wheel/grpcdc/\n"
+    "          cp python/pyproject-kafka-native.toml wheel/pyproject.toml\n"
+    "          cp python/setup-kafka-native.py wheel/setup.py\n"
+    "          cp README.md wheel/README.md\n"
+    "      - name: Build wheel\n"
+    "        working-directory: wheel\n"
+    "        run: |\n"
+    "          pip install build\n"
+    "          python -m build --wheel\n"
+    "      - name: Publish to PyPI\n"
+    "        uses: pypa/gh-action-pypi-publish@release/v1\n"
+    "        with:\n"
+    "          packages-dir: wheel/dist\n"))
+  (emit-kn-file
+   "python/pyproject-kafka-native.toml"
+   (string-append
+    "[build-system]\n"
+    "requires = [\"setuptools>=61\", \"wheel\"]\n"
+    "build-backend = \"setuptools.build_meta\"\n"
+    "\n"
+    "[project]\n"
+    "name = \"kafka-native\"\n"
+    "version = \"" kn-bare-version "\"\n"
+    "description = \"Kafka native client — in-process Kafka protocol library (bundled libkafka_native) for Apache Kafka/Redpanda, via the grpcdc.kafka.v1 message types\"\n"
+    "readme = \"README.md\"\n"
+    "requires-python = \">=3.9\"\n"
+    "license = {text = \"Apache-2.0\"}\n"
+    "dependencies = [\"grpc-dc>=" kn-bare-version "\"]\n"
+    "\n"
+    "[tool.setuptools.packages.find]\n"
+    "include = [\"grpcdc*\"]\n"
+    "\n"
+    "[tool.setuptools.package-data]\n"
+    "grpcdc = [\"*.so\"]\n"))
+  (emit-kn-file
+   "python/setup-kafka-native.py"
+   (string-append
+    "# Marks the wheel as platform-specific (it bundles\n"
+    "# libkafka_native.so) instead of py3-none-any.\n"
+    "from setuptools import setup\n"
+    "from wheel.bdist_wheel import bdist_wheel\n"
+    "\n"
+    "\n"
+    "class PlatformWheel(bdist_wheel):\n"
+    "    def finalize_options(self):\n"
+    "        super().finalize_options()\n"
+    "        self.root_is_pure = False\n"
+    "\n"
+    "\n"
+    "setup(cmdclass={\"bdist_wheel\": PlatformWheel})\n"))
   (emit-kn-file
    ".github/workflows/ci.yml"
    (string-append
