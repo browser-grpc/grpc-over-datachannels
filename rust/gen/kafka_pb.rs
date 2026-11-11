@@ -4007,3 +4007,523 @@ impl DescribeTransactionsResponse {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenShareGroupRequest {
+    pub group_id: String,
+    pub topics: Vec<String>,
+    pub group_instance_id: String,
+    pub session_timeout_ms: i32,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for OpenShareGroupRequest {
+    fn default() -> Self {
+        Self {
+            group_id: String::new(),
+            topics: Vec::new(),
+            group_instance_id: String::new(),
+            session_timeout_ms: 0,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl OpenShareGroupRequest {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.group_id);
+        for x in &self.topics { pb_append_bytes_field(&mut out, 2, x.as_bytes()); }
+        pb_append_string_field(&mut out, 3, &self.group_instance_id);
+        if self.session_timeout_ms != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.session_timeout_ms as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.group_id = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                2 => {
+                    msg.topics.push(String::from_utf8_lossy(&field.bytes_value).into_owned());
+                }
+                3 => {
+                    msg.group_instance_id = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                4 => {
+                    msg.session_timeout_ms = (field.varint_value as u32 as i32);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenShareGroupResponse {
+    pub session_id: String,
+    pub error_code: i32,
+    pub assignment: Option<Box<Assignment>>,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for OpenShareGroupResponse {
+    fn default() -> Self {
+        Self {
+            session_id: String::new(),
+            error_code: 0,
+            assignment: None,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl OpenShareGroupResponse {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.session_id);
+        if self.error_code != 0 { pb_append_tag(&mut out, 2, 0); pb_append_varint(&mut out, (self.error_code as u64)); }
+        if let Some(v) = &self.assignment { pb_append_bytes_field(&mut out, 3, &v.encode()); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.session_id = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                2 => {
+                    msg.error_code = (field.varint_value as u32 as i32);
+                }
+                3 => {
+                    msg.assignment = Some(Box::new(Assignment::decode(&field.bytes_value)?));
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SharePollRequest {
+    pub session_id: String,
+    pub max_records: i32,
+    pub max_wait_ms: i32,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for SharePollRequest {
+    fn default() -> Self {
+        Self {
+            session_id: String::new(),
+            max_records: 0,
+            max_wait_ms: 0,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl SharePollRequest {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.session_id);
+        if self.max_records != 0 { pb_append_tag(&mut out, 2, 0); pb_append_varint(&mut out, (self.max_records as u64)); }
+        if self.max_wait_ms != 0 { pb_append_tag(&mut out, 3, 0); pb_append_varint(&mut out, (self.max_wait_ms as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.session_id = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                2 => {
+                    msg.max_records = (field.varint_value as u32 as i32);
+                }
+                3 => {
+                    msg.max_wait_ms = (field.varint_value as u32 as i32);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SharePollRecord {
+    pub topic: String,
+    pub partition: i32,
+    pub offset: i64,
+    pub key: Vec<u8>,
+    pub value: Vec<u8>,
+    pub headers: Vec<Header>,
+    pub timestamp_ms: i64,
+    pub delivery_count: i32,
+    pub null_key: bool,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for SharePollRecord {
+    fn default() -> Self {
+        Self {
+            topic: String::new(),
+            partition: 0,
+            offset: 0,
+            key: Vec::new(),
+            value: Vec::new(),
+            headers: Vec::new(),
+            timestamp_ms: 0,
+            delivery_count: 0,
+            null_key: false,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl SharePollRecord {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.topic);
+        if self.partition != 0 { pb_append_tag(&mut out, 2, 0); pb_append_varint(&mut out, (self.partition as u64)); }
+        if self.offset != 0 { pb_append_tag(&mut out, 3, 0); pb_append_varint(&mut out, (self.offset as u64)); }
+        if !self.key.is_empty() { pb_append_bytes_field(&mut out, 4, &self.key); }
+        if !self.value.is_empty() { pb_append_bytes_field(&mut out, 5, &self.value); }
+        for x in &self.headers { pb_append_bytes_field(&mut out, 6, &x.encode()); }
+        if self.timestamp_ms != 0 { pb_append_tag(&mut out, 7, 0); pb_append_varint(&mut out, (self.timestamp_ms as u64)); }
+        if self.delivery_count != 0 { pb_append_tag(&mut out, 8, 0); pb_append_varint(&mut out, (self.delivery_count as u64)); }
+        if self.null_key { pb_append_tag(&mut out, 9, 0); pb_append_varint(&mut out, (if self.null_key { 1u64 } else { 0u64 })); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.topic = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                2 => {
+                    msg.partition = (field.varint_value as u32 as i32);
+                }
+                3 => {
+                    msg.offset = (field.varint_value as i64);
+                }
+                4 => {
+                    msg.key = field.bytes_value;
+                }
+                5 => {
+                    msg.value = field.bytes_value;
+                }
+                6 => {
+                    msg.headers.push(Header::decode(&field.bytes_value)?);
+                }
+                7 => {
+                    msg.timestamp_ms = (field.varint_value as i64);
+                }
+                8 => {
+                    msg.delivery_count = (field.varint_value as u32 as i32);
+                }
+                9 => {
+                    msg.null_key = (field.varint_value != 0);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SharePollResponse {
+    pub records: Vec<SharePollRecord>,
+    pub error_code: i32,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for SharePollResponse {
+    fn default() -> Self {
+        Self {
+            records: Vec::new(),
+            error_code: 0,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl SharePollResponse {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        for x in &self.records { pb_append_bytes_field(&mut out, 1, &x.encode()); }
+        if self.error_code != 0 { pb_append_tag(&mut out, 2, 0); pb_append_varint(&mut out, (self.error_code as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.records.push(SharePollRecord::decode(&field.bytes_value)?);
+                }
+                2 => {
+                    msg.error_code = (field.varint_value as u32 as i32);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShareAckEntry {
+    pub topic: String,
+    pub partition: i32,
+    pub offset: i64,
+    pub ack_type: i32,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for ShareAckEntry {
+    fn default() -> Self {
+        Self {
+            topic: String::new(),
+            partition: 0,
+            offset: 0,
+            ack_type: 0,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl ShareAckEntry {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.topic);
+        if self.partition != 0 { pb_append_tag(&mut out, 2, 0); pb_append_varint(&mut out, (self.partition as u64)); }
+        if self.offset != 0 { pb_append_tag(&mut out, 3, 0); pb_append_varint(&mut out, (self.offset as u64)); }
+        if self.ack_type != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.ack_type as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.topic = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                2 => {
+                    msg.partition = (field.varint_value as u32 as i32);
+                }
+                3 => {
+                    msg.offset = (field.varint_value as i64);
+                }
+                4 => {
+                    msg.ack_type = (field.varint_value as u32 as i32);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShareAckRequest {
+    pub session_id: String,
+    pub entries: Vec<ShareAckEntry>,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for ShareAckRequest {
+    fn default() -> Self {
+        Self {
+            session_id: String::new(),
+            entries: Vec::new(),
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl ShareAckRequest {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.session_id);
+        for x in &self.entries { pb_append_bytes_field(&mut out, 2, &x.encode()); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.session_id = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                2 => {
+                    msg.entries.push(ShareAckEntry::decode(&field.bytes_value)?);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShareAckResponse {
+    pub error_code: i32,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for ShareAckResponse {
+    fn default() -> Self {
+        Self {
+            error_code: 0,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl ShareAckResponse {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        if self.error_code != 0 { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (self.error_code as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.error_code = (field.varint_value as u32 as i32);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CloseShareGroupRequest {
+    pub session_id: String,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for CloseShareGroupRequest {
+    fn default() -> Self {
+        Self {
+            session_id: String::new(),
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl CloseShareGroupRequest {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.session_id);
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.session_id = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CloseShareGroupResponse {
+    pub error_code: i32,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for CloseShareGroupResponse {
+    fn default() -> Self {
+        Self {
+            error_code: 0,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl CloseShareGroupResponse {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        if self.error_code != 0 { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (self.error_code as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.error_code = (field.varint_value as u32 as i32);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+

@@ -283,6 +283,22 @@ module KafkaGrpcDc
       @channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, KafkaPb::DescribeTransactionsResponse.new, metadata, timeout: timeout)
     end
 
+    def OpenShareGroup(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, KafkaPb::OpenShareGroupResponse.new, metadata, timeout: timeout)
+    end
+
+    def SharePoll(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, KafkaPb::SharePollResponse.new, metadata, timeout: timeout)
+    end
+
+    def ShareAck(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, KafkaPb::ShareAckResponse.new, metadata, timeout: timeout)
+    end
+
+    def CloseShareGroup(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, KafkaPb::CloseShareGroupResponse.new, metadata, timeout: timeout)
+    end
+
   end
 
   # Fiber client: wraps a Grpcdc::FiberChannel (a sync Channel is wrapped).
@@ -391,6 +407,22 @@ module KafkaGrpcDc
 
     def DescribeTransactions(req, metadata = nil, timeout: nil)
       @channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, KafkaPb::DescribeTransactionsResponse.new, metadata, timeout: timeout)
+    end
+
+    def OpenShareGroup(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, KafkaPb::OpenShareGroupResponse.new, metadata, timeout: timeout)
+    end
+
+    def SharePoll(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, KafkaPb::SharePollResponse.new, metadata, timeout: timeout)
+    end
+
+    def ShareAck(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, KafkaPb::ShareAckResponse.new, metadata, timeout: timeout)
+    end
+
+    def CloseShareGroup(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, KafkaPb::CloseShareGroupResponse.new, metadata, timeout: timeout)
     end
 
   end
@@ -544,6 +576,30 @@ module KafkaGrpcDc
       sink.send(resp.marshal_dc)
     end
 
+    open_share_group_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::OpenShareGroupRequest.new)
+      resp = impl.OpenShareGroup(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    share_poll_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::SharePollRequest.new)
+      resp = impl.SharePoll(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    share_ack_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::ShareAckRequest.new)
+      resp = impl.ShareAck(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    close_share_group_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::CloseShareGroupRequest.new)
+      resp = impl.CloseShareGroup(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
     server.register_service(Grpcdc::ServiceDesc.new(
       "grpcdc.kafka.v1.Kafka",
       [
@@ -572,6 +628,10 @@ module KafkaGrpcDc
         Grpcdc::Method.new("DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", Grpcdc::KIND_UNARY, delete_acls_handler),
         Grpcdc::Method.new("ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", Grpcdc::KIND_UNARY, list_transactions_handler),
         Grpcdc::Method.new("DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", Grpcdc::KIND_UNARY, describe_transactions_handler),
+        Grpcdc::Method.new("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Grpcdc::KIND_UNARY, open_share_group_handler),
+        Grpcdc::Method.new("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", Grpcdc::KIND_UNARY, share_poll_handler),
+        Grpcdc::Method.new("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", Grpcdc::KIND_UNARY, share_ack_handler),
+        Grpcdc::Method.new("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Grpcdc::KIND_UNARY, close_share_group_handler),
       ]
     ))
   end

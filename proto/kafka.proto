@@ -492,6 +492,71 @@ message DescribeTransactionsResponse {
 
 // --- Service ------------------------------------------------------
 
+
+// --- Share groups (KIP-932) ----------------------------------
+
+message OpenShareGroupRequest {
+  string group_id = 1;
+  repeated string topics = 2;
+  string group_instance_id = 3; // optional static membership
+  int32 session_timeout_ms = 4;
+}
+
+message OpenShareGroupResponse {
+  string session_id = 1;
+  int32 error_code = 2;
+  Assignment assignment = 3;
+}
+
+message SharePollRequest {
+  string session_id = 1;
+  int32 max_records = 2;
+  int32 max_wait_ms = 3;
+}
+
+message SharePollRecord {
+  string topic = 1;
+  int32 partition = 2;
+  int64 offset = 3;
+  bytes key = 4;
+  bytes value = 5;
+  repeated Header headers = 6;
+  int64 timestamp_ms = 7;
+  int32 delivery_count = 8; // 1 = first delivery
+  bool null_key = 9;
+}
+
+message SharePollResponse {
+  repeated SharePollRecord records = 1;
+  int32 error_code = 2;
+}
+
+message ShareAckEntry {
+  string topic = 1;
+  int32 partition = 2;
+  int64 offset = 3;
+  // 1 = ACCEPT (done), 2 = RELEASE (redeliver soon),
+  // 3 = REJECT (redeliver later / dead-letter path).
+  int32 ack_type = 4;
+}
+
+message ShareAckRequest {
+  string session_id = 1;
+  repeated ShareAckEntry entries = 2;
+}
+
+message ShareAckResponse {
+  int32 error_code = 1;
+}
+
+message CloseShareGroupRequest {
+  string session_id = 1;
+}
+
+message CloseShareGroupResponse {
+  int32 error_code = 1;
+}
+
 service Kafka {
   rpc Metadata(MetadataRequest) returns (MetadataResponse);
   rpc OpenProducer(OpenProducerRequest) returns (OpenProducerResponse);
@@ -518,4 +583,11 @@ service Kafka {
   rpc DeleteAcls(DeleteAclsRequest) returns (DeleteAclsResponse);
   rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse);
   rpc DescribeTransactions(DescribeTransactionsRequest) returns (DescribeTransactionsResponse);
+  // KIP-932 share groups (queue consume): session-based like
+  // producer sessions, since acknowledgements must flow back
+  // from the client — something a server-stream cannot carry.
+  rpc OpenShareGroup(OpenShareGroupRequest) returns (OpenShareGroupResponse);
+  rpc SharePoll(SharePollRequest) returns (SharePollResponse);
+  rpc ShareAck(ShareAckRequest) returns (ShareAckResponse);
+  rpc CloseShareGroup(CloseShareGroupRequest) returns (CloseShareGroupResponse);
 }

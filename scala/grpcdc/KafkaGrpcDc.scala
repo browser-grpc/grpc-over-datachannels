@@ -249,6 +249,30 @@ object KafkaGrpcDc {
             resp
         }
 
+        def OpenShareGroup(req: OpenShareGroupRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): OpenShareGroupResponse = {
+            val resp = new OpenShareGroupResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout)
+            resp
+        }
+
+        def SharePoll(req: SharePollRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): SharePollResponse = {
+            val resp = new SharePollResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout)
+            resp
+        }
+
+        def ShareAck(req: ShareAckRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): ShareAckResponse = {
+            val resp = new ShareAckResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout)
+            resp
+        }
+
+        def CloseShareGroup(req: CloseShareGroupRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): CloseShareGroupResponse = {
+            val resp = new CloseShareGroupResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout)
+            resp
+        }
+
         // -- async (scala.concurrent.Future) surface ---------------
 
         def MetadataFuture(req: MetadataRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[MetadataResponse] = {
@@ -383,6 +407,22 @@ object KafkaGrpcDc {
             grpcdc.Futures { DescribeTransactions(req, metadata, timeout) }
         }
 
+        def OpenShareGroupFuture(req: OpenShareGroupRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[OpenShareGroupResponse] = {
+            grpcdc.Futures { OpenShareGroup(req, metadata, timeout) }
+        }
+
+        def SharePollFuture(req: SharePollRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[SharePollResponse] = {
+            grpcdc.Futures { SharePoll(req, metadata, timeout) }
+        }
+
+        def ShareAckFuture(req: ShareAckRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[ShareAckResponse] = {
+            grpcdc.Futures { ShareAck(req, metadata, timeout) }
+        }
+
+        def CloseShareGroupFuture(req: CloseShareGroupRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[CloseShareGroupResponse] = {
+            grpcdc.Futures { CloseShareGroup(req, metadata, timeout) }
+        }
+
     }
 
     /** Server-streaming sink passed to service implementations. */
@@ -438,6 +478,10 @@ object KafkaGrpcDc {
         def DeleteAcls(ctx: grpcdc.Endpoint#CallContext, req: DeleteAclsRequest): DeleteAclsResponse
         def ListTransactions(ctx: grpcdc.Endpoint#CallContext, req: ListTransactionsRequest): ListTransactionsResponse
         def DescribeTransactions(ctx: grpcdc.Endpoint#CallContext, req: DescribeTransactionsRequest): DescribeTransactionsResponse
+        def OpenShareGroup(ctx: grpcdc.Endpoint#CallContext, req: OpenShareGroupRequest): OpenShareGroupResponse
+        def SharePoll(ctx: grpcdc.Endpoint#CallContext, req: SharePollRequest): SharePollResponse
+        def ShareAck(ctx: grpcdc.Endpoint#CallContext, req: ShareAckRequest): ShareAckResponse
+        def CloseShareGroup(ctx: grpcdc.Endpoint#CallContext, req: CloseShareGroupRequest): CloseShareGroupResponse
     }
 
     /** Register an implementation of grpcdc.kafka.v1.Kafka on a Server. */
@@ -597,6 +641,30 @@ object KafkaGrpcDc {
                 val resp = impl.DescribeTransactions(ctx, req)
                 sink.send(resp.marshalDc())
             }),
+            grpcdc.Server.Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new OpenShareGroupRequest()
+                reqs.recvInto(req)
+                val resp = impl.OpenShareGroup(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new SharePollRequest()
+                reqs.recvInto(req)
+                val resp = impl.SharePoll(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new ShareAckRequest()
+                reqs.recvInto(req)
+                val resp = impl.ShareAck(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new CloseShareGroupRequest()
+                reqs.recvInto(req)
+                val resp = impl.CloseShareGroup(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
         )))
     }
 
@@ -627,6 +695,10 @@ object KafkaGrpcDc {
         def DeleteAclsAsync(ctx: grpcdc.Endpoint#CallContext, req: DeleteAclsRequest): scala.concurrent.Future[DeleteAclsResponse]
         def ListTransactionsAsync(ctx: grpcdc.Endpoint#CallContext, req: ListTransactionsRequest): scala.concurrent.Future[ListTransactionsResponse]
         def DescribeTransactionsAsync(ctx: grpcdc.Endpoint#CallContext, req: DescribeTransactionsRequest): scala.concurrent.Future[DescribeTransactionsResponse]
+        def OpenShareGroupAsync(ctx: grpcdc.Endpoint#CallContext, req: OpenShareGroupRequest): scala.concurrent.Future[OpenShareGroupResponse]
+        def SharePollAsync(ctx: grpcdc.Endpoint#CallContext, req: SharePollRequest): scala.concurrent.Future[SharePollResponse]
+        def ShareAckAsync(ctx: grpcdc.Endpoint#CallContext, req: ShareAckRequest): scala.concurrent.Future[ShareAckResponse]
+        def CloseShareGroupAsync(ctx: grpcdc.Endpoint#CallContext, req: CloseShareGroupRequest): scala.concurrent.Future[CloseShareGroupResponse]
     }
 
     /** Register a Future-based implementation (adapts to the sync trait). */
@@ -706,6 +778,18 @@ object KafkaGrpcDc {
             }
             def DescribeTransactions(ctx: grpcdc.Endpoint#CallContext, req: DescribeTransactionsRequest): DescribeTransactionsResponse = {
                 scala.concurrent.Await.result(impl.DescribeTransactionsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def OpenShareGroup(ctx: grpcdc.Endpoint#CallContext, req: OpenShareGroupRequest): OpenShareGroupResponse = {
+                scala.concurrent.Await.result(impl.OpenShareGroupAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def SharePoll(ctx: grpcdc.Endpoint#CallContext, req: SharePollRequest): SharePollResponse = {
+                scala.concurrent.Await.result(impl.SharePollAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def ShareAck(ctx: grpcdc.Endpoint#CallContext, req: ShareAckRequest): ShareAckResponse = {
+                scala.concurrent.Await.result(impl.ShareAckAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def CloseShareGroup(ctx: grpcdc.Endpoint#CallContext, req: CloseShareGroupRequest): CloseShareGroupResponse = {
+                scala.concurrent.Await.result(impl.CloseShareGroupAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
             }
         })
     }

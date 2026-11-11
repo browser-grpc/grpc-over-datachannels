@@ -39,8 +39,32 @@ pub struct KafkaService {
     pub broker: Arc<Broker>,
     pub sessions: Mutex<HashMap<String, Arc<ProducerSession>>>,
     pub groups: Arc<Mutex<HashMap<String, GroupSession>>>,
+    pub share_sessions: Mutex<HashMap<String, Arc<ShareSession>>>,
     session_counter: AtomicU64,
     round_robin: AtomicI32,
+}
+
+/// KIP-932 share group member held by the service (the
+/// SharePoll/ShareAck session counterpart of ProducerSession).
+pub struct ShareSession {
+    coordinator: Arc<Mutex<crate::client::Conn>>,
+    group_id: String,
+    topics: Vec<String>,
+    state: Mutex<ShareSessionState>,
+}
+
+struct ShareSessionState {
+    member_id: String,
+    member_epoch: i32,
+    heartbeat_interval_ms: i32,
+    last_heartbeat: tokio::time::Instant,
+    assignment: Vec<([u8; 16], Vec<i32>)>,
+    id_to_name: HashMap<[u8; 16], String>,
+    fetch_epoch: i32,
+    /// Epoch used by the most recent ShareFetch. ShareAcknowledge
+    /// carries `fetch_epoch` (the next epoch), verified against
+    /// the broker: last-fetch epoch is INVALID_SHARE_SESSION_EPOCH.
+    last_fetch_epoch: i32,
 }
 
 impl KafkaService {
@@ -49,6 +73,7 @@ impl KafkaService {
             broker: Arc::new(Broker::new(cfg)),
             sessions: Mutex::new(HashMap::new()),
             groups: Arc::new(Mutex::new(HashMap::new())),
+            share_sessions: Mutex::new(HashMap::new()),
             session_counter: AtomicU64::new(0),
             round_robin: AtomicI32::new(0),
         }
@@ -793,6 +818,364 @@ impl crate::stub::Kafka for KafkaService {
         Ok(crate::pb::ListTransactionsResponse {
             error_code,
             transactions,
+            ..Default::default()
+        })
+    }
+
+    async fn open_share_group(
+        &self,
+        req: crate::pb::OpenShareGroupRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::OpenShareGroupResponse, Status> {
+        let coordinator = self.broker.coordinator_fresh(&req.group_id, 0).await?;
+        let (by_name, by_id) = self.broker.topic_id_maps(&req.topics).await?;
+        if by_name.is_empty() {
+            return Ok(crate::pb::OpenShareGroupResponse {
+                error_code: -1,
+                ..Default::default()
+            });
+        }
+        let mut beat = None;
+        for _ in 0..20 {
+            let b = self
+                .broker
+                .share_heartbeat(
+                    &coordinator,
+                    &req.group_id,
+                    "",
+                    0,
+                    if req.group_instance_id.is_empty() {
+                        None
+                    } else {
+                        Some(req.group_instance_id.as_str())
+                    },
+                    Some(&req.topics),
+                )
+                .await?;
+            if matches!(b.error_code, 14 | 15 | 16) {
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                continue;
+            }
+            beat = Some(b);
+            break;
+        }
+        let Some(beat) = beat else {
+            return Ok(crate::pb::OpenShareGroupResponse {
+                error_code: 16,
+                ..Default::default()
+            });
+        };
+        if beat.error_code != 0 {
+            return Ok(crate::pb::OpenShareGroupResponse {
+                error_code: beat.error_code,
+                ..Default::default()
+            });
+        }
+        // The joining heartbeat's assignment is usually empty;
+        // the coordinator delivers partitions on the next
+        // heartbeat(s). Settle (bounded) so OpenShareGroup
+        // returns with the member's real assignment.
+        let mut beat = beat;
+        let settle_deadline = tokio::time::Instant::now()
+            + std::time::Duration::from_secs(15);
+        while beat
+            .assignment
+            .as_ref()
+            .map(|a| a.iter().all(|(_, parts)| parts.is_empty()))
+            .unwrap_or(true)
+            && tokio::time::Instant::now() < settle_deadline
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            let next = self
+                .broker
+                .share_heartbeat(
+                    &coordinator,
+                    &req.group_id,
+                    &beat.member_id.clone(),
+                    beat.member_epoch,
+                    None,
+                    None,
+                )
+                .await?;
+            if next.error_code != 0 {
+                return Ok(crate::pb::OpenShareGroupResponse {
+                    error_code: next.error_code,
+                    ..Default::default()
+                });
+            }
+            beat = next;
+        }
+        let assignment = beat.assignment.clone().unwrap_or_default();
+        let partitions: Vec<crate::pb::TopicPartition> = assignment
+            .iter()
+            .flat_map(|(id, parts)| {
+                let topic = by_id.get(id).cloned().unwrap_or_default();
+                parts.iter().map(move |partition| crate::pb::TopicPartition {
+                    topic: topic.clone(),
+                    partition: *partition,
+                    ..Default::default()
+                }).collect::<Vec<_>>()
+            })
+            .collect();
+        let session_id = format!(
+            "share-{}",
+            self.session_counter.fetch_add(1, Ordering::Relaxed)
+        );
+        self.share_sessions.lock().await.insert(
+            session_id.clone(),
+            Arc::new(ShareSession {
+                coordinator,
+                group_id: req.group_id.clone(),
+                topics: req.topics.clone(),
+                state: Mutex::new(ShareSessionState {
+                    member_id: beat.member_id.clone(),
+                    member_epoch: beat.member_epoch,
+                    heartbeat_interval_ms: beat.heartbeat_interval_ms,
+                    last_heartbeat: tokio::time::Instant::now(),
+                    assignment,
+                    id_to_name: by_id,
+                    fetch_epoch: 0,
+                    last_fetch_epoch: 0,
+                }),
+            }),
+        );
+        Ok(crate::pb::OpenShareGroupResponse {
+            session_id,
+            error_code: 0,
+            assignment: Some(Box::new(crate::pb::Assignment {
+                generation_id: beat.member_epoch,
+                member_id: beat.member_id.clone(),
+                partitions,
+                ..Default::default()
+            })),
+            ..Default::default()
+        })
+    }
+
+    async fn share_poll(
+        &self,
+        req: crate::pb::SharePollRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::SharePollResponse, Status> {
+        let Some(session) = self
+            .share_sessions
+            .lock()
+            .await
+            .get(&req.session_id)
+            .cloned()
+        else {
+            return Ok(crate::pb::SharePollResponse {
+                error_code: -1,
+                ..Default::default()
+            });
+        };
+        // Maintain membership lazily: heartbeat when a third
+        // of the broker-granted interval has elapsed.
+        {
+            let state = session.state.lock().await;
+            let interval = std::time::Duration::from_millis(
+                (state.heartbeat_interval_ms.max(1_000) / 3) as u64,
+            );
+            if state.last_heartbeat.elapsed() >= interval {
+                drop(state);
+                let mut state = session.state.lock().await;
+                let current: Vec<([u8; 16], Vec<i32>)> = state.assignment.clone();
+                let _ = current;
+                let beat = self
+                    .broker
+                    .share_heartbeat(
+                        &session.coordinator,
+                        &session.group_id,
+                        &state.member_id.clone(),
+                        state.member_epoch,
+                        None,
+                        None,
+                    )
+                    .await?;
+                if beat.error_code != 0 {
+                    return Ok(crate::pb::SharePollResponse {
+                        error_code: beat.error_code,
+                        ..Default::default()
+                    });
+                }
+                state.member_epoch = beat.member_epoch;
+                state.heartbeat_interval_ms = beat.heartbeat_interval_ms;
+                state.last_heartbeat = tokio::time::Instant::now();
+                if let Some(assignment) = beat.assignment {
+                    state.assignment = assignment;
+                }
+            }
+        }
+        let (member_id, epoch, assignment, id_to_name) = {
+            let mut state = session.state.lock().await;
+            let epoch = state.fetch_epoch;
+            state.fetch_epoch += 1;
+            state.last_fetch_epoch = epoch;
+            (
+                state.member_id.clone(),
+                epoch,
+                state.assignment.clone(),
+                state.id_to_name.clone(),
+            )
+        };
+        let max_records = if req.max_records > 0 { req.max_records } else { 100 };
+        let max_wait = if req.max_wait_ms > 0 { req.max_wait_ms } else { 500 };
+        let (error_code, parts) = self
+            .broker
+            .share_fetch(
+                &session.coordinator,
+                &session.group_id,
+                &member_id,
+                epoch,
+                max_wait,
+                max_records,
+                &assignment,
+                &[],
+            )
+            .await?;
+        let mut records = Vec::new();
+        let mut first_partition_error = 0;
+        for part in parts {
+            if part.error_code != 0 && first_partition_error == 0 {
+                first_partition_error = part.error_code;
+            }
+            let topic = id_to_name
+                .get(&part.topic_id)
+                .cloned()
+                .unwrap_or_default();
+            for (rec, offset, delivery) in part.records {
+                records.push(crate::pb::SharePollRecord {
+                    topic: topic.clone(),
+                    partition: part.partition,
+                    offset,
+                    key: rec.key,
+                    value: rec.value,
+                    headers: rec.headers,
+                    timestamp_ms: rec.timestamp_ms,
+                    delivery_count: delivery,
+                    null_key: rec.key_null,
+                    ..Default::default()
+                });
+            }
+        }
+        Ok(crate::pb::SharePollResponse {
+            records,
+            error_code: if error_code != 0 { error_code } else { first_partition_error },
+            ..Default::default()
+        })
+    }
+
+    async fn share_ack(
+        &self,
+        req: crate::pb::ShareAckRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::ShareAckResponse, Status> {
+        let Some(session) = self
+            .share_sessions
+            .lock()
+            .await
+            .get(&req.session_id)
+            .cloned()
+        else {
+            return Ok(crate::pb::ShareAckResponse {
+                error_code: -1,
+                ..Default::default()
+            });
+        };
+        // Resolve topic names and coalesce consecutive offsets
+        // of the same type into batches per partition.
+        let (by_name, _by_id) = self.broker.topic_id_maps(&session.topics).await?;
+        let mut per_partition: HashMap<([u8; 16], i32), Vec<(i64, u8)>> = HashMap::new();
+        for entry in &req.entries {
+            let Some(id) = by_name.get(&entry.topic) else {
+                return Ok(crate::pb::ShareAckResponse {
+                    error_code: -1,
+                    ..Default::default()
+                });
+            };
+            per_partition
+                .entry((*id, entry.partition))
+                .or_default()
+                .push((entry.offset, entry.ack_type as u8));
+        }
+        let mut acks: Vec<([u8; 16], i32, Vec<crate::client::ShareAckBatch>)> = Vec::new();
+        for ((id, partition), mut entries) in per_partition {
+            entries.sort_unstable();
+            let mut batches: Vec<crate::client::ShareAckBatch> = Vec::new();
+            for (offset, ack_type) in entries {
+                match batches.last_mut() {
+                    Some(last)
+                        if last.ack_type == ack_type && offset == last.last_offset + 1 =>
+                    {
+                        last.last_offset = offset;
+                    }
+                    _ => batches.push(crate::client::ShareAckBatch {
+                        first_offset: offset,
+                        last_offset: offset,
+                        ack_type,
+                    }),
+                }
+            }
+            acks.push((id, partition, batches));
+        }
+        let (member_id, epoch) = {
+            let state = session.state.lock().await;
+            (state.member_id.clone(), state.fetch_epoch)
+        };
+        let error_code = self
+            .broker
+            .share_acknowledge(
+                &session.coordinator,
+                &session.group_id,
+                &member_id,
+                epoch,
+                &acks,
+            )
+            .await?;
+        if error_code == 0 {
+            // A successful ShareAcknowledge consumes the
+            // session epoch it carried; the next ShareFetch
+            // must continue from the following epoch.
+            let mut state = session.state.lock().await;
+            if state.fetch_epoch == epoch {
+                state.fetch_epoch = epoch + 1;
+            }
+        }
+        Ok(crate::pb::ShareAckResponse {
+            error_code,
+            ..Default::default()
+        })
+    }
+
+    async fn close_share_group(
+        &self,
+        req: crate::pb::CloseShareGroupRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::CloseShareGroupResponse, Status> {
+        let session = self.share_sessions.lock().await.remove(&req.session_id);
+        let Some(session) = session else {
+            return Ok(crate::pb::CloseShareGroupResponse {
+                error_code: -1,
+                ..Default::default()
+            });
+        };
+        let (member_id,) = {
+            let state = session.state.lock().await;
+            (state.member_id.clone(),)
+        };
+        let beat = self
+            .broker
+            .share_heartbeat(
+                &session.coordinator,
+                &session.group_id,
+                &member_id,
+                -1,
+                None,
+                Some(&[]),
+            )
+            .await?;
+        Ok(crate::pb::CloseShareGroupResponse {
+            error_code: beat.error_code,
             ..Default::default()
         })
     }

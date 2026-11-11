@@ -44,6 +44,10 @@ pub const API_LIST_TRANSACTIONS: i16 = 66;
 pub const API_DESCRIBE_TRANSACTIONS: i16 = 65;
 pub const API_CONSUMER_GROUP_HEARTBEAT: i16 = 68;
 pub const API_CONSUMER_GROUP_DESCRIBE: i16 = 69;
+pub const API_SHARE_GROUP_HEARTBEAT: i16 = 76;
+pub const API_SHARE_GROUP_DESCRIBE: i16 = 77;
+pub const API_SHARE_FETCH: i16 = 78;
+pub const API_SHARE_ACKNOWLEDGE: i16 = 79;
 pub const API_INIT_PRODUCER_ID: i16 = 22;
 pub const API_ADD_PARTITIONS_TO_TXN: i16 = 24;
 pub const API_ADD_OFFSETS_TO_TXN: i16 = 25;
@@ -558,6 +562,40 @@ fn hmac_dyn(sha512: bool, key: &[u8], msg: &[u8]) -> Vec<u8> {
     } else {
         crypto::hmac_sha256(key, msg).to_vec()
     }
+}
+
+/// Client-generated member id for KIP-932 share groups: a
+/// Kafka Uuid (16 bytes from a SHA-256 seed, base64url, no
+/// padding; 22 chars).
+fn make_share_member_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let seed = format!("share-member:{now}:{}:{n}", std::process::id());
+    let digest = crypto::sha256(seed.as_bytes());
+    const ALPHABET: &[u8] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let data = &digest[..16];
+    let mut out = String::with_capacity(22);
+    for chunk in data.chunks(3) {
+        let mut n3 = [0u8; 3];
+        n3[..chunk.len()].copy_from_slice(chunk);
+        let v = ((n3[0] as u32) << 16) | ((n3[1] as u32) << 8) | n3[2] as u32;
+        out.push(ALPHABET[(v >> 18) as usize & 63] as char);
+        out.push(ALPHABET[(v >> 12) as usize & 63] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[(v >> 6) as usize & 63] as char);
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[v as usize & 63] as char);
+        }
+    }
+    out
 }
 
 fn make_nonce() -> String {
@@ -2942,6 +2980,298 @@ impl Broker {
             });
         }
         Ok(described)
+    }
+
+    /// KIP-932 ShareGroupHeartbeat (API 76): join/maintain a
+    /// share group member. member_epoch 0 joins, -1 leaves.
+    /// Response mirrors ConsumerGroupHeartbeat, except the
+    /// assignment TopicPartitions carry no topic name.
+    /// Unlike KIP-848, the member id is client-generated: an
+    /// empty `member_id` on a join (epoch 0) mints one. Pass
+    /// `subscribed_topics: None` on maintenance heartbeats
+    /// (subscription unchanged), like the reference client.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn share_heartbeat(
+        &self,
+        conn: &Arc<Mutex<Conn>>,
+        group_id: &str,
+        member_id: &str,
+        member_epoch: i32,
+        group_instance_id: Option<&str>,
+        subscribed_topics: Option<&[String]>,
+    ) -> Result<ConsumerHeartbeat, Status> {
+        let _ = group_instance_id;
+        let mut c = conn.lock().await;
+        let ver = c.negotiate(API_SHARE_GROUP_HEARTBEAT, 1)?;
+        let generated;
+        let member_id = if member_id.is_empty() && member_epoch == 0 {
+            generated = make_share_member_id();
+            generated.as_str()
+        } else {
+            member_id
+        };
+        let mut body = W::new();
+        body.cstr(group_id);
+        body.cstr(member_id);
+        body.i32(member_epoch);
+        body.cstr_opt(None); // rack_id
+        match subscribed_topics {
+            Some(topics) => {
+                body.carr(topics.len());
+                for t in topics {
+                    body.cstr(t);
+                }
+            }
+            None => body.uvarint(0), // null: subscription unchanged
+        }
+        body.tagged_none();
+        let resp = c.request(API_SHARE_GROUP_HEARTBEAT, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let error_code = r.i16().map_err(bad)? as i32;
+        let error_message = r.cstr_opt().map_err(bad)?.unwrap_or_default();
+        let member = r.cstr_opt().map_err(bad)?.unwrap_or_default();
+        let epoch = r.i32().map_err(bad)?;
+        let interval = r.i32().map_err(bad)?;
+        let mut assignment = None;
+        // Assignment is v1+; at v0 the body ends here.
+        if ver >= 1 {
+            let present = r.i8().map_err(bad)?;
+            if present > 0 {
+                let n = r.carr_len().map_err(bad)?;
+                let mut entries = Vec::new();
+                for _ in 0..n {
+                    let id_bytes = r.take(16).map_err(bad)?;
+                    let mut id = [0u8; 16];
+                    id.copy_from_slice(id_bytes);
+                    let np = r.carr_len().map_err(bad)?;
+                    let mut partitions = Vec::new();
+                    for _ in 0..np {
+                        partitions.push(r.i32().map_err(bad)?);
+                    }
+                    r.skip_tagged().map_err(bad)?;
+                    entries.push((id, partitions));
+                }
+                assignment = Some(entries);
+                r.skip_tagged().map_err(bad)?;
+            }
+        }
+        Ok(ConsumerHeartbeat {
+            error_code,
+            error_message,
+            member_id: member,
+            member_epoch: epoch,
+            heartbeat_interval_ms: interval,
+            assignment,
+        })
+    }
+
+    /// KIP-932 ShareFetch (API 78): acquire records from the
+    /// assigned share partitions. `topics` is the member's
+    /// current assignment as (topic id, partitions); ack
+    /// batches piggyback on the fetch (may be empty).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn share_fetch(
+        &self,
+        conn: &Arc<Mutex<Conn>>,
+        group_id: &str,
+        member_id: &str,
+        session_epoch: i32,
+        max_wait_ms: i32,
+        max_records: i32,
+        topics: &[([u8; 16], Vec<i32>)],
+        acks: &[([u8; 16], i32, Vec<ShareAckBatch>)],
+    ) -> Result<(i32, Vec<SharePartitionData>), Status> {
+        let mut c = conn.lock().await;
+        let ver = c.negotiate(API_SHARE_FETCH, 2)?;
+        let mut body = W::new();
+        body.cstr(group_id);
+        body.cstr(member_id);
+        body.i32(session_epoch);
+        body.i32(max_wait_ms);
+        body.i32(1); // min_bytes
+        body.i32(4 * 1024 * 1024); // max_bytes
+        body.i32(max_records);
+        body.i32(0); // batch_size
+        if ver >= 2 {
+            body.i8(0); // share_acquire_mode
+            body.i8(0); // is_renew_ack
+        }
+        body.carr(topics.len());
+        for (id, partitions) in topics {
+            body.bytes(id);
+            body.carr(partitions.len());
+            for partition in partitions {
+                body.i32(*partition);
+                let batches: &[ShareAckBatch] = acks
+                    .iter()
+                    .find(|(t, p, _)| t == id && p == partition)
+                    .map(|(_, _, b)| b.as_slice())
+                    .unwrap_or(&[]);
+                write_ack_batches(&mut body, batches);
+                body.tagged_none();
+            }
+            body.tagged_none();
+        }
+        body.carr(0); // forgotten_topics_data
+        body.tagged_none();
+        let resp = c.request(API_SHARE_FETCH, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let error_code = r.i16().map_err(bad)? as i32;
+        let _msg = r.cstr_opt().map_err(bad)?;
+        let _acquisition_lock_timeout_ms = r.i32().map_err(bad)?;
+        let mut out = Vec::new();
+        let ntopics = r.carr_len().map_err(bad)?;
+        for _ in 0..ntopics {
+            let id_bytes = r.take(16).map_err(bad)?;
+            let mut topic_id = [0u8; 16];
+            topic_id.copy_from_slice(id_bytes);
+            let nparts = r.carr_len().map_err(bad)?;
+            for _ in 0..nparts {
+                let partition = r.i32().map_err(bad)?;
+                let perr = r.i16().map_err(bad)? as i32;
+                let _perr_msg = r.cstr_opt().map_err(bad)?;
+                let _ack_err = r.i16().map_err(bad)?;
+                let _ack_msg = r.cstr_opt().map_err(bad)?;
+                let _leader = r.i32().map_err(bad)?;
+                let _leader_epoch = r.i32().map_err(bad)?;
+                r.skip_tagged().map_err(bad)?; // CurrentLeader
+                let records_bytes = r.cbytes_opt().map_err(bad)?.unwrap_or_default();
+                let mut acquired: Vec<(i64, i64, i32)> = Vec::new();
+                if let Some(na) = r.carr().map_err(bad)? {
+                    for _ in 0..na {
+                        let first = r.i64().map_err(bad)?;
+                        let last = r.i64().map_err(bad)?;
+                        let delivery = r.i16().map_err(bad)? as i32;
+                        r.skip_tagged().map_err(bad)?;
+                        acquired.push((first, last, delivery));
+                    }
+                }
+                r.skip_tagged().map_err(bad)?;
+                let mut records = Vec::new();
+                if perr == 0 && !records_bytes.is_empty() {
+                    for tagged in parse_record_batches_tagged(&records_bytes).map_err(bad)? {
+                        if tagged.control {
+                            continue;
+                        }
+                        let delivery = acquired
+                            .iter()
+                            .find(|(first, last, _)| {
+                                tagged.offset >= *first && tagged.offset <= *last
+                            })
+                            .map(|(_, _, d)| *d)
+                            .unwrap_or(1);
+                        records.push((tagged.record, tagged.offset, delivery));
+                    }
+                }
+                out.push(SharePartitionData {
+                    topic_id,
+                    partition,
+                    error_code: perr,
+                    records,
+                });
+            }
+            r.skip_tagged().map_err(bad)?;
+        }
+        Ok((error_code, out))
+    }
+
+    /// KIP-932 ShareAcknowledge (API 79): acknowledge records
+    /// outside a fetch round.
+    pub async fn share_acknowledge(
+        &self,
+        conn: &Arc<Mutex<Conn>>,
+        group_id: &str,
+        member_id: &str,
+        session_epoch: i32,
+        acks: &[([u8; 16], i32, Vec<ShareAckBatch>)],
+    ) -> Result<i32, Status> {
+        let mut c = conn.lock().await;
+        let ver = c.negotiate(API_SHARE_ACKNOWLEDGE, 2)?;
+        let mut body = W::new();
+        body.cstr(group_id);
+        body.cstr(member_id);
+        body.i32(session_epoch);
+        if ver >= 2 {
+            body.i8(0); // is_renew_ack
+        }
+        // Group ack entries by topic id.
+        let mut by_topic: Vec<([u8; 16], Vec<&([u8; 16], i32, Vec<ShareAckBatch>)>)> =
+            Vec::new();
+        for entry in acks {
+            match by_topic.iter_mut().find(|(id, _)| *id == entry.0) {
+                Some((_, parts)) => parts.push(entry),
+                None => by_topic.push((entry.0, vec![entry])),
+            }
+        }
+        body.carr(by_topic.len());
+        for (id, parts) in &by_topic {
+            body.bytes(id);
+            body.carr(parts.len());
+            for (_, partition, batches) in parts {
+                body.i32(*partition);
+                write_ack_batches(&mut body, batches);
+                body.tagged_none();
+            }
+            body.tagged_none();
+        }
+        body.tagged_none();
+        let resp = c.request(API_SHARE_ACKNOWLEDGE, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let error_code = r.i16().map_err(bad)? as i32;
+        let _msg = r.cstr_opt().map_err(bad)?;
+        if ver >= 2 {
+            let _acquisition_lock_timeout_ms = r.i32().map_err(bad)?;
+        }
+        let ntopics = r.carr_len().map_err(bad)?;
+        let mut first_error = error_code;
+        for _ in 0..ntopics {
+            let _id = r.take(16).map_err(bad)?;
+            let nparts = r.carr_len().map_err(bad)?;
+            for _ in 0..nparts {
+                let _partition = r.i32().map_err(bad)?;
+                let perr = r.i16().map_err(bad)? as i32;
+                if first_error == 0 && perr != 0 {
+                    first_error = perr;
+                }
+                let _perr_msg = r.cstr_opt().map_err(bad)?;
+                let _leader = r.i32().map_err(bad)?;
+                let _leader_epoch = r.i32().map_err(bad)?;
+                r.skip_tagged().map_err(bad)?; // CurrentLeader
+                r.skip_tagged().map_err(bad)?;
+            }
+            r.skip_tagged().map_err(bad)?;
+        }
+        Ok(first_error)
+    }
+}
+
+/// KIP-932 ShareFetch result for one partition.
+pub struct SharePartitionData {
+    pub topic_id: [u8; 16],
+    pub partition: i32,
+    pub error_code: i32,
+    /// (record, offset, delivery_count)
+    pub records: Vec<(crate::pb::FetchedRecord, i64, i32)>,
+}
+
+/// One ShareAcknowledge batch: [first, last] offsets sharing
+/// an ack type (1 ACCEPT, 2 RELEASE, 3 REJECT).
+pub struct ShareAckBatch {
+    pub first_offset: i64,
+    pub last_offset: i64,
+    pub ack_type: u8,
+}
+
+fn write_ack_batches(body: &mut W, batches: &[ShareAckBatch]) {
+    body.carr(batches.len());
+    for batch in batches {
+        body.i64(batch.first_offset);
+        body.i64(batch.last_offset);
+        body.cbytes(&[batch.ack_type]);
+        body.tagged_none();
     }
 }
 

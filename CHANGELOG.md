@@ -20,6 +20,11 @@ curated release tags on `master`; dates are the tag dates.
   form factor cross-check each other record-for-record in a
   differential gate leg (all compression codecs, consumer
   groups, offsets).
+- KIP-932 share groups in kafka-native: session-based
+  `OpenShareGroup`/`SharePoll`/`ShareAck`/`CloseShareGroup`
+  RPCs (client-generated member ids, share-session epoch
+  handling incl. ack epoch consumption, delivery counts,
+  ACCEPT/RELEASE acknowledgement semantics).
 - KIP-848 next-generation consumer protocol in kafka-native:
   ConsumerGroupHeartbeat membership with server-side
   assignment, epoch fencing, ConsumerGroupDescribe admin, and

@@ -183,16 +183,26 @@ async fn kafka_kip848_group_lifecycle() {
     let topic = unique("grpcdc-848-topic");
     make_topic(&client, &topic, 3).await;
     for partition in 0..3 {
-        let produced = client
-            .produce(pb::ProduceRequest {
-                topic: topic.clone(),
-                partition,
-                records: vec![record("a"), record("b")],
-                acks: pb::Acks::AcksAll,
-                ..Default::default()
-            })
-            .await
-            .expect("produce");
+        // Leaders can be visible in metadata slightly before
+        // the partition accepts produce (error 3); retry like
+        // a real client would.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let produced = loop {
+            let produced = client
+                .produce(pb::ProduceRequest {
+                    topic: topic.clone(),
+                    partition,
+                    records: vec![record("a"), record("b")],
+                    acks: pb::Acks::AcksAll,
+                    ..Default::default()
+                })
+                .await
+                .expect("produce");
+            if produced.error_code != 3 || std::time::Instant::now() >= deadline {
+                break produced;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        };
         assert_eq!(produced.error_code, 0, "produce failed: {produced:?}");
     }
 

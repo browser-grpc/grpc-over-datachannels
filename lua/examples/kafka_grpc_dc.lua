@@ -58,6 +58,14 @@ local ListTransactionsRequest = kafkaMessages.ListTransactionsRequest
 local ListTransactionsResponse = kafkaMessages.ListTransactionsResponse
 local DescribeTransactionsRequest = kafkaMessages.DescribeTransactionsRequest
 local DescribeTransactionsResponse = kafkaMessages.DescribeTransactionsResponse
+local OpenShareGroupRequest = kafkaMessages.OpenShareGroupRequest
+local OpenShareGroupResponse = kafkaMessages.OpenShareGroupResponse
+local SharePollRequest = kafkaMessages.SharePollRequest
+local SharePollResponse = kafkaMessages.SharePollResponse
+local ShareAckRequest = kafkaMessages.ShareAckRequest
+local ShareAckResponse = kafkaMessages.ShareAckResponse
+local CloseShareGroupRequest = kafkaMessages.CloseShareGroupRequest
+local CloseShareGroupResponse = kafkaMessages.CloseShareGroupResponse
 
 local Channel = channelModule.Channel
 local Server = serverModule.Server
@@ -330,6 +338,30 @@ function KafkaClient:describeTransactions(req, metadata, timeout)
   return resp
 end
 
+function KafkaClient:openShareGroup(req, metadata, timeout)
+  local resp = OpenShareGroupResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:sharePoll(req, metadata, timeout)
+  local resp = SharePollResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:shareAck(req, metadata, timeout)
+  local resp = ShareAckResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:closeShareGroup(req, metadata, timeout)
+  local resp = CloseShareGroupResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout)
+  return resp
+end
+
 --- Coroutine receiving stream for Consume responses: a producer
 --- coroutine yields each response; next() returns nil at the
 --- end of the call and raises a Status on trailers errors.
@@ -592,6 +624,30 @@ function KafkaClientCoro:describeTransactions(req, metadata, timeout)
   return resp
 end
 
+function KafkaClientCoro:openShareGroup(req, metadata, timeout)
+  local resp = OpenShareGroupResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:sharePoll(req, metadata, timeout)
+  local resp = SharePollResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:shareAck(req, metadata, timeout)
+  local resp = ShareAckResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:closeShareGroup(req, metadata, timeout)
+  local resp = CloseShareGroupResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout)
+  return resp
+end
+
 --- Register an implementation of grpcdc.kafka.v1.Kafka on a Server. The impl is
 --- a table with unary/serverStream/clientStream/bidi functions
 --- (duck-typed, mirroring the generated adapters below).
@@ -847,6 +903,46 @@ local function registerKafkaServer(server, impl)
           local req = DescribeTransactionsRequest.new()
           reqs:recvInto(req)
           sink(impl:describeTransactions(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "OpenShareGroup",
+        path = "/grpcdc.kafka.v1.Kafka/OpenShareGroup",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = OpenShareGroupRequest.new()
+          reqs:recvInto(req)
+          sink(impl:openShareGroup(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "SharePoll",
+        path = "/grpcdc.kafka.v1.Kafka/SharePoll",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = SharePollRequest.new()
+          reqs:recvInto(req)
+          sink(impl:sharePoll(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "ShareAck",
+        path = "/grpcdc.kafka.v1.Kafka/ShareAck",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = ShareAckRequest.new()
+          reqs:recvInto(req)
+          sink(impl:shareAck(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "CloseShareGroup",
+        path = "/grpcdc.kafka.v1.Kafka/CloseShareGroup",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = CloseShareGroupRequest.new()
+          reqs:recvInto(req)
+          sink(impl:closeShareGroup(ctx, req):marshalDc())
         end,
       },
     },

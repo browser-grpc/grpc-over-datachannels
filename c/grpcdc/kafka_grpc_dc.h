@@ -233,6 +233,38 @@ static inline grpcdc_status KafkaClient_describe_transactions(KafkaClient *c, co
     return st;
 }
 
+static inline grpcdc_status KafkaClient_open_share_group(KafkaClient *c, const OpenShareGroupRequest *req, OpenShareGroupResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = OpenShareGroupRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/OpenShareGroup", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); OpenShareGroupResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_share_poll(KafkaClient *c, const SharePollRequest *req, SharePollResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = SharePollRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/SharePoll", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); SharePollResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_share_ack(KafkaClient *c, const ShareAckRequest *req, ShareAckResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = ShareAckRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/ShareAck", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); ShareAckResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_close_share_group(KafkaClient *c, const CloseShareGroupRequest *req, CloseShareGroupResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = CloseShareGroupRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/CloseShareGroup", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); CloseShareGroupResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
 typedef struct { grpcdc_server_stream *raw; } KafkaConsumeStream;
 static inline grpcdc_status KafkaConsumeStream_send(KafkaConsumeStream *s, const ConsumeResponse *resp) { KafkaPbBytes rb = ConsumeResponse_marshal(resp); grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }
 
@@ -266,6 +298,10 @@ typedef struct {
     grpcdc_status (*delete_acls)(void *ctx, const grpcdc_kv *md, size_t md_count, const DeleteAclsRequest *req, DeleteAclsResponse *resp);
     grpcdc_status (*list_transactions)(void *ctx, const grpcdc_kv *md, size_t md_count, const ListTransactionsRequest *req, ListTransactionsResponse *resp);
     grpcdc_status (*describe_transactions)(void *ctx, const grpcdc_kv *md, size_t md_count, const DescribeTransactionsRequest *req, DescribeTransactionsResponse *resp);
+    grpcdc_status (*open_share_group)(void *ctx, const grpcdc_kv *md, size_t md_count, const OpenShareGroupRequest *req, OpenShareGroupResponse *resp);
+    grpcdc_status (*share_poll)(void *ctx, const grpcdc_kv *md, size_t md_count, const SharePollRequest *req, SharePollResponse *resp);
+    grpcdc_status (*share_ack)(void *ctx, const grpcdc_kv *md, size_t md_count, const ShareAckRequest *req, ShareAckResponse *resp);
+    grpcdc_status (*close_share_group)(void *ctx, const grpcdc_kv *md, size_t md_count, const CloseShareGroupRequest *req, CloseShareGroupResponse *resp);
 } KafkaServerImpl;
 
 static grpcdc_status Kafka_metadata_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
@@ -489,6 +525,42 @@ static grpcdc_status Kafka_describe_transactions_unary_adapter(void *impl, const
     return st;
 }
 
+static grpcdc_status Kafka_open_share_group_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    OpenShareGroupRequest req; memset(&req, 0, sizeof(req)); OpenShareGroupRequest_unmarshal(&req, reqb.data, reqb.len);
+    OpenShareGroupResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->open_share_group(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = OpenShareGroupResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_share_poll_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    SharePollRequest req; memset(&req, 0, sizeof(req)); SharePollRequest_unmarshal(&req, reqb.data, reqb.len);
+    SharePollResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->share_poll(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = SharePollResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_share_ack_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    ShareAckRequest req; memset(&req, 0, sizeof(req)); ShareAckRequest_unmarshal(&req, reqb.data, reqb.len);
+    ShareAckResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->share_ack(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = ShareAckResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_close_share_group_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    CloseShareGroupRequest req; memset(&req, 0, sizeof(req)); CloseShareGroupRequest_unmarshal(&req, reqb.data, reqb.len);
+    CloseShareGroupResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->close_share_group(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = CloseShareGroupResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
 static inline void KafkaServer_register(grpcdc_server *srv, KafkaServerImpl *impl) {
     static const grpcdc_method_desc methods[] = {
         { "Metadata", 0, Kafka_metadata_unary_adapter, 0, 0, 0 },
@@ -516,6 +588,10 @@ static inline void KafkaServer_register(grpcdc_server *srv, KafkaServerImpl *imp
         { "DeleteAcls", 0, Kafka_delete_acls_unary_adapter, 0, 0, 0 },
         { "ListTransactions", 0, Kafka_list_transactions_unary_adapter, 0, 0, 0 },
         { "DescribeTransactions", 0, Kafka_describe_transactions_unary_adapter, 0, 0, 0 },
+        { "OpenShareGroup", 0, Kafka_open_share_group_unary_adapter, 0, 0, 0 },
+        { "SharePoll", 0, Kafka_share_poll_unary_adapter, 0, 0, 0 },
+        { "ShareAck", 0, Kafka_share_ack_unary_adapter, 0, 0, 0 },
+        { "CloseShareGroup", 0, Kafka_close_share_group_unary_adapter, 0, 0, 0 },
     };
     grpcdc_server_add_service(srv, "grpcdc.kafka.v1.Kafka", methods, sizeof(methods) / sizeof(methods[0]), impl);
 }

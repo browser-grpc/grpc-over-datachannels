@@ -194,6 +194,30 @@ public enum KafkaGrpcDc {
             return resp
         }
 
+        public func OpenShareGroup(_ req: OpenShareGroupRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> OpenShareGroupResponse {
+            let resp = OpenShareGroupResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func SharePoll(_ req: SharePollRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> SharePollResponse {
+            let resp = SharePollResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func ShareAck(_ req: ShareAckRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ShareAckResponse {
+            let resp = ShareAckResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func CloseShareGroup(_ req: CloseShareGroupRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> CloseShareGroupResponse {
+            let resp = CloseShareGroupResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout)
+            return resp
+        }
+
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
@@ -345,6 +369,22 @@ public enum KafkaGrpcDc {
             try await Task.detached { try self.DescribeTransactions(req, metadata, timeout) }.value
         }
 
+        public func OpenShareGroupAsync(_ req: OpenShareGroupRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> OpenShareGroupResponse {
+            try await Task.detached { try self.OpenShareGroup(req, metadata, timeout) }.value
+        }
+
+        public func SharePollAsync(_ req: SharePollRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> SharePollResponse {
+            try await Task.detached { try self.SharePoll(req, metadata, timeout) }.value
+        }
+
+        public func ShareAckAsync(_ req: ShareAckRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ShareAckResponse {
+            try await Task.detached { try self.ShareAck(req, metadata, timeout) }.value
+        }
+
+        public func CloseShareGroupAsync(_ req: CloseShareGroupRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> CloseShareGroupResponse {
+            try await Task.detached { try self.CloseShareGroup(req, metadata, timeout) }.value
+        }
+
         #endif
     }
 
@@ -387,6 +427,10 @@ public enum KafkaGrpcDc {
         func DeleteAcls(_ ctx: Endpoint.CallContext, _ req: DeleteAclsRequest) throws -> DeleteAclsResponse
         func ListTransactions(_ ctx: Endpoint.CallContext, _ req: ListTransactionsRequest) throws -> ListTransactionsResponse
         func DescribeTransactions(_ ctx: Endpoint.CallContext, _ req: DescribeTransactionsRequest) throws -> DescribeTransactionsResponse
+        func OpenShareGroup(_ ctx: Endpoint.CallContext, _ req: OpenShareGroupRequest) throws -> OpenShareGroupResponse
+        func SharePoll(_ ctx: Endpoint.CallContext, _ req: SharePollRequest) throws -> SharePollResponse
+        func ShareAck(_ ctx: Endpoint.CallContext, _ req: ShareAckRequest) throws -> ShareAckResponse
+        func CloseShareGroup(_ ctx: Endpoint.CallContext, _ req: CloseShareGroupRequest) throws -> CloseShareGroupResponse
     }
 
     #if canImport(Foundation)
@@ -417,6 +461,10 @@ public enum KafkaGrpcDc {
         func DeleteAclsAsync(_ ctx: Endpoint.CallContext, _ req: DeleteAclsRequest) async throws -> DeleteAclsResponse
         func ListTransactionsAsync(_ ctx: Endpoint.CallContext, _ req: ListTransactionsRequest) async throws -> ListTransactionsResponse
         func DescribeTransactionsAsync(_ ctx: Endpoint.CallContext, _ req: DescribeTransactionsRequest) async throws -> DescribeTransactionsResponse
+        func OpenShareGroupAsync(_ ctx: Endpoint.CallContext, _ req: OpenShareGroupRequest) async throws -> OpenShareGroupResponse
+        func SharePollAsync(_ ctx: Endpoint.CallContext, _ req: SharePollRequest) async throws -> SharePollResponse
+        func ShareAckAsync(_ ctx: Endpoint.CallContext, _ req: ShareAckRequest) async throws -> ShareAckResponse
+        func CloseShareGroupAsync(_ ctx: Endpoint.CallContext, _ req: CloseShareGroupRequest) async throws -> CloseShareGroupResponse
     }
 
     #endif
@@ -521,6 +569,18 @@ public enum KafkaGrpcDc {
         }
         func DescribeTransactions(_ ctx: Endpoint.CallContext, _ req: DescribeTransactionsRequest) throws -> DescribeTransactionsResponse {
             try RunBlocking { try await self.impl.DescribeTransactionsAsync(ctx, req) }
+        }
+        func OpenShareGroup(_ ctx: Endpoint.CallContext, _ req: OpenShareGroupRequest) throws -> OpenShareGroupResponse {
+            try RunBlocking { try await self.impl.OpenShareGroupAsync(ctx, req) }
+        }
+        func SharePoll(_ ctx: Endpoint.CallContext, _ req: SharePollRequest) throws -> SharePollResponse {
+            try RunBlocking { try await self.impl.SharePollAsync(ctx, req) }
+        }
+        func ShareAck(_ ctx: Endpoint.CallContext, _ req: ShareAckRequest) throws -> ShareAckResponse {
+            try RunBlocking { try await self.impl.ShareAckAsync(ctx, req) }
+        }
+        func CloseShareGroup(_ ctx: Endpoint.CallContext, _ req: CloseShareGroupRequest) throws -> CloseShareGroupResponse {
+            try RunBlocking { try await self.impl.CloseShareGroupAsync(ctx, req) }
         }
     }
 
@@ -675,6 +735,30 @@ public enum KafkaGrpcDc {
                 let req = DescribeTransactionsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.DescribeTransactions(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "OpenShareGroup", path: "/grpcdc.kafka.v1.Kafka/OpenShareGroup", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = OpenShareGroupRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.OpenShareGroup(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "SharePoll", path: "/grpcdc.kafka.v1.Kafka/SharePoll", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = SharePollRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.SharePoll(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "ShareAck", path: "/grpcdc.kafka.v1.Kafka/ShareAck", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = ShareAckRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.ShareAck(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "CloseShareGroup", path: "/grpcdc.kafka.v1.Kafka/CloseShareGroup", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = CloseShareGroupRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.CloseShareGroup(ctx, req)
                 try sink(resp.MarshalDc())
             },
         ]))

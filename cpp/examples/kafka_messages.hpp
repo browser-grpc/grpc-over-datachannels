@@ -87,6 +87,16 @@ class ListTransactionsResponse;
 class DescribeTransactionsRequest;
 class DescribedTransaction;
 class DescribeTransactionsResponse;
+class OpenShareGroupRequest;
+class OpenShareGroupResponse;
+class SharePollRequest;
+class SharePollRecord;
+class SharePollResponse;
+class ShareAckEntry;
+class ShareAckRequest;
+class ShareAckResponse;
+class CloseShareGroupRequest;
+class CloseShareGroupResponse;
 
 enum class Compression : std::int32_t {
   COMPRESSION_NONE = 0,
@@ -873,6 +883,106 @@ class DescribeTransactionsResponse : public grpcdc::Marshaler, public grpcdc::Un
   std::vector<DescribedTransaction> transactions = {};
   grpcdc::Bytes unknown_fields;
   DescribeTransactionsResponse() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class OpenShareGroupRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::string group_id = "";
+  std::vector<std::string> topics = {};
+  std::string group_instance_id = "";
+  std::int32_t session_timeout_ms = 0;
+  grpcdc::Bytes unknown_fields;
+  OpenShareGroupRequest() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class OpenShareGroupResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::string session_id = "";
+  std::int32_t error_code = 0;
+  std::optional<Assignment> assignment = std::nullopt;
+  grpcdc::Bytes unknown_fields;
+  OpenShareGroupResponse() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class SharePollRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::string session_id = "";
+  std::int32_t max_records = 0;
+  std::int32_t max_wait_ms = 0;
+  grpcdc::Bytes unknown_fields;
+  SharePollRequest() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class SharePollRecord : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::string topic = "";
+  std::int32_t partition = 0;
+  std::int64_t offset = 0;
+  std::vector<std::uint8_t> key = {};
+  std::vector<std::uint8_t> value = {};
+  std::vector<Header> headers = {};
+  std::int64_t timestamp_ms = 0;
+  std::int32_t delivery_count = 0;
+  bool null_key = false;
+  grpcdc::Bytes unknown_fields;
+  SharePollRecord() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class SharePollResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::vector<SharePollRecord> records = {};
+  std::int32_t error_code = 0;
+  grpcdc::Bytes unknown_fields;
+  SharePollResponse() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class ShareAckEntry : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::string topic = "";
+  std::int32_t partition = 0;
+  std::int64_t offset = 0;
+  std::int32_t ack_type = 0;
+  grpcdc::Bytes unknown_fields;
+  ShareAckEntry() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class ShareAckRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::string session_id = "";
+  std::vector<ShareAckEntry> entries = {};
+  grpcdc::Bytes unknown_fields;
+  ShareAckRequest() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class ShareAckResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::int32_t error_code = 0;
+  grpcdc::Bytes unknown_fields;
+  ShareAckResponse() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class CloseShareGroupRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::string session_id = "";
+  grpcdc::Bytes unknown_fields;
+  CloseShareGroupRequest() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class CloseShareGroupResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::int32_t error_code = 0;
+  grpcdc::Bytes unknown_fields;
+  CloseShareGroupResponse() = default;
   grpcdc::Bytes MarshalDc() const override;
   void UnmarshalDc(const grpcdc::Bytes& data) override;
 };
@@ -3446,6 +3556,363 @@ inline void DescribeTransactionsResponse::UnmarshalDc(const grpcdc::Bytes& data)
             DescribedTransaction item;
             item.UnmarshalDc(field.bytes);
             transactions.push_back(item);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes OpenShareGroupRequest::MarshalDc() const {
+    pb_kafka::Writer w;
+    w.StringField(1, group_id);
+    for (const auto& x : topics) w.BytesField(2, grpcdc::Bytes(x.begin(), x.end()));
+    w.StringField(3, group_instance_id);
+    if (session_timeout_ms != 0) { w.Tag(4, 0); w.Varint(static_cast<std::int64_t>(session_timeout_ms)); }
+    w.Raw(unknown_fields);
+    return w.ToBytes();
+}
+
+inline void OpenShareGroupRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+    unknown_fields.clear();
+    group_id = "";
+    topics = {};
+    group_instance_id = "";
+    session_timeout_ms = 0;
+    pb_kafka::Reader r(data);
+    pb_kafka::Field field;
+    while (r.Next(field)) {
+      switch (field.number) {
+        case 1: {
+            group_id = std::string(field.bytes.begin(), field.bytes.end());
+            break;
+        }
+        case 2: {
+            topics.push_back(std::string(field.bytes.begin(), field.bytes.end()));
+            break;
+        }
+        case 3: {
+            group_instance_id = std::string(field.bytes.begin(), field.bytes.end());
+            break;
+        }
+        case 4: {
+            session_timeout_ms = static_cast<std::int32_t>(field.varint);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes OpenShareGroupResponse::MarshalDc() const {
+    pb_kafka::Writer w;
+    w.StringField(1, session_id);
+    if (error_code != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(error_code)); }
+    if (assignment) w.BytesField(3, assignment->MarshalDc());
+    w.Raw(unknown_fields);
+    return w.ToBytes();
+}
+
+inline void OpenShareGroupResponse::UnmarshalDc(const grpcdc::Bytes& data) {
+    unknown_fields.clear();
+    session_id = "";
+    error_code = 0;
+    assignment = std::nullopt;
+    pb_kafka::Reader r(data);
+    pb_kafka::Field field;
+    while (r.Next(field)) {
+      switch (field.number) {
+        case 1: {
+            session_id = std::string(field.bytes.begin(), field.bytes.end());
+            break;
+        }
+        case 2: {
+            error_code = static_cast<std::int32_t>(field.varint);
+            break;
+        }
+        case 3: {
+            assignment.emplace();
+            assignment->UnmarshalDc(field.bytes);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes SharePollRequest::MarshalDc() const {
+    pb_kafka::Writer w;
+    w.StringField(1, session_id);
+    if (max_records != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(max_records)); }
+    if (max_wait_ms != 0) { w.Tag(3, 0); w.Varint(static_cast<std::int64_t>(max_wait_ms)); }
+    w.Raw(unknown_fields);
+    return w.ToBytes();
+}
+
+inline void SharePollRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+    unknown_fields.clear();
+    session_id = "";
+    max_records = 0;
+    max_wait_ms = 0;
+    pb_kafka::Reader r(data);
+    pb_kafka::Field field;
+    while (r.Next(field)) {
+      switch (field.number) {
+        case 1: {
+            session_id = std::string(field.bytes.begin(), field.bytes.end());
+            break;
+        }
+        case 2: {
+            max_records = static_cast<std::int32_t>(field.varint);
+            break;
+        }
+        case 3: {
+            max_wait_ms = static_cast<std::int32_t>(field.varint);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes SharePollRecord::MarshalDc() const {
+    pb_kafka::Writer w;
+    w.StringField(1, topic);
+    if (partition != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(partition)); }
+    if (offset != 0) { w.Tag(3, 0); w.Varint(static_cast<std::uint64_t>(offset)); }
+    if (!key.empty()) w.BytesField(4, key);
+    if (!value.empty()) w.BytesField(5, value);
+    for (const auto& x : headers) w.BytesField(6, x.MarshalDc());
+    if (timestamp_ms != 0) { w.Tag(7, 0); w.Varint(static_cast<std::uint64_t>(timestamp_ms)); }
+    if (delivery_count != 0) { w.Tag(8, 0); w.Varint(static_cast<std::int64_t>(delivery_count)); }
+    if (null_key) { w.Tag(9, 0); w.Varint((null_key ? 1 : 0)); }
+    w.Raw(unknown_fields);
+    return w.ToBytes();
+}
+
+inline void SharePollRecord::UnmarshalDc(const grpcdc::Bytes& data) {
+    unknown_fields.clear();
+    topic = "";
+    partition = 0;
+    offset = 0;
+    key = {};
+    value = {};
+    headers = {};
+    timestamp_ms = 0;
+    delivery_count = 0;
+    null_key = false;
+    pb_kafka::Reader r(data);
+    pb_kafka::Field field;
+    while (r.Next(field)) {
+      switch (field.number) {
+        case 1: {
+            topic = std::string(field.bytes.begin(), field.bytes.end());
+            break;
+        }
+        case 2: {
+            partition = static_cast<std::int32_t>(field.varint);
+            break;
+        }
+        case 3: {
+            offset = static_cast<std::int64_t>(field.varint);
+            break;
+        }
+        case 4: {
+            key = field.bytes;
+            break;
+        }
+        case 5: {
+            value = field.bytes;
+            break;
+        }
+        case 6: {
+            Header item;
+            item.UnmarshalDc(field.bytes);
+            headers.push_back(item);
+            break;
+        }
+        case 7: {
+            timestamp_ms = static_cast<std::int64_t>(field.varint);
+            break;
+        }
+        case 8: {
+            delivery_count = static_cast<std::int32_t>(field.varint);
+            break;
+        }
+        case 9: {
+            null_key = field.varint != 0;
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes SharePollResponse::MarshalDc() const {
+    pb_kafka::Writer w;
+    for (const auto& x : records) w.BytesField(1, x.MarshalDc());
+    if (error_code != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(error_code)); }
+    w.Raw(unknown_fields);
+    return w.ToBytes();
+}
+
+inline void SharePollResponse::UnmarshalDc(const grpcdc::Bytes& data) {
+    unknown_fields.clear();
+    records = {};
+    error_code = 0;
+    pb_kafka::Reader r(data);
+    pb_kafka::Field field;
+    while (r.Next(field)) {
+      switch (field.number) {
+        case 1: {
+            SharePollRecord item;
+            item.UnmarshalDc(field.bytes);
+            records.push_back(item);
+            break;
+        }
+        case 2: {
+            error_code = static_cast<std::int32_t>(field.varint);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes ShareAckEntry::MarshalDc() const {
+    pb_kafka::Writer w;
+    w.StringField(1, topic);
+    if (partition != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(partition)); }
+    if (offset != 0) { w.Tag(3, 0); w.Varint(static_cast<std::uint64_t>(offset)); }
+    if (ack_type != 0) { w.Tag(4, 0); w.Varint(static_cast<std::int64_t>(ack_type)); }
+    w.Raw(unknown_fields);
+    return w.ToBytes();
+}
+
+inline void ShareAckEntry::UnmarshalDc(const grpcdc::Bytes& data) {
+    unknown_fields.clear();
+    topic = "";
+    partition = 0;
+    offset = 0;
+    ack_type = 0;
+    pb_kafka::Reader r(data);
+    pb_kafka::Field field;
+    while (r.Next(field)) {
+      switch (field.number) {
+        case 1: {
+            topic = std::string(field.bytes.begin(), field.bytes.end());
+            break;
+        }
+        case 2: {
+            partition = static_cast<std::int32_t>(field.varint);
+            break;
+        }
+        case 3: {
+            offset = static_cast<std::int64_t>(field.varint);
+            break;
+        }
+        case 4: {
+            ack_type = static_cast<std::int32_t>(field.varint);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes ShareAckRequest::MarshalDc() const {
+    pb_kafka::Writer w;
+    w.StringField(1, session_id);
+    for (const auto& x : entries) w.BytesField(2, x.MarshalDc());
+    w.Raw(unknown_fields);
+    return w.ToBytes();
+}
+
+inline void ShareAckRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+    unknown_fields.clear();
+    session_id = "";
+    entries = {};
+    pb_kafka::Reader r(data);
+    pb_kafka::Field field;
+    while (r.Next(field)) {
+      switch (field.number) {
+        case 1: {
+            session_id = std::string(field.bytes.begin(), field.bytes.end());
+            break;
+        }
+        case 2: {
+            ShareAckEntry item;
+            item.UnmarshalDc(field.bytes);
+            entries.push_back(item);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes ShareAckResponse::MarshalDc() const {
+    pb_kafka::Writer w;
+    if (error_code != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int64_t>(error_code)); }
+    w.Raw(unknown_fields);
+    return w.ToBytes();
+}
+
+inline void ShareAckResponse::UnmarshalDc(const grpcdc::Bytes& data) {
+    unknown_fields.clear();
+    error_code = 0;
+    pb_kafka::Reader r(data);
+    pb_kafka::Field field;
+    while (r.Next(field)) {
+      switch (field.number) {
+        case 1: {
+            error_code = static_cast<std::int32_t>(field.varint);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes CloseShareGroupRequest::MarshalDc() const {
+    pb_kafka::Writer w;
+    w.StringField(1, session_id);
+    w.Raw(unknown_fields);
+    return w.ToBytes();
+}
+
+inline void CloseShareGroupRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+    unknown_fields.clear();
+    session_id = "";
+    pb_kafka::Reader r(data);
+    pb_kafka::Field field;
+    while (r.Next(field)) {
+      switch (field.number) {
+        case 1: {
+            session_id = std::string(field.bytes.begin(), field.bytes.end());
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes CloseShareGroupResponse::MarshalDc() const {
+    pb_kafka::Writer w;
+    if (error_code != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int64_t>(error_code)); }
+    w.Raw(unknown_fields);
+    return w.ToBytes();
+}
+
+inline void CloseShareGroupResponse::UnmarshalDc(const grpcdc::Bytes& data) {
+    unknown_fields.clear();
+    error_code = 0;
+    pb_kafka::Reader r(data);
+    pb_kafka::Field field;
+    while (r.Next(field)) {
+      switch (field.number) {
+        case 1: {
+            error_code = static_cast<std::int32_t>(field.varint);
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;

@@ -4044,4 +4044,552 @@ end
     end
   end
 
+  class OpenShareGroupRequest
+    attr_accessor :group_id, :topics, :group_instance_id, :session_timeout_ms, :unknown_fields
+
+    def initialize(group_id: "", topics: [], group_instance_id: "", session_timeout_ms: 0)
+      @group_id = group_id
+      @topics = topics
+      @group_instance_id = group_instance_id
+      @session_timeout_ms = session_timeout_ms
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @group_id)
+    @topics.each { |x| w.bytes_field(2, x) }
+    w.string_field(3, @group_instance_id)
+    if @session_timeout_ms != 0
+      w.tag(4, 0)
+      w.varint(@session_timeout_ms)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @group_id = ""
+      @topics = []
+      @group_instance_id = ""
+      @session_timeout_ms = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @group_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @topics << bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        @group_instance_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 4
+        @session_timeout_ms = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(OpenShareGroupRequest) && @group_id == other.group_id && @topics == other.topics && @group_instance_id == other.group_instance_id && @session_timeout_ms == other.session_timeout_ms
+    end
+  end
+
+  class OpenShareGroupResponse
+    attr_accessor :session_id, :error_code, :assignment, :unknown_fields
+
+    def initialize(session_id: "", error_code: 0, assignment: nil)
+      @session_id = session_id
+      @error_code = error_code
+      @assignment = assignment
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @session_id)
+    if @error_code != 0
+      w.tag(2, 0)
+      w.varint(@error_code)
+    end
+    unless @assignment.nil?
+      w.bytes_field(3, @assignment.marshal_dc)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @session_id = ""
+      @error_code = 0
+      @assignment = nil
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @session_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 3
+        @assignment = Assignment.new
+        @assignment.unmarshal_dc(bytes_value)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(OpenShareGroupResponse) && @session_id == other.session_id && @error_code == other.error_code && @assignment == other.assignment
+    end
+  end
+
+  class SharePollRequest
+    attr_accessor :session_id, :max_records, :max_wait_ms, :unknown_fields
+
+    def initialize(session_id: "", max_records: 0, max_wait_ms: 0)
+      @session_id = session_id
+      @max_records = max_records
+      @max_wait_ms = max_wait_ms
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @session_id)
+    if @max_records != 0
+      w.tag(2, 0)
+      w.varint(@max_records)
+    end
+    if @max_wait_ms != 0
+      w.tag(3, 0)
+      w.varint(@max_wait_ms)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @session_id = ""
+      @max_records = 0
+      @max_wait_ms = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @session_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @max_records = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 3
+        @max_wait_ms = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(SharePollRequest) && @session_id == other.session_id && @max_records == other.max_records && @max_wait_ms == other.max_wait_ms
+    end
+  end
+
+  class SharePollRecord
+    attr_accessor :topic, :partition, :offset, :key, :value, :headers, :timestamp_ms, :delivery_count, :null_key, :unknown_fields
+
+    def initialize(topic: "", partition: 0, offset: 0, key: "".b, value: "".b, headers: [], timestamp_ms: 0, delivery_count: 0, null_key: false)
+      @topic = topic
+      @partition = partition
+      @offset = offset
+      @key = key
+      @value = value
+      @headers = headers
+      @timestamp_ms = timestamp_ms
+      @delivery_count = delivery_count
+      @null_key = null_key
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @topic)
+    if @partition != 0
+      w.tag(2, 0)
+      w.varint(@partition)
+    end
+    if @offset != 0
+      w.tag(3, 0)
+      w.varint(@offset)
+    end
+    if @key.bytesize > 0
+      w.bytes_field(4, @key)
+    end
+    if @value.bytesize > 0
+      w.bytes_field(5, @value)
+    end
+    @headers.each { |x| w.bytes_field(6, x.marshal_dc) }
+    if @timestamp_ms != 0
+      w.tag(7, 0)
+      w.varint(@timestamp_ms)
+    end
+    if @delivery_count != 0
+      w.tag(8, 0)
+      w.varint(@delivery_count)
+    end
+    if @null_key
+      w.tag(9, 0)
+      w.varint((@null_key ? 1 : 0))
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @topic = ""
+      @partition = 0
+      @offset = 0
+      @key = "".b
+      @value = "".b
+      @headers = []
+      @timestamp_ms = 0
+      @delivery_count = 0
+      @null_key = false
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @topic = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @partition = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 3
+        @offset = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 4
+        @key = bytes_value
+      when 5
+        @value = bytes_value
+      when 6
+        item = Header.new
+        item.unmarshal_dc(bytes_value)
+        @headers << item
+      when 7
+        @timestamp_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 8
+        @delivery_count = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 9
+        @null_key = (varint_value != 0)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(SharePollRecord) && @topic == other.topic && @partition == other.partition && @offset == other.offset && @key == other.key && @value == other.value && @headers == other.headers && @timestamp_ms == other.timestamp_ms && @delivery_count == other.delivery_count && @null_key == other.null_key
+    end
+  end
+
+  class SharePollResponse
+    attr_accessor :records, :error_code, :unknown_fields
+
+    def initialize(records: [], error_code: 0)
+      @records = records
+      @error_code = error_code
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @records.each { |x| w.bytes_field(1, x.marshal_dc) }
+    if @error_code != 0
+      w.tag(2, 0)
+      w.varint(@error_code)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @records = []
+      @error_code = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        item = SharePollRecord.new
+        item.unmarshal_dc(bytes_value)
+        @records << item
+      when 2
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(SharePollResponse) && @records == other.records && @error_code == other.error_code
+    end
+  end
+
+  class ShareAckEntry
+    attr_accessor :topic, :partition, :offset, :ack_type, :unknown_fields
+
+    def initialize(topic: "", partition: 0, offset: 0, ack_type: 0)
+      @topic = topic
+      @partition = partition
+      @offset = offset
+      @ack_type = ack_type
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @topic)
+    if @partition != 0
+      w.tag(2, 0)
+      w.varint(@partition)
+    end
+    if @offset != 0
+      w.tag(3, 0)
+      w.varint(@offset)
+    end
+    if @ack_type != 0
+      w.tag(4, 0)
+      w.varint(@ack_type)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @topic = ""
+      @partition = 0
+      @offset = 0
+      @ack_type = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @topic = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @partition = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 3
+        @offset = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 4
+        @ack_type = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(ShareAckEntry) && @topic == other.topic && @partition == other.partition && @offset == other.offset && @ack_type == other.ack_type
+    end
+  end
+
+  class ShareAckRequest
+    attr_accessor :session_id, :entries, :unknown_fields
+
+    def initialize(session_id: "", entries: [])
+      @session_id = session_id
+      @entries = entries
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @session_id)
+    @entries.each { |x| w.bytes_field(2, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @session_id = ""
+      @entries = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @session_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        item = ShareAckEntry.new
+        item.unmarshal_dc(bytes_value)
+        @entries << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(ShareAckRequest) && @session_id == other.session_id && @entries == other.entries
+    end
+  end
+
+  class ShareAckResponse
+    attr_accessor :error_code, :unknown_fields
+
+    def initialize(error_code: 0)
+      @error_code = error_code
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @error_code != 0
+      w.tag(1, 0)
+      w.varint(@error_code)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @error_code = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(ShareAckResponse) && @error_code == other.error_code
+    end
+  end
+
+  class CloseShareGroupRequest
+    attr_accessor :session_id, :unknown_fields
+
+    def initialize(session_id: "")
+      @session_id = session_id
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @session_id)
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @session_id = ""
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @session_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(CloseShareGroupRequest) && @session_id == other.session_id
+    end
+  end
+
+  class CloseShareGroupResponse
+    attr_accessor :error_code, :unknown_fields
+
+    def initialize(error_code: 0)
+      @error_code = error_code
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @error_code != 0
+      w.tag(1, 0)
+      w.varint(@error_code)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @error_code = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(CloseShareGroupResponse) && @error_code == other.error_code
+    end
+  end
+
 end

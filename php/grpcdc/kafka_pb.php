@@ -4923,3 +4923,669 @@ class DescribeTransactionsResponse
     }
 }
 
+class OpenShareGroupRequest
+{
+    public string $groupId = "";
+    public array $topics = [];
+    public string $groupInstanceId = "";
+    public int $sessionTimeoutMs = 0;
+
+    public string $unknownFields = "";
+    public function __construct(string $groupId = "", array $topics = [], string $groupInstanceId = "", int $sessionTimeoutMs = 0)
+    {
+        $this->groupId = $groupId;
+        $this->topics = $topics;
+        $this->groupInstanceId = $groupInstanceId;
+        $this->sessionTimeoutMs = $sessionTimeoutMs;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->groupId);
+        foreach ($this->topics as $x) {
+            $w->bytesField(2, $x);
+        }
+        $w->stringField(3, $this->groupInstanceId);
+        if ($this->sessionTimeoutMs !== 0) {
+            $w->tag(4, 0);
+            $w->varint($this->sessionTimeoutMs);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->groupId = "";
+        $this->topics = [];
+        $this->groupInstanceId = "";
+        $this->sessionTimeoutMs = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->groupId = $bytesValue;
+                    break;
+                case 2:
+                    $this->topics[] = $bytesValue;
+                    break;
+                case 3:
+                    $this->groupInstanceId = $bytesValue;
+                    break;
+                case 4:
+                    $this->sessionTimeoutMs = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof OpenShareGroupRequest
+            && $this->groupId === $other->groupId
+            && $this->topics === $other->topics
+            && $this->groupInstanceId === $other->groupInstanceId
+            && $this->sessionTimeoutMs === $other->sessionTimeoutMs;
+    }
+}
+
+class OpenShareGroupResponse
+{
+    public string $sessionId = "";
+    public int $errorCode = 0;
+    public ?Assignment $assignment = null;
+
+    public string $unknownFields = "";
+    public function __construct(string $sessionId = "", int $errorCode = 0, ?Assignment $assignment = null)
+    {
+        $this->sessionId = $sessionId;
+        $this->errorCode = $errorCode;
+        $this->assignment = $assignment;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->sessionId);
+        if ($this->errorCode !== 0) {
+            $w->tag(2, 0);
+            $w->varint($this->errorCode);
+        }
+        if ($this->assignment !== null) {
+            $w->bytesField(3, $this->assignment->marshalDc());
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->sessionId = "";
+        $this->errorCode = 0;
+        $this->assignment = null;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->sessionId = $bytesValue;
+                    break;
+                case 2:
+                    $this->errorCode = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                case 3:
+                    $this->assignment = new Assignment();
+                    $this->assignment->unmarshalDc($bytesValue);
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof OpenShareGroupResponse
+            && $this->sessionId === $other->sessionId
+            && $this->errorCode === $other->errorCode
+            && $this->assignment === $other->assignment;
+    }
+}
+
+class SharePollRequest
+{
+    public string $sessionId = "";
+    public int $maxRecords = 0;
+    public int $maxWaitMs = 0;
+
+    public string $unknownFields = "";
+    public function __construct(string $sessionId = "", int $maxRecords = 0, int $maxWaitMs = 0)
+    {
+        $this->sessionId = $sessionId;
+        $this->maxRecords = $maxRecords;
+        $this->maxWaitMs = $maxWaitMs;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->sessionId);
+        if ($this->maxRecords !== 0) {
+            $w->tag(2, 0);
+            $w->varint($this->maxRecords);
+        }
+        if ($this->maxWaitMs !== 0) {
+            $w->tag(3, 0);
+            $w->varint($this->maxWaitMs);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->sessionId = "";
+        $this->maxRecords = 0;
+        $this->maxWaitMs = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->sessionId = $bytesValue;
+                    break;
+                case 2:
+                    $this->maxRecords = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                case 3:
+                    $this->maxWaitMs = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof SharePollRequest
+            && $this->sessionId === $other->sessionId
+            && $this->maxRecords === $other->maxRecords
+            && $this->maxWaitMs === $other->maxWaitMs;
+    }
+}
+
+class SharePollRecord
+{
+    public string $topic = "";
+    public int $partition = 0;
+    public int $offset = 0;
+    public string $key = "";
+    public string $value = "";
+    public array $headers = [];
+    public int $timestampMs = 0;
+    public int $deliveryCount = 0;
+    public bool $nullKey = false;
+
+    public string $unknownFields = "";
+    public function __construct(string $topic = "", int $partition = 0, int $offset = 0, string $key = "", string $value = "", array $headers = [], int $timestampMs = 0, int $deliveryCount = 0, bool $nullKey = false)
+    {
+        $this->topic = $topic;
+        $this->partition = $partition;
+        $this->offset = $offset;
+        $this->key = $key;
+        $this->value = $value;
+        $this->headers = $headers;
+        $this->timestampMs = $timestampMs;
+        $this->deliveryCount = $deliveryCount;
+        $this->nullKey = $nullKey;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->topic);
+        if ($this->partition !== 0) {
+            $w->tag(2, 0);
+            $w->varint($this->partition);
+        }
+        if ($this->offset !== 0) {
+            $w->tag(3, 0);
+            $w->varint($this->offset);
+        }
+        if (strlen($this->key) > 0) {
+            $w->bytesField(4, $this->key);
+        }
+        if (strlen($this->value) > 0) {
+            $w->bytesField(5, $this->value);
+        }
+        foreach ($this->headers as $x) {
+            $w->bytesField(6, $x->marshalDc());
+        }
+        if ($this->timestampMs !== 0) {
+            $w->tag(7, 0);
+            $w->varint($this->timestampMs);
+        }
+        if ($this->deliveryCount !== 0) {
+            $w->tag(8, 0);
+            $w->varint($this->deliveryCount);
+        }
+        if ($this->nullKey) {
+            $w->tag(9, 0);
+            $w->varint(($this->nullKey ? 1 : 0));
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->topic = "";
+        $this->partition = 0;
+        $this->offset = 0;
+        $this->key = "";
+        $this->value = "";
+        $this->headers = [];
+        $this->timestampMs = 0;
+        $this->deliveryCount = 0;
+        $this->nullKey = false;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->topic = $bytesValue;
+                    break;
+                case 2:
+                    $this->partition = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                case 3:
+                    $this->offset = $varintValue;
+                    break;
+                case 4:
+                    $this->key = $bytesValue;
+                    break;
+                case 5:
+                    $this->value = $bytesValue;
+                    break;
+                case 6:
+                    $item = new Header();
+                    $item->unmarshalDc($bytesValue);
+                    $this->headers[] = $item;
+                    break;
+                case 7:
+                    $this->timestampMs = $varintValue;
+                    break;
+                case 8:
+                    $this->deliveryCount = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                case 9:
+                    $this->nullKey = ($varintValue !== 0);
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof SharePollRecord
+            && $this->topic === $other->topic
+            && $this->partition === $other->partition
+            && $this->offset === $other->offset
+            && $this->key === $other->key
+            && $this->value === $other->value
+            && $this->headers === $other->headers
+            && $this->timestampMs === $other->timestampMs
+            && $this->deliveryCount === $other->deliveryCount
+            && $this->nullKey === $other->nullKey;
+    }
+}
+
+class SharePollResponse
+{
+    public array $records = [];
+    public int $errorCode = 0;
+
+    public string $unknownFields = "";
+    public function __construct(array $records = [], int $errorCode = 0)
+    {
+        $this->records = $records;
+        $this->errorCode = $errorCode;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        foreach ($this->records as $x) {
+            $w->bytesField(1, $x->marshalDc());
+        }
+        if ($this->errorCode !== 0) {
+            $w->tag(2, 0);
+            $w->varint($this->errorCode);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->records = [];
+        $this->errorCode = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $item = new SharePollRecord();
+                    $item->unmarshalDc($bytesValue);
+                    $this->records[] = $item;
+                    break;
+                case 2:
+                    $this->errorCode = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof SharePollResponse
+            && $this->records === $other->records
+            && $this->errorCode === $other->errorCode;
+    }
+}
+
+class ShareAckEntry
+{
+    public string $topic = "";
+    public int $partition = 0;
+    public int $offset = 0;
+    public int $ackType = 0;
+
+    public string $unknownFields = "";
+    public function __construct(string $topic = "", int $partition = 0, int $offset = 0, int $ackType = 0)
+    {
+        $this->topic = $topic;
+        $this->partition = $partition;
+        $this->offset = $offset;
+        $this->ackType = $ackType;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->topic);
+        if ($this->partition !== 0) {
+            $w->tag(2, 0);
+            $w->varint($this->partition);
+        }
+        if ($this->offset !== 0) {
+            $w->tag(3, 0);
+            $w->varint($this->offset);
+        }
+        if ($this->ackType !== 0) {
+            $w->tag(4, 0);
+            $w->varint($this->ackType);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->topic = "";
+        $this->partition = 0;
+        $this->offset = 0;
+        $this->ackType = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->topic = $bytesValue;
+                    break;
+                case 2:
+                    $this->partition = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                case 3:
+                    $this->offset = $varintValue;
+                    break;
+                case 4:
+                    $this->ackType = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof ShareAckEntry
+            && $this->topic === $other->topic
+            && $this->partition === $other->partition
+            && $this->offset === $other->offset
+            && $this->ackType === $other->ackType;
+    }
+}
+
+class ShareAckRequest
+{
+    public string $sessionId = "";
+    public array $entries = [];
+
+    public string $unknownFields = "";
+    public function __construct(string $sessionId = "", array $entries = [])
+    {
+        $this->sessionId = $sessionId;
+        $this->entries = $entries;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->sessionId);
+        foreach ($this->entries as $x) {
+            $w->bytesField(2, $x->marshalDc());
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->sessionId = "";
+        $this->entries = [];
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->sessionId = $bytesValue;
+                    break;
+                case 2:
+                    $item = new ShareAckEntry();
+                    $item->unmarshalDc($bytesValue);
+                    $this->entries[] = $item;
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof ShareAckRequest
+            && $this->sessionId === $other->sessionId
+            && $this->entries === $other->entries;
+    }
+}
+
+class ShareAckResponse
+{
+    public int $errorCode = 0;
+
+    public string $unknownFields = "";
+    public function __construct(int $errorCode = 0)
+    {
+        $this->errorCode = $errorCode;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        if ($this->errorCode !== 0) {
+            $w->tag(1, 0);
+            $w->varint($this->errorCode);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->errorCode = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->errorCode = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof ShareAckResponse
+            && $this->errorCode === $other->errorCode;
+    }
+}
+
+class CloseShareGroupRequest
+{
+    public string $sessionId = "";
+
+    public string $unknownFields = "";
+    public function __construct(string $sessionId = "")
+    {
+        $this->sessionId = $sessionId;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->sessionId);
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->sessionId = "";
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->sessionId = $bytesValue;
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof CloseShareGroupRequest
+            && $this->sessionId === $other->sessionId;
+    }
+}
+
+class CloseShareGroupResponse
+{
+    public int $errorCode = 0;
+
+    public string $unknownFields = "";
+    public function __construct(int $errorCode = 0)
+    {
+        $this->errorCode = $errorCode;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        if ($this->errorCode !== 0) {
+            $w->tag(1, 0);
+            $w->varint($this->errorCode);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->errorCode = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->errorCode = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof CloseShareGroupResponse
+            && $this->errorCode === $other->errorCode;
+    }
+}
+

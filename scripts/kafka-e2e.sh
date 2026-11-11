@@ -314,6 +314,8 @@ transaction.state.log.replication.factor=1
 transaction.state.log.min.isr=1
 group.initial.rebalance.delay.ms=0
 num.partitions=1
+share.coordinator.state.topic.replication.factor=1
+share.coordinator.state.topic.min.isr=1
 EOF
     local cluster_id
     cluster_id="$("$KAFKA_HOME/bin/kafka-storage.sh" random-uuid)" || return 1
@@ -436,7 +438,7 @@ run_native_legs() {
     # proxy. Verified against Apache Kafka (admin semantics
     # are broker-specific; the proxy suites cover Redpanda).
     run "rust direct e2e (apache kafka)" env KAFKA_PROXY_E2E_BROKER="$KAFKA_ADDR" \
-        bash -c "cd '$ROOT/rust' && cargo test --test kafka_direct_e2e --test kafka_admin_e2e --test kafka_kip848_e2e"
+        bash -c "cd '$ROOT/rust' && cargo test --test kafka_direct_e2e --test kafka_admin_e2e --test kafka_kip848_e2e --test kafka_share_e2e"
     echo "== building libkafka_native (cdylib)"
     (cd "$ROOT/crates/kafka-native" && cargo build) || { FAILED=1; return 1; }
     run "python native e2e (apache kafka)" env \
@@ -474,6 +476,11 @@ run_native_legs() {
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/php' && php -d ffi.enable=true tests/main.php TestKafkaNative"
+    run "js differential e2e (proxy vs native)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_ADDR" \
+        GRPC_DC_KAFKA_NATIVE_ADDON="$TMP/kafka_native_addon.node" \
+        bash -c "cd '$ROOT/js' && node --test test/kafka_native_differential.test.js"
     run "python differential e2e (proxy vs native)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_ADDR" \

@@ -68,7 +68,17 @@ both: classic fences a duplicate instance at JoinGroup, while
 under KIP-848 the broker rejects the duplicate join until the
 owner leaves, so a duplicate static subscribe inside one
 service supersedes the older member itself. Share groups
-(KIP-932) are not implemented.
+(KIP-932) are implemented as session-based RPCs
+(`OpenShareGroup` / `SharePoll` / `ShareAck` /
+`CloseShareGroup`), because acknowledgements must flow back
+from the client — something a server-stream cannot carry.
+Records are acquired with delivery counts; `ACCEPT` retires
+them, `RELEASE` redelivers with the count incremented.
+Share partitions take their start offset when first fetched,
+so records produced before the first poll of a fresh share
+partition are not delivered (verified against the reference
+share consumer). Member ids are client-generated Kafka
+Uuids, as the protocol requires.
 
 ## Service surface
 

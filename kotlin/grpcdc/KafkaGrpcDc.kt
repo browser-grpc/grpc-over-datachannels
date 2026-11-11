@@ -202,6 +202,30 @@ object KafkaGrpcDc {
             return resp
         }
 
+        fun OpenShareGroup(req: OpenShareGroupRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): OpenShareGroupResponse {
+            val resp = OpenShareGroupResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout)
+            return resp
+        }
+
+        fun SharePoll(req: SharePollRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): SharePollResponse {
+            val resp = SharePollResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout)
+            return resp
+        }
+
+        fun ShareAck(req: ShareAckRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ShareAckResponse {
+            val resp = ShareAckResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout)
+            return resp
+        }
+
+        fun CloseShareGroup(req: CloseShareGroupRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CloseShareGroupResponse {
+            val resp = CloseShareGroupResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout)
+            return resp
+        }
+
         // -- async (coroutine / CompletableFuture) surface ---------------
 
         suspend fun MetadataAsync(req: MetadataRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): MetadataResponse {
@@ -426,6 +450,38 @@ object KafkaGrpcDc {
             return AsyncPump.future { DescribeTransactions(req, metadata, timeout) }
         }
 
+        suspend fun OpenShareGroupAsync(req: OpenShareGroupRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): OpenShareGroupResponse {
+            return AsyncPump.await(OpenShareGroupFuture(req, metadata, timeout))
+        }
+
+        fun OpenShareGroupFuture(req: OpenShareGroupRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<OpenShareGroupResponse> {
+            return AsyncPump.future { OpenShareGroup(req, metadata, timeout) }
+        }
+
+        suspend fun SharePollAsync(req: SharePollRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): SharePollResponse {
+            return AsyncPump.await(SharePollFuture(req, metadata, timeout))
+        }
+
+        fun SharePollFuture(req: SharePollRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<SharePollResponse> {
+            return AsyncPump.future { SharePoll(req, metadata, timeout) }
+        }
+
+        suspend fun ShareAckAsync(req: ShareAckRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): ShareAckResponse {
+            return AsyncPump.await(ShareAckFuture(req, metadata, timeout))
+        }
+
+        fun ShareAckFuture(req: ShareAckRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<ShareAckResponse> {
+            return AsyncPump.future { ShareAck(req, metadata, timeout) }
+        }
+
+        suspend fun CloseShareGroupAsync(req: CloseShareGroupRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CloseShareGroupResponse {
+            return AsyncPump.await(CloseShareGroupFuture(req, metadata, timeout))
+        }
+
+        fun CloseShareGroupFuture(req: CloseShareGroupRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<CloseShareGroupResponse> {
+            return AsyncPump.future { CloseShareGroup(req, metadata, timeout) }
+        }
+
     }
 
     /** Server-streaming sink passed to service implementations. */
@@ -467,6 +523,10 @@ object KafkaGrpcDc {
         fun DeleteAcls(ctx: Endpoint.CallContext, req: DeleteAclsRequest): DeleteAclsResponse
         fun ListTransactions(ctx: Endpoint.CallContext, req: ListTransactionsRequest): ListTransactionsResponse
         fun DescribeTransactions(ctx: Endpoint.CallContext, req: DescribeTransactionsRequest): DescribeTransactionsResponse
+        fun OpenShareGroup(ctx: Endpoint.CallContext, req: OpenShareGroupRequest): OpenShareGroupResponse
+        fun SharePoll(ctx: Endpoint.CallContext, req: SharePollRequest): SharePollResponse
+        fun ShareAck(ctx: Endpoint.CallContext, req: ShareAckRequest): ShareAckResponse
+        fun CloseShareGroup(ctx: Endpoint.CallContext, req: CloseShareGroupRequest): CloseShareGroupResponse
     }
 
     /** Async service implementation interface for grpcdc.kafka.v1.Kafka. */
@@ -496,6 +556,10 @@ object KafkaGrpcDc {
         suspend fun DeleteAclsAsync(ctx: Endpoint.CallContext, req: DeleteAclsRequest): DeleteAclsResponse
         suspend fun ListTransactionsAsync(ctx: Endpoint.CallContext, req: ListTransactionsRequest): ListTransactionsResponse
         suspend fun DescribeTransactionsAsync(ctx: Endpoint.CallContext, req: DescribeTransactionsRequest): DescribeTransactionsResponse
+        suspend fun OpenShareGroupAsync(ctx: Endpoint.CallContext, req: OpenShareGroupRequest): OpenShareGroupResponse
+        suspend fun SharePollAsync(ctx: Endpoint.CallContext, req: SharePollRequest): SharePollResponse
+        suspend fun ShareAckAsync(ctx: Endpoint.CallContext, req: ShareAckRequest): ShareAckResponse
+        suspend fun CloseShareGroupAsync(ctx: Endpoint.CallContext, req: CloseShareGroupRequest): CloseShareGroupResponse
     }
 
     private class KafkaConsumeServerImpl(
@@ -615,6 +679,22 @@ object KafkaGrpcDc {
 
         override fun DescribeTransactions(ctx: Endpoint.CallContext, req: DescribeTransactionsRequest): DescribeTransactionsResponse {
             return AsyncPump.runSuspend { impl.DescribeTransactionsAsync(ctx, req) }
+        }
+
+        override fun OpenShareGroup(ctx: Endpoint.CallContext, req: OpenShareGroupRequest): OpenShareGroupResponse {
+            return AsyncPump.runSuspend { impl.OpenShareGroupAsync(ctx, req) }
+        }
+
+        override fun SharePoll(ctx: Endpoint.CallContext, req: SharePollRequest): SharePollResponse {
+            return AsyncPump.runSuspend { impl.SharePollAsync(ctx, req) }
+        }
+
+        override fun ShareAck(ctx: Endpoint.CallContext, req: ShareAckRequest): ShareAckResponse {
+            return AsyncPump.runSuspend { impl.ShareAckAsync(ctx, req) }
+        }
+
+        override fun CloseShareGroup(ctx: Endpoint.CallContext, req: CloseShareGroupRequest): CloseShareGroupResponse {
+            return AsyncPump.runSuspend { impl.CloseShareGroupAsync(ctx, req) }
         }
 
     }
@@ -749,6 +829,26 @@ object KafkaGrpcDc {
                         val req = DescribeTransactionsRequest()
                         reqs.recvInto(req)
                         sink.send(impl.DescribeTransactions(ctx, req).marshalDc())
+                    },
+                    Server.Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Server.KIND_UNARY) { ctx, reqs, sink ->
+                        val req = OpenShareGroupRequest()
+                        reqs.recvInto(req)
+                        sink.send(impl.OpenShareGroup(ctx, req).marshalDc())
+                    },
+                    Server.Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", Server.KIND_UNARY) { ctx, reqs, sink ->
+                        val req = SharePollRequest()
+                        reqs.recvInto(req)
+                        sink.send(impl.SharePoll(ctx, req).marshalDc())
+                    },
+                    Server.Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", Server.KIND_UNARY) { ctx, reqs, sink ->
+                        val req = ShareAckRequest()
+                        reqs.recvInto(req)
+                        sink.send(impl.ShareAck(ctx, req).marshalDc())
+                    },
+                    Server.Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Server.KIND_UNARY) { ctx, reqs, sink ->
+                        val req = CloseShareGroupRequest()
+                        reqs.recvInto(req)
+                        sink.send(impl.CloseShareGroup(ctx, req).marshalDc())
                     }
                 )
             )

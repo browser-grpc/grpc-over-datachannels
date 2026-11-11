@@ -375,6 +375,26 @@ class KafkaClient
         return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", $req, new \KafkaPb\DescribeTransactionsResponse(), $metadata, $timeout);
     }
 
+    public function OpenShareGroup(\KafkaPb\OpenShareGroupRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\OpenShareGroupResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", $req, new \KafkaPb\OpenShareGroupResponse(), $metadata, $timeout);
+    }
+
+    public function SharePoll(\KafkaPb\SharePollRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\SharePollResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/SharePoll", $req, new \KafkaPb\SharePollResponse(), $metadata, $timeout);
+    }
+
+    public function ShareAck(\KafkaPb\ShareAckRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\ShareAckResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/ShareAck", $req, new \KafkaPb\ShareAckResponse(), $metadata, $timeout);
+    }
+
+    public function CloseShareGroup(\KafkaPb\CloseShareGroupRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\CloseShareGroupResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", $req, new \KafkaPb\CloseShareGroupResponse(), $metadata, $timeout);
+    }
+
 }
 
 // Fiber client: wraps a Grpcdc\FiberChannel (a sync Channel is wrapped).
@@ -512,6 +532,26 @@ class KafkaClientFiber
     public function DescribeTransactions(\KafkaPb\DescribeTransactionsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DescribeTransactionsResponse
     {
         return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", $req, new \KafkaPb\DescribeTransactionsResponse(), $metadata, $timeout);
+    }
+
+    public function OpenShareGroup(\KafkaPb\OpenShareGroupRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\OpenShareGroupResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", $req, new \KafkaPb\OpenShareGroupResponse(), $metadata, $timeout);
+    }
+
+    public function SharePoll(\KafkaPb\SharePollRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\SharePollResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/SharePoll", $req, new \KafkaPb\SharePollResponse(), $metadata, $timeout);
+    }
+
+    public function ShareAck(\KafkaPb\ShareAckRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\ShareAckResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/ShareAck", $req, new \KafkaPb\ShareAckResponse(), $metadata, $timeout);
+    }
+
+    public function CloseShareGroup(\KafkaPb\CloseShareGroupRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\CloseShareGroupResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", $req, new \KafkaPb\CloseShareGroupResponse(), $metadata, $timeout);
     }
 
 }
@@ -666,6 +706,30 @@ function registerKafkaServer(\Grpcdc\Server $server, object $impl): void
         $sink->send($resp->marshalDc());
     };
 
+    $open_share_groupHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\OpenShareGroupRequest());
+        $resp = $impl->OpenShareGroup($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $share_pollHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\SharePollRequest());
+        $resp = $impl->SharePoll($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $share_ackHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\ShareAckRequest());
+        $resp = $impl->ShareAck($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $close_share_groupHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\CloseShareGroupRequest());
+        $resp = $impl->CloseShareGroup($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
     $server->registerService(new \Grpcdc\ServiceDesc(
         "grpcdc.kafka.v1.Kafka",
         [
@@ -694,6 +758,10 @@ function registerKafkaServer(\Grpcdc\Server $server, object $impl): void
             new \Grpcdc\Method("DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", \Grpcdc\Server::KIND_UNARY, $delete_aclsHandler),
             new \Grpcdc\Method("ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", \Grpcdc\Server::KIND_UNARY, $list_transactionsHandler),
             new \Grpcdc\Method("DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", \Grpcdc\Server::KIND_UNARY, $describe_transactionsHandler),
+            new \Grpcdc\Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", \Grpcdc\Server::KIND_UNARY, $open_share_groupHandler),
+            new \Grpcdc\Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", \Grpcdc\Server::KIND_UNARY, $share_pollHandler),
+            new \Grpcdc\Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", \Grpcdc\Server::KIND_UNARY, $share_ackHandler),
+            new \Grpcdc\Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", \Grpcdc\Server::KIND_UNARY, $close_share_groupHandler),
         ]
     ));
 }

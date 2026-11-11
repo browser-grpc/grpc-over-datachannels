@@ -419,6 +419,70 @@ public final class KafkaGrpcDc {
             channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, resp, metadata, timeout);
             return resp;
         }
+        public OpenShareGroupResponse OpenShareGroup(OpenShareGroupRequest req, Map<String, String> metadata) throws Exception {
+            OpenShareGroupResponse resp = new OpenShareGroupResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata);
+            return resp;
+        }
+
+        public OpenShareGroupResponse OpenShareGroup(OpenShareGroupRequest req) throws Exception {
+            return OpenShareGroup(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public OpenShareGroupResponse OpenShareGroup(OpenShareGroupRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            OpenShareGroupResponse resp = new OpenShareGroupResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout);
+            return resp;
+        }
+        public SharePollResponse SharePoll(SharePollRequest req, Map<String, String> metadata) throws Exception {
+            SharePollResponse resp = new SharePollResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata);
+            return resp;
+        }
+
+        public SharePollResponse SharePoll(SharePollRequest req) throws Exception {
+            return SharePoll(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public SharePollResponse SharePoll(SharePollRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            SharePollResponse resp = new SharePollResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout);
+            return resp;
+        }
+        public ShareAckResponse ShareAck(ShareAckRequest req, Map<String, String> metadata) throws Exception {
+            ShareAckResponse resp = new ShareAckResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata);
+            return resp;
+        }
+
+        public ShareAckResponse ShareAck(ShareAckRequest req) throws Exception {
+            return ShareAck(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public ShareAckResponse ShareAck(ShareAckRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            ShareAckResponse resp = new ShareAckResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout);
+            return resp;
+        }
+        public CloseShareGroupResponse CloseShareGroup(CloseShareGroupRequest req, Map<String, String> metadata) throws Exception {
+            CloseShareGroupResponse resp = new CloseShareGroupResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata);
+            return resp;
+        }
+
+        public CloseShareGroupResponse CloseShareGroup(CloseShareGroupRequest req) throws Exception {
+            return CloseShareGroup(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public CloseShareGroupResponse CloseShareGroup(CloseShareGroupRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            CloseShareGroupResponse resp = new CloseShareGroupResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout);
+            return resp;
+        }
         public CompletableFuture<MetadataResponse> MetadataAsync(MetadataRequest req, Map<String, String> metadata) {
             return CompletableFuture.supplyAsync(() -> {
                 try {
@@ -762,6 +826,58 @@ public final class KafkaGrpcDc {
         public CompletableFuture<DescribeTransactionsResponse> DescribeTransactionsAsync(DescribeTransactionsRequest req) {
             return DescribeTransactionsAsync(req, null);
         }
+        public CompletableFuture<OpenShareGroupResponse> OpenShareGroupAsync(OpenShareGroupRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return OpenShareGroup(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<OpenShareGroupResponse> OpenShareGroupAsync(OpenShareGroupRequest req) {
+            return OpenShareGroupAsync(req, null);
+        }
+        public CompletableFuture<SharePollResponse> SharePollAsync(SharePollRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return SharePoll(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<SharePollResponse> SharePollAsync(SharePollRequest req) {
+            return SharePollAsync(req, null);
+        }
+        public CompletableFuture<ShareAckResponse> ShareAckAsync(ShareAckRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return ShareAck(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<ShareAckResponse> ShareAckAsync(ShareAckRequest req) {
+            return ShareAckAsync(req, null);
+        }
+        public CompletableFuture<CloseShareGroupResponse> CloseShareGroupAsync(CloseShareGroupRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return CloseShareGroup(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<CloseShareGroupResponse> CloseShareGroupAsync(CloseShareGroupRequest req) {
+            return CloseShareGroupAsync(req, null);
+        }
     }
 
     /** Receiving stream for Kafka.Consume: recv() throws EOFException at end. Close to abandon early (RST). */
@@ -863,6 +979,10 @@ public final class KafkaGrpcDc {
         DeleteAclsResponse DeleteAcls(Endpoint.CallContext ctx, DeleteAclsRequest req) throws Exception;
         ListTransactionsResponse ListTransactions(Endpoint.CallContext ctx, ListTransactionsRequest req) throws Exception;
         DescribeTransactionsResponse DescribeTransactions(Endpoint.CallContext ctx, DescribeTransactionsRequest req) throws Exception;
+        OpenShareGroupResponse OpenShareGroup(Endpoint.CallContext ctx, OpenShareGroupRequest req) throws Exception;
+        SharePollResponse SharePoll(Endpoint.CallContext ctx, SharePollRequest req) throws Exception;
+        ShareAckResponse ShareAck(Endpoint.CallContext ctx, ShareAckRequest req) throws Exception;
+        CloseShareGroupResponse CloseShareGroup(Endpoint.CallContext ctx, CloseShareGroupRequest req) throws Exception;
     }
 
     /** Server-streaming sink passed to service implementations. */
@@ -940,6 +1060,10 @@ public final class KafkaGrpcDc {
         CompletableFuture<DeleteAclsResponse> DeleteAclsAsync(Endpoint.CallContext ctx, DeleteAclsRequest req);
         CompletableFuture<ListTransactionsResponse> ListTransactionsAsync(Endpoint.CallContext ctx, ListTransactionsRequest req);
         CompletableFuture<DescribeTransactionsResponse> DescribeTransactionsAsync(Endpoint.CallContext ctx, DescribeTransactionsRequest req);
+        CompletableFuture<OpenShareGroupResponse> OpenShareGroupAsync(Endpoint.CallContext ctx, OpenShareGroupRequest req);
+        CompletableFuture<SharePollResponse> SharePollAsync(Endpoint.CallContext ctx, SharePollRequest req);
+        CompletableFuture<ShareAckResponse> ShareAckAsync(Endpoint.CallContext ctx, ShareAckRequest req);
+        CompletableFuture<CloseShareGroupResponse> CloseShareGroupAsync(Endpoint.CallContext ctx, CloseShareGroupRequest req);
     }
 
     private static final class KafkaServerAsyncAdapter implements KafkaServer {
@@ -1199,6 +1323,46 @@ public final class KafkaGrpcDc {
             }
         }
 
+        public OpenShareGroupResponse OpenShareGroup(Endpoint.CallContext ctx, OpenShareGroupRequest req) throws Exception {
+            try {
+                return impl.OpenShareGroupAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public SharePollResponse SharePoll(Endpoint.CallContext ctx, SharePollRequest req) throws Exception {
+            try {
+                return impl.SharePollAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public ShareAckResponse ShareAck(Endpoint.CallContext ctx, ShareAckRequest req) throws Exception {
+            try {
+                return impl.ShareAckAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public CloseShareGroupResponse CloseShareGroup(Endpoint.CallContext ctx, CloseShareGroupRequest req) throws Exception {
+            try {
+                return impl.CloseShareGroupAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
     }
 
     /** Register an implementation of grpcdc.kafka.v1.Kafka on a Server. */
@@ -1330,6 +1494,26 @@ public final class KafkaGrpcDc {
                         DescribeTransactionsRequest req = new DescribeTransactionsRequest();
                         reqs.recvInto(req);
                         sink.send(impl.DescribeTransactions(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        OpenShareGroupRequest req = new OpenShareGroupRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.OpenShareGroup(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        SharePollRequest req = new SharePollRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.SharePoll(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        ShareAckRequest req = new ShareAckRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.ShareAck(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        CloseShareGroupRequest req = new CloseShareGroupRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.CloseShareGroup(ctx, req).marshalDc());
                     })
                 )));
     }

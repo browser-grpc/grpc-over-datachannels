@@ -218,6 +218,57 @@ class TestKafkaDifferential(unittest.TestCase):
             self.assertEqual(self._consume_proxy(offset, 3), payload)
             offset += 3
 
+    def test_differential_transactional_read_committed(self):
+        # Transactional produce through one form factor,
+        # read_committed consume through the other: committed
+        # records visible, aborted ones invisible.
+        def txn(self_client, label, commit):
+            opened = self_client.OpenProducer(
+                kafka_pb.OpenProducerRequest(
+                    transactional_id=unique(f"grpc-dc-diff-txn-{label}"),
+                    transaction_timeout_ms=60_000))
+            self.assertEqual(opened.error_code, 0, opened)
+            produced = self_client.Produce(kafka_pb.ProduceRequest(
+                topic=self.topic, partition=0,
+                records=[kafka_pb.Record(value=label.encode())],
+                acks=kafka_pb.Acks.ACKS_ALL,
+                session_id=opened.session_id))
+            self.assertEqual(produced.error_code, 0, produced)
+            ended = self_client.EndTransaction(
+                kafka_pb.EndTransactionRequest(
+                    session_id=opened.session_id, commit=commit))
+            self.assertEqual(ended.error_code, 0, ended)
+
+        def consume_committed(client, want, timeout_s=20):
+            values = []
+            stream = client.Consume(kafka_pb.ConsumeRequest(
+                topic=self.topic, partition=0, offset=-2,
+                max_records=10, max_wait_ms=1_000,
+                read_committed=True))
+            deadline = time.time() + timeout_s
+            try:
+                for chunk in stream:
+                    for rec in chunk.records:
+                        values.append(rec.value)
+                    if len(values) >= want or time.time() > deadline:
+                        break
+            finally:
+                close = getattr(stream, "close", None)
+                if close:
+                    close()
+            return values
+
+        txn(self.proxy, "tx-proxy-commit", True)
+        txn(self.proxy, "tx-proxy-abort", False)
+        self.assertEqual(
+            consume_committed(self.native, 1), [b"tx-proxy-commit"])
+
+        txn(self.native, "tx-native-commit", True)
+        txn(self.native, "tx-native-abort", False)
+        self.assertEqual(
+            consume_committed(self.proxy, 2),
+            [b"tx-proxy-commit", b"tx-native-commit"])
+
     def test_differential_group_commit_parity(self):
         # Group state written through one form factor must be
         # visible through the other: native subscribes and

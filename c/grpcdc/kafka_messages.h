@@ -160,6 +160,16 @@ typedef struct ListTransactionsResponse ListTransactionsResponse;
 typedef struct DescribeTransactionsRequest DescribeTransactionsRequest;
 typedef struct DescribedTransaction DescribedTransaction;
 typedef struct DescribeTransactionsResponse DescribeTransactionsResponse;
+typedef struct OpenShareGroupRequest OpenShareGroupRequest;
+typedef struct OpenShareGroupResponse OpenShareGroupResponse;
+typedef struct SharePollRequest SharePollRequest;
+typedef struct SharePollRecord SharePollRecord;
+typedef struct SharePollResponse SharePollResponse;
+typedef struct ShareAckEntry ShareAckEntry;
+typedef struct ShareAckRequest ShareAckRequest;
+typedef struct ShareAckResponse ShareAckResponse;
+typedef struct CloseShareGroupRequest CloseShareGroupRequest;
+typedef struct CloseShareGroupResponse CloseShareGroupResponse;
 
 struct Header {
     char * key;
@@ -691,6 +701,80 @@ struct DescribeTransactionsResponse {
     KafkaPbBytes unknown_fields;
 };
 
+struct OpenShareGroupRequest {
+    char * group_id;
+    char * * topics;
+    size_t topics_count;
+    char * group_instance_id;
+    int32_t session_timeout_ms;
+    KafkaPbBytes unknown_fields;
+};
+
+struct OpenShareGroupResponse {
+    char * session_id;
+    int32_t error_code;
+    Assignment * assignment;
+    KafkaPbBytes unknown_fields;
+};
+
+struct SharePollRequest {
+    char * session_id;
+    int32_t max_records;
+    int32_t max_wait_ms;
+    KafkaPbBytes unknown_fields;
+};
+
+struct SharePollRecord {
+    char * topic;
+    int32_t partition;
+    int64_t offset;
+    KafkaPbBytes key;
+    KafkaPbBytes value;
+    Header * headers;
+    size_t headers_count;
+    int64_t timestamp_ms;
+    int32_t delivery_count;
+    bool null_key;
+    KafkaPbBytes unknown_fields;
+};
+
+struct SharePollResponse {
+    SharePollRecord * records;
+    size_t records_count;
+    int32_t error_code;
+    KafkaPbBytes unknown_fields;
+};
+
+struct ShareAckEntry {
+    char * topic;
+    int32_t partition;
+    int64_t offset;
+    int32_t ack_type;
+    KafkaPbBytes unknown_fields;
+};
+
+struct ShareAckRequest {
+    char * session_id;
+    ShareAckEntry * entries;
+    size_t entries_count;
+    KafkaPbBytes unknown_fields;
+};
+
+struct ShareAckResponse {
+    int32_t error_code;
+    KafkaPbBytes unknown_fields;
+};
+
+struct CloseShareGroupRequest {
+    char * session_id;
+    KafkaPbBytes unknown_fields;
+};
+
+struct CloseShareGroupResponse {
+    int32_t error_code;
+    KafkaPbBytes unknown_fields;
+};
+
 static inline void Header_init(Header *m);
 static inline KafkaPbBytes Header_marshal(const Header *m);
 static inline void Header_unmarshal(Header *m, const uint8_t *data, size_t len);
@@ -907,6 +991,36 @@ static inline void DescribedTransaction_unmarshal(DescribedTransaction *m, const
 static inline void DescribeTransactionsResponse_init(DescribeTransactionsResponse *m);
 static inline KafkaPbBytes DescribeTransactionsResponse_marshal(const DescribeTransactionsResponse *m);
 static inline void DescribeTransactionsResponse_unmarshal(DescribeTransactionsResponse *m, const uint8_t *data, size_t len);
+static inline void OpenShareGroupRequest_init(OpenShareGroupRequest *m);
+static inline KafkaPbBytes OpenShareGroupRequest_marshal(const OpenShareGroupRequest *m);
+static inline void OpenShareGroupRequest_unmarshal(OpenShareGroupRequest *m, const uint8_t *data, size_t len);
+static inline void OpenShareGroupResponse_init(OpenShareGroupResponse *m);
+static inline KafkaPbBytes OpenShareGroupResponse_marshal(const OpenShareGroupResponse *m);
+static inline void OpenShareGroupResponse_unmarshal(OpenShareGroupResponse *m, const uint8_t *data, size_t len);
+static inline void SharePollRequest_init(SharePollRequest *m);
+static inline KafkaPbBytes SharePollRequest_marshal(const SharePollRequest *m);
+static inline void SharePollRequest_unmarshal(SharePollRequest *m, const uint8_t *data, size_t len);
+static inline void SharePollRecord_init(SharePollRecord *m);
+static inline KafkaPbBytes SharePollRecord_marshal(const SharePollRecord *m);
+static inline void SharePollRecord_unmarshal(SharePollRecord *m, const uint8_t *data, size_t len);
+static inline void SharePollResponse_init(SharePollResponse *m);
+static inline KafkaPbBytes SharePollResponse_marshal(const SharePollResponse *m);
+static inline void SharePollResponse_unmarshal(SharePollResponse *m, const uint8_t *data, size_t len);
+static inline void ShareAckEntry_init(ShareAckEntry *m);
+static inline KafkaPbBytes ShareAckEntry_marshal(const ShareAckEntry *m);
+static inline void ShareAckEntry_unmarshal(ShareAckEntry *m, const uint8_t *data, size_t len);
+static inline void ShareAckRequest_init(ShareAckRequest *m);
+static inline KafkaPbBytes ShareAckRequest_marshal(const ShareAckRequest *m);
+static inline void ShareAckRequest_unmarshal(ShareAckRequest *m, const uint8_t *data, size_t len);
+static inline void ShareAckResponse_init(ShareAckResponse *m);
+static inline KafkaPbBytes ShareAckResponse_marshal(const ShareAckResponse *m);
+static inline void ShareAckResponse_unmarshal(ShareAckResponse *m, const uint8_t *data, size_t len);
+static inline void CloseShareGroupRequest_init(CloseShareGroupRequest *m);
+static inline KafkaPbBytes CloseShareGroupRequest_marshal(const CloseShareGroupRequest *m);
+static inline void CloseShareGroupRequest_unmarshal(CloseShareGroupRequest *m, const uint8_t *data, size_t len);
+static inline void CloseShareGroupResponse_init(CloseShareGroupResponse *m);
+static inline KafkaPbBytes CloseShareGroupResponse_marshal(const CloseShareGroupResponse *m);
+static inline void CloseShareGroupResponse_unmarshal(CloseShareGroupResponse *m, const uint8_t *data, size_t len);
 
 static inline void Header_init(Header *m) {
     memset(m, 0, sizeof(*m));
@@ -4106,6 +4220,446 @@ static inline void DescribeTransactionsResponse_unmarshal(DescribeTransactionsRe
                     DescribedTransaction_unmarshal(&item, field.bytes_value.data, field.bytes_value.len);
                     m->transactions = (DescribedTransaction *)realloc(m->transactions, sizeof(DescribedTransaction) * (m->transactions_count + 1));
                     m->transactions[m->transactions_count++] = item;
+                    break;
+                }
+            default: {
+                KafkaPbBytes raw = KafkaPb_bytes_copy(field.raw_value.data, field.raw_value.len);
+                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);
+                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);
+                m->unknown_fields.len += raw.len; free(raw.data);
+                break;
+            }
+        }
+    }
+}
+
+static inline void OpenShareGroupRequest_init(OpenShareGroupRequest *m) {
+    memset(m, 0, sizeof(*m));
+    m->group_id = "";
+    m->topics = NULL;
+    m->group_instance_id = "";
+}
+
+static inline KafkaPbBytes OpenShareGroupRequest_marshal(const OpenShareGroupRequest *m) {
+    KafkaPbWriter w; KafkaPb_writer_init(&w);
+    KafkaPb_writer_string_field(&w, 1, m->group_id);
+    for (size_t i = 0; i < m->topics_count; i++) KafkaPb_writer_bytes_field(&w, 2, (const uint8_t *)m->topics[i], strlen(m->topics[i]));
+    KafkaPb_writer_string_field(&w, 3, m->group_instance_id);
+    if ((m->session_timeout_ms != 0)) { KafkaPb_writer_tag(&w, 4, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->session_timeout_ms)); }
+    KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
+    return KafkaPb_writer_to_bytes(&w);
+}
+
+static inline void OpenShareGroupRequest_unmarshal(OpenShareGroupRequest *m, const uint8_t *data, size_t len) {
+    OpenShareGroupRequest_init(m);
+    KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
+    KafkaPbField field;
+    while (KafkaPb_reader_next(&r, &field)) {
+        switch (field.number) {
+                case 1: {
+                    m->group_id = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+                case 2: {
+                    m->topics = (char * *)realloc(m->topics, sizeof(char *) * (m->topics_count + 1));
+                    m->topics[m->topics_count++] = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+                case 3: {
+                    m->group_instance_id = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+                case 4: {
+                    m->session_timeout_ms = ((int32_t)(uint32_t)field.varint_value);
+                    break;
+                }
+            default: {
+                KafkaPbBytes raw = KafkaPb_bytes_copy(field.raw_value.data, field.raw_value.len);
+                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);
+                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);
+                m->unknown_fields.len += raw.len; free(raw.data);
+                break;
+            }
+        }
+    }
+}
+
+static inline void OpenShareGroupResponse_init(OpenShareGroupResponse *m) {
+    memset(m, 0, sizeof(*m));
+    m->session_id = "";
+}
+
+static inline KafkaPbBytes OpenShareGroupResponse_marshal(const OpenShareGroupResponse *m) {
+    KafkaPbWriter w; KafkaPb_writer_init(&w);
+    KafkaPb_writer_string_field(&w, 1, m->session_id);
+    if ((m->error_code != 0)) { KafkaPb_writer_tag(&w, 2, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->error_code)); }
+    if (m->assignment) { KafkaPbBytes b = Assignment_marshal(m->assignment); KafkaPb_writer_bytes_field(&w, 3, b.data, b.len); free(b.data); }
+    KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
+    return KafkaPb_writer_to_bytes(&w);
+}
+
+static inline void OpenShareGroupResponse_unmarshal(OpenShareGroupResponse *m, const uint8_t *data, size_t len) {
+    OpenShareGroupResponse_init(m);
+    KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
+    KafkaPbField field;
+    while (KafkaPb_reader_next(&r, &field)) {
+        switch (field.number) {
+                case 1: {
+                    m->session_id = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+                case 2: {
+                    m->error_code = ((int32_t)(uint32_t)field.varint_value);
+                    break;
+                }
+                case 3: {
+                    m->assignment = (Assignment *)calloc(1, sizeof(Assignment));
+                    Assignment_unmarshal(m->assignment, field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+            default: {
+                KafkaPbBytes raw = KafkaPb_bytes_copy(field.raw_value.data, field.raw_value.len);
+                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);
+                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);
+                m->unknown_fields.len += raw.len; free(raw.data);
+                break;
+            }
+        }
+    }
+}
+
+static inline void SharePollRequest_init(SharePollRequest *m) {
+    memset(m, 0, sizeof(*m));
+    m->session_id = "";
+}
+
+static inline KafkaPbBytes SharePollRequest_marshal(const SharePollRequest *m) {
+    KafkaPbWriter w; KafkaPb_writer_init(&w);
+    KafkaPb_writer_string_field(&w, 1, m->session_id);
+    if ((m->max_records != 0)) { KafkaPb_writer_tag(&w, 2, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->max_records)); }
+    if ((m->max_wait_ms != 0)) { KafkaPb_writer_tag(&w, 3, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->max_wait_ms)); }
+    KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
+    return KafkaPb_writer_to_bytes(&w);
+}
+
+static inline void SharePollRequest_unmarshal(SharePollRequest *m, const uint8_t *data, size_t len) {
+    SharePollRequest_init(m);
+    KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
+    KafkaPbField field;
+    while (KafkaPb_reader_next(&r, &field)) {
+        switch (field.number) {
+                case 1: {
+                    m->session_id = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+                case 2: {
+                    m->max_records = ((int32_t)(uint32_t)field.varint_value);
+                    break;
+                }
+                case 3: {
+                    m->max_wait_ms = ((int32_t)(uint32_t)field.varint_value);
+                    break;
+                }
+            default: {
+                KafkaPbBytes raw = KafkaPb_bytes_copy(field.raw_value.data, field.raw_value.len);
+                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);
+                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);
+                m->unknown_fields.len += raw.len; free(raw.data);
+                break;
+            }
+        }
+    }
+}
+
+static inline void SharePollRecord_init(SharePollRecord *m) {
+    memset(m, 0, sizeof(*m));
+    m->topic = "";
+}
+
+static inline KafkaPbBytes SharePollRecord_marshal(const SharePollRecord *m) {
+    KafkaPbWriter w; KafkaPb_writer_init(&w);
+    KafkaPb_writer_string_field(&w, 1, m->topic);
+    if ((m->partition != 0)) { KafkaPb_writer_tag(&w, 2, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->partition)); }
+    if ((m->offset != 0)) { KafkaPb_writer_tag(&w, 3, 0); KafkaPb_writer_varint(&w, ((uint64_t)m->offset)); }
+    if (m->key.len > 0) KafkaPb_writer_bytes_field(&w, 4, m->key.data, m->key.len);
+    if (m->value.len > 0) KafkaPb_writer_bytes_field(&w, 5, m->value.data, m->value.len);
+    for (size_t i = 0; i < m->headers_count; i++) { KafkaPbBytes b = Header_marshal(&m->headers[i]); KafkaPb_writer_bytes_field(&w, 6, b.data, b.len); free(b.data); }
+    if ((m->timestamp_ms != 0)) { KafkaPb_writer_tag(&w, 7, 0); KafkaPb_writer_varint(&w, ((uint64_t)m->timestamp_ms)); }
+    if ((m->delivery_count != 0)) { KafkaPb_writer_tag(&w, 8, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->delivery_count)); }
+    if (m->null_key) { KafkaPb_writer_tag(&w, 9, 0); KafkaPb_writer_varint(&w, (m->null_key ? 1 : 0)); }
+    KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
+    return KafkaPb_writer_to_bytes(&w);
+}
+
+static inline void SharePollRecord_unmarshal(SharePollRecord *m, const uint8_t *data, size_t len) {
+    SharePollRecord_init(m);
+    KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
+    KafkaPbField field;
+    while (KafkaPb_reader_next(&r, &field)) {
+        switch (field.number) {
+                case 1: {
+                    m->topic = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+                case 2: {
+                    m->partition = ((int32_t)(uint32_t)field.varint_value);
+                    break;
+                }
+                case 3: {
+                    m->offset = ((int64_t)field.varint_value);
+                    break;
+                }
+                case 4: {
+                    m->key = KafkaPb_bytes_copy(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+                case 5: {
+                    m->value = KafkaPb_bytes_copy(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+                case 6: {
+                    Header item; memset(&item, 0, sizeof(item));
+                    Header_unmarshal(&item, field.bytes_value.data, field.bytes_value.len);
+                    m->headers = (Header *)realloc(m->headers, sizeof(Header) * (m->headers_count + 1));
+                    m->headers[m->headers_count++] = item;
+                    break;
+                }
+                case 7: {
+                    m->timestamp_ms = ((int64_t)field.varint_value);
+                    break;
+                }
+                case 8: {
+                    m->delivery_count = ((int32_t)(uint32_t)field.varint_value);
+                    break;
+                }
+                case 9: {
+                    m->null_key = (field.varint_value != 0);
+                    break;
+                }
+            default: {
+                KafkaPbBytes raw = KafkaPb_bytes_copy(field.raw_value.data, field.raw_value.len);
+                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);
+                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);
+                m->unknown_fields.len += raw.len; free(raw.data);
+                break;
+            }
+        }
+    }
+}
+
+static inline void SharePollResponse_init(SharePollResponse *m) {
+    memset(m, 0, sizeof(*m));
+}
+
+static inline KafkaPbBytes SharePollResponse_marshal(const SharePollResponse *m) {
+    KafkaPbWriter w; KafkaPb_writer_init(&w);
+    for (size_t i = 0; i < m->records_count; i++) { KafkaPbBytes b = SharePollRecord_marshal(&m->records[i]); KafkaPb_writer_bytes_field(&w, 1, b.data, b.len); free(b.data); }
+    if ((m->error_code != 0)) { KafkaPb_writer_tag(&w, 2, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->error_code)); }
+    KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
+    return KafkaPb_writer_to_bytes(&w);
+}
+
+static inline void SharePollResponse_unmarshal(SharePollResponse *m, const uint8_t *data, size_t len) {
+    SharePollResponse_init(m);
+    KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
+    KafkaPbField field;
+    while (KafkaPb_reader_next(&r, &field)) {
+        switch (field.number) {
+                case 1: {
+                    SharePollRecord item; memset(&item, 0, sizeof(item));
+                    SharePollRecord_unmarshal(&item, field.bytes_value.data, field.bytes_value.len);
+                    m->records = (SharePollRecord *)realloc(m->records, sizeof(SharePollRecord) * (m->records_count + 1));
+                    m->records[m->records_count++] = item;
+                    break;
+                }
+                case 2: {
+                    m->error_code = ((int32_t)(uint32_t)field.varint_value);
+                    break;
+                }
+            default: {
+                KafkaPbBytes raw = KafkaPb_bytes_copy(field.raw_value.data, field.raw_value.len);
+                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);
+                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);
+                m->unknown_fields.len += raw.len; free(raw.data);
+                break;
+            }
+        }
+    }
+}
+
+static inline void ShareAckEntry_init(ShareAckEntry *m) {
+    memset(m, 0, sizeof(*m));
+    m->topic = "";
+}
+
+static inline KafkaPbBytes ShareAckEntry_marshal(const ShareAckEntry *m) {
+    KafkaPbWriter w; KafkaPb_writer_init(&w);
+    KafkaPb_writer_string_field(&w, 1, m->topic);
+    if ((m->partition != 0)) { KafkaPb_writer_tag(&w, 2, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->partition)); }
+    if ((m->offset != 0)) { KafkaPb_writer_tag(&w, 3, 0); KafkaPb_writer_varint(&w, ((uint64_t)m->offset)); }
+    if ((m->ack_type != 0)) { KafkaPb_writer_tag(&w, 4, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->ack_type)); }
+    KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
+    return KafkaPb_writer_to_bytes(&w);
+}
+
+static inline void ShareAckEntry_unmarshal(ShareAckEntry *m, const uint8_t *data, size_t len) {
+    ShareAckEntry_init(m);
+    KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
+    KafkaPbField field;
+    while (KafkaPb_reader_next(&r, &field)) {
+        switch (field.number) {
+                case 1: {
+                    m->topic = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+                case 2: {
+                    m->partition = ((int32_t)(uint32_t)field.varint_value);
+                    break;
+                }
+                case 3: {
+                    m->offset = ((int64_t)field.varint_value);
+                    break;
+                }
+                case 4: {
+                    m->ack_type = ((int32_t)(uint32_t)field.varint_value);
+                    break;
+                }
+            default: {
+                KafkaPbBytes raw = KafkaPb_bytes_copy(field.raw_value.data, field.raw_value.len);
+                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);
+                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);
+                m->unknown_fields.len += raw.len; free(raw.data);
+                break;
+            }
+        }
+    }
+}
+
+static inline void ShareAckRequest_init(ShareAckRequest *m) {
+    memset(m, 0, sizeof(*m));
+    m->session_id = "";
+}
+
+static inline KafkaPbBytes ShareAckRequest_marshal(const ShareAckRequest *m) {
+    KafkaPbWriter w; KafkaPb_writer_init(&w);
+    KafkaPb_writer_string_field(&w, 1, m->session_id);
+    for (size_t i = 0; i < m->entries_count; i++) { KafkaPbBytes b = ShareAckEntry_marshal(&m->entries[i]); KafkaPb_writer_bytes_field(&w, 2, b.data, b.len); free(b.data); }
+    KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
+    return KafkaPb_writer_to_bytes(&w);
+}
+
+static inline void ShareAckRequest_unmarshal(ShareAckRequest *m, const uint8_t *data, size_t len) {
+    ShareAckRequest_init(m);
+    KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
+    KafkaPbField field;
+    while (KafkaPb_reader_next(&r, &field)) {
+        switch (field.number) {
+                case 1: {
+                    m->session_id = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+                case 2: {
+                    ShareAckEntry item; memset(&item, 0, sizeof(item));
+                    ShareAckEntry_unmarshal(&item, field.bytes_value.data, field.bytes_value.len);
+                    m->entries = (ShareAckEntry *)realloc(m->entries, sizeof(ShareAckEntry) * (m->entries_count + 1));
+                    m->entries[m->entries_count++] = item;
+                    break;
+                }
+            default: {
+                KafkaPbBytes raw = KafkaPb_bytes_copy(field.raw_value.data, field.raw_value.len);
+                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);
+                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);
+                m->unknown_fields.len += raw.len; free(raw.data);
+                break;
+            }
+        }
+    }
+}
+
+static inline void ShareAckResponse_init(ShareAckResponse *m) {
+    memset(m, 0, sizeof(*m));
+}
+
+static inline KafkaPbBytes ShareAckResponse_marshal(const ShareAckResponse *m) {
+    KafkaPbWriter w; KafkaPb_writer_init(&w);
+    if ((m->error_code != 0)) { KafkaPb_writer_tag(&w, 1, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->error_code)); }
+    KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
+    return KafkaPb_writer_to_bytes(&w);
+}
+
+static inline void ShareAckResponse_unmarshal(ShareAckResponse *m, const uint8_t *data, size_t len) {
+    ShareAckResponse_init(m);
+    KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
+    KafkaPbField field;
+    while (KafkaPb_reader_next(&r, &field)) {
+        switch (field.number) {
+                case 1: {
+                    m->error_code = ((int32_t)(uint32_t)field.varint_value);
+                    break;
+                }
+            default: {
+                KafkaPbBytes raw = KafkaPb_bytes_copy(field.raw_value.data, field.raw_value.len);
+                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);
+                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);
+                m->unknown_fields.len += raw.len; free(raw.data);
+                break;
+            }
+        }
+    }
+}
+
+static inline void CloseShareGroupRequest_init(CloseShareGroupRequest *m) {
+    memset(m, 0, sizeof(*m));
+    m->session_id = "";
+}
+
+static inline KafkaPbBytes CloseShareGroupRequest_marshal(const CloseShareGroupRequest *m) {
+    KafkaPbWriter w; KafkaPb_writer_init(&w);
+    KafkaPb_writer_string_field(&w, 1, m->session_id);
+    KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
+    return KafkaPb_writer_to_bytes(&w);
+}
+
+static inline void CloseShareGroupRequest_unmarshal(CloseShareGroupRequest *m, const uint8_t *data, size_t len) {
+    CloseShareGroupRequest_init(m);
+    KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
+    KafkaPbField field;
+    while (KafkaPb_reader_next(&r, &field)) {
+        switch (field.number) {
+                case 1: {
+                    m->session_id = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
+                    break;
+                }
+            default: {
+                KafkaPbBytes raw = KafkaPb_bytes_copy(field.raw_value.data, field.raw_value.len);
+                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);
+                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);
+                m->unknown_fields.len += raw.len; free(raw.data);
+                break;
+            }
+        }
+    }
+}
+
+static inline void CloseShareGroupResponse_init(CloseShareGroupResponse *m) {
+    memset(m, 0, sizeof(*m));
+}
+
+static inline KafkaPbBytes CloseShareGroupResponse_marshal(const CloseShareGroupResponse *m) {
+    KafkaPbWriter w; KafkaPb_writer_init(&w);
+    if ((m->error_code != 0)) { KafkaPb_writer_tag(&w, 1, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->error_code)); }
+    KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
+    return KafkaPb_writer_to_bytes(&w);
+}
+
+static inline void CloseShareGroupResponse_unmarshal(CloseShareGroupResponse *m, const uint8_t *data, size_t len) {
+    CloseShareGroupResponse_init(m);
+    KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
+    KafkaPbField field;
+    while (KafkaPb_reader_next(&r, &field)) {
+        switch (field.number) {
+                case 1: {
+                    m->error_code = ((int32_t)(uint32_t)field.varint_value);
                     break;
                 }
             default: {

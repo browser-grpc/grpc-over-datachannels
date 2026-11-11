@@ -82,6 +82,18 @@ impl KafkaClient {
     pub async fn describe_transactions(&self, req: crate::pb::DescribeTransactionsRequest) -> Result<crate::pb::DescribeTransactionsResponse, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req).await
     }
+    pub async fn open_share_group(&self, req: crate::pb::OpenShareGroupRequest) -> Result<crate::pb::OpenShareGroupResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req).await
+    }
+    pub async fn share_poll(&self, req: crate::pb::SharePollRequest) -> Result<crate::pb::SharePollResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req).await
+    }
+    pub async fn share_ack(&self, req: crate::pb::ShareAckRequest) -> Result<crate::pb::ShareAckResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req).await
+    }
+    pub async fn close_share_group(&self, req: crate::pb::CloseShareGroupRequest) -> Result<crate::pb::CloseShareGroupResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req).await
+    }
     pub async fn metadata_with_options(&self, req: crate::pb::MetadataRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::MetadataResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/Metadata", req, options).await
     }
@@ -157,6 +169,18 @@ impl KafkaClient {
     pub async fn describe_transactions_with_options(&self, req: crate::pb::DescribeTransactionsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::DescribeTransactionsResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, options).await
     }
+    pub async fn open_share_group_with_options(&self, req: crate::pb::OpenShareGroupRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::OpenShareGroupResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, options).await
+    }
+    pub async fn share_poll_with_options(&self, req: crate::pb::SharePollRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::SharePollResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/SharePoll", req, options).await
+    }
+    pub async fn share_ack_with_options(&self, req: crate::pb::ShareAckRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::ShareAckResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/ShareAck", req, options).await
+    }
+    pub async fn close_share_group_with_options(&self, req: crate::pb::CloseShareGroupRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::CloseShareGroupResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, options).await
+    }
 }
 
 #[::grpc_dc::async_trait]
@@ -186,6 +210,10 @@ pub trait Kafka: Send + Sync + 'static {
     async fn delete_acls(&self, req: crate::pb::DeleteAclsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DeleteAclsResponse, ::grpc_dc::Status>;
     async fn list_transactions(&self, req: crate::pb::ListTransactionsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::ListTransactionsResponse, ::grpc_dc::Status>;
     async fn describe_transactions(&self, req: crate::pb::DescribeTransactionsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DescribeTransactionsResponse, ::grpc_dc::Status>;
+    async fn open_share_group(&self, req: crate::pb::OpenShareGroupRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::OpenShareGroupResponse, ::grpc_dc::Status>;
+    async fn share_poll(&self, req: crate::pb::SharePollRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::SharePollResponse, ::grpc_dc::Status>;
+    async fn share_ack(&self, req: crate::pb::ShareAckRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::ShareAckResponse, ::grpc_dc::Status>;
+    async fn close_share_group(&self, req: crate::pb::CloseShareGroupRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::CloseShareGroupResponse, ::grpc_dc::Status>;
 }
 
 pub fn kafka_service<S: Kafka>(svc: std::sync::Arc<S>) -> ::grpc_dc::ServiceDef {
@@ -215,5 +243,9 @@ pub fn kafka_service<S: Kafka>(svc: std::sync::Arc<S>) -> ::grpc_dc::ServiceDef 
         ::grpc_dc::unary_method("DeleteAcls", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.delete_acls(req, ctx).await } } }),
         ::grpc_dc::unary_method("ListTransactions", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.list_transactions(req, ctx).await } } }),
         ::grpc_dc::unary_method("DescribeTransactions", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.describe_transactions(req, ctx).await } } }),
+        ::grpc_dc::unary_method("OpenShareGroup", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.open_share_group(req, ctx).await } } }),
+        ::grpc_dc::unary_method("SharePoll", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.share_poll(req, ctx).await } } }),
+        ::grpc_dc::unary_method("ShareAck", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.share_ack(req, ctx).await } } }),
+        ::grpc_dc::unary_method("CloseShareGroup", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.close_share_group(req, ctx).await } } }),
     ])
 }

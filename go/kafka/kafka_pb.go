@@ -4054,3 +4054,544 @@ func (m *DescribeTransactionsResponse) UnmarshalDC(data []byte) error {
 		}
 	}
 }
+
+type OpenShareGroupRequest struct {
+	GroupId          string
+	Topics           []string
+	GroupInstanceId  string
+	SessionTimeoutMs int32
+	UnknownFields    []byte
+}
+
+func (m *OpenShareGroupRequest) MarshalDC() []byte {
+	var out []byte
+	out = KafkaPbAppendStringField(out, 1, m.GroupId)
+	for _, x := range m.Topics {
+		out = KafkaPbAppendBytesField(out, 2, []byte(x))
+	}
+	out = KafkaPbAppendStringField(out, 3, m.GroupInstanceId)
+	if m.SessionTimeoutMs != 0 {
+		out = KafkaPbAppendTag(out, 4, 0)
+		out = KafkaPbAppendVarint(out, uint64(int64(m.SessionTimeoutMs)))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *OpenShareGroupRequest) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				m.GroupId = string(b)
+			}
+		case 2:
+			if b, ok := value.([]byte); ok {
+				m.Topics = append(m.Topics, string(b))
+			}
+		case 3:
+			if b, ok := value.([]byte); ok {
+				m.GroupInstanceId = string(b)
+			}
+		case 4:
+			if v, ok := value.(uint64); ok {
+				m.SessionTimeoutMs = int32(v)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type OpenShareGroupResponse struct {
+	SessionId     string
+	ErrorCode     int32
+	Assignment    *Assignment
+	UnknownFields []byte
+}
+
+func (m *OpenShareGroupResponse) MarshalDC() []byte {
+	var out []byte
+	out = KafkaPbAppendStringField(out, 1, m.SessionId)
+	if m.ErrorCode != 0 {
+		out = KafkaPbAppendTag(out, 2, 0)
+		out = KafkaPbAppendVarint(out, uint64(int64(m.ErrorCode)))
+	}
+	if m.Assignment != nil {
+		out = KafkaPbAppendBytesField(out, 3, m.Assignment.MarshalDC())
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *OpenShareGroupResponse) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				m.SessionId = string(b)
+			}
+		case 2:
+			if v, ok := value.(uint64); ok {
+				m.ErrorCode = int32(v)
+			}
+		case 3:
+			if b, ok := value.([]byte); ok {
+				tmp3 := new(Assignment)
+				if err := tmp3.UnmarshalDC(b); err != nil {
+					return err
+				}
+				m.Assignment = tmp3
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type SharePollRequest struct {
+	SessionId     string
+	MaxRecords    int32
+	MaxWaitMs     int32
+	UnknownFields []byte
+}
+
+func (m *SharePollRequest) MarshalDC() []byte {
+	var out []byte
+	out = KafkaPbAppendStringField(out, 1, m.SessionId)
+	if m.MaxRecords != 0 {
+		out = KafkaPbAppendTag(out, 2, 0)
+		out = KafkaPbAppendVarint(out, uint64(int64(m.MaxRecords)))
+	}
+	if m.MaxWaitMs != 0 {
+		out = KafkaPbAppendTag(out, 3, 0)
+		out = KafkaPbAppendVarint(out, uint64(int64(m.MaxWaitMs)))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *SharePollRequest) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				m.SessionId = string(b)
+			}
+		case 2:
+			if v, ok := value.(uint64); ok {
+				m.MaxRecords = int32(v)
+			}
+		case 3:
+			if v, ok := value.(uint64); ok {
+				m.MaxWaitMs = int32(v)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type SharePollRecord struct {
+	Topic         string
+	Partition     int32
+	Offset        int64
+	Key           []byte
+	Value         []byte
+	Headers       []*Header
+	TimestampMs   int64
+	DeliveryCount int32
+	NullKey       bool
+	UnknownFields []byte
+}
+
+func (m *SharePollRecord) MarshalDC() []byte {
+	var out []byte
+	out = KafkaPbAppendStringField(out, 1, m.Topic)
+	if m.Partition != 0 {
+		out = KafkaPbAppendTag(out, 2, 0)
+		out = KafkaPbAppendVarint(out, uint64(int64(m.Partition)))
+	}
+	if m.Offset != 0 {
+		out = KafkaPbAppendTag(out, 3, 0)
+		out = KafkaPbAppendVarint(out, uint64(m.Offset))
+	}
+	if len(m.Key) > 0 {
+		out = KafkaPbAppendBytesField(out, 4, m.Key)
+	}
+	if len(m.Value) > 0 {
+		out = KafkaPbAppendBytesField(out, 5, m.Value)
+	}
+	for _, x := range m.Headers {
+		out = KafkaPbAppendBytesField(out, 6, x.MarshalDC())
+	}
+	if m.TimestampMs != 0 {
+		out = KafkaPbAppendTag(out, 7, 0)
+		out = KafkaPbAppendVarint(out, uint64(m.TimestampMs))
+	}
+	if m.DeliveryCount != 0 {
+		out = KafkaPbAppendTag(out, 8, 0)
+		out = KafkaPbAppendVarint(out, uint64(int64(m.DeliveryCount)))
+	}
+	if m.NullKey {
+		out = KafkaPbAppendTag(out, 9, 0)
+		out = KafkaPbAppendVarint(out, KafkaPbBoolToUint64(m.NullKey))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *SharePollRecord) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				m.Topic = string(b)
+			}
+		case 2:
+			if v, ok := value.(uint64); ok {
+				m.Partition = int32(v)
+			}
+		case 3:
+			if v, ok := value.(uint64); ok {
+				m.Offset = int64(v)
+			}
+		case 4:
+			if b, ok := value.([]byte); ok {
+				m.Key = append([]byte(nil), b...)
+			}
+		case 5:
+			if b, ok := value.([]byte); ok {
+				m.Value = append([]byte(nil), b...)
+			}
+		case 6:
+			if b, ok := value.([]byte); ok {
+				var tmpv *Header
+				tmp6 := new(Header)
+				if err := tmp6.UnmarshalDC(b); err != nil {
+					return err
+				}
+				tmpv = tmp6
+				m.Headers = append(m.Headers, tmpv)
+			}
+		case 7:
+			if v, ok := value.(uint64); ok {
+				m.TimestampMs = int64(v)
+			}
+		case 8:
+			if v, ok := value.(uint64); ok {
+				m.DeliveryCount = int32(v)
+			}
+		case 9:
+			if v, ok := value.(uint64); ok {
+				m.NullKey = v != 0
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type SharePollResponse struct {
+	Records       []*SharePollRecord
+	ErrorCode     int32
+	UnknownFields []byte
+}
+
+func (m *SharePollResponse) MarshalDC() []byte {
+	var out []byte
+	for _, x := range m.Records {
+		out = KafkaPbAppendBytesField(out, 1, x.MarshalDC())
+	}
+	if m.ErrorCode != 0 {
+		out = KafkaPbAppendTag(out, 2, 0)
+		out = KafkaPbAppendVarint(out, uint64(int64(m.ErrorCode)))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *SharePollResponse) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				var tmpv *SharePollRecord
+				tmp1 := new(SharePollRecord)
+				if err := tmp1.UnmarshalDC(b); err != nil {
+					return err
+				}
+				tmpv = tmp1
+				m.Records = append(m.Records, tmpv)
+			}
+		case 2:
+			if v, ok := value.(uint64); ok {
+				m.ErrorCode = int32(v)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type ShareAckEntry struct {
+	Topic         string
+	Partition     int32
+	Offset        int64
+	AckType       int32
+	UnknownFields []byte
+}
+
+func (m *ShareAckEntry) MarshalDC() []byte {
+	var out []byte
+	out = KafkaPbAppendStringField(out, 1, m.Topic)
+	if m.Partition != 0 {
+		out = KafkaPbAppendTag(out, 2, 0)
+		out = KafkaPbAppendVarint(out, uint64(int64(m.Partition)))
+	}
+	if m.Offset != 0 {
+		out = KafkaPbAppendTag(out, 3, 0)
+		out = KafkaPbAppendVarint(out, uint64(m.Offset))
+	}
+	if m.AckType != 0 {
+		out = KafkaPbAppendTag(out, 4, 0)
+		out = KafkaPbAppendVarint(out, uint64(int64(m.AckType)))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *ShareAckEntry) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				m.Topic = string(b)
+			}
+		case 2:
+			if v, ok := value.(uint64); ok {
+				m.Partition = int32(v)
+			}
+		case 3:
+			if v, ok := value.(uint64); ok {
+				m.Offset = int64(v)
+			}
+		case 4:
+			if v, ok := value.(uint64); ok {
+				m.AckType = int32(v)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type ShareAckRequest struct {
+	SessionId     string
+	Entries       []*ShareAckEntry
+	UnknownFields []byte
+}
+
+func (m *ShareAckRequest) MarshalDC() []byte {
+	var out []byte
+	out = KafkaPbAppendStringField(out, 1, m.SessionId)
+	for _, x := range m.Entries {
+		out = KafkaPbAppendBytesField(out, 2, x.MarshalDC())
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *ShareAckRequest) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				m.SessionId = string(b)
+			}
+		case 2:
+			if b, ok := value.([]byte); ok {
+				var tmpv *ShareAckEntry
+				tmp2 := new(ShareAckEntry)
+				if err := tmp2.UnmarshalDC(b); err != nil {
+					return err
+				}
+				tmpv = tmp2
+				m.Entries = append(m.Entries, tmpv)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type ShareAckResponse struct {
+	ErrorCode     int32
+	UnknownFields []byte
+}
+
+func (m *ShareAckResponse) MarshalDC() []byte {
+	var out []byte
+	if m.ErrorCode != 0 {
+		out = KafkaPbAppendTag(out, 1, 0)
+		out = KafkaPbAppendVarint(out, uint64(int64(m.ErrorCode)))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *ShareAckResponse) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if v, ok := value.(uint64); ok {
+				m.ErrorCode = int32(v)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type CloseShareGroupRequest struct {
+	SessionId     string
+	UnknownFields []byte
+}
+
+func (m *CloseShareGroupRequest) MarshalDC() []byte {
+	var out []byte
+	out = KafkaPbAppendStringField(out, 1, m.SessionId)
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *CloseShareGroupRequest) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				m.SessionId = string(b)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type CloseShareGroupResponse struct {
+	ErrorCode     int32
+	UnknownFields []byte
+}
+
+func (m *CloseShareGroupResponse) MarshalDC() []byte {
+	var out []byte
+	if m.ErrorCode != 0 {
+		out = KafkaPbAppendTag(out, 1, 0)
+		out = KafkaPbAppendVarint(out, uint64(int64(m.ErrorCode)))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *CloseShareGroupResponse) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if v, ok := value.(uint64); ok {
+				m.ErrorCode = int32(v)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}

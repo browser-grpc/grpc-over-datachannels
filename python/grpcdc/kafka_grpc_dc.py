@@ -197,6 +197,18 @@ class KafkaClient:
     def DescribeTransactions(self, req, metadata=None, timeout=None):
         return self._channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, kafka_pb.DescribeTransactionsResponse(), metadata, timeout)
 
+    def OpenShareGroup(self, req, metadata=None, timeout=None):
+        return self._channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, kafka_pb.OpenShareGroupResponse(), metadata, timeout)
+
+    def SharePoll(self, req, metadata=None, timeout=None):
+        return self._channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, kafka_pb.SharePollResponse(), metadata, timeout)
+
+    def ShareAck(self, req, metadata=None, timeout=None):
+        return self._channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, kafka_pb.ShareAckResponse(), metadata, timeout)
+
+    def CloseShareGroup(self, req, metadata=None, timeout=None):
+        return self._channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, kafka_pb.CloseShareGroupResponse(), metadata, timeout)
+
 class KafkaClientAsync:
     """Asyncio client: wrap a grpcdc.AsyncChannel (a sync Channel is wrapped)."""
 
@@ -282,6 +294,18 @@ class KafkaClientAsync:
 
     async def DescribeTransactions(self, req, metadata=None, timeout=None):
         return await self._channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, kafka_pb.DescribeTransactionsResponse(), metadata, timeout)
+
+    async def OpenShareGroup(self, req, metadata=None, timeout=None):
+        return await self._channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, kafka_pb.OpenShareGroupResponse(), metadata, timeout)
+
+    async def SharePoll(self, req, metadata=None, timeout=None):
+        return await self._channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, kafka_pb.SharePollResponse(), metadata, timeout)
+
+    async def ShareAck(self, req, metadata=None, timeout=None):
+        return await self._channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, kafka_pb.ShareAckResponse(), metadata, timeout)
+
+    async def CloseShareGroup(self, req, metadata=None, timeout=None):
+        return await self._channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, kafka_pb.CloseShareGroupResponse(), metadata, timeout)
 
 def register_kafka_server(server, impl):
     def _Metadata_handler(ctx, reqs, sink):
@@ -407,6 +431,26 @@ def register_kafka_server(server, impl):
         resp = impl.DescribeTransactions(ctx, req)
         sink.send(resp.marshal_dc())
 
+    def _OpenShareGroup_handler(ctx, reqs, sink):
+        req = reqs.recv_into(kafka_pb.OpenShareGroupRequest())
+        resp = impl.OpenShareGroup(ctx, req)
+        sink.send(resp.marshal_dc())
+
+    def _SharePoll_handler(ctx, reqs, sink):
+        req = reqs.recv_into(kafka_pb.SharePollRequest())
+        resp = impl.SharePoll(ctx, req)
+        sink.send(resp.marshal_dc())
+
+    def _ShareAck_handler(ctx, reqs, sink):
+        req = reqs.recv_into(kafka_pb.ShareAckRequest())
+        resp = impl.ShareAck(ctx, req)
+        sink.send(resp.marshal_dc())
+
+    def _CloseShareGroup_handler(ctx, reqs, sink):
+        req = reqs.recv_into(kafka_pb.CloseShareGroupRequest())
+        resp = impl.CloseShareGroup(ctx, req)
+        sink.send(resp.marshal_dc())
+
     server.register_service(grpcdc.ServiceDesc(
         "grpcdc.kafka.v1.Kafka",
         [
@@ -435,5 +479,9 @@ def register_kafka_server(server, impl):
         grpcdc.Method("DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", grpcdc.KIND_UNARY, _DeleteAcls_handler),
         grpcdc.Method("ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", grpcdc.KIND_UNARY, _ListTransactions_handler),
         grpcdc.Method("DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", grpcdc.KIND_UNARY, _DescribeTransactions_handler),
+        grpcdc.Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", grpcdc.KIND_UNARY, _OpenShareGroup_handler),
+        grpcdc.Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", grpcdc.KIND_UNARY, _SharePoll_handler),
+        grpcdc.Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", grpcdc.KIND_UNARY, _ShareAck_handler),
+        grpcdc.Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", grpcdc.KIND_UNARY, _CloseShareGroup_handler),
         ],
     ))

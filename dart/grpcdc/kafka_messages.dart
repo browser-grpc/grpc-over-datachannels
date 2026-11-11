@@ -3158,3 +3158,430 @@ class DescribeTransactionsResponse implements Marshaler, Unmarshaler {
     }
   }
 }
+class OpenShareGroupRequest implements Marshaler, Unmarshaler {
+  String groupId;
+  List<String> topics;
+  String groupInstanceId;
+  int sessionTimeoutMs;
+  Uint8List unknownFields = Uint8List(0);
+  OpenShareGroupRequest([this.groupId = '', this.groupInstanceId = '', this.sessionTimeoutMs = 0]) : topics = [];
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    w.stringField(1, groupId);
+    for (final x in topics) { w.bytesField(2, utf8.encode(x)); }
+    w.stringField(3, groupInstanceId);
+    if (sessionTimeoutMs != 0) { w.tag(4, 0); w.varint(sessionTimeoutMs); }
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    groupId = '';
+    topics = [];
+    groupInstanceId = '';
+    sessionTimeoutMs = 0;
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          groupId = utf8.decode(field.bytesValue);
+          break;
+        case 2:
+          topics.add(utf8.decode(field.bytesValue));
+          break;
+        case 3:
+          groupInstanceId = utf8.decode(field.bytesValue);
+          break;
+        case 4:
+          sessionTimeoutMs = (field.varintValue).toSigned(32);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class OpenShareGroupResponse implements Marshaler, Unmarshaler {
+  String sessionId;
+  int errorCode;
+  Assignment? assignment;
+  Uint8List unknownFields = Uint8List(0);
+  OpenShareGroupResponse([this.sessionId = '', this.errorCode = 0, this.assignment = null]);
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    w.stringField(1, sessionId);
+    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
+    if (assignment != null) w.bytesField(3, assignment!.marshalDc());
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    sessionId = '';
+    errorCode = 0;
+    assignment = null;
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          sessionId = utf8.decode(field.bytesValue);
+          break;
+        case 2:
+          errorCode = (field.varintValue).toSigned(32);
+          break;
+        case 3:
+          assignment = Assignment();
+          assignment!.unmarshalDc(field.bytesValue);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class SharePollRequest implements Marshaler, Unmarshaler {
+  String sessionId;
+  int maxRecords;
+  int maxWaitMs;
+  Uint8List unknownFields = Uint8List(0);
+  SharePollRequest([this.sessionId = '', this.maxRecords = 0, this.maxWaitMs = 0]);
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    w.stringField(1, sessionId);
+    if (maxRecords != 0) { w.tag(2, 0); w.varint(maxRecords); }
+    if (maxWaitMs != 0) { w.tag(3, 0); w.varint(maxWaitMs); }
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    sessionId = '';
+    maxRecords = 0;
+    maxWaitMs = 0;
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          sessionId = utf8.decode(field.bytesValue);
+          break;
+        case 2:
+          maxRecords = (field.varintValue).toSigned(32);
+          break;
+        case 3:
+          maxWaitMs = (field.varintValue).toSigned(32);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class SharePollRecord implements Marshaler, Unmarshaler {
+  String topic;
+  int partition;
+  int offset;
+  Uint8List key;
+  Uint8List value;
+  List<Header> headers;
+  int timestampMs;
+  int deliveryCount;
+  bool nullKey;
+  Uint8List unknownFields = Uint8List(0);
+  SharePollRecord([this.topic = '', this.partition = 0, this.offset = 0, this.timestampMs = 0, this.deliveryCount = 0, this.nullKey = false]) : key = Uint8List(0), value = Uint8List(0), headers = [];
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    w.stringField(1, topic);
+    if (partition != 0) { w.tag(2, 0); w.varint(partition); }
+    if (offset != 0) { w.tag(3, 0); w.varint(offset); }
+    if (key.isNotEmpty) w.bytesField(4, key);
+    if (value.isNotEmpty) w.bytesField(5, value);
+    for (final x in headers) { w.bytesField(6, x.marshalDc()); }
+    if (timestampMs != 0) { w.tag(7, 0); w.varint(timestampMs); }
+    if (deliveryCount != 0) { w.tag(8, 0); w.varint(deliveryCount); }
+    if (nullKey) { w.tag(9, 0); w.varint((nullKey ? 1 : 0)); }
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    topic = '';
+    partition = 0;
+    offset = 0;
+    key = Uint8List(0);
+    value = Uint8List(0);
+    headers = [];
+    timestampMs = 0;
+    deliveryCount = 0;
+    nullKey = false;
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          topic = utf8.decode(field.bytesValue);
+          break;
+        case 2:
+          partition = (field.varintValue).toSigned(32);
+          break;
+        case 3:
+          offset = field.varintValue;
+          break;
+        case 4:
+          key = field.bytesValue;
+          break;
+        case 5:
+          value = field.bytesValue;
+          break;
+        case 6:
+          final item = Header();
+          item.unmarshalDc(field.bytesValue);
+          headers.add(item);
+          break;
+        case 7:
+          timestampMs = field.varintValue;
+          break;
+        case 8:
+          deliveryCount = (field.varintValue).toSigned(32);
+          break;
+        case 9:
+          nullKey = field.varintValue != 0;
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class SharePollResponse implements Marshaler, Unmarshaler {
+  List<SharePollRecord> records;
+  int errorCode;
+  Uint8List unknownFields = Uint8List(0);
+  SharePollResponse([this.errorCode = 0]) : records = [];
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    for (final x in records) { w.bytesField(1, x.marshalDc()); }
+    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    records = [];
+    errorCode = 0;
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          final item = SharePollRecord();
+          item.unmarshalDc(field.bytesValue);
+          records.add(item);
+          break;
+        case 2:
+          errorCode = (field.varintValue).toSigned(32);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class ShareAckEntry implements Marshaler, Unmarshaler {
+  String topic;
+  int partition;
+  int offset;
+  int ackType;
+  Uint8List unknownFields = Uint8List(0);
+  ShareAckEntry([this.topic = '', this.partition = 0, this.offset = 0, this.ackType = 0]);
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    w.stringField(1, topic);
+    if (partition != 0) { w.tag(2, 0); w.varint(partition); }
+    if (offset != 0) { w.tag(3, 0); w.varint(offset); }
+    if (ackType != 0) { w.tag(4, 0); w.varint(ackType); }
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    topic = '';
+    partition = 0;
+    offset = 0;
+    ackType = 0;
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          topic = utf8.decode(field.bytesValue);
+          break;
+        case 2:
+          partition = (field.varintValue).toSigned(32);
+          break;
+        case 3:
+          offset = field.varintValue;
+          break;
+        case 4:
+          ackType = (field.varintValue).toSigned(32);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class ShareAckRequest implements Marshaler, Unmarshaler {
+  String sessionId;
+  List<ShareAckEntry> entries;
+  Uint8List unknownFields = Uint8List(0);
+  ShareAckRequest([this.sessionId = '']) : entries = [];
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    w.stringField(1, sessionId);
+    for (final x in entries) { w.bytesField(2, x.marshalDc()); }
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    sessionId = '';
+    entries = [];
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          sessionId = utf8.decode(field.bytesValue);
+          break;
+        case 2:
+          final item = ShareAckEntry();
+          item.unmarshalDc(field.bytesValue);
+          entries.add(item);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class ShareAckResponse implements Marshaler, Unmarshaler {
+  int errorCode;
+  Uint8List unknownFields = Uint8List(0);
+  ShareAckResponse([this.errorCode = 0]);
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    errorCode = 0;
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          errorCode = (field.varintValue).toSigned(32);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class CloseShareGroupRequest implements Marshaler, Unmarshaler {
+  String sessionId;
+  Uint8List unknownFields = Uint8List(0);
+  CloseShareGroupRequest([this.sessionId = '']);
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    w.stringField(1, sessionId);
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    sessionId = '';
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          sessionId = utf8.decode(field.bytesValue);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class CloseShareGroupResponse implements Marshaler, Unmarshaler {
+  int errorCode;
+  Uint8List unknownFields = Uint8List(0);
+  CloseShareGroupResponse([this.errorCode = 0]);
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    errorCode = 0;
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          errorCode = (field.varintValue).toSigned(32);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}

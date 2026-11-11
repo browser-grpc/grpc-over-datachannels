@@ -191,6 +191,34 @@ class KafkaClient {
     return resp;
   }
 
+  Future<OpenShareGroupResponse> openShareGroup(OpenShareGroupRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = OpenShareGroupResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<SharePollResponse> sharePoll(SharePollRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = SharePollResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<ShareAckResponse> shareAck(ShareAckRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = ShareAckResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<CloseShareGroupResponse> closeShareGroup(CloseShareGroupRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = CloseShareGroupResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
 }
 
 /// Receiving stream for Kafka/Consume responses.
@@ -344,6 +372,10 @@ abstract class KafkaServer {
   Future<DeleteAclsResponse> deleteAcls(CallContext ctx, DeleteAclsRequest req);
   Future<ListTransactionsResponse> listTransactions(CallContext ctx, ListTransactionsRequest req);
   Future<DescribeTransactionsResponse> describeTransactions(CallContext ctx, DescribeTransactionsRequest req);
+  Future<OpenShareGroupResponse> openShareGroup(CallContext ctx, OpenShareGroupRequest req);
+  Future<SharePollResponse> sharePoll(CallContext ctx, SharePollRequest req);
+  Future<ShareAckResponse> shareAck(CallContext ctx, ShareAckRequest req);
+  Future<CloseShareGroupResponse> closeShareGroup(CallContext ctx, CloseShareGroupRequest req);
 }
 
 class _KafkaConsumeServerImpl implements KafkaConsumeServer {
@@ -526,6 +558,30 @@ class KafkaGrpcDc {
         final req = DescribeTransactionsRequest();
         await reqs.recvInto(req);
         sink((await impl.describeTransactions(ctx, req)).marshalDc());
+      }),
+      Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = OpenShareGroupRequest();
+        await reqs.recvInto(req);
+        sink((await impl.openShareGroup(ctx, req)).marshalDc());
+      }),
+      Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = SharePollRequest();
+        await reqs.recvInto(req);
+        sink((await impl.sharePoll(ctx, req)).marshalDc());
+      }),
+      Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = ShareAckRequest();
+        await reqs.recvInto(req);
+        sink((await impl.shareAck(ctx, req)).marshalDc());
+      }),
+      Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = CloseShareGroupRequest();
+        await reqs.recvInto(req);
+        sink((await impl.closeShareGroup(ctx, req)).marshalDc());
       }),
     ]));
   }

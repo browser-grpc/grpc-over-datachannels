@@ -3105,3 +3105,419 @@ pub const DescribeTransactionsResponse = struct {
         self.transactions = transactions_list.toOwnedSlice(alloc) catch &.{};
     }
 };
+pub const OpenShareGroupRequest = struct {
+    group_id: []const u8 = "",
+    topics: []const []const u8 = &.{},
+    group_instance_id: []const u8 = "",
+    session_timeout_ms: i32 = 0,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const OpenShareGroupRequest, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        w.stringField(1, self.group_id);
+        for (self.topics) |x| w.bytesField(2, x);
+        w.stringField(3, self.group_instance_id);
+        if (self.session_timeout_ms != 0) { w.tag(4, 0); w.varint(@as(u64, @bitCast(@as(i64, self.session_timeout_ms)))); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *OpenShareGroupRequest, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.group_id = "";
+        self.topics = &.{};
+        self.group_instance_id = "";
+        self.session_timeout_ms = 0;
+        var topics_list = std.ArrayList([]const u8).empty;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.group_id = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                2 => {
+                    topics_list.append(alloc, alloc.dupe(u8, field.bytes_value) catch "") catch {};
+                },
+                3 => {
+                    self.group_instance_id = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                4 => {
+                    self.session_timeout_ms = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+        self.topics = topics_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const OpenShareGroupResponse = struct {
+    session_id: []const u8 = "",
+    error_code: i32 = 0,
+    assignment: ?*Assignment = null,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const OpenShareGroupResponse, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        w.stringField(1, self.session_id);
+        if (self.error_code != 0) { w.tag(2, 0); w.varint(@as(u64, @bitCast(@as(i64, self.error_code)))); }
+        if (self.assignment) |p| w.bytesField(3, p.marshalDc(alloc));
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *OpenShareGroupResponse, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.session_id = "";
+        self.error_code = 0;
+        self.assignment = null;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.session_id = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                2 => {
+                    self.error_code = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                3 => {
+                    self.assignment = alloc.create(Assignment) catch unreachable;
+                    self.assignment.?.* = .{};
+                    self.assignment.?.unmarshalDc(alloc, field.bytes_value);
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const SharePollRequest = struct {
+    session_id: []const u8 = "",
+    max_records: i32 = 0,
+    max_wait_ms: i32 = 0,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const SharePollRequest, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        w.stringField(1, self.session_id);
+        if (self.max_records != 0) { w.tag(2, 0); w.varint(@as(u64, @bitCast(@as(i64, self.max_records)))); }
+        if (self.max_wait_ms != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(@as(i64, self.max_wait_ms)))); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *SharePollRequest, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.session_id = "";
+        self.max_records = 0;
+        self.max_wait_ms = 0;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.session_id = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                2 => {
+                    self.max_records = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                3 => {
+                    self.max_wait_ms = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const SharePollRecord = struct {
+    topic: []const u8 = "",
+    partition: i32 = 0,
+    offset: i64 = 0,
+    key: []const u8 = "",
+    value: []const u8 = "",
+    headers: []const Header = &.{},
+    timestamp_ms: i64 = 0,
+    delivery_count: i32 = 0,
+    null_key: bool = false,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const SharePollRecord, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        w.stringField(1, self.topic);
+        if (self.partition != 0) { w.tag(2, 0); w.varint(@as(u64, @bitCast(@as(i64, self.partition)))); }
+        if (self.offset != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(self.offset))); }
+        if (self.key.len > 0) w.bytesField(4, self.key);
+        if (self.value.len > 0) w.bytesField(5, self.value);
+        for (self.headers) |x| w.bytesField(6, x.marshalDc(alloc));
+        if (self.timestamp_ms != 0) { w.tag(7, 0); w.varint(@as(u64, @bitCast(self.timestamp_ms))); }
+        if (self.delivery_count != 0) { w.tag(8, 0); w.varint(@as(u64, @bitCast(@as(i64, self.delivery_count)))); }
+        if (self.null_key) { w.tag(9, 0); w.varint(@intFromBool(self.null_key)); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *SharePollRecord, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.topic = "";
+        self.partition = 0;
+        self.offset = 0;
+        self.key = "";
+        self.value = "";
+        self.headers = &.{};
+        self.timestamp_ms = 0;
+        self.delivery_count = 0;
+        self.null_key = false;
+        var headers_list = std.ArrayList(Header).empty;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.topic = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                2 => {
+                    self.partition = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                3 => {
+                    self.offset = @as(i64, @bitCast(field.varint_value));
+                },
+                4 => {
+                    self.key = alloc.dupe(u8, field.bytes_value) catch &.{};
+                },
+                5 => {
+                    self.value = alloc.dupe(u8, field.bytes_value) catch &.{};
+                },
+                6 => {
+                    var item: Header = .{};
+                    item.unmarshalDc(alloc, field.bytes_value);
+                    headers_list.append(alloc, item) catch {};
+                },
+                7 => {
+                    self.timestamp_ms = @as(i64, @bitCast(field.varint_value));
+                },
+                8 => {
+                    self.delivery_count = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                9 => {
+                    self.null_key = field.varint_value != 0;
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+        self.headers = headers_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const SharePollResponse = struct {
+    records: []const SharePollRecord = &.{},
+    error_code: i32 = 0,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const SharePollResponse, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        for (self.records) |x| w.bytesField(1, x.marshalDc(alloc));
+        if (self.error_code != 0) { w.tag(2, 0); w.varint(@as(u64, @bitCast(@as(i64, self.error_code)))); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *SharePollResponse, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.records = &.{};
+        self.error_code = 0;
+        var records_list = std.ArrayList(SharePollRecord).empty;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    var item: SharePollRecord = .{};
+                    item.unmarshalDc(alloc, field.bytes_value);
+                    records_list.append(alloc, item) catch {};
+                },
+                2 => {
+                    self.error_code = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+        self.records = records_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const ShareAckEntry = struct {
+    topic: []const u8 = "",
+    partition: i32 = 0,
+    offset: i64 = 0,
+    ack_type: i32 = 0,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const ShareAckEntry, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        w.stringField(1, self.topic);
+        if (self.partition != 0) { w.tag(2, 0); w.varint(@as(u64, @bitCast(@as(i64, self.partition)))); }
+        if (self.offset != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(self.offset))); }
+        if (self.ack_type != 0) { w.tag(4, 0); w.varint(@as(u64, @bitCast(@as(i64, self.ack_type)))); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *ShareAckEntry, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.topic = "";
+        self.partition = 0;
+        self.offset = 0;
+        self.ack_type = 0;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.topic = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                2 => {
+                    self.partition = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                3 => {
+                    self.offset = @as(i64, @bitCast(field.varint_value));
+                },
+                4 => {
+                    self.ack_type = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const ShareAckRequest = struct {
+    session_id: []const u8 = "",
+    entries: []const ShareAckEntry = &.{},
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const ShareAckRequest, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        w.stringField(1, self.session_id);
+        for (self.entries) |x| w.bytesField(2, x.marshalDc(alloc));
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *ShareAckRequest, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.session_id = "";
+        self.entries = &.{};
+        var entries_list = std.ArrayList(ShareAckEntry).empty;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.session_id = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                2 => {
+                    var item: ShareAckEntry = .{};
+                    item.unmarshalDc(alloc, field.bytes_value);
+                    entries_list.append(alloc, item) catch {};
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+        self.entries = entries_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const ShareAckResponse = struct {
+    error_code: i32 = 0,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const ShareAckResponse, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        if (self.error_code != 0) { w.tag(1, 0); w.varint(@as(u64, @bitCast(@as(i64, self.error_code)))); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *ShareAckResponse, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.error_code = 0;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.error_code = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const CloseShareGroupRequest = struct {
+    session_id: []const u8 = "",
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const CloseShareGroupRequest, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        w.stringField(1, self.session_id);
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *CloseShareGroupRequest, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.session_id = "";
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.session_id = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const CloseShareGroupResponse = struct {
+    error_code: i32 = 0,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const CloseShareGroupResponse, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        if (self.error_code != 0) { w.tag(1, 0); w.varint(@as(u64, @bitCast(@as(i64, self.error_code)))); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *CloseShareGroupResponse, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.error_code = 0;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.error_code = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
