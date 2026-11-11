@@ -28,6 +28,11 @@ pub struct GroupSession {
     pub generation_id: i32,
     pub member_id: String,
     pub group_instance_id: Option<String>,
+    /// Set when a duplicate static subscribe supersedes this
+    /// session inside the same service (KIP-848 brokers reject
+    /// the duplicate join until the owner leaves, so the
+    /// service ends the older member itself).
+    pub superseded: Arc<std::sync::atomic::AtomicBool>,
 }
 
 pub struct KafkaService {
@@ -955,6 +960,23 @@ async fn run_subscribe_848(
     };
     let mut member_id = String::new();
     let mut member_epoch = 0i32;
+    // Static takeover: a KIP-848 broker rejects a duplicate
+    // instance join until the owner leaves (no instant fencing
+    // like classic JoinGroup). Both subscribes usually live in
+    // this one service, so fence here: flag the live session
+    // superseded; its loop reports the fencing and leaves,
+    // and the join below retries through the ownership window.
+    let superseded = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if group_instance_id.is_some() {
+        let map = groups.lock().await;
+        if let Some(session) = map.get(&req.group_id) {
+            if session.group_instance_id == group_instance_id {
+                session
+                    .superseded
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    }
 
     'membership: loop {
         if tx.is_closed() {
@@ -966,25 +988,62 @@ async fn run_subscribe_848(
         };
 
         // Joining heartbeat: epoch 0, no current assignment.
+        // A static member whose instance id is owned by a live
+        // member gets STALE_MEMBER_EPOCH (111) with the owner's
+        // member id in the response; re-heartbeating under that
+        // id (at its current epoch) fences the owner and takes
+        // the membership over.
         let mut current: Vec<([u8; 16], Vec<i32>)> = Vec::new();
-        let join = match broker
-            .consumer_heartbeat(
-                &coordinator,
-                &req.group_id,
-                &member_id,
-                0,
-                group_instance_id.as_deref(),
-                300_000,
-                &req.topics,
-                &current,
-            )
-            .await
-        {
-            Ok(join) => join,
-            Err(error) => {
-                let _ = tx.send(Ok(group_error(-1, error.message.clone())));
-                return Sub848::Done;
+        let mut join_epoch = member_epoch;
+        let mut join_attempts = 0u32;
+        let join = loop {
+            join_attempts += 1;
+            let beat = match broker
+                .consumer_heartbeat(
+                    &coordinator,
+                    &req.group_id,
+                    &member_id,
+                    join_epoch,
+                    group_instance_id.as_deref(),
+                    300_000,
+                    &req.topics,
+                    &current,
+                )
+                .await
+            {
+                Ok(beat) => beat,
+                Err(error) => {
+                    let _ = tx.send(Ok(group_error(-1, error.message.clone())));
+                    return Sub848::Done;
+                }
+            };
+            if beat.error_code == 111
+                && member_id.is_empty()
+                && !beat.member_id.is_empty()
+            {
+                member_id = beat.member_id.clone();
+                join_epoch = beat.member_epoch;
+                continue;
             }
+            // A seeded static id the broker has forgotten:
+            // drop it and join as a fresh member.
+            if beat.error_code == 25 && !member_id.is_empty() {
+                member_id.clear();
+                join_epoch = 0;
+                continue;
+            }
+            // Static ownership window: the previous member
+            // (usually superseded by this very subscribe) has
+            // not left yet; the broker rejects with
+            // STALE_MEMBER_EPOCH (111) until it does.
+            if beat.error_code == 111
+                && group_instance_id.is_some()
+                && join_attempts < 100
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                continue;
+            }
+            break beat;
         };
         // UNSUPPORTED_VERSION (35): the broker advertises the
         // API but will not run consumer groups (e.g. the new
@@ -1036,6 +1095,7 @@ async fn run_subscribe_848(
                 generation_id: member_epoch,
                 member_id: member_id.clone(),
                 group_instance_id: group_instance_id.clone(),
+                superseded: superseded.clone(),
             },
         );
         if tx
@@ -1082,6 +1142,13 @@ async fn run_subscribe_848(
 
         'poll: loop {
             if tx.is_closed() {
+                break 'poll;
+            }
+            if superseded.load(std::sync::atomic::Ordering::SeqCst) {
+                let _ = tx.send(Ok(group_error(
+                    110,
+                    "kafka member fenced by a duplicate instance",
+                )));
                 break 'poll;
             }
             if last_heartbeat.elapsed() >= heartbeat_interval {
@@ -1159,6 +1226,7 @@ async fn run_subscribe_848(
                                         member_id: member_id.clone(),
                                         group_instance_id: group_instance_id
                                             .clone(),
+                                        superseded: superseded.clone(),
                                     },
                                 );
                                 let _ = tx.send(Ok(
@@ -1186,10 +1254,21 @@ async fn run_subscribe_848(
                             }
                         }
                     }
-                    // FENCED_MEMBER_EPOCH (110) / STALE_MEMBER_EPOCH
-                    // (111): rejoin with epoch 0 under the same
-                    // member id. UNKNOWN_MEMBER_ID (25): the broker
-                    // forgot us; rejoin as a fresh member.
+                    // FENCED_MEMBER_EPOCH (110) for a static
+                    // member: a duplicate instance took it over;
+                    // surface the fencing (silently rejoining
+                    // would fence the other member in turn).
+                    // STALE_MEMBER_EPOCH (111), and 110 for
+                    // dynamic members: rejoin with epoch 0 under
+                    // the same member id. UNKNOWN_MEMBER_ID (25):
+                    // the broker forgot us; rejoin fresh.
+                    110 | 111 if group_instance_id.is_some() => {
+                        let _ = tx.send(Ok(group_error(
+                            beat.error_code,
+                            "kafka member fenced by a duplicate instance",
+                        )));
+                        break 'poll;
+                    }
                     110 | 111 => {
                         rejoin = true;
                         break 'poll;
@@ -1349,30 +1428,48 @@ async fn run_subscribe(
     let mut member_id = String::new();
 
     // KIP-848: when the coordinator advertises
-    // ConsumerGroupHeartbeat, try the next-gen consumer
+    // ConsumerGroupHeartbeat, run the next-gen consumer
     // protocol first; it falls back to the classic protocol
     // below when the broker refuses (UNSUPPORTED_VERSION on
     // the joining heartbeat, or topic ids unavailable).
-    // Static membership (group_instance_id) stays on the
-    // classic protocol: its contract — instance-derived member
-    // ids and duplicate-instance fencing — is defined there,
-    // while KIP-848 fences by heartbeat epoch instead.
-    if group_instance_id.is_none() {
-        if let Ok(coordinator) = broker.coordinator_fresh(&req.group_id, 0).await {
-        if coordinator.lock().await.has_api(API_CONSUMER_GROUP_HEARTBEAT) {
-                match run_subscribe_848(
-                    broker.clone(),
-                    groups.clone(),
-                    &req,
-                    &tx,
-                    coordinator,
-                )
-                .await
-                {
-                    Sub848::Done => return,
-                    Sub848::Fallback => {}
+    // group_protocol "consumer" requires KIP-848, "classic"
+    // skips it entirely.
+    let protocol = req.group_protocol.to_ascii_lowercase();
+    let want_848 = protocol != "classic";
+    let force_848 = protocol == "consumer";
+    if want_848 {
+        let coordinator = broker.coordinator_fresh(&req.group_id, 0).await;
+        let supported = match &coordinator {
+            Ok(conn) => conn.lock().await.has_api(API_CONSUMER_GROUP_HEARTBEAT),
+            Err(_) => false,
+        };
+        if supported {
+            match run_subscribe_848(
+                broker.clone(),
+                groups.clone(),
+                &req,
+                &tx,
+                coordinator.expect("coordinator checked above"),
+            )
+            .await
+            {
+                Sub848::Done => return,
+                Sub848::Fallback => {
+                    if force_848 {
+                        let _ = tx.send(Ok(group_error(
+                            -1,
+                            "KIP-848 consumer protocol unavailable on this broker",
+                        )));
+                        return;
+                    }
                 }
             }
+        } else if force_848 {
+            let _ = tx.send(Ok(group_error(
+                -1,
+                "KIP-848 consumer protocol unavailable on this broker",
+            )));
+            return;
         }
     }
 
@@ -1510,6 +1607,7 @@ async fn run_subscribe(
                 generation_id: join.generation_id,
                 member_id: member_id.clone(),
                 group_instance_id: group_instance_id.clone(),
+                superseded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
         );
         if tx

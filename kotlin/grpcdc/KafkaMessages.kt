@@ -952,6 +952,7 @@ enum class ConfigOp(val number: Int) {
     var maxPollRecords: Int = 0,
     var autoOffsetReset: String = "",
     var readCommitted: Boolean = false,
+    var groupProtocol: String = "",
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -963,6 +964,7 @@ enum class ConfigOp(val number: Int) {
         if (maxPollRecords != 0) { w.tag(5, 0); w.varint(maxPollRecords.toLong()) }
         w.stringField(6, autoOffsetReset)
         if (readCommitted) { w.tag(7, 0); w.varint(if (readCommitted) 1L else 0L) }
+        w.stringField(8, groupProtocol)
         w.raw(unknownFields)
         return w.toBytes()
     }
@@ -975,6 +977,7 @@ enum class ConfigOp(val number: Int) {
         maxPollRecords = 0
         autoOffsetReset = ""
         readCommitted = false
+        groupProtocol = ""
         val r = KafkaPb.Reader(data)
         while (true) {
             val field = r.next() ?: break
@@ -999,6 +1002,9 @@ enum class ConfigOp(val number: Int) {
                 }
                 7 -> {
                     readCommitted = field.varintValue != 0L
+                }
+                8 -> {
+                    groupProtocol = String(field.bytesValue, Charsets.UTF_8)
                 }
                 else -> { unknownFields = unknownFields + field.rawValue }
             }

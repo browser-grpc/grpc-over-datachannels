@@ -1013,8 +1013,8 @@ end
 GroupSubscribeRequest = {}
 GroupSubscribeRequest.__index = GroupSubscribeRequest
 
-function GroupSubscribeRequest.new(groupId, topics, groupInstanceId, sessionTimeoutMs, maxPollRecords, autoOffsetReset, readCommitted)
-  return setmetatable({ groupId = groupId or "", topics = topics or {}, groupInstanceId = groupInstanceId or "", sessionTimeoutMs = sessionTimeoutMs or 0, maxPollRecords = maxPollRecords or 0, autoOffsetReset = autoOffsetReset or "", readCommitted = readCommitted or false, unknownFields = "" }, GroupSubscribeRequest)
+function GroupSubscribeRequest.new(groupId, topics, groupInstanceId, sessionTimeoutMs, maxPollRecords, autoOffsetReset, readCommitted, groupProtocol)
+  return setmetatable({ groupId = groupId or "", topics = topics or {}, groupInstanceId = groupInstanceId or "", sessionTimeoutMs = sessionTimeoutMs or 0, maxPollRecords = maxPollRecords or 0, autoOffsetReset = autoOffsetReset or "", readCommitted = readCommitted or false, groupProtocol = groupProtocol or "", unknownFields = "" }, GroupSubscribeRequest)
 end
 
 function GroupSubscribeRequest:marshalDc()
@@ -1026,6 +1026,7 @@ function GroupSubscribeRequest:marshalDc()
     if self.maxPollRecords ~= 0 then w:tag(5, 0) w:varint(self.maxPollRecords) end
     w:stringField(6, self.autoOffsetReset)
     if self.readCommitted then w:tag(7, 0) w:varint((self.readCommitted and 1 or 0)) end
+    w:stringField(8, self.groupProtocol)
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -1039,6 +1040,7 @@ function GroupSubscribeRequest:unmarshalDc(data)
   self.maxPollRecords = 0
   self.autoOffsetReset = ""
   self.readCommitted = false
+  self.groupProtocol = ""
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -1058,6 +1060,8 @@ function GroupSubscribeRequest:unmarshalDc(data)
       self.autoOffsetReset = field.bytesValue
     elseif field.number == 7 then
       self.readCommitted = (field.varintValue ~= 0)
+    elseif field.number == 8 then
+      self.groupProtocol = field.bytesValue
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end

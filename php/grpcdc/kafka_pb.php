@@ -1628,9 +1628,10 @@ class GroupSubscribeRequest
     public int $maxPollRecords = 0;
     public string $autoOffsetReset = "";
     public bool $readCommitted = false;
+    public string $groupProtocol = "";
 
     public string $unknownFields = "";
-    public function __construct(string $groupId = "", array $topics = [], string $groupInstanceId = "", int $sessionTimeoutMs = 0, int $maxPollRecords = 0, string $autoOffsetReset = "", bool $readCommitted = false)
+    public function __construct(string $groupId = "", array $topics = [], string $groupInstanceId = "", int $sessionTimeoutMs = 0, int $maxPollRecords = 0, string $autoOffsetReset = "", bool $readCommitted = false, string $groupProtocol = "")
     {
         $this->groupId = $groupId;
         $this->topics = $topics;
@@ -1639,6 +1640,7 @@ class GroupSubscribeRequest
         $this->maxPollRecords = $maxPollRecords;
         $this->autoOffsetReset = $autoOffsetReset;
         $this->readCommitted = $readCommitted;
+        $this->groupProtocol = $groupProtocol;
     }
 
     public function marshalDc(): string
@@ -1662,6 +1664,7 @@ class GroupSubscribeRequest
             $w->tag(7, 0);
             $w->varint(($this->readCommitted ? 1 : 0));
         }
+        $w->stringField(8, $this->groupProtocol);
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -1676,6 +1679,7 @@ class GroupSubscribeRequest
         $this->maxPollRecords = 0;
         $this->autoOffsetReset = "";
         $this->readCommitted = false;
+        $this->groupProtocol = "";
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -1701,6 +1705,9 @@ class GroupSubscribeRequest
                 case 7:
                     $this->readCommitted = ($varintValue !== 0);
                     break;
+                case 8:
+                    $this->groupProtocol = $bytesValue;
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -1718,7 +1725,8 @@ class GroupSubscribeRequest
             && $this->sessionTimeoutMs === $other->sessionTimeoutMs
             && $this->maxPollRecords === $other->maxPollRecords
             && $this->autoOffsetReset === $other->autoOffsetReset
-            && $this->readCommitted === $other->readCommitted;
+            && $this->readCommitted === $other->readCommitted
+            && $this->groupProtocol === $other->groupProtocol;
     }
 }
 

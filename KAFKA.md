@@ -61,8 +61,14 @@ ConsumerGroupDescribe for group admin, with OffsetCommit
 negotiated to v9. Brokers that refuse it (UNSUPPORTED_VERSION
 on the joining heartbeat, or no topic-id Metadata) fall back
 to the classic group protocol (JoinGroup/SyncGroup/Heartbeat)
-transparently — same `Subscribe` stream either way. Share
-groups (KIP-932) are not implemented.
+transparently — same `Subscribe` stream either way.
+`GroupSubscribeRequest.group_protocol` pins one or the other
+("" auto, "consumer", "classic"). Static membership works on
+both: classic fences a duplicate instance at JoinGroup, while
+under KIP-848 the broker rejects the duplicate join until the
+owner leaves, so a duplicate static subscribe inside one
+service supersedes the older member itself. Share groups
+(KIP-932) are not implemented.
 
 ## Service surface
 

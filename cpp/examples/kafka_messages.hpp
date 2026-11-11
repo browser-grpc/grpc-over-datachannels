@@ -379,6 +379,7 @@ class GroupSubscribeRequest : public grpcdc::Marshaler, public grpcdc::Unmarshal
   std::int32_t max_poll_records = 0;
   std::string auto_offset_reset = "";
   bool read_committed = false;
+  std::string group_protocol = "";
   grpcdc::Bytes unknown_fields;
   GroupSubscribeRequest() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -1669,6 +1670,7 @@ inline grpcdc::Bytes GroupSubscribeRequest::MarshalDc() const {
     if (max_poll_records != 0) { w.Tag(5, 0); w.Varint(static_cast<std::int64_t>(max_poll_records)); }
     w.StringField(6, auto_offset_reset);
     if (read_committed) { w.Tag(7, 0); w.Varint((read_committed ? 1 : 0)); }
+    w.StringField(8, group_protocol);
     w.Raw(unknown_fields);
     return w.ToBytes();
 }
@@ -1682,6 +1684,7 @@ inline void GroupSubscribeRequest::UnmarshalDc(const grpcdc::Bytes& data) {
     max_poll_records = 0;
     auto_offset_reset = "";
     read_committed = false;
+    group_protocol = "";
     pb_kafka::Reader r(data);
     pb_kafka::Field field;
     while (r.Next(field)) {
@@ -1712,6 +1715,10 @@ inline void GroupSubscribeRequest::UnmarshalDc(const grpcdc::Bytes& data) {
         }
         case 7: {
             read_committed = field.varint != 0;
+            break;
+        }
+        case 8: {
+            group_protocol = std::string(field.bytes.begin(), field.bytes.end());
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;

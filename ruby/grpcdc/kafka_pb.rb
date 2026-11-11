@@ -1312,9 +1312,9 @@ end
   end
 
   class GroupSubscribeRequest
-    attr_accessor :group_id, :topics, :group_instance_id, :session_timeout_ms, :max_poll_records, :auto_offset_reset, :read_committed, :unknown_fields
+    attr_accessor :group_id, :topics, :group_instance_id, :session_timeout_ms, :max_poll_records, :auto_offset_reset, :read_committed, :group_protocol, :unknown_fields
 
-    def initialize(group_id: "", topics: [], group_instance_id: "", session_timeout_ms: 0, max_poll_records: 0, auto_offset_reset: "", read_committed: false)
+    def initialize(group_id: "", topics: [], group_instance_id: "", session_timeout_ms: 0, max_poll_records: 0, auto_offset_reset: "", read_committed: false, group_protocol: "")
       @group_id = group_id
       @topics = topics
       @group_instance_id = group_instance_id
@@ -1322,6 +1322,7 @@ end
       @max_poll_records = max_poll_records
       @auto_offset_reset = auto_offset_reset
       @read_committed = read_committed
+      @group_protocol = group_protocol
       @unknown_fields = "".b
     end
 
@@ -1343,6 +1344,7 @@ end
       w.tag(7, 0)
       w.varint((@read_committed ? 1 : 0))
     end
+    w.string_field(8, @group_protocol)
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -1356,6 +1358,7 @@ end
       @max_poll_records = 0
       @auto_offset_reset = ""
       @read_committed = false
+      @group_protocol = ""
       r = Reader.new(data)
       loop do
         item = r.field
@@ -1377,6 +1380,8 @@ end
         @auto_offset_reset = bytes_value.dup.force_encoding(Encoding::UTF_8)
       when 7
         @read_committed = (varint_value != 0)
+      when 8
+        @group_protocol = bytes_value.dup.force_encoding(Encoding::UTF_8)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -1385,7 +1390,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(GroupSubscribeRequest) && @group_id == other.group_id && @topics == other.topics && @group_instance_id == other.group_instance_id && @session_timeout_ms == other.session_timeout_ms && @max_poll_records == other.max_poll_records && @auto_offset_reset == other.auto_offset_reset && @read_committed == other.read_committed
+      other.is_a?(GroupSubscribeRequest) && @group_id == other.group_id && @topics == other.topics && @group_instance_id == other.group_instance_id && @session_timeout_ms == other.session_timeout_ms && @max_poll_records == other.max_poll_records && @auto_offset_reset == other.auto_offset_reset && @read_committed == other.read_committed && @group_protocol == other.group_protocol
     end
   end
 

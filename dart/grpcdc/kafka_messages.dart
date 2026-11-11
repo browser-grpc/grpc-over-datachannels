@@ -1003,8 +1003,9 @@ class GroupSubscribeRequest implements Marshaler, Unmarshaler {
   int maxPollRecords;
   String autoOffsetReset;
   bool readCommitted;
+  String groupProtocol;
   Uint8List unknownFields = Uint8List(0);
-  GroupSubscribeRequest([this.groupId = '', this.groupInstanceId = '', this.sessionTimeoutMs = 0, this.maxPollRecords = 0, this.autoOffsetReset = '', this.readCommitted = false]) : topics = [];
+  GroupSubscribeRequest([this.groupId = '', this.groupInstanceId = '', this.sessionTimeoutMs = 0, this.maxPollRecords = 0, this.autoOffsetReset = '', this.readCommitted = false, this.groupProtocol = '']) : topics = [];
   @override
   Uint8List marshalDc() {
     final w = KafkaPbWriter();
@@ -1015,6 +1016,7 @@ class GroupSubscribeRequest implements Marshaler, Unmarshaler {
     if (maxPollRecords != 0) { w.tag(5, 0); w.varint(maxPollRecords); }
     w.stringField(6, autoOffsetReset);
     if (readCommitted) { w.tag(7, 0); w.varint((readCommitted ? 1 : 0)); }
+    w.stringField(8, groupProtocol);
     w.raw(unknownFields);
     return w.toBytes();
   }
@@ -1028,6 +1030,7 @@ class GroupSubscribeRequest implements Marshaler, Unmarshaler {
     maxPollRecords = 0;
     autoOffsetReset = '';
     readCommitted = false;
+    groupProtocol = '';
     final r = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
       final field = r.next();
@@ -1053,6 +1056,9 @@ class GroupSubscribeRequest implements Marshaler, Unmarshaler {
           break;
         case 7:
           readCommitted = field.varintValue != 0;
+          break;
+        case 8:
+          groupProtocol = utf8.decode(field.bytesValue);
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);

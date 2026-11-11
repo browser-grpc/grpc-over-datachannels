@@ -173,6 +173,10 @@ message GroupSubscribeRequest {
   int32 max_poll_records = 5;
   string auto_offset_reset = 6; // "earliest" | "latest"
   bool read_committed = 7; // only committed transactional records
+  // Group protocol: "" (auto: KIP-848 when the broker offers
+  // it, classic otherwise), "consumer" (require KIP-848), or
+  // "classic" (require JoinGroup/SyncGroup).
+  string group_protocol = 8;
 }
 
 message GroupSubscribeResponse {

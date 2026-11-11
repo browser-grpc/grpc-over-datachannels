@@ -464,3 +464,98 @@ async fn kafka_kip848_two_member_rebalance() {
         })
         .await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_kip848_static_membership() {
+    let Some(broker_addr) = broker_or_skip() else { return };
+    let client = setup(&broker_addr).await;
+    let broker = broker_direct(&broker_addr);
+    if !broker_runs_848(&broker, &unique("grpcdc-848-probe")).await {
+        eprintln!("broker does not run KIP-848: skipping static assertions");
+        return;
+    }
+
+    let topic = unique("grpcdc-848-static-topic");
+    make_topic(&client, &topic, 1).await;
+    let group = unique("grpcdc-848-static-group");
+    let subscribe = || pb::GroupSubscribeRequest {
+        group_id: group.clone(),
+        topics: vec![topic.clone()],
+        group_instance_id: "static-member-1".to_string(),
+        group_protocol: "consumer".to_string(),
+        session_timeout_ms: 30_000,
+        max_poll_records: 10,
+        auto_offset_reset: "earliest".to_string(),
+        ..Default::default()
+    };
+
+    let mut s1 = client.subscribe(subscribe()).await.expect("subscribe static 1");
+    let a1 = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        next_assignment(&mut s1),
+    )
+    .await
+    .expect("static assignment timed out")
+    .expect("static no assignment");
+    assert_eq!(a1.partitions.len(), 1, "{a1:?}");
+    let member_1 = a1.member_id.clone();
+    assert!(!member_1.is_empty());
+    drop(s1);
+    // Brief settle so the leave lands before the rejoin.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    let mut s2 = client.subscribe(subscribe()).await.expect("subscribe static 2");
+    let a2 = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        next_assignment(&mut s2),
+    )
+    .await
+    .expect("static rejoin timed out")
+    .expect("static rejoin no assignment");
+    assert_eq!(a2.partitions.len(), 1, "static member rejoins with its partition: {a2:?}");
+
+    // Fencing: a second live subscribe with the same instance
+    // id fences the first member; its stream must error or end
+    // (it must NOT silently rejoin and fence the new member).
+    let mut s3 = client.subscribe(subscribe()).await.expect("subscribe static 3");
+    let a3 = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        next_assignment(&mut s3),
+    )
+    .await
+    .expect("static fencing assignment timed out")
+    .expect("static fencing no assignment");
+    assert_eq!(a3.partitions.len(), 1, "{a3:?}");
+    let fenced = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            match s2.next().await {
+                Some(Ok(event)) => {
+                    if event.group_error.is_some() {
+                        return true;
+                    }
+                }
+                Some(Err(_)) => return true,
+                None => return true,
+            }
+        }
+    })
+    .await
+    .expect("fenced member stream hung");
+    assert!(fenced, "first static member was not fenced");
+
+    drop(s3);
+    let _ = client
+        .delete_groups(pb::DeleteGroupsRequest {
+            group_ids: vec![group.clone()],
+            ..Default::default()
+        })
+        .await;
+    let _ = client
+        .delete_topics(pb::DeleteTopicsRequest {
+            topics: vec![topic.clone()],
+            timeout_ms: 30_000,
+            ..Default::default()
+        })
+        .await;
+}
+

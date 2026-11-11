@@ -1137,7 +1137,8 @@ class GroupSubscribeRequest(
     var sessionTimeoutMs: Int = 0,
     var maxPollRecords: Int = 0,
     var autoOffsetReset: String = "",
-    var readCommitted: Boolean = false
+    var readCommitted: Boolean = false,
+    var groupProtocol: String = ""
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -1160,6 +1161,7 @@ class GroupSubscribeRequest(
       w.tag(7, 0)
       w.varint((if (readCommitted) 1L else 0L))
     }
+    w.stringField(8, groupProtocol)
     w.raw(unknownFields)
     w.toBytes
   }
@@ -1173,6 +1175,7 @@ class GroupSubscribeRequest(
     maxPollRecords = 0
     autoOffsetReset = ""
     readCommitted = false
+    groupProtocol = ""
     val r = new KafkaPb.Reader(data)
     var field = r.next()
     while (field != null) {
@@ -1191,6 +1194,8 @@ class GroupSubscribeRequest(
           autoOffsetReset = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 7 =>
           readCommitted = (field.varintValue != 0L)
+        case 8 =>
+          groupProtocol = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case _ => unknownFields = unknownFields ++ field.rawValue
       }
       field = r.next()

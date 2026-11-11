@@ -1358,6 +1358,7 @@ pub struct GroupSubscribeRequest {
     pub max_poll_records: i32,
     pub auto_offset_reset: String,
     pub read_committed: bool,
+    pub group_protocol: String,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -1371,6 +1372,7 @@ impl Default for GroupSubscribeRequest {
             max_poll_records: 0,
             auto_offset_reset: String::new(),
             read_committed: false,
+            group_protocol: String::new(),
             unknown_fields: Vec::new(),
         }
     }
@@ -1386,6 +1388,7 @@ impl GroupSubscribeRequest {
         if self.max_poll_records != 0 { pb_append_tag(&mut out, 5, 0); pb_append_varint(&mut out, (self.max_poll_records as u64)); }
         pb_append_string_field(&mut out, 6, &self.auto_offset_reset);
         if self.read_committed { pb_append_tag(&mut out, 7, 0); pb_append_varint(&mut out, (if self.read_committed { 1u64 } else { 0u64 })); }
+        pb_append_string_field(&mut out, 8, &self.group_protocol);
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -1415,6 +1418,9 @@ impl GroupSubscribeRequest {
                 }
                 7 => {
                     msg.read_committed = (field.varint_value != 0);
+                }
+                8 => {
+                    msg.group_protocol = String::from_utf8_lossy(&field.bytes_value).into_owned();
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);

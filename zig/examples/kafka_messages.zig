@@ -997,6 +997,7 @@ pub const GroupSubscribeRequest = struct {
     max_poll_records: i32 = 0,
     auto_offset_reset: []const u8 = "",
     read_committed: bool = false,
+    group_protocol: []const u8 = "",
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const GroupSubscribeRequest, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -1009,6 +1010,7 @@ pub const GroupSubscribeRequest = struct {
         if (self.max_poll_records != 0) { w.tag(5, 0); w.varint(@as(u64, @bitCast(@as(i64, self.max_poll_records)))); }
         w.stringField(6, self.auto_offset_reset);
         if (self.read_committed) { w.tag(7, 0); w.varint(@intFromBool(self.read_committed)); }
+        w.stringField(8, self.group_protocol);
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -1021,6 +1023,7 @@ pub const GroupSubscribeRequest = struct {
         self.max_poll_records = 0;
         self.auto_offset_reset = "";
         self.read_committed = false;
+        self.group_protocol = "";
         var topics_list = std.ArrayList([]const u8).empty;
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
@@ -1047,6 +1050,9 @@ pub const GroupSubscribeRequest = struct {
                 },
                 7 => {
                     self.read_committed = field.varint_value != 0;
+                },
+                8 => {
+                    self.group_protocol = alloc.dupe(u8, field.bytes_value) catch "";
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }

@@ -990,9 +990,10 @@ public final class GroupSubscribeRequest: Marshaler, Unmarshaler {
     public var maxPollRecords: Int32 = 0
     public var autoOffsetReset: String = ""
     public var readCommitted: Bool = false
+    public var groupProtocol: String = ""
     public var unknownFields: [UInt8] = []
     public init() {}
-    public init(_ groupId: String = "", _ topics: [String] = [], _ groupInstanceId: String = "", _ sessionTimeoutMs: Int32 = 0, _ maxPollRecords: Int32 = 0, _ autoOffsetReset: String = "", _ readCommitted: Bool = false) {
+    public init(_ groupId: String = "", _ topics: [String] = [], _ groupInstanceId: String = "", _ sessionTimeoutMs: Int32 = 0, _ maxPollRecords: Int32 = 0, _ autoOffsetReset: String = "", _ readCommitted: Bool = false, _ groupProtocol: String = "") {
         self.groupId = groupId
         self.topics = topics
         self.groupInstanceId = groupInstanceId
@@ -1000,6 +1001,7 @@ public final class GroupSubscribeRequest: Marshaler, Unmarshaler {
         self.maxPollRecords = maxPollRecords
         self.autoOffsetReset = autoOffsetReset
         self.readCommitted = readCommitted
+        self.groupProtocol = groupProtocol
     }
     public func MarshalDc() -> [UInt8] {
         let w = KafkaPb.Writer()
@@ -1010,6 +1012,7 @@ public final class GroupSubscribeRequest: Marshaler, Unmarshaler {
         if maxPollRecords != 0 { w.Tag(5, 0); w.Varint(Int64(maxPollRecords)) }
         w.StringField(6, autoOffsetReset)
         if readCommitted { w.Tag(7, 0); w.Varint((readCommitted ? Int64(1) : Int64(0))) }
+        w.StringField(8, groupProtocol)
         w.Raw(unknownFields)
         return w.ToBytes()
     }
@@ -1022,6 +1025,7 @@ public final class GroupSubscribeRequest: Marshaler, Unmarshaler {
         maxPollRecords = 0
         autoOffsetReset = ""
         readCommitted = false
+        groupProtocol = ""
         let r = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
@@ -1042,6 +1046,8 @@ public final class GroupSubscribeRequest: Marshaler, Unmarshaler {
                 autoOffsetReset = String(decoding: field.bytesValue, as: UTF8.self)
             case 7:
                 readCommitted = field.varintValue != 0
+            case 8:
+                groupProtocol = String(decoding: field.bytesValue, as: UTF8.self)
             default: unknownFields += field.rawValue
             }
         }

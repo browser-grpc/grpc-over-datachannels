@@ -502,6 +502,10 @@ async fn kafka_proxy_group_static_membership() {
 
     let mut req = subscribe_req(&group, &topic);
     req.group_instance_id = "static-member-1".to_string();
+    // This test pins the classic static-membership contract
+    // (instance-derived member ids); KIP-848 static membership
+    // has its own contract test in kafka_kip848_e2e.rs.
+    req.group_protocol = "classic".to_string();
     let mut s1 = client.subscribe(req.clone()).await.expect("subscribe static 1");
     let (a1, m1, _) = collect_group(&mut s1, 1, 0, std::time::Duration::from_secs(30)).await;
     assert_eq!(a1, vec![vec![0]]);
@@ -523,6 +527,7 @@ async fn kafka_proxy_group_static_membership() {
     // id fences the first member; its stream must error or end.
     let mut req3 = subscribe_req(&group, &topic);
     req3.group_instance_id = "static-member-1".to_string();
+    req3.group_protocol = "classic".to_string();
     let mut s3 = client.subscribe(req3).await.expect("subscribe static 3");
     let (a3, _, _) = collect_group(&mut s3, 1, 0, std::time::Duration::from_secs(30)).await;
     assert_eq!(a3, vec![vec![0]]);

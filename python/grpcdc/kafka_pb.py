@@ -1097,7 +1097,7 @@ class ConsumeResponse:
 class GroupSubscribeRequest:
     """Message grpcdc.kafka.v1.GroupSubscribeRequest."""
 
-    def __init__(self, group_id="", topics=None, group_instance_id="", session_timeout_ms=0, max_poll_records=0, auto_offset_reset="", read_committed=False):
+    def __init__(self, group_id="", topics=None, group_instance_id="", session_timeout_ms=0, max_poll_records=0, auto_offset_reset="", read_committed=False, group_protocol=""):
         self.group_id = group_id
         self.topics = list(topics) if topics is not None else []
         self.group_instance_id = group_instance_id
@@ -1105,6 +1105,7 @@ class GroupSubscribeRequest:
         self.max_poll_records = max_poll_records
         self.auto_offset_reset = auto_offset_reset
         self.read_committed = read_committed
+        self.group_protocol = group_protocol
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -1117,6 +1118,7 @@ class GroupSubscribeRequest:
         out = _append_varint_field(out, 5, self.max_poll_records)
         out = _append_string_field(out, 6, self.auto_offset_reset)
         out = _append_varint_field(out, 7, (1 if self.read_committed else 0))
+        out = _append_string_field(out, 8, self.group_protocol)
         out += self.unknown_fields
         return bytes(out)
 
@@ -1129,6 +1131,7 @@ class GroupSubscribeRequest:
         self.max_poll_records = 0
         self.auto_offset_reset = ""
         self.read_committed = False
+        self.group_protocol = ""
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -1149,6 +1152,8 @@ class GroupSubscribeRequest:
                 self.auto_offset_reset = value.decode("utf-8")
             elif num == 7:
                 self.read_committed = (value != 0)
+            elif num == 8:
+                self.group_protocol = value.decode("utf-8")
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -1156,7 +1161,7 @@ class GroupSubscribeRequest:
         return isinstance(other, GroupSubscribeRequest) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"GroupSubscribeRequest(group_id={self.group_id!r}, topics={self.topics!r}, group_instance_id={self.group_instance_id!r}, session_timeout_ms={self.session_timeout_ms!r}, max_poll_records={self.max_poll_records!r}, auto_offset_reset={self.auto_offset_reset!r}, read_committed={self.read_committed!r})"
+        return f"GroupSubscribeRequest(group_id={self.group_id!r}, topics={self.topics!r}, group_instance_id={self.group_instance_id!r}, session_timeout_ms={self.session_timeout_ms!r}, max_poll_records={self.max_poll_records!r}, auto_offset_reset={self.auto_offset_reset!r}, read_committed={self.read_committed!r}, group_protocol={self.group_protocol!r})"
 
 
 class GroupSubscribeResponse:

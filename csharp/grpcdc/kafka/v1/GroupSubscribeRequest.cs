@@ -13,9 +13,10 @@ public sealed class GroupSubscribeRequest : IMarshaler, IUnmarshaler {
     public int MaxPollRecords = 0;
     public string AutoOffsetReset = "";
     public bool ReadCommitted = false;
+    public string GroupProtocol = "";
     public byte[] UnknownFields = new byte[0];
     public GroupSubscribeRequest() {}
-    public GroupSubscribeRequest(string groupId, System.Collections.Generic.List<string> topics, string groupInstanceId, int sessionTimeoutMs, int maxPollRecords, string autoOffsetReset, bool readCommitted) {
+    public GroupSubscribeRequest(string groupId, System.Collections.Generic.List<string> topics, string groupInstanceId, int sessionTimeoutMs, int maxPollRecords, string autoOffsetReset, bool readCommitted, string groupProtocol) {
         GroupId = groupId;
         Topics = topics;
         GroupInstanceId = groupInstanceId;
@@ -23,6 +24,7 @@ public sealed class GroupSubscribeRequest : IMarshaler, IUnmarshaler {
         MaxPollRecords = maxPollRecords;
         AutoOffsetReset = autoOffsetReset;
         ReadCommitted = readCommitted;
+        GroupProtocol = groupProtocol;
     }
     public byte[] MarshalDc() {
         var w = new KafkaPb.Writer();
@@ -33,6 +35,7 @@ public sealed class GroupSubscribeRequest : IMarshaler, IUnmarshaler {
         if (MaxPollRecords != 0) { w.Tag(5, 0); w.Varint(MaxPollRecords); }
         w.StringField(6, AutoOffsetReset);
         if (ReadCommitted) { w.Tag(7, 0); w.Varint((ReadCommitted ? 1 : 0)); }
+        w.StringField(8, GroupProtocol);
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -45,6 +48,7 @@ public sealed class GroupSubscribeRequest : IMarshaler, IUnmarshaler {
         MaxPollRecords = 0;
         AutoOffsetReset = "";
         ReadCommitted = false;
+        GroupProtocol = "";
         var r = new KafkaPb.Reader(data);
         KafkaPb.Field field;
         while ((field = r.Next()) != null) {
@@ -75,6 +79,10 @@ public sealed class GroupSubscribeRequest : IMarshaler, IUnmarshaler {
                 }
                 case 7: {
                     ReadCommitted = field.VarintValue != 0;
+                    break;
+                }
+                case 8: {
+                    GroupProtocol = System.Text.Encoding.UTF8.GetString(field.BytesValue);
                     break;
                 }
                 default: UnknownFields = KafkaPb.ConcatBytes(UnknownFields, field.RawValue); break;

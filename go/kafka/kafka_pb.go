@@ -1365,6 +1365,7 @@ type GroupSubscribeRequest struct {
 	MaxPollRecords   int32
 	AutoOffsetReset  string
 	ReadCommitted    bool
+	GroupProtocol    string
 	UnknownFields    []byte
 }
 
@@ -1388,6 +1389,7 @@ func (m *GroupSubscribeRequest) MarshalDC() []byte {
 		out = KafkaPbAppendTag(out, 7, 0)
 		out = KafkaPbAppendVarint(out, KafkaPbBoolToUint64(m.ReadCommitted))
 	}
+	out = KafkaPbAppendStringField(out, 8, m.GroupProtocol)
 	out = append(out, m.UnknownFields...)
 	return out
 }
@@ -1431,6 +1433,10 @@ func (m *GroupSubscribeRequest) UnmarshalDC(data []byte) error {
 		case 7:
 			if v, ok := value.(uint64); ok {
 				m.ReadCommitted = v != 0
+			}
+		case 8:
+			if b, ok := value.([]byte); ok {
+				m.GroupProtocol = string(b)
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)

@@ -790,7 +790,7 @@ export class ConsumeResponse {
 }
 
 export class GroupSubscribeRequest {
-  constructor({ groupId = "", topics = [], groupInstanceId = "", sessionTimeoutMs = 0, maxPollRecords = 0, autoOffsetReset = "", readCommitted = false } = {}) {
+  constructor({ groupId = "", topics = [], groupInstanceId = "", sessionTimeoutMs = 0, maxPollRecords = 0, autoOffsetReset = "", readCommitted = false, groupProtocol = "" } = {}) {
     this.groupId = groupId;
     this.topics = topics;
     this.groupInstanceId = groupInstanceId;
@@ -798,6 +798,7 @@ export class GroupSubscribeRequest {
     this.maxPollRecords = maxPollRecords;
     this.autoOffsetReset = autoOffsetReset;
     this.readCommitted = readCommitted;
+    this.groupProtocol = groupProtocol;
     this.unknownFields = new Uint8Array(0);
   }
   static encode(msg) {
@@ -809,6 +810,7 @@ export class GroupSubscribeRequest {
     putVarintField(out, 5, BigInt(msg.maxPollRecords));
     putStringField(out, 6, msg.autoOffsetReset);
     putVarintField(out, 7, (msg.readCommitted ? 1n : 0n));
+    putStringField(out, 8, msg.groupProtocol);
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -826,6 +828,7 @@ export class GroupSubscribeRequest {
       case 5: msg.maxPollRecords = Number(BigInt.asIntN(32, value)); break;
       case 6: msg.autoOffsetReset = new TextDecoder().decode(value); break;
       case 7: msg.readCommitted = value !== 0n; break;
+      case 8: msg.groupProtocol = new TextDecoder().decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }

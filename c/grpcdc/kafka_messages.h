@@ -327,6 +327,7 @@ struct GroupSubscribeRequest {
     int32_t max_poll_records;
     char * auto_offset_reset;
     bool read_committed;
+    char * group_protocol;
     KafkaPbBytes unknown_fields;
 };
 
@@ -1849,6 +1850,7 @@ static inline void GroupSubscribeRequest_init(GroupSubscribeRequest *m) {
     m->topics = NULL;
     m->group_instance_id = "";
     m->auto_offset_reset = "";
+    m->group_protocol = "";
 }
 
 static inline KafkaPbBytes GroupSubscribeRequest_marshal(const GroupSubscribeRequest *m) {
@@ -1860,6 +1862,7 @@ static inline KafkaPbBytes GroupSubscribeRequest_marshal(const GroupSubscribeReq
     if ((m->max_poll_records != 0)) { KafkaPb_writer_tag(&w, 5, 0); KafkaPb_writer_varint(&w, ((uint64_t)(int64_t)m->max_poll_records)); }
     KafkaPb_writer_string_field(&w, 6, m->auto_offset_reset);
     if (m->read_committed) { KafkaPb_writer_tag(&w, 7, 0); KafkaPb_writer_varint(&w, (m->read_committed ? 1 : 0)); }
+    KafkaPb_writer_string_field(&w, 8, m->group_protocol);
     KafkaPb_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);
     return KafkaPb_writer_to_bytes(&w);
 }
@@ -1897,6 +1900,10 @@ static inline void GroupSubscribeRequest_unmarshal(GroupSubscribeRequest *m, con
                 }
                 case 7: {
                     m->read_committed = (field.varint_value != 0);
+                    break;
+                }
+                case 8: {
+                    m->group_protocol = KafkaPb_strdup_bytes(field.bytes_value.data, field.bytes_value.len);
                     break;
                 }
             default: {
