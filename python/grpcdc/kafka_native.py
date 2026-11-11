@@ -64,7 +64,8 @@ def _lib_candidates(explicit=None):
     names = ("libkafka_native.so", "libkafka_native.dylib", "kafka_native.dll")
     out = []
     if explicit:
-        out.append(explicit)
+        # An explicit path is authoritative: no fallthrough.
+        return [explicit]
     env = os.environ.get("GRPC_DC_KAFKA_NATIVE_LIB")
     if env:
         out.append(env)

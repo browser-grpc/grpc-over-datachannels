@@ -34,6 +34,18 @@ Three form factors, one wire implementation
 - `kafka-proxy` — the `kafka_proxy` sidecar, a thin host over
   the same crate (stdio / TCP / WebRTC-Direct listeners).
 
+Native coverage (in the `make test-kafka` gate): Rust direct
+`Broker` roundtrip + admin (configs, partitions, groups) and
+in-process `KafkaService`; FFI error paths (unknown method,
+malformed bytes, null handle, `last_error`), `Subscribe`
+through the ABI, and `stream_free` mid-stream followed by a
+successful call; a C caller compiled against
+`include/kafka_native.h`; Python roundtrip, admin, and error
+legs. Known gaps, stated plainly: the native library is
+plaintext-only (SASL/TLS brokers need the sidecar), and
+Python is the only per-language FFI wrapper so far — other
+languages still use `kafka-grpc` through the proxy.
+
 ## Service surface
 
 - `Metadata`, `ListOffsets` — cluster/topic metadata, offsets.

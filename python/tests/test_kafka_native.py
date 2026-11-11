@@ -79,5 +79,35 @@ class TestKafkaNative(unittest.TestCase):
         self.assertEqual(offsets.offset, 3)
 
 
+    def test_admin_describe_configs_and_list_groups(self):
+        configs = self.client.DescribeConfigs(kafka_pb.DescribeConfigsRequest(
+            resource_type=kafka_pb.ConfigResourceType.CONFIG_RESOURCE_TOPIC,
+            resource_name=self.topic,
+            config_keys=["max.message.bytes"]))
+        self.assertEqual(configs.error_code, 0, configs)
+        self.assertTrue(
+            any(v.name == "max.message.bytes" for v in configs.values),
+            configs)
+        groups = self.client.ListGroups(kafka_pb.ListGroupsRequest())
+        self.assertEqual(groups.error_code, 0, groups)
+
+
+@unittest.skipUnless(LIB, "GRPC_DC_KAFKA_NATIVE_LIB unset")
+class TestKafkaNativeErrors(unittest.TestCase):
+    def test_missing_library_raises(self):
+        from grpcdc.kafka_native import NativeKafkaError
+        with self.assertRaises(NativeKafkaError):
+            NativeKafkaClient("127.0.0.1:1", lib="/nonexistent/libkafka_native.so")
+
+    def test_unreachable_broker_call_raises(self):
+        from grpcdc.kafka_native import NativeKafkaError
+        client = NativeKafkaClient("127.0.0.1:1")
+        try:
+            with self.assertRaises(NativeKafkaError):
+                client.Metadata(kafka_pb.MetadataRequest(topics=["nope"]))
+        finally:
+            client.close()
+
+
 if __name__ == "__main__":
     unittest.main()

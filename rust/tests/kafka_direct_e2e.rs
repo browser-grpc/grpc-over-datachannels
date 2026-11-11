@@ -97,6 +97,82 @@ async fn kafka_direct_broker_roundtrip() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_direct_admin() {
+    let Some(broker_addr) = broker_or_skip() else { return };
+    let broker = Broker::new(KafkaConfig {
+        broker: broker_addr,
+        client_id: "grpc-dc-kafka-direct-admin-e2e".to_string(),
+        sasl: None,
+        tls: None,
+    });
+    let topic = unique_topic("grpc-dc-direct-admin");
+    let created = broker
+        .create_topics(vec![(topic.clone(), 1, 1)], 30_000, false)
+        .await
+        .expect("create topic");
+    assert_eq!(created[0].1, 0, "create failed: {created:?}");
+
+    // CreatePartitions 1 -> 3, verified through metadata.
+    let err = broker.create_partitions(&topic, 3, false, 30_000).await.expect("create partitions");
+    assert_eq!(err, 0, "create partitions error {err}");
+    let mut partitions = 0;
+    for _ in 0..50 {
+        let meta = broker.metadata(vec![topic.clone()], false).await.expect("metadata");
+        partitions = meta
+            .topics
+            .iter()
+            .find(|t| t.name == topic)
+            .map(|t| t.partitions.len())
+            .unwrap_or(0);
+        if partitions == 3 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    assert_eq!(partitions, 3);
+
+    // AlterConfigs then DescribeConfigs until the value is
+    // visible (config propagation is eventually consistent).
+    // Resource type 2 = TOPIC (Kafka wire code), op 0 = SET.
+    let err = broker
+        .alter_configs(
+            2,
+            &topic,
+            &[("max.message.bytes".to_string(), "12345".to_string(), 0)],
+            false,
+        )
+        .await
+        .expect("alter configs");
+    assert_eq!(err, 0, "alter configs error {err}");
+    let mut visible = String::new();
+    for _ in 0..50 {
+        let (err, values) = broker
+            .describe_configs(2, &topic, &["max.message.bytes".to_string()], false)
+            .await
+            .expect("describe configs");
+        assert_eq!(err, 0, "describe configs error {err}");
+        visible = values
+            .iter()
+            .find(|v| v.name == "max.message.bytes")
+            .map(|v| v.value.clone())
+            .unwrap_or_default();
+        if visible == "12345" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    assert_eq!(visible, "12345");
+
+    // ListGroups runs against the live broker (no members
+    // needed for the call itself).
+    let (err, _groups) = broker.list_groups().await.expect("list groups");
+    assert_eq!(err, 0, "list groups error {err}");
+
+    let deleted = broker.delete_topics(vec![topic.clone()], 30_000).await.expect("delete topics");
+    assert_eq!(deleted[0].1, 0, "delete failed: {deleted:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn kafka_direct_service_in_process() {
     let Some(broker_addr) = broker_or_skip() else { return };
     let service = Arc::new(KafkaService::new(KafkaConfig {

@@ -443,6 +443,10 @@ run_native_legs() {
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_native"
+    run "rust ffi e2e (apache kafka)" env KAFKA_PROXY_E2E_BROKER="$KAFKA_ADDR" \
+        bash -c "cd '$ROOT/rust' && cargo test --test kafka_native_ffi_e2e"
+    run "c ffi smoke (apache kafka)" \
+        bash -c "cc -O1 -I'$ROOT/crates/kafka-native/include' '$ROOT/crates/kafka-native/tests/ffi_smoke.c' -L'$ROOT/crates/kafka-native/target/debug' -lkafka_native -Wl,-rpath,'$ROOT/crates/kafka-native/target/debug' -o '$TMP/ffi_smoke' && '$TMP/ffi_smoke' '$KAFKA_ADDR'"
 }
 
 run_sasl_suites() {
