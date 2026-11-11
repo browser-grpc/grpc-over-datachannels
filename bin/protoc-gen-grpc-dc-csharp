@@ -15732,6 +15732,63 @@
   (define jn (hash-ref f 'json-name ""))
   (if (and jn (not (string=? jn ""))) jn (seg-php-camel (hash-ref f 'name))))
 
+(define seg-swift-keywords
+  '("associatedtype"
+    "class"
+    "deinit"
+    "enum"
+    "extension"
+    "fileprivate"
+    "func"
+    "import"
+    "init"
+    "inout"
+    "internal"
+    "let"
+    "open"
+    "operator"
+    "private"
+    "precedencegroup"
+    "protocol"
+    "public"
+    "rethrows"
+    "static"
+    "struct"
+    "subscript"
+    "typealias"
+    "var"
+    "actor"
+    "async"
+    "await"
+    "break"
+    "case"
+    "catch"
+    "continue"
+    "default"
+    "defer"
+    "do"
+    "else"
+    "fallthrough"
+    "for"
+    "guard"
+    "if"
+    "in"
+    "return"
+    "throw"
+    "switch"
+    "where"
+    "while"
+    "false"
+    "nil"
+    "true"
+    "self"
+    "Self"
+    "super"))
+
+(define (seg-swift-field-name f)
+  (define n (seg-dart-field-name f))
+  (if (member n seg-swift-keywords) (string-append "`" n "`") n))
+
 (define (seg-dart-entry-ref model node)
   (define entry
     (if (hash-has-key? node 'type-name)
@@ -16265,7 +16322,7 @@
     (second (assv (hash-ref node 'type) (fixed-scalar-table 'dart))))
    ((eq? (car seg) 'dart-fixed-name)
     (third (assv (hash-ref node 'type) (fixed-scalar-table 'dart))))
-   ((eq? (car seg) 'swift-field-name) (seg-dart-field-name node))
+   ((eq? (car seg) 'swift-field-name) (seg-swift-field-name node))
    ((eq? (car seg) 'lua-field-name) (seg-dart-field-name node))
    ((eq? (car seg) 'cpp-stub-type)
     (seg-cpp-stub-type
