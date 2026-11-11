@@ -1203,6 +1203,30 @@ async fn kafka_proxy_compression() {
     }
 }
 
+/// Regression: dropping a Consume stream while the proxy has
+/// a long-poll Fetch in flight must not corrupt the pooled
+/// broker connection. The next CreateTopics on that connection
+/// must succeed (not read the stale Fetch response and then
+/// fail with a correlation mismatch / TOPIC_ALREADY_EXISTS).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_drop_consume_then_create_topics() {
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    for round in 0..5 {
+        let topic = unique_topic("grpc-dc-e2e-drop-consume");
+        make_topic(&client, &topic, 1).await;
+        produce_one(&client, &topic, "x").await;
+        let values = consume_values(&client, &topic, 1).await;
+        assert_eq!(values, vec!["x"], "round {round} consume");
+        // consume_values dropped the stream. Give the proxy
+        // time to enter its next long-poll Fetch (max_wait
+        // 2000ms) on the shared conn, then create a topic.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let next = unique_topic("grpc-dc-e2e-after-drop");
+        make_topic(&client, &next, 1).await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn kafka_proxy_idempotent_and_transactions() {
     let Some(broker) = broker_or_skip() else { return };

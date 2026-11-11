@@ -235,7 +235,9 @@ run_broker_restart_leg() {
     run "broker restart phase2 (resume after bounce)" env \
         KAFKA_E2E_PROXY_ADDR="$PROXY_RESTART_ADDR" \
         python3 "$ROOT/scripts/kafka-restart-driver.py" phase2 || return 1
-    kill "$KAFKA_RESTART_PID" 2>/dev/null
+    # Cleanup only: both phases already passed, so a kill
+    # race (broker already exiting) must not fail the leg.
+    kill "$KAFKA_RESTART_PID" 2>/dev/null || true
 }
 
 run_kafka_sasl_suites() {

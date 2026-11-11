@@ -116,6 +116,84 @@ public enum KafkaGrpcDc {
             return resp
         }
 
+        public func DescribeConfigs(_ req: DescribeConfigsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DescribeConfigsResponse {
+            let resp = DescribeConfigsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func AlterConfigs(_ req: AlterConfigsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> AlterConfigsResponse {
+            let resp = AlterConfigsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func CreatePartitions(_ req: CreatePartitionsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> CreatePartitionsResponse {
+            let resp = CreatePartitionsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func DeleteRecords(_ req: DeleteRecordsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DeleteRecordsResponse {
+            let resp = DeleteRecordsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func ListGroups(_ req: ListGroupsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ListGroupsResponse {
+            let resp = ListGroupsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func DescribeGroups(_ req: DescribeGroupsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DescribeGroupsResponse {
+            let resp = DescribeGroupsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func DeleteGroups(_ req: DeleteGroupsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DeleteGroupsResponse {
+            let resp = DeleteGroupsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func DeleteGroupOffsets(_ req: DeleteGroupOffsetsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DeleteGroupOffsetsResponse {
+            let resp = DeleteGroupOffsetsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func DescribeAcls(_ req: DescribeAclsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DescribeAclsResponse {
+            let resp = DescribeAclsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func CreateAcls(_ req: CreateAclsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> CreateAclsResponse {
+            let resp = CreateAclsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func DeleteAcls(_ req: DeleteAclsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DeleteAclsResponse {
+            let resp = DeleteAclsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func ListTransactions(_ req: ListTransactionsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> ListTransactionsResponse {
+            let resp = ListTransactionsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func DescribeTransactions(_ req: DescribeTransactionsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> DescribeTransactionsResponse {
+            let resp = DescribeTransactionsResponse()
+            try channel.Unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, resp, metadata, timeout)
+            return resp
+        }
+
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
@@ -215,6 +293,58 @@ public enum KafkaGrpcDc {
             try await Task.detached { try self.DeleteTopics(req, metadata, timeout) }.value
         }
 
+        public func DescribeConfigsAsync(_ req: DescribeConfigsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> DescribeConfigsResponse {
+            try await Task.detached { try self.DescribeConfigs(req, metadata, timeout) }.value
+        }
+
+        public func AlterConfigsAsync(_ req: AlterConfigsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> AlterConfigsResponse {
+            try await Task.detached { try self.AlterConfigs(req, metadata, timeout) }.value
+        }
+
+        public func CreatePartitionsAsync(_ req: CreatePartitionsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> CreatePartitionsResponse {
+            try await Task.detached { try self.CreatePartitions(req, metadata, timeout) }.value
+        }
+
+        public func DeleteRecordsAsync(_ req: DeleteRecordsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> DeleteRecordsResponse {
+            try await Task.detached { try self.DeleteRecords(req, metadata, timeout) }.value
+        }
+
+        public func ListGroupsAsync(_ req: ListGroupsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ListGroupsResponse {
+            try await Task.detached { try self.ListGroups(req, metadata, timeout) }.value
+        }
+
+        public func DescribeGroupsAsync(_ req: DescribeGroupsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> DescribeGroupsResponse {
+            try await Task.detached { try self.DescribeGroups(req, metadata, timeout) }.value
+        }
+
+        public func DeleteGroupsAsync(_ req: DeleteGroupsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> DeleteGroupsResponse {
+            try await Task.detached { try self.DeleteGroups(req, metadata, timeout) }.value
+        }
+
+        public func DeleteGroupOffsetsAsync(_ req: DeleteGroupOffsetsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> DeleteGroupOffsetsResponse {
+            try await Task.detached { try self.DeleteGroupOffsets(req, metadata, timeout) }.value
+        }
+
+        public func DescribeAclsAsync(_ req: DescribeAclsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> DescribeAclsResponse {
+            try await Task.detached { try self.DescribeAcls(req, metadata, timeout) }.value
+        }
+
+        public func CreateAclsAsync(_ req: CreateAclsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> CreateAclsResponse {
+            try await Task.detached { try self.CreateAcls(req, metadata, timeout) }.value
+        }
+
+        public func DeleteAclsAsync(_ req: DeleteAclsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> DeleteAclsResponse {
+            try await Task.detached { try self.DeleteAcls(req, metadata, timeout) }.value
+        }
+
+        public func ListTransactionsAsync(_ req: ListTransactionsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> ListTransactionsResponse {
+            try await Task.detached { try self.ListTransactions(req, metadata, timeout) }.value
+        }
+
+        public func DescribeTransactionsAsync(_ req: DescribeTransactionsRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> DescribeTransactionsResponse {
+            try await Task.detached { try self.DescribeTransactions(req, metadata, timeout) }.value
+        }
+
         #endif
     }
 
@@ -244,6 +374,19 @@ public enum KafkaGrpcDc {
         func FetchOffset(_ ctx: Endpoint.CallContext, _ req: FetchOffsetRequest) throws -> FetchOffsetResponse
         func CreateTopics(_ ctx: Endpoint.CallContext, _ req: CreateTopicsRequest) throws -> CreateTopicsResponse
         func DeleteTopics(_ ctx: Endpoint.CallContext, _ req: DeleteTopicsRequest) throws -> DeleteTopicsResponse
+        func DescribeConfigs(_ ctx: Endpoint.CallContext, _ req: DescribeConfigsRequest) throws -> DescribeConfigsResponse
+        func AlterConfigs(_ ctx: Endpoint.CallContext, _ req: AlterConfigsRequest) throws -> AlterConfigsResponse
+        func CreatePartitions(_ ctx: Endpoint.CallContext, _ req: CreatePartitionsRequest) throws -> CreatePartitionsResponse
+        func DeleteRecords(_ ctx: Endpoint.CallContext, _ req: DeleteRecordsRequest) throws -> DeleteRecordsResponse
+        func ListGroups(_ ctx: Endpoint.CallContext, _ req: ListGroupsRequest) throws -> ListGroupsResponse
+        func DescribeGroups(_ ctx: Endpoint.CallContext, _ req: DescribeGroupsRequest) throws -> DescribeGroupsResponse
+        func DeleteGroups(_ ctx: Endpoint.CallContext, _ req: DeleteGroupsRequest) throws -> DeleteGroupsResponse
+        func DeleteGroupOffsets(_ ctx: Endpoint.CallContext, _ req: DeleteGroupOffsetsRequest) throws -> DeleteGroupOffsetsResponse
+        func DescribeAcls(_ ctx: Endpoint.CallContext, _ req: DescribeAclsRequest) throws -> DescribeAclsResponse
+        func CreateAcls(_ ctx: Endpoint.CallContext, _ req: CreateAclsRequest) throws -> CreateAclsResponse
+        func DeleteAcls(_ ctx: Endpoint.CallContext, _ req: DeleteAclsRequest) throws -> DeleteAclsResponse
+        func ListTransactions(_ ctx: Endpoint.CallContext, _ req: ListTransactionsRequest) throws -> ListTransactionsResponse
+        func DescribeTransactions(_ ctx: Endpoint.CallContext, _ req: DescribeTransactionsRequest) throws -> DescribeTransactionsResponse
     }
 
     #if canImport(Foundation)
@@ -261,6 +404,19 @@ public enum KafkaGrpcDc {
         func FetchOffsetAsync(_ ctx: Endpoint.CallContext, _ req: FetchOffsetRequest) async throws -> FetchOffsetResponse
         func CreateTopicsAsync(_ ctx: Endpoint.CallContext, _ req: CreateTopicsRequest) async throws -> CreateTopicsResponse
         func DeleteTopicsAsync(_ ctx: Endpoint.CallContext, _ req: DeleteTopicsRequest) async throws -> DeleteTopicsResponse
+        func DescribeConfigsAsync(_ ctx: Endpoint.CallContext, _ req: DescribeConfigsRequest) async throws -> DescribeConfigsResponse
+        func AlterConfigsAsync(_ ctx: Endpoint.CallContext, _ req: AlterConfigsRequest) async throws -> AlterConfigsResponse
+        func CreatePartitionsAsync(_ ctx: Endpoint.CallContext, _ req: CreatePartitionsRequest) async throws -> CreatePartitionsResponse
+        func DeleteRecordsAsync(_ ctx: Endpoint.CallContext, _ req: DeleteRecordsRequest) async throws -> DeleteRecordsResponse
+        func ListGroupsAsync(_ ctx: Endpoint.CallContext, _ req: ListGroupsRequest) async throws -> ListGroupsResponse
+        func DescribeGroupsAsync(_ ctx: Endpoint.CallContext, _ req: DescribeGroupsRequest) async throws -> DescribeGroupsResponse
+        func DeleteGroupsAsync(_ ctx: Endpoint.CallContext, _ req: DeleteGroupsRequest) async throws -> DeleteGroupsResponse
+        func DeleteGroupOffsetsAsync(_ ctx: Endpoint.CallContext, _ req: DeleteGroupOffsetsRequest) async throws -> DeleteGroupOffsetsResponse
+        func DescribeAclsAsync(_ ctx: Endpoint.CallContext, _ req: DescribeAclsRequest) async throws -> DescribeAclsResponse
+        func CreateAclsAsync(_ ctx: Endpoint.CallContext, _ req: CreateAclsRequest) async throws -> CreateAclsResponse
+        func DeleteAclsAsync(_ ctx: Endpoint.CallContext, _ req: DeleteAclsRequest) async throws -> DeleteAclsResponse
+        func ListTransactionsAsync(_ ctx: Endpoint.CallContext, _ req: ListTransactionsRequest) async throws -> ListTransactionsResponse
+        func DescribeTransactionsAsync(_ ctx: Endpoint.CallContext, _ req: DescribeTransactionsRequest) async throws -> DescribeTransactionsResponse
     }
 
     #endif
@@ -326,6 +482,45 @@ public enum KafkaGrpcDc {
         }
         func DeleteTopics(_ ctx: Endpoint.CallContext, _ req: DeleteTopicsRequest) throws -> DeleteTopicsResponse {
             try RunBlocking { try await self.impl.DeleteTopicsAsync(ctx, req) }
+        }
+        func DescribeConfigs(_ ctx: Endpoint.CallContext, _ req: DescribeConfigsRequest) throws -> DescribeConfigsResponse {
+            try RunBlocking { try await self.impl.DescribeConfigsAsync(ctx, req) }
+        }
+        func AlterConfigs(_ ctx: Endpoint.CallContext, _ req: AlterConfigsRequest) throws -> AlterConfigsResponse {
+            try RunBlocking { try await self.impl.AlterConfigsAsync(ctx, req) }
+        }
+        func CreatePartitions(_ ctx: Endpoint.CallContext, _ req: CreatePartitionsRequest) throws -> CreatePartitionsResponse {
+            try RunBlocking { try await self.impl.CreatePartitionsAsync(ctx, req) }
+        }
+        func DeleteRecords(_ ctx: Endpoint.CallContext, _ req: DeleteRecordsRequest) throws -> DeleteRecordsResponse {
+            try RunBlocking { try await self.impl.DeleteRecordsAsync(ctx, req) }
+        }
+        func ListGroups(_ ctx: Endpoint.CallContext, _ req: ListGroupsRequest) throws -> ListGroupsResponse {
+            try RunBlocking { try await self.impl.ListGroupsAsync(ctx, req) }
+        }
+        func DescribeGroups(_ ctx: Endpoint.CallContext, _ req: DescribeGroupsRequest) throws -> DescribeGroupsResponse {
+            try RunBlocking { try await self.impl.DescribeGroupsAsync(ctx, req) }
+        }
+        func DeleteGroups(_ ctx: Endpoint.CallContext, _ req: DeleteGroupsRequest) throws -> DeleteGroupsResponse {
+            try RunBlocking { try await self.impl.DeleteGroupsAsync(ctx, req) }
+        }
+        func DeleteGroupOffsets(_ ctx: Endpoint.CallContext, _ req: DeleteGroupOffsetsRequest) throws -> DeleteGroupOffsetsResponse {
+            try RunBlocking { try await self.impl.DeleteGroupOffsetsAsync(ctx, req) }
+        }
+        func DescribeAcls(_ ctx: Endpoint.CallContext, _ req: DescribeAclsRequest) throws -> DescribeAclsResponse {
+            try RunBlocking { try await self.impl.DescribeAclsAsync(ctx, req) }
+        }
+        func CreateAcls(_ ctx: Endpoint.CallContext, _ req: CreateAclsRequest) throws -> CreateAclsResponse {
+            try RunBlocking { try await self.impl.CreateAclsAsync(ctx, req) }
+        }
+        func DeleteAcls(_ ctx: Endpoint.CallContext, _ req: DeleteAclsRequest) throws -> DeleteAclsResponse {
+            try RunBlocking { try await self.impl.DeleteAclsAsync(ctx, req) }
+        }
+        func ListTransactions(_ ctx: Endpoint.CallContext, _ req: ListTransactionsRequest) throws -> ListTransactionsResponse {
+            try RunBlocking { try await self.impl.ListTransactionsAsync(ctx, req) }
+        }
+        func DescribeTransactions(_ ctx: Endpoint.CallContext, _ req: DescribeTransactionsRequest) throws -> DescribeTransactionsResponse {
+            try RunBlocking { try await self.impl.DescribeTransactionsAsync(ctx, req) }
         }
     }
 
@@ -402,6 +597,84 @@ public enum KafkaGrpcDc {
                 let req = DeleteTopicsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.DeleteTopics(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "DescribeConfigs", path: "/grpcdc.kafka.v1.Kafka/DescribeConfigs", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = DescribeConfigsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.DescribeConfigs(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "AlterConfigs", path: "/grpcdc.kafka.v1.Kafka/AlterConfigs", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = AlterConfigsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.AlterConfigs(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "CreatePartitions", path: "/grpcdc.kafka.v1.Kafka/CreatePartitions", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = CreatePartitionsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.CreatePartitions(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "DeleteRecords", path: "/grpcdc.kafka.v1.Kafka/DeleteRecords", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = DeleteRecordsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.DeleteRecords(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "ListGroups", path: "/grpcdc.kafka.v1.Kafka/ListGroups", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = ListGroupsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.ListGroups(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "DescribeGroups", path: "/grpcdc.kafka.v1.Kafka/DescribeGroups", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = DescribeGroupsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.DescribeGroups(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "DeleteGroups", path: "/grpcdc.kafka.v1.Kafka/DeleteGroups", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = DeleteGroupsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.DeleteGroups(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "DeleteGroupOffsets", path: "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = DeleteGroupOffsetsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.DeleteGroupOffsets(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "DescribeAcls", path: "/grpcdc.kafka.v1.Kafka/DescribeAcls", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = DescribeAclsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.DescribeAcls(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "CreateAcls", path: "/grpcdc.kafka.v1.Kafka/CreateAcls", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = CreateAclsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.CreateAcls(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "DeleteAcls", path: "/grpcdc.kafka.v1.Kafka/DeleteAcls", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = DeleteAclsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.DeleteAcls(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "ListTransactions", path: "/grpcdc.kafka.v1.Kafka/ListTransactions", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = ListTransactionsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.ListTransactions(ctx, req)
+                try sink(resp.MarshalDc())
+            },
+            Server.Method(name: "DescribeTransactions", path: "/grpcdc.kafka.v1.Kafka/DescribeTransactions", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = DescribeTransactionsRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.DescribeTransactions(ctx, req)
                 try sink(resp.MarshalDc())
             },
         ]))

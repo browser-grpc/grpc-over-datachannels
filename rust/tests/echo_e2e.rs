@@ -262,6 +262,78 @@ async fn dropping_response_stream_cancels_server_production() {
     assert!(settled < 100, "server kept producing ({settled})");
 }
 
+struct DropFlag(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for DropFlag {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+struct IdleService {
+    stream_dropped: Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[grpc_dc::async_trait]
+impl Echo for IdleService {
+    async fn unary(&self, req: pb::EchoRequest, _ctx: CallCtx) -> Result<pb::EchoResponse, Status> {
+        Ok(pb::EchoResponse { message: req.message, index: 0, ..Default::default() })
+    }
+
+    async fn server_stream(
+        &self,
+        _req: pb::EchoRequest,
+        _ctx: CallCtx,
+    ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        // Never yields; the drop of this stream is observable.
+        let stream = futures_util::stream::unfold(DropFlag(self.stream_dropped.clone()), |guard| async move {
+            futures_util::future::pending::<()>().await;
+            Some((Ok(pb::EchoResponse { message: "never".into(), index: 0, ..Default::default() }), guard))
+        });
+        Ok(Box::pin(stream))
+    }
+
+    async fn client_stream(
+        &self,
+        _reqs: RequestStream<pb::EchoRequest>,
+        _ctx: CallCtx,
+    ) -> Result<pb::EchoResponse, Status> {
+        Err(Status::unimplemented("unused"))
+    }
+
+    async fn bidi(
+        &self,
+        _reqs: RequestStream<pb::EchoRequest>,
+        _ctx: CallCtx,
+    ) -> Result<ResponseStream<pb::EchoResponse>, Status> {
+        Err(Status::unimplemented("unused"))
+    }
+}
+
+#[tokio::test]
+async fn dropping_response_stream_drops_idle_server_stream() {
+    let stream_dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (a, b) = loopback_pair();
+    let server_transport: Arc<dyn DcTransport> = Arc::new(b);
+    tokio::spawn(Server::serve(
+        server_transport,
+        vec![echo_service(Arc::new(IdleService { stream_dropped: stream_dropped.clone() }))],
+    ));
+    let client_transport: Arc<dyn DcTransport> = Arc::new(a);
+    let client = EchoClient::new(Channel::new(client_transport));
+
+    let stream = client.server_stream(req("tick", 1)).await.unwrap();
+    // The producer never yields, so production counts cannot
+    // observe cancellation: the server must notice the drop and
+    // drop the handler stream itself.
+    drop(stream);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !stream_dropped.load(std::sync::atomic::Ordering::SeqCst) {
+        assert!(std::time::Instant::now() < deadline, "server never dropped the idle handler stream");
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
 #[tokio::test]
 async fn concurrent_unary_calls() {
     let client = Arc::new(setup().await);

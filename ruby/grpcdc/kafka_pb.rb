@@ -125,6 +125,20 @@ end
     ACKS_ALL = 3
   end
 
+  module ConfigResourceType
+    CONFIG_RESOURCE_UNKNOWN = 0
+    CONFIG_RESOURCE_TOPIC = 2
+    CONFIG_RESOURCE_BROKER = 4
+    CONFIG_RESOURCE_BROKER_LOGGER = 8
+    CONFIG_RESOURCE_CLIENT_METRICS = 16
+    CONFIG_RESOURCE_GROUP = 32
+  end
+
+  module ConfigOp
+    CONFIG_OP_SET = 0
+    CONFIG_OP_DELETE = 1
+  end
+
   class Header
     attr_accessor :key, :value, :unknown_fields
 
@@ -2231,6 +2245,1797 @@ end
 
     def ==(other)
       other.is_a?(DeleteTopicsResponse) && @results == other.results
+    end
+  end
+
+  class ConfigEntry
+    attr_accessor :name, :value, :unknown_fields
+
+    def initialize(name: "", value: "")
+      @name = name
+      @value = value
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @name)
+    w.string_field(2, @value)
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @name = ""
+      @value = ""
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @name = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @value = bytes_value.dup.force_encoding(Encoding::UTF_8)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(ConfigEntry) && @name == other.name && @value == other.value
+    end
+  end
+
+  class AlterConfigEntry
+    attr_accessor :name, :value, :op, :unknown_fields
+
+    def initialize(name: "", value: "", op: 0)
+      @name = name
+      @value = value
+      @op = op
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @name)
+    w.string_field(2, @value)
+    if @op != 0
+      w.tag(3, 0)
+      w.varint(@op)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @name = ""
+      @value = ""
+      @op = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @name = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @value = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        @op = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(AlterConfigEntry) && @name == other.name && @value == other.value && @op == other.op
+    end
+  end
+
+  class DescribeConfigsRequest
+    attr_accessor :resource_type, :resource_name, :config_keys, :include_synonyms, :unknown_fields
+
+    def initialize(resource_type: 0, resource_name: "", config_keys: [], include_synonyms: false)
+      @resource_type = resource_type
+      @resource_name = resource_name
+      @config_keys = config_keys
+      @include_synonyms = include_synonyms
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @resource_type != 0
+      w.tag(1, 0)
+      w.varint(@resource_type)
+    end
+    w.string_field(2, @resource_name)
+    @config_keys.each { |x| w.bytes_field(3, x) }
+    if @include_synonyms
+      w.tag(4, 0)
+      w.varint((@include_synonyms ? 1 : 0))
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @resource_type = 0
+      @resource_name = ""
+      @config_keys = []
+      @include_synonyms = false
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @resource_type = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 2
+        @resource_name = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        @config_keys << bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 4
+        @include_synonyms = (varint_value != 0)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DescribeConfigsRequest) && @resource_type == other.resource_type && @resource_name == other.resource_name && @config_keys == other.config_keys && @include_synonyms == other.include_synonyms
+    end
+  end
+
+  class ConfigValue
+    attr_accessor :name, :value, :read_only, :source, :is_sensitive, :unknown_fields
+
+    def initialize(name: "", value: "", read_only: false, source: 0, is_sensitive: false)
+      @name = name
+      @value = value
+      @read_only = read_only
+      @source = source
+      @is_sensitive = is_sensitive
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @name)
+    w.string_field(2, @value)
+    if @read_only
+      w.tag(3, 0)
+      w.varint((@read_only ? 1 : 0))
+    end
+    if @source != 0
+      w.tag(4, 0)
+      w.varint(@source)
+    end
+    if @is_sensitive
+      w.tag(5, 0)
+      w.varint((@is_sensitive ? 1 : 0))
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @name = ""
+      @value = ""
+      @read_only = false
+      @source = 0
+      @is_sensitive = false
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @name = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @value = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        @read_only = (varint_value != 0)
+      when 4
+        @source = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 5
+        @is_sensitive = (varint_value != 0)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(ConfigValue) && @name == other.name && @value == other.value && @read_only == other.read_only && @source == other.source && @is_sensitive == other.is_sensitive
+    end
+  end
+
+  class DescribeConfigsResponse
+    attr_accessor :error_code, :values, :unknown_fields
+
+    def initialize(error_code: 0, values: [])
+      @error_code = error_code
+      @values = values
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @error_code != 0
+      w.tag(1, 0)
+      w.varint(@error_code)
+    end
+    @values.each { |x| w.bytes_field(2, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @error_code = 0
+      @values = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 2
+        item = ConfigValue.new
+        item.unmarshal_dc(bytes_value)
+        @values << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DescribeConfigsResponse) && @error_code == other.error_code && @values == other.values
+    end
+  end
+
+  class AlterConfigsRequest
+    attr_accessor :resource_type, :resource_name, :entries, :validate_only, :unknown_fields
+
+    def initialize(resource_type: 0, resource_name: "", entries: [], validate_only: false)
+      @resource_type = resource_type
+      @resource_name = resource_name
+      @entries = entries
+      @validate_only = validate_only
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @resource_type != 0
+      w.tag(1, 0)
+      w.varint(@resource_type)
+    end
+    w.string_field(2, @resource_name)
+    @entries.each { |x| w.bytes_field(3, x.marshal_dc) }
+    if @validate_only
+      w.tag(4, 0)
+      w.varint((@validate_only ? 1 : 0))
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @resource_type = 0
+      @resource_name = ""
+      @entries = []
+      @validate_only = false
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @resource_type = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 2
+        @resource_name = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        item = AlterConfigEntry.new
+        item.unmarshal_dc(bytes_value)
+        @entries << item
+      when 4
+        @validate_only = (varint_value != 0)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(AlterConfigsRequest) && @resource_type == other.resource_type && @resource_name == other.resource_name && @entries == other.entries && @validate_only == other.validate_only
+    end
+  end
+
+  class AlterConfigsResponse
+    attr_accessor :error_code, :unknown_fields
+
+    def initialize(error_code: 0)
+      @error_code = error_code
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @error_code != 0
+      w.tag(1, 0)
+      w.varint(@error_code)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @error_code = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(AlterConfigsResponse) && @error_code == other.error_code
+    end
+  end
+
+  class CreatePartitionsRequest
+    attr_accessor :topic, :total_count, :validate_only, :timeout_ms, :unknown_fields
+
+    def initialize(topic: "", total_count: 0, validate_only: false, timeout_ms: 0)
+      @topic = topic
+      @total_count = total_count
+      @validate_only = validate_only
+      @timeout_ms = timeout_ms
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @topic)
+    if @total_count != 0
+      w.tag(2, 0)
+      w.varint(@total_count)
+    end
+    if @validate_only
+      w.tag(3, 0)
+      w.varint((@validate_only ? 1 : 0))
+    end
+    if @timeout_ms != 0
+      w.tag(4, 0)
+      w.varint(@timeout_ms)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @topic = ""
+      @total_count = 0
+      @validate_only = false
+      @timeout_ms = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @topic = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @total_count = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 3
+        @validate_only = (varint_value != 0)
+      when 4
+        @timeout_ms = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(CreatePartitionsRequest) && @topic == other.topic && @total_count == other.total_count && @validate_only == other.validate_only && @timeout_ms == other.timeout_ms
+    end
+  end
+
+  class CreatePartitionsResponse
+    attr_accessor :error_code, :unknown_fields
+
+    def initialize(error_code: 0)
+      @error_code = error_code
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @error_code != 0
+      w.tag(1, 0)
+      w.varint(@error_code)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @error_code = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(CreatePartitionsResponse) && @error_code == other.error_code
+    end
+  end
+
+  class DeleteRecordsRequest
+    attr_accessor :topic, :partition, :before_offset, :unknown_fields
+
+    def initialize(topic: "", partition: 0, before_offset: 0)
+      @topic = topic
+      @partition = partition
+      @before_offset = before_offset
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @topic)
+    if @partition != 0
+      w.tag(2, 0)
+      w.varint(@partition)
+    end
+    if @before_offset != 0
+      w.tag(3, 0)
+      w.varint(@before_offset)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @topic = ""
+      @partition = 0
+      @before_offset = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @topic = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @partition = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 3
+        @before_offset = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DeleteRecordsRequest) && @topic == other.topic && @partition == other.partition && @before_offset == other.before_offset
+    end
+  end
+
+  class DeleteRecordsResponse
+    attr_accessor :low_watermark, :error_code, :unknown_fields
+
+    def initialize(low_watermark: 0, error_code: 0)
+      @low_watermark = low_watermark
+      @error_code = error_code
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @low_watermark != 0
+      w.tag(1, 0)
+      w.varint(@low_watermark)
+    end
+    if @error_code != 0
+      w.tag(2, 0)
+      w.varint(@error_code)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @low_watermark = 0
+      @error_code = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @low_watermark = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 2
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DeleteRecordsResponse) && @low_watermark == other.low_watermark && @error_code == other.error_code
+    end
+  end
+
+  class ListGroupsRequest
+    def initialize()
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        @unknown_fields = @unknown_fields + raw_value
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(ListGroupsRequest) && true
+    end
+  end
+
+  class GroupListing
+    attr_accessor :group_id, :protocol_type, :group_state, :unknown_fields
+
+    def initialize(group_id: "", protocol_type: "", group_state: "")
+      @group_id = group_id
+      @protocol_type = protocol_type
+      @group_state = group_state
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @group_id)
+    w.string_field(2, @protocol_type)
+    w.string_field(3, @group_state)
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @group_id = ""
+      @protocol_type = ""
+      @group_state = ""
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @group_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @protocol_type = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        @group_state = bytes_value.dup.force_encoding(Encoding::UTF_8)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(GroupListing) && @group_id == other.group_id && @protocol_type == other.protocol_type && @group_state == other.group_state
+    end
+  end
+
+  class ListGroupsResponse
+    attr_accessor :error_code, :groups, :unknown_fields
+
+    def initialize(error_code: 0, groups: [])
+      @error_code = error_code
+      @groups = groups
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @error_code != 0
+      w.tag(1, 0)
+      w.varint(@error_code)
+    end
+    @groups.each { |x| w.bytes_field(2, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @error_code = 0
+      @groups = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 2
+        item = GroupListing.new
+        item.unmarshal_dc(bytes_value)
+        @groups << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(ListGroupsResponse) && @error_code == other.error_code && @groups == other.groups
+    end
+  end
+
+  class DescribeGroupsRequest
+    attr_accessor :group_ids, :unknown_fields
+
+    def initialize(group_ids: [])
+      @group_ids = group_ids
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @group_ids.each { |x| w.bytes_field(1, x) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @group_ids = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @group_ids << bytes_value.dup.force_encoding(Encoding::UTF_8)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DescribeGroupsRequest) && @group_ids == other.group_ids
+    end
+  end
+
+  class GroupMember
+    attr_accessor :member_id, :client_id, :client_host, :assignment, :unknown_fields
+
+    def initialize(member_id: "", client_id: "", client_host: "", assignment: [])
+      @member_id = member_id
+      @client_id = client_id
+      @client_host = client_host
+      @assignment = assignment
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @member_id)
+    w.string_field(2, @client_id)
+    w.string_field(3, @client_host)
+    @assignment.each { |x| w.bytes_field(4, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @member_id = ""
+      @client_id = ""
+      @client_host = ""
+      @assignment = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @member_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @client_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        @client_host = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 4
+        item = TopicPartition.new
+        item.unmarshal_dc(bytes_value)
+        @assignment << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(GroupMember) && @member_id == other.member_id && @client_id == other.client_id && @client_host == other.client_host && @assignment == other.assignment
+    end
+  end
+
+  class DescribedGroup
+    attr_accessor :group_id, :error_code, :group_state, :protocol_type, :protocol, :members, :unknown_fields
+
+    def initialize(group_id: "", error_code: 0, group_state: "", protocol_type: "", protocol: "", members: [])
+      @group_id = group_id
+      @error_code = error_code
+      @group_state = group_state
+      @protocol_type = protocol_type
+      @protocol = protocol
+      @members = members
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @group_id)
+    if @error_code != 0
+      w.tag(2, 0)
+      w.varint(@error_code)
+    end
+    w.string_field(3, @group_state)
+    w.string_field(4, @protocol_type)
+    w.string_field(5, @protocol)
+    @members.each { |x| w.bytes_field(6, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @group_id = ""
+      @error_code = 0
+      @group_state = ""
+      @protocol_type = ""
+      @protocol = ""
+      @members = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @group_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 3
+        @group_state = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 4
+        @protocol_type = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 5
+        @protocol = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 6
+        item = GroupMember.new
+        item.unmarshal_dc(bytes_value)
+        @members << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DescribedGroup) && @group_id == other.group_id && @error_code == other.error_code && @group_state == other.group_state && @protocol_type == other.protocol_type && @protocol == other.protocol && @members == other.members
+    end
+  end
+
+  class DescribeGroupsResponse
+    attr_accessor :groups, :unknown_fields
+
+    def initialize(groups: [])
+      @groups = groups
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @groups.each { |x| w.bytes_field(1, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @groups = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        item = DescribedGroup.new
+        item.unmarshal_dc(bytes_value)
+        @groups << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DescribeGroupsResponse) && @groups == other.groups
+    end
+  end
+
+  class DeleteGroupsRequest
+    attr_accessor :group_ids, :unknown_fields
+
+    def initialize(group_ids: [])
+      @group_ids = group_ids
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @group_ids.each { |x| w.bytes_field(1, x) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @group_ids = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @group_ids << bytes_value.dup.force_encoding(Encoding::UTF_8)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DeleteGroupsRequest) && @group_ids == other.group_ids
+    end
+  end
+
+  class GroupErrorResult
+    attr_accessor :group_id, :error_code, :unknown_fields
+
+    def initialize(group_id: "", error_code: 0)
+      @group_id = group_id
+      @error_code = error_code
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @group_id)
+    if @error_code != 0
+      w.tag(2, 0)
+      w.varint(@error_code)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @group_id = ""
+      @error_code = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @group_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(GroupErrorResult) && @group_id == other.group_id && @error_code == other.error_code
+    end
+  end
+
+  class DeleteGroupsResponse
+    attr_accessor :results, :unknown_fields
+
+    def initialize(results: [])
+      @results = results
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @results.each { |x| w.bytes_field(1, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @results = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        item = GroupErrorResult.new
+        item.unmarshal_dc(bytes_value)
+        @results << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DeleteGroupsResponse) && @results == other.results
+    end
+  end
+
+  class DeleteGroupOffsetsRequest
+    attr_accessor :group_id, :topic, :partitions, :unknown_fields
+
+    def initialize(group_id: "", topic: "", partitions: [])
+      @group_id = group_id
+      @topic = topic
+      @partitions = partitions
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @group_id)
+    w.string_field(2, @topic)
+    unless @partitions.empty?
+      payload = +"".b
+      @partitions.each { |x| payload << KafkaPbVarint.call(x) }
+      w.bytes_field(3, payload)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @group_id = ""
+      @topic = ""
+      @partitions = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @group_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @topic = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        if wire == 2
+          sub = Reader.new(bytes_value)
+          until sub.done?
+            raw = sub.varint
+            @partitions << (((raw & 0xffffffff) ^ 0x80000000) - 0x80000000)
+          end
+        else
+          @partitions << (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        end
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DeleteGroupOffsetsRequest) && @group_id == other.group_id && @topic == other.topic && @partitions == other.partitions
+    end
+  end
+
+  class DeleteGroupOffsetsResponse
+    attr_accessor :error_code, :unknown_fields
+
+    def initialize(error_code: 0)
+      @error_code = error_code
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @error_code != 0
+      w.tag(1, 0)
+      w.varint(@error_code)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @error_code = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DeleteGroupOffsetsResponse) && @error_code == other.error_code
+    end
+  end
+
+  class Acl
+    attr_accessor :resource_type, :resource_name, :pattern_type, :principal, :host, :operation, :permission_type, :unknown_fields
+
+    def initialize(resource_type: 0, resource_name: "", pattern_type: 0, principal: "", host: "", operation: 0, permission_type: 0)
+      @resource_type = resource_type
+      @resource_name = resource_name
+      @pattern_type = pattern_type
+      @principal = principal
+      @host = host
+      @operation = operation
+      @permission_type = permission_type
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @resource_type != 0
+      w.tag(1, 0)
+      w.varint(@resource_type)
+    end
+    w.string_field(2, @resource_name)
+    if @pattern_type != 0
+      w.tag(3, 0)
+      w.varint(@pattern_type)
+    end
+    w.string_field(4, @principal)
+    w.string_field(5, @host)
+    if @operation != 0
+      w.tag(6, 0)
+      w.varint(@operation)
+    end
+    if @permission_type != 0
+      w.tag(7, 0)
+      w.varint(@permission_type)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @resource_type = 0
+      @resource_name = ""
+      @pattern_type = 0
+      @principal = ""
+      @host = ""
+      @operation = 0
+      @permission_type = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @resource_type = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 2
+        @resource_name = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        @pattern_type = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 4
+        @principal = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 5
+        @host = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 6
+        @operation = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 7
+        @permission_type = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(Acl) && @resource_type == other.resource_type && @resource_name == other.resource_name && @pattern_type == other.pattern_type && @principal == other.principal && @host == other.host && @operation == other.operation && @permission_type == other.permission_type
+    end
+  end
+
+  class DescribeAclsRequest
+    attr_accessor :filter, :unknown_fields
+
+    def initialize(filter: nil)
+      @filter = filter
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    unless @filter.nil?
+      w.bytes_field(1, @filter.marshal_dc)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @filter = nil
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @filter = Acl.new
+        @filter.unmarshal_dc(bytes_value)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DescribeAclsRequest) && @filter == other.filter
+    end
+  end
+
+  class DescribeAclsResponse
+    attr_accessor :error_code, :acls, :unknown_fields
+
+    def initialize(error_code: 0, acls: [])
+      @error_code = error_code
+      @acls = acls
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @error_code != 0
+      w.tag(1, 0)
+      w.varint(@error_code)
+    end
+    @acls.each { |x| w.bytes_field(2, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @error_code = 0
+      @acls = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 2
+        item = Acl.new
+        item.unmarshal_dc(bytes_value)
+        @acls << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DescribeAclsResponse) && @error_code == other.error_code && @acls == other.acls
+    end
+  end
+
+  class CreateAclsRequest
+    attr_accessor :acls, :unknown_fields
+
+    def initialize(acls: [])
+      @acls = acls
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @acls.each { |x| w.bytes_field(1, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @acls = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        item = Acl.new
+        item.unmarshal_dc(bytes_value)
+        @acls << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(CreateAclsRequest) && @acls == other.acls
+    end
+  end
+
+  class CreateAclsResponse
+    attr_accessor :error_codes, :unknown_fields
+
+    def initialize(error_codes: [])
+      @error_codes = error_codes
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    unless @error_codes.empty?
+      payload = +"".b
+      @error_codes.each { |x| payload << KafkaPbVarint.call(x) }
+      w.bytes_field(1, payload)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @error_codes = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        if wire == 2
+          sub = Reader.new(bytes_value)
+          until sub.done?
+            raw = sub.varint
+            @error_codes << (((raw & 0xffffffff) ^ 0x80000000) - 0x80000000)
+          end
+        else
+          @error_codes << (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        end
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(CreateAclsResponse) && @error_codes == other.error_codes
+    end
+  end
+
+  class DeleteAclsRequest
+    attr_accessor :filters, :unknown_fields
+
+    def initialize(filters: [])
+      @filters = filters
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @filters.each { |x| w.bytes_field(1, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @filters = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        item = Acl.new
+        item.unmarshal_dc(bytes_value)
+        @filters << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DeleteAclsRequest) && @filters == other.filters
+    end
+  end
+
+  class DeleteAclsResponse
+    attr_accessor :error_codes, :unknown_fields
+
+    def initialize(error_codes: [])
+      @error_codes = error_codes
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    unless @error_codes.empty?
+      payload = +"".b
+      @error_codes.each { |x| payload << KafkaPbVarint.call(x) }
+      w.bytes_field(1, payload)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @error_codes = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        if wire == 2
+          sub = Reader.new(bytes_value)
+          until sub.done?
+            raw = sub.varint
+            @error_codes << (((raw & 0xffffffff) ^ 0x80000000) - 0x80000000)
+          end
+        else
+          @error_codes << (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        end
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DeleteAclsResponse) && @error_codes == other.error_codes
+    end
+  end
+
+  class ListTransactionsRequest
+    def initialize()
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        @unknown_fields = @unknown_fields + raw_value
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(ListTransactionsRequest) && true
+    end
+  end
+
+  class TransactionListing
+    attr_accessor :transactional_id, :producer_id, :transaction_state, :unknown_fields
+
+    def initialize(transactional_id: "", producer_id: 0, transaction_state: "")
+      @transactional_id = transactional_id
+      @producer_id = producer_id
+      @transaction_state = transaction_state
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @transactional_id)
+    if @producer_id != 0
+      w.tag(2, 0)
+      w.varint(@producer_id)
+    end
+    w.string_field(3, @transaction_state)
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @transactional_id = ""
+      @producer_id = 0
+      @transaction_state = ""
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @transactional_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @producer_id = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 3
+        @transaction_state = bytes_value.dup.force_encoding(Encoding::UTF_8)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(TransactionListing) && @transactional_id == other.transactional_id && @producer_id == other.producer_id && @transaction_state == other.transaction_state
+    end
+  end
+
+  class ListTransactionsResponse
+    attr_accessor :error_code, :transactions, :unknown_fields
+
+    def initialize(error_code: 0, transactions: [])
+      @error_code = error_code
+      @transactions = transactions
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @error_code != 0
+      w.tag(1, 0)
+      w.varint(@error_code)
+    end
+    @transactions.each { |x| w.bytes_field(2, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @error_code = 0
+      @transactions = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 2
+        item = TransactionListing.new
+        item.unmarshal_dc(bytes_value)
+        @transactions << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(ListTransactionsResponse) && @error_code == other.error_code && @transactions == other.transactions
+    end
+  end
+
+  class DescribeTransactionsRequest
+    attr_accessor :transactional_ids, :unknown_fields
+
+    def initialize(transactional_ids: [])
+      @transactional_ids = transactional_ids
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @transactional_ids.each { |x| w.bytes_field(1, x) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @transactional_ids = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @transactional_ids << bytes_value.dup.force_encoding(Encoding::UTF_8)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DescribeTransactionsRequest) && @transactional_ids == other.transactional_ids
+    end
+  end
+
+  class DescribedTransaction
+    attr_accessor :transactional_id, :error_code, :producer_id, :producer_epoch, :transaction_state, :last_update_timestamp_ms, :unknown_fields
+
+    def initialize(transactional_id: "", error_code: 0, producer_id: 0, producer_epoch: 0, transaction_state: "", last_update_timestamp_ms: 0)
+      @transactional_id = transactional_id
+      @error_code = error_code
+      @producer_id = producer_id
+      @producer_epoch = producer_epoch
+      @transaction_state = transaction_state
+      @last_update_timestamp_ms = last_update_timestamp_ms
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @transactional_id)
+    if @error_code != 0
+      w.tag(2, 0)
+      w.varint(@error_code)
+    end
+    if @producer_id != 0
+      w.tag(3, 0)
+      w.varint(@producer_id)
+    end
+    if @producer_epoch != 0
+      w.tag(4, 0)
+      w.varint(@producer_epoch)
+    end
+    w.string_field(5, @transaction_state)
+    if @last_update_timestamp_ms != 0
+      w.tag(6, 0)
+      w.varint(@last_update_timestamp_ms)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @transactional_id = ""
+      @error_code = 0
+      @producer_id = 0
+      @producer_epoch = 0
+      @transaction_state = ""
+      @last_update_timestamp_ms = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @transactional_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 3
+        @producer_id = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 4
+        @producer_epoch = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 5
+        @transaction_state = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 6
+        @last_update_timestamp_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DescribedTransaction) && @transactional_id == other.transactional_id && @error_code == other.error_code && @producer_id == other.producer_id && @producer_epoch == other.producer_epoch && @transaction_state == other.transaction_state && @last_update_timestamp_ms == other.last_update_timestamp_ms
+    end
+  end
+
+  class DescribeTransactionsResponse
+    attr_accessor :transactions, :unknown_fields
+
+    def initialize(transactions: [])
+      @transactions = transactions
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @transactions.each { |x| w.bytes_field(1, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @transactions = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        item = DescribedTransaction.new
+        item.unmarshal_dc(bytes_value)
+        @transactions << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DescribeTransactionsResponse) && @transactions == other.transactions
     end
   end
 

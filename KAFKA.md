@@ -37,6 +37,25 @@ generated client (any language)          kafka_proxy                broker
   instance-derived member ids, fencing of the previous member
   on duplicate-instance join) are covered by e2e tests.
 - `CreateTopics` / `DeleteTopics` — topic admin.
+- Admin operations (broker-verified against Apache Kafka):
+  `DescribeConfigs` / `AlterConfigs` (topic, broker,
+  broker-logger, client-metrics and group resources; the
+  incremental-alter wire form), `CreatePartitions`,
+  `DeleteRecords`, `ListGroups` / `DescribeGroups`,
+  `DeleteGroups`, `DeleteGroupOffsets` (Kafka only deletes
+  committed offsets for an empty group), `DescribeAcls` /
+  `CreateAcls` / `DeleteAcls` (a broker with no authorizer
+  configured answers `SECURITY_DISABLED`), and
+  `ListTransactions` / `DescribeTransactions`. Cancelling a
+  `Subscribe` stream makes the proxy leave the group, so the
+  member promptly disappears from `DescribeGroups`; the async
+  Python and JS suites assert that path end to end.
+- Connection safety: a broker request dropped mid-flight
+  (cancelled stream, timeout) marks its pooled connection
+  poisoned; the next request reconnects first instead of
+  reading the stale response. `ListGroups` and
+  `DescribeGroups` negotiate down to the broker's max version
+  (Redpanda offers v4/v5 where Apache Kafka offers v5/v6).
 
 Record keys distinguish null from empty: `Record.null_key`
 produces a Kafka null key, and `FetchedRecord.key_null`

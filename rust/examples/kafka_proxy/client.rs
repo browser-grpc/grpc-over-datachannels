@@ -29,6 +29,19 @@ pub const API_SASL_HANDSHAKE: i16 = 17;
 pub const API_API_VERSIONS: i16 = 18;
 pub const API_CREATE_TOPICS: i16 = 19;
 pub const API_DELETE_TOPICS: i16 = 20;
+pub const API_DELETE_RECORDS: i16 = 21;
+pub const API_DESCRIBE_ACLS: i16 = 29;
+pub const API_CREATE_ACLS: i16 = 30;
+pub const API_DELETE_ACLS: i16 = 31;
+pub const API_DESCRIBE_CONFIGS: i16 = 32;
+pub const API_CREATE_PARTITIONS: i16 = 37;
+pub const API_DELETE_GROUPS: i16 = 42;
+pub const API_ALTER_CONFIGS: i16 = 44;
+pub const API_LIST_GROUPS: i16 = 16;
+pub const API_DESCRIBE_GROUPS: i16 = 15;
+pub const API_OFFSET_DELETE: i16 = 47;
+pub const API_LIST_TRANSACTIONS: i16 = 66;
+pub const API_DESCRIBE_TRANSACTIONS: i16 = 65;
 pub const API_INIT_PRODUCER_ID: i16 = 22;
 pub const API_ADD_PARTITIONS_TO_TXN: i16 = 24;
 pub const API_ADD_OFFSETS_TO_TXN: i16 = 25;
@@ -120,6 +133,14 @@ impl AsyncWrite for Io {
 pub struct Conn {
     io: Io,
     corr: i32,
+    /// True while a request may be in flight on `io`. Set
+    /// before the write and cleared only after the full
+    /// response is read. If the request future is dropped
+    /// mid-flight (stream cancelled, timeout), the flag stays
+    /// set and the next `request` reconnects first — reading
+    /// on would consume the stale response and corrupt every
+    /// following request on this connection.
+    poisoned: bool,
     client_id: String,
     pub addr: String,
     sasl: Option<SaslConfig>,
@@ -233,7 +254,7 @@ impl Conn {
             None => Io::Plain(stream),
             Some(tls) => tls_wrap(stream, addr, tls).await?,
         };
-        let mut conn = Conn { io, corr: 0, client_id: client_id.to_string(), addr: addr.to_string(), sasl: sasl.clone(), tls: tls.clone(), versions: HashMap::new() };
+        let mut conn = Conn { io, corr: 0, poisoned: false, client_id: client_id.to_string(), addr: addr.to_string(), sasl: sasl.clone(), tls: tls.clone(), versions: HashMap::new() };
         // With SASL, authenticate first: some brokers (Redpanda)
         // reject ApiVersions on a SASL listener before the
         // handshake. SaslHandshake v1 / SaslAuthenticate v2 are
@@ -272,6 +293,12 @@ impl Conn {
     /// error, reconnect once and retry (standard client
     /// behavior; the request may not have reached the broker).
     pub async fn request(&mut self, api_key: i16, version: i16, body: W, flexible: bool) -> Result<Vec<u8>, Status> {
+        // A previous request future was dropped mid-flight:
+        // its response may still be unread on this socket.
+        // Reconnect so the stale bytes are discarded.
+        if self.poisoned {
+            self.reconnect().await?;
+        }
         match self.request_once(api_key, version, &body, flexible).await {
             Ok(resp) => Ok(resp),
             Err(first) => {
@@ -289,6 +316,7 @@ impl Conn {
             eprintln!("kafka req api={api_key} ver={version} flex={flexible} len={}", body.0.len());
         }
         let corr = self.next_corr();
+        self.poisoned = true;
         let mut frame = W::new();
         frame.i16(api_key);
         frame.i16(version);
@@ -318,6 +346,7 @@ impl Conn {
         if flexible {
             r.skip_tagged().map_err(bad)?;
         }
+        self.poisoned = false;
         Ok(buf[r.pos..].to_vec())
     }
 
@@ -330,6 +359,17 @@ impl Conn {
             Some(&(_min, max)) => Err(bad(format!(
                 "kafka: api {api} version too old (broker max {max})"
             ))),
+            None => Err(bad(format!("kafka: api {api} not advertised by broker"))),
+        }
+    }
+
+    /// Like `supports`, but downgrades to the broker's max
+    /// version instead of failing (e.g. Redpanda offers
+    /// DescribeGroups v5, Apache Kafka v6). Callers must
+    /// encode/parse for the returned version.
+    pub fn negotiate(&self, api: i16, desired: i16) -> Result<i16, Status> {
+        match self.versions.get(&api) {
+            Some(&(_min, max)) => Ok(desired.min(max)),
             None => Err(bad(format!("kafka: api {api} not advertised by broker"))),
         }
     }
@@ -832,6 +872,635 @@ impl Broker {
             out.push((name, err));
         }
         Ok(out)
+    }
+
+    // --- Admin operations (Kafka admin APIs; error codes pass
+    // through to the gRPC response fields) ---
+
+    pub async fn describe_configs(
+        &self,
+        resource_type: i8,
+        resource_name: &str,
+        keys: &[String],
+        synonyms: bool,
+    ) -> Result<(i32, Vec<crate::pb::ConfigValue>), Status> {
+        let boot = self.bootstrap().await?;
+        let mut conn = boot.lock().await;
+        let ver = conn.supports(API_DESCRIBE_CONFIGS, 4)?;
+        let mut body = W::new();
+        body.carr(1);
+        body.i8(resource_type);
+        body.cstr(resource_name);
+        if keys.is_empty() {
+            body.uvarint(0); // null ConfigurationKeys = all
+        } else {
+            body.carr(keys.len());
+            for k in keys {
+                body.cstr(k);
+            }
+        }
+        body.tagged_none();
+        body.i8(synonyms as i8);
+        body.i8(0); // IncludeDocumentation (v3+)
+        body.tagged_none();
+        let resp = conn.request(API_DESCRIBE_CONFIGS, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let n = r.carr_len().map_err(bad)?;
+        let mut error_code = 0i32;
+        let mut values = Vec::new();
+        for _ in 0..n {
+            error_code = r.i16().map_err(bad)? as i32;
+            let _msg = r.cstr_opt().map_err(bad)?;
+            let _rtype = r.i8().map_err(bad)?;
+            let _rname = r.cstr().map_err(bad)?;
+            let ncfg = r.carr_len().map_err(bad)?;
+            for _ in 0..ncfg {
+                let name = r.cstr().map_err(bad)?;
+                let value = r.cstr_opt().map_err(bad)?.unwrap_or_default();
+                let read_only = r.i8().map_err(bad)? != 0;
+                let source = r.i8().map_err(bad)? as i32;
+                let is_sensitive = r.i8().map_err(bad)? != 0;
+                let nsyn = r.carr_len().map_err(bad)?;
+                for _ in 0..nsyn {
+                    let _sn = r.cstr().map_err(bad)?;
+                    let _sv = r.cstr_opt().map_err(bad)?;
+                    let _ss = r.i8().map_err(bad)?;
+                    r.skip_tagged().map_err(bad)?;
+                }
+                let _docs = r.cstr_opt().map_err(bad)?; // Documentation (v4)
+                r.skip_tagged().map_err(bad)?;
+                values.push(crate::pb::ConfigValue {
+                    name,
+                    value,
+                    read_only,
+                    source,
+                    is_sensitive,
+                    ..Default::default()
+                });
+            }
+            r.skip_tagged().map_err(bad)?;
+        }
+        Ok((error_code, values))
+    }
+
+    pub async fn alter_configs(
+        &self,
+        resource_type: i8,
+        resource_name: &str,
+        entries: &[(String, String, i8)],
+        validate_only: bool,
+    ) -> Result<i32, Status> {
+        // IncrementalAlterConfigs (44) v1.
+        let boot = self.bootstrap().await?;
+        let mut conn = boot.lock().await;
+        let ver = conn.supports(44, 1)?;
+        let mut body = W::new();
+        body.carr(1);
+        body.i8(resource_type);
+        body.cstr(resource_name);
+        body.carr(entries.len());
+        for (name, value, op) in entries {
+            body.cstr(name);
+            body.i8(*op);
+            if *op == 1 {
+                body.cstr_opt(None);
+            } else {
+                body.cstr_opt(Some(value));
+            }
+            body.tagged_none();
+        }
+        body.tagged_none();
+        body.i8(validate_only as i8);
+        body.tagged_none();
+        let resp = conn.request(44, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let n = r.carr_len().map_err(bad)?;
+        let mut error_code = 0i32;
+        for _ in 0..n {
+            error_code = r.i16().map_err(bad)? as i32;
+            let _msg = r.cstr_opt().map_err(bad)?;
+            let _rtype = r.i8().map_err(bad)?;
+            let _rname = r.cstr().map_err(bad)?;
+            r.skip_tagged().map_err(bad)?;
+        }
+        Ok(error_code)
+    }
+
+    pub async fn create_partitions(
+        &self,
+        topic: &str,
+        total_count: i32,
+        validate_only: bool,
+        timeout_ms: i32,
+    ) -> Result<i32, Status> {
+        let boot = self.bootstrap().await?;
+        let mut conn = boot.lock().await;
+        let ver = conn.supports(API_CREATE_PARTITIONS, 3)?;
+        let timeout = if timeout_ms > 0 { timeout_ms } else { 30_000 };
+        let mut body = W::new();
+        body.carr(1);
+        body.cstr(topic);
+        body.i32(total_count);
+        body.uvarint(0); // null assignment
+        body.tagged_none();
+        body.i32(timeout);
+        body.i8(validate_only as i8);
+        body.tagged_none();
+        let resp = conn.request(API_CREATE_PARTITIONS, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let n = r.carr_len().map_err(bad)?;
+        let mut error_code = 0i32;
+        for _ in 0..n {
+            let _name = r.cstr().map_err(bad)?;
+            error_code = r.i16().map_err(bad)? as i32;
+            let _msg = r.cstr_opt().map_err(bad)?;
+            r.skip_tagged().map_err(bad)?;
+        }
+        Ok(error_code)
+    }
+
+    pub async fn delete_records(
+        &self,
+        topic: &str,
+        partition: i32,
+        before_offset: i64,
+    ) -> Result<(i64, i32), Status> {
+        let boot = self.bootstrap().await?;
+        let mut conn = boot.lock().await;
+        let ver = conn.supports(API_DELETE_RECORDS, 2)?;
+        let mut body = W::new();
+        body.carr(1);
+        body.cstr(topic);
+        body.carr(1);
+        body.i32(partition);
+        body.i64(before_offset);
+        body.tagged_none();
+        body.tagged_none();
+        body.i32(30_000);
+        body.tagged_none();
+        let resp = conn.request(API_DELETE_RECORDS, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let ntopics = r.carr_len().map_err(bad)?;
+        let mut out = (0i64, 0i32);
+        for _ in 0..ntopics {
+            let _name = r.cstr().map_err(bad)?;
+            let nparts = r.carr_len().map_err(bad)?;
+            for _ in 0..nparts {
+                let _p = r.i32().map_err(bad)?;
+                let low = r.i64().map_err(bad)?;
+                let err = r.i16().map_err(bad)? as i32;
+                r.skip_tagged().map_err(bad)?;
+                out = (low, err);
+            }
+            r.skip_tagged().map_err(bad)?;
+        }
+        Ok(out)
+    }
+
+    pub async fn list_groups(&self) -> Result<(i32, Vec<crate::pb::GroupListing>), Status> {
+        let boot = self.bootstrap().await?;
+        let mut conn = boot.lock().await;
+        // v4 adds StatesFilter + flexible encoding, v5 adds
+        // TypesFilter + GroupType (Redpanda stops at v4).
+        let ver = conn.negotiate(API_LIST_GROUPS, 5)?;
+        let flexible = ver >= 4;
+        let mut body = W::new();
+        if ver >= 4 {
+            body.carr(0); // StatesFilter: empty
+        }
+        if ver >= 5 {
+            body.carr(0); // TypesFilter: empty
+        }
+        if flexible {
+            body.tagged_none();
+        }
+        let resp = conn.request(API_LIST_GROUPS, ver, body, flexible).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let error_code = r.i16().map_err(bad)? as i32;
+        let n = if flexible { r.carr_len().map_err(bad)? } else { r.arr32().map_err(bad)?.max(0) as usize };
+        let mut groups = Vec::new();
+        for _ in 0..n {
+            let (group_id, protocol_type) = if flexible {
+                (r.cstr().map_err(bad)?, r.cstr().map_err(bad)?)
+            } else {
+                (r.str16().map_err(bad)?, r.str16().map_err(bad)?)
+            };
+            let group_state = if ver >= 1 {
+                if flexible { r.cstr().map_err(bad)? } else { r.str16().map_err(bad)? }
+            } else {
+                String::new()
+            };
+            if ver >= 5 {
+                let _group_type = r.cstr().map_err(bad)?;
+            }
+            if flexible {
+                r.skip_tagged().map_err(bad)?;
+            }
+            groups.push(crate::pb::GroupListing {
+                group_id,
+                protocol_type,
+                group_state,
+                ..Default::default()
+            });
+        }
+        Ok((error_code, groups))
+    }
+
+    pub async fn describe_groups(
+        &self,
+        group_ids: &[String],
+    ) -> Result<Vec<crate::pb::DescribedGroup>, Status> {
+        // One coordinator round per group (coordinators may
+        // differ); results stay aligned with the request order.
+        let mut out = Vec::new();
+        for group_id in group_ids {
+            out.push(self.describe_one_group(group_id).await?);
+        }
+        Ok(out)
+    }
+
+    async fn describe_one_group(&self, group_id: &str) -> Result<crate::pb::DescribedGroup, Status> {
+        let coord = match self.coordinator(group_id, 0).await {
+            Ok(c) => c,
+            Err(_) => {
+                return Ok(crate::pb::DescribedGroup {
+                    group_id: group_id.to_string(),
+                    error_code: 69, // GROUP_ID_NOT_FOUND-ish transport failure
+                    ..Default::default()
+                })
+            }
+        };
+        let mut conn = coord.lock().await;
+        // v6 adds ErrorMessage; v5 (Redpanda's max) has the
+        // same flexible layout without it.
+        let ver = conn.negotiate(API_DESCRIBE_GROUPS, 6)?;
+        if ver < 5 {
+            return Err(bad(format!(
+                "kafka: api {API_DESCRIBE_GROUPS} version too old (broker max {ver})"
+            )));
+        }
+        let mut body = W::new();
+        body.carr(1);
+        body.cstr(group_id);
+        body.i8(0); // IncludeAuthorizedOperations
+        body.tagged_none();
+        let resp = conn.request(API_DESCRIBE_GROUPS, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let n = r.carr_len().map_err(bad)?;
+        let mut described = crate::pb::DescribedGroup {
+            group_id: group_id.to_string(),
+            ..Default::default()
+        };
+        for _ in 0..n {
+            described.error_code = r.i16().map_err(bad)? as i32;
+            if ver >= 6 {
+                // ErrorMessage is only on the wire from v6.
+                let _msg = r.cstr_opt().map_err(bad)?;
+            }
+            described.group_id = r.cstr().map_err(bad)?;
+            described.group_state = r.cstr().map_err(bad)?;
+            described.protocol_type = r.cstr().map_err(bad)?;
+            described.protocol = r.cstr().map_err(bad)?;
+            let nmembers = r.carr_len().map_err(bad)?;
+            for _ in 0..nmembers {
+                let member_id = r.cstr().map_err(bad)?;
+                let _instance = r.cstr_opt().map_err(bad)?;
+                let client_id = r.cstr().map_err(bad)?;
+                let client_host = r.cstr().map_err(bad)?;
+                let _metadata = r.cbytes().map_err(bad)?;
+                let assignment = r.cbytes().map_err(bad)?;
+                r.skip_tagged().map_err(bad)?;
+                described.members.push(crate::pb::GroupMember {
+                    member_id,
+                    client_id,
+                    client_host,
+                    assignment: decode_assignment(&assignment)
+                        .into_iter()
+                        .map(|(topic, partition)| crate::pb::TopicPartition {
+                            topic,
+                            partition,
+                            ..Default::default()
+                        })
+                        .collect(),
+                    ..Default::default()
+                });
+            }
+            let _authorized = r.i32().map_err(bad)?;
+            r.skip_tagged().map_err(bad)?;
+        }
+        Ok(described)
+    }
+
+    pub async fn delete_groups(&self, group_ids: &[String]) -> Result<Vec<(String, i32)>, Status> {
+        let mut out = Vec::new();
+        for group_id in group_ids {
+            let err = self.delete_one_group(group_id).await?;
+            out.push((group_id.clone(), err));
+        }
+        Ok(out)
+    }
+
+    async fn delete_one_group(&self, group_id: &str) -> Result<i32, Status> {
+        let coord = self.coordinator(group_id, 0).await?;
+        let mut conn = coord.lock().await;
+        let ver = conn.supports(API_DELETE_GROUPS, 2)?;
+        let mut body = W::new();
+        body.carr(1);
+        body.cstr(group_id);
+        body.tagged_none();
+        let resp = conn.request(API_DELETE_GROUPS, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let n = r.carr_len().map_err(bad)?;
+        let mut error_code = 0i32;
+        for _ in 0..n {
+            let _gid = r.cstr().map_err(bad)?;
+            error_code = r.i16().map_err(bad)? as i32;
+            let _msg = r.cstr_opt().map_err(bad)?;
+            r.skip_tagged().map_err(bad)?;
+        }
+        Ok(error_code)
+    }
+
+    pub async fn delete_group_offsets(
+        &self,
+        group: &str,
+        topic: &str,
+        partitions: &[i32],
+    ) -> Result<i32, Status> {
+        // OffsetDelete (47) v0: NOT flexible (header v1).
+        let coord = self.coordinator(group, 0).await?;
+        let mut conn = coord.lock().await;
+        let mut body = W::new();
+        body.str16(group);
+        body.arr32(1);
+        body.str16(topic);
+        body.arr32(partitions.len());
+        for p in partitions {
+            body.i32(*p);
+        }
+        let resp = conn.request(API_OFFSET_DELETE, 0, body, false).await?;
+        let mut r = R::new(&resp);
+        // OffsetDelete's v0 response puts the top-level error
+        // code BEFORE the throttle time (unlike most APIs).
+        let mut error_code = r.i16().map_err(bad)? as i32;
+        let _throttle = r.i32().map_err(bad)?;
+        let ntopics = r.arr32().map_err(bad)?;
+        for _ in 0..ntopics.max(0) {
+            let _name = r.str16().map_err(bad)?;
+            let nparts = r.arr32().map_err(bad)?;
+            for _ in 0..nparts.max(0) {
+                let _p = r.i32().map_err(bad)?;
+                let perr = r.i16().map_err(bad)? as i32;
+                if error_code == 0 {
+                    error_code = perr;
+                }
+            }
+        }
+        Ok(error_code)
+    }
+
+    fn acl_fields(body: &mut W, acl: &crate::pb::Acl) {
+        body.i8(acl.resource_type as i8);
+        if acl.resource_name.is_empty() {
+            body.cstr_opt(None);
+        } else {
+            body.cstr_opt(Some(acl.resource_name.as_str()));
+        }
+        body.i8(acl.pattern_type as i8);
+        if acl.principal.is_empty() {
+            body.cstr_opt(None);
+        } else {
+            body.cstr_opt(Some(acl.principal.as_str()));
+        }
+        if acl.host.is_empty() {
+            body.cstr_opt(None);
+        } else {
+            body.cstr_opt(Some(acl.host.as_str()));
+        }
+        body.i8(acl.operation as i8);
+        body.i8(acl.permission_type as i8);
+    }
+
+    pub async fn describe_acls(
+        &self,
+        filter: &crate::pb::Acl,
+    ) -> Result<(i32, Vec<crate::pb::Acl>), Status> {
+        let boot = self.bootstrap().await?;
+        let mut conn = boot.lock().await;
+        let ver = conn.supports(API_DESCRIBE_ACLS, 3)?;
+        let mut body = W::new();
+        Self::acl_fields(&mut body, filter);
+        body.tagged_none();
+        let resp = conn.request(API_DESCRIBE_ACLS, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let error_code = r.i16().map_err(bad)? as i32;
+        let _msg = r.cstr_opt().map_err(bad)?;
+        let nres = r.carr_len().map_err(bad)?;
+        let mut acls = Vec::new();
+        for _ in 0..nres {
+            let resource_type = r.i8().map_err(bad)? as i32;
+            let resource_name = r.cstr().map_err(bad)?;
+            let pattern_type = r.i8().map_err(bad)? as i32;
+            let nacl = r.carr_len().map_err(bad)?;
+            for _ in 0..nacl {
+                let principal = r.cstr().map_err(bad)?;
+                let host = r.cstr().map_err(bad)?;
+                let operation = r.i8().map_err(bad)? as i32;
+                let permission_type = r.i8().map_err(bad)? as i32;
+                r.skip_tagged().map_err(bad)?;
+                acls.push(crate::pb::Acl {
+                    resource_type,
+                    resource_name: resource_name.clone(),
+                    pattern_type,
+                    principal,
+                    host,
+                    operation,
+                    permission_type,
+                    ..Default::default()
+                });
+            }
+            r.skip_tagged().map_err(bad)?;
+        }
+        Ok((error_code, acls))
+    }
+
+    pub async fn create_acls(&self, acls: &[crate::pb::Acl]) -> Result<Vec<i32>, Status> {
+        let boot = self.bootstrap().await?;
+        let mut conn = boot.lock().await;
+        let ver = conn.supports(API_CREATE_ACLS, 3)?;
+        let mut body = W::new();
+        body.carr(acls.len());
+        for acl in acls {
+            // Creation shape: ResourceName/Principal/Host are
+            // non-nullable compact strings here.
+            body.i8(acl.resource_type as i8);
+            body.cstr(&acl.resource_name);
+            body.i8(acl.pattern_type as i8);
+            body.cstr(&acl.principal);
+            body.cstr(&acl.host);
+            body.i8(acl.operation as i8);
+            body.i8(acl.permission_type as i8);
+            body.tagged_none();
+        }
+        body.tagged_none();
+        let resp = conn.request(API_CREATE_ACLS, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let n = r.carr_len().map_err(bad)?;
+        let mut out = Vec::new();
+        for _ in 0..n {
+            out.push(r.i16().map_err(bad)? as i32);
+            let _msg = r.cstr_opt().map_err(bad)?;
+            r.skip_tagged().map_err(bad)?;
+        }
+        Ok(out)
+    }
+
+    pub async fn delete_acls(&self, filters: &[crate::pb::Acl]) -> Result<Vec<i32>, Status> {
+        let boot = self.bootstrap().await?;
+        let mut conn = boot.lock().await;
+        let ver = conn.supports(API_DELETE_ACLS, 3)?;
+        let mut body = W::new();
+        body.carr(filters.len());
+        for filter in filters {
+            Self::acl_fields(&mut body, filter);
+            body.tagged_none();
+        }
+        body.tagged_none();
+        let resp = conn.request(API_DELETE_ACLS, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let n = r.carr_len().map_err(bad)?;
+        let mut out = Vec::new();
+        for _ in 0..n {
+            out.push(r.i16().map_err(bad)? as i32);
+            let _msg = r.cstr_opt().map_err(bad)?;
+            let nmatch = r.carr_len().map_err(bad)?;
+            for _ in 0..nmatch {
+                let _e = r.i16().map_err(bad)?;
+                let _m = r.cstr_opt().map_err(bad)?;
+                let _p = r.cstr().map_err(bad)?;
+                let _h = r.cstr().map_err(bad)?;
+                let _o = r.i8().map_err(bad)?;
+                let _pt = r.i8().map_err(bad)?;
+                r.skip_tagged().map_err(bad)?;
+            }
+            r.skip_tagged().map_err(bad)?;
+        }
+        Ok(out)
+    }
+
+    pub async fn list_transactions(
+        &self,
+    ) -> Result<(i32, Vec<crate::pb::TransactionListing>), Status> {
+        let boot = self.bootstrap().await?;
+        let mut conn = boot.lock().await;
+        // ListTransactions is v0 on some brokers (Apache Kafka
+        // 4.3 advertises max 0); v1 only adds DurationFilter.
+        let ver = match conn.versions.get(&API_LIST_TRANSACTIONS) {
+            Some(&(_min, max)) => max.min(1),
+            None => return Err(bad("kafka: api 65 not advertised by broker")),
+        };
+        let mut body = W::new();
+        body.carr(0); // StateFilter
+        body.carr(0); // ProducerIdFilter
+        if ver >= 1 {
+            body.i64(-1); // DurationFilter (<0 = no bound)
+        }
+        body.tagged_none();
+        let resp = conn.request(API_LIST_TRANSACTIONS, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let error_code = r.i16().map_err(bad)? as i32;
+        // UnknownStateFilters (echoed unrecognized state
+        // filters) precedes the transaction states.
+        let n_unknown = r.carr_len().map_err(bad)?;
+        for _ in 0..n_unknown {
+            let _state = r.cstr().map_err(bad)?;
+        }
+        let n = r.carr_len().map_err(bad)?;
+        let mut out = Vec::new();
+        for _ in 0..n {
+            let transactional_id = r.cstr().map_err(bad)?;
+            let producer_id = r.i64().map_err(bad)?;
+            let transaction_state = r.cstr().map_err(bad)?;
+            r.skip_tagged().map_err(bad)?;
+            out.push(crate::pb::TransactionListing {
+                transactional_id,
+                producer_id,
+                transaction_state,
+                ..Default::default()
+            });
+        }
+        Ok((error_code, out))
+    }
+
+    pub async fn describe_transactions(
+        &self,
+        transactional_ids: &[String],
+    ) -> Result<Vec<crate::pb::DescribedTransaction>, Status> {
+        let mut out = Vec::new();
+        for tid in transactional_ids {
+            out.push(self.describe_one_transaction(tid).await?);
+        }
+        Ok(out)
+    }
+
+    async fn describe_one_transaction(
+        &self,
+        tid: &str,
+    ) -> Result<crate::pb::DescribedTransaction, Status> {
+        let mut described = crate::pb::DescribedTransaction {
+            transactional_id: tid.to_string(),
+            ..Default::default()
+        };
+        let coord = match self.coordinator(tid, 1).await {
+            Ok(c) => c,
+            Err(_) => {
+                described.error_code = 69;
+                return Ok(described);
+            }
+        };
+        let mut conn = coord.lock().await;
+        let ver = conn.supports(API_DESCRIBE_TRANSACTIONS, 0)?;
+        let mut body = W::new();
+        body.carr(1);
+        body.cstr(tid);
+        body.tagged_none();
+        let resp = conn.request(API_DESCRIBE_TRANSACTIONS, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let n = r.carr_len().map_err(bad)?;
+        for _ in 0..n {
+            // TransactionState wire order: error, transactional
+            // id, state, timeout, start time, producer id/epoch.
+            described.error_code = r.i16().map_err(bad)? as i32;
+            described.transactional_id = r.cstr().map_err(bad)?;
+            described.transaction_state = r.cstr().map_err(bad)?;
+            let _timeout_ms = r.i32().map_err(bad)?;
+            described.last_update_timestamp_ms = r.i64().map_err(bad)?;
+            described.producer_id = r.i64().map_err(bad)?;
+            described.producer_epoch = r.i16().map_err(bad)? as i32;
+            let ntopics = r.carr_len().map_err(bad)?;
+            for _ in 0..ntopics {
+                let _t = r.cstr().map_err(bad)?;
+                let nparts = r.carr_len().map_err(bad)?;
+                for _ in 0..nparts {
+                    let _p = r.i32().map_err(bad)?;
+                }
+                r.skip_tagged().map_err(bad)?;
+            }
+            r.skip_tagged().map_err(bad)?;
+        }
+        Ok(described)
     }
 
     pub async fn delete_topics(&self, topics: Vec<String>, timeout_ms: i32) -> Result<Vec<(String, i32)>, Status> {

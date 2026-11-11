@@ -43,6 +43,45 @@ impl KafkaClient {
     pub async fn delete_topics(&self, req: crate::pb::DeleteTopicsRequest) -> Result<crate::pb::DeleteTopicsResponse, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.v1.Kafka/DeleteTopics", req).await
     }
+    pub async fn describe_configs(&self, req: crate::pb::DescribeConfigsRequest) -> Result<crate::pb::DescribeConfigsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req).await
+    }
+    pub async fn alter_configs(&self, req: crate::pb::AlterConfigsRequest) -> Result<crate::pb::AlterConfigsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req).await
+    }
+    pub async fn create_partitions(&self, req: crate::pb::CreatePartitionsRequest) -> Result<crate::pb::CreatePartitionsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req).await
+    }
+    pub async fn delete_records(&self, req: crate::pb::DeleteRecordsRequest) -> Result<crate::pb::DeleteRecordsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req).await
+    }
+    pub async fn list_groups(&self, req: crate::pb::ListGroupsRequest) -> Result<crate::pb::ListGroupsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/ListGroups", req).await
+    }
+    pub async fn describe_groups(&self, req: crate::pb::DescribeGroupsRequest) -> Result<crate::pb::DescribeGroupsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req).await
+    }
+    pub async fn delete_groups(&self, req: crate::pb::DeleteGroupsRequest) -> Result<crate::pb::DeleteGroupsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req).await
+    }
+    pub async fn delete_group_offsets(&self, req: crate::pb::DeleteGroupOffsetsRequest) -> Result<crate::pb::DeleteGroupOffsetsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req).await
+    }
+    pub async fn describe_acls(&self, req: crate::pb::DescribeAclsRequest) -> Result<crate::pb::DescribeAclsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req).await
+    }
+    pub async fn create_acls(&self, req: crate::pb::CreateAclsRequest) -> Result<crate::pb::CreateAclsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req).await
+    }
+    pub async fn delete_acls(&self, req: crate::pb::DeleteAclsRequest) -> Result<crate::pb::DeleteAclsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req).await
+    }
+    pub async fn list_transactions(&self, req: crate::pb::ListTransactionsRequest) -> Result<crate::pb::ListTransactionsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req).await
+    }
+    pub async fn describe_transactions(&self, req: crate::pb::DescribeTransactionsRequest) -> Result<crate::pb::DescribeTransactionsResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req).await
+    }
     pub async fn metadata_with_options(&self, req: crate::pb::MetadataRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::MetadataResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/Metadata", req, options).await
     }
@@ -79,6 +118,45 @@ impl KafkaClient {
     pub async fn delete_topics_with_options(&self, req: crate::pb::DeleteTopicsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::DeleteTopicsResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/DeleteTopics", req, options).await
     }
+    pub async fn describe_configs_with_options(&self, req: crate::pb::DescribeConfigsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::DescribeConfigsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, options).await
+    }
+    pub async fn alter_configs_with_options(&self, req: crate::pb::AlterConfigsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::AlterConfigsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, options).await
+    }
+    pub async fn create_partitions_with_options(&self, req: crate::pb::CreatePartitionsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::CreatePartitionsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, options).await
+    }
+    pub async fn delete_records_with_options(&self, req: crate::pb::DeleteRecordsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::DeleteRecordsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, options).await
+    }
+    pub async fn list_groups_with_options(&self, req: crate::pb::ListGroupsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::ListGroupsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/ListGroups", req, options).await
+    }
+    pub async fn describe_groups_with_options(&self, req: crate::pb::DescribeGroupsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::DescribeGroupsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, options).await
+    }
+    pub async fn delete_groups_with_options(&self, req: crate::pb::DeleteGroupsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::DeleteGroupsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, options).await
+    }
+    pub async fn delete_group_offsets_with_options(&self, req: crate::pb::DeleteGroupOffsetsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::DeleteGroupOffsetsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, options).await
+    }
+    pub async fn describe_acls_with_options(&self, req: crate::pb::DescribeAclsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::DescribeAclsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, options).await
+    }
+    pub async fn create_acls_with_options(&self, req: crate::pb::CreateAclsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::CreateAclsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/CreateAcls", req, options).await
+    }
+    pub async fn delete_acls_with_options(&self, req: crate::pb::DeleteAclsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::DeleteAclsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, options).await
+    }
+    pub async fn list_transactions_with_options(&self, req: crate::pb::ListTransactionsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::ListTransactionsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/ListTransactions", req, options).await
+    }
+    pub async fn describe_transactions_with_options(&self, req: crate::pb::DescribeTransactionsRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::DescribeTransactionsResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, options).await
+    }
 }
 
 #[::grpc_dc::async_trait]
@@ -95,6 +173,19 @@ pub trait Kafka: Send + Sync + 'static {
     async fn fetch_offset(&self, req: crate::pb::FetchOffsetRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::FetchOffsetResponse, ::grpc_dc::Status>;
     async fn create_topics(&self, req: crate::pb::CreateTopicsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::CreateTopicsResponse, ::grpc_dc::Status>;
     async fn delete_topics(&self, req: crate::pb::DeleteTopicsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DeleteTopicsResponse, ::grpc_dc::Status>;
+    async fn describe_configs(&self, req: crate::pb::DescribeConfigsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DescribeConfigsResponse, ::grpc_dc::Status>;
+    async fn alter_configs(&self, req: crate::pb::AlterConfigsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::AlterConfigsResponse, ::grpc_dc::Status>;
+    async fn create_partitions(&self, req: crate::pb::CreatePartitionsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::CreatePartitionsResponse, ::grpc_dc::Status>;
+    async fn delete_records(&self, req: crate::pb::DeleteRecordsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DeleteRecordsResponse, ::grpc_dc::Status>;
+    async fn list_groups(&self, req: crate::pb::ListGroupsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::ListGroupsResponse, ::grpc_dc::Status>;
+    async fn describe_groups(&self, req: crate::pb::DescribeGroupsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DescribeGroupsResponse, ::grpc_dc::Status>;
+    async fn delete_groups(&self, req: crate::pb::DeleteGroupsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DeleteGroupsResponse, ::grpc_dc::Status>;
+    async fn delete_group_offsets(&self, req: crate::pb::DeleteGroupOffsetsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DeleteGroupOffsetsResponse, ::grpc_dc::Status>;
+    async fn describe_acls(&self, req: crate::pb::DescribeAclsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DescribeAclsResponse, ::grpc_dc::Status>;
+    async fn create_acls(&self, req: crate::pb::CreateAclsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::CreateAclsResponse, ::grpc_dc::Status>;
+    async fn delete_acls(&self, req: crate::pb::DeleteAclsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DeleteAclsResponse, ::grpc_dc::Status>;
+    async fn list_transactions(&self, req: crate::pb::ListTransactionsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::ListTransactionsResponse, ::grpc_dc::Status>;
+    async fn describe_transactions(&self, req: crate::pb::DescribeTransactionsRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DescribeTransactionsResponse, ::grpc_dc::Status>;
 }
 
 pub fn kafka_service<S: Kafka>(svc: std::sync::Arc<S>) -> ::grpc_dc::ServiceDef {
@@ -111,5 +202,18 @@ pub fn kafka_service<S: Kafka>(svc: std::sync::Arc<S>) -> ::grpc_dc::ServiceDef 
         ::grpc_dc::unary_method("FetchOffset", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.fetch_offset(req, ctx).await } } }),
         ::grpc_dc::unary_method("CreateTopics", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.create_topics(req, ctx).await } } }),
         ::grpc_dc::unary_method("DeleteTopics", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.delete_topics(req, ctx).await } } }),
+        ::grpc_dc::unary_method("DescribeConfigs", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.describe_configs(req, ctx).await } } }),
+        ::grpc_dc::unary_method("AlterConfigs", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.alter_configs(req, ctx).await } } }),
+        ::grpc_dc::unary_method("CreatePartitions", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.create_partitions(req, ctx).await } } }),
+        ::grpc_dc::unary_method("DeleteRecords", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.delete_records(req, ctx).await } } }),
+        ::grpc_dc::unary_method("ListGroups", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.list_groups(req, ctx).await } } }),
+        ::grpc_dc::unary_method("DescribeGroups", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.describe_groups(req, ctx).await } } }),
+        ::grpc_dc::unary_method("DeleteGroups", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.delete_groups(req, ctx).await } } }),
+        ::grpc_dc::unary_method("DeleteGroupOffsets", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.delete_group_offsets(req, ctx).await } } }),
+        ::grpc_dc::unary_method("DescribeAcls", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.describe_acls(req, ctx).await } } }),
+        ::grpc_dc::unary_method("CreateAcls", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.create_acls(req, ctx).await } } }),
+        ::grpc_dc::unary_method("DeleteAcls", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.delete_acls(req, ctx).await } } }),
+        ::grpc_dc::unary_method("ListTransactions", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.list_transactions(req, ctx).await } } }),
+        ::grpc_dc::unary_method("DescribeTransactions", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.describe_transactions(req, ctx).await } } }),
     ])
 }

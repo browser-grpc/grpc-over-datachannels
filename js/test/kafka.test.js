@@ -18,6 +18,8 @@ import {
   ConsumeRequest,
   CreateTopicsRequest,
   DeleteTopicsRequest,
+  DescribeGroupsRequest,
+  GroupSubscribeRequest,
   ListOffsetsRequest,
   NewTopic,
   ProduceRequest,
@@ -67,6 +69,16 @@ async function makeClient(t) {
   const dc = tcpDataChannel(PROXY_ADDR.slice(0, sep), Number(PROXY_ADDR.slice(sep + 1)));
   const client = new KafkaClient(new Channel(dc));
   const topic = `js-kafka-e2e-${randomUUID().slice(0, 16)}`;
+  // Register cleanup first: if setup fails below, the socket
+  // must still close or the test process never exits.
+  t.after(async () => {
+    try {
+      await client.deleteTopics(new DeleteTopicsRequest({ topics: [topic] }));
+    } catch {
+      /* best effort */
+    }
+    dc.close();
+  });
   const created = await client.createTopics(
     new CreateTopicsRequest({
       topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
@@ -82,14 +94,6 @@ async function makeClient(t) {
     if (latest.errorCode === 0) break;
     await new Promise((r) => setTimeout(r, 250));
   }
-  t.after(async () => {
-    try {
-      await client.deleteTopics(new DeleteTopicsRequest({ topics: [topic] }));
-    } catch {
-      /* best effort */
-    }
-    dc.close();
-  });
   return { client, topic };
 }
 
@@ -150,6 +154,46 @@ test("kafka offset resume", { skip: !PROXY_ADDR }, async (t) => {
   assert.deepEqual(first.map((r) => dec(r.value)), ["a", "b"]);
   const rest = await consume(client, topic, 2, 2);
   assert.deepEqual(rest.map((r) => dec(r.value)), ["c", "d"]);
+});
+
+test("kafka subscribe cancel leaves group", { skip: !PROXY_ADDR }, async (t) => {
+  const { client, topic } = await makeClient(t);
+  await produce(client, topic, ["x"]);
+  const group = `js-kafka-group-${randomUUID().slice(0, 12)}`;
+  const stream = await client.subscribe(
+    new GroupSubscribeRequest({
+      groupId: group,
+      topics: [topic],
+      sessionTimeoutMs: 30000,
+      maxPollRecords: 10,
+      autoOffsetReset: "earliest",
+    }),
+  );
+  let assigned = false;
+  for await (const resp of stream) {
+    if (resp.assignment?.partitions?.length) {
+      assigned = true;
+      break; // breaking the iteration cancels the call (RST)
+    }
+    if (resp.groupError) break;
+  }
+  assert.ok(assigned, "no assignment from subscribe");
+  // The cancellation must reach the proxy, which leaves the
+  // group: the member disappears from describe.
+  let members = -1;
+  for (let i = 0; i < 80 && members !== 0; i++) {
+    const described = await client.describeGroups(
+      new DescribeGroupsRequest({ groupIds: [group] }),
+    );
+    members = described.groups[0]?.members?.length ?? 0;
+    if (members !== 0) await new Promise((r) => setTimeout(r, 250));
+  }
+  assert.equal(members, 0);
+  // The channel is still usable after the cancellation.
+  const latest = await client.listOffsets(
+    new ListOffsetsRequest({ topic, partition: 0, timestamp: -1n }),
+  );
+  assert.equal(latest.errorCode, 0);
 });
 
 test("kafka over HTTP/2 ingress", { skip: !HTTP2_ADDR }, async (t) => {

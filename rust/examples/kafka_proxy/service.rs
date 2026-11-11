@@ -640,6 +640,166 @@ impl crate::stub::Kafka for KafkaService {
             ..Default::default()
         })
     }
+
+    async fn describe_configs(
+        &self,
+        req: crate::pb::DescribeConfigsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::DescribeConfigsResponse, Status> {
+        let (error_code, values) = self
+            .broker
+            .describe_configs(
+                req.resource_type.to_i32() as i8,
+                &req.resource_name,
+                &req.config_keys,
+                req.include_synonyms,
+            )
+            .await?;
+        Ok(crate::pb::DescribeConfigsResponse { error_code, values, ..Default::default() })
+    }
+
+    async fn alter_configs(
+        &self,
+        req: crate::pb::AlterConfigsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::AlterConfigsResponse, Status> {
+        let entries: Vec<(String, String, i8)> = req
+            .entries
+            .iter()
+            .map(|e| (e.name.clone(), e.value.clone(), e.op.to_i32() as i8))
+            .collect();
+        let error_code = self
+            .broker
+            .alter_configs(req.resource_type.to_i32() as i8, &req.resource_name, &entries, req.validate_only)
+            .await?;
+        Ok(crate::pb::AlterConfigsResponse { error_code, ..Default::default() })
+    }
+
+    async fn create_partitions(
+        &self,
+        req: crate::pb::CreatePartitionsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::CreatePartitionsResponse, Status> {
+        let error_code = self
+            .broker
+            .create_partitions(&req.topic, req.total_count, req.validate_only, req.timeout_ms)
+            .await?;
+        Ok(crate::pb::CreatePartitionsResponse { error_code, ..Default::default() })
+    }
+
+    async fn delete_records(
+        &self,
+        req: crate::pb::DeleteRecordsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::DeleteRecordsResponse, Status> {
+        let (low_watermark, error_code) =
+            self.broker.delete_records(&req.topic, req.partition, req.before_offset).await?;
+        Ok(crate::pb::DeleteRecordsResponse {
+            low_watermark,
+            error_code,
+            ..Default::default()
+        })
+    }
+
+    async fn list_groups(
+        &self,
+        _req: crate::pb::ListGroupsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::ListGroupsResponse, Status> {
+        let (error_code, groups) = self.broker.list_groups().await?;
+        Ok(crate::pb::ListGroupsResponse { error_code, groups, ..Default::default() })
+    }
+
+    async fn describe_groups(
+        &self,
+        req: crate::pb::DescribeGroupsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::DescribeGroupsResponse, Status> {
+        let groups = self.broker.describe_groups(&req.group_ids).await?;
+        Ok(crate::pb::DescribeGroupsResponse { groups, ..Default::default() })
+    }
+
+    async fn delete_groups(
+        &self,
+        req: crate::pb::DeleteGroupsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::DeleteGroupsResponse, Status> {
+        let results = self
+            .broker
+            .delete_groups(&req.group_ids)
+            .await?
+            .into_iter()
+            .map(|(group_id, error_code)| crate::pb::GroupErrorResult {
+                group_id,
+                error_code,
+                ..Default::default()
+            })
+            .collect();
+        Ok(crate::pb::DeleteGroupsResponse { results, ..Default::default() })
+    }
+
+    async fn delete_group_offsets(
+        &self,
+        req: crate::pb::DeleteGroupOffsetsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::DeleteGroupOffsetsResponse, Status> {
+        let error_code = self
+            .broker
+            .delete_group_offsets(&req.group_id, &req.topic, &req.partitions)
+            .await?;
+        Ok(crate::pb::DeleteGroupOffsetsResponse { error_code, ..Default::default() })
+    }
+
+    async fn describe_acls(
+        &self,
+        req: crate::pb::DescribeAclsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::DescribeAclsResponse, Status> {
+        let default_acl = crate::pb::Acl::default();
+        let filter = req.filter.as_deref().unwrap_or(&default_acl);
+        let (error_code, acls) = self.broker.describe_acls(filter).await?;
+        Ok(crate::pb::DescribeAclsResponse { error_code, acls, ..Default::default() })
+    }
+
+    async fn create_acls(
+        &self,
+        req: crate::pb::CreateAclsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::CreateAclsResponse, Status> {
+        let error_codes = self.broker.create_acls(&req.acls).await?;
+        Ok(crate::pb::CreateAclsResponse { error_codes, ..Default::default() })
+    }
+
+    async fn delete_acls(
+        &self,
+        req: crate::pb::DeleteAclsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::DeleteAclsResponse, Status> {
+        let error_codes = self.broker.delete_acls(&req.filters).await?;
+        Ok(crate::pb::DeleteAclsResponse { error_codes, ..Default::default() })
+    }
+
+    async fn list_transactions(
+        &self,
+        _req: crate::pb::ListTransactionsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::ListTransactionsResponse, Status> {
+        let (error_code, transactions) = self.broker.list_transactions().await?;
+        Ok(crate::pb::ListTransactionsResponse {
+            error_code,
+            transactions,
+            ..Default::default()
+        })
+    }
+
+    async fn describe_transactions(
+        &self,
+        req: crate::pb::DescribeTransactionsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::DescribeTransactionsResponse, Status> {
+        let transactions = self.broker.describe_transactions(&req.transactional_ids).await?;
+        Ok(crate::pb::DescribeTransactionsResponse { transactions, ..Default::default() })
+    }
 }
 
 fn group_error(error_code: i32, message: impl Into<String>) -> crate::pb::GroupSubscribeResponse {
