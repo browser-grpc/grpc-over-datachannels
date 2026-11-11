@@ -1822,6 +1822,20 @@ pub struct CallCtx {
 }
 
 impl CallCtx {
+    /// Context for a handler invoked in-process with no
+    /// transport (embedded library use). Detached contexts
+    /// have stream id 0 and no deadline.
+    pub fn detached(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            metadata: Metadata::default(),
+            trace_context: None,
+            stream_id: 0,
+            deadline: None,
+            response_meta: Arc::new(std::sync::Mutex::new(ResponseMeta::default())),
+        }
+    }
+
     /// Time left before the deadline, or None when unbounded.
     pub fn time_remaining(&self) -> Option<std::time::Duration> {
         self.deadline

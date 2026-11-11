@@ -431,6 +431,20 @@ run_tls_suites() {
         bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_e2e"
 }
 
+run_native_legs() {
+    # kafka-native collapsed form: in-process library, no
+    # proxy. Verified against Apache Kafka (admin semantics
+    # are broker-specific; the proxy suites cover Redpanda).
+    run "rust direct e2e (apache kafka)" env KAFKA_PROXY_E2E_BROKER="$KAFKA_ADDR" \
+        bash -c "cd '$ROOT/rust' && cargo test --test kafka_direct_e2e --test kafka_admin_e2e"
+    echo "== building libkafka_native (cdylib)"
+    (cd "$ROOT/crates/kafka-native" && cargo build) || { FAILED=1; return 1; }
+    run "python native e2e (apache kafka)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_native"
+}
+
 run_sasl_suites() {
     # SASL is a proxy<->broker concern; the generated clients see
     # an ordinary proxy. One suite per mechanism, through the
@@ -568,6 +582,7 @@ main() {
 
     run_suites "$KAFKA_ADDR" "$PROXY_KAFKA_ADDR" "apache kafka"
     run_suites "$REDPANDA_ADDR" "$PROXY_REDPANDA_ADDR" "redpanda"
+    run_native_legs
 
     start_kafka_cluster || exit 1
     run "rust multi-broker leader routing (apache kafka)" env \

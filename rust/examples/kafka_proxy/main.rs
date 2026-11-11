@@ -21,28 +21,12 @@
 //!   --sasl-scram-sha-256 USER PASS
 //!   --sasl-scram-sha-512 USER PASS
 
-#[path = "../../gen/kafka_pb.rs"]
-mod pb;
-
-#[path = "pb_message_impl.rs"]
-mod pb_message_impl;
-
-#[path = "../../gen/kafka_grpc_dc.rs"]
-mod stub;
-
-mod client;
-mod codecs;
-mod crypto;
-mod service;
-mod wire;
-
 use bytes::Bytes;
-use client::{KafkaConfig, SaslConfig, TlsConfig};
 use grpc_dc::{DcTransport, Server, Status};
-use service::KafkaService;
+use kafka_native::stub::kafka_service;
+use kafka_native::{KafkaConfig, KafkaService, SaslConfig, TlsConfig};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use stub::kafka_service;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 struct StdioDc {

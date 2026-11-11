@@ -25,6 +25,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`http_signaling.rs`](tests/http_signaling.rs) — Generated suite/example
 - [`interop_oracle.rs`](tests/interop_oracle.rs) — Official-implementation oracle, via the proxy
 - [`kafka_admin_e2e.rs`](tests/kafka_admin_e2e.rs) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_direct_e2e.rs`](tests/kafka_direct_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_proxy_e2e.rs`](tests/kafka_proxy_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`oracle.rs`](tests/oracle.rs) — Official-implementation oracle, via the proxy
 - [`mod.rs`](tests/oracle_scenarios/mod.rs) — Generated suite/example
@@ -48,13 +49,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`grpc_dc_proxy.rs`](examples/grpc_dc_proxy.rs) — Generated suite/example
 - [`main.rs`](examples/interop_server_stdio/main.rs) — Generated suite/example
 - [`pb_glue.rs`](examples/interop_server_stdio/pb_glue.rs) — Generated suite/example
-- [`client.rs`](examples/kafka_proxy/client.rs) — Generated suite/example
-- [`codecs.rs`](examples/kafka_proxy/codecs.rs) — Wire codec vectors
-- [`crypto.rs`](examples/kafka_proxy/crypto.rs) — Generated suite/example
 - [`main.rs`](examples/kafka_proxy/main.rs) — Generated suite/example
-- [`pb_message_impl.rs`](examples/kafka_proxy/pb_message_impl.rs) — Generated suite/example
-- [`service.rs`](examples/kafka_proxy/service.rs) — Generated suite/example
-- [`wire.rs`](examples/kafka_proxy/wire.rs) — Generated suite/example
 - [`rendezvous_echo.rs`](examples/rendezvous_echo.rs) — Echo: all four call shapes
 
 ## Shared matrix coverage

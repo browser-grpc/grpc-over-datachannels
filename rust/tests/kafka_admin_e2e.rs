@@ -6,34 +6,11 @@
 //! or Redpanda). Without it the test is a no-op so plain
 //! `cargo test` stays green on machines without a broker.
 
-#[path = "../gen/kafka_pb.rs"]
-mod pb;
-
-#[path = "../examples/kafka_proxy/pb_message_impl.rs"]
-mod pb_message_impl;
-
-#[path = "../gen/kafka_grpc_dc.rs"]
-mod stub;
-
-#[path = "../examples/kafka_proxy/wire.rs"]
-mod wire;
-
-#[path = "../examples/kafka_proxy/codecs.rs"]
-mod codecs;
-
-#[path = "../examples/kafka_proxy/crypto.rs"]
-mod crypto;
-
-#[path = "../examples/kafka_proxy/client.rs"]
-mod client;
-
-#[path = "../examples/kafka_proxy/service.rs"]
-mod service;
-
-use client::KafkaConfig;
+use kafka_native::client::KafkaConfig;
+use kafka_native::{pb, stub};
 use futures_util::StreamExt;
 use grpc_dc::{loopback_pair, Channel, DcTransport, Server};
-use service::KafkaService;
+use kafka_native::service::KafkaService;
 use std::sync::Arc;
 use stub::{kafka_service, KafkaClient};
 

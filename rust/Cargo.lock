@@ -130,6 +130,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "js-sys",
+ "kafka-native",
  "prost",
  "rustls",
  "rustls-pemfile",
@@ -165,6 +166,18 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "kafka-native"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "grpc-dc",
+ "rustls",
+ "rustls-pemfile",
+ "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]

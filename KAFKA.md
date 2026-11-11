@@ -17,6 +17,23 @@ generated client (any language)          kafka_proxy                broker
                                          binary protocol
 ```
 
+Three form factors, one wire implementation
+(`crates/kafka-native`):
+
+- `kafka-grpc` — the generated client stubs above, over gRPC
+  transports. Browser OK; needs the proxy to reach a broker.
+- `kafka-native` — the same Kafka protocol client as an
+  in-process library (`crates/kafka-native`): Rust crate, C
+  ABI (`libkafka_native`, `include/kafka_native.h`), and
+  per-language FFI wrappers such as Python's
+  `grpcdc.kafka_native.NativeKafkaClient`. Native apps only;
+  no proxy, no gRPC hop. Requests and responses are the same
+  generated messages, so swapping the sidecar for the library
+  changes only client construction. Plaintext brokers only
+  for now; SASL/TLS stay on the sidecar path.
+- `kafka-proxy` — the `kafka_proxy` sidecar, a thin host over
+  the same crate (stdio / TCP / WebRTC-Direct listeners).
+
 ## Service surface
 
 - `Metadata`, `ListOffsets` — cluster/topic metadata, offsets.
