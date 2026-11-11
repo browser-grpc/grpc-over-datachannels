@@ -17,8 +17,8 @@
 //! - `kafka_native_stream_free(stream)`
 //! - `kafka_native_bytes_free(ptr, len)` frees out buffers
 //!
-//! Plaintext brokers only for now; SASL/TLS stay on the
-//! sidecar path until the ABI grows a config struct.
+//! SASL/TLS are available through `kafka_native_new_v2`
+//! and its `KafkaNativeConfig` struct.
 
 use crate::client::KafkaConfig;
 use crate::service::KafkaService;
@@ -126,6 +126,115 @@ async fn dispatch_unary(
             "kafka ffi: unknown or streaming method {other}"
         ))),
     }
+}
+
+/// Full client configuration for `kafka_native_new_v2`.
+/// All string fields are C strings or NULL. `sasl_mechanism`
+/// is NULL (no SASL), "PLAIN", "SCRAM-SHA-256", or
+/// "SCRAM-SHA-512". TLS is enabled when `tls_ca_cert` is set
+/// or `tls_insecure_skip_verify` is nonzero.
+#[repr(C)]
+pub struct KafkaNativeConfig {
+    pub broker: *const c_char,
+    pub client_id: *const c_char,
+    pub sasl_mechanism: *const c_char,
+    pub username: *const c_char,
+    pub password: *const c_char,
+    pub tls_ca_cert: *const c_char,
+    pub tls_server_name: *const c_char,
+    pub tls_insecure_skip_verify: i32,
+}
+
+fn build_handle(cfg: KafkaConfig) -> *mut KafkaHandle {
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => return fail(&format!("kafka ffi runtime: {e}"), std::ptr::null_mut()),
+    };
+    let service = Arc::new(KafkaService::new(cfg));
+    Box::into_raw(Box::new(KafkaHandle { rt, service }))
+}
+
+fn opt_cstr(p: *const c_char) -> Result<Option<String>, String> {
+    if p.is_null() {
+        Ok(None)
+    } else {
+        Ok(Some(cstr(p)?.to_string()))
+    }
+}
+
+/// # Safety
+/// `cfg` must point to a valid `KafkaNativeConfig` whose
+/// string fields are valid C strings or NULL.
+#[no_mangle]
+pub unsafe extern "C" fn kafka_native_new_v2(cfg: *const KafkaNativeConfig) -> *mut KafkaHandle {
+    let cfg = match unsafe { cfg.as_ref() } {
+        Some(c) => c,
+        None => return fail("kafka ffi: null config", std::ptr::null_mut()),
+    };
+    let broker = match cstr(cfg.broker) {
+        Ok(s) => s.to_string(),
+        Err(e) => return fail(&e, std::ptr::null_mut()),
+    };
+    let client_id = match opt_cstr(cfg.client_id) {
+        Ok(s) => s.unwrap_or_else(|| "grpc-dc-kafka-client".to_string()),
+        Err(e) => return fail(&e, std::ptr::null_mut()),
+    };
+    let (username, password) = match (opt_cstr(cfg.username), opt_cstr(cfg.password)) {
+        (Ok(u), Ok(p)) => (u, p),
+        (Err(e), _) | (_, Err(e)) => return fail(&e, std::ptr::null_mut()),
+    };
+    let sasl = match opt_cstr(cfg.sasl_mechanism) {
+        Ok(None) => None,
+        Ok(Some(mech)) => {
+            let (Some(user), Some(pass)) = (username, password) else {
+                return fail(
+                    "kafka ffi: sasl_mechanism requires username and password",
+                    std::ptr::null_mut(),
+                );
+            };
+            match mech.as_str() {
+                "PLAIN" => Some(crate::client::SaslConfig::Plain {
+                    username: user,
+                    password: pass,
+                }),
+                "SCRAM-SHA-256" | "SCRAM-SHA-512" => Some(crate::client::SaslConfig::Scram {
+                    mechanism: mech,
+                    username: user,
+                    password: pass,
+                }),
+                other => {
+                    return fail(
+                        &format!("kafka ffi: unknown sasl mechanism {other}"),
+                        std::ptr::null_mut(),
+                    )
+                }
+            }
+        }
+        Err(e) => return fail(&e, std::ptr::null_mut()),
+    };
+    let (tls_ca_cert, tls_server_name) =
+        match (opt_cstr(cfg.tls_ca_cert), opt_cstr(cfg.tls_server_name)) {
+            (Ok(a), Ok(b)) => (a, b),
+            (Err(e), _) | (_, Err(e)) => return fail(&e, std::ptr::null_mut()),
+        };
+    let tls = if tls_ca_cert.is_some() || cfg.tls_insecure_skip_verify != 0 {
+        Some(crate::client::TlsConfig {
+            ca_cert: tls_ca_cert,
+            server_name: tls_server_name,
+            insecure_skip_verify: cfg.tls_insecure_skip_verify != 0,
+        })
+    } else {
+        None
+    };
+    build_handle(KafkaConfig {
+        broker,
+        client_id,
+        sasl,
+        tls,
+    })
 }
 
 /// # Safety

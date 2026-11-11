@@ -92,6 +92,128 @@ class TestKafkaNative(unittest.TestCase):
         self.assertEqual(groups.error_code, 0, groups)
 
 
+SASL_BROKER = os.environ.get("KAFKA_E2E_SASL_BROKER")
+SASL_USER = os.environ.get("KAFKA_E2E_SASL_USER", "")
+SASL_PASS = os.environ.get("KAFKA_E2E_SASL_PASS", "")
+TLS_BROKER = os.environ.get("KAFKA_E2E_TLS_BROKER")
+TLS_CA = os.environ.get("KAFKA_E2E_TLS_CA")
+
+
+PROXY = os.environ.get("KAFKA_E2E_PROXY_ADDR")
+
+
+@unittest.skipUnless(BROKER and LIB and PROXY, "differential env unset")
+class TestKafkaDifferential(unittest.TestCase):
+    """Same scenario through both form factors against the
+    same broker: proxy-produced records must be identical
+    when consumed natively, and vice versa."""
+
+    def setUp(self):
+        from grpcdc import Channel, SidecarTransport
+        from grpcdc.kafka_grpc_dc import KafkaClient
+        host, _, port = PROXY.rpartition(":")
+        self.proxy = KafkaClient(Channel(SidecarTransport.connect(host, int(port))))
+        self.native = NativeKafkaClient(BROKER)
+        self.topic = unique("grpc-dc-diff")
+        created = self.native.CreateTopics(kafka_pb.CreateTopicsRequest(
+            topics=[kafka_pb.NewTopic(
+                name=self.topic, num_partitions=1, replication_factor=1)],
+            timeout_ms=30_000))
+        self.assertEqual(created.results[0].error_code, 0, created)
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            meta = self.native.Metadata(kafka_pb.MetadataRequest(topics=[self.topic]))
+            topics = [t for t in meta.topics if t.name == self.topic]
+            if topics and topics[0].partitions:
+                break
+            time.sleep(0.2)
+        else:
+            self.fail("topic never became visible")
+
+    def tearDown(self):
+        try:
+            self.native.DeleteTopics(kafka_pb.DeleteTopicsRequest(
+                topics=[self.topic], timeout_ms=30_000))
+        finally:
+            self.native.close()
+
+    def _consume_native(self, want):
+        values = []
+        stream = self.native.Consume(kafka_pb.ConsumeRequest(
+            topic=self.topic, partition=0, offset=-2,
+            max_records=10, max_wait_ms=2_000))
+        try:
+            for chunk in stream:
+                for rec in chunk.records:
+                    values.append(rec.value)
+                if len(values) >= want:
+                    break
+        finally:
+            stream.close()
+        return values
+
+    def test_proxy_produce_native_consume_and_reverse(self):
+        produced = self.proxy.Produce(kafka_pb.ProduceRequest(
+            topic=self.topic, partition=0,
+            records=[kafka_pb.Record(value=v) for v in (b"p1", b"p2")],
+            acks=kafka_pb.Acks.ACKS_ALL))
+        self.assertEqual(produced.error_code, 0, produced)
+        self.assertEqual(self._consume_native(2), [b"p1", b"p2"])
+
+        produced = self.native.Produce(kafka_pb.ProduceRequest(
+            topic=self.topic, partition=0,
+            records=[kafka_pb.Record(value=b"n1")],
+            acks=kafka_pb.Acks.ACKS_ALL))
+        self.assertEqual(produced.error_code, 0, produced)
+
+        values = []
+        stream = self.proxy.Consume(kafka_pb.ConsumeRequest(
+            topic=self.topic, partition=0, offset=2,
+            max_records=10, max_wait_ms=2_000))
+        for chunk in stream:
+            for rec in chunk.records:
+                values.append(rec.value)
+            if values:
+                break
+        self.assertEqual(values, [b"n1"])
+
+
+@unittest.skipUnless(LIB and SASL_BROKER, "SASL native env unset")
+class TestKafkaNativeSasl(unittest.TestCase):
+    def test_sasl_mechanisms(self):
+        for mech in ("PLAIN", "SCRAM-SHA-512"):
+            client = NativeKafkaClient(
+                SASL_BROKER, sasl_mechanism=mech,
+                username=SASL_USER, password=SASL_PASS)
+            try:
+                meta = client.Metadata(kafka_pb.MetadataRequest(topics=[]))
+                self.assertTrue(meta.brokers, mech)
+            finally:
+                client.close()
+
+    def test_sasl_wrong_password_rejected(self):
+        from grpcdc.kafka_native import NativeKafkaError
+        client = NativeKafkaClient(
+            SASL_BROKER, sasl_mechanism="PLAIN",
+            username=SASL_USER, password="wrong-" + SASL_PASS)
+        try:
+            with self.assertRaises(NativeKafkaError):
+                client.Metadata(kafka_pb.MetadataRequest(topics=[]))
+        finally:
+            client.close()
+
+
+@unittest.skipUnless(LIB and TLS_BROKER and TLS_CA, "TLS native env unset")
+class TestKafkaNativeTls(unittest.TestCase):
+    def test_tls_metadata(self):
+        client = NativeKafkaClient(TLS_BROKER, tls_ca_cert=TLS_CA)
+        try:
+            meta = client.Metadata(kafka_pb.MetadataRequest(topics=[]))
+            self.assertTrue(meta.brokers)
+        finally:
+            client.close()
+
+
 @unittest.skipUnless(LIB, "GRPC_DC_KAFKA_NATIVE_LIB unset")
 class TestKafkaNativeErrors(unittest.TestCase):
     def test_missing_library_raises(self):

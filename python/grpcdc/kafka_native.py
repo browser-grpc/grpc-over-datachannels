@@ -15,7 +15,7 @@ kafka_pb messages. No proxy process, no gRPC hop.
 The library is located via the `lib` argument, the
 GRPC_DC_KAFKA_NATIVE_LIB environment variable, or a
 libkafka_native shared library sitting next to this package.
-Plaintext brokers only; SASL/TLS stay on the sidecar path.
+SASL/TLS via the sasl_*/tls_* constructor arguments.
 """
 
 import ctypes
@@ -86,6 +86,8 @@ def _load_lib(explicit=None):
             continue
         lib.kafka_native_new.restype = ctypes.c_void_p
         lib.kafka_native_new.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+        lib.kafka_native_new_v2.restype = ctypes.c_void_p
+        lib.kafka_native_new_v2.argtypes = [ctypes.POINTER(_Config)]
         lib.kafka_native_free.restype = None
         lib.kafka_native_free.argtypes = [ctypes.c_void_p]
         lib.kafka_native_call.restype = ctypes.c_int
@@ -167,13 +169,47 @@ def _last_error(lib):
     return msg.decode("utf-8", "replace") if msg else "kafka-native error"
 
 
+class _Config(ctypes.Structure):
+    _fields_ = [
+        ("broker", ctypes.c_char_p),
+        ("client_id", ctypes.c_char_p),
+        ("sasl_mechanism", ctypes.c_char_p),
+        ("username", ctypes.c_char_p),
+        ("password", ctypes.c_char_p),
+        ("tls_ca_cert", ctypes.c_char_p),
+        ("tls_server_name", ctypes.c_char_p),
+        ("tls_insecure_skip_verify", ctypes.c_int),
+    ]
+
+
+def _enc(value):
+    return value.encode() if value is not None else None
+
+
 class NativeKafkaClient:
     """Direct in-process Kafka client (see module docstring)."""
 
-    def __init__(self, broker, client_id="grpc-dc-kafka-native", lib=None):
+    def __init__(self, broker, client_id="grpc-dc-kafka-native", lib=None,
+                 sasl_mechanism=None, username=None, password=None,
+                 tls_ca_cert=None, tls_server_name=None,
+                 tls_insecure_skip_verify=False):
         self._lib = _load_lib(lib)
-        self._handle = self._lib.kafka_native_new(
-            broker.encode(), client_id.encode())
+        if (sasl_mechanism is None and tls_ca_cert is None
+                and not tls_insecure_skip_verify):
+            self._handle = self._lib.kafka_native_new(
+                broker.encode(), client_id.encode())
+        else:
+            cfg = _Config(
+                broker=broker.encode(),
+                client_id=client_id.encode(),
+                sasl_mechanism=_enc(sasl_mechanism),
+                username=_enc(username),
+                password=_enc(password),
+                tls_ca_cert=_enc(tls_ca_cert),
+                tls_server_name=_enc(tls_server_name),
+                tls_insecure_skip_verify=1 if tls_insecure_skip_verify else 0,
+            )
+            self._handle = self._lib.kafka_native_new_v2(ctypes.byref(cfg))
         if not self._handle:
             raise NativeKafkaError(_last_error(self._lib))
 

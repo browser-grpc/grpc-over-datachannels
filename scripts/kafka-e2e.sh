@@ -445,6 +445,27 @@ run_native_legs() {
         bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_native"
     run "rust ffi e2e (apache kafka)" env KAFKA_PROXY_E2E_BROKER="$KAFKA_ADDR" \
         bash -c "cd '$ROOT/rust' && cargo test --test kafka_native_ffi_e2e"
+    run "ruby native e2e (apache kafka)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        bash -c "cd '$ROOT' && ruby ruby/tests/main.rb TestKafkaNative"
+    run "dart native e2e (apache kafka)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        bash -c "cd '$ROOT/dart' && dart tests/main.dart TestKafkaNative"
+    run "csharp native e2e (apache kafka)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        bash -c "cd '$ROOT/csharp' && dotnet run --project tests/Tests.csproj -c Release -- TestKafkaNative"
+    run "python differential e2e (proxy vs native)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_ADDR" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_native.TestKafkaDifferential"
+    run "java native e2e (apache kafka)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        GRPC_DC_KAFKA_NATIVE_JNI="$TMP/libkafka_native_jni.so" \
+        bash -c "cc -shared -fPIC -I$(dirname $(dirname $(readlink -f $(command -v javac))))/include -I$(dirname $(dirname $(readlink -f $(command -v javac))))/include/linux -I'$ROOT/crates/kafka-native/include' '$ROOT/java/jni/kafka_native_jni.c' -L'$ROOT/crates/kafka-native/target/debug' -lkafka_native -o '$TMP/libkafka_native_jni.so' && cd '$ROOT/java' && mkdir -p '$TMP/jbuild' && javac -encoding UTF-8 -d '$TMP/jbuild' grpcdc/KafkaNative.java grpcdc/Marshaler.java grpcdc/Unmarshaler.java grpcdc/kafka/v1/*.java tests/TestKafkaNative.java && LD_LIBRARY_PATH='$ROOT/crates/kafka-native/target/debug' java -cp '$TMP/jbuild' tests.TestKafkaNative"
     run "c ffi smoke (apache kafka)" \
         bash -c "cc -O1 -I'$ROOT/crates/kafka-native/include' '$ROOT/crates/kafka-native/tests/ffi_smoke.c' -L'$ROOT/crates/kafka-native/target/debug' -lkafka_native -Wl,-rpath,'$ROOT/crates/kafka-native/target/debug' -o '$TMP/ffi_smoke' && '$TMP/ffi_smoke' '$KAFKA_ADDR'"
 }
@@ -607,6 +628,11 @@ main() {
     PIDS+=($!)
     wait_port "$PROXY_KAFKA_SASL256_ADDR" 30 "proxy (kafka sasl)" || exit 1
     run_kafka_sasl_suites
+    run "python native sasl e2e (apache kafka)" env \
+        KAFKA_E2E_SASL_BROKER="$KAFKA_SASL_ADDR" \
+        KAFKA_E2E_SASL_USER=proxy KAFKA_E2E_SASL_PASS=proxy-secret \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_native.TestKafkaNativeSasl"
 
     start_redpanda_sasl || exit 1
     "$proxy_bin" --tcp "$PROXY_SASL256_ADDR" --broker "$SASL_REDPANDA_ADDR" \
@@ -630,6 +656,11 @@ main() {
     PIDS+=($!)
     wait_port "$PROXY_TLS_ADDR" 30 "proxy (tls)" || exit 1
     run_tls_suites
+    run "python native tls e2e (redpanda)" env \
+        KAFKA_E2E_TLS_BROKER="$TLS_REDPANDA_ADDR" \
+        KAFKA_E2E_TLS_CA="$TLS_CA" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_native.TestKafkaNativeTls"
 
     run_http2_suite || FAILED=1
 

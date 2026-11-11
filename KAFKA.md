@@ -29,8 +29,8 @@ Three form factors, one wire implementation
   `grpcdc.kafka_native.NativeKafkaClient`. Native apps only;
   no proxy, no gRPC hop. Requests and responses are the same
   generated messages, so swapping the sidecar for the library
-  changes only client construction. Plaintext brokers only
-  for now; SASL/TLS stay on the sidecar path.
+  changes only client construction. SASL (PLAIN/SCRAM) and
+  TLS are supported through the `kafka_native_new_v2` config.
 - `kafka-proxy` — the `kafka_proxy` sidecar, a thin host over
   the same crate (stdio / TCP / WebRTC-Direct listeners).
 
@@ -41,10 +41,22 @@ malformed bytes, null handle, `last_error`), `Subscribe`
 through the ABI, and `stream_free` mid-stream followed by a
 successful call; a C caller compiled against
 `include/kafka_native.h`; Python roundtrip, admin, and error
-legs. Known gaps, stated plainly: the native library is
-plaintext-only (SASL/TLS brokers need the sidecar), and
-Python is the only per-language FFI wrapper so far — other
-languages still use `kafka-grpc` through the proxy.
+legs. Known gap, stated plainly: SASL/TLS are supported
+through the v2 config, but Python is the only per-language
+FFI wrapper so far — other languages still use `kafka-grpc`
+through the proxy.
+
+## Broker and protocol scope
+
+Differential coverage: identical suites run against Apache
+Kafka and Redpanda in the gate (two independent broker
+implementations), and a Python differential leg cross-checks
+the proxy and native form factors record-for-record against
+the same broker. Consumer groups use the classic group
+protocol (JoinGroup/SyncGroup/Heartbeat). The next-generation
+consumer protocol (KIP-848) and share groups (KIP-932) are
+not implemented; brokers negotiate the classic protocol for
+these clients.
 
 ## Service surface
 

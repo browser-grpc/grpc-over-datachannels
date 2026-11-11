@@ -63,6 +63,9 @@ begin
   when "TestKafkaE2E"
     require_relative "test_kafka_e2e"
     TestKafkaE2E.run
+  when "TestKafkaNative"
+    require_relative "test_kafka_native_e2e"
+    TestKafkaNative.run
   else
     warn "unknown test: #{name}"
     exit(2)

@@ -6,8 +6,8 @@
  * protobuf-encoded request, and return the protobuf-encoded
  * response — the exact bytes the gRPC service exchanges.
  *
- * Plaintext brokers only for now; SASL/TLS stay on the
- * kafka_proxy sidecar path.
+ * SASL (PLAIN/SCRAM) and TLS are available through
+ * kafka_native_new_v2.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -28,6 +28,24 @@ typedef struct KafkaNativeStream KafkaNativeStream;
  * (see kafka_native_last_error). client_id may be NULL. */
 KafkaNativeHandle *kafka_native_new(const char *broker,
                                     const char *client_id);
+
+/* Full configuration. All strings may be NULL.
+ * sasl_mechanism: NULL, "PLAIN", "SCRAM-SHA-256", or
+ * "SCRAM-SHA-512" (username/password required then).
+ * TLS is enabled when tls_ca_cert (PEM file path) is set
+ * or tls_insecure_skip_verify is nonzero. */
+typedef struct KafkaNativeConfig {
+    const char *broker;
+    const char *client_id;
+    const char *sasl_mechanism;
+    const char *username;
+    const char *password;
+    const char *tls_ca_cert;
+    const char *tls_server_name;
+    int tls_insecure_skip_verify;
+} KafkaNativeConfig;
+
+KafkaNativeHandle *kafka_native_new_v2(const KafkaNativeConfig *cfg);
 void kafka_native_free(KafkaNativeHandle *handle);
 
 /* Unary call. Returns 0 on success; *out/*out_len receive a

@@ -16,5 +16,6 @@
   <ItemGroup>
     <ProjectReference Include="../grpcdc/Grpcdc.csproj" />
     <Compile Include="../grpcdc/kafka/v1/*.cs" LinkBase="kafka/v1" />
+    <Compile Include="../grpcdc/KafkaNative.cs" Link="KafkaNative.cs" />
   </ItemGroup>
 </Project>

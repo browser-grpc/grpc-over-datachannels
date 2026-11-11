@@ -30,6 +30,9 @@
   <ItemGroup>
     <Compile Remove="kafka/**/*.cs" />
     <Compile Remove="events/**/*.cs" />
+    <!-- KafkaNative (FFI wrapper over the kafka types) lives
+         in the KafkaGrpc assembly, like the stubs. -->
+    <Compile Remove="KafkaNative.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="8.0.0" />
