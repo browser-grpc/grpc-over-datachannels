@@ -36,6 +36,7 @@
   (arg-value "--version" (sh "git describe --tags --abbrev=0")))
 (define out-dir (arg-value "--out" "release/browser-grpc"))
 (define kafka-proxy-out (arg-value "--kafka-proxy-out" ""))
+(define kafka-native-out (arg-value "--kafka-native-out" ""))
 (define php-out (arg-value "--php-out" ""))
 (define kafka-php-out (arg-value "--kafka-php-out" ""))
 (define eventbus-php-out (arg-value "--eventbus-php-out" ""))
@@ -1944,6 +1945,228 @@
       (exit 1))
     (printf "releasegen: kafka-proxy export: ~a files, leak gate OK\n"
             (length kp-files))))
+
+;; ---------------------------------------------------------------------------
+;; Dedicated kafka-native repo export (browser-grpc/kafka-native):
+;; the in-process Kafka protocol client — Rust crate, C ABI,
+;; Python wrapper — as a standalone subset of the main export
+;; plus its maintained crate sources (tracked files only), its
+;; own README, CI Dockerfile, e2e runner, and GitHub workflow.
+;; Same leak rule: no Racket source ever crosses.
+;; ---------------------------------------------------------------------------
+
+(define (emit-kn-file rel text [mode #f])
+  (define dest (build-path kafka-native-out rel))
+  (make-directory* (path-only dest))
+  (call-with-output-file dest
+    (lambda (out) (display text out)) #:exists 'replace)
+  (when mode (file-or-directory-permissions dest mode)))
+
+(when (non-empty-string? kafka-native-out)
+  (when (directory-exists? kafka-native-out)
+    (delete-directory/files kafka-native-out))
+  (make-directory* kafka-native-out)
+  (for ([dir (in-list '("rust" "python" "proto" "fixtures"))])
+    (make-directory* (path-only (build-path kafka-native-out dir)))
+    (copy-directory/files (build-path out-dir dir)
+                          (build-path kafka-native-out dir)))
+  ;; Maintained crate sources: tracked files only, so build
+  ;; output never crosses.
+  (for ([rel (in-list (string-split
+                       (sh "git ls-files crates/kafka-native")
+                       "\n"))])
+    (define dest (build-path kafka-native-out rel))
+    (make-directory* (path-only dest))
+    (copy-file rel dest #t))
+  (for ([f (in-list '("LICENSE" "GENERATED-CODE-LICENSE.md" "KAFKA.md"))])
+    (copy-file (build-path out-dir f) (build-path kafka-native-out f) #t))
+  (emit-kn-file
+   "RELEASE.json"
+   (string-append "{\n  \"version\": \"" version "\",\n"
+                  "  \"sourceCommit\": \"" source-commit "\",\n"
+                  "  \"generated\": true\n}\n"))
+  (emit-kn-file
+   "README.md"
+   (string-append
+    "# Kafka native client\n"
+    "\n"
+    "An in-process Kafka protocol client for native applications:\n"
+    "the Kafka wire implementation runs in your process — no proxy\n"
+    "process, no gRPC hop. It speaks the Kafka binary protocol to\n"
+    "Apache Kafka (KRaft) or Redpanda, negotiating API versions\n"
+    "per connection.\n"
+    "\n"
+    "Three form factors share one wire implementation:\n"
+    "\n"
+    "- **kafka-native** (this repo) — in-process library: Rust\n"
+    "  crate, C ABI, per-language FFI wrappers. Native only.\n"
+    "- **kafka-grpc** — generated client stubs over gRPC\n"
+    "  transports from [grpc-over-datachannels](https://github.com/browser-grpc/grpc-over-datachannels);\n"
+    "  browser OK, reaches a broker through the proxy.\n"
+    "- **kafka-proxy** — the [sidecar](https://github.com/browser-grpc/kafka-proxy)\n"
+    "  that bridges the two.\n"
+    "\n"
+    "This repository is a generated export (version " version ").\n"
+    "\n"
+    "## Use\n"
+    "\n"
+    "Rust:\n"
+    "\n"
+    "```toml\n"
+    "kafka-native = \"0.1\"\n"
+    "```\n"
+    "\n"
+    "```rust\n"
+    "let broker = kafka_native::Broker::new(config);\n"
+    "broker.create_topics(vec![(\"events\".into(), 3, 1)], 30_000, false).await?;\n"
+    "```\n"
+    "\n"
+    "C: link `libkafka_native` and include\n"
+    "`crates/kafka-native/include/kafka_native.h`. Calls take a\n"
+    "method name and the protobuf-encoded request and return the\n"
+    "protobuf-encoded response.\n"
+    "\n"
+    "Python (stdlib `ctypes`, same generated messages as the\n"
+    "gRPC client):\n"
+    "\n"
+    "```python\n"
+    "from grpcdc.kafka_native import NativeKafkaClient\n"
+    "client = NativeKafkaClient(\"127.0.0.1:9092\")\n"
+    "```\n"
+    "\n"
+    "Surface: metadata, produce/consume, producer sessions\n"
+    "(idempotence, transactions), consumer groups, and the admin\n"
+    "operations (configs, partitions, delete-records, groups,\n"
+    "ACLs, transactions) — see [KAFKA.md](KAFKA.md). Plaintext\n"
+    "brokers only for now; SASL/TLS stay on the sidecar path.\n"
+    "\n"
+    "## Tests\n"
+    "\n"
+    "```sh\n"
+    "docker build -f docker/kafka-native-ci.Dockerfile -t kafka-native-ci .\n"
+    "docker run --rm kafka-native-ci\n"
+    "```\n"
+    "\n"
+    "GitHub Actions runs the same image on every push.\n"))
+  (emit-kn-file
+   "docker/kafka-native-ci.Dockerfile"
+   (string-append
+    "# Kafka native CI — generated. DO NOT EDIT.\n"
+    "# Builds libkafka_native and runs the direct, FFI, Python,\n"
+    "# and C test legs against a real Apache Kafka fixture,\n"
+    "# all inside the image.\n"
+    "#   docker build -f docker/kafka-native-ci.Dockerfile -t kafka-native-ci .\n"
+    "#   docker run --rm kafka-native-ci\n"
+    "FROM rust:1-bookworm\n"
+    "RUN apt-get update && apt-get install -y --no-install-recommends default-jdk-headless curl ca-certificates procps python3 gcc && rm -rf /var/lib/apt/lists/*\n"
+    "RUN curl -fsSL https://downloads.apache.org/kafka/4.3.1/kafka_2.13-4.3.1.tgz -o /tmp/kafka.tgz && mkdir -p /opt/kafka && tar -xzf /tmp/kafka.tgz -C /opt/kafka --strip-components=1 && rm /tmp/kafka.tgz\n"
+    "ENV KAFKA_HOME=/opt/kafka\n"
+    "WORKDIR /src\n"
+    "COPY rust ./rust\n"
+    "COPY crates ./crates\n"
+    "COPY python ./python\n"
+    "COPY proto ./proto\n"
+    "COPY fixtures ./fixtures\n"
+    "COPY scripts/run-e2e.sh ./scripts/run-e2e.sh\n"
+    "CMD [\"bash\", \"scripts/run-e2e.sh\"]\n"))
+  (emit-kn-file
+   "scripts/run-e2e.sh"
+   (string-append
+    "#!/usr/bin/env bash\n"
+    "# Run the kafka-native legs (Rust direct, Rust FFI, C\n"
+    "# smoke, Python) against a real Apache Kafka broker\n"
+    "# started here and killed on exit.\n"
+    "set -uo pipefail\n"
+    "ROOT=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")/..\" && pwd)\"\n"
+    "KAFKA_HOME=\"${KAFKA_HOME:-/opt/kafka}\"\n"
+    "TMP=\"$(mktemp -d)\"\n"
+    "PIDS=()\n"
+    "cleanup() {\n"
+    "  for pid in \"${PIDS[@]:-}\"; do\n"
+    "    [ -n \"$pid\" ] && kill \"$pid\" 2>/dev/null || true\n"
+    "  done\n"
+    "  rm -rf \"$TMP\"\n"
+    "}\n"
+    "trap cleanup EXIT\n"
+    "port_open() {\n"
+    "  (exec 3<>\"/dev/tcp/${1%:*}/${1##*:}\") 2>/dev/null && exec 3>&- 3<&-\n"
+    "}\n"
+    "wait_port() {\n"
+    "  local deadline=$((SECONDS + $2))\n"
+    "  while ! port_open \"$1\"; do\n"
+    "    if [ $SECONDS -ge $deadline ]; then\n"
+    "      echo \"FAIL: $3 did not open $1 within $2s\" >&2\n"
+    "      return 1\n"
+    "    fi\n"
+    "    sleep 1\n"
+    "  done\n"
+    "  echo \"ok: $3 listening on $1\"\n"
+    "}\n"
+    "start_kafka() {\n"
+    "  local props=\"$TMP/kafka.properties\"\n"
+    "  cat > \"$props\" <<EOF\n"
+    "process.roles=broker,controller\n"
+    "node.id=1\n"
+    "listeners=PLAINTEXT://0.0.0.0:19092,CONTROLLER://0.0.0.0:19094\n"
+    "advertised.listeners=PLAINTEXT://127.0.0.1:19092\n"
+    "controller.listener.names=CONTROLLER\n"
+    "controller.quorum.voters=1@127.0.0.1:19094\n"
+    "log.dirs=$TMP/kafka-logs\n"
+    "offsets.topic.replication.factor=1\n"
+    "transaction.state.log.replication.factor=1\n"
+    "transaction.state.log.min.isr=1\n"
+    "group.initial.rebalance.delay.ms=0\n"
+    "num.partitions=1\n"
+    "EOF\n"
+    "  local cluster_id\n"
+    "  cluster_id=\"$(\"$KAFKA_HOME/bin/kafka-storage.sh\" random-uuid)\" || return 1\n"
+    "  \"$KAFKA_HOME/bin/kafka-storage.sh\" format -t \"$cluster_id\" -c \"$props\" --ignore-formatted >\"$TMP/kafka-format.log\" 2>&1 || return 1\n"
+    "  \"$KAFKA_HOME/bin/kafka-server-start.sh\" \"$props\" >\"$TMP/kafka.log\" 2>&1 &\n"
+    "  PIDS+=($!)\n"
+    "  wait_port 127.0.0.1:19092 180 kafka || { tail -20 \"$TMP/kafka.log\" >&2; return 1; }\n"
+    "}\n"
+    "FAILED=0\n"
+    "start_kafka || exit 1\n"
+    "echo \"== rust direct + admin (apache kafka)\"\n"
+    "(cd \"$ROOT/rust\" && KAFKA_PROXY_E2E_BROKER=127.0.0.1:19092 cargo test --locked --test kafka_direct_e2e --test kafka_admin_e2e) || FAILED=1\n"
+    "echo \"== rust ffi (apache kafka)\"\n"
+    "(cd \"$ROOT/rust\" && KAFKA_PROXY_E2E_BROKER=127.0.0.1:19092 cargo test --locked --test kafka_native_ffi_e2e) || FAILED=1\n"
+    "echo \"== building libkafka_native\"\n"
+    "(cd \"$ROOT/crates/kafka-native\" && cargo build --locked) || FAILED=1\n"
+    "echo \"== c ffi smoke\"\n"
+    "cc -O1 -I\"$ROOT/crates/kafka-native/include\" \"$ROOT/crates/kafka-native/tests/ffi_smoke.c\" -L\"$ROOT/crates/kafka-native/target/debug\" -lkafka_native -Wl,-rpath,\"$ROOT/crates/kafka-native/target/debug\" -o \"$TMP/ffi_smoke\" && \"$TMP/ffi_smoke\" 127.0.0.1:19092 || FAILED=1\n"
+    "echo \"== python native (apache kafka)\"\n"
+    "(cd \"$ROOT/python\" && KAFKA_E2E_BROKER=127.0.0.1:19092 GRPC_DC_KAFKA_NATIVE_LIB=\"$ROOT/crates/kafka-native/target/debug/libkafka_native.so\" python3 -m unittest tests.test_kafka_native) || FAILED=1\n"
+    "exit \"$FAILED\"\n")
+   #o755)
+  (emit-kn-file
+   ".github/workflows/ci.yml"
+   (string-append
+    "name: CI\n"
+    "on:\n"
+    "  push:\n"
+    "    branches: [main]\n"
+    "  pull_request:\n"
+    "jobs:\n"
+    "  e2e:\n"
+    "    runs-on: ubuntu-latest\n"
+    "    steps:\n"
+    "      - uses: actions/checkout@v4\n"
+    "      - name: Build CI image (broker + toolchain)\n"
+    "        run: docker build -f docker/kafka-native-ci.Dockerfile -t kafka-native-ci .\n"
+    "      - name: Run native legs (Apache Kafka)\n"
+    "        run: docker run --rm kafka-native-ci\n"))
+  ;; Leak gate for the subset export.
+  (let* ([kn-files (find-files file-exists? kafka-native-out)]
+         [kn-leaks
+          (filter (lambda (p) (string-suffix? (path->string p) ".rkt"))
+                  kn-files)])
+    (unless (null? kn-leaks)
+      (eprintf "releasegen: KAFKA-NATIVE LEAK GATE FAILED:\n")
+      (for ([p (in-list kn-leaks)]) (eprintf "  ~a\n" p))
+      (exit 1))
+    (printf "releasegen: kafka-native export: ~a files, leak gate OK\n"
+            (length kn-files))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dedicated eventbus repo export (browser-grpc/eventbus):

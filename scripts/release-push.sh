@@ -17,6 +17,8 @@ set -eu
 VERSION="${1:-$(git describe --tags --abbrev=0)}"
 EXPORT="release/browser-grpc"
 KP_EXPORT="release/kafka-proxy"
+KN_EXPORT="release/kafka-native"
+KN_REPO="browser-grpc/kafka-native"
 PHP_EXPORT="release/grpc-php"
 PHP_REPO="browser-grpc/grpc-dc-php"
 KPHP_EXPORT="release/kafka-php"
@@ -137,6 +139,35 @@ if [ -d "$KP_EXPORT" ]; then
   cd - >/dev/null
 else
   echo "note: no kafka-proxy export at $KP_EXPORT; skipping repo publish"
+fi
+
+# ------------------------------------------------------------------
+# 1ba. Kafka native repo (browser-grpc/kafka-native): standalone
+#     in-process client export (no Racket source; the
+#     exporter's leak gate enforces it). Same version/tag.
+# ------------------------------------------------------------------
+if [ -d "$KN_EXPORT" ]; then
+  if ! gh repo view "$KN_REPO" >/dev/null 2>&1; then
+    gh repo create "$KN_REPO" --public \
+      --description "Kafka native client — in-process Kafka protocol library (Rust crate, C ABI, Python) for Apache Kafka/Redpanda"
+  fi
+  gh repo clone "$KN_REPO" "$WORK/kafka-native"
+  rsync -a --delete --exclude .git "$KN_EXPORT/" "$WORK/kafka-native/"
+  cd "$WORK/kafka-native"
+  git add -A
+  if git diff --cached --quiet; then
+    echo "kafka-native export unchanged; nothing to publish"
+  else
+    git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
+      commit -m "release $VERSION (generated export)"
+    git rev-parse "$VERSION" >/dev/null 2>&1 || git tag "$VERSION"
+    git push origin HEAD
+    git push origin "$VERSION"
+    echo "published $KN_REPO $VERSION"
+  fi
+  cd - >/dev/null
+else
+  echo "note: no kafka-native export at $KN_EXPORT; skipping repo publish"
 fi
 
 # ------------------------------------------------------------------
