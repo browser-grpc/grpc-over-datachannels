@@ -436,7 +436,7 @@ run_native_legs() {
     # proxy. Verified against Apache Kafka (admin semantics
     # are broker-specific; the proxy suites cover Redpanda).
     run "rust direct e2e (apache kafka)" env KAFKA_PROXY_E2E_BROKER="$KAFKA_ADDR" \
-        bash -c "cd '$ROOT/rust' && cargo test --test kafka_direct_e2e --test kafka_admin_e2e"
+        bash -c "cd '$ROOT/rust' && cargo test --test kafka_direct_e2e --test kafka_admin_e2e --test kafka_kip848_e2e"
     echo "== building libkafka_native (cdylib)"
     (cd "$ROOT/crates/kafka-native" && cargo build) || { FAILED=1; return 1; }
     run "python native e2e (apache kafka)" env \

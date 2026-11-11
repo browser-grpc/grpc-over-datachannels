@@ -41,10 +41,12 @@ malformed bytes, null handle, `last_error`), `Subscribe`
 through the ABI, and `stream_free` mid-stream followed by a
 successful call; a C caller compiled against
 `include/kafka_native.h`; Python roundtrip, admin, and error
-legs. Known gap, stated plainly: SASL/TLS are supported
-through the v2 config, but Python is the only per-language
-FFI wrapper so far — other languages still use `kafka-grpc`
-through the proxy.
+legs. Per-language wrappers over the C ABI are generated for
+Python, Ruby, Dart, C#, Java (JNI shim), PHP (stdlib FFI),
+and JavaScript (pure N-API addon, async promises, SASL/TLS
+v2 config); Go wraps it via cgo behind the `kafka_native`
+build tag; C++ and Swift consume the header directly. Every
+wrapper has a live-broker gate leg.
 
 ## Broker and protocol scope
 
@@ -52,11 +54,15 @@ Differential coverage: identical suites run against Apache
 Kafka and Redpanda in the gate (two independent broker
 implementations), and a Python differential leg cross-checks
 the proxy and native form factors record-for-record against
-the same broker. Consumer groups use the classic group
-protocol (JoinGroup/SyncGroup/Heartbeat). The next-generation
-consumer protocol (KIP-848) and share groups (KIP-932) are
-not implemented; brokers negotiate the classic protocol for
-these clients.
+the same broker. Consumer groups speak the next-generation consumer protocol
+(KIP-848, ConsumerGroupHeartbeat) whenever the coordinator
+advertises it: server-side assignment, epoch fencing, and
+ConsumerGroupDescribe for group admin, with OffsetCommit
+negotiated to v9. Brokers that refuse it (UNSUPPORTED_VERSION
+on the joining heartbeat, or no topic-id Metadata) fall back
+to the classic group protocol (JoinGroup/SyncGroup/Heartbeat)
+transparently — same `Subscribe` stream either way. Share
+groups (KIP-932) are not implemented.
 
 ## Service surface
 
@@ -67,9 +73,11 @@ these clients.
   sessions held by the proxy: idempotent produce (per-partition
   sequences) and transactions (commit/abort) across unary calls.
 - `Subscribe` (server-streaming) — consumer groups held by the
-  proxy: JoinGroup/SyncGroup with range + roundrobin assignors,
-  heartbeats, rejoin on rebalance errors, committed-offset
-  resume. `CommitOffset` / `FetchOffset` for explicit offsets.
+  proxy: KIP-848 heartbeats with server-side assignment where
+  supported (classic JoinGroup/SyncGroup with range +
+  roundrobin assignors otherwise), rejoin on rebalance and
+  fencing errors, committed-offset resume. `CommitOffset` /
+  `FetchOffset` for explicit offsets.
   Each group member owns its coordinator connection (a parked
   JoinGroup must not starve other members' heartbeats), and a
   member rejoining after a rebalance heartbeat rejoins with

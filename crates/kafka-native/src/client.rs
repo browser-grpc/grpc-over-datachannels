@@ -42,6 +42,8 @@ pub const API_DESCRIBE_GROUPS: i16 = 15;
 pub const API_OFFSET_DELETE: i16 = 47;
 pub const API_LIST_TRANSACTIONS: i16 = 66;
 pub const API_DESCRIBE_TRANSACTIONS: i16 = 65;
+pub const API_CONSUMER_GROUP_HEARTBEAT: i16 = 68;
+pub const API_CONSUMER_GROUP_DESCRIBE: i16 = 69;
 pub const API_INIT_PRODUCER_ID: i16 = 22;
 pub const API_ADD_PARTITIONS_TO_TXN: i16 = 24;
 pub const API_ADD_OFFSETS_TO_TXN: i16 = 25;
@@ -372,6 +374,10 @@ impl Conn {
             Some(&(_min, max)) => Ok(desired.min(max)),
             None => Err(bad(format!("kafka: api {api} not advertised by broker"))),
         }
+    }
+
+    pub fn has_api(&self, api: i16) -> bool {
+        self.versions.contains_key(&api)
     }
 
     pub fn supports(&self, api: i16, desired: i16) -> Result<i16, Status> {
@@ -1135,6 +1141,27 @@ impl Broker {
                 })
             }
         };
+        let described = self.describe_classic_group(&coord, group_id).await?;
+        // A group living under the KIP-848 consumer protocol is
+        // invisible to classic DescribeGroups (GROUP_ID_NOT_FOUND);
+        // describe it through ConsumerGroupDescribe instead.
+        if described.error_code == 69
+            && coord.lock().await.has_api(API_CONSUMER_GROUP_DESCRIBE)
+        {
+            if let Ok(consumer) = self.describe_consumer_group(&coord, group_id).await {
+                if consumer.error_code == 0 {
+                    return Ok(consumer);
+                }
+            }
+        }
+        Ok(described)
+    }
+
+    async fn describe_classic_group(
+        &self,
+        coord: &Arc<Mutex<Conn>>,
+        group_id: &str,
+    ) -> Result<crate::pb::DescribedGroup, Status> {
         let mut conn = coord.lock().await;
         // v6 adds ErrorMessage; v5 (Redpanda's max) has the
         // same flexible layout without it.
@@ -2067,7 +2094,10 @@ impl Broker {
     ) -> Result<i32, Status> {
         let coord = self.coordinator(group, 0).await?;
         let mut conn = coord.lock().await;
-        let ver = conn.supports(API_OFFSET_COMMIT, 8)?;
+        // v9 has the v8 wire layout; KIP-848 consumer groups
+        // reject commits below v9 with UNSUPPORTED_VERSION, so
+        // negotiate up to it (classic brokers keep v8).
+        let ver = conn.negotiate(API_OFFSET_COMMIT, 9)?;
         let mut body = W::new();
         body.cstr(group);
         body.i32(generation_id);
@@ -2626,6 +2656,331 @@ impl Broker {
         let _throttle = r.i32().map_err(bad)?;
         Ok(r.i16().map_err(bad)? as i32)
     }
+
+    /// Topic name <-> id (UUID) maps from Metadata at v10+
+    /// (KIP-516 topic ids). Empty maps when the broker's
+    /// Metadata max version predates topic ids.
+    pub async fn topic_id_maps(
+        &self,
+        topics: &[String],
+    ) -> Result<
+        (
+            std::collections::HashMap<String, [u8; 16]>,
+            std::collections::HashMap<[u8; 16], String>,
+        ),
+        Status,
+    > {
+        let boot = self.bootstrap().await?;
+        let mut conn = boot.lock().await;
+        let ver = conn.negotiate(API_METADATA, 12)?;
+        let mut by_name = std::collections::HashMap::new();
+        let mut by_id = std::collections::HashMap::new();
+        if ver < 10 {
+            return Ok((by_name, by_id));
+        }
+        let mut body = W::new();
+        if topics.is_empty() {
+            body.uvarint(0);
+        } else {
+            body.carr(topics.len());
+            for t in topics {
+                body.bytes(&[0u8; 16]); // topic id: zero = by name
+                body.cstr_opt(Some(t));
+                body.tagged_none();
+            }
+        }
+        body.i8(0); // allow_auto_topic_creation
+        body.i8(0); // include_cluster_authorized_operations
+        body.i8(0); // include_topic_authorized_operations
+        body.tagged_none();
+        let resp = conn.request(API_METADATA, ver, body, true).await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let nb = r.carr_len().map_err(bad)?;
+        for _ in 0..nb {
+            let _node = r.i32().map_err(bad)?;
+            let _host = r.cstr().map_err(bad)?;
+            let _port = r.i32().map_err(bad)?;
+            let _rack = r.cstr_opt().map_err(bad)?;
+            r.skip_tagged().map_err(bad)?;
+        }
+        let _cluster = r.cstr_opt().map_err(bad)?;
+        let _controller = r.i32().map_err(bad)?;
+        let nt = r.carr_len().map_err(bad)?;
+        for _ in 0..nt {
+            let _err = r.i16().map_err(bad)?;
+            let name = r.cstr_opt().map_err(bad)?.unwrap_or_default();
+            let id_bytes = r.take(16).map_err(bad)?;
+            let mut id = [0u8; 16];
+            id.copy_from_slice(id_bytes);
+            let _internal = r.i8().map_err(bad)?;
+            let np = r.carr_len().map_err(bad)?;
+            for _ in 0..np {
+                let _perr = r.i16().map_err(bad)?;
+                let _pid = r.i32().map_err(bad)?;
+                let _leader = r.i32().map_err(bad)?;
+                let _epoch = r.i32().map_err(bad)?;
+                let nr = r.carr_len().map_err(bad)?;
+                for _ in 0..nr {
+                    let _ = r.i32().map_err(bad)?;
+                }
+                let ni = r.carr_len().map_err(bad)?;
+                for _ in 0..ni {
+                    let _ = r.i32().map_err(bad)?;
+                }
+                let no = r.carr_len().map_err(bad)?;
+                for _ in 0..no {
+                    let _ = r.i32().map_err(bad)?;
+                }
+                r.skip_tagged().map_err(bad)?;
+            }
+            let _ops = r.i32().map_err(bad)?;
+            r.skip_tagged().map_err(bad)?;
+            if !name.is_empty() && id != [0u8; 16] {
+                by_name.insert(name.clone(), id);
+                by_id.insert(id, name);
+            }
+        }
+        Ok((by_name, by_id))
+    }
+
+    /// KIP-848 ConsumerGroupHeartbeat (API 68): one heartbeat
+    /// round. member_epoch 0 joins, -1 leaves, otherwise the
+    /// epoch from the previous response. `current` acknowledges
+    /// the assignment the member currently holds (topic id ->
+    /// partitions); the response assignment replaces it when
+    /// present.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn consumer_heartbeat(
+        &self,
+        conn: &Arc<Mutex<Conn>>,
+        group_id: &str,
+        member_id: &str,
+        member_epoch: i32,
+        group_instance_id: Option<&str>,
+        rebalance_timeout_ms: i32,
+        subscribed_topics: &[String],
+        current: &[([u8; 16], Vec<i32>)],
+    ) -> Result<ConsumerHeartbeat, Status> {
+        let mut c = conn.lock().await;
+        let ver = c.negotiate(API_CONSUMER_GROUP_HEARTBEAT, 0)?;
+        let mut body = W::new();
+        body.cstr(group_id);
+        body.cstr(member_id);
+        body.i32(member_epoch);
+        body.cstr_opt(group_instance_id);
+        body.cstr_opt(None); // rack_id
+        body.i32(rebalance_timeout_ms);
+        body.carr(subscribed_topics.len());
+        for t in subscribed_topics {
+            body.cstr(t);
+        }
+        // SubscribedTopicRegex only exists at v1+; at v0 the
+        // ServerAssignor follows SubscribedTopicNames directly.
+        if ver >= 1 {
+            body.cstr_opt(None); // subscribed_topic_regex
+        }
+        body.cstr_opt(None); // server_assignor: broker default
+        body.carr(current.len());
+        for (id, partitions) in current {
+            body.bytes(id);
+            body.carr(partitions.len());
+            for p in partitions {
+                body.i32(*p);
+            }
+            body.tagged_none();
+        }
+        body.tagged_none();
+        let resp = c
+            .request(API_CONSUMER_GROUP_HEARTBEAT, ver, body, true)
+            .await?;
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let error_code = r.i16().map_err(bad)? as i32;
+        let error_message = r.cstr_opt().map_err(bad)?.unwrap_or_default();
+        let member = r.cstr_opt().map_err(bad)?.unwrap_or_default();
+        let epoch = r.i32().map_err(bad)?;
+        let interval = r.i32().map_err(bad)?;
+        // Assignment is a nullable struct: a signed presence
+        // byte (0xff = null, 0x01 = present) precedes the
+        // TopicPartitions array. Null = unchanged; a present
+        // (possibly empty) assignment replaces what the member
+        // holds.
+        let mut assignment = None;
+        let present = r.i8().map_err(bad)?;
+        if present > 0 {
+            let n = r.carr_len().map_err(bad)?;
+            let mut entries = Vec::new();
+            for _ in 0..n {
+                let id_bytes = r.take(16).map_err(bad)?;
+                let mut id = [0u8; 16];
+                id.copy_from_slice(id_bytes);
+                let np = r.carr_len().map_err(bad)?;
+                let mut partitions = Vec::new();
+                for _ in 0..np {
+                    partitions.push(r.i32().map_err(bad)?);
+                }
+                r.skip_tagged().map_err(bad)?;
+                entries.push((id, partitions));
+            }
+            assignment = Some(entries);
+            r.skip_tagged().map_err(bad)?; // Assignment struct
+        }
+        r.skip_tagged().map_err(bad)?;
+        Ok(ConsumerHeartbeat {
+            error_code,
+            error_message,
+            member_id: member,
+            member_epoch: epoch,
+            heartbeat_interval_ms: interval,
+            assignment,
+        })
+    }
+
+    /// KIP-848 ConsumerGroupDescribe (API 69) for one group,
+    /// mapped onto the classic DescribedGroup shape
+    /// (protocol_type "consumer"). Used when classic
+    /// DescribeGroups reports GROUP_ID_NOT_FOUND for a group
+    /// that lives under the next-gen protocol.
+    pub async fn describe_consumer_group(
+        &self,
+        conn: &Arc<Mutex<Conn>>,
+        group_id: &str,
+    ) -> Result<crate::pb::DescribedGroup, Status> {
+        let mut c = conn.lock().await;
+        let ver = c.negotiate(API_CONSUMER_GROUP_DESCRIBE, 0)?;
+        let mut body = W::new();
+        body.carr(1);
+        body.cstr(group_id);
+        body.i8(0); // include_authorized_operations
+        body.tagged_none();
+        let resp = c
+            .request(API_CONSUMER_GROUP_DESCRIBE, ver, body, true)
+            .await?;
+        drop(c);
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let n = r.carr_len().map_err(bad)?;
+        let mut described = crate::pb::DescribedGroup {
+            group_id: group_id.to_string(),
+            error_code: 69,
+            protocol_type: "consumer".to_string(),
+            ..Default::default()
+        };
+        // Topic ids encountered in assignments resolve through
+        // one Metadata round, made after this response parses.
+        let mut pending: Vec<(String, String, String, Vec<([u8; 16], String, Vec<i32>)>)> =
+            Vec::new();
+        for _ in 0..n {
+            described.error_code = r.i16().map_err(bad)? as i32;
+            let _msg = r.cstr_opt().map_err(bad)?;
+            described.group_id = r.cstr().map_err(bad)?;
+            described.group_state = r.cstr().map_err(bad)?;
+            let _group_epoch = r.i32().map_err(bad)?;
+            let _assignment_epoch = r.i32().map_err(bad)?;
+            let _assignor = r.cstr().map_err(bad)?;
+            let nmembers = r.carr_len().map_err(bad)?;
+            for _ in 0..nmembers {
+                let member_id = r.cstr().map_err(bad)?;
+                let _instance = r.cstr_opt().map_err(bad)?;
+                let _rack = r.cstr_opt().map_err(bad)?;
+                let _epoch = r.i32().map_err(bad)?;
+                let client_id = r.cstr().map_err(bad)?;
+                let client_host = r.cstr().map_err(bad)?;
+                let nsub = r.carr_len().map_err(bad)?;
+                for _ in 0..nsub {
+                    let _ = r.cstr().map_err(bad)?;
+                }
+                let _regex = r.cstr_opt().map_err(bad)?;
+                let assignment = read_describe_assignment(&mut r)?;
+                let _target = read_describe_assignment(&mut r)?;
+                r.skip_tagged().map_err(bad)?;
+                pending.push((member_id, client_id, client_host, assignment));
+            }
+            let _authorized = r.i32().map_err(bad)?;
+            r.skip_tagged().map_err(bad)?;
+        }
+        let names: Vec<String> = pending
+            .iter()
+            .flat_map(|(_, _, _, a)| a.iter().map(|(_, name, _)| name.clone()))
+            .filter(|name| !name.is_empty())
+            .collect();
+        let (by_name, by_id) = if names.iter().all(|name| !name.is_empty())
+            && pending
+                .iter()
+                .all(|(_, _, _, a)| a.iter().all(|(_, name, _)| !name.is_empty()))
+        {
+            (Default::default(), Default::default())
+        } else {
+            self.topic_id_maps(&[]).await.unwrap_or_default()
+        };
+        let _ = by_name;
+        for (member_id, client_id, client_host, assignment) in pending {
+            described.members.push(crate::pb::GroupMember {
+                member_id,
+                client_id,
+                client_host,
+                assignment: assignment
+                    .into_iter()
+                    .flat_map(|(id, name, partitions)| {
+                        let topic = if !name.is_empty() {
+                            name
+                        } else {
+                            by_id.get(&id).cloned().unwrap_or_default()
+                        };
+                        partitions
+                            .into_iter()
+                            .map(move |partition| crate::pb::TopicPartition {
+                                topic: topic.clone(),
+                                partition,
+                                ..Default::default()
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect(),
+                ..Default::default()
+            });
+        }
+        Ok(described)
+    }
+}
+
+/// One ConsumerGroupDescribe Assignment/TargetAssignment
+/// block: topic id (+ name where the broker sends it) ->
+/// partitions.
+fn read_describe_assignment(
+    r: &mut R<'_>,
+) -> Result<Vec<([u8; 16], String, Vec<i32>)>, Status> {
+    // Plain struct: TopicPartitions array of
+    // {TopicId, TopicName, Partitions[]}.
+    let mut out = Vec::new();
+    let n = r.carr_len().map_err(bad)?;
+    for _ in 0..n {
+        let id_bytes = r.take(16).map_err(bad)?;
+        let mut id = [0u8; 16];
+        id.copy_from_slice(id_bytes);
+        let name = r.cstr().map_err(bad)?;
+        let np = r.carr_len().map_err(bad)?;
+        let mut partitions = Vec::new();
+        for _ in 0..np {
+            partitions.push(r.i32().map_err(bad)?);
+        }
+        r.skip_tagged().map_err(bad)?;
+        out.push((id, name, partitions));
+    }
+    r.skip_tagged().map_err(bad)?;
+    Ok(out)
+}
+
+/// KIP-848 ConsumerGroupHeartbeat response.
+pub struct ConsumerHeartbeat {
+    pub error_code: i32,
+    pub error_message: String,
+    pub member_id: String,
+    pub member_epoch: i32,
+    pub heartbeat_interval_ms: i32,
+    /// None = assignment unchanged; Some replaces it.
+    pub assignment: Option<Vec<([u8; 16], Vec<i32>)>>,
 }
 
 /// Consumer-protocol Subscription (v0) encoding used in

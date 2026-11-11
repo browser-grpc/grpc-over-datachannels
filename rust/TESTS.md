@@ -26,6 +26,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`interop_oracle.rs`](tests/interop_oracle.rs) — Official-implementation oracle, via the proxy
 - [`kafka_admin_e2e.rs`](tests/kafka_admin_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_direct_e2e.rs`](tests/kafka_direct_e2e.rs) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_kip848_e2e.rs`](tests/kafka_kip848_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_native_ffi_e2e.rs`](tests/kafka_native_ffi_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_proxy_e2e.rs`](tests/kafka_proxy_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`oracle.rs`](tests/oracle.rs) — Official-implementation oracle, via the proxy

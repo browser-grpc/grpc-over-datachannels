@@ -5,7 +5,7 @@
 
 use crate::client::{
     decode_assignment, decode_subscription, encode_assignment, encode_subscription, Broker,
-    KafkaConfig,
+    KafkaConfig, API_CONSUMER_GROUP_HEARTBEAT,
 };
 use grpc_dc::{CallCtx, ResponseStream, Status};
 use std::collections::{HashMap, HashSet};
@@ -573,7 +573,7 @@ impl crate::stub::Kafka for KafkaService {
                     &req.metadata,
                 )
                 .await?;
-            if !(had_session && matches!(error_code, 22 | 25)) || attempt == 99 {
+            if !(had_session && matches!(error_code, 22 | 25 | 110 | 111)) || attempt == 99 {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -913,6 +913,413 @@ async fn compute_assignments(
         .collect())
 }
 
+enum Sub848 {
+    Done,
+    Fallback,
+}
+
+/// KIP-848 next-gen consumer protocol membership
+/// (ConsumerGroupHeartbeat, API 68): the broker assigns
+/// partitions server-side by topic id; the member heartbeats
+/// its current assignment back and adopts replacements as
+/// they arrive. Returns Fallback only when the joining
+/// heartbeat proves the broker will not run this group under
+/// the new protocol (UNSUPPORTED_VERSION, or no topic ids),
+/// so the caller can run the classic protocol instead.
+async fn run_subscribe_848(
+    broker: Arc<Broker>,
+    groups: Arc<Mutex<HashMap<String, GroupSession>>>,
+    req: &crate::pb::GroupSubscribeRequest,
+    tx: &tokio::sync::mpsc::UnboundedSender<Result<crate::pb::GroupSubscribeResponse, Status>>,
+    coordinator: Arc<Mutex<crate::client::Conn>>,
+) -> Sub848 {
+    let session_timeout_ms = if req.session_timeout_ms > 0 {
+        req.session_timeout_ms
+    } else {
+        45_000
+    };
+    let max_poll_records = if req.max_poll_records > 0 {
+        req.max_poll_records as usize
+    } else {
+        500
+    };
+    let reset_timestamp = if req.auto_offset_reset.eq_ignore_ascii_case("earliest") {
+        -2
+    } else {
+        -1
+    };
+    let group_instance_id = if req.group_instance_id.is_empty() {
+        None
+    } else {
+        Some(req.group_instance_id.clone())
+    };
+    let mut member_id = String::new();
+    let mut member_epoch = 0i32;
+
+    'membership: loop {
+        if tx.is_closed() {
+            return Sub848::Done;
+        }
+        let (_by_name, by_id) = match broker.topic_id_maps(&req.topics).await {
+            Ok(maps) if !maps.1.is_empty() => maps,
+            _ => return Sub848::Fallback,
+        };
+
+        // Joining heartbeat: epoch 0, no current assignment.
+        let mut current: Vec<([u8; 16], Vec<i32>)> = Vec::new();
+        let join = match broker
+            .consumer_heartbeat(
+                &coordinator,
+                &req.group_id,
+                &member_id,
+                0,
+                group_instance_id.as_deref(),
+                300_000,
+                &req.topics,
+                &current,
+            )
+            .await
+        {
+            Ok(join) => join,
+            Err(error) => {
+                let _ = tx.send(Ok(group_error(-1, error.message.clone())));
+                return Sub848::Done;
+            }
+        };
+        // UNSUPPORTED_VERSION (35): the broker advertises the
+        // API but will not run consumer groups (e.g. the new
+        // coordinator protocol is disabled): classic fallback.
+        if join.error_code == 35 && member_id.is_empty() {
+            return Sub848::Fallback;
+        }
+        // Transient coordinator states (14/15/16): retry.
+        if matches!(join.error_code, 14 | 15 | 16) {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            continue 'membership;
+        }
+        if join.error_code != 0 {
+            let _ = tx.send(Ok(group_error(
+                join.error_code,
+                format!(
+                    "kafka ConsumerGroupHeartbeat failed with error {} {}",
+                    join.error_code, join.error_message
+                ),
+            )));
+            return Sub848::Done;
+        }
+        member_id = join.member_id.clone();
+        member_epoch = join.member_epoch;
+        if let Some(assignment) = &join.assignment {
+            current = assignment.clone();
+        }
+        let mut heartbeat_interval = std::time::Duration::from_millis(
+            (join.heartbeat_interval_ms.max(1_000)) as u64,
+        );
+        let _ = session_timeout_ms;
+
+        let resolve = |current: &Vec<([u8; 16], Vec<i32>)>| -> Vec<(String, i32)> {
+            let mut out = Vec::new();
+            for (id, partitions) in current {
+                if let Some(name) = by_id.get(id) {
+                    for partition in partitions {
+                        out.push((name.clone(), *partition));
+                    }
+                }
+            }
+            out
+        };
+        let mut assigned = resolve(&current);
+
+        groups.lock().await.insert(
+            req.group_id.clone(),
+            GroupSession {
+                generation_id: member_epoch,
+                member_id: member_id.clone(),
+                group_instance_id: group_instance_id.clone(),
+            },
+        );
+        if tx
+            .send(Ok(crate::pb::GroupSubscribeResponse {
+                assignment: Some(Box::new(crate::pb::Assignment {
+                    generation_id: member_epoch,
+                    member_id: member_id.clone(),
+                    partitions: assigned
+                        .iter()
+                        .map(|(topic, partition)| crate::pb::TopicPartition {
+                            topic: topic.clone(),
+                            partition: *partition,
+                            ..Default::default()
+                        })
+                        .collect(),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            }))
+            .is_err()
+        {
+            groups.lock().await.remove(&req.group_id);
+            return Sub848::Done;
+        }
+
+        let mut positions: HashMap<(String, i32), i64> = HashMap::new();
+        for (topic, partition) in &assigned {
+            let committed = broker.offset_fetch(&req.group_id, topic, *partition).await;
+            let position = match committed {
+                Ok((offset, _, error_code)) if error_code == 0 && offset >= 0 => offset,
+                _ => match broker
+                    .list_offsets(topic, *partition, reset_timestamp, req.read_committed)
+                    .await
+                {
+                    Ok((offset, _, error_code)) if error_code == 0 => offset,
+                    _ => 0,
+                },
+            };
+            positions.insert((topic.clone(), *partition), position);
+        }
+
+        let mut last_heartbeat = tokio::time::Instant::now() - heartbeat_interval;
+        let mut rejoin = false;
+
+        'poll: loop {
+            if tx.is_closed() {
+                break 'poll;
+            }
+            if last_heartbeat.elapsed() >= heartbeat_interval {
+                let beat = match broker
+                    .consumer_heartbeat(
+                        &coordinator,
+                        &req.group_id,
+                        &member_id,
+                        member_epoch,
+                        group_instance_id.as_deref(),
+                        300_000,
+                        &req.topics,
+                        &current,
+                    )
+                    .await
+                {
+                    Ok(beat) => beat,
+                    Err(error) => {
+                        let _ = tx.send(Ok(group_error(-1, error.message.clone())));
+                        break 'poll;
+                    }
+                };
+                match beat.error_code {
+                    0 => {
+                        member_epoch = beat.member_epoch;
+                        heartbeat_interval = std::time::Duration::from_millis(
+                            (beat.heartbeat_interval_ms.max(1_000)) as u64,
+                        );
+                        if let Some(assignment) = &beat.assignment {
+                            if *assignment != current {
+                                current = assignment.clone();
+                                let next = resolve(&current);
+                                // Fetch positions for partitions
+                                // that are new to this member.
+                                for (topic, partition) in &next {
+                                    let key = (topic.clone(), *partition);
+                                    if !positions.contains_key(&key) {
+                                        let committed = broker
+                                            .offset_fetch(
+                                                &req.group_id, topic, *partition,
+                                            )
+                                            .await;
+                                        let position = match committed {
+                                            Ok((offset, _, error_code))
+                                                if error_code == 0 && offset >= 0 =>
+                                            {
+                                                offset
+                                            }
+                                            _ => match broker
+                                                .list_offsets(
+                                                    topic,
+                                                    *partition,
+                                                    reset_timestamp,
+                                                    req.read_committed,
+                                                )
+                                                .await
+                                            {
+                                                Ok((offset, _, error_code))
+                                                    if error_code == 0 =>
+                                                {
+                                                    offset
+                                                }
+                                                _ => 0,
+                                            },
+                                        };
+                                        positions.insert(key, position);
+                                    }
+                                }
+                                positions.retain(|key, _| next.contains(key));
+                                assigned = next;
+                                groups.lock().await.insert(
+                                    req.group_id.clone(),
+                                    GroupSession {
+                                        generation_id: member_epoch,
+                                        member_id: member_id.clone(),
+                                        group_instance_id: group_instance_id
+                                            .clone(),
+                                    },
+                                );
+                                let _ = tx.send(Ok(
+                                    crate::pb::GroupSubscribeResponse {
+                                        assignment: Some(Box::new(
+                                            crate::pb::Assignment {
+                                                generation_id: member_epoch,
+                                                member_id: member_id.clone(),
+                                                partitions: assigned
+                                                    .iter()
+                                                    .map(|(topic, partition)| {
+                                                        crate::pb::TopicPartition {
+                                                            topic: topic.clone(),
+                                                            partition: *partition,
+                                                            ..Default::default()
+                                                        }
+                                                    })
+                                                    .collect(),
+                                                ..Default::default()
+                                            },
+                                        )),
+                                        ..Default::default()
+                                    },
+                                ));
+                            }
+                        }
+                    }
+                    // FENCED_MEMBER_EPOCH (110) / STALE_MEMBER_EPOCH
+                    // (111): rejoin with epoch 0 under the same
+                    // member id. UNKNOWN_MEMBER_ID (25): the broker
+                    // forgot us; rejoin as a fresh member.
+                    110 | 111 => {
+                        rejoin = true;
+                        break 'poll;
+                    }
+                    25 => {
+                        member_id.clear();
+                        member_epoch = 0;
+                        rejoin = true;
+                        break 'poll;
+                    }
+                    error_code => {
+                        let _ = tx.send(Ok(group_error(
+                            error_code,
+                            format!(
+                                "kafka ConsumerGroupHeartbeat failed with error {error_code}"
+                            ),
+                        )));
+                        break 'poll;
+                    }
+                }
+                last_heartbeat = tokio::time::Instant::now();
+            }
+
+            let mut fetched_any = false;
+            for (topic, partition) in &assigned {
+                let key = (topic.clone(), *partition);
+                let position = *positions.get(&key).unwrap_or(&0);
+                let outcome = match broker
+                    .fetch(
+                        topic,
+                        *partition,
+                        position,
+                        300,
+                        1,
+                        4 * 1024 * 1024,
+                        req.read_committed,
+                    )
+                    .await
+                {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        let _ = tx.send(Ok(group_error(-1, error.message.clone())));
+                        break 'poll;
+                    }
+                };
+                if outcome.error_code == 1 || outcome.error_code == 9 {
+                    if let Ok((offset, _, error_code)) = broker
+                        .list_offsets(topic, *partition, reset_timestamp, req.read_committed)
+                        .await
+                    {
+                        if error_code == 0 {
+                            positions.insert(key, offset);
+                        }
+                    }
+                    continue;
+                }
+                if outcome.error_code != 0 {
+                    let _ = tx.send(Ok(group_error(
+                        outcome.error_code,
+                        format!(
+                            "kafka Fetch failed with error {}",
+                            outcome.error_code
+                        ),
+                    )));
+                    break 'poll;
+                }
+                if outcome.records.is_empty() {
+                    continue;
+                }
+                fetched_any = true;
+                let mut records = outcome.records;
+                if records.len() > max_poll_records {
+                    records.truncate(max_poll_records);
+                }
+                if let Some(last) = records.last() {
+                    positions.insert(key, last.offset + 1);
+                }
+                if tx
+                    .send(Ok(crate::pb::GroupSubscribeResponse {
+                        batch: Some(Box::new(crate::pb::RecordBatch {
+                            topic: topic.clone(),
+                            partition: *partition,
+                            high_watermark: outcome.high_watermark,
+                            records,
+                            ..Default::default()
+                        })),
+                        ..Default::default()
+                    }))
+                    .is_err()
+                {
+                    break 'poll;
+                }
+            }
+            if !fetched_any {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+
+        if !rejoin {
+            // Final exit: drop the commit-offset session and
+            // leave via a heartbeat with epoch -1 (there is no
+            // LeaveGroup under KIP-848). On a rejoin the member
+            // must NOT leave first.
+            let mut active_groups = groups.lock().await;
+            if active_groups
+                .get(&req.group_id)
+                .is_some_and(|session| session.member_id == member_id)
+            {
+                active_groups.remove(&req.group_id);
+            }
+            drop(active_groups);
+            if !member_id.is_empty() {
+                let _ = broker
+                    .consumer_heartbeat(
+                        &coordinator,
+                        &req.group_id,
+                        &member_id,
+                        -1,
+                        group_instance_id.as_deref(),
+                        300_000,
+                        &req.topics,
+                        &current,
+                    )
+                    .await;
+            }
+            return Sub848::Done;
+        }
+    }
+}
+
 async fn run_subscribe(
     broker: Arc<Broker>,
     groups: Arc<Mutex<HashMap<String, GroupSession>>>,
@@ -940,6 +1347,34 @@ async fn run_subscribe(
         Some(req.group_instance_id.clone())
     };
     let mut member_id = String::new();
+
+    // KIP-848: when the coordinator advertises
+    // ConsumerGroupHeartbeat, try the next-gen consumer
+    // protocol first; it falls back to the classic protocol
+    // below when the broker refuses (UNSUPPORTED_VERSION on
+    // the joining heartbeat, or topic ids unavailable).
+    // Static membership (group_instance_id) stays on the
+    // classic protocol: its contract — instance-derived member
+    // ids and duplicate-instance fencing — is defined there,
+    // while KIP-848 fences by heartbeat epoch instead.
+    if group_instance_id.is_none() {
+        if let Ok(coordinator) = broker.coordinator_fresh(&req.group_id, 0).await {
+        if coordinator.lock().await.has_api(API_CONSUMER_GROUP_HEARTBEAT) {
+                match run_subscribe_848(
+                    broker.clone(),
+                    groups.clone(),
+                    &req,
+                    &tx,
+                    coordinator,
+                )
+                .await
+                {
+                    Sub848::Done => return,
+                    Sub848::Fallback => {}
+                }
+            }
+        }
+    }
 
     'membership: loop {
         if tx.is_closed() {

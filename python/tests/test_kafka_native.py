@@ -137,10 +137,10 @@ class TestKafkaDifferential(unittest.TestCase):
         finally:
             self.native.close()
 
-    def _consume_native(self, want):
+    def _consume_native(self, want, offset=-2):
         values = []
         stream = self.native.Consume(kafka_pb.ConsumeRequest(
-            topic=self.topic, partition=0, offset=-2,
+            topic=self.topic, partition=0, offset=offset,
             max_records=10, max_wait_ms=2_000))
         try:
             for chunk in stream:
@@ -176,6 +176,86 @@ class TestKafkaDifferential(unittest.TestCase):
             if values:
                 break
         self.assertEqual(values, [b"n1"])
+
+    def _consume_proxy(self, offset, want):
+        values = []
+        stream = self.proxy.Consume(kafka_pb.ConsumeRequest(
+            topic=self.topic, partition=0, offset=offset,
+            max_records=10, max_wait_ms=2_000))
+        for chunk in stream:
+            for rec in chunk.records:
+                values.append(rec.value)
+            if len(values) >= want:
+                break
+        return values
+
+    def test_differential_compression_codecs(self):
+        # Every codec both directions: bytes written through
+        # one form factor must read back identically through
+        # the other (the codec implementations are shared, so
+        # this pins wire compatibility, not self-agreement).
+        offset = 0
+        for codec in (
+            kafka_pb.Compression.COMPRESSION_GZIP,
+            kafka_pb.Compression.COMPRESSION_SNAPPY,
+            kafka_pb.Compression.COMPRESSION_LZ4,
+            kafka_pb.Compression.COMPRESSION_ZSTD,
+        ):
+            payload = [f"c{codec}-{i}".encode() for i in range(3)]
+            produced = self.proxy.Produce(kafka_pb.ProduceRequest(
+                topic=self.topic, partition=0,
+                records=[kafka_pb.Record(value=v) for v in payload],
+                acks=kafka_pb.Acks.ACKS_ALL, compression=codec))
+            self.assertEqual(produced.error_code, 0, produced)
+            self.assertEqual(self._consume_native(3, offset), payload)
+            offset += 3
+
+            produced = self.native.Produce(kafka_pb.ProduceRequest(
+                topic=self.topic, partition=0,
+                records=[kafka_pb.Record(value=v) for v in payload],
+                acks=kafka_pb.Acks.ACKS_ALL, compression=codec))
+            self.assertEqual(produced.error_code, 0, produced)
+            self.assertEqual(self._consume_proxy(offset, 3), payload)
+            offset += 3
+
+    def test_differential_group_commit_parity(self):
+        # Group state written through one form factor must be
+        # visible through the other: native subscribes and
+        # commits, proxy reads the committed offset back.
+        group = unique("grpc-dc-diff-group")
+        produced = self.proxy.Produce(kafka_pb.ProduceRequest(
+            topic=self.topic, partition=0,
+            records=[kafka_pb.Record(value=v) for v in (b"g1", b"g2", b"g3")],
+            acks=kafka_pb.Acks.ACKS_ALL))
+        self.assertEqual(produced.error_code, 0, produced)
+
+        values = []
+        stream = self.native.Subscribe(kafka_pb.GroupSubscribeRequest(
+            group_id=group, topics=[self.topic],
+            session_timeout_ms=30_000, max_poll_records=10,
+            auto_offset_reset="earliest"))
+        try:
+            for chunk in stream:
+                self.assertIsNone(chunk.group_error, chunk)
+                if chunk.batch:
+                    for rec in chunk.batch.records:
+                        values.append(rec.value)
+                if len(values) >= 3:
+                    break
+            self.assertEqual(values, [b"g1", b"g2", b"g3"])
+
+            committed = self.native.CommitOffset(
+                kafka_pb.CommitOffsetRequest(
+                    group_id=group, topic=self.topic, partition=0,
+                    committed_offset=2))
+            self.assertEqual(committed.error_code, 0, committed)
+        finally:
+            stream.close()
+
+        fetched = self.proxy.FetchOffset(kafka_pb.FetchOffsetRequest(
+            group_id=group, topic=self.topic, partition=0))
+        self.assertEqual(fetched.error_code, 0, fetched)
+        self.assertEqual(fetched.committed_offset, 2, fetched)
 
 
 @unittest.skipUnless(LIB and SASL_BROKER, "SASL native env unset")
