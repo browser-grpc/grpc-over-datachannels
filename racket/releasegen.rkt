@@ -3932,7 +3932,7 @@
 ;; grpc_dc::Message adapters for the kafka messages: the same
 ;; macro bridge the kafka proxy example uses, shipped in-crate
 ;; (without it the stubs' Channel calls have no Message impls).
-(copy-kafka-file "rust/examples/kafka_proxy/pb_message_impl.rs"
+(copy-kafka-file "crates/kafka-native/src/pb_message_impl.rs"
                  "kafka-rust/src/pb_message_impl.rs")
 (emit-kafka-file "kafka-rust/src/lib.rs"
   "pub mod kafka_pb;\npub mod kafka_grpc_dc;\n\npub use kafka_pb as pb;\n\nmod pb_message_impl;\n")
