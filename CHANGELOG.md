@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.41.0 — 2026-11-12
+## v0.41.0 — 2026-11-12 (published to GitHub/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/RubyGems/LuaRocks/JSR)
 
 - New public repo and packages: `browser-grpc/kafka-native` —
   the in-process Kafka protocol client (extracted from the
