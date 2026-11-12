@@ -58,7 +58,7 @@
 
 (define allow-prefixes
   (append (map cdr languages)
-          '("webrtc" "wasm" "proto" "fixtures" "examples")))
+          '("webrtc" "wasm" "proto" "fixtures" "examples" "crates/kafka-native")))
 
 ;; QUICKSTART step 2 lives in browser-test/, which is otherwise
 ;; private test tooling (and carries built wasm/binaries); export
@@ -1380,7 +1380,7 @@
 (define docker-specs
   (list
    (list "rust" "rust:1-bookworm"
-         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*" "COPY rust ./rust" "COPY webrtc/rust ./webrtc/rust" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
+         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*" "COPY rust ./rust" "COPY crates/kafka-native ./crates/kafka-native" "COPY webrtc/rust ./webrtc/rust" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
            "RUN cd rust && cargo fetch --locked && cargo test --locked --no-run")
          "cd rust && cargo test --locked -- --skip official_clients_call_rust_server")
    (list "go" "golang:1.24-bookworm"
@@ -1969,7 +1969,7 @@
   (when (directory-exists? kafka-native-out)
     (delete-directory/files kafka-native-out))
   (make-directory* kafka-native-out)
-  (for ([dir (in-list '("rust" "python" "proto" "fixtures"))])
+  (for ([dir (in-list '("rust" "python" "proto" "fixtures" "webrtc/rust"))])
     (make-directory* (path-only (build-path kafka-native-out dir)))
     (copy-directory/files (build-path out-dir dir)
                           (build-path kafka-native-out dir)))
@@ -2131,11 +2131,11 @@
     "FAILED=0\n"
     "start_kafka || exit 1\n"
     "echo \"== rust direct + admin (apache kafka)\"\n"
-    "(cd \"$ROOT/rust\" && KAFKA_PROXY_E2E_BROKER=127.0.0.1:19092 cargo test --locked --test kafka_direct_e2e --test kafka_admin_e2e) || FAILED=1\n"
+    "(cd \"$ROOT/rust\" && KAFKA_PROXY_E2E_BROKER=127.0.0.1:19092 cargo test --test kafka_direct_e2e --test kafka_admin_e2e) || FAILED=1\n"
     "echo \"== rust ffi (apache kafka)\"\n"
-    "(cd \"$ROOT/rust\" && KAFKA_PROXY_E2E_BROKER=127.0.0.1:19092 cargo test --locked --test kafka_native_ffi_e2e) || FAILED=1\n"
+    "(cd \"$ROOT/rust\" && KAFKA_PROXY_E2E_BROKER=127.0.0.1:19092 cargo test --test kafka_native_ffi_e2e) || FAILED=1\n"
     "echo \"== building libkafka_native\"\n"
-    "(cd \"$ROOT/crates/kafka-native\" && cargo build --locked) || FAILED=1\n"
+    "(cd \"$ROOT/crates/kafka-native\" && cargo build) || FAILED=1\n"
     "echo \"== c ffi smoke\"\n"
     "cc -O1 -I\"$ROOT/crates/kafka-native/include\" \"$ROOT/crates/kafka-native/tests/ffi_smoke.c\" -L\"$ROOT/crates/kafka-native/target/debug\" -lkafka_native -Wl,-rpath,\"$ROOT/crates/kafka-native/target/debug\" -o \"$TMP/ffi_smoke\" && \"$TMP/ffi_smoke\" 127.0.0.1:19092 || FAILED=1\n"
     "echo \"== python native (apache kafka)\"\n"
@@ -2250,6 +2250,12 @@
     "        run: |\n"
     "          pip install build\n"
     "          python -m build --wheel\n"
+    "      - name: Repair wheel to a manylinux tag\n"
+    "        run: |\n"
+    "          pip install auditwheel\n"
+    "          auditwheel repair wheel/dist/*.whl -w wheel/dist-fixed\n"
+    "          rm wheel/dist/*.whl\n"
+    "          mv wheel/dist-fixed/*.whl wheel/dist/\n"
     "      - name: Publish to PyPI\n"
     "        uses: pypa/gh-action-pypi-publish@release/v1\n"
     "        with:\n"
