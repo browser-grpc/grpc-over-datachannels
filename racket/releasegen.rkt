@@ -2359,7 +2359,8 @@
     "      - name: Publish to PyPI\n"
     "        uses: pypa/gh-action-pypi-publish@release/v1\n"
     "        with:\n"
-    "          packages-dir: wheel/dist\n"))
+    "          packages-dir: wheel/dist\n"
+    "          skip-existing: true\n"))
   (emit-kn-file
    "python/pyproject-kafka-native.toml"
    (string-append
